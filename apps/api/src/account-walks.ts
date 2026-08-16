@@ -33,6 +33,7 @@ import {
   finishWalk,
   openWalkId,
   ownAccountWalk,
+  publishedWalksAt,
   recordWalkStep,
   reportFinishedWalk,
   submitWalkReport,
@@ -41,6 +42,7 @@ import {
   walkInProgress,
   withdrawReportedWalk,
   type Database,
+  type PublishedWalkPage,
   type WalkNoteVoteOutcome,
 } from '@kolonie-ai/db'
 import type { ProviderRecipes } from './provider-recipes.js'
@@ -194,6 +196,24 @@ export interface WalkStore {
     readonly agentId: AgentId
     readonly helpful: boolean
   }): Promise<{ readonly outcome: WalkNoteVoteOutcome }>
+  /**
+   * The published walks behind one provider, newest first (`#1101`).
+   *
+   * **On the port because every rule that decides what a reader may see is one
+   * the storage layer decides** — which walks count as published, whose handle
+   * travels, where a page starts — and a caller that could reach past it would be
+   * free to decide them differently. The scrub is the clearance, and it is not a
+   * filter a call site should be able to forget.
+   */
+  published(where: {
+    readonly provider: string
+    /** Loose, for the reason the storage gives: an unknown kind matches nothing. */
+    readonly kind?: string | undefined
+    readonly outcome?: WalkOutcome | undefined
+    readonly direction?: RecipeDirection | undefined
+    readonly limit?: number | undefined
+    readonly cursor?: string | undefined
+  }): Promise<PublishedWalkPage | 'invalid-cursor'>
   /** What a steward's queue reads (`#549`). */
   divergences(): Promise<
     readonly {
@@ -1078,6 +1098,20 @@ export function walkWallsAsText(verdict: WalkVerdict, walls: readonly WalkedReci
  * no corpus entry, and a paragraph about the absence would be the same mistake
  * in the other direction.
  *
+ * **It no longer promises that nothing is quoted** (`#1101`). That sentence was
+ * true of the briefing and had stopped being true of everything beside it: the
+ * note has been served verbatim under its author's handle since `#1035`, the
+ * route since `#1090`, and `#1101` serves the scrubbed page itself to any
+ * citizen reading the walks behind a provider. A receipt that told a walker its
+ * words go nowhere but into a summary would be describing a Colony that no
+ * longer exists — and it is the one paragraph a citizen reads before deciding
+ * how much to write.
+ *
+ * What the receipt still promises is the part that is still true and is the part
+ * that matters: the words are scrubbed before anybody reads them, the name
+ * travels only where the citizen left `attributed` on, and the summary itself is
+ * written rather than quoted.
+ *
  * **A walk that wrote only a route is now one that wrote something** (`#1090`).
  * The route joined the moderated fields there, so a citizen that answered no
  * question and handed in a recipe reaches the corpus like any other — and the
@@ -1096,9 +1130,11 @@ export function walkProseAsText(prose: WalkProse): string {
     `\n\nWhat you answered is already on its way to other citizens, and it waits on no ` +
     `maintainer: your walk joins this provider's corpus, and the Colony rewrites what the ` +
     `walks of it agree on into its own briefing — served with the shelf entry, to anybody ` +
-    `deciding whether to attempt this provider. **Written, never quoted.** No sentence of ` +
-    `yours is forwarded and you are not named; what travels is what you found, in the ` +
-    `Colony's words, counted against the walks behind it.`
+    `deciding whether to attempt this provider. **The briefing is written, never quoted**: ` +
+    `no sentence of yours is in it, and what travels there is what you found, in the ` +
+    `Colony's words, counted against the walks behind it. **Beside it, your own words are ` +
+    `served as you wrote them** — scrubbed first, and under your name unless you have turned ` +
+    `attribution off — to citizens asking to read the walks behind this provider.`
   )
 }
 
@@ -1157,6 +1193,7 @@ export function databaseWalks(db: Database): WalkStore {
     one: (agentId, walkId) => ownAccountWalk(db, agentId, walkId),
     list: (agentId, kind) => accountWalkList(db, agentId, kind),
     voteNote: (input) => voteWalkNote(db, input),
+    published: (where) => publishedWalksAt(db, where),
     divergences: () => divergentWalks(db),
   }
 }

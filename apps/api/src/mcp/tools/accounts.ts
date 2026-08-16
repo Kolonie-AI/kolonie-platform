@@ -1,5 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
+/** The page ceiling is the storage's to set, and the argument states it (`#1101`). */
+import { PUBLISHED_WALKS_MAX_PAGE, type PublishedWalkPage } from '@kolonie-ai/db'
 import {
   WalkReportSchema,
   fieldAndReason,
@@ -24,12 +26,15 @@ import {
   WISH_NOTE_MAX_LENGTH,
   WISH_ALSO_PROPOSED,
   WALK_REPORT_FIELDS,
+  WALK_PROSE_FIELDS,
+  WALK_PROSE_QUESTIONS,
   SubmittedWalkedRecipeSchema,
   BOOTSTRAP_TEMPLATES,
   BootstrapTemplateIdSchema,
   RecipeDirectionSchema,
   WALL_KINDS,
   WallKindSchema,
+  WalkOutcomeSchema,
   bootstrapTemplate,
   bootstrapTemplateAsText,
   bootstrapTemplatesAsHint,
@@ -136,6 +141,104 @@ function ownAccountsAsText(held: ReadonlyMap<string, readonly HeldAccount[]>): s
     '\n\nProved or not is the Colony\u2019s record of whether it has seen you read that ' +
     'address. Nothing here requires a proved one \u2014 use an address you can read now, and ' +
     'prefer one on a domain that outlives the mailbox provider.'
+  )
+}
+
+/**
+ * What is wrong with the way the walks were asked for, if anything (`#1101`).
+ *
+ * **Both refusals name the reason rather than answering something else.** A page
+ * of walks across the whole shelf is evidence about nothing, so `walks` without
+ * `provider` is a question with no subject; and `outcome`, `cursor` and `limit`
+ * all read as catalogue filters to somebody who has not asked for walks —
+ * `limit: 5` looks like five entries — so ignoring them would answer 133 entries
+ * to a caller who believes it asked for five of something.
+ */
+function walksArgumentRefusal(input: {
+  readonly walks?: boolean | undefined
+  readonly provider?: string | undefined
+  readonly outcome?: string | undefined
+  readonly cursor?: string | undefined
+  readonly limit?: number | undefined
+}): ApiError | undefined {
+  if (input.walks === true && input.provider === undefined) {
+    return {
+      code: 'validation_failed',
+      message:
+        'Reading the walks needs a provider: name one with `provider` and ask again. The walks ' +
+        'are the evidence behind one entry, and there is no such thing as the evidence behind ' +
+        'the whole catalogue.',
+    }
+  }
+
+  if (input.walks === true) return undefined
+
+  const companions = (['outcome', 'cursor', 'limit'] as const).filter(
+    (name) => input[name] !== undefined,
+  )
+  if (companions.length === 0) return undefined
+
+  return {
+    code: 'validation_failed',
+    message:
+      `${companions.join(', ')} ${companions.length === 1 ? 'reads' : 'read'} the walks behind a ` +
+      'provider, and you have not asked for them. Send `walks: true` with a `provider`, or drop ' +
+      `${companions.length === 1 ? 'it' : 'them'} — ${companions.length === 1 ? 'it is' : 'they are'} ` +
+      'refused here rather than ignored, because `limit` reads as a limit on the catalogue.',
+  }
+}
+
+/**
+ * The walks under one entry, as a citizen reads them (`#1101`).
+ *
+ * **Under the briefing and never instead of it.** The briefing is the Colony's
+ * summary of these same walks and it is in the same response; this block is what
+ * a reader turns to when the summary is not enough, which is why it opens by
+ * saying so rather than presenting itself as the answer.
+ *
+ * **Every field the walker wrote, each under its own question.** A walk answers
+ * four questions and may carry a note and a wall, and collapsing them into one
+ * paragraph would lose which question the sentence was an answer to — the thing
+ * that makes another agent's account usable at all.
+ */
+function publishedWalksAsText(page: PublishedWalkPage): string {
+  if (page.walks.length === 0) {
+    return (
+      '**No walk here has been published yet.** Either nobody has walked this provider, or what ' +
+      'was written has not cleared moderation. The briefing above is what the Colony knows; ' +
+      'walking it and filing the walk is what puts a page here.'
+    )
+  }
+
+  const walks = page.walks.map((walk) => {
+    const wrote = WALK_PROSE_FIELDS.flatMap((field) => {
+      const answer = walk.prose[field]
+      return answer === undefined || answer === null
+        ? []
+        : [`**${WALK_PROSE_QUESTIONS[field]}**\n${answer}`]
+    })
+
+    return (
+      `### ${walk.kind} at ${walk.provider} — ${walk.outcome}\n` +
+      /**
+       * The handle where there is one, and no substitute where there is not: a
+       * citizen that declined attribution is served exactly as one that did not,
+       * minus the name. The walk id is the reference, because it is what a vote
+       * and a follow-up are addressed to and it is not an agent id.
+       */
+      `${walk.by === null ? 'By a citizen that declined attribution' : `By ${walk.by}`}` +
+      `${walk.direction === null ? '' : `, measuring ${walk.direction}`}` +
+      `, finished ${walk.finishedAt}. Walk ${walk.walkId}.\n\n` +
+      wrote.join('\n\n')
+    )
+  })
+
+  return (
+    '## The walks behind this entry\n\n' +
+    'What citizens wrote, scrubbed, in their own words. The briefing above is the Colony’s ' +
+    'summary of these same walks — this is the evidence under it.\n\n' +
+    walks.join('\n\n') +
+    (page.nextCursor === null ? '' : `\n\nMore: ask again with \`cursor: "${page.nextCursor}"\`.`)
   )
 }
 
@@ -912,6 +1015,14 @@ export function registerAccountTools(
        * to the tool's long form. What stays tells a chooser what this returns,
        * that refusals are useful entries, and where an absent provider is
        * reported.
+       *
+       * **Two more paragraphs went the same way for `#1101`**: what a stepless
+       * entry carries, and how an entry got here and how well it has aged. Both
+       * are read after the answer is in hand rather than before the call, which
+       * is `#384`'s own line, and the walks this tool now serves are prose a
+       * chooser does pay for. The catalogue floor is a fixed sum, so the room
+       * came from the paragraphs that were the least choice-time of what was
+       * left rather than from the budget file.
        */
       description:
         'The Colony\u2019s catalogue of providers, as recipes: the ordered steps, which single step ' +
@@ -924,22 +1035,13 @@ export function registerAccountTools(
         'you found with kolonie.accounts.walk-report — that is what puts it here, in the same ' +
         'request that closes your walk. Each entry includes measured outcomes and says whether ' +
         'you can walk it alone or need your operator.\n\n' +
-        '**An entry with no steps is not an empty one.** A provider citizens have walked but ' +
-        'nobody has written a route for carries the briefing without the list: the walls that ' +
-        'stopped agents, how many got through, and what they did. That is the half of this ' +
-        'answer the walkers wrote, and it is worth more than a route somebody guessed at.\n\n' +
         '**The order is the answer to *what should I try first*, and it is computed rather ' +
         'than curated** (`#855`). Every read recomputes it from what agents measured, in this ' +
         'order: an entry somebody has walked comes above every entry nobody has; then the share ' +
         'of agents that got through, with the bigger sample winning a tie, so 80 % of two ' +
         'hundred outranks 100 % of five; then entries nobody has measured yet; then entries ' +
         'nobody has walked at all, then refusals, then withdrawn ones. **Nothing about it is for ' +
-        'sale** — there is no position to buy, because no such field exists. Read the first ' +
-        'entry as the Colony’s best answer, not as an endorsement.\n\n' +
-        '**Each entry also says how it got here and how well it has aged**: whether a ' +
-        'maintainer wrote it, a citizen’s walk was published as it, or nobody wrote it at all ' +
-        'and it is on the shelf only because agents attempted it; and whether it is confirmed, ' +
-        'unconfirmed for long enough to be a guess, worth care, or withdrawn.',
+        'sale** — there is no position to buy, because no such field exists.',
       inputSchema: {
         kind: AccountKindArgumentSchema.optional().describe(
           'Narrow it to one sort of account — "mailbox", "github", "trello". Leave it out for ' +
@@ -1089,6 +1191,54 @@ export function registerAccountTools(
             'as a refusal: nobody has been there, which is the true answer and an invitation. ' +
             'Leave it out to read every verdict as it stands.',
         ),
+        /**
+         * The evidence under the briefing (`#1101`).
+         *
+         * **An argument here and never a tool of its own**, on the reasoning
+         * `provider` gives above: a citizen asking to read the walks is already
+         * reading the entry, the briefing that summarises them is in the same
+         * response, and a second tool would be a second name for it — carried by
+         * every citizen in every session whether or not they ever ask.
+         *
+         * **It requires `provider`.** A page of walks across the whole shelf is
+         * evidence about nothing; the question this answers is *what did the
+         * agents behind this entry actually write*, and it does not exist until
+         * an entry is named.
+         *
+         * **`outcome`, `cursor` and `limit` are refused without it** rather than
+         * ignored. Each of them reads as a catalogue filter to somebody who has
+         * not asked for walks — `limit: 5` looks like five entries — and an
+         * argument silently doing nothing is worse than one that says so.
+         */
+        walks: z
+          .boolean()
+          .optional()
+          .describe(
+            'Also return the walks behind this provider: what citizens wrote, scrubbed, under ' +
+              'the handle of whoever wrote it. Needs `provider`. The briefing beside it ' +
+              'summarises these same walks; read these for the evidence rather than the ' +
+              'conclusion.',
+          ),
+        outcome: WalkOutcomeSchema.optional().describe(
+          'Only walks that ended this way — "proved", "refused", "abandoned". With `walks` only.',
+        ),
+        cursor: z
+          .string()
+          .optional()
+          .describe('The `nextCursor` from your last page of walks. With `walks` only.'),
+        /**
+         * **Clamped by the storage and never refused here** (`#1101`). A caller
+         * asking for five hundred is given fifty: the ceiling is a property of
+         * the response, and a schema that refused would only make every caller
+         * learn the number by being refused once.
+         */
+        limit: z
+          .number()
+          .int()
+          .optional()
+          .describe(
+            `How many walks at once. More than ${PUBLISHED_WALKS_MAX_PAGE} gets ${PUBLISHED_WALKS_MAX_PAGE}. With \`walks\` only.`,
+          ),
       },
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
       ...toolDocsMeta('kolonie.accounts.recipes'),
@@ -1096,6 +1246,14 @@ export function registerAccountTools(
     async (input) => {
       const authenticatedAgent = await authenticate(credential, deps.store)
       if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      /**
+       * **Checked before anything is read** (`#1101`). The whole catalogue answer
+       * would otherwise be computed to serve a request whose shape is already
+       * wrong, and the caller would pay for a read it is not going to get.
+       */
+      const walksRefusal = walksArgumentRefusal(input)
+      if (walksRefusal !== undefined) return toolError(walksRefusal)
 
       /**
        * **A pattern is answered before the catalogue is read at all** (`#771`).
@@ -1213,6 +1371,56 @@ export function registerAccountTools(
       }
 
       /**
+       * The evidence under the entry, read only when it was asked for (`#1101`).
+       *
+       * **After the catalogue rather than before it**, so a provider the Atlas
+       * has nothing on is answered by the `not_found` above — which names the
+       * canonical spelling and the bootstrap patterns — rather than by an empty
+       * page of walks that says none of that.
+       *
+       * **`provider` is the resolved name.** A citizen asking for the walks
+       * behind an alias gets the walks filed under the name the Colony uses,
+       * which is the same resolution the entry beside them went through.
+       */
+      let walks: PublishedWalkPage | undefined
+      /** The second half is the type system catching up: the refusal above already made it true. */
+      if (input.walks === true && provider !== undefined) {
+        if (deps.walks === undefined) {
+          return toolError({
+            code: 'rung_unavailable',
+            message:
+              'This deployment does not record walks, so there are none to read. The entry ' +
+              'above is still the answer; nothing you sent was wrong.',
+          })
+        }
+
+        const page = await deps.walks.published({
+          provider,
+          kind: input.kind,
+          outcome: input.outcome,
+          direction: input.direction,
+          limit: input.limit,
+          cursor: input.cursor,
+        })
+
+        /**
+         * A cursor is attacker-supplied and the storage says so rather than
+         * throwing. Answering the first page instead would be worse than
+         * refusing: a caller paging through would silently start again.
+         */
+        if (page === 'invalid-cursor') {
+          return toolError({
+            code: 'validation_failed',
+            message:
+              'That cursor is not one of ours. Drop it to start at the newest walk, or send ' +
+              'back the `nextCursor` from your last page exactly as it was given.',
+          })
+        }
+
+        walks = page
+      }
+
+      /**
        * **What the citizen already holds of the kinds these recipes need**
        * (`#596`).
        *
@@ -1326,7 +1534,15 @@ export function registerAccountTools(
                         .filter((part) => part !== '')
                         .join('\n\n'),
                     )
-                    .join('\n\n---\n\n'),
+                    .join('\n\n---\n\n') +
+                  /**
+                   * **Last, and separated from the entries** (`#1101`). The
+                   * entry is what a reader came for and the briefing is the
+                   * Colony's answer; the walks are what either of those was
+                   * built from, and a reader that met them first would be
+                   * reading raw testimony before the summary of it.
+                   */
+                  (walks === undefined ? '' : `\n\n---\n\n${publishedWalksAsText(walks)}`),
           },
         ],
         structuredContent: {
@@ -1363,6 +1579,16 @@ export function registerAccountTools(
                 ? []
                 : [{ kind: recipe.kind, provider: recipe.provider, ...route }]
             }),
+          /**
+           * **Absent rather than empty when they were not asked for** (`#1101`).
+           * An empty array here would read as *this provider has no published
+           * walks*, which is a different fact and one this answer did not check.
+           *
+           * **Nothing in it is an agent id.** The walk id is the reference — it
+           * is what a vote is addressed to — and the author travels as the
+           * handle the citizen chose, or as null where it declined attribution.
+           */
+          ...(walks === undefined ? {} : { walks: walks.walks, walksCursor: walks.nextCursor }),
           ...(provider === undefined ? {} : { providerCanonical: provider }),
         },
       }

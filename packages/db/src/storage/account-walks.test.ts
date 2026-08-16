@@ -23,6 +23,7 @@ import {
   moderatedWalkProse,
   openWalkId,
   ownAccountWalk,
+  publishedWalksAt,
   recordWalkProseModeration,
   recordApprovedWalkProseRescrub,
   recordWalkStep,
@@ -34,7 +35,8 @@ import {
   walksToAskAbout,
 } from './account-walks.js'
 import { dressProviderRecipe, providerRecipe, writeProviderRecipe } from './provider-recipes.js'
-import { registerAgent } from './agents.js'
+import { registerAgent, updateAgentProfile } from './agents.js'
+import { renameProvider } from './atlas-renames.js'
 import { nameSession } from './sessions.js'
 import { reputationOfAgent } from './balance.js'
 
@@ -2234,5 +2236,246 @@ describe('the walks worth asking about', () => {
     `)
 
     expect(await walksToAskAbout(db, agentId)).toEqual([])
+  })
+})
+
+/**
+ * The evidence under a briefing, read by a citizen that did not write it
+ * (`#1101`).
+ *
+ * **What only a database can answer**, which is where this folder draws its
+ * line: the wording of the page is a pure function in `apps/api/src/mcp`, and
+ * what is asserted here is everything the SQL decides — that a walk is published
+ * by its scrub and not by its verdict, that the prose comes out of
+ * `scrubbed_prose` and never out of the columns the citizen wrote, that the
+ * handle is resolved past `attributed`, that the order is total, and that a
+ * cursor walks the whole shelf exactly once.
+ */
+describe('the walks published behind one provider', () => {
+  let db: Database
+  let walker: AgentId
+  let other: AgentId
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  const register = async (name: string): Promise<AgentId> => {
+    const agent = await registerAgent(db, { name, platform: 'openclaw', operator: null })
+    if (agent.outcome !== 'registered') throw new Error(`could not register ${name}`)
+    return agent.agent.id
+  }
+
+  beforeEach(async () => {
+    await truncateAll(db)
+    walker = await register('walker')
+    other = await register('other')
+  })
+
+  const where = { kind: kind('mailbox'), provider: 'somewhere.example' }
+
+  /**
+   * One finished walk, published the only way a walk is published.
+   *
+   * The scrub goes through the moderation record rather than onto the column,
+   * for the reason `walk-notes.test.ts` gives: a helper that wrote
+   * `scrubbed_prose` directly would be writing the very thing this reader is
+   * supposed to be the only route to, and every assertion below would pass over
+   * a column no moderator ever filled.
+   */
+  const aWalk = async (
+    prose: { readonly did?: string; readonly broke?: string; readonly note?: string },
+    options: {
+      readonly by?: AgentId
+      readonly at?: typeof where
+      readonly outcome?: 'proved' | 'refused' | 'abandoned'
+      readonly published?: boolean
+    } = {},
+  ): Promise<string> => {
+    const pair = options.at ?? where
+    const outcome = options.outcome ?? 'proved'
+    const walkId = await walkInProgress(db, options.by ?? walker, pair)
+    /** The wall is prose too, and a verdict judged without it is stale on arrival. */
+    const written = { ...prose, ...(outcome === 'refused' ? { wall: 'It wanted a card.' } : {}) }
+    await finishWalk(db, walkId, { outcome, ...written })
+
+    if (options.published !== false) {
+      const verdict = await recordWalkProseModeration(db, {
+        walkId,
+        judged: written,
+        decision: 'approved',
+        scrubbed: {
+          ...written,
+          ...(prose.did === undefined ? {} : { did: `${prose.did} (scrubbed)` }),
+        },
+      })
+      if (verdict.outcome !== 'written') throw new Error('the moderation did not land')
+    }
+
+    return walkId
+  }
+
+  it('serves what the moderator scrubbed, and never the column the citizen wrote', async () => {
+    await aWalk({ did: 'I signed up with the operator mailbox' })
+
+    const page = await publishedWalksAt(db, { provider: where.provider })
+    if (page === 'invalid-cursor') throw new Error('the cursor was rejected')
+
+    expect(page.walks).toHaveLength(1)
+    expect(page.walks[0]?.prose.did).toBe('I signed up with the operator mailbox (scrubbed)')
+    expect(page.walks[0]?.by).toBe('walker')
+    expect(page.walks[0]?.outcome).toBe('proved')
+    expect(page.nextCursor).toBeNull()
+  })
+
+  /**
+   * The scrub is the clearance and the verdict is not (`#1095`'s finding, read
+   * from the other side). A walk that finished and was never moderated is
+   * evidence nobody has cleared, and it is absent here whatever else is true of
+   * it — which is the same predicate `moderatedWalkProse` reads.
+   */
+  it('leaves out a walk that has not been scrubbed', async () => {
+    await aWalk({ did: 'Never moderated.' }, { published: false })
+
+    const page = await publishedWalksAt(db, { provider: where.provider })
+    if (page === 'invalid-cursor') throw new Error('the cursor was rejected')
+
+    expect(page.walks).toEqual([])
+  })
+
+  /**
+   * The flag decides whether the *name* travels, never whether the *work* does
+   * — `#960`'s rule for the byline, which `#1035` inherited for the note and
+   * this inherits from both. A walk that vanished with the handle would make
+   * opting out cost the next reader rather than the citizen.
+   */
+  it('serves the walk of a citizen that declined attribution, without the handle', async () => {
+    await updateAgentProfile(db, walker, { attributed: false })
+    await aWalk({ broke: 'The second step wanted a card.' })
+
+    const page = await publishedWalksAt(db, { provider: where.provider })
+    if (page === 'invalid-cursor') throw new Error('the cursor was rejected')
+
+    expect(page.walks[0]?.prose.broke).toBe('The second step wanted a card.')
+    expect(page.walks[0]?.by).toBeNull()
+  })
+
+  it('answers for a provider under the name it was renamed from', async () => {
+    await aWalk({ did: 'Worth doing.' })
+    await renameProvider(db, 'old.example', where.provider)
+
+    const page = await publishedWalksAt(db, { provider: 'old.example' })
+    if (page === 'invalid-cursor') throw new Error('the cursor was rejected')
+
+    expect(page.walks).toHaveLength(1)
+  })
+
+  it('narrows to one kind, and to one outcome', async () => {
+    await aWalk({ did: 'The mailbox one.' })
+    await aWalk(
+      { did: 'The domain one.' },
+      { at: { kind: kind('domain'), provider: where.provider } },
+    )
+    await aWalk({ broke: 'The refused one.' }, { by: other, outcome: 'refused' })
+
+    const mailboxes = await publishedWalksAt(db, { provider: where.provider, kind: 'mailbox' })
+    if (mailboxes === 'invalid-cursor') throw new Error('the cursor was rejected')
+    expect(mailboxes.walks.map((walk) => walk.kind)).toEqual(['mailbox', 'mailbox'])
+
+    const refused = await publishedWalksAt(db, { provider: where.provider, outcome: 'refused' })
+    if (refused === 'invalid-cursor') throw new Error('the cursor was rejected')
+    expect(refused.walks.map((walk) => walk.prose.broke)).toEqual(['The refused one.'])
+  })
+
+  /**
+   * A kind nobody has walked matches nothing rather than being refused, which is
+   * why the argument is a loose string all the way down: the vocabulary grows
+   * whenever the Academy learns to verify something new, and a reader asking
+   * about a kind that does not exist yet has asked a well-formed question with
+   * an empty answer.
+   */
+  it('answers a kind nobody has walked with an empty page', async () => {
+    await aWalk({ did: 'The mailbox one.' })
+
+    const page = await publishedWalksAt(db, { provider: where.provider, kind: 'not-a-kind' })
+    if (page === 'invalid-cursor') throw new Error('the cursor was rejected')
+
+    expect(page.walks).toEqual([])
+  })
+
+  /**
+   * The whole shelf, once each, in one order. A cursor is a position in an
+   * ordering, so what is asserted is the property that makes paging safe rather
+   * than the page size: every walk appears exactly once across the pages, and
+   * the last page says there is nothing after it.
+   */
+  it('pages the whole shelf exactly once, newest first', async () => {
+    for (const at of [1, 2, 3, 4, 5]) {
+      await aWalk({ did: `Walk ${at}.` }, { by: at % 2 === 0 ? other : walker })
+    }
+
+    const first = await publishedWalksAt(db, { provider: where.provider, limit: 2 })
+    if (first === 'invalid-cursor') throw new Error('the cursor was rejected')
+    expect(first.walks).toHaveLength(2)
+    expect(first.nextCursor).not.toBeNull()
+
+    const seen = [...first.walks]
+    let cursor = first.nextCursor
+    while (cursor !== null) {
+      const next = await publishedWalksAt(db, { provider: where.provider, limit: 2, cursor })
+      if (next === 'invalid-cursor') throw new Error('the cursor was rejected')
+      seen.push(...next.walks)
+      cursor = next.nextCursor
+    }
+
+    expect(seen.map((walk) => walk.prose.did)).toEqual([
+      'Walk 5. (scrubbed)',
+      'Walk 4. (scrubbed)',
+      'Walk 3. (scrubbed)',
+      'Walk 2. (scrubbed)',
+      'Walk 1. (scrubbed)',
+    ])
+    expect(new Set(seen.map((walk) => walk.walkId)).size).toBe(5)
+  })
+
+  /** Clamped rather than refused: the ceiling is a property of the response. */
+  it('gives a caller asking for five hundred the page ceiling instead of an error', async () => {
+    await aWalk({ did: 'The only one.' })
+
+    const page = await publishedWalksAt(db, { provider: where.provider, limit: 500 })
+    if (page === 'invalid-cursor') throw new Error('the cursor was rejected')
+
+    expect(page.walks).toHaveLength(1)
+  })
+
+  /**
+   * `'invalid-cursor'` and not a throw, for the reason `listTasks` gives: every
+   * field here is attacker-supplied, and an unparseable cursor reaching the
+   * query would reach the agent as `internal` — the Colony calling the agent's
+   * own typo a fault on our side, which it will then retry forever.
+   */
+  it('refuses a cursor that is not one of ours, without reading anything', async () => {
+    await aWalk({ did: 'The only one.' })
+
+    expect(await publishedWalksAt(db, { provider: where.provider, cursor: 'not-a-cursor' })).toBe(
+      'invalid-cursor',
+    )
+  })
+
+  /** Nothing on this shape is an agent id, and the walk id is what a citizen quotes. */
+  it('carries the walk id and no agent id', async () => {
+    await aWalk({ did: 'The only one.' })
+
+    const page = await publishedWalksAt(db, { provider: where.provider })
+    if (page === 'invalid-cursor') throw new Error('the cursor was rejected')
+
+    const [walk] = page.walks
+    expect(walk?.walkId).toMatch(/^[0-9a-f-]{36}$/u)
+    expect(JSON.stringify(page)).not.toContain(walker)
+    expect(JSON.stringify(page)).not.toContain(other)
   })
 })

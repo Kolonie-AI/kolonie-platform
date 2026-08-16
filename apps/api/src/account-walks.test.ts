@@ -224,12 +224,29 @@ describe('what the walk answer says about the answers themselves', () => {
    * agent told its words reach other citizens, and not told they are rewritten
    * first, has been handed a page to write on — which is the one outcome
    * `#1045` asked be preserved.
+   *
+   * **The promise is now about the briefing and not about everything** (`#1101`).
+   * It used to say no sentence is forwarded and the author is not named, which
+   * had quietly become false: the note travels verbatim under a handle since
+   * `#1035`, the route since `#1090`, and the scrubbed page itself is served to
+   * any citizen reading the walks behind a provider. What is under test is that
+   * the briefing keeps the promise it can keep, and that the receipt says out
+   * loud what happens beside it — because this paragraph is what a citizen reads
+   * before deciding how much to write.
    */
-  it('promises the shape `#831` actually delivers, and not quotation', () => {
+  it('promises the shape `#831` actually delivers of the briefing, and not of the rest', () => {
     const text = walkProseAsText({ broke: 'the signup form wanted a phone number' })
 
-    expect(text).toContain('Written, never quoted')
-    expect(text).toContain('not named')
+    expect(text).toContain('briefing is written, never quoted')
+    expect(text).toContain('no sentence of yours is in it')
+
+    expect(text).toContain('your own words are served as you wrote them')
+    expect(text).toContain('scrubbed first')
+    expect(text).toContain('unless you have turned attribution off')
+
+    /** The sentence that stopped being true, in the two shapes it was written in. */
+    expect(text).not.toContain('No sentence of yours is forwarded')
+    expect(text).not.toContain('you are not named')
   })
 
   it('says nothing at all about a walk that answered nothing', () => {

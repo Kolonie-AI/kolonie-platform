@@ -14,7 +14,7 @@ import {
 } from './recipe.js'
 import { looksLikeCredential } from '../operator/request.js'
 import { REPORT_FIELDS, REPORT_FIELD_ORDER, type ReportField } from '../guidance/guidance.js'
-import { WalkedRecipeSchema } from './walked-recipe.js'
+import { WalkedRecipeSchema, type WalkedRecipe } from './walked-recipe.js'
 
 /**
  * One agent obtaining one account, as a record (`#601`).
@@ -398,6 +398,74 @@ export function walkToSteps(walk: AccountWalk): readonly RecipeStep[] {
 }
 
 /**
+ * The shape a first walker wrote down, where the Colony observed none (`#1024`).
+ *
+ * ## The deadlock this ends
+ *
+ * A citizen walked `mail.tm` alone through its public API on 2026-08-15, closed
+ * the walk `proved`, and handed in a complete {@link WalkedRecipe} — steps,
+ * prerequisites, walls, how to tell the account exists. It proposed nothing. The
+ * entry was `unwritten`, so there were no published steps to tick; the walk went
+ * through no handoff and no drop, so the Colony observed no steps of its own; and
+ * `walkVerdict` read *nothing observed* and stopped. **A provider nobody has
+ * walked can only be seeded by a walk the Colony watched happen**, which is
+ * precisely the walk a solo agent at an API-only provider never performs.
+ *
+ * Everything downstream of the draft was already built and idle: `#769` carries
+ * the walker's account onto the entry, `#941` requires a sentence on every
+ * submitted step, and `recordedMaterial` in the moderation runner forms a
+ * wordless step's instruction out of `walked-step-N` and cites it. The one
+ * missing link was a draft for any of it to hang on.
+ *
+ * ## Why the steps come back wordless
+ *
+ * `#517` is untouched: the walker's sentence is carried beside the entry as its
+ * own account and is not promoted to the Colony's wording by being read here.
+ * What is taken from it is the **shape** — how many steps there were and who
+ * acted — which is exactly what {@link walkToSteps} takes from an observed walk.
+ *
+ * ## Why a step needing an operator seeds nothing
+ *
+ * An operator step must carry the exact ask the person will read, and the Colony
+ * writes that sentence. An observed operator step has one because the handoff
+ * sent it; a walker's `needsOperator` is a claim about something that happened
+ * outside the Colony's sight, and there is no ask to carry. Writing it as an
+ * agent step instead would delete the one fact that decides whether the next
+ * citizen can walk this alone. So the seed is refused and says which step did it
+ * — and the case is narrower than it sounds: a walk that used the Colony's own
+ * handoff observed that step, and is not stepless.
+ */
+export type WalkerShape =
+  | { readonly kind: 'shape'; readonly steps: readonly RecipeStep[] }
+  | { readonly kind: 'none'; readonly why: string }
+
+export function walkerShape(recipe: WalkedRecipe | null): WalkerShape {
+  const steps = recipe?.steps ?? []
+  if (steps.length === 0) {
+    return {
+      kind: 'none',
+      why: 'nothing was observed, so there is nothing to propose',
+    }
+  }
+
+  const operator = steps.flatMap((step, at) => (step.needsOperator === true ? [at + 1] : []))
+  if (operator.length > 0) {
+    return {
+      kind: 'none',
+      why:
+        `the Colony saw none of this walk and your own account marks step ` +
+        `${operator.join(', ')} as needing your operator — an operator step carries the exact ` +
+        'sentence that person reads, the Colony writes that sentence, and it has none here. ' +
+        'Recording it as your own step instead would delete the one fact that decides whether ' +
+        'the next citizen can walk this alone. A step you took through kolonie.accounts.handoff ' +
+        'is observed and does not land here',
+    }
+  }
+
+  return { kind: 'shape', steps: steps.map(() => ({ actor: 'agent' })) }
+}
+
+/**
  * Whether a walk went the way the entry says it goes.
  *
  * **Compared against the published tick-list and never against Kolonie's call
@@ -516,7 +584,23 @@ export function reachedByWalk(
  */
 export type WalkVerdict =
   | { readonly kind: 'nothing'; readonly why: string }
-  | { readonly kind: 'draft'; readonly steps: readonly RecipeStep[] }
+  | {
+      readonly kind: 'draft'
+      readonly steps: readonly RecipeStep[]
+      /**
+       * Whether the shape came from the walker's own account rather than from
+       * anything the Colony watched (`#1024`).
+       *
+       * **It changes nothing about the draft and one thing about the sentence.**
+       * An observed draft is told back as *in the order they happened, with an
+       * operator step wherever your operator was asked for something* — both
+       * halves of which are false of a seed, which has no operator steps by
+       * construction and describes a walk the Colony saw none of. A draft the
+       * agent is told the wrong story about is one it corrects by filing an
+       * issue, which is the behaviour `#601` exists to replace.
+       */
+      readonly seeded?: boolean
+    }
   | { readonly kind: 'refusal'; readonly wall: string }
   | { readonly kind: 'confirms' }
   | {
@@ -570,10 +654,23 @@ export function walkVerdict(
    * `walk` directly and is untouched by the prefill — a tick-list is an answer
    * about *this* walk, and an episode has not given one.
    */
-  const shape = walk.steps.length > 0 ? walkToSteps(walk) : (observed ?? [])
+  const seen = walk.steps.length > 0 ? walkToSteps(walk) : (observed ?? [])
 
-  if (shape.length === 0) {
-    return { kind: 'nothing', why: 'nothing was observed, so there is nothing to propose' }
+  /**
+   * **The walker's own account is the third source and the last** (`#1024`).
+   *
+   * Read only where the two the Colony watched are empty, on the same
+   * prefill-never-override rule the episode above follows: a walk the Colony saw
+   * is described by what it saw, and a walk it saw nothing of would otherwise
+   * propose nothing at a provider nobody has walked — which is the one case the
+   * Atlas most needs an entry for. See {@link walkerShape} for why the steps come
+   * back wordless and why one needing an operator seeds nothing.
+   */
+  const observedShape = seen.length > 0
+  const shape = observedShape ? { kind: 'shape' as const, steps: seen } : walkerShape(walk.recipe)
+
+  if (shape.kind === 'none') {
+    return { kind: 'nothing', why: shape.why }
   }
 
   /**
@@ -602,7 +699,9 @@ export function walkVerdict(
       : { kind: 'diverges', walked: reportedSteps(walk, entry), published: entry.steps }
   }
 
-  return { kind: 'draft', steps: shape }
+  return observedShape
+    ? { kind: 'draft', steps: shape.steps }
+    : { kind: 'draft', steps: shape.steps, seeded: true }
 }
 
 /**

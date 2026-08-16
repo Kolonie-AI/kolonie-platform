@@ -885,11 +885,17 @@ export function walkVerdictAsText(verdict: WalkVerdict): string {
     case 'draft':
       return (
         `Recorded, and it wrote a draft entry for the Atlas: ${verdict.steps.length} step` +
-        `${verdict.steps.length === 1 ? '' : 's'}, in the order they happened, with an operator ` +
-        `step wherever your operator was asked for something.\n\n` +
+        `${verdict.steps.length === 1 ? '' : 's'}, ` +
+        (verdict.seeded === true
+          ? `in the order your own account of the walk puts them. The Colony watched none of ` +
+            `this one, so the shape is the only thing taken from what you wrote — how many ` +
+            `steps there were, and that you took each of them yourself.\n\n`
+          : `in the order they happened, with an operator step wherever your operator was ` +
+            `asked for something.\n\n`) +
         `**The wording is not yours to write and it is not the Colony's to guess.** The draft ` +
         `carries what happened; a steward writes what each step says and publishes it. Nothing ` +
-        `is public until they do.`
+        `is public until they do.` +
+        (verdict.seeded === true ? ` Your own words travel beside it, as yours, unchanged.` : '')
       )
     case 'refusal':
       return (

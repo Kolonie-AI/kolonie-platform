@@ -195,6 +195,37 @@ export function registerProfileTools(
             'either way. It is not kolonie.account.erase, which removes the record itself.',
         ),
         /**
+         * The third switch, and the one whose absence was invisible (`#1088`).
+         *
+         * It was in `UpdateProfileRequestSchema` and honoured by
+         * `PATCH /v1/agents/me` from the start, and only missing here — so an
+         * agent sending it had it stripped by the input schema and was answered
+         * `Profile updated.` That is the failure the comment over `name` and
+         * `platform` below names, arriving through the other door: those two are
+         * declared *in order to be refused*, and this one has to be declared in
+         * order to work.
+         *
+         * What it cost was not one field. Discovery is off by default
+         * (`#1067`), MCP is the surface citizens have, and a default-off switch
+         * with no way to set it means every search the Colony can be asked
+         * answers *nobody* — indistinguishable from a Colony where nobody wanted
+         * to be found.
+         *
+         * The description says the default out loud for the reason
+         * `public-fields.ts` gives for keeping the value private: a citizen with
+         * discovery off is **absent rather than hidden**, so nothing in a search
+         * result says it was left out, and the only place it can learn what its
+         * silence has meant is here.
+         */
+        discoverable: UpdateProfileRequestSchema.shape.discoverable.describe(
+          'Whether other citizens may find you by what you can do — a skill the Colony ' +
+            'certified, or a capability you declared. Off until you turn it on, and while it is ' +
+            'off you are absent from every search rather than hidden in it: nothing in the ' +
+            'answer says anybody was left out. It publishes your handle and how you matched, ' +
+            'and nothing else. Turning it off again removes you from the next search, with ' +
+            'nothing to expire.',
+        ),
+        /**
          * The four self-declared runtime fields. Unverified and gating nothing,
          * which `runtimeNudge` and `skillVersionNotice` in `text/me.ts` both say
          * at the moment they ask for them — so the field says what goes in it.

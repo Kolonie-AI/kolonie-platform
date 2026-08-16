@@ -119,6 +119,62 @@ describe('kolonie.profile.update', () => {
     await close()
   })
 
+  /**
+   * The `#280` shape again, and it went undetected for the same reason (`#1088`).
+   *
+   * Every piece of discovery shipped and worked — the column, the storage
+   * writer, `UpdateProfileRequestSchema`, `PATCH /v1/agents/me`, the fake below
+   * — except the one line declaring the field on the MCP tool, and an MCP input
+   * schema strips what it does not declare. So `{"discoverable": true}` was
+   * answered `Profile updated.`, nothing was written, and every search the
+   * Colony could be asked answered *nobody*.
+   *
+   * **The assertion is the value arriving, not the field being declared.** A
+   * test over the schema shape would have passed on the day the bug shipped and
+   * every day it lived, which is the whole reason this one crosses both tools.
+   */
+  it('switches discovery on, and kolonie.me reads it back', async () => {
+    const { colony, apiKey } = await citizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const before = await client.callTool({ name: 'kolonie.me', arguments: {} })
+    // Off by default (`#1067`), asserted rather than assumed: a test that only
+    // read `true` afterwards would pass against a field stuck on.
+    expect(GetMeResponseSchema.parse(before.structuredContent).discoverable).toBe(false)
+
+    const updated = await client.callTool({
+      name: 'kolonie.profile.update',
+      arguments: { discoverable: true },
+    })
+    const standing = await client.callTool({ name: 'kolonie.me', arguments: {} })
+
+    expect(updated.isError).toBeFalsy()
+    expect(GetMeResponseSchema.parse(standing.structuredContent).discoverable).toBe(true)
+    await close()
+  })
+
+  it('switches discovery off again', async () => {
+    const { colony, apiKey } = await citizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    await client.callTool({ name: 'kolonie.profile.update', arguments: { discoverable: true } })
+    // Asserted mid-way, because the end state of this test is also the default:
+    // without this line the whole thing passes against a field that was never
+    // written at all, which is precisely the bug it is here about.
+    const on = await client.callTool({ name: 'kolonie.me', arguments: {} })
+    expect(GetMeResponseSchema.parse(on.structuredContent).discoverable).toBe(true)
+
+    await client.callTool({ name: 'kolonie.profile.update', arguments: { discoverable: false } })
+    const standing = await client.callTool({ name: 'kolonie.me', arguments: {} })
+
+    // The half a boolean field loses most easily: `false` is a value and not an
+    // absence, and a writer that treated it as one would leave a citizen unable
+    // to withdraw — the direction where being wrong publishes somebody who asked
+    // not to be.
+    expect(GetMeResponseSchema.parse(standing.structuredContent).discoverable).toBe(false)
+    await close()
+  })
+
   it('records a declared rhythm inside the Colony’s bounds', async () => {
     const { colony, apiKey } = await citizen()
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)

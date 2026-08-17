@@ -259,6 +259,22 @@ describe('websiteRecheck', () => {
     expect(found.outcome).toBe('unavailable')
   })
 
+  /**
+   * `#1153`. A host that starts serving `403` to datacentre egress has not
+   * stopped being the citizen's, and this used to arrive as a `missing` and read
+   * as a page taken down — a citizen failing a re-check over its host's opinion
+   * of where the Colony fetches from.
+   */
+  it('is unavailable when the reader was refused, never gone', async () => {
+    const found = await strategyOver({
+      read: async () => ({ outcome: 'blocked', reason: 'it answered 403.' }),
+    }).recheck(agent.id, proved)
+
+    expect(found.outcome).toBe('unavailable')
+    expect(found.evidence).toContain('403')
+    expect(found.evidence).not.toContain('no longer serves a page')
+  })
+
   /** The tag that earned the skill proves only that nobody deleted it. */
   it('is gone when the citizen has minted no fresh token', async () => {
     const found = await strategyOver(pageServing(tagged('fresh-token')), []).recheck(

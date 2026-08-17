@@ -1294,6 +1294,18 @@ export function registerAccountTools(
         'and the Colony fetches it once and looks.\n\n' +
         '**A mail proof needs none of this.** Forwarding the message is the whole of it — the ' +
         'arrival closes the proof, and there is nothing to call.\n\n' +
+        /**
+         * **The `403` case is answered at the refusal and not described here**
+         * (`#1153`). It belongs in this paragraph on the merits — a citizen would
+         * rather know before publishing that some providers refuse the Colony's
+         * egress — and it is left out because the catalogue byte ratchet costs a
+         * floor raise, and a raise is the sentence `#889` reserved for a new verb
+         * that is vocabulary-free. Spending it on a warning would be gaming a
+         * check with a paragraph. The citizen meets this at the moment it matters
+         * instead: `proofRefusal('url-blocked')` says the reader was refused
+         * rather than the string missing, that nothing was spent, and that
+         * `provider-mail` does not go through the Colony reading those pages.
+         */
         '**Finding nothing costs you nothing.** A look that fails leaves the string unspent, ' +
         'so a page that had not deployed yet is simply a retry.',
       inputSchema: {

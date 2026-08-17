@@ -89,19 +89,40 @@ export class WebsiteVerifyVerifier implements Verifier {
 /**
  * What a read of a page answered.
  *
- * **Three outcomes rather than two, and the middle one is the whole point.** A
+ * **Four outcomes rather than two, and the middle two are the whole point.** A
  * page that answers `404` has told the Colony something about the citizen's
  * site; a host that times out has told it something about the network between
  * them. `domain-persistence` draws the same line for a zone (`DnsReadResult`),
  * and the re-check framework spends a ninety-day wait on the difference.
+ *
+ * **`blocked` is the third of those and it was a `missing` until `#1153`.** A site
+ * that answers `403` to the Colony's reader has said nothing whatever about the
+ * citizen's page: it has said that this reader is not allowed in. Reading that as
+ * *there is no page there* refused citizens who had published correctly, and — at
+ * the re-check — read a site that started refusing datacentre egress as a citizen
+ * taking its site down. The Colony does not pretend to be a browser to get past
+ * one; what it does is say which of the two happened.
  */
 export type PageRead =
   /** The page answered and this is what it served. */
   | { readonly outcome: 'read'; readonly html: string; readonly contentType: string }
   /** The page answered, and there is no page. A real answer about the site. */
   | { readonly outcome: 'missing'; readonly reason: string }
+  /** The address answered, and the answer was that this reader is not allowed in. */
+  | { readonly outcome: 'blocked'; readonly reason: string }
   /** Nothing could be established — a timeout, a 5xx, a name that stopped resolving. */
   | { readonly outcome: 'unavailable'; readonly reason: string }
+
+/**
+ * The statuses that mean *not you*, rather than *not here* (`#1153`).
+ *
+ * `401` and `407` are a credential being asked for, `403` is the refusal a site
+ * serves to an egress it does not like, `429` is one arriving too often and `451`
+ * is a jurisdiction. None of them is the site answering a question about the
+ * citizen's page, and every one of them was previously indistinguishable from a
+ * `404` at every surface that reads a page.
+ */
+const BLOCKED_STATUSES: readonly number[] = [401, 403, 407, 429, 451]
 
 /**
  * How the Colony reads a page it was told about.
@@ -158,6 +179,11 @@ async function readPage(url: string): Promise<PageRead> {
   // anything; a 404 or a 410 is the site answering that the page is not there.
   if (response.status >= 500) {
     return { outcome: 'unavailable', reason: `it answered ${response.status}.` }
+  }
+
+  // And a 403 is the site answering about the reader rather than about the page.
+  if (BLOCKED_STATUSES.includes(response.status)) {
+    return { outcome: 'blocked', reason: `it answered ${response.status}.` }
   }
 
   if (!response.ok) {

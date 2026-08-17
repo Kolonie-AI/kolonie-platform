@@ -862,6 +862,7 @@ export const AccountProofRefusalSchema = z.enum([
   'no-open-proof',
   'no-proved-mailbox',
   'secret-not-at-url',
+  'url-blocked',
   'url-refused',
   'url-unavailable',
   'wrong-method',

@@ -1,4 +1,5 @@
 import { ATLAS_PATH, type AtlasCategorySlug } from '@kolonie-ai/core'
+import type { AtlasCriterion } from './criteria.js'
 
 /**
  * The Atlas, as data a machine reads (`#789`).
@@ -41,10 +42,17 @@ import { ATLAS_PATH, type AtlasCategorySlug } from '@kolonie-ai/core'
  *
  * ## What is deliberately not here
  *
- * `Organization` belongs to the website and not to this route. `FAQPage` would
- * need `NOT_A_PROMISE` and the counterparty note restructured into questions,
- * which is a content decision. `Dataset` is worth having once the figures are
- * publishable (`#792`). All three are `#789`'s own exclusions, kept.
+ * `Organization` belongs to the website and not to this route. `Dataset` is worth
+ * having once the figures are publishable (`#792`). Both are `#789`'s own
+ * exclusions, kept.
+ *
+ * **`FAQPage` was the third of them and `#1105` took it.** `#789` left it out
+ * because turning `NOT_A_PROMISE` and the counterparty note into questions is a
+ * content decision — and `#1105` made that decision somewhere else: the criteria
+ * box is nine questions with their answers on the page, built by `criteria.ts`,
+ * and this module renders the rows it is handed rather than composing questions
+ * of its own. Nothing here reads the entry, so there is no second place for the
+ * markup and the page to disagree.
  */
 
 /**
@@ -108,6 +116,31 @@ export function breadcrumbFor(
       },
       { '@type': 'ListItem', position: 3, name: entry.title, item: at(entry.path) },
     ],
+  })
+}
+
+/**
+ * The criteria box, as the questions it already answers (`#1105` decision 4).
+ *
+ * **A `FAQPage` whose answers are not on the page is a spam signal and a lie in
+ * the same markup**, so this takes the rendered rows rather than an entry: there
+ * is no way to call it with a question the box does not print, because the box
+ * and this block are the same array. It is the replacement for the `HowTo`
+ * `#1100` removed, and the difference is exactly the rule — a `HowTo` published
+ * the steps citizenship buys, and this publishes the criteria anybody may read.
+ *
+ * The caller decides *whether* there is anything to answer (decision 7); this one
+ * decides only how the rows are written down.
+ */
+export function faqPageFor(criteria: readonly AtlasCriterion[]): string {
+  return asJsonLdBlock({
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: criteria.map((one) => ({
+      '@type': 'Question',
+      name: one.question,
+      acceptedAnswer: { '@type': 'Answer', text: one.answer },
+    })),
   })
 }
 

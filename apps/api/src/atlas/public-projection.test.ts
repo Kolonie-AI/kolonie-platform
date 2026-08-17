@@ -214,6 +214,30 @@ describe('what the Atlas publishes and what citizenship buys', () => {
   })
 
   /**
+   * **The same rejection, narrowed to the box `#1105` added.** The assertion above
+   * already covers it — the box is on that page — and this one exists so that a
+   * leak *into the box* is named by a failing test that says so, rather than by a
+   * page-wide one that leaves somebody grepping for where the string came from.
+   *
+   * The criteria are built from typed fields and never from prose (`criteria.ts`
+   * takes the public projection, so a wall's `remedy` is not reachable from it),
+   * and this is what keeps that true as the rows are edited.
+   */
+  it('keeps every one of them out of the criteria box', () => {
+    const page = publicPage()
+    const box = page.slice(
+      page.indexOf('<dl class="k-atlas-criteria">'),
+      page.indexOf('</dl>') + '</dl>'.length,
+    )
+
+    expect(box).toContain('Is there a human check to get past?')
+
+    for (const [field, sentinel] of Object.entries({ ...HIDDEN, ...WALL_PROSE })) {
+      expect(box, `${field} reached the criteria box`).not.toContain(sentinel)
+    }
+  })
+
+  /**
    * **The other half, asserted against the same fixture.** A projection that had
    * quietly emptied the citizen's answer would pass the test above, and `#1100`
    * decision 5 says in as many words that the gap is never widened from that

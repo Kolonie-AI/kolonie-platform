@@ -25,7 +25,8 @@ import {
   type ServedProviderBriefingClaim,
 } from '@kolonie-ai/core'
 import { escape } from '../console/html.js'
-import { breadcrumbFor, itemListFor } from './structured-data.js'
+import { atlasCriteria, atlasEntryQuestion, type AtlasCriterion } from './criteria.js'
+import { breadcrumbFor, faqPageFor, itemListFor } from './structured-data.js'
 import {
   atlasPublicEntries,
   atlasPublicEntry,
@@ -564,6 +565,68 @@ function operatorLine(entry: {
   return entry.operatorNeedIsGuess ? `${said} (a guess, not a walk)` : said
 }
 
+/**
+ * The criteria box, at the top of every provider page (`#1105` decision 1).
+ *
+ * **Five seconds of scanning, above the prose**, because the decision a reader
+ * arrives with is *is this worth an afternoon* and every one of these nine facts
+ * can end it. Until here they were spread across a facts line, a *before you
+ * start* paragraph inside each recipe section, and a findings list under it —
+ * every one of them true, none of them scannable, and three of them below a fold.
+ *
+ * **A `<dl>` and not a table.** The pages carry `style-src 'unsafe-inline'` and
+ * no stylesheet a reader can rely on, and a definition list degrades to a
+ * readable question-then-answer sequence with no CSS at all, which a table does
+ * not. It is also the honest markup: these are terms and their definitions.
+ *
+ * The rows themselves are `criteria.ts`'s — this function chooses no wording and
+ * substitutes nothing, so that the `FAQPage` in the head cannot say anything the
+ * box does not.
+ */
+function criteriaBox(criteria: readonly AtlasCriterion[]): string {
+  const rows = criteria
+    .map((one) => `<dt>${escape(one.question)}</dt><dd>${escape(one.answer)}</dd>`)
+    .join('')
+
+  return `<dl class="k-atlas-criteria">${rows}</dl>`
+}
+
+/**
+ * One line under the box saying what citizenship buys (`#1105` decision 6).
+ *
+ * **It names the three things and does not gesture at them.** *More detail for
+ * citizens* is the sentence every catalogue writes and nobody believes; the
+ * ordered steps, the remedy that got past each wall, and the walks behind both
+ * are what the projection actually withholds (`#1100`), so saying exactly that is
+ * both the honest line and the persuasive one.
+ *
+ * **{@link ATLAS_JOIN_LINE} is not rewritten and stays where it is**, which
+ * decision 6 asks for directly: it is the invitation, further down and phrased
+ * for somebody who has read the page. This is the label on what is missing.
+ *
+ * **It renders only where something is actually being withheld.** An entry with
+ * no steps and no walls has nothing behind the line, and a page that advertised a
+ * path it does not have would be the catalogue selling — the same rule
+ * {@link membershipSection} takes when it says nothing on a refusal.
+ *
+ * **The prerequisites are not part of that test**, though they are counted a few
+ * lines above: {@link conditionsSection} already prints them in full — *before
+ * the first step you need: email* — so an entry whose only content is its needs is
+ * withholding nothing, and a line offering the rest of it would be offering a
+ * path that does not exist.
+ */
+function citizenLine(entry: AtlasPublicEntry): string {
+  const behindIt = entry.recipes.some((recipe) => recipe.stepCount > 0 || recipe.walls.length > 0)
+
+  if (!behindIt) return ''
+
+  return (
+    '<p class="k-atlas-citizen">A citizen asking kolonie.accounts.recipes gets the rest: the ' +
+    'ordered steps of the path with the operator’s marked, the remedy that got past each wall, ' +
+    'and the walks both were written from.</p>'
+  )
+}
+
 /** One provider's page. */
 export function atlasEntryPage(input: {
   readonly entry: AtlasEntry
@@ -601,6 +664,13 @@ export function atlasEntryPage(input: {
 
   const site = siteOf(input.canonical)
 
+  /**
+   * The nine facts, built once and rendered twice (`#1105` decision 4) — into the
+   * box below and into the `FAQPage` above it. `criteria.ts` explains why that is
+   * one array rather than two builders.
+   */
+  const criteria = atlasCriteria(entry)
+
   return atlasPage({
     /**
      * **The `<title>` is written for the query and the `<h1>` is not** (`#788`).
@@ -631,7 +701,8 @@ export function atlasEntryPage(input: {
      */
     robots: atlasIsWalked(entry) ? undefined : 'noindex, follow',
     /**
-     * **The breadcrumb, and no `HowTo`** (`#789`, narrowed by `#1100`).
+     * **The breadcrumb, a `FAQPage`, and no `HowTo`** (`#789`, narrowed by
+     * `#1100`, extended by `#1105`).
      *
      * A `HowTo` is a list of step names and step text, and `#1100` decided the
      * steps are what citizenship buys — so the block that made this page
@@ -639,9 +710,17 @@ export function atlasEntryPage(input: {
      * beside a page that no longer prints it. **That eligibility is a real
      * loss** and it is the price of the rule rather than an oversight: what the
      * page offers a searcher instead is the criteria and the findings extract,
-     * which is what `#1100` decided the public half is.
+     * which is what `#1100` decided the public half is — and `#1105` writes that
+     * half down in the one vocabulary a search engine has for it.
+     *
+     * **The `FAQPage` is emitted on exactly the pages that are indexed at all**
+     * (`#1105` decision 7). A placeholder has an honest criteria box saying
+     * *not known* nine times over, which is a true page and not an answer: asking
+     * a crawler to treat nine unknowns as a rich result, on a page the same
+     * function has just asked it not to index, would be the Colony arguing with
+     * itself in two blocks of the same head. One predicate decides both.
      */
-    jsonLd: [breadcrumbFor(entry, site)],
+    jsonLd: [breadcrumbFor(entry, site), ...(atlasIsWalked(entry) ? [faqPageFor(criteria)] : [])],
     /**
      * **The order is `kolonie-website#97`'s list of what a reader must be able
      * to answer without scrolling**, in that order, and it is the order rather
@@ -668,7 +747,19 @@ export function atlasEntryPage(input: {
      */
     body: [
       '<main>',
-      `<h1>${escape(entry.title)}</h1>`,
+      /**
+       * **The heading is the question somebody typed** (`#1105` decision 3).
+       *
+       * This supersedes `#788` for the `h1` and leaves the `<title>` exactly as
+       * `#788` wrote it: the title is still the search line a result list shows,
+       * and the heading is now what a reader who followed it sees first. The
+       * provider's own name was the heading until here, and it is a heading that
+       * answers nothing — a reader who clicked a result already knows which
+       * provider they clicked.
+       */
+      `<h1>${escape(atlasEntryQuestion(entry))}</h1>`,
+      criteriaBox(criteria),
+      citizenLine(entry),
       aboutSection(entry),
       /**
        * **The description is in the head and no longer in the body** (`#788`).

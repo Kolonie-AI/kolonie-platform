@@ -32,6 +32,7 @@ import {
   type AtlasPublicEntry,
   type AtlasPublicRecipe,
 } from './public-projection.js'
+import { atlasEntryWorked } from './worked.js'
 import { CONSOLE_MAST } from '../console/mark.js'
 import { CONSOLE_STYLE } from '../console/theme.js'
 import { ATLAS_STYLE } from './style.js'
@@ -249,8 +250,20 @@ function siteOf(canonical: string): string {
   return new URL(canonical).origin
 }
 
-export function atlasIndexPath(category?: AtlasCategorySlug): string {
-  return category === undefined ? ATLAS_PATH : `${ATLAS_PATH}?category=${category}`
+/**
+ * **`worked` is written only when it is `false`** (`#1103` decision 1). The
+ * default view is the one with no parameter on it, so `?worked=true` would be a
+ * second address for `/atlas` — the duplicate the canonical then has to argue
+ * with, which is the same reason `?category=` is absent rather than spelled out
+ * as *all*.
+ */
+export function atlasIndexPath(category?: AtlasCategorySlug, worked?: boolean): string {
+  const query = [
+    category === undefined ? '' : `category=${category}`,
+    worked === false ? 'worked=false' : '',
+  ].filter((one) => one !== '')
+
+  return query.length === 0 ? ATLAS_PATH : `${ATLAS_PATH}?${query.join('&')}`
 }
 
 /**
@@ -267,6 +280,14 @@ export function atlasIndexPath(category?: AtlasCategorySlug): string {
  * on a shared `?category=` link needs as much as anybody else, and a filtered
  * view that dropped them would be a page that assumes the reader came from the
  * unfiltered one.
+ *
+ * **What worked is the default and what did not is one link away** (`#1103`).
+ * With thousands of entries a reader looking for a mailbox needs the providers
+ * somebody got through first; and a provider agents *cannot* use is a finding
+ * this catalogue exists to carry, so the two pull in opposite directions and the
+ * resolution is a default rather than a deletion. Nothing is dropped: both views
+ * are the same shelf split in two, every entry is in exactly one of them, and
+ * every page, URL and sitemap row is untouched by which view a reader is on.
  */
 export function atlasIndexPage(input: {
   readonly entries: readonly AtlasEntry[]
@@ -274,6 +295,11 @@ export function atlasIndexPage(input: {
   readonly chrome?: SiteChrome | undefined
   /** The shelf a reader asked for, when they asked for one. */
   readonly category?: AtlasCategorySlug | undefined
+  /**
+   * Which side of {@link atlasEntryWorked} to show. Absent is `true`, which is
+   * `#1103` decision 1: the reader who asked for nothing asked for what worked.
+   */
+  readonly worked?: boolean | undefined
 }): string {
   const { category } = input
   /**
@@ -282,8 +308,26 @@ export function atlasIndexPage(input: {
    * shape of this function in which a step reaches the index.
    */
   const entries = atlasPublicEntries(input.entries)
-  const shown =
-    category === undefined ? entries : entries.filter((entry) => entry.category === category)
+  const asked = input.worked ?? true
+  const onShelf = (list: readonly AtlasPublicEntry[]): readonly AtlasPublicEntry[] =>
+    category === undefined ? list : list.filter((entry) => entry.category === category)
+
+  const wanted = onShelf(entries.filter((entry) => atlasEntryWorked(entry) === asked))
+  const other = onShelf(entries.filter((entry) => atlasEntryWorked(entry) !== asked))
+
+  /**
+   * **Decision 4, and it is the maintainer's case verbatim**: a default view
+   * with nothing in it shows what did not work instead, on the same page and
+   * under a sentence saying so. A zero-result page that leaves the reader to
+   * guess at a parameter is a page that failed, and *nobody got in anywhere
+   * here* is a better answer than a blank shelf however few entries carry it.
+   *
+   * The fallback runs on the default view only. A reader who asked for the
+   * failures and found none has their answer already, and showing them the
+   * successes would be the page overruling what they typed.
+   */
+  const fellBack = asked && wanted.length === 0 && other.length > 0
+  const shown = fellBack ? other : wanted
 
   return atlasPage({
     /**
@@ -313,18 +357,86 @@ export function atlasIndexPage(input: {
       `<p>${escape(ATLAS_STANDFIRST)}</p>`,
       ATLAS_JOIN_LINE,
       `<p><small>${escape(ATLAS_ORDER_NOTE)}</small></p>`,
-      shelfNav(entries, category),
+      shelfNav(entries, category, asked),
       entries.length === 0
         ? '<p>The catalogue is empty. Nothing has been listed yet, which is not the same as ' +
           'nothing being joinable.</p>'
-        : category !== undefined && shown.length === 0
+        : category !== undefined && wanted.length === 0 && other.length === 0
           ? `<p>Nothing is filed under ${escape(category)} yet. That is a shelf waiting to be ` +
             'filled rather than a category the Colony refuses — every entry on it would be one ' +
             'somebody walked.</p>'
-          : shelves(shown).join('\n'),
+          : [
+              workedNote({ asked, fellBack, category, shown: shown.length, other: other.length }),
+              shelves(shown).join('\n'),
+            ]
+              .filter((one) => one !== '')
+              .join('\n'),
       '</main>',
     ].join('\n'),
   })
+}
+
+/**
+ * The line that says which half of the shelf this is, and links to the other
+ * (`#1103`).
+ *
+ * **A default nobody can see is indistinguishable from a catalogue that is
+ * missing things.** The whole arrangement rests on the reader being told that
+ * they are looking at a filtered view and being one link from the rest, so the
+ * note is rendered wherever there is another side to reach and the link is a
+ * plain `<a href>` — `#97`'s no-JavaScript rule, and D-062's *filtering is a
+ * link and never a widget*, applied to the second filter as they were to the
+ * first.
+ *
+ * **The failures are described as kept rather than as rejects.** An entry
+ * nobody got through is a finding: it cost a citizen a walk, its page says what
+ * stopped them, and the reader deciding between four SMS providers wants the
+ * one that is closed to be visibly closed rather than absent.
+ */
+function workedNote(input: {
+  readonly asked: boolean
+  readonly fellBack: boolean
+  readonly category: AtlasCategorySlug | undefined
+  readonly shown: number
+  readonly other: number
+}): string {
+  const { asked, fellBack, category, other } = input
+  const line = (text: string): string => `<p class="k-atlas-worked">${text}</p>`
+  const link = (worked: boolean, text: string): string =>
+    `<a href="${escape(atlasIndexPath(category, worked))}">${text}</a>`
+
+  if (fellBack) {
+    return line(
+      'Nobody has got through here yet, so what follows is what did not work rather than ' +
+        'nothing at all. Each page says how far the walk got and what stopped it.',
+    )
+  }
+
+  if (!asked) {
+    /** Asked for the failures and there are none: say so and offer the way back. */
+    if (input.shown === 0) {
+      return line(
+        `Every entry here is one somebody got through. ${link(true, 'Back to what worked')}.`,
+      )
+    }
+
+    return line(
+      'These are the entries nobody has got through. They are kept rather than deleted, ' +
+        `because a provider agents cannot use is worth knowing about. ${link(
+          true,
+          'Back to what worked',
+        )}.`,
+    )
+  }
+
+  if (other === 0) return ''
+
+  return line(
+    `Showing what worked. ${link(
+      false,
+      `Show the ${other} ${other === 1 ? 'entry' : 'entries'} nobody got through`,
+    )}.`,
+  )
 }
 
 /**
@@ -341,10 +453,18 @@ export function atlasIndexPage(input: {
  * The current shelf is marked with `aria-current` rather than only styled: it is
  * what a screen reader announces, and a colour that said the same thing would
  * say it to one reader in two.
+ *
+ * **The counts are the whole catalogue's and not the current view's** (`#1103`).
+ * Counting only what worked would take a shelf where nothing has worked yet out
+ * of the navigation entirely — a shelf a reader cannot reach from the page that
+ * hid it, which is exactly the deletion the default was chosen instead of. The
+ * links carry the view so that flipping to what did not work stays flipped as
+ * the reader moves between shelves.
  */
 function shelfNav(
   entries: readonly AtlasPublicEntry[],
   current: AtlasCategorySlug | undefined,
+  worked: boolean,
 ): string {
   if (entries.length === 0) return ''
 
@@ -353,7 +473,7 @@ function shelfNav(
 
   const links = [...counts.entries()].map(
     ([category, count]) =>
-      `<li><a href="${escape(atlasIndexPath(category))}"` +
+      `<li><a href="${escape(atlasIndexPath(category, worked))}"` +
       `${category === current ? ' aria-current="page"' : ''}>` +
       `${escape(atlasShelfTitle(category))}</a> ` +
       `<span class="k-atlas-count">${count}</span></li>`,
@@ -362,7 +482,9 @@ function shelfNav(
   return [
     '<nav class="k-atlas-shelves" aria-label="Categories">',
     `<ul>${links.join('')}</ul>`,
-    current === undefined ? '' : `<p><a href="${escape(atlasIndexPath())}">Every category</a></p>`,
+    current === undefined
+      ? ''
+      : `<p><a href="${escape(atlasIndexPath(undefined, worked))}">Every category</a></p>`,
     '</nav>',
   ]
     .filter((line) => line !== '')

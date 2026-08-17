@@ -766,19 +766,36 @@ function recipeSection(
   /**
    * What the Colony wrote up about this row's walks, if it has (`#831`).
    *
-   * **Rendered exactly where the figures are and nowhere else.** The three
-   * states that return early below print no figures either — there is nothing
-   * measured about a provider nobody walked, and a refusal is a sentence rather
-   * than a set of findings — and a briefing appearing on a row whose counts do
-   * not would be the page contradicting its own layout.
+   * **Rendered exactly where the figures are and nowhere else**, which is the
+   * rule and not the list of states it currently covers. A briefing appearing on
+   * a row whose counts do not would be the page contradicting its own layout, so
+   * the two travel together everywhere.
+   *
+   * **The rule covers two states rather than three since `#1094`.** It was
+   * written when a refusal was a sentence somebody wrote and nothing had been
+   * measured behind it; `#1032` made `refused` one of five walkable statuses, and
+   * under it a refusal is *what the walkers found*. Eight of the fourteen
+   * briefings the Colony had written sat on refused entries — `telephony/
+   * telnyx.com` on ten claims — and the page printed *nobody has walked this*
+   * over the top of them. `unwritten` and `retired` keep their early returns:
+   * there is genuinely nothing measured about a provider nobody attempted, and a
+   * withdrawn row is not on offer to anybody.
    */
   briefing: ProviderBriefing | undefined,
 ): string {
+  /**
+   * **A refusal carries its findings** (`#1094`), in the order a reader has to
+   * meet them: the refusal first, then what was measured, then the write-up.
+   * Reversed, the findings read as an invitation to a road the Colony has
+   * already said is closed.
+   */
   if (recipe.status === 'refused') {
     return [
       `<section><h2>${escape(recipeHeading(recipe))}</h2>`,
       '<p class="k-refused">This cannot be joined honestly, so do not try.</p>',
       `<p>${escape(recipe.refusal ?? '')}</p>`,
+      figuresSection(recipe.figures, recipe.steps.length),
+      briefingSection(briefing),
       '</section>',
     ].join('')
   }
@@ -1368,6 +1385,23 @@ function confirmedLine(entry: AtlasEntry): string {
   const walked = lastConfirmed(entry)
 
   if (walked === undefined) {
+    /**
+     * **Except where citizens have walked it, which is where the sentence is
+     * false** (`#1094`). *Nobody has confirmed this entry by walking it* asks to
+     * be read with the line under it — reporting what happened changes it
+     * *whether it worked or not* — so it is a claim that nobody has been here,
+     * and on a refused entry with ten claims behind it that claim is untrue. It
+     * is dropped rather than replaced: the figures and the briefing above say
+     * what the walkers found, in the Colony's own words, and a second sentence
+     * summarising them here would be invented rather than measured.
+     *
+     * **Read off `walked.band` and not off a count.** The band is null exactly
+     * when no walk closed and survives `ATLAS_FIGURE_FLOOR`, where
+     * `walked.citizens` is zeroed under it — so a count would put the sentence
+     * back on every small provider, which is all of them.
+     */
+    if (entry.recipes.some((recipe) => recipe.figures.walked.band !== null)) return ''
+
     return (
       '<p class="k-atlas-confirmed"><small>Nobody has confirmed this entry by walking it. ' +
       'Following it and reporting what happened with kolonie.accounts.provider-report is what ' +

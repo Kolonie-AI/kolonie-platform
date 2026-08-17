@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { buildApp } from '../app.js'
 import { fakeColony, type FakeColony } from '../__fixtures__/colony/index.js'
-import { AccountCapabilitySchema, ATLAS_PATH, noFigures } from '@kolonie-ai/core'
+import { AccountCapabilitySchema, AccountKindSchema, ATLAS_PATH, noFigures } from '@kolonie-ai/core'
 import type { SiteChrome } from '../atlas/site-chrome.js'
 
 const SITE = 'https://site.test'
@@ -726,6 +726,216 @@ describe('the Atlas on the website host', () => {
 
       expect(body.indexOf('/atlas/github')).toBeLessThan(
         body.indexOf('/atlas/aaa-first-alphabetically'),
+      )
+    })
+  })
+
+  /**
+   * What a refusal carries under it (`#1094`).
+   *
+   * **A refusal is what the walkers found, not the absence of walkers.** Before
+   * `#1032` a refused entry was a sentence somebody wrote with nothing measured
+   * behind it, and `recipeSection` returned early on that premise. Under `#1032`
+   * eight of the fourteen written briefings sat on refused entries — one of them
+   * on ten claims — and the page printed *nobody has walked this* over the top of
+   * them, while the same briefing went out over MCP with no status gate at all.
+   *
+   * `telephony/telnyx.com` is the shape these are modelled on.
+   */
+  describe('a refused entry and what was measured behind it', () => {
+    const refused = (write: (colony: FakeColony) => void) => async () => {
+      await app.close()
+      app = build()
+      colony.recipes.write({
+        kind: 'telephony',
+        provider: 'refused.example',
+        title: 'Refused',
+        status: 'refused',
+        refusal: 'Signup demands a document no citizen holds.',
+        /**
+         * **Explicitly nobody-confirmed**, or the sentence `#1094` is about would
+         * be answered by `lastConfirmedAt` before `confirmedLine` ever reached
+         * the branch under test — and both of the tests below would pass over an
+         * unchanged page.
+         */
+        lastConfirmedAt: null,
+      })
+      write(colony)
+      await app.ready()
+    }
+
+    /** Ten claims and a wall the walkers actually met, on a page that hid both. */
+    const briefing = {
+      kind: AccountKindSchema.parse('telephony'),
+      provider: 'refused.example',
+      claims: [
+        {
+          section: 'wall' as const,
+          text: 'Signup asks for a government document before the account exists.',
+          walks: 4,
+          platforms: { openclaw: 4 },
+          lastSupportedAt: '2026-08-15T00:00:00.000Z',
+          sources: [],
+          current: true,
+        },
+      ],
+      model: 'a-model',
+      writtenAt: '2026-08-15T00:00:00.000Z',
+    }
+
+    const walkedFigures = {
+      ...noFigures('telephony', 'refused.example'),
+      attempted: 12,
+      proved: 0,
+      refused: 11,
+      evidenced: true,
+      walked: {
+        citizens: 9,
+        gotThrough: 0,
+        band: 'few-got-through' as const,
+        platforms: { openclaw: 9 },
+        walls: [{ kind: 'identity-document' as const, citizens: 9 }],
+      },
+    }
+
+    it('renders the briefing and the figures the page used to hide', async () => {
+      await refused((one) => {
+        one.recipes.measure(walkedFigures)
+        one.recipes.brief(briefing)
+      })()
+
+      const body = (await get('/atlas/refused.example')).body
+
+      expect(body).toContain('Signup asks for a government document before the account exists.')
+      expect(body).toContain('0% of 12 agents got through')
+      expect(body).toContain('11 were refused outright')
+    })
+
+    /**
+     * **The refusal first, then the figures, then the write-up.** A reader has
+     * to learn the road is closed before reading what walkers found there, or
+     * the findings read as an invitation.
+     */
+    it('puts the refusal above the figures and the briefing', async () => {
+      await refused((one) => {
+        one.recipes.measure(walkedFigures)
+        one.recipes.brief(briefing)
+      })()
+
+      const body = (await get('/atlas/refused.example')).body
+      const refusal = body.indexOf('Signup demands a document no citizen holds.')
+      const figures = body.indexOf('0% of 12 agents got through')
+      const written = body.indexOf('Signup asks for a government document')
+
+      expect(refusal).toBeGreaterThan(-1)
+      expect(refusal).toBeLessThan(figures)
+      expect(figures).toBeLessThan(written)
+    })
+
+    /**
+     * `briefingSection` already answers `undefined` with the empty string, and
+     * `#1094` invented no wording for the case: a refused entry nobody wrote up
+     * renders no heading and no placeholder sentence.
+     */
+    it('renders no briefing heading where nothing was written', async () => {
+      await refused((one) => one.recipes.measure(walkedFigures))()
+
+      const body = (await get('/atlas/refused.example')).body
+
+      expect(body).toContain('Signup demands a document no citizen holds.')
+      expect(body).not.toContain('What goes wrong here')
+      expect(body).not.toContain('What nobody has solved')
+    })
+
+    /**
+     * **The floor is untouched by this** (`#1094` decision 4). Which pages print
+     * figures changed; which figures may be printed did not.
+     */
+    it('keeps a refused entry below the floor behind it', async () => {
+      await refused((one) => {
+        one.recipes.measure({
+          ...noFigures('telephony', 'refused.example'),
+          suppressed: true,
+          band: 'few-got-through',
+          commonestStop: 'signup-refused',
+          evidenced: true,
+          walked: {
+            citizens: 0,
+            gotThrough: 0,
+            band: 'few-got-through' as const,
+            platforms: {},
+            walls: [],
+          },
+        })
+        one.recipes.brief(briefing)
+      })()
+
+      const body = (await get('/atlas/refused.example')).body
+
+      expect(body).toContain('the numbers behind these are withheld')
+      expect(body).toContain('Few of the agents who tried this got through')
+      expect(body).not.toMatch(/\d+% of \d+ agents got through/)
+    })
+
+    /**
+     * **The rejection case that stops this being widened by accident.** There is
+     * genuinely nothing measured about a provider nobody attempted, so an
+     * `unwritten` row prints neither a briefing nor figures even when a briefing
+     * row exists for the pair.
+     */
+    it('still hides both on an unwritten entry that has a briefing anyway', async () => {
+      await app.close()
+      app = build()
+      colony.recipes.brief({
+        ...briefing,
+        kind: AccountKindSchema.parse('mailbox'),
+        provider: 'unwritten.example',
+        claims: [{ ...briefing.claims[0]!, text: 'A wall nobody should be reading here.' }],
+      })
+      colony.recipes.measure({
+        ...noFigures('mailbox', 'unwritten.example'),
+        attempted: 12,
+        proved: 3,
+      })
+      await app.ready()
+
+      const body = (await get('/atlas/unwritten.example')).body
+
+      expect(body).not.toContain('A wall nobody should be reading here.')
+      expect(body).not.toContain('What goes wrong here')
+      expect(body).not.toContain('agents got through')
+    })
+
+    /**
+     * The sentence the goal of `#1094` is named after: no page asserts that
+     * nobody has walked a provider that several citizens have walked.
+     */
+    it('no longer says nobody has walked an entry nine citizens walked', async () => {
+      await refused((one) => one.recipes.measure(walkedFigures))()
+
+      expect((await get('/atlas/refused.example')).body).not.toContain(
+        'Nobody has confirmed this entry by walking it',
+      )
+    })
+
+    /**
+     * And it still says it where that is true, which is what makes it worth
+     * printing. **Read off the band and not off a count**: the figures here are
+     * measured and evidenced, and no walk closed behind them.
+     */
+    it('still says it where nobody has walked the entry', async () => {
+      await refused((one) =>
+        one.recipes.measure({
+          ...noFigures('telephony', 'refused.example'),
+          attempted: 12,
+          proved: 0,
+          refused: 11,
+          evidenced: true,
+        }),
+      )()
+
+      expect((await get('/atlas/refused.example')).body).toContain(
+        'Nobody has confirmed this entry by walking it',
       )
     })
   })

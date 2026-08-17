@@ -13,6 +13,13 @@ npm-debug.log*
 .vitest/
 .eslintcache
 
+# Written and removed within one test by scripts/test-file-enumeration.test.ts
+# (#1190): a copy of packages/db's vitest config with a different isolation list,
+# which has to sit beside the real one because a project's include glob resolves
+# against the config's own directory. Ignored so that a crashed run leaves a
+# stray file rather than a dirty tree.
+packages/db/vitest.*-probe.config.ts
+
 # Generated on every build by packages/db/scripts/generate-storage-barrel.mjs.
 # It is not in git on purpose (#271): a barrel with one line per storage module
 # is an append point two agents collide in, and a file nobody commits cannot be

@@ -230,6 +230,38 @@ main h1 + p {
 }
 
 /*
+ * The way to the rest of a shelf that did not fit on one page (\`#1143\`).
+ *
+ * **A row of three with the position in the middle**, and the two links pushed to
+ * the ends by the gap: on the first page there is no *Previous*, and the space
+ * where it would be stays empty rather than sliding *Next* across — a control
+ * that moves between pages is one a reader has to find again each time.
+ */
+.k-atlas-pages {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--k-space-4);
+  margin-top: var(--k-space-6);
+  font-size: var(--k-text-sm);
+}
+
+.k-atlas-pages span {
+  margin-inline: auto;
+  color: var(--k-text-muted);
+}
+
+.k-atlas-pages a {
+  color: var(--k-accent);
+  text-decoration: none;
+}
+
+.k-atlas-pages a:hover,
+.k-atlas-pages a:focus-visible {
+  text-decoration: underline;
+}
+
+/*
  * What the provider is, on the row (\`#1121\` decision 6).
  *
  * **Clamped here and whole in the markup.** The sentence goes into the document

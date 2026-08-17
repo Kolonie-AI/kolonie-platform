@@ -152,6 +152,17 @@ export function atlasPage(input: {
    * passes it is an entry nobody has walked — see {@link atlasEntryPage}.
    */
   readonly robots?: string | undefined
+  /**
+   * Where this page sits in a sequence, when it is one of several (`#1143`
+   * decision 6).
+   *
+   * **Absolute, like the canonical, and absent on every page that stands alone**
+   * — which is all of them but a paginated shelf. `rel="prev"` and `rel="next"`
+   * are how a crawler is told that page four is a continuation rather than a
+   * near-duplicate of page three, and they are head links because there is no
+   * other way to say it: the paging links in the body say it to a reader.
+   */
+  readonly sequence?: { readonly prev?: string | undefined; readonly next?: string | undefined }
 }): string {
   const { chrome } = input
 
@@ -165,6 +176,12 @@ export function atlasPage(input: {
     `<meta name="description" content="${escape(input.description)}">`,
     input.robots === undefined ? '' : `<meta name="robots" content="${escape(input.robots)}">`,
     `<link rel="canonical" href="${escape(input.canonical)}">`,
+    input.sequence?.prev === undefined
+      ? ''
+      : `<link rel="prev" href="${escape(input.sequence.prev)}">`,
+    input.sequence?.next === undefined
+      ? ''
+      : `<link rel="next" href="${escape(input.sequence.next)}">`,
     /**
      * The console's tokens and element rules, then the Atlas's own
      * (`kolonie-website#97`). Two blocks and not one: `CONSOLE_STYLE` is shared
@@ -273,11 +290,63 @@ function siteOf(canonical: string): string {
  * default view is the one with no parameter on it, so `?worked=true` would be a
  * second address for each of these — the duplicate the canonical then has to
  * argue with.
+ *
+ * **`page` is written only past the first** (`#1143` decision 3), for the same
+ * reason and with the same consequence: `?page=1` and the bare address are one
+ * page, so only one of them is ever built, linked or put in a sitemap.
  */
-export function atlasShelfPath(category?: AtlasCategorySlug, worked?: boolean): string {
+export function atlasShelfPath(
+  category?: AtlasCategorySlug,
+  worked?: boolean,
+  page?: number,
+): string {
   const base = category === undefined ? ATLAS_PATH : atlasCategoryPath(category)
+  const query = [
+    ...(worked === false ? ['worked=false'] : []),
+    ...(page !== undefined && page > 1 ? [`page=${page}`] : []),
+  ]
 
-  return worked === false ? `${base}?worked=false` : base
+  return query.length === 0 ? base : `${base}?${query.join('&')}`
+}
+
+/**
+ * How many rows go on a page of a shelf (`#1143` decision 1).
+ *
+ * **Fifty, and not the index's six.** They answer different questions: the index
+ * caps a shelf at six because it is a contents page and has fourteen of them to
+ * fit, and this is the shelf itself, where a reader has already chosen it and
+ * wants to read down it. Fifty is about a screenful of scrolling and keeps the
+ * biggest shelf in the catalogue — telephony, 166 rows when `#905` measured it —
+ * to a handful of pages rather than a hundred.
+ */
+export const ATLAS_PAGE_ROWS = 50
+
+/**
+ * Which page a reader asked for, from whatever they typed (`#1143` decision 5).
+ *
+ * **Anything that is not a positive integer is the first page**, rather than a
+ * 404. `?page=abc` is a broken link or a crawler's guess, and the shelf it names
+ * exists — answering with the shelf is both what the reader wanted and what
+ * keeps a typo from looking like a missing page. What *is* a 404 is a page past
+ * the last one (decision 4): that number is well-formed and the answer to it is
+ * that there is nothing there.
+ *
+ * **The route drops it from the canonical when it comes back 1**, so the four
+ * malformed forms do not mint four addresses for the first page.
+ */
+export function atlasPageAsked(raw: string | undefined): number {
+  return raw !== undefined && /^[1-9][0-9]*$/.test(raw) ? Number(raw) : 1
+}
+
+/**
+ * How many pages a shelf has, from the rows that would be printed on it.
+ *
+ * **Zero rows is one page and not none.** An empty shelf still renders — it says
+ * *nothing is filed under this yet*, which is `#1107`'s answer and a page worth
+ * serving — so the last page is never behind the first.
+ */
+export function atlasPageCount(rows: number): number {
+  return Math.max(1, Math.ceil(rows / ATLAS_PAGE_ROWS))
 }
 
 /**
@@ -316,6 +385,26 @@ function workedSplit(
   const fellBack = asked && wanted.length === 0 && other.length > 0
 
   return { asked, fellBack, shown: fellBack ? other : wanted, other: other.length }
+}
+
+/**
+ * How many rows a shelf would print, for the route that has to decide whether a
+ * page exists before it renders one (`#1143` decision 4).
+ *
+ * **The same three steps the page takes, in one place rather than two.** The
+ * projection, then the shelf the page covers, then which half of it `#1103`
+ * shows — a 404 computed from any shorter chain would be a route disagreeing
+ * with the page it is about to serve about how long the shelf is, and the
+ * disagreement would show up as the last page 404ing or an empty one rendering.
+ */
+export function atlasShelfRows(
+  entries: readonly AtlasEntry[],
+  covers: readonly string[],
+  worked: boolean | undefined,
+): number {
+  const mine = atlasPublicEntries(entries).filter((entry) => covers.includes(entry.category))
+
+  return workedSplit(mine, worked).shown.length
 }
 
 /**
@@ -443,6 +532,12 @@ export function atlasCategoryPage(input: {
   readonly canonical: string
   readonly chrome?: SiteChrome | undefined
   readonly worked?: boolean | undefined
+  /**
+   * Which page of the shelf, counting from one (`#1143`). Absent is the first.
+   * The route has already turned anything that is not a positive integer into
+   * the first and refused anything past the last, so this is a page that exists.
+   */
+  readonly page?: number | undefined
 }): string {
   const { category, covers } = input
   const all = atlasPublicEntries(input.entries)
@@ -462,6 +557,27 @@ export function atlasCategoryPage(input: {
    * same words twice with nothing between them.
    */
   const grouped = covers.length > 1
+  /**
+   * **Flattened into the printed order before it is cut** (`#1143`). A top page
+   * groups its rows, so slicing the unflattened list would put shelf A's second
+   * fifty on the same page as shelf C's first — the pages would each be fifty
+   * rows and none of them would be a stretch of the shelf a reader is reading
+   * down. Cutting the order the page prints in is what makes page two the
+   * continuation of page one.
+   */
+  const order = shelfOrder(mine)
+  const ordered = grouped ? shelfSlice(shown, order) : shown
+  const page = input.page ?? 1
+  const pages = atlasPageCount(ordered.length)
+  const onPage = ordered.slice((page - 1) * ATLAS_PAGE_ROWS, page * ATLAS_PAGE_ROWS)
+  /**
+   * **The reader's view, carried through the sequence.** These say what comes
+   * before and after *this* page, so they keep `worked` even though the
+   * canonical drops it (`#1107` decision 6): a next link that changed which half
+   * of the shelf the reader was on would be the trapdoor `#1103` closed.
+   */
+  const pagePath = (at: number) => atlasShelfPath(category.slug, asked, at)
+  const pageAt = (at: number) => `${siteOf(input.canonical)}${pagePath(at)}`
 
   return atlasPage({
     /**
@@ -474,8 +590,17 @@ export function atlasCategoryPage(input: {
     description: category.standfirst,
     canonical: input.canonical,
     chrome: input.chrome,
-    /** Decision 5: what was rendered, and never the whole shelf. */
-    jsonLd: [itemListFor(shown, siteOf(input.canonical), category.slug)],
+    /**
+     * Decision 5: what was rendered, and never the whole shelf. Since `#1143`
+     * that is this page's fifty rather than the shelf's shown half, for the
+     * reason `#1142` gave the index: an `ItemList` naming rows the page does not
+     * print is the markup contradicting the page it is attached to.
+     */
+    jsonLd: [itemListFor(onPage, siteOf(input.canonical), category.slug)],
+    sequence: {
+      ...(page > 1 ? { prev: pageAt(page - 1) } : {}),
+      ...(page < pages ? { next: pageAt(page + 1) } : {}),
+    },
     body: [
       '<main>',
       `<h1>${escape(question)}</h1>`,
@@ -507,13 +632,17 @@ export function atlasCategoryPage(input: {
             grouped
               ? /**
                  * **Uncapped, and ordered from this page's own entries** (`#1142`
-                 * decision 1). This page *is* a shelf; the cap belongs to the
-                 * index, whose job is to be scannable, and the order is derived
-                 * from `mine` rather than from the catalogue because the sub
-                 * shelves being ordered are the ones filed under this one.
+                 * decision 1). This page *is* a shelf; the six-row cap belongs to
+                 * the index, whose job is to be scannable, and the order is
+                 * derived from `mine` rather than from the catalogue because the
+                 * sub shelves being ordered are the ones filed under this one.
+                 * `#1143`'s fifty is not that cap: it cuts the page and not the
+                 * shelf, and what it cuts off is on the next page rather than
+                 * behind an *All 27 →* link to the page the reader is on.
                  */
-                shelves({ entries: shown, order: shelfOrder(mine), worked: asked }).join('\n')
-              : `<ul class="k-atlas-index">${shown.map(indexRow).join('')}</ul>`,
+                shelves({ entries: onPage, order, worked: asked }).join('\n')
+              : `<ul class="k-atlas-index">${onPage.map(indexRow).join('')}</ul>`,
+            pageNav({ page, pages, at: pagePath }),
           ]
             .filter((one) => one !== '')
             .join('\n'),
@@ -558,6 +687,41 @@ function categoryNav(input: {
   return (
     '<nav class="k-atlas-shelves" aria-label="Categories">' +
     `<ul>${links.join('')}</ul>` +
+    '</nav>'
+  )
+}
+
+/**
+ * The way to the rest of a shelf that did not fit on one page (`#1143`).
+ *
+ * **Links and never a widget** — D-062 again, and the same argument `#1107` made
+ * for the category filter: `#97` requires the Atlas to work with no JavaScript,
+ * and the cheapest way to satisfy that is for there to be no JavaScript to fail.
+ *
+ * **Nothing at all on a shelf that fits.** Most shelves do, and *Page 1 of 1* is
+ * a control that says a reader has nowhere to go.
+ *
+ * **The position is printed as well as the two links.** A reader who followed
+ * three *Next* links needs to know where they are, and *Page 3 of 4* is the
+ * cheapest way to say both where they are and that there is an end to it.
+ */
+function pageNav(input: {
+  readonly page: number
+  readonly pages: number
+  readonly at: (page: number) => string
+}): string {
+  if (input.pages <= 1) return ''
+
+  const previous =
+    input.page > 1 ? `<a rel="prev" href="${escape(input.at(input.page - 1))}">← Previous</a>` : ''
+  const next =
+    input.page < input.pages
+      ? `<a rel="next" href="${escape(input.at(input.page + 1))}">Next →</a>`
+      : ''
+
+  return (
+    '<nav class="k-atlas-pages" aria-label="Pages">' +
+    `${previous}<span>Page ${input.page} of ${input.pages}</span>${next}` +
     '</nav>'
   )
 }
@@ -744,11 +908,16 @@ function shelfOrder(entries: readonly AtlasPublicEntry[]): readonly string[] {
 function shelfSlice(
   entries: readonly AtlasPublicEntry[],
   order: readonly string[],
-  cap: number,
+  /** Absent is uncapped: every row, still flattened into the printed order. */
+  cap?: number,
 ): readonly AtlasPublicEntry[] {
   const byCategory = groupByShelf(entries)
 
-  return order.flatMap((category) => (byCategory.get(category) ?? []).slice(0, cap))
+  return order.flatMap((category) => {
+    const shelf = byCategory.get(category) ?? []
+
+    return cap === undefined ? shelf : shelf.slice(0, cap)
+  })
 }
 
 function groupByShelf(

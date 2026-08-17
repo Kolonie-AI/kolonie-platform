@@ -97,6 +97,27 @@ export function atlasEntryQuestion(entry: AtlasPublicEntry): string {
 }
 
 /**
+ * The same heading, one level up: a shelf's own `h1` (`#1107`, decision 4).
+ *
+ * **Here rather than beside `atlasShelfTitle` in `core`**, because what it is
+ * doing is `#1105`'s decision and not the taxonomy's: `#1107` says the category
+ * page applies that decision one level up rather than deciding it again, and a
+ * reader wondering why a shelf asks a question should find the answer next to the
+ * page that asks the same one about a provider.
+ *
+ * **The title is not rewritten**, only joined: *Mailboxes* becomes *Which
+ * mailboxes can an AI agent sign up for?*, and the words are the ones the
+ * category row already carries. A title whose second character is upper case is
+ * left alone — `DNS providers` is an acronym and not a sentence, and lowercasing
+ * it would produce a word nobody typed.
+ */
+export function atlasShelfQuestion(title: string): string {
+  const opening = /^[A-Z][A-Z]/.test(title) ? title : lowerFirst(title)
+
+  return `Which ${opening} can an AI agent sign up for?`
+}
+
+/**
  * The nine facts, plus a direction where the kind has one (`#1105` decision 1).
  *
  * The order is the order a reader weighs them in: what it costs, what stands in

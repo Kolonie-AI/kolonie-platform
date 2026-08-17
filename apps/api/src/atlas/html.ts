@@ -1,10 +1,12 @@
 import {
   ATLAS_PATH,
   atlasCapabilityPhrase,
+  atlasCategoryPath,
   atlasIsWalked,
   atlasKindPhrase,
   atlasShelfTitle,
   atlasConditionsSentences,
+  type AtlasCategoryRow,
   RETIRED_ENTRY_NOTE,
   STALE_ENTRY_NOTE,
   UNWRITTEN_ENTRY_NOTE,
@@ -25,7 +27,12 @@ import {
   type ServedProviderBriefingClaim,
 } from '@kolonie-ai/core'
 import { escape } from '../console/html.js'
-import { atlasCriteria, atlasEntryQuestion, type AtlasCriterion } from './criteria.js'
+import {
+  atlasCriteria,
+  atlasEntryQuestion,
+  atlasShelfQuestion,
+  type AtlasCriterion,
+} from './criteria.js'
 import { breadcrumbFor, faqPageFor, itemListFor } from './structured-data.js'
 import {
   atlasPublicEntries,
@@ -252,35 +259,78 @@ function siteOf(canonical: string): string {
 }
 
 /**
+ * Where a shelf is, or where the whole catalogue is when no shelf is named.
+ *
+ * **A shelf is a page now and not a filter** (`#1107`, decision 3). It was
+ * `/atlas?category=mailbox`; it is `/atlas/c/mailbox`, the old address 301s to
+ * the new one, and every link this function builds points at the page rather
+ * than at the redirect. One function still, so the link on an entry page, the
+ * link in the nav and the link in the shelf heading cannot disagree about which
+ * of the two a shelf is.
+ *
  * **`worked` is written only when it is `false`** (`#1103` decision 1). The
  * default view is the one with no parameter on it, so `?worked=true` would be a
- * second address for `/atlas` — the duplicate the canonical then has to argue
- * with, which is the same reason `?category=` is absent rather than spelled out
- * as *all*.
+ * second address for each of these — the duplicate the canonical then has to
+ * argue with.
  */
-export function atlasIndexPath(category?: AtlasCategorySlug, worked?: boolean): string {
-  const query = [
-    category === undefined ? '' : `category=${category}`,
-    worked === false ? 'worked=false' : '',
-  ].filter((one) => one !== '')
+export function atlasShelfPath(category?: AtlasCategorySlug, worked?: boolean): string {
+  const base = category === undefined ? ATLAS_PATH : atlasCategoryPath(category)
 
-  return query.length === 0 ? ATLAS_PATH : `${ATLAS_PATH}?${query.join('&')}`
+  return worked === false ? `${base}?worked=false` : base
+}
+
+/**
+ * Which half of the shelf a reader is on, and what is on each side.
+ *
+ * **Computed once and shared by both pages** (`#1107`). The index and a category
+ * page are the same list under two different headings, and `#1103`'s default —
+ * what worked, with what did not one link away — has to mean the same thing on
+ * both or the link between them is a trapdoor.
+ */
+function workedSplit(
+  entries: readonly AtlasPublicEntry[],
+  worked: boolean | undefined,
+): {
+  readonly asked: boolean
+  readonly fellBack: boolean
+  readonly shown: readonly AtlasPublicEntry[]
+  readonly other: number
+} {
+  const asked = worked ?? true
+  const wanted = entries.filter((entry) => atlasEntryWorked(entry) === asked)
+  const other = entries.filter((entry) => atlasEntryWorked(entry) !== asked)
+
+  /**
+   * **Decision 4 of `#1103`, and it is the maintainer's case verbatim**: a
+   * default view with nothing in it shows what did not work instead, on the same
+   * page and under a sentence saying so. A zero-result page that leaves the
+   * reader to guess at a parameter is a page that failed, and *nobody got in
+   * anywhere here* is a better answer than a blank shelf however few entries
+   * carry it.
+   *
+   * The fallback runs on the default view only. A reader who asked for the
+   * failures and found none has their answer already, and showing them the
+   * successes would be the page overruling what they typed.
+   */
+  const fellBack = asked && wanted.length === 0 && other.length > 0
+
+  return { asked, fellBack, shown: fellBack ? other : wanted, other: other.length }
 }
 
 /**
  * The index: every entry, on a shelf per category (`#588`, `#589`,
  * `kolonie-website#97`).
  *
- * **Filtering is a link and never a widget** — `?category=mailbox`, D-062, the
- * same decision the console's browser took in `#591`. `#97` requires it to work
- * with no JavaScript, and the cheapest way to satisfy that is for there to be
- * no JavaScript to fail.
+ * **It no longer filters** (`#1107` decision 3). `?category=mailbox` was a view
+ * of this page; a shelf is now a page of its own at `/atlas/c/mailbox` and the
+ * old address 301s to it, so the branch that rendered one shelf here is
+ * {@link atlasCategoryPage} rather than a parameter. What is left is the whole
+ * catalogue, which is the one thing the index was always for.
  *
- * **A filtered index is the same page with one shelf**, not a second template.
- * The heading, the standfirst and the ordering note are what a reader arriving
- * on a shared `?category=` link needs as much as anybody else, and a filtered
- * view that dropped them would be a page that assumes the reader came from the
- * unfiltered one.
+ * **Filtering is still a link and never a widget** — D-062, the same decision
+ * the console's browser took in `#591`. `#97` requires it to work with no
+ * JavaScript, and the cheapest way to satisfy that is for there to be no
+ * JavaScript to fail.
  *
  * **What worked is the default and what did not is one link away** (`#1103`).
  * With thousands of entries a reader looking for a mailbox needs the providers
@@ -294,87 +344,204 @@ export function atlasIndexPage(input: {
   readonly entries: readonly AtlasEntry[]
   readonly canonical: string
   readonly chrome?: SiteChrome | undefined
-  /** The shelf a reader asked for, when they asked for one. */
-  readonly category?: AtlasCategorySlug | undefined
   /**
    * Which side of {@link atlasEntryWorked} to show. Absent is `true`, which is
    * `#1103` decision 1: the reader who asked for nothing asked for what worked.
    */
   readonly worked?: boolean | undefined
 }): string {
-  const { category } = input
   /**
    * **The projection, on the first line and not at the caller** (`#1100`).
    * Everything below this point takes {@link AtlasPublicEntry}, so there is no
    * shape of this function in which a step reaches the index.
    */
   const entries = atlasPublicEntries(input.entries)
-  const asked = input.worked ?? true
-  const onShelf = (list: readonly AtlasPublicEntry[]): readonly AtlasPublicEntry[] =>
-    category === undefined ? list : list.filter((entry) => entry.category === category)
-
-  const wanted = onShelf(entries.filter((entry) => atlasEntryWorked(entry) === asked))
-  const other = onShelf(entries.filter((entry) => atlasEntryWorked(entry) !== asked))
-
-  /**
-   * **Decision 4, and it is the maintainer's case verbatim**: a default view
-   * with nothing in it shows what did not work instead, on the same page and
-   * under a sentence saying so. A zero-result page that leaves the reader to
-   * guess at a parameter is a page that failed, and *nobody got in anywhere
-   * here* is a better answer than a blank shelf however few entries carry it.
-   *
-   * The fallback runs on the default view only. A reader who asked for the
-   * failures and found none has their answer already, and showing them the
-   * successes would be the page overruling what they typed.
-   */
-  const fellBack = asked && wanted.length === 0 && other.length > 0
-  const shown = fellBack ? other : wanted
+  const { asked, fellBack, shown, other } = workedSplit(entries, input.worked)
 
   return atlasPage({
-    /**
-     * **The filtered index is titled for the search that finds it** (`#788`).
-     * `The Atlas — mailbox` names our own filter and our own slug, neither of
-     * which anybody types into a search box; the shelf title plus what the
-     * shelf is for names the thing a reader was looking for. Unfiltered stays
-     * `The Atlas`, which is what the whole catalogue is called.
-     */
-    title:
-      category === undefined
-        ? 'The Atlas'
-        : `${atlasShelfTitle(category)} an AI agent can sign up for`,
+    title: 'The Atlas',
     description: ATLAS_STANDFIRST,
     canonical: input.canonical,
     chrome: input.chrome,
     /**
      * **The list it rendered, in the order it rendered it** (`#789`). `shown`
-     * and not `entries`: a filtered index is a different list, and an `ItemList`
+     * and not `entries`: the two views are different lists, and an `ItemList`
      * naming entries the page does not show would be the markup contradicting
      * the page it is attached to.
      */
-    jsonLd: [itemListFor(shown, siteOf(input.canonical), category)],
+    jsonLd: [itemListFor(shown, siteOf(input.canonical))],
     body: [
       '<main>',
       '<h1>The Atlas</h1>',
       `<p>${escape(ATLAS_STANDFIRST)}</p>`,
       ATLAS_JOIN_LINE,
       `<p><small>${escape(ATLAS_ORDER_NOTE)}</small></p>`,
-      shelfNav(entries, category, asked),
+      shelfNav(entries, asked),
       entries.length === 0
         ? '<p>The catalogue is empty. Nothing has been listed yet, which is not the same as ' +
           'nothing being joinable.</p>'
-        : category !== undefined && wanted.length === 0 && other.length === 0
-          ? `<p>Nothing is filed under ${escape(category)} yet. That is a shelf waiting to be ` +
-            'filled rather than a category the Colony refuses — every entry on it would be one ' +
-            'somebody walked.</p>'
-          : [
-              workedNote({ asked, fellBack, category, shown: shown.length, other: other.length }),
-              shelves(shown).join('\n'),
-            ]
-              .filter((one) => one !== '')
-              .join('\n'),
+        : [
+            workedNote({ asked, fellBack, category: undefined, shown: shown.length, other }),
+            shelves(shown).join('\n'),
+          ]
+            .filter((one) => one !== '')
+            .join('\n'),
       '</main>',
     ].join('\n'),
   })
+}
+
+/**
+ * One shelf, as a page of its own (`#1107`).
+ *
+ * **Both levels of the taxonomy render through here** (decision 1). A top
+ * category and a sub category are the same kind of thing to a reader — a shelf
+ * with a name, a standfirst and a list under it — and the only difference is what
+ * the list is grouped by: a top page groups its entries into its sub categories,
+ * a sub page has one group and prints it flat rather than repeating its own `h1`
+ * as an `h2`.
+ *
+ * **The heading is the question `#1105` asks one level down** (decision 4). A
+ * reader typing *which mailboxes can an AI agent sign up for* is asking about the
+ * shelf, and the page they land on should be their own sentence back;
+ * {@link atlasShelfQuestion} joins the category row's own title rather than
+ * rewriting it.
+ *
+ * **No `FAQPage`** (decision 8). That markup is a promise that every question in
+ * it has its answer visible on the page, which is true of a provider page's
+ * criteria box and is not true of a shelf — the shelf's questions are answered on
+ * the fifteen pages it links to.
+ */
+export function atlasCategoryPage(input: {
+  readonly entries: readonly AtlasEntry[]
+  /** The shelf itself, as the table holds it: slug, title and standfirst. */
+  readonly category: AtlasCategoryRow
+  /**
+   * The shelves beside this one in the navigation: the children of a top
+   * category, the siblings of a sub category. Empty is a shelf with neither.
+   */
+  readonly nav: readonly AtlasCategoryRow[]
+  /** The category above this one, where there is one — the link back up. */
+  readonly parent?: AtlasCategoryRow | undefined
+  /**
+   * The slugs whose entries belong on this page: the one slug of a sub category,
+   * every child of a top one. Passed rather than derived, because *which shelves
+   * hang under this one* is the table's answer and not the renderer's.
+   */
+  readonly covers: readonly string[]
+  readonly canonical: string
+  readonly chrome?: SiteChrome | undefined
+  readonly worked?: boolean | undefined
+}): string {
+  const { category, covers } = input
+  const all = atlasPublicEntries(input.entries)
+  /**
+   * **The primary shelf, which is the one the index groups by too.** `#1102`
+   * gives an entry several shelves, and the public projection carries only the
+   * one it is filed under — so an entry appears once, on the same shelf, on
+   * every surface. A page that read the join would disagree with the index
+   * about where a provider lives, which is the one thing a map may not do.
+   */
+  const mine = all.filter((entry) => covers.includes(entry.category))
+  const { asked, fellBack, shown, other } = workedSplit(mine, input.worked)
+  const question = atlasShelfQuestion(category.title)
+  /**
+   * A top page groups; a sub page does not. `shelves` writes the shelf title
+   * over each group, which on a page whose `h1` *is* that shelf would be the
+   * same words twice with nothing between them.
+   */
+  const grouped = covers.length > 1
+
+  return atlasPage({
+    /**
+     * **Titled for the search that finds it** (`#788`). `The Atlas — mailbox`
+     * names our own filter and our own slug, neither of which anybody types into
+     * a search box; what the shelf holds, plus what a reader wants to do with
+     * it, names the thing they were looking for.
+     */
+    title: `${category.title} an AI agent can sign up for`,
+    description: category.standfirst,
+    canonical: input.canonical,
+    chrome: input.chrome,
+    /** Decision 5: what was rendered, and never the whole shelf. */
+    jsonLd: [itemListFor(shown, siteOf(input.canonical), category.slug)],
+    body: [
+      '<main>',
+      `<h1>${escape(question)}</h1>`,
+      `<p>${escape(category.standfirst)}</p>`,
+      ATLAS_JOIN_LINE,
+      `<p><small>${escape(ATLAS_ORDER_NOTE)}</small></p>`,
+      categoryNav({ rows: input.nav, entries: all, current: category.slug, worked: asked }),
+      `<p class="k-atlas-facts"><a href="${escape(
+        atlasShelfPath(undefined, asked),
+      )}">Every category</a>${
+        input.parent === undefined
+          ? ''
+          : ` · <a href="${escape(atlasShelfPath(input.parent.slug))}">${escape(
+              input.parent.title,
+            )}</a>`
+      }</p>`,
+      mine.length === 0
+        ? `<p>Nothing is filed under ${escape(category.title.toLowerCase())} yet. That is a shelf ` +
+          'waiting to be filled rather than a category the Colony refuses — every entry on it ' +
+          'would be one somebody walked.</p>'
+        : [
+            workedNote({
+              asked,
+              fellBack,
+              category: category.slug,
+              shown: shown.length,
+              other,
+            }),
+            grouped
+              ? shelves(shown).join('\n')
+              : `<ul class="k-atlas-index">${shown.map(indexRow).join('')}</ul>`,
+          ]
+            .filter((one) => one !== '')
+            .join('\n'),
+      '</main>',
+    ].join('\n'),
+  })
+}
+
+/**
+ * The shelves beside this one, from the table rather than from the entries
+ * (`#1107`).
+ *
+ * **This is where it differs from {@link shelfNav}, and the difference is the
+ * point.** The index derives its shelves from what has been filed, because
+ * fifteen headings over three entries would say the Atlas has twelve holes in
+ * it. A category page is standing *on* one of those shelves: its siblings are
+ * where a reader goes next whether or not anything has been filed under them
+ * yet, and a nav that hid the empty ones would hide exactly the shelves that most
+ * need somebody to walk them. So the rows come from the table and a count of
+ * zero is printed as zero.
+ */
+function categoryNav(input: {
+  readonly rows: readonly AtlasCategoryRow[]
+  readonly entries: readonly AtlasPublicEntry[]
+  readonly current: string
+  readonly worked: boolean
+}): string {
+  if (input.rows.length === 0) return ''
+
+  const counts = new Map<string, number>()
+  for (const entry of input.entries)
+    counts.set(entry.category, (counts.get(entry.category) ?? 0) + 1)
+
+  const links = input.rows.map(
+    (row) =>
+      `<li><a href="${escape(atlasShelfPath(row.slug, input.worked))}"` +
+      `${row.slug === input.current ? ' aria-current="page"' : ''}>` +
+      `${escape(row.title)}</a> ` +
+      `<span class="k-atlas-count">${counts.get(row.slug) ?? 0}</span></li>`,
+  )
+
+  return (
+    '<nav class="k-atlas-shelves" aria-label="Categories">' +
+    `<ul>${links.join('')}</ul>` +
+    '</nav>'
+  )
 }
 
 /**
@@ -404,7 +571,7 @@ function workedNote(input: {
   const { asked, fellBack, category, other } = input
   const line = (text: string): string => `<p class="k-atlas-worked">${text}</p>`
   const link = (worked: boolean, text: string): string =>
-    `<a href="${escape(atlasIndexPath(category, worked))}">${text}</a>`
+    `<a href="${escape(atlasShelfPath(category, worked))}">${text}</a>`
 
   if (fellBack) {
     return line(
@@ -451,22 +618,18 @@ function workedNote(input: {
  * what it has is eleven categories nothing has been filed under yet. That is
  * `shelves`' argument below, one level up.
  *
- * The current shelf is marked with `aria-current` rather than only styled: it is
- * what a screen reader announces, and a colour that said the same thing would
- * say it to one reader in two.
- *
  * **The counts are the whole catalogue's and not the current view's** (`#1103`).
  * Counting only what worked would take a shelf where nothing has worked yet out
  * of the navigation entirely — a shelf a reader cannot reach from the page that
  * hid it, which is exactly the deletion the default was chosen instead of. The
  * links carry the view so that flipping to what did not work stays flipped as
  * the reader moves between shelves.
+ *
+ * **Nothing here is marked current any more** (`#1107`): the index is the only
+ * page that renders this nav, and it is not on any of the shelves it links to.
+ * A page standing on one takes {@link categoryNav} instead.
  */
-function shelfNav(
-  entries: readonly AtlasPublicEntry[],
-  current: AtlasCategorySlug | undefined,
-  worked: boolean,
-): string {
+function shelfNav(entries: readonly AtlasPublicEntry[], worked: boolean): string {
   if (entries.length === 0) return ''
 
   const counts = new Map<string, number>()
@@ -474,22 +637,16 @@ function shelfNav(
 
   const links = [...counts.entries()].map(
     ([category, count]) =>
-      `<li><a href="${escape(atlasIndexPath(category, worked))}"` +
-      `${category === current ? ' aria-current="page"' : ''}>` +
+      `<li><a href="${escape(atlasShelfPath(category, worked))}">` +
       `${escape(atlasShelfTitle(category))}</a> ` +
       `<span class="k-atlas-count">${count}</span></li>`,
   )
 
-  return [
-    '<nav class="k-atlas-shelves" aria-label="Categories">',
-    `<ul>${links.join('')}</ul>`,
-    current === undefined
-      ? ''
-      : `<p><a href="${escape(atlasIndexPath(undefined, worked))}">Every category</a></p>`,
-    '</nav>',
-  ]
-    .filter((line) => line !== '')
-    .join('')
+  return (
+    '<nav class="k-atlas-shelves" aria-label="Categories">' +
+    `<ul>${links.join('')}</ul>` +
+    '</nav>'
+  )
 }
 
 /**
@@ -518,11 +675,11 @@ function shelves(entries: readonly AtlasPublicEntry[]): readonly string[] {
     ([category, shelf]) =>
       /**
        * **The slug stays where it is an address** (`#791`): the fragment `id`
-       * a link elsewhere targets, and the `?category=` the link itself
+       * a link elsewhere targets, and the `/atlas/c/` path the link itself
        * carries. Only what a reader sees is the shelf title.
        */
       `<h2 id="${escape(category)}"><a href="${escape(
-        atlasIndexPath(category),
+        atlasShelfPath(category),
       )}">${escape(atlasShelfTitle(category))}</a> ` +
       /**
        * The count, derived from the shelf it is standing on
@@ -780,7 +937,7 @@ export function atlasEntryPage(input: {
        * shortest of the internal links that make a map out of a list, and it
        * was one-way.
        */
-      `<p class="k-atlas-facts"><a href="${escape(atlasIndexPath(entry.category))}">${escape(
+      `<p class="k-atlas-facts"><a href="${escape(atlasShelfPath(entry.category))}">${escape(
         entry.category,
       )}</a> — ${escape(operatorLine(entry))}</p>`,
       paidMarker(entry),

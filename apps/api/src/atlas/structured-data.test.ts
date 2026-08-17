@@ -71,7 +71,7 @@ describe('the Atlas as structured data', () => {
 
     expect(parsed.itemListElement.map((one: { item: string }) => one.item)).toEqual([
       `${SITE}/atlas`,
-      `${SITE}/atlas?category=code-hosting`,
+      `${SITE}/atlas/c/code-hosting`,
       `${SITE}/atlas/trello.com`,
     ])
   })

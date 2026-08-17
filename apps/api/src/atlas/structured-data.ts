@@ -1,4 +1,4 @@
-import { ATLAS_PATH, type AtlasCategorySlug } from '@kolonie-ai/core'
+import { ATLAS_PATH, atlasCategoryPath, type AtlasCategorySlug } from '@kolonie-ai/core'
 import type { AtlasCriterion } from './criteria.js'
 
 /**
@@ -62,9 +62,13 @@ import type { AtlasCriterion } from './criteria.js'
  * one line: `html.ts` imports this module to emit the blocks, and a cycle
  * between the two would be a cycle for one string concatenation. `sitemap.ts`
  * makes the same call for the same reason.
+ *
+ * **It is the page and not the redirect** (`#1107` decision 3). A breadcrumb
+ * naming `/atlas?category=mailbox` would tell a crawler the middle of the trail
+ * is a 301, which is the one place a trail cannot afford to be indirect.
  */
 const shelfPath = (category?: AtlasCategorySlug): string =>
-  category === undefined ? ATLAS_PATH : `${ATLAS_PATH}?category=${category}`
+  category === undefined ? ATLAS_PATH : atlasCategoryPath(category)
 
 /**
  * JSON for an inline `ld+json` block, with `<` escaped.

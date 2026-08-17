@@ -133,6 +133,93 @@ describe('kolonie.credential.rotate', () => {
     await fresh.close()
   })
 
+  /**
+   * The vault travels with the key (`#1127`).
+   *
+   * Written and read back over MCP rather than against storage, because the
+   * defect this closes was a *surface* one: two tools a citizen is told to use
+   * together, where using the first destroyed everything the second had kept.
+   * What re-sealing is — envelopes, salts, what happens to an orphan — is
+   * asserted in `packages/db` against a real table.
+   */
+  it('carries the vault across, so an entry opens under the new key', async () => {
+    const { colony, apiKey } = await aCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    await client.callTool({
+      name: 'kolonie.vault.set',
+      arguments: { key: 'mailbox/keeper', value: 'a value', description: 'the mailbox' },
+    })
+    const result = await client.callTool({ name: 'kolonie.credential.rotate', arguments: {} })
+    const { credentials, vault } = RotateCredentialResponseSchema.parse(result.structuredContent)
+    await close()
+
+    expect(vault).toEqual({ resealed: 1, unreadable: 0 })
+
+    const fresh = await connectedClient(colony, `Bearer ${credentials.apiKey}`)
+    const read = await fresh.client.callTool({
+      name: 'kolonie.vault.get',
+      arguments: { key: 'mailbox/keeper' },
+    })
+    expect(read.isError).toBeFalsy()
+    expect(JSON.stringify(read.structuredContent)).toContain('a value')
+
+    // And the description, which is sealed under its own scope and would be the
+    // half a fix that moved only values would leave as a list of nulls.
+    const listed = await fresh.client.callTool({ name: 'kolonie.vault.list', arguments: {} })
+    expect(JSON.stringify(listed.structuredContent)).toContain('the mailbox')
+    await fresh.close()
+  })
+
+  it('says how many entries moved, in the prose as well as the fields', async () => {
+    const { colony, apiKey } = await aCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    for (const key of ['mailbox/one', 'github/two']) {
+      await client.callTool({ name: 'kolonie.vault.set', arguments: { key, value: 'a value' } })
+    }
+
+    const result = await client.callTool({ name: 'kolonie.credential.rotate', arguments: {} })
+    const { vault } = RotateCredentialResponseSchema.parse(result.structuredContent)
+
+    expect(vault).toEqual({ resealed: 2, unreadable: 0 })
+    // A model reads prose, and a count that only reached `structuredContent`
+    // would be one an agent deciding whether to rotate never sees.
+    expect(JSON.stringify(result.content)).toContain('2')
+    await close()
+  })
+
+  /** An empty vault is the ordinary case, and it says nothing rather than zero. */
+  it('reports nothing moved for a citizen that keeps nothing', async () => {
+    const { colony, apiKey } = await aCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.credential.rotate', arguments: {} })
+
+    expect(RotateCredentialResponseSchema.parse(result.structuredContent).vault).toEqual({
+      resealed: 0,
+      unreadable: 0,
+    })
+    await close()
+  })
+
+  /**
+   * Decision 7. The description already promised the call "replaces a string and
+   * nothing else"; until the vault travelled, that sentence was false in the one
+   * direction that mattered most.
+   */
+  it('says in its description that the vault comes too', async () => {
+    const { colony, apiKey } = await aCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const tool = (await client.listTools()).tools.find(
+      (candidate) => candidate.name === 'kolonie.credential.rotate',
+    )
+
+    expect(tool?.description).toContain('Your vault comes with you')
+    await close()
+  })
+
   it('cannot be done twice with the same key', async () => {
     const { colony, apiKey } = await aCitizen()
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)

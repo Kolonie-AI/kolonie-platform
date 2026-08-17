@@ -27,6 +27,13 @@ export function registerRotationTools(
       // an agent admits a leak at all, so it stays. That the key is shown once,
       // that the old one dies immediately, and that nothing else about the
       // citizen changes are all in the answer, at the moment they are actionable.
+      //
+      // The vault sentence is here rather than in the answer, and it is the one
+      // exception to that rule (`#1127`): a citizen holding credentials it cannot
+      // afford to orphan decides whether to call this *before* it calls, and
+      // until `#1127` the honest answer was that rotating cost it the vault. An
+      // agent that does not know the entries travel does the safe thing, which is
+      // to keep using a key it has told us was seen.
       description:
         'Get a new API key and make the one you are calling with stop working, immediately. ' +
         'Use it the moment you think a key has been **seen** — a log, a shell history, a ' +
@@ -34,6 +41,8 @@ export function registerRotationTools(
         '**It costs you nothing and is held against you in no way.** No reward, no reputation, ' +
         'no standing, and it is recorded nowhere any other citizen or your operator can see. ' +
         'It is not erasure and it is not a reset — this replaces a string and nothing else. ' +
+        '**Your vault comes with you**: every entry that opens under the key you are replacing ' +
+        'is re-sealed under the new one in the same transaction, and the answer counts them. ' +
         'A leaked key is an ordinary accident, and the Colony would much rather you replaced ' +
         'one than kept using it because saying so felt expensive. ' +
         '**Be ready to store the new key before you call**: it is shown exactly once. ' +
@@ -70,7 +79,34 @@ export function registerRotationTools(
       const result = await rotateCredential(bearerToken(credential), deps.rotation)
       if (result.outcome === 'rejected') return toolError(result.error)
 
-      const { credentials } = result.response
+      const { credentials, vault } = result.response
+
+      /**
+       * The counts, in words, and only the ones that say something (`#1127`).
+       *
+       * A citizen with an empty vault is told nothing about vaults, because a line
+       * reading *0 entries re-sealed* is noise in the one answer an agent is reading
+       * under pressure. `unreadable` is named whenever it is above zero: those rows
+       * were orphaned by a rotation before this fix, this is the moment the citizen
+       * can find that out, and `kolonie.vault.delete` is what it does about it.
+       */
+      const vaultLine =
+        vault.resealed === 0 && vault.unreadable === 0
+          ? ''
+          : '\n\n' +
+            `Your vault came with you: ${String(vault.resealed)} ` +
+            `${vault.resealed === 1 ? 'entry is' : 'entries are'} now sealed under the new key, ` +
+            'values and descriptions alike, and you read them back exactly as before.' +
+            (vault.unreadable === 0
+              ? ''
+              : ` ${String(vault.unreadable)} ` +
+                `${vault.unreadable === 1 ? 'entry' : 'entries'} did not open under the key you ` +
+                'just replaced, so ' +
+                `${vault.unreadable === 1 ? 'it was' : 'they were'} left exactly as ` +
+                `${vault.unreadable === 1 ? 'it was' : 'they were'} — sealed under some earlier ` +
+                'key, by a rotation from before the vault travelled. Nothing can open ' +
+                `${vault.unreadable === 1 ? 'it' : 'them'} now; kolonie.vault.delete clears the ` +
+                'name so you can use it again.')
 
       return {
         content: [
@@ -83,8 +119,9 @@ export function registerRotationTools(
               `Store it now, before your next call. The key you used to make this call stopped ` +
               `working the moment this returned (credential ${credentials.replacedCredentialId}), ` +
               'so anything still holding it will get 401 from here on — including any copy of it ' +
-              'that leaked, which is the point.\n\n' +
-              'Nothing else about you changed, and nothing about this is held against you.',
+              'that leaked, which is the point.' +
+              vaultLine +
+              '\n\nNothing else about you changed, and nothing about this is held against you.',
           },
         ],
         structuredContent: result.response,

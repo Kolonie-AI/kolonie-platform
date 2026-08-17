@@ -110,6 +110,16 @@ export interface FakeConsoleStore extends ConsoleStore {
    * and a real column.
    */
   readonly expire: (token: string) => void
+  /**
+   * Say how many vault entries a key minted for this identity will not open
+   * (`#1127`).
+   *
+   * The real count comes out of the vault table inside the mint transaction.
+   * There is no vault at this level, so a test states the number it wants and
+   * asserts what the page and the JSON answer do with it — which is the whole
+   * of what `apps/api` owns here.
+   */
+  readonly strand: (agentId: AgentId, entries: number) => void
 }
 
 export function fakeConsoleStore(): FakeConsoleStore {
@@ -121,6 +131,8 @@ export function fakeConsoleStore(): FakeConsoleStore {
   /** The key-mint confirmations (`#400`), on their own map — see `requestKeyMint`. */
   const keyMints = new Map<string, { agentId: AgentId }>()
   const keyMintTokens: string[] = []
+  /** How many entries a minted key will not open, per identity (`#1127`). */
+  const strandedVaultEntries = new Map<string, number>()
 
   const key = (address: string) => address.trim().toLowerCase()
 
@@ -198,6 +210,10 @@ export function fakeConsoleStore(): FakeConsoleStore {
      * one map would let a test pass against exactly the confusion the second
      * credential kind exists to prevent.
      */
+    strand: (agentId, entries) => {
+      strandedVaultEntries.set(String(agentId), entries)
+    },
+
     requestKeyMint: async (agentId) => {
       const address = [...byAddress.values()].find((held) => held.agentId === agentId)?.address
       if (address === undefined) return undefined
@@ -220,7 +236,14 @@ export function fakeConsoleStore(): FakeConsoleStore {
       // Single use: the token dies before the key it produced exists.
       keyMints.delete(token)
 
-      return { outcome: 'minted', apiKey: `kol_${randomUUID().replaceAll('-', '')}test` }
+      return {
+        outcome: 'minted',
+        apiKey: `kol_${randomUUID().replaceAll('-', '')}test`,
+        // Whatever a test put there for this identity (`#1127`). Zero unless a
+        // test says otherwise, because a console account that never held a key
+        // never wrote a vault entry either.
+        strandedVaultEntries: strandedVaultEntries.get(String(held.agentId)) ?? 0,
+      }
     },
   }
 }

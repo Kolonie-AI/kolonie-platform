@@ -438,6 +438,122 @@ export async function vaultEntryCount(
   return row?.entries ?? 0
 }
 
+/** What a re-seal moved, and what it could not (`#1127`). */
+export interface VaultReSeal {
+  /** Rows that opened under the old key and are now sealed under the new one. */
+  readonly resealed: number
+  /**
+   * Rows that did not open under the old key, left exactly as they were.
+   *
+   * Not an error and not a partial failure — see {@link reSealVault}. A citizen
+   * that rotated before `#1127` already holds rows nothing can open, and this is
+   * how it finds out rather than how it is blocked.
+   */
+  readonly unreadable: number
+}
+
+/**
+ * Move a whole vault from one key to another, in the caller's transaction (`#1127`).
+ *
+ * ## The defect this closes
+ *
+ * The sealing key is derived from the presented API key, so rotating one used to
+ * make every entry in that citizen's vault permanently unopenable — and the
+ * Colony holds a hash of the old key, so nothing it has could undo it. That is
+ * the whole loss, and it landed on a citizen for doing the thing the Colony asks
+ * it to do the moment a key is seen. `kolonie.credential.rotate` promised it
+ * *"replaces a string and nothing else"*; this is what makes the sentence true.
+ *
+ * ## Both tokens, and neither is kept
+ *
+ * The old key is the only thing that can open these rows and the new one is the
+ * only thing that should be able to afterwards, so both plaintexts are
+ * parameters, both are used to derive keys in memory, and both go out of scope
+ * when this returns. Nothing here logs, stores or returns either — nor a key
+ * name, nor a byte of any value. What comes back is two integers.
+ *
+ * ## A row that does not open is left alone, and the rotation still succeeds
+ *
+ * The alternative is a citizen that cannot replace a key it knows is compromised
+ * because of a row that was already dead, which is a worse failure than the one
+ * being fixed. Orphans stay, `deleteVaultEntry` is still their broom, and the
+ * count tells the citizen it holds them.
+ *
+ * ## Row by row rather than in one statement
+ *
+ * Every envelope carries its own salt and nonce, so re-sealing is decrypt and
+ * encrypt per row and there is no `UPDATE … SET` that could do it in bulk. The
+ * cost is bounded by `VAULT_MAX_ENTRIES`, and it is paid inside the caller's
+ * transaction so that a failure anywhere leaves the old key live and the vault
+ * untouched.
+ *
+ * **`updatedAt` deliberately does not move**, for the reason
+ * {@link setVaultDescription} gives: it means *when the value was last written*,
+ * and a re-seal writes the same value.
+ */
+export async function reSealVault(
+  db: Database | Transaction,
+  agentId: AgentId,
+  from: string,
+  to: string,
+): Promise<VaultReSeal> {
+  const rows = await db
+    .select({
+      key: agentVault.key,
+      encryptedValue: agentVault.encryptedValue,
+      encryptedDescription: agentVault.encryptedDescription,
+    })
+    .from(agentVault)
+    .where(eq(agentVault.agentId, agentId))
+
+  let resealed = 0
+  let unreadable = 0
+
+  for (const row of rows) {
+    const value = openVaultValue(from, String(agentId), row.key, row.encryptedValue)
+
+    if (value === null) {
+      unreadable += 1
+      continue
+    }
+
+    /**
+     * The description travels with the value, and separately from it.
+     *
+     * A rotation that carried values and left a list of nulls behind would be a
+     * subtler version of the same bug — `listVaultEntries` decrypts descriptions
+     * with the same derived key. It is opened on its own because the two are
+     * sealed under different associated data, and because a description orphaned
+     * by an *earlier* rotation must not take a value that opens fine with it.
+     */
+    const description =
+      row.encryptedDescription === null
+        ? null
+        : openVaultValue(from, String(agentId), descriptionScope(row.key), row.encryptedDescription)
+
+    await db
+      .update(agentVault)
+      .set({
+        encryptedValue: sealVaultValue(to, String(agentId), row.key, value),
+        ...(description === null
+          ? {}
+          : {
+              encryptedDescription: sealVaultValue(
+                to,
+                String(agentId),
+                descriptionScope(row.key),
+                description,
+              ),
+            }),
+      })
+      .where(and(eq(agentVault.agentId, agentId), eq(agentVault.key, row.key)))
+
+    resealed += 1
+  }
+
+  return { resealed, unreadable }
+}
+
 /**
  * Forget one entry. `false` if there was nothing under that name.
  *

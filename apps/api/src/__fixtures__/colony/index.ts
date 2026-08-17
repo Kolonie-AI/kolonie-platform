@@ -63,7 +63,7 @@ export function fakeColony(): FakeColony {
     // challenges: `verifiedWalletOf` has to answer with what the wallet routes
     // wrote, through the one store both of them hold.
     ...rungs,
-    ...fakeAgent({ solanaChallenges: rungs.solana.challenges }),
+    ...fakeAgent({ solanaChallenges: rungs.solana.challenges, vault: rungs.vault.vault }),
     ...fakeWork(),
     ...fakeDesks(),
     citizens: fakeCitizenRecords(),

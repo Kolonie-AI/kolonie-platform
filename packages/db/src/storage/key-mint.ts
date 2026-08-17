@@ -12,6 +12,7 @@ import type { Database } from '../client.js'
 import { generateApiKey, hashApiKey } from '../api-key.js'
 import { credentials } from '../schema/index.js'
 import { toTimestamp } from './rows.js'
+import { vaultEntryCount } from './vault.js'
 
 /**
  * The route out of the browser: a console account mints itself an API key
@@ -122,6 +123,24 @@ export type KeyMintOutcome =
        */
       readonly apiKey: string
       readonly issuedAt: Timestamp
+      /**
+       * Vault entries this key does not open (`#1127`).
+       *
+       * **This path cannot re-seal, and the number is what it says instead.**
+       * `rotateApiKey` carries a vault across because it holds both keys: the old
+       * one arrives as the credential being replaced. Here the only input is a
+       * mint-link token, and the citizen's existing API key is a hash the Colony
+       * cannot reverse — so there is nothing to decrypt with, and no amount of
+       * plumbing changes that. A key minted from the browser therefore opens
+       * nothing that is already in the vault.
+       *
+       * Which is survivable and unlike a rotation: this mints a key **without
+       * revoking any**, so whatever sealed those entries still opens them if the
+       * citizen still holds it. The number exists so the page can say so, because
+       * the alternative is a citizen discovering it a month later at
+       * `kolonie.vault.get`.
+       */
+      readonly strandedVaultEntries: number
     }
   /**
    * No live confirmation carries this token.
@@ -147,6 +166,12 @@ export type KeyMintOutcome =
  * account that somehow holds one and asks for another gets another, and
  * `kolonie.credential.rotate` remains the way to replace one that was seen.
  * Killing a live key here would make a mis-click an outage.
+ *
+ * **And the vault does not come with it, unlike a rotation (`#1127`).** The
+ * decision there was that a re-seal happens or the response says what is lost,
+ * and this path cannot do the first: it never receives the citizen's existing API
+ * key, so there is nothing to open the entries with. It says the second instead,
+ * as `strandedVaultEntries`.
  */
 export async function redeemKeyMintLink(
   db: Database,
@@ -212,12 +237,17 @@ export async function redeemKeyMintLink(
 
     if (issued === undefined) throw new Error('insert into credentials returned no row')
 
+    const agentId = AgentIdSchema.parse(row.agentId)
+
     return {
       outcome: 'minted' as const,
-      agentId: AgentIdSchema.parse(row.agentId),
+      agentId,
       credentialId: CredentialIdSchema.parse(issued.id),
       apiKey,
       issuedAt: toTimestamp(issued.issuedAt),
+      // Counted in the same transaction as the mint, so the number the page prints
+      // is the vault as it stood when the key came into existence.
+      strandedVaultEntries: await vaultEntryCount(tx, agentId),
     }
   })
 }

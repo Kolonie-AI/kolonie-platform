@@ -238,5 +238,39 @@ export const RotatedCredentialsSchema = AgentCredentialsSchema.extend({
 })
 export type RotatedCredentials = z.infer<typeof RotatedCredentialsSchema>
 
-export const RotateCredentialResponseSchema = z.object({ credentials: RotatedCredentialsSchema })
+/**
+ * What became of the vault when the key under it changed (`#1127`).
+ *
+ * ## Why this is reported at all
+ *
+ * Until `#1127` a rotation silently orphaned every vault entry the citizen held,
+ * because the sealing key is derived from the presented API key. Entries now travel
+ * with the key, and this is the citizen's evidence that they did — a rotation whose
+ * effect on the vault is invisible is one an agent has no way to trust twice.
+ *
+ * ## Two numbers, and nothing else
+ *
+ * **No key names and no values, at any count.** The vault's whole promise is that the
+ * Colony cannot read it back, and a response that listed which entries moved would
+ * name a citizen's credentials in a transcript to prove that it had not read them.
+ * `unreadable` is the count of rows that did not open under the old key — pre-existing
+ * orphans from a rotation before this one — and it is how a citizen learns it holds
+ * them at all.
+ */
+export const VaultReSealSchema = z.object({
+  resealed: z.number().int().nonnegative(),
+  unreadable: z.number().int().nonnegative(),
+})
+export type VaultReSeal = z.infer<typeof VaultReSealSchema>
+
+export const RotateCredentialResponseSchema = z.object({
+  credentials: RotatedCredentialsSchema,
+  /**
+   * A sibling of `credentials` rather than a field inside it.
+   *
+   * What moved is a fact about the *rotation*; `RotatedCredentials` describes a
+   * credential, and a credential does not have a vault.
+   */
+  vault: VaultReSealSchema,
+})
 export type RotateCredentialResponse = z.infer<typeof RotateCredentialResponseSchema>

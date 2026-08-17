@@ -4,6 +4,7 @@ import type { Database } from '../client.js'
 import { generateApiKey, hashApiKey } from '../api-key.js'
 import { credentials } from '../schema/index.js'
 import { toTimestamp } from './rows.js'
+import { reSealVault, type VaultReSeal } from './vault.js'
 
 /**
  * Replacing a key a citizen can no longer trust (#211).
@@ -27,7 +28,12 @@ import { toTimestamp } from './rows.js'
 
 /** What happened when a citizen asked for a new key. */
 export type RotateApiKeyResult =
-  | { readonly outcome: 'rotated'; readonly credentials: RotatedCredentials }
+  | {
+      readonly outcome: 'rotated'
+      readonly credentials: RotatedCredentials
+      /** What the vault did on the way across — see {@link reSealVault} (`#1127`). */
+      readonly vault: VaultReSeal
+    }
   /**
    * The presented credential is not a live `api-key` of anybody's.
    *
@@ -46,10 +52,16 @@ export type RotateApiKeyResult =
  *
  * `erase.challenge` exists because erasure destroys things the caller may want back,
  * so it states the loss before the caller commits. **Rotation destroys nothing.** The
- * agent id, the standing, the vetting history, the tasks and the vault are all
- * untouched, and the only thing that stops working is a string the caller has just
- * said it no longer trusts. A confirmation step here would add a round trip to the
- * remedy for a leak, at the moment speed is the point.
+ * agent id, the standing, the vetting history and the tasks are all untouched, and the
+ * only thing that stops working is a string the caller has just said it no longer
+ * trusts. A confirmation step here would add a round trip to the remedy for a leak, at
+ * the moment speed is the point.
+ *
+ * That sentence was not true of the vault until `#1127`, and the exception was the
+ * expensive kind: the sealing key is derived from the presented API key, so every
+ * entry a citizen held became unopenable the moment it did the thing the Colony asks
+ * of it. {@link reSealVault} now moves them inside this transaction, which is why the
+ * paragraph above can be read as written.
  *
  * ## Why the new key is issued before the old one is revoked, in one statement each
  *
@@ -134,8 +146,22 @@ export async function rotateApiKey(db: Database, presented: string): Promise<Rot
      */
     if (revoked.length === 0) throw new Error('credential was revoked concurrently')
 
+    /**
+     * **After the swap, and inside it (`#1127`).**
+     *
+     * After, because a re-seal that ran before the revoke had been proved to hit a row
+     * would have moved a vault across for a rotation that then aborted. Inside, because
+     * a failure here — a row that will not update, a connection that drops — has to
+     * take the new key down with it: a citizen holding a live new key and a vault
+     * sealed under the old one is the defect this closes, arrived at from the other
+     * side. Roll back and the old key still works, which is a state the caller can
+     * simply retry from.
+     */
+    const vault = await reSealVault(tx, AgentIdSchema.parse(existing.agentId), presented, apiKey)
+
     return {
       outcome: 'rotated' as const,
+      vault,
       credentials: {
         agentId: AgentIdSchema.parse(existing.agentId),
         credentialId: CredentialIdSchema.parse(issued.id),

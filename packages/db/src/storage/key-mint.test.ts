@@ -1,11 +1,13 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { and, eq, isNull } from 'drizzle-orm'
 import { EMAIL_LINK_TTL_MS, type AgentId } from '@kolonie-ai/core'
+import { generateApiKey } from '../api-key.js'
 import type { Database } from '../client.js'
 import { agents, credentials } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { redeemKeyMintLink, requestKeyMintLink } from './key-mint.js'
 import { requestSignInLink } from './sign-in.js'
+import { getVaultEntry, setVaultEntry } from './vault.js'
 
 const target = databaseTestTarget()
 
@@ -179,5 +181,43 @@ describe('minting a key from a console account', () => {
     await redeemKeyMintLink(db, second.token)
 
     expect(await liveKeys()).toHaveLength(2)
+  })
+
+  /**
+   * The other door a new key comes through (`#1127`).
+   *
+   * `kolonie.credential.rotate` re-seals the vault because the caller presents
+   * the key that sealed it. **This path cannot**: it receives a mint-link token
+   * and the citizen's existing key exists only as a hash, so there is nothing to
+   * open the envelopes with. The decision `#1127` took for that case is to say
+   * so rather than to pretend, and the count is how it says it — nothing is
+   * revoked, so the entries still open with whatever key wrote them.
+   */
+  it('counts the vault entries the minted key will not open', async () => {
+    const stranded = String(generateApiKey())
+    await setVaultEntry(db, stranded, agentId, 'mailbox', 'a value')
+    await setVaultEntry(db, stranded, agentId, 'github', 'another value')
+
+    const link = await requestKeyMintLink(db, agentId)
+    const minted = await redeemKeyMintLink(db, link.token)
+    if (minted.outcome !== 'minted') throw new Error('expected a key')
+
+    expect(minted.strandedVaultEntries).toBe(2)
+    // Stranded from the new key's point of view and from no other: the rows are
+    // untouched, and the key that sealed them still opens them.
+    expect(await getVaultEntry(db, stranded, agentId, 'mailbox')).toMatchObject({
+      outcome: 'found',
+      value: 'a value',
+    })
+    expect(await getVaultEntry(db, minted.apiKey, agentId, 'mailbox')).toMatchObject({
+      outcome: 'unreadable',
+    })
+  })
+
+  it('reports zero for an account that has never written a vault entry', async () => {
+    const link = await requestKeyMintLink(db, agentId)
+    const minted = await redeemKeyMintLink(db, link.token)
+
+    expect(minted).toMatchObject({ outcome: 'minted', strandedVaultEntries: 0 })
   })
 })

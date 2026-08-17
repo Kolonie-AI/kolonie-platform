@@ -291,7 +291,9 @@ export function registerVaultTools(
         'since it never could read the value there is no audit trail for one to survive in.\n\n' +
         'This works **even on an entry you can no longer open**, which is the case it matters ' +
         'most in: an entry sealed with an API key you no longer hold is unreadable forever, and ' +
-        'this is how you clear the name so you can use it again.',
+        'this is how you clear the name so you can use it again. Rotating a key stopped ' +
+        'producing those — kolonie.credential.rotate re-seals your entries under the new key — ' +
+        'so what is left here is what an older rotation orphaned.',
       inputSchema: {
         key: VaultKeySchema.describe('The name of the entry to remove.'),
       },

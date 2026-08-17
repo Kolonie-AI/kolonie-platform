@@ -105,10 +105,18 @@ export interface ConsoleStore {
    * decide where a credential's confirmation goes.
    */
   requestKeyMint(agentId: AgentId): Promise<{ token: string; address: string } | undefined>
-  /** Exchange a confirmation token for a key, once, or refuse. */
+  /**
+   * Exchange a confirmation token for a key, once, or refuse.
+   *
+   * `strandedVaultEntries` is what this path says instead of re-sealing (`#1127`):
+   * a minted key opens nothing already in the vault, and the count is what lets the
+   * page say so rather than leaving the citizen to find out at `kolonie.vault.get`.
+   */
   redeemKeyMint(
     token: string,
-  ): Promise<{ outcome: 'minted'; apiKey: string } | { outcome: 'refused' }>
+  ): Promise<
+    { outcome: 'minted'; apiKey: string; strandedVaultEntries: number } | { outcome: 'refused' }
+  >
 }
 
 export interface ConsoleDependencies {
@@ -462,7 +470,12 @@ export async function requestKeyMint(
 
 /** The key, once, or a refusal. */
 export type KeyMintOutcome =
-  | { readonly outcome: 'minted'; readonly apiKey: string }
+  | {
+      readonly outcome: 'minted'
+      readonly apiKey: string
+      /** Entries this key does not open — see {@link ConsoleStore.redeemKeyMint} (`#1127`). */
+      readonly strandedVaultEntries: number
+    }
   | { readonly outcome: 'rejected'; readonly error: ApiError }
 
 /**
@@ -490,7 +503,11 @@ export async function redeemKeyMint(
     }
   }
 
-  return { outcome: 'minted', apiKey: result.apiKey }
+  return {
+    outcome: 'minted',
+    apiKey: result.apiKey,
+    strandedVaultEntries: result.strandedVaultEntries,
+  }
 }
 
 /**
@@ -571,7 +588,11 @@ export function databaseConsoleStore(db: Database): ConsoleStore {
     redeemKeyMint: async (token) => {
       const result = await redeemKeyMintLink(db, token)
       return result.outcome === 'minted'
-        ? { outcome: 'minted' as const, apiKey: result.apiKey }
+        ? {
+            outcome: 'minted' as const,
+            apiKey: result.apiKey,
+            strandedVaultEntries: result.strandedVaultEntries,
+          }
         : { outcome: 'refused' as const }
     },
   }

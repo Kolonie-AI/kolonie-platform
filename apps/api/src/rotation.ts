@@ -22,6 +22,13 @@ import { rotateApiKey as rotateInDatabase, type Database } from '@kolonie-ai/db'
  * destroys things the caller may want back. **Rotation destroys nothing** but a string
  * the caller has just said it no longer trusts, so a confirmation step would add a
  * round trip to the remedy for a leak at the moment speed is the point.
+ *
+ * ## The vault travels with the key (`#1127`)
+ *
+ * It did not until then, and the sentence above was false for the one thing a citizen
+ * keeps credentials in: vault entries are sealed under a key derived from the API key,
+ * so rotating one orphaned all of them irrecoverably. The storage function now re-seals
+ * them in the same transaction as the swap, and the response says how many moved.
  */
 
 /** The seam, so this workspace's tests need no PostgreSQL. */
@@ -35,7 +42,9 @@ export function databaseCredentialRotation(db: Database): CredentialRotation {
   return {
     rotate: async (presented) => {
       const result = await rotateInDatabase(db, presented)
-      return result.outcome === 'rotated' ? { credentials: result.credentials } : undefined
+      return result.outcome === 'rotated'
+        ? { credentials: result.credentials, vault: result.vault }
+        : undefined
     },
   }
 }

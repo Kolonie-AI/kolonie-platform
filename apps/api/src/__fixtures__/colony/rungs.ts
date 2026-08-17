@@ -44,7 +44,7 @@ import { fakeInjection } from '../injection.js'
 import { fakeVetting } from '../vetting.js'
 import { fakeAuthenticator } from '../authenticator.js'
 import { fakeVision } from '../vision.js'
-import { fakeVault } from '../vault.js'
+import { fakeVault, type FakeVault } from '../vault.js'
 import { fakeConsole } from '../console.js'
 import { noObstruction } from '../obstruction.js'
 import { fakeReachability } from '../reachability.js'
@@ -111,8 +111,15 @@ export interface FakeRungs {
   readonly vetting: VettingDependencies
   readonly authenticator: AuthenticatorDependencies
   readonly vision: VisionDependencies
-  /** The vault, behind both surfaces. Overridable the same way (#98). */
-  readonly vault: VaultDependencies
+  /**
+   * The vault, behind both surfaces. Overridable the same way (#98).
+   *
+   * The fake's own type rather than the dependency shape, because `agent.ts`
+   * reads `reSeal` off it: rotation carries the vault across (`#1127`), and a
+   * colony whose rotation could not reach its vault would make that unassertable
+   * anywhere above `packages/db`.
+   */
+  readonly vault: VaultDependencies & { readonly vault: FakeVault }
   /** What the Colony ships per runtime (`kolonie-docs#125`). */
   readonly skillReleases: SkillReleases
 }

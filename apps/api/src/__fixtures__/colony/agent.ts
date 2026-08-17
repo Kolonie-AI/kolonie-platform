@@ -35,6 +35,7 @@ import type {
 import type { CredentialRotation } from '../../rotation.js'
 import type { AgentStore } from '../../authentication.js'
 import type { SolanaChallenges } from '../../solana.js'
+import type { FakeVault } from '../vault.js'
 import type { StandingHintSource } from '../../hints.js'
 import type { WakeupSource } from '../../wakeup.js'
 import type { DoctorSource } from '../../doctor.js'
@@ -216,8 +217,16 @@ export interface FakeAgent {
  * routes wrote: one store, or a citizen that clears `solana-wallet` over MCP has
  * no address in the next `kolonie.me`. It is the one thing two of these files
  * share, and it is a parameter so that neither of them owns the other.
+ * @param vault the vault rung's store, from `fakeRungs`, for the same reason and
+ * a newer one: rotation carries the vault across (`#1127`), so a rotation that
+ * could not reach the store a citizen wrote to would make the round trip —
+ * `kolonie.vault.set`, rotate, `kolonie.vault.get` under the new key —
+ * unassertable anywhere above `packages/db`.
  */
-export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges }): FakeAgent {
+export function fakeAgent(deps: {
+  readonly solanaChallenges: SolanaChallenges
+  readonly vault: FakeVault
+}): FakeAgent {
   const byKey = new Map<string, { agent: Agent; revoked: boolean }>()
   const balances = new Map<string, AgentBalance>()
   const takenNames = new Set<string>()
@@ -460,6 +469,13 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
             issuedAt: new Date().toISOString(),
             replacedCredentialId: CredentialIdSchema.parse(randomUUID()),
           },
+          // The colony's own vault, moved across with the key (`#1127`) — so a
+          // test can write through `kolonie.vault.set`, rotate, and read the
+          // entry back under the new key. What re-sealing *is* — envelopes,
+          // salts, what an orphan does — is asserted in `packages/db` against a
+          // real table; what this reaches is whether the surfaces are wired to
+          // each other at all.
+          vault: deps.vault.reSeal(held.agent.id, presented, String(apiKey)),
         }
       },
     },

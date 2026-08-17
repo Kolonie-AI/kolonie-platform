@@ -1,6 +1,7 @@
 import { CredentialIdSchema, type RotateCredentialResponse } from '@kolonie-ai/core'
 import type { CredentialRotation } from '../rotation.js'
 import { fakeStore, type FakeStore } from './store.js'
+import type { FakeVault } from './vault.js'
 
 /**
  * Rotation over the same store authentication reads (#211).
@@ -13,8 +14,18 @@ import { fakeStore, type FakeStore } from './store.js'
  *
  * The one thing it cannot model is `credentials.label` and the shape of the row — that
  * is asserted in `packages/db` against a real table, where the columns exist.
+ *
+ * **Pass a vault and the rotation carries it (`#1127`)**, which is what lets a test at
+ * this level read an entry back through `kolonie.vault.get` under the new key. Leave it
+ * out and the counts are zero, which is the truth for a citizen holding nothing. The
+ * atomicity — that a re-seal failing leaves the old key live — is a property of one
+ * transaction and is asserted in `packages/db`, because this fake has no transaction to
+ * roll back.
  */
-export function fakeRotation(store: FakeStore = fakeStore()): CredentialRotation {
+export function fakeRotation(
+  store: FakeStore = fakeStore(),
+  vault?: FakeVault,
+): CredentialRotation {
   return {
     rotate: async (presented) => {
       const held = await store.authenticate(presented)
@@ -35,6 +46,10 @@ export function fakeRotation(store: FakeStore = fakeStore()): CredentialRotation
           apiKey: reissued.apiKey,
           issuedAt: new Date().toISOString(),
           replacedCredentialId: held.credentialId,
+        },
+        vault: vault?.reSeal(held.agent.id, presented, reissued.apiKey) ?? {
+          resealed: 0,
+          unreadable: 0,
         },
       }
 

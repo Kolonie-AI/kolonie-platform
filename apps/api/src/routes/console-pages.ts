@@ -2474,9 +2474,17 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         : reply.status(ERROR_STATUS[result.error.code]).send(result.error)
     }
 
+    // The JSON form carries the count too (`#1127`): a caller scripting this has
+    // exactly the same thing to learn as a reader of the page, and learning it from
+    // a rendered paragraph is not something a script can do.
     return wantsHtml(request)
-      ? html(reply.status(200), keyMintedPage(result.apiKey, navFor(request)))
-      : reply.status(200).send({ apiKey: result.apiKey })
+      ? html(
+          reply.status(200),
+          keyMintedPage(result.apiKey, navFor(request), result.strandedVaultEntries),
+        )
+      : reply
+          .status(200)
+          .send({ apiKey: result.apiKey, strandedVaultEntries: result.strandedVaultEntries })
   })
 
   registerSponsorPages(app, deps, { guard, caller, person })

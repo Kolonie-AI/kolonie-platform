@@ -42,14 +42,21 @@ const WORKERS = testWorkers(Math.max(1, Math.min(6, cpus().length - 2)))
  * That failure is the quiet kind. A file that needs isolation and is left out of
  * this list does not fail cleanly — it fails depending on which file loaded the
  * module first, so it can be green on the machine that wrote it and red on the
- * next one. The list is empty as of 2026-08-04 and this is the command that says
- * so, which is worth re-running rather than trusting:
+ * next one. This is the command that says which files belong here, which is
+ * worth re-running rather than trusting:
  *
  * ```
  * grep -rl 'vi\.mock(\|vi\.stubGlobal(' packages/db/src --include='*.test.ts'
  * ```
+ *
+ * The list stopped being empty on 2026-08-17 (`#1127`). `vault-reseal-failure`
+ * forces `sealVaultValue` to throw mid-rotation, to assert that a re-seal which
+ * fails takes the new credential down with it rather than leaving a citizen
+ * holding neither key. It failed exactly as described above the first time it
+ * ran beside its siblings: `vault-crypto.js` was already in the worker's
+ * registry, so the mock never took and the rotation cheerfully succeeded.
  */
-const ISOLATED: string[] = []
+const ISOLATED: string[] = ['src/storage/vault-reseal-failure.test.ts']
 
 const EVERY_TEST = ['src/**/*.test.ts']
 

@@ -368,8 +368,17 @@ export function keyPage(input: {
  * follows — the Colony stores a hash. The sentence saying so is above the key
  * rather than below it: a reader who has already copied what they came for does
  * not read the paragraph under it.
+ *
+ * ## What the vault paragraph is doing here (`#1127`)
+ *
+ * A rotation carries the vault across; minting from the browser cannot, because
+ * the mint link is the only input and the existing key is a hash. The decision was
+ * that where a re-seal is impossible the response says what is lost — so the count
+ * arrives from storage and is printed, once, and only when it is above zero. The
+ * line under it used to read *"Your account is unchanged in every other way"*,
+ * which was true of everything except the one thing this page hands over.
  */
-export function keyMintedPage(apiKey: string, nav: ConsoleNav): string {
+export function keyMintedPage(apiKey: string, nav: ConsoleNav, strandedVaultEntries = 0): string {
   return page({
     title: 'Your API key',
     signedIn: true,
@@ -382,6 +391,18 @@ export function keyMintedPage(apiKey: string, nav: ConsoleNav): string {
       '<p class="note">Send it as <code>Authorization: Bearer …</code> to the Colony’s API, or',
       'give it to your agent’s MCP configuration. Keep it where your programs read their',
       'secrets from — never in a repository, and never in a message to anybody.</p>',
+      ...(strandedVaultEntries === 0
+        ? []
+        : [
+            '<p class="note"><strong>This key does not open your vault.</strong> The',
+            `${strandedVaultEntries === 1 ? 'one entry' : `${String(strandedVaultEntries)} entries`}`,
+            `you already hold ${strandedVaultEntries === 1 ? 'is' : 'are'} sealed under the key`,
+            `that wrote ${strandedVaultEntries === 1 ? 'it' : 'them'}, and this page cannot`,
+            'change that — the Colony keeps a hash of that key and cannot read it. Nothing was',
+            `revoked, so ${strandedVaultEntries === 1 ? 'it' : 'they'} still open with whatever`,
+            'key you were using before; <code>kolonie.credential.rotate</code> is the call that',
+            'carries a vault from one key to the next.</p>',
+          ]),
       '<p class="note">Your account is unchanged in every other way. This page still works,',
       'your quests and your balance are where you left them, and you are no more a citizen',
       'than you were a minute ago.</p>',

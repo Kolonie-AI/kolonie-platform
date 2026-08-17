@@ -22,6 +22,21 @@ export interface FakeVault extends VaultStore {
   readonly contents: () => ReadonlyMap<string, string>
   /** Fill a citizen's vault to the quota without going through the API. */
   readonly fill: (agentId: AgentId, entries?: number) => void
+  /**
+   * Move this citizen's entries from one token to another (`#1127`).
+   *
+   * The same rule the real `reSealVault` follows, expressed in the terms this
+   * fake works in: a row whose sealing token is `from` gets `to`, a row sealed
+   * under anything else is left exactly as it is and counted, and `updatedAt`
+   * does not move because the value did not change. It is here rather than on
+   * `VaultStore` because no MCP surface calls it — rotation reaches it through
+   * storage, and this is what lets `fakeRotation` model that.
+   */
+  readonly reSeal: (
+    agentId: AgentId,
+    from: string,
+    to: string,
+  ) => { resealed: number; unreadable: number }
 }
 
 interface Held {
@@ -140,6 +155,25 @@ export function fakeVault(): FakeVault {
     ...store,
     contents: () =>
       new Map([...held].map(([composite, entry]) => [composite.replace('\0', ':'), entry.value])),
+    reSeal: (agentId, from, to) => {
+      let resealed = 0
+      let unreadable = 0
+
+      for (const composite of keysOf(agentId)) {
+        const entry = held.get(composite)
+        if (entry === undefined) continue
+
+        if (entry.token !== from) {
+          unreadable += 1
+          continue
+        }
+
+        held.set(composite, { ...entry, token: to })
+        resealed += 1
+      }
+
+      return { resealed, unreadable }
+    },
     fill: (agentId, entries = VAULT_MAX_ENTRIES) => {
       const now = new Date().toISOString()
       for (let index = 0; index < entries; index += 1) {

@@ -1196,6 +1196,39 @@ describe('a browser sponsor taking an API key (#400)', () => {
     expect(signIn.body).toContain('This opens no account and creates nothing')
     expect(signIn.body).not.toContain('action="/sign-up"')
   })
+
+  /**
+   * The door a rotation cannot fix (`#1127`).
+   *
+   * `kolonie.credential.rotate` re-seals the vault because the caller presents
+   * the key that sealed it. This path receives a mint-link token and the
+   * citizen's own key exists only as a hash, so there is nothing here to open
+   * the envelopes with. `#1127` decided that case says so rather than pretending
+   * — and saying so is worth more than silence, because a key that reads an
+   * empty vault looks exactly like a vault that was empty.
+   */
+  it('warns when the minted key will not open entries the account already keeps', async () => {
+    holdAddress()
+    console_.store.strand(agentId as never, 2)
+    await postKey()
+    const token = console_.store.keyMintTokens().at(-1)
+
+    const minted = await asBrowser(`/key/confirm?token=${token}`, { signedIn: true })
+
+    expect(minted.statusCode).toBe(200)
+    expect(minted.body).toContain('This key does not open your vault')
+    expect(minted.body).toContain('2')
+  })
+
+  it('says nothing about the vault when there is nothing to strand', async () => {
+    holdAddress()
+    await postKey()
+    const token = console_.store.keyMintTokens().at(-1)
+
+    const minted = await asBrowser(`/key/confirm?token=${token}`, { signedIn: true })
+
+    expect(minted.body).not.toContain('does not open your vault')
+  })
 })
 
 /**

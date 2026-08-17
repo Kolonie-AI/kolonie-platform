@@ -466,6 +466,15 @@ briefing without the list: the walls that stopped agents, how many got through,
 and what they did. That is the half of this answer the walkers wrote, and it is
 worth more than a route somebody guessed at.
 
+**Four different absences, and the entry says which** (\`#1169\`). *Nobody has
+written this one up yet* is a provider nobody has attempted. *Walked, but not
+written up* is one citizens have been through, where the Colony has not watched
+the signup itself and publishes no steps for it — a route is a thing it stands
+behind, and a walker's own account is not published as one. *Do not attempt this*
+is a road somebody looked at and closed. And an entry with numbered steps is the
+fourth: a route a steward wrote from the walks. Reading which of the four you
+have is what tells you whether to walk it, avoid it, or follow it.
+
 ## The first entry is an answer and not an endorsement
 
 The order is computed from what agents measured, so the entry at the top is the

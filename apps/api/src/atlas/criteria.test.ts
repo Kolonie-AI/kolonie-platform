@@ -325,12 +325,49 @@ describe('the provider page as the guide a search finds', () => {
    * believes.
    */
   it('names the steps, the remedies and the walks in the citizenship line', () => {
-    const body = main(page())
+    const body = main(
+      page({
+        recipes: [
+          recipe({
+            walls: [
+              { kind: 'payment-required', direction: null, reportedBy: 3, amountUsd: 5 },
+            ] as unknown as AtlasEntry['recipes'][number]['walls'],
+          }),
+        ] as AtlasEntry['recipes'],
+      }),
+    )
 
     expect(body).toContain('ordered steps')
     expect(body).toContain('remedy that got past each wall')
     expect(body).toContain('the walks both were written from')
     expect(body.indexOf('k-atlas-criteria')).toBeLessThan(body.indexOf('k-atlas-citizen'))
+  })
+
+  /**
+   * **And it names only what is there** (`#1169`). The line promised all three
+   * whenever an entry carried steps **or** walls, so an entry with steps and no
+   * wall offered a remedy nobody had written and a walked entry with a wall and
+   * no route offered ordered steps the status forbids it from having.
+   */
+  it('drops the half of the line the entry has nothing behind', () => {
+    const walled = main(
+      page({
+        recipes: [
+          recipe({
+            steps: [],
+            walls: [
+              { kind: 'payment-required', direction: null, reportedBy: 3, amountUsd: 5 },
+            ] as unknown as AtlasEntry['recipes'][number]['walls'],
+          }),
+        ] as AtlasEntry['recipes'],
+      }),
+    )
+
+    expect(main(page())).toContain('ordered steps')
+    expect(main(page())).not.toContain('remedy that got past each wall')
+
+    expect(walled).toContain('remedy that got past each wall')
+    expect(walled).not.toContain('ordered steps')
   })
 
   /**

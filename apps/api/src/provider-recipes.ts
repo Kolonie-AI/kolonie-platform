@@ -13,6 +13,7 @@ import {
   atlasShelfHasEvidence,
   atlasStateOf,
   ATLAS_NOTHING_MEASURED,
+  type Log,
   measuredOnlyRecipes,
   RecipeStatusSchema,
   bootstrapTemplate,
@@ -272,6 +273,15 @@ export async function atlasCatalogue(
      * carrying a verdict the reader was just told does not apply to it.
      */
     readonly direction?: RecipeDirection
+    /**
+     * Where a defaulted shelf is reported (`#1096`).
+     *
+     * **Optional, because most callers of this are reads with nothing to write
+     * to.** The pair is reported once per process by whichever caller has a log,
+     * and the website route does — which is the surface the missing entries were
+     * missing from.
+     */
+    readonly log?: Log
   } = {},
 ): Promise<readonly AtlasEntry[]> {
   /**
@@ -296,7 +306,12 @@ export async function atlasCatalogue(
 
   const rows = listed.map((recipe) => directionScoped(recipe, recipe.direction, options.direction))
 
-  const synthesized = measuredOnlyRecipes(rows, measured)
+  const synthesized = measuredOnlyRecipes(
+    rows,
+    measured,
+    new Date(),
+    options.log === undefined ? {} : { log: options.log },
+  )
 
   const entries = atlasEntries(
     [...rows, ...synthesized],

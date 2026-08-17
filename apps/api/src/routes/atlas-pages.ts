@@ -88,8 +88,14 @@ export function registerAtlasPages(app: FastifyInstance, deps: RouteDependencies
    *
    * **Ordered on every read and never from a stored rank**, which is what makes
    * the ordering something nobody can buy — there is no position field to set.
+   *
+   * The log goes in because this is the surface `#1096` was about: a provider
+   * whose kind names no shelf is shelved by default here, and the line saying
+   * so is worth having from the process that serves the pages it was missing
+   * from.
    */
-  const listEntries = async (): Promise<readonly AtlasEntry[]> => atlasCatalogue(recipes)
+  const listEntries = async (): Promise<readonly AtlasEntry[]> =>
+    atlasCatalogue(recipes, { log: deps.log })
 
   app.get<{ Querystring: { category?: string } }>(ATLAS_PATH, async (request, reply) => {
     if (wrongHost(request)) return reply.callNotFound()

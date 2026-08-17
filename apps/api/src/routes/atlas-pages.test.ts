@@ -728,6 +728,46 @@ describe('the Atlas on the website host', () => {
         body.indexOf('/atlas/aaa-first-alphabetically'),
       )
     })
+
+    /**
+     * **The walk a reader could not find** (`#1096`). `bounty-platform` is a
+     * kind citizens proved accounts under and no shelf is paired with, so the
+     * catalogue dropped the pair on the way to the page and the briefing behind
+     * it was readable nowhere on the website.
+     *
+     * Asserted on the page and on the index both, because they are two reads of
+     * the same catalogue and only one of them was ever the complaint.
+     */
+    it('serves a page for a provider whose kind is paired with no shelf', async () => {
+      await withFigures({
+        ...noFigures('bounty-platform', 'gib.work'),
+        attempted: 4,
+        proved: 2,
+        evidenced: true,
+      })
+
+      const page = await get('/atlas/gib.work')
+
+      expect(page.statusCode).toBe(200)
+      expect(page.body).toContain('gib.work')
+      expect((await get('/atlas')).body).toContain('/atlas/gib.work')
+    })
+
+    /**
+     * The guard in front of the fallback, through the surface a reader uses: a
+     * pair nobody has demonstrably reached is not an entry, and being of a kind
+     * nobody classified does not make it one.
+     */
+    it('serves no page for a shelf-less kind a citizen only declared', async () => {
+      await withFigures({
+        ...noFigures('bounty-platform', 'laborx.com'),
+        attempted: 1,
+        proved: 0,
+        evidenced: false,
+      })
+
+      expect((await get('/atlas/laborx.com')).statusCode).toBe(404)
+    })
   })
 
   /**

@@ -9,6 +9,7 @@ import {
   type AtlasFigures,
 } from './atlas-figures.js'
 import { atlasCategoryForKind } from './atlas-proposal.js'
+import type { Log } from '../log/log.js'
 import {
   AtlasCategorySlugSchema,
   ProviderRecipeSchema,
@@ -770,6 +771,47 @@ export function atlasEntryHealth(
 }
 
 /**
+ * The shelf a measured provider lands on when its kind names none (`#1096`).
+ *
+ * **One of the fifteen and not a sixteenth.** A new shelf is a row in
+ * `atlas_categories` and a decision somebody makes; a default is neither, and
+ * inventing a category here would let an unclassified provider create the
+ * vocabulary it is filed under. `data-apis` is the broadest and least
+ * misleading of the shelves that exist for a kind nobody classified.
+ *
+ * The entry says so about itself — see `ProviderRecipe.categoryIsFallback` —
+ * so this is where a maintainer starts rather than where the question ends.
+ */
+export const ATLAS_FALLBACK_CATEGORY = 'data-apis'
+
+/**
+ * The pairs already reported, so that a shelf defaulted on every read is
+ * mentioned once (`#1096` decision 5).
+ *
+ * **Per process, and that is the whole intent.** `measuredOnlyRecipes` runs on
+ * every catalogue read, so an unconditional line would be one per request for a
+ * fact that changes when somebody classifies the kind. A restart says it again,
+ * which is right: a line nobody acted on should come back.
+ */
+const reportedFallbackShelves = new Set<string>()
+
+/** One line, the first time a `(kind, provider)` pair is defaulted. */
+function reportFallbackShelf(kind: string, provider: string, log: Log | undefined): void {
+  if (log === undefined) return
+
+  const pair = figureKey(kind, provider)
+  if (reportedFallbackShelves.has(pair)) return
+  reportedFallbackShelves.add(pair)
+
+  log.warn(`no Atlas shelf is paired with account kind ${kind}`, {
+    event: 'atlas.shelf.defaulted',
+    kind,
+    provider,
+    shelf: ATLAS_FALLBACK_CATEGORY,
+  })
+}
+
+/**
  * The rows the figures imply and the catalogue does not have (`#856`).
  *
  * **The Colony already knew about these providers and could not show them.**
@@ -798,15 +840,35 @@ export function atlasEntryHealth(
  * the first, inside the row, exactly as it does for every curated entry beside
  * it.
  *
- * **A kind with no shelf is skipped too.** `atlasCategoryForKind` throws rather
- * than guessing, and a provider filed on a wrong shelf is worse than one that is
- * only reachable by its kind — the shelf is a claim the Colony would be making
- * on nobody's behalf.
+ * **A kind with no shelf is shelved by default rather than dropped** (`#1096`),
+ * and this paragraph argued the other way until then. It said that a provider
+ * filed on a wrong shelf is worse than one only reachable by its kind, because
+ * the shelf is a claim the Colony would be making on nobody's behalf. The
+ * measurement is what settles it: on 2026-08-16 three providers had a written
+ * briefing, a finished walk each and no entry and no page anywhere —
+ * `bounty-platform/gib.work`, `bounty-platform/laborx.com` and
+ * `marketplace/solarisai.io`. Their kinds are ones nobody anticipated, which is
+ * the ordinary case for a catalogue that grows when citizens walk something new,
+ * and the throw was caught here and turned into a `continue`. So the entry did
+ * not exist, on no shelf, and a citizen's measured work was silently lost.
+ *
+ * Losing that is the worse outcome, and {@link ATLAS_FALLBACK_CATEGORY} is what
+ * it costs. `atlasCategoryForKind` is untouched and still throws: it is the
+ * strict lookup and its callers still get their guarantee. The default is
+ * marked on the entry and logged, so it reads as *nobody has classified this*
+ * rather than as a claim.
  */
 export function measuredOnlyRecipes(
   recipes: readonly ProviderRecipe[],
   figures: readonly AtlasFigures[],
   at: Date = new Date(),
+  options: {
+    /**
+     * Where a defaulted shelf is reported, if the caller has anywhere to report
+     * it. Omitted by the pure callers and by the tests that do not assert on it.
+     */
+    readonly log?: Log
+  } = {},
 ): readonly ProviderRecipe[] {
   const known = new Set(recipes.map((recipe) => figureKey(recipe.kind, recipe.provider)))
   const synthesized: ProviderRecipe[] = []
@@ -839,10 +901,13 @@ export function measuredOnlyRecipes(
     if (known.has(figureKey(figure.kind, figure.provider))) continue
 
     let category
+    let defaulted = false
     try {
       category = atlasCategoryForKind(figure.kind)
     } catch {
-      continue
+      category = ATLAS_FALLBACK_CATEGORY
+      defaulted = true
+      reportFallbackShelf(figure.kind, figure.provider, options.log)
     }
 
     synthesized.push(
@@ -863,6 +928,12 @@ export function measuredOnlyRecipes(
          * list is stated here rather than left to be filled in.
          */
         categories: [category],
+        /**
+         * **Present only where it is true** (`#1096`), so that *nobody
+         * classified this* and *somebody put it here* are not the same value
+         * read two ways.
+         */
+        ...(defaulted ? { categoryIsFallback: true } : {}),
         /**
          * Unscoped, and it stays that way (`#976`). The figures behind this row
          * count attempts at a provider; nothing in them says which capability

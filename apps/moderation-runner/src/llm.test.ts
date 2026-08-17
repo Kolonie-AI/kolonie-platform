@@ -3,6 +3,7 @@ import {
   openRouterModel,
   ProviderUnreachable,
   BRIEFING_MAX_TOKENS,
+  CEILING_ESCALATION,
   CLASSIFY_MAX_TOKENS,
   MARK_MAX_TOKENS,
   MODERATION_MODEL,
@@ -335,7 +336,123 @@ describe('classifying', () => {
         user: 'u',
         choices: ['approve', 'reject'],
       }),
-    ).rejects.toThrow(`${CLASSIFY_MAX_TOKENS}-token ceiling`)
+    ).rejects.toThrow(
+      // The raised one, because that is the budget the reply that failed came
+      // back under. Naming the first would send a reader to change a number that
+      // was no longer in force (`#1192`).
+      `${CLASSIFY_MAX_TOKENS * CEILING_ESCALATION}-token ceiling`,
+    )
+  })
+
+  /**
+   * **The ceiling that was too low twice (`#437`, `#1192`).**
+   *
+   * `#437` raised this from 400 to 4000 and the same failure arrived at 4000 ten
+   * days later, on a walk for `mailbox/resend.com`. How much a model reasons is a
+   * property of the page and of a model somebody may swap under us, so the next
+   * constant is a guess too. What can be fixed instead is the shape: at
+   * `temperature: 0` a retry that changes nothing produces the same empty reply
+   * for ever, so the retry raises the thing that ran out.
+   */
+  it('retries at a higher ceiling when the whole ceiling went on reasoning', async () => {
+    const { impl, sent } = stubFetchSequence(
+      { choices: [{ message: {}, finish_reason: 'length' }] },
+      aVerdict('{"decision":"approve","reason":"concrete"}'),
+    )
+
+    const verdict = await openRouterModel('a-key', { fetch: impl }).classify({
+      system: 's',
+      user: 'u',
+      choices: ['approve', 'reject'],
+    })
+
+    expect(verdict).toMatchObject({ decision: 'approve', reason: 'concrete' })
+    expect(sent).toHaveLength(2)
+    const first = JSON.parse(String(sent[0]?.init?.body)) as { max_tokens: number }
+    const second = JSON.parse(String(sent[1]?.init?.body)) as { max_tokens: number }
+    expect(first.max_tokens).toBe(CLASSIFY_MAX_TOKENS)
+    expect(second.max_tokens).toBe(CLASSIFY_MAX_TOKENS * CEILING_ESCALATION)
+  })
+
+  /**
+   * Once. A second interruption is no longer the anomaly this retry is for — it
+   * is a page or a prompt that does not fit, and that is a fact for a person to
+   * read rather than a cost the runner keeps paying every poll.
+   */
+  it('escalates once and no further', async () => {
+    const spent = { choices: [{ message: {}, finish_reason: 'length' }] }
+    const { impl, sent } = stubFetchSequence(spent, spent)
+
+    await expect(
+      openRouterModel('a-key', { fetch: impl }).classify({
+        system: 's',
+        user: 'u',
+        choices: ['approve', 'reject'],
+      }),
+    ).rejects.toThrow('went on reasoning')
+    expect(sent).toHaveLength(2)
+  })
+
+  /** The raise is visible, because a doubled bill nobody can explain is worse. */
+  it('says it raised the ceiling, and by how much', async () => {
+    const warn = vi.fn()
+    const { impl } = stubFetchSequence(
+      { choices: [{ message: {}, finish_reason: 'length' }] },
+      aVerdict('{"decision":"approve","reason":"concrete"}'),
+    )
+
+    await openRouterModel('a-key', {
+      fetch: impl,
+      log: { info: vi.fn(), warn, error: vi.fn() },
+    }).classify({ system: 's', user: 'u', choices: ['approve', 'reject'] })
+
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('on reasoning'),
+      expect.objectContaining({
+        event: 'model.ceiling.raised',
+        ceiling: CLASSIFY_MAX_TOKENS,
+        raised: CLASSIFY_MAX_TOKENS * CEILING_ESCALATION,
+      }),
+    )
+  })
+
+  /**
+   * **A reply that was interrupted *with* content is a different event.** There
+   * is something in it — a briefing's finished claims, a verdict to complain
+   * about — and spending a second call to get a longer version of an answer we
+   * already have is not what this retry is for.
+   */
+  it('does not retry a reply that was cut off with content in it', async () => {
+    const { impl, sent } = stubFetch({
+      choices: [{ message: { content: '{}' }, finish_reason: 'length' }],
+    })
+
+    await expect(
+      openRouterModel('a-key', { fetch: impl }).classify({
+        system: 's',
+        user: 'u',
+        choices: ['approve', 'reject'],
+      }),
+    ).rejects.toThrow('without a decision and a reason')
+    expect(sent).toHaveLength(1)
+  })
+
+  /** The marking pass is the other half of what `walk-prose` needs (`#1192`). */
+  it('gives a marking pass the same escalation', async () => {
+    const { impl, sent } = stubFetchSequence(
+      { choices: [{ message: {}, finish_reason: 'length' }] },
+      aVerdict('{"spans":[]}'),
+    )
+
+    const spans = await openRouterModel('a-key', { fetch: impl }).mark({
+      system: 's',
+      user: 'u',
+      kinds: ['struggle'],
+    })
+
+    expect(spans).toEqual([])
+    const second = JSON.parse(String(sent[1]?.init?.body)) as { max_tokens: number }
+    expect(second.max_tokens).toBe(MARK_MAX_TOKENS * CEILING_ESCALATION)
   })
 
   /**
@@ -865,7 +982,9 @@ describe('composing', () => {
         sourceIds: ['a'],
         maxClaimLength: 400,
       }),
-    ).rejects.toThrow(`the whole ${BRIEFING_MAX_TOKENS}-token ceiling went on reasoning`)
+    ).rejects.toThrow(
+      `the whole ${BRIEFING_MAX_TOKENS * CEILING_ESCALATION}-token ceiling went on reasoning`,
+    )
   })
 
   it('asks for the briefing ceiling, not a verdict’s', async () => {

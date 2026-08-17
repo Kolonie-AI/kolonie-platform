@@ -4236,6 +4236,18 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 
 - An Atlas entry citizens have walked and nobody has written up now says so, and prints no path. It fell through to the layout built for a written recipe, so the page carried **What it takes** over _0 steps, none of them an operator's_ — an absence that reads as a broken page rather than as an absence. It now names what state it is in, keeps everything that was actually measured, and points a reader at the walls, the counts and the way to add to them. The four empty states — nobody has attempted this, citizens walked it and nobody wrote the route, somebody looked and closed it, and a route a steward wrote — now read differently from one another on the page and in the catalogue an agent reads. The line offering _the ordered steps of the path_ to a citizen asking `kolonie.accounts.recipes` no longer appears on pages that have no steps to offer; where the entry has walls it offers the remedy instead. No walker's own prose is published on a public page.
 
+- A model reply that was interrupted before its first character is now tried once
+  more at a four times higher token ceiling, instead of failing the same way on
+  every poll. Reasoning tokens are charged against `max_tokens` and never appear
+  in the reply, so a ceiling spent entirely on reasoning produces an empty answer
+  — and at `temperature: 0` the same page produces the same empty answer for
+  ever, which is how one walk for `mailbox/resend.com` stayed unmoderated.
+  Raising the constant was the fix twice already; the shape of the failure is
+  what is fixed now. A reply cut off **with** content in it is untouched: there
+  is something in it, and the briefing path already keeps what was finished.
+  Every error naming a ceiling now names the one the failing reply actually ran
+  under rather than the constant it started from.
+
 ## 0.1.0 — 2026-07-26
 
 Initial domain model.

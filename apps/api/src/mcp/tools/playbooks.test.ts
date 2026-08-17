@@ -181,7 +181,7 @@ describe('kolonie.playbooks.list/.get/.frontier (#1174)', () => {
 
   /**
    * The three ways an account a citizen genuinely holds still does not answer a
-   * slot, each with its own reason code so `#1181` can write a sentence per case.
+   * slot, each with its own reason code and so with its own sentence (`#1181`).
    */
   const doesNotAnswer: {
     what: string
@@ -266,6 +266,164 @@ describe('kolonie.playbooks.list/.get/.frontier (#1174)', () => {
 
     expect(match.missing.map((slot) => slot.reason)).toEqual(['missing-capabilities'])
     await close()
+  })
+
+  /**
+   * What a citizen does about a slot it cannot answer (`#1181`).
+   *
+   * The four reasons are the four sentences, and a kind-only slot and a
+   * provider-pinned one are deliberately separate cases: the first has no single
+   * entry to point at and must say so by leaving `atlasPath` out, while the
+   * second must point at the provider's own page rather than at a list.
+   */
+  describe('what to do about a missing slot (#1181)', () => {
+    it('names the call for a kind-only slot, and no Atlas entry it cannot have', async () => {
+      const { colony, client, close } = await aCitizen()
+      colony.playbooks.playbook({
+        slug: 'needs-a-mailbox',
+        status: 'open',
+        requiredAccounts: [{ slot: 'inbox', kind: aKind('mailbox'), minProved: false }],
+      })
+
+      const match = matchOf(await client.callTool(get('needs-a-mailbox')))
+
+      const [slot] = match.missing
+      expect(slot?.kind).toBe('mailbox')
+      expect(slot?.hint).toContain('kolonie.accounts.recipes')
+      expect(slot?.hint).toContain('mailbox')
+      // No provider is pinned, so there is no one page — and a path invented
+      // here would be a 404 offered as guidance.
+      expect(slot?.atlasPath).toBeUndefined()
+      await close()
+    })
+
+    it('points a provider-pinned slot at that provider’s Atlas entry', async () => {
+      const { colony, client, close } = await aCitizen()
+      colony.playbooks.playbook({
+        slug: 'needs-github-com',
+        status: 'open',
+        requiredAccounts: [
+          { slot: 'code', kind: aKind('github'), provider: 'github.com', minProved: false },
+        ],
+      })
+
+      const match = matchOf(await client.callTool(get('needs-github-com')))
+
+      const [slot] = match.missing
+      expect(slot?.atlasPath).toBe('/atlas/github.com')
+      expect(slot?.hint).toContain('github.com')
+      await close()
+    })
+
+    /**
+     * A pin is free text of up to 128 characters and the Atlas addresses an
+     * entry by the provider itself, so a pin written as prose has no page. The
+     * hint survives; the path is left out rather than guessed at.
+     */
+    it('leaves the Atlas path out where the pin is not something the Atlas can address', async () => {
+      const { colony, client, close } = await aCitizen()
+      colony.playbooks.playbook({
+        slug: 'needs-the-house-forge',
+        status: 'open',
+        requiredAccounts: [
+          {
+            slot: 'code',
+            kind: aKind('github'),
+            provider: 'the forge my operator runs',
+            minProved: false,
+          },
+        ],
+      })
+
+      const match = matchOf(await client.callTool(get('needs-the-house-forge')))
+
+      const [slot] = match.missing
+      expect(slot?.hint).not.toBe('')
+      expect(slot?.atlasPath).toBeUndefined()
+      await close()
+    })
+
+    it('gives the proving and the capability walls their own sentences', async () => {
+      const { colony, agent, client, close } = await aCitizen()
+      colony.playbooks.playbook({
+        slug: 'prove-and-send',
+        status: 'open',
+        requiredAccounts: [
+          { slot: 'inbox', kind: aKind('mailbox'), minProved: true },
+          {
+            slot: 'outbox',
+            kind: aKind('domain'),
+            minProved: false,
+            capabilities: [aCapability('publish')],
+          },
+        ],
+      })
+      colony.playbooks.account(agent.id, { kind: aKind('mailbox'), proved: false })
+      colony.playbooks.account(agent.id, { kind: aKind('domain'), capabilities: [] })
+
+      const match = matchOf(await client.callTool(get('prove-and-send')))
+
+      const byReason = new Map(match.missing.map((slot) => [slot.reason, slot.hint]))
+      expect(byReason.get('not-proved')).toContain('kolonie.accounts.prove')
+      expect(byReason.get('missing-capabilities')).toContain('publish')
+      // Four reasons, four sentences: no two walls may read alike, or the hint
+      // is decoration on a code the citizen already had.
+      expect(new Set(byReason.values()).size).toBe(byReason.size)
+      await close()
+    })
+
+    /**
+     * **No hint promises the account.** What the Atlas records is where other
+     * citizens got to, walls included — so the language a hint may not use is
+     * the language that turns a record of attempts into an assurance.
+     */
+    it('promises no citizen an account it cannot promise', async () => {
+      const { colony, agent, client, close } = await aCitizen()
+      colony.playbooks.playbook({
+        slug: 'four-walls',
+        status: 'open',
+        requiredAccounts: [
+          { slot: 'inbox', kind: aKind('mailbox'), minProved: true },
+          { slot: 'code', kind: aKind('github'), provider: 'github.com', minProved: false },
+          {
+            slot: 'zone',
+            kind: aKind('domain'),
+            minProved: false,
+            capabilities: [aCapability('publish')],
+          },
+          { slot: 'site', kind: aKind('website'), minProved: false },
+        ],
+      })
+      colony.playbooks.account(agent.id, { kind: aKind('mailbox'), proved: false })
+      colony.playbooks.account(agent.id, { kind: aKind('github'), provider: 'gitea.example' })
+      colony.playbooks.account(agent.id, { kind: aKind('domain'), capabilities: [] })
+
+      const match = matchOf(await client.callTool(get('four-walls')))
+
+      expect(match.missing).toHaveLength(4)
+      for (const slot of match.missing) {
+        expect(slot.hint).not.toMatch(/guarantee|you will get|will have one|simply sign up/i)
+        expect(slot.hint.length).toBeGreaterThan(20)
+      }
+      await close()
+    })
+
+    it('puts the hints where a model reading the text rather than the object sees them', async () => {
+      const { colony, client, close } = await aCitizen()
+      colony.playbooks.playbook({
+        slug: 'read-the-prose',
+        status: 'open',
+        requiredAccounts: [
+          { slot: 'code', kind: aKind('github'), provider: 'github.com', minProved: false },
+        ],
+      })
+
+      const prose = textOf(await client.callTool(get('read-the-prose')))
+
+      expect(prose).toContain('kolonie.accounts.recipes')
+      expect(prose).toContain('/atlas/github.com')
+      await close()
+    })
   })
 
   it('answers a clean not-found for a slug nobody holds', async () => {

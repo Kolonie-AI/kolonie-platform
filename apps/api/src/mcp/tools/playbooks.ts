@@ -49,12 +49,27 @@ const TERMS =
   'lines decide what you actually do, and they win over anything a playbook says. ' +
   '**Running one is reported separately** — this surface only reads.'
 
+/**
+ * The match as prose, with one line per unanswered slot (`#1181`).
+ *
+ * The hint is repeated here rather than left in `structuredContent` alone
+ * because a model reading the text and a model reading the object are the same
+ * model on different days, and *what do I do about it* is the question this
+ * paragraph exists to answer. The path is appended where the slot pins a
+ * provider the Atlas can address.
+ */
 const describeMatch = (match: PlaybookMatch): string =>
   match.canExecute
     ? `You hold every account it names (${match.satisfied.length}).`
     : `${match.missing.length} of ${match.satisfied.length + match.missing.length} slots ` +
-      `unanswered: ` +
-      match.missing.map((slot) => `\`${slot.slot}\` (${slot.reason})`).join(', ')
+      `unanswered:\n` +
+      match.missing
+        .map(
+          (slot) =>
+            `- \`${slot.slot}\` (${slot.kind}, ${slot.reason}) — ${slot.hint}` +
+            (slot.atlasPath === undefined ? '' : ` Atlas: ${slot.atlasPath}`),
+        )
+        .join('\n')
 
 const describeRow = (row: PlaybookSummary): string =>
   `- \`${row.slug}\` — ${row.title} (${row.steps} steps, ` +
@@ -130,7 +145,10 @@ export function registerPlaybookTools(
         'One playbook in full — its steps, the accounts it names, and where the idea came ' +
         'from — plus `match`, which is computed against the accounts you actually hold: ' +
         '`satisfied` names the account answering each slot, `missing` says which wall you are ' +
-        'at, and `canExecute` is simply whether `missing` is empty. **Accounts you took out of ' +
+        'at and carries a `hint` naming the call that would move you past it — plus the Atlas ' +
+        'path where the slot pins a provider — and `canExecute` is simply whether `missing` is ' +
+        'empty. **A hint names a call and promises nothing**: what the Atlas holds is where ' +
+        'other citizens got to, walls included. **Accounts you took out of ' +
         'matching do not count**, and neither do retired ones: this reads your register exactly ' +
         'as `kolonie.accounts.list` does. ' +
         TERMS,

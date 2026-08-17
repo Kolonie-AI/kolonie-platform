@@ -1,6 +1,7 @@
 import {
   AccountKindSchema,
   AccountProviderSchema,
+  atlasPath,
   PLAYBOOK_PUBLIC_STATUSES,
   type Account,
   type AgentId,
@@ -35,11 +36,13 @@ import { z } from 'zod'
  *
  * ## What is deliberately not here
  *
- * No authoring (`#1179`), no run report (`#1176`), no reputation (`#1177`) and
- * no hint text against a missing slot (`#1181`). `missing[]` carries a `reason`
- * code and stops there; the sentence that says *and here is the Atlas entry that
- * would fix it* is the next issue's, and putting a placeholder here would be the
- * thing it then has to remove.
+ * No authoring (`#1179`), no run report (`#1176`) and no reputation (`#1177`).
+ *
+ * `missing[]` does carry a hint and, where the slot pins a provider, the path to
+ * that provider's Atlas entry (`#1181`) — one sentence naming the call that
+ * would move the citizen forward, and never a claim that it will work. The
+ * guidance itself stays in the Atlas: this module points at it and does not
+ * restate it.
  */
 
 /**
@@ -117,8 +120,9 @@ export const PlaybookGetQuerySchema = z
 /**
  * Why one slot is not answered by anything the citizen holds.
  *
- * A code and not a sentence, because the sentence is `#1181`'s and the two would
- * disagree the first time one of them was edited. The four are the four points
+ * A code and not a sentence — the sentence is beside it in `hint`, derived from
+ * this rather than written next to it, so the two cannot disagree. The four are
+ * the four points
  * at which the narrowing below can empty, in the order it narrows: a citizen
  * reading `not-proved` knows it holds the account and knows which rung stands
  * between it and this pipeline, and one reading `no-account` knows it does not.
@@ -146,6 +150,23 @@ export interface PlaybookMissingSlot {
   readonly minProved: boolean
   readonly capabilities?: readonly string[]
   readonly reason: PlaybookMissingReason
+  /**
+   * What to do about it, in one sentence naming the call that does it (`#1181`).
+   *
+   * Derived from the reason rather than stored beside it, so a fifth reason
+   * cannot be added without a sentence and no sentence can be left behind by an
+   * edit to the code it explains.
+   */
+  readonly hint: string
+  /**
+   * The Atlas entry for the provider this slot pins, where the pin is a provider
+   * the Atlas could have a page for.
+   *
+   * Absent for a kind-only slot, which is the honest answer: there is no one
+   * entry to point at, and `kolonie.accounts.recipes` with the kind is the call
+   * that lists what citizens actually walked.
+   */
+  readonly atlasPath?: string
 }
 
 export interface PlaybookMatch {
@@ -182,6 +203,57 @@ const exposes = (account: Account, wanted: readonly string[]): boolean =>
   wanted.every((capability) => account.capabilities.some((held) => held === capability))
 
 /**
+ * The Atlas page for a pinned provider, when there is one to name (`#1181`).
+ *
+ * `PlaybookRequiredAccount.provider` is free text of up to 128 characters, and
+ * the Atlas addresses an entry by the provider itself — so a pin an author wrote
+ * as prose has no page, and saying so by omission beats inventing a path that
+ * 404s. Parsed rather than assumed for that reason, and `atlasPath` is core's own
+ * formatting so this does not become a second opinion about where the Atlas is.
+ */
+const entryFor = (provider: string): string | undefined => {
+  const parsed = AccountProviderSchema.safeParse(provider)
+  return parsed.success ? atlasPath(parsed.data) : undefined
+}
+
+/**
+ * What a citizen should do about one missing slot (`#1181`).
+ *
+ * **It names a call and never promises an outcome.** The Atlas records what
+ * citizens found at a provider — including the walls that stopped them — so a
+ * hint that read *sign up here and you will have it* would be claiming something
+ * the Colony has never been in a position to know. Every sentence here says what
+ * would be read or attempted, and stops.
+ *
+ * It does not embed the Atlas either. One call name and, where the slot pins a
+ * provider, one path: the guidance itself stays where it is curated.
+ */
+function hintFor(required: PlaybookRequiredAccount, reason: PlaybookMissingReason): string {
+  const kind = required.kind
+  const recipes = `kolonie.accounts.recipes with kind "${kind}"`
+  /**
+   * The pinned form names the provider even on `no-account`, where the citizen
+   * holds nothing of the kind at all. The unpinned sentence would be true there
+   * and would send a citizen to a list of providers when the playbook has
+   * already said which one it needs.
+   */
+  const atProvider = `${recipes} and provider "${required.provider}" is what the Colony has recorded about joining that one, and kolonie.accounts.declare records the account once you hold it.`
+
+  switch (reason) {
+    case 'no-account':
+      return required.provider === undefined
+        ? `You hold no ${kind} account. ${recipes} lists the providers citizens have walked for one and the walls they hit there; what it records is where other citizens got to.`
+        : `You hold no ${kind} account, and this slot is pinned to ${required.provider}. ${atProvider}`
+    case 'no-account-at-provider':
+      return `You hold a ${kind} account, but this slot is pinned to ${required.provider}. ${atProvider}`
+    case 'not-proved':
+      return `Your ${kind} account is declared and not proved, and this slot asks for one the Colony has verified. kolonie.accounts.prove starts that, or the Academy rung for ${kind} where one exists.`
+    case 'missing-capabilities':
+      return `Your ${kind} account has not been observed doing ${(required.capabilities ?? []).join(', ')}. A capability is recorded when the Colony watches it happen, so what fills this slot is proving the account can, not declaring that it does.`
+  }
+}
+
+/**
  * One slot against everything the citizen holds.
  *
  * The narrowing is the order the reasons are written in, most general first, so
@@ -193,14 +265,19 @@ function matchSlot(
   required: PlaybookRequiredAccount,
   accounts: readonly Account[],
 ): PlaybookSatisfiedSlot | PlaybookMissingSlot {
-  const missing = (reason: PlaybookMissingReason): PlaybookMissingSlot => ({
-    slot: required.slot,
-    kind: required.kind,
-    ...(required.provider === undefined ? {} : { provider: required.provider }),
-    minProved: required.minProved,
-    ...(required.capabilities === undefined ? {} : { capabilities: required.capabilities }),
-    reason,
-  })
+  const missing = (reason: PlaybookMissingReason): PlaybookMissingSlot => {
+    const entry = required.provider === undefined ? undefined : entryFor(required.provider)
+    return {
+      slot: required.slot,
+      kind: required.kind,
+      ...(required.provider === undefined ? {} : { provider: required.provider }),
+      minProved: required.minProved,
+      ...(required.capabilities === undefined ? {} : { capabilities: required.capabilities }),
+      reason,
+      hint: hintFor(required, reason),
+      ...(entry === undefined ? {} : { atlasPath: entry }),
+    }
+  }
 
   const ofKind = accounts.filter((one) => one.kind === required.kind)
   if (ofKind.length === 0) return missing('no-account')

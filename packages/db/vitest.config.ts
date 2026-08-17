@@ -6,6 +6,8 @@ import { defineConfig } from 'vitest/config'
 // says this over its own import. This file is not typechecked either: the
 // package's tsconfig includes `src/**/*.ts` and nothing else.
 import { testWorkers } from '../../scripts/test-workers.mjs'
+// @ts-expect-error the same, and for the same reason.
+import { sourceResolve } from '../../scripts/source-condition.mjs'
 
 /**
  * How many test files run at once.
@@ -61,6 +63,8 @@ const ISOLATED: string[] = ['src/storage/vault-reseal-failure.test.ts']
 const EVERY_TEST = ['src/**/*.test.ts']
 
 export default defineConfig({
+  // Sibling workspaces resolve to their source, not to `dist` (`#1156`).
+  ...sourceResolve,
   test: {
     // Tests live next to the code they cover: `foo.ts` -> `foo.test.ts`.
     include: EVERY_TEST,

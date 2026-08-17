@@ -5,6 +5,20 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
 
+    // A sibling workspace resolves to its TypeScript source rather than to its
+    // build output (`#1156`). The same condition the vitest configurations opt
+    // into through `scripts/source-condition.mjs`, and the reason it is one
+    // condition rather than a vitest `alias`: an alias would leave `tsc`
+    // resolving to `dist` while tests resolved to `src`, which is two truths for
+    // one import.
+    //
+    // **Every `tsconfig.build.json` switches this back off**, and that is not a
+    // detail. `tsc -b` emits declarations, and a build that read a sibling's
+    // `src` would pull files from outside its own `rootDir` into its program and
+    // emit against them. The build resolves to `dist` exactly as it always has;
+    // it is the `--noEmit` typecheck, and the tests, that read source.
+    "customConditions": ["@kolonie-ai/source"],
+
     // Explicit rather than "whatever is in node_modules/@types": every workspace
     // targets Node, and an implicit list changes meaning when a dependency
     // brings its own @types package along.

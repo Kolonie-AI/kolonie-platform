@@ -99,11 +99,11 @@ describe('walking a tree', () => {
     }
   }
 
-  const treeWith = async (dist: Record<string, string>) => {
+  const treeWith = async (dist: Record<string, string>, tsconfig?: string) => {
     const root = await mkdtemp(path.join(tmpdir(), 'check-dist-'))
     await writeFile(path.join(root, 'package.json'), JSON.stringify({ workspaces: ['packages/*'] }))
     await workspace(root, 'packages/core', {
-      'tsconfig.build.json': JSON.stringify({ exclude: ['src/**/*.test.ts'] }),
+      'tsconfig.build.json': tsconfig ?? JSON.stringify({ exclude: ['src/**/*.test.ts'] }),
       'src/index.ts': 'export const a = 1\n',
       'src/deep/thing.ts': 'export const b = 2\n',
       'src/deep/thing.test.ts': 'export const c = 3\n',
@@ -135,6 +135,31 @@ describe('walking a tree', () => {
 
     expect(await distGaps(root)).toEqual([
       { directory: path.join('packages', 'core'), missing: ['deep/thing.js', 'index.js'] },
+    ])
+  })
+
+  /**
+   * **A `tsconfig` is JSONC, and this script read it with `JSON.parse`.**
+   *
+   * It held until `#1156` put a `//` line above `customConditions` in all ten
+   * `tsconfig.build.json`, and then failed in the worst available place: a
+   * `SyntaxError` naming a character offset in a file nobody was editing, out of
+   * `check:dist`, in the middle of `npm run check`, after the build had passed.
+   *
+   * The assertion is that the same tree yields the same answer either way, so a
+   * comment can neither break the check nor quietly disable the workspace it
+   * sits in — an exclusion that stopped being read would report every test file
+   * as a missing output, which is loud, but an unparsed workspace skipped
+   * silently would be the check not running at all.
+   */
+  it('reads a tsconfig that carries comments, as tsc does', async () => {
+    const root = await treeWith(
+      { 'dist/index.js': '' },
+      ['{', '  // Test files do not emit.', '  "exclude": ["src/**/*.test.ts"]', '}'].join('\n'),
+    )
+
+    expect(await distGaps(root)).toEqual([
+      { directory: path.join('packages', 'core'), missing: ['deep/thing.js'] },
     ])
   })
 })

@@ -1,6 +1,12 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
+    // Back to `dist`, undoing `tsconfig.base.json`'s `customConditions` (`#1156`).
+    // This is the emitting configuration: reading a sibling's `src` would put
+    // files outside this project's `rootDir` into its program and emit
+    // declarations against them. Project references already give the build the
+    // sibling's types, from its output, in dependency order.
+    "customConditions": [],
     "composite": true,
     "noEmit": false
   },

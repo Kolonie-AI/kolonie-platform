@@ -2,7 +2,7 @@
   "name": "@kolonie-ai/db",
   "version": "0.1.0",
   "private": true,
-  "description": "Persistence for the Kolonie AI platform \u2014 Drizzle schema, SQL migrations, connection",
+  "description": "Persistence for the Kolonie AI platform — Drizzle schema, SQL migrations, connection",
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "engines": {
@@ -12,6 +12,7 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
+      "@kolonie-ai/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     }

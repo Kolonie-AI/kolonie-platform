@@ -8,11 +8,19 @@
  * failing workspaces as a broken `main`. Nothing was broken: `dist/` predated a
  * module, and the errors — `mintMemoryCode is not a function`, `Cannot read
  * properties of undefined`, a route answering 500 — named neither `dist` nor the
- * build. The fix for that is one line in `package.json`: the root `test` script
- * builds first, and an incremental build is 1.4 s warm.
+ * build. The fix for that was one line in `package.json`: the root `test` script
+ * built first, and an incremental build is 1.4 s warm.
  *
- * **That fix does not cover the other half, and the other half is the one nobody
- * would guess.** `tsc -b` decides a project is up to date from its
+ * **That half is gone, and the line with it (`#1156`).** Tests resolve their
+ * sibling workspaces through the `@kolonie-ai/source` export condition now, so a
+ * test never reads `dist` and a stale `dist` cannot produce the errors above.
+ * `npm run test` no longer builds, and this script moved out of it and up beside
+ * `npm run build` in `check` and `check:fast` — next to the thing it is about,
+ * rather than in front of a suite that no longer depends on it.
+ *
+ * **The other half is why this file still exists, and it is the one nobody
+ * would guess.** `dist` is still built, still published and still what
+ * production runs. `tsc -b` decides a project is up to date from its
  * `.tsbuildinfo`, not from its outputs. Delete one emitted file and it says
  * *"Project … is up to date"* and emits nothing — measured 2026-08-04, on
  * `packages/core/dist/continuity/memory-code.js`:
@@ -129,6 +137,44 @@ export const missingOutputs = (expected, present) => {
   return expected.filter((relative) => !have.has(relative)).sort()
 }
 
+/**
+ * One `tsconfig` as an object, whether or not it holds comments.
+ *
+ * **`tsconfig` files are JSONC, and this script assumed plain JSON.** It said so
+ * out loud — *"these eight are plain JSON"* — and it held right up until `#1156`
+ * put a `//` line above `customConditions` in every `tsconfig.build.json`. The
+ * failure is worth naming because of where it lands: `check-dist` throws a
+ * `SyntaxError` out of `JSON.parse` naming a position in a file the author was
+ * not editing, in the middle of `npm run check`, after the build has already
+ * passed. Nothing about it says *a comment in a tsconfig is what did this*.
+ *
+ * **`JSON.parse` first, and TypeScript's own parser only when that fails.**
+ * `typescript` costs 405 ms to import, measured on CLAUDE002 on 2026-08-17, and
+ * this script sits in `check:fast` at about 50 ms — so the common case must not
+ * pay for it. A file with comments pays it once, and pays it to the same parser
+ * `tsc` reads the file with, rather than to a comment stripper here that would
+ * have to be right about `//` inside a string.
+ *
+ * A file that neither can read still throws, and deliberately: a workspace
+ * quietly dropped from this check is the check not running.
+ */
+const readTsconfig = async (file) => {
+  const text = await readFile(file, 'utf8')
+
+  try {
+    return JSON.parse(text)
+  } catch {
+    const ts = (await import('typescript')).default
+    const { config, error } = ts.parseConfigFileTextToJson(file, text)
+    if (error !== undefined) {
+      throw new Error(
+        `${file} is neither JSON nor JSONC: ${ts.flattenDiagnosticMessageText(error.messageText, ' ')}`,
+      )
+    }
+    return config
+  }
+}
+
 /** Every workspace with a `tsconfig.build.json`, which is every workspace that emits. */
 const buildingWorkspaces = async (root) => {
   const manifest = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'))
@@ -140,16 +186,17 @@ const buildingWorkspaces = async (root) => {
 
     for (const entry of entries.filter((candidate) => candidate.isDirectory()).sort()) {
       const directory = path.join(prefix, entry.name)
-      const config = await readFile(
-        path.join(root, directory, 'tsconfig.build.json'),
-        'utf8',
-      ).catch(() => undefined)
+      const file = path.join(root, directory, 'tsconfig.build.json')
+      // Absent means this workspace does not emit, which is not a failure. Every
+      // other reason the file cannot be read is one, and is thrown: a workspace
+      // quietly dropped from this check is the check not running.
+      const config = await readTsconfig(file).catch((cause) => {
+        if (cause.code === 'ENOENT') return undefined
+        throw cause
+      })
       if (config === undefined) continue
 
-      // `tsconfig` files are JSON with comments in general; these eight are plain
-      // JSON, and a parse failure here should be loud rather than skipped — a
-      // workspace quietly dropped from this check is the check not running.
-      found.push({ directory, exclude: JSON.parse(config).exclude ?? [] })
+      found.push({ directory, exclude: config.exclude ?? [] })
     }
   }
 

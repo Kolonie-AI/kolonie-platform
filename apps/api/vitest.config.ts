@@ -4,6 +4,8 @@ import { defineConfig } from 'vitest/config'
 // the TypeScript project. This file is not typechecked either — the app's
 // tsconfig includes `src/**/*.ts` and nothing else.
 import { testWorkers } from '../../scripts/test-workers.mjs'
+// @ts-expect-error the same, and for the same reason.
+import { sourceResolve } from '../../scripts/source-condition.mjs'
 
 /**
  * The files that keep per-file isolation.
@@ -53,6 +55,8 @@ const EVERY_TEST = ['src/**/*.test.ts']
  * 0.27 s more than the server surface it wraps. There is nothing here to trim.
  */
 export default defineConfig({
+  // Sibling workspaces resolve to their source, not to `dist` (`#1156`).
+  ...sourceResolve,
   test: {
     /**
      * **This workspace has never had an opinion about its pool, and that was the
@@ -73,6 +77,23 @@ export default defineConfig({
     },
     projects: [
       {
+        /**
+         * **`extends: true`, because a project inherits nothing without it — and
+         * what it was silently not inheriting was `resolve`** (`#1156`).
+         *
+         * Everything above this line lived in the root config and applied anyway,
+         * because `maxWorkers` and `coverage` are read from the root before the
+         * projects are built. `resolve` is not: it belongs to each project's own
+         * Vite server, so the source condition never reached these test files.
+         * With `packages/core/dist` removed, all 216 files failed at collection
+         * with *"Failed to resolve entry for package @kolonie-ai/core"* while
+         * `packages/db` — whose projects already said this — passed in full.
+         *
+         * Asserted in `scripts/source-condition.test.ts`: a `projects` entry
+         * anywhere in the tree that omits it fails there rather than quietly
+         * going back to reading `dist`.
+         */
+        extends: true,
         test: {
           name: 'shared',
           include: EVERY_TEST,
@@ -87,6 +108,7 @@ export default defineConfig({
         },
       },
       {
+        extends: true,
         test: {
           name: 'isolated',
           include: ISOLATED,

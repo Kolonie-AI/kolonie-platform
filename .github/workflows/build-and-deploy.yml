@@ -453,3 +453,209 @@ jobs:
     permissions:
       contents: read
       packages: read
+
+  # The deploy shipped. This asks the surface whether it is serving (`#1160`).
+  #
+  # ## Why a green build is not this claim
+  #
+  # `#1067` shipped reviewed, merged, green and closed as completed, and did not
+  # work: `kolonie.profile.update` never declared `discoverable` in its MCP input
+  # schema, an input schema strips what it does not declare, and the call
+  # answered `Profile updated.` while writing nothing. Every citizen that tried to
+  # become findable stayed invisible until `#1089` added one line. The suite was
+  # green the whole time, because it drove a stand-in that could not have the
+  # defect — the defect lived in the declaration between the stand-in and the
+  # wire.
+  #
+  # So this job crosses the wire. A foreign client, holding a credential, against
+  # the endpoint the deploy just replaced.
+  #
+  # ## Why it does not roll back, and does not gate anything
+  #
+  # A red result establishes that something does not answer. It does not
+  # establish that the previous build answered better, and choosing between two
+  # states needs a judgement nothing here has. It files an issue naming the
+  # deploy and the failing assertion, and the deploy stands.
+  #
+  # `always()` and a `needs` on `deploy` rather than a step inside it: a deploy
+  # that failed is already reported, and re-reporting it as a dead surface would
+  # bury the one case this exists for — a deploy that *succeeded* and left
+  # something not answering.
+  smoke:
+    name: smoke the deployed MCP surface
+    needs: deploy
+    if: needs.deploy.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+      # Read-only, and only to answer *which issues did this commit close* — the
+      # closing comment is written on the issue, never on the pull request.
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: install
+        run: npm ci
+
+      # The report is rendered by `apps/api/src/mcp/smoke.ts`, which is
+      # production code, for the reason `scripts/measure-mcp-surface.mjs`
+      # records: a script that built its own stand-in would be reporting on
+      # something other than what is served.
+      - name: build the api
+        run: npm run barrel && npx tsc -b apps/api
+
+      # Not `if:` on the secret — the `secrets` context is not available in a
+      # job-level condition, and a check that skips itself when its credential
+      # goes missing reports green from the day somebody renames it. That is
+      # `#1067`'s failure mode exactly, so an absent credential is a finding
+      # rather than a skip.
+      - name: is there a credential to speak with
+        id: credential
+        env:
+          KOLONIE_API_KEY: ${{ secrets.KOLONIE_SMOKE_API_KEY }}
+        run: |
+          if [ -z "${KOLONIE_API_KEY}" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: smoke
+        id: smoke
+        if: steps.credential.outputs.configured == 'true'
+        continue-on-error: true
+        env:
+          KOLONIE_API_KEY: ${{ secrets.KOLONIE_SMOKE_API_KEY }}
+          KOLONIE_MCP_URL: ${{ vars.KOLONIE_MCP_URL }}
+        run: |
+          node scripts/smoke-deploy.mjs \
+            --revision "${{ github.sha }}" \
+            --issue smoke-issue.json \
+            --delivery delivery.md
+
+      # One issue per revision, carrying the marker on its **first line** —
+      # `#1161`'s convention, and `#946` is why the first line rather than
+      # anywhere in the body. Reopening rather than re-filing is the watcher's
+      # job; what this must not do is file a second copy of a finding that is
+      # already open.
+      - name: file the finding
+        if: steps.smoke.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          marker=$(jq -r '.body | split("\n")[0]' smoke-issue.json)
+          jq -r '.body' smoke-issue.json > smoke-issue.md
+          open=$(gh issue list --state open --search "\"${marker}\" in:body" \
+            --json number,body \
+            --jq "first(.[] | select(.body | startswith(\"${marker}\")) | .number)")
+          if [ -n "${open}" ]; then
+            echo "Already open as #${open}; not filing a second copy."
+          else
+            # One `--label` per literal name, as `skill-platforms.yml` does.
+            # `scripts/github-issue-labels.test.ts` reads these flags to join
+            # what a source applies to the vocabulary the repositories keep, and
+            # it cannot read a name assembled at run time — a label built by
+            # `jq` is a label nothing checks, which is how `needs-triage`
+            # outlived its own deletion (`#687`).
+            gh issue create \
+              --title "$(jq -r '.title' smoke-issue.json)" \
+              --body-file smoke-issue.md \
+              --label 'from:watcher' --label 'area:platform' --label 'p1'
+          fi
+
+      # **What turns throughput into delivery** (`#1160`). A pull request that
+      # says `Closes #1067` closes its issue on merge, which records that a
+      # change was merged — and `#1067` was merged, reviewed, green and closed
+      # as completed while doing nothing at all. So the issues this commit
+      # closed are told what the deploy that carried them found on the wire.
+      #
+      # Green as well as red, and on the issue rather than on the pull request:
+      # an absent comment cannot be told apart from a check that never ran, and
+      # the issue is where somebody looks in six months.
+      - name: carry the result back to the issues this deploy shipped
+        if: steps.credential.outputs.configured == 'true' && steps.smoke.outcome != 'skipped'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          [ -s delivery.md ] || { echo "No verdict was rendered; nothing to carry."; exit 0; }
+
+          # The merge commit knows its pull request, and the pull request knows
+          # what it closed. Asking the commit rather than the event payload is
+          # what makes this work for a re-run and for a direct push alike.
+          prs=$(gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/pulls" \
+            --jq '.[].number' || true)
+          if [ -z "${prs}" ]; then
+            echo "No pull request is associated with ${{ github.sha }}; nothing to carry."
+            exit 0
+          fi
+
+          for pr in ${prs}; do
+            issues=$(gh pr view "${pr}" \
+              --json closingIssuesReferences \
+              --jq '.closingIssuesReferences[].number' || true)
+            for issue in ${issues}; do
+              echo "Carrying the smoke verdict to #${issue} (via #${pr})."
+              gh issue comment "${issue}" --body-file delivery.md
+            done
+          done
+
+      - name: say so when nothing spoke to the surface
+        if: steps.credential.outputs.configured != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          marker='<!-- watch-finding: smoke-unconfigured -->'
+          {
+            echo "### Post-deploy smoke — **not run**"
+            echo
+            echo "\`KOLONIE_SMOKE_API_KEY\` is unset, so this deploy crossed no wire."
+          } >> "$GITHUB_STEP_SUMMARY"
+          open=$(gh issue list --state open --search "\"${marker}\" in:body" \
+            --json number,body \
+            --jq "first(.[] | select(.body | startswith(\"${marker}\")) | .number)")
+          if [ -n "${open}" ]; then
+            echo "Already open as #${open}."
+            exit 0
+          fi
+          # A fixed marker rather than one per revision: this is a standing
+          # condition — the secret is missing until somebody sets it — and one
+          # issue per deploy would be a hundred copies of one sentence.
+          #
+          # Written line by line rather than from a heredoc: a heredoc body
+          # inside an indented `run:` block carries its indentation into the
+          # file, which would put ten spaces in front of the marker and stop it
+          # being a first-line marker at all.
+          {
+            echo "${marker}"
+            echo
+            echo "The post-deploy smoke check (\`#1160\`) runs on every successful deploy"
+            echo "and could not speak to the MCP surface: \`KOLONIE_SMOKE_API_KEY\` is unset."
+            echo
+            echo "Until it is set, every deploy ships unchecked over the wire — which is"
+            echo "the state \`#1067\` shipped in, where a green build and a green suite"
+            echo "coexisted with a tool that answered \`Profile updated.\` and wrote nothing."
+            echo
+            echo "**What it needs:** a repository secret \`KOLONIE_SMOKE_API_KEY\` holding the"
+            echo "API key of a Colony citizen kept for this purpose, and nothing else. The"
+            echo "check calls six read-only tools and writes once, to that citizen's own"
+            echo "record. It touches no other citizen, and no other job reads it."
+          } > unconfigured.md
+          gh issue create \
+            --title "The post-deploy smoke check has no credential to run with" \
+            --body-file unconfigured.md \
+            --label 'from:watcher' --label 'area:platform'
+
+      - name: the verdict decides the job
+        if: steps.credential.outputs.configured == 'true' && steps.smoke.outcome == 'failure'
+        run: |
+          echo "The deployed surface did not answer as required; the issue above names what failed."
+          exit 1

@@ -97,46 +97,63 @@ export function registerAtlasPages(app: FastifyInstance, deps: RouteDependencies
   const listEntries = async (): Promise<readonly AtlasEntry[]> =>
     atlasCatalogue(recipes, { log: deps.log })
 
-  app.get<{ Querystring: { category?: string } }>(ATLAS_PATH, async (request, reply) => {
-    if (wrongHost(request)) return reply.callNotFound()
+  app.get<{ Querystring: { category?: string; worked?: string } }>(
+    ATLAS_PATH,
+    async (request, reply) => {
+      if (wrongHost(request)) return reply.callNotFound()
 
-    /**
-     * The shelf a reader asked for, if they asked for one that exists
-     * (`kolonie-website#97`).
-     *
-     * **A category nobody defined is not an error and not a 404** — it is the
-     * unfiltered index, which is what a reader following a stale or mistyped
-     * link most wants. `#591` took the same decision on the console's browser
-     * and this follows it rather than inventing a second answer.
-     *
-     * **The canonical drops the filter.** A filtered view is a slice of one
-     * page and not a page of its own; every shelf pointing at `/atlas` is what
-     * stops fourteen near-identical URLs competing with each other in a search
-     * index.
-     *
-     * **The vocabulary is read rather than compiled in, since `#1102`.** The
-     * shelves are rows now, so *does this shelf exist* is a question for the
-     * table and not for an enum frozen at the last release — a link to a shelf
-     * added last week has to filter, and a link to one that was renamed away
-     * has to fall back rather than render an empty page that reads as broken.
-     * The shape is checked first so that a string which could not be a slug
-     * never reaches the query.
-     */
-    const asked = AtlasCategorySlugSchema.safeParse(request.query.category)
-    const shelves = asked.success ? await recipes.categories() : []
-    const category = shelves.some((one) => one.slug === asked.data) ? asked.data : undefined
+      /**
+       * The shelf a reader asked for, if they asked for one that exists
+       * (`kolonie-website#97`).
+       *
+       * **A category nobody defined is not an error and not a 404** — it is the
+       * unfiltered index, which is what a reader following a stale or mistyped
+       * link most wants. `#591` took the same decision on the console's browser
+       * and this follows it rather than inventing a second answer.
+       *
+       * **The canonical drops the filter.** A filtered view is a slice of one
+       * page and not a page of its own; every shelf pointing at `/atlas` is what
+       * stops fourteen near-identical URLs competing with each other in a search
+       * index. `#1103` puts `?worked=` under the same rule, and the canonical
+       * below is unchanged by either — which is the point of writing it as a
+       * constant rather than building it from the query.
+       *
+       * **The vocabulary is read rather than compiled in, since `#1102`.** The
+       * shelves are rows now, so *does this shelf exist* is a question for the
+       * table and not for an enum frozen at the last release — a link to a shelf
+       * added last week has to filter, and a link to one that was renamed away
+       * has to fall back rather than render an empty page that reads as broken.
+       * The shape is checked first so that a string which could not be a slug
+       * never reaches the query.
+       */
+      const asked = AtlasCategorySlugSchema.safeParse(request.query.category)
+      const shelves = asked.success ? await recipes.categories() : []
+      const category = shelves.some((one) => one.slug === asked.data) ? asked.data : undefined
 
-    return send(
-      reply,
-      atlasIndexPage({
-        entries: await listEntries(),
-        canonical: `${websiteUrl}${ATLAS_PATH}`,
-        chrome: await chromeOf(),
-        category,
-      }),
-      'text/html; charset=utf-8',
-    )
-  })
+      /**
+       * Which half of the catalogue to show (`#1103` decisions 1 and 7).
+       *
+       * **Only `false` turns the default off, and everything else is the
+       * default silently.** `?worked=banana` renders the index rather than an
+       * error, which is the same answer an unknown `?category=` gets directly
+       * above — a reader following a mangled link wants the page, and a 400 on
+       * a public URL is a page a crawler stops asking for.
+       */
+      const worked = request.query.worked !== 'false'
+
+      return send(
+        reply,
+        atlasIndexPage({
+          entries: await listEntries(),
+          canonical: `${websiteUrl}${ATLAS_PATH}`,
+          chrome: await chromeOf(),
+          category,
+          worked,
+        }),
+        'text/html; charset=utf-8',
+      )
+    },
+  )
 
   /**
    * The sitemap, and it is the reason a dynamic Atlas indexes as well as a

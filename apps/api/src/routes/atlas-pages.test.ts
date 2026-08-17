@@ -145,7 +145,15 @@ describe('the Atlas on the website host', () => {
       // The whole of `#546`'s search argument: what a crawler receives is the
       // content, not a shell it would have to run script to fill.
       expect(response.body).toContain('GitHub')
-      expect(response.body).toContain('Bluesky')
+      /**
+       * **The other half is one link away rather than gone** (`#1103`). The
+       * refusal left the default view when the default became what worked, and
+       * asserting it here on the same page it is no longer on would be asserting
+       * the old default rather than the argument this test is about — so it is
+       * asserted where it now lives, in the same first response and with the
+       * same content-in-the-HTML property.
+       */
+      expect((await get('/atlas?worked=false')).body).toContain('Bluesky')
     })
 
     /**
@@ -212,7 +220,16 @@ describe('the Atlas on the website host', () => {
      * exactly the failure that matters, and it now fails the other way round.
      */
     it('shows a walked entry and an unwritten one on the index', async () => {
-      const response = await get('/atlas')
+      /**
+       * **The index has two halves since `#1103`, and none of these three is on
+       * the first one** — nobody has got through at any of them, which is the
+       * whole of what decision 2 asks. That is not the withholding `#1032`
+       * reversed: the rows are on the index, at a URL a link on the default view
+       * reaches, and `#1103`'s own tests below assert that the two halves are
+       * the whole catalogue with nothing in neither. What this test still says
+       * is what it always said — no *state* takes an entry off the index.
+       */
+      const response = await get('/atlas?worked=false')
 
       expect(response.body).toContain('walked.example')
       expect(response.body).toContain('unwritten.example')
@@ -403,7 +420,12 @@ describe('the Atlas on the website host', () => {
         status: 'unwritten',
       })
 
-      const body = (await get('/atlas')).body
+      /**
+       * On the half a never-walked entry belongs to (`#1103`) — the liveness
+       * this is about is *no deploy stands between the row and the page*, and
+       * which of the two views carries it says nothing about that.
+       */
+      const body = (await get('/atlas?worked=false')).body
 
       expect(body).toContain('curated-just-now.example')
       expect(body).toContain('<header class="site-header"')
@@ -463,7 +485,14 @@ describe('the Atlas on the website host', () => {
 
       expect(response.statusCode).toBe(200)
       expect(response.body).toContain('GitHub')
-      expect(response.body).toContain('Bluesky')
+      /**
+       * *The whole index* means the unfiltered one and not both of its halves
+       * (`#1103`): the fallback is what a nonsense category loses, not the
+       * second view. So the refusal is asserted on the same unfiltered request
+       * with the other half asked for, which is what a reader following that
+       * stale link is one link from.
+       */
+      expect((await get('/atlas?category=nonsense&worked=false')).body).toContain('Bluesky')
     })
 
     /**
@@ -1317,8 +1346,14 @@ describe('the Atlas on the website host', () => {
       expect(response.body).toContain('<h2>weather-feed</h2>')
     })
 
+    /**
+     * On the view the social shelf is on (`#1103`) — its one row is a refusal,
+     * so the shelf heading renders where the refusals do. The `?category=` link
+     * is asserted as a prefix and so still matches the nav link that now carries
+     * the view with it.
+     */
     it('heads a shelf with its title and keeps the slug where it is an address', async () => {
-      const body = (await get('/atlas')).body
+      const body = (await get('/atlas?worked=false')).body
 
       expect(body).toContain('Social and publishing')
       expect(body).toContain('id="social-publishing"')
@@ -1326,7 +1361,7 @@ describe('the Atlas on the website host', () => {
     })
 
     it('says the kinds on a row in words', async () => {
-      expect((await get('/atlas')).body).toContain('a social account')
+      expect((await get('/atlas?worked=false')).body).toContain('a social account')
     })
 
     /**
@@ -1564,7 +1599,13 @@ describe('the Atlas on the website host', () => {
 
       expect(response.statusCode).toBe(200)
       expect(response.body).toContain('<meta name="robots" content="noindex, follow">')
-      expect((await get('/atlas')).body).toContain('/atlas/nobody.example')
+      /**
+       * The shelf that links it is the one nobody got through (`#1103`), which
+       * is where an unwritten entry belongs and is a link off the default view.
+       * *Leaving the index is not leaving the site* was never a claim about
+       * which half of the index.
+       */
+      expect((await get('/atlas?worked=false')).body).toContain('/atlas/nobody.example')
     })
 
     /** One walked row is enough, which is why the meta is absent nearly everywhere. */
@@ -1578,7 +1619,12 @@ describe('the Atlas on the website host', () => {
     it('lists what somebody walked before what nobody has', async () => {
       await withAnUnwrittenEntry()
 
-      const body = (await get('/atlas')).body
+      /**
+       * Both rows are ones nobody got through, so `#1103` puts them on the same
+       * half — and the ordering `atlasRank` decides is untouched by the split,
+       * which is the property this still asserts.
+       */
+      const body = (await get('/atlas?worked=false')).body
 
       // The same shelf, so this is the ordering and not which shelf came first.
       expect(body.indexOf('/atlas/withdrawn.example')).toBeLessThan(
@@ -1662,6 +1708,197 @@ describe('the Atlas on the website host', () => {
       await app.ready()
 
       expect((await get('/atlas')).statusCode).toBe(404)
+    })
+  })
+
+  /**
+   * **What worked is the default and what did not is one link away** (`#1103`).
+   *
+   * The catalogue is a map and a map that hides closed roads is worse than none —
+   * and at a thousand entries a reader looking for a mailbox still has to see the
+   * providers somebody got through first. The two pull in opposite directions,
+   * and what settles them is a default rather than a deletion: every entry keeps
+   * its page, its URL, its place in the sitemap and its row on the index, and
+   * what changes is which of two views a reader lands on.
+   *
+   * **The split is asserted as a partition and not as two memberships.** A filter
+   * can go wrong in exactly two ways nobody notices — an entry on both halves, or
+   * an entry on neither — and each of those reads as an ordinary page.
+   */
+  describe('what worked, and what did not', () => {
+    /**
+     * Two shelves the split needs and the fixture does not otherwise have: one
+     * with a row on each side of it, and one where everybody got through.
+     *
+     * **Both are written with an explicit category**, because what is under test
+     * is the split and not the shelving — an assertion that read a shelf the
+     * kind-to-category map happened to choose would fail the day that map moves,
+     * naming this issue for a change that has nothing to do with it.
+     */
+    const withBothHalves = async () => {
+      await app.close()
+      app = build()
+      colony.recipes.write({
+        kind: 'mailbox',
+        provider: 'joinable.example',
+        title: 'Joinable',
+        category: 'mailbox',
+      })
+      colony.recipes.write({
+        kind: 'mailbox',
+        provider: 'closed.example',
+        title: 'Closed',
+        category: 'mailbox',
+        status: 'unwritten',
+      })
+      colony.recipes.write({
+        kind: 'phone',
+        provider: 'phone.example',
+        title: 'Phone',
+        category: 'telephony',
+      })
+      await app.ready()
+    }
+
+    /** The providers a rendered index links to, in the order it links to them. */
+    const listed = (body: string): readonly string[] =>
+      [...body.matchAll(/<li><a href="\/atlas\/([^"]+)">/g)].map((one) => one[1] ?? '')
+
+    it('shows only what somebody got through, by default and on a shelf', async () => {
+      await withBothHalves()
+
+      expect([...listed((await get('/atlas')).body)].sort()).toEqual([
+        'github',
+        'joinable.example',
+        'phone.example',
+      ])
+      expect(listed((await get(`${ATLAS_PATH}?category=mailbox`)).body)).toEqual([
+        'joinable.example',
+      ])
+    })
+
+    /**
+     * **The two halves are the shelf, exactly**: nothing in both, nothing in
+     * neither. Checked against `catalogue.json`, which is the same catalogue with
+     * no view over it at all — so a filter that quietly dropped a row from both
+     * views fails here rather than passing two set comparisons with each other.
+     */
+    it('splits a shelf in two and loses nothing between them', async () => {
+      await withBothHalves()
+
+      const worked = listed((await get(`${ATLAS_PATH}?category=mailbox`)).body)
+      const not = listed((await get(`${ATLAS_PATH}?category=mailbox&worked=false`)).body)
+      const document = JSON.parse((await get('/atlas/catalogue.json')).body) as {
+        entries: readonly { provider: string; category: string }[]
+      }
+      const shelf = document.entries
+        .filter((entry) => entry.category === 'mailbox')
+        .map((entry) => entry.provider)
+
+      expect(shelf.length).toBeGreaterThan(1)
+      expect(worked.filter((one) => not.includes(one))).toEqual([])
+      expect([...worked, ...not].sort()).toEqual([...shelf].sort())
+    })
+
+    /** The link itself, because a default nobody can leave is a deletion. */
+    it('reaches the other half from a plain link on the page', async () => {
+      await withBothHalves()
+
+      expect((await get('/atlas')).body).toContain(`href="${ATLAS_PATH}?worked=false"`)
+      expect((await get(`${ATLAS_PATH}?category=mailbox`)).body).toContain(
+        `href="${ATLAS_PATH}?category=mailbox&amp;worked=false"`,
+      )
+      /** And the way back, so neither view is a corner. */
+      expect((await get(`${ATLAS_PATH}?worked=false`)).body).toContain(`href="${ATLAS_PATH}"`)
+    })
+
+    /**
+     * **Decision 4, and the reason the default is not a filter.** The one social
+     * row in the fixture is a refusal, so that shelf's default view has nothing
+     * on it — and *nobody got in anywhere here* is a better answer than a blank
+     * page however few entries carry it.
+     */
+    it('shows the failures under a sentence where nothing worked, never an empty list', async () => {
+      const body = (await get(`${ATLAS_PATH}?category=social-publishing`)).body
+
+      expect(listed(body)).toEqual(['bluesky'])
+      expect(body).toContain('Nobody has got through here yet')
+    })
+
+    /**
+     * The fallback runs on the default view only. A reader who asked for the
+     * failures and found none has their answer, and showing them the successes
+     * instead would be the page overruling what they typed.
+     */
+    it('does not fall back the other way', async () => {
+      await withBothHalves()
+
+      const body = (await get(`${ATLAS_PATH}?category=telephony&worked=false`)).body
+
+      expect(listed(body)).toEqual([])
+      expect(body).toContain('Every entry here is one somebody got through')
+    })
+
+    /**
+     * **Decision 5.** A filtered view is a slice of one page and not a page of
+     * its own, and `worked` is under the rule `category` was already under —
+     * which is what stops four near-identical URLs competing in a search index.
+     */
+    it('drops both parameters from the canonical of every view', async () => {
+      for (const url of [
+        '/atlas',
+        `${ATLAS_PATH}?worked=false`,
+        `${ATLAS_PATH}?category=mailbox`,
+        `${ATLAS_PATH}?category=mailbox&worked=false`,
+      ]) {
+        expect((await get(url)).body, url).toContain(
+          `<link rel="canonical" href="${SITE}${ATLAS_PATH}">`,
+        )
+      }
+    })
+
+    /**
+     * **Decision 7, and it is the same answer an unknown `?category=` gets.** A
+     * reader following a mangled link wants the page, and a 400 on a public URL
+     * is a page a crawler stops asking for. Asserted as byte equality with the
+     * bare index, so *renders the default view* means the default view rather
+     * than something that merely also returned 200.
+     */
+    it('answers a worked it cannot read with the default view and no error', async () => {
+      const nonsense = await get(`${ATLAS_PATH}?worked=banana`)
+
+      expect(nonsense.statusCode).toBe(200)
+      expect(nonsense.body).toBe((await get('/atlas')).body)
+      /** And `true`, which is spelled out nowhere and must still mean the default. */
+      expect((await get(`${ATLAS_PATH}?worked=true`)).body).toBe(nonsense.body)
+    })
+
+    /**
+     * **Decision 3, asserted because it is the one a later optimisation is most
+     * likely to break.** The tempting next step from *hide it on the index* is
+     * *drop it from the sitemap*, then *noindex it*, then *404 it* — and each of
+     * those is a step the issue refuses. A refusal cost a citizen a walk and is
+     * the finding the catalogue exists to carry.
+     */
+    it('keeps a refused entry at its own URL, in the sitemap, and indexable', async () => {
+      const page = await get('/atlas/bluesky')
+
+      expect(page.statusCode).toBe(200)
+      expect(page.body).toContain('without a phone number')
+      expect(page.body).not.toContain('name="robots"')
+      expect((await get('/atlas/sitemap.xml')).body).toContain(`<loc>${SITE}/atlas/bluesky</loc>`)
+    })
+
+    /**
+     * The sitemap is one document and not two: it carries the pages, and which
+     * view of the index links to a page is not something a crawler is told.
+     */
+    it('leaves the sitemap and the data route untouched by the view', async () => {
+      const sitemap = (await get('/atlas/sitemap.xml')).body
+
+      expect(sitemap).not.toContain('worked=')
+      expect(sitemap).toContain(`<loc>${SITE}${ATLAS_PATH}</loc>`)
+      expect((await get('/atlas/catalogue.json')).body).not.toContain('worked=')
     })
   })
 

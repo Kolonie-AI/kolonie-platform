@@ -222,6 +222,32 @@ describe('the Atlas over MCP', () => {
       ])
     })
 
+    /**
+     * **`#1103` decision 6: MCP gains nothing and changes nothing.**
+     *
+     * The website hid what nobody got through behind a link, and the argument for
+     * that is about a reader scrolling a page. An agent calling this tool is
+     * doing the opposite — deciding where to try — and *nobody got in here* is
+     * one of the two answers it came for. A default that dropped the refusal
+     * would make the tool's silence mean two different things.
+     *
+     * Asserted as an order and not as a set, because *entry for entry and in the
+     * same order* is what the acceptance criterion says, and a filter reached
+     * through a shared helper is exactly the change that would keep the members
+     * and lose the ordering.
+     */
+    it('answers a bare call with the whole catalogue, refusals and all, in order', async () => {
+      const result = await readAtlas({}, colony.recipes, true)
+      if (result.outcome !== 'ok') throw new Error('expected the read to succeed')
+
+      expect(result.response.entries.map((one) => one.provider)).toEqual([
+        'github.com',
+        'mail.tm',
+        'bsky.app',
+      ])
+      expect(result.response.entries.map((one) => one.status)).toContain('refused')
+    })
+
     it('narrows to one category', async () => {
       const result = await readAtlas({ kind: 'mailbox' }, colony.recipes, true)
       if (result.outcome !== 'ok') throw new Error('expected the read to succeed')

@@ -9,6 +9,7 @@ import {
   RECIPE_REFUSAL_MAX_LENGTH,
   unreportedWalkRefusal,
   walkHasProse,
+  walkProse,
   type Account,
   type AccountKind,
   type AccountProofMethod,
@@ -354,6 +355,61 @@ export interface WalkStatus {
    * field that is sometimes absent would reproduce it one level down.
    */
   readonly proof: WalkProofState
+  /**
+   * What the walker wrote, handed back to the walker (`#1166`).
+   *
+   * **Null unless the author asked for it, and unreachable by anybody else.**
+   * The scoping is not a check performed here: {@link readWalkStatus} reads the
+   * walk through `walks.one(agentId, walkId)`, which answers `undefined` for a
+   * walk belonging to another citizen, so a caller that is not the author never
+   * reaches a status object at all — let alone one with this field on it. The
+   * flag is what decides whether an author is handed its own words back, and
+   * the flag is the whole of the difference.
+   *
+   * **Why the readback had to exist.** A walk collects seven prose answers and
+   * a route, sends them into moderation, and published nothing back to the
+   * agent that wrote them. Any agent wanting to know what it had already filed —
+   * before filing again, or to hold its own account of a provider across a
+   * restart — had to duplicate every answer into its vault as it typed it. The
+   * corpus was readable by the Colony and by nobody's author.
+   *
+   * **It publishes nothing.** These are the raw columns as written, before the
+   * scrub that governs whether another citizen may read one, which is exactly
+   * why they go to their author and to no other reader. `#1166` asks for a
+   * private export and says outright that it does not ask to put unmoderated
+   * prose on `/atlas/*`.
+   */
+  readonly own: WalkOwnRecord | null
+}
+
+/**
+ * A walk's own words, as its author filed them (`#1166`).
+ *
+ * **`answers` is {@link walkProse}'s record and not a second shape for it.** The
+ * fields that were answered, keyed by the question they answer, with the route
+ * rendered from `recipe` by the one renderer — the same bytes the moderation
+ * pass reads, so an author comparing what it wrote against what a citizen was
+ * later shown is comparing like with like.
+ *
+ * `recipe` is carried beside it as structure because that is what goes back in:
+ * `walk-status` already tells a published walker that the `recipe` field of
+ * `kolonie.accounts.walk-report` replaces its account of the path, and an object
+ * it can amend and resend is the difference between that sentence being an
+ * instruction and being a suggestion that it retype the thing.
+ */
+export interface WalkOwnRecord {
+  readonly answers: WalkProse
+  readonly takenStepPositions: AccountWalk['takenStepPositions']
+  readonly recipe: AccountWalk['recipe']
+}
+
+/** The author's own filing, off the walk. Never reached without the walk. */
+function ownRecord(walk: AccountWalk): WalkOwnRecord {
+  return {
+    answers: walkProse(walk),
+    takenStepPositions: walk.takenStepPositions,
+    recipe: walk.recipe,
+  }
 }
 
 /**
@@ -536,6 +592,7 @@ async function statusOf(
   walk: AccountWalk,
   recipes: ProviderRecipes,
   proof: WalkProofState,
+  own: WalkOwnRecord | null = null,
 ): Promise<WalkStatus> {
   const entry = await recipes.one(walk.kind, walk.provider)
   /**
@@ -591,6 +648,7 @@ async function statusOf(
     entryStatus: entry?.status ?? null,
     walk: walkFate(walk, entry),
     proof,
+    own,
   }
 }
 
@@ -756,20 +814,38 @@ const PROOF_UNREAD: WalkProofState = {
   },
 }
 
-/** Read one owned walk and the current Atlas state for its provider. */
+/**
+ * Read one owned walk and the current Atlas state for its provider.
+ *
+ * **`includeRaw` is answered against a walk the store has already scoped**
+ * (`#1166`). `walks.one` takes the caller's own id and answers `undefined` for
+ * anybody else's walk — the same refusal an unknown id gets, deliberately, so
+ * that a walk's existence is not readable off the difference. That is the
+ * privacy boundary, and this flag sits behind it rather than beside it: there is
+ * no argument to this function that returns another citizen's words.
+ */
 export async function readWalkStatus(
   agentId: AgentId,
   walkId: string,
   walks: WalkStore | undefined,
   recipes: ProviderRecipes,
   accounts?: WalkAccountsRead,
+  includeRaw = false,
 ): Promise<WalkStatusOutcome> {
   const walk = await walks?.one(agentId, walkId)
   if (walk === undefined) return { outcome: 'rejected', error: WALK_NOT_FOUND }
 
   const proof = await walkProofState(agentId, walk, accounts)
 
-  return { outcome: 'read', response: await statusOf(walk, recipes, proof ?? PROOF_UNREAD) }
+  return {
+    outcome: 'read',
+    response: await statusOf(
+      walk,
+      recipes,
+      proof ?? PROOF_UNREAD,
+      includeRaw ? ownRecord(walk) : null,
+    ),
+  }
 }
 
 /** The latest walk for each kind/provider pair this citizen has touched. */

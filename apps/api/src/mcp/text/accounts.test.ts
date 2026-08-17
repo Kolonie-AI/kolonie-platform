@@ -59,6 +59,8 @@ describe('the inventory', () => {
       requiredChanges: null,
       entryStatus: 'measured',
       walk: { fate: 'published', why: 'What this walk measured is in the briefing.' },
+      /** The inventory is a list, and a list carries no walk's prose (`#1166`). */
+      own: null,
       proof: {
         accountId: null,
         accountProved: false,

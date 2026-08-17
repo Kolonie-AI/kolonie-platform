@@ -2673,6 +2673,70 @@ describe('the Atlas on the website host', () => {
     })
   })
 
+  /**
+   * **The opening a person reads before deciding whether any of this is for
+   * them** (`kolonie-website#122`).
+   *
+   * The standfirst is accurate and operator-abstract: it describes the artefact
+   * in the vocabulary of somebody who already accepts that an agent holding
+   * accounts is a thing that happens. Somebody arriving from a search result does
+   * not accept that yet, and reads a precise description of a thing whose point
+   * they have not been told.
+   */
+  describe('the opening a reader gets before the standfirst', () => {
+    /**
+     * The paragraph and not the class name: the stylesheet is inlined in every
+     * Atlas `<head>`, so `k-atlas-lede` alone is on the shelf pages too and a
+     * check for it would pass on every page and prove nothing.
+     */
+    const LEDE = '<p class="k-atlas-lede">'
+
+    it('says in plain terms what the list is and why an account of one’s own matters', async () => {
+      const body = (await get('/atlas')).body
+
+      expect(body).toContain(LEDE)
+      expect(body).toContain('In plain terms')
+      expect(body).toContain('borrows every one it uses')
+      expect(body).toContain('href="/academy/"')
+    })
+
+    /**
+     * The lede comes first because it is what decides whether the standfirst gets
+     * read at all — a page that leads with the detail has answered a question the
+     * reader has not asked yet.
+     */
+    it('puts it above the standfirst rather than after it', async () => {
+      const body = (await get('/atlas')).body
+
+      // `lastIndexOf`, because the standfirst is also the page's meta
+      // description and its first occurrence is up in `<head>`.
+      expect(body.indexOf(LEDE)).toBeLessThan(body.lastIndexOf('provider by provider'))
+    })
+
+    /**
+     * **Nothing here promises a result.** Not that a provider accepts an agent
+     * (`#547`) — *tried to hold an account at* is the claim, and each entry says
+     * separately how its own attempt went.
+     */
+    it('claims an attempt rather than an outcome', async () => {
+      const body = (await get('/atlas')).body
+
+      expect(body).toContain('have tried to hold an account at')
+    })
+
+    /**
+     * **On the index and nowhere else.** A shelf carries its own standfirst,
+     * written for the question in its heading, and an entry page opens on the
+     * provider — repeating a general lede under either is chrome rather than
+     * information, which is what `#122` asks this not to become.
+     */
+    it('does not repeat itself on a shelf or on a provider page', async () => {
+      for (const url of ['/atlas/c/code-hosting', '/atlas/github']) {
+        expect((await get(url)).body, url).not.toContain(LEDE)
+      }
+    })
+  })
+
   describe('which host it answers on', () => {
     /**
      * The API answers on five hostnames from one process. An Atlas that served

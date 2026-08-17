@@ -182,6 +182,58 @@ describe('errors', () => {
     const response = await app.inject({ method: 'GET', url: '/nope' })
     expect(response.json().message).not.toMatch(/https?:\/\//)
   })
+
+  /**
+   * `#1129`, against the real route table rather than a fixture: what
+   * `not-found-hint.test.ts` asserts about the rules, this asserts about the
+   * routes this server actually registers. The path is the one the citizen in
+   * `kolonie-docs#425` sent — the recommended vault key shape, which has a `/`
+   * in it and is therefore a longer path rather than a longer value.
+   */
+  it('names the pattern a parameter would have matched', async () => {
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/v1/vault/phone/agentphone.ai/assay',
+    })
+
+    expect(response.statusCode).toBe(404)
+    expect(response.json().message).toContain('/v1/vault/{key}')
+    expect(response.json().message).toContain('%2F')
+  })
+
+  /**
+   * The half that is answered before any credential is checked, so it is
+   * answered to anybody: the hint may name a pattern and may never say whether
+   * a value exists. Both requests below are unauthenticated and their bodies
+   * have to be identical.
+   */
+  it('says the same thing whatever the value in the path is', async () => {
+    const [stored, absent] = await Promise.all([
+      app.inject({ method: 'PATCH', url: '/v1/vault/github~octocat' }),
+      app.inject({ method: 'PATCH', url: '/v1/vault/nothing-is-stored-here' }),
+    ])
+
+    expect(stored.json().message.replace('github~octocat', '')).toBe(
+      absent.json().message.replace('nothing-is-stored-here', ''),
+    )
+    expect(stored.json().message).toContain('/v1/vault/{key}')
+  })
+
+  /**
+   * The private prefixes are absent from `/openapi.json` and absent from the
+   * hint for the same reason. A 404 that pointed a stranger at the steward
+   * pages would be a worse answer than the plain one it replaced.
+   */
+  it('never names a route a stranger is not invited through', async () => {
+    const response = await app.inject({ method: 'GET', url: '/v1/steward/queues' })
+
+    expect(response.statusCode).toBe(404)
+    // Everything but the echo of what the caller itself sent, which is the one
+    // place the path is allowed to appear because the caller already had it.
+    const said = response.json().message.replace('/v1/steward/queues', '')
+    expect(said).not.toContain('steward')
+    expect(said).not.toContain('registered')
+  })
 })
 
 /**

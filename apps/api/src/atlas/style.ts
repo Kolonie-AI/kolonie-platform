@@ -289,6 +289,7 @@ main h1 + p {
  * failures"*, in a colour.
  */
 .k-refused,
+.k-partly,
 .k-unwritten,
 .k-paid {
   display: inline-block;
@@ -302,6 +303,17 @@ main h1 + p {
 
 .k-refused {
   color: var(--k-caution-high);
+}
+
+/*
+ * **A third colour, because \`partly\` is a third thing** (\`#1163\`). A row where
+ * somebody got in and the route is still refused is neither the caution the
+ * refusal wears nor the grey of *nobody has looked*: it is a finding with
+ * something usable in it, and reusing either chip would put it back in the state
+ * whose headline the issue was about.
+ */
+.k-partly {
+  color: var(--k-note-high);
 }
 
 .k-unwritten {
@@ -323,6 +335,7 @@ main h1 + p {
  * shape follows the element.
  */
 p.k-refused,
+p.k-partly,
 p.k-unwritten,
 p.k-paid {
   display: block;

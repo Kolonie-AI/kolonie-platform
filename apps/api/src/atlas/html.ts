@@ -44,6 +44,7 @@ import {
   type AtlasPublicRecipe,
 } from './public-projection.js'
 import { atlasEntryWorked } from './worked.js'
+import { ATLAS_PARTLY, atlasEntryVerdict, atlasRecipeVerdict } from './verdict.js'
 import { CONSOLE_MAST } from '../console/mark.js'
 import { CONSOLE_STYLE } from '../console/theme.js'
 import { ATLAS_STYLE } from './style.js'
@@ -1023,7 +1024,7 @@ function shelfRest(category: string, size: number, shown: number, worked: boolea
 function indexRow(entry: AtlasPublicEntry): string {
   return (
     `<li><a href="${escape(entry.path)}">${escape(entry.title)}</a>` +
-    indexStatusMark(entry.status) +
+    indexStatusMark(entry) +
     (entry.recipes.some((recipe) => recipe.paid) ? ' <span class="k-paid">paid</span>' : '') +
     /**
      * **What the provider is, above how it behaved** (`#1121` decision 6). The
@@ -1360,6 +1361,15 @@ function lowerFirst(phrase: string): string {
 }
 
 /**
+ * The two statuses that assert a closed door, and the only two `#1163` overrides.
+ *
+ * A verdict of `partly` on any other status changes nothing: `measured` already
+ * says *walked, and no route written* in `#1141`'s own words, and `joinable` and
+ * `unwritten` cannot produce one.
+ */
+const REFUSING: ReadonlySet<AtlasPublicEntry['status']> = new Set(['refused', 'retired'])
+
+/**
  * The line a search result shows above everything else (`#788`).
  *
  * **Written for the query rather than for the catalogue**, and still derived:
@@ -1375,6 +1385,23 @@ function lowerFirst(phrase: string): string {
  */
 function entryTitle(entry: AtlasPublicEntry): string {
   const name = providerName(entry)
+
+  /**
+   * **A refusal with successes behind it is not a refusal in the title**
+   * (`#1163`). `atlasEntryVerdict` is the one model the lead chip and the shelf
+   * default read too, and `partly` is the value that exists so that this page
+   * has something true to say: the two branches below are correct about the
+   * route and were being printed over the top of four sections of walks that got
+   * through.
+   *
+   * **`measured` keeps `#1141`'s title.** That status already says *walked, and
+   * no route written*, which is what `partly` means one word longer — and it says
+   * it more precisely. Only the two statuses that assert a closed door are
+   * overridden here.
+   */
+  if (atlasEntryVerdict(entry) === ATLAS_PARTLY && REFUSING.has(entry.status)) {
+    return `${name} for an AI agent: what got through, and what did not`
+  }
 
   if (entry.status === 'refused') return `${name}: why an agent cannot join it`
   if (entry.status === 'retired') return `${name}: withdrawn, and what the path was`
@@ -1430,6 +1457,14 @@ const PROOF_PHRASES: Readonly<Record<string, string>> = {
  */
 function entryDescription(entry: AtlasPublicEntry): string {
   const name = providerName(entry)
+
+  /** The same override as in {@link entryTitle}, on the sentence under it. */
+  if (atlasEntryVerdict(entry) === ATLAS_PARTLY && REFUSING.has(entry.status)) {
+    return (
+      `Parts of ${name} have been walked and got through; the route as a whole is refused. ` +
+      'What got in, where it stopped, and why the Atlas lists both rather than picking one.'
+    )
+  }
 
   if (entry.status === 'refused') {
     return (
@@ -1581,7 +1616,20 @@ function lastConfirmed(entry: AtlasPublicEntry): string | undefined {
  * The rule the two retired branches existed for still holds: a state with no
  * branch here renders as a working recipe, which is the catalogue pretending.
  */
-function indexStatusMark(status: AtlasPublicEntry['status']): string {
+function indexStatusMark(entry: AtlasPublicEntry): string {
+  const status = entry.status
+
+  /**
+   * **The chip is the shortest form of the same verdict** (`#1163`), and it was
+   * the loudest place the contradiction showed: a shelf that lists an entry
+   * under *what worked* — which is {@link atlasEntryWorked}, which is now the
+   * same model — and marks it *cannot be joined* on the row is disagreeing with
+   * itself inside one line of one page.
+   */
+  if (atlasEntryVerdict(entry) === ATLAS_PARTLY && REFUSING.has(status)) {
+    return ' <span class="k-partly">partly — some walks got in</span>'
+  }
+
   if (status === 'refused') return ' <span class="k-refused">cannot be joined</span>'
   if (status === 'retired') return ' <span class="k-refused">withdrawn</span>'
   if (status === 'unwritten') return ' <span class="k-unwritten">nobody has looked yet</span>'
@@ -1665,9 +1713,13 @@ function recipeSection(
    * already said is closed.
    */
   if (recipe.status === 'refused') {
+    const partly = atlasRecipeVerdict(recipe) === ATLAS_PARTLY
+
     return [
       `<section><h2>${escape(recipeHeading(recipe))}</h2>`,
-      '<p class="k-refused">This cannot be joined honestly, so do not try.</p>',
+      partly
+        ? `<p class="k-partly">${escape(partlyLead(recipe))}</p>`
+        : '<p class="k-refused">This cannot be joined honestly, so do not try.</p>',
       `<p>${escape(recipe.refusal ?? '')}</p>`,
       wallsSection(recipe),
       figuresSection(recipe.figures, recipe.stepCount),
@@ -1774,6 +1826,35 @@ function recipeSection(
     cautionParagraphs(recipe.cautions),
     '</section>',
   ].join('')
+}
+
+/**
+ * What a refused row says when somebody got through it anyway (`#1163`).
+ *
+ * **It says both halves and points at where each is written**, which is the
+ * whole of the fix: *do not try* is a true sentence about the route and a false
+ * one about the walk, and a reader who scrolled four sections down to discover
+ * that had been told the wrong thing first.
+ *
+ * **The half that stopped is named only where a wall says which.** A directional
+ * wall is a measurement of exactly that — the outbound A2P refusal `#1163`
+ * measured is a wall on sending over an account that was reached by signing up —
+ * and where no wall carries a direction the sentence stops rather than guessing
+ * which step closed. Naming it from `reaches` would be a guess: a row reaching a
+ * capability says what an account is for, never what failed.
+ */
+function partlyLead(recipe: AtlasPublicEntry['recipes'][number]): string {
+  /** `direction` is nullable *and* optional, and both spellings mean *nobody said*. */
+  const stopped = recipe.walls.find((wall) => wall.direction != null)?.direction ?? null
+  const half =
+    stopped === null
+      ? ''
+      : ` The wall is on ${{ inbound: 'receiving', outbound: 'sending', both: 'sending and receiving' }[stopped]}.`
+
+  return (
+    `Somebody got through here, and the route as a whole is still refused.${half} ` +
+    'Both are findings: the counts below say what got in, and the refusal says what closed.'
+  )
 }
 
 /**

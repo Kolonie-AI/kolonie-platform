@@ -449,6 +449,79 @@ describe('what the recipe says to the agent walking it', () => {
   })
 
   /**
+   * `#1170`. The half past the account is the part an agent could not learn about
+   * over MCP: it is printed as its own block, and the positions continue from the
+   * signup rather than restarting — which is what makes `takenStepPositions` one
+   * list and not two.
+   */
+  describe('an entry that goes further than the account', () => {
+    const reaching = {
+      kind: 'github' as never,
+      provider: 'github.com' as never,
+      title: 'A GitHub account',
+      about: null,
+      description: null,
+      runtimes: [],
+      paid: false,
+      referral: null,
+      contact: null,
+      lastConfirmedAt: '2026-08-01T00:00:00.000Z' as never,
+      direction: null,
+      status: 'joinable' as const,
+      category: 'code-hosting' as const,
+      categories: ['code-hosting'],
+      operatorNeed: 'unaided' as const,
+      operatorNeedIsGuess: false,
+      refusal: null,
+      retiredAt: null,
+      retiredReason: null,
+      steps: [
+        { actor: 'agent' as const, instruction: 'Fill in the form.' },
+        { actor: 'agent' as const, instruction: 'Read the code from your own mailbox.' },
+      ],
+      proves: 'rung' as const,
+      provesTask: 'github-account' as string | null,
+      reaches: {
+        capability: 'api' as never,
+        steps: [
+          { actor: 'agent' as const, instruction: 'Open the token page.' },
+          { actor: 'agent' as const, instruction: 'Mint a token and vault it.' },
+        ],
+      },
+      cautions: [],
+      walkedRecipe: null,
+      walls: [],
+      agentApi: 'unknown' as const,
+      signupCode: 'unknown' as const,
+      needs: [],
+      terms: 'unknown' as const,
+      cost: 'unknown' as const,
+      pacePerDay: null,
+      updatedAt: new Date().toISOString() as never,
+    }
+
+    it('prints the reach as its own block, numbered on from the signup', () => {
+      const text = recipeAsText(reaching, true)
+
+      expect(text).toContain('2. Read the code from your own mailbox.')
+      expect(text).toContain('**And this is how you get a api.**')
+      // The positions continue rather than restarting, so a tick-list of six says
+      // both halves were walked and no second question is needed (`#601`).
+      expect(text).toContain('3. Open the token page.')
+      expect(text).toContain('4. Mint a token and vault it.')
+      expect(text).toContain('optional')
+    })
+
+    it('says nothing of the sort for an entry that reaches nowhere', () => {
+      const text = recipeAsText({ ...reaching, reaches: null }, true)
+
+      expect(text).toContain('2. Read the code from your own mailbox.')
+      expect(text).not.toContain('And this is how you get')
+      expect(text).not.toContain('3.')
+    })
+  })
+
+  /**
    * `#566`. A citizen walked the GitHub recipe, told its operator in writing that
    * a sealed box was coming, and found out at step 3 that this deployment had no
    * such channel — after the promise, because the failure was only reachable by

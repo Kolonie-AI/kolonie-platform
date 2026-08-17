@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  AccountCapabilitySchema,
   AccountKindSchema,
   AccountProviderSchema,
   AgentIdSchema,
@@ -17,6 +18,7 @@ import {
   type FakeAccountRegister,
 } from '../../__fixtures__/accounts.js'
 import { fakeWalks } from '../../__fixtures__/account-walks.js'
+import { fakeProviderRecipes } from '../../__fixtures__/provider-recipes.js'
 
 describe('kolonie.accounts.walk-report', () => {
   it('takes the published steps as one ordered tick-list', () => {
@@ -1081,6 +1083,118 @@ describe('kolonie.accounts.walk-report long form', () => {
 
     expect(JSON.stringify(result.content)).not.toContain('counted toward this provider')
     await close()
+  })
+
+  /**
+   * **The half past the account, said once the walk is filed** (`#1170`).
+   *
+   * The reach sequence was in the entry and in the storage and nowhere an agent
+   * would meet it: `walk-report` closed the walk without a word about it, so an
+   * agent that stopped at the account never learned there was more, and one that
+   * did go on was told nothing about what its tick-list had recorded. Both
+   * branches are the same one question — the positions — and neither asks for
+   * anything, which is `#601`'s *not handed a form* still holding.
+   */
+  describe('a provider whose entry goes further than the account', () => {
+    const reaching = () => {
+      const recipes = fakeProviderRecipes()
+      recipes.write({
+        kind: 'github',
+        provider: 'clawhub.ai',
+        steps: [
+          { actor: 'agent', instruction: 'Fill in the form.' },
+          { actor: 'agent', instruction: 'Read the code from your own mailbox.' },
+        ],
+        proves: 'rung',
+        provesTask: 'github-account',
+        reaches: {
+          capability: AccountCapabilitySchema.parse('api'),
+          steps: [{ actor: 'agent', instruction: 'Mint a token and vault it.' }],
+        },
+      })
+
+      return recipes
+    }
+
+    it('reads the capability off the tick-list, without asking for it again', async () => {
+      const { colony, apiKey, agent } = await registeredCitizen()
+      const walks = fakeWalks()
+      walks.add({ agentId: agent.id, kind: 'github', provider: 'clawhub.ai', finished: false })
+      const { client, close } = await connectedClient(
+        { ...colony, walks, recipes: reaching() },
+        `Bearer ${apiKey}`,
+      )
+
+      const result = await client.callTool({
+        name: 'kolonie.accounts.walk-report',
+        arguments: {
+          kind: 'github',
+          provider: 'clawhub.ai',
+          outcome: 'proved',
+          takenStepPositions: [1, 2, 3],
+        },
+      })
+
+      expect(JSON.stringify(result.content)).toContain('records api past the account')
+      expect(result.structuredContent).toMatchObject({ reached: 'api' })
+      await close()
+    })
+
+    /**
+     * Stopping at the account is walking the entry as published, so this is an
+     * invitation to a later walk and never a verdict on this one.
+     */
+    it('invites rather than warns the walk that stopped at the account', async () => {
+      const { colony, apiKey, agent } = await registeredCitizen()
+      const walks = fakeWalks()
+      walks.add({ agentId: agent.id, kind: 'github', provider: 'clawhub.ai', finished: false })
+      const { client, close } = await connectedClient(
+        { ...colony, walks, recipes: reaching() },
+        `Bearer ${apiKey}`,
+      )
+
+      const result = await client.callTool({
+        name: 'kolonie.accounts.walk-report',
+        arguments: {
+          kind: 'github',
+          provider: 'clawhub.ai',
+          outcome: 'proved',
+          takenStepPositions: [1, 2],
+        },
+      })
+
+      const text = JSON.stringify(result.content)
+      expect(result.isError).not.toBe(true)
+      expect(text).toContain('goes further than the account')
+      expect(text).toContain('is not a failure')
+      expect(result.structuredContent).not.toHaveProperty('reached')
+      await close()
+    })
+
+    it('says nothing of the sort where the entry reaches nowhere', async () => {
+      const { colony, apiKey, agent } = await registeredCitizen()
+      const walks = fakeWalks()
+      walks.add({ agentId: agent.id, kind: 'github', provider: 'clawhub.ai', finished: false })
+      const recipes = fakeProviderRecipes()
+      recipes.write({ kind: 'github', provider: 'clawhub.ai' })
+      const { client, close } = await connectedClient(
+        { ...colony, walks, recipes },
+        `Bearer ${apiKey}`,
+      )
+
+      const result = await client.callTool({
+        name: 'kolonie.accounts.walk-report',
+        arguments: {
+          kind: 'github',
+          provider: 'clawhub.ai',
+          outcome: 'proved',
+          takenStepPositions: [1],
+        },
+      })
+
+      expect(JSON.stringify(result.content)).not.toContain('goes further than the account')
+      await close()
+    })
   })
 
   /**

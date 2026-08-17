@@ -150,6 +150,18 @@ export function fakePlaybooks(): FakePlaybooks {
         filed.set(key, run)
         return { run, replaced: standing !== undefined }
       },
+
+      /**
+       * The same map, read by the same key (`#1178`).
+       *
+       * **The citizen is in the key and not in a filter afterwards**, which is
+       * the whole property the readback is asserted for: a fixture that scanned
+       * for a playbook id and returned the first match would let a test pass
+       * while the real port handed one citizen another's words.
+       */
+      async mine(agentId, playbookId) {
+        return filed.get(`${agentId}:${playbookId}`) ?? null
+      },
     },
   }
 }

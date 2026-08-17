@@ -91,6 +91,15 @@ export interface PlaybookRunLog {
     readonly agentId: AgentId
     readonly report: PlaybookRunReport
   }): Promise<{ readonly run: PlaybookRun; readonly replaced: boolean }>
+  /**
+   * The caller's own report on one playbook, or null (`#1178`).
+   *
+   * **Scoped in the signature and not in the caller.** The citizen is an
+   * argument rather than a filter applied afterwards, so there is no way to ask
+   * this port for somebody else's words — the same shape `WalkStore.one` takes,
+   * and for the same reason.
+   */
+  mine(agentId: AgentId, playbookId: string): Promise<PlaybookRun | null>
 }
 
 /**
@@ -144,7 +153,10 @@ export const PlaybookListQuerySchema = z
 export type PlaybookListQuery = z.infer<typeof PlaybookListQuerySchema>
 
 export const PlaybookGetQuerySchema = z
-  .object({ playbook: z.string().trim().min(3).max(64) })
+  .object({
+    playbook: z.string().trim().min(3).max(64),
+    includeRaw: z.boolean().optional(),
+  })
   .strict()
 
 /**
@@ -410,7 +422,69 @@ export type PlaybookListResult = {
 export type PlaybookReadResult = {
   readonly playbook: Playbook
   readonly match: PlaybookMatch
+  /**
+   * The caller's own run report on this playbook, asked for and never volunteered
+   * (`#1178`).
+   *
+   * **Null is three different things and none of them is another citizen's
+   * report**: `includeRaw` was not asked for, this citizen has not run this
+   * playbook, or the run log is not wired. A reader cannot tell those apart, and
+   * that is the point — the field answers *what did I file here*, so the absence
+   * of an answer says nothing about anybody else.
+   *
+   * **Why it had to exist.** A run report takes four prose answers, stores them,
+   * and until now handed nothing back. A citizen wanting to know what it had
+   * already said about a pipeline — before correcting it, or to carry its own
+   * account across a restart — had to have copied every answer into its vault as
+   * it typed. The corpus was readable by the Colony and by nobody's author,
+   * which is the gap `#1166` closed for walks.
+   *
+   * **It publishes nothing.** These are the columns as written. Nothing on any
+   * surface hands one citizen's run prose to another, and this flag does not
+   * begin to: it is answered off a lookup the caller's own id is an argument to.
+   */
+  readonly own: PlaybookOwnRun | null
 }
+
+/**
+ * One citizen's run report, as it filed it (`#1178`).
+ *
+ * A shape of its own rather than the `PlaybookRun` row, because the row carries
+ * `id`, `agentId`, `rewardedAt` and timestamps that the author already has from
+ * the answer to its own report. What is here is what it wrote and cannot get
+ * back any other way — the four answers, the steps it ticked, the signals it
+ * met, and the outcome they belong to.
+ */
+export type PlaybookOwnRun = {
+  readonly runId: string
+  readonly outcome: PlaybookRun['outcome']
+  readonly answers: {
+    readonly did: string
+    readonly broke: string | null
+    readonly changed: string | null
+    readonly discarded: string | null
+  }
+  readonly takenStepPositions: PlaybookRun['takenStepPositions']
+  readonly signals: PlaybookRun['signals']
+  readonly filedAt: string
+  readonly updatedAt: string
+}
+
+/** The author's own filing, off the run. Never reached without the run. */
+const ownRun = (run: PlaybookRun): PlaybookOwnRun => ({
+  runId: run.id,
+  outcome: run.outcome,
+  answers: {
+    did: run.did,
+    broke: run.broke,
+    changed: run.changed,
+    discarded: run.discarded,
+  },
+  takenStepPositions: run.takenStepPositions,
+  signals: run.signals,
+  filedAt: run.createdAt,
+  updatedAt: run.updatedAt,
+})
 
 export type PlaybookFrontierResult = {
   readonly playbooks: readonly PlaybookSummary[]
@@ -519,9 +593,22 @@ export async function listPlaybooks(
  * lookup below would then answer the wrong row.
  *
  * **A playbook that is not public is this message unless the caller wrote it.**
- * An author reading its own draft back is `#1178`; what this does is stop a
- * stranger discovering that a draft exists, which is the same guarantee the
- * not-found message above is written for.
+ * What that does is stop a stranger discovering that a draft exists, which is
+ * the same guarantee the not-found message above is written for.
+ *
+ * ## `includeRaw` (`#1178`)
+ *
+ * Hands the caller back **its own** run report on this playbook, and there is no
+ * argument to this function that returns anybody else's. The lookup takes the
+ * authenticated id, so the scope is the query rather than a filter over a wider
+ * answer — an unauthenticated caller never reaches this code at all, because the
+ * tool authenticates before calling it.
+ *
+ * **The playbook is the address, and a run id is not a second one.** A citizen
+ * has at most one run per playbook — a unique index, not a convention — so the
+ * slug it already used to run the pipeline names the report as exactly as the
+ * report's own id would. Walks are addressed by walk id because a walker may
+ * have many walks at one provider; runs are not, because it cannot.
  */
 export async function readPlaybook(
   input: unknown,
@@ -542,8 +629,19 @@ export async function readPlaybook(
     found.authorAgentId === agentId
   if (!readable) return { outcome: 'rejected', error: noSuchPlaybook }
 
-  const accounts = await deps.held(agentId)
-  return { outcome: 'read', response: { playbook: found, match: matchPlaybook(found, accounts) } }
+  const [accounts, mine] = await Promise.all([
+    deps.held(agentId),
+    query.data.includeRaw === true ? deps.runs.mine(agentId, found.id) : null,
+  ])
+
+  return {
+    outcome: 'read',
+    response: {
+      playbook: found,
+      match: matchPlaybook(found, accounts),
+      own: mine ? ownRun(mine) : null,
+    },
+  }
 }
 
 /**

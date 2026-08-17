@@ -103,6 +103,7 @@ import {
   openProspects,
   playbookById,
   playbookBySlug,
+  playbookRunFor,
   playbooksByStatus,
   recordPlaybookRun,
   readSkillNote,
@@ -778,7 +779,10 @@ const app = buildApp({
       byId: (id) => playbookById(db, id),
     },
     held: (agentId) => listAccounts(db, agentId),
-    runs: { record: (input) => recordPlaybookRun(db, input) },
+    runs: {
+      record: (input) => recordPlaybookRun(db, input),
+      mine: (agentId, playbookId) => playbookRunFor(db, agentId, playbookId),
+    },
   },
   quests: databaseQuests(
     db,

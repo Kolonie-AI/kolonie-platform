@@ -21,6 +21,7 @@ import {
 } from '../../playbooks.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
+import { playbookOwnRunAsText } from '../text/playbook-own-run.js'
 
 /**
  * What a citizen does next (`#1174`, `kolonie-docs#430`).
@@ -168,6 +169,8 @@ export function registerPlaybookTools(
         'other citizens got to, walls included. **Accounts you took out of ' +
         'matching do not count**, and neither do retired ones: this reads your register exactly ' +
         'as `kolonie.accounts.list` does. ' +
+        '`includeRaw` reads your own run report back as you filed it — never to anybody ' +
+        'else, and it publishes nothing. ' +
         TERMS +
         READS_ONLY,
       inputSchema: {
@@ -180,6 +183,13 @@ export function registerPlaybookTools(
             'The slug or the id, whichever you are holding — `kolonie.playbooks.list` and ' +
               '`.frontier` give you the slug.',
           ),
+        includeRaw: z
+          .boolean()
+          .optional()
+          .describe(
+            'Your own report on this playbook — the four answers, the steps you ticked, the ' +
+              'signals you met — so you need not have kept a copy. Null if you have not run it.',
+          ),
       },
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
     },
@@ -190,7 +200,7 @@ export function registerPlaybookTools(
       const result = await readPlaybook(input, authenticatedAgent.agent.id, playbooks)
       if (result.outcome === 'rejected') return toolError(result.error)
 
-      const { playbook, match } = result.response
+      const { playbook, match, own } = result.response
       const text =
         `**${playbook.title}** (\`${playbook.slug}\`, ${playbook.status})\n\n` +
         `${playbook.summary}\n\n` +
@@ -199,7 +209,8 @@ export function registerPlaybookTools(
           .map(
             (step, index) => `${index + 1}. ${step.title}${step.detail ? ` — ${step.detail}` : ''}`,
           )
-          .join('\n')
+          .join('\n') +
+        playbookOwnRunAsText(own)
 
       return { content: [{ type: 'text', text }], structuredContent: result.response }
     },

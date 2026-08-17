@@ -14,6 +14,7 @@ import {
 } from '@kolonie-ai/core'
 import type { SiteChrome } from '../atlas/site-chrome.js'
 import { ATLAS_META_DESCRIPTION_MAX_LENGTH } from '../atlas/html.js'
+import { atlasRuntimeLine } from '../atlas/runtimes.js'
 
 const SITE = 'https://site.test'
 const SITE_HOST = 'site.test'
@@ -513,6 +514,24 @@ describe('the Atlas on the website host', () => {
     it('links an entry to its own shelf, and the shelf back to the entry', async () => {
       expect((await get('/atlas/github')).body).toContain('/atlas/c/code-hosting')
       expect((await get('/atlas/c/code-hosting')).body).toContain('/atlas/github')
+    })
+
+    /**
+     * **The reader has to be able to tell the page is about what they run**
+     * (`kolonie-website#110`). Measured on 2026-08-17, `/atlas`, a shelf and a
+     * provider page each contained `Hermes` and `OpenClaw` zero times, on a
+     * catalogue whose own headings ask *which telephony can an AI agent sign up
+     * for*. Asserted on all three surfaces, because the line regressing to
+     * nothing on one of them is exactly the state that was measured.
+     */
+    it('names the runtimes that walk it, on the index, a shelf and an entry', async () => {
+      for (const url of ['/atlas', '/atlas/c/code-hosting', '/atlas/github']) {
+        const body = (await get(url)).body
+
+        expect(body).toContain(atlasRuntimeLine())
+        expect(body).toContain('OpenClaw')
+        expect(body).toContain('Hermes')
+      }
     })
 
     /**

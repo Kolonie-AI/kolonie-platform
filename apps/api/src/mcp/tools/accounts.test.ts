@@ -1034,6 +1034,74 @@ describe('kolonie.accounts.walk-report long form', () => {
   })
 
   /**
+   * **The free signup with the paid capability** (`#1062`).
+   *
+   * SignalWire is the measured case: the account is free and the number the
+   * account was for is not. Before `stands`, `#983`'s rule read a
+   * `payment-required` wall as a claim about the signup, so the walker's only
+   * ways through were to lie about the cost or to file the paywall as `other` —
+   * and `other` is outside the kinds `withWalls` can see. Both tests go through
+   * the tool rather than the schema, because the refusal a walker meets is this
+   * one.
+   */
+  it('takes a free signup whose paywall stood in front of the capability', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const walks = fakeWalks()
+    walks.add({ agentId: agent.id, kind: 'github', provider: 'clawhub.ai', finished: false })
+    const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.walk-report',
+      arguments: {
+        kind: 'github',
+        provider: 'clawhub.ai',
+        outcome: 'proved',
+        recipe: {
+          ...RECIPE,
+          cost: 'free',
+          walls: [
+            {
+              kind: 'payment-required',
+              stands: 'capability',
+              title: 'The account is free and the number is not',
+              symptom: 'signup completes, and buying a number asks for a card',
+            },
+          ],
+        },
+      },
+    })
+
+    expect(result.isError).not.toBe(true)
+    await close()
+  })
+
+  /** And the contradiction `#983` was written to catch is still a contradiction. */
+  it('still refuses a free signup whose paywall stood in front of the account', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const walks = fakeWalks()
+    walks.add({ agentId: agent.id, kind: 'github', provider: 'clawhub.ai', finished: false })
+    const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.walk-report',
+      arguments: {
+        kind: 'github',
+        provider: 'clawhub.ai',
+        outcome: 'proved',
+        recipe: {
+          ...RECIPE,
+          cost: 'free',
+          walls: [{ kind: 'payment-required', stands: 'account', title: 'Signup wants a card' }],
+        },
+      },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(JSON.stringify(result.content)).toContain('Those are the same fact')
+    await close()
+  })
+
+  /**
    * **A refusal's walls are public as the call returns** (`#982`), because a
    * refused entry is a published status. Saying *held* there would understate
    * what just happened, which is the mirror of the failure this fixes.

@@ -188,6 +188,26 @@ export const WALL_KIND_MEANINGS: Readonly<Record<WallKind, string>> = {
 }
 
 /**
+ * Which of the two things a wall stands in front of (`#1062`).
+ *
+ * **The account and the capability are not the same subject, and since `#1023`
+ * the Atlas already knew that.** A walk on a directional kind measures a
+ * capability rather than an account — that is what `direction` is for — and a
+ * provider can hand out the account for nothing and put a card in front of the
+ * job it was wanted for. SignalWire is the measured case: GitHub OAuth, a
+ * space, a token and a real number bought out of trial credit with no payment
+ * instrument at any point, and SMS withheld from the whole catalogue until the
+ * account leaves Trial Mode, which wants a card.
+ *
+ * **Absent is `account` and stays that way.** Every wall written before this
+ * field existed was filed under a rule that only had one subject, so reading
+ * silence as anything else would rewrite what those walkers said. `#1062` asks
+ * for the shape and explicitly not for a backfill.
+ */
+export const WallStandsSchema = z.enum(['account', 'capability'])
+export type WallStands = z.infer<typeof WallStandsSchema>
+
+/**
  * What a provider takes, where the wall is a payment (`#981`).
  *
  * **This is the field that decides who can walk it**, which is why it is worth
@@ -264,9 +284,28 @@ export const WalkedRecipeWallSchema = z
     accepts: z.array(WallPaymentSchema).max(WallPaymentSchema.options.length).optional(),
     /** Roughly what it costs, in dollars, where the wall is a payment. */
     amountUsd: z.number().nonnegative().max(WALL_AMOUNT_MAX_USD).optional(),
+    /**
+     * Whether it stood in front of the account or in front of the capability
+     * (`#1062`). Absent is the account — see {@link WallStandsSchema}.
+     */
+    stands: WallStandsSchema.optional(),
   })
   .strict()
 export type WalkedRecipeWall = z.infer<typeof WalkedRecipeWallSchema>
+
+/**
+ * What a wall says about which of the two it stopped (`#1062`).
+ *
+ * **Only the capability half is printed**, because the other half is what every
+ * wall on the Atlas has always meant: a reader told *this one is about getting
+ * the account* on ten walls and nothing on the eleventh learns nothing from the
+ * ten and is misled by the silence on the eleventh.
+ */
+export function wallStandsAsText(wall: WalkedRecipeWall): string {
+  return wall.stands === 'capability'
+    ? ' — in front of the capability, not in front of getting the account'
+    : ''
+}
 
 /**
  * What to call a wall on a screen: the walker's title, or the kind's meaning.
@@ -408,13 +447,24 @@ export function otherWallWithoutASymptom(position: number): string {
  * **`card-to-sign-up` is not caught**, and that is the case the pair exists for:
  * a card demanded before the account exists is a payment wall and is free of
  * charge, and an agent with no card is stopped by it either way.
+ *
+ * **Neither is a wall standing in front of the capability** (`#1062`). The
+ * premise above says *money stood between you and a working account*, and since
+ * `#1023` a walk on a directional kind is measuring a capability rather than an
+ * account: a free account whose one useful job is behind a card makes both
+ * fields true at once, and refusing that pushed the walker into filing the
+ * paywall as `other` — outside the nine typed kinds, and therefore outside the
+ * index the whole filter is built on. So the rule reads `stands` and catches
+ * what it was written to catch, which is the pair that disagrees.
  */
 export function costContradictsPaymentWall(): string {
   return (
     'This walk reports a `payment-required` wall and `cost: "free"`. Those are the same fact ' +
     'from two directions and they disagree: a wall means money stood between you and a working ' +
     'account, and `free` means money was never named. If a card had to be on file before the ' +
-    'account existed, that is `card-to-sign-up` — free of charge, and impossible without a card.'
+    'account existed, that is `card-to-sign-up` — free of charge, and impossible without a card. ' +
+    'If the account really was free and the money stood between it and the capability you were ' +
+    'measuring, say so on the wall: `stands: "capability"`, and the two stop disagreeing.'
   )
 }
 
@@ -472,10 +522,17 @@ export const SubmittedWalkedRecipeSchema = WalkedRecipeSchema.superRefine((recip
     }
   }
 
-  /** The one place the two new answers can contradict the walls beside them. */
+  /**
+   * The one place the two new answers can contradict the walls beside them —
+   * and only where the wall is about the account, which is the subject `cost`
+   * has (`#1062`). A paywall the walker scoped to the capability disagrees with
+   * nothing: the account was free and the job it was wanted for was not.
+   */
   if (
     recipe.cost === 'free' &&
-    (recipe.walls ?? []).some((wall) => wall.kind === 'payment-required')
+    (recipe.walls ?? []).some(
+      (wall) => wall.kind === 'payment-required' && wall.stands !== 'capability',
+    )
   )
     ctx.addIssue({ code: 'custom', message: costContradictsPaymentWall(), path: ['cost'] })
 })
@@ -532,7 +589,7 @@ export function walkedRecipeAsText(
         '### Walls',
         ...recipe.walls.map((wall) =>
           [
-            `- **${wallAsTitle(wall)}**${wallVerdictAsText(wall)}`,
+            `- **${wallAsTitle(wall)}**${wallStandsAsText(wall)}${wallVerdictAsText(wall)}`,
             wall.symptom === undefined ? undefined : `  Looks like: ${wall.symptom}`,
             wall.remedy === undefined ? undefined : `  Got past it by: ${wall.remedy}`,
           ]

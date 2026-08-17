@@ -1846,8 +1846,13 @@ function conditionsSection(recipe: AtlasPublicRecipe): string {
  * drawn here: `PublishedWall`'s own note draws it — *a kind, a count, a boolean
  * and a number cannot leak a credential or carry a grudge; prose can* — and the
  * walker's `title`, `symptom` and `remedy` never left the projection. What a
- * page reader gets is the sentence the Colony wrote for each kind, how many
- * walks hit it, and what it costs where that is a number.
+ * page reader gets is the sentence the Colony wrote for each kind, what it stood
+ * in front of, how many walks hit it, and what it costs where that is a number.
+ *
+ * A wall marked as standing in front of the capability says so (`#1062`): a
+ * signup that really was free and a paywall between that account and the thing
+ * it was for are both true of `signalwire.com`, and a page printing the paywall
+ * unqualified would be telling a reader the signup costs money.
  *
  * The count can honestly be zero: the entries classified from their own refusal
  * prose rather than by anybody walking them say `0`, and a page printing *0
@@ -1865,6 +1870,8 @@ function wallsSection(recipe: AtlasPublicRecipe): string {
           : wall.direction === 'inbound'
             ? ' (receiving)'
             : ' (sending)'
+    const stands =
+      wall.stands === 'capability' ? ', in front of the capability rather than the account' : ''
     const cost = wall.amountUsd === undefined ? '' : ` About $${wall.amountUsd}.`
     const takes =
       wall.accepts === undefined || wall.accepts.length === 0
@@ -1875,7 +1882,7 @@ function wallsSection(recipe: AtlasPublicRecipe): string {
         ? ' Classified from the refusal rather than from a walk.'
         : ` Hit by ${wall.reportedBy} walk${wall.reportedBy === 1 ? '' : 's'}.`
 
-    return `<li>${escape(WALL_KIND_MEANINGS[wall.kind] + scope + '.' + walks + cost + takes)}</li>`
+    return `<li>${escape(WALL_KIND_MEANINGS[wall.kind] + scope + stands + '.' + walks + cost + takes)}</li>`
   })
 
   return `<h3>What stopped people</h3><ul>${items.join('')}</ul>`

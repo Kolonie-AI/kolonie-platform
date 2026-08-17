@@ -66,10 +66,23 @@ export const ATLAS_CITIZENS_ONLY = {
   wall: ['title', 'symptom', 'remedy'],
 } as const satisfies Readonly<Record<string, readonly string[]>>
 
-/** A wall as a stranger reads it: what it is, how often, what it costs. */
+/**
+ * A wall as a stranger reads it: what it is, what it stood in front of, how
+ * often, what it costs.
+ *
+ * `stands` is public because leaving it out is what makes a page misleading
+ * (`#1062`): a free signup with a paywall in front of the capability would read
+ * as a signup that costs money.
+ */
 export type AtlasPublicWall = Pick<
   AtlasRow['walls'][number],
-  'kind' | 'direction' | 'reportedBy' | 'lastReportedAt' | 'posesHumanityQuestion' | 'accepts'
+  | 'kind'
+  | 'direction'
+  | 'stands'
+  | 'reportedBy'
+  | 'lastReportedAt'
+  | 'posesHumanityQuestion'
+  | 'accepts'
 > & { readonly amountUsd?: number | undefined }
 
 /**
@@ -233,6 +246,7 @@ function publicWall(wall: AtlasRow['walls'][number]): AtlasPublicWall {
   return {
     kind: wall.kind,
     direction: wall.direction,
+    stands: wall.stands,
     reportedBy: wall.reportedBy,
     lastReportedAt: wall.lastReportedAt,
     posesHumanityQuestion: wall.posesHumanityQuestion,

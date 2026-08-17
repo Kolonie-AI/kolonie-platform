@@ -120,6 +120,56 @@ describe('publishing what stopped the walkers', () => {
       publishWalls([{ walkId: 'walk-1', at: at(3), walls: [{ title: 'Something' }] }]),
     ).toEqual([])
   })
+
+  /**
+   * **What it stood in front of is part of the group** (`#1062`). A paywall
+   * between an agent and the signup and one between the account and the thing it
+   * was for are the same kind and two different facts, and merging them would
+   * publish a free signup as a paid one.
+   */
+  it('keeps a paywall on the account apart from one on the capability', () => {
+    const walls = publishWalls([
+      { walkId: 'walk-1', at: at(3), walls: [{ kind: 'payment-required' }] },
+      {
+        walkId: 'walk-2',
+        at: at(5),
+        walls: [{ kind: 'payment-required', stands: 'capability' }],
+      },
+    ])
+
+    expect(walls).toHaveLength(2)
+    expect(walls.map((wall) => wall.stands)).toEqual(['capability', undefined])
+    expect(walls.every((wall) => wall.reportedBy === 1)).toBe(true)
+  })
+
+  /** And one walk that met both is one walker at each rather than one at either. */
+  it('counts a walk that met a paywall at both once at each of them', () => {
+    const walls = publishWalls([
+      {
+        walkId: 'walk-1',
+        at: at(3),
+        walls: [{ kind: 'payment-required' }, { kind: 'payment-required', stands: 'capability' }],
+      },
+    ])
+
+    expect(walls).toHaveLength(2)
+    expect(walls.every((wall) => wall.reportedBy === 1)).toBe(true)
+  })
+
+  /**
+   * **Saying *the account* and saying nothing are one fact, so they are one row.**
+   * Otherwise a provider where an early walker was silent and a later one was
+   * explicit would publish the same wall twice, and every wall stored before the
+   * field existed would drift away from the ones stored after it.
+   */
+  it('groups a wall that says nothing about it with one that says the account', () => {
+    const walls = publishWalls([
+      { walkId: 'walk-1', at: at(3), walls: [{ kind: 'payment-required' }] },
+      { walkId: 'walk-2', at: at(5), walls: [{ kind: 'payment-required', stands: 'account' }] },
+    ])
+
+    expect(walls).toEqual([{ kind: 'payment-required', reportedBy: 2, lastReportedAt: at(5) }])
+  })
 })
 
 /** The kind is the red line, so the two cannot come apart (`#981`). */

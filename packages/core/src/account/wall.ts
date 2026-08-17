@@ -9,8 +9,10 @@ import {
   WALL_KINDS,
   WallKindSchema,
   WallPaymentSchema,
+  WallStandsSchema,
   type WalkedRecipeWall,
   type WallKind,
+  type WallStands,
 } from './walked-recipe.js'
 
 /**
@@ -60,6 +62,21 @@ export const PublishedWallSchema = z
      * and what every wall recorded before this field existed stays.
      */
     direction: RecipeDirectionSchema.nullable().optional(),
+    /**
+     * Whether the walls behind this count stood in front of the account or in
+     * front of the capability (`#1062`).
+     *
+     * **Grouped on, and not merged into a majority.** A provider that hands out
+     * a free account and puts a card in front of the job carries both, and
+     * summing them would publish one paywall that is true of neither: a reader
+     * asking *what does an account here cost me* and a reader asking *what does
+     * using it cost me* get different answers, exactly as `#1036` split a wall
+     * by the capability it was measured against.
+     *
+     * Absent is the account, which is what every wall recorded before this
+     * field existed meant and stays meaning.
+     */
+    stands: WallStandsSchema.optional(),
     /**
      * How many distinct walks reported this kind here.
      *
@@ -140,23 +157,42 @@ export function publishWalls(
    * map it always was; on `phone` an inbound refusal and an outbound one are two
    * facts about two capabilities, and summing them into one count is the claim
    * `#976` refused at the entry level.
+   *
+   * **And on what it stood in front of** (`#1062`). A paywall between an agent
+   * and the signup and a paywall between the account and the thing it was for
+   * are the same kind and not the same wall, so they are two rows rather than
+   * one row counted twice. Absent groups with absent, which is what keeps every
+   * wall already stored reading exactly as it did.
    */
+  /**
+   * `account` and silence are one fact, so they are one group: a walker who said
+   * nothing and a later one who said *the account* met the same wall, and only
+   * `capability` ever reaches a published row (`#1062`).
+   */
+  const standsOf = (wall: { readonly stands?: WallStands | undefined }): WallStands | null =>
+    wall.stands === 'capability' ? 'capability' : null
+
   const byKind = new Map<string, PublishedWall>()
-  const groupKey = (kind: WallKind, direction: RecipeDirection | null): string =>
-    `${kind}\u0000${direction ?? ''}`
+  const groupKey = (
+    kind: WallKind,
+    direction: RecipeDirection | null,
+    stands: WallStands | null,
+  ): string => `${kind}\u0000${direction ?? ''}\u0000${stands ?? ''}`
 
   const take = (
     kind: WallKind,
     direction: RecipeDirection | null,
+    stands: WallStands | null,
     at: Timestamp | null,
   ): PublishedWall => {
-    const key = groupKey(kind, direction)
+    const key = groupKey(kind, direction, stands)
     const held = byKind.get(key)
     if (held !== undefined) return held
 
     const fresh: PublishedWall = {
       kind,
       ...(direction === null ? {} : { direction }),
+      ...(stands === null ? {} : { stands }),
       reportedBy: 0,
       lastReportedAt: at,
     }
@@ -165,17 +201,25 @@ export function publishWalls(
   }
 
   for (const walk of ordered) {
-    /** One walk naming a kind twice is one walker who hit it, not two. */
-    const kinds = new Set<WallKind>()
+    /**
+     * One walk naming a kind twice is one walker who hit it, not two — and it
+     * is the group that is counted rather than the bare kind (`#1062`), so a
+     * walk that met a paywall in front of the account *and* one in front of
+     * the capability is one walker at each of them rather than one walker at
+     * whichever it happened to write first.
+     */
+    const counted = new Set<string>()
     const direction = walk.direction ?? null
 
     for (const wall of walk.walls) {
       if (wall.kind === undefined) continue
 
-      const held = take(wall.kind, direction, walk.at)
-      byKind.set(groupKey(wall.kind, direction), {
+      const stands = standsOf(wall)
+      const key = groupKey(wall.kind, direction, stands)
+      const held = take(wall.kind, direction, stands, walk.at)
+      byKind.set(key, {
         ...held,
-        reportedBy: held.reportedBy + (kinds.has(wall.kind) ? 0 : 1),
+        reportedBy: held.reportedBy + (counted.has(key) ? 0 : 1),
         lastReportedAt: held.lastReportedAt ?? walk.at,
         ...(held.posesHumanityQuestion === undefined && wall.posesHumanityQuestion !== undefined
           ? { posesHumanityQuestion: wall.posesHumanityQuestion }
@@ -187,7 +231,7 @@ export function publishWalls(
           ? { amountUsd: wall.amountUsd }
           : {}),
       })
-      kinds.add(wall.kind)
+      counted.add(key)
     }
   }
 
@@ -195,8 +239,9 @@ export function publishWalls(
   for (const wall of approved) {
     if (wall.kind === undefined) continue
 
-    const held = take(wall.kind, approvedDirection, null)
-    byKind.set(groupKey(wall.kind, approvedDirection), {
+    const stands = standsOf(wall)
+    const held = take(wall.kind, approvedDirection, stands, null)
+    byKind.set(groupKey(wall.kind, approvedDirection, stands), {
       ...held,
       ...(wall.title === undefined ? {} : { title: wall.title }),
       ...(wall.symptom === undefined ? {} : { symptom: wall.symptom }),
@@ -216,7 +261,8 @@ export function publishWalls(
       b.reportedBy - a.reportedBy ||
       newest(a, b) ||
       a.kind.localeCompare(b.kind) ||
-      (a.direction ?? '').localeCompare(b.direction ?? ''),
+      (a.direction ?? '').localeCompare(b.direction ?? '') ||
+      (a.stands ?? '').localeCompare(b.stands ?? ''),
   )
 }
 

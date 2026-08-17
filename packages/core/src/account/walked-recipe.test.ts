@@ -303,6 +303,34 @@ describe('a walked recipe', () => {
       ).toBe(true)
     })
 
+    /**
+     * **The second case the pair exists for** (`#1062`). `signalwire.com` gives
+     * an agent the account for nothing and then wants a card before it will send
+     * anything — so *free* and *a paywall* are both true, and the wall says which
+     * of the two it stood in front of instead of the walk having to lie about one.
+     */
+    it('accepts a payment wall standing in front of the capability beside `free`', () => {
+      expect(
+        SubmittedWalkedRecipeSchema.safeParse({
+          walls: [{ kind: 'payment-required', stands: 'capability' }],
+          cost: 'free',
+        }).success,
+      ).toBe(true)
+    })
+
+    /** And absent still means the account, so nothing already stored changes. */
+    it('still refuses one that says nothing about what it stood in front of', () => {
+      const refused = SubmittedWalkedRecipeSchema.safeParse({
+        walls: [{ kind: 'payment-required', stands: 'account' }],
+        cost: 'free',
+      })
+
+      expect(refused.success).toBe(false)
+      if (refused.success) return
+      expect(refused.error.issues[0]?.path).toEqual(['cost'])
+      expect(refused.error.issues[0]?.message).toContain('stands: "capability"')
+    })
+
     it('renders both answers as sentences, and neither where the walker was silent', () => {
       const text = walkedRecipeAsText(
         WalkedRecipeSchema.parse({ cost: 'paid-only', terms: 'operator-only' }),

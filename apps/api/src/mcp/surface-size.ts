@@ -13,19 +13,22 @@
  * anybody weighed 81 % in three days and decided it was acceptable: nobody was
  * looking, because there was no number to look at.
  *
- * ## What this deliberately is not
+ * ## What this weighs, and what holds it
  *
- * **There is no threshold here and nothing fails.** A hard ceiling was
- * considered and refused by the maintainer, on the ground that new tools have to
- * be able to exist, and `#388` does not reopen that. This is the shape
- * `kolonie-docs` already uses for board hygiene — *a measurement that reports
- * rather than a switch that enforces*, because **the failure mode of the chosen
- * option is graceful**: a report nobody reads costs a paragraph in a summary,
- * where a gate nobody can satisfy costs the next person their afternoon.
+ * `#388` reported and refused to gate, on the ground that a hard ceiling is a
+ * number somebody picks and new tools have to be able to exist. The report ran
+ * for ten days and the catalogue grew anyway — which is the finding `#1118`
+ * acted on, and it did not need a ceiling to act. **The `authenticated` tier is
+ * held to a floor**: the last committed measurement, moving down freely and up
+ * only in a commit that says why. That is `catalogue-budget.ts` (`#889`), and it
+ * carries no opinion about how big the catalogue should be.
  *
- * It is also why {@link measureToolList} returns a measurement and never a
- * verdict. There is no `ok` field to start branching on, and adding one is a
- * decision that needs its own issue.
+ * This file is still the measurement and not the gate, which is why
+ * {@link measureToolList} returns figures and never a verdict — there is no `ok`
+ * field here, because the comparison lives in one place and this is not it. The
+ * three tiers are all reported; only the one every citizen pays for is floored.
+ * Flooring `warden` too would take a second pair of numbers, and nobody has
+ * shown that surface growing.
  */
 
 /** One tool's share of the published list. */
@@ -165,9 +168,12 @@ export function renderSurfaceReport(
 
   lines.push(
     '',
-    '**Nothing here is a gate.** No threshold is set, no run fails on this, and a ' +
-      'change that grows the surface merges like any other — `#388` says so, and a ' +
-      'later change that turns this into a check needs an issue of its own.',
+    '**The `authenticated` tier is held to a floor** — the last committed measurement, in ' +
+      '`apps/api/src/mcp/catalogue-budget.json`. Growing past it fails this run. Shrinking ' +
+      'below it lowers the floor, and the new figure is committed to this branch. Raising it ' +
+      'takes a commit message naming `the-catalogue-encodes-grammar-never-vocabulary` and ' +
+      'saying what the new tools are vocabulary-free for. The other tiers are weighed and ' +
+      'reported, and nothing fails on them.',
   )
 
   return lines.join('\n')

@@ -6,6 +6,8 @@ import { describe, expect, it } from 'vitest'
 import { connectedClient, registeredCitizen } from '../__fixtures__/mcp.js'
 import {
   budgetVerdict,
+  floorChangeVerdict,
+  floorMove,
   GRAMMAR_RECORD,
   raiseIsJustified,
   type CatalogueBudget,
@@ -128,8 +130,9 @@ describe('a measurement against the floor', () => {
    * **Shrinking fails too, and that is the ratchet rather than a bug.**
    *
    * A saving nobody records is one the next feature spends without anybody
-   * noticing it was spent. The cost is one command after a consolidation, and
-   * the message is required to name it.
+   * noticing it was spent. Since `#1118` nobody pays for it: the check writes
+   * the lower figure in the same run, and the message names the command that
+   * did rather than one to go and run.
    */
   it('fails when the catalogue shrank and the floor did not follow', () => {
     const verdict = budgetVerdict({ tools: budget.tools - 3, bytes: budget.bytes - 4_000 }, budget)
@@ -138,7 +141,7 @@ describe('a measurement against the floor', () => {
     expect(verdict.direction).toBe('under')
     expect(verdict.tools).toBe(-3)
     expect(verdict.bytes).toBe(-4_000)
-    expect(verdict.message).toContain('--write')
+    expect(verdict.message).toContain('check-catalogue-budget.mjs')
   })
 })
 
@@ -169,6 +172,82 @@ describe('raising the floor', () => {
     // Naming the record is the cheap half. The record's own acceptance test is
     // the word this insists on, so half a citation is not a justification.
     expect(raiseIsJustified(`Raise the budget, see ${GRAMMAR_RECORD}`)).toBe(false)
+  })
+})
+
+/**
+ * The rule `#889` wrote and nothing ran, given a caller (`#1118`).
+ *
+ * `raiseIsJustified` was reachable from its own unit tests and from nowhere
+ * else, so the floor was a number in a file that anybody could edit in a commit
+ * saying anything. These are the cases `scripts/check-catalogue-floor.mjs`
+ * reaches when it hands the check the two committed versions of that file and
+ * the message of the commit between them.
+ */
+describe('a commit that moved the floor', () => {
+  const floor = { tools: 101, bytes: 184_987 }
+  const justified =
+    `Two tools for the settlement verbs\n\nBudget raised by hand: ${GRAMMAR_RECORD}. ` +
+    'Both are vocabulary-free — a new settlement kind still costs zero tools.'
+
+  it('reads either number moving up as a raise', () => {
+    // The asymmetry `budgetVerdict` enforces against a measurement, applied to
+    // the committed figures: dropping a tool while adding 9 KB to the survivors
+    // is a raise, and a count-only reading would call it a saving.
+    expect(floorMove(floor, { tools: floor.tools - 1, bytes: floor.bytes + 9_000 })).toBe('raised')
+    expect(floorMove(floor, { tools: floor.tools - 1, bytes: floor.bytes - 400 })).toBe('lowered')
+    expect(floorMove(floor, floor)).toBe('unchanged')
+  })
+
+  /**
+   * **The rejection case `#1118` asks for.** This is the ordinary way a floor
+   * moves: a check was failing, the number was in the way, and moving it was the
+   * quickest route to a green run. Nothing about that commit says so.
+   */
+  it('refuses a raise in a commit that says nothing', () => {
+    const verdict = floorChangeVerdict(
+      floor,
+      { tools: floor.tools + 2, bytes: floor.bytes + 4_100 },
+      'Add the settlement tools\n\nBudget bumped to keep CI green.',
+    )
+
+    expect(verdict.allowed).toBe(false)
+    expect(verdict.move).toBe('raised')
+    // The refusal has to name the way out, or the next author's cheapest move is
+    // to paste the slug in without reading it.
+    expect(verdict.message).toContain(GRAMMAR_RECORD)
+    expect(verdict.message).toContain('`kind`')
+  })
+
+  it('allows a raise in a commit that names the record and what the tools buy', () => {
+    const verdict = floorChangeVerdict(
+      floor,
+      { tools: floor.tools + 2, bytes: floor.bytes + 4_100 },
+      justified,
+    )
+
+    expect(verdict.allowed).toBe(true)
+    expect(verdict.move).toBe('raised')
+  })
+
+  it('allows a reduction with no justification at all', () => {
+    // A reduction is the ratchet working. Asking it to justify itself would put
+    // a sentence between a saving and the record of it.
+    const verdict = floorChangeVerdict(
+      floor,
+      { tools: floor.tools - 1, bytes: floor.bytes - 3_543 },
+      'Cut the prose that says what things are not',
+    )
+
+    expect(verdict.allowed).toBe(true)
+    expect(verdict.move).toBe('lowered')
+  })
+
+  it('asks nothing of a commit that left the floor where it was', () => {
+    const verdict = floorChangeVerdict(floor, floor, 'Rename the steward role')
+
+    expect(verdict.allowed).toBe(true)
+    expect(verdict.move).toBe('unchanged')
   })
 })
 

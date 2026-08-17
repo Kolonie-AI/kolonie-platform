@@ -25,10 +25,11 @@
  *
  * Shrinking trips it too, and that is deliberate rather than an oversight. A
  * ratchet that only caught growth would let a consolidation's saving sit
- * unrecorded until the next feature quietly spent it. The cost is one command
- * after a consolidation; {@link budgetVerdict} names that command in the message
- * it returns, and `--write` **only ever lowers** — there is no argument that
- * raises the floor for you.
+ * unrecorded until the next feature quietly spent it. **A reduction costs
+ * nobody a command** (`#1118`): `scripts/check-catalogue-budget.mjs` writes the
+ * lower figure in the same run that measured it, and the workflow commits it to
+ * the branch that earned it. What that removes is the window where a saving is
+ * real, unrecorded, and available to the next feature.
  *
  * ## Raising it
  *
@@ -38,6 +39,15 @@
  * justification from a plausible one, and it is not trying to. What it makes
  * impossible is raising the number *silently*, which is the only failure mode a
  * mechanism can address here.
+ *
+ * **`#889` wrote that rule and nothing enforced it.** `raiseIsJustified` was a
+ * function with unit tests and no caller: the floor was a number in a file, and
+ * editing it took whatever the editor was willing to type in the commit body,
+ * checked by nobody. {@link floorChangeVerdict} is the caller `#1118` added — it
+ * is handed the two versions of the floor and the message of the commit that
+ * moved it, and it refuses a raise whose commit says nothing.
+ * `scripts/check-catalogue-floor.mjs` reads that pair out of `git` and runs it,
+ * which is why the rule now costs a sentence rather than describing one.
  */
 
 /** The floor, as committed. Every field carries the measurement it came from. */
@@ -114,8 +124,9 @@ export function budgetVerdict(measured: CatalogueTotals, budget: CatalogueBudget
       bytes,
       message:
         `The catalogue is smaller than its budget by ${-tools} tools and ${-bytes} bytes, ` +
-        'and the floor has not come down with it. Run `node scripts/check-catalogue-budget.mjs --write`, ' +
-        'which lowers it and can do nothing else. A saving nobody records is one the next feature spends.',
+        'and the floor has not come down with it. `node scripts/check-catalogue-budget.mjs` lowers it ' +
+        'in the same run that measured it, and can do nothing else. ' +
+        'A saving nobody records is one the next feature spends.',
     }
   }
 
@@ -144,4 +155,89 @@ export function budgetVerdict(measured: CatalogueTotals, budget: CatalogueBudget
 export function raiseIsJustified(commitMessage: string): boolean {
   const text = commitMessage.toLowerCase()
   return text.includes(GRAMMAR_RECORD) && text.includes('vocabulary-free')
+}
+
+/** Which way a commit moved the floor. */
+export type FloorMove = 'raised' | 'lowered' | 'unchanged'
+
+/**
+ * Which way the floor moved between two committed versions of it.
+ *
+ * **Either number moving up is a raise**, including the case where the other one
+ * moved down. A commit that drops a tool and adds 9 KB to the survivors has
+ * raised the byte floor, and the rule that governs raises applies to it — the
+ * same asymmetry {@link budgetVerdict} enforces against a measurement, applied
+ * here to the committed figures instead.
+ */
+export function floorMove(from: CatalogueTotals, to: CatalogueTotals): FloorMove {
+  if (to.tools > from.tools || to.bytes > from.bytes) return 'raised'
+  if (to.tools < from.tools || to.bytes < from.bytes) return 'lowered'
+  return 'unchanged'
+}
+
+/** Whether a commit was allowed to move the floor the way it did. */
+export interface FloorChangeVerdict {
+  readonly allowed: boolean
+  readonly move: FloorMove
+  /** One line, addressed to whoever is reading a failed check. */
+  readonly message: string
+}
+
+/**
+ * Judge a commit that moved the floor (`#1118`).
+ *
+ * Three cases, and only one of them can fail. **Lowering needs no permission** —
+ * it is the ratchet doing what it is for, and the run that measures a smaller
+ * catalogue writes the smaller figure itself. **Unchanged is not a change** and
+ * is not asked to justify itself. **Raising needs the sentence**
+ * {@link raiseIsJustified} looks for, and a commit that does not carry it is
+ * refused.
+ *
+ * This runs **after the fact, against history**, which is what makes it possible
+ * at all: a check that ran before the commit existed would be asked to read a
+ * message nobody had written yet. The cost of reading history instead is that
+ * the refusal arrives one commit late — on the branch, in the pull request,
+ * where amending is still ordinary.
+ */
+export function floorChangeVerdict(
+  from: CatalogueTotals,
+  to: CatalogueTotals,
+  commitMessage: string,
+): FloorChangeVerdict {
+  const move = floorMove(from, to)
+
+  if (move === 'unchanged') {
+    return { allowed: true, move, message: 'The floor did not move.' }
+  }
+
+  if (move === 'lowered') {
+    return {
+      allowed: true,
+      move,
+      message:
+        `The floor came down to ${to.tools} tools and ${to.bytes} bytes. ` +
+        'A reduction needs no justification — recording it is the point of the ratchet.',
+    }
+  }
+
+  if (raiseIsJustified(commitMessage)) {
+    return {
+      allowed: true,
+      move,
+      message:
+        `The floor was raised to ${to.tools} tools and ${to.bytes} bytes, ` +
+        `in a commit naming ${GRAMMAR_RECORD}.`,
+    }
+  }
+
+  return {
+    allowed: false,
+    move,
+    message:
+      `The floor was raised from ${from.tools} tools and ${from.bytes} bytes to ` +
+      `${to.tools} and ${to.bytes}, in a commit that does not say why. ` +
+      `Raising it takes a commit message naming ${GRAMMAR_RECORD} and saying what the new ` +
+      'tools are vocabulary-free for. If the growth is a new rung it belongs in a `kind` enum ' +
+      'and costs zero tools, and the floor should not move at all.',
+  }
 }

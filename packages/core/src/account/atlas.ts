@@ -72,6 +72,27 @@ export function atlasPath(provider: string): string {
 }
 
 /**
+ * The path one shelf's page is at (`#1107`, decision 1).
+ *
+ * **One route for both levels of the taxonomy.** A top category and a sub
+ * category are the same kind of thing to a reader — a shelf with a name and a
+ * standfirst — and `#1102` gives them one table, so two prefixes would be the
+ * page differing by something no reader can see.
+ *
+ * **`/c/` and not `/atlas/<slug>`**, which is where the providers already live: a
+ * category called `storage` and a provider called `storage` would otherwise be
+ * one address, and which of them won would depend on the order two routes were
+ * registered in.
+ *
+ * The slug is parsed rather than interpolated, on {@link atlasPath}'s argument —
+ * a category is a row a `psql` prompt writes, so *it came out of the table* is
+ * not a reason to trust it into a URL.
+ */
+export function atlasCategoryPath(slug: string): string {
+  return `${ATLAS_PATH}/c/${AtlasCategorySlugSchema.parse(slug)}`
+}
+
+/**
  * Why this provider is on the shelf at all (`#856`).
  *
  * **A reader deciding what to trust is asking who put this here**, and until
@@ -375,8 +396,8 @@ export const ATLAS_CAPABILITY_PHRASES: Readonly<Record<string, string>> = {
  *
  * The `<h2>` and the nav link are the document outline a crawler reads, and
  * `identity-security` is not a title. **The slug is kept everywhere it is an
- * address**: the fragment `id` on the heading, and every `?category=` link,
- * which {@link atlasPath}'s neighbour builds from the same value.
+ * address**: the fragment `id` on the heading, and the shelf's own path, which
+ * {@link atlasCategoryPath} builds from the same value.
  *
  * A category that is not here renders as its own slug, on the same argument as
  * the map above.

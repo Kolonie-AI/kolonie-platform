@@ -2,7 +2,13 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { buildApp } from '../app.js'
 import { fakeColony, type FakeColony } from '../__fixtures__/colony/index.js'
-import { AccountCapabilitySchema, AccountKindSchema, ATLAS_PATH, noFigures } from '@kolonie-ai/core'
+import {
+  AccountCapabilitySchema,
+  AccountKindSchema,
+  ATLAS_PATH,
+  ATLAS_SEEDED_CATEGORIES,
+  noFigures,
+} from '@kolonie-ai/core'
 import type { SiteChrome } from '../atlas/site-chrome.js'
 
 const SITE = 'https://site.test'
@@ -453,25 +459,25 @@ describe('the Atlas on the website host', () => {
     })
 
     /**
-     * **Filtering is a link and never a widget** — `?category=`, D-062, the
-     * same decision the console's browser took in `#591`. There is no script on
-     * this page to fail.
+     * **A shelf is a page and never a widget** — `#1107` decision 3, D-062, and
+     * the same decision the console's browser took in `#591`. There is no script
+     * on this page to fail.
      */
-    it('filters to one shelf from a link, with no JavaScript anywhere', async () => {
-      const response = await get('/atlas?category=social-publishing')
+    it('serves one shelf as a page of its own, with no JavaScript anywhere', async () => {
+      const response = await get('/atlas/c/social-publishing')
 
       expect(response.statusCode).toBe(200)
       expect(response.body).toContain('Bluesky')
       expect(response.body).not.toContain('>GitHub<')
       /**
-       * **No executable script, which is the promise** (`#97`, D-062): filtering
+       * **No executable script, which is the promise** (`#97`, D-062): the shelf
        * is a link and the page works with JavaScript off. The `ld+json` block
        * `#789` added is data — the browser never executes it — so the assertion
        * is about a script that *runs* rather than about the string.
        */
       expect(response.body).not.toContain('<script>')
       expect(response.body).not.toContain('text/javascript')
-      /** And a way back out of the filter. */
+      /** And a way back out to the whole catalogue. */
       expect(response.body).toContain('Every category')
     })
 
@@ -501,8 +507,8 @@ describe('the Atlas on the website host', () => {
      * missing half: the category on an entry page linked to the whole index.
      */
     it('links an entry to its own shelf, and the shelf back to the entry', async () => {
-      expect((await get('/atlas/github')).body).toContain('/atlas?category=code-hosting')
-      expect((await get('/atlas?category=code-hosting')).body).toContain('/atlas/github')
+      expect((await get('/atlas/github')).body).toContain('/atlas/c/code-hosting')
+      expect((await get('/atlas/c/code-hosting')).body).toContain('/atlas/github')
     })
 
     /**
@@ -1348,8 +1354,8 @@ describe('the Atlas on the website host', () => {
 
     /**
      * On the view the social shelf is on (`#1103`) — its one row is a refusal,
-     * so the shelf heading renders where the refusals do. The `?category=` link
-     * is asserted as a prefix and so still matches the nav link that now carries
+     * so the shelf heading renders where the refusals do. The shelf link is
+     * asserted as a prefix and so still matches the nav link that now carries
      * the view with it.
      */
     it('heads a shelf with its title and keeps the slug where it is an address', async () => {
@@ -1357,7 +1363,7 @@ describe('the Atlas on the website host', () => {
 
       expect(body).toContain('Social and publishing')
       expect(body).toContain('id="social-publishing"')
-      expect(body).toContain(`${ATLAS_PATH}?category=social-publishing`)
+      expect(body).toContain(`${ATLAS_PATH}/c/social-publishing`)
     })
 
     it('says the kinds on a row in words', async () => {
@@ -1550,7 +1556,7 @@ describe('the Atlas on the website host', () => {
     })
 
     it('titles a shelf for the search that finds it rather than for the filter', async () => {
-      expect(headOf((await get(`${ATLAS_PATH}?category=mailbox`)).body)).toContain(
+      expect(headOf((await get(`${ATLAS_PATH}/c/mailbox`)).body)).toContain(
         '<title>Mailboxes an AI agent can sign up for — Kolonie</title>',
       )
       expect(headOf((await get(ATLAS_PATH)).body)).toContain('<title>The Atlas — Kolonie</title>')
@@ -1766,9 +1772,16 @@ describe('the Atlas on the website host', () => {
       await app.ready()
     }
 
-    /** The providers a rendered index links to, in the order it links to them. */
+    /**
+     * The providers a rendered index links to, in the order it links to them.
+     *
+     * **`/atlas/c/` is excluded rather than matched and filtered afterwards**
+     * (`#1107`): a shelf link is a `<li><a href>` of exactly the same shape as an
+     * entry link now that shelves have addresses, so without the lookahead every
+     * one of these assertions would be counting the navigation.
+     */
     const listed = (body: string): readonly string[] =>
-      [...body.matchAll(/<li><a href="\/atlas\/([^"]+)">/g)].map((one) => one[1] ?? '')
+      [...body.matchAll(/<li><a href="\/atlas\/(?!c\/)([^"]+)">/g)].map((one) => one[1] ?? '')
 
     it('shows only what somebody got through, by default and on a shelf', async () => {
       await withBothHalves()
@@ -1778,9 +1791,7 @@ describe('the Atlas on the website host', () => {
         'joinable.example',
         'phone.example',
       ])
-      expect(listed((await get(`${ATLAS_PATH}?category=mailbox`)).body)).toEqual([
-        'joinable.example',
-      ])
+      expect(listed((await get(`${ATLAS_PATH}/c/mailbox`)).body)).toEqual(['joinable.example'])
     })
 
     /**
@@ -1792,8 +1803,8 @@ describe('the Atlas on the website host', () => {
     it('splits a shelf in two and loses nothing between them', async () => {
       await withBothHalves()
 
-      const worked = listed((await get(`${ATLAS_PATH}?category=mailbox`)).body)
-      const not = listed((await get(`${ATLAS_PATH}?category=mailbox&worked=false`)).body)
+      const worked = listed((await get(`${ATLAS_PATH}/c/mailbox`)).body)
+      const not = listed((await get(`${ATLAS_PATH}/c/mailbox?worked=false`)).body)
       const document = JSON.parse((await get('/atlas/catalogue.json')).body) as {
         entries: readonly { provider: string; category: string }[]
       }
@@ -1811,8 +1822,8 @@ describe('the Atlas on the website host', () => {
       await withBothHalves()
 
       expect((await get('/atlas')).body).toContain(`href="${ATLAS_PATH}?worked=false"`)
-      expect((await get(`${ATLAS_PATH}?category=mailbox`)).body).toContain(
-        `href="${ATLAS_PATH}?category=mailbox&amp;worked=false"`,
+      expect((await get(`${ATLAS_PATH}/c/mailbox`)).body).toContain(
+        `href="${ATLAS_PATH}/c/mailbox?worked=false"`,
       )
       /** And the way back, so neither view is a corner. */
       expect((await get(`${ATLAS_PATH}?worked=false`)).body).toContain(`href="${ATLAS_PATH}"`)
@@ -1825,7 +1836,7 @@ describe('the Atlas on the website host', () => {
      * page however few entries carry it.
      */
     it('shows the failures under a sentence where nothing worked, never an empty list', async () => {
-      const body = (await get(`${ATLAS_PATH}?category=social-publishing`)).body
+      const body = (await get(`${ATLAS_PATH}/c/social-publishing`)).body
 
       expect(listed(body)).toEqual(['bluesky'])
       expect(body).toContain('Nobody has got through here yet')
@@ -1839,26 +1850,29 @@ describe('the Atlas on the website host', () => {
     it('does not fall back the other way', async () => {
       await withBothHalves()
 
-      const body = (await get(`${ATLAS_PATH}?category=telephony&worked=false`)).body
+      const body = (await get(`${ATLAS_PATH}/c/telephony?worked=false`)).body
 
       expect(listed(body)).toEqual([])
       expect(body).toContain('Every entry here is one somebody got through')
     })
 
     /**
-     * **Decision 5.** A filtered view is a slice of one page and not a page of
-     * its own, and `worked` is under the rule `category` was already under —
-     * which is what stops four near-identical URLs competing in a search index.
+     * **Decision 5, and `#1107` decision 6 beside it.** A filtered view is a
+     * slice of one page and not a page of its own, so `worked` drops out of the
+     * canonical — which is what stops near-identical URLs competing in a search
+     * index. A shelf is the other case: it is a page of its own, so its
+     * canonical is itself and never the index.
      */
-    it('drops both parameters from the canonical of every view', async () => {
-      for (const url of [
-        '/atlas',
-        `${ATLAS_PATH}?worked=false`,
-        `${ATLAS_PATH}?category=mailbox`,
-        `${ATLAS_PATH}?category=mailbox&worked=false`,
-      ]) {
+    it('drops the view parameter from the canonical, and keeps the shelf', async () => {
+      for (const url of ['/atlas', `${ATLAS_PATH}?worked=false`]) {
         expect((await get(url)).body, url).toContain(
           `<link rel="canonical" href="${SITE}${ATLAS_PATH}">`,
+        )
+      }
+
+      for (const url of [`${ATLAS_PATH}/c/mailbox`, `${ATLAS_PATH}/c/mailbox?worked=false`]) {
+        expect((await get(url)).body, url).toContain(
+          `<link rel="canonical" href="${SITE}${ATLAS_PATH}/c/mailbox">`,
         )
       }
     })
@@ -1905,6 +1919,229 @@ describe('the Atlas on the website host', () => {
       expect(sitemap).not.toContain('worked=')
       expect(sitemap).toContain(`<loc>${SITE}${ATLAS_PATH}</loc>`)
       expect((await get('/atlas/catalogue.json')).body).not.toContain('worked=')
+    })
+  })
+
+  /**
+   * **A shelf is a page and not a query string** (`#1107`).
+   *
+   * The shelf-shaped search — *mailbox providers an AI agent can sign up for* —
+   * is the one this catalogue is best placed to win, and until now the page that
+   * answered it lived at `/atlas?category=mailbox`: an address no crawler treats
+   * as a landing page and no reader would type. Two levels of taxonomy arrived in
+   * `#1102` with no address at all, which is a data model nobody can reach.
+   *
+   * **The two levels are one route**, so what these tests separate is not top
+   * from sub but the things that actually differ: what a page lists, and what a
+   * wrong address gets.
+   */
+  describe('a category as a page of its own', () => {
+    /** Every provider the page links to, shelf links excluded as above. */
+    const listed = (body: string): readonly string[] =>
+      [...body.matchAll(/<li><a href="\/atlas\/(?!c\/)([^"]+)">/g)].map((one) => one[1] ?? '')
+
+    /**
+     * Two of *identity and access*'s three shelves filled, the third left empty.
+     *
+     * **The categories are explicit**, as they are in the split's own fixture:
+     * what is under test is which shelf a page gathers from, and a row shelved by
+     * whatever the kind-to-category map happens to say would fail here the day
+     * that map moves, naming this issue for a change that is not about it.
+     */
+    const withATopCategory = async () => {
+      await app.close()
+      app = build()
+      colony.recipes.write({
+        kind: 'mailbox',
+        provider: 'joinable.example',
+        title: 'Joinable',
+        category: 'mailbox',
+      })
+      colony.recipes.write({
+        kind: 'mailbox',
+        provider: 'closed.example',
+        title: 'Closed',
+        category: 'mailbox',
+        status: 'unwritten',
+      })
+      colony.recipes.write({
+        kind: 'phone',
+        provider: 'phone.example',
+        title: 'Phone',
+        category: 'telephony',
+      })
+      await app.ready()
+    }
+
+    /** The `ItemList` block, parsed — the page's own claim about what it rendered. */
+    const itemList = (body: string): { name: string; numberOfItems: number; urls: string[] } => {
+      const blocks = [
+        ...body.matchAll(/<script type="application\/ld\+json">(.*?)<\/script>/g),
+      ].map((one) => JSON.parse(one[1] ?? '{}'))
+      const list = blocks.find((one) => one['@type'] === 'ItemList')
+      if (list === undefined) throw new Error('the page emitted no ItemList')
+
+      return {
+        name: list.name,
+        numberOfItems: list.numberOfItems,
+        urls: list.itemListElement.map((one: { url: string }) => one.url),
+      }
+    }
+
+    /**
+     * **Every seeded row, top and sub, rather than a sample of them.** A
+     * taxonomy is seeded by a migration and read by a route, and the failure this
+     * catches is a shelf that exists in the table and answers 404 at its own
+     * address — which is invisible until somebody links to it.
+     */
+    it('resolves for every category the table holds', async () => {
+      for (const category of ATLAS_SEEDED_CATEGORIES) {
+        const response = await get(`${ATLAS_PATH}/c/${category.slug}`)
+
+        expect(response.statusCode, category.slug).toBe(200)
+        expect(response.body, category.slug).toContain(category.standfirst)
+      }
+    })
+
+    /**
+     * **Decision 4.** The heading is the reader's own sentence back, built from
+     * the row's title rather than from new copy — so a shelf renamed in the table
+     * renames its own H1 and nothing here has to be told.
+     */
+    it('heads the page with the question a reader typed', async () => {
+      expect((await get(`${ATLAS_PATH}/c/mailbox`)).body).toContain(
+        '<h1>Which mailboxes can an AI agent sign up for?</h1>',
+      )
+      /** And a top category, whose title is a phrase rather than a plural noun. */
+      expect((await get(`${ATLAS_PATH}/c/identity-access`)).body).toContain(
+        '<h1>Which identity and access can an AI agent sign up for?</h1>',
+      )
+    })
+
+    /**
+     * **Decision 2, which is the whole argument for a top-category page.** A
+     * reader who arrives at *identity and access* must not have to guess which of
+     * three shelves holds what they came for: the sub categories are on the page
+     * with their counts, and so are the entries across all of them.
+     */
+    it('lists a top category’s sub categories with counts, and the entries under all of them', async () => {
+      await withATopCategory()
+
+      const body = (await get(`${ATLAS_PATH}/c/identity-access`)).body
+
+      expect(body).toContain(`href="${ATLAS_PATH}/c/mailbox"`)
+      expect(body).toContain(`href="${ATLAS_PATH}/c/telephony"`)
+      /** Across both shelves, which is the point of the page. */
+      expect([...listed(body)].sort()).toEqual(['joinable.example', 'phone.example'])
+      /**
+       * **A shelf with nothing on it is still in the nav, printed as zero.** It
+       * is the shelf that most needs somebody to walk it, and a nav that hid it
+       * would hide exactly that.
+       */
+      expect(body).toContain(
+        `<li><a href="${ATLAS_PATH}/c/identity-security">Identity and security</a> ` +
+          '<span class="k-atlas-count">0</span></li>',
+      )
+      /** And the counts are the shelf's, not the page's. */
+      expect(body).toContain(
+        `<li><a href="${ATLAS_PATH}/c/mailbox">Mailboxes</a> ` +
+          '<span class="k-atlas-count">2</span></li>',
+      )
+    })
+
+    /**
+     * **Decision 5, and the rejection case the issue names third.** An
+     * `ItemList` that named every entry that *could* belong to a top category
+     * would be markup describing a page nobody was served — the same lie
+     * `#789` refused when it made the list follow the rendering.
+     */
+    it('names in the ItemList only what the top page rendered', async () => {
+      await withATopCategory()
+
+      const body = (await get(`${ATLAS_PATH}/c/identity-access`)).body
+      const list = itemList(body)
+
+      expect(list.name).toBe('The Atlas — identity-access')
+      expect(list.numberOfItems).toBe(listed(body).length)
+      expect([...list.urls].sort()).toEqual(
+        [...listed(body)].sort().map((provider) => `${SITE}/atlas/${provider}`),
+      )
+      /**
+       * The other half of the shelf is on the page's own count and not in the
+       * list: `closed.example` belongs to *identity and access* and was not
+       * rendered, which is exactly the difference decision 5 is about.
+       */
+      expect(list.urls).not.toContain(`${SITE}/atlas/closed.example`)
+      /** Nor is anything from another top category. */
+      expect(list.urls).not.toContain(`${SITE}/atlas/github`)
+    })
+
+    /**
+     * **Decision 8, and the second rejection case.** `FAQPage` promises that
+     * every question in it is answered on the page it is attached to. A shelf's
+     * questions are answered on the pages it links to, so the markup would be a
+     * claim about somewhere else — which is exactly what `#1105` declined to
+     * emit one level down.
+     */
+    it('emits no FAQPage on a category page, at either level', async () => {
+      for (const slug of ['identity-access', 'mailbox', 'telephony']) {
+        expect((await get(`${ATLAS_PATH}/c/${slug}`)).body, slug).not.toContain('"FAQPage"')
+      }
+      /** And the provider page still has one, so this is a scope and not a removal. */
+      expect((await get('/atlas/github')).body).toContain('"FAQPage"')
+    })
+
+    /**
+     * **Decision 3.** One canonical address per shelf, and the old one keeps
+     * working — including the view a reader was on, which is the half of a
+     * redirect that is usually dropped.
+     */
+    it('redirects the old query string to the page, keeping the view', async () => {
+      const moved = await get(`${ATLAS_PATH}?category=mailbox`)
+
+      expect(moved.statusCode).toBe(301)
+      expect(moved.headers.location).toBe(`${ATLAS_PATH}/c/mailbox`)
+      expect((await get(`${ATLAS_PATH}?category=mailbox&worked=false`)).headers.location).toBe(
+        `${ATLAS_PATH}/c/mailbox?worked=false`,
+      )
+    })
+
+    /**
+     * **The first rejection case, and it is deliberately not the answer an
+     * unknown `?category=` gets.** A filter nobody defined is a wrong filter and
+     * the page it filtered still exists, so the index renders. A slug nobody
+     * defined is a wrong *address*: there is no page, and answering 200 would
+     * publish an unbounded set of URLs that all render the same thing — the
+     * doorway pattern `#790` took entries out of the sitemap to avoid.
+     */
+    it('answers a slug nobody defined with a 404 rather than the index', async () => {
+      const response = await get(`${ATLAS_PATH}/c/nonsense`)
+
+      expect(response.statusCode).toBe(404)
+      expect(response.body).not.toContain('GitHub')
+      /** A slug that is not even slug-shaped goes the same way rather than 400. */
+      expect((await get(`${ATLAS_PATH}/c/Not%20A%20Slug`)).statusCode).toBe(404)
+    })
+
+    /**
+     * **Decision 7.** Every shelf is in the sitemap, including the empty ones —
+     * which reads like the rule `#790` wrote and is its opposite: what `#790`
+     * took out was a near-identical placeholder about a provider nobody has
+     * looked at, and a shelf page says what the shelf is for and how much of it
+     * has been walked. There are twenty of them and the taxonomy bounds the
+     * count, so this cannot become a long tail.
+     */
+    it('puts every category in the sitemap, empty ones included', async () => {
+      const sitemap = (await get('/atlas/sitemap.xml')).body
+
+      for (const category of ATLAS_SEEDED_CATEGORIES) {
+        expect(sitemap, category.slug).toContain(
+          `<loc>${SITE}${ATLAS_PATH}/c/${category.slug}</loc>`,
+        )
+      }
+      /** `storage` has no entry in the fixture, which is what makes it the case. */
+      expect(listed((await get(`${ATLAS_PATH}/c/storage`)).body)).toEqual([])
+      expect((await get(`${ATLAS_PATH}/c/storage`)).body).toContain('waiting to be filled')
     })
   })
 

@@ -1,6 +1,7 @@
 import {
   ATLAS_CACHE_SECONDS,
   ATLAS_PATH,
+  atlasCategoryPath,
   atlasPath,
   now,
   AccountProviderSchema,
@@ -9,7 +10,7 @@ import {
   type AtlasEntry,
 } from '@kolonie-ai/core'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
-import { ATLAS_HEADERS, atlasEntryPage, atlasIndexPage } from '../atlas/html.js'
+import { ATLAS_HEADERS, atlasCategoryPage, atlasEntryPage, atlasIndexPage } from '../atlas/html.js'
 import { siteChromeFrom } from '../atlas/site-chrome.js'
 import { atlasSitemap } from '../atlas/sitemap.js'
 import { atlasCatalogue } from '../provider-recipes.js'
@@ -103,52 +104,128 @@ export function registerAtlasPages(app: FastifyInstance, deps: RouteDependencies
       if (wrongHost(request)) return reply.callNotFound()
 
       /**
-       * The shelf a reader asked for, if they asked for one that exists
-       * (`kolonie-website#97`).
-       *
-       * **A category nobody defined is not an error and not a 404** — it is the
-       * unfiltered index, which is what a reader following a stale or mistyped
-       * link most wants. `#591` took the same decision on the console's browser
-       * and this follows it rather than inventing a second answer.
-       *
-       * **The canonical drops the filter.** A filtered view is a slice of one
-       * page and not a page of its own; every shelf pointing at `/atlas` is what
-       * stops fourteen near-identical URLs competing with each other in a search
-       * index. `#1103` puts `?worked=` under the same rule, and the canonical
-       * below is unchanged by either — which is the point of writing it as a
-       * constant rather than building it from the query.
-       *
-       * **The vocabulary is read rather than compiled in, since `#1102`.** The
-       * shelves are rows now, so *does this shelf exist* is a question for the
-       * table and not for an enum frozen at the last release — a link to a shelf
-       * added last week has to filter, and a link to one that was renamed away
-       * has to fall back rather than render an empty page that reads as broken.
-       * The shape is checked first so that a string which could not be a slug
-       * never reaches the query.
-       */
-      const asked = AtlasCategorySlugSchema.safeParse(request.query.category)
-      const shelves = asked.success ? await recipes.categories() : []
-      const category = shelves.some((one) => one.slug === asked.data) ? asked.data : undefined
-
-      /**
        * Which half of the catalogue to show (`#1103` decisions 1 and 7).
        *
        * **Only `false` turns the default off, and everything else is the
        * default silently.** `?worked=banana` renders the index rather than an
-       * error, which is the same answer an unknown `?category=` gets directly
-       * above — a reader following a mangled link wants the page, and a 400 on
+       * error — a reader following a mangled link wants the page, and a 400 on
        * a public URL is a page a crawler stops asking for.
        */
       const worked = request.query.worked !== 'false'
+
+      /**
+       * `?category=` used to filter this page; it is a redirect now (`#1107`
+       * decision 3).
+       *
+       * **The shelf is a page of its own, so the filter is one address for
+       * another page's content** — the duplicate a canonical then has to argue
+       * with, and the reason the old arrangement could never rank a shelf. 301
+       * rather than 302: the move is permanent, and every link the Colony's own
+       * pages emit already points at the new address.
+       *
+       * **`?worked=false` is carried across.** A reader on the failures of one
+       * shelf who clicked a link into the same shelf and landed on its successes
+       * would have been silently overruled by a redirect, which is worse than
+       * the filter it replaced.
+       *
+       * **An unknown category is still the unfiltered index and not a 404.** It
+       * is what a reader following a stale or mistyped link most wants, `#591`
+       * took the same decision on the console's browser, and the page it lands
+       * on exists — which is not true of `/atlas/c/<unknown>`, where the address
+       * itself names nothing and 404 is the honest answer.
+       *
+       * The vocabulary is read rather than compiled in, since `#1102`: the
+       * shelves are rows, so *does this shelf exist* is a question for the table
+       * and not for an enum frozen at the last release. The shape is checked
+       * first so that a string which could not be a slug never reaches the query.
+       */
+      const asked = AtlasCategorySlugSchema.safeParse(request.query.category)
+      if (asked.success) {
+        const shelves = await recipes.categories()
+        if (shelves.some((one) => one.slug === asked.data)) {
+          return reply.redirect(
+            `${atlasCategoryPath(asked.data)}${worked ? '' : '?worked=false'}`,
+            301,
+          )
+        }
+      }
 
       return send(
         reply,
         atlasIndexPage({
           entries: await listEntries(),
+          /**
+           * **The canonical carries neither filter.** `#1103` puts `?worked=`
+           * under the rule `#1107` moved `?category=` out of: the default view
+           * is the page, and the other half is a slice of it. Written as a
+           * constant rather than built from the query, so nothing a reader types
+           * can become a second address for this page.
+           */
           canonical: `${websiteUrl}${ATLAS_PATH}`,
           chrome: await chromeOf(),
-          category,
           worked,
+        }),
+        'text/html; charset=utf-8',
+      )
+    },
+  )
+
+  /**
+   * One shelf, at an address of its own (`#1107`).
+   *
+   * **Ahead of `/atlas/:provider` for readability only.** Fastify matches a
+   * static segment before a parametric one whatever order they were registered
+   * in, so a provider called `c` could not swallow this route — and `#1107`
+   * decision 1 chose the `/c/` prefix precisely so that a category named
+   * `storage` and a provider named `storage` are two addresses rather than one
+   * whose winner depends on this file's line order.
+   *
+   * **Both levels of the taxonomy answer here** (decision 1). A top page groups
+   * its entries into the sub categories under it and lists those in its nav; a
+   * sub page lists its own entries and its siblings. The difference is what the
+   * table says about the row, not which route was hit.
+   */
+  app.get<{ Params: { slug: string }; Querystring: { worked?: string } }>(
+    `${ATLAS_PATH}/c/:slug`,
+    async (request, reply) => {
+      if (wrongHost(request)) return reply.callNotFound()
+
+      /**
+       * **Two ways to be nothing, and both are a 404** (decision 3, and the
+       * inverse of the index's fallback above). A string that could not be a
+       * slug never reaches the query; a well-formed slug no row carries is a
+       * shelf that does not exist, and rendering the whole catalogue under
+       * somebody else's heading would be a page pretending to be the one they
+       * asked for.
+       */
+      const asked = AtlasCategorySlugSchema.safeParse(request.params.slug)
+      if (!asked.success) return reply.callNotFound()
+
+      const shelves = await recipes.categories()
+      const category = shelves.find((one) => one.slug === asked.data)
+      if (category === undefined) return reply.callNotFound()
+
+      /**
+       * The shelves beside this one, and the entries that belong on the page.
+       * A top category covers its children; a sub category covers itself.
+       */
+      const children = shelves.filter((one) => one.parent === category.slug)
+      const isTop = category.parent === null
+      const nav = isTop ? children : shelves.filter((one) => one.parent === category.parent)
+      const covers = isTop ? children.map((one) => one.slug) : [category.slug]
+
+      return send(
+        reply,
+        atlasCategoryPage({
+          entries: await listEntries(),
+          category,
+          nav,
+          parent: shelves.find((one) => one.slug === category.parent),
+          covers,
+          /** Decision 6: the canonical is the shelf, with neither filter on it. */
+          canonical: `${websiteUrl}${atlasCategoryPath(category.slug)}`,
+          chrome: await chromeOf(),
+          worked: request.query.worked !== 'false',
         }),
         'text/html; charset=utf-8',
       )
@@ -169,7 +246,11 @@ export function registerAtlasPages(app: FastifyInstance, deps: RouteDependencies
 
     return send(
       reply,
-      atlasSitemap({ entries: await listEntries(), websiteUrl }),
+      atlasSitemap({
+        entries: await listEntries(),
+        categories: await recipes.categories(),
+        websiteUrl,
+      }),
       'application/xml; charset=utf-8',
     )
   })

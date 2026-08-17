@@ -1,4 +1,10 @@
-import { ATLAS_PATH, atlasIsWalked, type AtlasEntry } from '@kolonie-ai/core'
+import {
+  ATLAS_PATH,
+  atlasCategoryPath,
+  atlasIsWalked,
+  type AtlasCategoryRow,
+  type AtlasEntry,
+} from '@kolonie-ai/core'
 
 /**
  * The Atlas's sitemap (`#546`).
@@ -28,9 +34,20 @@ import { ATLAS_PATH, atlasIsWalked, type AtlasEntry } from '@kolonie-ai/core'
  * The pages themselves are untouched: an unwritten entry is still served, still
  * linked from its shelf and still readable, because a gap is a page and not an
  * omission.
+ *
+ * **Every category page is in it, including the empty ones** (`#1107` decision
+ * 7). That looks like the rule above being contradicted and is the opposite of
+ * it: what `#790` takes out is a near-identical placeholder about a provider
+ * nobody has looked at, and a shelf is not one — it is a page a reader can
+ * usefully land on, it says what the shelf is for, and an empty one says *nobody
+ * has walked a mailbox provider yet*, which is a true answer to a real search
+ * rather than a doorway. There are twenty of them and the count is bounded by
+ * the taxonomy, so this cannot become the long tail `#790` was about.
  */
 export function atlasSitemap(input: {
   readonly entries: readonly AtlasEntry[]
+  /** Every shelf, both levels, as the table holds them. */
+  readonly categories: readonly AtlasCategoryRow[]
   /** The site's base, without a trailing slash. Absolute URLs are required here. */
   readonly websiteUrl: string
 }): string {
@@ -46,6 +63,7 @@ export function atlasSitemap(input: {
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
     url(ATLAS_PATH),
+    ...input.categories.map((category) => url(atlasCategoryPath(category.slug))),
     ...input.entries.filter(atlasIsWalked).map((entry) => url(entry.path, entry.updatedAt)),
     '</urlset>',
   ].join('\n')

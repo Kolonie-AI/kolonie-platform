@@ -51,6 +51,17 @@ export interface FakeModel extends Model {
    * branching, so a queue would express an ordering the loop cannot produce.
    */
   readonly composes: (...claims: ComposedClaim[]) => void
+  /**
+   * What successive synthesis calls write, one batch per call, consumed in order.
+   *
+   * **The exception to the paragraph above, and it earns it**: the category
+   * proposal pass (`#1106`) composes twice for one pair — once to choose the
+   * shelf, once to name a shelf that does not exist yet — and the second answer is
+   * only asked for because of what the first one said. That is a branch, so a test
+   * has to be able to say *this, then that*. A call past the last batch falls back
+   * to whatever {@link composes} set, so nothing that used only that changes.
+   */
+  readonly composesInTurn: (...batches: (readonly ComposedClaim[])[]) => void
   /** Fix what `embed` returns for a given text. Anything unlisted embeds as orthogonal. */
   readonly embedsAs: (text: string, vector: readonly number[]) => void
   /** Every call the pipeline made, in order — classifications and markings alike. */
@@ -66,6 +77,7 @@ export function fakeModel(): FakeModel {
   const vectors = new Map<string, readonly number[]>()
   let marked: MarkedSpan[] = []
   let composed: ComposedClaim[] = []
+  const batches: (readonly ComposedClaim[])[] = []
   let failure: Error | undefined
 
   /**
@@ -136,7 +148,7 @@ export function fakeModel(): FakeModel {
         throw error
       }
       calls.push(input)
-      return composed
+      return batches.shift() ?? composed
     },
     async embed(inputs) {
       return inputs.map(vectorFor)
@@ -149,6 +161,9 @@ export function fakeModel(): FakeModel {
     },
     composes: (...claims) => {
       composed = claims
+    },
+    composesInTurn: (...queue) => {
+      batches.push(...queue)
     },
     embedsAs: (text, vector) => {
       vectors.set(text, vector)

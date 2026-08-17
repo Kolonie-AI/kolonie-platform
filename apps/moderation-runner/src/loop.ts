@@ -28,6 +28,10 @@ import { respondToChange, type Tripwire } from './tripwire.js'
 import { findDuplicate } from './dedup.js'
 import { heldQuestTick, questTick, type QuestLoopDependencies } from './quests.js'
 import { atlasTick, type AtlasLoopDependencies } from './atlas.js'
+import {
+  atlasCategoryProposalTick,
+  type AtlasCategoryProposalStore,
+} from './atlas-category-proposals.js'
 import { walkProseTick, type WalkProseLoopDependencies } from './walk-prose.js'
 import { answerTick, type AnswerLoopDependencies } from './answers.js'
 import { redLineReviewTick, type RedLineReviewLoopDependencies } from './redline-review.js'
@@ -1243,6 +1247,15 @@ export interface BriefingDependencies {
    * dependencies keeps compiling and keeps testing what it tested.
    */
   readonly providers?: ProviderBriefingStore
+  /**
+   * Where the category proposals are read and raised, when configured (`#1106`).
+   *
+   * Optional for {@link providers}' reason and one more of its own: this pass
+   * writes nothing a reader ever sees. It fills a queue a maintainer decides,
+   * so a deployment that has nobody to decide can leave it out and lose nothing
+   * but the queue.
+   */
+  readonly categories?: AtlasCategoryProposalStore
   readonly model: Model
   readonly log?: Log
 }
@@ -1285,7 +1298,7 @@ export async function briefingTick(
   deps: BriefingDependencies,
   batchSize: number,
 ): Promise<BriefingTickOutcome> {
-  const { store, providers, model, log = silentLog } = deps
+  const { store, providers, categories, model, log = silentLog } = deps
   const outcome = { written: 0, failed: 0, unreachable: 0 }
 
   for (const taskId of await store.stale(batchSize)) {
@@ -1349,6 +1362,32 @@ export async function briefingTick(
       '/chat/completions',
       new Error(`${outcome.unreachable} briefing(s) in this pass reached no provider`),
     )
+  }
+
+  /**
+   * Where a provider belongs in the Atlas, proposed for a maintainer (`#1106`).
+   *
+   * **After the outage check, and that placement is the whole of its error
+   * handling.** A model that is not there has already thrown by this line, so the
+   * pass never spends a call discovering the same outage a third time; and a
+   * pass that got here has a model that answers.
+   *
+   * **Counted into nothing above it**, on `describeProviderNow`'s argument: a
+   * proposal is advice waiting on a maintainer, and losing a briefing that was
+   * written, paid for and about to be served because a suggestion failed would be
+   * the wrong trade in every direction. Its own numbers go to the log, where the
+   * thing worth watching — proposals raised against pairs considered — is
+   * readable without being confused with briefings written.
+   */
+  if (categories !== undefined) {
+    const proposals = await atlasCategoryProposalTick({ store: categories, model, log }, batchSize)
+
+    if (proposals.considered > 0) {
+      log.info(
+        `category proposals: ${proposals.raised} raised over ${proposals.considered} pairs`,
+        { event: 'atlas.category.pass', ...proposals },
+      )
+    }
   }
 
   return outcome

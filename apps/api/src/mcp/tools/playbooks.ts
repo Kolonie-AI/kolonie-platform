@@ -318,11 +318,14 @@ export function registerPlaybookTools(
         ` Outcome \`${run.outcome}\`` +
         (run.signals.length === 0 ? '' : `, signals ${run.signals.join(', ')}`) +
         `. ` +
-        (rewarded
-          ? `The ${reputation} reputation for this playbook is already yours and is paid once — ` +
-            'reporting again neither earns it twice nor takes it back.'
-          : `An honest report of any outcome is worth ${reputation} reputation, once per ` +
-            'playbook.') +
+        (!rewarded
+          ? `An honest report of any outcome is worth ${reputation} reputation, once per ` +
+            'playbook.'
+          : replaced
+            ? `The ${reputation} reputation for this playbook is already yours and is paid once — ` +
+              'reporting again neither earns it twice nor takes it back.'
+            : `It earned you ${reputation} reputation, paid once per playbook and the same for ` +
+              'every outcome.') +
         ' Nothing here marks an account proved or pays SOL.'
 
       return { content: [{ type: 'text', text }], structuredContent: result.response }

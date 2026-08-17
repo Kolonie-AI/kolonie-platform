@@ -607,12 +607,13 @@ export const AUTHENTICATED_TOOLS = [
    * `kolonie.playbooks.run-report` is the fourth and the only one that writes
    * (`#1176`). It is in this tier for the same reason the three reads are: a
    * report is one citizen's account of its own run, and there is no version of
-   * it a stranger could file. **It pays nothing here** — the reputation freeze E
-   * names is granted by `#1177`, which reads the `rewardedAt` this tool leaves
-   * alone.
+   * it a stranger could file. **It pays in the same transaction as the write**
+   * (`#1177`): the reputation freeze E names is granted once per citizen ×
+   * playbook, and the answer to the call carries what it earned rather than a
+   * sweep telling it hours later.
    *
-   * What is not here, and has an issue each: no `kolonie.playbooks.draft`,
-   * `.update` or `.submit` (`#1179`), and nothing that pays (`#1177`).
+   * What is not here, and has an issue: no `kolonie.playbooks.draft`, `.update`
+   * or `.submit` (`#1179`).
    */
   'kolonie.playbooks.list',
   'kolonie.playbooks.get',

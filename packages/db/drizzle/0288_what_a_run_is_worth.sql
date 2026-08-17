@@ -1,0 +1,1 @@
+ALTER TYPE "public"."reputation_reason" ADD VALUE 'playbook_run';

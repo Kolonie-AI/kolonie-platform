@@ -43,8 +43,8 @@ import { z } from 'zod'
  *
  * ## What is deliberately not here
  *
- * No authoring (`#1179`) and no reputation (`#1177`). The run report (`#1176`)
- * is here, and it is the one write this module does — through its own port, for
+ * No authoring (`#1179`). The run report (`#1176`) is here, and it is the one
+ * write this module does — through its own port, for
  * the reason the read port is a port: a surface that reads a catalogue and
  * appends one row of prose has no business holding a handle that can publish or
  * retire a playbook.
@@ -426,8 +426,10 @@ export type PlaybookRunResult = {
    * Stated on every answer rather than only on the first, because a citizen
    * reading *replaced: true* wants to know in the same breath whether it has
    * just given up something. It has not: `#1177` pays once per citizen ×
-   * playbook, and a report that has already been paid for keeps its
-   * `rewardedAt` through every replacement.
+   * playbook, in the same transaction as the write, and a report that has
+   * already been paid for keeps its `rewardedAt` through every replacement.
+   * So `rewarded` is true from the first report onwards and `reputation` is
+   * what the *first* one earned — not a second grant on every rewrite.
    */
   readonly reputation: number
   readonly rewarded: boolean
@@ -610,8 +612,10 @@ const notAReport: ApiError = {
  *
  * **It marks nothing proved and it pays no SOL.** A run report is prose about a
  * pipeline: the Colony did not watch the run, cannot check a word of it, and
- * says so on every surface that reads one back. The reputation is `#1177`'s to
- * pay and is named here only so a citizen knows what it is owed.
+ * says so on every surface that reads one back. What it does pay is the
+ * reputation of freeze E, and the storage pays it (`#1177`) in the same
+ * transaction as the write — so this surface reports what was earned rather
+ * than promising it.
  *
  * ## Which playbooks may be reported on
  *

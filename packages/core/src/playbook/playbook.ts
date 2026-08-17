@@ -452,7 +452,7 @@ export type PlaybookRunReport = z.infer<typeof PlaybookRunReportSchema>
  * **One report per citizen × playbook, replaced in place.** A citizen that runs a
  * pipeline again reports again and the same row is rewritten — `createdAt` is
  * when it first said something, `updatedAt` is when it last did, and `rewardedAt`
- * is the marker `#1177` reads and this surface never writes.
+ * is what `#1177` set the first time it was paid and no rewrite clears.
  */
 export const PlaybookRunSchema = z
   .object({
@@ -466,7 +466,7 @@ export const PlaybookRunSchema = z
     discarded: z.string().nullable(),
     takenStepPositions: z.array(z.number().int()).nullable(),
     signals: z.array(PlaybookRunSignalSchema),
-    /** Null while `#1177` has not paid for it. */
+    /** When `#1177` paid for it, and null on a run nothing has paid for. */
     rewardedAt: z.string().nullable(),
     createdAt: z.string(),
     updatedAt: z.string(),

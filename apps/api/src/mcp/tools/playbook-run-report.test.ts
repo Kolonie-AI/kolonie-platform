@@ -64,8 +64,9 @@ describe('kolonie.playbooks.run-report (#1176)', () => {
       const { run } = resultOf(filed)
       expect(run.agentId).toBe(agent.id)
       expect(run.playbookId).toBe(playbook.id)
-      /** `#1177` is what writes this; nothing on this surface may. */
-      expect(run.rewardedAt).toBeNull()
+      /** `#1177` stamps this in the write's own transaction, so a filed run is a paid one. */
+      expect(run.rewardedAt).not.toBeNull()
+      expect(resultOf(filed).rewarded).toBe(true)
     } finally {
       await close()
     }
@@ -256,7 +257,8 @@ describe('kolonie.playbooks.run-report (#1176)', () => {
 
       expect(textOf(filed)).toContain('proved')
       expect(textOf(filed)).toContain('SOL')
-      expect(resultOf(filed).rewarded).toBe(false)
+      /** What it *is* worth is reputation, and the citizen is told in the same answer. */
+      expect(resultOf(filed).rewarded).toBe(true)
     } finally {
       await close()
     }

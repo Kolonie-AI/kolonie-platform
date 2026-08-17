@@ -3,14 +3,20 @@ import { eq } from 'drizzle-orm'
 import {
   AccountKindSchema,
   PLAYBOOK_RUN_OUTCOMES,
+  PLAYBOOK_RUN_REPUTATION,
   looksLikeCredential,
   type AgentId,
 } from '@kolonie-ai/core'
 import type { Database } from './client.js'
 import { connectForTests, databaseTestTarget, truncateAll } from './testing.js'
-import { playbookRuns } from './schema/playbooks.js'
+import { reputationEvents } from './schema/reputation.js'
 import { registerAgent } from './storage/agents.js'
-import { createPlaybook, playbookRunFor, recordPlaybookRun } from './storage/playbooks.js'
+import {
+  createPlaybook,
+  grantPlaybookRunReputation,
+  playbookRunFor,
+  recordPlaybookRun,
+} from './storage/playbooks.js'
 
 const target = databaseTestTarget()
 
@@ -25,9 +31,11 @@ const kind = (value: string) => AccountKindSchema.parse(value)
  * replaced something* is `xmax`. None of those can be demonstrated against a
  * fake without demonstrating the fake.
  *
- * The reputation is not here. `rewarded_at` is written by `#1177` and this
- * module only has to leave it alone across a replacement, which is the one thing
- * about it that is asserted below.
+ * **The reputation is here too** (`#1177`). It is granted in the same
+ * transaction as the write rather than by a sweep, so *what a report earned* is
+ * a property of `recordPlaybookRun` and is asserted against the same database as
+ * the rest — including the one rule that only a database can hold, which is that
+ * a second report earns nothing further.
  */
 describe('recording a playbook run', () => {
   let db: Database
@@ -73,13 +81,126 @@ describe('recording a playbook run', () => {
     report: { outcome: 'completed' as const, did: 'Ran it end to end.', ...over },
   })
 
-  it('takes all four outcomes, and pays them no differently here', async () => {
+  /** What the citizen has earned in total, from the ledger and not from a return value. */
+  const banked = async (agentId: AgentId = citizen) => {
+    const events = await db
+      .select()
+      .from(reputationEvents)
+      .where(eq(reputationEvents.agentId, agentId))
+    return events.reduce((sum, event) => sum + event.delta, 0)
+  }
+
+  it('takes all four outcomes', async () => {
     for (const outcome of PLAYBOOK_RUN_OUTCOMES) {
       const written = await recordPlaybookRun(db, report({ outcome }))
       expect(written.run.outcome, outcome).toBe(outcome)
-      /** Nothing in this module pays anything — `#1177` is what reads this column. */
-      expect(written.run.rewardedAt, outcome).toBeNull()
     }
+  })
+
+  /**
+   * Freeze E, the whole of it: *2 reputation, once per citizen × playbook, the
+   * same for every outcome*. Each outcome is tried on its own playbook so that
+   * what is being asserted is the price of the outcome and not the order they
+   * happen to be reported in.
+   */
+  it('pays every outcome the same', async () => {
+    for (const outcome of PLAYBOOK_RUN_OUTCOMES) {
+      const book = await createPlaybook(db, {
+        slug: `a-pipeline-that-ends-${outcome}`,
+        authorAgentId: citizen,
+        status: 'open',
+        draft: {
+          title: `A pipeline that ends ${outcome}`,
+          summary: 'One playbook per outcome, so the price is the outcome’s own.',
+          requiredAccounts: [],
+          steps: [{ title: 'Run it' }],
+        },
+      })
+
+      const written = await recordPlaybookRun(db, {
+        playbookId: book.id,
+        agentId: citizen,
+        report: { outcome, did: 'Ran it, and this is what came of it.' },
+      })
+
+      expect(written.granted, outcome).toBe(PLAYBOOK_RUN_REPUTATION)
+      expect(written.run.rewardedAt, outcome).not.toBeNull()
+    }
+
+    expect(await banked()).toBe(PLAYBOOK_RUN_REPUTATION * PLAYBOOK_RUN_OUTCOMES.length)
+  })
+
+  it('writes a ledger entry a citizen can see, under its own reason', async () => {
+    await recordPlaybookRun(db, report())
+
+    const [event, ...rest] = await db
+      .select()
+      .from(reputationEvents)
+      .where(eq(reputationEvents.agentId, citizen))
+
+    expect(rest).toEqual([])
+    expect(event?.delta).toBe(PLAYBOOK_RUN_REPUTATION)
+    expect(event?.reason).toBe('playbook_run')
+    /** The memo names the playbook, because *2 reputation* on its own answers nothing. */
+    expect(event?.memo).toContain('a-pipeline-to-run')
+    expect(event?.memo).toContain('completed')
+  })
+
+  it('pays a second report on the same playbook nothing further', async () => {
+    const first = await recordPlaybookRun(db, report())
+    const second = await recordPlaybookRun(db, report({ outcome: 'blocked', did: 'Again.' }))
+
+    expect(first.granted).toBe(PLAYBOOK_RUN_REPUTATION)
+    expect(second.granted).toBe(0)
+    expect(second.replaced).toBe(true)
+    /** Still paid, and paid at the moment the first report was filed. */
+    expect(second.run.rewardedAt).toBe(first.run.rewardedAt)
+    expect(await banked()).toBe(PLAYBOOK_RUN_REPUTATION)
+  })
+
+  it('pays the same citizen again for a different playbook', async () => {
+    const other = await createPlaybook(db, {
+      slug: 'another-pipeline-to-run',
+      authorAgentId: citizen,
+      status: 'open',
+      draft: {
+        title: 'Another pipeline to run',
+        summary: 'Independent of the first, which is the point.',
+        requiredAccounts: [],
+        steps: [{ title: 'Run it' }],
+      },
+    })
+
+    await recordPlaybookRun(db, report())
+    const second = await recordPlaybookRun(db, {
+      playbookId: other.id,
+      agentId: citizen,
+      report: { outcome: 'completed', did: 'Ran the other one too.' },
+    })
+
+    expect(second.granted).toBe(PLAYBOOK_RUN_REPUTATION)
+    expect(await banked()).toBe(PLAYBOOK_RUN_REPUTATION * 2)
+  })
+
+  /**
+   * The grant is also callable on its own — a backfill or a repair, and what a
+   * retry lands on. Claiming is `rewarded_at is null` in the `update` itself, so
+   * a second call finds nothing to claim rather than paying twice.
+   */
+  it('grants nothing on a second pass over a run already paid for', async () => {
+    const written = await recordPlaybookRun(db, report())
+
+    expect(await grantPlaybookRunReputation(db, written.run.id)).toEqual([])
+    expect(await grantPlaybookRunReputation(db)).toEqual([])
+    expect(await banked()).toBe(PLAYBOOK_RUN_REPUTATION)
+  })
+
+  /** A report that failed to write is a report that was not paid for. */
+  it('pays nothing for a report the database refused', async () => {
+    await expect(recordPlaybookRun(db, report({ signals: ['made-friends'] }))).rejects.toThrow()
+
+    expect(await playbookRunFor(db, citizen, playbookId)).toBeNull()
+    expect(await banked()).toBe(0)
   })
 
   it('refuses an outcome outside the vocabulary', async () => {
@@ -108,24 +229,6 @@ describe('recording a playbook run', () => {
 
     const standing = await playbookRunFor(db, citizen, playbookId)
     expect(standing?.id).toBe(first.run.id)
-  })
-
-  /**
-   * Freeze E, *once per citizen × playbook*: `rewarded_at` is deliberately not in
-   * the update set, so a report already paid for stays marked as paid and `#1177`
-   * never pays it twice. Set here by hand because nothing writes it yet.
-   */
-  it('leaves a reward already granted alone when the report is replaced', async () => {
-    const first = await recordPlaybookRun(db, report())
-    await db
-      .update(playbookRuns)
-      .set({ rewardedAt: new Date().toISOString() })
-      .where(eq(playbookRuns.id, first.run.id))
-
-    const second = await recordPlaybookRun(db, report({ outcome: 'abandoned', did: 'Again.' }))
-
-    expect(second.replaced).toBe(true)
-    expect(second.run.rewardedAt).not.toBeNull()
   })
 
   it('keeps two citizens’ reports on one playbook apart', async () => {

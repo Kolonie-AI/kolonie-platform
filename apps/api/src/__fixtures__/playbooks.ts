@@ -52,7 +52,9 @@ export function fakePlaybooks(): FakePlaybooks {
    * appended would let a test pass while the real upsert was inserting twice.
    * `id`, `createdAt` and `rewardedAt` survive a replacement here for the same
    * reason they survive it in the database: the row is updated, not remade, and
-   * `#1177` pays against `rewardedAt`.
+   * `#1177` pays against `rewardedAt`. It is stamped on the first write and
+   * never on a replacement, because that is when the real storage pays — in the
+   * write's own transaction rather than in a sweep afterwards.
    */
   const filed = new Map<string, PlaybookRun>()
 
@@ -141,7 +143,7 @@ export function fakePlaybooks(): FakePlaybooks {
           discarded: report.discarded ?? null,
           takenStepPositions: report.takenStepPositions ? [...report.takenStepPositions] : null,
           signals: report.signals ? [...report.signals] : [],
-          rewardedAt: standing?.rewardedAt ?? null,
+          rewardedAt: standing?.rewardedAt ?? currentTime(),
           createdAt: standing?.createdAt ?? currentTime(),
           updatedAt: currentTime(),
         }

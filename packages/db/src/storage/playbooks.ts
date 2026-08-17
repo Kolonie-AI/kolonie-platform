@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm'
 import {
+  PLAYBOOK_RUN_REPUTATION,
   PlaybookDraftSchema,
   PlaybookRunReportSchema,
   PlaybookSlugSchema,
@@ -13,7 +14,7 @@ import {
   type PlaybookRunSignal,
   type PlaybookStatus,
 } from '@kolonie-ai/core'
-import type { Database } from '../client.js'
+import type { Database, Transaction } from '../client.js'
 import { playbookRuns, playbooks } from '../schema/playbooks.js'
 
 /**
@@ -133,10 +134,106 @@ export interface RecordPlaybookRunInput {
   readonly report: PlaybookRunReport
 }
 
-/** The row, and whether writing it replaced one this citizen had already filed. */
+/** The row, whether writing it replaced one, and what it was paid. */
 export interface RecordedPlaybookRun {
   readonly run: PlaybookRun
   readonly replaced: boolean
+  /**
+   * Reputation granted by *this* write — `PLAYBOOK_RUN_REPUTATION` for a run
+   * that had never been paid, and zero for every report after it.
+   *
+   * Zero is the ordinary answer for a replacement and says nothing went wrong:
+   * `run.rewardedAt` is what answers *has this citizen been paid for this
+   * playbook at all*, and it survives every rewrite.
+   */
+  readonly granted: number
+}
+
+/** One run the grant paid, as it now stands. */
+export interface RewardedPlaybookRun {
+  readonly runId: string
+  readonly agentId: AgentId
+  readonly playbookId: string
+  readonly outcome: PlaybookRunOutcome
+  readonly rewardedAt: string
+}
+
+/**
+ * Pay for run reports that have not been paid for (`#1177`, freeze E).
+ *
+ * ## Once per citizen × playbook, and the index is what makes that true
+ *
+ * `playbook_runs_agent_playbook_key` means a citizen has at most one row per
+ * playbook, so *once per row* and *once per citizen × playbook* are the same
+ * sentence here — unlike walks, where a citizen may file many rows against one
+ * provider and `rewardPublishedWalks` has to pick the first of them. The whole
+ * of the rule is therefore `rewarded_at is null`, claimed by the `update` itself
+ * rather than checked before it. Two concurrent calls race into the same row and
+ * exactly one leaves with it.
+ *
+ * ## Inline, not a sweep — deliberately not mirroring walks
+ *
+ * `rewardPublishedWalks` is an hourly sweep because a walk cannot be paid when
+ * it is filed: it waits on a moderation verdict that lands days later, in a
+ * session its walker is not in. That is also why walks need `reward_told_at` and
+ * a standing hint to tell the citizen afterwards. **A run report has no gate
+ * before payment** — every honest outcome is eligible the moment it is written —
+ * so this runs in `recordPlaybookRun`'s own transaction and the citizen is told
+ * in the answer to the call it just made. No sweep, no telling machinery, no
+ * window in which a citizen has been paid and does not know it.
+ *
+ * It still takes an optional `runId` rather than assuming one: called with
+ * nothing it pays every unpaid row, which is what a backfill or a repair needs
+ * and costs one `where` clause to keep available.
+ *
+ * ## One transaction covering the claim and what it paid
+ *
+ * `bookTaskReward`'s rule, and `rewardPublishedWalks` states it: a `rewarded_at`
+ * with no reputation event behind it is a payment the citizen cannot see and
+ * nothing will make again. The `booked` CTE is executed for its effect and never
+ * read — a data-modifying `with` runs to completion whether or not the outer
+ * query selects from it.
+ */
+export async function grantPlaybookRunReputation(
+  db: Database | Transaction,
+  runId?: string,
+): Promise<readonly RewardedPlaybookRun[]> {
+  const onlyThisRun = runId === undefined ? sql`` : sql` and run.id = ${runId}`
+
+  const rows = await db.execute<{
+    id: string
+    agent_id: string
+    playbook_id: string
+    outcome: string
+    rewarded_at: string
+  }>(sql`
+    with claimed as (
+      update playbook_runs as run
+         set rewarded_at = now()
+       where run.rewarded_at is null${onlyThisRun}
+      returning run.id, run.agent_id, run.playbook_id, run.outcome, run.rewarded_at
+    ),
+    -- Executed for its effect and never read: a data-modifying WITH runs to
+    -- completion whether or not the outer query selects from it.
+    booked as (
+      insert into reputation_events (agent_id, delta, reason, memo)
+      select claimed.agent_id,
+             ${PLAYBOOK_RUN_REPUTATION},
+             'playbook_run',
+             'Playbook run reported (' || claimed.outcome || '): ' || book.slug
+        from claimed
+        join playbooks as book on book.id = claimed.playbook_id
+      returning id
+    )
+    select id, agent_id, playbook_id, outcome, rewarded_at from claimed`)
+
+  return [...rows].map((row) => ({
+    runId: row.id,
+    agentId: row.agent_id as AgentId,
+    playbookId: row.playbook_id,
+    outcome: row.outcome as PlaybookRunOutcome,
+    rewardedAt: row.rewarded_at,
+  }))
 }
 
 /**
@@ -173,6 +270,14 @@ export interface RecordedPlaybookRun {
  * statement created and carries the updating transaction otherwise. The
  * alternative, a `select` before the `insert`, is the race the unique index
  * exists to close, reintroduced one line above the thing that closes it.
+ *
+ * ## And what it is worth
+ *
+ * `#1177` pays here rather than in a sweep, in the same transaction as the
+ * write — see `grantPlaybookRunReputation` for why that is not the shape walks
+ * use. The report and its payment therefore commit together or not at all, and
+ * the row this returns already carries the `rewarded_at` the grant set, so the
+ * citizen learns what it earned from the answer to the call it just made.
  */
 export async function recordPlaybookRun(
   db: Database,
@@ -181,23 +286,12 @@ export async function recordPlaybookRun(
   const report = PlaybookRunReportSchema.parse(input.report)
   const now = new Date().toISOString()
 
-  const [row] = await db
-    .insert(playbookRuns)
-    .values({
-      playbookId: input.playbookId,
-      agentId: input.agentId,
-      outcome: report.outcome,
-      did: report.did,
-      broke: report.broke ?? null,
-      changed: report.changed ?? null,
-      discarded: report.discarded ?? null,
-      takenStepPositions: report.takenStepPositions ? [...report.takenStepPositions] : null,
-      signals: report.signals ? [...report.signals] : [],
-      updatedAt: now,
-    })
-    .onConflictDoUpdate({
-      target: [playbookRuns.agentId, playbookRuns.playbookId],
-      set: {
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .insert(playbookRuns)
+      .values({
+        playbookId: input.playbookId,
+        agentId: input.agentId,
         outcome: report.outcome,
         did: report.did,
         broke: report.broke ?? null,
@@ -206,12 +300,29 @@ export async function recordPlaybookRun(
         takenStepPositions: report.takenStepPositions ? [...report.takenStepPositions] : null,
         signals: report.signals ? [...report.signals] : [],
         updatedAt: now,
-      },
-    })
-    .returning({ ...getTableColumns(playbookRuns), inserted: sql<boolean>`xmax = 0` })
+      })
+      .onConflictDoUpdate({
+        target: [playbookRuns.agentId, playbookRuns.playbookId],
+        set: {
+          outcome: report.outcome,
+          did: report.did,
+          broke: report.broke ?? null,
+          changed: report.changed ?? null,
+          discarded: report.discarded ?? null,
+          takenStepPositions: report.takenStepPositions ? [...report.takenStepPositions] : null,
+          signals: report.signals ? [...report.signals] : [],
+          updatedAt: now,
+        },
+      })
+      .returning({ ...getTableColumns(playbookRuns), inserted: sql<boolean>`xmax = 0` })
 
-  if (!row) throw new Error('playbook run upsert returned no row')
-  return { run: toPlaybookRun(row), replaced: !row.inserted }
+    if (!row) throw new Error('playbook run upsert returned no row')
+
+    const [paid] = await grantPlaybookRunReputation(tx, row.id)
+    const run = toPlaybookRun(paid ? { ...row, rewardedAt: paid.rewardedAt } : row)
+
+    return { run, replaced: !row.inserted, granted: paid ? PLAYBOOK_RUN_REPUTATION : 0 }
+  })
 }
 
 /** One citizen's run of one playbook, or null. */

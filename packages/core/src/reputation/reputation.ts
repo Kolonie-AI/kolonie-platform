@@ -16,6 +16,13 @@ import { TimestampSchema } from '../common/time.js'
  * rung it could have climbed instead. What it pays for is the entry that did not
  * exist before — once per provider, when a steward publishes it, and never for
  * the draft alone.
+ *
+ * **`playbook_run` is that same argument one layer up** (`#1177`, freeze E of
+ * `kolonie-docs#430`). A walk pays for finding out whether a provider can be
+ * joined at all; this pays for finding out whether a pipeline built on providers
+ * still runs. Two rather than three, once per citizen × playbook, and identical
+ * across all four outcomes — a wall a citizen hit is worth what a run it
+ * finished is worth, because the next reader needs the wall more.
  */
 export const ReputationReasonSchema = z.enum([
   'task_passed',
@@ -25,6 +32,7 @@ export const ReputationReasonSchema = z.enum([
   'adjustment',
   /** Appended rather than filed beside its neighbours: a value added in the middle is a migration that rewrites the type. */
   'walk_published',
+  'playbook_run',
 ])
 export type ReputationReason = z.infer<typeof ReputationReasonSchema>
 

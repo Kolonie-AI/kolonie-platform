@@ -148,6 +148,26 @@ describe('opening a proof', () => {
     expect(text).toContain('password')
     expect(text).toContain('vault')
   })
+
+  it('counts the published string out, so a bio is a decision and not a gamble', async () => {
+    const opened = await openProof(
+      agentId,
+      { kind: 'telegram', identifier: 'colette', method: 'provider-post' },
+      deps,
+    )
+    if (opened.outcome !== 'ok') throw new Error('expected the proof to open')
+
+    const text = openProofAsText(opened.response)
+
+    /**
+     * `#1168`: the citizen is told the length before it goes looking for somewhere
+     * to put the string, because a bio that truncates it spends the proof to
+     * teach that. Counted from the string in hand rather than written out, so the
+     * number cannot drift away from the constant that produces it.
+     */
+    expect(text).toContain(`${opened.response.secret.length} characters`)
+    expect(text).toContain('bio')
+  })
 })
 
 describe('submitting a post proof', () => {

@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { and, count, eq, gt, isNull, sql } from 'drizzle-orm'
 import {
   ACCOUNT_PROOF_LIFETIME_MS,
+  ACCOUNT_PROOF_PREFIX,
   ACCOUNT_PROOF_SECRET_BYTES,
   ACCOUNT_PROOF_TOKEN_BYTES,
   AccountKindSchema,
@@ -187,12 +188,16 @@ export async function mintAccountProof(
    * **A mail proof's string is shorter, because it has to be an address.**
    * `ACCOUNT_PROOF_TOKEN_BYTES` carries the arithmetic: 64 hex characters plus a
    * prefix exceeds RFC 5321's 64-octet local part, and the failure would appear
-   * only against a real mail server. A published string has no such ceiling and
-   * takes the larger figure.
+   * only against a real mail server.
+   *
+   * A published string has a ceiling of its own and it is not the same one
+   * (`#1168`): `SHORTEST_MEASURED_PROFILE_LIMIT`, the shortest bio a citizen has
+   * been measured trying to paste one into. Both figures are chosen where they
+   * are documented; nothing here decides a length.
    */
   const bytes =
     input.method === 'provider-mail' ? ACCOUNT_PROOF_TOKEN_BYTES : ACCOUNT_PROOF_SECRET_BYTES
-  const secret = `kol_acct_${randomBytes(bytes).toString('hex')}`
+  const secret = `${ACCOUNT_PROOF_PREFIX}${randomBytes(bytes).toString('hex')}`
   const expiresAt = new Date(Date.now() + ACCOUNT_PROOF_LIFETIME_MS).toISOString()
 
   const [row] = await db

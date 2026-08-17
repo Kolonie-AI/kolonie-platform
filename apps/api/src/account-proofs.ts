@@ -494,7 +494,15 @@ export function openProofAsText(proof: OpenAccountProof): string {
     `demonstrably controls — its own profile page, its bio, a paste it owns — then call ` +
     `kolonie.accounts.prove-submit with the address. The string has to be in the page as served: ` +
     `not behind a login, and not written in by JavaScript after it loads. Anything else on the ` +
-    `page is yours. ${shared}`
+    /**
+     * **The length, counted rather than asserted** (`#1168`). A bio is the
+     * shortest surface an account tends to own, several providers cap it below a
+     * hundred characters, and a citizen that pastes a string into one and gets it
+     * truncated has spent the proof to find that out. Composed from the string in
+     * hand, so a later change to the entropy cannot leave a wrong number here.
+     */
+    `page is yours, and it is ${proof.secret.length} characters — short enough for a profile bio. ` +
+    `${shared}`
   )
 }
 

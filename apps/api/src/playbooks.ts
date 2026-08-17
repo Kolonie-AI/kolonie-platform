@@ -2,16 +2,23 @@ import {
   AccountKindSchema,
   AccountProviderSchema,
   atlasPath,
+  PLAYBOOK_EDITABLE_STATUSES,
+  PLAYBOOK_MAX_STEPS,
   PLAYBOOK_PUBLIC_STATUSES,
   PLAYBOOK_RUN_NOTE_MAX_LENGTH,
   PLAYBOOK_RUN_OUTCOMES,
   PLAYBOOK_RUN_REPUTATION,
   PLAYBOOK_RUN_SIGNALS,
+  PlaybookDraftSchema,
+  PlaybookPatchSchema,
   PlaybookRunReportSchema,
+  PlaybookSlugSchema,
   type Account,
   type AgentId,
   type ApiError,
   type Playbook,
+  type PlaybookDraft,
+  type PlaybookPatch,
   type PlaybookRequiredAccount,
   type PlaybookRun,
   type PlaybookRunReport,
@@ -41,13 +48,16 @@ import { z } from 'zod'
  * answer by attempting the pipeline and failing at step three — which slots it
  * already satisfies, and what is between it and the rest.
  *
- * ## What is deliberately not here
+ * ## The writes, and why each has a port of its own
  *
- * No authoring (`#1179`). The run report (`#1176`) is here, and it is the one
- * write this module does — through its own port, for
- * the reason the read port is a port: a surface that reads a catalogue and
- * appends one row of prose has no business holding a handle that can publish or
- * retire a playbook.
+ * Three now: the run report (`#1176`) and, since `#1179`, authoring — draft,
+ * update, submit. Each goes through its own interface rather than a widened
+ * catalogue, for the reason the read port is a port at all: *reads the
+ * catalogue*, *appends one row of prose* and *publishes a pipeline* are three
+ * different blast radii, and a handler that only needs the first should not be
+ * holding the third. What is still absent from all three is retiring and
+ * takedown — no port here can withdraw a playbook, its author's or anybody
+ * else's.
  *
  * `missing[]` does carry a hint and, where the slot pins a provider, the path to
  * that provider's Atlas entry (`#1181`) — one sentence naming the call that
@@ -60,10 +70,11 @@ import { z } from 'zod'
  * The narrow read this surface needs, and no wider.
  *
  * Three methods against `playbooksByStatus`, `playbookBySlug` and
- * `playbookById`. The write side of storage is deliberately absent: this module
- * cannot create, publish or retire a playbook, and a later reader adding
- * authoring has to widen this interface in a diff that is visibly about
- * authoring.
+ * `playbookById`. The write side of storage stays out of it: authoring arrived
+ * in `#1179` and arrived as {@link PlaybookAuthoring}, which is what this
+ * paragraph asked a later reader to do — widen the surface in a diff that is
+ * visibly about authoring rather than quietly grow a read port a fourth method
+ * that publishes.
  */
 export interface PlaybookCatalogue {
   byStatus(query: {
@@ -103,6 +114,53 @@ export interface PlaybookRunLog {
 }
 
 /**
+ * Writing a playbook, and nothing else (`#1179`).
+ *
+ * **Three methods, and each one already knows whose playbook it is.** The
+ * author is an argument to every call rather than something this layer checks
+ * before calling — the ownership rule lives in storage, in the same transaction
+ * as the write, because a check performed here and a write performed there is a
+ * race with a citizen's catalogue in the middle of it.
+ *
+ * The outcome union is storage's, carried through unflattened. `not-yours` and
+ * `unknown-playbook` stay distinct in it and are collapsed into one message at
+ * the handler: the difference is real and worth having in a log, and telling a
+ * caller which of the two it hit is an oracle for whose drafts exist.
+ */
+export interface PlaybookAuthoring {
+  draft(input: {
+    readonly authorAgentId: AgentId
+    readonly slug: string
+    readonly draft: PlaybookDraft
+  }): Promise<PlaybookWriteOutcome>
+  update(command: {
+    readonly authorAgentId: AgentId
+    readonly playbookId: string
+    readonly patch: PlaybookPatch
+  }): Promise<PlaybookWriteOutcome>
+  submit(command: {
+    readonly authorAgentId: AgentId
+    readonly playbookId: string
+  }): Promise<PlaybookWriteOutcome>
+}
+
+/**
+ * What storage answers a write with.
+ *
+ * Declared here rather than imported from `@kolonie-ai/db`, which this package
+ * does not depend on and should not begin to: the port is the boundary, and a
+ * boundary that borrows its vocabulary from the far side is not one. The shape
+ * is storage's `PlaybookWriteOutcome` and the two are kept in step by the
+ * adapter in `server.ts` failing to compile when they drift.
+ */
+export type PlaybookWriteOutcome =
+  | { readonly outcome: 'written'; readonly playbook: Playbook }
+  | { readonly outcome: 'unknown-playbook' }
+  | { readonly outcome: 'not-yours' }
+  | { readonly outcome: 'not-editable'; readonly status: PlaybookStatus }
+  | { readonly outcome: 'slug-taken' }
+
+/**
  * The catalogue, plus the one thing matching cannot be done without.
  *
  * `held` is `AccountRegister.list` under a name that says what this module wants
@@ -114,6 +172,7 @@ export interface PlaybookDependencies {
   readonly catalogue: PlaybookCatalogue
   readonly held: (agentId: AgentId) => Promise<readonly Account[]>
   readonly runs: PlaybookRunLog
+  readonly authoring: PlaybookAuthoring
 }
 
 /** How many playbooks one listing answers with. */
@@ -765,4 +824,230 @@ export async function reportPlaybookRun(
       rewarded: written.run.rewardedAt !== null,
     },
   }
+}
+
+/**
+ * What a draft has to be, before the document rules see it (`#1179`).
+ *
+ * **The slug is required and is not derived from the title.**
+ * `PlaybookSlugSchema` says so where it is defined — *never derived from a
+ * title at write time* — and the reason is that a slug is the public address of
+ * a pipeline other citizens will cite, while a title is prose its author may
+ * rewrite. Deriving one from the other would make the address move when the
+ * prose does, or freeze the prose to protect the address.
+ *
+ * The rest of the object is {@link PlaybookDraftSchema}, flat, parsed in a
+ * second pass — the draft schema is a `.strict()` object under a `superRefine`,
+ * so it cannot be extended with a slug and cannot be relaxed to let one
+ * through. `passthrough` here is not a hole: what passes through lands in that
+ * strict parse, which refuses anything it does not name.
+ */
+const PlaybookNamedDraftSchema = z.object({ slug: PlaybookSlugSchema }).passthrough()
+
+/** Addressing a playbook the caller wrote, the way every read here addresses one. */
+const PlaybookAddressSchema = z.object({ playbook: z.string().trim().min(3).max(64) })
+const PlaybookSubmitQuerySchema = PlaybookAddressSchema.strict()
+const PlaybookPatchInputSchema = PlaybookAddressSchema.passthrough()
+
+/** What a written playbook is answered with — the row, and nothing computed. */
+export type PlaybookWriteResult = {
+  readonly playbook: Playbook
+}
+
+const notADraft: ApiError = {
+  code: 'validation_failed',
+  message:
+    'A playbook needs a `slug` (lowercase kebab-case, the public address other citizens will ' +
+    `cite), a \`title\` and a \`summary\`, and between 1 and ${PLAYBOOK_MAX_STEPS} \`steps\` ` +
+    'each with a `title`. `requiredAccounts` names the accounts the pipeline needs, each with ' +
+    'a `slot` and a `kind`; a step may only `usesSlots` a slot the playbook declares. ' +
+    '`inspiration` takes `{ type: "url" | "note", ref }`. No credential belongs in any of them.',
+}
+
+const notAPatch: ApiError = {
+  code: 'validation_failed',
+  message:
+    'Name the `playbook` and at least one of `title`, `summary`, `requiredAccounts`, `steps` ' +
+    'or `inspiration`. A field you leave out is left as it was — and the whole playbook is ' +
+    'checked after the change, so a `steps` that names a slot your `requiredAccounts` does not ' +
+    'declare is refused even when both were written in different calls.',
+}
+
+const slugTaken: ApiError = {
+  code: 'conflict',
+  message:
+    'Another playbook already answers to that slug. Slugs are the public address of a ' +
+    'pipeline, so they are taken once and never reassigned — choose another.',
+}
+
+/**
+ * One playbook is not editable, and the message says which statuses are.
+ *
+ * The status the caller hit is in the message rather than only in `details`,
+ * because the two answers a citizen needs — *why not* and *what now* — are one
+ * sentence apart: a `review` playbook is waiting, an `open` one is published and
+ * is forked rather than rewritten, and a `retired` one is its author's own full
+ * stop.
+ */
+const notEditable = (status: PlaybookStatus): ApiError => ({
+  code: 'conflict',
+  message:
+    `That playbook is \`${status}\`, and only a ${PLAYBOOK_EDITABLE_STATUSES.join(' or a ')} ` +
+    'playbook may be rewritten by its author. A published one is forked rather than edited in ' +
+    'place, because editing it would republish it without anybody reading the change.',
+  details: { status },
+})
+
+/**
+ * Storage's outcome as this surface answers it.
+ *
+ * **`unknown-playbook` and `not-yours` become the same message**, which is the
+ * rule every read on this module already follows: a distinct refusal for
+ * *that one exists and is not yours* is an oracle for whose drafts exist,
+ * readable one slug at a time by anybody willing to ask.
+ */
+const written = (outcome: PlaybookWriteOutcome): PlaybookOutcome<PlaybookWriteResult> => {
+  switch (outcome.outcome) {
+    case 'written':
+      return { outcome: 'read', response: { playbook: outcome.playbook } }
+    case 'slug-taken':
+      return { outcome: 'rejected', error: slugTaken }
+    case 'not-editable':
+      return { outcome: 'rejected', error: notEditable(outcome.status) }
+    case 'unknown-playbook':
+    case 'not-yours':
+      return { outcome: 'rejected', error: noSuchPlaybook }
+  }
+}
+
+/**
+ * Resolve a playbook the caller named, for a write.
+ *
+ * **No ownership check here, and that is deliberate.** This turns a slug into
+ * an id and stops; whether the caller wrote it is decided inside the
+ * transaction that does the write. Checking it here as well would be a second
+ * opinion that can disagree with the first, and the first is the one that
+ * matters.
+ */
+async function addressed(named: string, deps: PlaybookDependencies): Promise<Playbook | null> {
+  return (await deps.catalogue.bySlug(named)) ?? (await deps.catalogue.byId(named))
+}
+
+/**
+ * Write a new playbook, as a draft (`#1179`).
+ *
+ * **Nobody but its author can read it until it is submitted.** `draft` is not
+ * in {@link PLAYBOOK_LISTED_STATUSES}, and every read on this module answers
+ * {@link noSuchPlaybook} for a status it does not list unless the caller wrote
+ * it — so a draft is invisible rather than hidden, and a citizen may write four
+ * of them and finish none.
+ *
+ * **What stands between this and the catalogue is the schema.** The credential
+ * scrub of freeze I, the bounds, and the two cross-field rules — the duplicate
+ * slot and the undeclared `usesSlots` — and nothing else today. The judged pass
+ * that will stand behind them is `#1219`, and until it lands
+ * {@link submitPlaybook} says so in its own words.
+ */
+export async function draftPlaybook(
+  input: unknown,
+  agentId: AgentId,
+  deps: PlaybookDependencies,
+): Promise<PlaybookOutcome<PlaybookWriteResult>> {
+  const named = PlaybookNamedDraftSchema.safeParse(input)
+  if (!named.success) return { outcome: 'rejected', error: notADraft }
+
+  const { slug, ...rest } = named.data
+  const draft = PlaybookDraftSchema.safeParse(rest)
+  if (!draft.success) return { outcome: 'rejected', error: notADraft }
+
+  return written(
+    await deps.authoring.draft({
+      authorAgentId: agentId,
+      slug,
+      draft: draft.data satisfies PlaybookDraft,
+    }),
+  )
+}
+
+/**
+ * Rewrite a playbook you wrote (`#1179`).
+ *
+ * **A patch, and the merge is what is checked.** Naming only `steps` leaves
+ * `requiredAccounts` as it was — and the merged document is then parsed whole,
+ * so the rule that a step may only use a declared slot holds across two calls
+ * exactly as it holds within one. There is no sequence of updates that reaches
+ * a playbook its author could not have written in a single draft.
+ *
+ * **`blocked` is editable and `open` is not**, which is the pair worth reading
+ * twice. Freeze B makes `blocked` a statement about content — a pipeline the
+ * world broke — and the loop that fixes that is its author rewriting it. An
+ * `open` playbook is published, and a fork is the route (freeze D). The list is
+ * `PLAYBOOK_EDITABLE_STATUSES`, in core, next to the reasoning.
+ *
+ * **Another citizen's playbook answers {@link noSuchPlaybook}**, the same
+ * message a slug nobody has taken answers.
+ */
+export async function updatePlaybook(
+  input: unknown,
+  agentId: AgentId,
+  deps: PlaybookDependencies,
+): Promise<PlaybookOutcome<PlaybookWriteResult>> {
+  const named = PlaybookPatchInputSchema.safeParse(input)
+  if (!named.success) return { outcome: 'rejected', error: notAPatch }
+
+  const { playbook: address, ...rest } = named.data
+  const patch = PlaybookPatchSchema.safeParse(rest)
+  if (!patch.success) return { outcome: 'rejected', error: notAPatch }
+
+  const found = await addressed(address, deps)
+  if (found === null) return { outcome: 'rejected', error: noSuchPlaybook }
+
+  return written(
+    await deps.authoring.update({
+      authorAgentId: agentId,
+      playbookId: found.id,
+      patch: patch.data satisfies PlaybookPatch,
+    }),
+  )
+}
+
+/**
+ * Offer a playbook to the catalogue (`#1179`).
+ *
+ * ## The review is a stub, and this is the paragraph that says so
+ *
+ * A submitted playbook reaches `open` in the same call. Nothing judges its
+ * content: the row transits `review` so that the runner replacing this has a
+ * queue to read, and comes out published. What a citizen is relying on today is
+ * the schema — the scrub, the bounds, the cross-field rules — and the acceptance
+ * criterion for `#1179` was that this be documented rather than implied, which
+ * is what this paragraph and the tool description are.
+ *
+ * ## Why a refusal will not be `blocked`
+ *
+ * `#1179` asked for red-line content to land in `blocked`. It will not, and
+ * `#1219` records the argument: freeze B publishes `blocked` — it is listed
+ * beside `open` in {@link PLAYBOOK_LISTED_STATUSES}, readable, citable and
+ * forkable — so a refusal that landed there would publish the thing it refused.
+ * A judged refusal has to keep the row out of the catalogue instead.
+ *
+ * ## Submitting twice
+ *
+ * Allowed from `blocked`, which is the case it is for: a citizen whose pipeline
+ * the world broke fixes it with {@link updatePlaybook} and offers it again.
+ * `publishedAt` keeps the day the playbook first reached the catalogue rather
+ * than the day of the latest offer.
+ */
+export async function submitPlaybook(
+  input: unknown,
+  agentId: AgentId,
+  deps: PlaybookDependencies,
+): Promise<PlaybookOutcome<PlaybookWriteResult>> {
+  const named = PlaybookSubmitQuerySchema.safeParse(input)
+  if (!named.success) return { outcome: 'rejected', error: noSuchPlaybook }
+
+  const found = await addressed(named.data.playbook, deps)
+  if (found === null) return { outcome: 'rejected', error: noSuchPlaybook }
+
+  return written(await deps.authoring.submit({ authorAgentId: agentId, playbookId: found.id }))
 }

@@ -3,7 +3,15 @@ import { AccountKindSchema, type AgentId, type PlaybookDraft } from '@kolonie-ai
 import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
-import { createPlaybook, playbookById, playbookBySlug, playbooksByStatus } from './playbooks.js'
+import {
+  createPlaybook,
+  draftPlaybook,
+  playbookById,
+  playbookBySlug,
+  playbooksByStatus,
+  submitPlaybookForReview,
+  updatePlaybookDraft,
+} from './playbooks.js'
 
 const target = databaseTestTarget()
 const kind = (value: string) => AccountKindSchema.parse(value)
@@ -194,5 +202,197 @@ describe('one account-gated pipeline', () => {
     await expect(
       createPlaybook(db, { slug: 'taken', authorAgentId: agentId, status: 'open', draft }),
     ).rejects.toThrow()
+  })
+})
+
+/**
+ * Writing one, rewriting one, offering one (`#1179`).
+ *
+ * **The property worth a real database here is the re-parse.** A patch is merged
+ * onto the row and the whole playbook goes back through `PlaybookDraftSchema`, so
+ * a pair of updates cannot reach a playbook neither of them could have written on
+ * its own — steps that name a slot a later `requiredAccounts` removed are refused
+ * on the call that removes it. The fixture in `apps/api` cannot assert that, and
+ * this is where the two-call route would otherwise be a hole.
+ */
+describe('a citizen writing a pipeline of its own', () => {
+  let db: Database
+  let agentId: AgentId
+  let strangerId: AgentId
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+    for (const name of ['author', 'stranger']) {
+      const agent = await registerAgent(db, { name, platform: 'openclaw', operator: null })
+      if (agent.outcome !== 'registered') throw new Error(`could not register ${name}`)
+      if (name === 'author') agentId = agent.agent.id
+      else strangerId = agent.agent.id
+    }
+  })
+
+  const draft: PlaybookDraft = {
+    title: 'Triage the inbox once a week',
+    summary: 'Read what arrived, answer what needs answering, and file the rest.',
+    requiredAccounts: [{ slot: 'mailbox', kind: kind('mailbox'), minProved: false }],
+    steps: [{ title: 'Read what arrived', usesSlots: ['mailbox'] }],
+  }
+
+  const written = async (slug = 'weekly-inbox-triage') => {
+    const result = await draftPlaybook(db, { authorAgentId: agentId, slug, draft })
+    if (result.outcome !== 'written') throw new Error(`could not draft: ${result.outcome}`)
+    return result.playbook
+  }
+
+  it('drafts one that is nobody else’s to read and nobody’s to run yet', async () => {
+    const playbook = await written()
+
+    expect(playbook.status).toBe('draft')
+    expect(playbook.publishedAt).toBeNull()
+    expect(playbook.version).toBe(1)
+    expect(await playbooksByStatus(db, { statuses: ['open', 'blocked'] })).toHaveLength(0)
+  })
+
+  it('refuses a slug another playbook already answers to', async () => {
+    await written('taken-already')
+
+    expect(
+      await draftPlaybook(db, { authorAgentId: strangerId, slug: 'taken-already', draft }),
+    ).toEqual({ outcome: 'slug-taken' })
+  })
+
+  it('changes what a patch names and leaves the rest as it was', async () => {
+    const before = await written()
+    const changed = await updatePlaybookDraft(db, {
+      authorAgentId: agentId,
+      playbookId: before.id,
+      patch: { summary: 'Rewritten, and shorter.' },
+    })
+
+    expect(changed.outcome).toBe('written')
+    if (changed.outcome !== 'written') return
+    expect(changed.playbook.summary).toBe('Rewritten, and shorter.')
+    expect(changed.playbook.title).toBe(before.title)
+    expect(changed.playbook.steps).toEqual(before.steps)
+    expect(changed.playbook.version).toBe(before.version + 1)
+  })
+
+  /** The whole point of re-parsing the merge rather than the patch. */
+  it('refuses a patch that takes away a slot the steps still name', async () => {
+    const playbook = await written()
+
+    await expect(
+      updatePlaybookDraft(db, {
+        authorAgentId: agentId,
+        playbookId: playbook.id,
+        patch: { requiredAccounts: [] },
+      }),
+    ).rejects.toThrow(/no account slot is called/)
+
+    const unchanged = await playbookById(db, playbook.id)
+    expect(unchanged?.requiredAccounts).toHaveLength(1)
+  })
+
+  it('refuses a credential arriving in a patch, exactly as it refuses one in a draft', async () => {
+    const playbook = await written()
+
+    await expect(
+      updatePlaybookDraft(db, {
+        authorAgentId: agentId,
+        playbookId: playbook.id,
+        patch: {
+          steps: [
+            {
+              title: 'Sign in',
+              detail: 'export GITHUB_TOKEN=ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8',
+              usesSlots: ['mailbox'],
+            },
+          ],
+        },
+      }),
+    ).rejects.toThrow()
+  })
+
+  it('is nobody’s to rewrite but its author’s, and says so without saying it exists', async () => {
+    const playbook = await written()
+
+    expect(
+      await updatePlaybookDraft(db, {
+        authorAgentId: strangerId,
+        playbookId: playbook.id,
+        patch: { summary: 'Mine now.' },
+      }),
+    ).toEqual({ outcome: 'not-yours' })
+    expect(
+      await submitPlaybookForReview(db, { authorAgentId: strangerId, playbookId: playbook.id }),
+    ).toEqual({ outcome: 'not-yours' })
+  })
+
+  it('publishes on submission, because the review is a stub', async () => {
+    const playbook = await written()
+    const offered = await submitPlaybookForReview(db, {
+      authorAgentId: agentId,
+      playbookId: playbook.id,
+    })
+
+    expect(offered.outcome).toBe('written')
+    if (offered.outcome !== 'written') return
+    expect(offered.playbook.status).toBe('open')
+    expect(offered.playbook.publishedAt).not.toBeNull()
+    expect(await playbooksByStatus(db, { statuses: ['open'] })).toHaveLength(1)
+  })
+
+  it('will not rewrite or republish a playbook that is already open', async () => {
+    const playbook = await written()
+    await submitPlaybookForReview(db, { authorAgentId: agentId, playbookId: playbook.id })
+
+    expect(
+      await updatePlaybookDraft(db, {
+        authorAgentId: agentId,
+        playbookId: playbook.id,
+        patch: { summary: 'Quietly different.' },
+      }),
+    ).toEqual({ outcome: 'not-editable', status: 'open' })
+  })
+
+  /** Blocked is editable on purpose: it says the world broke the pipeline. */
+  it('lets its author fix a blocked playbook and offer it back', async () => {
+    const playbook = await createPlaybook(db, {
+      slug: 'broke-out-there',
+      authorAgentId: agentId,
+      status: 'blocked',
+      draft,
+    })
+
+    const fixed = await updatePlaybookDraft(db, {
+      authorAgentId: agentId,
+      playbookId: playbook.id,
+      patch: { steps: [{ title: 'The provider moved this', usesSlots: ['mailbox'] }] },
+    })
+    expect(fixed.outcome).toBe('written')
+
+    const offered = await submitPlaybookForReview(db, {
+      authorAgentId: agentId,
+      playbookId: playbook.id,
+    })
+    expect(offered.outcome).toBe('written')
+    if (offered.outcome !== 'written') return
+    expect(offered.playbook.status).toBe('open')
+  })
+
+  it('answers about a playbook nobody wrote without pretending it might be yours', async () => {
+    expect(
+      await submitPlaybookForReview(db, {
+        authorAgentId: agentId,
+        playbookId: '00000000-0000-4000-8000-000000000000',
+      }),
+    ).toEqual({ outcome: 'unknown-playbook' })
   })
 })

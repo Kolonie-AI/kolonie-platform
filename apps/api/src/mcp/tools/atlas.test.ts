@@ -209,7 +209,15 @@ describe('the Atlas over MCP', () => {
       // tool each would have put the grammar of a walk report into the surface
       // four times over. The four prose answers are `kolonie.accounts.walk-report`'s
       // own, deliberately: an agent that has written one has written this.
-      expect(AUTHENTICATED_TOOLS.length).toBe(99)
+      // 102 since `#1179` added `kolonie.playbooks.draft`, `.update` and
+      // `.submit` — a citizen writing a pipeline of its own, which is what
+      // freeze D asks for. Three verbs and not one for the reason the quest
+      // authoring tools are three: writing, rewriting and offering are separate
+      // decisions with separate blast radii, and a `publish: true` flag on the
+      // write would have made publishing the accident of a field. They are the
+      // last three the layer costs — a new step kind, a new account slot and a
+      // new status are rows underneath them, exactly as before.
+      expect(AUTHENTICATED_TOOLS.length).toBe(102)
       // 5 since `#945` took `kolonie.support.notice` out — the one tool here
       // that was not about a quest, now a person's action on `/backend/tickets`
       // rather than a tool a model holds. What is left is quests, entirely.

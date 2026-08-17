@@ -272,6 +272,55 @@ export const PlaybookDraftSchema = z
 export type PlaybookDraft = z.infer<typeof PlaybookDraftSchema>
 
 /**
+ * The statuses whose author may still rewrite them (`#1179`).
+ *
+ * `draft` is obvious. **`blocked` is the one worth arguing for**: freeze B makes
+ * it a statement about content rather than about the author — a pipeline the
+ * world broke, or one the Colony refused — and the loop that fixes either is the
+ * author rewriting it and submitting again. Locking it would leave a citizen
+ * holding a public playbook it is told is wrong and cannot correct.
+ *
+ * `review` is absent because a text under judgement that changes underneath the
+ * judge is a verdict about a text nobody is offering, which is the reasoning
+ * `quests/write.ts` records for its own queue. `open` is absent because editing a
+ * published pipeline in place is a republication without a review — a fork
+ * (freeze D) is the route, and `retired` is the author's own full stop.
+ */
+export const PLAYBOOK_EDITABLE_STATUSES = ['draft', 'blocked'] as const
+
+/**
+ * What an author may change about a playbook it has already written (`#1179`).
+ *
+ * **Every field optional, and the merged result is parsed as a whole draft.**
+ * A patch cannot be checked on its own: the two cross-field rules in
+ * {@link PlaybookDraftSchema} are about the relationship between
+ * `requiredAccounts` and `steps`, so a patch carrying only `steps` says nothing
+ * about whether the slots it names are declared. The write path merges the patch
+ * onto the stored row and parses that — which is why this schema validates
+ * shapes and bounds and nothing else, and why there is exactly one place the
+ * document-level rules live.
+ *
+ * `requiredAccounts` takes no default here, unlike the draft: absent has to mean
+ * *leave it as it was* rather than *empty it*.
+ */
+export const PlaybookPatchSchema = z
+  .object({
+    title: line(PLAYBOOK_TITLE_MAX_LENGTH).optional(),
+    summary: line(PLAYBOOK_SUMMARY_MAX_LENGTH).optional(),
+    requiredAccounts: z
+      .array(PlaybookRequiredAccountSchema)
+      .max(PLAYBOOK_MAX_REQUIRED_ACCOUNTS)
+      .optional(),
+    steps: z.array(PlaybookStepSchema).min(1).max(PLAYBOOK_MAX_STEPS).optional(),
+    inspiration: z.array(PlaybookInspirationSchema).max(PLAYBOOK_MAX_INSPIRATION).optional(),
+  })
+  .strict()
+  .refine((patch) => Object.values(patch).some((value) => value !== undefined), {
+    message: 'name at least one field to change',
+  })
+export type PlaybookPatch = z.infer<typeof PlaybookPatchSchema>
+
+/**
  * One playbook as it is stored and read back.
  *
  * ## `version` is an integer and not semver

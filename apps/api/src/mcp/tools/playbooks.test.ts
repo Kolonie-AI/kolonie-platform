@@ -101,7 +101,8 @@ describe('kolonie.playbooks.list/.get/.frontier (#1174)', () => {
    * elsewhere* was only ever true of a tool that does not take the report, and
    * `kolonie.playbooks.run-report` is where the elsewhere turned out to be. So it
    * is asserted against the reads by name rather than against the prefix, and a
-   * fifth read added without it is still caught.
+   * fourth read added without it is still caught — `#1179` added three writes,
+   * which carry the two sentences and not the third.
    */
   it('says in every description that it carries no credential, whose the doing is, and that runs report elsewhere', async () => {
     const { client, close } = await aCitizen()
@@ -109,9 +110,12 @@ describe('kolonie.playbooks.list/.get/.frontier (#1174)', () => {
     const listed = (await client.listTools()).tools.filter((tool) =>
       tool.name.startsWith('kolonie.playbooks.'),
     )
-    const reads = listed.filter((tool) => tool.name !== 'kolonie.playbooks.run-report')
+    const writes = ['run-report', 'draft', 'update', 'submit'].map(
+      (name) => `kolonie.playbooks.${name}`,
+    )
+    const reads = listed.filter((tool) => !writes.includes(tool.name))
 
-    expect(reads).toHaveLength(listed.length - 1)
+    expect(reads).toHaveLength(listed.length - writes.length)
     expect(reads).toHaveLength(3)
     for (const tool of listed) {
       expect(tool.description, tool.name).toContain('never carries a credential')

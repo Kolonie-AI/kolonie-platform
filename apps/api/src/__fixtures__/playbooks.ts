@@ -1,12 +1,18 @@
 import { randomUUID } from 'node:crypto'
 import {
   now as currentTime,
+  PLAYBOOK_EDITABLE_STATUSES,
   type Account,
   type AgentId,
   type Playbook,
   type PlaybookRun,
+  type PlaybookStatus,
 } from '@kolonie-ai/core'
 import type { PlaybookDependencies } from '../playbooks.js'
+
+/** The one rule both writes share, read from core rather than restated here. */
+const editable = (status: PlaybookStatus): boolean =>
+  (PLAYBOOK_EDITABLE_STATUSES as readonly PlaybookStatus[]).includes(status)
 
 export interface FakePlaybooks extends PlaybookDependencies {
   /**
@@ -161,6 +167,91 @@ export function fakePlaybooks(): FakePlaybooks {
        */
       async mine(agentId, playbookId) {
         return filed.get(`${agentId}:${playbookId}`) ?? null
+      },
+    },
+
+    /**
+     * The three writes, against the same array the reads see (`#1179`).
+     *
+     * **The four refusals are reproduced and the ordering between them is too**,
+     * because the ordering is the security property: a playbook that is not the
+     * caller's answers `not-yours` *before* anything about its status is looked
+     * at, so a stranger cannot learn from a refusal which shelf somebody else's
+     * draft is on. `apps/api` folds `not-yours` and `unknown-playbook` into one
+     * message, and a fixture that decided status first would let that fold pass
+     * while the real transaction leaked the difference through timing.
+     *
+     * What it does not reproduce is the re-parse: storage merges a patch onto
+     * the row and hands the whole thing back to `PlaybookDraftSchema`, and that
+     * cross-field rule is asserted in `packages/db` against a real database. Here
+     * the merge is a spread, so a test that wants the refusal writes the whole
+     * `steps` and asserts against the port instead.
+     */
+    authoring: {
+      async draft({ authorAgentId, slug, draft }) {
+        if (catalogue.some((playbook) => playbook.slug === slug)) {
+          return { outcome: 'slug-taken' }
+        }
+        const written: Playbook = {
+          id: randomUUID(),
+          slug,
+          status: 'draft',
+          authorAgentId,
+          parentPlaybookId: null,
+          version: 1,
+          title: draft.title,
+          summary: draft.summary,
+          requiredAccounts: draft.requiredAccounts,
+          steps: draft.steps,
+          inspiration: draft.inspiration ?? [],
+          createdAt: currentTime(),
+          updatedAt: currentTime(),
+          publishedAt: null,
+        }
+        catalogue.push(written)
+        return { outcome: 'written', playbook: written }
+      },
+
+      async update({ authorAgentId, playbookId, patch }) {
+        const standing = catalogue.find((playbook) => playbook.id === playbookId)
+        if (standing === undefined) return { outcome: 'unknown-playbook' }
+        if (standing.authorAgentId !== authorAgentId) return { outcome: 'not-yours' }
+        if (!editable(standing.status)) {
+          return { outcome: 'not-editable', status: standing.status }
+        }
+
+        const written: Playbook = {
+          ...standing,
+          ...(patch.title === undefined ? {} : { title: patch.title }),
+          ...(patch.summary === undefined ? {} : { summary: patch.summary }),
+          ...(patch.requiredAccounts === undefined
+            ? {}
+            : { requiredAccounts: patch.requiredAccounts }),
+          ...(patch.steps === undefined ? {} : { steps: patch.steps }),
+          ...(patch.inspiration === undefined ? {} : { inspiration: patch.inspiration }),
+          version: standing.version + 1,
+          updatedAt: currentTime(),
+        }
+        catalogue.splice(catalogue.indexOf(standing), 1, written)
+        return { outcome: 'written', playbook: written }
+      },
+
+      async submit({ authorAgentId, playbookId }) {
+        const standing = catalogue.find((playbook) => playbook.id === playbookId)
+        if (standing === undefined) return { outcome: 'unknown-playbook' }
+        if (standing.authorAgentId !== authorAgentId) return { outcome: 'not-yours' }
+        if (!editable(standing.status)) {
+          return { outcome: 'not-editable', status: standing.status }
+        }
+
+        const written: Playbook = {
+          ...standing,
+          status: 'open',
+          publishedAt: standing.publishedAt ?? currentTime(),
+          updatedAt: currentTime(),
+        }
+        catalogue.splice(catalogue.indexOf(standing), 1, written)
+        return { outcome: 'written', playbook: written }
       },
     },
   }

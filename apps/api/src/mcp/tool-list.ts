@@ -589,10 +589,11 @@ export const AUTHENTICATED_TOOLS = [
    * The catalogue of pipelines, and what stands between a citizen and one
    * (`#1174`, `kolonie-docs#430`).
    *
-   * **Three names, and they are `kolonie.tasks.list`, `.get` and `.frontier`
-   * again.** That reuse is why adding a whole product layer costs three tools
-   * and never a fourth: a new playbook is a row, a new required account kind is
-   * a row, a new status is a row, and none of the three is a registration. It is
+   * **The first three names are `kolonie.tasks.list`, `.get` and `.frontier`
+   * again.** That reuse is why a whole product layer costs a fixed handful of
+   * tools and then stops costing anything: a new playbook is a row, a new
+   * required account kind is a row, a new status is a row, and none of the
+   * three is a registration. It is
    * what `the-catalogue-encodes-grammar-never-vocabulary` asks of anything that
    * arrives here — the catalogue moved by three because the grammar gained a
    * subject, and it does not move again when that subject gains members.
@@ -612,13 +613,26 @@ export const AUTHENTICATED_TOOLS = [
    * playbook, and the answer to the call carries what it earned rather than a
    * sweep telling it hours later.
    *
-   * What is not here, and has an issue: no `kolonie.playbooks.draft`, `.update`
-   * or `.submit` (`#1179`).
+   * **The three authoring tools are the fifth, sixth and seventh** (`#1179`),
+   * and they are `kolonie.quests.write`, `.update` and `.submit` again — the
+   * same reuse the three reads make, one verb along. A citizen writing a
+   * pipeline of its own is what freeze D asks for, and what it costs the
+   * catalogue is three registrations that never move again: a new step kind, a
+   * new account slot and a new status are all rows underneath them.
+   *
+   * They are authenticated for the plainest of the reasons in this file — a
+   * draft is its author's alone, and there is no version of *write my playbook*
+   * a stranger could ask. **The review they submit into is a stub today** and
+   * the tools say so; the judged pass that replaces it is `#1219`, and it
+   * changes what `submit` answers rather than what is registered here.
    */
   'kolonie.playbooks.list',
   'kolonie.playbooks.get',
   'kolonie.playbooks.frontier',
   'kolonie.playbooks.run-report',
+  'kolonie.playbooks.draft',
+  'kolonie.playbooks.update',
+  'kolonie.playbooks.submit',
 ] as const
 
 /**

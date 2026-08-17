@@ -101,10 +101,13 @@ import {
   holdsSkillNow,
   listAccounts,
   openProspects,
+  draftPlaybook,
   playbookById,
   playbookBySlug,
   playbookRunFor,
   playbooksByStatus,
+  submitPlaybookForReview,
+  updatePlaybookDraft,
   recordPlaybookRun,
   readSkillNote,
   readSkillNotes,
@@ -782,6 +785,16 @@ const app = buildApp({
     runs: {
       record: (input) => recordPlaybookRun(db, input),
       mine: (agentId, playbookId) => playbookRunFor(db, agentId, playbookId),
+    },
+    /**
+     * Authoring (`#1179`), a port of its own rather than a fourth catalogue
+     * method: reading the catalogue and publishing into it are different blast
+     * radii, and the read port says so in its own doc.
+     */
+    authoring: {
+      draft: (input) => draftPlaybook(db, input),
+      update: (command) => updatePlaybookDraft(db, command),
+      submit: (command) => submitPlaybookForReview(db, command),
     },
   },
   quests: databaseQuests(

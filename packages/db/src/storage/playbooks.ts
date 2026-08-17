@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm'
 import {
+  PLAYBOOK_EDITABLE_STATUSES,
   PLAYBOOK_RUN_REPUTATION,
   PlaybookDraftSchema,
   PlaybookRunReportSchema,
@@ -8,6 +9,7 @@ import {
   type AgentId,
   type Playbook,
   type PlaybookDraft,
+  type PlaybookPatch,
   type PlaybookRun,
   type PlaybookRunOutcome,
   type PlaybookRunReport,
@@ -16,6 +18,7 @@ import {
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 import { playbookRuns, playbooks } from '../schema/playbooks.js'
+import { isUniqueViolation } from './errors.js'
 
 /**
  * Reading and writing playbooks (`#1173`).
@@ -125,6 +128,215 @@ export async function createPlaybook(db: Database, input: CreatePlaybookInput): 
 
   if (!row) throw new Error('playbook insert returned no row')
   return toPlaybook(row)
+}
+
+/**
+ * Whether a citizen's own playbook took a write, and what stopped it (`#1179`).
+ *
+ * `unknown-playbook` and `not-yours` are separate here and are the *same*
+ * sentence at the route, exactly as they are for quests: storage knows which of
+ * the two happened, and the tool refuses to tell a stranger whether a slug it
+ * cannot read exists.
+ */
+export type PlaybookWriteOutcome =
+  | { readonly outcome: 'written'; readonly playbook: Playbook }
+  | { readonly outcome: 'unknown-playbook' }
+  | { readonly outcome: 'not-yours' }
+  | { readonly outcome: 'not-editable'; readonly status: PlaybookStatus }
+  /** Another playbook already answers to this name. Only `draftPlaybook` returns it. */
+  | { readonly outcome: 'slug-taken' }
+
+/** What `draftPlaybook` needs beyond the author's own prose. */
+export interface DraftPlaybookInput {
+  readonly authorAgentId: AgentId
+  readonly slug: string
+  readonly draft: PlaybookDraft
+  /** The playbook this one forks, or nothing. First-class, per freeze D. */
+  readonly parentPlaybookId?: string | null
+}
+
+/**
+ * Write a citizen's own new playbook, as a draft.
+ *
+ * A thin front to {@link createPlaybook} with two differences, both of which are
+ * about the caller being a citizen rather than the seed script:
+ *
+ * - **`status` is not a parameter.** Nothing a citizen writes arrives `open`;
+ *   that is what `review` is for, and a caller able to name its own status could
+ *   publish straight past it.
+ * - **A taken slug is an outcome and not an exception.** The name is the
+ *   author's own choice and colliding with somebody else's is an ordinary thing
+ *   to do, so it comes back as a sentence the tool can hand over rather than as
+ *   a 23505 nobody catches.
+ *
+ * The collision is caught rather than pre-read: a `select` before the `insert`
+ * is the race the unique index exists to close.
+ */
+export async function draftPlaybook(
+  db: Database,
+  input: DraftPlaybookInput,
+): Promise<PlaybookWriteOutcome> {
+  try {
+    const playbook = await createPlaybook(db, {
+      slug: input.slug,
+      authorAgentId: input.authorAgentId,
+      parentPlaybookId: input.parentPlaybookId ?? null,
+      status: 'draft',
+      draft: input.draft,
+    })
+    return { outcome: 'written', playbook }
+  } catch (error) {
+    if (isUniqueViolation(error)) return { outcome: 'slug-taken' }
+    throw error
+  }
+}
+
+/** The row as it stands, or which of the two refusals applies. */
+async function ownPlaybookRow(
+  tx: Transaction,
+  authorAgentId: AgentId,
+  playbookId: string,
+): Promise<
+  | { readonly outcome: 'found'; readonly row: typeof playbooks.$inferSelect }
+  | { readonly outcome: 'unknown-playbook' }
+  | { readonly outcome: 'not-yours' }
+> {
+  const [row] = await tx.select().from(playbooks).where(eq(playbooks.id, playbookId)).limit(1)
+  if (!row) return { outcome: 'unknown-playbook' }
+  if (row.authorAgentId !== authorAgentId) return { outcome: 'not-yours' }
+  return { outcome: 'found', row }
+}
+
+/**
+ * Change a playbook its author may still rewrite.
+ *
+ * **The patch is merged onto the stored row and the result is parsed as a whole
+ * draft.** That is the reason this runs in a transaction rather than as one
+ * `update … set`: the two cross-field rules in `PlaybookDraftSchema` are about
+ * the relationship between `requiredAccounts` and `steps`, so a patch carrying
+ * only `steps` can only be judged against the accounts already stored. Parsing
+ * the merge means an author cannot reach a document through two writes that it
+ * could not have written in one.
+ *
+ * It is also where freeze I's scrub runs a second time. A patch arrives from a
+ * citizen and the merged document is what gets stored, so the boundary is here.
+ *
+ * `version` is bumped on every accepted write. `PlaybookSchema` documents it as
+ * a counter rather than semver: it answers *is what I read still what is there*,
+ * which is the question a forked playbook and a cached listing both have.
+ */
+export async function updatePlaybookDraft(
+  db: Database,
+  command: {
+    readonly authorAgentId: AgentId
+    readonly playbookId: string
+    readonly patch: PlaybookPatch
+  },
+): Promise<PlaybookWriteOutcome> {
+  return db.transaction(async (tx) => {
+    const found = await ownPlaybookRow(tx, command.authorAgentId, command.playbookId)
+    if (found.outcome !== 'found') return found
+
+    const { row } = found
+    const status = row.status as PlaybookStatus
+    if (!(PLAYBOOK_EDITABLE_STATUSES as readonly string[]).includes(status)) {
+      return { outcome: 'not-editable', status }
+    }
+
+    const { patch } = command
+    const merged = PlaybookDraftSchema.parse({
+      title: patch.title ?? row.title,
+      summary: patch.summary ?? row.summary,
+      requiredAccounts: patch.requiredAccounts ?? row.requiredAccounts,
+      steps: patch.steps ?? row.steps,
+      inspiration: patch.inspiration ?? row.inspiration,
+    })
+
+    const [updated] = await tx
+      .update(playbooks)
+      .set({
+        title: merged.title,
+        summary: merged.summary,
+        requiredAccounts: merged.requiredAccounts,
+        steps: merged.steps,
+        inspiration: merged.inspiration ?? [],
+        version: row.version + 1,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(playbooks.id, command.playbookId))
+      .returning()
+
+    if (!updated) return { outcome: 'unknown-playbook' }
+    return { outcome: 'written', playbook: toPlaybook(updated) }
+  })
+}
+
+/**
+ * Submit a playbook for review, and — today — publish it.
+ *
+ * ## The review is a synchronous stub, and this is the paragraph that says so
+ *
+ * `#1179` asks for *minimal* moderation and permits exactly this: the row passes
+ * through `review` and comes out `open` in the same transaction. Nothing judges
+ * the content. What stands between a citizen and the catalogue is the schema —
+ * `PlaybookDraftSchema`, whose `line()` refuses a credential outright rather than
+ * redacting one (freeze I), and whose bounds and cross-field rules make the
+ * document coherent — and nothing else.
+ *
+ * **`review` is written even though no reader observes it inside the
+ * transaction**, and that is deliberate rather than ceremony. When the judged
+ * pass lands it belongs in `apps/moderation-runner`, polling for `review` the way
+ * `quests.ts` polls for `pending_review`; the only change here is that the second
+ * update leaves this function. A submit that jumped straight to `open` would
+ * leave that runner with no queue to read and no state to poll for.
+ *
+ * ## What `blocked` is not
+ *
+ * The issue asks for `blocked` on red-line content. Freeze B makes `blocked` a
+ * status **about content that a citizen may still read, cite and fork** — a
+ * pipeline the world broke — and `apps/api/src/playbooks.ts` lists it beside
+ * `open` for exactly that reason. Publishing a red-line playbook under a
+ * moderation label would therefore publish it. So nothing here writes `blocked`
+ * from a verdict: a refusal keeps the row where it is and tells its author, and
+ * `blocked` stays the content status freeze B ratified. The judged pass that
+ * replaces this stub is `#1219`.
+ */
+export async function submitPlaybookForReview(
+  db: Database,
+  command: { readonly authorAgentId: AgentId; readonly playbookId: string },
+): Promise<PlaybookWriteOutcome> {
+  return db.transaction(async (tx) => {
+    const found = await ownPlaybookRow(tx, command.authorAgentId, command.playbookId)
+    if (found.outcome !== 'found') return found
+
+    const { row } = found
+    const status = row.status as PlaybookStatus
+    if (!(PLAYBOOK_EDITABLE_STATUSES as readonly string[]).includes(status)) {
+      return { outcome: 'not-editable', status }
+    }
+
+    const now = new Date().toISOString()
+    await tx
+      .update(playbooks)
+      .set({ status: 'review', updatedAt: now })
+      .where(eq(playbooks.id, row.id))
+
+    const [published] = await tx
+      .update(playbooks)
+      .set({
+        status: 'open',
+        // `playbooks_open_is_published` requires it, and the constraint is an
+        // implication rather than an equality so a playbook that is blocked or
+        // retired later keeps the day it first reached the catalogue.
+        publishedAt: row.publishedAt ?? now,
+        updatedAt: now,
+      })
+      .where(eq(playbooks.id, row.id))
+      .returning()
+
+    if (!published) return { outcome: 'unknown-playbook' }
+    return { outcome: 'written', playbook: toPlaybook(published) }
+  })
 }
 
 /** What `recordPlaybookRun` needs beyond the citizen's own prose. */

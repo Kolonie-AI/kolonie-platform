@@ -318,7 +318,8 @@ export function registerAtlasPages(app: FastifyInstance, deps: RouteDependencies
     const asked = AccountProviderSchema.safeParse(request.params.provider)
     if (!asked.success) return reply.callNotFound()
 
-    const entry = (await listEntries()).find((one) => one.provider === asked.data)
+    const catalogue = await listEntries()
+    const entry = catalogue.find((one) => one.provider === asked.data)
 
     if (entry === undefined) {
       /**
@@ -358,6 +359,12 @@ export function registerAtlasPages(app: FastifyInstance, deps: RouteDependencies
          * document show no briefing, and neither should pay for one.
          */
         briefings: await recipes.briefings(asked.data),
+        /**
+         * The shelf this entry sits on, so the page can end with somewhere to
+         * go (`kolonie-website#113`). Free: it is the list the entry was just
+         * found in, and `atlasNeighbours` takes three out of it.
+         */
+        catalogue,
       }),
       'text/html; charset=utf-8',
     )

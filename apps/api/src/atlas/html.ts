@@ -45,6 +45,7 @@ import {
   type AtlasPublicRecipe,
 } from './public-projection.js'
 import { atlasEntryWorked } from './worked.js'
+import { atlasNeighbours } from './related.js'
 import { ATLAS_PARTLY, atlasEntryVerdict, atlasRecipeVerdict } from './verdict.js'
 import { atlasRuntimeLine } from './runtimes.js'
 import { CONSOLE_MAST } from '../console/mark.js'
@@ -233,7 +234,15 @@ const ATLAS_STANDFIRST =
   'joined honestly, that is what the page says — and where nobody has looked yet, it says that ' +
   'instead of guessing.'
 
-/** The website's own Academy page, which is not a route this API serves. */
+/**
+ * The website's own Academy page, which is not a route this API serves.
+ *
+ * **A rung is linked by its own slug and never by an id** (`kolonie-website#113`).
+ * The graph anchors every card at `id="<task type>"` — `academy-view.ts` says
+ * why, and it is the same string `provesTask` holds. A slug the graph has no
+ * card for lands on the graph, which is the honest failure: the reader is on the
+ * page that answers *which rung proves this*, one screen from the card.
+ */
 const ACADEMY_PATH = '/academy/'
 
 /**
@@ -1440,6 +1449,20 @@ export function atlasEntryPage(input: {
    * renders the page it rendered before this existed.
    */
   readonly briefings?: ReadonlyMap<string, ProviderBriefing> | undefined
+  /**
+   * The catalogue this entry is one of, so the page can name its neighbours
+   * (`kolonie-website#113`).
+   *
+   * **The whole list rather than a chosen three**, because *which three* is
+   * {@link atlasNeighbours}' rule and a caller that picked them would be a
+   * second place that decides what related means. The route already holds this
+   * list — it is what it found the entry in — so passing it costs a reference.
+   *
+   * Optional at every layer, like the quests and the briefings above: a caller
+   * that has no catalogue renders the page it rendered before this existed,
+   * minus the neighbours.
+   */
+  readonly catalogue?: readonly AtlasEntry[] | undefined
 }): string {
   /**
    * **The projection, on the first line and not at the caller** (`#1100`).
@@ -1591,6 +1614,14 @@ export function atlasEntryPage(input: {
       runtimesSection(entry),
       counterpartySection(entry),
       membershipSection(entry),
+      /**
+       * **Last, and below the invitation rather than above it**
+       * (`kolonie-website#113`). A reader who has got this far has decided
+       * something about this provider; the module is for the decision that
+       * follows, and a page that offered the neighbours before it had finished
+       * describing this one would be a shelf with an entry in the middle of it.
+       */
+      nextStepsSection(entry, atlasNeighbours(input.entry, input.catalogue ?? [])),
       NOT_A_PROMISE,
       '</main>',
     ].join('\n'),
@@ -2700,6 +2731,96 @@ function membershipSection(entry: AtlasPublicEntry): string {
   }
 
   return ''
+}
+
+/**
+ * Where a reader goes from the bottom of a provider page
+ * (`kolonie-website#113`).
+ *
+ * **Measured 2026-08-17.** `/atlas/agentphone.ai` ended in a list of walls with
+ * nothing under it: the shelf it sits on was named once, near the top, in the
+ * facts line; the other three telephony providers were reachable only by going
+ * back; the rung that proves a phone account was on the page as the words *an
+ * Academy rung* and as no link at all. A reader who read the page to the end and
+ * decided *not this one* had been handed an encyclopedia entry and no next step,
+ * which is `#547`'s product working exactly backwards.
+ *
+ * **Four links and no widget.** D-062 forbids JavaScript here, and nothing in
+ * this module needs any: a shelf, up to three neighbours, the rungs behind the
+ * rows, and the index. Every one of them is derived from the entry the page was
+ * built from.
+ *
+ * **The neighbours are the module's whole reason and a refusal keeps them.**
+ * `#543` refuses an *offer* stacked under *do not try* — and a wall page saying
+ * *these three are on the same shelf* is not an offer to join this provider, it
+ * is the reader being let out of the dead end. What a refusal does not get is
+ * the invitation below, which is the offer.
+ *
+ * **No invitation of its own, because the page already carries one.**
+ * {@link ATLAS_COLONY_BLOCK} puts the two readers and their two next steps on
+ * every page that is not a refusal, and {@link membershipSection} says it again
+ * in the copy a joinable page needs. Criterion (a) of the issue asks for *Join
+ * and register on the provider page*, and it is there once — a third copy in the
+ * last block would be the module shouting the same paragraph at a reader who has
+ * just scrolled past it. What this module owes them is the way out.
+ */
+function nextStepsSection(entry: AtlasPublicEntry, related: readonly AtlasEntry[]): string {
+  const shelf =
+    `<li><a href="${escape(atlasShelfPath(entry.category))}">Every ` +
+    `${escape(atlasShelfTitle(entry.category).toLowerCase())} provider the Colony has walked` +
+    `</a></li>`
+
+  const neighbours = atlasPublicEntries(related).map(
+    (one) =>
+      `<li><a href="${escape(one.path)}">${escape(one.title)}</a>${indexStatusMark(one)}</li>`,
+  )
+
+  /**
+   * **One link per rung, deduplicated, in the rows' own order.** A provider
+   * whose mailbox and whose domain are both proved by the same rung is one
+   * link; a provider with two different rungs behind two rows is two, because
+   * they are two different things to go and do.
+   */
+  const rungs = [
+    ...new Set(
+      entry.recipes.flatMap((recipe) =>
+        recipe.proves === 'rung' && recipe.provesTask !== null ? [recipe.provesTask] : [],
+      ),
+    ),
+  ].map(
+    (task) =>
+      `<li><a href="${escape(`${ACADEMY_PATH}#${task}`)}">The <code>${escape(task)}</code> ` +
+      `rung, which is what proves an account like this</a></li>`,
+  )
+
+  return [
+    '<nav class="k-atlas-next" aria-label="Where to go from here">',
+    '<h2>Where to go from here</h2>',
+    `<ul>${[...neighbours, ...rungs, shelf].join('')}` +
+      `<li><a href="${escape(atlasShelfPath())}">The whole Atlas</a></li></ul>`,
+    /**
+     * **Neighbours are named as neighbours and never recommended.** They are
+     * the same shelf in the catalogue's own order, which is measured outcome
+     * and never payment — {@link ATLAS_ORDER_NOTE} says so on every shelf, and
+     * a module that put three providers in front of a reader without saying
+     * where they came from would be the one place on the site that looked
+     * curated.
+     */
+    neighbours.length === 0
+      ? ''
+      : /**
+         * **The wording avoids the shelf's own figure sentence on purpose.** The
+         * page must never carry *got through* where a measurement was withheld
+         * for being below the floor, and a note printed on every entry page would
+         * put those words on exactly those pages.
+         */
+        `<p><small>The ${neighbours.length === 1 ? 'neighbour' : 'neighbours'} above ` +
+        `${neighbours.length === 1 ? 'is' : 'are'} the same shelf in the same order as the ` +
+        `shelf itself: measured outcome, never who paid.</small></p>`,
+    '</nav>',
+  ]
+    .filter((part) => part !== '')
+    .join('\n')
 }
 
 /**

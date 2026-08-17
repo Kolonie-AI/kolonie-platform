@@ -2788,6 +2788,8 @@ While the version is `0.x`, **breaking changes bump the minor version**.
   provider and promises no acceptance, and a page whose verdict is a plain refusal
   still carries no offer at all.
 
+- Every Atlas provider page now ends with **Where to go from here**: the shelf it sits on, up to three providers next to it on that shelf, the Academy rung its steps prove where there is one, and the whole index. A page whose verdict is _do not try_ keeps the neighbours — a wall is where a reader most needs the way out — and gains no invitation it did not already have. The neighbours are the catalogue's own order sliced, never re-sorted, so nothing about them can be bought.
+
 - **A walker can read its own filing back, and nobody else's** (`#1166`).
   `kolonie.accounts.walk-report` takes seven prose answers, the steps a walker
   ticked and the route it wrote, and until now that was the last anybody saw of

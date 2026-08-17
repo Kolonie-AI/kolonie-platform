@@ -1926,6 +1926,204 @@ describe('the Atlas on the website host', () => {
     })
   })
 
+  /**
+   * **Where a reader goes from the bottom of a provider page**
+   * (`kolonie-website#113`).
+   *
+   * The page under test is the one the issue names: a wall list with nothing
+   * under it. What the module owes a reader is the shelf, the two or three
+   * providers they would look at next, the rung that proves an account like this
+   * one, and the index — as links, because D-062 leaves nothing else available.
+   */
+  describe('where a reader goes from a provider page', () => {
+    /** The module itself, so an assertion about it cannot pass on the rest of the page. */
+    const nextSteps = (body: string) => {
+      const found = /<nav class="k-atlas-next"[\s\S]*?<\/nav>/.exec(body)?.[0]
+
+      if (found === undefined) throw new Error('the page carries no next-steps module')
+
+      return found
+    }
+
+    /** The providers it links to, in the order it printed them, shelves excluded. */
+    const neighbours = (block: string): readonly string[] =>
+      [...block.matchAll(/href="\/atlas\/(?!c\/)([^"]+)"/g)].map((one) => one[1] ?? '')
+
+    /**
+     * One shelf with more providers on it than a module carries, so the slice
+     * has something to leave out — and the outcomes spread far enough apart that
+     * `atlasByOutcome`'s order is the only order these assertions can pass in.
+     */
+    const shelf = async () => {
+      await app.close()
+      app = build()
+      for (const provider of ['here.example', 'plain.example']) {
+        colony.recipes.write({
+          kind: 'phone',
+          provider,
+          title: provider,
+          category: 'telephony',
+          status: 'measured',
+        })
+      }
+      colony.recipes.write({
+        kind: 'phone',
+        provider: 'best.example',
+        title: 'Best',
+        category: 'telephony',
+      })
+      colony.recipes.measure({
+        ...noFigures('phone', 'best.example'),
+        attempted: 20,
+        proved: 15,
+        evidenced: true,
+      })
+      colony.recipes.write({
+        kind: 'phone',
+        provider: 'mid.example',
+        title: 'Mid',
+        category: 'telephony',
+      })
+      colony.recipes.measure({
+        ...noFigures('phone', 'mid.example'),
+        attempted: 8,
+        proved: 3,
+        evidenced: true,
+      })
+      colony.recipes.write({
+        kind: 'phone',
+        provider: 'wall.example',
+        title: 'Wall',
+        category: 'telephony',
+        status: 'refused',
+        refusal: 'Signup demands a document no citizen holds.',
+      })
+      await app.ready()
+    }
+
+    it('ends a provider page with its shelf and the whole index', async () => {
+      await shelf()
+
+      const block = nextSteps((await get('/atlas/here.example')).body)
+
+      expect(block).toContain('<h2>Where to go from here</h2>')
+      expect(block).toContain(`href="${ATLAS_PATH}/c/telephony">Every telephony provider`)
+      expect(block).toContain(`href="${ATLAS_PATH}">The whole Atlas`)
+    })
+
+    /**
+     * **The catalogue's own order, sliced and never re-sorted** — rule 2 of
+     * `#543` reaching the last block on the page. `best` got three-quarters of
+     * its walkers through and `mid` under half; `plain` was walked with nothing
+     * measured; `wall` is the row the slice drops.
+     */
+    it('names the providers next to it in the catalogue’s order', async () => {
+      await shelf()
+
+      const block = nextSteps((await get('/atlas/here.example')).body)
+
+      expect(neighbours(block)).toEqual(['best.example', 'mid.example', 'plain.example'])
+      /** Never the page's own provider, which is the one row the reader has. */
+      expect(neighbours(block)).not.toContain('here.example')
+      /** And it says where the three came from, rather than looking curated. */
+      expect(block).toContain('measured outcome, never who paid')
+    })
+
+    /** A neighbour carries its verdict, so a reader is not sent to a second wall blind. */
+    it('marks what a neighbour is before a reader clicks it', async () => {
+      await shelf()
+
+      const block = nextSteps((await get('/atlas/mid.example')).body)
+
+      expect(block).toContain('walked, with no route written')
+    })
+
+    /** Nothing from another shelf, which would be a second opinion about where a provider lives. */
+    it('never reaches across shelves for a neighbour', async () => {
+      await shelf()
+
+      expect(neighbours(nextSteps((await get('/atlas/here.example')).body))).not.toContain('github')
+    })
+
+    /**
+     * **The page the issue was written about.** A refusal keeps the way out —
+     * three providers on the same shelf is navigation, not an offer — and `#543`
+     * still takes everything that is one, which on this page is every invitation.
+     */
+    it('lets a reader out of a wall page without offering it to them', async () => {
+      await shelf()
+
+      const body = (await get('/atlas/wall.example')).body
+
+      expect(neighbours(nextSteps(body))).toContain('best.example')
+      expect(body).not.toContain('class="k-atlas-cta"')
+    })
+
+    /**
+     * **The register-and-join half of criterion (a), counted rather than
+     * assumed.** `#111` put it on every page that is not a refusal, so the module
+     * adds none of its own: the failure worth a test is the third copy, one screen
+     * under the second.
+     */
+    it('leaves the one invitation the page already has where it is', async () => {
+      await shelf()
+
+      const body = (await get('/atlas/here.example')).body
+
+      expect([...body.matchAll(/class="k-atlas-cta"/g)]).toHaveLength(1)
+      expect(body).toContain('kolonie.register')
+      expect(body).toContain('href="/skill/">Join the Colony')
+      expect(nextSteps(body)).not.toContain('kolonie.register')
+    })
+
+    /**
+     * **The rung is a link and was three words** (`kolonie-website#113`). Only
+     * where a row actually proves one: a provider curated with no task behind it
+     * gets no link, because there is nowhere for it to go.
+     */
+    it('links the Academy rung an entry proves, and only where there is one', async () => {
+      await app.close()
+      app = build()
+      colony.recipes.write({
+        kind: 'github',
+        provider: 'proves.example',
+        title: 'Proves',
+        proves: 'rung',
+        provesTask: 'github-account',
+      })
+      await app.ready()
+
+      expect(nextSteps((await get('/atlas/proves.example')).body)).toContain(
+        'href="/academy/#github-account"',
+      )
+      /** `github` in the fixture proves a rung and names no task, so it links none. */
+      expect(nextSteps((await get('/atlas/github')).body)).not.toContain('/academy/#')
+    })
+
+    /**
+     * Criterion (b), which the shelf pages already satisfied before this issue:
+     * the index and the neighbouring shelves are on a category page, from
+     * `#1102`'s nav and `#546`'s facts line. Asserted rather than rebuilt, so a
+     * later edit cannot take it away without a red test.
+     */
+    it('already links the index and the adjacent shelves from a shelf', async () => {
+      const body = (await get(`${ATLAS_PATH}/c/mailbox`)).body
+
+      expect(body).toContain(`<a href="${ATLAS_PATH}">Every category</a>`)
+      expect(body).toContain(`href="${ATLAS_PATH}/c/identity-security"`)
+    })
+
+    /** Links and lists, exactly as everywhere else under the prefix (D-062). */
+    it('needs no JavaScript', async () => {
+      await shelf()
+
+      const block = nextSteps((await get('/atlas/here.example')).body)
+
+      expect(block).not.toContain('<script')
+      expect(block).not.toContain('onclick')
+    })
+  })
+
   describe('caching, because this is the first public traffic the API takes', () => {
     it('lets the edge and the browser cache a page', async () => {
       const cacheControl = (await get('/atlas')).headers['cache-control']

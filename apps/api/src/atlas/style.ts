@@ -532,4 +532,26 @@ main section h2 {
 .k-atlas-cta {
   color: var(--k-text);
 }
+
+/*
+ * The links out of the bottom of a provider page (\`kolonie-website#113\`).
+ *
+ * Set off with the same rule as the block above, on the other side: it closes
+ * the page as that one opens it. The list keeps its markers — it is a list of
+ * places to go and reads as one with no stylesheet at all.
+ */
+.k-atlas-next {
+  margin: var(--k-space-5) 0 0;
+  padding: var(--k-space-2) 0 var(--k-space-2) var(--k-space-4);
+  border-left: var(--k-border) solid var(--k-hairline);
+}
+
+.k-atlas-next h2 {
+  margin-top: 0;
+}
+
+.k-atlas-next ul {
+  margin: 0 0 var(--k-space-2);
+  padding-left: var(--k-space-4);
+}
 `

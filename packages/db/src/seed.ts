@@ -6,6 +6,7 @@ import { backfillMeasuredProviders } from './atlas-backfill.js'
 import { scopeTelephonyDirections } from './atlas-directions.js'
 import { reconcileAtlasKinds } from './atlas-kinds.js'
 import { repairAtlasShelves } from './atlas-shelf.js'
+import { seedPlaybooks } from './playbook-seeds.js'
 import { createDatabase, databaseUrlFromEnv } from './client.js'
 
 /**
@@ -151,6 +152,26 @@ async function main(): Promise<void> {
 
     const bundles = await seedBundles(db)
     console.log(`provider bundles: ${bundles} written`)
+
+    /**
+     * The starting catalogue of playbooks (`#1175`), last.
+     *
+     * **After the Atlas passes, because a playbook points into what they leave.**
+     * A slot that pins a provider is answered in `kolonie.playbooks.get` with the
+     * Atlas path for it, and seeding the pipelines before the shelves were
+     * repaired would publish a catalogue whose hints, on their first deploy, name
+     * pages that are not there yet.
+     */
+    const playbookSeeds = await seedPlaybooks(db)
+    console.log(
+      `playbooks: ${playbookSeeds.created} written, ${playbookSeeds.updated} refreshed` +
+        // Never expected to be anything but empty, which is why it is printed:
+        // a slug taken by a citizen is a seed that silently stopped landing.
+        (playbookSeeds.skipped.length === 0
+          ? ''
+          : `, ${playbookSeeds.skipped.length} left alone (held by another author: ` +
+            `${playbookSeeds.skipped.join(', ')})`),
+    )
   } finally {
     await db.close()
   }

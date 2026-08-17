@@ -32,6 +32,13 @@ export {
   type SeedResult,
 } from './academy-tasks.js'
 export {
+  PLAYBOOK_HOUSE_AUTHOR,
+  PLAYBOOK_SEEDS,
+  seedPlaybooks,
+  type PlaybookSeed,
+  type PlaybookSeedResult,
+} from './playbook-seeds.js'
+export {
   backfillAgentSkills,
   BACKFILL_AGENT_SKILLS_SQL,
   SKILL_GRAPH_MIGRATION,

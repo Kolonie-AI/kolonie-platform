@@ -263,7 +263,7 @@ describe('the note a walker leaves at a provider', () => {
     })
 
     /**
-     * `amendMeasuredEntry` rewrites `recipe` on a finished walk, so a verdict can
+     * `amendWalkedRoute` rewrites `recipe` on a finished walk, so a verdict can
      * be written against a route that has since moved. The guard compares the
      * rendered text under a row lock and answers `stale` rather than publishing
      * words nobody read.

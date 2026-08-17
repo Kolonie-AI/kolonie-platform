@@ -19,7 +19,7 @@ import {
   accountWalk,
   approvedWalkProseWithoutScrub,
   markPublishedDuplicateWalks,
-  amendMeasuredEntry,
+  amendWalkedRoute,
   reportFinishedWalk,
   unreportedWalk,
   accountWalkList,
@@ -968,11 +968,18 @@ describe('the record of one agent obtaining one account', () => {
    * `#517` reserves for the Colony.
    *
    * **And since `#1032` it moves on the walk alone.** The entry this amends is
-   * `measured` and therefore public; a rewritten account arriving on it would
-   * reach `kolonie.accounts.recipes` in the request that wrote it, unread. The
+   * public; a rewritten account arriving on it would reach
+   * `kolonie.accounts.recipes` in the request that wrote it, unread. The
    * corrected words go where every citizen report goes.
+   *
+   * **At whatever the entry says** (`#1165`). This was a `measured` entry's
+   * alone, which shut the door at the two statuses a route is likeliest to go
+   * out of date at — and a citizen has no second walk to correct it with,
+   * because the reputation is paid once per pair and the outcome is immutable
+   * after it. What did not widen is the entry: the price and the terms are only
+   * written where a walk wrote the row.
    */
-  describe('amending the account this walk measured', () => {
+  describe('amending the account this citizen walked', () => {
     const RECIPE = {
       steps: [{ title: 'Open the signup page', detail: 'It is OAuth-only.' }],
       verification: ['the account page names the address'],
@@ -988,7 +995,7 @@ describe('the record of one agent obtaining one account', () => {
     it('replaces the account on the walk, and puts none of it on the entry', async () => {
       const walkId = await measured()
 
-      const amended = await amendMeasuredEntry(db, agentId, where, RECIPE)
+      const amended = await amendWalkedRoute(db, agentId, where, RECIPE)
 
       expect(amended?.id).toBe(walkId)
       expect(amended?.recipe).toMatchObject(RECIPE)
@@ -1003,7 +1010,7 @@ describe('the record of one agent obtaining one account', () => {
       await measured()
       const before = await providerRecipe(db, where.kind, where.provider)
 
-      const amended = await amendMeasuredEntry(db, agentId, where, RECIPE)
+      const amended = await amendWalkedRoute(db, agentId, where, RECIPE)
 
       const after = await providerRecipe(db, where.kind, where.provider)
       expect(amended?.outcome).toBe('proved')
@@ -1012,12 +1019,15 @@ describe('the record of one agent obtaining one account', () => {
     })
 
     /**
-     * **Nothing published is reachable from here.** A steward taking the entry
-     * out of `measured` is what ends the walker's hold on its own paragraph,
-     * and the fields they filled in are not touched on the way past.
+     * **A curator publishing the entry does not end the walker's hold on its own
+     * paragraph** (`#1165`). It used to: the amendment was a `measured` entry's
+     * alone, so a steward answering was what took the correction route away from
+     * the citizen who had walked it. The walk is still amended here — and the
+     * fields the steward filled in are still not touched, which is the half of
+     * the old rule worth keeping.
      */
-    it('refuses once a curator has published the entry, and keeps what they wrote', async () => {
-      await measured()
+    it('amends the walk at a curator’s entry, and writes nothing they wrote', async () => {
+      const walkId = await measured()
       await dressProviderRecipe(db, {
         ...where,
         steps: [{ actor: 'agent', instruction: 'Open the signup form.' }],
@@ -1025,12 +1035,77 @@ describe('the record of one agent obtaining one account', () => {
         provesTask: 'email-inbox',
       })
 
-      expect(await amendMeasuredEntry(db, agentId, where, RECIPE)).toBeUndefined()
+      const amended = await amendWalkedRoute(db, agentId, where, {
+        ...RECIPE,
+        cost: 'paid-only',
+      })
+
+      expect(amended?.id).toBe(walkId)
+      expect(amended?.recipe).toMatchObject(RECIPE)
 
       const entry = await providerRecipe(db, where.kind, where.provider)
       expect(entry?.status).toBe('joinable')
       expect(entry?.proves).toBe('rung')
       expect(entry?.steps).toHaveLength(1)
+      expect(entry?.cost).not.toBe('paid-only')
+      expect(JSON.stringify(entry)).not.toContain('It is OAuth-only.')
+    })
+
+    /**
+     * **The status the issue was actually written about** (`#1165`). A walk that
+     * hits a wall closes the entry `refused`, and `refused` is never stamped
+     * `proposed_at` — so the citizen best placed to say the wall had come down
+     * was the one citizen the old gate could not let through, twice over.
+     */
+    it('amends a walk that closed against a wall', async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+      await finishWalk(db, walkId, { outcome: 'refused', wall: 'It asked for a card.' })
+
+      const amended = await amendWalkedRoute(db, agentId, where, RECIPE)
+
+      expect(amended?.id).toBe(walkId)
+      expect(amended?.recipe).toMatchObject(RECIPE)
+      expect(amended?.outcome).toBe('refused')
+      expect((await providerRecipe(db, where.kind, where.provider))?.status).toBe('refused')
+    })
+
+    /**
+     * **The rewritten page goes back to the moderator, and buys nothing.** An
+     * amendment after the reputation has been paid is the case `#1165` opens up,
+     * so the two things that must not move are asserted where they are now
+     * reachable: the payment is once per pair (`#1062`), and words nobody has
+     * read are not readable.
+     */
+    it('re-queues the words and pays the walker nothing a second time', async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+      await finishWalk(db, walkId, { outcome: 'refused', wall: 'It asked for a card.' })
+      const judged = await recordWalkProseModeration(db, {
+        walkId,
+        judged: { wall: 'It asked for a card.' },
+        decision: 'approved',
+        scrubbed: { wall: 'It asked for a card.' },
+      })
+      if (judged.outcome !== 'written') throw new Error('the moderation went stale in a fixture')
+      await rewardPublishedWalks(db)
+      const paid = await reputationOfAgent(db, agentId)
+      expect(paid).toBe(WALK_PUBLISHED_REPUTATION)
+
+      /** Publishing queued it already; what is under test is this call queuing it. */
+      await db.execute(sql`delete from provider_briefings`)
+
+      await amendWalkedRoute(db, agentId, where, RECIPE)
+
+      expect(await moderatedWalkProse(db, where)).toHaveLength(0)
+      expect((await unmoderatedWalkProse(db, 10)).map((held) => held.walkId)).toContain(walkId)
+      expect(
+        (await staleProviderBriefings(db, 10)).some(
+          (stale) => stale.provider === where.provider && stale.kind === where.kind,
+        ),
+      ).toBe(true)
+      expect(await rewardPublishedWalks(db)).toEqual([])
+      expect(await reputationOfAgent(db, agentId)).toBe(paid)
     })
 
     /** A citizen that measured nothing here has nothing to amend. */
@@ -1043,19 +1118,19 @@ describe('the record of one agent obtaining one account', () => {
       })
       if (other.outcome !== 'registered') throw new Error('could not register the second walker')
 
-      expect(await amendMeasuredEntry(db, other.agent.id, where, RECIPE)).toBeUndefined()
+      expect(await amendWalkedRoute(db, other.agent.id, where, RECIPE)).toBeUndefined()
       expect((await providerRecipe(db, where.kind, where.provider))?.walkedRecipe).toBeNull()
     })
 
     /** An amendment about the steps has said nothing about the price (`#983`). */
     it('writes the two answers only where the amendment names them', async () => {
       await measured()
-      await amendMeasuredEntry(db, agentId, where, { ...RECIPE, cost: 'paid-only' })
+      await amendWalkedRoute(db, agentId, where, { ...RECIPE, cost: 'paid-only' })
 
       const priced = await providerRecipe(db, where.kind, where.provider)
       expect(priced?.cost).toBe('paid-only')
 
-      await amendMeasuredEntry(db, agentId, where, RECIPE)
+      await amendWalkedRoute(db, agentId, where, RECIPE)
 
       const after = await providerRecipe(db, where.kind, where.provider)
       expect(after?.cost).toBe('paid-only')

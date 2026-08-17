@@ -625,6 +625,18 @@ function curationFromEntry(entry: ProviderRecipe | undefined): {
 }
 
 /**
+ * The two statuses a closing walk writes for itself (`#1165`).
+ *
+ * `measured` is what a walk that got through or gave up leaves behind, and
+ * `refused` is what one that hit a wall the terms put there leaves behind.
+ * Everything else on a row at either of those is composed from walks, which is
+ * what makes a walker's typed answers welcome there — and everything at
+ * `joinable`, `retired` or `unwritten` is somebody's curation, which is what
+ * makes them not.
+ */
+const WALK_WRITTEN_STATUSES: readonly ProviderRecipe['status'][] = ['measured', 'refused']
+
+/**
  * Replace the walker's own account on the entry it wrote (`#986`).
  *
  * **The one thing on that entry that is the walker's to write.** A citizen read
@@ -646,15 +658,29 @@ function curationFromEntry(entry: ProviderRecipe | undefined): {
  * that argument. What still travels are the conditions — typed fields a reader
  * cannot be misled by a sentence in.
  *
- * **Only the walk that wrote the entry, and only while the entry is
- * `measured`.** That was `draft` until `#1032` retired the status; `measured`
- * is what a walk writes now, and it is the same gate — an entry standing on
- * what citizens measured rather than on anything the Colony authored.
- * `proposed_at` is stamped on exactly the walk whose verdict wrote the row, so a
- * second citizen walking the same provider cannot overwrite the first one's
- * words, and nothing published is reachable from here at all.
+ * **The citizen's own finished walk, at whatever the entry says** (`#1165`).
+ *
+ * This was gated on `measured` — the status a walk writes — and on
+ * `proposed_at`, the stamp that names the walk whose verdict wrote the row.
+ * Both made sense while the amendment landed on the entry: they were what kept
+ * a second walker from overwriting the first one's words. `#1032` moved the
+ * corrected account onto the walk row, and from that moment each citizen was
+ * amending its own row and the two gates were guarding nothing — while shutting
+ * out exactly the providers most likely to need a correction. A provider that
+ * lands `refused` or `joinable` is one the Colony has taken a position on, and
+ * `refused` is never stamped `proposed_at` at all, so a walker whose route went
+ * out of date at the two statuses that matter had no way to say so and no
+ * second walk to say it with: the reputation is paid once per pair and the
+ * outcome is immutable after it (`#1062`).
+ *
+ * **What did not widen is the entry.** The typed conditions below are written
+ * only where the entry is one a walk itself wrote; a steward's `joinable` or
+ * `retired` row keeps its price and its terms, because those are the Colony's
+ * sentence and a citizen correcting its own paragraph has not been asked about
+ * them. And no outcome, no verdict and no reputation move here at any status —
+ * an amendment is a rewritten page, judged as a page.
  */
-export async function amendMeasuredEntry(
+export async function amendWalkedRoute(
   db: Database,
   agentId: AgentId,
   where: { readonly kind: AccountKind; readonly provider: string },
@@ -664,7 +690,7 @@ export async function amendMeasuredEntry(
 
   return db.transaction(async (tx) => {
     const entry = await providerRecipe(tx, where.kind, provider)
-    if (entry === undefined || entry.status !== 'measured') return undefined
+    if (entry === undefined) return undefined
 
     const [row] = await tx
       .select()
@@ -675,10 +701,9 @@ export async function amendMeasuredEntry(
           eq(accountWalks.kind, where.kind),
           eq(accountWalks.provider, provider),
           isNotNull(accountWalks.finishedAt),
-          isNotNull(accountWalks.proposedAt),
         ),
       )
-      .orderBy(desc(accountWalks.proposedAt))
+      .orderBy(desc(accountWalks.finishedAt))
       .limit(1)
 
     if (row === undefined) return undefined
@@ -724,26 +749,35 @@ export async function amendMeasuredEntry(
      * — it is told about exactly one field and knows nothing about the rest —
      * so putting it through the upsert would make a walker replacing its own
      * paragraph silently clear whatever a steward had already filled in.
+     *
+     * **And only on an entry a walk wrote** (`#1165`). The amendment reaches
+     * every status now, and these two columns are the only thing it puts on the
+     * entry rather than on the walk — so at a `joinable` or `retired` row, where
+     * the price and the terms are a steward's answer, it writes nothing. That is
+     * the same line `finishWalk` already draws: a walk against something the
+     * Colony publishes confirms or diverges and never writes the conditions.
      */
-    await tx
-      .update(providerRecipesTable)
-      .set({
-        updatedAt: sql`now()`,
-        /**
-         * **Written only where the amendment names them** (`#983`), which is the
-         * same argument the paragraph above makes about the upsert, one field
-         * narrower: a walker correcting its steps has said nothing about the
-         * price, and nothing is what its silence should change.
-         */
-        ...(recipe.terms === undefined ? {} : { terms: recipe.terms }),
-        ...(recipe.cost === undefined ? {} : { cost: recipe.cost }),
-      })
-      .where(
-        and(
-          eq(providerRecipesTable.kind, entry.kind),
-          eq(providerRecipesTable.provider, entry.provider),
-        ),
-      )
+    if (WALK_WRITTEN_STATUSES.includes(entry.status)) {
+      await tx
+        .update(providerRecipesTable)
+        .set({
+          updatedAt: sql`now()`,
+          /**
+           * **Written only where the amendment names them** (`#983`), which is
+           * the same argument the paragraph above makes about the upsert, one
+           * field narrower: a walker correcting its steps has said nothing about
+           * the price, and nothing is what its silence should change.
+           */
+          ...(recipe.terms === undefined ? {} : { terms: recipe.terms }),
+          ...(recipe.cost === undefined ? {} : { cost: recipe.cost }),
+        })
+        .where(
+          and(
+            eq(providerRecipesTable.kind, entry.kind),
+            eq(providerRecipesTable.provider, entry.provider),
+          ),
+        )
+    }
 
     /** The amendment may have added, dropped or re-qualified a wall (`#981`). */
     await republishWalls(tx, { kind: entry.kind, provider: entry.provider })
@@ -1814,7 +1848,7 @@ const moderatedWalkProseValue = (command: WalkProseModerationCommand): WalkProse
  *
  * **The route is guarded too, and cannot be guarded the same way** (`#1090`).
  * `route` is not a column — it is `recipe`, a `jsonb`, rendered — and
- * `amendMeasuredEntry` rewrites that field on a walk that has already finished.
+ * `amendWalkedRoute` rewrites that field on a walk that has already finished.
  * So it is compared as what the moderator actually read: the row is locked, the
  * route re-rendered from it by the one function that renders it, and the verdict
  * refused if those bytes differ. Comparing the rendered text rather than the

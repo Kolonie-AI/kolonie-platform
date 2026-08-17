@@ -355,16 +355,27 @@ describe('what a walk read says about the walk', () => {
   })
 
   /**
-   * **The amendment route is named only where it applies** (`#986`, carried
-   * across `#1032`). A `measured` entry is the one a walk wrote, so its account
-   * of the path is the walker's to replace; against no entry at all there is
-   * nothing of the walker's on the shelf to correct.
+   * **The amendment route is named at every fate a finished walk can reach**
+   * (`#986`, widened by `#1165`). It was a `measured` entry's alone, and that
+   * left the sentence out of exactly the fates where a route is likeliest to
+   * have gone out of date — a walk that closed against a wall, and one now
+   * contradicted by a steward. What the citizen amends is its own page either
+   * way, so there is nothing at those statuses the sentence over-promises.
+   *
+   * The open walk is the one it stays out of, and for the reason it always
+   * had: a walk still running closes rather than amends.
    */
-  it('names the amendment route on a measured entry and nowhere else', async () => {
-    expect((await read({ outcome: 'proved', entry: 'measured' })).walk.why).toContain(
-      'kolonie.accounts.walk-report with `recipe` replaces it',
+  it('names the amendment route at every finished fate', async () => {
+    for (const entry of ['measured', 'unwritten', 'refused', 'joinable', 'retired'] as const) {
+      expect((await read({ outcome: 'proved', entry })).walk.why).toContain(
+        'kolonie.accounts.walk-report with `recipe` replaces it',
+      )
+    }
+
+    expect((await read({ outcome: 'abandoned', entry: 'joinable' })).walk.why).toContain(
+      '`recipe` replaces it',
     )
-    expect((await read({ outcome: 'proved', entry: 'unwritten' })).walk.why).not.toContain(
+    expect((await read({ finished: false, entry: 'refused' })).walk.why).not.toContain(
       '`recipe` replaces it',
     )
   })

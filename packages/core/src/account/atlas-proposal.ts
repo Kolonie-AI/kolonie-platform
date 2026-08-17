@@ -496,3 +496,16 @@ export function atlasCategoryForKind(kind: AccountKind): AtlasCategory {
   if (category === undefined) throw new Error(`No Atlas category maps to account kind ${kind}`)
   return category
 }
+
+/**
+ * Every account kind {@link atlasCategoryForKind} answers for (`#1106`).
+ *
+ * **The same map read forwards, so that a query can ask the complement.** The
+ * category-proposal queue is *the pairs whose kind reaches no shelf*, and a
+ * caller that could only ask one kind at a time would have to fetch every pair
+ * and filter afterwards — which applies its `limit` to rows it is about to throw
+ * away. Handed to SQL as a `not in`, the limit falls where it should.
+ */
+export function atlasShelvedKinds(): readonly string[] {
+  return [...ATLAS_CATEGORY_BY_KIND.keys()]
+}

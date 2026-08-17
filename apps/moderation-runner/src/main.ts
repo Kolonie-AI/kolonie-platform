@@ -44,7 +44,12 @@ import {
   staleProviderBriefings,
   writeProviderBriefing,
   writeProviderDescription,
+  atlasCategoriesHeld,
+  atlasCategoriesSettled,
+  atlasCategoryList,
+  atlasCategoryProposalQueue,
   atlasEntryFor,
+  openAtlasCategoryProposal,
   recordAtlasModeration,
   unjudgedAtlasProposals,
 } from '@kolonie-ai/db'
@@ -66,8 +71,11 @@ import type { QuestAuditStore } from './quest-audit.js'
 import type { QuestEndingsStore } from './quest-endings.js'
 import type { WalkProseModerationStore } from './walk-prose.js'
 import type { AtlasModerationStore } from './atlas.js'
+import type { AtlasCategoryProposalStore } from './atlas-category-proposals.js'
 import type { QuestReportModerationStore } from './quest-reports.js'
 import {
+  AccountKindSchema,
+  AccountProviderSchema,
   createLog,
   gatewayFromEnvironment,
   gatewayOnlyFetch,
@@ -319,6 +327,33 @@ const providerBriefings: ProviderBriefingStore = {
   corpus: (where) => providerBriefingCorpus(db, where),
   write: (input) => writeProviderBriefing(db, input),
   describe: (input) => writeProviderDescription(db, input),
+}
+
+/**
+ * Where a provider belongs in the Atlas, put to a maintainer (`#1106`).
+ *
+ * **The same corpus function the briefing reads**, and that is the point rather
+ * than a saving: a category proposed from a different set of walks than the
+ * briefing was written from is a proposal a maintainer cannot check against the
+ * page it is about. `providerBriefingCorpus` already applies every rule that
+ * matters — scrubbed prose only, finished walks, repeats dropped — and this pass
+ * has no reason to want any of them relaxed.
+ *
+ * It raises nothing on its own authority: `openAtlasCategoryProposal` writes a
+ * row with `status = 'open'`, and every shelf in the Atlas still moves only when
+ * a maintainer says so.
+ */
+const categoryProposals: AtlasCategoryProposalStore = {
+  queue: (limit) => atlasCategoryProposalQueue(db, limit),
+  categories: () => atlasCategoryList(db),
+  corpus: (pair) =>
+    providerBriefingCorpus(db, {
+      kind: AccountKindSchema.parse(pair.kind),
+      provider: AccountProviderSchema.parse(pair.provider),
+    }),
+  settled: (pair) => atlasCategoriesSettled(db, pair),
+  held: (pair) => atlasCategoriesHeld(db, pair),
+  raise: async (input) => ({ outcome: (await openAtlasCategoryProposal(db, input)).outcome }),
 }
 
 /**
@@ -590,7 +625,7 @@ const questRunner = startQuestRunner(
   { pollIntervalMs: QUEST_POLL_INTERVAL_MS },
 )
 const briefingRunner = startBriefingRunner(
-  { store: briefings, providers: providerBriefings, model, log },
+  { store: briefings, providers: providerBriefings, categories: categoryProposals, model, log },
   { pollIntervalMs: BRIEFING_INTERVAL_MS },
 )
 

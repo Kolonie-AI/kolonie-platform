@@ -7,6 +7,7 @@ import type {
   PendingReport,
   PendingQuest,
 } from '@kolonie-ai/db'
+import { ATLAS_SEEDED_CATEGORIES } from '@kolonie-ai/core'
 import type {
   BriefingClaim,
   Log,
@@ -25,6 +26,7 @@ import {
   type BriefingStore,
   type ModerationStore,
 } from './loop.js'
+import type { AtlasCategoryProposalStore } from './atlas-category-proposals.js'
 import { segmentsOf, SIMILARITY_THRESHOLD } from './dedup.js'
 import { fakeModel, type FakeModel } from './__fixtures__/model.js'
 import { ProviderUnreachable } from './llm.js'
@@ -983,6 +985,53 @@ describe('writing briefings', () => {
     const outcome = await briefingTick({ store: briefingStore(), model }, 10)
 
     expect(outcome).toEqual({ written: 0, failed: 0, unreachable: 0 })
+  })
+
+  /**
+   * The category proposals ride the same tick (`#1106`), and the two assertions
+   * below are the whole of what that arrangement has to be right about.
+   */
+  describe('the category proposal phase', () => {
+    const pair = { kind: 'ticketing', provider: 'tickets.example' }
+
+    const categoryStore = (
+      asked: { kind: string; provider: string }[],
+    ): AtlasCategoryProposalStore => ({
+      queue: async () => [pair],
+      categories: async () => ATLAS_SEEDED_CATEGORIES,
+      corpus: async (where) => {
+        asked.push(where)
+        return []
+      },
+      settled: async () => [],
+      held: async () => [],
+      raise: async () => ({ outcome: 'raised' }),
+    })
+
+    it('runs after the briefings, on the same pass', async () => {
+      const asked: { kind: string; provider: string }[] = []
+      stale = []
+
+      await briefingTick({ store: briefingStore(), categories: categoryStore(asked), model }, 10)
+
+      expect(asked).toEqual([pair])
+    })
+
+    /**
+     * **The reason it is below the outage check and not above it.** With the
+     * model gone the pass has already thrown, so no proposal call is spent
+     * discovering the same outage a third time.
+     */
+    it('spends nothing on proposals in a pass that reached no provider', async () => {
+      const asked: { kind: string; provider: string }[] = []
+      stale = [randomUUID() as TaskId]
+      model.failsNext(new ProviderUnreachable('/chat/completions', unreachable()))
+
+      await expect(
+        briefingTick({ store: briefingStore(), categories: categoryStore(asked), model }, 10),
+      ).rejects.toBeInstanceOf(ProviderUnreachable)
+      expect(asked).toEqual([])
+    })
   })
 })
 

@@ -339,6 +339,14 @@ describe('schema', () => {
          */
         'atlas_categories',
         /**
+         * `#1106`. Where a model says a provider belongs, for a maintainer to
+         * accept or decline. A table rather than a column on the entry because
+         * a proposal is not a filing: it outlives being declined, it names the
+         * walks it was read from, and the same pair may be proposed a second
+         * shelf without the first having moved anything.
+         */
+        'atlas_category_proposals',
+        /**
          * `#812`. Every verdict the Colony reached about a proposed provider —
          * the model, each admission question's answer, and a digest of the
          * claim judged. A third moderation table for the reason

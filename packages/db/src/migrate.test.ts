@@ -506,7 +506,14 @@ describe('the migrations', () => {
     // last entry taken off it, and an entry the join table gives a second shelf
     // is still filed on one of them primarily. Adding a shelf is a row now
     // rather than a release.
-    expect(afterFirst.tables).toBe('128')
+    //
+    // **A hundred and twenty-nine** (`#1106`): `atlas_category_proposals`, where
+    // a model says which shelf a provider belongs on and a maintainer decides.
+    // Beside the two above rather than a column on either, because a proposal
+    // is not a filing — it survives being declined, it cites the walks it was
+    // read from, and a pair may be proposed a second shelf without the first
+    // having moved anything.
+    expect(afterFirst.tables).toBe('129')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

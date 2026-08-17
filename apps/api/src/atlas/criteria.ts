@@ -186,9 +186,10 @@ export function atlasCriteria(entry: AtlasPublicEntry): readonly AtlasCriterion[
  * What the walks found about one kind of wall, in the sentence the Colony wrote
  * for that kind.
  *
- * The count, the direction and the amount are the wall's own typed fields —
- * `wallsSection` prints the same four and this is deliberately the same shape, so
- * a reader who scans the box and then reads the findings is not told two things.
+ * The count, the direction, what it stood in front of and the amount are the
+ * wall's own typed fields — `wallsSection` prints the same five and this is
+ * deliberately the same shape, so a reader who scans the box and then reads the
+ * findings is not told two things.
  * The prose half of a wall (`title`, `symptom`, `remedy`) never leaves the
  * projection and is not reachable from here (`#1100` decision 3).
  */
@@ -204,8 +205,10 @@ function wallAnswer(
       ? ' Classified from the refusal rather than from a walk.'
       : ` Hit by ${wall.reportedBy} walk${wall.reportedBy === 1 ? '' : 's'}.`
   const cost = wall.amountUsd === undefined ? '' : ` About $${wall.amountUsd}.`
+  const stands =
+    wall.stands === 'capability' ? ', in front of the capability rather than the account' : ''
 
-  return `Yes — ${WALL_KIND_MEANINGS[wall.kind]}${scope}.${walks}${cost}`
+  return `Yes — ${WALL_KIND_MEANINGS[wall.kind]}${scope}${stands}.${walks}${cost}`
 }
 
 /**

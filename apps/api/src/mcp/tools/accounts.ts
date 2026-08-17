@@ -2518,7 +2518,9 @@ export function registerAccountTools(
             'than the note holds: what had to be true before you started, the ordered steps in ' +
             'your own words, the walls and what got past them, and how to tell the account ' +
             'really exists — plus what it cost you and what the terms said, which are the two ' +
-            'answers that land on the entry itself. It reaches ' +
+            'answers that land on the entry itself. A wall that stood between the account and ' +
+            'the thing it was for rather than in front of the signup takes `stands: ' +
+            '"capability"`, and that is what lets a free signup stay free. It reaches ' +
             'other citizens through this provider\u2019s briefing, attributed to you and once its ' +
             'prose has been moderated as every citizen report is — never as the Colony\u2019s ' +
             'own wording. No password, code or token, in any field.',

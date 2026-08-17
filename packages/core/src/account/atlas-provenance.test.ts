@@ -62,6 +62,7 @@ const recipe = (input: {
     /** Unscoped: this file is about provenance, not the axis (`#976`). */
     direction: null,
     about: null,
+    description: null,
     runtimes: [],
     paid: false,
     referral: null,

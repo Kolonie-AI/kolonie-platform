@@ -1084,6 +1084,21 @@ export const ProviderRecipeSchema = z.object({
    */
   about: z.string().max(RECIPE_ABOUT_MAX_LENGTH).nullable(),
   /**
+   * One sentence saying what the provider is, written by the Colony (`#1120`).
+   *
+   * **Carried beside `about` and owned by neither the same hand nor the same
+   * call.** `about` is a curator's paragraph and arrives through
+   * `writeProviderRecipe`; this one is synthesised from the published walks by
+   * the moderation runner and arrives through `writeProviderDescription`, which
+   * is why the write path deliberately leaves the column alone. Reading them
+   * together on one shape is what lets a surface render whichever it has
+   * without knowing which runner filled it.
+   *
+   * Null on a provider whose corpus produced nothing, which is the ordinary
+   * state and renders as today's page rather than as a gap (`#1121` decision 3).
+   */
+  description: z.string().max(PROVIDER_DESCRIPTION_MAX_LENGTH).nullable(),
+  /**
    * Where a named runtime's walk differs, and nowhere else (`#547`).
    *
    * Empty is the common and correct answer. A note per runtime on every entry

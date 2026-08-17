@@ -199,6 +199,20 @@ main h1 + p {
   color: var(--k-text-muted);
 }
 
+/*
+ * What the provider is, on the row (\`#1121\` decision 6).
+ *
+ * **Clamped here and whole in the markup.** The sentence goes into the document
+ * complete, for a crawler and for anybody reading the source; the layout stays a
+ * list because this rule ends the line, not because the renderer cut it. Cutting
+ * it in HTML would have taken it away from both readers to satisfy one.
+ */
+.k-atlas-said {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ---- What state an entry is in ------------------------------------------ */
 
 /*
@@ -261,6 +275,18 @@ p.k-paid {
 }
 
 /* ---- An entry page ------------------------------------------------------ */
+
+/*
+ * What the provider is, under the heading and above everything (\`#1121\`
+ * decision 4). Larger than body text because it is the first sentence on the
+ * page and the only one that answers *what am I looking at*; unclamped, because
+ * a page has the room a list row does not.
+ */
+.k-atlas-description {
+  margin: var(--k-space-4) 0 var(--k-space-5);
+  font-size: var(--k-text-lg);
+  line-height: 1.5;
+}
 
 /*
  * The two facts a reader arrives asking for (\`#589\`), given the weight of an

@@ -102,6 +102,15 @@ export function toRecipe(
     provider: AccountProviderSchema.parse(row.provider),
     title: row.title,
     about: row.about,
+    /**
+     * Read here and written nowhere near here (`#1120`, rendered by `#1121`).
+     *
+     * The column is filled by `writeProviderDescription` and left alone by
+     * `writeProviderRecipe` below, so a curator saving a recipe cannot flatten
+     * the sentence the runner wrote. Reading it costs nothing extra: it is on
+     * the row the entry is already selected from.
+     */
+    description: row.description,
     /** Parsed on the way out for the reason `steps` is: `jsonb` accepts whatever was written. */
     runtimes: (row.runtimes ?? []).map((note: RecipeRuntimeNote) =>
       RecipeRuntimeNoteSchema.parse(note),

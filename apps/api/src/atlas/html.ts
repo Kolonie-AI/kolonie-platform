@@ -696,6 +696,23 @@ function indexRow(entry: AtlasPublicEntry): string {
     `<li><a href="${escape(entry.path)}">${escape(entry.title)}</a>` +
     indexStatusMark(entry.status) +
     (entry.recipes.some((recipe) => recipe.paid) ? ' <span class="k-paid">paid</span>' : '') +
+    /**
+     * **What the provider is, above how it behaved** (`#1121` decision 6). The
+     * line below this one is the entry's shape — kinds, figures, who is needed
+     * — and a reader scanning a shelf of forty is asking *which of these is the
+     * thing I want* first.
+     *
+     * **The whole sentence, clamped in CSS and never cut in the markup.** A
+     * crawler reads the document and a reader reads one line of it; truncating
+     * here would take the sentence away from both. `k-atlas-said` is where the
+     * clamping lives, in `ATLAS_STYLE`.
+     *
+     * A provider with no description gets no element at all — decision 6 again,
+     * and the rejection case the tests assert: absent, not empty.
+     */
+    (entry.description === null
+      ? ''
+      : `<br><small class="k-atlas-said">${escape(entry.description)}</small>`) +
     `<br><small>${escape(kindsShown(entry))}${escape(indexFigure(entry))} — ` +
     `${escape(operatorLine(entry))}</small></li>`
   )
@@ -838,7 +855,7 @@ export function atlasEntryPage(input: {
      * distinction the reader has never heard of.
      */
     title: entryTitle(entry),
-    description: entryDescription(entry),
+    description: metaDescription(entry),
     canonical: input.canonical,
     chrome: input.chrome,
     /**
@@ -915,6 +932,7 @@ export function atlasEntryPage(input: {
        * provider they clicked.
        */
       `<h1>${escape(atlasEntryQuestion(entry))}</h1>`,
+      descriptionSection(entry),
       criteriaBox(criteria),
       citizenLine(entry),
       aboutSection(entry),
@@ -1079,6 +1097,73 @@ function entryDescription(entry: AtlasPublicEntry): string {
     `${clauses.join(', ')}.` +
     (walked === undefined ? '' : ` Last confirmed ${walked.slice(0, 10)}.`)
   )
+}
+
+/**
+ * How much of the head the description and the status sentence share (`#1121`).
+ *
+ * **One number, exported, and read by the join below and by its test.** A budget
+ * written twice is a budget that disagrees with itself; a budget written only
+ * inside the function is one a test can only assert by counting characters of
+ * its own.
+ *
+ * Twice what a result list shows, so the sentence a search engine displays is
+ * never the one being squeezed — what the extra width buys is the status clause
+ * behind it, for a reader whose engine shows more.
+ */
+export const ATLAS_META_DESCRIPTION_MAX_LENGTH = 320
+
+/**
+ * What the provider is, then how it behaved (`#1121` decisions 1 to 3).
+ *
+ * **`entryDescription()` is kept whole and put second.** It is a list of facts a
+ * snippet can carry — steps, who is needed, what it proves, when it was last
+ * confirmed — and every one of them is about behaviour. None of them says what
+ * the provider *is*, which is the sentence a stranger reads a search result for.
+ *
+ * **Whole sentences or nothing.** The tail is added a sentence at a time while
+ * the budget holds, so the join can never end mid-word; a description that
+ * alone fills the budget is used alone, with the status sentence dropped rather
+ * than clipped. And a provider with no description falls through to today's
+ * output byte for byte, so a page whose corpus produced nothing is the page it
+ * is today rather than one with a gap where a sentence should be.
+ */
+function metaDescription(entry: AtlasPublicEntry): string {
+  const behaved = entryDescription(entry)
+  if (entry.description === null) return behaved
+
+  const room = ATLAS_META_DESCRIPTION_MAX_LENGTH - entry.description.length
+  const kept: string[] = []
+  let used = 0
+
+  /**
+   * Split after a full stop that a space or the end follows, so `mail.tm` in the
+   * middle of a clause is not a sentence boundary. The lookbehind keeps the stop
+   * on the sentence it ends.
+   */
+  for (const sentence of behaved.split(/(?<=\.)\s+/)) {
+    // The space this sentence is joined with is part of what it costs.
+    if (used + sentence.length + 1 > room) break
+    kept.push(sentence)
+    used += sentence.length + 1
+  }
+
+  return kept.length === 0 ? entry.description : `${entry.description} ${kept.join(' ')}`
+}
+
+/**
+ * The sentence, on the page itself and directly under the heading (`#1121`
+ * decision 4).
+ *
+ * **Outside `recipeSection()` on purpose.** That function returns early for
+ * `refused`, `retired` and `unwritten` rows, and those are the pages with the
+ * least on them and the most need of a line saying what the provider is. Here it
+ * is rendered for every status, from one place, above everything a row can say.
+ */
+function descriptionSection(entry: AtlasPublicEntry): string {
+  return entry.description === null
+    ? ''
+    : `<p class="k-atlas-description">${escape(entry.description)}</p>`
 }
 
 /** The most recent walk across an entry's rows, which is what a reader wants dated. */

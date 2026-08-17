@@ -440,6 +440,13 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
         provider: entry.provider as ProviderRecipe['provider'],
         title: entry.title ?? `${entry.provider}`,
         about: entry.about ?? null,
+        /**
+         * **Null unless a test asks for it** (`#1120`, rendered by `#1121`). The
+         * live column is filled by the moderation runner and by no write path,
+         * so the fake's default is the state most rows are actually in — and a
+         * test that wants the sentence rendered says so in one word.
+         */
+        description: entry.description ?? null,
         runtimes: entry.runtimes ?? [],
         paid: entry.paid ?? false,
         referral: entry.referral ?? null,

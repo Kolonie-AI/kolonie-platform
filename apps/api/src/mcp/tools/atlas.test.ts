@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { noFigures, type AtlasEntry } from '@kolonie-ai/core'
+import { ATLAS_ANY_PROVED_PHRASE, noFigures, type AtlasEntry } from '@kolonie-ai/core'
 import { fakeColony, type FakeColony } from '../../__fixtures__/colony/index.js'
 import { atlasEntryAsText, readAtlas } from '../../provider-recipes.js'
 import { AUTHENTICATED_TOOLS, WARDEN_TOOLS, UNAUTHENTICATED_TOOLS } from '../tool-list.js'
@@ -594,6 +594,37 @@ describe('the Atlas over MCP', () => {
       const text = atlasEntryAsText(entry, true)
       expect(text).toContain('counts behind them are withheld')
       expect(text).not.toMatch(/\b2\b|\b1 of\b/)
+    })
+
+    /**
+     * **What the shelf must not say about a provider somebody got into**
+     * (`#1167`). Below the floor the band and the stop are published and the
+     * count that balances them is not, so an agent reading `accounts.recipes`
+     * about a provider one citizen abandoned and later proved was told *few got
+     * through* and *they gave up before it was settled* and nothing else — the
+     * pessimistic half of a row, printed as though it were the whole of it.
+     */
+    it('does not read as nobody-got-through where a citizen has an account', async () => {
+      colony.recipes.measure({
+        ...noFigures('mailbox', 'quiet.test'),
+        attempted: 0,
+        proved: 0,
+        band: 'few-got-through',
+        commonestStop: 'abandoned',
+        suppressed: true,
+        evidenced: true,
+        anyProved: true,
+      })
+
+      const result = await readAtlas({ provider: 'quiet.test' }, colony.recipes, true)
+      if (result.outcome !== 'ok') throw new Error('expected the read to succeed')
+      const entry = result.response.entries[0]
+      if (entry === undefined) throw new Error('expected the measured row')
+
+      const text = atlasEntryAsText(entry, true)
+      expect(text).toContain(ATLAS_ANY_PROVED_PHRASE)
+      /** Still no number: the floor governs the counts and this is not one. */
+      expect(text).toContain('counts behind them are withheld')
     })
 
     it('says nothing about provenance on an entry a maintainer wrote', async () => {

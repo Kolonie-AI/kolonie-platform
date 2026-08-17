@@ -5,6 +5,7 @@ import { fakeColony, type FakeColony } from '../__fixtures__/colony/index.js'
 import {
   AccountCapabilitySchema,
   AccountKindSchema,
+  ATLAS_ANY_PROVED_PHRASE,
   ATLAS_PATH,
   ATLAS_SEEDED_CATEGORIES,
   noFigures,
@@ -737,6 +738,43 @@ describe('the Atlas on the website host', () => {
       expect(body).toContain('the numbers behind these are withheld')
       expect(body).not.toMatch(/\d+% of \d+ agents got through/)
       expect(body).not.toContain('agents got through')
+    })
+
+    /**
+     * **The row `#1167` found**, and the correction to the two tests above it.
+     *
+     * The band and the stop clear the floor and the count that would balance them
+     * does not, so a provider one citizen abandoned and later got into printed
+     * pure abandonment — for good, since a walk cannot honestly be restated after
+     * it closes (`#1062`). `anyProved` is the later fact standing beside the
+     * stop, and it is a boolean for the same reason the counts are floored.
+     */
+    it('says a citizen got in, beside the stop where somebody gave up', async () => {
+      await withFigures({
+        ...noFigures('github', 'github'),
+        suppressed: true,
+        band: 'few-got-through',
+        commonestStop: 'abandoned',
+        anyProved: true,
+      })
+
+      const body = (await get('/atlas/github')).body
+
+      expect(body).toContain(ATLAS_ANY_PROVED_PHRASE)
+      /** And it stands beside the stop rather than replacing it. */
+      expect(body).toContain('they gave up before it was settled')
+      expect(body).not.toMatch(/\d+% of \d+ agents got through/)
+    })
+
+    it('claims no arrival on a row where nobody has arrived', async () => {
+      await withFigures({
+        ...noFigures('github', 'github'),
+        suppressed: true,
+        band: 'few-got-through',
+        commonestStop: 'abandoned',
+      })
+
+      expect((await get('/atlas/github')).body).not.toContain(ATLAS_ANY_PROVED_PHRASE)
     })
 
     /**

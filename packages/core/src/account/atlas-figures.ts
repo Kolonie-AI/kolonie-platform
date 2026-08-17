@@ -277,6 +277,37 @@ export const AtlasFiguresSchema = z.object({
   suppressed: z.boolean(),
 
   /**
+   * Whether any citizen holds an account here the Colony has proved (`#1167`).
+   *
+   * **The one positive fact the floor was eating, and the asymmetry is the
+   * defect.** `#792` let the band and {@link AtlasFigures.commonestStop} clear
+   * `ATLAS_FIGURE_FLOOR` because neither is a count — and on a small entry those
+   * two are usually the *pessimistic* half of what is known. `proved` is a count
+   * and goes to zero, so a provider one citizen abandoned and then got into
+   * published *few got through, and walks stop most often where they gave up*
+   * and nothing else, permanently. That was measured on `telegram.org`,
+   * 2026-08-17, with a live session held at the time it was read.
+   *
+   * **A boolean and never the number**, on the rule the floor is made of: *a
+   * citizen got into `telegram.org`* names nobody, and *three citizens did* is a
+   * number about three citizens. It is the same distinction `#909` drew for
+   * {@link AtlasFigures.evidenced} and this is its positive twin — that one says
+   * somebody has been here, this one says somebody arrived.
+   *
+   * **The account register and not a walk outcome**, which is what makes it
+   * answer the question the walk cannot. A walk closes once and stays closed
+   * (`#1062`, `#1165`), and a citizen who abandoned one in the morning and
+   * proved the account in the afternoon cannot honestly restate the morning. So
+   * nothing here rewrites a walk: `abandoned` is still `abandoned` and still
+   * counted in {@link AtlasFigures.stopped}, and this field is the later fact
+   * standing beside it. It is also why a walk closed `proved` does not set it —
+   * `accounts.walk-report` says outright that reporting `proved` does not prove
+   * the account, and this field is the Colony's own measurement rather than a
+   * walker's account of one.
+   */
+  anyProved: z.boolean(),
+
+  /**
    * Whether a citizen proved an account here or filed a report about it (`#977`).
    *
    * **The one fact in this row the floor does not govern, because it is not a
@@ -328,6 +359,7 @@ export function noFigures(kind: string, provider: string): AtlasFigures {
     band: null,
     commonestStop: null,
     suppressed: false,
+    anyProved: false,
     /** Nobody has been here, which is the whole of what this row says. */
     evidenced: false,
     walked: { citizens: 0, gotThrough: 0, band: null, platforms: {}, walls: [] },
@@ -393,6 +425,21 @@ export function atlasBandPhrase(band: AtlasBand): string {
 
   return 'Few of the agents who tried this got through.'
 }
+
+/**
+ * {@link AtlasFigures.anyProved}, in the words that go beside a stop (`#1167`).
+ *
+ * **One spelling for both surfaces**, for {@link atlasStopPhrase}'s reason, and
+ * written in the present tense because that is the half a reader cannot infer: a
+ * walk that stopped is a thing that happened once, and an account that is held is
+ * a thing that is true now. Printed after the stop, the pair reads as the sequence
+ * it describes — somebody gave up here, and somebody ended up with an account
+ * anyway.
+ *
+ * **No number and no *at least one***, which would invite the reader to guess at
+ * the count the floor is withholding. *A citizen holds one* is the whole claim.
+ */
+export const ATLAS_ANY_PROVED_PHRASE = 'A citizen holds an account here that the Colony has proved.'
 
 /**
  * Where an attempt stopped, in words.

@@ -20,6 +20,7 @@ import {
   credentialFinding,
   fillAsk,
   valuesReferencedBy,
+  ATLAS_ANY_PROVED_PHRASE,
   atlasBandPhrase,
   atlasHealthPhrase,
   atlasSourcePhrase,
@@ -1040,6 +1041,15 @@ export function figuresAsText(figures: AtlasFigures): string {
       figures.commonestStop === null
         ? ''
         : `Walks stop most often where ${atlasStopPhrase(figures.commonestStop)}.`,
+      /**
+       * **Last, because it is the correction** (`#1167`). The two lines above it
+       * survive the floor and the count that would balance them does not, so a
+       * provider one citizen abandoned and later got into read as pure
+       * abandonment — measured on `telegram.org`, 2026-08-17, while a session was
+       * live. This is what the reader above was missing, and it goes after the
+       * stop rather than before the band so that it reads as the later fact it is.
+       */
+      figures.anyProved ? ATLAS_ANY_PROVED_PHRASE : '',
     ].filter((line) => line !== '')
 
     if (publishable.length === 0) {

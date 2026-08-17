@@ -13,6 +13,7 @@ import {
   STALE_ENTRY_NOTE,
   UNWRITTEN_ENTRY_NOTE,
   isStale,
+  ATLAS_ANY_PROVED_PHRASE,
   ATLAS_RETENTION_DAYS,
   atlasBandPhrase,
   atlasStopPhrase,
@@ -1965,6 +1966,15 @@ function figuresSection(figures: AtlasFigures, steps: number): string {
     figures.commonestStop === null
       ? ''
       : `<li>${escape(stopLine(figures.commonestStop, steps))}</li>`,
+    /**
+     * **Last, because it is the correction** (`#1167`). Everything above it
+     * clears the floor and the count that would balance it does not, so a
+     * provider one citizen abandoned and later got into printed nothing but the
+     * abandonment — for good, since a walk cannot honestly be restated after it
+     * closes. This is a boolean and never the number, on the same rule the rest
+     * of the section keeps.
+     */
+    figures.anyProved ? `<li>${escape(ATLAS_ANY_PROVED_PHRASE)}</li>` : '',
   ].filter((line) => line !== '')
 
   if (figures.suppressed) {

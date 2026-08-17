@@ -358,6 +358,20 @@ export async function atlasFigures(
       commonestStop: atlasCommonestStop(stopped),
       suppressed,
       /**
+       * **Read off the unfloored count, for the reason directly above** (`#1167`).
+       * The band and the commonest stop already survive the floor and are usually
+       * the pessimistic half of a small row; a provider one citizen abandoned and
+       * later got into published nothing but the abandonment. This is the other
+       * half, and it is a boolean because *somebody arrived* names nobody and
+       * *three did* is a number about three citizens.
+       *
+       * **`row.proved` and not `walkers_through`**, so a walk closed `proved` does
+       * not set it on its own: `accounts.walk-report` says reporting `proved` does
+       * not prove the account. The account register is the Colony's own
+       * measurement, and this field claims nothing weaker than that.
+       */
+      anyProved: Number(row.proved) > 0,
+      /**
        * **Not floored, because it is not a count** (`#977`). It is the same
        * predicate `backfillMeasuredProviders` selects on — a proof or a report,
        * never a bare declaration — so the batch path and the request-time

@@ -1142,6 +1142,181 @@ describe('the Atlas on the website host', () => {
   })
 
   /**
+   * The index is a contents page and stopped reading like one (`#1142`).
+   *
+   * 166 rows over 15 shelves is 90 kB of index, and the shelf a reader wants is
+   * below however many rows the shelves above it happen to hold. Two changes,
+   * asserted here: **six rows per shelf on the index**, with the rest one link
+   * away, and **shelves ordered by evidence and then by size** rather than by
+   * whatever order the catalogue was written in.
+   *
+   * **The order is derived once and handed to both** the navigation and the
+   * body, which is why the last test can compare them at all. They are computed
+   * over different sets — `#1103` counts both halves in the navigation and the
+   * body renders one — so the property is that the body's shelves are a
+   * subsequence of the navigation's, not that the two lists are equal.
+   */
+  describe('six per shelf, and the shelves ordered by evidence', () => {
+    /**
+     * One shelf of the index, from its heading to the end of its list.
+     *
+     * **It throws rather than returning nothing**, for `rowFor`'s reason above:
+     * a helper that answered the empty string would pass every count below it.
+     */
+    const shelfOf = (body: string, category: string) => {
+      const at = body.indexOf(`<h2 id="${category}"`)
+      if (at === -1) throw new Error(`no shelf for ${category}`)
+
+      const end = body.indexOf('</ul>', at)
+      if (end === -1) throw new Error(`unterminated shelf for ${category}`)
+
+      return body.slice(at, end)
+    }
+
+    /** Entry rows only: the `All N →` card carries a class, so it is not one. */
+    const rowsIn = (shelf: string) => (shelf.match(/<li>/g) ?? []).length
+
+    const headingCount = (shelf: string) =>
+      /<span class="k-atlas-count">(\d+)<\/span>/.exec(shelf)?.[1]
+
+    /**
+     * The category navigation alone.
+     *
+     * **Sliced rather than matched across the whole page**, because the shelf
+     * headings in the body link to the same addresses — so a search over the
+     * document would read the navigation's order and the body's as one list.
+     */
+    const navOf = (body: string) => {
+      const at = body.indexOf('<nav class="k-atlas-shelves"')
+      if (at === -1) throw new Error('no category navigation')
+
+      const end = body.indexOf('</nav>', at)
+      if (end === -1) throw new Error('unterminated category navigation')
+
+      return body.slice(at, end)
+    }
+
+    /** The shelves in the order a list emits them. */
+    const orderIn = (markup: string, pattern: RegExp) =>
+      [...markup.matchAll(pattern)].map((match) => match[1])
+
+    const stock = (
+      one: FakeColony,
+      category: string,
+      count: number,
+      status?: 'unwritten',
+    ): void => {
+      for (let n = 1; n <= count; n += 1)
+        one.recipes.write({
+          kind: 'mailbox',
+          provider: `${category}-${n}.example`,
+          title: `${category} ${n}`,
+          category,
+          ...(status === undefined ? {} : { status }),
+        })
+    }
+
+    const rebuild = (write: (colony: FakeColony) => void) => async () => {
+      await app.close()
+      app = build()
+      write(colony)
+      await app.ready()
+    }
+
+    it('cuts a shelf of seven to six and links to the rest', async () => {
+      await rebuild((one) => stock(one, 'storage', 7))()
+
+      const shelf = shelfOf((await get('/atlas')).body, 'storage')
+
+      expect(rowsIn(shelf)).toBe(6)
+      expect(shelf).toContain('All 7 →')
+      expect([...shelf.matchAll(/class="k-atlas-all"/g)]).toHaveLength(1)
+    })
+
+    /**
+     * **The boundary, and the reason the link is conditional.** Six is the last
+     * size that fits, so a shelf of exactly six is a shelf nothing was cut from
+     * — and an `All 6 →` under it would send a reader to a page holding what
+     * they are already looking at.
+     */
+    it('leaves a shelf of exactly six alone', async () => {
+      await rebuild((one) => stock(one, 'storage', 6))()
+
+      const shelf = shelfOf((await get('/atlas')).body, 'storage')
+
+      expect(rowsIn(shelf)).toBe(6)
+      expect(shelf).not.toContain('class="k-atlas-all"')
+    })
+
+    /** The count is the shelf's, not the slice's — otherwise the cut is invisible. */
+    it('counts the whole shelf in the heading of a cut one', async () => {
+      await rebuild((one) => stock(one, 'storage', 9))()
+
+      expect(headingCount(shelfOf((await get('/atlas')).body, 'storage'))).toBe('9')
+    })
+
+    /**
+     * **The page the link goes to has to be the uncut one**, or the cap has
+     * merely moved. A shelf's own page is a shelf rather than a contents page,
+     * so nothing is held back on it.
+     */
+    it('renders a shelf’s own page uncapped', async () => {
+      await rebuild((one) => stock(one, 'storage', 9))()
+
+      const body = (await get('/atlas/c/storage')).body
+
+      /** Deduplicated: an entry is linked from its row and again from the JSON-LD. */
+      const linked = new Set(
+        [...body.matchAll(/\/atlas\/(storage-\d+\.example)"/g)].map((m) => m[1]),
+      )
+
+      expect(linked.size).toBe(9)
+      expect(body).not.toContain('class="k-atlas-all"')
+    })
+
+    /**
+     * **Evidence before size, whatever the sizes are** (`#905`'s measurement in
+     * one shelf): nine entries nobody has been to are nine pages saying nobody
+     * has been to them, and a shelf of two that somebody walked is worth more of
+     * the reader's first screen than that.
+     */
+    it('sorts a shelf with no evidence after every shelf with evidence', async () => {
+      await rebuild((one) => {
+        stock(one, 'knowledge-docs', 9, 'unwritten')
+        stock(one, 'design-media', 2)
+      })()
+
+      const nav = navOf((await get('/atlas')).body)
+
+      expect(nav.indexOf('/atlas/c/design-media')).toBeGreaterThan(-1)
+      expect(nav.indexOf('/atlas/c/design-media')).toBeLessThan(
+        nav.indexOf('/atlas/c/knowledge-docs'),
+      )
+    })
+
+    /**
+     * The navigation counts both halves and the body renders one, so the body's
+     * shelves are a subsequence of the navigation's rather than the same list.
+     * A reader scanning the navigation and then scrolling must not meet the
+     * shelves in a different order from the one they were just offered.
+     */
+    it('emits the navigation and the body in one order', async () => {
+      await rebuild((one) => {
+        stock(one, 'storage', 7)
+        stock(one, 'design-media', 2)
+        stock(one, 'knowledge-docs', 4, 'unwritten')
+      })()
+
+      const body = (await get('/atlas')).body
+      const nav = orderIn(navOf(body), /<a href="\/atlas\/c\/([a-z-]+)"/g)
+      const shelves = orderIn(body, /<h2 id="([a-z-]+)"/g)
+
+      expect(shelves.length).toBeGreaterThan(1)
+      expect(nav.filter((category) => shelves.includes(category))).toEqual(shelves)
+    })
+  })
+
+  /**
    * What a provider page says (`#547`), and the refusal underneath it: one page
    * per provider, never one per provider × runtime.
    */

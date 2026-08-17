@@ -200,6 +200,36 @@ main h1 + p {
 }
 
 /*
+ * The rest of a capped shelf (\`#1142\`).
+ *
+ * A card in the same grid, so it lands directly after the six rows rather than a
+ * whole gap below them — the \`ul\` above carries the shelf's bottom margin.
+ *
+ * **Dashed and unfilled**, because it is a direction and not an entry: the rule
+ * that sets a provider's name is overridden here so that a reader scanning the
+ * shelf does not read \`All 27\` as the twenty-seventh provider.
+ */
+.k-atlas-index li.k-atlas-all {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-style: dashed;
+  background: none;
+}
+
+.k-atlas-index li.k-atlas-all > a:first-child {
+  font-size: var(--k-text-base);
+  font-weight: 500;
+  color: var(--k-accent);
+  text-decoration: none;
+}
+
+.k-atlas-index li.k-atlas-all > a:first-child:hover,
+.k-atlas-index li.k-atlas-all > a:first-child:focus-visible {
+  text-decoration: underline;
+}
+
+/*
  * What the provider is, on the row (\`#1121\` decision 6).
  *
  * **Clamped here and whole in the markup.** The sentence goes into the document

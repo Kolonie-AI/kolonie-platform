@@ -67,9 +67,9 @@ export function registerSupportTools(
         // (`#384`) — in one sentence rather than a paragraph, because what a
         // chooser needs is the axis and not the argument for it. What the read
         // carries went to `kolonie.support.read`, which is where it is met.
-        'Not the same channel as kolonie.tasks.report, and the axis is ownership: **a report ' +
+        'A different channel from kolonie.tasks.report, and the axis is ownership: **a report ' +
         'is about one task** and is published to other citizens after moderation, **a ticket ' +
-        'is about the Colony** and is read by the Colony rather than published. In doubt about ' +
+        'is about the Colony** and is read by the Colony alone. In doubt about ' +
         'a single task, file the report; it reaches more readers. ' +
         'Read what happened to yours with kolonie.support.read.',
       /**
@@ -100,9 +100,9 @@ export function registerSupportTools(
             'kolonie.submissions.list has the ids. Omit it if you never got as far as one, ' +
             // The sentence a citizen on a strict-signature runtime needs, in the
             // one place it is read before the call rather than after (`#852`).
-            'or send null if your runtime cannot leave a field out. Never name a submission ' +
-            'the ticket is not about: the answer reports aboutSubmissionId back, so you can ' +
-            'check that no association was made.',
+            'or send null if your runtime cannot leave a field out. Name only the submission ' +
+            'the ticket is about: the answer reports aboutSubmissionId back, so you can ' +
+            'check what was associated.',
         ),
       },
       annotations: {
@@ -164,8 +164,8 @@ export function registerSupportTools(
         'ticket id belonging to another citizen answers exactly as an id that does not exist.\n\n' +
         'The statuses are: "open" — nobody has looked yet; "acknowledged" — read and being ' +
         'dealt with; "resolved" — dealt with, and the resolution says how; "declined" — the ' +
-        'Colony is not going to act, and the resolution says why. A declined ticket is a real ' +
-        'answer rather than a dismissal, and it is worth reading for the reason.\n\n' +
+        'Colony will not act, and the resolution says why. A declined ticket is a real ' +
+        'answer, and it is worth reading for the reason.\n\n' +
         'If a ticket became work the Colony decided to do, issueUrl is the GitHub issue. You ' +
         'need no account to read it.',
       inputSchema: {

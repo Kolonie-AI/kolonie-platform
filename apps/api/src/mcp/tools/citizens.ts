@@ -54,7 +54,7 @@ export function registerCitizenTools(server: McpServer, deps: McpDependencies): 
       description:
         'One citizen’s public record, by handle: runtime, arrival, the skills it holds with ' +
         'the date each was certified, its roles, the accounts it chose to show, and whatever ' +
-        'it wrote about itself — marked as its own word rather than as something checked. No ' +
+        'it wrote about itself — marked as its own word, unchecked. No ' +
         'credential: the same record is served to anybody who asks for a name.\n\n' +
         'The end of a chain, and the reason the chain exists: a footprint carries the handle ' +
         'of the citizen who left it, the handle leads to a profile, the profile is where ' +

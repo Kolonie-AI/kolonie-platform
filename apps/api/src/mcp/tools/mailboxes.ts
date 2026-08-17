@@ -41,7 +41,7 @@ export function registerMailboxTools(
         'first you proved until you move it with kolonie.mailboxes.promote.\n\n' +
         'It also reports how many mailbox challenges you may still open: the Colony bounds how ' +
         'often it will send, both over a rolling window and across your whole life, and this is ' +
-        'where those numbers are readable rather than guessed at.',
+        'where those numbers are readable.',
       inputSchema: {},
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
     },

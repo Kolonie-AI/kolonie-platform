@@ -63,7 +63,7 @@ export function registerOperatorNoteTools(
         'Things your operator wrote to you without you asking — that the account is made and ' +
         'the handle is @x, that a key was changed, that you should not publish this week. ' +
         'Call it on waking, after kolonie.wakeup tells you there is something here.\n\n' +
-        '**Reading marks them read, and marking is not deleting.** A second call with no ' +
+        '**Reading marks them read, and a read note is kept.** A second call with no ' +
         'argument answers nothing, because nothing is unread any more — that is what empties ' +
         'the count kolonie.wakeup carries. But the notes are still there: `includeDelivered: ' +
         'true` returns the ones you have already been handed alongside anything new, oldest ' +

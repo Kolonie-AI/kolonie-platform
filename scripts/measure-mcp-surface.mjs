@@ -21,13 +21,25 @@
  * `apps/api/src/mcp/surface-size.ts`, which is production code and is in `dist`,
  * so both halves of the report come from the same module.
  *
- * ## What it never does
+ * ## What it never does, and where the refusal lives instead
  *
- * **Fail.** There is no threshold, no comparison against a ceiling and no
- * non-zero exit on a surface that grew — a pull request that adds tools is
- * reported and merged like any other. The one thing that exits non-zero is the
- * measurement failing to run at all, because a silent zero would read as *the
- * surface is fine* rather than as *nobody measured it*.
+ * **Fail on a surface that grew.** This renders three tiers and returns a
+ * string; there is no ceiling here and no verdict in what it prints. The one
+ * thing that exits non-zero is the measurement failing to run at all, because a
+ * silent zero would read as *the surface is fine* rather than as *nobody
+ * measured it*.
+ *
+ * That is no longer the same as *nothing fails anywhere* (`#1118`). The
+ * `authenticated` tier is held to a floor by `catalogue-budget.ts` (`#889`) —
+ * the last committed measurement, moving down freely and up only in a commit
+ * that says why — and `scripts/check-catalogue-budget.mjs` is what exits
+ * non-zero on growth. Keeping the two apart is deliberate: this one reports on
+ * every tier including the two nobody floors, and a report that also refuses is
+ * a report people stop reading past the verdict.
+ *
+ * So a reader of this file should not conclude that a growing catalogue merges.
+ * It does not; it merges when the floor moves, and moving the floor upward costs
+ * a sentence.
  *
  * ## Usage
  *

@@ -6,16 +6,31 @@
  * It runs `apps/api/src/mcp/catalogue-budget.test.ts` with
  * `CATALOGUE_BUDGET_REPORT` set, reads the two totals that test writes, and
  * compares them against `apps/api/src/mcp/catalogue-budget.json`. Over the floor
- * it exits non-zero. Under the floor it also exits non-zero, and `--write`
- * lowers the floor to what was measured.
+ * it exits non-zero. Under it, **it lowers the floor and exits zero**.
  *
- * **`--write` can only ever lower it.** Given a measurement above the floor it
- * refuses and says so. That asymmetry is the mechanism: lowering after a
- * consolidation is bookkeeping and should cost one command, while raising is a
- * decision and has to cost a sentence somebody wrote in a commit naming the
- * record (`kolonie-docs#346`) and what the new tools are vocabulary-free for.
- * There is no flag that raises it, deliberately — a flag is what the next author
- * reaches for at 6pm.
+ * **It can only ever lower it.** Given a measurement above the floor it refuses
+ * and says so. That asymmetry is the mechanism: lowering after a consolidation
+ * is bookkeeping and should cost nothing at all, while raising is a decision and
+ * has to cost a sentence somebody wrote in a commit naming the record
+ * (`kolonie-docs#346`) and what the new tools are vocabulary-free for. There is
+ * no flag that raises it, deliberately — a flag is what the next author reaches
+ * for at 6pm.
+ *
+ * ## Lowering used to cost a command, and `#1118` took that away
+ *
+ * `#889` made a reduction *fail* and print `--write`. The reasoning was that a
+ * saving should be recorded deliberately; what it actually bought was a red run
+ * on the branch that had just made the catalogue smaller, and a second command
+ * before the good news counted. So the reduction now writes itself in the run
+ * that measured it, and `.github/workflows/mcp-surface.yml` commits the result
+ * to the branch that earned it. `--write` is still accepted and still means
+ * exactly this, because it is in commit messages and in the floor's own
+ * `command` field.
+ *
+ * What that does not touch is the raise. Nothing here can check the commit that
+ * moved the floor, because at the time this runs that commit does not exist yet.
+ * `scripts/check-catalogue-floor.mjs` is the half that reads history, and it is
+ * a separate entry point so that the rule costs no database to enforce.
  *
  * ## Why it drives the suite instead of measuring
  *
@@ -47,7 +62,9 @@ const API = path.join(ROOT, 'apps', 'api')
 const BUDGET = path.join(API, 'src', 'mcp', 'catalogue-budget.json')
 const TEST = 'src/mcp/catalogue-budget.test.ts'
 
-const write = process.argv.includes('--write')
+// `--write` is accepted and no longer read (`#1118`): a reduction writes itself
+// either way, and the flag stays spellable because it is quoted in commit
+// messages and in the `command` field of every floor committed before this.
 
 /** Today, as `YYYY-MM-DD`. The floor carries the date it was measured (AGENTS.md §7). */
 const today = () => new Date().toISOString().slice(0, 10)
@@ -99,17 +116,8 @@ if (grew) {
       '  kolonie-docs/state/decisions/the-catalogue-encodes-grammar-never-vocabulary.md\n' +
       'If it is a genuinely new verb, edit apps/api/src/mcp/catalogue-budget.json by hand and say\n' +
       'in the commit message which record you are applying and what the new tools are\n' +
-      'vocabulary-free for. `--write` will not do it for you.',
-  )
-  process.exit(1)
-}
-
-if (!write) {
-  console.error(
-    `The catalogue is smaller than its budget by ${budget.tools - measured.tools} tools and ` +
-      `${budget.bytes - measured.bytes} bytes, and the floor has not come down with it.\n` +
-      'Run `node scripts/check-catalogue-budget.mjs --write` and commit the result. ' +
-      'A saving nobody records is one the next feature spends.',
+      'vocabulary-free for — scripts/check-catalogue-floor.mjs reads that message and\n' +
+      'refuses a raise without it. Nothing here will do it for you.',
   )
   process.exit(1)
 }
@@ -117,7 +125,15 @@ if (!write) {
 writeFileSync(
   BUDGET,
   `${JSON.stringify(
-    { tools: measured.tools, bytes: measured.bytes, measuredAt: today(), command: budget.command },
+    {
+      tools: measured.tools,
+      bytes: measured.bytes,
+      measuredAt: today(),
+      // The command as it is spelled now, not the one that wrote the previous
+      // floor: this field exists so a reader can reproduce the figure, and a
+      // flag that is no longer read is not the way to reproduce anything.
+      command: 'node scripts/check-catalogue-budget.mjs',
+    },
     null,
     2,
   )}\n`,

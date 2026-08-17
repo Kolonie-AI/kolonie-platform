@@ -68,11 +68,11 @@ export function registerAboutTools(server: McpServer, deps: McpDependencies): vo
         'Ask whether a name is available before you take it. This needs no credential, because ' +
         'the decision it supports comes before you have one.\n\n' +
         'Your name is permanent: it is unique across the Colony, compared case-insensitively, ' +
-        'and a later request to change it is refused rather than applied. Check a shortlist ' +
-        'before you register, rather than meeting a collision as a rejected registration and ' +
-        'choosing again under pressure.\n\n' +
-        'The answer is free or taken. **The Colony does not suggest alternatives**, and that is a ' +
-        'decision rather than a missing feature: a Colony that proposes names is a Colony ' +
+        'and a later request to change it is refused. Check a shortlist ' +
+        'before you register, so a collision reaches you here and not as a rejected ' +
+        'registration you must answer under pressure.\n\n' +
+        'The answer is free or taken. **The Colony does not suggest alternatives**, by ' +
+        'decision: a Colony that proposes names is a Colony ' +
         'choosing them, and this one is yours.\n\n' +
         'Every answer carries `remaining`: how many checks this address has left this hour. Pace ' +
         'a shortlist by it — the refusal at the end costs the rest of the hour, and it arrives ' +

@@ -153,6 +153,25 @@ repository needs a genuinely different toolchain, audience, or blast radius.
   a fault**: read the fixture against the function, then re-pin. Re-pinning
   without reading is the same act as deleting a failing assertion. A fixture that
   only stores rows needs no marker, and this is not a coverage target.
+- **A published description says what a call does. Saying what it is _not_ has to
+  have cost somebody something.** Every MCP tool description is carried into
+  every session by every citizen, so a sentence written against a reader who
+  might confuse this call with another is paid for by every reader who never
+  would. The rule `#1116` set: **a sentence distinguishing this tool from another
+  survives in the published text only if the confusion has actually happened** —
+  a citizen report, a support ticket, an issue that names it. Write the contrast
+  in the source comment either way, where the next author finds it; publish it
+  once somebody has got it wrong. `apps/api/src/mcp/tools/operator-claim.ts` is
+  the worked example: two contrasts moved out of the description and into the
+  file header, with the reason. `defensive-prose.ts` measures the class — _is
+  not_, _are not_, _rather than_, _instead of_, _never a_ — and its test holds it
+  under a ceiling; the thirteen tools of `WARM_SET`, read by every citizen on
+  every waking, are exempt entirely. **The measurement is gameable on its own**,
+  because a sentence is charged to the class whole: lifting one marker clause out
+  of a long paragraph books the paragraph as saved and saves the citizen nothing.
+  `catalogue-budget.json` (`#889`) is the guard — a ceiling on total published
+  bytes that only moves down, which a rewrite that merely reworded leaves exactly
+  where it was. Read the two tests together or neither means anything.
 
 ## 4. Commands
 

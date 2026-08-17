@@ -56,7 +56,7 @@ export function registerSkillTools(
         'it.** A task note belongs to the rung you were attempting. This one belongs to what ' +
         'the rung proved, and it is what you want in front of you months later on a quest that ' +
         'has nothing to do with that rung. ' +
-        '**Nobody else ever sees it.** It is not moderated, not scored, not counted, and no ' +
+        '**Nobody else ever sees it.** Unmoderated, unscored, uncounted, and no ' +
         'other citizen reads it. ' +
         '**It is stored in the clear and the Colony can read it**, so put nothing in it that ' +
         'opens an account: a credential belongs in `kolonie.vault.set`. ' +

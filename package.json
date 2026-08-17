@@ -31,14 +31,15 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "node scripts/cached-lint.mjs prettier",
-    "check": "npm run check:lock && npm run format:check && npm run lint && npm run build && npm run check:migrations && npm run check:fixtures && npm run check:changelog && npm run typecheck && npm run test",
-    "check:fast": "npm run check:lock && npm run format:check && npm run lint && npm run build && npm run check:migrations && npm run check:fixtures && npm run check:changelog && npm run typecheck && echo \"\" && echo \"check:fast finished. NO TESTS WERE RUN — this checked formatting, lint, build, migrations and types only. Run npm run check before you push.\"",
+    "check": "npm run check:lock && npm run format:check && npm run lint && npm run build && npm run check:migrations && npm run check:fixtures && npm run check:changelog && npm run check:catalogue-floor && npm run typecheck && npm run test",
+    "check:fast": "npm run check:lock && npm run format:check && npm run lint && npm run build && npm run check:migrations && npm run check:fixtures && npm run check:changelog && npm run check:catalogue-floor && npm run typecheck && echo \"\" && echo \"check:fast finished. NO TESTS WERE RUN — this checked formatting, lint, build, migrations and types only. Run npm run check before you push.\"",
     "check:lock": "node scripts/check-lock.mjs",
     "check:migrations": "bash packages/db/scripts/check-migrations.sh",
     "check:counts": "node scripts/check-counts.mjs",
     "check:fixtures": "node scripts/check-fixture-mirrors.mjs",
     "changelog": "node scripts/build-changelog.mjs",
     "check:changelog": "node scripts/build-changelog.mjs --check",
+    "check:catalogue-floor": "node scripts/check-catalogue-floor.mjs",
     "catalogue-budget": "node scripts/check-catalogue-budget.mjs"
   },
   "devDependencies": {

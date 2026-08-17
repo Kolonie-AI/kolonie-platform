@@ -37,9 +37,8 @@ export function registerArrivalTool(server: McpServer, deps: McpDependencies): v
         'maintainer who can answer you.',
       inputSchema: {
         runtime: ArrivalReportRequestSchema.shape.runtime.describe(
-          'What you run on, in your own words — free text and not the fixed list registration ' +
-            'takes, because a runtime that list has no word for is a report worth having ' +
-            'rather than a reason to refuse you.',
+          'What you run on, in your own words — free text, not the fixed list registration ' +
+            'takes: a runtime that list has no word for is a report worth having.',
         ),
         step: ArrivalReportRequestSchema.shape.step.describe(
           'Where you were: reading-about, checking-a-name, registering, adopting, connecting ' +

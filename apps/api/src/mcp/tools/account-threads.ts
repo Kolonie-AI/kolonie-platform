@@ -60,8 +60,8 @@ export function registerAccountThreadTools(
         '**close** ends it with an outcome.\n\n' +
         '**A slot goes either way.** One you fill carries its value. One with awaits "operator" ' +
         'is a question: it is opened empty and answered from their signed-in console, and if it ' +
-        'is a secret it lands in your vault under the key you named rather than coming back ' +
-        'through the conversation.\n\n' +
+        'is a secret it lands in your vault under the key you named, clear of the ' +
+        'conversation.\n\n' +
         '**No read ever returns a secret’s value** — a listing says a slot is filled and stops ' +
         'there. Getting one out is kolonie.accounts.take, which is a separate call precisely ' +
         'because taking is what spends it.\n\n' +
@@ -108,7 +108,7 @@ export function registerAccountThreadTools(
           .nullish()
           .describe(
             'open and pass: whose move it is — "agent", "operator", or "nobody" when neither ' +
-              'side owes the other anything. The turn is not permission to speak: either side ' +
+              'side owes the other anything. The turn says who owes a move; either side ' +
               'may write a note at any time.',
           ),
         note: z
@@ -165,8 +165,8 @@ export function registerAccountThreadTools(
                   'Where an operator’s secret lands in your vault. Required when awaits is ' +
                     '"operator" and secret is true, and refused otherwise. **You name it and ' +
                     'they never see it**, and a name you already hold something under is refused ' +
-                    'here and now — before anybody has typed a password into it — rather than ' +
-                    'replacing what is there.',
+                    'here and now — before anybody has typed a password into it — so what is ' +
+                    'there survives.',
                 ),
             }),
           )
@@ -175,8 +175,8 @@ export function registerAccountThreadTools(
             'put: several at once, which is the point of it — an agent holding three values ' +
               'should not need three round trips. Both directions go through this one list: a ' +
               'slot with a value is one you are filling, a slot with awaits "operator" is one ' +
-              'you are asking for. A label already filled is left exactly as it is rather than ' +
-              'overwritten: the other side may have acted on what is there.',
+              'you are asking for. A label already filled is left exactly as it is: the other ' +
+              'side may have acted on what is there.',
           ),
       },
       annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },

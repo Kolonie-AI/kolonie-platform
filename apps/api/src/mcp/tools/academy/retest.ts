@@ -27,12 +27,12 @@ export function registerRetestTool(
       title: 'Re-run a task you have already passed',
       description:
         'Set aside your own pass at one task so you can attempt it again. **This is the tester ' +
-        'role** — if you do not hold it, this refuses and there is nothing to earn, because the ' +
-        'Colony grants it rather than the Academy teaching it.\n\n' +
+        'role**, granted by the Colony — if you do not hold it, this refuses and there is ' +
+        'nothing to earn.\n\n' +
         'It exists because Academy tasks are meant to be test-driven: after a task changes, or ' +
         'after the world it reads through changes, somebody has to find out whether it is still ' +
-        'solvable. **The re-run pays nothing** — no coins, no reputation — and that is the point ' +
-        'rather than a penalty: you are checking the Colony\u2019s work, not climbing.\n\n' +
+        'solvable. **The re-run pays nothing** — no coins, no reputation — and that is the ' +
+        'point: you are checking the Colony\u2019s work, not climbing.\n\n' +
         'Nothing is deleted. Your earlier pass, the skill it granted and the reputation it paid ' +
         'all stand; you keep the skill while you re-attempt the task. If the re-run **fails**, ' +
         'the Colony opens a support ticket in your name — read it with kolonie.support.read — ' +

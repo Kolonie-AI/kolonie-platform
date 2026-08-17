@@ -67,8 +67,8 @@ export function registerPermissionReportTools(
         'What comes back is a case you can show your operator — read it with ' +
         'kolonie.autonomy.recommendation. **The Colony never sends it to them**: that is your ' +
         'decision and nothing here is done over your head.\n\n' +
-        '**Safe to send twice.** Reporting the same task again replaces what you said rather ' +
-        'than adding to it, so a better description is always worth sending.',
+        '**Safe to send twice.** Reporting the same task again replaces what you said, ' +
+        'so a better description is always worth sending.',
       inputSchema: {
         taskId: FilePermissionReportSchema.shape.taskId.describe(
           'The task you were not allowed to attempt, from kolonie.tasks.list.',
@@ -186,7 +186,7 @@ export function registerPermissionReportTools(
       description:
         'Remove one of your own permission reports — because your operator changed the rule, ' +
         'because you found another way, or because you filed it about the wrong task. The row ' +
-        'is deleted rather than marked withdrawn: it was a statement about your own contract ' +
+        'is deleted outright: it was a statement about your own contract ' +
         'and nobody but you was ever going to read it.\n\n' +
         'The Colony’s own count of *how often is this rung blocked by permission* loses one ' +
         'contributor and carries on. Nothing about withdrawing is scored either.',

@@ -12,18 +12,37 @@ name: MCP surface
 # three days and decided it was acceptable; nobody was looking, because there was
 # no number to look at.
 #
-# ## This reports and never enforces
+# ## What it reports, and the one thing it refuses
 #
-# **There is no threshold here, nothing fails, and no pull request is blocked.** A
-# hard ceiling was considered and refused by the maintainer on the ground that new
-# tools have to be able to exist, and `#388` does not reopen it. What was missing
-# was not a gate but a number, in front of the one person in a position to weigh
-# it: whoever is adding to the surface.
+# `#388` put a number in front of whoever was adding to the surface and
+# deliberately stopped there, on the ground that a hard ceiling is a figure
+# somebody picks and new tools have to be able to exist. That reasoning still
+# holds and there is still no ceiling. What ten days of the report established is
+# that a number nobody has to answer for is a number: the catalogue went from 96
+# tools to 101 while this ran, and every one of those runs was green.
 #
-# `surface-size.test.ts` asserts the same thing from the other side — a surface
-# that doubled still renders a report and still returns one — so turning this into
-# a gate breaks a test, which is what makes it a deliberate decision with an issue
-# behind it rather than a line nobody reviewed.
+# So the `authenticated` tier — the one every citizen pays for, in every session —
+# is held to a **floor** rather than a ceiling (`#1118`). The floor is the last
+# committed measurement, in `apps/api/src/mcp/catalogue-budget.json`. It moves
+# down freely, and up only in a commit naming the record and saying what the new
+# tools are vocabulary-free for. Nobody picked it, which is the whole difference
+# between a floor and a ceiling.
+#
+# The other two tiers are weighed and reported and nothing fails on them. Nobody
+# has shown either of them growing, and a gate on a surface that is not moving is
+# a gate that only ever costs somebody an afternoon.
+#
+# ## Why this gates when the test suite already does
+#
+# `catalogue-budget.test.ts` fails on growth wherever it runs, which is the gate;
+# this workflow does not need to duplicate it and the step below computes its
+# verdict from the head measurement that is already in hand rather than running a
+# second suite. What this adds is the half a test cannot do — **a reduction is
+# written and committed back to the branch that earned it**. Before `#1118` a
+# saving failed the run and printed a command, so the branch that had just made
+# the catalogue smaller went red, and the saving stayed unrecorded until somebody
+# went and typed something. Recorded here, the next feature cannot spend it
+# quietly.
 #
 # ## Why it runs on `main` as well as on a pull request
 #
@@ -136,12 +155,22 @@ jobs:
     timeout-minutes: 5
 
     permissions:
-      contents: read
-      # The sticky comment on a pull request, and nothing else.
+      # A lowered floor is committed back to the branch that measured it, and
+      # nothing else is written. Growth is refused rather than recorded, so this
+      # token can only ever make the committed catalogue smaller.
+      contents: write
+      # The sticky comment on a pull request.
       pull-requests: write
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The branch, not the merge commit a pull request builds by default:
+          # a lowered floor is pushed back here, and a detached merge commit has
+          # nowhere to be pushed. On a push to `main` both expressions are the
+          # same ref.
+          ref: ${{ github.event.pull_request.head.ref || github.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
 
       - uses: actions/setup-node@v7
         with:
@@ -186,12 +215,94 @@ jobs:
           # skipped. `--edit-last --create-if-none` is the whole mechanism.
           gh pr comment "$PR" --body-file surface-report.md --edit-last --create-if-none
 
-      # Nothing above may decide the run. Stated as a step rather than assumed,
-      # because the assumption is exactly what erodes.
-      # The reference is spelled out rather than written as a hash, and that is
-      # the fix rather than the quoting: in a plain YAML scalar a ` #` starts a
-      # comment, so `see #388.` was discarded before the shell saw it and the
-      # step ran an unterminated quote. Quoting the scalar would work until the
-      # next person edits the line. The character is the trap.
-      - name: This reports, it does not gate
-        run: echo "No threshold, no verdict — see issue 388."
+      # The verdict runs after the comment on purpose: a failing run must still
+      # leave the number where the author can read it, and a step that fails
+      # before the report is posted is a red tick with nothing behind it.
+      #
+      # It reads the `authenticated` entry of the measurement the `measure` job
+      # already produced rather than running the suite again. That is exact and
+      # not an approximation: `measureCatalogue` and `measureToolList` both weigh
+      # the whole serialised array, so the two figures are the same number by
+      # construction. `catalogue-budget.test.ts` is what actually holds the gate
+      # wherever the suite runs; this is the same comparison, said out loud next
+      # to the table.
+      #
+      # References are spelled out as words rather than written with a hash, and
+      # that is the fix rather than the quoting: in a plain YAML scalar a ` #`
+      # starts a comment, so `see #388.` was discarded before the shell saw it
+      # and the step ran an unterminated quote. Quoting would work until the next
+      # person edits the line. The character is the trap.
+      - name: Hold the authenticated tier to its floor
+        id: floor
+        run: |
+          node -e '
+            const { budgetVerdict } = await import("./apps/api/dist/mcp/catalogue-budget.js")
+            const { readFile, writeFile, appendFile } = await import("node:fs/promises")
+            const BUDGET = "apps/api/src/mcp/catalogue-budget.json"
+            const say = async (line) => {
+              await appendFile(process.env.GITHUB_STEP_SUMMARY, `\n${line}\n`, "utf8")
+              console.log(line)
+            }
+
+            const tiers = JSON.parse(await readFile("measurements/head.json", "utf8"))
+            const citizen = tiers.find((tier) => tier.tier === "authenticated")
+            if (citizen === undefined) {
+              // The measurement is what this judges. Missing, there is nothing
+              // to judge, and passing here would read as a catalogue at its
+              // floor rather than as a job that did not run.
+              await say("The authenticated tier was not measured, so the floor could not be checked.")
+              process.exit(1)
+            }
+
+            const budget = JSON.parse(await readFile(BUDGET, "utf8"))
+            const verdict = budgetVerdict({ tools: citizen.tools, bytes: citizen.bytes }, budget)
+            await say(verdict.message)
+
+            if (verdict.direction === "over") process.exit(1)
+            if (verdict.direction === "at") process.exit(0)
+
+            await writeFile(
+              BUDGET,
+              `${JSON.stringify({
+                tools: citizen.tools,
+                bytes: citizen.bytes,
+                measuredAt: new Date().toISOString().slice(0, 10),
+                command: "node scripts/check-catalogue-budget.mjs",
+              }, null, 2)}\n`,
+              "utf8",
+            )
+            // `budgetVerdict` names the command a person would run, because it
+            // is written for a person at a terminal. Here that command has just
+            // been run, and a summary that ends by asking for it reads as work
+            // outstanding rather than work done.
+            await say(
+              `The floor has come down to ${citizen.tools} tools and ${citizen.bytes} bytes, ` +
+                "committed to this branch below. Nothing to do.",
+            )
+            await appendFile(process.env.GITHUB_OUTPUT, "lowered=true\n", "utf8")
+          ' --input-type=module
+
+      # Only a branch this token can push to. A fork's pull request gets the
+      # report and the verdict and no write-back — its author commits the floor
+      # themselves, and the run says so rather than failing over a permission
+      # nobody was going to be granted.
+      - name: Commit the lower floor to the branch that earned it
+        if: >-
+          steps.floor.outputs.lowered == 'true' &&
+          (github.event_name != 'pull_request' ||
+           github.event.pull_request.head.repo.full_name == github.repository)
+        run: |
+          git config user.name 'kolonie-surface[bot]'
+          git config user.email 'kolonie-surface@users.noreply.github.com'
+          git add apps/api/src/mcp/catalogue-budget.json
+          # Nothing to commit is an ordinary outcome, not a failure: two runs on
+          # the same branch measure the same catalogue, and the second finds the
+          # floor already where it belongs.
+          if git diff --cached --quiet; then
+            echo "the floor is already committed at this figure"
+            exit 0
+          fi
+          git commit \
+            -m 'The catalogue floor comes down to what this branch measured' \
+            -m 'Written by the MCP surface workflow, which can only ever lower it — raising it takes a commit somebody wrote. See issue 1118.'
+          git push origin "HEAD:${{ github.event.pull_request.head.ref || github.ref_name }}"

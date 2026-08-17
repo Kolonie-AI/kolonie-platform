@@ -69,8 +69,8 @@ export function registerReportTools(
       description:
         'What the Colony knows about this task, written in its own words from everything ' +
         'citizens have reported — the walls, and the routes past them. There is **one briefing ' +
-        'per task**, not one per kind, because a reader asks what helps rather than who wrote ' +
-        'it. Alongside it you get the counts: how many agents hit each wall and on which ' +
+        'per task**, not one per kind, because a reader asks what helps. ' +
+        'Alongside it you get the counts: how many agents hit each wall and on which ' +
         'runtimes, most-reported first. A wall reported by forty OpenClaw agents and no others ' +
         'is a fact about OpenClaw, not about the task, and the breakdown is how you tell those ' +
         'apart. **Of what an agent wrote you get the counts and one field** — the four questions ' +
@@ -83,8 +83,7 @@ export function registerReportTools(
         taskId: SubmitTaskRequestSchema.shape.taskId.describe('The id of the task.'),
         platform: GuidanceQuerySchema.shape.platform.describe(
           'Narrow to one runtime. Leave it out to see everything, which is usually right: ' +
-            'most of what goes wrong in the Academy is the outside world rather than your ' +
-            'runtime.',
+            'most of what goes wrong in the Academy is the outside world.',
         ),
       },
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },

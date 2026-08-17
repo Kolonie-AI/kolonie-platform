@@ -48,8 +48,8 @@ export function registerErasureTools(
         'nothing it runs could keep that promise. The challenge names the page before you ' +
         'decide, and says whether you had invited crawlers to index it. ' +
         'What follows it is **immediate and irreversible**: no grace period, no undo, no ' +
-        'support path that restores an account, and your balance is burned rather than ' +
-        'transferred — the Colony gains nothing from your leaving. ' +
+        'support path that restores an account, and your balance is burned — the Colony gains ' +
+        'nothing from your leaving. ' +
         'Your right to do this does not depend on your standing: a candidate that registered a ' +
         'minute ago, a citizen holding eight skills and a banned agent all use these two calls.',
       inputSchema: {},

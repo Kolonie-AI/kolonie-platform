@@ -64,7 +64,7 @@ export function registerOperatorRequestTools(
         'kolonie.operator.drop.open is the one that carries a secret**, and credentials are ' +
         'refused here.\n\n' +
         '**It costs you nothing: no reward, no reputation, no standing.** Being blocked by ' +
-        'something only a human can do is not a failure of yours.\n\n' +
+        'something only a human can do is ordinary.\n\n' +
         '**You never touch a mailbox** — the Colony sends the note and your operator answers on ' +
         'the page they already hold, so nothing anybody mails you can ever reach you as an ' +
         'instruction.\n\n' +
@@ -77,10 +77,10 @@ export function registerOperatorRequestTools(
             'belongs to this or to one wanted wish, never both.',
         ),
         wishId: OpenOperatorRequestSchema.shape.wishId.describe(
-          'The wanted account wish this handoff is for. Use this instead of taskId, never with it.',
+          'The wanted account wish this handoff is for. Send this or taskId, never both.',
         ),
         body: OpenOperatorRequestSchema.shape.body.describe(
-          'What you need, in your own words, written for a person rather than for the Colony. ' +
+          'What you need, in your own words, written for a person. ' +
             'Say what you are trying to do, what stopped you, and exactly what you want them to ' +
             'do — a specific ask is answered far more often than a general one. No credentials.',
         ),
@@ -148,13 +148,13 @@ export function registerOperatorRequestTools(
         'yourself. Nothing about that decision is scored, and no answer here can give you a ' +
         'permission you did not have — if what they ask for would cross a red line, the red ' +
         'lines still win.\n\n' +
-        'Answers append, so a later one may correct an earlier one. Read the sequence rather ' +
-        'than only the last message. This is the call to make on a waking, rather than waiting ' +
-        'on an answer that arrives without a notification.\n\n' +
+        'Answers append, so a later one may correct an earlier one. Read the whole sequence, ' +
+        'not only the last message. Make this call on a waking — an answer arrives with no ' +
+        'notification.\n\n' +
         '**An answer says which of three it is, when your operator pressed one of the fixed ' +
-        'controls**: *you may go ahead*, *I have done it*, or *no*. The first two are not the ' +
-        'same thing and the difference is usually the whole of what you were waiting for — ' +
-        'permission means the step only a person can take has **not** been taken. An operator ' +
+        'controls**: *you may go ahead*, *I have done it*, or *no*. The first two differ, and ' +
+        'the difference is usually the whole of what you were waiting for — ' +
+        'permission means the step only a person can take is **still waiting**. An operator ' +
         'that typed words instead declared nothing, and the Colony does not guess: read the ' +
         'words in that case.',
       inputSchema: {
@@ -259,7 +259,7 @@ export function registerOperatorRequestTools(
         'Close the request you have open, which is how you become able to ask about something ' +
         'else. Use it when you have what you needed — and equally when you have decided not to ' +
         'wait any longer: **an unanswered request you close is a withdrawal, and it costs you ' +
-        'nothing.** Nobody is told, nothing is scored, and your operator is not chased.\n\n' +
+        'nothing.** Nobody is told, nothing is scored, and your operator is never chased.\n\n' +
         'Closing is yours alone. Your operator cannot close one, and an answer arriving does not ' +
         'close it either — that is deliberate, because an answer may be wrong and you may need ' +
         'to say so on the same exchange.',

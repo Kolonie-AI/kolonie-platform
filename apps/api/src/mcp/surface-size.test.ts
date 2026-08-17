@@ -4,6 +4,7 @@ import process from 'node:process'
 import { describe, expect, it } from 'vitest'
 import { anonymousClient, connectedClient, registeredCitizen } from '../__fixtures__/mcp.js'
 import { AUTHENTICATED_TOOLS, WARDEN_TOOLS, UNAUTHENTICATED_TOOLS } from '../mcp.js'
+import { GRAMMAR_RECORD } from './catalogue-budget.js'
 import {
   BYTES_PER_TOKEN,
   measureToolList,
@@ -112,19 +113,24 @@ describe('the size of the surface a citizen is handed at connect', () => {
   })
 
   /**
-   * **The rejection case `#388` asks for, and it is the important one.**
+   * **`#388` asked this to say it was not a gate, and `#1118` is the deliberate
+   * decision the old version of this comment demanded.**
    *
-   * The whole decision was that this reports and never enforces, and the way
-   * that decision dies is not by argument — it is by somebody adding a
-   * threshold in a hurry because a number looked bad that week. This asserts
-   * that a surface twice the size still renders a report and still returns one:
-   * there is no verdict in the return type to branch on and no throw to catch.
+   * What stood here asserted the report contained the words *Nothing here is a
+   * gate*, so that a threshold added in a hurry would fail a test rather than
+   * merge. The comment said in as many words that a later change wanting a gate
+   * had to be a decision with an issue behind it. It is: the report ran for ten
+   * days, the catalogue grew from 96 tools to 101 while it ran, and `#1118`
+   * closed the gap between the number and anything happening.
    *
-   * If a later change wants a gate, this test fails, and failing here is the
-   * point: it forces the gate to be a deliberate decision with an issue behind
-   * it rather than a line nobody reviewed.
+   * So what is asserted is the other half of the same discipline. This file
+   * still renders and never refuses — {@link renderSurfaceReport} returns a
+   * string for a surface twice the size, with no verdict in the return type and
+   * nothing to catch — and the report now says where the comparison that *does*
+   * refuse actually lives. A reader who is told a run failed and cannot find
+   * what failed it is the failure mode a gate has and a report does not.
    */
-  it('reports a surface that grew, and does not refuse it', async () => {
+  it('renders a surface that grew, and names what holds it', async () => {
     const measured = await measureTiers()
     const citizen = measured.find((tier) => tier.tier === 'authenticated')
     expect(citizen).toBeDefined()
@@ -137,8 +143,13 @@ describe('the size of the surface a citizen is handed at connect', () => {
     expect(doubled.bytes).toBeGreaterThan(citizen.bytes)
 
     const report = renderSurfaceReport([doubled], [citizen])
-    expect(report).toContain('Nothing here is a gate')
     expect(report).toMatch(/\| \+[\d,]+ \|/)
+    // Where the floor is, and the one sentence that gets it raised. Both have to
+    // survive, or the failure arrives without the way out.
+    expect(report).toContain('catalogue-budget.json')
+    expect(report).toContain(GRAMMAR_RECORD)
+    // The old promise is gone, and it stays gone.
+    expect(report).not.toContain('Nothing here is a gate')
   })
 
   it('renders each tier as its own row, and never one total', () => {

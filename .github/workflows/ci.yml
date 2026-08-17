@@ -74,7 +74,23 @@ jobs:
   check:
     name: format, lint, build, typecheck, test
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # **Measured against what the suite actually takes, not rounded up from it**
+    # (`#1149`). Fifteen minutes was set when the monorepo was stood up and the
+    # suite ran in 1m34s (#283). It now runs in 13.3–14 minutes, so half the runs
+    # on `main` were being cancelled at the ceiling with nothing wrong in them —
+    # and a cancelled run reads as a red check, which stops a pull request that
+    # merges on green.
+    #
+    # **A cap the ordinary case reaches is not a cap.** It exists so a hung job
+    # does not run for six hours; one the suite touches every other run cannot
+    # tell a hang from a slow runner, and the signal it was put there to give is
+    # gone whichever way it lands. Twenty-five keeps the hang caught and stops
+    # catching Tuesdays.
+    #
+    # This is the number to lower again rather than raise: `packages/db` spends
+    # 237s of its 405s in setup, running every file under both projects, and the
+    # honest fix is that rather than this line.
+    timeout-minutes: 25
 
     # The database the integration tests in packages/db run against.
     #

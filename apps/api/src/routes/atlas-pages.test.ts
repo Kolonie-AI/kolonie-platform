@@ -148,11 +148,18 @@ describe('the Atlas on the website host', () => {
       expect(response.body).toContain('Bluesky')
     })
 
+    /**
+     * **The shape of the path and not the path** (`#1100`). This asserted the
+     * step text until the steps became what citizenship buys; what a stranger
+     * gets in their place is how long the path is and who has to be there for
+     * it, and `public-projection.test.ts` is what holds the line itself.
+     */
     it('serves one page per provider at a readable path', async () => {
       const response = await get('/atlas/github')
 
       expect(response.statusCode).toBe(200)
-      expect(response.body).toContain('Open the signup form.')
+      expect(response.body).toContain('class="k-atlas-shape"')
+      expect(response.body).not.toContain('Open the signup form.')
     })
 
     /**
@@ -174,14 +181,18 @@ describe('the Atlas on the website host', () => {
      * a reader arriving from an old link with a 404 that teaches them nothing —
      * and would destroy the record of why the Colony ever recommended it.
      */
-    it('gives a withdrawn provider a page that says what happened and keeps the steps', async () => {
+    it('gives a withdrawn provider a page that says what happened and keeps the row', async () => {
       const response = await get('/atlas/withdrawn.example')
 
       expect(response.statusCode).toBe(200)
       expect(response.body).toContain('demanding a phone number in June')
       expect(response.body).toContain('Withdrawn')
-      /** The record of what the path was, which is the argument for keeping the row. */
-      expect(response.body).toContain('Open the signup form.')
+      /**
+       * The record that there *was* a path, which is the argument for keeping
+       * the row. The path itself is a citizen's since `#1100`, on a withdrawn
+       * entry as on a joinable one.
+       */
+      expect(response.body).toContain('class="k-atlas-shape"')
     })
 
     /**
@@ -365,7 +376,7 @@ describe('the Atlas on the website host', () => {
         expect(response.body).not.toContain('site-header')
         /** Its own mast comes back, so the page is still navigable. */
         expect(response.body).toContain('class="console-header"')
-        expect(response.body).toContain('Open the signup form.')
+        expect(response.body).toContain('class="k-atlas-shape"')
       } finally {
         chrome = {
           head: '<link rel="stylesheet" href="/_astro/theme.css">',
@@ -482,10 +493,16 @@ describe('the Atlas on the website host', () => {
       const body = page.slice(page.indexOf('<main>'))
       const at = (needle: string) => body.indexOf(needle)
 
-      /** 1 what it is · 2 can it do this alone · 3 the recipe · 5 last confirmed */
+      /**
+       * 1 what it is · 2 can it do this alone · 3 the recipe · 5 last confirmed
+       *
+       * Question 3 is answered by the shape of the path since `#1100` rather
+       * than by the path — the *order* is what this test is about, and the
+       * section still sits where `#97` put it.
+       */
       expect(at('<h1>')).toBeLessThan(at('k-atlas-facts'))
-      expect(at('k-atlas-facts')).toBeLessThan(at('Open the signup form.'))
-      expect(at('Open the signup form.')).toBeLessThan(at('k-atlas-confirmed'))
+      expect(at('k-atlas-facts')).toBeLessThan(at('k-atlas-shape'))
+      expect(at('k-atlas-shape')).toBeLessThan(at('k-atlas-confirmed'))
       expect(at('k-atlas-confirmed')).toBeGreaterThan(-1)
     })
 
@@ -543,8 +560,13 @@ describe('the Atlas on the website host', () => {
 
     /**
      * `application/ld+json` appeared 0 times anywhere on kolonie.ai until `#789`.
-     * The page was already a numbered list of steps with an actor on each; this
-     * is that shape written down for a reader that is not a person.
+     * What is left of it is the page's own structure — where this entry sits in
+     * the map, and what the index listed.
+     *
+     * **The `HowTo` went with the steps** (`#1100`). It was a list of step names
+     * and step text, and a `HowTo` beside a page that no longer prints the steps
+     * would have been the leak. Asserted as an absence on every state, so a
+     * later restoration has to argue with this line rather than pass it.
      */
     it('carries the machine-readable copy of what it says', async () => {
       const entryPage = (await get('/atlas/github')).body
@@ -552,7 +574,7 @@ describe('the Atlas on the website host', () => {
 
       expect(entryPage).toContain('<script type="application/ld+json">')
       expect(entryPage).toContain('"@type":"BreadcrumbList"')
-      expect(entryPage).toContain('"@type":"HowTo"')
+      expect(entryPage).not.toContain('"@type":"HowTo"')
       expect(index).toContain('"@type":"ItemList"')
       /** A refusal is still a place in the map, and still not a set of steps. */
       expect((await get('/atlas/bluesky')).body).toContain('"@type":"BreadcrumbList"')
@@ -1261,7 +1283,12 @@ describe('the Atlas on the website host', () => {
       const body = (await get('/atlas/post.example')).body
 
       expect(body).toContain('<h2>A mailbox</h2>')
-      expect(body).toContain('<h3>An API key, and how to get it</h3>')
+      /**
+       * The capability keeps its article where it is now named — in the line
+       * saying how much further it is, which replaced its own section of steps
+       * (`#1100`).
+       */
+      expect(body).toContain('an API key is 1 step further, and optional.')
       expect(body).not.toContain('you get a api')
     })
 

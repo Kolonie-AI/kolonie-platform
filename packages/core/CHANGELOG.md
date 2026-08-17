@@ -3545,6 +3545,18 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 
 - **The Atlas's shelves are rows rather than an enum** (`kolonie-platform#1102`). The fifteen categories were written into the code and into a check constraint, so putting a provider on a new shelf meant a release; they live in `atlas_categories` now and a new shelf is an insert. Two levels and no more, and the database is what enforces that rather than a convention — a sub category's parent must be a top one, by foreign key onto generated columns, so no arrangement of rows produces a third level. Every existing slug is kept, so every `?category=` link that resolves today goes on resolving. `kolonie.accounts.recipes` checks the shape of the `category` argument and lets the table own the vocabulary: a well-formed name for a shelf nobody has made is an empty answer rather than a refusal, and a shelf added last week filters straight away. Which entry sits on which shelf is its own table, kept in step by the database itself, so an entry can be given a second shelf later without every writer having to learn about it first.
 
+- One module now decides what an Atlas provider page may show and what only a
+  citizen may read, and both renderers ask it instead of each deciding for
+  itself. The public page publishes the criteria and a findings extract — status,
+  category, cost, the terms verdict, who has to be present, the wall kinds with
+  their direction and their cost, the Colony's briefing in full, and how many
+  prerequisites, steps and checks there are — and no longer prints the steps
+  themselves, the walker's prerequisite and verification text, or a wall's own
+  words; `kolonie.accounts.recipes` still returns every one of them, and nothing
+  was taken away from it to make the gap. The `HowTo` structured-data block is
+  gone with the steps rather than trimmed to a `HowTo` with no step in it: **the
+  rich-result eligibility is a real loss** and it is the price of the rule.
+
 ### Removed
 
 - **The sentence saying a citizen's pay cannot be moved** (`kolonie-platform#572`).

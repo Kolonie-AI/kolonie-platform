@@ -732,6 +732,35 @@ describe('nothing decides on a session', () => {
      */
     'humans.ts',
     'humans.test.ts',
+    /**
+     * **`call-hours.ts`, which counts sessions and cannot see one** (`#1119`).
+     *
+     * Two reads join `agent_sessions` to answer how long a session is and how
+     * many distinct tools it touches. Both are `group by` over every citizen at
+     * once: `requestsPerSessionSince` returns a median and a p90, and
+     * `sessionToolSpreadSince` returns *how many sessions touched this many
+     * tools*. **There is no agent id in either result and no row to trace back
+     * to a run** — the aggregate is the shape, not a filter applied to one.
+     *
+     * **It passes the standard `standing-hints.ts` is held to, and does not
+     * need most of it.** Nothing branches: no skill, no reward, no reputation,
+     * no eligibility, no ordering, no entitlement, and no citizen-facing
+     * sentence is downstream of these. Neither read is reachable from a route.
+     * They exist for `scripts/measure-catalogue-cost.mjs`, which runs against a
+     * database directly and writes a document.
+     *
+     * **The direction a citizen would want does not exist either.** A citizen
+     * naming a fresh session per call moves a median in a report about the tool
+     * catalogue and gains nothing, because nothing reads the report back into
+     * the Colony — and the report says in its own text that the tool counts are
+     * an upper bound for exactly this reason.
+     *
+     * If anything here is ever read per citizen, or a figure from it decides
+     * what a citizen may do, this entry is where the argument has to be
+     * revisited.
+     */
+    'call-hours.ts',
+    'call-hours.test.ts',
   ])
 
   it('is referenced by no storage module that decides anything', async () => {
@@ -760,10 +789,22 @@ describe('nothing decides on a session', () => {
       // `currentSessionIdSql` twice to explain an unrelated aliasing decision.
       // Naming a file that merely argues about sessions would make the list
       // longer and the rule weaker.
+      //
+      // **The table's own name is matched where SQL would put it** (`#1119`).
+      // The sentence above claims a hand-written join is caught by the same
+      // rule, and until this pattern existed it was not: every alternative
+      // above is a TypeScript identifier, so `from agent_sessions s` in a raw
+      // fragment matched none of them. `call-hours.ts` was the first module to
+      // fall in that hole, and it fell in silently — only its test file, which
+      // imports `agentSessions` to build a fixture, gave it away. Bound to
+      // `from`/`join`/`into`/`update` for the reason the helpers are matched as
+      // calls: `tasks.ts` names the table in a comment about SQL rendering and
+      // reaches for nothing.
       if (
         /agentSessions|sessionId|session_id|runtimeTools|runtime_tools|SessionIdSql\(|SessionStartSql\(/.test(
           source,
-        )
+        ) ||
+        /\b(?:from|join|into|update)\s+agent_sessions\b/iu.test(source)
       ) {
         offenders.push(file)
       }

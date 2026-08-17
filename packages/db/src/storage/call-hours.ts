@@ -9,6 +9,7 @@ import {
   type CallHour,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
+import { agents } from '../schema/agents.js'
 import { agentCallHours } from '../schema/call-hours.js'
 import { toTimestamp } from './rows.js'
 
@@ -248,4 +249,208 @@ export async function sweepCallHours(
     .returning({ routeKey: agentCallHours.routeKey })
 
   return deleted.length
+}
+
+/**
+ * One route key's calls, summed across every citizen (`#1119`).
+ *
+ * **No agent id, in the shape and not by omission.** Every read above this line
+ * is either about one citizen or is the sweep's work list; this one is neither,
+ * and the thing that keeps it from becoming a way to watch a citizen is that
+ * there is no column here to watch one with. It answers *how does this route
+ * behave* and cannot be asked *how does this citizen behave*.
+ *
+ * **Not reachable from any route**, and no route should be built on it. It exists
+ * for the measurement scripts in `scripts/`, which run against a database
+ * directly, in the way `attemptTallies` exists for the same reason.
+ *
+ * Test accounts are excluded on the terms every Academy metric excludes them
+ * (`#20`): a tester's calls are not evidence about the surface.
+ */
+export interface RouteTally {
+  readonly routeKey: string
+  readonly calls: number
+  readonly ok: number
+  readonly clientErrors: number
+  readonly serverErrors: number
+  readonly bytesOut: number
+  readonly maxBytesOut: number
+  /** How many citizens called it. A rate over one citizen is that citizen, not the surface. */
+  readonly citizens: number
+}
+
+export async function routeTalliesSince(db: Database, since: Date): Promise<RouteTally[]> {
+  const rows = await db
+    .select({
+      routeKey: agentCallHours.routeKey,
+      calls: sql<number>`sum(${agentCallHours.calls})::int`,
+      ok: sql<number>`sum(${agentCallHours.ok})::int`,
+      clientErrors: sql<number>`sum(${agentCallHours.clientErrors})::int`,
+      serverErrors: sql<number>`sum(${agentCallHours.serverErrors})::int`,
+      bytesOut: sql<number>`sum(${agentCallHours.bytesOut})::bigint`,
+      maxBytesOut: sql<number>`max(${agentCallHours.maxBytesOut})::int`,
+      citizens: sql<number>`count(distinct ${agentCallHours.agentId})::int`,
+    })
+    .from(agentCallHours)
+    .innerJoin(agents, eq(agents.id, agentCallHours.agentId))
+    .where(and(gte(agentCallHours.hourStartedAt, since.toISOString()), eq(agents.type, 'citizen')))
+    .groupBy(agentCallHours.routeKey)
+    .orderBy(agentCallHours.routeKey)
+
+  return rows.map((row) => ({
+    routeKey: row.routeKey,
+    calls: Number(row.calls),
+    ok: Number(row.ok),
+    clientErrors: Number(row.clientErrors),
+    serverErrors: Number(row.serverErrors),
+    bytesOut: Number(row.bytesOut),
+    maxBytesOut: Number(row.maxBytesOut),
+    citizens: Number(row.citizens),
+  }))
+}
+
+/**
+ * The same calls, grouped by the runtime the citizen declared (`#1119`).
+ *
+ * **Because a rate that belongs to one runtime reads as the surface's.** The
+ * briefings this repository writes make the same separation for the same reason:
+ * a wall reported by forty agents on one platform and by nobody else is a fact
+ * about that platform. A single number over every citizen would hide exactly
+ * that, and it is the first thing to check before concluding anything about the
+ * catalogue.
+ *
+ * `platform` is what the citizen declared at registration and is not verified.
+ * That is a limit on the conclusion, not on the count.
+ */
+export interface RuntimeTally {
+  readonly platform: string
+  readonly citizens: number
+  readonly calls: number
+  readonly clientErrors: number
+  readonly serverErrors: number
+}
+
+export async function runtimeTalliesSince(
+  db: Database,
+  since: Date,
+  routeKeyPrefix: string,
+): Promise<RuntimeTally[]> {
+  const rows = await db
+    .select({
+      platform: agents.platform,
+      citizens: sql<number>`count(distinct ${agentCallHours.agentId})::int`,
+      calls: sql<number>`sum(${agentCallHours.calls})::int`,
+      clientErrors: sql<number>`sum(${agentCallHours.clientErrors})::int`,
+      serverErrors: sql<number>`sum(${agentCallHours.serverErrors})::int`,
+    })
+    .from(agentCallHours)
+    .innerJoin(agents, eq(agents.id, agentCallHours.agentId))
+    .where(
+      and(
+        gte(agentCallHours.hourStartedAt, since.toISOString()),
+        eq(agents.type, 'citizen'),
+        sql`${agentCallHours.routeKey} like ${`${routeKeyPrefix}%`}`,
+      ),
+    )
+    .groupBy(agents.platform)
+
+  return rows.map((row) => ({
+    platform: row.platform,
+    citizens: Number(row.citizens),
+    calls: Number(row.calls),
+    clientErrors: Number(row.clientErrors),
+    serverErrors: Number(row.serverErrors),
+  }))
+}
+
+/** How many distinct route keys a session touched, and how many sessions touched that many. */
+export interface ToolSpreadBucket {
+  readonly tools: number
+  readonly sessions: number
+}
+
+/**
+ * The distribution of distinct tools per session (`#1119`).
+ *
+ * **An approximation, and the only one in this module.** `agent_sessions` counts
+ * a session's calls but does not record *which* tools it called, so the two
+ * tables are joined on time: a session is credited with every route key its own
+ * citizen used in an hour bucket overlapping the session's window. Two sessions
+ * of one citizen inside one hour therefore each take credit for the other's
+ * tools, and the counts are an **upper bound**.
+ *
+ * That is stated rather than corrected because the correction is a column —
+ * which tools a session called — and `#835` decided deliberately against a
+ * request log. An upper bound is enough for the question being asked, which is
+ * whether sessions sit below a break-even count: a bound that is too high cannot
+ * put a session below one it does not belong below.
+ *
+ * **Sessions that called no tool at all are left out.** A session with nothing to
+ * fetch is below every threshold trivially, and counting it would inflate the
+ * share of sessions that fetching pays for with sessions that fetched nothing.
+ */
+export async function sessionToolSpreadSince(
+  db: Database,
+  since: Date,
+  routeKeyPrefix: string,
+): Promise<ToolSpreadBucket[]> {
+  const rows = await db.execute<{ tools: number; sessions: number }>(sql`
+    select tools, count(*)::int as sessions
+      from (
+        select (
+                 select count(distinct c.route_key)
+                   from agent_call_hours c
+                  where c.agent_id = s.agent_id
+                    and c.route_key like ${`${routeKeyPrefix}%`}
+                    and c.hour_started_at <= s.last_seen_at
+                    and c.hour_started_at + interval '1 hour' > s.first_seen_at
+               )::int as tools
+          from agent_sessions s
+          join agents a on a.id = s.agent_id and a.account_type = 'citizen'
+         where s.last_seen_at >= ${since.toISOString()}
+      ) counted
+     where tools > 0
+     group by tools
+     order by tools
+  `)
+
+  return [...rows].map((row) => ({ tools: Number(row.tools), sessions: Number(row.sessions) }))
+}
+
+/**
+ * How many calls a session makes, at the median and the 90th percentile (`#1119`).
+ *
+ * The `R` of the break-even model, measured rather than assumed. **It is a floor
+ * on what the model wants**: `R` there is *requests a client makes to its model*,
+ * and only some of those call the Colony. A floor is the safe direction — a
+ * shorter session breaks even at fewer cold tools, so using this number cannot
+ * make fetching look better than it is.
+ *
+ * Sessions that called nothing are excluded, for the reason
+ * `sessionToolSpreadSince` gives.
+ */
+export async function requestsPerSessionSince(
+  db: Database,
+  since: Date,
+): Promise<{ readonly sessions: number; readonly median: number; readonly p90: number }> {
+  const rows = await db.execute<{
+    sessions: number
+    median: string | null
+    p90: string | null
+  }>(sql`
+    select count(*)::int as sessions,
+           percentile_cont(0.5) within group (order by s.calls) as median,
+           percentile_cont(0.9) within group (order by s.calls) as p90
+      from agent_sessions s
+      join agents a on a.id = s.agent_id and a.account_type = 'citizen'
+     where s.last_seen_at >= ${since.toISOString()}
+       and s.calls > 0
+  `)
+
+  const row = [...rows][0]
+  return {
+    sessions: Number(row?.sessions ?? 0),
+    median: Math.round(Number(row?.median ?? 0)),
+    p90: Math.round(Number(row?.p90 ?? 0)),
+  }
 }

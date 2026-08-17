@@ -43,6 +43,7 @@ import {
   bootstrapTemplatesAsHint,
   figureKey,
   kindHasDirection,
+  reachedByWalk,
   recipeStatusIsOfferable,
   walkIsReported,
   walkProse,
@@ -93,6 +94,7 @@ import { toolError } from '../guard.js'
 import { toolDocsMeta } from '../tool-docs.js'
 import { accountsAsText, providersAsText } from '../text/accounts.js'
 import { walkOwnProseAsText } from '../text/walk-own-prose.js'
+import { walkReachAsText } from '../text/walk-reach.js'
 import type { HeldAccount } from '../../accounts.js'
 import { SKILL_FOR_ACCOUNT_KIND } from '../../tasks.js'
 
@@ -267,6 +269,7 @@ async function walkReportResult(
   provider: string,
   finished: WalkFiled,
   accounts: McpDependencies['accounts']['register'],
+  recipes: McpDependencies['recipes'],
 ) {
   /**
    * **What the report did not do** (`#803`). A walk report is testimony, while
@@ -274,6 +277,14 @@ async function walkReportResult(
    * travels beside either kind of report rather than being inferred from it.
    */
   const proof = await walkProofState(agentId, { kind: finished.walk.kind, provider }, accounts)
+
+  /**
+   * **The published entry, because the walk does not carry it** (`#1170`). What
+   * the walker ticked is on the walk; what those positions *are* is on the entry,
+   * and only the two together say whether the capability half was walked.
+   */
+  const published = await recipes.one(finished.walk.kind, provider)
+  const reached = published === undefined ? undefined : reachedByWalk(finished.walk, published)
 
   return {
     content: [
@@ -291,7 +302,8 @@ async function walkReportResult(
           (finished.duplicateOf === undefined
             ? walkProseAsText(walkProse(finished.walk))
             : walkDuplicateAsText(finished.duplicateOf)) +
-          (proof === undefined ? '' : walkProofStateAsText(proof)),
+          (proof === undefined ? '' : walkProofStateAsText(proof)) +
+          walkReachAsText(finished.walk, published),
       },
     ],
     structuredContent: {
@@ -301,6 +313,7 @@ async function walkReportResult(
       providerCanonical: provider,
       ...(finished.duplicateOf === undefined ? {} : { duplicateOf: finished.duplicateOf }),
       ...(proof === undefined ? {} : { proof }),
+      ...(reached === undefined ? {} : { reached }),
     },
   }
 }
@@ -2485,7 +2498,9 @@ export function registerAccountTools(
           .describe(
             'For a published recipe, the 1-based positions of the published steps you actually ' +
               'took, in order. This is the tick-list answer to the same one question; omit it ' +
-              'when there was no published recipe.',
+              'when there was no published recipe. **An entry that goes further than the ' +
+              'account numbers those steps on from the last signup one**, so ticking a position ' +
+              'past it is how you say you got the capability too — one list, no second form.',
           ),
         /**
          * The first walker's long form (`#769`).
@@ -2671,6 +2686,7 @@ export function registerAccountTools(
               canonical,
               submitted,
               deps.accounts.register,
+              deps.recipes,
             )
           }
 
@@ -2752,6 +2768,7 @@ export function registerAccountTools(
         canonical,
         finished,
         deps.accounts.register,
+        deps.recipes,
       )
     },
   )

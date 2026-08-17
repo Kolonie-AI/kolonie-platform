@@ -10,7 +10,16 @@ import {
   type AtlasEntry,
 } from '@kolonie-ai/core'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
-import { ATLAS_HEADERS, atlasCategoryPage, atlasEntryPage, atlasIndexPage } from '../atlas/html.js'
+import {
+  ATLAS_HEADERS,
+  atlasCategoryPage,
+  atlasEntryPage,
+  atlasIndexPage,
+  atlasPageAsked,
+  atlasPageCount,
+  atlasShelfPath,
+  atlasShelfRows,
+} from '../atlas/html.js'
 import { siteChromeFrom } from '../atlas/site-chrome.js'
 import { atlasSitemap } from '../atlas/sitemap.js'
 import { atlasCatalogue } from '../provider-recipes.js'
@@ -185,7 +194,7 @@ export function registerAtlasPages(app: FastifyInstance, deps: RouteDependencies
    * sub page lists its own entries and its siblings. The difference is what the
    * table says about the row, not which route was hit.
    */
-  app.get<{ Params: { slug: string }; Querystring: { worked?: string } }>(
+  app.get<{ Params: { slug: string }; Querystring: { worked?: string; page?: string } }>(
     `${ATLAS_PATH}/c/:slug`,
     async (request, reply) => {
       if (wrongHost(request)) return reply.callNotFound()
@@ -214,18 +223,41 @@ export function registerAtlasPages(app: FastifyInstance, deps: RouteDependencies
       const nav = isTop ? children : shelves.filter((one) => one.parent === category.parent)
       const covers = isTop ? children.map((one) => one.slug) : [category.slug]
 
+      const entries = await listEntries()
+      const worked = request.query.worked !== 'false'
+      const page = atlasPageAsked(request.query.page)
+
+      /**
+       * **A page past the last one is a 404** (`#1143` decision 4), and it is
+       * deliberately unlike the unknown `category` above, which falls back to
+       * the index. A slug is a name and a wrong one is a broken link worth
+       * answering with the catalogue; `?page=40` on a shelf of three pages is a
+       * well-formed request for rows that do not exist, and the honest answer to
+       * it is that there is nothing there. Serving the last page instead would
+       * mint an unbounded number of addresses all holding the same rows.
+       */
+      if (page > atlasPageCount(atlasShelfRows(entries, covers, worked)))
+        return reply.callNotFound()
+
       return send(
         reply,
         atlasCategoryPage({
-          entries: await listEntries(),
+          entries,
           category,
           nav,
           parent: shelves.find((one) => one.slug === category.parent),
           covers,
-          /** Decision 6: the canonical is the shelf, with neither filter on it. */
-          canonical: `${websiteUrl}${atlasCategoryPath(category.slug)}`,
+          /**
+           * Decision 6 of `#1107`: the canonical is the shelf, with neither
+           * filter on it — and `#1143` decision 3 puts the page on it, past the
+           * first. A first page is the bare address however the reader spelled
+           * it, so `?page=1`, `?page=0` and `?page=abc` all canonicalise there
+           * rather than each being an address of its own.
+           */
+          canonical: `${websiteUrl}${atlasShelfPath(category.slug, undefined, page)}`,
           chrome: await chromeOf(),
-          worked: request.query.worked !== 'false',
+          worked,
+          page,
         }),
         'text/html; charset=utf-8',
       )

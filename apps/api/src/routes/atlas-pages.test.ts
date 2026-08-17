@@ -1317,6 +1317,171 @@ describe('the Atlas on the website host', () => {
   })
 
   /**
+   * A shelf longer than a page (`#1143`).
+   *
+   * **The counts here are the constant and not a sample of it.** Fifty is the
+   * page size, so an exact multiple, one over and one well under are the three
+   * shapes a slice can take — a test written against ten would pass on any page
+   * size at all and would say nothing about the one shipped.
+   */
+  describe('a shelf that does not fit on one page', () => {
+    const stock = (one: FakeColony, count: number): void => {
+      for (let n = 1; n <= count; n += 1)
+        one.recipes.write({
+          kind: 'mailbox',
+          /** Padded, so that a shelf's own order is not what this test measures. */
+          provider: `box-${String(n).padStart(3, '0')}.example`,
+          title: `Box ${n}`,
+          category: 'mailbox',
+        })
+    }
+
+    const rebuild = (count: number) => async () => {
+      await app.close()
+      app = build()
+      stock(colony, count)
+      await app.ready()
+    }
+
+    /** Entry rows: a provider link, and never a shelf or a navigation one. */
+    const rowsIn = (body: string) =>
+      [...body.matchAll(/<li><a href="\/atlas\/(?!c\/)([^"]+)">/g)].map((one) => one[1] ?? '')
+
+    const shelf = (query = '') => get(`${ATLAS_PATH}/c/mailbox${query}`)
+
+    /**
+     * **The boundary that has no next page and is still full.** A hundred rows is
+     * two pages exactly; an off-by-one in the count would show up here as a
+     * third, empty page being linked to.
+     */
+    it('cuts an exact multiple of fifty into full pages and no more', async () => {
+      await rebuild(100)()
+
+      const first = await shelf()
+      const second = await shelf('?page=2')
+
+      expect(rowsIn(first.body)).toHaveLength(50)
+      expect(rowsIn(second.body)).toHaveLength(50)
+      expect(first.body).toContain('<span>Page 1 of 2</span>')
+      expect(second.body).toContain('<span>Page 2 of 2</span>')
+      /** The last page offers nothing after it, in the body or in the head. */
+      expect(second.body).not.toContain('rel="next"')
+      expect((await shelf('?page=3')).statusCode).toBe(404)
+    })
+
+    /** The ordinary shape: a last page holding what was left over. */
+    it('leaves the remainder on a partial last page', async () => {
+      await rebuild(55)()
+
+      expect(rowsIn((await shelf()).body)).toHaveLength(50)
+      expect(rowsIn((await shelf('?page=2')).body)).toHaveLength(5)
+      expect((await shelf('?page=2')).body).toContain('<span>Page 2 of 2</span>')
+    })
+
+    /**
+     * **Most shelves are this one**, and paging controls on a page with nowhere
+     * to go are a reader being asked to look for a second page that is not there.
+     */
+    it('says nothing about pages on a shelf that fits', async () => {
+      await rebuild(3)()
+
+      const body = (await shelf()).body
+
+      expect(rowsIn(body)).toHaveLength(3)
+      expect(body).not.toContain('k-atlas-pages"')
+      expect(body).not.toContain('rel="next"')
+      expect(body).not.toContain('rel="prev"')
+    })
+
+    /**
+     * **Decision 6.** The head is where a crawler is told that page two is a
+     * continuation and not a near-duplicate, and the links are absolute like the
+     * canonical beside them.
+     */
+    it('links each page to the one before and after it', async () => {
+      await rebuild(120)()
+
+      const second = (await shelf('?page=2')).body
+
+      expect(second).toContain(`<link rel="prev" href="${SITE}${ATLAS_PATH}/c/mailbox">`)
+      expect(second).toContain(`<link rel="next" href="${SITE}${ATLAS_PATH}/c/mailbox?page=3">`)
+      /** And the first page has a next and no previous. */
+      expect((await shelf()).body).not.toContain('rel="prev"')
+    })
+
+    /**
+     * **Decision 5, and it is four addresses collapsing into one.** A malformed
+     * page is a broken link or a crawler's guess at a shelf that does exist, so
+     * the shelf is the answer — and the canonical drops the parameter rather
+     * than minting `?page=abc` as an address of its own.
+     */
+    it.each(['?page=0', '?page=-1', '?page=abc', '?page=1.5', '?page=1'])(
+      'answers %s with the first page, canonical to the bare shelf',
+      async (query) => {
+        await rebuild(60)()
+
+        const response = await shelf(query)
+
+        expect(response.statusCode).toBe(200)
+        expect(response.body).toContain('<span>Page 1 of 2</span>')
+        expect(response.body).toContain(
+          `<link rel="canonical" href="${SITE}${ATLAS_PATH}/c/mailbox">`,
+        )
+      },
+    )
+
+    /**
+     * **Decision 4, and deliberately unlike an unknown category**, which falls
+     * back to the index. A slug is a name and a wrong one is worth answering
+     * with the catalogue; a page number past the end is a well-formed request
+     * for rows that do not exist.
+     */
+    it('answers a page past the last with a 404', async () => {
+      await rebuild(60)()
+
+      expect((await shelf('?page=2')).statusCode).toBe(200)
+      expect((await shelf('?page=3')).statusCode).toBe(404)
+    })
+
+    /**
+     * **The two filters compose** (`#1103` and this one). A reader who chose
+     * *what nobody got through* and turned a page has not asked to be put back on
+     * the other half, so the paging links carry the view.
+     */
+    it('keeps the worked filter across a page turn', async () => {
+      await rebuild(0)()
+      for (let n = 1; n <= 60; n += 1)
+        colony.recipes.write({
+          kind: 'mailbox',
+          provider: `shut-${String(n).padStart(3, '0')}.example`,
+          title: `Shut ${n}`,
+          category: 'mailbox',
+          status: 'refused',
+        })
+
+      const first = (await shelf('?worked=false')).body
+
+      expect(rowsIn(first)).toHaveLength(50)
+      expect(first).toContain(`href="${ATLAS_PATH}/c/mailbox?worked=false&amp;page=2"`)
+      expect(rowsIn((await shelf('?worked=false&page=2')).body)).toHaveLength(10)
+    })
+
+    /**
+     * **Decision 7.** A sitemap naming page two says a shelf's rows live at two
+     * addresses; page one is the shelf, and the pages behind it are reached by
+     * the `rel="next"` chain a crawler follows on its own.
+     */
+    it('puts no page beyond the first in the sitemap', async () => {
+      await rebuild(120)()
+
+      const sitemap = (await get('/atlas/sitemap.xml')).body
+
+      expect(sitemap).toContain(`${SITE}${ATLAS_PATH}/c/mailbox<`)
+      expect(sitemap).not.toContain('page=')
+    })
+  })
+
+  /**
    * What a provider page says (`#547`), and the refusal underneath it: one page
    * per provider, never one per provider × runtime.
    */

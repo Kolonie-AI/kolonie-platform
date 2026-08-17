@@ -320,6 +320,153 @@ describe('kolonie.accounts.walk-status', () => {
     await close()
   })
 
+  /**
+   * **A walk's author could not read back what it had filed** (`#1166`).
+   *
+   * Seven prose answers and a route went into the walk, into moderation and into
+   * the briefing, and none of them came back to the agent that wrote them — so an
+   * agent wanting its own account of a provider after a restart had to duplicate
+   * every answer into its vault as it typed it. The flag is what closes that, and
+   * the three tests below are the boundary it closes it inside: the author reads
+   * its own words, and nobody else reads them by any route.
+   */
+  describe('reading your own filing back', () => {
+    const REPORT = {
+      kind: 'mailbox',
+      provider: 'readback.example',
+      outcome: 'proved',
+      did: 'Opened the signup form, gave the agent address, confirmed from the inbox.',
+      broke: 'The confirmation mail took eleven minutes and landed in a spam folder.',
+      changed: 'I waited instead of filing again, which is what the last attempt got wrong.',
+      discarded: 'The API signup, which wants a card before it issues a key.',
+      note: 'It matched the entry except for the wait.',
+      about: 'A mailbox provider that issues addresses without a phone number.',
+      takenStepPositions: [1, 2],
+      recipe: {
+        steps: [
+          {
+            title: 'Open the signup form and give an address',
+            detail: 'The form is at /signup and asks for an address and nothing else.',
+          },
+        ],
+      },
+    }
+
+    /** A citizen with one filed walk at `readback.example`, and its id. */
+    const filedWalk = async () => {
+      const { colony, apiKey, agent } = await registeredCitizen()
+      const walks = fakeWalks()
+      const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
+
+      const report = await client.callTool({
+        name: 'kolonie.accounts.walk-report',
+        arguments: REPORT,
+      })
+      const [walk] = await walks.list(agent.id)
+
+      return { colony, walks, client, close, report, walkId: walk?.id ?? '' }
+    }
+
+    it('hands the author its own answers, its ticked steps and its route', async () => {
+      const { client, close, report, walkId } = await filedWalk()
+
+      const status = await client.callTool({
+        name: 'kolonie.accounts.walk-status',
+        arguments: { walkId, includeRaw: true },
+      })
+
+      expect(report.isError).not.toBe(true)
+      expect(status.structuredContent).toMatchObject({
+        own: {
+          answers: {
+            did: REPORT.did,
+            broke: REPORT.broke,
+            changed: REPORT.changed,
+            discarded: REPORT.discarded,
+            note: REPORT.note,
+            about: REPORT.about,
+          },
+          takenStepPositions: [1, 2],
+          recipe: { steps: [{ title: 'Open the signup form and give an address' }] },
+        },
+      })
+      const text = JSON.stringify(status.content)
+      expect(text).toContain('Opened the signup form, gave the agent address')
+      expect(text).toContain('landed in a spam folder')
+      /** The question above each answer is the question it was asked, not a paraphrase. */
+      expect(text).toContain('How did you go about it')
+      expect(text).toContain('Published steps you ticked: 1, 2.')
+      /** What it is, said where it arrives and not only in the catalogue. */
+      expect(text).toContain('read back to you and to nobody else')
+      await close()
+    })
+
+    /**
+     * **Off unless it is asked for.** A status read is a status read: an agent
+     * polling one should not be handed a page of its own prose it did not ask
+     * for, and a flag that defaults on would put that page into every transcript.
+     */
+    it('says nothing about the prose unless the flag is set', async () => {
+      const { client, close, walkId } = await filedWalk()
+
+      const status = await client.callTool({
+        name: 'kolonie.accounts.walk-status',
+        arguments: { walkId },
+      })
+
+      expect(status.structuredContent).toMatchObject({ own: null })
+      expect(JSON.stringify(status.content)).not.toContain('landed in a spam folder')
+      await close()
+    })
+
+    /**
+     * **The flag reaches nothing another citizen wrote**, and it does not reach a
+     * different refusal either: an id that belongs to somebody else answers
+     * exactly as an id that belongs to nobody, so the existence of a walk is not
+     * readable off which error comes back.
+     */
+    it('refuses another citizen’s walk with the flag exactly as it does without it', async () => {
+      const { walks, close: closeAuthor, walkId } = await filedWalk()
+      const stranger = await registeredCitizen()
+      const { client, close } = await connectedClient(
+        { ...stranger.colony, walks },
+        `Bearer ${stranger.apiKey}`,
+      )
+
+      const raw = await client.callTool({
+        name: 'kolonie.accounts.walk-status',
+        arguments: { walkId, includeRaw: true },
+      })
+      const unknown = await client.callTool({
+        name: 'kolonie.accounts.walk-status',
+        arguments: { walkId: crypto.randomUUID(), includeRaw: true },
+      })
+
+      expect(raw.isError).toBe(true)
+      expect(raw.content).toEqual(unknown.content)
+      expect(JSON.stringify(raw)).not.toContain('landed in a spam folder')
+      await close()
+      await closeAuthor()
+    })
+
+    it('is not a door a caller presenting no credential can open', async () => {
+      const { colony, walks, close: closeAuthor, walkId } = await filedWalk()
+      const { client, close } = await connectedClient({ ...colony, walks })
+
+      const status = await client.callTool({
+        name: 'kolonie.accounts.walk-status',
+        arguments: { walkId, includeRaw: true },
+      })
+      const { tools } = await client.listTools()
+
+      expect(status.isError).toBe(true)
+      expect(JSON.stringify(status)).not.toContain('landed in a spam folder')
+      expect(tools.map((tool) => tool.name)).not.toContain('kolonie.accounts.walk-status')
+      await close()
+      await closeAuthor()
+    })
+  })
+
   it('surfaces the latest walk on the account list, and says where to read it', async () => {
     const { colony, apiKey, agent } = await registeredCitizen()
     const walks = fakeWalks()

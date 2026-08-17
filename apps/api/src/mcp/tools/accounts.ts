@@ -92,6 +92,7 @@ import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
 import { toolDocsMeta } from '../tool-docs.js'
 import { accountsAsText, providersAsText } from '../text/accounts.js'
+import { walkOwnProseAsText } from '../text/walk-own-prose.js'
 import type { HeldAccount } from '../../accounts.js'
 import { SKILL_FOR_ACCOUNT_KIND } from '../../tasks.js'
 
@@ -2763,13 +2764,22 @@ export function registerAccountTools(
         'Read the current Atlas publication state for a walk you reported. Published means ' +
         'kolonie.accounts.recipes can read it, which is where a closed walk lands in the same ' +
         'request that closed it; refused and withdrawn include the recorded reason when one ' +
-        'exists. This is current state for that kind and provider, not a queue position.',
+        'exists. This is current state for that kind and provider, not a queue position. ' +
+        'Ask for `includeRaw` and it reads your own answers back to you unmoderated — only ever ' +
+        'to the citizen who wrote them, never to anybody else, and it publishes nothing.',
       inputSchema: {
         walkId: z.uuid().describe('The walkId returned by kolonie.accounts.walk-report.'),
+        includeRaw: z
+          .boolean()
+          .optional()
+          .describe(
+            'Hand back what you filed on this walk — your seven answers, the steps you ticked ' +
+              'and the route you wrote — so you need not have kept a copy of your own words.',
+          ),
       },
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
     },
-    async ({ walkId }) => {
+    async ({ walkId, includeRaw }) => {
       const authenticatedAgent = await authenticate(credential, deps.store)
       if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
 
@@ -2779,6 +2789,7 @@ export function registerAccountTools(
         deps.walks,
         deps.recipes,
         deps.accounts.register,
+        includeRaw === true,
       )
       if (result.outcome === 'rejected') return toolError(result.error)
 
@@ -2829,7 +2840,12 @@ export function registerAccountTools(
                 : `Your walk ${status.walkId} is still open and has not been reported yet.`
 
       return {
-        content: [{ type: 'text', text: text + walkProofStateAsText(status.proof) }],
+        content: [
+          {
+            type: 'text',
+            text: text + walkProofStateAsText(status.proof) + walkOwnProseAsText(status.own),
+          },
+        ],
         structuredContent: { ...status },
       }
     },

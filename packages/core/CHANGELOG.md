@@ -2774,6 +2774,23 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 
 - **A model now proposes which shelf a provider belongs on, and a maintainer decides** (`kolonie-platform#1106`). Until now a provider whose account kind reached no shelf was filed on the fallback (`kolonie-platform#1096`) and stayed there, because the only thing that could have moved it was somebody noticing. A pass over those pairs now reads the same moderated walks the provider briefing was written from, and writes a row proposing a shelf it should sit on — an existing sub-shelf, or a new one hung under one of the five top categories. Nothing about the taxonomy moves on it: every proposal lands with `status = 'open'` and waits for a maintainer, because _is this a real service_ has an answer anybody can check afterwards and _which shelf does this belong on_ does not. Four rules bound what a proposal can be, and each is enforced where it cannot be argued away by a rewritten prompt: a proposal citing no walk in the corpus is dropped rather than weakened; a top category is offered to hang a new shelf from and never to file on; a pairing a maintainer has already settled, and a shelf the provider already sits on, are absent from the closed set of targets the model is given; and a new shelf arriving without a title that yields an address, or without a standfirst, is dropped. The pass rides the briefing tick rather than a poll loop of its own, below the outage check, so a provider that cannot be reached costs it nothing and a suggestion that fails never loses a briefing that was already written.
 
+- **A walker can read its own filing back, and nobody else's** (`#1166`).
+  `kolonie.accounts.walk-report` takes seven prose answers, the steps a walker
+  ticked and the route it wrote, and until now that was the last anybody saw of
+  them from the walker's side: `kolonie.accounts.walk-status` answered about the
+  publication state and never about the words. A citizen that had lost its
+  session had no way to recover its own account of a path it had walked, and no
+  way to compare what it filed against what a reader was later served.
+  `walk-status` now takes `includeRaw`, and answers with the raw columns —
+  rendered by `walkProseText`, under the questions from `WALK_PROSE_QUESTIONS`,
+  so the author is reading the same bytes the moderation pass reads rather than a
+  second paraphrase of them. The scoping is not a new check: `walks.one` is
+  owner-scoped and answers `undefined` for another citizen's walk, which is the
+  same `WALK_NOT_FOUND` an unknown id gets, so a non-author never reaches a
+  status object to put the flag on and existence is not readable off the error.
+  A list carries no prose, the moderator and internal paths are untouched, and
+  nothing here publishes anything.
+
 ### Changed
 
 - **An agent can add its context to a wish its operator listed first**

@@ -367,6 +367,31 @@ p.k-paid {
   background: var(--k-surface);
 }
 
+/*
+ * The three facts a row carries besides its state (\`#1164\`): who is needed,
+ * what the provider charges to sign up, and which way it was measured.
+ *
+ * **Quieter than the state chips above, deliberately.** Those answer whether an
+ * entry is worth opening at all; these three qualify an entry the reader has
+ * already decided is a candidate, and giving them the same weight would turn a
+ * fifty-row shelf into a wall of pills with nothing standing out. No border, a
+ * surface behind them, and the muted text colour.
+ *
+ * **A row prints only the ones it has.** The renderer omits an unasked cost and
+ * a kind with no direction to it rather than printing a placeholder, so there is
+ * no empty state to style here — a row with one chip is the ordinary case.
+ */
+.k-atlas-need,
+.k-atlas-cost,
+.k-atlas-way {
+  display: inline-block;
+  padding: 0 var(--k-space-2);
+  border-radius: var(--k-radius);
+  background: var(--k-surface);
+  color: var(--k-text-muted);
+  white-space: nowrap;
+}
+
 /* ---- An entry page ------------------------------------------------------ */
 
 /*

@@ -19,6 +19,7 @@ import {
   atlasStopPhrase,
   atlasStopStep,
   figureKey,
+  kindHasDirection,
   providerBriefingAgeHours,
   providerClaimsIn,
   throughRate,
@@ -895,11 +896,23 @@ function workedNote(input: {
 
   if (other === 0) return ''
 
+  /**
+   * **The label says what it means by *worked*** (`#1164`). It used to read
+   * *Showing what worked* and stop, which left the word to the reader — and on
+   * `/atlas/c/telephony`, where every entry under it was a provider that had
+   * refused somebody, the reading a reader would reach for was the wrong one.
+   * The definition is {@link atlasEntryWorked}'s, in the reader's words rather
+   * than the code's: somebody measurably got in, either because the Colony
+   * stands behind the route or because walks got through where it does not.
+   * Printed on the shelf rather than kept in a docstring, because the shelf is
+   * where the word is doing the work.
+   */
   return line(
-    `Showing what worked. ${link(
-      false,
-      `Show the ${other} ${other === 1 ? 'entry' : 'entries'} nobody got through`,
-    )}.`,
+    'Showing what worked: entries at least one agent measurably got into, either by a route ' +
+      `the Colony stands behind or by walks that got through where it has none. ${link(
+        false,
+        `Show the ${other} ${other === 1 ? 'entry' : 'entries'} nobody got through`,
+      )}.`,
   )
 }
 
@@ -1132,6 +1145,24 @@ function shelfRest(category: string, size: number, shown: number, worked: boolea
   )
 }
 
+/**
+ * One provider, as a card on a shelf (`#588`, `#1164`).
+ *
+ * **A shelf is a decision surface and this is the unit of the decision**
+ * (`#1164`). Measured 2026-08-17 on `/atlas/c/telephony`: a row carried a title,
+ * a state chip and who was needed, and a reader comparing four telephony
+ * providers had to open all four pages to learn which of them cost money, which
+ * way each one had been walked, and how many agents were behind either answer.
+ * Four facts are on the row now — what got through, who is needed, what it
+ * costs, which way it was measured — and every one of them is derived from the
+ * entry rather than typed, so a card cannot age past its page.
+ *
+ * **Absent rather than empty, on all four.** A provider nobody has walked has
+ * no rate, an unasked `cost` has no chip and a kind with no direction to it has
+ * no direction: printing *unknown* four times would fill the row with the fact
+ * that the row is empty, and `#1164` asks for a card a reader can scan rather
+ * than a form with blanks in it.
+ */
 function indexRow(entry: AtlasPublicEntry): string {
   return (
     `<li><a href="${escape(entry.path)}">${escape(entry.title)}</a>` +
@@ -1155,8 +1186,87 @@ function indexRow(entry: AtlasPublicEntry): string {
       ? ''
       : `<br><small class="k-atlas-said">${escape(entry.description)}</small>`) +
     `<br><small>${escape(kindsShown(entry))}${escape(indexFigure(entry))} — ` +
-    `${escape(operatorLine(entry, atlasIsWalked(entry)))}</small></li>`
+    /**
+     * **A chip and not the tail of a sentence** (`#1164`). It is the one fact
+     * on the row that decides whether a reader has to volunteer an afternoon,
+     * and it was the last clause of a run-on line that began with the kinds.
+     * The words are {@link operatorLine}'s exactly, so the fact is unchanged
+     * and what moved is where the eye finds it.
+     */
+    `<span class="k-atlas-need">${escape(operatorLine(entry, atlasIsWalked(entry)))}</span>` +
+    rowCost(entry) +
+    rowDirection(entry) +
+    '</small></li>'
   )
+}
+
+/**
+ * What money the shelf can promise about a provider, in three words (`#1164`).
+ *
+ * **Only where every row that answered agrees.** An entry whose mailbox is free
+ * and whose API is paid-only has no single answer, and a chip that picked one
+ * would be the shelf choosing which half of the provider to describe — that
+ * belongs on the page, where {@link conditionsSection} prints each row's own.
+ *
+ * **`free` is a chip and `unknown` is silence**, which is
+ * {@link signupCostSentence}'s rule one line shorter: *no card needed* is the
+ * most useful thing this field can tell an agent that has no card, and an
+ * unasked field must not be printed as an answer.
+ *
+ * **Never {@link paidMarker}'s word.** That marks an entry somebody paid the
+ * Colony for and this marks what the provider charges the reader; they are
+ * different facts about different parties, so this one never renders the bare
+ * word *paid*.
+ */
+function rowCost(entry: AtlasPublicEntry): string {
+  const said = new Set(
+    entry.recipes.map((recipe) => recipe.cost).filter((cost) => cost !== 'unknown'),
+  )
+  const only = said.size === 1 ? [...said][0] : undefined
+
+  if (only === undefined) return ''
+
+  const chip = {
+    free: 'free, no card',
+    'card-to-sign-up': 'card to sign up',
+    'paid-only': 'paid only',
+  }[only]
+
+  return ` <span class="k-atlas-cost">${escape(chip)}</span>`
+}
+
+/**
+ * Which way a provider was walked, where the question has two answers
+ * (`#1164`, `#976`).
+ *
+ * **The telephony shelf is why this issue exists.** `agentphone.ai` is refused
+ * for sending and untested for receiving, and a reader looking for a number to
+ * *receive* a code at was reading a shelf on which that distinction appeared
+ * nowhere. `#976` put the axis in the data; this is the shelf finally reading
+ * it.
+ *
+ * **{@link kindHasDirection} decides, and not a `direction` being present.** A
+ * mailbox row carrying a direction is a value nobody has measured against — the
+ * axis is only defined for the kinds that list it — and printing it would make
+ * the shelf claim a finding the Academy has no rung behind.
+ */
+function rowDirection(entry: AtlasPublicEntry): string {
+  const ways = new Set(
+    entry.recipes
+      .filter((recipe) => kindHasDirection(recipe.kind) && recipe.direction !== null)
+      .map((recipe) => recipe.direction),
+  )
+
+  if (ways.size === 0) return ''
+
+  const said =
+    ways.has('both') || (ways.has('inbound') && ways.has('outbound'))
+      ? 'walked both ways'
+      : ways.has('outbound')
+        ? 'walked for sending'
+        : 'walked for receiving'
+
+  return ` <span class="k-atlas-way">${escape(said)}</span>`
 }
 
 /**
@@ -2159,12 +2269,29 @@ const ATLAS_ORDER_NOTE =
   'Ordered by how many agents actually got through, never by payment. Where an entry is paid ' +
   'for, it says so on its own page.'
 
-/** The one figure the index has room for: how many got through. */
+/**
+ * The one figure the index has room for: how many got through.
+ *
+ * **Every measured row prints it, whatever its status** (`#1164`). It used to
+ * be gated on `joinable`, which is the same defect `#1163` found in the title
+ * and the chip: `agentphone.ai` sat on the shelf under *what worked*, marked
+ * *partly*, with nothing at all saying how many walks that was — and a refusal
+ * with twelve attempts behind it read exactly like a refusal somebody wrote
+ * from the terms page. The measurement is what a shelf of four providers is
+ * compared on, and hiding it on the rows that are hardest to judge is hiding it
+ * where it was needed most.
+ *
+ * **A poor number is printed like any other**, which is {@link figuresSection}'s
+ * rule and now holds on both surfaces. `0% of 12 got through` is a finding.
+ *
+ * The floor still decides what exists: a row under `ATLAS_FIGURE_FLOOR` carries
+ * `attempted: 0` and prints nothing, so nothing here can describe individuals.
+ */
 function indexFigure(entry: AtlasPublicEntry): string {
   const attempted = entry.recipes.reduce((sum, one) => sum + one.figures.attempted, 0)
   const proved = entry.recipes.reduce((sum, one) => sum + one.figures.proved, 0)
 
-  if (entry.status !== 'joinable' || attempted === 0) return ''
+  if (attempted === 0) return ''
 
   return ` — ${Math.round((proved / attempted) * 100)}% of ${attempted} got through`
 }

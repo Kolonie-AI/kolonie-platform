@@ -3060,6 +3060,217 @@ describe('the Atlas on the website host', () => {
   })
 
   /**
+   * A shelf a reader can decide on (`#1164`).
+   *
+   * **Measured 2026-08-17 on live `kolonie.ai/atlas/c/telephony`.** The shelf
+   * said *Showing what worked* over rows that were, one by one, providers that
+   * had refused somebody — and a row carried a title, a state chip and who was
+   * needed, so a reader comparing four SMS providers had to open all four pages
+   * to learn which of them charged money, which way each had been walked, and
+   * how many walks were behind either answer.
+   *
+   * Two halves, and they are the two the issue names: what a row carries, and
+   * what the word over the rows means. The fixture is one shelf with a measured
+   * refusal, a free provider walked both ways and a paid one, because the
+   * comparison is the thing being tested.
+   */
+  describe('a shelf a reader can decide on', () => {
+    const rowFor = (body: string, provider: string) => {
+      const row = [...body.matchAll(/<li>.*?<\/li>/gs)]
+        .map((match) => match[0])
+        .find((one) => one.includes(`/atlas/${provider}"`))
+
+      if (row === undefined) throw new Error(`no index row for ${provider}`)
+
+      return row
+    }
+
+    /** Three telephony providers a reader would actually be choosing between. */
+    const shelf = async () => {
+      await app.close()
+      app = build()
+      colony.recipes.write({
+        kind: 'phone',
+        provider: 'free.example',
+        title: 'Free numbers',
+        category: 'telephony',
+        cost: 'free',
+        direction: 'both',
+      })
+      colony.recipes.measure({
+        ...noFigures('phone', 'free.example'),
+        attempted: 20,
+        proved: 15,
+        evidenced: true,
+      })
+      colony.recipes.write({
+        kind: 'phone',
+        provider: 'paid.example',
+        title: 'Paid numbers',
+        category: 'telephony',
+        cost: 'paid-only',
+        direction: 'outbound',
+      })
+      colony.recipes.measure({
+        ...noFigures('phone', 'paid.example'),
+        attempted: 8,
+        proved: 3,
+        evidenced: true,
+      })
+      /** A refusal with walks behind it: `#1163`'s `partly`, on a shelf. */
+      colony.recipes.write({
+        kind: 'phone',
+        provider: 'partly.example',
+        title: 'Refused for sending',
+        category: 'telephony',
+        status: 'refused',
+        refusal: 'The carrier refuses outbound messaging to an account this young.',
+      })
+      colony.recipes.measure({
+        ...noFigures('phone', 'partly.example'),
+        attempted: 9,
+        proved: 4,
+        evidenced: true,
+      })
+      /** And one nobody got through, so the shelf has a second half to name. */
+      colony.recipes.write({
+        kind: 'phone',
+        provider: 'shut.example',
+        title: 'Shut',
+        category: 'telephony',
+        status: 'refused',
+        refusal: 'Signup demands a document no citizen holds.',
+      })
+      await app.ready()
+    }
+
+    /**
+     * The four facts the issue asks a card to carry, on one row: what it is,
+     * what got through, who is needed, and what it costs — plus the direction,
+     * which telephony is the kind that has one.
+     */
+    it('carries the outcome, the need, the cost and the direction on the row', async () => {
+      await shelf()
+
+      const row = rowFor((await get(`${ATLAS_PATH}/c/telephony`)).body, 'free.example')
+
+      expect(row).toContain('Free numbers')
+      expect(row).toContain('75% of 20 got through')
+      expect(row).toContain('k-atlas-need')
+      expect(row).toContain('free, no card')
+      expect(row).toContain('walked both ways')
+      expect(row).toContain(`href="/atlas/free.example"`)
+    })
+
+    /** And they are the entry's own, rather than one row's copy of another's. */
+    it('reads each row from its own entry', async () => {
+      await shelf()
+
+      const row = rowFor((await get(`${ATLAS_PATH}/c/telephony`)).body, 'paid.example')
+
+      expect(row).toContain('38% of 8 got through')
+      expect(row).toContain('paid only')
+      expect(row).toContain('walked for sending')
+      expect(row).not.toContain('free, no card')
+    })
+
+    /**
+     * **Absent rather than empty.** An unasked cost has no chip and a kind with
+     * no direction to it has no direction: a row that printed *unknown* twice
+     * would fill the shelf with the fact that the shelf is empty, which is the
+     * opposite of what `#1164` asks for.
+     */
+    it('prints no chip for a cost nobody asked and a kind with no direction', async () => {
+      const row = rowFor((await get('/atlas?worked=false')).body, 'walked.example')
+
+      expect(row).not.toContain('k-atlas-cost')
+      expect(row).not.toContain('k-atlas-way')
+      /** The need is on every row, because every row has an answer to it. */
+      expect(row).toContain('k-atlas-need')
+    })
+
+    /**
+     * **The figure is no longer gated on `joinable`** (`#1163`'s model, on the
+     * shelf). A `partly` row is listed under what worked and used to say nothing
+     * at all about how many walks that was — which is the figure a reader most
+     * needs, on the row hardest to judge without it.
+     */
+    it('prints the measurement on a refusal somebody got through', async () => {
+      await shelf()
+
+      const row = rowFor((await get(`${ATLAS_PATH}/c/telephony`)).body, 'partly.example')
+
+      expect(row).toContain('44% of 9 got through')
+      expect(row).toContain('partly — some walks got in')
+    })
+
+    /** A poor number is printed like any other: `figuresSection`'s rule, here too. */
+    it('prints a refusal nobody got through as the zero it is', async () => {
+      await app.close()
+      app = build()
+      colony.recipes.write({
+        kind: 'phone',
+        provider: 'closed.example',
+        title: 'Closed',
+        category: 'telephony',
+        status: 'refused',
+      })
+      colony.recipes.measure({
+        ...noFigures('phone', 'closed.example'),
+        attempted: 12,
+        proved: 0,
+        refused: 12,
+        evidenced: true,
+      })
+      await app.ready()
+
+      const row = rowFor(
+        (await get(`${ATLAS_PATH}/c/telephony?worked=false`)).body,
+        'closed.example',
+      )
+
+      expect(row).toContain('0% of 12 got through')
+    })
+
+    /** The label says what it means by the word, on the shelf rather than in a docstring. */
+    it('defines what worked means where the word is used', async () => {
+      await shelf()
+
+      const body = (await get(`${ATLAS_PATH}/c/telephony`)).body
+
+      expect(body).toContain('Showing what worked: entries at least one agent measurably got into')
+    })
+
+    /**
+     * **The rejection test the issue asks for.** A telephony shelf whose every
+     * entry is a refusal nobody got through must never be labelled as what
+     * worked: the fallback sentence stands in its place, and the word does not
+     * appear over the rows at all.
+     */
+    it('never labels a shelf of pure refusals as what worked', async () => {
+      await app.close()
+      app = build()
+      for (const provider of ['refused-one.example', 'refused-two.example']) {
+        colony.recipes.write({
+          kind: 'phone',
+          provider,
+          title: provider,
+          category: 'telephony',
+          status: 'refused',
+          refusal: 'Signup demands a document no citizen holds.',
+        })
+      }
+      await app.ready()
+
+      const body = (await get(`${ATLAS_PATH}/c/telephony`)).body
+
+      expect(body).toContain('Nobody has got through here yet')
+      expect(body).not.toContain('Showing what worked')
+      expect(rowFor(body, 'refused-one.example')).toContain('cannot be joined')
+    })
+  })
+
+  /**
    * **A shelf is a page and not a query string** (`#1107`).
    *
    * The shelf-shaped search — *mailbox providers an AI agent can sign up for* —

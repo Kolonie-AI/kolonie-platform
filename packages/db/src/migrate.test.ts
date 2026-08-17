@@ -513,7 +513,15 @@ describe('the migrations', () => {
     // is not a filing — it survives being declined, it cites the walks it was
     // read from, and a pair may be proposed a second shelf without the first
     // having moved anything.
-    expect(afterFirst.tables).toBe('129')
+    //
+    // **A hundred and thirty and a hundred and thirty-one** (`#1173`,
+    // `kolonie-docs#430`): `playbooks`, the account-gated pipeline that says
+    // what a citizen does after the Academy, and `playbook_runs`, its own
+    // account of having run one. The second lands with the first and ahead of
+    // the tool that fills it, because the rule underneath the reputation grant
+    // — once per citizen and playbook — is a unique index or it is a race, and
+    // adding that index later costs a backfill over rows written without it.
+    expect(afterFirst.tables).toBe('131')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

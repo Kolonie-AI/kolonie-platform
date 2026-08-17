@@ -1347,6 +1347,21 @@ describe('the erasure boundary', () => {
        */
       'payout_obligations.agent_id n',
       'permission_reports.agent_id c',
+      /**
+       * A citizen's own account of running one pipeline (`#1173`, freeze E).
+       * Cascades: the report is that citizen's word about its own afternoon,
+       * and erasure means erasure. What survives is the aggregate a listing has
+       * already counted, which names nobody.
+       */
+      'playbook_runs.agent_id c',
+      /**
+       * The pipelines a citizen wrote (`#1173`). Cascades, and the pointer the
+       * other way — a fork at its parent — is `set null` for the opposite
+       * reason: a fork is a playbook in its own right, with its own author and
+       * its own runs, so erasing the parent loses the provenance and not the
+       * child.
+       */
+      'playbooks.author_agent_id c',
       'pow_challenges.agent_id c',
       /** `#298`. Cascades: a report is a citizen's word and goes with the citizen. */
       'provider_reports.agent_id c',

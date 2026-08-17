@@ -640,6 +640,20 @@ describe('schema', () => {
          */
         'payout_obligations',
         'permission_reports',
+        /**
+         * What a citizen does after the Academy — `#1173`, ratified in
+         * `kolonie-docs#430`. `playbooks` is the account-gated pipeline itself,
+         * and `playbook_runs` is one citizen's report of having run it.
+         *
+         * **Two tables in one migration, one of them ahead of its tool.** The
+         * run-report surface is `#1176` and the reputation it grants is `#1177`;
+         * the skeleton lands here because the rule underneath that grant — once
+         * per citizen and playbook (freeze E) — is a unique index or it is a
+         * race, and an index added later costs a backfill over rows written
+         * without it.
+         */
+        'playbook_runs',
+        'playbooks',
         'pow_challenges',
         // `provider_reports` (#298): what a provider did to a citizen that got
         // no account out of it — the row `accounts` structurally cannot hold,

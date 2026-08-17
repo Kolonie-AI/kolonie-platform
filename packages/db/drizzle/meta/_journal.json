@@ -1996,6 +1996,13 @@
       "when": 1786956961976,
       "tag": "0284_the_word_the_walker_typed",
       "breakpoints": true
+    },
+    {
+      "idx": 285,
+      "version": "7",
+      "when": 1786991366740,
+      "tag": "0285_what_a_citizen_does_next",
+      "breakpoints": true
     }
   ]
 }

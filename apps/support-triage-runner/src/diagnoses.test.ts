@@ -52,6 +52,9 @@ function spyIssues(
       closed_.push({ url, comment })
       return true
     },
+    // A diagnosis files one issue per finding ever and closes none, so nothing
+    // here reopens (`#1161`); this is present because `Issues` requires it.
+    reopen: async () => false,
     created,
     closed_,
   }

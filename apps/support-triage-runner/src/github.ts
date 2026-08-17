@@ -89,11 +89,16 @@ function firstLine(body: string): string {
  * produces the wrong answer, where the wrong answer is acted on immediately.
  *
  * Safe against truncation, because {@link KnownIssue.body} is cut at the end.
+ *
+ * **Generic over the corpus, so the same question can be asked of closed issues**
+ * (`#1161`). A standing condition that still holds after somebody closed its
+ * issue is a reopen, and the alternative — asking only the open corpus — is what
+ * filed `#867` beside `#727`.
  */
-export function carryingMarker(
-  issues: readonly KnownIssue[],
+export function carryingMarker<T extends { readonly body: string }>(
+  issues: readonly T[],
   marker: string,
-): KnownIssue | undefined {
+): T | undefined {
   return issues.find((issue) => firstLine(issue.body) === marker)
 }
 
@@ -115,6 +120,13 @@ export function carryingMarker(
 export interface ClosedIssue {
   readonly url: string
   readonly title: string
+  /**
+   * Truncated, exactly as {@link KnownIssue.body} is, and here for one question:
+   * does the first line carry a watcher's marker (`#1161`)? A closed issue is
+   * where a standing finding goes when a maintainer reads it before the
+   * condition has ended, and without the body there is no way to recognise it.
+   */
+  readonly body: string
   /** `completed`, `not_planned`, or `null` where GitHub recorded nothing. */
   readonly reason: string | null
   /**
@@ -248,6 +260,25 @@ export interface Issues {
    * saying what ended it.
    */
   close(url: string, comment: string): Promise<boolean>
+  /**
+   * Reopen one that was closed while its condition still held (`#1161`).
+   *
+   * **The inverse of `close`, and only for the same class of alarm.** A standing
+   * finding is a *condition*: it is true until it is measured false, and a
+   * maintainer closing the issue is a statement about their attention rather
+   * than about the Colony. `#727` was closed with the debt still outstanding,
+   * the next pass asked *is anything open* and heard no, and filed `#867` —
+   * which a person then had to notice, read and close by hand.
+   *
+   * **An event may not use this.** A defect signature that returned is a new
+   * occurrence and gets its own issue (`defects.ts`), and a red line upheld on a
+   * date cannot stop holding, so reopening its issue would be reopening a
+   * settled argument. Only something re-measurable belongs here.
+   *
+   * The comment goes first and the reopen second, mirroring `close`: an issue
+   * never comes back without saying what brought it back.
+   */
+  reopen(url: string, comment: string): Promise<boolean>
 }
 
 /** An `Issues` that reads nothing and writes nothing, for a runner with no App. */
@@ -266,6 +297,7 @@ export const noIssues: Issues = {
   comment: async () => false,
   revise: async () => false,
   close: async () => false,
+  reopen: async () => false,
 }
 
 /**
@@ -548,6 +580,7 @@ export function githubIssues(options: GitHubOptions): Issues {
 
         const issues = read as ReadonlyArray<{
           title?: string
+          body?: string | null
           html_url?: string
           state_reason?: string | null
           closed_at?: string | null
@@ -563,6 +596,9 @@ export function githubIssues(options: GitHubOptions): Issues {
           found.push({
             url: issue.html_url,
             title: issue.title,
+            // Cut at the same length as an open issue's, and cut at the *end*,
+            // which is what keeps a first-line marker readable (`#1161`).
+            body: (issue.body ?? '').slice(0, ISSUE_BODY_SAMPLE),
             reason: issue.state_reason ?? null,
             closedAt: issue.closed_at ?? null,
           })
@@ -676,6 +712,50 @@ export function githubIssues(options: GitHubOptions): Issues {
       if (!response.ok)
         log.warn(`could not close ${url}: ${response.status}`, {
           event: 'github.close.failed',
+          url,
+          status: response.status,
+        })
+      return response.ok
+    },
+
+    reopen: async (url, body) => {
+      const headers = await authed()
+      if (headers === undefined) return false
+
+      const at = issueApiPath(url)
+      if (at === undefined) return false
+
+      /**
+       * **The comment first, for the reason `close` gives, and it is stronger
+       * here.** An issue that closed and then came back with no explanation
+       * reads, to the person who closed it, as the Colony overruling them. The
+       * comment is what makes it a measurement instead: the condition they
+       * closed this on is still true, and here is what it is now.
+       */
+      const said = await doFetch(`${at}/comments`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ body }),
+      })
+      if (!said.ok) {
+        log.warn(`could not say why ${url} is being reopened: ${said.status}`, {
+          event: 'github.reopen.comment.failed',
+          url,
+          status: said.status,
+        })
+        return false
+      }
+
+      // No `state_reason`: GitHub's own is `reopened`, and setting it would be
+      // this runner asserting something the API already records.
+      const response = await doFetch(at, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ state: 'open' }),
+      })
+      if (!response.ok)
+        log.warn(`could not reopen ${url}: ${response.status}`, {
+          event: 'github.reopen.failed',
           url,
           status: response.status,
         })

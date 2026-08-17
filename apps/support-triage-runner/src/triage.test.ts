@@ -548,6 +548,8 @@ describe('the note a closed issue leaves on a ticket', () => {
   const anIssue = (over: Partial<ClosedIssue> = {}): ClosedIssue => ({
     url: 'https://github.com/Kolonie-AI/kolonie-platform/issues/157',
     title: 'the mint path throws when a challenge is already open',
+    // Not a watcher's issue, so nothing here carries a marker (`#1161`).
+    body: 'Reported by two citizens.',
     reason: 'completed',
     // Irrelevant to a ticket's ending — `#560` reads it, and this file does not.
     closedAt: null,

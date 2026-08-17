@@ -86,6 +86,7 @@ function spyIssues(
       return true
     },
     close: async () => true,
+    reopen: async () => true,
     created,
     commented,
     revised,

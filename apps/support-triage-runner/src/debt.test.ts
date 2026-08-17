@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { OutstandingDebt } from '@kolonie-ai/db'
-import { noIssues, type Issues, type KnownIssue } from './github.js'
+import { noIssues, type ClosedIssue, type Issues, type KnownIssue } from './github.js'
 import {
   DEBT_MARKER,
   DEBT_REPOSITORY,
   DEBT_THRESHOLD_HOURS,
   NO_COLONY_ACTION_MARKER,
+  closedDebtIssue,
   debtEscalationComment,
   debtIssueBody,
   decideDebt,
@@ -68,20 +69,23 @@ const anIssue = (body: string): KnownIssue => ({
 function spyIssues(
   open: readonly KnownIssue[] = [],
   unreadable: readonly string[] = [],
+  shut: readonly ClosedIssue[] = [],
 ): Issues & {
   readonly created: unknown[]
   readonly closed_: unknown[]
   readonly commented: { url: string; body: string }[]
   readonly revised: { url: string; body: string }[]
+  readonly reopened: { url: string; comment: string }[]
 } {
   const created: unknown[] = []
   const closed_: unknown[] = []
   const commented: { url: string; body: string }[] = []
   const revised: { url: string; body: string }[] = []
+  const reopened: { url: string; comment: string }[] = []
   return {
     available: true,
     open: async () => ({ issues: open, unreadable }),
-    closed: async () => [],
+    closed: async () => shut,
     create: async (issue) => {
       created.push(issue)
       return 'https://github.com/Kolonie-AI/kolonie-platform/issues/721'
@@ -98,10 +102,15 @@ function spyIssues(
       closed_.push({ url, comment })
       return true
     },
+    reopen: async (url, comment) => {
+      reopened.push({ url, comment })
+      return true
+    },
     created,
     closed_,
     commented,
     revised,
+    reopened,
   }
 }
 
@@ -146,6 +155,116 @@ describe('deciding what to do about a debt', () => {
    */
   it('does not adopt an issue that merely quotes its marker', () => {
     expect(openDebtIssue([anIssue(`prose\n${DEBT_MARKER}\nmore prose`)])).toBeUndefined()
+  })
+})
+
+/**
+ * **`#727` closed while the money was still owed, and `#867` filed beside it**
+ * (`#1161`).
+ *
+ * Nothing open said the condition held, so the next pass filed a second issue
+ * about the same standing debt, which a person then had to notice, read and
+ * close by hand. A debt is *measured*: closing its issue is a statement about a
+ * maintainer's attention rather than about what the Colony owes.
+ */
+describe('a debt whose issue was closed while it was still outstanding', () => {
+  const aClosedIssue = (overrides: Partial<ClosedIssue> = {}): ClosedIssue => ({
+    url: 'https://github.com/Kolonie-AI/kolonie-platform/issues/727',
+    title: 'The Colony owes money it has not paid',
+    body: DEBT_MARKER,
+    reason: 'completed',
+    // Two days after the oldest obligation was written, which is `#727`: the
+    // debt was standing while somebody was closing the issue about it.
+    closedAt: '2026-08-11T09:00:00.000Z',
+    ...overrides,
+  })
+
+  it('reopens rather than filing a second one', () => {
+    const shut = aClosedIssue()
+
+    expect(decideDebt(theTwoDebts, undefined, [shut])).toEqual({ kind: 'reopen', issue: shut })
+  })
+
+  /**
+   * **The closing comment promises this and it has to stay true.** The alarm
+   * closes itself when nothing is outstanding, and says a later debt is a new
+   * occurrence rather than a duplicate. A debt written entirely *after* that
+   * closure is that second episode, so it gets its own issue — resurrecting a
+   * thread from a fortnight ago would be answering a different question.
+   */
+  it('files instead when the debt arrived after the closure', () => {
+    const later: OutstandingDebt = { ...theTwoDebts, oldestSince: '2026-08-14T10:00:00.000Z' }
+
+    expect(decideDebt(later, undefined, [aClosedIssue()])).toEqual({ kind: 'file' })
+  })
+
+  /**
+   * A timestamp GitHub did not record cannot decide this, and one of the two
+   * answers repeats `#867` while the other files a duplicate the alarm's own
+   * comment already explains. Reopening is the recoverable one.
+   */
+  it('reopens when there is no timestamp to compare', () => {
+    const shut = aClosedIssue({ closedAt: null })
+
+    expect(decideDebt(theTwoDebts, undefined, [shut])).toEqual({ kind: 'reopen', issue: shut })
+  })
+
+  /** The same first-line rule the open corpus is read by, asked of closed ones. */
+  it('does not adopt a closed issue that merely quotes the marker', () => {
+    const quoting = aClosedIssue({ body: `How the alarm works\n\n\`\`\`\n${DEBT_MARKER}\n\`\`\`` })
+
+    expect(closedDebtIssue([quoting])).toBeUndefined()
+    expect(decideDebt(theTwoDebts, undefined, [quoting])).toEqual({ kind: 'file' })
+  })
+
+  /**
+   * `Issues.closed()` lists by update time, descending, so the first match is
+   * the last conversation about this alarm rather than one from a fortnight ago.
+   */
+  it('brings back the most recently closed one', () => {
+    const older = aClosedIssue({ url: 'https://github.com/Kolonie-AI/kolonie-platform/issues/601' })
+    const newer = aClosedIssue()
+
+    expect(closedDebtIssue([newer, older])?.url).toBe(newer.url)
+  })
+
+  /** The corpus reconstructed, through a whole pass: one issue, not two. */
+  it('leaves one issue behind, and says on it what brought it back', async () => {
+    const issues = spyIssues([], [], [aClosedIssue()])
+
+    const outcome = await watchDebt({ issues, measure: async () => theTwoDebts })
+
+    expect(outcome.action).toBe('reopen')
+    expect(issues.created).toEqual([])
+    expect(issues.reopened).toHaveLength(1)
+    expect(issues.reopened[0]?.url).toBe(aClosedIssue().url)
+    // The table describes this pass rather than the day the issue was filed.
+    expect(issues.revised).toHaveLength(1)
+  })
+
+  /** Nothing standing is still nothing standing, whatever is in the archive. */
+  it('stays quiet when the debt has actually gone', async () => {
+    const issues = spyIssues([], [], [aClosedIssue()])
+
+    const outcome = await watchDebt({ issues, measure: async () => nothingOwed })
+
+    expect(outcome.action).toBe('quiet')
+    expect(issues.created).toEqual([])
+    expect(issues.reopened).toEqual([])
+  })
+
+  /**
+   * The closed corpus answers a question only an empty open corpus can ask, and
+   * it is a page per repository — asking on a standing pass would be three
+   * requests to learn nothing.
+   */
+  it('does not read the closed corpus while the alarm is already open', async () => {
+    const issues = spyIssues([anIssue(DEBT_MARKER)])
+    const listing = vi.spyOn(issues, 'closed')
+
+    await watchDebt({ issues, measure: async () => theTwoDebts })
+
+    expect(listing).not.toHaveBeenCalled()
   })
 })
 

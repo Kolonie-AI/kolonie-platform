@@ -1,6 +1,6 @@
 import type { PayoutRefusal } from '@kolonie-ai/core'
 import type { OutstandingDebt } from '@kolonie-ai/db'
-import { carryingMarker, type Issues, type KnownIssue } from './github.js'
+import { carryingMarker, type ClosedIssue, type Issues, type KnownIssue } from './github.js'
 
 /**
  * The alarm for money the Colony owes and has not paid (`#720`).
@@ -207,6 +207,17 @@ export type DebtAction =
   | { readonly kind: 'escalate'; readonly issue: KnownIssue }
   /** The condition has ended and the issue it opened is still open. */
   | { readonly kind: 'close'; readonly issue: KnownIssue }
+  /**
+   * The condition still holds and the issue that said so has been closed
+   * (`#1161`).
+   *
+   * **A debt is measured, so closing its issue does not end it.** Somebody read
+   * the alarm and closed it — which is a statement about their attention, not
+   * about what the Colony owes. Filing a second issue is what happened before:
+   * `#867` beside `#727`, about the same standing condition, for a person to
+   * notice and close by hand.
+   */
+  | { readonly kind: 'reopen'; readonly issue: ClosedIssue }
 
 /**
  * What to do, decided from the measurement and the board alone.
@@ -231,14 +242,62 @@ export type DebtAction =
  * `#720`'s founding measurement was two obligations, both of them a citizen's,
  * and surfacing exactly that is what produced `#719` and `#718`. An alarm that
  * would not have fired for its own founding case is not the fix.
+ *
+ * **Nothing open is two states, and telling them apart is `#1161`.** Nobody has
+ * ever filed this alarm, or somebody filed it and closed it while the money was
+ * still owed. The first is a `file`; the second is a `reopen`, because the
+ * condition is measured and the measurement has not changed. Reading both as
+ * *nothing open* is what put `#867` beside `#727`.
+ *
+ * **A closed corpus that could not be read reads as empty, and that is the safe
+ * direction**: the answer falls back to `file`, which is exactly the behaviour
+ * before this change. A duplicate issue is a bad outcome; silence about money
+ * the Colony owes is a worse one.
  */
-export function decideDebt(debt: OutstandingDebt, open: KnownIssue | undefined): DebtAction {
+export function decideDebt(
+  debt: OutstandingDebt,
+  open: KnownIssue | undefined,
+  closed: readonly ClosedIssue[] = [],
+): DebtAction {
   if (debt.count === 0)
     return open === undefined ? { kind: 'quiet' } : { kind: 'close', issue: open }
-  if (open === undefined) return { kind: 'file' }
+  if (open === undefined) {
+    const shut = closedDebtIssue(closed)
+    if (shut === undefined) return { kind: 'file' }
+    return heldThrough(debt, shut) ? { kind: 'reopen', issue: shut } : { kind: 'file' }
+  }
   return oursOnly(debt).count > recordedOurs(open.body)
     ? { kind: 'escalate', issue: open }
     : { kind: 'standing', issue: open }
+}
+
+/**
+ * Whether the debt outstanding now was already outstanding when that issue was
+ * closed.
+ *
+ * **This is what separates a wrong closure from a second episode**, and it is
+ * `#560`'s guard pointed the other way. `#560` asks whether a defect's lines are
+ * newer than the closure, because a returning error is a new occurrence. Here
+ * the interesting answer is the opposite one: an obligation written *before* the
+ * closure was outstanding while somebody was closing the issue about it, so the
+ * closure ended the conversation and not the condition — and that is `#727`,
+ * exactly.
+ *
+ * Debt that arrived entirely *after* the closure is a second episode, and the
+ * closing comment promises it a new issue rather than a resurrection: the alarm
+ * closed itself because nothing was owed, and that reading was true on the day.
+ *
+ * **Unreadable timestamps reopen**, which is the direction that cannot repeat
+ * `#867`. The cost is an old thread coming back carrying a comment that says
+ * what is owed today; the cost the other way is the duplicate this change exists
+ * to stop.
+ */
+function heldThrough(debt: OutstandingDebt, issue: ClosedIssue): boolean {
+  if (issue.closedAt === null || debt.oldestSince === null) return true
+  const shutAt = Date.parse(issue.closedAt)
+  const owedSince = Date.parse(debt.oldestSince)
+  if (Number.isNaN(shutAt) || Number.isNaN(owedSince)) return true
+  return owedSince <= shutAt
 }
 
 /**
@@ -249,6 +308,18 @@ export function decideDebt(debt: OutstandingDebt, open: KnownIssue | undefined):
  * anywhere in the body adopts it and overwrites what a person wrote.
  */
 export function openDebtIssue(issues: readonly KnownIssue[]): KnownIssue | undefined {
+  return carryingMarker(issues, DEBT_MARKER)
+}
+
+/**
+ * The same question asked of the closed corpus (`#1161`).
+ *
+ * **The most recently closed one wins, and the list is already in that order** —
+ * `Issues.closed()` sorts by update time, descending. Where the alarm has been
+ * closed more than once over the Colony's life, the one to bring back is the
+ * last conversation about it rather than a thread from March.
+ */
+export function closedDebtIssue(issues: readonly ClosedIssue[]): ClosedIssue | undefined {
   return carryingMarker(issues, DEBT_MARKER)
 }
 
@@ -387,8 +458,9 @@ export function debtIssueBody(debt: OutstandingDebt, confirmedAt: number = Date.
       'kept current**, which notifies nobody and is therefore not the thing that objection was ' +
       'about (`#727`). ' +
       '**It closes itself** when nothing is outstanding past the threshold, which is the one ' +
-      'way it differs from the log detector beside it. Closing it by hand while the condition ' +
-      'holds files it again.',
+      'way it differs from the log detector beside it. **Closing it by hand while the condition ' +
+      'holds reopens it** rather than filing a second one (`#1161`): what is owed is measured, ' +
+      'so this issue ends when the measurement says nothing is owed and not before.',
   ].join('\n')
 }
 
@@ -429,10 +501,35 @@ export function debtEscalationComment(debt: OutstandingDebt): string {
 export function debtClosingComment(): string {
   return (
     'Nothing has stood unpaid past the threshold on this pass, so the condition has ended and ' +
-    'this closes itself. It is filed again if the Colony carries an undischarged debt for more ' +
-    `than ${DEBT_THRESHOLD_HOURS} hours again — the alarm reports a state, so a new issue ` +
-    'means a new occurrence rather than a duplicate.'
+    'this closes itself. A **new** debt standing longer than ' +
+    `${DEBT_THRESHOLD_HOURS} hours gets a new issue — the alarm reports a state, so that is a ` +
+    'new occurrence rather than a duplicate. A debt written *before* this closure and still ' +
+    'outstanding reopens this one instead, because the closure would not have ended it (`#1161`).'
   )
+}
+
+/**
+ * What it says on the way back in (`#1161`).
+ *
+ * **Addressed to the person who closed it, and it does not tell them they were
+ * wrong.** Closing an issue is a reasonable thing to do with one that has been
+ * open for days; what they could not know is that the alarm underneath it is a
+ * measurement rather than a report. So this says what is owed *now* and why the
+ * issue came back, and leaves the body below to carry the table.
+ */
+export function debtReopeningComment(debt: OutstandingDebt): string {
+  return [
+    `**Reopened: ${debt.count} obligation(s) totalling ${debt.lamports} lamports are still ` +
+      `outstanding past ${DEBT_THRESHOLD_HOURS} hours.**`,
+    '',
+    'This alarm reports a condition the Colony measures rather than an event somebody observed, ' +
+      'so it ends when the measurement says nothing is owed and not when the issue is closed. ' +
+      'Closing it while money is outstanding used to file a second issue instead — `#867` beside ' +
+      '`#727` — which somebody then had to read and close by hand.',
+    '',
+    'The body above has been rewritten with what is owed on this pass. It closes itself, without ' +
+      'anybody doing anything, once nothing has stood unpaid past the threshold.',
+  ].join('\n')
 }
 
 export interface DebtWatchDependencies {
@@ -490,7 +587,17 @@ export async function watchDebt(deps: DebtWatchDependencies): Promise<DebtWatchO
     return { action: 'quiet', count: debt.count, lamports: debt.lamports, skipped: 'unreadable' }
   }
 
-  const action = decideDebt(debt, openDebtIssue(corpus.issues))
+  // **The closed corpus is read only when nothing is open**, which is the only
+  // state its answer could change — and it is a page per repository, so asking
+  // on every pass would be three requests to learn nothing on the passes where
+  // the alarm is already standing.
+  //
+  // It carries no `unreadable` list of its own, so a repository that answered a
+  // 500 is indistinguishable here from one with nothing closed. That resolves to
+  // `file`, which is what this did before `#1161` — the duplicate is bad and the
+  // silence about money owed would be worse.
+  const open = openDebtIssue(corpus.issues)
+  const action = decideDebt(debt, open, open === undefined ? await deps.issues.closed() : [])
 
   if (action.kind === 'file') {
     await deps.issues.create({
@@ -525,6 +632,14 @@ export async function watchDebt(deps: DebtWatchDependencies): Promise<DebtWatchO
     await deps.issues.revise(action.issue.url, debtIssueBody(debt, now()))
 
   if (action.kind === 'close') await deps.issues.close(action.issue.url, debtClosingComment())
+
+  // The reopen carries the comment; the body is rewritten after it, on the same
+  // argument as `standing` — the table has to describe this pass and not the day
+  // the issue was originally filed.
+  if (action.kind === 'reopen') {
+    await deps.issues.reopen(action.issue.url, debtReopeningComment(debt))
+    await deps.issues.revise(action.issue.url, debtIssueBody(debt, now()))
+  }
 
   return { action: action.kind, count: debt.count, lamports: debt.lamports }
 }

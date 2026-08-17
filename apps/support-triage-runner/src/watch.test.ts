@@ -63,6 +63,7 @@ function fakeIssues(over: Partial<Issues> = {}): Issues & {
       closes.push(url)
       return true
     },
+    reopen: async () => true,
     create: async (issue) => {
       filed.push({ issue })
       return `https://github.com/${issue.repository}/issues/${filed.length}`
@@ -125,6 +126,7 @@ const openIssue = (signature: string, over: Partial<KnownIssue> = {}): KnownIssu
 const closedIssue = (signature: string, over: Partial<ClosedIssue> = {}): ClosedIssue => ({
   url: 'https://github.com/Kolonie-AI/kolonie-platform/issues/7',
   title: titleFor(signature, 'the same thing, once'),
+  body: 'Filed by the log detector.',
   reason: 'completed',
   closedAt: '2026-08-05T10:00:00.000Z',
   ...over,

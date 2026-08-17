@@ -62,6 +62,7 @@ function fakeIssues(overrides: Partial<Issues> = {}) {
     // The debt watcher's, and never the log detector's: that one closes nothing
     // on purpose (`#720`).
     close: async () => true,
+    reopen: async () => true,
     create: async (issue) => {
       created.push(issue)
       return `https://github.com/${issue.repository}/issues/${900 + created.length}`
@@ -503,7 +504,13 @@ describe('carrying a closed issue back to its ticket', () => {
   const closing = (reason: string | null, url = ISSUE) => ({
     issues: fakeIssues({
       closed: async () => [
-        { url, title: 'the mint path throws on an open challenge', reason, closedAt: null },
+        {
+          url,
+          title: 'the mint path throws on an open challenge',
+          body: 'Filed by a citizen.',
+          reason,
+          closedAt: null,
+        },
       ],
     }).issues,
   })
@@ -588,7 +595,9 @@ describe('carrying a closed issue back to its ticket', () => {
     const issues = fakeIssues({
       closed: async () => {
         listings++
-        return [{ url: ISSUE, title: 'a title', reason: 'completed', closedAt: null }]
+        return [
+          { url: ISSUE, title: 'a title', body: 'a body', reason: 'completed', closedAt: null },
+        ]
       },
     }).issues
 

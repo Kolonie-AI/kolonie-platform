@@ -631,6 +631,44 @@ describe('the rows the figures imply', () => {
      */
     expect(entries[0]?.status).toBe('measured')
   })
+
+  /**
+   * **A figure spelled as an alias is the written row's own evidence** (`#1144`).
+   * `codeberg.org` was measured under `code-hosting` and written up under
+   * `code-host`, so `known` missed it by one spelling and this function stood a
+   * second row in beside the walked one — the duplicate the reconciliation had
+   * just merged, rebuilt from the counts on the next catalogue read.
+   */
+  it('stands nothing in for a pair whose row is written under the kind its spelling means', () => {
+    const written = recipe({ kind: 'code-host', provider: 'forge.test' })
+
+    expect(
+      measuredOnlyRecipes(
+        [written],
+        [figures({ kind: 'code-hosting', provider: 'forge.test', attempted: 6, proved: 3 })],
+      ),
+    ).toEqual([])
+  })
+
+  /**
+   * The other half of the same rule: nothing is written, so a row is synthesised
+   * — one row, under the kind the spellings mean, however many spellings arrived.
+   */
+  it('synthesises one row where two spellings of one kind were measured', () => {
+    const synthesized = measuredOnlyRecipes(
+      [],
+      [
+        figures({ kind: 'code-hosting', provider: 'forge.test', attempted: 6, proved: 3 }),
+        figures({ kind: 'code-host', provider: 'forge.test', attempted: 2, proved: 1 }),
+      ],
+    )
+
+    expect(synthesized).toHaveLength(1)
+    expect(synthesized[0]?.kind).toBe('code-host')
+    /** The shelf both spellings reach by the `#917` rule, so nothing is refiled. */
+    expect(synthesized[0]?.category).toBe('code-hosting')
+    expect(synthesized[0]?.categoryIsFallback).toBeUndefined()
+  })
 })
 
 /**

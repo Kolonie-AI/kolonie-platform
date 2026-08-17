@@ -8,7 +8,7 @@ import {
   noFigures,
   type AtlasFigures,
 } from './atlas-figures.js'
-import { atlasCategoryForKind } from './atlas-proposal.js'
+import { atlasCanonicalKind, atlasCategoryForKind } from './atlas-proposal.js'
 import type { Log } from '../log/log.js'
 import {
   AtlasCategorySlugSchema,
@@ -912,8 +912,17 @@ export function measuredOnlyRecipes(
     readonly log?: Log
   } = {},
 ): readonly ProviderRecipe[] {
-  const known = new Set(recipes.map((recipe) => figureKey(recipe.kind, recipe.provider)))
+  const known = new Set(
+    recipes.map((recipe) => figureKey(atlasCanonicalKind(recipe.kind), recipe.provider)),
+  )
   const synthesized: ProviderRecipe[] = []
+  /**
+   * **What has already been synthesised, so two aliases cannot both fire**
+   * (`#1144`). Two figures resolving to one kind are two spellings of one pair,
+   * and a second row here would be the duplicate this whole issue is about,
+   * rebuilt from the counts a moment after the catalogue was reconciled.
+   */
+  const made = new Set<string>()
 
   for (const figure of figures) {
     /**
@@ -940,21 +949,32 @@ export function measuredOnlyRecipes(
      * entry beside this one.
      */
     if (!figure.evidenced) continue
-    if (known.has(figureKey(figure.kind, figure.provider))) continue
+
+    /**
+     * **The pair is asked under the kind it means** (`#1144`). A figure counted
+     * under `code-hosting` at a provider whose row is `code-host` is that row's
+     * evidence, and synthesising a second row for it would put the same
+     * provider on the same shelf twice — which is what `known` is for, one
+     * spelling short.
+     */
+    const kind = atlasCanonicalKind(figure.kind)
+    const pair = figureKey(kind, figure.provider)
+    if (known.has(pair) || made.has(pair)) continue
+    made.add(pair)
 
     let category
     let defaulted = false
     try {
-      category = atlasCategoryForKind(figure.kind)
+      category = atlasCategoryForKind(kind)
     } catch {
       category = ATLAS_FALLBACK_CATEGORY
       defaulted = true
-      reportFallbackShelf(figure.kind, figure.provider, options.log)
+      reportFallbackShelf(kind, figure.provider, options.log)
     }
 
     synthesized.push(
       ProviderRecipeSchema.parse({
-        kind: figure.kind,
+        kind,
         provider: figure.provider,
         /**
          * The provider's own name, because it is the only thing anybody has

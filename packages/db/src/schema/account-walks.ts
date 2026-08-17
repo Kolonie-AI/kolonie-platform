@@ -73,6 +73,25 @@ export const accountWalks = pgTable(
     provider: text('provider').notNull(),
 
     /**
+     * What the walker actually typed, where that was not the kind it means
+     * (`#1144`).
+     *
+     * **`kind` is the catalogue key and this is the citizen's own word.**
+     * `ATLAS_KIND_ALIASES` resolves three spellings — `code-hosting`,
+     * `identity-security`, `todoist` — onto the kinds the Atlas already has
+     * rows for, and until it did, a walk naming one of them opened a second row
+     * beside the first. Resolving the key is what closes that; storing nothing
+     * would close it by deleting what the walker said, which `#1096` is
+     * explicit the Colony does not do — the vocabulary is open because what a
+     * citizen calls a thing is a finding.
+     *
+     * **Null is the ordinary value and means the two agreed**, so *the walker
+     * used the canonical word* and *this row predates the aliases* read the
+     * same, which is correct: neither has a second spelling to show.
+     */
+    kindAsGiven: text('kind_as_given'),
+
+    /**
      * Which of the kind's two capabilities this walk measured (`#1023`).
      *
      * **The one surface carrying a whole recipe was the one that could not say

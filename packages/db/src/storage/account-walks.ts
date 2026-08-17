@@ -17,6 +17,7 @@ import {
   AccountKindSchema,
   AccountProviderSchema,
   AgentPlatformSchema,
+  atlasCanonicalKind,
   atlasCategoryForKind,
   colonyRefusal,
   publishWalls,
@@ -132,7 +133,7 @@ export async function openWalkId(
     .where(
       and(
         eq(accountWalks.agentId, agentId),
-        eq(accountWalks.kind, input.kind),
+        eq(accountWalks.kind, atlasCanonicalKind(input.kind)),
         eq(accountWalks.provider, await canonicalProvider(db, input.provider)),
         isNull(accountWalks.finishedAt),
       ),
@@ -160,6 +161,18 @@ export async function walkInProgress(
   const provider = await canonicalProvider(db, AccountProviderSchema.parse(input.provider))
 
   /**
+   * **And one row per kind, whichever of its spellings the agent typed**
+   * (`#1144`) — the same rule as the line above, applied to the other half of
+   * the key, for the same reason and in the same place. `codeberg.org` carried
+   * a walked `code-hosting` row beside an empty `code-host` one because this
+   * was decided nowhere.
+   *
+   * The word the agent used is kept on the row rather than dropped; see
+   * `account_walks.kind_as_given`.
+   */
+  const kind = atlasCanonicalKind(input.kind)
+
+  /**
    * **Read before write, and the read is its own function** (`#601`). Reporting
    * a walk has to be able to ask *is one open* without opening one — an agent
    * that reports a walk it never started must be told so, not handed an empty
@@ -170,7 +183,12 @@ export async function walkInProgress(
 
   const [row] = await db
     .insert(accountWalks)
-    .values({ agentId, kind: input.kind, provider })
+    .values({
+      agentId,
+      kind,
+      provider,
+      ...(kind === input.kind ? {} : { kindAsGiven: input.kind }),
+    })
     .returning({ id: accountWalks.id })
 
   if (row === undefined) throw new Error('account_walks insert returned no row')

@@ -4,6 +4,7 @@ import {
   AccountProviderSchema,
   AgentApiSchema,
   AtlasCategorySlugSchema,
+  atlasCanonicalKind,
   atlasCategoryForKind,
   SignupCodeSchema,
   ProviderTermsSchema,
@@ -625,9 +626,17 @@ export async function recordMeasuredProvider(
   db: Handle,
   entry: { readonly kind: AccountKind; readonly provider: string },
 ): Promise<boolean> {
+  /**
+   * **The row is keyed by the kind the account's kind means** (`#1144`). A
+   * citizen that proved a `code-hosting` account at a provider whose entry is
+   * `code-host` has proved the entry that is there, and writing a second row
+   * beside it is how `codeberg.org` came to carry two.
+   */
+  const kind = atlasCanonicalKind(entry.kind)
+
   let category: AtlasCategory
   try {
-    category = atlasCategoryForKind(entry.kind)
+    category = atlasCategoryForKind(kind)
   } catch {
     return false
   }
@@ -638,7 +647,7 @@ export async function recordMeasuredProvider(
   const written = await db
     .insert(providerRecipes)
     .values({
-      kind: entry.kind,
+      kind,
       provider: provider.data,
       /**
        * The provider's own name, because it is the only thing anybody has

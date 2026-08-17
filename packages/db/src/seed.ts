@@ -4,6 +4,7 @@ import { curateListedAtlasEntries, seedListedAtlasEntries } from './atlas-provid
 import { seedBundles } from './storage/provider-bundles.js'
 import { backfillMeasuredProviders } from './atlas-backfill.js'
 import { scopeTelephonyDirections } from './atlas-directions.js'
+import { reconcileAtlasKinds } from './atlas-kinds.js'
 import { repairAtlasShelves } from './atlas-shelf.js'
 import { createDatabase, databaseUrlFromEnv } from './client.js'
 
@@ -115,6 +116,22 @@ async function main(): Promise<void> {
     console.log(
       `atlas directions: ${scoped} telephony verdicts scoped to the direction they measured, ` +
         `${alreadyScoped} already scoped or not yet on a shelf`,
+    )
+
+    /**
+     * One provider, one row per account kind (`#1144`).
+     *
+     * **Before the shelf repair, because it decides which rows there are to
+     * shelve.** A row it moves onto the canonical kind is a row whose shelf the
+     * pass below then checks in the same run; the other order would shelve a
+     * twin and then delete it.
+     */
+    const kinds = await reconcileAtlasKinds(db)
+    console.log(
+      `atlas kinds: ${kinds.moved} entries moved onto the kind their spelling means, ` +
+        `${kinds.dropped} empty twins dropped, ${kinds.walks} walks and ${kinds.reports} verdicts re-keyed, ` +
+        `${kinds.briefings} briefings left to be rewritten, ` +
+        `${kinds.conflicted} pairs left alone because both rows carry findings`,
     )
 
     /**

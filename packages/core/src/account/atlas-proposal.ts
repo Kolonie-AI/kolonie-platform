@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { TimestampSchema } from '../common/time.js'
-import { AccountProviderSchema, type AccountKind } from './account.js'
+import { AccountKindSchema, AccountProviderSchema, type AccountKind } from './account.js'
 import { AtlasCategorySchema, type AtlasCategory } from './recipe.js'
 
 /**
@@ -486,13 +486,125 @@ const ATLAS_CATEGORY_BY_KIND: ReadonlyMap<string, AtlasCategory> = (() => {
 })()
 
 /**
+ * Spellings that mean a kind the Atlas already has a row for (`#1144`).
+ *
+ * **One provider must not carry two catalogue rows for one account kind**, and
+ * on 2026-08-17 three of the Atlas' 166 rows did. `codeberg.org` had a curated
+ * `code-host` row nobody had written and a walked `code-hosting` row carrying
+ * three walls, a six-claim briefing and a full route — so the entry's operator
+ * need and its index sentence came from the empty one, and a citizen's
+ * afternoon sat underneath *nobody has walked this*. `todoist.com` and
+ * `bitwarden.com` had the same shape.
+ *
+ * **Data and not a rename.** A walk naming one of these is written against the
+ * kind it means, and the walker's own word is kept beside it on the walk —
+ * `account_walks.kind_as_given`. `#1096` decided that a kind nobody anticipated
+ * is a finding rather than a mistake, and that stands: what this table says is
+ * only that these three spellings are not new kinds.
+ *
+ * **Seeded from what exists and from nothing else.** The three come in the two
+ * shapes the collisions actually took, and neither shape is turned into a rule:
+ *
+ * - the shelf's own name standing in for the kind paired with it, which is what
+ *   {@link KIND_BY_ATLAS_CATEGORY} pairs — `code-hosting` for `code-host`,
+ *   `identity-security` for `identity`;
+ * - the provider's own name standing in for the kind — `todoist` for
+ *   `project-tracker`.
+ *
+ * A rule derived from either shape would fold spellings nobody has used: the
+ * first would swallow every future category name whatever a citizen meant by
+ * it, and the second would make every provider a candidate alias of whatever it
+ * happened to be walked as. Both are the guess `#1096` refused. A fourth line
+ * here is a measurement somebody made, not a pattern this one predicted.
+ */
+export const ATLAS_KIND_ALIASES: Readonly<Record<string, AccountKind>> = (() => {
+  const aliases: Readonly<Record<string, string>> = {
+    'code-hosting': 'code-host',
+    'identity-security': 'identity',
+    todoist: 'project-tracker',
+  }
+
+  /**
+   * The guards, at module load, in the idiom of the map above: a table that
+   * would make a false catalogue claim refuses to exist rather than making it
+   * quietly.
+   */
+  for (const [alias, canonical] of Object.entries(aliases)) {
+    if (alias === canonical) {
+      throw new Error(`Account kind ${alias} is listed as an alias of itself`)
+    }
+
+    /**
+     * **No chains.** Resolution is one hop and stays one hop — two would make
+     * the answer depend on iteration order, and a cycle would hang the first
+     * walk that named it.
+     */
+    if (aliases[canonical] !== undefined) {
+      throw new Error(`Account kind ${alias} aliases ${canonical}, which is itself an alias`)
+    }
+
+    /**
+     * The kind an alias resolves to has to be one the Atlas can shelve;
+     * otherwise this table would move a row from a shelf onto no shelf.
+     */
+    const shelf = ATLAS_CATEGORY_BY_KIND.get(canonical)
+    if (shelf === undefined) {
+      throw new Error(`Account kind ${alias} aliases ${canonical}, which reaches no Atlas shelf`)
+    }
+
+    /**
+     * **And it cannot move a row between shelves.** Where the alias reaches a
+     * shelf of its own today — both category names do, by the `#917` rule above
+     * — it must be the same shelf, so that resolving a spelling never silently
+     * refiles the provider. `todoist` reaches none, and this passes over it.
+     */
+    const own = ATLAS_CATEGORY_BY_KIND.get(alias)
+    if (own !== undefined && own !== shelf) {
+      throw new Error(
+        `Account kind ${alias} is on shelf ${own} but aliases ${canonical} on ${shelf}`,
+      )
+    }
+  }
+
+  /**
+   * Parsed rather than asserted, so a spelling that is not a legal account kind
+   * cannot enter the table by being typed into it.
+   */
+  return Object.fromEntries(
+    Object.entries(aliases).map(([alias, canonical]) => [
+      AccountKindSchema.parse(alias),
+      AccountKindSchema.parse(canonical),
+    ]),
+  )
+})()
+
+/**
+ * The kind a spelling means, which is the spelling itself unless
+ * {@link ATLAS_KIND_ALIASES} says otherwise (`#1144`).
+ *
+ * **Applied wherever a kind becomes a catalogue key and nowhere else.** The
+ * storage layer owns the key — the same arrangement `canonicalProvider` is in
+ * one table over, and for the same reason: four call sites deciding this
+ * separately is three chances to open the second row this exists to close.
+ */
+export function atlasCanonicalKind(kind: AccountKind): AccountKind
+export function atlasCanonicalKind(kind: string): string
+export function atlasCanonicalKind(kind: string): string {
+  return ATLAS_KIND_ALIASES[kind] ?? kind
+}
+
+/**
  * Resolve the one Atlas shelf currently paired with an account kind.
  *
  * An unknown kind is an error rather than a guessed shelf: categories are real
  * catalogue claims, and the account-kind vocabulary is deliberately open.
+ *
+ * **Through the aliases** (`#1144`), so that the shelf a spelling reaches and
+ * the row it lands on are decided by one answer. `todoist` reached no shelf and
+ * fell to `data-apis`; it is a project tracker because `project-tracker` is.
  */
 export function atlasCategoryForKind(kind: AccountKind): AtlasCategory {
-  const category = ATLAS_CATEGORY_BY_KIND.get(kind)
+  const category = ATLAS_CATEGORY_BY_KIND.get(atlasCanonicalKind(kind))
   if (category === undefined) throw new Error(`No Atlas category maps to account kind ${kind}`)
   return category
 }
@@ -505,7 +617,13 @@ export function atlasCategoryForKind(kind: AccountKind): AtlasCategory {
  * caller that could only ask one kind at a time would have to fetch every pair
  * and filter afterwards — which applies its `limit` to rows it is about to throw
  * away. Handed to SQL as a `not in`, the limit falls where it should.
+ *
+ * **The aliases are in it** (`#1144`), because the function above answers for
+ * them. Leaving them out would put `todoist` in a queue asking a steward which
+ * shelf it belongs on while the Atlas was already filing it as a project
+ * tracker — one question with two answers, which is what that queue is for
+ * removing.
  */
 export function atlasShelvedKinds(): readonly string[] {
-  return [...ATLAS_CATEGORY_BY_KIND.keys()]
+  return [...new Set([...ATLAS_CATEGORY_BY_KIND.keys(), ...Object.keys(ATLAS_KIND_ALIASES)])]
 }

@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { AccountKindSchema } from './account.js'
 import { AtlasCategorySchema } from './recipe.js'
 import {
+  ATLAS_KIND_ALIASES,
+  atlasCanonicalKind,
   atlasCategoryForKind,
+  atlasShelvedKinds,
   KIND_BY_ATLAS_CATEGORY,
   wishAtlasAnswer,
   wishAtlasSentence,
@@ -183,5 +186,57 @@ describe('the Atlas shelf for an account kind', () => {
     expect(() => atlasCategoryForKind(AccountKindSchema.parse('code-hosts'))).toThrow(
       'No Atlas category maps to account kind code-hosts',
     )
+  })
+})
+
+/**
+ * One provider, one row per account kind (`#1144`).
+ *
+ * The table is measured rather than derived, so what is worth asserting is the
+ * shape of the resolution and the boundaries it keeps — not the three entries,
+ * which a fourth measurement is meant to change.
+ */
+describe('the kind a spelling means', () => {
+  it('leaves a kind that is nobody alias exactly as it is', () => {
+    for (const kind of ['mailbox', 'github', 'trello', 'a-kind-nobody-has-used']) {
+      expect(atlasCanonicalKind(kind)).toBe(kind)
+    }
+  })
+
+  it('resolves each measured spelling onto the kind it means', () => {
+    expect(atlasCanonicalKind('code-hosting')).toBe('code-host')
+    expect(atlasCanonicalKind('identity-security')).toBe('identity')
+    expect(atlasCanonicalKind('todoist')).toBe('project-tracker')
+  })
+
+  /**
+   * **One hop, and it stays one hop.** A chain would make the answer depend on
+   * iteration order and a cycle would hang the first walk that named it — the
+   * guard at module load refuses both, and this is the property it buys.
+   */
+  it('resolves in one hop, because no alias points at another', () => {
+    for (const canonical of Object.values(ATLAS_KIND_ALIASES)) {
+      expect(atlasCanonicalKind(canonical)).toBe(canonical)
+    }
+  })
+
+  /**
+   * **An alias never refiles the provider.** Both category-name spellings reach
+   * a shelf of their own by the `#917` rule, and resolving them has to land on
+   * that same shelf or a repair would quietly move rows between shelves.
+   */
+  it('shelves an alias where the kind it means is shelved', () => {
+    for (const [alias, canonical] of Object.entries(ATLAS_KIND_ALIASES)) {
+      expect(atlasCategoryForKind(AccountKindSchema.parse(alias))).toBe(
+        atlasCategoryForKind(AccountKindSchema.parse(canonical)),
+      )
+    }
+  })
+
+  /** The aliases are shelvable kinds, so nothing that resolves is reported unshelved. */
+  it('counts every alias among the kinds the Atlas can shelve', () => {
+    for (const alias of Object.keys(ATLAS_KIND_ALIASES)) {
+      expect(atlasShelvedKinds()).toContain(alias)
+    }
   })
 })

@@ -371,6 +371,11 @@ describe('the record of one agent obtaining one account', () => {
      * The other half of `#917`: a kind spelled as the shelf's own name resolves,
      * rather than falling through to the unshelvable branch above. Two of the
      * four drafts waiting for a steward on 2026-08-14 were in exactly this state.
+     *
+     * **The entry is filed under the kind that spelling means** (`#1144`), so the
+     * walk lands on the row `code-host` already has rather than standing a second
+     * row of its own in beside it. The shelf is the one `#917` decided on either
+     * way, which is what makes the resolution a de-duplication and not a refiling.
      */
     it('files a walk whose kind is a category name on that shelf', async () => {
       const named = {
@@ -381,7 +386,10 @@ describe('the record of one agent obtaining one account', () => {
       await recordWalkStep(db, walkId, { actor: 'agent' })
       await finishWalk(db, walkId, { outcome: 'proved' })
 
-      expect((await providerRecipe(db, named.kind, named.provider))?.category).toBe('code-hosting')
+      expect(await providerRecipe(db, named.kind, named.provider)).toBeUndefined()
+      expect(
+        (await providerRecipe(db, AccountKindSchema.parse('code-host'), named.provider))?.category,
+      ).toBe('code-hosting')
     })
 
     /**

@@ -1413,9 +1413,21 @@ function indexStatusMark(status: AtlasPublicEntry['status']): string {
  * its own article so a heading is correct on its own; mid-row they are a list,
  * and *A mailbox, A domain* is the capitalisation of a title rather than of a
  * sentence. Touching only the first character leaves *an API account* alone.
+ *
+ * **One phrase, once** (`#1144`). Two rows whose kinds read the same are two
+ * spellings of one thing to a reader — *a code host, a code host* says nothing
+ * the first half did not. `#1144` closes the collisions in the data, and this
+ * is the render side of the same rule: it holds for a pair the alias table has
+ * not been told about, and for the rows already written when a page is served
+ * from a replica that has not caught up. First-seen order is kept, so the list
+ * stays in the order `providerRecipeList` gave it.
  */
 function kindsShown(entry: AtlasPublicEntry): string {
-  return entry.recipes.map((recipe) => lowerFirst(atlasKindPhrase(recipe.kind))).join(', ')
+  const shown = new Set<string>()
+
+  for (const recipe of entry.recipes) shown.add(lowerFirst(atlasKindPhrase(recipe.kind)))
+
+  return [...shown].join(', ')
 }
 
 /**

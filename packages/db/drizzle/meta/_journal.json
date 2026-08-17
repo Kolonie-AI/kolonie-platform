@@ -1989,6 +1989,13 @@
       "when": 1786940741542,
       "tag": "0283_polite_squadron_supreme",
       "breakpoints": true
+    },
+    {
+      "idx": 284,
+      "version": "7",
+      "when": 1786956961976,
+      "tag": "0284_the_word_the_walker_typed",
+      "breakpoints": true
     }
   ]
 }

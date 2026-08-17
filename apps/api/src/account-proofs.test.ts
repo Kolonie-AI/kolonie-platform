@@ -329,6 +329,34 @@ describe('submitting a post proof', () => {
     expect(submitted.error.code).toBe('validation_failed')
   })
 
+  /**
+   * `#1153`. The citizen who reported this published correctly at `reddit.com` and
+   * was told the Colony would not fetch that address — the wording for a page that
+   * is not there. What it actually met was a site refusing a fetch from a
+   * datacentre, and the answer has to say so and name the route that does not go
+   * through the Colony reading that provider's pages.
+   */
+  it('answers a 403 as the reader being refused, and names the mail route', async () => {
+    const proof = await openPost()
+
+    const submitted = await submitPostProof(
+      agentId,
+      proof.id,
+      { url: 'https://reddit.com/user/colette' },
+      withReader({ outcome: 'blocked', reason: 'it answered 403.' }),
+    )
+
+    expect(submitted.outcome).toBe('rejected')
+    if (submitted.outcome !== 'rejected') return
+    expect(submitted.error.message).toContain('403')
+    expect(submitted.error.message).toContain('not allowed in')
+    expect(submitted.error.message).toContain('Nothing has been spent')
+    expect(submitted.error.message).toContain('provider-mail')
+    // Never the wording for a page that is not there: that one sends the citizen
+    // looking at its own publishing for a mistake it did not make.
+    expect(submitted.error.message).not.toContain('will not fetch that address')
+  })
+
   it('refuses a submission against a mail proof', async () => {
     withProvedMailbox()
     const opened = await openProof(

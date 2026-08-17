@@ -358,6 +358,23 @@ export function websiteRecheck(deps: {
         return { outcome: 'unavailable', evidence: `${account.identifier}: ${read.reason}` }
       }
 
+      /**
+       * **A reader that was not let in has measured nothing** (`#1153`). A host
+       * that starts serving `403` to datacentre egress has not stopped being the
+       * citizen's, and until this was its own outcome the re-check read it as a
+       * page taken down — a citizen losing a skill over its host's opinion of
+       * where the Colony fetches from. `unavailable` is the honest verdict: the
+       * ninety-day wait is exactly what it is for.
+       */
+      if (read.outcome === 'blocked') {
+        return {
+          outcome: 'unavailable',
+          evidence:
+            `${account.identifier}: ${read.reason} The Colony's reader was refused, which is ` +
+            'not an answer about your page.',
+        }
+      }
+
       if (read.outcome === 'missing') {
         return {
           outcome: 'gone',

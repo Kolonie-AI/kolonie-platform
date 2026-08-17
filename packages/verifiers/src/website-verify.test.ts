@@ -10,7 +10,7 @@ const dns = vi.hoisted(() => ({ lookup: vi.fn() }))
 
 vi.mock('node:dns/promises', () => ({ lookup: dns.lookup }))
 
-const { AddressRefused, PROBE_HEADERS, isPrivateIP, safeFetch } =
+const { AddressRefused, PROBE_HEADERS, fetchPage, isPrivateIP, safeFetch } =
   await import('./website-verify.js')
 
 /** A resolver failure exactly as `node:dns` reports one. */
@@ -157,6 +157,60 @@ describe('the headers a probe sends', () => {
     for (const call of fetchMock.mock.calls) {
       expect(call[1]).toEqual(expect.objectContaining({ headers: PROBE_HEADERS }))
     }
+  })
+})
+
+/**
+ * `#1153`. What a status means is decided here, and three surfaces read the
+ * answer: the `provider-post` proof, the `website` re-check, and the badge
+ * runner. A citizen reported that `reddit.com` answers `403` to the Colony's
+ * egress and was told *the Colony will not fetch that address* — the wording for
+ * a page that does not exist. The classification is what makes the difference
+ * legible, and the Colony fixes it by saying which happened rather than by
+ * dressing itself as a browser.
+ */
+describe('what a status says the read measured', () => {
+  function answering(status: number) {
+    dns.lookup.mockResolvedValue([{ address: '93.184.216.34', family: 4 }])
+    vi.stubGlobal('fetch', () => Promise.resolve(new Response('<html></html>', { status })))
+  }
+
+  it.each([401, 403, 407, 429, 451])(
+    'reads %i as the reader being refused rather than the page being absent',
+    async (status) => {
+      answering(status)
+
+      const read = await fetchPage('https://reddit.com/user/colette')
+
+      expect(read.outcome).toBe('blocked')
+      if (read.outcome !== 'blocked') return
+      expect(read.reason).toContain(String(status))
+    },
+  )
+
+  /** The other side of the split, and the one that is a fact about the site. */
+  it.each([404, 410, 400])('still reads %i as there being no such page', async (status) => {
+    answering(status)
+
+    const read = await fetchPage('https://trello.com/typo')
+
+    expect(read.outcome).toBe('missing')
+  })
+
+  it('still reads a 5xx as the host being broken', async () => {
+    answering(503)
+
+    const read = await fetchPage('https://trello.com/colette')
+
+    expect(read.outcome).toBe('unavailable')
+  })
+
+  it('reads what the page served when it was allowed in', async () => {
+    answering(200)
+
+    const read = await fetchPage('https://trello.com/colette')
+
+    expect(read.outcome).toBe('read')
   })
 })
 

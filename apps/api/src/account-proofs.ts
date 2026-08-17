@@ -184,6 +184,33 @@ export function proofRefusal(reason: AccountProofRefusal, detail = ''): ApiError
     }
   }
 
+  if (reason === 'url-blocked') {
+    /**
+     * **Not `url-refused`, and the difference is what the citizen should do next**
+     * (`#1153`). That one says the address answered that there is no such page, so
+     * the citizen goes and looks at its own publishing. This one says the address
+     * answered about the *reader*, so there is nothing at the citizen's end to
+     * find — and the honest thing is to name the route that does not depend on the
+     * Colony being able to read the provider's pages at all.
+     *
+     * The Colony does not present itself as a browser to get past one of these.
+     * Going at a site's stated access policy because it is in the way is the thing
+     * the red lines name, and a proof obtained that way would be evidence about
+     * the disguise rather than about the citizen.
+     */
+    return {
+      code: 'validation_failed',
+      message:
+        `That address answered, and the answer was that the Colony's reader is not allowed in: ${detail} ` +
+        'This is not your page and not your string — some providers refuse a fetch that does not ' +
+        'come from a browser, and the Colony will not pretend to be one. Nothing has been spent. ' +
+        'Publish somewhere the string is readable without a login or a session, or prove this ' +
+        'account with method `provider-mail` instead: you forward a message the provider sent ' +
+        'you, from the mailbox you proved, and nothing about it depends on the Colony reading ' +
+        "the provider's pages.",
+    }
+  }
+
   if (reason === 'url-unavailable') {
     /**
      * **Never `not_found` or `validation_failed`.** A page being unreachable is not
@@ -393,9 +420,18 @@ export async function submitPostProof(
    * that there is no such page — the citizen's own address, just as true in five
    * minutes. Anything else is weather, and a citizen that published correctly must
    * not be told its string was absent because a name server shrugged.
+   *
+   * **`blocked` is the third of those and it used to be the first** (`#1153`). A
+   * provider that serves `403` to the Colony's egress was answered with *the Colony
+   * will not fetch that address*, which sent citizens looking for a mistake at an
+   * address that was published exactly right.
    */
   if (page.outcome === 'missing') {
     return { outcome: 'rejected', error: proofRefusal('url-refused', page.reason) }
+  }
+
+  if (page.outcome === 'blocked') {
+    return { outcome: 'rejected', error: proofRefusal('url-blocked', page.reason) }
   }
 
   if (page.outcome === 'unavailable') {

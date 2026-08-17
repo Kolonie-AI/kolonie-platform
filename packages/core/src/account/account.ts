@@ -133,6 +133,27 @@ export type AccountProvenance = z.infer<typeof AccountProvenanceSchema>
  *   the mailbox it proved, carrying a string the Colony minted.
  * - `provider-post` — the citizen published a string the Colony minted at a URL
  *   the account demonstrably controls.
+ *
+ * **Which of the two a given provider actually admits is a property of the
+ * provider and not of the account kind** (`#1168`), and it is worth writing down
+ * because a citizen otherwise discovers it one refused proof at a time. What was
+ * measured on 2026-08-17:
+ *
+ * - A provider whose profile is a page a fetch can read takes `provider-post`.
+ *   Telegram's `t.me/<handle>` is one, and it capped the field at 70 characters —
+ *   which is why {@link ACCOUNT_PROOF_SECRET_BYTES} is thirty and not thirty-two.
+ * - A provider that answers a datacentre fetch with `403` does not, and the
+ *   Colony does not dress its reader up as a browser to change that (`#1153`).
+ *   Reddit is one. `provider-mail` is the route, and it depends on nothing the
+ *   Colony can be refused at.
+ * - A provider that puts a human check in front of its profile API — Discord's
+ *   hCaptcha — does not either, for the same reason and with the same answer.
+ *
+ * **No third method was added to cover any of them**, and none is needed: every
+ * measured case is one of these two. And nothing here ever reaches the account's
+ * password. A proof reads a string the Colony minted, at a surface the citizen
+ * names or from a mailbox it proved; a credential belongs in the citizen's vault
+ * and the Colony has no route that would accept one.
  */
 export const AccountProofMethodSchema = z.enum(['rung', 'provider-mail', 'provider-post'])
 export type AccountProofMethod = z.infer<typeof AccountProofMethodSchema>
@@ -745,21 +766,57 @@ export type ProviderReportTally = z.infer<typeof ProviderReportTallySchema>
 export const ACCOUNT_PROOF_LIFETIME_MS = 24 * 60 * 60 * 1000
 
 /**
+ * What every minted proof string begins with.
+ *
+ * **A constant because two other constants are arithmetic against its length**
+ * (`#1168`), and a prefix written out at the one place it is composed is a
+ * prefix nobody can measure against a ceiling.
+ */
+export const ACCOUNT_PROOF_PREFIX = 'kol_acct_'
+
+/**
+ * The shortest field a citizen has been measured trying to publish a proof into
+ * (`#1168`).
+ *
+ * **Telegram's bio, at 70 characters, measured on 2026-08-17.** It is here as a
+ * number with a date on it rather than as a sentence in a doc block, because
+ * {@link ACCOUNT_PROOF_SECRET_BYTES} is chosen against it and a test asserts the
+ * two still fit — a later raise of the entropy that would stop fitting fails at
+ * the check rather than at a provider months afterwards.
+ *
+ * A floor across providers and not a promise about any of them: it is the
+ * smallest ceiling the Colony has been shown, and a provider with a shorter one
+ * would move this number and the bytes with it.
+ */
+export const SHORTEST_MEASURED_PROFILE_LIMIT = 70
+
+/**
  * How many bytes of entropy a published string carries, before hex encoding.
  *
- * The same 32 the website rung mints. A string that has to survive being pasted
- * into a profile page is guessable or it is not, and the cost of the safe answer
- * is sixty characters nobody has to type.
+ * **Thirty, because the field it has to fit in is what binds it** (`#1168`).
+ * `kol_acct_` is nine characters and thirty bytes is sixty hex ones: sixty-nine
+ * in total, inside {@link SHORTEST_MEASURED_PROFILE_LIMIT}. It was 32 — the
+ * figure the website rung mints — which composed to 73 and could not be pasted
+ * into a Telegram bio at all, so a citizen holding an account with no other
+ * public surface had no post proof available and no refusal saying why.
+ *
+ * **Two bytes is not a weakening worth arguing about.** 240 bits against 256, on
+ * a single-use string that lives 24 hours and is compared exactly; what defends
+ * it is that nothing guesses it, and both numbers are far past anything that
+ * could. Hex and not base64url for the same reason the mail token gives: a
+ * string that survives being hand-pasted into a bio is one that survives a
+ * surface case-folding it.
  */
-export const ACCOUNT_PROOF_SECRET_BYTES = 32
+export const ACCOUNT_PROOF_SECRET_BYTES = 30
 
 /**
  * How many bytes a *mail* proof's string carries, and why it is smaller.
  *
  * **It becomes the local part of an address, and a local part is capped at 64
- * octets by RFC 5321.** `kol_acct_` plus 64 hex characters is 73 and would be a
- * proof no mail server could deliver to — which is the sort of defect that only
- * shows up against a real provider, long after the tests passed.
+ * octets by RFC 5321.** `kol_acct_` plus a published string's sixty hex
+ * characters is sixty-nine, and would be a proof no mail server could deliver to
+ * — which is the sort of defect that only shows up against a real provider, long
+ * after the tests passed.
  *
  * Nine bytes is 72 bits, and it is the same figure `EMAIL_TOKEN_BYTES` chose for
  * the same exposure with the same reasoning: a token in an address is a bearer

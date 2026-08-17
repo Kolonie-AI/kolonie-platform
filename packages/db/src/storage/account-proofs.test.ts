@@ -1,5 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { AccountKindSchema, RegisterAgentRequestSchema, type AgentId } from '@kolonie-ai/core'
+import {
+  AccountKindSchema,
+  RegisterAgentRequestSchema,
+  SHORTEST_MEASURED_PROFILE_LIMIT,
+  type AgentId,
+} from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
@@ -105,6 +110,27 @@ describe('generic account proofs', () => {
       expect(account?.provedAt).not.toBeNull()
     })
 
+    it('mints a string short enough to be a bio', async () => {
+      const minted = await mintAccountProof(db, agentId, {
+        kind: kind('telegram'),
+        identifier: 'colette',
+        method: 'provider-post',
+      })
+      if (minted.outcome !== 'minted') throw new Error(minted.outcome)
+
+      /**
+       * The published string's own ceiling (`#1168`), beside the mail proof's
+       * local part. A bio is the shortest surface an account tends to own —
+       * Telegram's was measured at 70 — and a string that does not fit one leaves
+       * a citizen with an account it cannot prove and no refusal saying why. The
+       * assertion is what stops a later raise of the entropy from taking the fit
+       * away silently.
+       */
+      expect(minted.proof.secret.length).toBeLessThanOrEqual(SHORTEST_MEASURED_PROFILE_LIMIT)
+      // And it is still the alphabet a hand-paste survives: hex, no case to fold.
+      expect(minted.proof.secret).toMatch(/^kol_acct_[0-9a-f]{60}$/)
+    })
+
     it('is single-use', async () => {
       const minted = await mintAccountProof(db, agentId, {
         kind: kind('trello'),
@@ -120,6 +146,40 @@ describe('generic account proofs', () => {
       // And it is no longer readable as open, which is what the submit path checks
       // before it fetches anything.
       expect(await openAccountProof(db, agentId, minted.proof.id)).toBeUndefined()
+    })
+
+    it('is no longer open once it has expired', async () => {
+      const minted = await mintAccountProof(db, agentId, {
+        kind: kind('telegram'),
+        identifier: 'colette',
+        method: 'provider-post',
+      })
+      if (minted.outcome !== 'minted') throw new Error(minted.outcome)
+
+      /**
+       * The clock moved rather than the code: the row is aged past its deadline,
+       * which is the only thing separating this from an ordinary open proof.
+       *
+       * **Both timestamps move, because `account_proofs_expiry_after_creation`
+       * refuses a deadline before the minting** — a row cannot be aged by pulling
+       * only the deadline back, which is the constraint doing exactly what it is
+       * for.
+       */
+      await db.execute(
+        `update account_proofs
+            set created_at = now() - interval '2 days',
+                expires_at = now() - interval '1 minute'
+          where id = '${minted.proof.id}'`,
+      )
+
+      expect(await openAccountProof(db, agentId, minted.proof.id)).toBeUndefined()
+      // And redeeming answers the same way a spent one does, which is what the
+      // submit path turns into *mint another*: an expired string proves nothing,
+      // and saying which flavour of gone it is would tell a caller nothing to act
+      // on.
+      expect(
+        (await redeemPostProof(db, agentId, minted.proof.id, 'https://t.me/colette')).outcome,
+      ).toBe('no-open-proof')
     })
 
     it('refuses when another citizen proved the same account first', async () => {

@@ -5,7 +5,6 @@ import {
   TICKET_SUBJECT_MAX_LENGTH,
   TICKET_SUBJECT_MIN_LENGTH,
   type Diagnosis,
-  type DiagnosisState,
   type StoredProviderEnquiry,
 } from '@kolonie-ai/core'
 import type { EffectiveSetting } from '@kolonie-ai/db'
@@ -29,6 +28,9 @@ import {
   pager,
   ruleHealthNotes,
   ruleHealthTable,
+  STATE_FILTERS,
+  STATE_FILTER_WORDS,
+  type StateFilter,
 } from './diagnoses-section.js'
 import { briefingEffectSection } from './briefing-effect-section.js'
 import { escape, page } from './html.js'
@@ -425,12 +427,29 @@ export function backendDiagnosesPage(
     readonly counts: Readonly<Record<string, number>>
     readonly funnel: ConsultationFunnel
     readonly showing: 'colony' | 'agent'
-    readonly states: readonly DiagnosisState[]
+    readonly state: StateFilter
     readonly page: number
   },
 ): string {
   const listed = input.showing === 'colony' ? input.colony : input.agents
-  const historic = input.states.length > 1
+
+  /**
+   * The pairs that describe this view, which every link on the page carries
+   * (`#1078`, `#1079`).
+   *
+   * **A default is expressed by absence**, as the scope links have always
+   * expressed colony scope: `/backend/diagnoses` is the open view of the
+   * Colony's own, and no link says so twice.
+   */
+  const pairs = (scope: 'colony' | 'agent', state: StateFilter): Record<string, string> => ({
+    ...(scope === 'agent' && { scope: 'agent' }),
+    ...(state !== 'open' && { state }),
+  })
+
+  const href = (scope: 'colony' | 'agent', state: StateFilter) => {
+    const query = new URLSearchParams(pairs(scope, state)).toString()
+    return query === '' ? '/backend/diagnoses' : `/backend/diagnoses?${query}`
+  }
 
   return backendSection({
     ...input,
@@ -439,23 +458,26 @@ export function backendDiagnosesPage(
         `This page reads; it does not decide. A finding stops being open when its evidence stops ` +
         `matching, which is the rules' judgement and not a button's.</p>`,
       `<p>${escape(summaryOf(input.counts, input.funnel))}</p>`,
+      /**
+       * **Two rows of links, because they are two questions** (`#1079`). Scope
+       * and state used to share one row, so *Including resolved* was marked
+       * current instead of the scope the reader was in and there was no way to
+       * change one without the other resetting. Each row now keeps the other's
+       * choice.
+       */
       '<p>' +
         [
-          link('/backend/diagnoses', 'The Colony’s own', input.showing === 'colony' && !historic),
-          link(
-            '/backend/diagnoses?scope=agent',
-            'Citizens’',
-            input.showing === 'agent' && !historic,
-          ),
-          link(
-            `/backend/diagnoses?scope=${input.showing}&history=1`,
-            'Including resolved',
-            historic,
-          ),
+          link(href('colony', input.state), 'The Colony’s own', input.showing === 'colony'),
+          link(href('agent', input.state), 'Citizens’', input.showing === 'agent'),
           // The per-rule page answers the question this one raises, so it is
           // reached from here or it is reached by nobody (`#1083`).
           link('/backend/diagnoses/rules', 'Rules', false),
         ].join(' · ') +
+        '</p>',
+      '<p>' +
+        STATE_FILTERS.map((one) =>
+          link(href(input.showing, one), STATE_FILTER_WORDS[one], input.state === one),
+        ).join(' · ') +
         '</p>',
       ...diagnosesTable(
         listed.rows,
@@ -463,14 +485,12 @@ export function backendDiagnosesPage(
           ? 'Nothing is open about the Colony itself. That is an answer rather than an empty panel.'
           : 'Nothing is open about any citizen.',
       ),
-      ...pager(
-        `/backend/diagnoses${input.showing === 'agent' ? '?scope=agent&' : '?'}`.replace(
-          /[?&]$/,
-          '',
-        ),
-        input.page,
-        listed.more,
-      ),
+      /**
+       * **`state` and never `history`**, for a reader who arrived on the old
+       * alias: the two name the same view, and a page turn that reproduced
+       * `history=1` would keep a spelling nothing else on the page uses.
+       */
+      ...pager('/backend/diagnoses', pairs(input.showing, input.state), input.page, listed.more),
     ],
   })
 }

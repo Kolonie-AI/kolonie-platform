@@ -331,6 +331,184 @@ describe('the console’s diagnoses pages', () => {
   })
 
   /**
+   * Which state a reader is looking at, and how they ask for another (`#1079`).
+   *
+   * Until 2026-08-16 the list had a boolean — `history=1` — and no column, so a
+   * resolved finding and an open one sat in one table with nothing on a row to
+   * tell them apart. The two failures that came of it are the two this block
+   * pins down: a reader could not see what they were looking at, and could not
+   * ask for one state without getting all three.
+   */
+  describe('which state the list is showing', () => {
+    /** Enough rows to page, so the pager has something to build (`#1078`). */
+    const many = (over: Partial<Diagnosis>) =>
+      Array.from({ length: 51 }, (_, index) =>
+        aDiagnosis({
+          ...over,
+          id: `33333333-3333-4333-8333-${String(index).padStart(12, '0')}`,
+        }),
+      )
+
+    const resolved = aDiagnosis({
+      id: '55555555-5555-4555-8555-555555555555',
+      kind: 'retry-storm',
+      state: 'resolved',
+      resolvedAt: '2026-08-13T14:00:00.000Z',
+    })
+    const superseded = aDiagnosis({
+      id: '66666666-6666-4666-8666-666666666666',
+      kind: 'polling-loop',
+      state: 'superseded',
+    })
+    const open = aDiagnosis({ id: '77777777-7777-4777-8777-777777777777', kind: 'no-progress' })
+
+    const three = [open, resolved, superseded]
+
+    const bodyOf = async (url: string) => {
+      const { app, humans } = await withRows(three)
+      const headers = await asMaintainer(app, humans)
+      return (await app.inject({ method: 'GET', url, headers })).body
+    }
+
+    /**
+     * **The column is on every view, including the default.** A column that
+     * appeared only under a filter would make the table's shape depend on the
+     * filter, and the one cell that says what you are looking at would be
+     * absent exactly when a reader took the default and assumed.
+     */
+    it('names the state of every row, on the default view', async () => {
+      const body = await bodyOf('/backend/diagnoses')
+
+      expect(body).toContain(
+        '<thead><tr><th>Severity</th><th>State</th><th>Kind</th><th>Subject</th>' +
+          '<th>Seen</th><th>Last</th><th>Sentence</th></tr></thead>',
+      )
+      expect(body).toContain('no-progress')
+      expect(body).toContain('<td>open</td>')
+    })
+
+    it('shows only what was asked for', async () => {
+      const onlyResolved = await bodyOf('/backend/diagnoses?state=resolved')
+      const onlySuperseded = await bodyOf('/backend/diagnoses?state=superseded')
+      const everything = await bodyOf('/backend/diagnoses?state=all')
+
+      expect(onlyResolved).toContain('retry-storm')
+      expect(onlyResolved).not.toContain('no-progress')
+      expect(onlyResolved).not.toContain('polling-loop')
+      // The gloss the detail page has used since `#841`, so there is one
+      // vocabulary for a state and not two.
+      expect(onlyResolved).toContain('<td>resolved itself</td>')
+
+      expect(onlySuperseded).toContain('polling-loop')
+      expect(onlySuperseded).not.toContain('retry-storm')
+
+      for (const kind of ['no-progress', 'retry-storm', 'polling-loop']) {
+        expect(everything).toContain(kind)
+      }
+    })
+
+    /**
+     * **The rejection case, and it is a 200.** This is a hand-typed URL in a
+     * staff console: the default view is a safe answer to a typo, where a 400
+     * would be a wall in front of a reader who mistyped a word. The failure
+     * worth preventing is the other one — `?state=deleted` querying for a state
+     * nothing is in, and rendering an empty table that reads as *nothing is
+     * wrong*.
+     */
+    it('answers a state that does not exist with the open view rather than a 400', async () => {
+      const { app, humans } = await withRows(three)
+      const headers = await asMaintainer(app, humans)
+
+      const page = await app.inject({
+        method: 'GET',
+        url: '/backend/diagnoses?state=deleted',
+        headers,
+      })
+      const json = await app.inject({
+        method: 'GET',
+        url: '/backend/diagnoses?state=deleted',
+        headers: { ...headers, accept: 'application/json' },
+      })
+
+      expect(page.statusCode).toBe(200)
+      expect(page.body).toContain('no-progress')
+      expect(page.body).not.toContain('retry-storm')
+      // Visibly `open` rather than silently it: a script reading this is told
+      // which filter it got, not left to infer one back out of the rows.
+      expect(json.json()).toMatchObject({ state: 'open', states: ['open'] })
+    })
+
+    /**
+     * The old boolean still names the view it named, so a bookmark made before
+     * `#1079` shows the page it showed. It is read only when `state` is absent
+     * — `state` winning when both are present is what makes carrying the alias
+     * harmless — and nothing new links to it.
+     */
+    it('keeps history=1 working as an alias for all, and lets state overrule it', async () => {
+      const alias = await bodyOf('/backend/diagnoses?history=1')
+      const overruled = await bodyOf('/backend/diagnoses?history=1&state=open')
+
+      for (const kind of ['no-progress', 'retry-storm', 'polling-loop']) {
+        expect(alias).toContain(kind)
+      }
+      expect(overruled).toContain('no-progress')
+      expect(overruled).not.toContain('retry-storm')
+    })
+
+    /**
+     * **Each row of links keeps the other's choice** (`#1079`). Scope and state
+     * shared one row until this, so there was no way to change one without the
+     * other resetting to its default.
+     */
+    it('offers a scope that keeps the state, and a state that keeps the scope', async () => {
+      const body = await bodyOf('/backend/diagnoses?scope=agent&state=resolved')
+
+      // Written as the browser reads them, entity decoded.
+      const links = body.replaceAll('&amp;', '&')
+
+      expect(links).toContain('href="/backend/diagnoses?state=resolved"')
+      expect(links).toContain('href="/backend/diagnoses?scope=agent"')
+      expect(links).toContain('href="/backend/diagnoses?scope=agent&state=superseded"')
+    })
+
+    /**
+     * **The pager's own defect, driven through the router** (`#1078`). The unit
+     * test beside `pager` asserts the link; this asserts that turning it lands
+     * on the same view — which is the property a reader actually loses.
+     */
+    it('turns a page without losing the scope or the state', async () => {
+      const { app, humans } = await withRows(
+        many({ scope: 'agent', state: 'resolved', resolvedAt: '2026-08-13T14:00:00.000Z' }),
+      )
+      const headers = await asMaintainer(app, humans)
+
+      const first = await app.inject({
+        method: 'GET',
+        url: '/backend/diagnoses?scope=agent&state=resolved',
+        headers,
+      })
+      const next = [...first.body.matchAll(/href="([^"]+)">Next</g)]
+        .map((match) => (match[1] as string).replaceAll('&amp;', '&'))
+        .at(0) as string
+
+      const turned = await app.inject({
+        method: 'GET',
+        url: next,
+        headers: { ...headers, accept: 'application/json' },
+      })
+
+      expect(turned.json()).toMatchObject({
+        showing: 'agent',
+        state: 'resolved',
+        page: 1,
+      })
+      // The rows themselves, not only the parameters: the 51st is on page two
+      // and it is agent-scoped and resolved.
+      expect(turned.json().agents.rows).toHaveLength(1)
+    })
+  })
+
+  /**
    * Which rules are any good (`#1083`).
    *
    * **The path is a word where the route beside it takes a uuid**, and the two

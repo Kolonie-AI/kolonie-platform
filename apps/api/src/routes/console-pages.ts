@@ -102,6 +102,7 @@ import {
   backendWantedPage,
   moderationTrend,
 } from '../console/backend.js'
+import { stateFilter, statesFor } from '../console/diagnoses-section.js'
 import { curationSections } from '../console/curation.js'
 import { atlasCatalogue, atlasCuration, atlasStateAt } from '../provider-recipes.js'
 import {
@@ -1681,64 +1682,75 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
   if (deps.diagnoses !== undefined) {
     const diagnoses = deps.diagnoses
 
-    app.get<{ Querystring: { scope?: string; history?: string; page?: string } }>(
-      '/backend/diagnoses',
-      async (request, reply) => {
-        if ((await backendGuard(request, reply)) === null) return reply
+    app.get<{
+      Querystring: { scope?: string; history?: string; state?: string; page?: string }
+    }>('/backend/diagnoses', async (request, reply) => {
+      if ((await backendGuard(request, reply)) === null) return reply
 
-        const showing = request.query.scope === 'agent' ? ('agent' as const) : ('colony' as const)
-        /**
-         * **Resolved and superseded are reachable, never deleted from view.**
-         * The history is the point: `kolonie-platform#814` is the complaint that
-         * verdicts cannot be read back, and a page that only showed what is
-         * currently true would earn the same one.
-         */
-        const states =
-          request.query.history === '1'
-            ? (['open', 'resolved', 'superseded'] as const)
-            : (['open'] as const)
-        const page = Math.max(0, Number.parseInt(request.query.page ?? '0', 10) || 0)
+      const showing = request.query.scope === 'agent' ? ('agent' as const) : ('colony' as const)
+      /**
+       * **Resolved and superseded are reachable, never deleted from view.**
+       * The history is the point: `kolonie-platform#814` is the complaint that
+       * verdicts cannot be read back, and a page that only showed what is
+       * currently true would earn the same one.
+       *
+       * **One state at a time, since `#1079`.** `history=1` used to be the
+       * whole vocabulary — a boolean over three states, which mixed them into
+       * one list with nothing on a row to tell them apart. It survives as an
+       * alias for `state=all` so that a bookmark made before that keeps
+       * showing the page it showed, and it is read only when `state` is
+       * absent: `state` winning when both are present is what makes carrying
+       * the alias harmless. Nothing new links to it.
+       */
+      const state = stateFilter(
+        request.query.state ?? (request.query.history === '1' ? 'all' : undefined),
+      )
+      const states = statesFor(state)
+      const page = Math.max(0, Number.parseInt(request.query.page ?? '0', 10) || 0)
 
-        /**
-         * Thirty days, at the one call site that has an opinion about the
-         * window (`#1081`). It is a property of the page — *is this channel
-         * working now* — rather than of the storage function, which counts
-         * whatever it is handed.
-         */
-        const since = new Date(Date.now() - CONSULTATION_WINDOW_DAYS * 24 * 60 * 60 * 1000)
+      /**
+       * Thirty days, at the one call site that has an opinion about the
+       * window (`#1081`). It is a property of the page — *is this channel
+       * working now* — rather than of the storage function, which counts
+       * whatever it is handed.
+       */
+      const since = new Date(Date.now() - CONSULTATION_WINDOW_DAYS * 24 * 60 * 60 * 1000)
 
-        const [colony, agents, counts, funnel] = await Promise.all([
-          diagnoses.list({
-            scope: 'colony',
-            states: [...states],
-            offset: showing === 'colony' ? page * DIAGNOSES_PAGE : 0,
-          }),
-          diagnoses.list({
-            scope: 'agent',
-            states: [...states],
-            offset: showing === 'agent' ? page * DIAGNOSES_PAGE : 0,
-          }),
-          diagnoses.counts(),
-          diagnoses.funnel(since),
-        ])
+      const [colony, agents, counts, funnel] = await Promise.all([
+        diagnoses.list({
+          scope: 'colony',
+          states: [...states],
+          offset: showing === 'colony' ? page * DIAGNOSES_PAGE : 0,
+        }),
+        diagnoses.list({
+          scope: 'agent',
+          states: [...states],
+          offset: showing === 'agent' ? page * DIAGNOSES_PAGE : 0,
+        }),
+        diagnoses.counts(),
+        diagnoses.funnel(since),
+      ])
 
-        return wantsHtml(request)
-          ? html(
-              reply,
-              backendDiagnosesPage({
-                nav: navFor(request, ['maintainer']),
-                colony,
-                agents,
-                counts,
-                funnel,
-                showing,
-                states: [...states],
-                page,
-              }),
-            )
-          : reply.send({ colony, agents, counts, funnel, showing, states, page })
-      },
-    )
+      return wantsHtml(request)
+        ? html(
+            reply,
+            backendDiagnosesPage({
+              nav: navFor(request, ['maintainer']),
+              colony,
+              agents,
+              counts,
+              funnel,
+              showing,
+              state,
+              page,
+            }),
+          )
+        : // **`state` beside `states`** (`#1079`): the word that was asked for
+          // as well as the rows it selects, so a script reading this does not
+          // have to infer the filter back out of an array — and so that
+          // `?state=deleted` is visibly `open` rather than silently it.
+          reply.send({ colony, agents, counts, funnel, showing, state, states, page })
+    })
 
     /**
      * Which rules are any good (`#1083`).

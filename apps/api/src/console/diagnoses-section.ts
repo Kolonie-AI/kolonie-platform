@@ -61,6 +61,46 @@ const STATE_WORDS: Readonly<Record<Diagnosis['state'], string>> = {
 }
 
 /**
+ * What a reader may ask the list for (`#1079`).
+ *
+ * Three states and *all of them*, which is one more value than the table has
+ * because *all* is a question rather than a state. It lives here beside
+ * {@link STATE_WORDS} so that there is one vocabulary for this and not two: the
+ * detail page has glossed these words since `#841`, and a second set written at
+ * the route would drift from it within a month.
+ */
+export type StateFilter = 'open' | 'resolved' | 'superseded' | 'all'
+
+/** The four, in the order they are offered. */
+export const STATE_FILTERS: readonly StateFilter[] = ['open', 'resolved', 'superseded', 'all']
+
+/** How the four read as links. */
+export const STATE_FILTER_WORDS: Readonly<Record<StateFilter, string>> = {
+  open: 'Open',
+  resolved: 'Resolved',
+  superseded: 'Superseded',
+  all: 'All',
+}
+
+/**
+ * What was asked for, or the default (`#1079`).
+ *
+ * **An unknown value is `open` and never a 400.** This is a hand-typed URL in a
+ * staff console, and the default view is a safe answer to a typo; the failure
+ * worth preventing is the other one, where `?state=deleted` falls through to a
+ * query for a state nothing is in and renders an empty table that reads as
+ * *nothing is wrong*.
+ */
+export function stateFilter(value: string | undefined): StateFilter {
+  return STATE_FILTERS.find((one) => one === value) ?? 'open'
+}
+
+/** Which rows that filter asks the store for. */
+export function statesFor(filter: StateFilter): readonly Diagnosis['state'][] {
+  return filter === 'all' ? ['open', 'resolved', 'superseded'] : [filter]
+}
+
+/**
  * One row.
  *
  * **Recurrence is on the row rather than behind the link**, which is the whole of
@@ -74,6 +114,9 @@ function row(diagnosis: Diagnosis): string {
   return [
     '<tr>',
     `<td>${escape(diagnosis.severity)}</td>`,
+    // Next to severity, because the two together are the whole of *does this
+    // still matter* and a reader scanning the list decides on both (`#1079`).
+    `<td>${escape(STATE_WORDS[diagnosis.state])}</td>`,
     `<td><a href="/backend/diagnoses/${escape(diagnosis.id)}">${escape(diagnosis.kind)}</a></td>`,
     `<td>${escape(diagnosis.subject)}</td>`,
     `<td>${diagnosis.observations}× since ${escape(span)}</td>`,
@@ -99,7 +142,14 @@ export function diagnosesTable(rows: readonly Diagnosis[], nothing: string): rea
 
   return [
     '<table>',
-    '<thead><tr><th>Severity</th><th>Kind</th><th>Subject</th><th>Seen</th><th>Last</th><th>Sentence</th></tr></thead>',
+    /**
+     * **The State column is on every view, including the default** (`#1079`).
+     * A column that appeared only under a history filter would make the table's
+     * shape depend on the filter, and the one cell a reader looks at to check
+     * what they are looking at would then be absent exactly when they took the
+     * default and assumed.
+     */
+    '<thead><tr><th>Severity</th><th>State</th><th>Kind</th><th>Subject</th><th>Seen</th><th>Last</th><th>Sentence</th></tr></thead>',
     '<tbody>',
     ...rows.map(row),
     '</tbody>',
@@ -182,11 +232,40 @@ export function ruleHealthTable(rules: readonly RuleHealthRow[]): readonly strin
   ]
 }
 
-/** The two links that move through a list too long to show at once. */
-export function pager(path: string, page: number, more: boolean): readonly string[] {
+/**
+ * The two links that move through a list too long to show at once.
+ *
+ * **A page turn keeps the view it was turning** (`#1078`). Until 2026-08-16 this
+ * took the path alone and its one caller smuggled the scope into it, so the
+ * agent-scoped Next link came out as `/backend/diagnoses?scope=agent?page=1`:
+ * the route read `scope` as the string `agent?page=1`, the comparison against
+ * `'agent'` failed, and turning a page silently returned the reader to the
+ * colony view at page zero. The history filter was not carried at all.
+ *
+ * So the pairs in force are passed in and reproduced, `page` last. `path`
+ * carries no query string of its own.
+ *
+ * **`page` in `query` throws rather than being merged.** It is the one pair this
+ * function owns, and a caller that passed it as well would produce a URL with
+ * two of them — which most parsers resolve by taking the last, so the reader
+ * gets a page number nobody chose and nothing anywhere reports a fault.
+ */
+export function pager(
+  path: string,
+  query: Readonly<Record<string, string>>,
+  page: number,
+  more: boolean,
+): readonly string[] {
+  if ('page' in query) {
+    throw new Error('pager builds the page pair itself; a caller passing one produces two')
+  }
+
+  const at = (which: number) =>
+    `${path}?${new URLSearchParams({ ...query, page: String(which) }).toString()}`
+
   const links = [
-    ...(page > 0 ? [`<a href="${escape(path)}?page=${page - 1}">Previous</a>`] : []),
-    ...(more ? [`<a href="${escape(path)}?page=${page + 1}">Next</a>`] : []),
+    ...(page > 0 ? [`<a href="${escape(at(page - 1))}">Previous</a>`] : []),
+    ...(more ? [`<a href="${escape(at(page + 1))}">Next</a>`] : []),
   ]
 
   return links.length === 0 ? [] : [`<p>${links.join(' · ')}</p>`]

@@ -3604,6 +3604,16 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 
 - The surface report stops saying it is not a gate, because it now sits next to one. `#388` reported and deliberately refused to enforce, on the ground that a hard ceiling is a figure somebody picks and new tools have to be able to exist. That reasoning still holds and there is still no ceiling — what ten days of the report established is that a number nobody has to answer for is a number: the catalogue went from 96 tools to 101 while it ran, and every one of those runs was green. The four places that promised nothing would ever fail — the workflow header and its closing step, the module doc of `surface-size.ts`, and the rendered report itself — now name the floor, the file it lives in, and the one sentence that raises it. The scope is deliberate and stated in all of them: **only the `authenticated` tier is floored**, the one every citizen pays for in every session. `unauthenticated` and `warden` are weighed and reported and nothing fails on them, because nobody has shown either surface growing and a gate on a surface that is not moving only ever costs somebody an afternoon.
 
+- The Atlas index reads as a contents page again. A shelf shows its first six
+  rows and then a card reading _All 27 →_ that leads to the shelf's own page,
+  where nothing is held back; the heading keeps counting the whole shelf, so the
+  cut is visible rather than silent. And the shelves are ordered by what is
+  behind them — a shelf somebody has walked, or attempted, stands ahead of one
+  nobody has, and only then does size decide — instead of standing in whatever
+  order the catalogue was written in. 166 rows and 90 kB of index had put the
+  shelf a reader wanted below however many rows the shelves above it happened to
+  hold.
+
 ### Removed
 
 - **The sentence saying a citizen's pay cannot be moved** (`kolonie-platform#572`).

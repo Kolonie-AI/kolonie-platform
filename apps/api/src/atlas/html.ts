@@ -4,6 +4,7 @@ import {
   atlasCategoryPath,
   atlasIsWalked,
   atlasKindPhrase,
+  atlasShelfHasEvidence,
   atlasShelfTitle,
   atlasConditionsSentences,
   type AtlasCategoryRow,
@@ -357,6 +358,14 @@ export function atlasIndexPage(input: {
    */
   const entries = atlasPublicEntries(input.entries)
   const { asked, fellBack, shown, other } = workedSplit(entries, input.worked)
+  /**
+   * **Derived from the whole catalogue and not from the half being shown**
+   * (`#1142`). The navigation counts both halves by `#1103`'s decision, so an
+   * order taken from `shown` would put the body's shelves in a sequence the
+   * navigation above them contradicts.
+   */
+  const order = shelfOrder(entries)
+  const listed = shelfSlice(shown, order, ATLAS_SHELF_ROWS)
 
   return atlasPage({
     title: 'The Atlas',
@@ -364,25 +373,27 @@ export function atlasIndexPage(input: {
     canonical: input.canonical,
     chrome: input.chrome,
     /**
-     * **The list it rendered, in the order it rendered it** (`#789`). `shown`
-     * and not `entries`: the two views are different lists, and an `ItemList`
-     * naming entries the page does not show would be the markup contradicting
-     * the page it is attached to.
+     * **The list it rendered, in the order it rendered it** (`#789`). Not
+     * `entries`, because the two views are different lists; and since `#1142` not
+     * `shown` either, because the cap is the first thing to make *what the page
+     * holds* and *what the page prints* differ. An `ItemList` naming entries the
+     * page does not show would be the markup contradicting the page it is
+     * attached to, whichever of the two reasons put them out of step.
      */
-    jsonLd: [itemListFor(shown, siteOf(input.canonical))],
+    jsonLd: [itemListFor(listed, siteOf(input.canonical))],
     body: [
       '<main>',
       '<h1>The Atlas</h1>',
       `<p>${escape(ATLAS_STANDFIRST)}</p>`,
       ATLAS_JOIN_LINE,
       `<p><small>${escape(ATLAS_ORDER_NOTE)}</small></p>`,
-      shelfNav(entries, asked),
+      shelfNav(entries, asked, order),
       entries.length === 0
         ? '<p>The catalogue is empty. Nothing has been listed yet, which is not the same as ' +
           'nothing being joinable.</p>'
         : [
             workedNote({ asked, fellBack, category: undefined, shown: shown.length, other }),
-            shelves(shown).join('\n'),
+            shelves({ entries: shown, order, cap: ATLAS_SHELF_ROWS, worked: asked }).join('\n'),
           ]
             .filter((one) => one !== '')
             .join('\n'),
@@ -494,7 +505,14 @@ export function atlasCategoryPage(input: {
               other,
             }),
             grouped
-              ? shelves(shown).join('\n')
+              ? /**
+                 * **Uncapped, and ordered from this page's own entries** (`#1142`
+                 * decision 1). This page *is* a shelf; the cap belongs to the
+                 * index, whose job is to be scannable, and the order is derived
+                 * from `mine` rather than from the catalogue because the sub
+                 * shelves being ordered are the ones filed under this one.
+                 */
+                shelves({ entries: shown, order: shelfOrder(mine), worked: asked }).join('\n')
               : `<ul class="k-atlas-index">${shown.map(indexRow).join('')}</ul>`,
           ]
             .filter((one) => one !== '')
@@ -628,25 +646,123 @@ function workedNote(input: {
  * **Nothing here is marked current any more** (`#1107`): the index is the only
  * page that renders this nav, and it is not on any of the shelves it links to.
  * A page standing on one takes {@link categoryNav} instead.
+ *
+ * **The order arrives as an argument** (`#1142`). It used to be `Map` insertion
+ * order, which is the order the entries happened to arrive in — a shelf of four
+ * could stand ahead of a shelf of twenty-seven. {@link shelfOrder} decides it now,
+ * and it is passed in rather than derived here so that this nav and the shelves
+ * under it are ordered from the same list.
  */
-function shelfNav(entries: readonly AtlasPublicEntry[], worked: boolean): string {
+function shelfNav(
+  entries: readonly AtlasPublicEntry[],
+  worked: boolean,
+  order: readonly string[],
+): string {
   if (entries.length === 0) return ''
 
   const counts = new Map<string, number>()
   for (const entry of entries) counts.set(entry.category, (counts.get(entry.category) ?? 0) + 1)
 
-  const links = [...counts.entries()].map(
-    ([category, count]) =>
+  const links = order.flatMap((category) => {
+    const count = counts.get(category)
+    if (count === undefined) return []
+
+    return [
       `<li><a href="${escape(atlasShelfPath(category, worked))}">` +
-      `${escape(atlasShelfTitle(category))}</a> ` +
-      `<span class="k-atlas-count">${count}</span></li>`,
-  )
+        `${escape(atlasShelfTitle(category))}</a> ` +
+        `<span class="k-atlas-count">${count}</span></li>`,
+    ]
+  })
 
   return (
     '<nav class="k-atlas-shelves" aria-label="Categories">' +
     `<ul>${links.join('')}</ul>` +
     '</nav>'
   )
+}
+
+/**
+ * How many rows of a shelf the unfiltered index prints (`#1142`).
+ *
+ * Measured 2026-08-17 against the deployed index: 166 rows across 15 shelves on
+ * one page, 90 149 bytes, the largest shelf 27 rows. Six is the maintainer's
+ * number, and it is a **slice and not a ranking** — `atlasByOutcome` has already
+ * decided which six, and a second sort here would be a second answer to the
+ * question that ordering exists to settle.
+ */
+const ATLAS_SHELF_ROWS = 6
+
+/**
+ * The shelves, in the order a reader should meet them (`#1142` decision 5).
+ *
+ * **Evidence first and not size first.** `atlasShelfHasEvidence` exists because
+ * *walked* and *has evidence* are different questions, and a large shelf of
+ * entries nobody has attempted is exactly the case that must not lead: telephony
+ * is the biggest shelf in the catalogue and was, when `#905` measured it, rows
+ * with nothing attempted between them. Then size descending, then the shelf
+ * title — so the order is total and two shelves of five do not swap between
+ * reads.
+ *
+ * **Compared as strings rather than with `localeCompare`**, which reads the
+ * host's locale: a tie-break that resolves differently on two machines is not a
+ * tie-break, and every shelf title in the vocabulary is ASCII.
+ *
+ * **Derived once by the caller and handed to both renderers.** The navigation
+ * counts the whole catalogue and the body renders one half of it (`#1103`), so
+ * *the same order* can only mean *ordered from the same list*. Both take this
+ * one, and the body's shelves are then a subsequence of the navigation's — the
+ * strongest agreement available when one list is a superset of the other.
+ */
+function shelfOrder(entries: readonly AtlasPublicEntry[]): readonly string[] {
+  const byCategory = groupByShelf(entries)
+
+  return [...byCategory.entries()]
+    .map(([category, shelf]) => ({
+      category,
+      size: shelf.length,
+      evidence: atlasShelfHasEvidence(shelf) ? 1 : 0,
+      title: atlasShelfTitle(category),
+    }))
+    .sort(
+      (a, b) =>
+        b.evidence - a.evidence ||
+        b.size - a.size ||
+        (a.title < b.title ? -1 : a.title > b.title ? 1 : 0),
+    )
+    .map((one) => one.category)
+}
+
+/**
+ * The rows the index actually prints, flat and in the order it prints them
+ * (`#1142`).
+ *
+ * **It exists so that the `ItemList` and the page cannot disagree.** `#789` fixed
+ * the markup to what was rendered, and until the cap landed *rendered* and
+ * *held* were the same list; rebuilding the slice here is cheaper than teaching
+ * {@link shelves} to hand back both the HTML and the rows behind it.
+ */
+function shelfSlice(
+  entries: readonly AtlasPublicEntry[],
+  order: readonly string[],
+  cap: number,
+): readonly AtlasPublicEntry[] {
+  const byCategory = groupByShelf(entries)
+
+  return order.flatMap((category) => (byCategory.get(category) ?? []).slice(0, cap))
+}
+
+function groupByShelf(
+  entries: readonly AtlasPublicEntry[],
+): ReadonlyMap<string, readonly AtlasPublicEntry[]> {
+  const byCategory = new Map<string, AtlasPublicEntry[]>()
+
+  for (const entry of entries) {
+    const held = byCategory.get(entry.category)
+    if (held === undefined) byCategory.set(entry.category, [entry])
+    else held.push(entry)
+  }
+
+  return byCategory
 }
 
 /**
@@ -660,34 +776,76 @@ function shelfNav(entries: readonly AtlasPublicEntry[], worked: boolean): string
  *
  * **The order inside each shelf is `atlasByOutcome`'s and is not re-sorted
  * here.** That ordering is the product — measured outcome, never payment — and a
- * second sort at the rendering layer would be a second answer to it.
+ * second sort at the rendering layer would be a second answer to it. `#1142`'s
+ * cap is a slice off the front of it for the same reason.
+ *
+ * **The cap is the unfiltered index's alone** (`#1142` decision 1). A page that
+ * is already one shelf renders it whole; capping a filtered view would leave a
+ * reader who followed *All 27 →* looking at six again.
  */
-function shelves(entries: readonly AtlasPublicEntry[]): readonly string[] {
-  const byCategory = new Map<string, AtlasPublicEntry[]>()
+function shelves(input: {
+  readonly entries: readonly AtlasPublicEntry[]
+  readonly order: readonly string[]
+  /** Absent is uncapped, which is every page that is not the whole index. */
+  readonly cap?: number | undefined
+  /** Which half the reader is on, so that a link out of a shelf keeps it. */
+  readonly worked: boolean
+}): readonly string[] {
+  const byCategory = groupByShelf(input.entries)
 
-  for (const entry of entries) {
-    const held = byCategory.get(entry.category)
-    if (held === undefined) byCategory.set(entry.category, [entry])
-    else held.push(entry)
-  }
+  return input.order.flatMap((category) => {
+    const shelf = byCategory.get(category)
+    if (shelf === undefined) return []
 
-  return [...byCategory.entries()].map(
-    ([category, shelf]) =>
+    const shown = input.cap === undefined ? shelf : shelf.slice(0, input.cap)
+
+    return [
       /**
        * **The slug stays where it is an address** (`#791`): the fragment `id`
        * a link elsewhere targets, and the `/atlas/c/` path the link itself
        * carries. Only what a reader sees is the shelf title.
        */
       `<h2 id="${escape(category)}"><a href="${escape(
-        atlasShelfPath(category),
+        atlasShelfPath(category, input.worked),
       )}">${escape(atlasShelfTitle(category))}</a> ` +
-      /**
-       * The count, derived from the shelf it is standing on
-       * (`kolonie-website#97`). A number typed into prose ages on the next
-       * curation; this one cannot.
-       */
-      `<span class="k-atlas-count">${shelf.length}</span></h2>` +
-      `<ul class="k-atlas-index">${shelf.map(indexRow).join('')}</ul>`,
+        /**
+         * The count, derived from the shelf it is standing on
+         * (`kolonie-website#97`), and from the whole shelf and not the six shown
+         * (`#1142` decision 4). A number typed into prose ages on the next
+         * curation; this one cannot, and a heading that counted the slice would
+         * make the cap invisible.
+         */
+        `<span class="k-atlas-count">${shelf.length}</span></h2>` +
+        `<ul class="k-atlas-index">${shown.map(indexRow).join('')}${shelfRest(
+          category,
+          shelf.length,
+          shown.length,
+          input.worked,
+        )}</ul>`,
+    ]
+  })
+}
+
+/**
+ * The way to the rest of a capped shelf (`#1142` decisions 2 and 3).
+ *
+ * **Nothing at all when nothing was cut**, rather than a link to a page identical
+ * to the one the reader is looking at.
+ *
+ * **A card in the same grid** and not a line under it: the `ul` carries the
+ * shelf's bottom margin, so a paragraph after it would sit a whole gap away from
+ * the shelf it belongs to.
+ *
+ * **It carries the view.** `All 27 →` leading to a page that does not have 27 on
+ * it is the count lying, and a reader who chose *what nobody got through* did not
+ * ask to be put back on the other half by following a link inside it.
+ */
+function shelfRest(category: string, size: number, shown: number, worked: boolean): string {
+  if (shown >= size) return ''
+
+  return (
+    `<li class="k-atlas-all"><a href="${escape(atlasShelfPath(category, worked))}">` +
+    `All ${size} →</a></li>`
   )
 }
 

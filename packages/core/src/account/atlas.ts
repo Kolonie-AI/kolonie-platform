@@ -1168,8 +1168,22 @@ export function atlasIsWalked(entry: {
  * the first arm and naming it again would only suggest the two disagree. What
  * remains is the arm that genuinely differs — an `unwritten` row that citizens
  * have attempted and never got an account at is evidence, and is not walked.
+ *
+ * **It asks for the two fields it reads and not for an `AtlasEntry`** (`#1142`).
+ * The index orders its shelves by this, and by then the entries have been through
+ * the public projection — which drops most of the row and keeps `status` and
+ * `figures`. Naming the whole entry would have meant either a second copy of this
+ * rule at the rendering layer or a cast, and both are worse than the shape
+ * {@link atlasIsWalked} above already uses for the same reason.
  */
-export function atlasShelfHasEvidence(entries: readonly AtlasEntry[]): boolean {
+export function atlasShelfHasEvidence(
+  entries: readonly {
+    readonly recipes: readonly {
+      readonly status: RecipeStatus
+      readonly figures: { readonly attempted: number }
+    }[]
+  }[],
+): boolean {
   return entries.some(
     (entry) => atlasIsWalked(entry) || entry.recipes.some((recipe) => recipe.figures.attempted > 0),
   )

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { AccountKindSchema, AccountProviderSchema } from './account.js'
 import {
+  ATLAS_FALLBACK_CATEGORY,
   atlasEntries,
   atlasEntryHealth,
   atlasEntryStatus,
@@ -12,6 +13,7 @@ import {
   measuredOnlyRecipes,
 } from './atlas.js'
 import { noFigures } from './atlas-figures.js'
+import { createLog } from '../log/log.js'
 import type { AtlasFigures } from './atlas-figures.js'
 import { RECIPE_STALE_AFTER_DAYS, RecipeStatusSchema, recipeStatusIsPublic } from './recipe.js'
 import type { ProviderRecipe, RecipeCaution, RecipeStatus } from './recipe.js'
@@ -474,16 +476,106 @@ describe('the rows the figures imply', () => {
   })
 
   /**
-   * The account-kind vocabulary is open and a shelf is a claim, so a kind with
-   * no shelf is left off rather than filed on a guessed one.
+   * **A kind with no shelf lands on the fallback** (`#1096`), and this test
+   * asserted the opposite until then: that leaving it off was safer than filing
+   * it on a guessed shelf, because the shelf is a claim.
+   *
+   * The measurement is what settled it. On 2026-08-16 three providers had a
+   * finished walk, a written briefing and no entry and no page anywhere —
+   * `bounty-platform/gib.work`, `bounty-platform/laborx.com` and
+   * `marketplace/solarisai.io`. A wrong shelf is a claim a reader can see and
+   * argue with; a dropped entry is a walk nobody can find at all.
    */
-  it('skips a kind no shelf maps to rather than guessing one', () => {
+  it('shelves a kind no shelf maps to rather than dropping it', () => {
     const synthesized = measuredOnlyRecipes(
       [],
       [figures({ kind: 'sourdough', provider: 'bakery.test', attempted: 9, proved: 4 })],
     )
 
+    expect(synthesized).toHaveLength(1)
+    expect(synthesized[0]?.category).toBe(ATLAS_FALLBACK_CATEGORY)
+    expect(synthesized[0]?.status).toBe('measured')
+    /**
+     * **The entry says so about itself.** Without this a maintainer looking for
+     * the entries nobody classified would have to ask for *everything on
+     * `data-apis`*, which also hands back every provider that belongs there.
+     */
+    expect(synthesized[0]?.categoryIsFallback).toBe(true)
+  })
+
+  /**
+   * **Absent rather than false on an entry somebody shelved** (`#1096`), so that
+   * *nobody classified this* and *somebody put it here* are not one value read
+   * two ways.
+   */
+  it('marks nothing on a kind that names a shelf of its own', () => {
+    const synthesized = measuredOnlyRecipes(
+      [],
+      [figures({ kind: 'mailbox', provider: 'shelved.test', attempted: 4, proved: 2 })],
+    )
+
+    expect(synthesized[0]?.category).toBe('mailbox')
+    expect(synthesized[0]?.categoryIsFallback).toBeUndefined()
+  })
+
+  /**
+   * The line a maintainer acts on, once (`#1096` decision 5).
+   *
+   * `measuredOnlyRecipes` runs on every catalogue read, so an unconditional
+   * warning would be one per request for a fact that only changes when somebody
+   * classifies the kind.
+   */
+  it('says once per pair that it defaulted the shelf', () => {
+    const lines: string[] = []
+    const log = createLog({ service: 'test', write: (line) => lines.push(line) })
+    const measurement = [
+      figures({ kind: 'sourdough', provider: 'reported.test', attempted: 9, proved: 4 }),
+    ]
+
+    measuredOnlyRecipes([], measurement, new Date(), { log })
+    measuredOnlyRecipes([], measurement, new Date(), { log })
+
+    expect(lines).toHaveLength(1)
+    const record = JSON.parse(lines[0] ?? '{}') as Record<string, unknown>
+    expect(record['level']).toBe('warn')
+    expect(record['event']).toBe('atlas.shelf.defaulted')
+    /** The kind by name, or the line names no work anybody could do. */
+    expect(record['kind']).toBe('sourdough')
+    expect(record['shelf']).toBe(ATLAS_FALLBACK_CATEGORY)
+  })
+
+  /**
+   * **The `evidenced` guard stays in front of the fallback** (`#1096` decision
+   * 7). A pair nobody has demonstrably been to is not an entry, and a kind with
+   * no shelf does not become one by being unclassified as well.
+   */
+  it('stands nothing in for an unevidenced pair whose kind names no shelf', () => {
+    const synthesized = measuredOnlyRecipes(
+      [],
+      [
+        figures({
+          kind: 'sourdough',
+          provider: 'declared-only.bakery.test',
+          attempted: 1,
+          proved: 0,
+          evidenced: false,
+        }),
+      ],
+    )
+
     expect(synthesized).toEqual([])
+  })
+
+  /** A provider the catalogue already carries is left alone, shelf-less kind or not. */
+  it('leaves a written provider alone even where its kind names no shelf', () => {
+    const written = recipe({ kind: 'sourdough', provider: 'written.bakery.test' })
+
+    expect(
+      measuredOnlyRecipes(
+        [written],
+        [figures({ kind: 'sourdough', provider: 'written.bakery.test', attempted: 9, proved: 4 })],
+      ),
+    ).toEqual([])
   })
 
   /**

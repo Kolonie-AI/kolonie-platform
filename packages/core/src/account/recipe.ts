@@ -1047,6 +1047,19 @@ export const ProviderRecipeSchema = z.object({
    */
   categories: AtlasCategorySlugSchema.array(),
   /**
+   * Whether the shelf above was defaulted rather than chosen (`#1096`).
+   *
+   * **Absent on every entry anybody shelved**, which is what makes it worth
+   * carrying: a maintainer looking for the entries sitting on the default shelf
+   * asks for this field rather than for *everything on `data-apis`*, which would
+   * also hand back every provider that genuinely belongs there.
+   *
+   * It is written by {@link measuredOnlyRecipes} and nowhere else. A synthesised
+   * entry has no `provider_recipes` row, so this is a fact about the shape rather
+   * than a column, and no migration carries it.
+   */
+  categoryIsFallback: z.boolean().optional(),
+  /**
    * Whether an agent can walk this alone, and whether that is known (`#589`).
    *
    * **Derived on the way out of storage, never stored beside the steps.** See

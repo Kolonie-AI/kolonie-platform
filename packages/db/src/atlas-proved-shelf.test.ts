@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { sql } from 'drizzle-orm'
 import {
   AccountKindSchema,
+  ATLAS_FALLBACK_CATEGORY,
   RegisterAgentRequestSchema,
   type AgentId,
   measuredOnlyRecipes,
@@ -215,5 +216,87 @@ describe('a provider with a proof and no entry', () => {
     const already = await shelf()
 
     expect(measuredOnlyRecipes(already, await atlasFigures(db))).toEqual([])
+  })
+
+  /**
+   * **The kinds nobody classified** (`#1096`). `bounty-platform` and
+   * `marketplace` are kinds citizens declared and proved accounts under, and no
+   * shelf is paired with either — so until the fallback, three providers with a
+   * finished walk each had no entry and no page anywhere.
+   *
+   * Against the real database for the same reason the file exists: the drop was
+   * in the seam, and the kind vocabulary this reads is the open one citizens
+   * write rather than the fifteen the shelves are named after.
+   */
+  it('shelves a proved account whose kind is paired with no shelf', async () => {
+    const agentId = await citizen('bounty-walker')
+    const bounty = AccountKindSchema.parse('bounty-platform')
+
+    await db.execute(sql`
+      insert into accounts (agent_id, kind, identifier, provider, proved, proved_at)
+      values (${agentId}, ${bounty}, ${'walker'}, 'gib.work', true, now())
+    `)
+
+    const rows = await shelf()
+
+    expect(rows.map((one) => one.provider)).toEqual(['gib.work'])
+    expect(rows[0]?.status).toBe('measured')
+    expect(rows[0]?.category).toBe(ATLAS_FALLBACK_CATEGORY)
+    /** The entry says the shelf was defaulted, so nobody reads it as a verdict. */
+    expect(rows[0]?.categoryIsFallback).toBe(true)
+    /** The kind itself is untouched: it is what a reader reaches the entry by. */
+    expect(rows[0]?.kind).toBe(bounty)
+  })
+
+  /**
+   * **Nothing is written** (`#1096` decision 6). The row is synthesised on the
+   * read, so the catalogue a maintainer edits gains no entry it did not choose —
+   * and the day somebody pairs a shelf with the kind, the fallback stops firing
+   * with no row to clean up behind it.
+   */
+  it('writes no row into the catalogue for the shelf it defaulted', async () => {
+    const agentId = await citizen('bounty-walker')
+
+    await db.execute(sql`
+      insert into accounts (agent_id, kind, identifier, provider, proved, proved_at)
+      values (${agentId}, ${AccountKindSchema.parse('bounty-platform')}, ${'walker'}, 'gib.work', true, now())
+    `)
+
+    expect((await shelf()).map((one) => one.provider)).toEqual(['gib.work'])
+
+    const [written] = await db.execute<{ count: string }>(
+      sql`select count(*)::text as count from provider_recipes`,
+    )
+
+    expect(written?.count).toBe('0')
+  })
+
+  /**
+   * The rejection case that survives the fallback: `evidenced` is still asked
+   * first, so a kind with no shelf does not become an entry by being
+   * unclassified as well as undemonstrated.
+   */
+  it('stands nothing in for a shelf-less kind a citizen only declared', async () => {
+    const agentId = await citizen('bounty-declarer')
+
+    await db.execute(sql`
+      insert into accounts (agent_id, kind, identifier, provider, proved)
+      values (${agentId}, ${AccountKindSchema.parse('bounty-platform')}, ${'declarer'}, 'laborx.com', false)
+    `)
+
+    const figures = (await atlasFigures(db)).find((one) => one.provider === 'laborx.com')
+
+    expect(figures?.evidenced).toBe(false)
+    expect(await shelf()).toEqual([])
+  })
+
+  /** A kind that names a shelf of its own is never shelved by the fallback. */
+  it('leaves a kind with a shelf of its own off the fallback', async () => {
+    await proved('walker', 'agentmessage.io', '+15550000001')
+
+    const rows = await shelf()
+
+    expect(rows[0]?.category).toBe('telephony')
+    expect(rows[0]?.categoryIsFallback).toBeUndefined()
   })
 })

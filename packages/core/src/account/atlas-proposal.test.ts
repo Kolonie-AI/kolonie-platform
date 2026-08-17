@@ -144,6 +144,13 @@ describe('the Atlas shelf for an account kind', () => {
     expect(KIND_BY_ATLAS_CATEGORY['code-hosting']).toBe('code-host')
   })
 
+  /**
+   * **Still throws, and `#1096` did not soften it.** The fallback shelf lives in
+   * `measuredOnlyRecipes`, which decides on behalf of one synthesised entry and
+   * marks it as defaulted. A default in here would answer every caller — the
+   * proposal path included, where the shelf is what a maintainer is being asked
+   * to accept — and none of them would be able to tell a pairing from a guess.
+   */
   it('refuses to invent a shelf for an unmapped kind', () => {
     expect(() => atlasCategoryForKind(AccountKindSchema.parse('unmapped-kind'))).toThrow(
       'No Atlas category maps to account kind unmapped-kind',

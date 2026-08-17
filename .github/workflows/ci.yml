@@ -95,33 +95,76 @@ concurrency:
 permissions:
   contents: read
 
+# **Three jobs and a summary, rather than one job of seventeen minutes** (`#1159`).
+#
+# Measured across the hundred runs before the split: median 17.1 minutes, 87
+# successes, 9 cancelled, 1 failure. A formatting mistake and a failing database
+# test cost the same seventeen minutes to learn about, and for an agent that
+# pushes to find out whether it is green that was the price of every question.
+#
+# The split is by *what a failure means*, not by wall clock:
+#
+# | job | answers | needs |
+# |---|---|---|
+# | `tree` | is the source as written acceptable — lock, format, lint, migrations, fixtures, changelog | nothing |
+# | `build` | does it compile, and is what it compiled usable | nothing |
+# | `test` | does it behave | `build` |
+# | `check` | the verdict the branch protection reads | all three |
+#
+# `tree` and `build` start together because neither can tell the other anything:
+# a formatting error does not stop a compile, and a type error does not stop a
+# lint. `test` waits on `build` so a broken compile costs three minutes rather
+# than seventeen.
+#
+# **No sharding beyond this.** At 100–200 issues a day this repository needs
+# about two runners continuously against a limit of sixty; splitting the suite
+# further buys wall clock nobody is waiting on and costs a failure mode nobody
+# wants — a test that only fails when it lands on the same shard as another.
 jobs:
-  check:
-    name: format, lint, build, typecheck, test
+  # Everything that can be decided by reading the tree, and nothing that needs a
+  # compiler or a database. This is the job that answers in three minutes.
+  tree:
+    name: tree
     runs-on: ubuntu-latest
-    # **Measured against what the suite actually takes, not rounded up from it**
-    # (`#1149`). Fifteen minutes was set when the monorepo was stood up and the
-    # suite ran in 1m34s (#283). It now runs in 13.3–14 minutes, so half the runs
-    # on `main` were being cancelled at the ceiling with nothing wrong in them —
-    # and a cancelled run reads as a red check, which stops a pull request that
-    # merges on green.
-    #
-    # **A cap the ordinary case reaches is not a cap.** It exists so a hung job
-    # does not run for six hours; one the suite touches every other run cannot
-    # tell a hang from a slow runner, and the signal it was put there to give is
-    # gone whichever way it lands. Twenty-five keeps the hang caught and stops
-    # catching Tuesdays.
-    #
-    # This is the number to lower again rather than raise: `packages/db` spends
-    # 237s of its 405s in setup, running every file under both projects, and the
-    # honest fix is that rather than this line.
-    timeout-minutes: 25
+    # Nothing here has ever taken longer than a minute of work; the rest is
+    # `npm ci`. Ten leaves room for a slow registry and still catches a hang.
+    timeout-minutes: 10
 
-    # The database the integration tests in packages/db run against.
-    #
-    # Pinned to the major version that runs in production. A suite that is green
-    # against a different major tests a system nobody operates — see D-009 in
-    # docs/decisions.md and operations/testing.md in kolonie-docs.
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # First and on its own, as it is locally: a lock file that cannot install is
+      # not a tree whose formatting, types or tests mean anything, and drift here
+      # arriving beside five consequences of it is a diagnosis nobody can make.
+      - name: Check the lock file
+        run: npm run check:lock
+
+      # format:check, lint, check:migrations, check:fixtures, check:changelog —
+      # concurrently, all five reported even when one fails (`#1158`). The gates
+      # are named in `package.json` rather than here, so this file does not have
+      # to be edited when one is added.
+      - name: Tree gates
+        run: npm run gates:tree
+
+  # Does it compile, and is what it compiled usable. Keeps the database because
+  # the socket check below boots the real API process, which refuses to start
+  # without one (D-009).
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    # The database the built API is booted against, and the same major that runs
+    # in production — see D-009 in docs/decisions.md and operations/testing.md in
+    # kolonie-docs.
     services:
       postgres:
         image: postgres:16
@@ -140,9 +183,6 @@ jobs:
           --health-retries 10
 
     env:
-      # The only thing the tests know about the database. How it got here is not
-      # their business: locally this points at Compose or an installed server,
-      # here at the service container above.
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/kolonie_test
       # Salts ban marks. `packages/db` refuses to start without it, so the socket
       # check below cannot start the API without one either.
@@ -188,33 +228,52 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # The service container above cannot be given command arguments — `services:`
-      # takes an image, environment and a health check, and nothing else — so the
-      # three durability settings are applied to it once it is up (#283). They are
-      # worth roughly half the wall clock of packages/db, which was 90% of the
-      # suite when measured.
+      # **`dist/` and `*.tsbuildinfo` are cached together, and that is the whole
+      # of the correctness argument here** (`#1159`).
       #
-      # This step fails the job if the settings do not take. That is deliberate and
-      # it is the whole reason it is a step rather than a line in another script: a
-      # server that quietly stayed at full durability produces a *slow green run*,
-      # and nothing downstream can tell that from a fast one.
-      - name: Relax the test database's durability
-        run: npm run test:db:relax
+      # `tsc -b` decides what to rebuild by reading `.tsbuildinfo` and *not* by
+      # looking at the outputs. Restore the state file without the files it
+      # describes and the compiler skips every project, emits nothing, and exits
+      # zero — a green build over an empty `dist/`, which the artefact checks
+      # below would then fail with a message about the wrong thing entirely. So
+      # caching the state alone, which is the narrow reading of the issue, is the
+      # one arrangement that is actively unsafe. Both or neither.
+      #
+      # The key names every input that changes what a build *means* — the lock
+      # file and every `tsconfig` — because a stale build cache is the hazard
+      # `scripts/cached-lint.mjs` already writes about: *"a stale cache answers
+      # green about a file it did not look at."* A change to `tsconfig.base.json`
+      # therefore misses the prefix entirely and rebuilds from nothing, which is
+      # the rejection case `#1159` names.
+      #
+      # `restore-keys` falls back within the same prefix only, so an ordinary
+      # commit restores the previous commit's outputs and compiles the difference.
+      # `github.sha` in the key proper means each commit saves its own entry
+      # rather than racing to overwrite one.
+      #
+      # Paths are enumerated rather than globbed as `**/dist`, which would sweep
+      # every `dist/` under `node_modules` into the archive.
+      - name: Restore the incremental build
+        uses: actions/cache@v6
+        with:
+          path: |
+            packages/*/dist
+            apps/*/dist
+            packages/*/*.tsbuildinfo
+            apps/*/*.tsbuildinfo
+          key: build-${{ hashFiles('package-lock.json', 'tsconfig.json', 'tsconfig.base.json', 'packages/*/tsconfig*.json', 'apps/*/tsconfig*.json') }}-${{ github.sha }}
+          restore-keys: |
+            build-${{ hashFiles('package-lock.json', 'tsconfig.json', 'tsconfig.base.json', 'packages/*/tsconfig*.json', 'apps/*/tsconfig*.json') }}-
 
-      # Deliberately the same single command contributors run locally, so a
-      # green local run means a green CI run. See AGENTS.md §9.
-      #
-      # Note that this cannot silently skip the database tests: with CI set and
-      # DATABASE_URL missing, packages/db fails the run rather than reporting
-      # green over a suite that covered nothing.
-      #
-      # `CI` is also what turns off the lint and format caches (#304). A runner
-      # installs from scratch, so its cache is cold whatever it does — and this is
-      # the one run whose answer nobody re-checks, which makes it the wrong place
-      # to hold a cache at all. The same variable GitHub sets for every step is
-      # what decides it, so there is nothing here to keep in sync.
-      - name: Check
-        run: npm run check
+      - name: Build
+        run: npm run build
+
+      # check:dist, check:catalogue-floor, typecheck — everything that reads
+      # `dist/` and therefore cannot run in `tree`. Hoisted up there they would
+      # fail with *"The catalogue floor rule was not built"* on a tree that is
+      # perfectly fine.
+      - name: Built gates
+        run: npm run gates:built
 
       - name: Verify the domain model can be imported from its build output
         run: |
@@ -240,3 +299,166 @@ jobs:
           done
           curl -fsS http://127.0.0.1:3000/health | grep -q '"ok"'
           curl -fsS http://127.0.0.1:3000/v1 | grep -q '"v1"'
+
+  # Does it behave. The long one, and the only one worth waiting on.
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    # **`build` is a gate and not a dependency.** Nothing here consumes `dist/`:
+    # since `#1156` the `@kolonie-ai/source` export condition resolves siblings to
+    # source, so the suite compiles nothing and restores no cache. What `needs`
+    # buys is that a change which does not compile costs three minutes instead of
+    # seventeen.
+    needs: build
+    # **Measured against what the suite actually takes, not rounded up from it**
+    # (`#1149`). Fifteen minutes was set when the monorepo was stood up and the
+    # suite ran in 1m34s (#283). It now runs in 13.3–14 minutes, so half the runs
+    # on `main` were being cancelled at the ceiling with nothing wrong in them —
+    # and a cancelled run reads as a red check, which stops a pull request that
+    # merges on green.
+    #
+    # **A cap the ordinary case reaches is not a cap.** It exists so a hung job
+    # does not run for six hours; one the suite touches every other run cannot
+    # tell a hang from a slow runner, and the signal it was put there to give is
+    # gone whichever way it lands. Twenty-five keeps the hang caught and stops
+    # catching Tuesdays.
+    #
+    # This is the number to lower again rather than raise: `packages/db` spends
+    # 237s of its 405s in setup, running every file under both projects, and the
+    # honest fix is that rather than this line.
+    timeout-minutes: 25
+
+    # The database the integration tests in packages/db run against.
+    #
+    # Pinned to the major version that runs in production. A suite that is green
+    # against a different major tests a system nobody operates — see D-009 in
+    # docs/decisions.md and operations/testing.md in kolonie-docs.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          # Not a secret: this database exists for the length of one job, is
+          # reachable only from inside it, and holds nothing but test rows.
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: kolonie_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # The only thing the tests know about the database. How it got here is not
+      # their business: locally this points at Compose or an installed server,
+      # here at the service container above.
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/kolonie_test
+      # Both literals are explained at length in the `build` job above, and both
+      # are needed here for the same reason: `packages/db` and `apps/api` refuse
+      # to start without them, so a suite missing either fails every file rather
+      # than skipping quietly.
+      BAN_MARK_SALT: ci-not-a-secret-nothing-here-writes-a-ban-mark
+      DEPOSIT_SEALING_KEY: ci-not-a-secret-no-deposit-address-here-is-ever-funded
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # **The one thing this job needs from `build` that `needs:` does not give
+      # it** (`#1159`). `packages/db/src/storage/index.ts` is written by
+      # `packages/db/scripts/generate-storage-barrel.mjs` and is git-ignored
+      # (`.gitignore`), so a fresh checkout does not have it — and since `#1156`
+      # the suite resolves `@kolonie-ai/db` to *source*, which is exactly the file
+      # that is missing. Root `build` is `npm run barrel && tsc -b`, so before the
+      # split the generator ran here as a side effect of compiling.
+      #
+      # Measured on the first run of this split: without it,
+      # `packages/db/src/index.ts` fails to import `./storage/index.js` with
+      # `ERR_MODULE_NOT_FOUND` and takes `@kolonie-ai/db`, `@kolonie-ai/api` and
+      # `@kolonie-ai/moderation-runner` down with it — three red workspaces whose
+      # own code is fine.
+      #
+      # **The generator alone and not `npm run build`.** Compiling here would undo
+      # the whole of `#1156`: the suite would wait on a build it does not read, and
+      # `test` would be as long as `build` plus itself. This is a node script over
+      # a directory listing — under a second, and it emits nothing but source.
+      - name: Generate the storage barrel
+        run: npm run barrel
+
+      # The service container above cannot be given command arguments — `services:`
+      # takes an image, environment and a health check, and nothing else — so the
+      # three durability settings are applied to it once it is up (#283). They are
+      # worth roughly half the wall clock of packages/db, which was 90% of the
+      # suite when measured.
+      #
+      # This step fails the job if the settings do not take. That is deliberate and
+      # it is the whole reason it is a step rather than a line in another script: a
+      # server that quietly stayed at full durability produces a *slow green run*,
+      # and nothing downstream can tell that from a fast one.
+      - name: Relax the test database's durability
+        run: npm run test:db:relax
+
+      # Note that this cannot silently skip the database tests: with CI set and
+      # DATABASE_URL missing, packages/db fails the run rather than reporting
+      # green over a suite that covered nothing.
+      #
+      # `CI` is also what turns off the lint and format caches (#304). A runner
+      # installs from scratch, so its cache is cold whatever it does — and this is
+      # the one run whose answer nobody re-checks, which makes it the wrong place
+      # to hold a cache at all. The same variable GitHub sets for every step is
+      # what decides it, so there is nothing here to keep in sync.
+      - name: Test
+        run: npm run test
+
+  # **The name is the contract.** `main`'s branch protection requires a check
+  # called exactly *"format, lint, build, typecheck, test"*, which is what the
+  # single job that used to do all of this was called. Splitting that job without
+  # something carrying the name forward would leave the protection waiting on a
+  # check that no longer exists — and GitHub renders that as *pending*, which on a
+  # repository whose pull requests merge on green is indistinguishable from a run
+  # that has not finished. Renaming the protection instead would have the same
+  # effect for the length of the change, on every open pull request at once.
+  #
+  # So the name moves here and the protection is not touched. Anybody renaming
+  # this job is changing a setting in the repository, not a string in a file, and
+  # `scripts/ci-workflow.test.ts` says so where it will be read.
+  #
+  # `if: always()` because a job that is skipped is not a job that passed: without
+  # it, a failing `build` skips `test`, skips this, and leaves the required check
+  # neither green nor red.
+  check:
+    name: format, lint, build, typecheck, test
+    needs: [tree, build, test]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      # Every result is printed and not only the failing ones, so the log answers
+      # *what happened* rather than *what went wrong* — the argument `#1158` makes
+      # about gates, one layer up. `cancelled` and `skipped` are failures here:
+      # the only question this job answers is whether all three succeeded.
+      - name: Report the verdict of the three jobs
+        run: |
+          fail=0
+          for job in "tree:${{ needs.tree.result }}" \
+                     "build:${{ needs.build.result }}" \
+                     "test:${{ needs.test.result }}"; do
+            name=${job%%:*}
+            result=${job#*:}
+            echo "${name}: ${result}"
+            if [ "$result" != "success" ]; then
+              echo "FAILED: ${name}"
+              fail=1
+            fi
+          done
+          exit $fail

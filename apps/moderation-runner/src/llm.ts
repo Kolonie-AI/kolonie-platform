@@ -135,6 +135,38 @@ export const CLASSIFY_MAX_TOKENS = 4000
  */
 export const MARK_MAX_TOKENS = 4000
 
+/**
+ * How much larger the second attempt's ceiling is, when the first one went
+ * entirely on reasoning.
+ *
+ * **Raising a constant is not a fix for this failure, it is a fix for one
+ * instance of it** (`#1192`). `#437` raised `classify` from 400 to 4000 with the
+ * right paragraph attached; `walk-prose.moderate.failed` then arrived on
+ * 2026-08-16 with `finish_reason length` at 4000. The number was too small
+ * again, and the number will be too small again — how much a model reasons is a
+ * property of the page in front of it and of a model somebody else may swap
+ * under us, so no constant in this file is a bound on it.
+ *
+ * **What can be fixed is the shape of the failure.** A reply that was
+ * interrupted before its first character is the one case where trying again
+ * unchanged is guaranteed to fail: at `temperature: 0` the same page produces
+ * the same empty reply on every poll, the row stays in the queue that selected
+ * it, and `loop.ts` offers it again for ever. So the retry has to change
+ * something, and the only thing worth changing is the ceiling it ran out of.
+ *
+ * Once, and multiplicatively. Once, because a second interruption is no longer
+ * this anomaly — it is a page or a prompt that does not fit, which is a fact a
+ * person should read in a log line rather than a cost the runner keeps paying.
+ * Multiplicatively, because it has to clear the shortfall rather than nudge at
+ * it: a ceiling missed by reasoning is missed by a lot or not at all.
+ *
+ * **This is the same rule the rest of this file already follows in three other
+ * places: the failure has to degrade rather than latch.** `max_tokens` caps what
+ * may be generated and is not a spend, so the escalated attempt costs what it
+ * writes — and it only ever happens after an attempt that wrote nothing.
+ */
+export const CEILING_ESCALATION = 4
+
 /** What a classification prompt is allowed to answer. */
 export interface Classification {
   readonly decision: string
@@ -423,24 +455,56 @@ function finishReason(body: unknown): string | undefined {
   return typeof reason === 'string' ? reason : undefined
 }
 
-/** The transient empty completion observed in #599, and no wider failure class. */
-function stoppedWithoutContent(body: unknown): boolean {
-  const choice = (
-    body as {
-      choices?: {
-        message?: { content?: unknown; refusal?: unknown }
-        finish_reason?: unknown
-      }[]
-    }
-  ).choices?.[0]
+/**
+ * A reply that said nothing at all: no content, and no refusal either.
+ *
+ * On its own this is not a diagnosis — it is half of one. What turns it into a
+ * diagnosis is `finish_reason`, which is why the two predicates below differ
+ * only in that word and share this.
+ */
+function withoutContent(body: unknown): boolean {
+  const choice = (body as { choices?: { message?: { content?: unknown; refusal?: unknown } }[] })
+    .choices?.[0]
   const content = choice?.message?.content
   const refusal = choice?.message?.refusal
 
   return (
-    choice?.finish_reason === 'stop' &&
+    choice !== undefined &&
     !(typeof content === 'string' && content.trim() !== '') &&
     !(typeof refusal === 'string' && refusal !== '')
   )
+}
+
+/** The transient empty completion observed in #599, and no wider failure class. */
+function stoppedWithoutContent(body: unknown): boolean {
+  return finishReason(body) === 'stop' && withoutContent(body)
+}
+
+/**
+ * The reply was interrupted before its first character — the whole ceiling went
+ * on reasoning (`#437`, `#1192`).
+ *
+ * **Interrupted *with* content is a different event and is not this.** A cut-off
+ * briefing has claims in it worth keeping, and `salvageClaims` keeps them; there
+ * is nothing to salvage here, which is what makes retrying at a higher ceiling
+ * the only move that changes anything.
+ */
+function spentOnReasoning(body: unknown): boolean {
+  return finishReason(body) === 'length' && withoutContent(body)
+}
+
+/**
+ * One request to the completions endpoint.
+ *
+ * Only `max_tokens` is named, because it is the only field the transport itself
+ * reads or rewrites. The rest is the caller's business and travels unexamined.
+ */
+interface ChatRequest {
+  readonly model: string
+  readonly messages: readonly { readonly role: string; readonly content: string }[]
+  readonly response_format?: unknown
+  readonly max_tokens: number
+  readonly temperature?: number
 }
 
 /**
@@ -688,21 +752,59 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
     return { body: result, accounting: account(result, response) }
   }
 
+  /**
+   * One completion, with the two empty replies this file has been bitten by
+   * already handled — and the ceiling that was actually spent handed back.
+   *
+   * **The ceiling is returned rather than assumed** (`#1192`). Every caller used
+   * to name its own constant in the error it throws, which was right while the
+   * request could only ever carry that constant. It cannot any more: after an
+   * escalation the reply came from a different budget, and a message naming the
+   * first one sends whoever reads it to change a number that was not the one in
+   * force.
+   */
   const chat = async (
-    body: unknown,
-  ): Promise<{ readonly body: unknown; readonly accounting: ModelCall | undefined }> => {
-    const response = await call('/chat/completions', body)
+    request: ChatRequest,
+  ): Promise<{
+    readonly body: unknown
+    readonly accounting: ModelCall | undefined
+    readonly ceiling: number
+  }> => {
+    const ceiling = request.max_tokens
+    const response = await call('/chat/completions', request)
+
     // `stop` ordinarily means a complete answer. One empty response is a
     // provider anomaly; one immediate retry avoids delaying the entry until the
     // next poll, while a second empty response still fails visibly.
-    return stoppedWithoutContent(response.body) ? call('/chat/completions', body) : response
+    if (stoppedWithoutContent(response.body)) {
+      return { ...(await call('/chat/completions', request)), ceiling }
+    }
+
+    // Interrupted before the first character. Retrying this unchanged is the one
+    // case that cannot work — see CEILING_ESCALATION.
+    if (!spentOnReasoning(response.body)) return { ...response, ceiling }
+
+    const raised = ceiling * CEILING_ESCALATION
+    log.warn(
+      `${model} spent the whole ${ceiling}-token ceiling on reasoning; retrying once at ${raised}`,
+      {
+        event: 'model.ceiling.raised',
+        model,
+        ceiling,
+        raised,
+      },
+    )
+    return {
+      ...(await call('/chat/completions', { ...request, max_tokens: raised })),
+      ceiling: raised,
+    }
   }
 
   return {
     name: model,
 
     async classify({ system, user, choices }) {
-      const { body, accounting } = await chat({
+      const { body, accounting, ceiling } = await chat({
         model,
         messages: [
           { role: 'system', content: system },
@@ -743,20 +845,18 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
        * with the actionable half left out — the briefing call has passed it since
        * `#416` and these two never did, so the one log line that would have
        * pointed straight at the number did not carry it.
+       *
+       * It is the ceiling the reply came back under and not the constant, which
+       * are the same number until an escalation makes them different (`#1192`).
        */
       return {
-        ...parseVerdict(
-          messageContent(body, CLASSIFY_MAX_TOKENS),
-          choices,
-          finishReason(body),
-          CLASSIFY_MAX_TOKENS,
-        ),
+        ...parseVerdict(messageContent(body, ceiling), choices, finishReason(body), ceiling),
         call: accounting,
       }
     },
 
     async mark({ system, user, kinds }) {
-      const { body } = await chat({
+      const { body, ceiling } = await chat({
         model,
         messages: [
           { role: 'system', content: system },
@@ -800,7 +900,7 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
         max_tokens: MARK_MAX_TOKENS,
         temperature: 0,
       })
-      const content = messageContent(body, MARK_MAX_TOKENS)
+      const content = messageContent(body, ceiling)
 
       const parsed = JSON.parse(content) as { spans?: unknown }
       if (!Array.isArray(parsed.spans)) {
@@ -820,7 +920,7 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
     },
 
     async compose({ system, user, sections, sourceIds, maxClaimLength }) {
-      const { body } = await chat({
+      const { body, ceiling } = await chat({
         model,
         messages: [
           { role: 'system', content: system },
@@ -881,7 +981,7 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
         max_tokens: BRIEFING_MAX_TOKENS,
         temperature: 0,
       })
-      const content = messageContent(body, BRIEFING_MAX_TOKENS)
+      const content = messageContent(body, ceiling)
       const truncated = finishReason(body) === 'length'
 
       let claims: readonly unknown[]
@@ -901,7 +1001,7 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
         claims = salvageClaims(content)
         if (claims.length === 0) {
           throw new Error(
-            `the briefing was cut off at the ${BRIEFING_MAX_TOKENS}-token ceiling before one claim was complete`,
+            `the briefing was cut off at the ${ceiling}-token ceiling before one claim was complete`,
             { cause: error },
           )
         }
@@ -910,7 +1010,7 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
           event: 'model.briefing.truncated',
           model,
           kept: claims.length,
-          ceiling: BRIEFING_MAX_TOKENS,
+          ceiling,
         })
       }
 

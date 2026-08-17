@@ -1,0 +1,1 @@
+ALTER TABLE "account_walks" ADD COLUMN "kind_as_given" text;

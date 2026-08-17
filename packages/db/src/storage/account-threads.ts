@@ -6,6 +6,7 @@ import {
   AccountProviderSchema,
   AccountSlotIdSchema,
   AccountThreadIdSchema,
+  atlasCanonicalKind,
   atlasCategoryForKind,
   episodeVerdict,
   type AccountEntry,
@@ -345,7 +346,13 @@ export async function proposeFromEpisode(
     }
   }
 
-  const kind = AccountKindSchema.parse(context.accountKind)
+  /**
+   * **The kind the account's kind means** (`#1144`), on `finishWalk`'s rule and
+   * for its reason: an episode is the other path that writes a catalogue row,
+   * and a spelling resolved on one of them and not the other would reopen the
+   * duplicate from the side nobody was watching.
+   */
+  const kind = AccountKindSchema.parse(atlasCanonicalKind(context.accountKind))
   const provider = AccountProviderSchema.parse(context.provider)
 
   const entry = await providerRecipe(db, kind, provider)

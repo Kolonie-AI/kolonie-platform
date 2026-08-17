@@ -1475,6 +1475,34 @@ describe('the Atlas on the website host', () => {
     })
 
     /**
+     * **One phrase, once** (`#1144`). `codeberg.org` carried two rows for one
+     * account kind under two spellings, and the row read *a code-hosting
+     * account, a code-hosting account* — the second half saying nothing the
+     * first did not. The reconciliation closes the collisions in the data; this
+     * is the render side of the same rule, and it is what holds for a pair the
+     * alias table has not been told about and for a page served from a replica
+     * that has not caught up.
+     */
+    it('names a kind once on a row that carries it twice', async () => {
+      await rebuild((one) => {
+        for (const title of ['Twice', 'Twice again'])
+          one.recipes.write({
+            kind: 'mailbox',
+            provider: 'twice.example',
+            title,
+            category: 'mailbox',
+          })
+      })()
+
+      const row = [...(await get('/atlas')).body.matchAll(/<li>.*?<\/li>/gs)]
+        .map((match) => match[0])
+        .find((one) => one.includes('/atlas/twice.example"'))
+
+      if (row === undefined) throw new Error('no index row for twice.example')
+      expect(row.match(/a mailbox/g)).toHaveLength(1)
+    })
+
+    /**
      * The property behind all of the above, asserted on the shape rather than
      * on any one string: **no heading on either page is exactly an
      * identifier.** A slug added to the vocabulary and not to a map fails this

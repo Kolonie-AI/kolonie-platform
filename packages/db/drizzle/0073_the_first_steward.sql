@@ -21,14 +21,37 @@
 -- leaves no trace in the repository, and *who holds the first permission* is
 -- exactly the fact that should not live only in somebody's shell history.
 --
--- **Both sides go through `text` and neither names the enum**, for the reason
--- `schema/credentials.ts` gives at length: Postgres refuses to *use* an enum
--- value in the transaction that added it (`55P04`), `steward` was added one
--- migration ago, and the migrator runs every pending migration in one
--- transaction. Measured against a fresh database on 2026-08-02 — a literal
--- `'steward'::role` here fails, and it fails on an empty database too, so no
--- amount of deploying in the right order rescues it. The array is widened to
--- `text[]`, appended to, and cast back as a whole, which resolves at runtime.
+-- **Both sides go through `text` and neither names the enum**, because Postgres
+-- refuses to *use* an enum value in the transaction that added it (`55P04`),
+-- `steward` was added one migration ago, and the migrator runs every pending
+-- migration in one transaction. Measured against a fresh database on 2026-08-02:
+-- a literal `'steward'::role` in the `where` clause below fails, and it fails on
+-- an empty database too, so no amount of deploying in the right order rescues it.
+--
+-- **What this file used to claim next was wrong, and it is corrected here rather
+-- than deleted** (2026-08-17, `#947`). It said the array being widened to
+-- `text[]`, appended to and cast back as a whole *"resolves at runtime"*, and
+-- that reads as the other half of the same measurement. It was not measured and
+-- it is not true: `'{…}'::role[]` calls the enum's input function, which is
+-- precisely what `55P04` guards, so it raises exactly as the literal does.
+--
+-- The reason nobody noticed is visible in this statement. The literal that was
+-- measured sat in the `where` clause, where a constant cast is folded at planning
+-- time and raises whether or not a row matches. The workaround sits in the `set`
+-- clause, which is evaluated per matching row — and the `where` clause two lines
+-- down matches nothing on a fresh database. So the workaround has never once been
+-- evaluated, here or anywhere, and it was cited as measured for a fortnight.
+--
+-- `0282` is where that came due: it is the first migration to move a real holder,
+-- it inherited this paragraph, and it failed the production deploy. The way that
+-- actually works is `0281` — rename the type aside and `CREATE TYPE` it afresh,
+-- because the uncommitted-value blacklist is written by `ALTER TYPE ... ADD VALUE`
+-- and by nothing else.
+--
+-- **`schema/credentials.ts` is a different thing and is sound.** It casts the
+-- *column* to `text` and compares against string literals, so the input function
+-- is never called. Text out of an enum is fine. Text into one is not. This file
+-- cited that comment as authority for the opposite direction.
 update agents
    set roles = (roles::text[] || array['steward'])::role[],
        updated_at = now()

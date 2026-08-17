@@ -373,6 +373,27 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # **The one thing this job needs from `build` that `needs:` does not give
+      # it** (`#1159`). `packages/db/src/storage/index.ts` is written by
+      # `packages/db/scripts/generate-storage-barrel.mjs` and is git-ignored
+      # (`.gitignore`), so a fresh checkout does not have it — and since `#1156`
+      # the suite resolves `@kolonie-ai/db` to *source*, which is exactly the file
+      # that is missing. Root `build` is `npm run barrel && tsc -b`, so before the
+      # split the generator ran here as a side effect of compiling.
+      #
+      # Measured on the first run of this split: without it,
+      # `packages/db/src/index.ts` fails to import `./storage/index.js` with
+      # `ERR_MODULE_NOT_FOUND` and takes `@kolonie-ai/db`, `@kolonie-ai/api` and
+      # `@kolonie-ai/moderation-runner` down with it — three red workspaces whose
+      # own code is fine.
+      #
+      # **The generator alone and not `npm run build`.** Compiling here would undo
+      # the whole of `#1156`: the suite would wait on a build it does not read, and
+      # `test` would be as long as `build` plus itself. This is a node script over
+      # a directory listing — under a second, and it emits nothing but source.
+      - name: Generate the storage barrel
+        run: npm run barrel
+
       # The service container above cannot be given command arguments — `services:`
       # takes an image, environment and a health check, and nothing else — so the
       # three durability settings are applied to it once it is up (#283). They are

@@ -55,6 +55,28 @@ describe('the jobs the split produced', () => {
   it('makes the long job wait for the compiler', () => {
     expect(jobs().get('test')).toMatch(/^ {4}needs: build$/m)
   })
+
+  /**
+   * **`test` generates the storage barrel itself, and skips the build** (`#1159`).
+   *
+   * `packages/db/src/storage/index.ts` is generated and git-ignored, and since
+   * `#1156` the suite resolves `@kolonie-ai/db` to source — so the file the
+   * generator writes is the file the tests import. Root `build` runs the
+   * generator before `tsc -b`, which is how this was covered before the split;
+   * the first run of the split proved it was not covered after, taking db, api
+   * and moderation-runner down with `ERR_MODULE_NOT_FOUND` on a tree that
+   * compiles.
+   *
+   * The second half is the half a later editor is likely to get wrong: reaching
+   * for `npm run build` here fixes the same symptom and costs the entire point of
+   * `#1156`, so this pins the generator alone.
+   */
+  it('generates the storage barrel in the test job without building', () => {
+    const block = jobs().get('test') ?? ''
+
+    expect(block).toContain('run: npm run barrel')
+    expect(block).not.toContain('run: npm run build')
+  })
 })
 
 /**

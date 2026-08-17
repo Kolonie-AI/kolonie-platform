@@ -1,9 +1,4 @@
-import {
-  ATLAS_PATH,
-  stepInstruction,
-  type AtlasCategorySlug,
-  type AtlasEntry,
-} from '@kolonie-ai/core'
+import { ATLAS_PATH, type AtlasCategorySlug } from '@kolonie-ai/core'
 
 /**
  * The Atlas, as data a machine reads (`#789`).
@@ -11,11 +6,20 @@ import {
  * ## Why this is the cheapest reach on the surface
  *
  * `application/ld+json` appeared **0 times** anywhere on kolonie.ai, measured
- * 2026-08-12. An Atlas entry page is already a numbered list of steps for
- * accomplishing one task, with an actor marked on each step, a stated outcome
- * and a date — `#588` and `#589` forced the row into that shape for readers, and
- * a `HowTo` is that shape written down for crawlers. No new data, no curation, no
- * request-time cost.
+ * 2026-08-12. The breadcrumb and the item list are the page's own structure
+ * written down for a crawler: no new data, no curation, no request-time cost.
+ *
+ * ## The `HowTo` is gone, and it was the point of this file once
+ *
+ * `#789` emitted one `HowTo` per joinable row, because an Atlas entry page was
+ * already a numbered list of steps with an actor on each — that shape written
+ * down for crawlers. `#1100` decided the steps are what citizenship buys, and a
+ * `HowTo` is a list of step names and step text. Publishing it beside a page
+ * that no longer prints the steps would have made this file the leak, and
+ * trimming it to the counts would have emitted a `HowTo` with no `HowToStep` in
+ * it. **The rich-result eligibility is a real loss** and it is the price of the
+ * rule, not an oversight: what the page offers a searcher instead is the
+ * criteria and the findings extract.
  *
  * ## The one constraint, and it was checked rather than assumed
  *
@@ -74,72 +78,21 @@ export function asJsonLdBlock(value: unknown): string {
 }
 
 /**
- * The steps of one recipe, numbered as the page numbers them.
+ * Atlas → category → entry, from the same helper the page's own links use.
  *
- * **`reaches.steps` continues the count rather than restarting it** (`#637`),
- * which is the same rule the rendered page and the walk report's tick-list
- * follow. Three numberings of one list would be two of them wrong.
+ * **It asks for the four fields it reads and not for an entry** (`#1100`). The
+ * page hands it the public projection, and a signature naming `AtlasEntry` would
+ * have made this module a second place where somebody has to remember which of
+ * the two an argument is.
  */
-function howToSteps(recipe: AtlasEntry['recipes'][number]): readonly unknown[] {
-  const account = recipe.steps.map((step, at) => ({
-    '@type': 'HowToStep',
-    position: at + 1,
-    name: stepInstruction(step),
-    text:
-      step.actor === 'operator'
-        ? `${stepInstruction(step)} This step is your operator's, not yours.`
-        : stepInstruction(step),
-  }))
-
-  const reach = (recipe.reaches?.steps ?? []).map((step, at) => ({
-    '@type': 'HowToStep',
-    position: recipe.steps.length + at + 1,
-    name: stepInstruction(step),
-    text: stepInstruction(step),
-  }))
-
-  return [...account, ...reach]
-}
-
-/**
- * One `HowTo` per joinable row (`#789`).
- *
- * **Per row and not per entry**, because a provider can be joinable for a mailbox
- * and refused for a domain, and one `HowTo` welding both sets of steps together
- * would be a sequence nobody can walk. The name carries the kind wherever the
- * entry has more than one row, so two blocks on one page are told apart.
- *
- * **A refused, unwritten, proposed or retired row gets nothing.** There are no
- * steps, and emitting an empty `HowTo` would be the catalogue pretending — the
- * rule `recipeSection()` already follows for the rendered page.
- */
-export function howToFor(entry: AtlasEntry): readonly string[] {
-  const joinable = entry.recipes.filter((recipe) => recipe.status === 'joinable')
-
-  return joinable.map((recipe) =>
-    asJsonLdBlock({
-      '@context': 'https://schema.org',
-      '@type': 'HowTo',
-      name:
-        entry.recipes.length === 1
-          ? `How an agent joins ${entry.provider}`
-          : `How an agent joins ${entry.provider} for a ${recipe.kind} account`,
-      description: recipe.about ?? `Obtaining a ${recipe.kind} account at ${entry.provider}.`,
-      /**
-       * **`totalTime` is omitted because the Colony does not measure it.** The
-       * figures record how many got through and the median hours to *proof*,
-       * which is a different quantity from how long the steps take, and a
-       * plausible-looking guess in a machine-readable field is worse than a
-       * missing one.
-       */
-      dateModified: recipe.updatedAt,
-      step: howToSteps(recipe),
-    }),
-  )
-}
-
-/** Atlas → category → entry, from the same helper the page's own links use. */
-export function breadcrumbFor(entry: AtlasEntry, siteUrl: string): string {
+export function breadcrumbFor(
+  entry: {
+    readonly category: AtlasCategorySlug
+    readonly title: string
+    readonly path: string
+  },
+  siteUrl: string,
+): string {
   const at = (path: string) => `${siteUrl}${path}`
 
   return asJsonLdBlock({
@@ -167,7 +120,7 @@ export function breadcrumbFor(entry: AtlasEntry, siteUrl: string): string {
  * settle.
  */
 export function itemListFor(
-  entries: readonly AtlasEntry[],
+  entries: readonly { readonly title: string; readonly path: string }[],
   siteUrl: string,
   category?: AtlasCategorySlug | undefined,
 ): string {

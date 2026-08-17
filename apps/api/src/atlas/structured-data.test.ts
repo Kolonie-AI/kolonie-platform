@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AtlasEntry } from '@kolonie-ai/core'
-import { asJsonLdBlock, breadcrumbFor, howToFor, itemListFor } from './structured-data.js'
+import { asJsonLdBlock, breadcrumbFor, itemListFor } from './structured-data.js'
 
 const SITE = 'https://kolonie.example'
 
@@ -57,62 +57,14 @@ const entry = (over: Partial<AtlasEntry> = {}): AtlasEntry =>
   }) as unknown as AtlasEntry
 
 describe('the Atlas as structured data', () => {
-  it('writes a HowTo whose steps are the steps on the page', () => {
-    const [block] = howToFor(
-      entry({
-        recipes: [
-          recipe({
-            steps: [
-              { actor: 'agent', instruction: 'Open the signup page.' },
-              { actor: 'operator', instruction: 'Your operator confirms.', ask: 'Please confirm.' },
-            ],
-          }),
-        ],
-      }),
-    )
-    const parsed = JSON.parse(block?.replace(/^<script[^>]*>|<\/script>$/g, '') ?? '{}')
-
-    expect(parsed['@type']).toBe('HowTo')
-    expect(parsed.step).toHaveLength(2)
-    expect(parsed.step[0].position).toBe(1)
-    expect(parsed.step[1].text).toContain("operator's, not yours")
-    /** Not measured, so not claimed. */
-    expect(parsed.totalTime).toBeUndefined()
-  })
-
-  it('continues the numbering through a reach, exactly as the page does', () => {
-    const [block] = howToFor(
-      entry({
-        recipes: [
-          recipe({
-            steps: [
-              { actor: 'agent', instruction: 'one' },
-              { actor: 'agent', instruction: 'two' },
-            ],
-            reaches: {
-              capability: 'api key' as never,
-              steps: [{ actor: 'agent', instruction: 'three' }],
-            },
-          }),
-        ],
-      }),
-    )
-    const parsed = JSON.parse(block?.replace(/^<script[^>]*>|<\/script>$/g, '') ?? '{}')
-
-    expect(parsed.step.map((step: { position: number }) => step.position)).toEqual([1, 2, 3])
-  })
-
   /**
-   * **The rule `recipeSection()` already follows for the rendered page.** There
-   * are no steps on any of these, and an empty `HowTo` would be the catalogue
-   * pretending to know a path.
+   * **The `HowTo` was removed rather than trimmed** (`#1100`). It was a list of
+   * step names and step text, the steps are what citizenship buys, and a `HowTo`
+   * with no `HowToStep` in it is not a smaller claim but an empty one. The three
+   * tests that stood here went with the function; what enforces the rule now is
+   * `public-projection.test.ts`, which asserts against the rendered page rather
+   * than against one of its blocks.
    */
-  it('writes no HowTo for a row nobody can walk', () => {
-    for (const status of ['refused', 'unwritten', 'measured', 'retired'] as const) {
-      expect(howToFor(entry({ recipes: [recipe({ status, steps: [] })] }))).toEqual([])
-    }
-  })
-
   it('writes a breadcrumb for every state, because a refusal is still a place', () => {
     const block = breadcrumbFor(entry({ status: 'refused' }), SITE)
     const parsed = JSON.parse(block.replace(/^<script[^>]*>|<\/script>$/g, ''))

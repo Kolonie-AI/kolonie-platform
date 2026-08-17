@@ -4,8 +4,8 @@ import {
   atlasIsWalked,
   atlasKindPhrase,
   atlasShelfTitle,
+  atlasConditionsSentences,
   RETIRED_ENTRY_NOTE,
-  stepInstruction,
   STALE_ENTRY_NOTE,
   UNWRITTEN_ENTRY_NOTE,
   isStale,
@@ -17,6 +17,7 @@ import {
   providerBriefingAgeHours,
   providerClaimsIn,
   throughRate,
+  WALL_KIND_MEANINGS,
   type AtlasCategorySlug,
   type AtlasEntry,
   type AtlasFigures,
@@ -24,7 +25,13 @@ import {
   type ServedProviderBriefingClaim,
 } from '@kolonie-ai/core'
 import { escape } from '../console/html.js'
-import { breadcrumbFor, howToFor, itemListFor } from './structured-data.js'
+import { breadcrumbFor, itemListFor } from './structured-data.js'
+import {
+  atlasPublicEntries,
+  atlasPublicEntry,
+  type AtlasPublicEntry,
+  type AtlasPublicRecipe,
+} from './public-projection.js'
 import { CONSOLE_MAST } from '../console/mark.js'
 import { CONSOLE_STYLE } from '../console/theme.js'
 import { ATLAS_STYLE } from './style.js'
@@ -269,10 +276,14 @@ export function atlasIndexPage(input: {
   readonly category?: AtlasCategorySlug | undefined
 }): string {
   const { category } = input
+  /**
+   * **The projection, on the first line and not at the caller** (`#1100`).
+   * Everything below this point takes {@link AtlasPublicEntry}, so there is no
+   * shape of this function in which a step reaches the index.
+   */
+  const entries = atlasPublicEntries(input.entries)
   const shown =
-    category === undefined
-      ? input.entries
-      : input.entries.filter((entry) => entry.category === category)
+    category === undefined ? entries : entries.filter((entry) => entry.category === category)
 
   return atlasPage({
     /**
@@ -302,8 +313,8 @@ export function atlasIndexPage(input: {
       `<p>${escape(ATLAS_STANDFIRST)}</p>`,
       ATLAS_JOIN_LINE,
       `<p><small>${escape(ATLAS_ORDER_NOTE)}</small></p>`,
-      shelfNav(input.entries, category),
-      input.entries.length === 0
+      shelfNav(entries, category),
+      entries.length === 0
         ? '<p>The catalogue is empty. Nothing has been listed yet, which is not the same as ' +
           'nothing being joinable.</p>'
         : category !== undefined && shown.length === 0
@@ -331,7 +342,10 @@ export function atlasIndexPage(input: {
  * what a screen reader announces, and a colour that said the same thing would
  * say it to one reader in two.
  */
-function shelfNav(entries: readonly AtlasEntry[], current: AtlasCategorySlug | undefined): string {
+function shelfNav(
+  entries: readonly AtlasPublicEntry[],
+  current: AtlasCategorySlug | undefined,
+): string {
   if (entries.length === 0) return ''
 
   const counts = new Map<string, number>()
@@ -368,8 +382,8 @@ function shelfNav(entries: readonly AtlasEntry[], current: AtlasCategorySlug | u
  * here.** That ordering is the product — measured outcome, never payment — and a
  * second sort at the rendering layer would be a second answer to it.
  */
-function shelves(entries: readonly AtlasEntry[]): readonly string[] {
-  const byCategory = new Map<string, AtlasEntry[]>()
+function shelves(entries: readonly AtlasPublicEntry[]): readonly string[] {
+  const byCategory = new Map<string, AtlasPublicEntry[]>()
 
   for (const entry of entries) {
     const held = byCategory.get(entry.category)
@@ -397,7 +411,7 @@ function shelves(entries: readonly AtlasEntry[]): readonly string[] {
   )
 }
 
-function indexRow(entry: AtlasEntry): string {
+function indexRow(entry: AtlasPublicEntry): string {
   return (
     `<li><a href="${escape(entry.path)}">${escape(entry.title)}</a>` +
     indexStatusMark(entry.status) +
@@ -416,7 +430,7 @@ function indexRow(entry: AtlasEntry): string {
  * provider nobody has walked will find out otherwise at the worst moment.
  */
 function operatorLine(entry: {
-  readonly operatorNeed: AtlasEntry['operatorNeed']
+  readonly operatorNeed: AtlasPublicEntry['operatorNeed']
   readonly operatorNeedIsGuess: boolean
 }): string {
   const said = {
@@ -454,7 +468,13 @@ export function atlasEntryPage(input: {
    */
   readonly briefings?: ReadonlyMap<string, ProviderBriefing> | undefined
 }): string {
-  const { entry } = input
+  /**
+   * **The projection, on the first line and not at the caller** (`#1100`).
+   * Every helper below takes {@link AtlasPublicEntry}, so a step cannot reach
+   * this page by anybody forgetting anything: there is nowhere left to forget
+   * it.
+   */
+  const entry = atlasPublicEntry(input.entry)
   const briefings = input.briefings ?? new Map<string, ProviderBriefing>()
 
   const site = siteOf(input.canonical)
@@ -489,12 +509,17 @@ export function atlasEntryPage(input: {
      */
     robots: atlasIsWalked(entry) ? undefined : 'noindex, follow',
     /**
-     * **The breadcrumb on every state and the `HowTo` only where there are
-     * steps** (`#789`). A refused or unwritten entry is still a place in the map
-     * and still worth a trail; it is not a set of instructions, and an empty
-     * `HowTo` would be the catalogue pretending.
+     * **The breadcrumb, and no `HowTo`** (`#789`, narrowed by `#1100`).
+     *
+     * A `HowTo` is a list of step names and step text, and `#1100` decided the
+     * steps are what citizenship buys — so the block that made this page
+     * eligible for a how-to rich result was the recipe, published in JSON,
+     * beside a page that no longer prints it. **That eligibility is a real
+     * loss** and it is the price of the rule rather than an oversight: what the
+     * page offers a searcher instead is the criteria and the findings extract,
+     * which is what `#1100` decided the public half is.
      */
-    jsonLd: [breadcrumbFor(entry, site), ...howToFor(entry)],
+    jsonLd: [breadcrumbFor(entry, site)],
     /**
      * **The order is `kolonie-website#97`'s list of what a reader must be able
      * to answer without scrolling**, in that order, and it is the order rather
@@ -569,7 +594,7 @@ export function atlasEntryPage(input: {
  * and a hand-curated name would be a second copy of the provider free to
  * disagree with it. `recipeHeading` took the same decision in `#791`.
  */
-function providerName(entry: AtlasEntry): string {
+function providerName(entry: AtlasPublicEntry): string {
   return entry.provider
 }
 
@@ -592,7 +617,7 @@ function lowerFirst(phrase: string): string {
  * about them, claims no endorsement, and {@link NOT_A_PROMISE} says so on the
  * page itself.
  */
-function entryTitle(entry: AtlasEntry): string {
+function entryTitle(entry: AtlasPublicEntry): string {
   const name = providerName(entry)
 
   if (entry.status === 'refused') return `${name}: why an agent cannot join it`
@@ -639,7 +664,7 @@ const PROOF_PHRASES: Readonly<Record<string, string>> = {
  * rather than fudged where the value is not on the row — an entry with no
  * confirmed walk says nothing about dates instead of printing today's.
  */
-function entryDescription(entry: AtlasEntry): string {
+function entryDescription(entry: AtlasPublicEntry): string {
   const name = providerName(entry)
 
   if (entry.status === 'refused') {
@@ -664,11 +689,8 @@ function entryDescription(entry: AtlasEntry): string {
   }
 
   const joinable = entry.recipes.filter((recipe) => recipe.status === 'joinable')
-  const steps = joinable.reduce((sum, one) => sum + one.steps.length, 0)
-  const byHand = joinable.reduce(
-    (sum, one) => sum + one.steps.filter((step) => step.actor === 'operator').length,
-    0,
-  )
+  const steps = joinable.reduce((sum, one) => sum + one.stepCount, 0)
+  const byHand = joinable.reduce((sum, one) => sum + one.operatorStepCount, 0)
   const proves = [...new Set(joinable.map((one) => one.proves).filter((one) => one !== null))]
   const walked = lastConfirmed(entry)
 
@@ -690,7 +712,7 @@ function entryDescription(entry: AtlasEntry): string {
 }
 
 /** The most recent walk across an entry's rows, which is what a reader wants dated. */
-function lastConfirmed(entry: AtlasEntry): string | undefined {
+function lastConfirmed(entry: AtlasPublicEntry): string | undefined {
   return entry.recipes
     .map((recipe) => recipe.lastConfirmedAt)
     .filter((at): at is string => at !== null)
@@ -718,7 +740,7 @@ function lastConfirmed(entry: AtlasEntry): string | undefined {
  * The rule the two retired branches existed for still holds: a state with no
  * branch here renders as a working recipe, which is the catalogue pretending.
  */
-function indexStatusMark(status: AtlasEntry['status']): string {
+function indexStatusMark(status: AtlasPublicEntry['status']): string {
   if (status === 'refused') return ' <span class="k-refused">cannot be joined</span>'
   if (status === 'retired') return ' <span class="k-refused">withdrawn</span>'
   if (status === 'unwritten') return ' <span class="k-unwritten">nobody has looked yet</span>'
@@ -741,7 +763,7 @@ function indexStatusMark(status: AtlasEntry['status']): string {
  * and *A mailbox, A domain* is the capitalisation of a title rather than of a
  * sentence. Touching only the first character leaves *an API account* alone.
  */
-function kindsShown(entry: AtlasEntry): string {
+function kindsShown(entry: AtlasPublicEntry): string {
   return entry.recipes.map((recipe) => lowerFirst(atlasKindPhrase(recipe.kind))).join(', ')
 }
 
@@ -754,7 +776,7 @@ function kindsShown(entry: AtlasEntry): string {
  * needs. Everywhere else the kind's own phrase is the answer, and an unknown
  * kind falls through to its slug rather than to nothing.
  */
-function recipeHeading(recipe: AtlasEntry['recipes'][number]): string {
+function recipeHeading(recipe: AtlasPublicEntry['recipes'][number]): string {
   const label = recipe.provider.split('.')[0]
 
   return recipe.kind === label ? `An account at ${recipe.provider}` : atlasKindPhrase(recipe.kind)
@@ -762,7 +784,7 @@ function recipeHeading(recipe: AtlasEntry['recipes'][number]): string {
 
 /** One row of the catalogue, as a section of its provider's page. */
 function recipeSection(
-  recipe: AtlasEntry['recipes'][number],
+  recipe: AtlasPublicEntry['recipes'][number],
   /**
    * What the Colony wrote up about this row's walks, if it has (`#831`).
    *
@@ -794,7 +816,8 @@ function recipeSection(
       `<section><h2>${escape(recipeHeading(recipe))}</h2>`,
       '<p class="k-refused">This cannot be joined honestly, so do not try.</p>',
       `<p>${escape(recipe.refusal ?? '')}</p>`,
-      figuresSection(recipe.figures, recipe.steps.length),
+      wallsSection(recipe),
+      figuresSection(recipe.figures, recipe.stepCount),
       briefingSection(briefing),
       '</section>',
     ].join('')
@@ -816,14 +839,18 @@ function recipeSection(
   }
 
   /**
-   * **A withdrawn row keeps its page and keeps its steps** (`#604`).
+   * **A withdrawn row keeps its page and says what the path was** (`#604`).
    *
-   * The steps are rendered below by the ordinary path, under a heading that says
-   * what they now are. That is the whole argument for `retired` existing rather
-   * than the row being deleted: a reader arriving from an old link learns what
-   * the path was, when it closed and why, instead of meeting a 404 that teaches
-   * them nothing. `growth/README.md`'s rule — *a refusal is a page, not an
-   * omission* — is the same rule one state along.
+   * That is the whole argument for `retired` existing rather than the row being
+   * deleted: a reader arriving from an old link learns what the path was, when
+   * it closed and why, instead of meeting a 404 that teaches them nothing.
+   * `growth/README.md`'s rule — *a refusal is a page, not an omission* — is the
+   * same rule one state along.
+   *
+   * **What it no longer prints is the steps** (`#1100`). A closed path is still
+   * a path, and the rule is about the page rather than about how useful the
+   * instructions still are; `kolonie.accounts.recipes` keeps them, as it keeps
+   * every other row's.
    */
   if (recipe.status === 'retired') {
     return [
@@ -832,56 +859,131 @@ function recipeSection(
         (recipe.retiredAt === null ? '' : ` on ${escape(recipe.retiredAt.slice(0, 10))}`) +
         `.</strong> ${escape(recipe.retiredReason ?? '')}</p>`,
       `<p class="k-unwritten">${escape(RETIRED_ENTRY_NOTE)}</p>`,
-      recipe.steps.length === 0
-        ? ''
-        : '<h3>What the path was</h3><ol>' +
-          recipe.steps.map((step) => `<li>${escape(stepInstruction(step))}</li>`).join('') +
-          '</ol>',
+      recipe.stepCount === 0 ? '' : `<h3>What the path was</h3>${pathShape(recipe)}`,
       '</section>',
     ].join('')
   }
-
-  const steps = recipe.steps
-    .map((step) => {
-      const who = step.actor === 'operator' ? '<strong>Your operator, not you.</strong> ' : ''
-      const ask =
-        step.ask === undefined
-          ? ''
-          : `<br><small>Asked of the operator: “${escape(step.ask)}”` +
-            (step.secret === true ? ' — through a sealed drop, never a conversation.' : '') +
-            '</small>'
-
-      return `<li>${who}${escape(stepInstruction(step))}${ask}</li>`
-    })
-    .join('')
-
-  /**
-   * **The page says the account is a means** (`#637`), where it is one.
-   *
-   * `start` continues the numbering rather than restarting it, for the reason
-   * the briefing does: one sequence, and the positions are what a walk reports.
-   */
-  const reach =
-    recipe.reaches === null
-      ? ''
-      : `<h3>${escape(atlasCapabilityPhrase(recipe.reaches.capability))}, and how to get it</h3>` +
-        `<p><small>Optional, and the account is not what you came for.</small></p>` +
-        `<ol start="${recipe.steps.length + 1}">` +
-        recipe.reaches.steps.map((step) => `<li>${escape(stepInstruction(step))}</li>`).join('') +
-        '</ol>'
 
   return [
     `<section><h2>${escape(recipeHeading(recipe))}</h2>`,
     `<p><small>${escape(operatorLine(recipe))}</small></p>`,
     staleNote(recipe),
-    `<ol>${steps}</ol>`,
+    `<h3>What it takes</h3>`,
+    pathShape(recipe),
+    conditionsSection(recipe),
     `<p>${escape(provesLine(recipe.proves))}</p>`,
-    reach,
-    figuresSection(recipe.figures, recipe.steps.length),
+    wallsSection(recipe),
+    figuresSection(recipe.figures, recipe.stepCount),
     briefingSection(briefing),
     cautionParagraphs(recipe.cautions),
     '</section>',
   ].join('')
+}
+
+/**
+ * How long the path is and what it asks of you, without being the path
+ * (`#1100`).
+ *
+ * **The counts are the extract.** *Five steps, one of them an operator's, two
+ * things to have in hand and three checks afterwards* answers what a reader
+ * standing outside the Colony is actually deciding — is this an afternoon or ten
+ * minutes, will I need a person, can I start today — and answers it without
+ * printing a single instruction. The instructions are what a citizen gets.
+ *
+ * **Tense-neutral, because a withdrawn row prints this too.** *One of them an
+ * operator's* is true of a path that is open and of one that closed in March;
+ * *needs a human* is not.
+ */
+function pathShape(recipe: AtlasPublicRecipe): string {
+  const plural = (count: number, one: string, many: string): string =>
+    `${count} ${count === 1 ? one : many}`
+
+  const lines = [
+    `${plural(recipe.stepCount, 'step', 'steps')}, ` +
+      (recipe.operatorStepCount === 0
+        ? 'none of them an operator’s'
+        : `${recipe.operatorStepCount} of them an operator’s`) +
+      '.',
+    recipe.prerequisiteCount === 0
+      ? ''
+      : `${plural(recipe.prerequisiteCount, 'thing', 'things')} to have in hand before the first ` +
+        'one.',
+    recipe.verificationCount === 0
+      ? ''
+      : `${plural(recipe.verificationCount, 'check', 'checks')} that ` +
+        `${recipe.verificationCount === 1 ? 'tells' : 'tell'} you the account is ` +
+        'really there afterwards.',
+    /**
+     * **The page still says the account is a means** (`#637`), where it is one —
+     * what it no longer says is how to get there.
+     */
+    recipe.reaches === null
+      ? ''
+      : `${lowerFirst(atlasCapabilityPhrase(recipe.reaches.capability))} is ` +
+        `${plural(recipe.reaches.stepCount, 'step', 'steps')} further, and optional.`,
+  ].filter((line) => line !== '')
+
+  return `<ul class="k-atlas-shape">${lines.map((line) => `<li>${escape(line)}</li>`).join('')}</ul>`
+}
+
+/**
+ * The three conditions, which were on the MCP side only until `#1100`.
+ *
+ * What it costs, what has to be in hand and what the provider's terms say about
+ * an agent holding an account are exactly the criteria half of *the criteria
+ * plus a findings extract* — a reader deciding whether to spend an afternoon on
+ * a provider needs them before anything else, and the public page did not have
+ * them. {@link atlasConditionsSentences} owns the pairing rule, including the
+ * one about an entry nobody asked, and renders nothing where nobody did.
+ */
+function conditionsSection(recipe: AtlasPublicRecipe): string {
+  const sentences = atlasConditionsSentences(recipe)
+
+  if (sentences.length === 0) return ''
+
+  return `<p><strong>Before you start:</strong> ${escape(sentences.join(' '))}</p>`
+}
+
+/**
+ * What stopped walkers, by kind and by count (`#1100`).
+ *
+ * **The typed half publishes and the prose does not**, which is not a new line
+ * drawn here: `PublishedWall`'s own note draws it — *a kind, a count, a boolean
+ * and a number cannot leak a credential or carry a grudge; prose can* — and the
+ * walker's `title`, `symptom` and `remedy` never left the projection. What a
+ * page reader gets is the sentence the Colony wrote for each kind, how many
+ * walks hit it, and what it costs where that is a number.
+ *
+ * The count can honestly be zero: the entries classified from their own refusal
+ * prose rather than by anybody walking them say `0`, and a page printing *0
+ * walks* over a wall would be reading a backfill as a measurement.
+ */
+function wallsSection(recipe: AtlasPublicRecipe): string {
+  if (recipe.walls.length === 0) return ''
+
+  const items = recipe.walls.map((wall) => {
+    const scope =
+      wall.direction === null || wall.direction === undefined
+        ? ''
+        : wall.direction === 'both'
+          ? ' (sending and receiving)'
+          : wall.direction === 'inbound'
+            ? ' (receiving)'
+            : ' (sending)'
+    const cost = wall.amountUsd === undefined ? '' : ` About $${wall.amountUsd}.`
+    const takes =
+      wall.accepts === undefined || wall.accepts.length === 0
+        ? ''
+        : ` Takes ${[...wall.accepts].sort().join(', ')}.`
+    const walks =
+      wall.reportedBy === 0
+        ? ' Classified from the refusal rather than from a walk.'
+        : ` Hit by ${wall.reportedBy} walk${wall.reportedBy === 1 ? '' : 's'}.`
+
+    return `<li>${escape(WALL_KIND_MEANINGS[wall.kind] + scope + '.' + walks + cost + takes)}</li>`
+  })
+
+  return `<h3>What stopped people</h3><ul>${items.join('')}</ul>`
 }
 
 /**
@@ -893,7 +995,7 @@ function recipeSection(
  * one they contradict each other. Unscoped cautions carry no label — they answer
  * every reader, and most of the Atlas has no axis to label.
  */
-function cautionParagraphs(cautions: AtlasEntry['recipes'][number]['cautions']): string {
+function cautionParagraphs(cautions: AtlasPublicEntry['recipes'][number]['cautions']): string {
   return cautions
     .map((one) => {
       const scope =
@@ -910,7 +1012,7 @@ function cautionParagraphs(cautions: AtlasEntry['recipes'][number]['cautions']):
     .join('')
 }
 
-function provesLine(proves: AtlasEntry['recipes'][number]['proves']): string {
+function provesLine(proves: AtlasPublicEntry['recipes'][number]['proves']): string {
   if (proves === 'rung') return 'An Academy rung proves this account once it exists.'
   if (proves === null) return ''
 
@@ -929,7 +1031,7 @@ const ATLAS_ORDER_NOTE =
   'for, it says so on its own page.'
 
 /** The one figure the index has room for: how many got through. */
-function indexFigure(entry: AtlasEntry): string {
+function indexFigure(entry: AtlasPublicEntry): string {
   const attempted = entry.recipes.reduce((sum, one) => sum + one.figures.attempted, 0)
   const proved = entry.recipes.reduce((sum, one) => sum + one.figures.proved, 0)
 
@@ -1183,7 +1285,7 @@ function sponsorSection(quests: readonly SponsoringQuest[]): string {
  * paragraph. Absent on an entry nobody has written it for, which is an ordinary
  * state rather than a gap to apologise for.
  */
-function aboutSection(entry: AtlasEntry): string {
+function aboutSection(entry: AtlasPublicEntry): string {
   const about = entry.recipes.map((recipe) => recipe.about).find((one) => one !== null)
 
   return about === undefined || about === null ? '' : `<p class="k-about">${escape(about)}</p>`
@@ -1196,7 +1298,7 @@ function aboutSection(entry: AtlasEntry): string {
  * rule: a disclosure a reader reaches after deciding is not a disclosure. It
  * appears on the index beside the entry for the same reason.
  */
-function paidMarker(entry: AtlasEntry): string {
+function paidMarker(entry: AtlasPublicEntry): string {
   if (!entry.recipes.some((recipe) => recipe.paid)) return ''
 
   return (
@@ -1216,7 +1318,7 @@ function paidMarker(entry: AtlasEntry): string {
  * and is better, and this is it: the differences named where they exist, and
  * nothing rendered where they do not.
  */
-function runtimesSection(entry: AtlasEntry): string {
+function runtimesSection(entry: AtlasPublicEntry): string {
   const notes = entry.recipes.flatMap((recipe) =>
     recipe.runtimes.map((note) => ({ kind: recipe.kind, ...note })),
   )
@@ -1282,13 +1384,20 @@ const NOT_A_PROMISE =
  * a mailbox and refused for a domain has something to walk, and the block
  * follows the walkable row rather than a decision somebody typed.
  */
-function membershipSection(entry: AtlasEntry): string {
+function membershipSection(entry: AtlasPublicEntry): string {
   const statuses = entry.recipes.map((recipe) => recipe.status)
 
   if (statuses.includes('joinable')) {
     return [
       '<h2>Getting the tools this page names</h2>',
-      `<p>The steps above call <code>kolonie.vault.set</code>, ` +
+      /**
+       * **One phrase, and the rest of the copy byte-identical** (`#1100`
+       * decision 7). *The steps above* had a referent on this page and no longer
+       * does; *the steps behind this page* has the same one it always had, and
+       * the sentence keeps making the argument it was written to make. Nothing
+       * else about the invitation is rewritten here.
+       */
+      `<p>The steps behind this page call <code>kolonie.vault.set</code>, ` +
         `<code>kolonie.accounts.prove</code> and ` +
         `<code>kolonie.accounts.provider-report</code>. They are Colony tools, and an agent ` +
         `that has not registered cannot make one of them: the vault is where the password you ` +
@@ -1328,7 +1437,7 @@ function membershipSection(entry: AtlasEntry): string {
  * every disclosure rule exists about — and this one sits directly under the
  * paid marker that says what paying does not buy.
  */
-function counterpartySection(entry: AtlasEntry): string {
+function counterpartySection(entry: AtlasPublicEntry): string {
   const contact = entry.recipes.map((recipe) => recipe.contact).find((one) => one !== null)
   const referral = entry.recipes.map((recipe) => recipe.referral).find((one) => one != null)
 
@@ -1356,7 +1465,7 @@ function counterpartySection(entry: AtlasEntry): string {
  * *wrong*: the recipe may still work, and a reader treating staleness as a
  * refusal would skip providers that are perfectly joinable.
  */
-function staleNote(recipe: AtlasEntry['recipes'][number]): string {
+function staleNote(recipe: AtlasPublicEntry['recipes'][number]): string {
   if (recipe.status !== 'joinable' || !isStale(recipe.lastConfirmedAt)) return ''
 
   return `<p class="k-stale"><strong>Unconfirmed.</strong> ${escape(STALE_ENTRY_NOTE)}</p>`
@@ -1381,7 +1490,7 @@ function staleNote(recipe: AtlasEntry['recipes'][number]): string {
  * Never dated to a `null`: the entry says *nobody has confirmed this at all*,
  * which is a different sentence from a date and is the honest one.
  */
-function confirmedLine(entry: AtlasEntry): string {
+function confirmedLine(entry: AtlasPublicEntry): string {
   const walked = lastConfirmed(entry)
 
   if (walked === undefined) {

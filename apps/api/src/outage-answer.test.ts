@@ -124,13 +124,44 @@ describe('a store that was not there', () => {
   })
 
   /**
-   * **The line is still written, and unchanged.** `#1086` asked for exactly this
-   * and said why: the event is still ours and still worth a line, and only what
-   * the caller is told changes. Its `status` field is the thrown fault's own
-   * status rather than the one sent, which is what *unchanged* means here.
+   * **The line is still written, and it now says what was sent** (`#1130`).
+   *
+   * `#1086` asked for the line to stay and said why: the event is still ours and
+   * still worth a line. It stayed, and it kept logging `status: 500` for a
+   * response that went out as 503 — the thrown fault's status rather than the
+   * mapped one. On 2026-08-16 the detector read exactly that line for a
+   * `CONNECTION_ENDED` on `GET /v1/agents/me` and filed `#1130`, a returning
+   * internal server error, for a request that had been answered correctly.
+   *
+   * So the level stays where `#1086` put it — the detector reads `level="error"`
+   * only, and a sustained outage must not go unwatched — and what changes is the
+   * two fields that were untrue: the status, and the event that keyed it to a
+   * defect.
    */
-  it('logs the failure exactly as it did before', async () => {
+  it('logs the outage as its own event, at the status it sent', async () => {
     const { app, log } = throwing(asDrizzleWraps('ECONNREFUSED'))
+    await app.ready()
+
+    await app.inject({ method: 'GET', url: '/v1/citizens/Canary' })
+
+    const line = log.lines().find((one) => one.fields['event'] === 'request.unavailable')
+    expect(line?.level).toBe('error')
+    expect(line?.fields['route']).toBe('/v1/citizens/:name')
+    expect(line?.fields['status']).toBe(503)
+    expect(log.lines().some((one) => one.fields['event'] === 'request.failed')).toBe(false)
+
+    await app.close()
+  })
+
+  /**
+   * **The half that matters**, and the same argument the negative assertion
+   * above makes about the response. A defect of ours has to keep filing as one:
+   * an outage event that swallowed real 500s would leave the Colony's own
+   * failures unwatched, which is a worse trade than the false alarm `#1130`
+   * fixed.
+   */
+  it('leaves a defect of ours logging request.failed at 500', async () => {
+    const { app, log } = throwing(new Error('the code is wrong'))
     await app.ready()
 
     await app.inject({ method: 'GET', url: '/v1/citizens/Canary' })

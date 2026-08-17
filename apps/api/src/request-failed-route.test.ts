@@ -8,7 +8,9 @@ import { recordingLog } from './__fixtures__/console.js'
  *
  * The detector keys a defect on `<service>/<event>` and this API logs one event
  * — `request.failed` — for every endpoint it has, so without a third field every
- * 500 anywhere in the API is one signature. `#896`, a failed query on
+ * 500 anywhere in the API is one signature. (`#1130` split off one sibling,
+ * `request.unavailable`, for the store being briefly absent; every defect of
+ * ours still shares this one.) `#896`, a failed query on
  * `GET /v1/agents/me`, was filed as a *regression* of `#764`, a payout balance
  * check answering 522, because the two lines are indistinguishable to it. Worse
  * than the mislabel is the dedupe: while either is open, a genuinely new

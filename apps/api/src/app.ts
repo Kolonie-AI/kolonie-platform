@@ -879,6 +879,8 @@ export function buildApp({
             // a connection string. The request id correlates it with the logs.
             { code: 'internal', message: 'Internal error.' }
 
+    const sent = ERROR_STATUS[error.code]
+
     // And now there is a log for it to correlate with (`#230`). Only the 5xx
     // half: a malformed request is the caller's mistake and is answered, not
     // reported, and logging it would drown the failures that are ours in
@@ -893,18 +895,40 @@ export function buildApp({
     // it carries the id the caller sent and would make one defect a new
     // signature per citizen. `routeKeyOf` is the same one-line answer `#835`
     // needed for the call rollup, and it is deliberately the same one.
-    if (status >= 500) {
+    //
+    /**
+     * **The line reports the answer that went out, and an outage is its own
+     * event** (`#1130`).
+     *
+     * `#1086` said the line stays and only what the caller is told changes, and
+     * both halves of that survive here: it is still written, still at `error`,
+     * still carrying every field it carried. What it stopped doing is
+     * contradicting the response. A `CONNECTION_ENDED` on `GET /v1/agents/me`
+     * was answered 503 correctly on 2026-08-16 and logged `status: 500` under
+     * `request.failed`, because the status logged was the thrown fault's and the
+     * status sent was the mapped one. The detector read the line, not the
+     * response, and filed a two-second restart as a returning 500 — `#1130`
+     * against `#1069`, the same signature the remapping was supposed to retire.
+     *
+     * So a recognised outage gets `request.unavailable`, which is a signature of
+     * its own: a blink files as a blink and stops looking like a regression of a
+     * defect. **The level does not move.** The detector reads `level="error"`
+     * only and files with no minimum count, so demoting this to `warn` would buy
+     * a quiet inbox at the price of a sustained outage nobody is told about —
+     * and a sustained outage is the case worth waking somebody for.
+     */
+    if (sent >= 500) {
       log.error(`${request.method} ${request.url} failed`, caught, {
-        event: 'request.failed',
+        event: error.code === 'temporarily_unavailable' ? 'request.unavailable' : 'request.failed',
         requestId: request.id,
         method: request.method,
         route: routeKeyOf(request),
         url: request.url,
-        status,
+        status: sent,
       })
     }
 
-    return reply.status(ERROR_STATUS[error.code]).send(error)
+    return reply.status(sent).send(error)
   })
 
   return app

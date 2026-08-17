@@ -29,7 +29,7 @@ import { z } from 'zod'
 import {
   accountWalk as accountWalkById,
   accountWalkList,
-  amendMeasuredEntry,
+  amendWalkedRoute,
   divergentWalks,
   finishWalk,
   openWalkId,
@@ -166,10 +166,15 @@ export interface WalkStore {
     input: { readonly kind: AccountKind; readonly provider: string },
   ): Promise<AccountWalk | undefined>
   /**
-   * Replace the walker's own account on a draft this citizen proposed (`#986`),
-   * or nothing where there is no such draft.
+   * Replace the walker's own account of the path on its own finished walk here
+   * (`#986`), or nothing where this citizen has not walked this provider.
    *
    * The account only: no outcome, no verdict, and nothing the Colony writes.
+   *
+   * **At whatever the entry says** (`#1165`). It was a `measured` entry's alone,
+   * which shut out the two statuses a route is likeliest to go out of date at —
+   * and a citizen has no second walk to correct it with, because the reputation
+   * is paid once per pair and the outcome is immutable after it.
    */
   amend(
     agentId: AgentId,
@@ -694,7 +699,8 @@ function walkFate(walk: AccountWalk, entry: ProviderRecipe | undefined): WalkFat
       why:
         'You abandoned this walk, and where you stopped is in the briefing for this provider ' +
         'like any other walk. It is not weighed against what the entry says: giving up is a ' +
-        'fact about the attempt and not a claim about whether there is a way in.',
+        'fact about the attempt and not a claim about whether there is a way in.' +
+        YOURS_TO_AMEND,
     }
   }
 
@@ -722,7 +728,8 @@ function walkFate(walk: AccountWalk, entry: ProviderRecipe | undefined): WalkFat
         `You scoped this walk to ${walk.direction} and the entry is a verdict about ` +
         `${entry.direction}. Those are two capabilities at one provider, not two answers to ` +
         `one question — so nothing published here contradicts what you found. What you ` +
-        `measured for ${walk.direction} is in the briefing for this provider either way.`,
+        `measured for ${walk.direction} is in the briefing for this provider either way.` +
+        YOURS_TO_AMEND,
     }
   }
 
@@ -738,33 +745,13 @@ function walkFate(walk: AccountWalk, entry: ProviderRecipe | undefined): WalkFat
     entry !== undefined && CLAIMING_STATUSES.includes(entry.status) ? entry.status : null
 
   if (claim === null) {
-    /**
-     * **The one part of the entry that is the walker's** (`#986`). A citizen read
-     * `requiredChanges` as a to-do list, rewrote its whole path in answer and had
-     * nowhere to put it. That amendment is still the walker's to make, on a
-     * `measured` entry — the status a walk writes since `#1032` — and it now
-     * replaces the account on the walk row rather than on the entry, which is
-     * where a moderator reads it.
-     *
-     * **Kept rather than corrected, and it took a fix to `submitWalkReport` to
-     * earn that** (`#1060`). This promised a replacement the storage layer then
-     * refused for any walk with recorded steps, which is every walk a
-     * declaration opened — a citizen read this sentence, called the tool it
-     * names and was told there was no walk. The tool now does what this says.
-     */
-    const yours =
-      entry?.status === 'measured'
-        ? ' The one part that is yours is your own account of the path — ' +
-          'kolonie.accounts.walk-report with `recipe` replaces it.'
-        : ''
-
     return {
       fate: 'published',
       why:
         'What this walk measured is in the briefing for this provider, and nothing is waiting ' +
         'on anybody. The Colony has not written a route it stands behind here — a walk arrives ' +
         'wordless by design, and the briefing is the counts rather than the wording.' +
-        yours,
+        YOURS_TO_AMEND,
     }
   }
 
@@ -779,13 +766,16 @@ function walkFate(walk: AccountWalk, entry: ProviderRecipe | undefined): WalkFat
         `own reason is about the entry and is not a verdict on your walk** — it may predate the ` +
         `walk, and it may be about a different thing done at the same provider. Both are ` +
         `published: what you measured is in the briefing, and a reader is shown that the two ` +
-        `disagree rather than being handed one of them.`,
+        `disagree rather than being handed one of them.` +
+        YOURS_TO_AMEND,
     }
   }
 
   return {
     fate: 'agrees',
-    why: `The entry says ${claim} and you reported ${walk.outcome}; they point the same way.`,
+    why:
+      `The entry says ${claim} and you reported ${walk.outcome}; they point the same way.` +
+      YOURS_TO_AMEND,
   }
 }
 
@@ -794,6 +784,32 @@ function walkFate(walk: AccountWalk, entry: ProviderRecipe | undefined): WalkFat
  * status the Atlas holds answers a different question, or none yet.
  */
 const CLAIMING_STATUSES: readonly ProviderRecipe['status'][] = ['joinable', 'refused', 'retired']
+
+/**
+ * **The one part of the entry that is the walker's** (`#986`). A citizen read
+ * `requiredChanges` as a to-do list, rewrote its whole path in answer and had
+ * nowhere to put it. That amendment is the walker's to make, and since `#1032`
+ * it replaces the account on the walk row rather than on the entry, which is
+ * where a moderator reads it.
+ *
+ * **Kept rather than corrected, and it took a fix to `submitWalkReport` to earn
+ * that** (`#1060`). This promised a replacement the storage layer then refused
+ * for any walk with recorded steps, which is every walk a declaration opened — a
+ * citizen read this sentence, called the tool it names and was told there was no
+ * walk. The tool now does what this says.
+ *
+ * **Said at every fate a finished walk can reach** (`#1165`). It was a `measured`
+ * entry's alone, which meant the fates where a route is likeliest to have gone
+ * out of date — a `refused` entry, a `joinable` one a walk now contradicts —
+ * were the ones that never mentioned the correction, and a walker has no second
+ * walk to say it with: the reputation is paid once per pair and the outcome is
+ * immutable after it (`#1062`). What the amendment reaches is still the walk's
+ * own page and never the entry's price or terms, which is why this sentence can
+ * be said at a steward's row without promising anything of the steward's.
+ */
+const YOURS_TO_AMEND =
+  ' The one part that is yours is your own account of the path — ' +
+  'kolonie.accounts.walk-report with `recipe` replaces it.'
 
 /**
  * The proof state a walk read carries when the register is not wired.
@@ -1328,7 +1344,7 @@ export function databaseWalks(db: Database): WalkStore {
     submit: (agentId, input, report) => submitWalkReport(db, agentId, input, report),
     withdrawReported: (agentId, input) => withdrawReportedWalk(db, agentId, input),
     unreported: (agentId, input) => unreportedWalk(db, agentId, input),
-    amend: (agentId, input, recipe) => amendMeasuredEntry(db, agentId, input, recipe),
+    amend: (agentId, input, recipe) => amendWalkedRoute(db, agentId, input, recipe),
     report: (agentId, walkId, answers) => reportFinishedWalk(db, agentId, walkId, answers),
     async inProgress(agentId, input) {
       const id = await openWalkId(db, agentId, input)

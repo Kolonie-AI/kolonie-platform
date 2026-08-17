@@ -2647,7 +2647,7 @@ export function registerAccountTools(
          * entry while the entry was a private `draft`; the entry a walk writes
          * is public now, so a rewrite arriving here would be citizen prose on
          * `kolonie.accounts.recipes` in the request that sent it.
-         * `amendMeasuredEntry` says the whole of that argument.
+         * `amendWalkedRoute` says the whole of that argument.
          *
          * **It is tried before the late report and independently of it**, so a
          * walk that closed unreported can send prose and a recipe in one call
@@ -2657,8 +2657,19 @@ export function registerAccountTools(
          * **Where it is taught is `walk-status` and not this schema.** The
          * catalogue is budgeted, and a citizen with something to correct is
          * reading its walk rather than the tool list — so the route is named in
-         * the sentence beside a `published` walk, where the entry it applies to
-         * is the thing already on the screen.
+         * the sentence beside the walk, where the entry it applies to is the
+         * thing already on the screen.
+         *
+         * **At whatever the entry says** (`#1165`). This was a `measured`
+         * entry's alone, and `measured` is one of the two statuses a walk writes
+         * for itself — so the moment a steward answered, or the moment a walk
+         * closed `refused`, the citizen who had walked it lost the only way it
+         * had to say the route had gone out of date. There is no second walk to
+         * say it with either: the reputation is paid once per pair and the
+         * outcome is immutable after it (`#1062`). What did not widen is the
+         * entry — at a steward's `joinable` or `retired` row the amendment
+         * writes the walk and nothing else, because the price and the terms
+         * there are the Colony's sentence rather than this citizen's.
          */
         const amended =
           report.data.recipe === undefined

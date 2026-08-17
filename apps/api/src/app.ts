@@ -99,6 +99,7 @@ import { decodeProfilePath } from './profile-url.js'
 import { authenticate } from './authentication.js'
 import { registerOpenApiRoute } from './routes/openapi.js'
 import type { RegisteredRoute } from './openapi/document.js'
+import { nearestRouteHint } from './not-found-hint.js'
 import { rateLimited } from './registration.js'
 import { throttling } from './throttle-gate.js'
 import { noEarnings } from './payouts.js'
@@ -792,10 +793,24 @@ export function buildApp({
       return reply.status(405).header('allow', MCP_PROBE_ALLOW).send(probe)
     }
 
+    /**
+     * What the router would nearly have matched, where anything did (`#1129`).
+     *
+     * The two sentences below are the same for every miss, which is what made
+     * them useless to the citizen in `kolonie-docs#425`: they name the prefix
+     * the caller was already inside. `nearestRouteHint` asks the collected
+     * route table — the one `/openapi.json` is generated from, so there is no
+     * second list to go stale — and it is public by construction: every
+     * comparison it makes is against `:param` positions, which match any
+     * segment, so it can name a pattern and can never confirm a value.
+     */
+    const hint = nearestRouteHint(request.method, request.url, registeredRoutes)
+
     const error: ApiError = {
       code: 'not_found',
       message:
         `No route for ${request.method} ${request.url}. ` +
+        (hint === undefined ? '' : `${hint} `) +
         `The REST API lives under ${API_BASE_PATH}/; ` +
         `the MCP surface answers POST at ${MCP_PATH} and ${MCP_ALIAS_PATH}.`,
     }

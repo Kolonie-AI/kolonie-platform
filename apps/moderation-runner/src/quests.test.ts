@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { MODERATION_STAGE_NOT_RUN, type TaskId } from '@kolonie-ai/core'
 import type { HeldQuest, PendingQuest } from '@kolonie-ai/db'
 import type { Model } from './llm.js'
-import type { IssueOpener } from './tripwire.js'
+import { fakeIssues } from './__fixtures__/issues.js'
 import {
   HELD_QUEST_ALERT_HOURS,
+  heldQuestMarker,
   heldQuestTick,
   judgeQuest,
   questTick,
@@ -40,16 +41,17 @@ const sweptAfter = (hours: number): string =>
   new Date(Date.parse(HELD_SINCE) + hours * 3_600_000).toISOString()
 
 /** An opener that records rather than posts. */
-const filing = (alreadyOpen = false) => {
-  const opened: { title: string; body: string }[] = []
-  const issues: IssueOpener = {
-    isOpen: async () => alreadyOpen,
-    open: async (input) => {
-      opened.push(input)
-      return 'https://github.com/Kolonie-AI/kolonie-platform/issues/1'
-    },
+const filing = (already?: 'open' | 'closed') => {
+  const issues = fakeIssues()
+
+  if (already !== undefined) {
+    issues.existing({
+      body: `${heldQuestMarker(aHeldQuest().id)}\nFiled by an earlier sweep.`,
+      state: already,
+    })
   }
-  return { issues, opened }
+
+  return { issues, opened: issues.opened }
 }
 
 /**
@@ -538,7 +540,7 @@ describe('a held quest', () => {
     // A runner started before its audit configuration lands holds everything it
     // clears until the configuration does, and an issue per quest in that window
     // is noise about a state that fixes itself.
-    expect(opened).toEqual([])
+    expect(opened()).toEqual([])
     expect(outcome.held).toBe(1)
     expect(outcome.alerted).toBe(0)
   })
@@ -563,11 +565,12 @@ describe('a held quest', () => {
     )
 
     expect(outcome.alerted).toBe(1)
-    // The id in the title is what dedups the next sweep, exactly as the
-    // tripwire's task id does.
-    expect(opened[0]?.title).toContain(held.id)
+    expect(opened()[0]?.title).toContain(held.id)
+    // The marker on the first line is what dedups the next sweep (`#1161`), and
+    // it is what finds the issue again after somebody closes it.
+    expect(opened()[0]?.body.split('\n')[0]).toBe(heldQuestMarker(held.id))
     // And no sponsor text: every value in the body is an id, a count or a time.
-    expect(opened[0]?.body).not.toContain(held.title)
+    expect(opened()[0]?.body).not.toContain(held.title)
   })
 
   it('is not filed twice while an issue about it is open', async () => {
@@ -581,7 +584,7 @@ describe('a held quest', () => {
       }),
     })
     const { model } = answering()
-    const { issues, opened } = filing(true)
+    const { issues, opened } = filing('open')
 
     const outcome = await heldQuestTick(
       { store, model, issues },
@@ -589,8 +592,42 @@ describe('a held quest', () => {
       sweptAfter(HELD_QUEST_ALERT_HOURS * 4),
     )
 
-    expect(opened).toEqual([])
+    expect(opened()).toEqual([])
     expect(outcome.alerted).toBe(0)
+    // **And says nothing, either** (`#1161`). This sweep runs hourly against a
+    // condition that clears when a person acts; a comment each hour is `#231`'s
+    // wallpaper, which is the failure the reopen was never meant to reintroduce.
+    expect(issues.comments()).toEqual([])
+  })
+
+  /**
+   * **A hold that outlived the issue about it** (`#1161`). Somebody closed the
+   * alert, the quest is still held, and the old sweep asked *is anything open*,
+   * heard no, and filed a second one. The marker finds the closed issue, so the
+   * sweep reopens it instead — the condition is standing, not an event.
+   */
+  it('reopens a closed alert while the quest is still held', async () => {
+    const { store } = recording([], {
+      held: [held],
+      publish: async () => ({
+        outcome: 'audit-missing',
+        reason: 'sampling is not enabled',
+        firstHold: false,
+        heldSince: HELD_SINCE,
+      }),
+    })
+    const { model } = answering()
+    const { issues, opened } = filing('closed')
+
+    const outcome = await heldQuestTick(
+      { store, model, issues },
+      10,
+      sweptAfter(HELD_QUEST_ALERT_HOURS * 4),
+    )
+
+    expect(opened()).toEqual([])
+    expect(issues.reopened()).toHaveLength(1)
+    expect(outcome.alerted).toBe(1)
   })
 
   it('survives a retry that throws, and counts it as deferred', async () => {

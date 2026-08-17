@@ -30,6 +30,37 @@ export interface Tripwire {
 }
 
 /**
+ * The marker a finding puts on the first line of its body, so that the next pass
+ * can find the issue it already filed (`#1161`).
+ *
+ * **On the first line and nowhere else**, which is the rule
+ * `apps/support-triage-runner/src/github.ts` learnt the expensive way: `#946` was
+ * written by hand *about* a watcher and quoted a marker inside a code fence, and
+ * the watcher adopted it as its own alarm and rewrote a person's issue twelve
+ * minutes after they filed it. Every finding here emits its marker as line one
+ * and nothing else does, so line one is the question worth asking.
+ *
+ * The slug carries the id for a finding that is one-per-something, because the
+ * lookup has to distinguish two provider changes on two tasks. A finding with
+ * exactly one instance — there are none here yet — would pass a bare name.
+ */
+export function watchMarker(slug: string): string {
+  return `<!-- watch-finding: ${slug} -->`
+}
+
+/** The first line of a body, with the carriage return GitHub sometimes leaves on. */
+export function firstLine(body: string): string {
+  const end = body.indexOf('\n')
+  return (end === -1 ? body : body.slice(0, end)).trim()
+}
+
+/** An issue a finding of this runner's already has, and whether it is still open. */
+export interface WatchedIssue {
+  readonly url: string
+  readonly open: boolean
+}
+
+/**
  * Where an automated finding goes.
  *
  * A seam rather than a GitHub client, for the reason every other outside
@@ -39,14 +70,137 @@ export interface Tripwire {
  */
 export interface IssueOpener {
   /**
-   * Whether an issue about this task is already open.
+   * The issue carrying this marker on its first line, open **or closed**.
    *
-   * **Duplicate issues are not opened while one is still open for the same
-   * task**, which is this issue's own criterion and also the thing an automated
-   * writer gets wrong first.
+   * **Closed is half the point** (`#1161`). Asking only whether something is
+   * open answers *no* the moment a maintainer closes an issue about a condition
+   * that has not gone away, and the next pass files a second copy: `#784` and
+   * `#1047` are that, four days apart with identical bodies, and `#727`/`#867`
+   * are the same shape in the other runner.
+   *
+   * Answers `null` when nothing matches **and when the lookup itself failed** —
+   * the caller cannot tell those apart and should not: see {@link githubIssues}.
    */
-  isOpen(taskId: TaskId): Promise<boolean>
+  find(marker: string): Promise<WatchedIssue | null>
   open(input: { readonly title: string; readonly body: string }): Promise<string | null>
+  /** Say something more on an issue that already exists. */
+  comment(url: string, body: string): Promise<boolean>
+  /** Reopen one that was closed while its condition still held. */
+  reopen(url: string): Promise<boolean>
+}
+
+/**
+ * What kind of thing a finding is, which is what decides whether a closed issue
+ * about it may be reopened.
+ *
+ * **`standing` — the condition holds until somebody changes something.** A quest
+ * held short of publication is held until the audit variables are set; a provider
+ * change is a wall every arriving citizen still walks into. Closing one of these
+ * while it still holds was premature, and the honest response to seeing it again
+ * is to reopen the issue rather than to file a second one.
+ *
+ * **`event` — it happened once.** A steward pulled the lever; a red line was
+ * upheld on one submission. Closing that issue is a maintainer saying *read*, and
+ * reopening it would be the runner arguing with them about a fact neither of them
+ * disputes. These carry a marker anyway, because the marker is also what stops a
+ * second copy being filed for the same event.
+ */
+export type FindingKind = 'standing' | 'event'
+
+/** One automated finding, ready to be filed or matched against what is already there. */
+export interface Finding {
+  readonly marker: string
+  readonly title: string
+  /** Without the marker: {@link fileFinding} puts it on line one. */
+  readonly body: string
+  readonly kind: FindingKind
+  /**
+   * What to say on an issue that is already open, if anything.
+   *
+   * **Absent means say nothing, and that is the default on purpose.** A pass that
+   * re-measures the same standing condition every hour has nothing new to report,
+   * and `debt.ts` in the other runner already names what happens when one writes
+   * a comment anyway: *"forty-eight lines a day aimed at a maintainer is `#231`'s
+   * wallpaper failure."* A recurrence line belongs here only where seeing the
+   * finding again is a distinct event rather than the same measurement repeated.
+   */
+  readonly recurrence?: string
+  /** Anything else the log line about this finding should carry — an id, a count. */
+  readonly fields?: Readonly<Record<string, unknown>>
+}
+
+/** What {@link fileFinding} did about a finding. */
+export interface FilingOutcome {
+  readonly action: 'opened' | 'commented' | 'reopened' | 'quiet'
+  readonly url: string | null
+}
+
+/**
+ * File one finding: open an issue, or add to the one that is already there.
+ *
+ * **The one place all four of this runner's findings go through** (`#1161`).
+ * Before it, each of them searched GitHub for its own id in a title, which
+ * answered *nothing is open* for an issue that had been closed an hour earlier
+ * and filed a duplicate. Four call sites meant four chances to get that wrong and
+ * four places to fix it.
+ *
+ * A lookup that fails answers `null`, which lands here as *nothing matched* and
+ * files a duplicate. That is the same trade the search has always made and it is
+ * still the right one: a maintainer closes a duplicate in a second, and nothing
+ * recovers a conclusion that was never filed.
+ */
+export async function fileFinding(
+  issues: IssueOpener,
+  finding: Finding,
+  log: Log,
+  events: { readonly opened: string; readonly recurred: string },
+): Promise<FilingOutcome> {
+  const fields = finding.fields ?? {}
+  const existing = await issues.find(finding.marker)
+
+  if (existing !== null) {
+    if (finding.kind === 'event') return { action: 'quiet', url: existing.url }
+
+    if (!existing.open) {
+      await issues.reopen(existing.url)
+      await issues.comment(existing.url, finding.recurrence ?? stillHolds())
+      log.info(`reopened ${existing.url}`, {
+        ...fields,
+        event: events.recurred,
+        url: existing.url,
+        action: 'reopened',
+      })
+      return { action: 'reopened', url: existing.url }
+    }
+
+    if (finding.recurrence === undefined) return { action: 'quiet', url: existing.url }
+
+    await issues.comment(existing.url, finding.recurrence)
+    log.info(`commented on ${existing.url}`, {
+      ...fields,
+      event: events.recurred,
+      url: existing.url,
+      action: 'commented',
+    })
+    return { action: 'commented', url: existing.url }
+  }
+
+  const url = await issues.open({
+    title: finding.title,
+    body: `${finding.marker}\n${finding.body}`,
+  })
+
+  if (url !== null) log.info(`opened ${url}`, { ...fields, event: events.opened, url })
+  return { action: url === null ? 'quiet' : 'opened', url }
+}
+
+/** What a reopening says when the caller had nothing more specific. */
+function stillHolds(): string {
+  return [
+    'This was closed while the condition it describes still held, and the watcher that filed it',
+    'has just measured it again. Reopened rather than filed a second time — the duplicate is the',
+    'thing the next reader trusts.',
+  ].join('\n')
 }
 
 /**
@@ -80,14 +234,25 @@ export async function respondToChange(
 
   await tripwire.resynthesise(change.taskId)
 
-  if (await tripwire.issues.isOpen(change.taskId)) return
+  await fileFinding(
+    tripwire.issues,
+    {
+      marker: changeMarker(change.taskId),
+      title: `Provider change suspected on task ${change.taskId}`,
+      body: issueBody(change),
+      // The wall is there until somebody changes the task, its hints or its
+      // verifier, and none of those is something this runner can do.
+      kind: 'standing',
+      recurrence: recurrenceBody(change),
+    },
+    log,
+    { opened: 'tripwire.issue.opened', recurred: 'tripwire.issue.recurred' },
+  )
+}
 
-  const url = await tripwire.issues.open({
-    title: `Provider change suspected on task ${change.taskId}`,
-    body: issueBody(change),
-  })
-
-  if (url !== null) log.info(`opened ${url}`, { event: 'tripwire.issue.opened', url })
+/** One marker per task: two provider changes on two tasks are two findings. */
+export function changeMarker(taskId: TaskId): string {
+  return watchMarker(`provider-change:${taskId}`)
 }
 
 /**
@@ -120,10 +285,33 @@ export function issueBody(change: ProviderChange): string {
   ].join('\n')
 }
 
+/**
+ * What a second cluster on the same task says on the issue that is already there.
+ *
+ * **A recurrence here is a distinct event and not the same measurement twice**,
+ * which is why this one has a comment at all while the held-quest pass has none.
+ * A conclusion only happens once per cooldown per task, so a second one means a
+ * fresh cluster of citizens walked into the same wall after the Colony had
+ * already rewritten the briefing about it — a fact a maintainer wants, and about
+ * two lines a month rather than forty-eight a day.
+ */
+export function recurrenceBody(change: ProviderChange): string {
+  return [
+    `Concluded again: ${change.reporters} distinct citizens within ${change.windowHours} hours, ` +
+      `against a baseline of ${change.baseline} and a bar of ${change.required}.`,
+    '',
+    'The claims nothing has confirmed since have been demoted again and the briefing rewritten ' +
+      'from what is left. Commented rather than filed a second time — `#784` and `#1047` are ' +
+      'what filing looks like.',
+  ].join('\n')
+}
+
 /** A tripwire that opens nothing, for a runner with no token. */
 export const noIssues: IssueOpener = {
-  isOpen: async () => false,
+  find: async () => null,
   open: async () => null,
+  comment: async () => false,
+  reopen: async () => false,
 }
 
 /**
@@ -177,21 +365,83 @@ export function githubIssues(token: string | undefined, log: Log): IssueOpener {
 
   return {
     /**
-     * Searched by the task id in the title, which is what makes this reliable
-     * without storing an issue number: the id is in every title this opener
-     * writes and in no title anybody else writes.
+     * **The search narrows; the first line decides.**
+     *
+     * Search is the only way to find an issue without storing its number, and it
+     * is a full-text index over rendered bodies — it will match a marker quoted
+     * in a code fence, a comment somebody wrote *about* a watcher, and the word
+     * `provider-change` in prose. `#946` is what happens when a match like that
+     * is trusted: a marker inside a hand-written issue was adopted as the
+     * watcher's own alarm and the watcher rewrote a person's issue twelve minutes
+     * after they filed it.
+     *
+     * So the query is a filter over candidates and the answer is the one whose
+     * *first line* is the marker exactly. An open issue wins over a closed one —
+     * both existing means somebody filed a duplicate before this change landed,
+     * and the open one is the live thread.
+     *
+     * `is:open` is deliberately absent. Finding the closed issue is half the
+     * point: without it, the pass after a maintainer closes a still-standing
+     * finding files a second copy.
      */
-    isOpen: async (taskId) => {
-      const query = encodeURIComponent(`repo:${TRIPWIRE_REPOSITORY} is:issue is:open "${taskId}"`)
-      const response = await fetch(`https://api.github.com/search/issues?q=${query}`, { headers })
+    find: async (marker) => {
+      const query = encodeURIComponent(`repo:${TRIPWIRE_REPOSITORY} is:issue "${marker}"`)
+      const response = await fetch(
+        `https://api.github.com/search/issues?q=${query}&sort=updated&order=desc&per_page=50`,
+        { headers },
+      )
 
-      // A search that fails answers *not open*, which risks a duplicate issue
-      // rather than a silent miss. A maintainer closes a duplicate in a second;
-      // nothing recovers a conclusion that was never filed.
-      if (!response.ok) return false
+      // A search that fails answers *nothing matched*, which risks a duplicate
+      // issue rather than a silent miss. A maintainer closes a duplicate in a
+      // second; nothing recovers a conclusion that was never filed.
+      if (!response.ok) return null
 
-      const body = (await response.json()) as { total_count?: number }
-      return (body.total_count ?? 0) > 0
+      const body = (await response.json()) as {
+        items?: readonly { html_url?: string; body?: string | null; state?: string }[]
+      }
+
+      const carrying = (body.items ?? [])
+        .filter((item) => firstLine(item.body ?? '') === marker)
+        .map((item) => ({ url: item.html_url ?? '', open: item.state === 'open' }))
+        .filter((item) => item.url !== '')
+
+      return carrying.find((item) => item.open) ?? carrying[0] ?? null
+    },
+
+    comment: async (url, body) => {
+      const response = await fetch(`${apiFor(url)}/comments`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ body }),
+      })
+
+      if (!response.ok) {
+        log.error(`could not comment on ${url}: ${response.status}`, await response.text(), {
+          event: 'tripwire.issue.comment.failed',
+          status: response.status,
+          url,
+        })
+      }
+
+      return response.ok
+    },
+
+    reopen: async (url) => {
+      const response = await fetch(apiFor(url), {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ state: 'open' }),
+      })
+
+      if (!response.ok) {
+        log.error(`could not reopen ${url}: ${response.status}`, await response.text(), {
+          event: 'tripwire.issue.reopen.failed',
+          status: response.status,
+          url,
+        })
+      }
+
+      return response.ok
     },
 
     open: async (input) => {
@@ -213,4 +463,15 @@ export function githubIssues(token: string | undefined, log: Log): IssueOpener {
       return body.html_url ?? null
     },
   }
+}
+
+/**
+ * The API address of an issue, from the address a reader sees.
+ *
+ * Search hands back `html_url` because that is what goes in a log a human reads,
+ * and every write needs the other one. Rewriting it here rather than carrying
+ * both keeps {@link WatchedIssue} the one thing a test has to construct.
+ */
+function apiFor(htmlUrl: string): string {
+  return htmlUrl.replace('https://github.com/', 'https://api.github.com/repos/')
 }

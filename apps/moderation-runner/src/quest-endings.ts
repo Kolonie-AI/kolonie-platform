@@ -1,6 +1,6 @@
 import type { EndedByLever } from '@kolonie-ai/db'
 import type { Log } from './loop.js'
-import { noIssues, type IssueOpener } from './tripwire.js'
+import { fileFinding, noIssues, watchMarker, type IssueOpener } from './tripwire.js'
 
 /**
  * The trace behind the one lever the steward tier still holds (`#944`).
@@ -42,18 +42,21 @@ const silentLog: Log = { info: () => {}, warn: () => {}, error: () => {} }
 /**
  * How far back the pass looks, and why a window rather than a column.
  *
- * Dedup is {@link IssueOpener.isOpen}, which searches GitHub for *open* issues
- * carrying the task id — so it stops matching the moment a maintainer closes
- * one, and an unbounded read would refile every ending forever. Bounded, the
- * pass files inside the window or not at all, and nothing has to remember that
- * it did.
+ * **The window no longer carries the dedup, and this is the note that used to say
+ * it did** (`#1161`). Dedup was {@link IssueOpener.isOpen}, which asked GitHub
+ * for *open* issues carrying the task id and so stopped matching the moment a
+ * maintainer closed one; the window was what stopped an unbounded read refiling
+ * every ending forever. It is now {@link IssueOpener.find} over a marker, which
+ * finds the closed issue too — and an ending is an `event`, so a closed issue
+ * ends the matter rather than being reopened. A maintainer who closes one has
+ * audited it, and arguing with them nightly is not what this pass is for.
  *
- * **Seven days is chosen against the closing, not the ending.** A maintainer who
- * reads and closes the issue on the same day is the ordinary case and is safe at
- * any window; the one this number is for is the issue closed within a week of
- * being filed, which would otherwise be refiled the following night. Longer
- * makes the pass slower to forget; shorter risks the runner being down for a
- * weekend and the ending never surfacing at all.
+ * What the window is still for is the read: the store is asked for endings inside
+ * it, so the pass costs one bounded query rather than growing with the ledger.
+ * **Seven days is chosen against the runner being down** — long enough that a
+ * weekend of outage does not lose an ending, short enough that the query stays
+ * small. The number was previously load-bearing for correctness and is now only
+ * load-bearing for cost, so it is safe to change.
  */
 export const ENDING_WINDOW_DAYS = 7
 
@@ -76,30 +79,33 @@ export async function questEndingsTick(
   const endings = await store.endedByLever(ENDING_WINDOW_DAYS, batchSize)
 
   for (const ending of endings) {
-    if (await issues.isOpen(ending.taskId)) {
-      skipped++
-      continue
-    }
+    const outcome = await fileFinding(
+      issues,
+      {
+        marker: endingMarker(ending.taskId),
+        title: `Quest stopped by the steward lever: ${ending.title}`,
+        body: endingIssueBody(ending),
+        // A steward pulled a lever on a date. It is not a condition that could
+        // stop holding, so a closed issue about it is a maintainer saying *read*
+        // — and reopening it would be this pass arguing with them about a fact
+        // neither disputes.
+        kind: 'event',
+        fields: { taskId: ending.taskId },
+      },
+      log,
+      { opened: 'quest.ending.filed', recurred: 'quest.ending.recurred' },
+    )
 
-    const url = await issues.open({
-      title: `Quest stopped by the steward lever: ${ending.title}`,
-      body: endingIssueBody(ending),
-    })
-
-    if (url === null) {
-      skipped++
-      continue
-    }
-
-    filed++
-    log.info(`filed the ending of ${ending.taskId} at ${url}`, {
-      event: 'quest.ending.filed',
-      taskId: ending.taskId,
-      url,
-    })
+    if (outcome.action === 'opened') filed++
+    else skipped++
   }
 
   return { read: endings.length, filed, skipped }
+}
+
+/** One marker per stopped quest. */
+export function endingMarker(taskId: string): string {
+  return watchMarker(`quest-ended-by-lever:${taskId}`)
 }
 
 /**
@@ -131,8 +137,9 @@ export function endingIssueBody(ending: EndedByLever): string {
     'reading this. What is worth checking is whether the reason holds: a lever nobody audits is a',
     'lever that stops being about runaway quests. If it does hold, close this.',
     '',
-    'Opened automatically by `apps/moderation-runner`. The same ending is not filed twice while an',
-    'issue naming the quest is open.',
+    'Opened automatically by `apps/moderation-runner`. The same ending is not filed twice: the',
+    'marker on the first line above is what the next pass looks for, and finding this issue',
+    'closed is an answer rather than a miss.',
   ].join('\n')
 }
 

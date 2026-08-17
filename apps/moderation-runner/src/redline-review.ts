@@ -1,7 +1,7 @@
 import type { HeldReport } from '@kolonie-ai/db'
 import type { Log } from './loop.js'
 import type { Model } from './llm.js'
-import { noIssues, type IssueOpener } from './tripwire.js'
+import { fileFinding, noIssues, watchMarker, type IssueOpener } from './tripwire.js'
 
 /**
  * The second reading of a report the red-line stage held (`#942`).
@@ -152,16 +152,29 @@ export async function reviewHeldReport(
    * afterwards is the dangerous one, and an irreversible refusal reached by two
    * models with nothing written down anywhere a human reads is exactly that.
    */
-  const url = await issues.open({
-    title: `Red line upheld on quest report ${report.submissionId}`,
-    body: upheldIssueBody(report, verdict.ruling, model.name),
-  })
-
-  if (url !== null) {
-    log.info(`filed ${url}`, { event: 'redline.review.filed', url })
-  }
+  await fileFinding(
+    issues,
+    {
+      marker: upheldMarker(report.submissionId),
+      title: `Red line upheld on quest report ${report.submissionId}`,
+      body: upheldIssueBody(report, verdict.ruling, model.name),
+      // A submission resolves once, so this never recurs and nothing here needed
+      // dedup before `#1161`. The marker is for the reader and the tooling: every
+      // automated finding carries one, and a rule with an exception is a rule
+      // somebody has to remember.
+      kind: 'event',
+      fields: { submissionId: report.submissionId },
+    },
+    log,
+    { opened: 'redline.review.filed', recurred: 'redline.review.refiled' },
+  )
 
   return verdict
+}
+
+/** One marker per submission, which is the grain a red line is upheld at. */
+export function upheldMarker(submissionId: string): string {
+  return watchMarker(`red-line-upheld:${submissionId}`)
 }
 
 /**

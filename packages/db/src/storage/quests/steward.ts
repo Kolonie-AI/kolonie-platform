@@ -1448,8 +1448,9 @@ export interface EndedByLever {
  *
  * **The lever is the one privileged thing an API key can still do**, so `#944`
  * asks that every use leave a trace a person sees. This is the read half of
- * that: the runner turns each row into a maintainer issue, and
- * `githubIssues.isOpen(taskId)` is what stops it filing the same one twice.
+ * that: the runner turns each row into a maintainer issue, and the
+ * `<!-- watch-finding: quest-ended-by-lever:<taskId> -->` marker on that issue's
+ * first line is what stops it filing the same one twice.
  *
  * **`ended_by is distinct from created_by` is the whole test for *the lever*.**
  * A sponsor stopping its own quest is an ordinary act with its own refund path
@@ -1459,11 +1460,16 @@ export interface EndedByLever {
  * ownerless quest — `created_by` null after an erasure — is caught by `is
  * distinct from` and not by `<>`, which would answer null and drop the row.
  *
- * **The window is what makes this stateless.** Dedup is a GitHub search for the
- * task id, and a search for *open* issues stops matching the moment a
- * maintainer closes one — so an unbounded query would refile every ending
- * forever. Bounded, the pass files within the window or not at all, and no
- * column has to remember that it did.
+ * **The window is about what the read costs, and no longer about dedup**
+ * (`#1161`). It used to carry both: the search asked for *open* issues, so it
+ * stopped matching the moment a maintainer closed one, and only the window kept
+ * an unbounded query from refiling every ending forever. The marker now finds a
+ * closed issue too, and an ending is an `event` — a steward pulled a lever on a
+ * date, which is not a condition that could stop holding — so a closed issue
+ * ends the matter rather than being reopened nightly.
+ *
+ * What is left here is one bounded query per pass rather than one that grows
+ * with the ledger, and no column has to remember what was filed.
  */
 export async function stewardEndedQuests(
   db: Database,

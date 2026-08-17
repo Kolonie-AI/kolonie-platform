@@ -2,7 +2,7 @@ import { noStagesRun, type ModerationStages } from '@kolonie-ai/core'
 import type { HeldQuest, PendingQuest, QuestPublishOutcome, SponsorQuest } from '@kolonie-ai/db'
 import type { Log } from './loop.js'
 import type { Model } from './llm.js'
-import { noIssues, type IssueOpener } from './tripwire.js'
+import { fileFinding, noIssues, watchMarker, type IssueOpener } from './tripwire.js'
 import {
   QUEST_CONFIDENTIALITY_PROMPT,
   QUEST_DEDUP_PROMPT,
@@ -577,7 +577,22 @@ export async function heldQuestTick(
   return outcome
 }
 
-/** Whether this sweep filed an issue about the hold. */
+/** One marker per quest: two quests held is two findings, not one. */
+export function heldQuestMarker(questId: string): string {
+  return watchMarker(`quest-held:${questId}`)
+}
+
+/**
+ * Whether this sweep filed an issue about the hold.
+ *
+ * **No recurrence line, deliberately** (`#1161`). The slow tick re-measures the
+ * same hold every hour and the hours in the title are the only thing that
+ * changes; a comment each time would be `#231`'s wallpaper, which the debt
+ * watcher in the other runner already refuses to write. A hold that is *still*
+ * held after a maintainer closed the issue is a different matter, and
+ * {@link fileFinding} reopens it — the configuration was not fixed, and the
+ * sponsor's money is still committed.
+ */
 async function fileHeldQuest(
   quest: HeldQuest,
   at: string,
@@ -586,23 +601,29 @@ async function fileHeldQuest(
 ): Promise<boolean> {
   const hours = (Date.parse(at) - Date.parse(quest.heldSince)) / 3_600_000
   if (!Number.isFinite(hours) || hours < HELD_QUEST_ALERT_HOURS) return false
-  if (await issues.isOpen(quest.id)) return false
 
-  const url = await issues.open({
-    title: `Quest ${quest.id} has been held short of publication for ${Math.floor(hours)}h`,
-    body: heldQuestIssueBody(quest, Math.floor(hours)),
-  })
+  const outcome = await fileFinding(
+    issues,
+    {
+      marker: heldQuestMarker(quest.id),
+      title: `Quest ${quest.id} has been held short of publication for ${Math.floor(hours)}h`,
+      body: heldQuestIssueBody(quest, Math.floor(hours)),
+      kind: 'standing',
+    },
+    log,
+    { opened: 'quest.hold.issue.opened', recurred: 'quest.hold.issue.recurred' },
+  )
 
-  if (url !== null) log.info(`opened ${url}`, { event: 'quest.hold.issue.opened', url })
-  return url !== null
+  return outcome.action === 'opened' || outcome.action === 'reopened'
 }
 
 /**
  * What the automated issue says.
  *
  * **No sponsor text and no quest text**, on the tripwire's rule: every value here
- * is an id, a count or a timestamp this function was handed. The title is what
- * a maintainer scans and the id in it is what dedups the next sweep.
+ * is an id, a count or a timestamp this function was handed. The title is what a
+ * maintainer scans; what dedups the next sweep is {@link heldQuestMarker} on the
+ * first line, which {@link fileFinding} puts there.
  */
 export function heldQuestIssueBody(quest: HeldQuest, hours: number): string {
   return [

@@ -2,13 +2,14 @@ import { describe, expect, it } from 'vitest'
 import type { SubmissionId, TaskId, Timestamp } from '@kolonie-ai/core'
 import type { HeldReport } from '@kolonie-ai/db'
 import type { Model } from './llm.js'
-import type { IssueOpener } from './tripwire.js'
+import { fakeIssues } from './__fixtures__/issues.js'
 import {
   RED_LINE_DEFENCE_PROMPT,
   REVIEW_CHOICES,
   redLineReviewTick,
   reviewHeldReport,
   upheldIssueBody,
+  upheldMarker,
   type RedLineReviewStore,
 } from './redline-review.js'
 
@@ -74,15 +75,8 @@ const recording = (
 }
 
 const filing = () => {
-  const filed: { title: string; body: string }[] = []
-  const issues: IssueOpener = {
-    isOpen: async () => false,
-    open: async (input) => {
-      filed.push(input)
-      return 'https://github.com/Kolonie-AI/kolonie-platform/issues/1'
-    },
-  }
-  return { issues, filed }
+  const issues = fakeIssues()
+  return { issues, filed: issues.opened }
 }
 
 /**
@@ -120,7 +114,32 @@ describe('reading a held report a second time', () => {
 
     expect(judgement.kind).toBe('upheld')
     expect(resolved[0]?.crossed).toBe(true)
-    expect(filed).toHaveLength(1)
+    expect(filed()).toHaveLength(1)
+    // `#1161`: the marker is the first line, so a second pass over the same
+    // submission finds this issue instead of filing beside it.
+    expect(filed()[0]?.body.split('\n')[0]).toBe(upheldMarker(aHeldReport().submissionId))
+  })
+
+  /**
+   * **An upheld ruling is an event, not a condition** (`#1161`). Two agreeing
+   * readings happened once, on a date. A maintainer who closed the issue has
+   * read it, and there is nothing left that could stop holding — so a later pass
+   * over the same submission stays quiet rather than reopening the argument.
+   */
+  it('neither refiles nor reopens once the ruling has an issue', async () => {
+    const { store } = recording()
+    const { issues, filed } = filing()
+    issues.existing({
+      body: `${upheldMarker(aHeldReport().submissionId)}\nRead and closed by a maintainer.`,
+      state: 'closed',
+    })
+    const { model: impl } = model({ decision: 'crosses-as-flagged', reason: 'It still crosses.' })
+
+    await reviewHeldReport(aHeldReport(), { store, model: impl, issues })
+
+    expect(filed()).toEqual([])
+    expect(issues.reopened()).toEqual([])
+    expect(issues.comments()).toEqual([])
   })
 
   /**
@@ -141,7 +160,7 @@ describe('reading a held report a second time', () => {
 
     expect(judgement).toMatchObject({ kind: 'released', cause: 'different-line' })
     expect(resolved[0]?.crossed).toBe(false)
-    expect(filed).toHaveLength(0)
+    expect(filed()).toHaveLength(0)
   })
 
   /**
@@ -208,7 +227,7 @@ describe('reading a held report a second time', () => {
     const judgement = await reviewHeldReport(aHeldReport(), { store, model: impl, issues })
 
     expect(judgement.kind).toBe('stale')
-    expect(filed).toHaveLength(0)
+    expect(filed()).toHaveLength(0)
   })
 })
 

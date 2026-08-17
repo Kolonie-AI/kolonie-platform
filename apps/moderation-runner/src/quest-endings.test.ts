@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { TaskId, Timestamp } from '@kolonie-ai/core'
 import type { EndedByLever } from '@kolonie-ai/db'
-import type { IssueOpener } from './tripwire.js'
+import { fakeIssues } from './__fixtures__/issues.js'
 import {
   ENDING_WINDOW_DAYS,
   endingIssueBody,
+  endingMarker,
   questEndingsTick,
   type QuestEndingsStore,
 } from './quest-endings.js'
@@ -28,17 +29,24 @@ const reading = (endings: readonly EndedByLever[] = [anEnding()]) => {
   return { store, asked }
 }
 
-const filing = (options: { readonly alreadyOpen?: boolean; readonly refuses?: boolean } = {}) => {
-  const filed: { title: string; body: string }[] = []
-  const issues: IssueOpener = {
-    isOpen: async () => options.alreadyOpen === true,
-    open: async (input) => {
-      filed.push(input)
-      if (options.refuses === true) return null
-      return 'https://github.com/Kolonie-AI/kolonie-platform/issues/1'
-    },
+const filing = (
+  options: {
+    readonly already?: 'open' | 'closed'
+    readonly refuses?: boolean
+  } = {},
+) => {
+  const issues = fakeIssues()
+
+  if (options.already !== undefined) {
+    issues.existing({
+      body: `${endingMarker(anEnding().taskId)}\nSomebody already filed this one.`,
+      state: options.already,
+    })
   }
-  return { issues, filed }
+
+  if (options.refuses === true) issues.refusesToOpen()
+
+  return { issues, filed: issues.opened }
 }
 
 /**
@@ -58,21 +66,37 @@ describe('filing what the lever stopped', () => {
     const outcome = await questEndingsTick({ store, issues }, 10)
 
     expect(outcome).toEqual({ read: 1, filed: 1, skipped: 0 })
-    expect(filed).toHaveLength(1)
-    expect(filed[0]?.title).toBe(
+    expect(filed()).toHaveLength(1)
+    expect(filed()[0]?.title).toBe(
       'Quest stopped by the steward lever: Name a provider that refused an agent signup',
     )
-    expect(filed[0]?.body).toContain('22222222-2222-4222-8222-222222222222')
-    expect(filed[0]?.body).toContain('2026-08-15T09:00:00.000Z')
-    expect(filed[0]?.body).toContain('all named the same provider')
+    expect(filed()[0]?.body).toContain('22222222-2222-4222-8222-222222222222')
+    expect(filed()[0]?.body).toContain('2026-08-15T09:00:00.000Z')
+    expect(filed()[0]?.body).toContain('all named the same provider')
   })
 
   /**
-   * The dedup is a GitHub search rather than a column, which is what
-   * {@link ENDING_WINDOW_DAYS} is for: bounded, the pass files inside the window
-   * or not at all, and nothing has to remember that it did.
+   * **The marker is the first line, and nothing else is** (`#1161`). A finding
+   * whose marker is buried where GitHub's search can still see it is a finding
+   * the next pass cannot recognise — and, read the other way round, an issue
+   * somebody wrote *about* this watcher is not one the watcher may adopt. That
+   * is `#946`, which is why the rule is positional rather than a substring.
    */
-  it('reads only inside the window the dedup can cover', async () => {
+  it('puts the marker on the first line of what it files', async () => {
+    const { store } = reading()
+    const { issues, filed } = filing()
+
+    await questEndingsTick({ store, issues }, 10)
+
+    expect(filed()[0]?.body.split('\n')[0]).toBe(endingMarker(anEnding().taskId))
+  })
+
+  /**
+   * The dedup is the marker rather than a column, and {@link ENDING_WINDOW_DAYS}
+   * is now only about what the read costs: one bounded query per pass rather
+   * than one that grows with the ledger.
+   */
+  it('reads only inside the window', async () => {
     const { store, asked } = reading()
     const { issues } = filing()
 
@@ -83,12 +107,47 @@ describe('filing what the lever stopped', () => {
 
   it('files nothing while an issue about the quest is still open', async () => {
     const { store } = reading()
-    const { issues, filed } = filing({ alreadyOpen: true })
+    const { issues, filed } = filing({ already: 'open' })
 
     const outcome = await questEndingsTick({ store, issues }, 10)
 
     expect(outcome).toEqual({ read: 1, filed: 0, skipped: 1 })
-    expect(filed).toHaveLength(0)
+    expect(filed()).toHaveLength(0)
+  })
+
+  /**
+   * **An ending is an event, so a closed issue ends the matter** (`#1161`). The
+   * marker finds the closed issue — that is the whole change — but a steward
+   * pulled a lever on a date, and that is not a condition that could stop
+   * holding. A maintainer who closed this has read it, and reopening it nightly
+   * would be the pass arguing about a fact neither of them disputes.
+   */
+  it('leaves a closed issue closed rather than reopening it', async () => {
+    const { store } = reading()
+    const { issues, filed } = filing({ already: 'closed' })
+
+    const outcome = await questEndingsTick({ store, issues }, 10)
+
+    expect(outcome).toEqual({ read: 1, filed: 0, skipped: 1 })
+    expect(filed()).toHaveLength(0)
+    expect(issues.reopened()).toHaveLength(0)
+    expect(issues.comments()).toHaveLength(0)
+  })
+
+  /**
+   * A lookup that failed answers *nothing matched*, and the pass files. That is
+   * the direction the real opener chose deliberately: a duplicate a maintainer
+   * closes costs a minute, and a silent miss costs the trace `#944` asked for.
+   */
+  it('files rather than staying quiet when the lookup itself broke', async () => {
+    const { store } = reading()
+    const { issues, filed } = filing({ already: 'open' })
+    issues.breaksLookup()
+
+    const outcome = await questEndingsTick({ store, issues }, 10)
+
+    expect(outcome).toEqual({ read: 1, filed: 1, skipped: 0 })
+    expect(filed()).toHaveLength(1)
   })
 
   /** A refused write loses the issue, never the stop: the quest is already retired. */
@@ -108,7 +167,7 @@ describe('filing what the lever stopped', () => {
     const outcome = await questEndingsTick({ store, issues }, 10)
 
     expect(outcome).toEqual({ read: 0, filed: 0, skipped: 0 })
-    expect(filed).toHaveLength(0)
+    expect(filed()).toHaveLength(0)
   })
 
   /**

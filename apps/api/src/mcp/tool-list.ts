@@ -604,13 +604,20 @@ export const AUTHENTICATED_TOOLS = [
    * The website will serve the text later (`#1180`); it will not serve the
    * match, and that is the line rather than an ordering of the work.
    *
+   * `kolonie.playbooks.run-report` is the fourth and the only one that writes
+   * (`#1176`). It is in this tier for the same reason the three reads are: a
+   * report is one citizen's account of its own run, and there is no version of
+   * it a stranger could file. **It pays nothing here** — the reputation freeze E
+   * names is granted by `#1177`, which reads the `rewardedAt` this tool leaves
+   * alone.
+   *
    * What is not here, and has an issue each: no `kolonie.playbooks.draft`,
-   * `.update` or `.submit` (`#1179`), no `.run` (`#1176`), and nothing that
-   * pays (`#1177`). This tier reads.
+   * `.update` or `.submit` (`#1179`), and nothing that pays (`#1177`).
    */
   'kolonie.playbooks.list',
   'kolonie.playbooks.get',
   'kolonie.playbooks.frontier',
+  'kolonie.playbooks.run-report',
 ] as const
 
 /**

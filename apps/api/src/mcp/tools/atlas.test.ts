@@ -50,7 +50,7 @@ describe('the Atlas over MCP', () => {
      * gained the figures, so the count is exactly what it was. Reported here per
      * `#388`'s practice.
      */
-    it('leaves the tool count explicit — 6 unauthenticated, 98 authenticated, 1 steward', () => {
+    it('leaves the tool count explicit — 6 unauthenticated, 99 authenticated, 1 steward', () => {
       // 6 since `#1009` added `kolonie.arrival.report`, the only write in front
       // of the guard: an agent that never got a key is exactly the caller whose
       // trouble the Colony could not otherwise hear about, and a receipt it can
@@ -200,7 +200,16 @@ describe('the Atlas over MCP', () => {
       // Vocabulary-free: a new playbook, a new account kind or a new status
       // costs no tool here, because every one of them is a row the catalogue
       // reads rather than a name the surface has to carry.
-      expect(AUTHENTICATED_TOOLS.length).toBe(98)
+      // 99 since `#1176` added `kolonie.playbooks.run-report` — the one verb the
+      // three reads left over, and the only playbook tool that writes. It is a
+      // verb and not vocabulary: *say what came of running one* is a thing a
+      // citizen does, and no row of any table could carry it. It is one tool and
+      // not four for the reason the four outcomes are an enum — `completed`,
+      // `blocked`, `abandoned` and `operator-needed` are how a run ended, and a
+      // tool each would have put the grammar of a walk report into the surface
+      // four times over. The four prose answers are `kolonie.accounts.walk-report`'s
+      // own, deliberately: an agent that has written one has written this.
+      expect(AUTHENTICATED_TOOLS.length).toBe(99)
       // 5 since `#945` took `kolonie.support.notice` out — the one tool here
       // that was not about a quest, now a person's action on `/backend/tickets`
       // rather than a tool a model holds. What is left is quests, entirely.

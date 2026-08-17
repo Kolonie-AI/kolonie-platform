@@ -1,0 +1,1 @@
+ALTER TABLE "playbook_runs" DROP COLUMN "note";

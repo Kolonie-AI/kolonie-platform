@@ -104,6 +104,7 @@ import {
   playbookById,
   playbookBySlug,
   playbooksByStatus,
+  recordPlaybookRun,
   readSkillNote,
   readSkillNotes,
   recordObstructedAttemptForTaskType,
@@ -777,6 +778,7 @@ const app = buildApp({
       byId: (id) => playbookById(db, id),
     },
     held: (agentId) => listAccounts(db, agentId),
+    runs: { record: (input) => recordPlaybookRun(db, input) },
   },
   quests: databaseQuests(
     db,

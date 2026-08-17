@@ -3,11 +3,18 @@ import {
   AccountProviderSchema,
   atlasPath,
   PLAYBOOK_PUBLIC_STATUSES,
+  PLAYBOOK_RUN_NOTE_MAX_LENGTH,
+  PLAYBOOK_RUN_OUTCOMES,
+  PLAYBOOK_RUN_REPUTATION,
+  PLAYBOOK_RUN_SIGNALS,
+  PlaybookRunReportSchema,
   type Account,
   type AgentId,
   type ApiError,
   type Playbook,
   type PlaybookRequiredAccount,
+  type PlaybookRun,
+  type PlaybookRunReport,
   type PlaybookStatus,
 } from '@kolonie-ai/core'
 import { z } from 'zod'
@@ -36,7 +43,11 @@ import { z } from 'zod'
  *
  * ## What is deliberately not here
  *
- * No authoring (`#1179`), no run report (`#1176`) and no reputation (`#1177`).
+ * No authoring (`#1179`) and no reputation (`#1177`). The run report (`#1176`)
+ * is here, and it is the one write this module does — through its own port, for
+ * the reason the read port is a port: a surface that reads a catalogue and
+ * appends one row of prose has no business holding a handle that can publish or
+ * retire a playbook.
  *
  * `missing[]` does carry a hint and, where the slot pins a provider, the path to
  * that provider's Atlas entry (`#1181`) — one sentence naming the call that
@@ -65,6 +76,24 @@ export interface PlaybookCatalogue {
 }
 
 /**
+ * The one write this surface does (`#1176`).
+ *
+ * Its own interface rather than a fourth method on {@link PlaybookCatalogue},
+ * so that *this module can write a run report* and *this module cannot touch a
+ * playbook* are both readable in the type rather than in a comment. `record` is
+ * an upsert on `(agentId, playbookId)` and says whether it replaced a report
+ * this citizen had already filed; the once-per-citizen rule underneath it is a
+ * unique index, not a check this layer performs.
+ */
+export interface PlaybookRunLog {
+  record(input: {
+    readonly playbookId: string
+    readonly agentId: AgentId
+    readonly report: PlaybookRunReport
+  }): Promise<{ readonly run: PlaybookRun; readonly replaced: boolean }>
+}
+
+/**
  * The catalogue, plus the one thing matching cannot be done without.
  *
  * `held` is `AccountRegister.list` under a name that says what this module wants
@@ -75,6 +104,7 @@ export interface PlaybookCatalogue {
 export interface PlaybookDependencies {
   readonly catalogue: PlaybookCatalogue
   readonly held: (agentId: AgentId) => Promise<readonly Account[]>
+  readonly runs: PlaybookRunLog
 }
 
 /** How many playbooks one listing answers with. */
@@ -116,6 +146,20 @@ export type PlaybookListQuery = z.infer<typeof PlaybookListQuerySchema>
 export const PlaybookGetQuerySchema = z
   .object({ playbook: z.string().trim().min(3).max(64) })
   .strict()
+
+/**
+ * What `kolonie.playbooks.run-report` takes (`#1176`).
+ *
+ * The playbook is named the way {@link PlaybookGetQuerySchema} names it — one
+ * string, slug or id — and the rest is {@link PlaybookRunReportSchema} spread
+ * flat rather than nested under a `report` key. Flat because every other
+ * reporting surface in this catalogue is flat: `kolonie.accounts.walk-report`
+ * takes `did` and `broke` as arguments, and a citizen that has written one of
+ * those should not have to discover that this one wraps them.
+ */
+export const PlaybookRunReportInputSchema = PlaybookRunReportSchema.extend({
+  playbook: z.string().trim().min(3).max(64),
+}).strict()
 
 /**
  * Why one slot is not answered by anything the citizen holds.
@@ -372,6 +416,23 @@ export type PlaybookFrontierResult = {
   readonly playbooks: readonly PlaybookSummary[]
 }
 
+export type PlaybookRunResult = {
+  readonly run: PlaybookRun
+  /** Whether this replaced a report the same citizen had already filed. */
+  readonly replaced: boolean
+  /**
+   * What an accepted report is worth, and whether this one has been paid.
+   *
+   * Stated on every answer rather than only on the first, because a citizen
+   * reading *replaced: true* wants to know in the same breath whether it has
+   * just given up something. It has not: `#1177` pays once per citizen ×
+   * playbook, and a report that has already been paid for keeps its
+   * `rewardedAt` through every replacement.
+   */
+  readonly reputation: number
+  readonly rewarded: boolean
+}
+
 export type PlaybookOutcome<T> =
   | { readonly outcome: 'read'; readonly response: T }
   | { readonly outcome: 'rejected'; readonly error: ApiError }
@@ -518,5 +579,88 @@ export async function playbookFrontier(
   return {
     outcome: 'read',
     response: { playbooks: ranked.map((one) => summarise(one.playbook, one.match)) },
+  }
+}
+
+/**
+ * One message for every way a report can be malformed.
+ *
+ * The four questions, the outcome vocabulary and the step positions each have
+ * their own reason to be refused, and naming which would be a better error —
+ * but the outcome list is the one a caller gets wrong, and the scrub is the one
+ * it must not be told the shape of. A refusal that said *that looked like a
+ * credential* is a refusal that tells a caller how to write prose the scrub
+ * lets through, which is the one thing freeze I is protecting.
+ */
+const notAReport: ApiError = {
+  code: 'validation_failed',
+  message:
+    'A run report needs the playbook, an `outcome` of ' +
+    `${PLAYBOOK_RUN_OUTCOMES.join(', ')}, and \`did\` — how you went about it, in the ` +
+    `order you did it, up to ${PLAYBOOK_RUN_NOTE_MAX_LENGTH} characters. ` +
+    '`broke`, `changed` and `discarded` are optional and take the same. ' +
+    `\`signals\` takes any of ${PLAYBOOK_RUN_SIGNALS.join(', ')}. ` +
+    'No credential belongs in any of them.',
+}
+
+/**
+ * File one citizen's account of having run one playbook (`#1176`, freeze E).
+ *
+ * ## What it does not do
+ *
+ * **It marks nothing proved and it pays no SOL.** A run report is prose about a
+ * pipeline: the Colony did not watch the run, cannot check a word of it, and
+ * says so on every surface that reads one back. The reputation is `#1177`'s to
+ * pay and is named here only so a citizen knows what it is owed.
+ *
+ * ## Which playbooks may be reported on
+ *
+ * Exactly the ones {@link readPlaybook} will show you — the public statuses,
+ * plus your own drafts. `blocked` is deliberately included: freeze B makes it a
+ * content status, and a citizen that ran a pipeline the world has since broken
+ * is the citizen whose report is worth the most. Anything else answers
+ * {@link noSuchPlaybook}, the same message a slug nobody has taken answers, so
+ * that this surface cannot be used to discover which drafts exist.
+ *
+ * ## Replacing
+ *
+ * Always allowed, and it is one row per citizen × playbook rather than a log.
+ * The rule and the reasoning are in `packages/db/src/storage/playbooks.ts`,
+ * where the upsert is; what matters here is that a citizen may correct what it
+ * said without asking, and that correcting it neither earns nor forfeits the
+ * reputation.
+ */
+export async function reportPlaybookRun(
+  input: unknown,
+  agentId: AgentId,
+  deps: PlaybookDependencies,
+): Promise<PlaybookOutcome<PlaybookRunResult>> {
+  const query = PlaybookRunReportInputSchema.safeParse(input)
+  if (!query.success) return { outcome: 'rejected', error: notAReport }
+
+  const { playbook: named, ...report } = query.data
+
+  const found = (await deps.catalogue.bySlug(named)) ?? (await deps.catalogue.byId(named))
+  if (found === null) return { outcome: 'rejected', error: noSuchPlaybook }
+
+  const reportable =
+    (PLAYBOOK_LISTED_STATUSES as readonly string[]).includes(found.status) ||
+    found.authorAgentId === agentId
+  if (!reportable) return { outcome: 'rejected', error: noSuchPlaybook }
+
+  const written = await deps.runs.record({
+    playbookId: found.id,
+    agentId,
+    report: report satisfies PlaybookRunReport,
+  })
+
+  return {
+    outcome: 'read',
+    response: {
+      run: written.run,
+      replaced: written.replaced,
+      reputation: PLAYBOOK_RUN_REPUTATION,
+      rewarded: written.run.rewardedAt !== null,
+    },
   }
 }

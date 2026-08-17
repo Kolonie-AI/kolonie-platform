@@ -1,15 +1,20 @@
-import { and, asc, desc, eq, inArray } from 'drizzle-orm'
+import { and, asc, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm'
 import {
   PlaybookDraftSchema,
+  PlaybookRunReportSchema,
   PlaybookSlugSchema,
   PlaybookStatusSchema,
   type AgentId,
   type Playbook,
   type PlaybookDraft,
+  type PlaybookRun,
+  type PlaybookRunOutcome,
+  type PlaybookRunReport,
+  type PlaybookRunSignal,
   type PlaybookStatus,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { playbooks } from '../schema/playbooks.js'
+import { playbookRuns, playbooks } from '../schema/playbooks.js'
 
 /**
  * Reading and writing playbooks (`#1173`).
@@ -47,6 +52,25 @@ function toPlaybook(row: typeof playbooks.$inferSelect): Playbook {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     publishedAt: row.publishedAt,
+  }
+}
+
+/** One run report row, as the domain type. */
+function toPlaybookRun(row: typeof playbookRuns.$inferSelect): PlaybookRun {
+  return {
+    id: row.id,
+    playbookId: row.playbookId,
+    agentId: row.agentId,
+    outcome: row.outcome as PlaybookRunOutcome,
+    did: row.did,
+    broke: row.broke,
+    changed: row.changed,
+    discarded: row.discarded,
+    takenStepPositions: row.takenStepPositions ? [...row.takenStepPositions] : null,
+    signals: [...row.signals] as PlaybookRunSignal[],
+    rewardedAt: row.rewardedAt,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
   }
 }
 
@@ -100,6 +124,108 @@ export async function createPlaybook(db: Database, input: CreatePlaybookInput): 
 
   if (!row) throw new Error('playbook insert returned no row')
   return toPlaybook(row)
+}
+
+/** What `recordPlaybookRun` needs beyond the citizen's own prose. */
+export interface RecordPlaybookRunInput {
+  readonly playbookId: string
+  readonly agentId: AgentId
+  readonly report: PlaybookRunReport
+}
+
+/** The row, and whether writing it replaced one this citizen had already filed. */
+export interface RecordedPlaybookRun {
+  readonly run: PlaybookRun
+  readonly replaced: boolean
+}
+
+/**
+ * Write one citizen's account of having run one playbook (`#1176`).
+ *
+ * ## Replace in place, always
+ *
+ * **An upsert on `playbook_runs_agent_playbook_key` and never an insert that
+ * might fail**, which is the whole of the issue's *no run spam* rule and half of
+ * its lifecycle: an unrewarded report is replaced by a later one, and a rewarded
+ * report is replaced by a later one too. The recommendation the issue locks for
+ * the implementer — *allow additional runs after reward without further rep;
+ * first reward once per citizen × playbook* — falls out of that plus one line:
+ * `rewarded_at` is **not** in the update set, so a report that has already been
+ * paid for stays marked as paid and `#1177` never pays it again
+ * (`kolonie-docs#430`, freeze E: *once per citizen × playbook*).
+ *
+ * The alternative — a row per run, and *rewarded once* enforced in a handler —
+ * was rejected for the reason the unique index exists at all: under two
+ * concurrent reports it is a race, and the only place the rule can be made true
+ * is the database.
+ *
+ * ## The scrub
+ *
+ * `PlaybookRunReportSchema` is parsed here and not merely trusted, on the same
+ * argument as `createPlaybook` above: the caller that has not read this file is
+ * the one that will hand it a string straight from a transcript. Freeze I asks
+ * for the walks' scrub, and this is where it runs.
+ *
+ * ## How it knows it replaced something
+ *
+ * `xmax = 0` in the `returning` clause, which is Postgres' own answer to *did
+ * this upsert insert or update* — the system column is zero on a row this
+ * statement created and carries the updating transaction otherwise. The
+ * alternative, a `select` before the `insert`, is the race the unique index
+ * exists to close, reintroduced one line above the thing that closes it.
+ */
+export async function recordPlaybookRun(
+  db: Database,
+  input: RecordPlaybookRunInput,
+): Promise<RecordedPlaybookRun> {
+  const report = PlaybookRunReportSchema.parse(input.report)
+  const now = new Date().toISOString()
+
+  const [row] = await db
+    .insert(playbookRuns)
+    .values({
+      playbookId: input.playbookId,
+      agentId: input.agentId,
+      outcome: report.outcome,
+      did: report.did,
+      broke: report.broke ?? null,
+      changed: report.changed ?? null,
+      discarded: report.discarded ?? null,
+      takenStepPositions: report.takenStepPositions ? [...report.takenStepPositions] : null,
+      signals: report.signals ? [...report.signals] : [],
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: [playbookRuns.agentId, playbookRuns.playbookId],
+      set: {
+        outcome: report.outcome,
+        did: report.did,
+        broke: report.broke ?? null,
+        changed: report.changed ?? null,
+        discarded: report.discarded ?? null,
+        takenStepPositions: report.takenStepPositions ? [...report.takenStepPositions] : null,
+        signals: report.signals ? [...report.signals] : [],
+        updatedAt: now,
+      },
+    })
+    .returning({ ...getTableColumns(playbookRuns), inserted: sql<boolean>`xmax = 0` })
+
+  if (!row) throw new Error('playbook run upsert returned no row')
+  return { run: toPlaybookRun(row), replaced: !row.inserted }
+}
+
+/** One citizen's run of one playbook, or null. */
+export async function playbookRunFor(
+  db: Database,
+  agentId: AgentId,
+  playbookId: string,
+): Promise<PlaybookRun | null> {
+  const [row] = await db
+    .select()
+    .from(playbookRuns)
+    .where(and(eq(playbookRuns.agentId, agentId), eq(playbookRuns.playbookId, playbookId)))
+    .limit(1)
+  return row ? toPlaybookRun(row) : null
 }
 
 /** One playbook by id, or null. */

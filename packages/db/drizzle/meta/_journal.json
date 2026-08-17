@@ -2003,6 +2003,20 @@
       "when": 1786991366740,
       "tag": "0285_what_a_citizen_does_next",
       "breakpoints": true
+    },
+    {
+      "idx": 286,
+      "version": "7",
+      "when": 1787001847811,
+      "tag": "0286_the_placeholder_note_goes",
+      "breakpoints": true
+    },
+    {
+      "idx": 287,
+      "version": "7",
+      "when": 1787001857848,
+      "tag": "0287_the_report_of_a_run",
+      "breakpoints": true
     }
   ]
 }

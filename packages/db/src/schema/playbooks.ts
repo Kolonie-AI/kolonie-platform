@@ -18,6 +18,7 @@ import {
   PLAYBOOK_SUMMARY_MAX_LENGTH,
   PLAYBOOK_TITLE_MAX_LENGTH,
   PlaybookRunOutcomeSchema,
+  PlaybookRunSignalSchema,
   PlaybookStatusSchema,
   type PlaybookInspiration,
   type PlaybookRequiredAccount,
@@ -31,6 +32,7 @@ import { agents } from './agents.js'
  */
 const PLAYBOOK_STATUSES = PlaybookStatusSchema.options
 const PLAYBOOK_RUN_OUTCOMES = PlaybookRunOutcomeSchema.options
+const PLAYBOOK_RUN_SIGNALS = PlaybookRunSignalSchema.options
 
 /** `in ('a', 'b')` for a check constraint, from a vocabulary core owns. */
 const oneOf = (values: readonly string[]) => sql.raw(values.map((one) => `'${one}'`).join(', '))
@@ -232,15 +234,67 @@ export const playbookRuns = pgTable(
     outcome: varchar('outcome', { length: 32 }).notNull(),
 
     /**
-     * What happened, in the citizen's own words.
+     * The four questions, in the walk report's own words and order (`#1176`).
      *
-     * Nullable, because `#1176` decides what it asks for and this is the
-     * skeleton. Scrubbed on the same terms as everything else an author or a
-     * runner writes when that tool lands.
+     * **`did` is not null and the other three are**, which is the shape
+     * `PlaybookRunReportSchema` documents and argues for: a `completed` run has
+     * nothing that broke, and a column demanded of it fills with *nothing broke*.
+     *
+     * All four are scrubbed at the write boundary on the walks' machinery
+     * (freeze I). They are `text` rather than `varchar(2000)` for the reason the
+     * rest of this repository's prose columns are: the bound is a product rule
+     * that has moved before, and moving it should not be a table rewrite.
      */
-    note: text('note'),
+    did: text('did').notNull(),
+    broke: text('broke'),
+    changed: text('changed'),
+    discarded: text('discarded'),
+
+    /**
+     * Which steps the runner says it took, 1-based against the playbook it ran.
+     *
+     * The walks' column, in the same type, with the same range check below. Null
+     * where the runner did not answer, which is different from `{}` — a runner
+     * saying it took no steps at all is a report worth being able to make.
+     */
+    takenStepPositions: integer('taken_step_positions').array(),
+
+    /**
+     * What the runner says it met out there — `ban`, `traffic`,
+     * `payout-offplatform`.
+     *
+     * **Unverified, and catalogue statistics only.** A closed vocabulary, checked
+     * below against the list core owns, because the whole value of the column is
+     * being able to count it.
+     */
+    signals: text('signals')
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+
+    /**
+     * When `#1177` paid for this report, or null while it has not.
+     *
+     * **The marker that makes *replace until rewarded* a fact about the row**
+     * rather than a rule in a handler. An unrewarded report is replaced in place
+     * by a later one; a rewarded report is replaced in place too, and pays
+     * nothing further — `#1176` writes the report and never this column, and the
+     * grant reads it and never the prose. Two writers, one row, no overlap.
+     */
+    rewardedAt: timestamp('rewarded_at', { withTimezone: true, mode: 'string' }),
 
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+
+    /**
+     * When the report last changed.
+     *
+     * A row that is now replaced in place cannot answer *when did this citizen
+     * last say this* from `created_at` alone, and the catalogue statistics
+     * `signals` exists for are read over time.
+     */
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),
   },
@@ -257,6 +311,27 @@ export const playbookRuns = pgTable(
     check(
       'playbook_runs_outcome_is_known',
       sql`${table.outcome} in (${oneOf(PLAYBOOK_RUN_OUTCOMES)})`,
+    ),
+    /** The walks' range check, against this table's own step ceiling. */
+    check(
+      'playbook_runs_taken_steps_are_in_range',
+      sql`${table.takenStepPositions} is null or (
+        cardinality(${table.takenStepPositions}) <= ${sql.raw(String(PLAYBOOK_MAX_STEPS))}
+        and 1 <= all(${table.takenStepPositions})
+        and ${sql.raw(String(PLAYBOOK_MAX_STEPS))} >= all(${table.takenStepPositions})
+      )`,
+    ),
+    /**
+     * Every signal from the vocabulary core owns.
+     *
+     * A check rather than trust in the write boundary, for the reason the outcome
+     * has one: a column whose value is that it can be counted is a column where
+     * an unknown token is a statistic quietly wrong rather than a row loudly
+     * refused.
+     */
+    check(
+      'playbook_runs_signals_are_known',
+      sql`${table.signals} <@ array[${oneOf(PLAYBOOK_RUN_SIGNALS)}]::text[]`,
     ),
   ],
 )

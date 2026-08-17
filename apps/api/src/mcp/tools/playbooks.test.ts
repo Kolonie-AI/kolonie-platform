@@ -95,19 +95,30 @@ describe('kolonie.playbooks.list/.get/.frontier (#1174)', () => {
    * citizen decides whether to call a tool from its description and may never
    * reach the answer: a listing that failed to say a playbook carries no password
    * is one that has already misled.
+   *
+   * **The third sentence is the reads' and not the surface's** (`#1176`). Two of
+   * the three are true of every playbook tool there will ever be; *runs report
+   * elsewhere* was only ever true of a tool that does not take the report, and
+   * `kolonie.playbooks.run-report` is where the elsewhere turned out to be. So it
+   * is asserted against the reads by name rather than against the prefix, and a
+   * fifth read added without it is still caught.
    */
   it('says in every description that it carries no credential, whose the doing is, and that runs report elsewhere', async () => {
     const { client, close } = await aCitizen()
 
-    const described = (await client.listTools()).tools.filter((tool) =>
+    const listed = (await client.listTools()).tools.filter((tool) =>
       tool.name.startsWith('kolonie.playbooks.'),
     )
+    const reads = listed.filter((tool) => tool.name !== 'kolonie.playbooks.run-report')
 
-    expect(described).toHaveLength(3)
-    for (const tool of described) {
-      expect(tool.description).toContain('never carries a credential')
-      expect(tool.description).toContain('yours and your operator')
-      expect(tool.description).toContain('reported separately')
+    expect(reads).toHaveLength(listed.length - 1)
+    expect(reads).toHaveLength(3)
+    for (const tool of listed) {
+      expect(tool.description, tool.name).toContain('never carries a credential')
+      expect(tool.description, tool.name).toContain('yours and your operator')
+    }
+    for (const tool of reads) {
+      expect(tool.description, tool.name).toContain('reported separately')
     }
     await close()
   })

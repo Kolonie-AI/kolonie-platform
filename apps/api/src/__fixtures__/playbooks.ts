@@ -1,5 +1,11 @@
 import { randomUUID } from 'node:crypto'
-import { now as currentTime, type Account, type AgentId, type Playbook } from '@kolonie-ai/core'
+import {
+  now as currentTime,
+  type Account,
+  type AgentId,
+  type Playbook,
+  type PlaybookRun,
+} from '@kolonie-ai/core'
 import type { PlaybookDependencies } from '../playbooks.js'
 
 export interface FakePlaybooks extends PlaybookDependencies {
@@ -38,6 +44,17 @@ export interface FakePlaybooks extends PlaybookDependencies {
 export function fakePlaybooks(): FakePlaybooks {
   const catalogue: Playbook[] = []
   const registers = new Map<string, Account[]>()
+  /**
+   * Run reports, keyed the way the unique index is (`#1176`).
+   *
+   * The key is `agentId:playbookId` and not a list, because *one report per
+   * citizen × playbook* is the rule the tool is asserted against — a fixture that
+   * appended would let a test pass while the real upsert was inserting twice.
+   * `id`, `createdAt` and `rewardedAt` survive a replacement here for the same
+   * reason they survive it in the database: the row is updated, not remade, and
+   * `#1177` pays against `rewardedAt`.
+   */
+  const filed = new Map<string, PlaybookRun>()
 
   return {
     playbook(playbook) {
@@ -107,6 +124,30 @@ export function fakePlaybooks(): FakePlaybooks {
 
     async held(agentId) {
       return registers.get(agentId) ?? []
+    },
+
+    runs: {
+      async record({ playbookId, agentId, report }) {
+        const key = `${agentId}:${playbookId}`
+        const standing = filed.get(key)
+        const run: PlaybookRun = {
+          id: standing?.id ?? randomUUID(),
+          playbookId,
+          agentId,
+          outcome: report.outcome,
+          did: report.did,
+          broke: report.broke ?? null,
+          changed: report.changed ?? null,
+          discarded: report.discarded ?? null,
+          takenStepPositions: report.takenStepPositions ? [...report.takenStepPositions] : null,
+          signals: report.signals ? [...report.signals] : [],
+          rewardedAt: standing?.rewardedAt ?? null,
+          createdAt: standing?.createdAt ?? currentTime(),
+          updatedAt: currentTime(),
+        }
+        filed.set(key, run)
+        return { run, replaced: standing !== undefined }
+      },
     },
   }
 }

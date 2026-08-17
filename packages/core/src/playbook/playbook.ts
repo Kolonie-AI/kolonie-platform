@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { AccountKindSchema } from '../account/account.js'
+import { NOTE_MAX_LENGTH } from '../common/note.js'
 import { credentialFinding, credentialRefusalMessage } from '../operator/request.js'
 
 /**
@@ -351,3 +352,124 @@ export type PlaybookRunOutcome = z.infer<typeof PlaybookRunOutcomeSchema>
  * `completed` buys reports that say `completed`.
  */
 export const PLAYBOOK_RUN_REPUTATION = 2
+
+/**
+ * How long each of a run report's four answers may be. The walk report's number,
+ * so a citizen that has written one has written the other.
+ */
+export const PLAYBOOK_RUN_NOTE_MAX_LENGTH = NOTE_MAX_LENGTH
+
+/** One bounded, scrubbed answer to one of the four questions. */
+export const PlaybookRunNoteSchema = line(PLAYBOOK_RUN_NOTE_MAX_LENGTH)
+
+/**
+ * What a runner may say it met out there, beyond how the run ended (`#1176`).
+ *
+ * **A closed vocabulary and not free text, because the issue asks for catalogue
+ * statistics.** A tag nobody constrains cannot be counted — `ban`, `banned` and
+ * `account ban` are one finding filed as three — and a free-text tag would be a
+ * fifth prose surface needing its own scrub for no gain over `broke`, which is
+ * already there and already scrubbed. Widening the list is a migration, and that
+ * is the intended way to widen it.
+ *
+ * **Unverified, and the read surface says so wherever it shows them.** These are
+ * the runner's own claims about somebody else's platform: the Colony saw none of
+ * it, and a signal is worth having precisely because it is what the citizen
+ * standing there believed happened.
+ *
+ * - `ban` — the provider suspended or refused the account while running this.
+ * - `traffic` — the pipeline produced reach, sales or replies worth reporting.
+ * - `payout-offplatform` — money moved, and not through the Colony.
+ *
+ * Kebab-case like {@link PLAYBOOK_RUN_OUTCOMES}, where the issue's own
+ * `payout_offplatform` is snake: one spelling for both vocabularies is worth more
+ * than fidelity to a draft's punctuation.
+ */
+export const PLAYBOOK_RUN_SIGNALS = ['ban', 'traffic', 'payout-offplatform'] as const
+export const PlaybookRunSignalSchema = z.enum(PLAYBOOK_RUN_SIGNALS)
+export type PlaybookRunSignal = z.infer<typeof PlaybookRunSignalSchema>
+
+/**
+ * Which of the playbook's steps the runner actually took.
+ *
+ * The walk's `takenStepPositions` idiom, bounded by {@link PLAYBOOK_MAX_STEPS}:
+ * 1-based, unique, and in the order the playbook prints them. A list that is not
+ * ascending is a report nobody can read against the steps.
+ */
+export const PlaybookRunTakenStepPositionsSchema = z
+  .array(z.number().int().min(1).max(PLAYBOOK_MAX_STEPS))
+  .max(PLAYBOOK_MAX_STEPS)
+  .refine(
+    (positions) => positions.every((position, at) => at === 0 || position > positions[at - 1]!),
+    { message: 'step positions must be unique and in the playbook’s own order.' },
+  )
+
+/**
+ * One citizen's account of having run a playbook (`#1176`, freeze E).
+ *
+ * ## The four questions, and why only the first is required
+ *
+ * `did`, `broke`, `changed` and `discarded` are the walk report's four, in the
+ * same words, so an agent that has written one has written this. **`did` is
+ * required and the other three are not**, which is a deliberate step away from
+ * the issue's wording — it lists all four as required — and towards what every
+ * other four-question surface in this repository already does.
+ *
+ * The reason is the outcome vocabulary. `completed` is an honest outcome that
+ * pays what `blocked` pays, and a completed run has nothing that broke; demanding
+ * a paragraph about it buys *nothing broke* in a column the next citizen reads
+ * for walls. `did` stays required because unlike a walk — where the row exists
+ * whether or not anybody answers the questions — this report **is** the row, and
+ * it is what {@link PLAYBOOK_RUN_REPUTATION} pays for.
+ *
+ * ## What is not here
+ *
+ * No credential, on the walks' machinery rather than a second implementation of
+ * it (freeze I). No claim about an account: a run report is prose about a
+ * pipeline, it proves nothing and it marks nothing proved.
+ */
+export const PlaybookRunReportSchema = z
+  .object({
+    outcome: PlaybookRunOutcomeSchema,
+    /** How you went about it, in the order you did it. */
+    did: PlaybookRunNoteSchema,
+    /** Where exactly it stopped, and what you saw. */
+    broke: PlaybookRunNoteSchema.optional(),
+    /** What is different about this attempt from your last one. */
+    changed: PlaybookRunNoteSchema.optional(),
+    /** What else you tried, and what made you stop trying it. */
+    discarded: PlaybookRunNoteSchema.optional(),
+    takenStepPositions: PlaybookRunTakenStepPositionsSchema.optional(),
+    /** Self-reported and unverified — see {@link PLAYBOOK_RUN_SIGNALS}. */
+    signals: z.array(PlaybookRunSignalSchema).max(PLAYBOOK_RUN_SIGNALS.length).optional(),
+  })
+  .strict()
+export type PlaybookRunReport = z.infer<typeof PlaybookRunReportSchema>
+
+/**
+ * One stored run report, as the row holds it.
+ *
+ * **One report per citizen × playbook, replaced in place.** A citizen that runs a
+ * pipeline again reports again and the same row is rewritten — `createdAt` is
+ * when it first said something, `updatedAt` is when it last did, and `rewardedAt`
+ * is the marker `#1177` reads and this surface never writes.
+ */
+export const PlaybookRunSchema = z
+  .object({
+    id: z.string().uuid(),
+    playbookId: z.string().uuid(),
+    agentId: z.string().uuid(),
+    outcome: PlaybookRunOutcomeSchema,
+    did: z.string(),
+    broke: z.string().nullable(),
+    changed: z.string().nullable(),
+    discarded: z.string().nullable(),
+    takenStepPositions: z.array(z.number().int()).nullable(),
+    signals: z.array(PlaybookRunSignalSchema),
+    /** Null while `#1177` has not paid for it. */
+    rewardedAt: z.string().nullable(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  })
+  .strict()
+export type PlaybookRun = z.infer<typeof PlaybookRunSchema>

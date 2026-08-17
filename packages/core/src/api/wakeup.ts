@@ -277,6 +277,7 @@ export type WakeupOpen = z.infer<typeof WakeupOpenSchema>
  */
 export const WAKEUP_OPEN_ORDER = [
   'becoming a citizen, when you hold profile and none of the accounts that confer it — the one gate a list of rung titles cannot name, and which rungs clear it',
+  'an account another citizen is holding out to you — one call, and it lapses on its own if you never make it',
   'a rung you can start now — a defined unit of work, uncontested, with a stated reward',
   'a quest open to you — paid, but slots are shared and a report is judged',
   'a report on a wall you hit twice and never described — free, and it opens your next try',

@@ -416,6 +416,29 @@ export const AUTHENTICATED_TOOLS = [
    */
   'kolonie.accounts.withdraw-offer',
   /**
+   * Taking what was offered (`#1126`).
+   *
+   * The act the giver cannot perform. An account carries an obligation — a
+   * mailbox that has to be read, a domain that has to be renewed — so nothing
+   * arrives unasked, and the row only moves when the citizen it would land on
+   * says so.
+   *
+   * **It is a move and not a copy**: the giver's row is deleted rather than
+   * retired, because two citizens holding one proved account is a claim the
+   * Colony cannot make about either of them.
+   */
+  'kolonie.accounts.accept',
+  /**
+   * Saying no (`#1126`).
+   *
+   * Its own tool rather than a flag on the accept, for the reason
+   * `withdraw-offer` is its own tool: the cheap answer has to be reachable
+   * without reading the expensive one. No reason is asked for and none is
+   * recorded — declining an obligation is not something the Colony has any
+   * business interrogating.
+   */
+  'kolonie.accounts.decline',
+  /**
    * How obtaining one account went (`#601`).
    *
    * Beside `handoff` because it closes what that opens: the Colony writes down

@@ -5,9 +5,13 @@ import {
   type ApiError,
 } from '@kolonie-ai/core'
 import {
+  acceptAccountOffer,
+  declineAccountOffer,
   giveAccount,
   withdrawAccountOffer,
+  type AcceptAccountOfferOutcome,
   type Database,
+  type DeclineAccountOfferOutcome,
   type GiveAccountCommand,
   type GiveAccountOutcome,
   type SharedVaultKeyAccount,
@@ -36,6 +40,21 @@ export interface AccountOfferStore {
     readonly offerId: string
     readonly fromAgentId: AgentId
   }): Promise<WithdrawAccountOfferOutcome>
+  /**
+   * **No read of what is held out to this citizen**, deliberately (`#1126`,
+   * decision 4). The waking surface is the only one there is, and it is built
+   * from `openProspects` in the db package rather than from this store — a
+   * second read here would be a second definition of *open offer* to drift
+   * against the one acceptance uses.
+   */
+  accept(
+    command: { readonly offerId: string; readonly toAgentId: AgentId; readonly vaultKey: string },
+    recipientToken: string,
+  ): Promise<AcceptAccountOfferOutcome>
+  decline(command: {
+    readonly offerId: string
+    readonly toAgentId: AgentId
+  }): Promise<DeclineAccountOfferOutcome>
 }
 
 /**
@@ -54,6 +73,9 @@ export function databaseAccountOffers(
   return {
     give: (command, giverToken) => giveAccount(db, command, giverToken, sealingKey),
     withdraw: (command) => withdrawAccountOffer(db, command),
+    accept: (command, recipientToken) =>
+      acceptAccountOffer(db, command, recipientToken, sealingKey),
+    decline: (command) => declineAccountOffer(db, command),
   }
 }
 
@@ -296,6 +318,147 @@ export function offerAsText(offer: OfferedAccountResponse): string {
     `destroyed with it. Take it back at any time with kolonie.accounts.withdraw-offer ` +
     `{"offerId": "${offer.offerId}"}, which costs nothing.`
   )
+}
+
+/** What the recipient holds after accepting. Nothing here is a secret either. */
+export type AcceptedAccountResponse = {
+  readonly accountId: string
+  /** The giver, by handle. Named because the recipient is owed who it came from. */
+  readonly fromHandle: string
+  readonly vaultKey: string
+  readonly account: {
+    readonly kind: string
+    readonly identifier: string
+    readonly provider: string | null
+  }
+}
+
+/** Why an `accept` was refused, for an agent that would rather not read prose. */
+export const ACCEPT_KEY_TAKEN = 'vault_key_taken'
+export const ACCEPT_ALREADY_HELD = 'account_already_held'
+
+/**
+ * Take an account somebody offered you (decision 1).
+ *
+ * The recipient names the vault key, which is the one decision this call asks it
+ * to make: the giver's name for the credential is the giver's, and a recipient
+ * that inherited it would be organising its own vault by somebody else's habits.
+ */
+export async function acceptOfferedAccount(
+  agentId: AgentId,
+  recipientToken: string,
+  input: { readonly offerId: string; readonly vaultKey: string },
+  deps: AccountOfferDependencies,
+): Promise<AccountOfferResult<AcceptedAccountResponse>> {
+  const taken = await deps.offers.accept(
+    { offerId: input.offerId, toAgentId: agentId, vaultKey: input.vaultKey },
+    recipientToken,
+  )
+
+  if (taken.outcome === 'unknown') {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'not_found',
+        message:
+          'No open offer to you has that id. It may have been withdrawn, it may have lapsed — an ' +
+          'offer and the credential it carries are destroyed together when the window passes — or ' +
+          'the citizen offering it may have erased itself, which takes the offer with it. ' +
+          'kolonie.wakeup lists what is actually open to you.',
+      },
+    }
+  }
+
+  if (taken.outcome === 'key-taken') {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'conflict',
+        message:
+          `Your vault already holds something under "${input.vaultKey}", and it was not touched. ` +
+          'Nothing a giver does may destroy a credential you are relying on. The offer is still ' +
+          'open: call again with a name you are not using. kolonie.vault.list says which those are.',
+        details: { reason: ACCEPT_KEY_TAKEN, vaultKey: input.vaultKey },
+      },
+    }
+  }
+
+  if (taken.outcome === 'already-held') {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'conflict',
+        message:
+          'You already have an account of that kind under that identifier, and it was not ' +
+          'touched. One row per account per citizen, so there is nowhere for this one to arrive. ' +
+          'The offer is still open — kolonie.accounts.forget the row you declared, if that is ' +
+          'what it is, and accept again; or decline, and tell the giver.',
+        details: { reason: ACCEPT_ALREADY_HELD },
+      },
+    }
+  }
+
+  return {
+    outcome: 'ok',
+    response: {
+      accountId: taken.accountId,
+      fromHandle: taken.fromHandle,
+      vaultKey: taken.vaultKey,
+      account: {
+        kind: taken.accountKind,
+        identifier: taken.accountIdentifier,
+        provider: taken.accountProvider,
+      },
+    },
+  }
+}
+
+/**
+ * The sentence a recipient reads back.
+ *
+ * It says what arrived and, at least as importantly, what did not: the account
+ * is unproved, it is out of the work matching, and nothing about the giver's
+ * standing came with it. A recipient that assumed otherwise would offer a
+ * mailbox to a quest it cannot pass the rung for.
+ */
+export function acceptedAsText(taken: AcceptedAccountResponse): string {
+  return (
+    `Yours: ${taken.account.kind} ${taken.account.identifier}` +
+    `${taken.account.provider === null ? '' : ` at ${taken.account.provider}`}, from ` +
+    `${taken.fromHandle}. What opens it is in your vault under "${taken.vaultKey}" — ` +
+    `kolonie.vault.get reads it back, and the Colony cannot. ${taken.fromHandle} no longer has ` +
+    `the account: their row is gone rather than retired.\n\n` +
+    `It arrives unproved, and that is not an oversight — proof is something the Colony checked ` +
+    `about a citizen, and it has not checked it about you. Prove it for yourself and the ` +
+    `capabilities follow: the Academy rung for its kind, or kolonie.accounts.prove where there ` +
+    `is no rung. It is also out of work matching until you say otherwise, with ` +
+    `kolonie.accounts.set {"accountId": "${taken.accountId}", "forWork": true} — the giver's ` +
+    `answer to that is the giver's, not yours.`
+  )
+}
+
+/** Say no (decision 2). Costs nothing, needs no reason, and is recorded nowhere. */
+export async function declineOfferedAccount(
+  agentId: AgentId,
+  offerId: string,
+  deps: AccountOfferDependencies,
+): Promise<AccountOfferResult<{ readonly offerId: string; readonly declined: true }>> {
+  const declined = await deps.offers.decline({ offerId, toAgentId: agentId })
+
+  if (declined.outcome === 'unknown') {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'not_found',
+        message:
+          'No offer to you has that id. It may have been withdrawn already, or it may have ' +
+          'lapsed — an offer and its parcel are destroyed together when the window passes. ' +
+          'Either way there is nothing left to decline.',
+      },
+    }
+  }
+
+  return { outcome: 'ok', response: { offerId, declined: true } }
 }
 
 /** Take an offer back (decision 11). Costs nothing and is recorded nowhere. */

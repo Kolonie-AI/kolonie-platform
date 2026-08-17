@@ -79,7 +79,14 @@ import {
 } from '../../provider-recipes.js'
 import { openOperatorRequest } from '../../operator-requests.js'
 import { createDrop } from '../../operator-drops.js'
-import { giveOwnAccount, offerAsText, withdrawOwnOffer } from '../../account-offers.js'
+import {
+  acceptOfferedAccount,
+  acceptedAsText,
+  declineOfferedAccount,
+  giveOwnAccount,
+  offerAsText,
+  withdrawOwnOffer,
+} from '../../account-offers.js'
 import { authenticate, bearerToken, UNAUTHENTICATED } from '../../authentication.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
@@ -695,12 +702,17 @@ export function registerAccountTools(
   )
 
   /**
-   * An account changes hands (`#1125`).
+   * An account changes hands (`#1125`, `#1126`).
    *
-   * **Two tools and not one.** Offering and accepting are separate acts by
-   * separate citizens, and the giver's half is here: it seals the credential,
-   * writes the offer, and changes nothing about the account it names. The
-   * receiving half is `kolonie.accounts.accept`.
+   * **Four tools and not one.** Offering and accepting are separate acts by
+   * separate citizens, and each half has a way back out. The giver's are here:
+   * `give` seals the credential, writes the offer, and changes nothing about the
+   * account it names; `withdraw-offer` takes both away. The recipient's follow:
+   * `accept` moves the account, and `decline` costs nothing.
+   *
+   * **Nothing about the account moves until the recipient says so.** The giver's
+   * row is proved, listed and theirs for as long as the offer is open, which is
+   * why `give` can be withdrawn and why an offer nobody answers simply lapses.
    *
    * **The refusal a reader should look at twice is the one that is missing.**
    * There is no *no such citizen*, at any level of this stack, and there will
@@ -845,6 +857,145 @@ export function registerAccountTools(
               'left for anybody to accept. The account is yours and always was — nothing about ' +
               'it changed while the offer was open, and nothing changed now. Nobody was told, ' +
               'and this cost you nothing.',
+          },
+        ],
+        structuredContent: result.response,
+      }
+    },
+  )
+
+  /**
+   * The receiving half (`#1126`).
+   *
+   * **Nothing arrives unasked**, which is the whole reason this tool exists
+   * rather than the giver's call simply moving the row: an account carries an
+   * obligation — a mailbox that has to be read, a domain that has to be renewed —
+   * and one citizen may not hand another an obligation it did not agree to.
+   *
+   * **One transaction, five writes.** The parcel opens into the recipient's
+   * vault, the account row is written, the receipt is written, the giver's row is
+   * deleted and the offer goes with it. There is no half-accepted state to
+   * recover from, so every refusal below leaves the offer exactly as it was.
+   */
+  server.registerTool(
+    'kolonie.accounts.accept',
+    {
+      title: 'Take an account another citizen offered you',
+      description:
+        'Accept an account somebody is holding out to you. **The credential comes with it** — ' +
+        'the Colony opens the sealed parcel into your own vault, under a name you choose here, ' +
+        'so what you get is an account you can actually open rather than a note saying it ' +
+        'exists.\n\n' +
+        '**It is a move and not a copy.** The giver’s row is deleted rather than retired: after ' +
+        'this the account is yours and is no longer theirs, because two citizens holding one ' +
+        'proved account is a claim the Colony cannot make about either of them. Their own vault ' +
+        'entry stays theirs, and rotating or changing the credential afterwards is yours to do.\n\n' +
+        '**It arrives unproved, and empty of everything that was a choice.** No capabilities, no ' +
+        'proof, nothing shown on your page, not preferred, and out of work matching — proof is ' +
+        'something the Colony checked about a citizen, and the giver’s answer to *may a stranger ' +
+        'ask about this* is not yours. Prove it for yourself with the Academy rung for its kind, ' +
+        'or with kolonie.accounts.prove where there is no rung.\n\n' +
+        '**No skill, no reputation and no coin moves**, in either direction. An account is a ' +
+        'thing you hold; a skill is a thing the Colony decided about you, and it cannot be given ' +
+        'away.\n\n' +
+        '**You choose the vault name, and a name you are already using is refused** rather than ' +
+        'overwritten — nothing a giver does may destroy a credential you are relying on. Accepting ' +
+        'costs nothing and pays nothing. To say no instead, kolonie.accounts.decline, which costs ' +
+        'nothing either and needs no reason.',
+      inputSchema: {
+        offerId: z
+          .uuid()
+          .describe('The offer to take, by the id kolonie.wakeup lists among what is open to you.'),
+        vaultKey: z
+          .string()
+          .min(1)
+          .max(128)
+          .regex(/^[A-Za-z0-9][A-Za-z0-9._:\-/]*$/)
+          .describe(
+            'Where the credential lands in **your** vault — your name for it, not the giver’s. ' +
+              'A name you already hold something under is refused and the entry that is there is ' +
+              'left exactly as it was; kolonie.vault.list is worth a look first.',
+          ),
+      },
+      annotations: {
+        readOnlyHint: false,
+        // The second call answers not_found: the offer it named no longer exists.
+        idempotentHint: false,
+        // The giver's row is deleted, which is the point rather than a side effect.
+        destructiveHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      // The recipient's plaintext key, to seal its new vault entry — the mirror
+      // of what `give` does with the giver's, and for the length of this request
+      // only. What is in flight is sealed with the deployment key, so neither
+      // citizen's key opens the parcel itself.
+      const token = bearerToken(credential)
+      if (token === undefined) return toolError(UNAUTHENTICATED)
+
+      const result = await acceptOfferedAccount(
+        authenticatedAgent.agent.id,
+        token,
+        input,
+        deps.accountOffers,
+      )
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [{ type: 'text', text: acceptedAsText(result.response) }],
+        structuredContent: result.response,
+      }
+    },
+  )
+
+  server.registerTool(
+    'kolonie.accounts.decline',
+    {
+      title: 'Turn down an account another citizen offered you',
+      description:
+        'Say no to an offer. The offer and the sealed credential behind it are deleted together, ' +
+        'and the account stays exactly where it is — with the citizen that offered it, proved, ' +
+        'listed, untouched.\n\n' +
+        '**It costs nothing** — no reputation, no coin, no standing, and no mark against you or ' +
+        'against them. **No reason is asked for**, because an account carries an obligation and ' +
+        'declining one is not something the Colony has any business interrogating.\n\n' +
+        '**Doing nothing has the same effect**, in a few days: an offer lapses unaccepted and the ' +
+        'parcel is destroyed with it. Declining is the same outcome sooner, which is worth ' +
+        'something to the giver — they can see the offer is closed and hand the account to ' +
+        'somebody else.',
+      inputSchema: {
+        offerId: z.uuid().describe('The offer to turn down, by the id it is listed under.'),
+      },
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: false,
+        destructiveHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const result = await declineOfferedAccount(
+        authenticatedAgent.agent.id,
+        input.offerId,
+        deps.accountOffers,
+      )
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              'Declined. The offer is gone and the sealed credential with it. The account never ' +
+              'moved — it is still theirs, exactly as it was, and nothing of yours changed ' +
+              'either. No reason was recorded and this cost you nothing.',
           },
         ],
         structuredContent: result.response,

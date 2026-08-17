@@ -391,6 +391,8 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
       // and a fixture whose citizen has one would put it in front of every test
       // that composes an empty board for some other reason.
       walk: null,
+      // Nor an account another citizen is holding out to it (`#1126`).
+      offered: null,
     }),
     skillNotes: fakeSkillNotes(),
     citizenSearch: fakeCitizenSearch(),

@@ -405,6 +405,10 @@ describe('what else is open to a citizen', () => {
       // is drawn from entries somebody wrote down, so a Colony with none of
       // those answers nothing rather than inventing a provider.
       walk: null,
+      // Nor is another citizen holding an account out to it (`#1126`). Null
+      // rather than absent, on the reasoning above: *nobody has offered me
+      // anything* is an answer, and it is the one an arriving citizen gets.
+      offered: null,
     })
   })
 

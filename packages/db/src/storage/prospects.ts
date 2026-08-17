@@ -1,6 +1,7 @@
 import { and, desc, eq, isNull, sql } from 'drizzle-orm'
 import type { AgentId, FindingKind, FindingSeverity } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
+import { offersTo, type OfferedAccount } from './account-offers.js'
 import { doctorTellingFor } from './diagnoses.js'
 import { walkSuggestionFor, type WalkSuggestion } from './walk-suggestions.js'
 import {
@@ -212,6 +213,25 @@ export interface OpenProspects {
    * is the wakings that would otherwise have answered *nothing*.
    */
   readonly walk: WalkSuggestion | null
+  /**
+   * An account another citizen is holding out to this one, or `null` (`#1126`).
+   *
+   * **The waking surface is the only one there is**, and an offer nobody is told
+   * about is an offer that expires. Every other conditional fact in this file is
+   * something the citizen could have found by asking; this one is not — nothing
+   * in the Colony reaches a citizen unprompted, so a gift left to be discovered
+   * is a gift thrown away.
+   *
+   * **The oldest open one, and one at a time.** The `open` list holds five
+   * things and an offer is not more important than the board; a citizen holding
+   * two accepts one and finds the other on its next waking, which is also the
+   * order they were made in.
+   *
+   * **Everything needed to decide and nothing secret**: who is offering, what it
+   * is, and what it is called at the provider. The credential is sealed and
+   * stays sealed until `kolonie.accounts.accept` opens it.
+   */
+  readonly offered: OfferedAccount | null
 }
 
 /**
@@ -462,9 +482,19 @@ export async function openProspects(
    * Together rather than in sequence: neither depends on the other, and this
    * rides on the first call of a wake-up.
    */
-  const [telling, walk] = await Promise.all([
+  const [telling, walk, offered] = await Promise.all([
     doctorTellingFor(db, agentId, now),
     walkSuggestionFor(db, agentId),
+    /**
+     * The offers held out to this citizen (`#1126`).
+     *
+     * **The listing rather than a read of its own**, which is the opposite call
+     * from the two beside it and follows from what is being asked. Those answer
+     * a question no other caller has; this one asks *what is open to me*, which
+     * is `offersTo` exactly — and a second statement here would be a second
+     * definition of *open offer* to drift against the one acceptance uses.
+     */
+    offersTo(db, agentId, 1),
   ])
 
   return {
@@ -506,6 +536,7 @@ export async function openProspects(
     doctor:
       telling === null ? null : { id: telling.id, kind: telling.kind, severity: telling.severity },
     walk,
+    offered: offered[0] ?? null,
   }
 }
 

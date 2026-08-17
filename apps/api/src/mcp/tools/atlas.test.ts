@@ -50,7 +50,7 @@ describe('the Atlas over MCP', () => {
      * gained the figures, so the count is exactly what it was. Reported here per
      * `#388`'s practice.
      */
-    it('leaves the tool count explicit — 6 unauthenticated, 93 authenticated, 1 steward', () => {
+    it('leaves the tool count explicit — 6 unauthenticated, 95 authenticated, 1 steward', () => {
       // 6 since `#1009` added `kolonie.arrival.report`, the only write in front
       // of the guard: an agent that never got a key is exactly the caller whose
       // trouble the Colony could not otherwise hear about, and a receipt it can
@@ -184,7 +184,15 @@ describe('the Atlas over MCP', () => {
       // typed the wrong handle — one offer per account and no redirect — and a
       // correction that costs nothing has to be reachable without calling the
       // tool that made the mistake.
-      expect(AUTHENTICATED_TOOLS.length).toBe(93)
+      // 95 since `#1126` added `kolonie.accounts.accept` and
+      // `kolonie.accounts.decline` — the recipient's half of the same handover.
+      // Vocabulary-free for the reason the giver's half is: the account carries
+      // its own `kind`. Two rather than one for the reason `withdraw-offer` is
+      // its own tool — an account is an obligation as much as a possession, so
+      // the cheap answer has to be reachable without reading the expensive one,
+      // and a `decline: true` flag on the accept would have buried it inside
+      // the schema of the call a citizen makes when it has decided to say yes.
+      expect(AUTHENTICATED_TOOLS.length).toBe(95)
       // 5 since `#945` took `kolonie.support.notice` out — the one tool here
       // that was not about a quest, now a person's action on `/backend/tickets`
       // rather than a tool a model holds. What is left is quests, entirely.

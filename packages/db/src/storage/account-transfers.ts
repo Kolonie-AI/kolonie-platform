@@ -13,10 +13,13 @@ import { getVaultEntry, setVaultEntry, vaultHoldsKey } from './vault.js'
 /**
  * A credential moving from one citizen's vault to another's (`#1124`).
  *
- * Two functions and no more: one seals a parcel out of the giver's vault, one
- * opens it into the recipient's. There is no tool here and nothing calls them
- * yet — `#1125` offers, `#1126` accepts, and neither contains a line of crypto
- * because all of it is in this file.
+ * Two acts and no more: one seals a parcel out of the giver's vault, one opens
+ * it into the recipient's. There is no tool here — `#1125` offers, `#1126`
+ * accepts, and neither contains a line of crypto because all of it is in this
+ * file. Opening comes in two shapes for one reason: acceptance is a transaction
+ * of five writes and this is two of them, so {@link openAccountTransferIn} runs
+ * inside the caller's transaction and {@link openAccountTransfer} is that same
+ * call with one of its own around it.
  *
  * **The Colony transports and does not hold.** The parcel is sealed under the
  * deployment key, so neither citizen's key opens what is in flight; the
@@ -170,113 +173,138 @@ export type OpenAccountTransferOutcome =
  */
 export async function openAccountTransfer(
   db: Database,
-  command: {
-    readonly transferId: string
-    readonly toAgentId: AgentId
-    /** The name the **recipient** chooses. It need not be the giver's. */
-    readonly vaultKey: string
-    /** What moved, copied onto the receipt. Neither is a secret. */
-    readonly accountKind: string
-    readonly accountIdentifier: string
-  },
+  command: OpenAccountTransferCommand,
   /** The recipient's presented API key. Seals its new vault entry. */
   recipientToken: string,
   sealingKey: string | undefined,
 ): Promise<OpenAccountTransferOutcome> {
   if (sealingKey === undefined) return { outcome: 'closed' }
 
-  return await db.transaction(async (tx) => {
-    const [row] = await tx
-      .select({
-        id: accountTransfers.id,
-        fromAgentId: accountTransfers.fromAgentId,
-        toAgentId: accountTransfers.toAgentId,
-        sealedValue: accountTransfers.sealedValue,
-        sealedDescription: accountTransfers.sealedDescription,
-        reads: accountTransfers.reads,
-      })
-      .from(accountTransfers)
-      .where(
-        and(
-          eq(accountTransfers.id, command.transferId),
-          eq(accountTransfers.toAgentId, command.toAgentId),
-          sql`${accountTransfers.expiresAt} > now()`,
-        ),
-      )
-      .for('update')
-      .limit(1)
+  return await db.transaction(
+    async (tx) => await openAccountTransferIn(tx, command, recipientToken, sealingKey),
+  )
+}
 
-    if (row === undefined) return { outcome: 'closed' }
-    if (row.reads >= TRANSFER_MAX_READS) return { outcome: 'closed' }
+export interface OpenAccountTransferCommand {
+  readonly transferId: string
+  readonly toAgentId: AgentId
+  /** The name the **recipient** chooses. It need not be the giver's. */
+  readonly vaultKey: string
+  /** What moved, copied onto the receipt. Neither is a secret. */
+  readonly accountKind: string
+  readonly accountIdentifier: string
+}
 
-    // Before anything is opened, so a refused name costs the parcel nothing.
-    if (await vaultHoldsKey(tx, command.toAgentId, command.vaultKey)) {
-      return { outcome: 'key-taken' }
-    }
-
-    const recipient = String(row.toAgentId)
-    const value = openVaultValue(sealingKey, recipient, scopeFor(row.id), row.sealedValue)
-    /**
-     * A parcel that will not open is `closed` like every other dead state. It
-     * means the deployment's key changed under a live transfer, and telling the
-     * recipient *the key rotated* would be telling it about the deployment.
-     */
-    if (value === null) return { outcome: 'closed' }
-
-    const description =
-      row.sealedDescription === null
-        ? undefined
-        : (openVaultValue(
-            sealingKey,
-            recipient,
-            descriptionScopeFor(row.id),
-            row.sealedDescription,
-          ) ?? undefined)
-
-    const stored = await setVaultEntry(
-      tx,
-      recipientToken,
-      command.toAgentId,
-      command.vaultKey,
-      value,
-      description,
+/**
+ * The same act, inside a transaction somebody else opened.
+ *
+ * `#1126` accepts an offer, and accepting is one transaction across five writes
+ * of which this is two — so the parcel cannot be opened in a transaction of its
+ * own and then be joined to the rest by hope. The whole of {@link
+ * openAccountTransfer} is here, and that function is the same call with a
+ * transaction around it, so there is still exactly one implementation.
+ *
+ * **The caller owns the rollback.** A caller that returns a refusal after this
+ * has settled must roll its own transaction back, or a parcel is consumed by an
+ * act that did not happen.
+ */
+export async function openAccountTransferIn(
+  tx: Transaction,
+  command: OpenAccountTransferCommand,
+  recipientToken: string,
+  /** Not optional here: the absent key is `closed`, and that is the caller's. */
+  sealingKey: string,
+): Promise<OpenAccountTransferOutcome> {
+  const [row] = await tx
+    .select({
+      id: accountTransfers.id,
+      fromAgentId: accountTransfers.fromAgentId,
+      toAgentId: accountTransfers.toAgentId,
+      sealedValue: accountTransfers.sealedValue,
+      sealedDescription: accountTransfers.sealedDescription,
+      reads: accountTransfers.reads,
+    })
+    .from(accountTransfers)
+    .where(
+      and(
+        eq(accountTransfers.id, command.transferId),
+        eq(accountTransfers.toAgentId, command.toAgentId),
+        sql`${accountTransfers.expiresAt} > now()`,
+      ),
     )
-    /**
-     * A full vault is `closed` rather than its own answer, and it is the one
-     * place that costs the recipient information. The alternative is worse: a
-     * distinct outcome here would have to be produced *after* the parcel has
-     * been opened, and every path out of this transaction after that point has
-     * to be a rollback.
-     */
-    if (stored.outcome !== 'stored') throw new Error('the recipient vault would not take it')
+    .for('update')
+    .limit(1)
 
-    const [receipt] = await tx
-      .insert(accountTransferReceipts)
-      .values({
-        fromAgentId: row.fromAgentId,
-        toAgentId: row.toAgentId,
-        accountKind: command.accountKind,
-        accountIdentifier: command.accountIdentifier,
-      })
-      .returning({ id: accountTransferReceipts.id })
+  if (row === undefined) return { outcome: 'closed' }
+  if (row.reads >= TRANSFER_MAX_READS) return { outcome: 'closed' }
 
-    if (receipt === undefined) throw new Error('inserting a transfer receipt returned no row')
+  // Before anything is opened, so a refused name costs the parcel nothing.
+  if (await vaultHoldsKey(tx, command.toAgentId, command.vaultKey)) {
+    return { outcome: 'key-taken' }
+  }
 
-    /**
-     * Marked settled and then deleted in the same statement pair. The mark is
-     * not read back in practice — it is there so that a delete which somehow
-     * did not happen leaves a row that says what it was, rather than one that
-     * looks untouched and would be handed over a second time.
-     */
-    await tx
-      .update(accountTransfers)
-      .set({ reads: row.reads + 1, settledAt: currentTime() })
-      .where(eq(accountTransfers.id, row.id))
+  const recipient = String(row.toAgentId)
+  const value = openVaultValue(sealingKey, recipient, scopeFor(row.id), row.sealedValue)
+  /**
+   * A parcel that will not open is `closed` like every other dead state. It
+   * means the deployment's key changed under a live transfer, and telling the
+   * recipient *the key rotated* would be telling it about the deployment.
+   */
+  if (value === null) return { outcome: 'closed' }
 
-    await tx.delete(accountTransfers).where(eq(accountTransfers.id, row.id))
+  const description =
+    row.sealedDescription === null
+      ? undefined
+      : (openVaultValue(
+          sealingKey,
+          recipient,
+          descriptionScopeFor(row.id),
+          row.sealedDescription,
+        ) ?? undefined)
 
-    return { outcome: 'settled', receiptId: receipt.id }
-  })
+  const stored = await setVaultEntry(
+    tx,
+    recipientToken,
+    command.toAgentId,
+    command.vaultKey,
+    value,
+    description,
+  )
+  /**
+   * A full vault is `closed` rather than its own answer, and it is the one
+   * place that costs the recipient information. The alternative is worse: a
+   * distinct outcome here would have to be produced *after* the parcel has
+   * been opened, and every path out of this transaction after that point has
+   * to be a rollback.
+   */
+  if (stored.outcome !== 'stored') throw new Error('the recipient vault would not take it')
+
+  const [receipt] = await tx
+    .insert(accountTransferReceipts)
+    .values({
+      fromAgentId: row.fromAgentId,
+      toAgentId: row.toAgentId,
+      accountKind: command.accountKind,
+      accountIdentifier: command.accountIdentifier,
+    })
+    .returning({ id: accountTransferReceipts.id })
+
+  if (receipt === undefined) throw new Error('inserting a transfer receipt returned no row')
+
+  /**
+   * Marked settled and then deleted in the same statement pair. The mark is
+   * not read back in practice — it is there so that a delete which somehow
+   * did not happen leaves a row that says what it was, rather than one that
+   * looks untouched and would be handed over a second time.
+   */
+  await tx
+    .update(accountTransfers)
+    .set({ reads: row.reads + 1, settledAt: currentTime() })
+    .where(eq(accountTransfers.id, row.id))
+
+  await tx.delete(accountTransfers).where(eq(accountTransfers.id, row.id))
+
+  return { outcome: 'settled', receiptId: receipt.id }
 }
 
 /**

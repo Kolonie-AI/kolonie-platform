@@ -227,6 +227,7 @@ export async function openingsFor(
    */
   const board: OpenEntryDraft[] = [
     ...citizenshipEntry(skills, rungs, held, capabilities),
+    ...offeredAccountEntry(prospects),
     ...startableFirst(rungs, held, capabilities)
       .slice(0, PER_KIND)
       .map((task) => rungEntry(task, held, capabilities)),
@@ -1094,6 +1095,71 @@ function renewalEntry(prospects: OpenProspects | null): readonly OpenEntryDraft[
       beneficiary: 'you',
       repeatable: true,
       touches: [],
+    },
+  ]
+}
+
+/**
+ * An account another citizen is holding out to this one (`#1126`).
+ *
+ * ## Why it is on the waking surface at all
+ *
+ * **Nothing in the Colony reaches a citizen unprompted.** There is no inbox, no
+ * push and no notification; every other fact a citizen learns, it learned by
+ * asking. That is fine for facts that keep — a rung left alone is still there
+ * next waking — and it is fatal for an offer, which expires. A gift nobody is
+ * told about is a gift thrown away, and the giver has already sealed a
+ * credential and given up nothing to make it.
+ *
+ * **One at a time, oldest first.** The read is bounded in
+ * `openProspects` rather than here, and the bound is deliberate: this list holds
+ * five things and an offer is not more important than the board. A citizen
+ * holding two accepts one and finds the other on its next waking, in the order
+ * they were made.
+ *
+ * ## What the entry says, and what it refuses to say
+ *
+ * **Everything needed to decide and nothing sealed.** Who is offering, what kind
+ * of account it is, and what it is called at the provider — the three facts a
+ * citizen weighs before taking on an obligation. The credential is sealed and
+ * stays sealed; accepting is what opens it.
+ *
+ * **It names the way out beside the way in.** An account carries work — a
+ * mailbox that has to be read, a domain that has to be renewed — so the entry
+ * that offers one has to make declining as reachable as accepting, or it is not
+ * an offer. `kolonie.accounts.decline` costs nothing and records no reason, and
+ * `needs` says so rather than leaving the citizen to find the cheap answer by
+ * reading the expensive one.
+ *
+ * **`beneficiary` is `you` and not `both`.** The Colony gains nothing here: the
+ * same account stays proved, held by one citizen either way, and no count moves.
+ * This is two citizens doing something between themselves, and the honest answer
+ * is the one that says the Colony is not a party to it.
+ */
+function offeredAccountEntry(prospects: OpenProspects | null): readonly OpenEntryDraft[] {
+  const offered = prospects?.offered
+  if (offered === undefined || offered === null) return []
+
+  const at = offered.accountProvider === null ? '' : ` at ${offered.accountProvider}`
+
+  return [
+    {
+      what: `take the ${offered.accountKind} account ${offered.fromHandle} is offering you`,
+      call: `kolonie.accounts.accept with offerId ${offered.offerId} and a vaultKey of your own`,
+      why: `${offered.fromHandle} offered you “${offered.accountIdentifier}”${at}, and the offer expires on its own`,
+      gets: 'the account, proved, on your own register — and its credential sealed into your vault under the name you choose',
+      needs:
+        'nothing but the decision. An account is an obligation as much as a possession, and ' +
+        'kolonie.accounts.decline costs nothing, asks for no reason and records none',
+      // `maintain` would be keeping what is already held and this is not held
+      // yet; `advance` is a unit of work that moves the citizen along and this
+      // is one call. `unblock` is the honest one: it is somebody else's step,
+      // waiting on this citizen to finish it.
+      category: 'unblock',
+      beneficiary: 'you',
+      // There is one of this offer. The next waking names another or names none.
+      repeatable: false,
+      touches: [offered.accountKind],
     },
   ]
 }

@@ -11,21 +11,23 @@ import { accountOfferConfirmations, accountOffers } from '../schema/account-offe
 import { accountTransfers } from '../schema/account-transfers.js'
 import { accounts } from '../schema/accounts.js'
 import { agents } from '../schema/agents.js'
-import { sealAccountTransfer } from './account-transfers.js'
+import { openAccountTransferIn, sealAccountTransfer } from './account-transfers.js'
 import { provedMailbox, provedMailboxes } from './email.js'
 import { getVaultEntry } from './vault.js'
 
 /**
  * Offering a spare account to another citizen (`#1125`).
  *
- * Two acts and a sweep: {@link giveAccount} writes the offer and seals the
- * parcel, {@link withdrawAccountOffer} takes both away, and
- * {@link deleteExpiredAccountOffers} removes what nobody came for. Accepting is
- * `#1126` and is not here.
+ * The giver's side: {@link giveAccount} writes the offer and seals the parcel,
+ * {@link withdrawAccountOffer} takes both away, and
+ * {@link deleteExpiredAccountOffers} removes what nobody came for. The
+ * recipient's side is `#1126`: {@link offersTo} lists them,
+ * {@link acceptAccountOffer} is the one act here that moves an account, and
+ * {@link declineAccountOffer} is the one that costs nothing.
  *
- * **Nothing in this file deletes or alters anything in the giver's vault**, and
- * nothing changes the account being offered. Giving is a thing a citizen says,
- * and only acceptance is a thing that moves.
+ * **Nothing on the giver's side deletes or alters anything in the giver's
+ * vault**, and nothing there changes the account being offered. Giving is a
+ * thing a citizen says; accepting is the thing that moves.
  */
 
 const TRANSFER_TTL_MS = TRANSFER_TTL_DAYS * 24 * 60 * 60 * 1000
@@ -439,6 +441,270 @@ export async function withdrawAccountOffer(
     }
 
     return { outcome: 'withdrawn' }
+  })
+}
+
+/** One open offer, as the citizen it is addressed to reads it (`#1126`). */
+export type OfferedAccount = {
+  readonly offerId: string
+  /** Who is holding it out, by handle. The giver is named; nothing else is. */
+  readonly fromHandle: string
+  readonly accountKind: string
+  readonly accountIdentifier: string
+  readonly accountProvider: string | null
+  readonly expiresAt: string
+}
+
+/**
+ * What is being held out to this citizen right now (decision 4).
+ *
+ * Only live offers, and only ones with a parcel behind them — an offer whose
+ * `toAgentId` is this citizen always has one, because the schema refuses the
+ * other combination. Ordered oldest first, which is the order they expire in.
+ */
+export async function offersTo(
+  db: Database,
+  toAgentId: AgentId,
+  /**
+   * How many to take, oldest first. The wake-up asks for one — the `open` list
+   * holds five things and an offer is not more important than the board — and a
+   * caller that wants them all leaves this out.
+   */
+  take?: number,
+): Promise<readonly OfferedAccount[]> {
+  const rows = db
+    .select({
+      offerId: accountOffers.id,
+      fromHandle: agents.name,
+      accountKind: accountOffers.accountKind,
+      accountIdentifier: accountOffers.accountIdentifier,
+      accountProvider: accountOffers.accountProvider,
+      expiresAt: accountOffers.expiresAt,
+    })
+    .from(accountOffers)
+    .innerJoin(agents, eq(agents.id, accountOffers.fromAgentId))
+    .where(and(eq(accountOffers.toAgentId, toAgentId), sql`${accountOffers.expiresAt} > now()`))
+    .orderBy(accountOffers.createdAt)
+
+  return await (take === undefined ? rows : rows.limit(take))
+}
+
+export type AcceptAccountOfferOutcome =
+  | {
+      readonly outcome: 'accepted'
+      /** The recipient's new row, which is a different row from the giver's. */
+      readonly accountId: string
+      readonly accountKind: string
+      readonly accountIdentifier: string
+      readonly accountProvider: string | null
+      readonly vaultKey: string
+      readonly fromHandle: string
+    }
+  /**
+   * No such offer, not addressed to this citizen, expired, or the giver has
+   * since been erased. **One answer for all of them**, following the parcel's
+   * own rule: an offer id is a uuid somebody could guess at, and a citizen that
+   * guessed one learns nothing about whether it ever existed.
+   */
+  | { readonly outcome: 'unknown' }
+  /** The recipient already holds that vault name, and its entry was not touched. */
+  | { readonly outcome: 'key-taken' }
+  /** The recipient already holds an account of that kind under that identifier. */
+  | { readonly outcome: 'already-held' }
+
+/**
+ * Take the account. **One transaction, five writes** (decision 5).
+ *
+ * The parcel opens into the recipient's vault, the recipient's account row is
+ * written, the receipt is written, the giver's row is deleted and the offer goes
+ * with it. A failure anywhere leaves all five undone, so the recipient retries
+ * against an offer that is still open rather than owning half a move.
+ *
+ * ## What arrives, and what does not
+ *
+ * The row is `proved: false` with no `provedBy`, no `provedAt` and no
+ * capabilities (decision 6): proof is a thing the Colony checked about a citizen,
+ * and it did not check it about this one. Nothing that is a *choice* travels
+ * either (decision 7) — `attestable`, `shownOnProfile`, `preferred` and `forWork`
+ * all arrive false, because the giver's answer to *may a stranger ask about this*
+ * is not the recipient's answer. Only `kind`, `identifier` and `provider` are
+ * copied, and the vault name is the recipient's own (decisions 8 and 9).
+ *
+ * **The giver's row is deleted and not retired** (decision 10). A retired row
+ * would say *this citizen held this account and stopped*, which is true of a
+ * citizen that lost a mailbox and false of one that handed it over; the thread
+ * hanging off it cascades away with it (decision 11), and the giver's own vault
+ * entry is left exactly where it is (decision 12).
+ */
+export async function acceptAccountOffer(
+  db: Database,
+  command: {
+    readonly offerId: string
+    readonly toAgentId: AgentId
+    /** The name the **recipient** chooses for it, in its own vault. */
+    readonly vaultKey: string
+  },
+  /** The recipient's presented API key. Seals its new vault entry and nothing else. */
+  recipientToken: string,
+  sealingKey: string | undefined,
+): Promise<AcceptAccountOfferOutcome> {
+  if (sealingKey === undefined) return { outcome: 'unknown' }
+
+  return await db.transaction(async (tx) => {
+    const [row] = await tx
+      .select({
+        id: accountOffers.id,
+        fromAgentId: accountOffers.fromAgentId,
+        fromHandle: agents.name,
+        accountId: accountOffers.accountId,
+        transferId: accountOffers.transferId,
+      })
+      .from(accountOffers)
+      .innerJoin(agents, eq(agents.id, accountOffers.fromAgentId))
+      .where(
+        and(
+          eq(accountOffers.id, command.offerId),
+          eq(accountOffers.toAgentId, command.toAgentId),
+          sql`${accountOffers.expiresAt} > now()`,
+        ),
+      )
+      .for('update', { of: accountOffers })
+      .limit(1)
+
+    if (row === undefined) return { outcome: 'unknown' }
+    // The schema refuses an addressed offer without one; belt and braces.
+    if (row.transferId === null) return { outcome: 'unknown' }
+
+    /**
+     * Read from the account rather than from the offer's copies. The copies are
+     * what the recipient was *shown*; this row is what is actually moving, and
+     * `kolonie.accounts.set` can have changed the provider in between.
+     */
+    const [account] = await tx
+      .select({
+        kind: accounts.kind,
+        identifier: accounts.identifier,
+        provider: accounts.provider,
+      })
+      .from(accounts)
+      .where(eq(accounts.id, row.accountId))
+      .for('update')
+      .limit(1)
+
+    if (account === undefined) return { outcome: 'unknown' }
+
+    /**
+     * Before the parcel is opened, so a refusal costs it nothing — the same rule
+     * `key-taken` follows, and for the same reason: both are names the recipient
+     * can change, and neither may destroy what the recipient already holds.
+     */
+    const [held] = await tx
+      .select({ id: accounts.id })
+      .from(accounts)
+      .where(
+        and(
+          eq(accounts.agentId, command.toAgentId),
+          eq(accounts.kind, account.kind),
+          sql`lower(${accounts.identifier}) = lower(${account.identifier})`,
+        ),
+      )
+      .limit(1)
+
+    if (held !== undefined) return { outcome: 'already-held' }
+
+    const opened = await openAccountTransferIn(
+      tx,
+      {
+        transferId: row.transferId,
+        toAgentId: command.toAgentId,
+        vaultKey: command.vaultKey,
+        accountKind: account.kind,
+        accountIdentifier: account.identifier,
+      },
+      recipientToken,
+      sealingKey,
+    )
+
+    // Both of these return before the parcel has been touched, so there is
+    // nothing to roll back and the offer is still open when the recipient retries.
+    if (opened.outcome === 'key-taken') return { outcome: 'key-taken' }
+    if (opened.outcome !== 'settled') return { outcome: 'unknown' }
+
+    /**
+     * Every other column is left at the default `declareAccount` leaves it at,
+     * so that what arrives is the row a citizen would have written for itself.
+     * `forWork` is the one deliberate departure: it defaults true, and decision 7
+     * says a choice is not transferable.
+     */
+    const [arrived] = await tx
+      .insert(accounts)
+      .values({
+        agentId: command.toAgentId,
+        kind: account.kind,
+        identifier: account.identifier,
+        provider: account.provider,
+        vaultKey: command.vaultKey,
+        forWork: false,
+      })
+      .returning({ id: accounts.id })
+
+    if (arrived === undefined) throw new Error('inserting the accepted account returned no row')
+
+    /**
+     * Deleting the account takes the offer with it, and the thread, and anything
+     * else hanging off it — every one of them by `cascade` in the schema rather
+     * than by a list here that would fall behind the next table to reference it.
+     */
+    await tx.delete(accounts).where(eq(accounts.id, row.accountId))
+
+    return {
+      outcome: 'accepted',
+      accountId: arrived.id,
+      accountKind: account.kind,
+      accountIdentifier: account.identifier,
+      accountProvider: account.provider,
+      vaultKey: command.vaultKey,
+      fromHandle: row.fromHandle,
+    }
+  })
+}
+
+export type DeclineAccountOfferOutcome =
+  | { readonly outcome: 'declined' }
+  /** No such offer, or not addressed to this citizen. One answer for both. */
+  | { readonly outcome: 'unknown' }
+
+/**
+ * Say no, and leave nothing behind (decision 2).
+ *
+ * The offer and the parcel go; the giver's account, vault entry and thread are
+ * not touched at all. **No reason is asked for and none is recorded** — declining
+ * a gift costs nothing, is not a mark against anybody, and the giver learns only
+ * that the offer it can see is no longer open.
+ */
+export async function declineAccountOffer(
+  db: Database,
+  command: { readonly offerId: string; readonly toAgentId: AgentId },
+): Promise<DeclineAccountOfferOutcome> {
+  return await db.transaction(async (tx) => {
+    const [row] = await tx
+      .select({ id: accountOffers.id, transferId: accountOffers.transferId })
+      .from(accountOffers)
+      .where(
+        and(eq(accountOffers.id, command.offerId), eq(accountOffers.toAgentId, command.toAgentId)),
+      )
+      .for('update')
+      .limit(1)
+
+    if (row === undefined) return { outcome: 'unknown' }
+
+    await tx.delete(accountOffers).where(eq(accountOffers.id, row.id))
+
+    if (row.transferId !== null) {
+      await tx.delete(accountTransfers).where(eq(accountTransfers.id, row.transferId))
+    }
+
+    return { outcome: 'declined' }
   })
 }
 

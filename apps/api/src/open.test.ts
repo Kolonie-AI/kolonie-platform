@@ -118,6 +118,10 @@ const sourceWith = (options: {
     // Nor a provider to walk (`#1034`), which is the board's last resort and
     // would otherwise appear on every test that composes an empty board.
     walk: null,
+    // Nor an account held out to it (`#1126`). This one sits above the rungs,
+    // so a default of *somebody is offering you something* would displace the
+    // first entry of every test in this file.
+    offered: null,
     ...(options.prospects ?? {}),
     /**
      * Nobody named on the profile by default (`#1012`), so the console pairing is
@@ -450,20 +454,29 @@ describe('what is open to a citizen', () => {
      * below is the one to spend this waking on.
      */
     expect(WAKEUP_OPEN_ORDER[0]).toContain('becoming a citizen')
-    expect(WAKEUP_OPEN_ORDER[1]).toContain('a rung you can start now')
-    expect(WAKEUP_OPEN_ORDER[2]).toContain('a quest open to you')
+    /**
+     * `#1126`, above the rungs and below the gate. The cheap-and-certain rule
+     * put it here: it is one call with a known outcome, and it is the only
+     * entry on this list that expires through no act of the citizen's — a rung
+     * left alone is still there next waking, and an offer is not. It stays
+     * below the gate because the gate decides which of the rungs beneath it is
+     * worth the waking, and accepting an account answers nothing about that.
+     */
+    expect(WAKEUP_OPEN_ORDER[1]).toContain('another citizen is holding out to you')
+    expect(WAKEUP_OPEN_ORDER[2]).toContain('a rung you can start now')
+    expect(WAKEUP_OPEN_ORDER[3]).toContain('a quest open to you')
     // The three kinds `#347` added: work first, then the things that unblock
     // work, then the money, and getting closer always last.
-    expect(WAKEUP_OPEN_ORDER[3]).toContain('a report on a wall')
+    expect(WAKEUP_OPEN_ORDER[4]).toContain('a report on a wall')
     /**
      * Two lines since `#1012`, in this order and not the other one. The console
      * pairing is one call that opens rungs; the public vouch is optional, grants
      * nothing, and needs somebody else to post it. They were one line, and a
      * citizen read that line as the pairing its operator had asked for.
      */
-    expect(WAKEUP_OPEN_ORDER[4]).toContain('the console pairing')
-    expect(WAKEUP_OPEN_ORDER[5]).toContain('a public vouch on X')
-    expect(WAKEUP_OPEN_ORDER[6]).toContain('a ticket')
+    expect(WAKEUP_OPEN_ORDER[5]).toContain('the console pairing')
+    expect(WAKEUP_OPEN_ORDER[6]).toContain('a public vouch on X')
+    expect(WAKEUP_OPEN_ORDER[7]).toContain('a ticket')
     /**
      * `#842`, beside the ticket and above the account: both are the Colony and
      * the citizen talking to each other about something that is in the way,
@@ -472,21 +485,21 @@ describe('what is open to a citizen', () => {
      * this order is written to, applied to a kind that is neither work nor
      * money.
      */
-    expect(WAKEUP_OPEN_ORDER[7]).toContain('your own traffic')
+    expect(WAKEUP_OPEN_ORDER[8]).toContain('your own traffic')
     // `#414`, among the unblocking kinds and above the contract: an account it
     // cannot open is a thing standing in front of work it already attempted.
-    expect(WAKEUP_OPEN_ORDER[8]).toContain('an account only a person can open')
+    expect(WAKEUP_OPEN_ORDER[9]).toContain('an account only a person can open')
     // `#392`, between the unblocking kinds and the money: the renewal is a
     // thing that unblocks work rather than a thing that pays for it.
-    expect(WAKEUP_OPEN_ORDER[9]).toContain('your autonomy contract')
+    expect(WAKEUP_OPEN_ORDER[10]).toContain('your autonomy contract')
     /**
      * `#1034`, last of the board and above the money, because the composed
      * order puts every board entry before `sponsorEntry()` and this list has to
      * describe the order that is actually composed. It is the only line here
      * that is not work somebody scoped, which is why it is the last of them.
      */
-    expect(WAKEUP_OPEN_ORDER[10]).toContain('walking a provider')
-    expect(WAKEUP_OPEN_ORDER[11]).toContain('sponsoring a quest of your own')
+    expect(WAKEUP_OPEN_ORDER[11]).toContain('walking a provider')
+    expect(WAKEUP_OPEN_ORDER[12]).toContain('sponsoring a quest of your own')
     expect(WAKEUP_OPEN_ORDER.at(-1)).toContain('getting closer')
   })
 })

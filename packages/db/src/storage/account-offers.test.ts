@@ -1,23 +1,38 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq, sql } from 'drizzle-orm'
-import { RegisterAgentRequestSchema, type AgentId } from '@kolonie-ai/core'
+import { AccountKindSchema, RegisterAgentRequestSchema, type AgentId } from '@kolonie-ai/core'
 import { generateApiKey } from '../api-key.js'
 import type { Database } from '../client.js'
-import { accountOffers, accountTransfers, accounts, emailChallenges } from '../schema/index.js'
+import {
+  accountOffers,
+  accountThreads,
+  accountTransfers,
+  accounts,
+  agents,
+  emailChallenges,
+} from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
+import { declareAccount } from './accounts.js'
 import { registerAgent } from './agents.js'
 import {
+  acceptAccountOffer,
+  declineAccountOffer,
   deleteExpiredAccountOffers,
   giveAccount,
+  offersTo,
   withdrawAccountOffer,
+  type AcceptAccountOfferOutcome,
   type GiveAccountOutcome,
 } from './account-offers.js'
-import { setVaultEntry } from './vault.js'
+import { getVaultEntry, setVaultEntry } from './vault.js'
 
 const target = databaseTestTarget()
 
 /** Any 32 bytes. Never a real key, and nothing in this file is a real secret. */
 const SEALING_KEY = 'a-test-sealing-key-that-is-long-enough'
+
+/** The branded kind `declareAccount` takes, from the string a reader can see. */
+const kind = (value: string) => AccountKindSchema.parse(value)
 
 /** A fixture, not a credential: it exists to be searched for in the row. */
 const FIXTURE_VALUE = 'fixture-value-not-a-credential-0000'
@@ -459,5 +474,303 @@ describe('an account offered to another citizen', () => {
     expect(await withdrawAccountOffer(db, { offerId: nobody.offerId, fromAgentId: giver })).toEqual(
       { outcome: 'withdrawn' },
     )
+  })
+
+  /**
+   * Taking it (`#1126`) — the only call in this file that moves anything.
+   *
+   * Two assertions here carry the design and the rest support them: what
+   * arrives is indistinguishable from a row the recipient declared for itself,
+   * and every refusal is answered before the parcel is opened, so a refusal
+   * costs the recipient nothing but the call.
+   */
+  describe('accepting', () => {
+    /** The recipient's own key. Seals its new entry, and opens nothing else. */
+    let recipientToken: string
+    let offerId: string
+
+    beforeEach(async () => {
+      recipientToken = String(generateApiKey())
+
+      const offered = await give()
+      if (offered.outcome !== 'offered') throw new Error(offered.outcome)
+      offerId = offered.offerId
+    })
+
+    const accept = async (
+      over: {
+        readonly offerId?: string
+        readonly toAgentId?: AgentId
+        readonly vaultKey?: string
+        readonly token?: string
+      } = {},
+    ): Promise<AcceptAccountOfferOutcome> =>
+      await acceptAccountOffer(
+        db,
+        {
+          offerId: over.offerId ?? offerId,
+          toAgentId: over.toAgentId ?? recipient,
+          vaultKey: over.vaultKey ?? 'mine/the-account',
+        },
+        over.token ?? recipientToken,
+        SEALING_KEY,
+      )
+
+    it('moves the account, opens the parcel into the recipient’s vault, and deletes the giver’s row', async () => {
+      const taken = await accept()
+      if (taken.outcome !== 'accepted') throw new Error(taken.outcome)
+
+      // The receipt names both parties and what moved (decision 15).
+      expect(taken).toMatchObject({
+        fromHandle: 'giver',
+        accountKind: 'github',
+        accountIdentifier: 'a-spare-handle',
+        accountProvider: 'example.test',
+        vaultKey: 'mine/the-account',
+      })
+      expect(taken.accountId).not.toBe(accountId)
+
+      // The giver's row is gone rather than retired (decision 10), and the
+      // recipient's is the only one left.
+      expect(await db.select().from(accounts).where(eq(accounts.id, accountId))).toEqual([])
+      const [arrived] = await db.select().from(accounts).where(eq(accounts.id, taken.accountId))
+      expect(arrived).toMatchObject({
+        agentId: recipient,
+        kind: 'github',
+        identifier: 'a-spare-handle',
+        provider: 'example.test',
+        vaultKey: 'mine/the-account',
+      })
+
+      // The credential arrived, under the recipient's name and its own key.
+      const opened = await getVaultEntry(db, recipientToken, recipient, 'mine/the-account')
+      expect(opened).toMatchObject({ outcome: 'found', value: FIXTURE_VALUE })
+
+      // And the giver's own entry is left exactly where it is (decision 12).
+      expect(await getVaultEntry(db, giverToken, giver, 'provider/handle')).toMatchObject({
+        outcome: 'found',
+        value: FIXTURE_VALUE,
+      })
+
+      // Nothing of the handover survives it.
+      expect(await db.select().from(accountOffers)).toEqual([])
+      expect(await db.select().from(accountTransfers)).toEqual([])
+    })
+
+    /**
+     * Decisions 6 and 7, and the criterion an implementation is likeliest to
+     * erode: what arrives is the row the recipient would have written for
+     * itself, compared column by column against one it actually did.
+     *
+     * `forWork` is the single deliberate departure — it defaults true and a
+     * choice is not transferable — so it is asserted as *the* difference rather
+     * than excluded from the comparison and forgotten about.
+     */
+    it('arrives as a row the recipient could have declared for itself', async () => {
+      const taken = await accept()
+      if (taken.outcome !== 'accepted') throw new Error(taken.outcome)
+
+      const declared = await declareAccount(db, recipient, {
+        kind: kind('github'),
+        identifier: 'declared-for-comparison',
+        provider: 'example.test',
+        vaultKey: 'mine/the-account',
+      })
+      if (declared.outcome !== 'declared') throw new Error(declared.outcome)
+
+      const [arrived] = await db.select().from(accounts).where(eq(accounts.id, taken.accountId))
+      const [written] = await db.select().from(accounts).where(eq(accounts.id, declared.account.id))
+      if (arrived === undefined || written === undefined) throw new Error('a row went missing')
+
+      // Nobody added a column saying *this one was handed over*. The two rows
+      // have the same shape or this comparison is not measuring what it says.
+      expect(Object.keys(arrived).sort()).toEqual(Object.keys(written).sort())
+
+      const differing = (Object.keys(written) as (keyof typeof written)[]).filter((column) => {
+        // Its own identity, its own dates, and the identifier that had to differ
+        // for the second row to be insertable at all.
+        if (column === 'id' || column === 'identifier') return false
+        if (column === 'createdAt' || column === 'updatedAt') return false
+        return JSON.stringify(arrived[column]) !== JSON.stringify(written[column])
+      })
+      expect(differing).toEqual(['forWork'])
+      expect(arrived.forWork).toBe(false)
+      expect(written.forWork).toBe(true)
+
+      // Spelled out, because the comparison above would also pass if both rows
+      // were wrong together: proof is something the Colony checked about a
+      // citizen, and it has not checked it about this one.
+      expect(arrived).toMatchObject({ proved: false, provedAt: null, provedBy: null })
+    })
+
+    /**
+     * The parcel is bound to the citizen it was sealed for, and the offer is
+     * filtered on the same citizen — so a stranger is refused before anything is
+     * unsealed, and the recipient's own call afterwards still works.
+     */
+    it('refuses an offer addressed to somebody else, with the parcel unread', async () => {
+      const stranger = await register('stranger')
+
+      expect(await accept({ toAgentId: stranger })).toEqual({ outcome: 'unknown' })
+      expect(await db.select().from(accountOffers)).toHaveLength(1)
+      expect(await db.select().from(accountTransfers)).toHaveLength(1)
+      expect(await db.select().from(accounts).where(eq(accounts.id, accountId))).toHaveLength(1)
+
+      expect(await accept()).toMatchObject({ outcome: 'accepted' })
+    })
+
+    it('answers unknown for an offer nobody ever made, and for a lapsed one', async () => {
+      expect(await accept({ offerId: '00000000-0000-4000-8000-000000000000' })).toEqual({
+        outcome: 'unknown',
+      })
+
+      await db.update(accountOffers).set({
+        createdAt: sql`now() - interval '8 days'`,
+        expiresAt: sql`now() - interval '1 hour'`,
+      })
+      expect(await accept()).toEqual({ outcome: 'unknown' })
+    })
+
+    /** The giver erased itself; the account went with it. One answer (decision 5). */
+    it('answers unknown once the giver is gone', async () => {
+      await db.delete(agents).where(eq(agents.id, giver))
+      expect(await accept()).toEqual({ outcome: 'unknown' })
+    })
+
+    it('refuses a vault name the recipient already holds, and leaves that entry alone', async () => {
+      const mine = 'a-different-fixture-value-0000000000'
+      await setVaultEntry(db, recipientToken, recipient, 'mine/the-account', mine)
+
+      expect(await accept()).toEqual({ outcome: 'key-taken' })
+
+      // Untouched, and the offer is still there to be taken under another name.
+      expect(await getVaultEntry(db, recipientToken, recipient, 'mine/the-account')).toMatchObject({
+        outcome: 'found',
+        value: mine,
+      })
+      expect(await db.select().from(accountOffers)).toHaveLength(1)
+      expect(await accept({ vaultKey: 'mine/the-other-one' })).toMatchObject({
+        outcome: 'accepted',
+      })
+    })
+
+    /**
+     * `accounts_identifier_per_agent_unique`. Not in the issue's list of
+     * refusals, and it has to be one: without it the insert would raise inside a
+     * transaction that has already unsealed the parcel.
+     *
+     * Reachable on `website` and awkward to reach on anything else, because
+     * every other kind identifies globally — so a recipient that declared the
+     * giver's github handle would have been refused at the declaration. That is
+     * a reason to check it here rather than not to: the refusal has to hold for
+     * the one kind two citizens may legitimately both name.
+     */
+    it('refuses an account the recipient already holds under that identifier', async () => {
+      await setVaultEntry(db, giverToken, giver, 'provider/site', FIXTURE_VALUE)
+      const site = await anAccount({
+        kind: 'website',
+        identifier: 'https://spare.example.test/',
+        vaultKey: 'provider/site',
+      })
+      const offered = await give({ accountId: site })
+      if (offered.outcome !== 'offered') throw new Error(offered.outcome)
+
+      // Cased differently, because *the same account* is not a question of case.
+      const declared = await declareAccount(db, recipient, {
+        kind: kind('website'),
+        identifier: 'HTTPS://Spare.Example.Test/',
+      })
+      expect(declared.outcome).toBe('declared')
+
+      expect(await accept({ offerId: offered.offerId })).toEqual({ outcome: 'already-held' })
+      // Refused before the parcel was opened, so the offer survives the refusal.
+      expect(
+        await db.select().from(accountOffers).where(eq(accountOffers.id, offered.offerId)),
+      ).toHaveLength(1)
+      expect(await db.select().from(accounts).where(eq(accounts.id, site))).toHaveLength(1)
+    })
+
+    /**
+     * Decision 11: what was said about how the giver got it goes with the row.
+     *
+     * There is a thread on every account already — `0242_a_thread_on_every_account`
+     * puts one there on insert — so this asserts the giver's is gone rather than
+     * putting one there to watch it go, and that the arrived row has its own.
+     */
+    it('takes the giver’s thread with the account', async () => {
+      const before = await db
+        .select()
+        .from(accountThreads)
+        .where(eq(accountThreads.accountId, accountId))
+      expect(before).toHaveLength(1)
+
+      const taken = await accept()
+      if (taken.outcome !== 'accepted') throw new Error(taken.outcome)
+
+      expect(
+        await db.select().from(accountThreads).where(eq(accountThreads.accountId, accountId)),
+      ).toEqual([])
+      // A thread of its own, and not the giver's carried across.
+      const [mine] = await db
+        .select()
+        .from(accountThreads)
+        .where(eq(accountThreads.accountId, taken.accountId))
+      expect(mine?.id).not.toBe(before[0]?.id)
+    })
+
+    it('stops being held out to the recipient once it is taken', async () => {
+      expect(await offersTo(db, recipient)).toMatchObject([{ offerId, fromHandle: 'giver' }])
+
+      expect(await accept()).toMatchObject({ outcome: 'accepted' })
+      expect(await offersTo(db, recipient)).toEqual([])
+    })
+  })
+
+  /** Decision 2: saying no, which costs nothing and records nothing. */
+  describe('declining', () => {
+    let offerId: string
+
+    beforeEach(async () => {
+      const offered = await give()
+      if (offered.outcome !== 'offered') throw new Error(offered.outcome)
+      offerId = offered.offerId
+    })
+
+    it('takes the offer and its parcel, and leaves the giver’s row exactly as it was', async () => {
+      const [before] = await db.select().from(accounts).where(eq(accounts.id, accountId))
+
+      expect(await declineAccountOffer(db, { offerId, toAgentId: recipient })).toEqual({
+        outcome: 'declined',
+      })
+
+      expect(await db.select().from(accountOffers)).toEqual([])
+      expect(await db.select().from(accountTransfers)).toEqual([])
+      const [after] = await db.select().from(accounts).where(eq(accounts.id, accountId))
+      expect(after).toEqual(before)
+      expect(await getVaultEntry(db, giverToken, giver, 'provider/handle')).toMatchObject({
+        outcome: 'found',
+        value: FIXTURE_VALUE,
+      })
+    })
+
+    it('lets the giver offer the account to somebody else afterwards', async () => {
+      await declineAccountOffer(db, { offerId, toAgentId: recipient })
+      expect(await give({ to: 'stranger' })).toMatchObject({ outcome: 'offered' })
+    })
+
+    it('refuses another citizen’s offer, and an offer nobody has, alike', async () => {
+      const stranger = await register('stranger')
+
+      expect(await declineAccountOffer(db, { offerId, toAgentId: stranger })).toEqual({
+        outcome: 'unknown',
+      })
+      expect(
+        await declineAccountOffer(db, {
+          offerId: '00000000-0000-4000-8000-000000000000',
+          toAgentId: recipient,
+        }),
+      ).toEqual({ outcome: 'unknown' })
+      expect(await db.select().from(accountOffers)).toHaveLength(1)
+    })
   })
 })

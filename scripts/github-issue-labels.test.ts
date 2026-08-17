@@ -156,6 +156,26 @@ function workflowLabels(source: string): readonly AppliedLabel[] {
   }))
 }
 
+/**
+ * `.github/dependabot.yml` labels the pull requests it opens, which is a label
+ * surface with the same failure as the one `#687` closed: **Dependabot does not
+ * create a label that does not exist.** It drops it silently and the pull
+ * request arrives unrouted — green, merged by the sweep, and never seen by
+ * whatever reads `area:`.
+ *
+ * Read with its own matcher rather than `templateLabels`', which anchors
+ * `labels:` at the start of a line. Here it is nested under an update entry.
+ */
+function dependabotLabels(source: string): readonly AppliedLabel[] {
+  const text = readFileSync(resolve(ROOT, source), 'utf8')
+  return [...text.matchAll(/^\s*labels:\s*\[([^\]]*)]/gm)].flatMap((entry) =>
+    [...(entry[1] ?? '').matchAll(/['"]([^'"]+)['"]/g)].map((match) => ({
+      source,
+      label: match[1] ?? '',
+    })),
+  )
+}
+
 function unknownLabels(labels: readonly AppliedLabel[]): readonly AppliedLabel[] {
   return labels.filter(({ label }) => !ISSUE_LABELS.has(label))
 }
@@ -168,10 +188,12 @@ const typescriptSources = [
   .filter((source) => !source.includes('/dist/'))
 const issueTemplates = filesBelow('.github/ISSUE_TEMPLATE', new Set(['.md']))
 const issueWorkflows = filesBelow('.github/workflows', new Set(['.yml', '.yaml']))
+const dependabotConfig = '.github/dependabot.yml'
 const applied = [
   ...typescriptSources.flatMap(typescriptLabels),
   ...issueTemplates.flatMap(templateLabels),
   ...issueWorkflows.flatMap(workflowLabels),
+  ...dependabotLabels(dependabotConfig),
 ]
 
 describe('GitHub issue labels used by source', () => {
@@ -182,6 +204,7 @@ describe('GitHub issue labels used by source', () => {
     expect(sources).toContain('apps/moderation-runner/src/tripwire.ts')
     expect(sources).toContain('.github/workflows/skill-platforms.yml')
     expect(sources).toContain('.github/ISSUE_TEMPLATE/bug.md')
+    expect(sources).toContain(dependabotConfig)
   })
 
   it('uses only labels from the shared vocabulary', () => {

@@ -1,0 +1,75 @@
+version: 2
+
+# Keep the dependencies current on a schedule instead of on the day something
+# breaks. Nothing had been watching them: there was no `dependabot.yml` in this
+# repository at all, so every bump was somebody noticing.
+#
+# ## The one thing that shapes this whole file
+#
+# The organisation's sweep arms auto-merge on **every** open pull request that
+# survives its seven filters. It is not scoped to an author and not to a branch
+# prefix — that omission is deliberate and documented in
+# `kolonie-docs/.github/scripts/opencode-worker.sh`, and it means a Dependabot
+# pull request merges itself the moment the required checks go green, with
+# nobody having read it.
+#
+# For a patch or a minor that is the point, and the suite here is comprehensive
+# enough to be the reader. For a major it is not: a green suite says the code
+# compiles and the tests pass, not that a runtime contract survived. So npm
+# majors are not opened at all (see the `ignore` below) rather than opened and
+# hoped about.
+#
+# GitHub Actions majors are treated differently on purpose. A workflow change
+# arrives in its own pull request's run, so a broken action is red before it can
+# merge — the check checks itself. That is a property npm dependencies do not
+# have at build time.
+
+updates:
+  - package-ecosystem: npm
+    # One entry, not one per workspace. `packages/*` and `apps/*` resolve
+    # through the single root `package-lock.json`, and Dependabot reads the
+    # workspaces from it.
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      # Offset from the scheduled workflows here — `skill-platforms` at 06:17
+      # and `skill-versions` at 06:43 — so nothing arrives at the API together.
+      time: '05:20'
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    # Routing only. Provenance is not claimed: the board reader derives `from:`
+    # from the author, and a file that asserted it here would be asserting it
+    # about a bot it does not speak for.
+    labels: ['area:platform']
+    groups:
+      # Two groups rather than one, because the blast radius differs and a
+      # single pull request would make them indistinguishable. Both are
+      # patch-and-minor only; see `ignore`.
+      production-dependencies:
+        dependency-type: production
+        update-types: ['minor', 'patch']
+      development-dependencies:
+        dependency-type: development
+        update-types: ['minor', 'patch']
+    ignore:
+      # Majors are withheld from the sweep by never existing. Deleting these
+      # three lines turns them on, and whoever does that should read the note at
+      # the top of this file first: it will also hand them to auto-merge.
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '05:40'
+      timezone: Etc/UTC
+    open-pull-requests-limit: 3
+    labels: ['area:platform']
+    groups:
+      # One pull request for the lot. Twelve workflows pin the same handful of
+      # actions, so ungrouped this is a dozen pull requests saying one thing.
+      github-actions:
+        patterns: ['*']

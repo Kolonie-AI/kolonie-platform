@@ -7,10 +7,19 @@ import {
   type AgentId,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { agentCallHours } from '../schema/index.js'
+import { agentCallHours, agentSessions, agents } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
-import { callHoursSince, recordCall, sweepCallHours, type ObservedCall } from './call-hours.js'
+import {
+  callHoursSince,
+  recordCall,
+  requestsPerSessionSince,
+  routeTalliesSince,
+  runtimeTalliesSince,
+  sessionToolSpreadSince,
+  sweepCallHours,
+  type ObservedCall,
+} from './call-hours.js'
 
 const target = databaseTestTarget()
 
@@ -292,6 +301,255 @@ describe('the hourly call rollup', () => {
 
     it('sweeps nothing on an empty table without complaining', async () => {
       expect(await sweepCallHours(db, new Date('2026-09-30T12:00:00.000Z'))).toBe(0)
+    })
+  })
+
+  /**
+   * The cross-citizen reads `#1119` measures the catalogue from.
+   *
+   * They are the only reads in this module that are not about one citizen, and
+   * their output is committed to `docs/measurements/` and quoted in arguments
+   * about what to build. Two properties therefore have to hold and neither is
+   * visible in the result: that a **test account's calls are not evidence about
+   * the surface** (`#20`), and that the **MCP door and the HTTP routes are told
+   * apart** before any rate is computed. Both fail silently — a tally including
+   * a tester is still a plausible number, and that is what makes it worth a
+   * test rather than a comment.
+   */
+  describe('the aggregate reads behind the catalogue measurement', () => {
+    const WINDOW = new Date('2026-08-13T00:00:00.000Z')
+
+    const aCitizenOn = async (name: string, platform: 'openclaw' | 'claude'): Promise<AgentId> => {
+      const result = await registerAgent(db, RegisterAgentRequestSchema.parse({ name, platform }))
+      if (result.outcome !== 'registered') throw new Error(result.outcome)
+      return result.agent.id
+    }
+
+    /** A tester, made by moving an ordinary registration — nothing registers as one. */
+    const aTester = async (name: string): Promise<AgentId> => {
+      const agentId = await anAgent(name)
+      await db.update(agents).set({ type: 'test' }).where(eq(agents.id, agentId))
+      return agentId
+    }
+
+    const aSession = async (agentId: AgentId, calls: number, from: Date, to: Date) => {
+      await db.insert(agentSessions).values({
+        agentId,
+        externalId: `${agentId}-${from.toISOString()}`,
+        calls,
+        firstSeenAt: from.toISOString(),
+        lastSeenAt: to.toISOString(),
+      })
+    }
+
+    describe('tallies per route key', () => {
+      it('sums one route across citizens and counts how many stood behind it', async () => {
+        const one = await anAgent('one')
+        const two = await anAgent('two')
+
+        await recordCall(db, one, aCall({ status: 200 }))
+        await recordCall(db, one, aCall({ status: 422, at: LATER_SAME_HOUR }))
+        await recordCall(db, two, aCall({ status: 500 }))
+
+        const [tally] = await routeTalliesSince(db, WINDOW)
+
+        expect(tally?.routeKey).toBe('/v1/tasks/:taskId')
+        expect(tally?.calls).toBe(3)
+        expect(tally?.ok).toBe(1)
+        expect(tally?.clientErrors).toBe(1)
+        expect(tally?.serverErrors).toBe(1)
+        expect(tally?.citizens).toBe(2)
+      })
+
+      /**
+       * The count that makes a small-count floor possible downstream. Ten
+       * thousand calls from one citizen is a fact about that citizen, and a
+       * reader cannot tell that from `calls` alone.
+       */
+      it('counts citizens and not rows', async () => {
+        const agentId = await anAgent()
+
+        await recordCall(db, agentId, aCall())
+        await recordCall(db, agentId, aCall({ at: NEXT_HOUR }))
+
+        expect((await routeTalliesSince(db, WINDOW))[0]?.citizens).toBe(1)
+      })
+
+      it('leaves a test account out of the tally entirely', async () => {
+        const citizen = await anAgent('citizen')
+        const tester = await aTester('tester')
+
+        await recordCall(db, citizen, aCall())
+        await recordCall(db, tester, aCall({ status: 422 }))
+
+        const [tally] = await routeTalliesSince(db, WINDOW)
+
+        expect(tally?.calls).toBe(1)
+        expect(tally?.clientErrors).toBe(0)
+        expect(tally?.citizens).toBe(1)
+      })
+
+      it('excludes buckets before the window', async () => {
+        const agentId = await anAgent()
+
+        await recordCall(db, agentId, aCall())
+
+        expect(await routeTalliesSince(db, new Date('2026-08-13T10:00:00.000Z'))).toEqual([])
+      })
+    })
+
+    describe('tallies per runtime', () => {
+      it('groups by the runtime the citizen declared', async () => {
+        const one = await aCitizenOn('one', 'openclaw')
+        const two = await aCitizenOn('two', 'claude')
+
+        await recordCall(db, one, aCall({ routeKey: 'kolonie.me' }))
+        await recordCall(db, two, aCall({ routeKey: 'kolonie.me', status: 422 }))
+
+        const byPlatform = Object.fromEntries(
+          (await runtimeTalliesSince(db, WINDOW, 'kolonie.')).map((row) => [row.platform, row]),
+        )
+
+        expect(byPlatform['openclaw']?.clientErrors).toBe(0)
+        expect(byPlatform['claude']?.clientErrors).toBe(1)
+        expect(byPlatform['claude']?.citizens).toBe(1)
+      })
+
+      /**
+       * **The separation the whole measurement rests on.** `<unrouted>` is 4xx
+       * by construction and is the largest single source of client errors in
+       * the table; folding it in would produce a catalogue error rate that is
+       * mostly people mistyping URLs.
+       */
+      it('counts only the keys under the prefix, and not routes or the unrouted bucket', async () => {
+        const agentId = await anAgent()
+
+        await recordCall(db, agentId, aCall({ routeKey: 'kolonie.me' }))
+        await recordCall(db, agentId, aCall({ routeKey: '/v1/agents/me', at: LATER_SAME_HOUR }))
+        await recordCall(db, agentId, aCall({ routeKey: UNROUTED_ROUTE_KEY, status: 404 }))
+
+        const [tally] = await runtimeTalliesSince(db, WINDOW, 'kolonie.')
+
+        expect(tally?.calls).toBe(1)
+        expect(tally?.clientErrors).toBe(0)
+      })
+
+      it('leaves a test account out', async () => {
+        const tester = await aTester('tester')
+
+        await recordCall(db, tester, aCall({ routeKey: 'kolonie.me' }))
+
+        expect(await runtimeTalliesSince(db, WINDOW, 'kolonie.')).toEqual([])
+      })
+    })
+
+    describe('the spread of distinct tools per session', () => {
+      it('credits a session with the tools its citizen called inside its window', async () => {
+        const agentId = await anAgent()
+
+        await recordCall(db, agentId, aCall({ routeKey: 'kolonie.me' }))
+        await recordCall(
+          db,
+          agentId,
+          aCall({ routeKey: 'kolonie.tasks.list', at: LATER_SAME_HOUR }),
+        )
+        await aSession(agentId, 2, AT, LATER_SAME_HOUR)
+
+        expect(await sessionToolSpreadSince(db, WINDOW, 'kolonie.')).toEqual([
+          { tools: 2, sessions: 1 },
+        ])
+      })
+
+      /**
+       * The upper bound, asserted rather than described. Two sessions of one
+       * citizen inside one hour each take credit for the other's tools, because
+       * the join is on time and `#835` decided against recording which tools a
+       * session called. A bound that is too high cannot put a session below a
+       * threshold it does not belong below, which is why the report can use it.
+       */
+      it('over-credits two sessions of one citizen sharing an hour', async () => {
+        const agentId = await anAgent()
+
+        await recordCall(db, agentId, aCall({ routeKey: 'kolonie.me' }))
+        await recordCall(
+          db,
+          agentId,
+          aCall({ routeKey: 'kolonie.tasks.list', at: LATER_SAME_HOUR }),
+        )
+        await aSession(agentId, 1, AT, AT)
+        await aSession(agentId, 1, LATER_SAME_HOUR, LATER_SAME_HOUR)
+
+        expect(await sessionToolSpreadSince(db, WINDOW, 'kolonie.')).toEqual([
+          { tools: 2, sessions: 2 },
+        ])
+      })
+
+      /**
+       * A session with nothing to fetch is below every threshold trivially.
+       * Counting it would inflate the share of sessions that fetching pays for
+       * with sessions that fetched nothing.
+       */
+      it('leaves out a session that called no tool', async () => {
+        const agentId = await anAgent()
+
+        await recordCall(db, agentId, aCall({ routeKey: '/v1/agents/me' }))
+        await aSession(agentId, 1, AT, LATER_SAME_HOUR)
+
+        expect(await sessionToolSpreadSince(db, WINDOW, 'kolonie.')).toEqual([])
+      })
+
+      it('leaves a test account’s sessions out', async () => {
+        const tester = await aTester('tester')
+
+        await recordCall(db, tester, aCall({ routeKey: 'kolonie.me' }))
+        await aSession(tester, 1, AT, LATER_SAME_HOUR)
+
+        expect(await sessionToolSpreadSince(db, WINDOW, 'kolonie.')).toEqual([])
+      })
+    })
+
+    describe('how many calls a session makes', () => {
+      it('reports the median and the ninetieth percentile over the sessions counted', async () => {
+        const agentId = await anAgent()
+
+        await aSession(agentId, 10, AT, AT)
+        await aSession(agentId, 20, LATER_SAME_HOUR, LATER_SAME_HOUR)
+        await aSession(agentId, 30, NEXT_HOUR, NEXT_HOUR)
+
+        expect(await requestsPerSessionSince(db, WINDOW)).toEqual({
+          sessions: 3,
+          median: 20,
+          p90: 28,
+        })
+      })
+
+      it('excludes a session that made no call, and a test account’s', async () => {
+        const citizen = await anAgent('citizen')
+        const tester = await aTester('tester')
+
+        await aSession(citizen, 0, AT, AT)
+        await aSession(citizen, 40, LATER_SAME_HOUR, LATER_SAME_HOUR)
+        await aSession(tester, 900, NEXT_HOUR, NEXT_HOUR)
+
+        expect(await requestsPerSessionSince(db, WINDOW)).toEqual({
+          sessions: 1,
+          median: 40,
+          p90: 40,
+        })
+      })
+
+      /**
+       * Zero sessions is an answer, not a failure — and it has to come back as
+       * zeros rather than as `NaN`, because `percentile_cont` over an empty set
+       * is null and the report divides by what this returns.
+       */
+      it('answers with zeros rather than nulls when nothing was measured', async () => {
+        expect(await requestsPerSessionSince(db, WINDOW)).toEqual({
+          sessions: 0,
+          median: 0,
+          p90: 0,
+        })
+      })
     })
   })
 

@@ -99,7 +99,11 @@ import {
   unfollowCitizen,
   githubAccountOf,
   holdsSkillNow,
+  listAccounts,
   openProspects,
+  playbookById,
+  playbookBySlug,
+  playbooksByStatus,
   readSkillNote,
   readSkillNotes,
   recordObstructedAttemptForTaskType,
@@ -756,6 +760,23 @@ const app = buildApp({
     },
     feed: (followerId, query) => followFeed(db, followerId, query),
     count: (followerId, since) => followFeedSince(db, followerId, since),
+  },
+  /**
+   * What a citizen does next, and what stands between it and doing so (`#1174`).
+   *
+   * `held` is `listAccounts` unnarrowed rather than a query per required kind:
+   * a playbook naming four slots would otherwise be four round trips, and the
+   * predicates that decide whether an account answers a slot — in use, matchable,
+   * proved where the slot asks for it — live in `matchPlaybook` where they are
+   * asserted, not spread across a `where` clause here.
+   */
+  playbooks: {
+    catalogue: {
+      byStatus: (query) => playbooksByStatus(db, query),
+      bySlug: (slug) => playbookBySlug(db, slug),
+      byId: (id) => playbookById(db, id),
+    },
+    held: (agentId) => listAccounts(db, agentId),
   },
   quests: databaseQuests(
     db,

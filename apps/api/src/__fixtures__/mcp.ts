@@ -27,6 +27,7 @@ import { fakeErasureDesk } from './erasure.js'
 import { fakeContributions, fakeGithub } from './github.js'
 import { fakeCitizenSearch } from './citizen-search.js'
 import { fakeFollowing } from './following.js'
+import { fakePlaybooks } from './playbooks.js'
 import { fakeSkillNotes } from './skill-notes.js'
 import { fakeStandingHints } from './hints.js'
 import { fakeWakeup } from './wakeup.js'
@@ -187,6 +188,7 @@ export const anonymousClient = (registry: AgentRegistry = fakeRegistry()) =>
     skillNotes: fakeSkillNotes(),
     citizenSearch: fakeCitizenSearch(),
     following: fakeFollowing(),
+    playbooks: fakePlaybooks(),
     hints: fakeStandingHints(),
     social: fakeSocial(),
     operatorClaim: fakeOperatorClaim(),

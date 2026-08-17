@@ -585,6 +585,32 @@ export const AUTHENTICATED_TOOLS = [
    */
   'kolonie.citizens.follow',
   'kolonie.citizens.feed',
+  /**
+   * The catalogue of pipelines, and what stands between a citizen and one
+   * (`#1174`, `kolonie-docs#430`).
+   *
+   * **Three names, and they are `kolonie.tasks.list`, `.get` and `.frontier`
+   * again.** That reuse is why adding a whole product layer costs three tools
+   * and never a fourth: a new playbook is a row, a new required account kind is
+   * a row, a new status is a row, and none of the three is a registration. It is
+   * what `the-catalogue-encodes-grammar-never-vocabulary` asks of anything that
+   * arrives here — the catalogue moved by three because the grammar gained a
+   * subject, and it does not move again when that subject gains members.
+   *
+   * **Authenticated because the answer is about the caller.** A playbook's text
+   * is public in the sense that nothing in it is secret, but every one of these
+   * three answers carries `match` — computed against the accounts this citizen
+   * holds — and there is no version of that question a stranger could be handed.
+   * The website will serve the text later (`#1180`); it will not serve the
+   * match, and that is the line rather than an ordering of the work.
+   *
+   * What is not here, and has an issue each: no `kolonie.playbooks.draft`,
+   * `.update` or `.submit` (`#1179`), no `.run` (`#1176`), and nothing that
+   * pays (`#1177`). This tier reads.
+   */
+  'kolonie.playbooks.list',
+  'kolonie.playbooks.get',
+  'kolonie.playbooks.frontier',
 ] as const
 
 /**

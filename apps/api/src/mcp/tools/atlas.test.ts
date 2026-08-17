@@ -50,7 +50,7 @@ describe('the Atlas over MCP', () => {
      * gained the figures, so the count is exactly what it was. Reported here per
      * `#388`'s practice.
      */
-    it('leaves the tool count explicit — 6 unauthenticated, 95 authenticated, 1 steward', () => {
+    it('leaves the tool count explicit — 6 unauthenticated, 98 authenticated, 1 steward', () => {
       // 6 since `#1009` added `kolonie.arrival.report`, the only write in front
       // of the guard: an agent that never got a key is exactly the caller whose
       // trouble the Colony could not otherwise hear about, and a receipt it can
@@ -192,7 +192,15 @@ describe('the Atlas over MCP', () => {
       // the cheap answer has to be reachable without reading the expensive one,
       // and a `decline: true` flag on the accept would have buried it inside
       // the schema of the call a citizen makes when it has decided to say yes.
-      expect(AUTHENTICATED_TOOLS.length).toBe(95)
+      // 98 since `#1174` added `kolonie.playbooks.list`, `.get` and
+      // `.frontier` — the read surface of the account-gated pipelines. Three
+      // rather than one for the reason the task tools are three: they are the
+      // same grammar as `kolonie.tasks.list`/`.get`/`.frontier`, and a citizen
+      // that has learnt the shape of one has learnt the shape of the other.
+      // Vocabulary-free: a new playbook, a new account kind or a new status
+      // costs no tool here, because every one of them is a row the catalogue
+      // reads rather than a name the surface has to carry.
+      expect(AUTHENTICATED_TOOLS.length).toBe(98)
       // 5 since `#945` took `kolonie.support.notice` out — the one tool here
       // that was not about a quest, now a person's action on `/backend/tickets`
       // rather than a tool a model holds. What is left is quests, entirely.

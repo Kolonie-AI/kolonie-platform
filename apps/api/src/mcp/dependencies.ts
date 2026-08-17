@@ -14,6 +14,7 @@ import type { ProfileTierDependencies } from '../routes/profile-tier.js'
 import type { ContributionDependencies } from '../contributions.js'
 import type { CitizenSearch } from '../citizen-search.js'
 import type { Following } from '../following.js'
+import type { PlaybookDependencies } from '../playbooks.js'
 import type { SkillNotes } from '../skills.js'
 import type { WakeupSource } from '../wakeup.js'
 import type { ArtefactDependencies } from '../artefact.js'
@@ -230,6 +231,16 @@ export interface McpDependencies {
    * rather than followed without the switch that consents to it.
    */
   readonly following?: Following
+  /**
+   * What a citizen does next — see `playbooks.ts` (`#1174`, `kolonie-docs#430`).
+   *
+   * Optional on the same terms as the two above, and D-013's terms: a deployment
+   * that wired no catalogue registers none of the three tools, which is a
+   * surface honestly absent rather than three tools that refuse. The frontier in
+   * particular is a suggestion, and a Colony with no playbooks to suggest should
+   * offer nothing rather than an empty promise.
+   */
+  readonly playbooks?: PlaybookDependencies
   /**
    * The one line a citizen did not ask for — see `hints.ts` (`#231`).
    *

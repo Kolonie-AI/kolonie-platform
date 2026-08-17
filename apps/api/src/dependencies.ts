@@ -21,6 +21,7 @@ import type { ContributionDependencies } from './contributions.js'
 import type { StandingHintSource } from './hints.js'
 import type { CitizenSearch } from './citizen-search.js'
 import type { Following } from './following.js'
+import type { PlaybookDependencies } from './playbooks.js'
 import type { SkillNotes } from './skills.js'
 import type { WakeupSource } from './wakeup.js'
 import type { ArtefactDependencies } from './artefact.js'
@@ -146,6 +147,16 @@ export interface AppDependencies {
   readonly citizenSearch?: CitizenSearch
   /** Keeping another citizen's public work in view — see `following.ts` (`#1068`). */
   readonly following?: Following
+  /**
+   * What a citizen could do next with the accounts it already holds — see
+   * `playbooks.ts` (`#1174`).
+   *
+   * Optional under D-013: a deployment that cannot reach the catalogue registers
+   * none of the three tools rather than registering them to refuse, so the
+   * absence removes the surface instead of leaving a citizen a door that never
+   * opens.
+   */
+  readonly playbooks?: PlaybookDependencies
   /** The one line a citizen did not ask for — see `hints.ts` (`#231`). */
   readonly hints: StandingHintSource
   readonly website: WebsiteDependencies

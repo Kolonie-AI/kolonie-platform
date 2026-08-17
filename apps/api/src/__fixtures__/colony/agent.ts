@@ -46,6 +46,7 @@ import { memoryGate } from '../registry.js'
 import { fakeSkillNotes, type FakeSkillNotes } from '../skill-notes.js'
 import { fakeCitizenSearch, type FakeCitizenSearch } from '../citizen-search.js'
 import { fakeFollowing, type FakeFollowing } from '../following.js'
+import { fakePlaybooks, type FakePlaybooks } from '../playbooks.js'
 import { fakeStandingHints } from '../hints.js'
 import { fakeWakeup } from '../wakeup.js'
 
@@ -154,6 +155,15 @@ export interface FakeAgent {
    * default here too — nobody follows anybody until somebody asks to.
    */
   readonly following: FakeFollowing
+  /**
+   * What a citizen could do next with what it already holds (`#1174`).
+   *
+   * Wired by default and empty, for the reason the two fields above are: three
+   * more tools are named in `AUTHENTICATED_TOOLS`, and a colony without the port
+   * would register three fewer than production does. Empty is the honest default
+   * — the catalogue starts at nothing and a test that wants a shelf writes one.
+   */
+  readonly playbooks: FakePlaybooks
   /** The one line a citizen did not ask for (`#231`). */
   readonly hints: StandingHintSource
   /** The range a declared rhythm has to fall inside (#142). */
@@ -406,6 +416,7 @@ export function fakeAgent(deps: {
     skillNotes: fakeSkillNotes(),
     citizenSearch: fakeCitizenSearch(),
     following: fakeFollowing(),
+    playbooks: fakePlaybooks(),
     hints: fakeStandingHints(),
     /**
      * The default range (#142). A test that cares about the bounds passes its

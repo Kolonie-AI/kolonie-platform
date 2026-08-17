@@ -13,6 +13,7 @@ import { registerAccountTools } from './tools/accounts.js'
 import { registerCitizenSearchTool } from './tools/citizen-search.js'
 import { registerCitizenTools } from './tools/citizens.js'
 import { registerFollowingTools } from './tools/following.js'
+import { registerPlaybookTools } from './tools/playbooks.js'
 import { registerArrivalTool } from './tools/arrival.js'
 import { registerDoctorTool } from './tools/doctor.js'
 import { registerErasureTools } from './tools/erasure.js'
@@ -336,6 +337,15 @@ export function createMcpServer(
    * writes. Neither has a version a stranger could be handed.
    */
   registerFollowingTools(server, deps, credential)
+  /**
+   * What a citizen does next, after the rungs and beside the tasks (`#1174`).
+   *
+   * Here rather than beside `registerTaskTools` deliberately: a task is the
+   * Academy's and a quest is a sponsor's, and this is neither — it is a
+   * catalogue a citizen reads on its own account, which is what the two above it
+   * are too. Registers nothing where no catalogue was wired.
+   */
+  registerPlaybookTools(server, deps, credential)
   registerAcademyTools(server, deps, credential)
   registerAccountTools(server, deps, credential)
   registerAccountThreadTools(server, deps, credential)

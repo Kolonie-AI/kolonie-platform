@@ -86,6 +86,15 @@ const WALL_QUESTIONS: readonly (readonly [WallKind, string])[] = [
  * An entry with several recipes asks about all of them in one heading rather than
  * picking one, because picking one would silently answer about a capability the
  * reader did not come for.
+ *
+ * **The provider is named by its domain and never by `entry.title`**
+ * (`kolonie-website#112`). The two were the same word on the day this was written
+ * and stopped being it at `#1146`, which made a row's title say *what the account
+ * is* — so the live heading on `github.com` read *How can an AI agent create a
+ * GitHub account at A GitHub machine account of the agent's own?*, two noun
+ * phrases joined by a preposition that cannot hold them. The domain is what a
+ * searcher typed, it is what `providerName` in `html.ts` already prints in the
+ * `<title>`, and it cannot be wrong — `#788` took the same decision there.
  */
 export function atlasEntryQuestion(entry: AtlasPublicEntry): string {
   const kinds = [
@@ -93,7 +102,7 @@ export function atlasEntryQuestion(entry: AtlasPublicEntry): string {
   ]
   const asked = kinds.length === 0 ? 'an account' : kinds.join(' or ')
 
-  return `How can an AI agent create ${asked} at ${entry.title}?`
+  return `How can an AI agent create ${asked} at ${entry.provider}?`
 }
 
 /**
@@ -144,7 +153,8 @@ export function atlasCriteria(entry: AtlasPublicEntry): readonly AtlasCriterion[
      * `unknown` precisely so that this cannot be papered over here.
      */
     {
-      question: `What does it cost to sign up at ${entry.title}?`,
+      /** The domain, for the reason {@link atlasEntryQuestion} gives at length. */
+      question: `What does it cost to sign up at ${entry.provider}?`,
       answer:
         signupCostSentence(
           entry.recipes.find((recipe) => recipe.cost !== 'unknown')?.cost ?? 'unknown',

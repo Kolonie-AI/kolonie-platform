@@ -588,7 +588,8 @@ describe('the Atlas on the website host', () => {
         .replace(/<[^>]+>/g, ' ')
         .replace(/\s+/g, ' ')
 
-      expect(text).toContain('Bluesky')
+      /** The domain and not the row's title, since `kolonie-website#112`. */
+      expect(text).toContain('bluesky')
       expect(text).toContain('without a phone number')
       /** The refusal reads as a finding rather than as an error page. */
       expect(text).not.toMatch(/\berror\b/i)
@@ -2022,7 +2023,13 @@ describe('the Atlas on the website host', () => {
       const body = (await get('/atlas/github')).body
 
       expect(body).toContain('<h1>How can an AI agent create')
-      expect(body).toContain('at GitHub?</h1>')
+      /**
+       * **The domain, and the `<title>` beside it is where that came from**
+       * (`kolonie-website#112`). The heading interpolated the row's title until
+       * `#1146` made that a phrase saying *what the account is*, after which the
+       * two noun phrases either side of *at* could not both be read.
+       */
+      expect(body).toContain('at github?</h1>')
       expect(body).not.toContain('<h1>GitHub</h1>')
       expect(headOf(body)).toContain('<title>github for an AI agent')
     })

@@ -56,7 +56,20 @@ describe('whether anybody got through at a provider', () => {
    * this predicate is asked.
    */
   it('ignores a figure nothing evidences, however good it looks', () => {
-    expect(atlasEntryWorked(withFigures({ evidenced: false, attempted: 9, proved: 9 }))).toBe(false)
+    expect(
+      atlasEntryWorked(withFigures({ evidenced: false, attempted: 9, proved: 9, anyProved: true })),
+    ).toBe(false)
+  })
+
+  /**
+   * **The two cannot disagree**, since one is the other thresholded: `anyProved`
+   * is the count read before the flooring. The band arm that used to stand here
+   * could disagree with the count, which is what `#1167` found.
+   */
+  it('agrees with the count wherever the count survives the floor', () => {
+    expect(
+      atlasEntryWorked(withFigures({ evidenced: true, attempted: 9, proved: 2, anyProved: true })),
+    ).toBe(true)
   })
 
   /**
@@ -64,40 +77,47 @@ describe('whether anybody got through at a provider', () => {
    * every count on a row of fewer than five attempts, so the entry where a single
    * citizen got in reaches this function with `proved: 0` — and a literal reading
    * of *at least one proved* would answer no for exactly the row decision 2 is
-   * about. The band is computed before the flooring and survives it.
+   * about. `AtlasFigures.anyProved` is read off the count before the flooring and
+   * survives it.
    */
-  it('reads the band where the floor has taken the count', () => {
+  it('reads the unfloored predicate where the floor has taken the count', () => {
     expect(
-      atlasEntryWorked(
-        withFigures({ evidenced: true, attempted: 0, proved: 0, band: 'most-got-through' }),
-      ),
+      atlasEntryWorked(withFigures({ evidenced: true, attempted: 0, proved: 0, anyProved: true })),
     ).toBe(true)
+  })
+
+  /**
+   * **The row `#1167` found**, and the reason the band is no longer read as a
+   * second spelling of *at least one*: a provider six citizens attempted and one
+   * got into bands `few-got-through`, a band that covers a rate of zero and a rate
+   * of one in six alike. Under the old reading the count was floored, the band
+   * decided nothing, and the entry a single arrival is the whole story of fell off
+   * the default. `anyProved` knows.
+   */
+  it('reads an arrival the vaguest band cannot express', () => {
     expect(
       atlasEntryWorked(
-        withFigures({ evidenced: true, attempted: 0, proved: 0, band: 'about-half' }),
+        withFigures({
+          evidenced: true,
+          attempted: 0,
+          proved: 0,
+          band: 'few-got-through',
+          anyProved: true,
+        }),
       ),
     ).toBe(true)
   })
 
   /**
-   * **`few-got-through` decides nothing**, which is why the band is read as a
-   * second spelling of *at least one* rather than thresholded as a rate: that
-   * band covers a rate of zero and a rate of one in ten alike, so it can neither
-   * prove nor disprove that anybody got in. A row saying only that falls to the
-   * count, and under the floor the count says no — the conservative answer, and
-   * the one where the entry keeps its page and stays one link away.
+   * The conservative answer where nobody has arrived: the entry keeps its page and
+   * stays one link away rather than being shown as something that worked.
    */
-  it('lets the vaguest band decide nothing on its own', () => {
+  it('says no where nobody has arrived', () => {
     expect(
       atlasEntryWorked(
         withFigures({ evidenced: true, attempted: 0, proved: 0, band: 'few-got-through' }),
       ),
     ).toBe(false)
-    expect(
-      atlasEntryWorked(
-        withFigures({ evidenced: true, attempted: 12, proved: 1, band: 'few-got-through' }),
-      ),
-    ).toBe(true)
   })
 
   /** A walk somebody finished says it too, on the same terms. */

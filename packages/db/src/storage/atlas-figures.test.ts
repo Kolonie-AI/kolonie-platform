@@ -373,6 +373,71 @@ describe('the measured figures behind an Atlas entry', () => {
       expect(figures?.commonestStop).toBe('signup-refused')
     })
 
+    /**
+     * **The half of a suppressed row that was missing** (`#1167`).
+     *
+     * `#792` let the band and the commonest stop through the floor because
+     * neither is a count — and on a small row those two are the *pessimistic*
+     * half of what is known. A provider three citizens gave up on and a fourth
+     * abandoned and then got into published *few got through* and *walks stop
+     * most often where they gave up*, with the count that balances them zeroed,
+     * permanently: a walk closes once and cannot honestly be restated afterwards
+     * (`#1062`, `#1165`). `anyProved` is the other half, and it clears the floor
+     * on the same rule the floor is made of — *a citizen got in here* names
+     * nobody, and *three did* is a number about three citizens.
+     */
+    it('says a citizen got in, on a row whose counts it has zeroed', async () => {
+      for (let i = 0; i < 3; i++)
+        await reported({ name: `gave-up-${i}`, provider: 'late.test', outcome: 'abandoned' })
+
+      const agentId = await citizen('came-back')
+      const walkId = await walkInProgress(db, agentId, { kind, provider: 'late.test' })
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+      await finishWalk(db, walkId, { outcome: 'abandoned' })
+      // The afternoon: the same citizen ends up with an account after all.
+      await db.execute(sql`
+        insert into accounts (agent_id, kind, identifier, provider, proved, proved_at)
+        values (${agentId}, ${kind}, 'came-back@example.test', 'late.test', true, now())
+      `)
+
+      const figures = await only('late.test')
+
+      expect(figures?.suppressed).toBe(true)
+      expect(figures?.proved).toBe(0)
+      expect(figures?.anyProved).toBe(true)
+      /** And the pessimistic half is untouched: this stands beside it, not over it. */
+      expect(figures?.band).toBe('few-got-through')
+      expect(figures?.commonestStop).toBe('abandoned')
+    })
+
+    /**
+     * **Nothing rewrites the walk** (`#1167`, and `#1062` by name). The morning
+     * happened; `anyProved` is the later fact standing beside it. The unique
+     * index on rewarded walks is what makes a second walk reputation
+     * unreachable, and the assertion here is that proving the account opened no
+     * second walk for it to be paid on.
+     */
+    it('leaves the abandoned walk exactly as it was closed', async () => {
+      const agentId = await citizen('came-back')
+      const walkId = await walkInProgress(db, agentId, { kind, provider: 'late.test' })
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+      await finishWalk(db, walkId, { outcome: 'abandoned' })
+      await db.execute(sql`
+        insert into accounts (agent_id, kind, identifier, provider, proved, proved_at)
+        values (${agentId}, ${kind}, 'came-back@example.test', 'late.test', true, now())
+      `)
+
+      const walks = await db.execute<{ outcome: string; rewarded_at: string | null }>(sql`
+        select outcome, rewarded_at from account_walks where agent_id = ${agentId}
+      `)
+
+      expect(walks.map((row) => row.outcome)).toEqual(['abandoned'])
+      expect(walks[0]?.rewarded_at).toBeNull()
+      /** And the figures still say where it stopped, alongside the arrival. */
+      expect((await only('late.test'))?.commonestStop).toBe('abandoned')
+      expect((await only('late.test'))?.anyProved).toBe(true)
+    })
+
     it('gives a provider audience only the provider it named', async () => {
       await holds({ name: 'one', provider: 'rare.test' })
       await holds({ name: 'two', provider: 'other.test' })

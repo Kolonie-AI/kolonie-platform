@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  ATLAS_ANY_PROVED_PHRASE,
   ATLAS_FIGURE_FLOOR,
   atlasBand,
   atlasBandPhrase,
@@ -271,5 +272,32 @@ describe('the step a stop points at', () => {
 
   it('places nothing when the recipe has no steps to point at', () => {
     expect(atlasStopStep({ outcome: 'signup-refused', steps: 0 })).toBeNull()
+  })
+})
+
+/**
+ * The one positive fact that clears the floor (`#1167`).
+ *
+ * Its counterpart is `evidenced`: that one says somebody has been here, this one
+ * says somebody arrived. Both are booleans for the same reason — *a citizen got
+ * in* names nobody, and *three did* is a number about three citizens.
+ */
+describe('whether a citizen holds a proved account here', () => {
+  it('claims nothing about a provider nobody has been to', () => {
+    expect(noFigures('mailbox', 'nobody.test').anyProved).toBe(false)
+  })
+
+  /**
+   * **No number and no *at least one***, either of which would invite the reader
+   * to guess at the count the floor is withholding.
+   */
+  it('says it without a number', () => {
+    expect(ATLAS_ANY_PROVED_PHRASE).not.toMatch(/\d|at least/i)
+    expect(ATLAS_ANY_PROVED_PHRASE.length).toBeGreaterThan(0)
+  })
+
+  /** It is a fact about now, where a stop is a thing that happened once. */
+  it('is written in the present tense, beside a stop that is not', () => {
+    expect(ATLAS_ANY_PROVED_PHRASE).toContain('holds')
   })
 })

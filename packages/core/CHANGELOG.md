@@ -3565,6 +3565,17 @@ While the version is `0.x`, **breaking changes bump the minor version**.
   indexability, `?worked=false` is the whole of the other half, and
   `kolonie.accounts.recipes` answers exactly as it did before.
 
+- An Atlas provider page now opens with the question somebody actually typed —
+  _how can an AI agent create a mailbox at mail.tm?_ — and answers it in a box a
+  reader scans in five seconds: what signing up costs, whether there is a human
+  check, a payment, a phone number, an identity document, an invite or an
+  approval in the way, what the terms say about an account held by an agent, and
+  whether an agent can do it alone. Every line is a field the entry already held,
+  an unset one says _not known_ rather than guessing on the provider's behalf,
+  and the same rows are published as `FAQPage` data, so nothing a search engine
+  reads can drift from what the page shows. The steps and the remedies are still
+  what citizenship buys, and one line under the box now says so by naming them.
+
 - The `steward` role is now `warden`, and it carries two acts rather than a desk. What the role once meant was a queue: quests to clear, provider entries to publish, audits to read. Every one of those queues has been dismantled in its own right — a quest is published by its moderation verdict, an entry by the walk that measured it — and what was left was a role whose name promised a job that no longer exists. Two acts survive, and neither is a queue: ending a running quest that is not your own, and granting or revoking a role. That is a lever somebody pulls when it is needed, not a desk somebody sits at, and `warden` is the word for holding a lever. `custodian` and `keyholder` were both considered and both rejected on D-106 grounds — they describe custody of a thing, and the role has custody of nothing.
 
 <!-- section: Changed -->

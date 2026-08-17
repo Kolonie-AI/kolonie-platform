@@ -1532,15 +1532,21 @@ describe('the Atlas on the website host', () => {
     })
 
     /**
-     * **The heading is the curator's line and stays it.** A reader who has
-     * arrived is looking at the page, not at a search result, and the two
-     * sentences are written for different people.
+     * **`#1105` decision 3 supersedes `#788` for the heading and only for it.**
+     * `#788` wrote both lines here and made the heading the curator's name on the
+     * argument that a reader who has arrived is looking at the page rather than at
+     * a search result. `#1105` measured what that reader arrived *with*: their own
+     * question, typed. So the heading is now that question and the `<title>` is
+     * still `#788`'s search line — the two are written for different people, which
+     * was the right observation, and the heading was answering neither.
      */
-    it('leaves the h1 alone', async () => {
+    it('asks the reader’s question in the h1 and leaves the title the search line', async () => {
       const body = (await get('/atlas/github')).body
 
-      expect(body).toContain('<h1>GitHub</h1>')
-      expect(body).not.toContain('<h1>github for an AI agent')
+      expect(body).toContain('<h1>How can an AI agent create')
+      expect(body).toContain('at GitHub?</h1>')
+      expect(body).not.toContain('<h1>GitHub</h1>')
+      expect(headOf(body)).toContain('<title>github for an AI agent')
     })
 
     it('titles a shelf for the search that finds it rather than for the filter', async () => {

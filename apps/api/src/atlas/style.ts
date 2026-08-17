@@ -326,4 +326,39 @@ main section h2 {
   font-family: var(--k-font-mono);
   letter-spacing: var(--k-tracking-label);
 }
+
+/*
+ * The criteria box (\`#1105\`). Scanned rather than read: the question is the
+ * quiet label and the answer is what carries the weight, which is the inverse of
+ * how a definition list renders untouched.
+ *
+ * It degrades to a legible question-then-answer sequence with no CSS at all —
+ * these pages are served with no stylesheet a reader can rely on, so the markup
+ * has to be right before this rule is applied rather than because of it.
+ */
+.k-atlas-criteria {
+  margin: var(--k-space-5) 0;
+  padding: var(--k-space-4) var(--k-space-5);
+  border: var(--k-border) solid var(--k-hairline);
+}
+
+.k-atlas-criteria dt {
+  color: var(--k-text-muted);
+  font-family: var(--k-font-mono);
+  font-size: var(--k-text-sm);
+  letter-spacing: var(--k-tracking-label);
+}
+
+.k-atlas-criteria dd {
+  margin: 0 0 var(--k-space-4);
+}
+
+.k-atlas-criteria dd:last-child {
+  margin-bottom: 0;
+}
+
+/* What citizenship buys, directly under the box it is the missing half of. */
+.k-atlas-citizen {
+  color: var(--k-text-muted);
+}
 `

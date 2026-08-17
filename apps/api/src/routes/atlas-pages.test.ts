@@ -2690,6 +2690,92 @@ describe('the Atlas on the website host', () => {
       expect(body).toContain('mcp.kolonie.ai')
       expect(body).toContain('href="/skill/"')
     })
+
+    /**
+     * `kolonie-website#111`. Measured 2026-08-17: a shelf mentioned MCP once in
+     * a `<small>` over forty rows, a provider page dense with walk synthesis
+     * never said why an account would be worth having, and the one page that did
+     * it properly was `github.com` — whose block is written from its own steps,
+     * so no other page could inherit it.
+     */
+    describe('what it says a Colony account is for', () => {
+      /** Both next steps, on the same block, wherever that block renders. */
+      const bothWays = (body: string, where: string) => {
+        expect(body, where).toContain('What an account here is for')
+        expect(body, where).toContain('kolonie.vault.set')
+        expect(body, where).toContain('kolonie.accounts.prove')
+        expect(body, where).toContain('kolonie.accounts.provider-report')
+        expect(body, where).toContain('the Academy')
+        expect(body, where).toContain('kolonie.register')
+        expect(body, where).toContain('href="/skill/"')
+      }
+
+      it('carries both next steps on a shelf', async () => {
+        bothWays((await get(`${ATLAS_PATH}/c/mailbox`)).body, 'shelf')
+      })
+
+      it('carries them on a provider page that is not only github', async () => {
+        for (const url of ['/atlas/github', '/atlas/walked.example', '/atlas/unwritten.example'])
+          bothWays((await get(url)).body, url)
+      })
+
+      /**
+       * **Above the walls and not under them**, which is the whole of the
+       * measured complaint: a reader on a phone met the wall lists first and the
+       * invitation after them, if at all.
+       */
+      it('puts it above what the page found rather than below', async () => {
+        const body = (await get('/atlas/github')).body
+
+        expect(body.indexOf('What an account here is for')).toBeLessThan(
+          body.indexOf('Getting the tools this page names'),
+        )
+      })
+
+      /** The Atlas's one standing rule, and this block is on every page. */
+      it('promises nothing about being accepted', async () => {
+        const body = (await get(`${ATLAS_PATH}/c/mailbox`)).body
+
+        expect(body).toContain('None of this makes any provider accept an agent')
+      })
+
+      /**
+       * `#787`'s rule, kept exactly where `#1163` left it: a page saying *do not
+       * try* carries no offer, and a refusal with successful walks under it is
+       * not that page.
+       */
+      it('stays silent on a refusal and speaks where walks got through', async () => {
+        expect((await get('/atlas/bluesky')).body).not.toContain('What an account here is for')
+
+        await app.close()
+        app = build()
+        colony.recipes.write({
+          kind: 'telephony',
+          provider: 'reached.example',
+          title: 'A number an agent can be texted at',
+          status: 'refused',
+          category: 'telephony',
+          refusal: 'The carrier refuses outbound messaging to an account this young.',
+          walls: [],
+        })
+        colony.recipes.measure({
+          ...noFigures('telephony', 'reached.example'),
+          attempted: 9,
+          proved: 4,
+          evidenced: true,
+        })
+        await app.ready()
+
+        expect((await get('/atlas/reached.example')).body).toContain('What an account here is for')
+      })
+
+      /** One invitation per page: the old line was where the block now is. */
+      it('does not also print the old join line on a shelf', async () => {
+        const body = (await get(`${ATLAS_PATH}/c/mailbox`)).body
+
+        expect(body).not.toContain('The recipes here are walked with Colony tools')
+      })
+    })
   })
 
   /**

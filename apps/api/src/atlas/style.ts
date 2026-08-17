@@ -149,6 +149,24 @@ main h1 + p {
 /* ---- The index ---------------------------------------------------------- */
 
 /*
+ * The lede a person reads before deciding whether the rest is for them
+ * (\`kolonie-website#122\`). Set like \`.k-atlas-description\` on an entry page,
+ * for the same reason: it is the first sentence and the only one that answers
+ * *what am I looking at*. The standfirst that follows keeps body weight, so the
+ * two read as a lede and its detail rather than as two competing openings —
+ * which is what a second paragraph at the same size would have been.
+ */
+.k-atlas-lede {
+  margin: var(--k-space-4) 0 var(--k-space-4);
+  font-size: var(--k-text-lg);
+  line-height: 1.5;
+}
+
+.k-atlas-lede a {
+  color: var(--k-accent);
+}
+
+/*
  * One card per entry, in a grid that reflows on its own.
  *
  * \`auto-fit\` with \`minmax(min(100%, …), 1fr)\` is responsive with no breakpoint

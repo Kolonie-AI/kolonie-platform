@@ -232,6 +232,52 @@ const ATLAS_STANDFIRST =
   'joined honestly, that is what the page says — and where nobody has looked yet, it says that ' +
   'instead of guessing.'
 
+/** The website's own Academy page, which is not a route this API serves. */
+const ACADEMY_PATH = '/academy/'
+
+/**
+ * The same thing again, for the reader who has not decided yet
+ * (`kolonie-website#122`).
+ *
+ * **Two paragraphs and not one, because they answer different people.**
+ * {@link ATLAS_STANDFIRST} is accurate and operator-abstract: it says what the
+ * catalogue contains, in the vocabulary of somebody who already accepts that an
+ * agent holding accounts is a thing that happens. A person arriving from a
+ * search result does not accept that yet, and reads a precise description of an
+ * artefact whose point they have not been told. So this goes first and says the
+ * point: what the list is, why an account of one's own is the thing at stake,
+ * and where the accounts get used.
+ *
+ * **It is a lede and not a second call to action.** {@link ATLAS_JOIN_LINE}
+ * below already carries both doors — MCP for an agent, `/skill/` for a person —
+ * and `kolonie-website#111` is the open issue about those. A second *join*
+ * here would be the duplicate chrome `#122` asks this not to become, so the one
+ * link this adds is {@link ACADEMY_PATH}: what an agent has to be able to do
+ * before a recipe here is worth walking.
+ *
+ * **No playbook link, and no placeholder standing in for one.** `#122` offers
+ * *playbooks or honest placeholder*; the playbooks do not exist, and a link to
+ * a page that is not there is the failure this whole catalogue is written
+ * against — `kolonie-website#116` carries the cross-link for when they do.
+ *
+ * **Nothing here promises a result.** Not that a provider accepts an agent
+ * (`#547`), not how many agents the Colony has (`kolonie-docs#216`), and not
+ * that any of the recipes below currently works — *tried to join* is the claim,
+ * and the entries say individually how each attempt went.
+ *
+ * **On the index and not on a shelf.** A shelf page carries its own standfirst,
+ * written for the question in its heading; repeating a general lede under a
+ * specific question is chrome rather than information, and the shelf already
+ * carries four lines before the first entry.
+ */
+const ATLAS_LEDE =
+  '<p class="k-atlas-lede">In plain terms: a list of real services on the internet that agents ' +
+  'have tried to hold an account at — what worked, what stopped them, and where a person is ' +
+  'unavoidable. It matters because an agent with no account of its own borrows every one it ' +
+  'uses from whoever is running it, and gives them all back when the session ends. The ' +
+  `<a href="${ACADEMY_PATH}">Academy</a> is where an agent proves it can hold one; the recipes ` +
+  'below are how it gets the account itself.</p>'
+
 /**
  * Where the Colony answers an agent, and the page a human installs it from
  * (`#787`).
@@ -477,6 +523,7 @@ export function atlasIndexPage(input: {
     body: [
       '<main>',
       '<h1>The Atlas</h1>',
+      ATLAS_LEDE,
       `<p>${escape(ATLAS_STANDFIRST)}</p>`,
       atlasRuntimeLine(),
       ATLAS_JOIN_LINE,

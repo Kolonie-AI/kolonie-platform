@@ -290,6 +290,20 @@ export const AtlasEntrySchema = z.object({
    */
   category: AtlasCategorySlugSchema,
   /**
+   * One sentence saying what the provider is, rolled up from its rows (`#1120`).
+   *
+   * **The lead row's, and any row's if the lead has none.** The sentence answers
+   * *what is this provider*, which is a fact about the provider and not about
+   * one of its kinds — so an entry whose mailbox row was described and whose
+   * domain row was not is an entry with a description, rather than one that
+   * hides it behind whichever row happened to win the title.
+   *
+   * Null on a provider nobody's corpus produced a sentence for. That is the
+   * ordinary state and the surfaces render it as absence rather than as a gap
+   * (`#1121` decisions 3 and 6).
+   */
+  description: z.string().nullable(),
+  /**
    * Whether this provider can be joined without an operator (`#589`).
    *
    * **The strictest row wins**: if any row on this entry needs an operator, the
@@ -522,6 +536,13 @@ export function atlasEntries(
       title: lead.title,
       status,
       category: lead.category,
+      /**
+       * The lead row's sentence, or any row's — see `AtlasEntrySchema`. `find`
+       * can return `undefined` where every row is null, which is the same
+       * answer as null and is normalised to it here rather than at each reader.
+       */
+      description:
+        lead.description ?? rows.map((row) => row.description).find((one) => one !== null) ?? null,
       operatorNeed: need.need,
       operatorNeedIsGuess: need.isGuess,
       recipes: measured,
@@ -966,6 +987,13 @@ export function measuredOnlyRecipes(
         operatorNeed: 'unknown',
         operatorNeedIsGuess: false,
         about: null,
+        /**
+         * **Null, like `about` above it, and for a stronger reason** (`#1120`).
+         * The sentence is synthesised from the published walks of a provider,
+         * and this row exists precisely because there are none — a description
+         * here would be a claim about a provider nobody has written up.
+         */
+        description: null,
         runtimes: [],
         paid: false,
         referral: null,

@@ -76,6 +76,28 @@ describe('the Atlas as structured data', () => {
     ])
   })
 
+  /**
+   * **The leaf crumb is the only entity left on this page that *is* the
+   * provider** (`#1121` decision 5). That decision named this block or
+   * `howToFor()`, and `#1100` deleted the second one — so the sentence rides on
+   * the third `ListItem`, which is a `Thing` and takes a `description` like any
+   * other, rather than on a second block or a second schema type. Absent where
+   * there is nothing to say, which is most rows.
+   */
+  it('describes the provider on the crumb that is the provider, where there is one', () => {
+    const said = 'A hosted mailbox that answers on IMAP.'
+    const crumbs = (over: Partial<AtlasEntry>) =>
+      JSON.parse(breadcrumbFor(entry(over), SITE).replace(/^<script[^>]*>|<\/script>$/g, ''))
+        .itemListElement
+
+    expect(crumbs({ description: said }).at(-1)).toMatchObject({
+      name: 'Trello',
+      description: said,
+    })
+    expect(crumbs({ description: null }).at(-1)).not.toHaveProperty('description')
+    expect(crumbs({}).at(-1)).not.toHaveProperty('description')
+  })
+
   it('lists the index in the order it was given, and counts what it listed', () => {
     const block = itemListFor(
       [entry(), entry({ provider: 'github.com', title: 'GitHub', path: '/atlas/github.com' })],

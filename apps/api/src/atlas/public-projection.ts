@@ -92,6 +92,7 @@ export type AtlasPublicRecipe = Pick<
   | 'operatorNeed'
   | 'operatorNeedIsGuess'
   | 'about'
+  | 'description'
   | 'runtimes'
   | 'paid'
   | 'referral'
@@ -138,6 +139,7 @@ export type AtlasPublicEntry = Pick<
   | 'title'
   | 'status'
   | 'category'
+  | 'description'
   | 'operatorNeed'
   | 'operatorNeedIsGuess'
   | 'source'
@@ -160,6 +162,7 @@ export function atlasPublicEntry(entry: AtlasEntry): AtlasPublicEntry {
     title: entry.title,
     status: entry.status,
     category: entry.category,
+    description: entry.description,
     operatorNeed: entry.operatorNeed,
     operatorNeedIsGuess: entry.operatorNeedIsGuess,
     source: entry.source,
@@ -186,6 +189,7 @@ function publicRecipe(recipe: AtlasRow): AtlasPublicRecipe {
     operatorNeed: recipe.operatorNeed,
     operatorNeedIsGuess: recipe.operatorNeedIsGuess,
     about: recipe.about,
+    description: recipe.description,
     runtimes: recipe.runtimes,
     paid: recipe.paid,
     referral: recipe.referral,

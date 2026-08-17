@@ -48,6 +48,7 @@ const recipe = (input: {
     provider: AccountProviderSchema.parse(input.provider),
     title: input.title ?? input.provider,
     about: null,
+    description: null,
     runtimes: [],
     paid: false,
     referral: null,

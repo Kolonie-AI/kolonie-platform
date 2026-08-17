@@ -96,12 +96,21 @@ export function asJsonLdBlock(value: unknown): string {
  * page hands it the public projection, and a signature naming `AtlasEntry` would
  * have made this module a second place where somebody has to remember which of
  * the two an argument is.
+ *
+ * **The description rides on the last crumb** (`#1121` decision 5). That decision
+ * named this block or `howToFor()`, and `#1100` deleted the second one — so the
+ * only entity this page still emits that *is* the provider is the third
+ * `ListItem`, which is a `Thing` and takes a `description` like any other. The
+ * alternative was a `WebPage` object in `item`, and the same decision rules out a
+ * second schema type as firmly as it rules out a second block. Absent on an entry
+ * with no description, rather than present and empty.
  */
 export function breadcrumbFor(
   entry: {
     readonly category: AtlasCategorySlug
     readonly title: string
     readonly path: string
+    readonly description?: string | null
   },
   siteUrl: string,
 ): string {
@@ -118,7 +127,15 @@ export function breadcrumbFor(
         name: entry.category,
         item: at(shelfPath(entry.category)),
       },
-      { '@type': 'ListItem', position: 3, name: entry.title, item: at(entry.path) },
+      {
+        '@type': 'ListItem',
+        position: 3,
+        name: entry.title,
+        ...(entry.description === undefined || entry.description === null
+          ? {}
+          : { description: entry.description }),
+        item: at(entry.path),
+      },
     ],
   })
 }

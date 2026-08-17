@@ -8,8 +8,10 @@ import {
   ATLAS_PATH,
   ATLAS_SEEDED_CATEGORIES,
   noFigures,
+  PROVIDER_DESCRIPTION_MAX_LENGTH,
 } from '@kolonie-ai/core'
 import type { SiteChrome } from '../atlas/site-chrome.js'
+import { ATLAS_META_DESCRIPTION_MAX_LENGTH } from '../atlas/html.js'
 
 const SITE = 'https://site.test'
 const SITE_HOST = 'site.test'
@@ -1560,6 +1562,214 @@ describe('the Atlas on the website host', () => {
         '<title>Mailboxes an AI agent can sign up for — Kolonie</title>',
       )
       expect(headOf((await get(ATLAS_PATH)).body)).toContain('<title>The Atlas — Kolonie</title>')
+    })
+  })
+
+  /**
+   * The sentence saying what the provider **is** (`#1121`, written by `#1120`).
+   *
+   * Everything the page said until here was about behaviour: how many steps,
+   * whether a human is needed, what proves it, when anybody last got through.
+   * A stranger who searched for a mailbox and found one of these pages learned
+   * that it takes two steps and nothing at all about what it is.
+   *
+   * The rejection cases are the other half of it. A provider whose corpus
+   * produced nothing is the **ordinary** state, not an error, so it has to
+   * render as today's page rather than as today's page with a gap in it — which
+   * is why the undescribed head is asserted against the described one rather
+   * than against a sentence typed into this file.
+   */
+  describe('the description the Colony wrote about a provider', () => {
+    const SAID = 'A hosted mailbox that answers on IMAP and asks for no phone number.'
+
+    const rebuild = (write: (colony: FakeColony) => void) => async () => {
+      await app.close()
+      app = build()
+      write(colony)
+      await app.ready()
+    }
+
+    const headOf = (body: string) => body.slice(0, body.indexOf('</head>'))
+
+    const descriptionOf = (body: string) =>
+      /<meta name="description" content="([^"]*)"/.exec(headOf(body))?.[1] ?? ''
+
+    /** The `ld+json` blocks of a page, parsed — what a crawler actually reads. */
+    const blocksOf = (body: string) =>
+      [...body.matchAll(/<script type="application\/ld\+json">(.*?)<\/script>/g)].map((one) =>
+        JSON.parse(one[1] ?? '{}'),
+      )
+
+    /**
+     * One entry, written twice with the same everything but the sentence, which
+     * is what makes the fallback assertable: the undescribed render *is* the
+     * reference, so a stray space or an empty prefix fails rather than passing
+     * against a string somebody typed here.
+     */
+    type Seeded = Parameters<FakeColony['recipes']['write']>[0]
+
+    const said = (description: string | null, rest: Partial<Seeded> = {}) =>
+      rebuild((one) =>
+        one.recipes.write({
+          kind: 'mailbox',
+          provider: 'said.example',
+          title: 'Said',
+          description,
+          steps: [{ actor: 'agent', instruction: 'Open the signup form.' }],
+          proves: 'provider-mail',
+          ...rest,
+        }),
+      )
+
+    const metaFor = async (description: string | null, rest: Partial<Seeded> = {}) => {
+      await said(description, rest)()
+
+      return descriptionOf((await get('/atlas/said.example')).body)
+    }
+
+    it('leads the head with the description and keeps the status sentence behind it', async () => {
+      const described = await metaFor(SAID)
+      const behaved = await metaFor(null)
+
+      expect(described).toBe(`${SAID} ${behaved}`)
+      expect(described.length).toBeLessThanOrEqual(ATLAS_META_DESCRIPTION_MAX_LENGTH)
+    })
+
+    /** Decisions 4 and 4 again: under the heading, and for a status that renders no rows. */
+    it('shows it as a paragraph under the heading, joinable or refused', async () => {
+      for (const status of ['joinable', 'refused'] as const) {
+        await said(SAID, { status })()
+        const body = (await get('/atlas/said.example')).body
+
+        /**
+         * The element and not the class name: the sheet is inlined in the head,
+         * so every one of these selectors appears on the page whether or not
+         * anything is rendered with it.
+         */
+        const paragraph = body.indexOf('<p class="k-atlas-description">')
+
+        expect(body, status).toContain(`<p class="k-atlas-description">${SAID}</p>`)
+        expect(paragraph, status).toBeGreaterThan(body.indexOf('</h1>'))
+        expect(paragraph, status).toBeLessThan(body.indexOf('<p class="k-atlas-facts">'))
+      }
+    })
+
+    /**
+     * Decision 9: `recipeSection()` returns early for both of these, and the
+     * paragraph is rendered above it rather than inside it. These are the pages
+     * with the least on them and the most need of a line saying what the thing is.
+     */
+    it('shows the paragraph on a retired entry and on one nobody has walked', async () => {
+      for (const status of ['retired', 'unwritten'] as const) {
+        await said(SAID, { status })()
+
+        expect((await get('/atlas/said.example')).body, status).toContain(
+          `<p class="k-atlas-description">${SAID}</p>`,
+        )
+      }
+    })
+
+    it('carries it in the structured data the page emits', async () => {
+      await said(SAID)()
+      const crumbs = blocksOf((await get('/atlas/said.example')).body).find(
+        (one) => one['@type'] === 'BreadcrumbList',
+      )
+
+      expect(crumbs?.itemListElement.at(-1)).toMatchObject({ name: 'Said', description: SAID })
+    })
+
+    /**
+     * Decisions 6 and 7: one line per described provider, on the index and on the
+     * shelf.
+     *
+     * **Both rows are written with an explicit category**, as the split's own
+     * fixture is: what is under test is the line, and a row that reached the shelf
+     * only because the kind-to-category map happened to choose it would fail the
+     * day that map moves, naming this issue for a change that has nothing to do
+     * with it.
+     */
+    it('gives a described provider one line on the index and an undescribed one none', async () => {
+      await rebuild((one) => {
+        one.recipes.write({
+          kind: 'mailbox',
+          provider: 'said.example',
+          title: 'Said',
+          category: 'mailbox',
+          description: SAID,
+          steps: [{ actor: 'agent', instruction: 'Open the signup form.' }],
+        })
+        one.recipes.write({
+          kind: 'mailbox',
+          provider: 'quiet.example',
+          title: 'Quiet',
+          category: 'mailbox',
+          steps: [{ actor: 'agent', instruction: 'Open the signup form.' }],
+        })
+      })()
+
+      for (const url of [ATLAS_PATH, `${ATLAS_PATH}/c/mailbox`]) {
+        const body = (await get(url)).body
+
+        expect([...body.matchAll(/<small class="k-atlas-said">/g)], url).toHaveLength(1)
+        expect(body, url).toContain(`<small class="k-atlas-said">${SAID}</small>`)
+      }
+    })
+
+    /**
+     * Absent rather than empty, and asserted on the opening tag: the selectors
+     * themselves are in the inlined sheet on every page either way.
+     */
+    it('emits no element at all where there is no description', async () => {
+      await said(null)()
+
+      expect((await get('/atlas/said.example')).body).not.toContain(
+        '<p class="k-atlas-description"',
+      )
+      expect((await get(ATLAS_PATH)).body).not.toContain('<small class="k-atlas-said"')
+      expect((await get(`${ATLAS_PATH}/c/mailbox`)).body).not.toContain(
+        '<small class="k-atlas-said"',
+      )
+    })
+
+    /**
+     * A description at the column's own maximum leaves 20 characters of the
+     * budget, which no status sentence fits in. Decision 2: the description is
+     * used alone rather than the pair being clipped.
+     */
+    it('drops the status sentence for a description that fills the budget', async () => {
+      const filling = `${'A hosted mailbox that answers on IMAP. '.repeat(7)}It is run in the EU, alone.`
+
+      expect(filling).toHaveLength(PROVIDER_DESCRIPTION_MAX_LENGTH)
+
+      const described = await metaFor(filling)
+      const behaved = await metaFor(null)
+
+      expect(described).toBe(filling)
+      expect(described.length).toBeLessThanOrEqual(ATLAS_META_DESCRIPTION_MAX_LENGTH)
+      // Nothing of the status sentence survives, rather than its first few words.
+      expect(behaved.length).toBeGreaterThan(0)
+      expect(described).not.toContain(behaved.slice(0, 6))
+    })
+
+    /**
+     * The catalogue is a table a `psql` prompt writes to by design, so *curated*
+     * is not a property any of the three renderers may assume.
+     */
+    it('escapes the description in the head, on the page and in the structured data', async () => {
+      const risky = 'A "free" tier & a <b>paid</b> one.'
+      const escaped = 'A &quot;free&quot; tier &amp; a &lt;b&gt;paid&lt;/b&gt; one.'
+
+      await said(risky)()
+      const body = (await get('/atlas/said.example')).body
+
+      expect(headOf(body)).toContain(`content="${escaped}`)
+      expect(body).toContain(`<p class="k-atlas-description">${escaped}</p>`)
+
+      const crumbs = blocksOf(body).find((one) => one['@type'] === 'BreadcrumbList')
+
+      expect(crumbs?.itemListElement.at(-1)?.description).toBe(risky)
+      // The raw angle bracket never reaches the document, in either element.
+      expect(body).not.toContain('<b>paid</b>')
     })
   })
 

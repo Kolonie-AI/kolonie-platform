@@ -121,8 +121,8 @@ jobs:
           Base is \`$base\`. What to look at, cheapest first:
 
           - **Is that base a branch that still exists?** If a stacked pull request under this one merged, its branch went with it. \`stacked-pr-base.yml\` repoints these automatically; if it did not, move the base to \`main\` by hand.
-          - **Did the last push produce a run at all?** Push again, or close and reopen this pull request. Retargeting the base alone does not do it — it is not a \`synchronize\` event.
-          - **Is \`ci.yml\` itself reachable?** A workflow file that fails to parse produces no runs and no error on the pull request.
+          - **Did the last push produce a run at all?** Ask for one directly: \`gh workflow run ci.yml -R $REPO --ref <this branch>\`. That is cheaper than pushing again and it does not rewrite anything. Retargeting the base alone never does it — that is not a \`synchronize\` event.
+          - **Is \`ci.yml\` itself reachable?** The same dispatch answers this one. If it is refused, the workflow file is not parsing, which produces no runs and no error on the pull request; if it is accepted and a run appears, the file is fine and the missing runs were event processing (\`kolonie-platform#1171\`).
 
           Found by $RUN_URL." || echo "::warning::#$number could not be commented on"
           done < <(jq -r '.[] | select(.isDraft | not)

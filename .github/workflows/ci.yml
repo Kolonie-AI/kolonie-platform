@@ -27,6 +27,31 @@ on:
   # within seconds of the merge, and a red check that names the reason is worth
   # more than a silence nobody can diagnose.
   pull_request:
+  # **The only gate here that could not be started by hand, until `#1171`.** Both
+  # triggers above wait on an event, and the failure this answers is the one where
+  # the event never produces a run: on 2026-08-06 pushes landed and *zero
+  # check-runs were created for them*. That is not a red run to re-run — there is
+  # nothing to re-run, and GitHub does not offer "Re-run jobs" for a run that does
+  # not exist. `workflow_dispatch` kept working throughout, which is how
+  # `build-and-deploy.yml` stayed reachable that day; this file had none, so a CI
+  # verdict was simply unobtainable for the length of the incident.
+  #
+  # `pr-without-ci.yml` detects that state hourly and asks its reader whether this
+  # workflow is reachable at all. This is the trigger that lets them answer:
+  #
+  #     gh workflow run ci.yml -R Kolonie-AI/kolonie-platform --ref <branch>
+  #
+  # No inputs, deliberately: the trigger already carries a ref, and running the
+  # job below against a chosen branch is the whole of what is wanted. Anything
+  # else would be a second way to configure a check whose configuration is the
+  # file it is written in.
+  #
+  # `ci-status.yml` watches `workflows: [CI]` on `workflow_run`, and `workflow_run`
+  # fires for a dispatched run exactly as for an evented one — so a manual run
+  # labels linked issues the same way a push does. Confirmed rather than assumed,
+  # because a status label that silently stopped following manual runs would be a
+  # worse failure than the one this fixes.
+  workflow_dispatch:
 
 # A newer push makes the previous run irrelevant — on a pull request branch, and
 # not on `main`.

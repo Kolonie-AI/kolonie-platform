@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ACADEMY_TASKS } from '@kolonie-ai/db'
-import { AUTHENTICATED_TOOLS, UNAUTHENTICATED_TOOLS, STEWARD_TOOLS } from '../../tool-list.js'
+import { AUTHENTICATED_TOOLS, UNAUTHENTICATED_TOOLS, WARDEN_TOOLS } from '../../tool-list.js'
 import { connectedClient, registeredCitizen } from '../../../__fixtures__/mcp.js'
 import { ARGUMENT_LESS_MINTS, argumentLessMint, outOfReach } from './mints.js'
 import { isWithdrawnRung } from '../../../withdrawn-rungs.js'
@@ -27,7 +27,7 @@ describe('the folded argument-less mints', () => {
     const registered = new Set<string>([
       ...UNAUTHENTICATED_TOOLS,
       ...AUTHENTICATED_TOOLS,
-      ...STEWARD_TOOLS,
+      ...WARDEN_TOOLS,
     ])
 
     /**

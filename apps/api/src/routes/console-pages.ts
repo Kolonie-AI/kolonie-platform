@@ -5375,7 +5375,7 @@ function registerSponsorPages(
         questId,
         body: request.body,
         at: new Date().toISOString() as Timestamp,
-        stewarding: false,
+        asWarden: false,
       },
       deps.quests,
     )

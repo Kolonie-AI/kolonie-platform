@@ -504,7 +504,7 @@ describe('the authority a person holds', () => {
   })
 
   it('cannot put an agent role on a person', async () => {
-    expect(await refusalFor(sql`select 'steward'::human_role`)).toContain(
+    expect(await refusalFor(sql`select 'warden'::human_role`)).toContain(
       'invalid input value for enum human_role',
     )
   })

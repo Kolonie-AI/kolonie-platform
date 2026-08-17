@@ -588,8 +588,8 @@ export const AUTHENTICATED_TOOLS = [
 ] as const
 
 /**
- * The tools a caller holding `steward` is offered on top of the tier above
- * (`#320`).
+ * The tools a caller holding `warden` is offered on top of the tier above
+ * (`#320`, renamed from `steward` by `#947`).
  *
  * **A third tier, built the way D-013 builds the first two** — by registering
  * fewer tools rather than by refusing more. Its argument is unchanged one role
@@ -598,7 +598,8 @@ export const AUTHENTICATED_TOOLS = [
  *
  * **`kolonie.quests.review`, `.publish` and `.refuse` were here until `#723`.**
  * A quest that clears moderation is published by that verdict now (`#693`), so
- * there is no queue for a steward to read and no decision for it to take.
+ * there is no queue to read and no decision to take. That emptying is what left
+ * a lever rather than a desk, and `#947` renamed the role to match.
  *
  * **`kolonie.support.notice` was here until `#945`.** It was the only tool in
  * the tier that was not about a quest — the Colony addressing a citizen in its
@@ -631,7 +632,7 @@ export const AUTHENTICATED_TOOLS = [
  * a document rather than from a listing is exactly the caller the second one is
  * for.
  */
-export const STEWARD_TOOLS = [
+export const WARDEN_TOOLS = [
   /** The Colony's escape hatch from a live quest it should no longer offer (`#695`). */
   'kolonie.quests.end',
 ] as const

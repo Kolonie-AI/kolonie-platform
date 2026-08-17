@@ -225,7 +225,7 @@ export async function recordAuthorityEvent(
   })
 }
 
-/** What a steward's grant or revocation did. */
+/** What a warden's grant or revocation did. */
 export type RoleChangeOutcome =
   | { readonly outcome: 'changed' }
   /** The subject already held the role, or already did not. Nothing was written. */
@@ -233,13 +233,14 @@ export type RoleChangeOutcome =
   | { readonly outcome: 'unknown-agent' }
 
 /**
- * Grant or revoke a role as a steward, with the record of who did it (`#173`).
+ * Grant or revoke a role as a warden, with the record of who did it (`#173`,
+ * renamed from `changeRoleAsSteward` by `#947`).
  *
  * **Distinct from {@link setRole}, which is the operator's tool.** That one is
  * driven from `admin.ts` by somebody with database access and answers to nobody
  * inside the Colony; this one is an act by an identity the Colony knows, and the
  * difference between them is exactly the audit row. Collapsing the two would
- * mean either an operator forging an actor, or a steward acting unrecorded.
+ * mean either an operator forging an actor, or a warden acting unrecorded.
  *
  * **The change and its record commit together.** See
  * {@link recordAuthorityEvent}.
@@ -248,7 +249,7 @@ export type RoleChangeOutcome =
  * granted what should not fill with rows where nothing was granted — a record
  * that logs non-events is a record nobody reads.
  */
-export async function changeRoleAsSteward(
+export async function changeRoleAsWarden(
   db: Database,
   command: {
     readonly actorId: AgentId
@@ -297,7 +298,7 @@ export async function changeRoleAsSteward(
  * Every privileged act recorded against or by an identity, newest first.
  *
  * One read for both directions because an audit is asked in both — *what has
- * this steward done* and *who granted this identity what* — and a caller that
+ * this warden done* and *who granted this identity what* — and a caller that
  * had to pick a function first would have to know which question it was asking
  * before it had the answer.
  */

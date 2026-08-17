@@ -197,7 +197,7 @@ describe('the quest write path', () => {
     return Number(rows[0]!.count)
   }
 
-  const anAgent = async (name: string, roles: readonly ('steward' | 'builder')[] = []) => {
+  const anAgent = async (name: string, roles: readonly ('warden' | 'builder')[] = []) => {
     const [row] = await db
       .insert(agents)
       .values({ name, platform: 'openclaw', status: 'citizen', roles: [...roles] })
@@ -404,7 +404,7 @@ describe('the quest write path', () => {
 
       // Refused for the queue cap: one quest at a time, whatever it costs.
       await moderate(first.task.id)
-      const steward = await anAgent('steward', ['steward'])
+      const steward = await anAgent('warden', ['warden'])
       await publishQuest(db, {
         stewardId: steward,
         taskId: first.task.id,
@@ -565,7 +565,7 @@ describe('the quest write path', () => {
       const { task } = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
       await submitQuestForReview(db, { authorId: sponsor, taskId: task.id, at: now() })
       await moderate(task.id)
-      const steward = await anAgent('steward', ['steward'])
+      const steward = await anAgent('warden', ['warden'])
       await publishQuest(db, { stewardId: steward, taskId: task.id, at: now(), audit: AUDIT_ON })
 
       const result = await withdrawQuestFromReview(db, {
@@ -601,7 +601,7 @@ describe('the quest write path', () => {
     /** A published, live quest and the two identities around it. */
     const aRunningQuest = async (label: string) => {
       const sponsor = await anAgent(`sponsor-${label}`)
-      const steward = await anAgent(`steward-${label}`, ['steward'])
+      const steward = await anAgent(`steward-${label}`, ['warden'])
       await credit(sponsor, 10_000)
       const { task } = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
       await submitQuestForReview(db, { authorId: sponsor, taskId: task.id, at: now() })
@@ -633,7 +633,7 @@ describe('the quest write path', () => {
         taskId,
         reason: ANSWER,
         at: now(),
-        stewarding: false,
+        asWarden: false,
       })
 
       expect(result).toMatchObject({ outcome: 'ended', attemptsStillOpen: 0 })
@@ -647,15 +647,15 @@ describe('the quest write path', () => {
       expect(row?.retiredAt).not.toBeNull()
     })
 
-    it('lets a steward end somebody else’s', async () => {
-      const { steward, taskId } = await aRunningQuest('steward')
+    it('lets a warden end somebody else’s', async () => {
+      const { steward, taskId } = await aRunningQuest('warden')
 
       const result = await endQuest(db, {
         actorId: steward,
         taskId,
         reason: 'The brief asks for something the Colony cannot publish.',
         at: now(),
-        stewarding: true,
+        asWarden: true,
       })
 
       expect(result.outcome).toBe('ended')
@@ -679,7 +679,7 @@ describe('the quest write path', () => {
           taskId,
           reason: 'I would rather this quest stopped existing.',
           at: now(),
-          stewarding: false,
+          asWarden: false,
         }),
       ).toEqual({ outcome: 'not-yours' })
 
@@ -694,7 +694,7 @@ describe('the quest write path', () => {
      */
     it('refuses a quest that is not running, and says which state it is in', async () => {
       const { sponsor, taskId } = await aRunningQuest('twice')
-      await endQuest(db, { actorId: sponsor, taskId, reason: ANSWER, at: now(), stewarding: false })
+      await endQuest(db, { actorId: sponsor, taskId, reason: ANSWER, at: now(), asWarden: false })
 
       expect(
         await endQuest(db, {
@@ -702,7 +702,7 @@ describe('the quest write path', () => {
           taskId,
           reason: ANSWER,
           at: now(),
-          stewarding: false,
+          asWarden: false,
         }),
       ).toEqual({ outcome: 'not-active', status: 'retired' })
 
@@ -713,7 +713,7 @@ describe('the quest write path', () => {
           taskId: draft.task.id,
           reason: ANSWER,
           at: now(),
-          stewarding: false,
+          asWarden: false,
         }),
       ).toEqual({ outcome: 'not-active', status: 'draft' })
     })
@@ -737,7 +737,7 @@ describe('the quest write path', () => {
         taskId,
         reason: ANSWER,
         at: now(),
-        stewarding: false,
+        asWarden: false,
       })
 
       expect(result).toMatchObject({ outcome: 'ended', attemptsStillOpen: 1 })
@@ -756,7 +756,7 @@ describe('the quest write path', () => {
     it('refuses a hand-in from a citizen that never held a claim', async () => {
       const { sponsor, taskId } = await aRunningQuest('late')
       const latecomer = await anAgent('citizen-late')
-      await endQuest(db, { actorId: sponsor, taskId, reason: ANSWER, at: now(), stewarding: false })
+      await endQuest(db, { actorId: sponsor, taskId, reason: ANSWER, at: now(), asWarden: false })
 
       expect(
         (
@@ -783,7 +783,7 @@ describe('the quest write path', () => {
       })
       const [before] = await db.select().from(tasks).where(eq(tasks.id, taskId))
 
-      await endQuest(db, { actorId: sponsor, taskId, reason: ANSWER, at: now(), stewarding: false })
+      await endQuest(db, { actorId: sponsor, taskId, reason: ANSWER, at: now(), asWarden: false })
 
       const kept = await db.select().from(submissions).where(eq(submissions.taskId, taskId))
       expect(kept).toHaveLength(1)
@@ -798,7 +798,7 @@ describe('the quest write path', () => {
     it('takes the quest out of the catalogue', async () => {
       const { sponsor, taskId } = await aRunningQuest('listed')
       const reader = await anAgent('citizen-reading')
-      await endQuest(db, { actorId: sponsor, taskId, reason: ANSWER, at: now(), stewarding: false })
+      await endQuest(db, { actorId: sponsor, taskId, reason: ANSWER, at: now(), asWarden: false })
 
       const listed = await listTasks(db, { agentId: reader, availableOnly: true, limit: 25 })
       if (listed.outcome !== 'listed') throw new Error(listed.outcome)
@@ -814,7 +814,7 @@ describe('the quest write path', () => {
           taskId: crypto.randomUUID() as TaskId,
           reason: ANSWER,
           at: now(),
-          stewarding: true,
+          asWarden: true,
         }),
       ).toEqual({ outcome: 'unknown-quest' })
     })
@@ -925,7 +925,7 @@ describe('the quest write path', () => {
      */
 
     it('refuses a steward publishing its own quest', async () => {
-      const steward = await anAgent('steward', ['steward'])
+      const steward = await anAgent('warden', ['warden'])
       const { task } = await createQuestDraft(db, { authorId: steward, draft: aDraft() })
       await submitQuestForReview(db, { authorId: steward, taskId: task.id, at: now() })
       await moderate(task.id)
@@ -952,7 +952,7 @@ describe('the quest write path', () => {
 
     it('refuses to publish a quest the moderator has not cleared', async () => {
       const sponsor = await anAgent('sponsor')
-      const steward = await anAgent('steward', ['steward'])
+      const steward = await anAgent('warden', ['warden'])
       const { task } = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
       await submitQuestForReview(db, { authorId: sponsor, taskId: task.id, at: now() })
 
@@ -970,7 +970,7 @@ describe('the quest write path', () => {
 
     it('stores the refusal, frees the reservation, and records who refused', async () => {
       const sponsor = await anAgent('sponsor')
-      const steward = await anAgent('steward', ['steward'])
+      const steward = await anAgent('warden', ['warden'])
       // The answers and the obstacle pool both, so the submission is not
       // refused for money before this test reaches the refusal (`#371`).
       await credit(sponsor, 200)
@@ -1019,7 +1019,7 @@ describe('the quest write path', () => {
 
     it('records the publication against the steward that took it', async () => {
       const sponsor = await anAgent('sponsor')
-      const steward = await anAgent('steward', ['steward'])
+      const steward = await anAgent('warden', ['warden'])
       const { task } = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
       await submitQuestForReview(db, { authorId: sponsor, taskId: task.id, at: now() })
       await moderate(task.id)
@@ -1041,7 +1041,7 @@ describe('the quest write path', () => {
 
     it('refuses to decide a quest that is not awaiting review', async () => {
       const sponsor = await anAgent('sponsor')
-      const steward = await anAgent('steward', ['steward'])
+      const steward = await anAgent('warden', ['warden'])
       const { task } = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
 
       expect(
@@ -1265,7 +1265,7 @@ describe('the quest write path', () => {
 
     it('offers it once it is published', async () => {
       const sponsor = await anAgent('sponsor')
-      const steward = await anAgent('steward', ['steward'])
+      const steward = await anAgent('warden', ['warden'])
       const citizen = await anAgent('citizen')
       const { task } = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
       await submitQuestForReview(db, { authorId: sponsor, taskId: task.id, at: now() })
@@ -1555,7 +1555,7 @@ describe('the quest write path', () => {
     /** A published quest a citizen can actually submit against. */
     const aPublishedQuest = async (draft = withQuestions()) => {
       const sponsor = await anAgent(`sponsor-${crypto.randomUUID().slice(0, 8)}`)
-      const steward = await anAgent(`steward-${crypto.randomUUID().slice(0, 8)}`, ['steward'])
+      const steward = await anAgent(`steward-${crypto.randomUUID().slice(0, 8)}`, ['warden'])
       const { task } = await createQuestDraft(db, { authorId: sponsor, draft })
       await submitQuestForReview(db, { authorId: sponsor, taskId: task.id, at: now() })
       await moderate(task.id)
@@ -2056,7 +2056,7 @@ describe('the quest write path', () => {
 
     const aQuestWithReports = async () => {
       const sponsor = await anAgent(`sponsor-${crypto.randomUUID().slice(0, 8)}`)
-      const steward = await anAgent(`steward-${crypto.randomUUID().slice(0, 8)}`, ['steward'])
+      const steward = await anAgent(`steward-${crypto.randomUUID().slice(0, 8)}`, ['warden'])
       const { task } = await createQuestDraft(db, {
         authorId: sponsor,
         draft: aDraft({ questions }),
@@ -2429,7 +2429,7 @@ describe('the quest write path', () => {
   describe('before the first coin', () => {
     const aPaidQuest = async (lamports = 1_000_000) => {
       const sponsor = await anAgent(`sponsor-${crypto.randomUUID().slice(0, 8)}`)
-      const steward = await anAgent(`steward-${crypto.randomUUID().slice(0, 8)}`, ['steward'])
+      const steward = await anAgent(`steward-${crypto.randomUUID().slice(0, 8)}`, ['warden'])
       await credit(sponsor, 10_000)
       const { task } = await createQuestDraft(db, {
         authorId: sponsor,
@@ -2648,8 +2648,8 @@ describe('the quest write path', () => {
     })
 
     it('records a decision once, and a second steward gets told', async () => {
-      const steward = await anAgent('audit-steward', ['steward'])
-      const other = await anAgent('other-steward', ['steward'])
+      const steward = await anAgent('audit-steward', ['warden'])
+      const other = await anAgent('other-steward', ['warden'])
       const submissionId = await aPassedQuestSubmission('audited')
 
       expect(
@@ -2672,7 +2672,7 @@ describe('the quest write path', () => {
     })
 
     it('changes no balance when a steward disagrees', async () => {
-      const steward = await anAgent('paying-steward', ['steward'])
+      const steward = await anAgent('paying-steward', ['warden'])
       const submissionId = await aPassedQuestSubmission('paid-and-audited')
 
       const before = await db.execute<{ total: string }>(
@@ -2729,7 +2729,7 @@ describe('the quest write path', () => {
      */
     describe('a steward that is also a sponsor', () => {
       it('is not drawn a verdict on the quest it sponsored', async () => {
-        const steward = await anAgent('sponsoring-steward', ['steward'])
+        const steward = await anAgent('sponsoring-steward', ['warden'])
         const own = await aPassedQuestSubmission('own-quest', {
           drawn: true,
           authorId: steward,
@@ -2747,7 +2747,7 @@ describe('the quest write path', () => {
        * suggestion, and `#173` put its ban at the write for the same reason.
        */
       it('is refused when it posts that submission id anyway, and writes no row', async () => {
-        const steward = await anAgent('determined-steward', ['steward'])
+        const steward = await anAgent('determined-steward', ['warden'])
         const submissionId = await aPassedQuestSubmission('posted-anyway', { authorId: steward })
 
         expect(
@@ -2763,7 +2763,7 @@ describe('the quest write path', () => {
       })
 
       it('audits anybody else’s quest exactly as before', async () => {
-        const steward = await anAgent('ordinary-steward', ['steward'])
+        const steward = await anAgent('ordinary-steward', ['warden'])
         const submissionId = await aPassedQuestSubmission('not-mine')
 
         expect(
@@ -2782,7 +2782,7 @@ describe('the quest write path', () => {
        * inequality would have dropped every such quest out of every queue.
        */
       it('still draws a quest whose sponsor has erased itself', async () => {
-        const steward = await anAgent('steward-of-orphans', ['steward'])
+        const steward = await anAgent('steward-of-orphans', ['warden'])
         const orphaned = await aPassedQuestSubmission('orphaned', { drawn: true })
         await db
           .update(tasks)

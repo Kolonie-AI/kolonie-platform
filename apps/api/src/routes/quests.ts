@@ -48,7 +48,7 @@ export function registerQuestRoutes(v1: FastifyInstance, deps: RouteDependencies
    *
    * Every route here takes it, because a quest is written, priced, previewed,
    * submitted and funded in one sitting: a form a browser can open and a submit
-   * it cannot is not a form. `stewardFor` is a different question, and since
+   * it cannot is not a form. `wardenFor` is a different question, and since
    * `#944` no route on this prefix asks it.
    *
    * **It was `sponsorFor` until `#578`**, which additionally resolved a browser
@@ -205,7 +205,7 @@ export function registerQuestRoutes(v1: FastifyInstance, deps: RouteDependencies
    *
    * **The sponsor's route and the steward's, deliberately one path.** A steward
    * is recognised by the role and a sponsor by having written the quest, and
-   * `endQuest` refuses everybody else — so this cannot be `stewardFor`, which
+   * `endQuest` refuses everybody else — so this cannot be `wardenFor`, which
    * would lock the sponsor out of its own quest, nor `acting` alone, which would
    * lose the steward's authority over somebody else's.
    *
@@ -224,7 +224,7 @@ export function registerQuestRoutes(v1: FastifyInstance, deps: RouteDependencies
           questId,
           body: request.body,
           at: now(),
-          stewarding: caller.roles.includes('steward'),
+          asWarden: caller.roles.includes('warden'),
         },
         quests,
       ),

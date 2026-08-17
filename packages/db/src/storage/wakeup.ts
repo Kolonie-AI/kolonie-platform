@@ -444,7 +444,7 @@ export async function wakeupChanges(
      *
      * **A role changed by an operator through `admin.ts` is not here, and that
      * is a property of that path rather than a gap in this one.**
-     * `changeRoleAsSteward` writes the audit row in the same transaction as
+     * `changeRoleAsWarden` writes the audit row in the same transaction as
      * the change; `setRole` deliberately does not, being an act by somebody
      * with database access who answers to nobody inside the Colony. Every
      * change made *through* the Colony reaches this query, and

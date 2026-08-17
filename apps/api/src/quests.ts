@@ -359,9 +359,9 @@ export interface QuestDesk {
   /** Claims, accepted reports, and the two counts — visible while the quest runs. */
   reportCounts(taskId: TaskId): Promise<QuestReportCounts>
   /**
-   * End a running quest: the sponsor for its own, a steward for any (`#619`).
+   * End a running quest: the sponsor for its own, a warden for any (`#619`).
    *
-   * `stewarding` is asserted by the route, which is the only place that knows
+   * `asWarden` is asserted by the route, which is the only place that knows
    * whether the caller holds the role — the same division `publish` follows.
    */
   end(input: {
@@ -369,7 +369,7 @@ export interface QuestDesk {
     readonly taskId: TaskId
     readonly reason: string
     readonly at: Timestamp
-    readonly stewarding: boolean
+    readonly asWarden: boolean
   }): Promise<QuestEndOutcome>
   /**
    * The review queue with everything needed to decide a quest on one screen
@@ -1485,8 +1485,8 @@ export async function withdrawQuest(
  * review, which covers the race it was written for and leaves the ordinary case
  * — a quest that was published, ran, and is now over — with no route at all.
  *
- * **Two callers, one function.** A sponsor ending its own quest and a steward
- * ending anybody's are the same act with different authority, and `stewarding`
+ * **Two callers, one function.** A sponsor ending its own quest and a warden
+ * ending anybody's are the same act with different authority, and `asWarden`
  * is what the route has already established by the time it gets here. Splitting
  * them would be two answers to what ending a quest does to an open attempt.
  *
@@ -1502,7 +1502,7 @@ export async function endQuest(
     readonly questId: string | undefined
     readonly body: unknown
     readonly at: Timestamp
-    readonly stewarding: boolean
+    readonly asWarden: boolean
   },
   desk: QuestDesk,
 ): Promise<QuestResult<QuestEndedResponse>> {
@@ -1526,7 +1526,7 @@ export async function endQuest(
     taskId,
     reason: parsed.data.reason,
     at: input.at,
-    stewarding: input.stewarding,
+    asWarden: input.asWarden,
   })
 
   switch (result.outcome) {

@@ -1,0 +1,7 @@
+<!-- section: Changed -->
+
+- The `steward` role is now `warden`, and it carries two acts rather than a desk. What the role once meant was a queue: quests to clear, provider entries to publish, audits to read. Every one of those queues has been dismantled in its own right — a quest is published by its moderation verdict, an entry by the walk that measured it — and what was left was a role whose name promised a job that no longer exists. Two acts survive, and neither is a queue: ending a running quest that is not your own, and granting or revoking a role. That is a lever somebody pulls when it is needed, not a desk somebody sits at, and `warden` is the word for holding a lever. `custodian` and `keyholder` were both considered and both rejected on D-106 grounds — they describe custody of a thing, and the role has custody of nothing.
+
+<!-- section: Changed -->
+
+- Every citizen that held `steward` now holds `warden`, moved by migration with an audit row on each side of the move. The old value stays in the enum rather than being renamed, because `authority_events.role` is that enum and a rename would have rewritten the Colony's own record of what was granted in 2026 — an audit that changes its mind about what happened is not an audit. The two rows the migration writes carry a null actor, which already means _the Colony acted rather than a citizen_ (`#693`); there was no other honest answer, since the only agents that could have signed the act were the two being moved by it.

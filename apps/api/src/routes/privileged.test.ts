@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { fakeStore } from '../__fixtures__/store.js'
-import { stewardFor, UNPRIVILEGED } from './privileged.js'
+import { wardenFor, UNPRIVILEGED } from './privileged.js'
 
 /**
  * The one guard every privileged route goes through (`#173`).
@@ -21,8 +21,8 @@ describe('the role guard', () => {
     store = fakeStore()
     app = Fastify({ logger: false })
 
-    app.get('/stewards-only', async (request, reply) => {
-      const caller = await stewardFor(request, reply, store)
+    app.get('/wardens-only', async (request, reply) => {
+      const caller = await wardenFor(request, reply, store)
       if (caller === null) return reply
       return reply.send({ id: caller.id })
     })
@@ -30,12 +30,12 @@ describe('the role guard', () => {
     await app.ready()
   })
 
-  it('lets a steward through', async () => {
-    const issued = store.issue({ roles: ['steward'] })
+  it('lets a warden through', async () => {
+    const issued = store.issue({ roles: ['warden'] })
 
     const response = await app.inject({
       method: 'GET',
-      url: '/stewards-only',
+      url: '/wardens-only',
       headers: { authorization: `Bearer ${issued.apiKey}` },
     })
 
@@ -48,7 +48,7 @@ describe('the role guard', () => {
 
     const response = await app.inject({
       method: 'GET',
-      url: '/stewards-only',
+      url: '/wardens-only',
       headers: { authorization: `Bearer ${issued.apiKey}` },
     })
 
@@ -67,12 +67,12 @@ describe('the role guard', () => {
 
     const first = await app.inject({
       method: 'GET',
-      url: '/stewards-only',
+      url: '/wardens-only',
       headers: { authorization: `Bearer ${noRoles.apiKey}` },
     })
     const second = await app.inject({
       method: 'GET',
-      url: '/stewards-only',
+      url: '/wardens-only',
       headers: { authorization: `Bearer ${wrongRole.apiKey}` },
     })
 
@@ -85,10 +85,10 @@ describe('the role guard', () => {
    * who it is; telling it to present a different credential is not the remedy.
    */
   it('answers 403 to a known caller and 401 to an unknown one', async () => {
-    const anonymous = await app.inject({ method: 'GET', url: '/stewards-only' })
+    const anonymous = await app.inject({ method: 'GET', url: '/wardens-only' })
     const known = await app.inject({
       method: 'GET',
-      url: '/stewards-only',
+      url: '/wardens-only',
       headers: { authorization: `Bearer ${store.issue({ roles: [] }).apiKey}` },
     })
 
@@ -103,18 +103,18 @@ describe('the role guard', () => {
      * stopped being true (`#172`).
      */
     it('are treated identically', async () => {
-      const issued = store.issue({ roles: ['steward'] })
-      store.signIn(issued.agent.id, 'a-stewards-session')
+      const issued = store.issue({ roles: ['warden'] })
+      store.signIn(issued.agent.id, 'a-wardens-session')
 
       const byKey = await app.inject({
         method: 'GET',
-        url: '/stewards-only',
+        url: '/wardens-only',
         headers: { authorization: `Bearer ${issued.apiKey}` },
       })
       const bySession = await app.inject({
         method: 'GET',
-        url: '/stewards-only',
-        headers: { cookie: '__Host-kolonie_session=a-stewards-session' },
+        url: '/wardens-only',
+        headers: { cookie: '__Host-kolonie_session=a-wardens-session' },
       })
 
       expect(bySession.statusCode).toBe(byKey.statusCode)
@@ -127,12 +127,12 @@ describe('the role guard', () => {
 
       const byKey = await app.inject({
         method: 'GET',
-        url: '/stewards-only',
+        url: '/wardens-only',
         headers: { authorization: `Bearer ${issued.apiKey}` },
       })
       const bySession = await app.inject({
         method: 'GET',
-        url: '/stewards-only',
+        url: '/wardens-only',
         headers: { cookie: '__Host-kolonie_session=an-ordinary-session' },
       })
 
@@ -149,12 +149,12 @@ describe('the role guard', () => {
    * instead, which is the design this deliberately does not have.
    */
   it('takes a revocation into account on the very next request, session included', async () => {
-    const issued = store.issue({ roles: ['steward'] })
+    const issued = store.issue({ roles: ['warden'] })
     store.signIn(issued.agent.id, 'a-session-that-outlives-the-role')
 
     const before = await app.inject({
       method: 'GET',
-      url: '/stewards-only',
+      url: '/wardens-only',
       headers: { cookie: '__Host-kolonie_session=a-session-that-outlives-the-role' },
     })
     expect(before.statusCode).toBe(200)
@@ -163,7 +163,7 @@ describe('the role guard', () => {
 
     const after = await app.inject({
       method: 'GET',
-      url: '/stewards-only',
+      url: '/wardens-only',
       headers: { cookie: '__Host-kolonie_session=a-session-that-outlives-the-role' },
     })
     expect(after.statusCode).toBe(403)

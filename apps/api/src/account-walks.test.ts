@@ -203,7 +203,7 @@ describe('what the walk answer says about the answers themselves', () => {
      * described the wait the sentence was denying, and it kept a retired role in
      * front of every citizen that finished a walk.
      */
-    expect(text).not.toContain('steward')
+    expect(text).not.toContain('warden')
   })
 
   /**

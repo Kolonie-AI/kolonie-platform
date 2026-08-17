@@ -164,7 +164,32 @@ export const RoleSchema = z.enum([
    */
   'reviewer',
   /**
-   * Two acts, and nothing waits on either (`#173`, shrunk by `#947`).
+   * **Retired, and kept so the record still parses** (`#947`).
+   *
+   * The desk this named was dismantled desk by desk and what survived is a
+   * lever, which is not what the word means — a steward manages another's
+   * property and affairs, so keeping it would argue for the thing that was
+   * removed. The successor is {@link Role} `warden`, decided with the
+   * alternatives in `kolonie-docs`
+   * `state/decisions/the-steward-desk-becomes-a-lever.md`.
+   *
+   * **It is retired rather than deleted, and the reason is the audit table.**
+   * `authority_events.role` is this enum, so every historical `role-granted`
+   * and `role-revoked` row naming the old office is a row that has to keep
+   * reading as what it was. Renaming the value in place — the migration this
+   * issue was written expecting — would have rewritten those rows: a grant made
+   * in May would report as a grant of a role that did not exist until August,
+   * silently and with nothing to compare against. So the value stays, `warden`
+   * is added beside it, and no agent holds this one.
+   *
+   * **Nothing grants it and nothing reads it.** It is absent from every gate,
+   * and `steward` stays in `RESERVED_HANDLE_FRAGMENTS` permanently — a retired
+   * privileged word that becomes claimable is a phishing surface rather than a
+   * freed name.
+   */
+  'steward',
+  /**
+   * Two acts, and nothing waits on either (`#173`, shrunk and renamed by `#947`).
    *
    * | Act | Why it survived |
    * | --- | --- |
@@ -178,6 +203,15 @@ export const RoleSchema = z.enum([
    * publishing them, reading a verdict a second time and curating the Atlas were
    * all desks and all went to models with fail-safe defaults. What is left exists
    * so that somebody *can* act now, not so that something *gets* acted on.
+   *
+   * **The word names an authority to stop something, not to process something.**
+   * A game warden or a churchwarden does not run an inbox; they hold a power and
+   * use it when there is cause. `custodian` and `keyholder` were rejected on a
+   * concrete ground rather than on taste: D-106 turns on *"non-custodial is the
+   * load-bearing half"* and is backed by an assertion on a module's exports, so
+   * putting either word into the role enum, the schema and the audit rows would
+   * put custody back into the system as an identifier exactly where the Colony
+   * takes care to be able to say it holds no key that is not its own.
    *
    * **Granted by another holder, and never by a task, a verdict or a skill.** The
    * platform already refuses the alternative in SQL —
@@ -194,13 +228,8 @@ export const RoleSchema = z.enum([
    * nobody publishes a quest it authored, nobody completes one either — are
    * unchanged and still guards rather than constraints, the condition spanning
    * two tables.
-   *
-   * The word is wrong for what is left and the successor is decided: see
-   * `kolonie-docs` `state/decisions/the-steward-desk-becomes-a-lever.md`. The
-   * rename waits on a maintainer revoking and regranting by hand, because
-   * `roles.ts` requires an `actorId` and a migration has none.
    */
-  'steward',
+  'warden',
   'judge',
   'governor',
   /**

@@ -129,7 +129,7 @@ beforeEach(async () => {
   sponsorKey = String(sponsor.apiKey)
   sponsorId = String(sponsor.agent.id)
 
-  const steward = store.issue({ roles: ['steward'] })
+  const steward = store.issue({ roles: ['warden'] })
   stewardKey = String(steward.apiKey)
   stewardId = String(steward.agent.id)
 })
@@ -358,7 +358,7 @@ describe('POST /v1/quests/:questId/end', () => {
     expect(ended.json().notice).toContain('not returned')
   })
 
-  it('lets a steward end a quest it did not write', async () => {
+  it('lets a warden end a quest it did not write', async () => {
     const id = await running()
 
     expect((await post(`/v1/quests/${id}/end`, stewardKey, { reason: REASON })).statusCode).toBe(

@@ -47,15 +47,15 @@ export const UNPRIVILEGED = {
  * Like `callerFor`, it sends the reply itself and returns `null`. A caller that
  * gets `null` has nothing left to decide.
  */
-export async function stewardFor(
+export async function wardenFor(
   request: FastifyRequest,
   reply: FastifyReply,
   store: AgentStore,
 ): Promise<Agent | null> {
-  return await callerHolding('steward', request, reply, store)
+  return await callerHolding('warden', request, reply, store)
 }
 
-/** The general form. {@link stewardFor} is the only role with routes today. */
+/** The general form. {@link wardenFor} is the only role with routes today. */
 export async function callerHolding(
   role: Role,
   request: FastifyRequest,

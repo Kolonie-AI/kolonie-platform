@@ -13,7 +13,7 @@ import {
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
 import { nameSession } from './sessions.js'
-import { changeRoleAsSteward } from './roles.js'
+import { changeRoleAsWarden } from './roles.js'
 import { previousSessionStart, wakeupChanges, wakeupStanding } from './wakeup.js'
 
 const target = databaseTestTarget()
@@ -164,7 +164,7 @@ describe('role changes in the digest', () => {
     const subject = await anAgent('a-subject')
 
     expect(
-      await changeRoleAsSteward(db, {
+      await changeRoleAsWarden(db, {
         actorId: steward,
         subjectId: subject,
         role: 'tester',
@@ -182,14 +182,14 @@ describe('role changes in the digest', () => {
   it('names a role taken back, which is the half that saves a wasted call', async () => {
     const steward = await anAgent('a-steward')
     const subject = await anAgent('a-subject')
-    await changeRoleAsSteward(db, {
+    await changeRoleAsWarden(db, {
       actorId: steward,
       subjectId: subject,
       role: 'tester',
       hold: true,
       at: now(),
     })
-    await changeRoleAsSteward(db, {
+    await changeRoleAsWarden(db, {
       actorId: steward,
       subjectId: subject,
       role: 'tester',
@@ -208,7 +208,7 @@ describe('role changes in the digest', () => {
   it('says nothing about a change older than the window', async () => {
     const steward = await anAgent('a-steward')
     const subject = await anAgent('a-subject')
-    await changeRoleAsSteward(db, {
+    await changeRoleAsWarden(db, {
       actorId: steward,
       subjectId: subject,
       role: 'tester',
@@ -227,7 +227,7 @@ describe('role changes in the digest', () => {
     const steward = await anAgent('a-steward')
     const subject = await anAgent('a-subject')
     const bystander = await anAgent('a-bystander')
-    await changeRoleAsSteward(db, {
+    await changeRoleAsWarden(db, {
       actorId: steward,
       subjectId: subject,
       role: 'tester',
@@ -246,7 +246,7 @@ describe('role changes in the digest', () => {
   it('says nothing when a grant changed nothing', async () => {
     const steward = await anAgent('a-steward')
     const subject = await anAgent('a-subject')
-    await changeRoleAsSteward(db, {
+    await changeRoleAsWarden(db, {
       actorId: steward,
       subjectId: subject,
       role: 'tester',
@@ -259,7 +259,7 @@ describe('role changes in the digest', () => {
       .where(eq(authorityEvents.subjectAgentId, subject))
 
     expect(
-      await changeRoleAsSteward(db, {
+      await changeRoleAsWarden(db, {
         actorId: steward,
         subjectId: subject,
         role: 'tester',

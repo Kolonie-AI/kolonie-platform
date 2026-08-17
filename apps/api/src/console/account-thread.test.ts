@@ -297,7 +297,7 @@ describe('what the Atlas knows about this provider', () => {
       },
     })
 
-    expect(html).not.toContain('steward')
+    expect(html).not.toContain('warden')
     expect(html).toContain('the page is right')
   })
 

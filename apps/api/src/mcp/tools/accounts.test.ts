@@ -250,7 +250,7 @@ describe('kolonie.accounts.walk-status', () => {
         why: expect.stringContaining('kolonie.accounts.walk-report with `recipe`'),
       },
     })
-    expect(JSON.stringify(status.content)).not.toContain('steward')
+    expect(JSON.stringify(status.content)).not.toContain('warden')
     await close()
   })
 
@@ -880,7 +880,7 @@ describe('kolonie.accounts.walk-report long form', () => {
     expect(text).toContain('1 wall')
     expect(text).toContain('counted toward this provider')
     expect(text).toContain('clears moderation')
-    expect(text).not.toContain('steward')
+    expect(text).not.toContain('warden')
     await close()
   })
 

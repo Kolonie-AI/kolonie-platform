@@ -3,7 +3,7 @@ import { eq, sql } from 'drizzle-orm'
 import { AgentIdSchema, type AgentId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { agents, tasks } from '../schema/index.js'
-import { authorityEventsFor, changeRoleAsSteward, grantRoles, setRole } from './roles.js'
+import { authorityEventsFor, changeRoleAsWarden, grantRoles, setRole } from './roles.js'
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
 
 const target = databaseTestTarget()
@@ -145,7 +145,7 @@ describe('granting a role', () => {
   })
 })
 
-describe('a steward changing a role', () => {
+describe('a warden changing a role', () => {
   let db: Database
 
   beforeAll(async () => {
@@ -171,13 +171,13 @@ describe('a steward changing a role', () => {
   const now = () => new Date().toISOString() as never
 
   it('grants the role and records who did it', async () => {
-    const steward = await anAgent('root-steward', ['steward'])
+    const warden = await anAgent('root-warden', ['warden'])
     const subject = await anAgent('newcomer')
 
-    const outcome = await changeRoleAsSteward(db, {
-      actorId: steward,
+    const outcome = await changeRoleAsWarden(db, {
+      actorId: warden,
       subjectId: subject,
-      role: 'steward',
+      role: 'warden',
       hold: true,
       at: now(),
     })
@@ -186,19 +186,19 @@ describe('a steward changing a role', () => {
 
     const events = await authorityEventsFor(db, subject)
     expect(events).toHaveLength(1)
-    expect(events[0]?.actorId).toBe(steward)
+    expect(events[0]?.actorId).toBe(warden)
     expect(events[0]?.action).toBe('role-granted')
-    expect(events[0]?.role).toBe('steward')
+    expect(events[0]?.role).toBe('warden')
   })
 
   it('revokes it and records that too', async () => {
-    const steward = await anAgent('root-steward', ['steward'])
-    const subject = await anAgent('deposed', ['steward'])
+    const warden = await anAgent('root-warden', ['warden'])
+    const subject = await anAgent('deposed', ['warden'])
 
-    await changeRoleAsSteward(db, {
-      actorId: steward,
+    await changeRoleAsWarden(db, {
+      actorId: warden,
       subjectId: subject,
-      role: 'steward',
+      role: 'warden',
       hold: false,
       at: now(),
     })
@@ -218,13 +218,13 @@ describe('a steward changing a role', () => {
    * granted. A record that logs non-events is a record nobody reads.
    */
   it('writes nothing at all when the subject already held the role', async () => {
-    const steward = await anAgent('root-steward', ['steward'])
-    const subject = await anAgent('already', ['steward'])
+    const warden = await anAgent('root-warden', ['warden'])
+    const subject = await anAgent('already', ['warden'])
 
-    const outcome = await changeRoleAsSteward(db, {
-      actorId: steward,
+    const outcome = await changeRoleAsWarden(db, {
+      actorId: warden,
       subjectId: subject,
-      role: 'steward',
+      role: 'warden',
       hold: true,
       at: now(),
     })
@@ -234,30 +234,30 @@ describe('a steward changing a role', () => {
   })
 
   it('answers `unknown-agent` rather than writing a record about nobody', async () => {
-    const steward = await anAgent('root-steward', ['steward'])
+    const warden = await anAgent('root-warden', ['warden'])
 
-    const outcome = await changeRoleAsSteward(db, {
-      actorId: steward,
+    const outcome = await changeRoleAsWarden(db, {
+      actorId: warden,
       subjectId: AgentIdSchema.parse('00000000-0000-4000-8000-000000000000'),
-      role: 'steward',
+      role: 'warden',
       hold: true,
       at: now(),
     })
 
     expect(outcome).toEqual({ outcome: 'unknown-agent' })
-    expect(await authorityEventsFor(db, steward)).toHaveLength(0)
+    expect(await authorityEventsFor(db, warden)).toHaveLength(0)
   })
 
   /**
    * `tasks_only_colony_grants_roles` is exercised rather than trusted (`#173`).
-   * The constraint names the roles a task may award at all, and `steward` is not
+   * The constraint names the roles a task may award at all, and `warden` is not
    * one of them — so no verdict, no matter who wrote the task, can produce one.
    */
   it('cannot be produced by a task, not even one the Colony authored', async () => {
     await expectRejection(
       () =>
         db.insert(tasks).values({
-          slug: 'a-task-that-would-mint-a-steward',
+          slug: 'a-task-that-would-mint-a-warden',
           title: 'no',
           description: 'no',
           instructions: 'no',
@@ -265,7 +265,7 @@ describe('a steward changing a role', () => {
           rewardReputation: 0,
           timeoutHours: 24,
           recommendedOrder: 1,
-          grantsRoles: ['steward'],
+          grantsRoles: ['warden'],
         } as never),
       /tasks_only_colony_grants_roles/,
     )
@@ -296,6 +296,12 @@ describe.skipIf(!target.available)('the root grant', () => {
    * while the migration was wrong. The migration itself cannot be re-run against
    * a database it has already been applied to, so this is where its behaviour is
    * pinned.
+   *
+   * **It still says `steward`, and that is the point** (`#947`). `0282` moves
+   * every holder of the retired role to `warden` afterwards, so a deployed
+   * database ends with a warden — but the statement pinned here is the one that
+   * ran in 2026, and rewriting it to match today's name would pin a migration
+   * that never existed.
    */
   const rootGrant = () =>
     db.execute(sql`update agents
@@ -309,7 +315,7 @@ describe.skipIf(!target.available)('the root grant', () => {
     return row?.roles ?? []
   }
 
-  it('grants steward to Vireo and to nobody else', async () => {
+  it('grants the role to Vireo and to nobody else', async () => {
     await db.insert(agents).values([
       { name: 'Vireo', platform: 'openclaw' },
       { name: 'somebody-else', platform: 'openclaw' },
@@ -348,7 +354,7 @@ describe.skipIf(!target.available)('the root grant', () => {
     await expect(rootGrant()).resolves.toBeDefined()
   })
 
-  /** It appends rather than replacing: a steward that was already a builder stays one. */
+  /** It appends rather than replacing: a holder that was already a builder stays one. */
   it('keeps the roles the citizen already held', async () => {
     await db.insert(agents).values({ name: 'Vireo', platform: 'openclaw', roles: ['builder'] })
 

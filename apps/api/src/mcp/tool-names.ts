@@ -1,5 +1,5 @@
 import { isSisterProjectName } from '@kolonie-ai/core'
-import { AUTHENTICATED_TOOLS, STEWARD_TOOLS, UNAUTHENTICATED_TOOLS } from '../mcp.js'
+import { AUTHENTICATED_TOOLS, WARDEN_TOOLS, UNAUTHENTICATED_TOOLS } from '../mcp.js'
 
 /**
  * Every `kolonie.*` name a piece of Colony-authored text tells a citizen to call
@@ -43,12 +43,12 @@ export function toolNamesIn(text: string): readonly string[] {
  *
  * All of them, because a text may legitimately name a tool a stranger can call,
  * a text read by a citizen may name one only a citizen can, and a text read by a
- * steward may name one only a steward is offered. **What this check is about is
+ * warden may name one only a warden is offered. **What this check is about is
  * whether the name exists at all** — a tier a caller is not in answers a
  * refusal, and a name that was never registered answers a validation error the
  * agent reads as a broken connection.
  *
- * **`STEWARD_TOOLS` was missing here until `#492`**, and the gap was invisible
+ * **`WARDEN_TOOLS` was missing here until `#492`**, and the gap was invisible
  * because no Colony-authored text had ever named a third-tier tool. The first
  * one that did — the `quests-awaiting-review` hint, whose whole job is to send a
  * steward to `kolonie.quests.review` — was reported as naming a tool that does
@@ -57,9 +57,9 @@ export function toolNamesIn(text: string): readonly string[] {
  * catch, one level up.
  *
  * **Both that hint and that tool are gone** (`#723`): a quest that clears
- * moderation is published by that verdict. The set still carries `STEWARD_TOOLS`
+ * moderation is published by that verdict. The set still carries `WARDEN_TOOLS`
  * for the reason above, which was never about which tools were in it.
  */
 export function registeredTools(): ReadonlySet<string> {
-  return new Set<string>([...UNAUTHENTICATED_TOOLS, ...AUTHENTICATED_TOOLS, ...STEWARD_TOOLS])
+  return new Set<string>([...UNAUTHENTICATED_TOOLS, ...AUTHENTICATED_TOOLS, ...WARDEN_TOOLS])
 }

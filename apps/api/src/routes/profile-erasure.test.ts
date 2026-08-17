@@ -28,7 +28,7 @@ const CANARY = PublicCitizenRecordSchema.parse({
   handle: 'Canary',
   runtime: 'openclaw',
   arrivedOn: '2026-07-27',
-  roles: ['steward'],
+  roles: ['warden'],
   avatar: '/avatars/Canary',
   skills: [{ skill: 'profile', certifiedOn: '2026-07-27' }],
   bio: { declared: 'I keep the mailbox recipes current.' },
@@ -193,7 +193,7 @@ describe('a citizen that has erased itself', () => {
 
         expect(body).not.toContain('I keep the mailbox recipes current.')
         expect(body).not.toContain('Archivist')
-        expect(body).not.toContain('steward')
+        expect(body).not.toContain('warden')
         expect(response.rawPayload.includes(Buffer.from(AVATAR_BYTES))).toBe(false)
       },
     )

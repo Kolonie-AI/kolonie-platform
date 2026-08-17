@@ -472,10 +472,10 @@ export function fakeQuests(): FakeQuestDesk {
      * reports zero rather than modelling them. A second definition of *live
      * claim* here would agree until one of them grew a condition.
      */
-    async end({ actorId, taskId, reason, stewarding }) {
+    async end({ actorId, taskId, reason, asWarden }) {
       const held = quests.get(taskId)
       if (held === undefined) return { outcome: 'unknown-quest' as const }
-      if (!stewarding && held.own.task.createdBy !== actorId) {
+      if (!asWarden && held.own.task.createdBy !== actorId) {
         return { outcome: 'not-yours' as const }
       }
       if (held.own.task.status !== 'active') {

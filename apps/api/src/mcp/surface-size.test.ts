@@ -3,7 +3,7 @@ import { dirname } from 'node:path'
 import process from 'node:process'
 import { describe, expect, it } from 'vitest'
 import { anonymousClient, connectedClient, registeredCitizen } from '../__fixtures__/mcp.js'
-import { AUTHENTICATED_TOOLS, STEWARD_TOOLS, UNAUTHENTICATED_TOOLS } from '../mcp.js'
+import { AUTHENTICATED_TOOLS, WARDEN_TOOLS, UNAUTHENTICATED_TOOLS } from '../mcp.js'
 import {
   BYTES_PER_TOKEN,
   measureToolList,
@@ -43,9 +43,9 @@ const measureTiers = async (): Promise<SurfaceMeasurement[]> => {
   measured.push(measureToolList('authenticated', (await citizen.client.listTools()).tools))
   await citizen.close()
 
-  const steward = await connectedClient(colony, `Bearer ${apiKey}`, undefined, true)
-  measured.push(measureToolList('steward', (await steward.client.listTools()).tools))
-  await steward.close()
+  const warden = await connectedClient(colony, `Bearer ${apiKey}`, undefined, true)
+  measured.push(measureToolList('warden', (await warden.client.listTools()).tools))
+  await warden.close()
 
   return measured
 }
@@ -57,7 +57,7 @@ describe('the size of the surface a citizen is handed at connect', () => {
     expect(measured.map((tier) => tier.tier)).toEqual([
       'unauthenticated',
       'authenticated',
-      'steward',
+      'warden',
     ])
 
     /**
@@ -76,11 +76,11 @@ describe('the size of the surface a citizen is handed at connect', () => {
      * the point, because a hidden name is a thing a reader of this file should
      * have to be told about.
      */
-    const [stranger, citizen, steward] = measured
+    const [stranger, citizen, warden] = measured
     expect(stranger?.tools).toBe(UNAUTHENTICATED_TOOLS.length)
     expect(citizen?.tools).toBe(UNAUTHENTICATED_TOOLS.length + AUTHENTICATED_TOOLS.length)
-    expect(steward?.tools).toBe(
-      UNAUTHENTICATED_TOOLS.length + AUTHENTICATED_TOOLS.length + STEWARD_TOOLS.length,
+    expect(warden?.tools).toBe(
+      UNAUTHENTICATED_TOOLS.length + AUTHENTICATED_TOOLS.length + WARDEN_TOOLS.length,
     )
 
     for (const tier of measured) {

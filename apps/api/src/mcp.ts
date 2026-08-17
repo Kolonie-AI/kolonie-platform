@@ -16,7 +16,7 @@
 export { MCP_ALIAS_PATH, MCP_PATH, MCP_PATHS } from './mcp/paths.js'
 export { mcpProbe, MCP_PROBE_ALLOW } from './mcp/probe.js'
 export type { McpProbe } from './mcp/probe.js'
-export { AUTHENTICATED_TOOLS, STEWARD_TOOLS, UNAUTHENTICATED_TOOLS } from './mcp/tool-list.js'
+export { AUTHENTICATED_TOOLS, WARDEN_TOOLS, UNAUTHENTICATED_TOOLS } from './mcp/tool-list.js'
 export { createMcpServer } from './mcp/create-server.js'
 export { handleMcpRequest } from './mcp/transport.js'
 export { ME_BIO_EXCERPT_LENGTH } from './mcp/text/me.js'

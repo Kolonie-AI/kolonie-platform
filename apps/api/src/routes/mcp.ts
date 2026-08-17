@@ -147,14 +147,14 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
        */
       let agentId: AgentId | undefined
       /**
-       * And whether that caller is a steward (`#320`), kept from the same check.
+       * And whether that caller is a warden (`#320`), kept from the same check.
        *
        * The roles arrive on the identity this lookup already returns, so the
        * third tier costs nothing here. It is read fresh on every request, like
        * every other permission in the Colony — a revocation takes effect on the
        * next call rather than when some cached claim expires.
        */
-      let steward = false
+      let warden = false
       if (presented !== undefined) {
         const authenticated = await authenticate(presented, observed)
         if (authenticated.outcome === 'rejected') {
@@ -164,7 +164,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
             .send(authenticated.error)
         }
         agentId = authenticated.agent.id
-        steward = authenticated.agent.roles.includes('steward')
+        warden = authenticated.agent.roles.includes('warden')
       }
 
       // Fastify has already parsed the body and would otherwise send its own
@@ -308,7 +308,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
         },
         presented,
         agentId,
-        steward,
+        warden,
         request.raw,
         reply.raw,
         request.body,

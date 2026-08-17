@@ -131,7 +131,7 @@ describe('whose money it was', () => {
 
     it('is what a deposit inherits once it is set', async () => {
       const sponsor = await anAgent('sponsor')
-      const steward = await anAgent('steward')
+      const steward = await anAgent('warden')
       await db.transaction((tx) =>
         setAccountFundingSource(tx, { agentId: sponsor, source: 'bootstrap', actorId: steward }),
       )
@@ -141,7 +141,7 @@ describe('whose money it was', () => {
 
     it('writes an audit row naming who decided', async () => {
       const sponsor = await anAgent('sponsor')
-      const steward = await anAgent('steward')
+      const steward = await anAgent('warden')
 
       await db.transaction((tx) =>
         setAccountFundingSource(tx, { agentId: sponsor, source: 'external', actorId: steward }),
@@ -159,7 +159,7 @@ describe('whose money it was', () => {
   describe('the override', () => {
     it('moves every entry of the booking together', async () => {
       const sponsor = await anAgent('sponsor')
-      const steward = await anAgent('steward')
+      const steward = await anAgent('warden')
       await aCredit(sponsor, 500, 'bootstrap')
       const [entry] = await creditsOf(sponsor)
 
@@ -179,7 +179,7 @@ describe('whose money it was', () => {
 
     it('writes an audit row', async () => {
       const sponsor = await anAgent('sponsor')
-      const steward = await anAgent('steward')
+      const steward = await anAgent('warden')
       await aCredit(sponsor, 500, 'bootstrap')
       const [entry] = await creditsOf(sponsor)
 

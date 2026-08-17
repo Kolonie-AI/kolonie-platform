@@ -1081,7 +1081,7 @@ describe('the sentence a held quest carries', () => {
   it('names no internal cause', () => {
     const notice = questHeldNotice(since, after(2)).toLowerCase()
 
-    for (const word of ['audit', 'sampling', 'disagreement', 'steward', 'runner', 'config']) {
+    for (const word of ['audit', 'sampling', 'disagreement', 'warden', 'runner', 'config']) {
       expect(notice).not.toContain(word)
     }
   })

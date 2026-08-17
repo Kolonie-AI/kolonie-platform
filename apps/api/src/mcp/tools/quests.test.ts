@@ -6,7 +6,7 @@ import { connectedClient } from '../../__fixtures__/mcp.js'
 import { fakePaymentDesk, type FakePaymentDesk } from '../../__fixtures__/payments.js'
 import { FAKE_AUDIENCE, fakeQuests, type FakeQuestDesk } from '../../__fixtures__/quests.js'
 import { fakeStore, type FakeStore } from '../../__fixtures__/store.js'
-import { AUTHENTICATED_TOOLS, STEWARD_TOOLS, UNAUTHENTICATED_TOOLS } from '../../mcp.js'
+import { AUTHENTICATED_TOOLS, WARDEN_TOOLS, UNAUTHENTICATED_TOOLS } from '../../mcp.js'
 
 /**
  * The quest surface over MCP (`#320`).
@@ -29,7 +29,7 @@ beforeEach(() => {
   paymentDesk = fakePaymentDesk()
 })
 
-const anAgent = (roles: readonly 'steward'[] = []) => {
+const anAgent = (roles: readonly 'warden'[] = []) => {
   const issued = store.issue({})
   if (roles.length > 0) store.setRoles(issued.agent.id, roles)
   return { id: issued.agent.id as AgentId, key: String(issued.apiKey) }
@@ -72,9 +72,9 @@ const call = async (
   key: string,
   name: string,
   args: Record<string, unknown> = {},
-  steward = false,
+  warden = false,
 ) => {
-  const { client, close } = await connectedClient(colony(), `Bearer ${key}`, undefined, steward)
+  const { client, close } = await connectedClient(colony(), `Bearer ${key}`, undefined, warden)
   const result = await client.callTool({ name, arguments: args })
   await close()
   return result
@@ -841,7 +841,7 @@ describe('the quest that pays nothing', () => {
    * reaches this function, so nothing it needs was lost with the bypass.
    */
   it('refuses the holder of the one privileged role exactly as it refuses anyone', async () => {
-    const refused = await call(anAgent(['steward']).key, 'kolonie.quests.write', unpaid())
+    const refused = await call(anAgent(['warden']).key, 'kolonie.quests.write', unpaid())
 
     expect(refused.isError).toBe(true)
     expect(JSON.stringify(refused.content)).toContain('kolonie.support.open')
@@ -1016,7 +1016,7 @@ describe('asking what became of a transfer', () => {
   })
 })
 
-describe('the steward tier', () => {
+describe('the warden tier', () => {
   it('is absent from an ordinary sponsor’s tool list', async () => {
     const sponsor = anAgent()
     const { client, close } = await connectedClient(colony(), `Bearer ${sponsor.key}`)
@@ -1027,15 +1027,15 @@ describe('the steward tier', () => {
     expect(names.sort()).toEqual([...UNAUTHENTICATED_TOOLS, ...AUTHENTICATED_TOOLS].sort())
     // Not merely absent from the names — absent from the listing altogether, so
     // no description names a tool this caller cannot reach.
-    for (const tool of STEWARD_TOOLS) expect(JSON.stringify(listing)).not.toContain(tool)
+    for (const tool of WARDEN_TOOLS) expect(JSON.stringify(listing)).not.toContain(tool)
     await close()
   })
 
   it('appears for a caller that holds the role', async () => {
-    const steward = anAgent(['steward'])
+    const warden = anAgent(['warden'])
     const { client, close } = await connectedClient(
       colony(),
-      `Bearer ${steward.key}`,
+      `Bearer ${warden.key}`,
       undefined,
       true,
     )
@@ -1043,7 +1043,7 @@ describe('the steward tier', () => {
     const { tools } = await client.listTools()
 
     expect(tools.map((tool) => tool.name).sort()).toEqual(
-      [...UNAUTHENTICATED_TOOLS, ...AUTHENTICATED_TOOLS, ...STEWARD_TOOLS].sort(),
+      [...UNAUTHENTICATED_TOOLS, ...AUTHENTICATED_TOOLS, ...WARDEN_TOOLS].sort(),
     )
     await close()
   })
@@ -1069,7 +1069,7 @@ describe('the steward tier', () => {
 
   it('ends a live quest with a reason citizens can read', async () => {
     const sponsor = anAgent()
-    const steward = anAgent(['steward'])
+    const warden = anAgent(['warden'])
     quests.credit(sponsor.id, 100)
 
     const written = await call(sponsor.key, 'kolonie.quests.write', aDraft())
@@ -1078,7 +1078,7 @@ describe('the steward tier', () => {
     quests.publish(id)
 
     const reason = 'The automatic publication was mistaken and the quest must stop.'
-    const ended = await call(steward.key, 'kolonie.quests.end', { questId: id, reason }, true)
+    const ended = await call(warden.key, 'kolonie.quests.end', { questId: id, reason }, true)
 
     expect(ended.isError).toBeFalsy()
     expect(structured(ended)).toMatchObject({
@@ -1097,7 +1097,7 @@ describe('the steward tier', () => {
       'kolonie.quests.end',
       {
         questId: '018f0f91-c913-7aa3-a92d-47c4b462c180',
-        reason: 'This caller does not hold the steward role.',
+        reason: 'This caller does not hold the warden role.',
       },
       true,
     )
@@ -1107,10 +1107,10 @@ describe('the steward tier', () => {
   })
 
   it('requires a reason for ending a quest', async () => {
-    const steward = anAgent(['steward'])
+    const warden = anAgent(['warden'])
 
     const ended = await call(
-      steward.key,
+      warden.key,
       'kolonie.quests.end',
       { questId: '018f0f91-c913-7aa3-a92d-47c4b462c180' },
       true,

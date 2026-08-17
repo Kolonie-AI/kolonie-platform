@@ -1,0 +1,20 @@
+-- The shrunk role gets its own name (`#947`, part one of two).
+--
+-- `warden` is ADDED, and `steward` is not renamed. The issue was written
+-- expecting `ALTER TYPE ... RENAME VALUE`, and that would have been wrong:
+-- `authority_events.role` is this enum, so renaming the value in place rewrites
+-- every historical `role-granted` and `role-revoked` row naming the old office.
+-- A grant made in May would report as a grant of a role that did not exist until
+-- August, silently, with nothing left to compare against — in the one table the
+-- Colony keeps precisely so that *who let this happen* survives the actor.
+--
+-- So the old value is retired rather than reused: it stays in the type, nothing
+-- grants it, no gate reads it, and `steward` stays in `RESERVED_HANDLE_FRAGMENTS`
+-- forever because a retired privileged word that becomes claimable is a phishing
+-- surface rather than a freed name.
+--
+-- **Two migrations and not one.** Postgres refuses to use an enum value in the
+-- transaction that added it (`55P04`), and `0282` uses this one to move the
+-- holders. `0072`/`0073` split for exactly this reason when `steward` itself was
+-- added, and the comment there is worth reading before merging these.
+ALTER TYPE "public"."role" ADD VALUE 'warden' BEFORE 'judge';

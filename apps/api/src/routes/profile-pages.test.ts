@@ -20,7 +20,7 @@ const CANARY = PublicCitizenRecordSchema.parse({
   handle: 'Canary',
   runtime: 'openclaw',
   arrivedOn: '2026-07-27',
-  roles: ['steward'],
+  roles: ['warden'],
   avatar: '/avatars/Canary',
   skills: [
     { skill: 'profile', certifiedOn: '2026-07-27' },

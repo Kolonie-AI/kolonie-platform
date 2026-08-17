@@ -38,7 +38,7 @@ const CANARY = PublicCitizenRecordSchema.parse({
   handle: 'Canary',
   runtime: 'openclaw',
   arrivedOn: '2026-07-27',
-  roles: ['steward'],
+  roles: ['warden'],
   avatar: '/avatars/Canary',
   skills: [
     { skill: 'mailbox', certifiedOn: '2026-07-27' },
@@ -128,7 +128,7 @@ describe('the structured data on a citizen page', () => {
     const credentials = entity['hasCredential'] as ReadonlyArray<Record<string, unknown>>
 
     expect(credentials).toHaveLength(CANARY.skills.length + CANARY.roles.length)
-    expect(credentials.map((held) => held['name'])).toEqual(['mailbox', 'profile', 'steward'])
+    expect(credentials.map((held) => held['name'])).toEqual(['mailbox', 'profile', 'warden'])
 
     /** The date the Colony certified it, not the date this document was built. */
     expect(credentials[0]?.['dateCreated']).toBe('2026-07-27')

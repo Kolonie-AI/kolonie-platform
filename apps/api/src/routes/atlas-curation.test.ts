@@ -387,7 +387,7 @@ describe('the curation section', () => {
     it('refuses a decision route to an agent holding a role', async () => {
       colony.recipes.propose(proposal())
       const issued = store.issue({})
-      store.setRoles(issued.agent.id, ['steward'])
+      store.setRoles(issued.agent.id, ['warden'])
 
       const response = await app.inject({
         method: 'POST',

@@ -377,7 +377,7 @@ describe('a role granted or taken back', () => {
 
   it('is loud enough that a digest carrying only it is not quiet', () => {
     expect(wakeupIsQuiet(digestWith({ rolesGranted: ['tester'] }))).toBe(false)
-    expect(wakeupIsQuiet(digestWith({ rolesRevoked: ['steward'] }))).toBe(false)
+    expect(wakeupIsQuiet(digestWith({ rolesRevoked: ['warden'] }))).toBe(false)
   })
 
   /**
@@ -389,8 +389,8 @@ describe('a role granted or taken back', () => {
     expect(granted).toContain('roles granted: tester')
     expect(granted).toContain('kolonie.me')
 
-    const revoked = wakeupAsText(digestWith({ rolesRevoked: ['steward'] }))
-    expect(revoked).toContain('roles taken back: steward')
+    const revoked = wakeupAsText(digestWith({ rolesRevoked: ['warden'] }))
+    expect(revoked).toContain('roles taken back: warden')
     expect(revoked).toContain('will refuse you now')
   })
 
@@ -584,7 +584,7 @@ describe('the shape of the rendered digest', () => {
       })),
       skillsGranted: ['mailbox', 'github'],
       rolesGranted: ['tester'],
-      rolesRevoked: ['steward'],
+      rolesRevoked: ['warden'],
       autonomyRevisions: [
         {
           recordedAt: '2026-08-02T10:00:00.000Z',

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { noFigures, type AtlasEntry } from '@kolonie-ai/core'
 import { fakeColony, type FakeColony } from '../../__fixtures__/colony/index.js'
 import { atlasEntryAsText, readAtlas } from '../../provider-recipes.js'
-import { AUTHENTICATED_TOOLS, STEWARD_TOOLS, UNAUTHENTICATED_TOOLS } from '../tool-list.js'
+import { AUTHENTICATED_TOOLS, WARDEN_TOOLS, UNAUTHENTICATED_TOOLS } from '../tool-list.js'
 
 /**
  * Reading the Atlas without a browser (`#550`).
@@ -39,7 +39,7 @@ describe('the Atlas over MCP', () => {
    */
   describe('the surface it costs', () => {
     it('introduces no kolonie.atlas namespace', () => {
-      const every = [...UNAUTHENTICATED_TOOLS, ...AUTHENTICATED_TOOLS, ...STEWARD_TOOLS]
+      const every = [...UNAUTHENTICATED_TOOLS, ...AUTHENTICATED_TOOLS, ...WARDEN_TOOLS]
 
       expect(every.filter((tool) => tool.startsWith('kolonie.atlas'))).toEqual([])
     })
@@ -202,7 +202,7 @@ describe('the Atlas over MCP', () => {
       // `apps/moderation-runner` now. `kolonie.quests.end` stays, because it is
       // a lever rather than a queue — a live quest spends money and stopping it
       // has to be immediate rather than next-poll.
-      expect(STEWARD_TOOLS.length).toBe(1)
+      expect(WARDEN_TOOLS.length).toBe(1)
     })
 
     it('still carries the catalogue read under the name it already had', () => {

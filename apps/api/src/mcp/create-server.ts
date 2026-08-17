@@ -36,7 +36,7 @@ import { registerReachabilityTools } from './tools/reachability.js'
 import { registerQuestAnswerTools } from './tools/quest-answers.js'
 import { registerQuestReportTools } from './tools/quest-reports.js'
 import { registerQuestTools } from './tools/quests.js'
-import { registerQuestStewardTools } from './tools/quests-steward.js'
+import { registerQuestWardenTools } from './tools/quests-warden.js'
 import { registerReportTools } from './tools/tasks-reports.js'
 import { registerTaskTools } from './tools/tasks.js'
 import { registerAutonomyTools } from './tools/autonomy.js'
@@ -91,7 +91,7 @@ export function createMcpServer(
    */
   agentId?: AgentId,
   /**
-   * Whether the caller holds `steward`, and therefore whether the steward tools
+   * Whether the caller holds `warden`, and therefore whether the warden tools
    * are registered at all (`#320`).
    *
    * **A third tier, built the way D-013 builds the first two** — by registering
@@ -107,7 +107,7 @@ export function createMcpServer(
    * it. **Absent means no**, so a caller that forgets it serves fewer tools
    * rather than more.
    */
-  steward?: boolean,
+  warden?: boolean,
 ): McpServer {
   const authenticated = credential !== undefined
 
@@ -312,7 +312,7 @@ export function createMcpServer(
   registerQuestAnswerTools(server, deps, credential)
   registerQuestReportTools(server, deps, credential)
   registerQuestTools(server, deps, credential)
-  if (steward === true) registerQuestStewardTools(server, deps, credential)
+  if (warden === true) registerQuestWardenTools(server, deps, credential)
   registerHistoryTools(server, deps, credential)
   // Beside the history rather than beside the tasks: both answer *what has this
   // citizen done*, and this one answers it about the traffic rather than about

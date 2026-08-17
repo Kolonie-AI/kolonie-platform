@@ -408,11 +408,13 @@ export type QuestEndOutcome =
  *
  * ## Who may
  *
- * **The sponsor, for its own quest; a steward, for any.** It is the sponsor's
+ * **The sponsor, for its own quest; a warden, for any.** It is the sponsor's
  * money and the sponsor's question, and a sponsor whose quest is answered
- * should not have to wait a week for an expiry. A steward already reviews and
- * publishes quests, and *published* without *unpublishable* is half a
- * mechanism. `stewarding` is the caller's assertion that it holds the role,
+ * should not have to wait a week for an expiry. And a live quest spends
+ * committed lamports, so *published* without *unpublishable* is half a
+ * mechanism — which is why this is one of the two acts `#947` left the role
+ * when it shrank the desk to a lever. `asWarden` is the caller's assertion
+ * that it holds the role,
  * checked at the route: this function does not read roles, exactly as
  * {@link publishQuest} does not.
  *
@@ -467,8 +469,8 @@ export async function endQuest(
     readonly taskId: TaskId
     readonly reason: string
     readonly at: Timestamp
-    /** Whether the caller is acting as a steward, decided at the route. */
-    readonly stewarding: boolean
+    /** Whether the caller is acting as a warden, decided at the route. */
+    readonly asWarden: boolean
   },
 ): Promise<QuestEndOutcome> {
   return await db.transaction(async (tx) => {
@@ -479,11 +481,11 @@ export async function endQuest(
       .limit(1)
 
     if (row === undefined) return { outcome: 'unknown-quest' }
-    // A steward may end any quest; anybody else may end the one it wrote. The
+    // A warden may end any quest; anybody else may end the one it wrote. The
     // two refusals stay distinct for the reason `ownQuestRow` keeps them apart:
     // *there is no such quest* and *it is not yours* are different sentences,
     // and the route decides which of them a stranger is entitled to hear.
-    if (!command.stewarding && row.createdBy !== command.actorId) {
+    if (!command.asWarden && row.createdBy !== command.actorId) {
       return { outcome: 'not-yours' }
     }
     if (row.status !== 'active') return { outcome: 'not-active', status: row.status }

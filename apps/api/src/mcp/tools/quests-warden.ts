@@ -7,9 +7,9 @@ import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
 
 /**
- * The steward's side of the quest surface, over MCP (`#320`).
+ * The warden's side of the quest surface, over MCP (`#320`).
  *
- * **Registered only for a caller that holds `steward`**, which is D-013's rule
+ * **Registered only for a caller that holds `warden`**, which is D-013's rule
  * rather than a new one: tiers are built by registering fewer tools, not by
  * refusing more. A sponsor shown a tool whose only possible answer is a refusal
  * spends context on it, and the credential has already been resolved by the time
@@ -47,7 +47,7 @@ function answer<T>(result: QuestResult<T>, sentence: (response: T) => string) {
   }
 }
 
-export function registerQuestStewardTools(
+export function registerQuestWardenTools(
   server: McpServer,
   deps: McpDependencies,
   credential: string | undefined,
@@ -64,10 +64,10 @@ export function registerQuestStewardTools(
    * and a refusal that differed between *you hold no roles* and *you hold the
    * wrong one* would say how close somebody is.
    */
-  const steward = async (): Promise<{ id: AgentId } | { error: ApiError }> => {
+  const warden = async (): Promise<{ id: AgentId } | { error: ApiError }> => {
     const authenticated = await authenticate(credential, deps.store)
     if (authenticated.outcome === 'rejected') return { error: authenticated.error }
-    if (!authenticated.agent.roles.includes('steward')) return { error: UNPRIVILEGED }
+    if (!authenticated.agent.roles.includes('warden')) return { error: UNPRIVILEGED }
     return { id: authenticated.agent.id }
   }
 
@@ -92,7 +92,7 @@ export function registerQuestStewardTools(
       annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
     },
     async ({ questId, reason }) => {
-      const caller = await steward()
+      const caller = await warden()
       if ('error' in caller) return toolError(caller.error)
 
       return answer(
@@ -102,7 +102,7 @@ export function registerQuestStewardTools(
             questId,
             body: { reason },
             at: new Date().toISOString(),
-            stewarding: true,
+            asWarden: true,
           },
           deps.quests,
         ),

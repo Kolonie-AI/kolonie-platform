@@ -45,6 +45,7 @@ import {
 } from './public-projection.js'
 import { atlasEntryWorked } from './worked.js'
 import { ATLAS_PARTLY, atlasEntryVerdict, atlasRecipeVerdict } from './verdict.js'
+import { atlasRuntimeLine } from './runtimes.js'
 import { CONSOLE_MAST } from '../console/mark.js'
 import { CONSOLE_STYLE } from '../console/theme.js'
 import { ATLAS_STYLE } from './style.js'
@@ -477,6 +478,7 @@ export function atlasIndexPage(input: {
       '<main>',
       '<h1>The Atlas</h1>',
       `<p>${escape(ATLAS_STANDFIRST)}</p>`,
+      atlasRuntimeLine(),
       ATLAS_JOIN_LINE,
       `<p><small>${escape(ATLAS_ORDER_NOTE)}</small></p>`,
       shelfNav(entries, asked, order),
@@ -608,6 +610,7 @@ export function atlasCategoryPage(input: {
       '<main>',
       `<h1>${escape(question)}</h1>`,
       `<p>${escape(category.standfirst)}</p>`,
+      atlasRuntimeLine(),
       ATLAS_JOIN_LINE,
       `<p><small>${escape(ATLAS_ORDER_NOTE)}</small></p>`,
       categoryNav({ rows: input.nav, entries: all, current: category.slug, worked: asked }),
@@ -1327,6 +1330,15 @@ export function atlasEntryPage(input: {
       `<p class="k-atlas-facts"><a href="${escape(atlasShelfPath(entry.category))}">${escape(
         entry.category,
       )}</a> — ${escape(operatorLine(entry, atlasIsWalked(entry)))}</p>`,
+      /**
+       * **Above the recipe rather than beside `runtimesSection` at the foot**
+       * (`kolonie-website#110`). A reader arriving from *OpenClaw own phone
+       * number* has one screen in which to recognise that this page is about
+       * what it is running, and the section naming actual differences is below
+       * five steps. The two are not the same sentence: this one says who walks
+       * the Atlas at all, that one says where a walk differed.
+       */
+      atlasRuntimeLine(),
       paidMarker(entry),
       ...entry.recipes.map((recipe) =>
         recipeSection(recipe, briefings.get(figureKey(recipe.kind, recipe.provider))),

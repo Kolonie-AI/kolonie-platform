@@ -126,7 +126,9 @@ describe('the provider page as the guide a search finds', () => {
   it('opens with the question somebody actually typed', () => {
     const html = page()
 
-    expect(html).toContain('<h1>How can an AI agent create a social account at Mastodon?</h1>')
+    expect(html).toContain(
+      '<h1>How can an AI agent create a social account at mastodon.example?</h1>',
+    )
     expect(html).toContain('<title>mastodon.example for an AI agent: sign up, prove it')
   })
 
@@ -135,7 +137,46 @@ describe('the provider page as the guide a search finds', () => {
       recipes: [recipe(), recipe({ kind: 'mailbox' as never })] as AtlasEntry['recipes'],
     })
 
-    expect(html).toContain('a social account or a mailbox at Mastodon?')
+    expect(html).toContain('a social account or a mailbox at mastodon.example?')
+  })
+
+  /**
+   * **The rejection case `kolonie-website#112` was filed for.** Since `#1146` a
+   * row's title says *what the account is*, so an entry titled by one reads *at A
+   * GitHub machine account of the agent's own* — two noun phrases joined by a
+   * preposition that cannot hold them, live on `github.com` on 2026-08-17. The
+   * assertion is that the title reaches neither sentence rather than that this one
+   * phrase does not, because the next descriptive title will be a different phrase.
+   */
+  it('names the provider by its domain and never by the entry title', () => {
+    const titled = { title: "A GitHub machine account of the agent's own" }
+    const html = decoded(page(titled))
+
+    expect(html).toContain(
+      '<h1>How can an AI agent create a social account at mastodon.example?</h1>',
+    )
+    expect(box(page(titled))).toContain('What does it cost to sign up at mastodon.example?')
+    expect(html.slice(html.indexOf('<h1>'))).not.toContain(titled.title)
+  })
+
+  /**
+   * **The shape, on both verdicts, rather than the sentence on one** (`#112`).
+   * A snapshot of one fixture passes on the day it is written and says nothing
+   * about the entry whose status differs; what has to hold everywhere is that the
+   * heading is one question ending in a domain and the search line opens with the
+   * same domain.
+   */
+  it('holds the title and heading shapes on a refusal and on a joinable entry', () => {
+    const shape = /^How can an AI agent create .+ at [a-z\d.-]+\?$/
+
+    for (const status of ['joinable', 'refused'] as const) {
+      const html = decoded(page({ status, recipes: [recipe({ status })] as AtlasEntry['recipes'] }))
+      const heading = /<h1>(.*?)<\/h1>/.exec(html)?.[1] ?? ''
+      const line = /<title>(.*?)<\/title>/.exec(html)?.[1] ?? ''
+
+      expect(heading).toMatch(shape)
+      expect(line.startsWith('mastodon.example')).toBe(true)
+    }
   })
 
   /**
@@ -145,7 +186,7 @@ describe('the provider page as the guide a search finds', () => {
     const html = page()
     const asked = box(html)
 
-    expect(asked).toContain('What does it cost to sign up at Mastodon?')
+    expect(asked).toContain('What does it cost to sign up at mastodon.example?')
     expect(asked).toContain('Is there a human check to get past?')
     expect(asked).toContain('Does it want money before the account works?')
     expect(asked).toContain('Does it need a phone number?')
@@ -272,7 +313,9 @@ describe('the provider page as the guide a search finds', () => {
     expect(faq(html)).toBeUndefined()
     expect(blocks(html)).toHaveLength(1)
     expect(html).toContain('noindex, follow')
-    expect(html).toContain('<h1>How can an AI agent create a social account at Mastodon?</h1>')
+    expect(html).toContain(
+      '<h1>How can an AI agent create a social account at mastodon.example?</h1>',
+    )
     expect(box(html)).toContain(ATLAS_NOT_KNOWN)
   })
 

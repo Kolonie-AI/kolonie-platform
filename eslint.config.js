@@ -10,6 +10,8 @@ export default tseslint.config(
       '**/node_modules/**',
       // Generated on every build and not in git (#271).
       'packages/db/src/storage/index.ts',
+      // Written and removed within one test, and not in git (#1190).
+      'packages/db/vitest.*-probe.config.ts',
     ],
   },
   js.configs.recommended,

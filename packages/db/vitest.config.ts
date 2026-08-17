@@ -66,8 +66,6 @@ export default defineConfig({
   // Sibling workspaces resolve to their source, not to `dist` (`#1156`).
   ...sourceResolve,
   test: {
-    // Tests live next to the code they cover: `foo.ts` -> `foo.test.ts`.
-    include: EVERY_TEST,
     /**
      * **Each worker owns a database, so files no longer share one** (`#284`).
      *
@@ -155,12 +153,23 @@ export default defineConfig({
      * setup file that creates each slot's database, the timeout, the console
      * rule — applies to both projects and must not be restated. A project that
      * silently lost `setupFiles` would connect to a database nobody created.
+     *
+     * **`include` is the one key `extends: true` must not be given from above**
+     * (`#1190`). It merges rather than replaces, so a root-level `include` is
+     * concatenated onto each project's own and `isolated` matched all 188 files
+     * instead of its one — every test in this package ran twice, green both
+     * times, for the whole of `npm test`. It is stated here on `shared` and
+     * nowhere else, so the two lists below are the only ones in play. The empty
+     * `ISOLATED` fallback the second project guards against (`#295`) is the same
+     * trap from the other side: there, no `include` at all falls back to
+     * Vitest's default and matches everything.
      */
     projects: [
       {
         extends: true,
         test: {
           name: 'shared',
+          // Tests live next to the code they cover: `foo.ts` -> `foo.test.ts`.
           include: EVERY_TEST,
           ...(ISOLATED.length > 0 && { exclude: ISOLATED }),
           isolate: false,

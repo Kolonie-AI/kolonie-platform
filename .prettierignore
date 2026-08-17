@@ -12,6 +12,10 @@ packages/db/drizzle/meta
 # The generated storage barrel (#271). See .gitignore.
 packages/db/src/storage/index.ts
 
+# The enumeration probe (#1190). See .gitignore. It exists for the length of one
+# test, and formatting it is a race rather than a rule.
+packages/db/vitest.*-probe.config.ts
+
 # Vendored third party, and reformatting it defeats the point of vendoring it.
 # `schemas/mcp-registry-server-2025-12-11.schema.json` is the official MCP
 # registry's own schema, byte-for-byte as it is served, so that

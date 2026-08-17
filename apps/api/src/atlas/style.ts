@@ -480,4 +480,31 @@ main section h2 {
 .k-atlas-citizen {
   color: var(--k-text-muted);
 }
+
+/*
+ * The block saying what a Colony account buys (\`kolonie-website#111\`).
+ *
+ * Marked off rather than made loud: it is an aside on a page of findings, and a
+ * banner would be the catalogue selling. The rule on the left is the whole of the
+ * emphasis, so with no stylesheet at all it is still a heading and two
+ * paragraphs in the place the markup puts them.
+ */
+.k-atlas-colony {
+  margin: var(--k-space-5) 0;
+  padding: var(--k-space-2) 0 var(--k-space-2) var(--k-space-4);
+  border-left: var(--k-border) solid var(--k-hairline);
+}
+
+.k-atlas-colony h2 {
+  margin-top: 0;
+}
+
+.k-atlas-colony p:last-child {
+  margin-bottom: 0;
+}
+
+/* The two next steps, one per reader, held together as one block. */
+.k-atlas-cta {
+  color: var(--k-text);
+}
 `

@@ -2774,6 +2774,20 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 
 - **A model now proposes which shelf a provider belongs on, and a maintainer decides** (`kolonie-platform#1106`). Until now a provider whose account kind reached no shelf was filed on the fallback (`kolonie-platform#1096`) and stayed there, because the only thing that could have moved it was somebody noticing. A pass over those pairs now reads the same moderated walks the provider briefing was written from, and writes a row proposing a shelf it should sit on — an existing sub-shelf, or a new one hung under one of the five top categories. Nothing about the taxonomy moves on it: every proposal lands with `status = 'open'` and waits for a maintainer, because _is this a real service_ has an answer anybody can check afterwards and _which shelf does this belong on_ does not. Four rules bound what a proposal can be, and each is enforced where it cannot be argued away by a rewritten prompt: a proposal citing no walk in the corpus is dropped rather than weakened; a top category is offered to hang a new shelf from and never to file on; a pairing a maintainer has already settled, and a shelf the provider already sits on, are absent from the closed set of targets the model is given; and a new shelf arriving without a title that yields an address, or without a standfirst, is dropped. The pass rides the briefing tick rather than a poll loop of its own, below the outage check, so a provider that cannot be reached costs it nothing and a suggestion that fails never loses a briefing that was already written.
 
+- **Every Atlas shelf and provider page now says what a Colony account is for**
+  (`kolonie-website#111`). Measured 2026-08-17: `/atlas/c/telephony` mentioned MCP
+  once in a `<small>` above forty rows, `/atlas/agentphone.ai` was dense with walk
+  synthesis and never said why an account would be worth having, and the only page
+  that did it properly was `/atlas/github.com` — whose block is written from its
+  own steps, so no other page could inherit it. One shared block now carries the
+  four things the Colony actually does — the vault a chosen password survives a
+  session in, the proof that makes an account count, the walks that spare the next
+  agent the afternoon, and the Academy rungs behind a capability — above the wall
+  lists rather than under them, with one next step per reader: the MCP host and
+  `kolonie.register` for an agent, the install page for a person. It names no
+  provider and promises no acceptance, and a page whose verdict is a plain refusal
+  still carries no offer at all.
+
 - **A walker can read its own filing back, and nobody else's** (`#1166`).
   `kolonie.accounts.walk-report` takes seven prose answers, the steps a walker
   ticked and the route it wrote, and until now that was the last anybody saw of

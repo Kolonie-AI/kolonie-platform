@@ -10,6 +10,7 @@ import {
   ATLAS_SEEDED_CATEGORIES,
   noFigures,
   PROVIDER_DESCRIPTION_MAX_LENGTH,
+  type PublishedWall,
 } from '@kolonie-ai/core'
 import type { SiteChrome } from '../atlas/site-chrome.js'
 import { ATLAS_META_DESCRIPTION_MAX_LENGTH } from '../atlas/html.js'
@@ -1075,6 +1076,126 @@ describe('the Atlas on the website host', () => {
       expect((await get('/atlas/refused.example')).body).toContain(
         'Nobody has confirmed this entry by walking it',
       )
+    })
+  })
+
+  /**
+   * A refusal somebody got through anyway (`#1163`).
+   *
+   * **The page said both things and put the wrong one first.** Measured on
+   * 2026-08-17 on live `kolonie.ai/atlas/agentphone.ai`: the `<title>` said *why
+   * an agent cannot join it*, the lead said *This cannot be joined honestly, so do
+   * not try*, and four sections under them carried browser signup, REST signup, an
+   * API key and inbound SMS polling with the walk counts behind each. The shelf
+   * meanwhile listed it under *what worked*, because {@link atlasEntryWorked} read
+   * the figures while the page read `status`.
+   *
+   * The fixture is that shape with nothing else in it: one refused row, one
+   * evidenced walk that got through, and one wall carrying the capability it
+   * closed on.
+   */
+  describe('a refusal with successful walks under it', () => {
+    /** Carrier approval before sending, over an account signup reached (`#1036`). */
+    const wall: PublishedWall = {
+      kind: 'approval-required',
+      direction: 'outbound',
+      reportedBy: 3,
+      lastReportedAt: '2026-08-16T00:00:00.000Z',
+    }
+
+    const partly = async (walls: readonly (typeof wall)[] = [wall]) => {
+      await app.close()
+      app = build()
+      colony.recipes.write({
+        kind: 'telephony',
+        provider: 'partly.example',
+        title: 'A number an agent can be texted at',
+        status: 'refused',
+        category: 'telephony',
+        refusal: 'The carrier refuses outbound messaging to an account this young.',
+        walls: [...walls],
+      })
+      colony.recipes.measure({
+        ...noFigures('telephony', 'partly.example'),
+        attempted: 9,
+        proved: 4,
+        evidenced: true,
+      })
+      await app.ready()
+    }
+
+    /**
+     * **The criterion `#1163` is written against.** Four agents got in, so *do not
+     * try* is a false sentence about the walk however true it is about the route,
+     * and no reader should have to reach the figures to find that out.
+     */
+    it('never puts do-not-try above walks that got through', async () => {
+      await partly()
+
+      const body = (await get('/atlas/partly.example')).body
+
+      expect(body).not.toContain('This cannot be joined honestly, so do not try.')
+      expect(body).toContain('Somebody got through here, and the route as a whole is still refused')
+      /** And the refusal is still on the page, in its own words. */
+      expect(body).toContain('The carrier refuses outbound messaging')
+      expect(body).toContain('44% of 9 agents got through')
+    })
+
+    /** The half that closed, named from the wall and never from `reaches`. */
+    it('names the capability the wall was on', async () => {
+      await partly()
+
+      expect((await get('/atlas/partly.example')).body).toContain('The wall is on sending.')
+    })
+
+    /**
+     * **The rejection case, and the one that keeps the sentence honest.** A wall
+     * nobody scoped says nothing about which half closed, so the page stops rather
+     * than guessing — the lead still appears, and the second sentence does not.
+     */
+    it('says nothing about a half no wall scoped', async () => {
+      await partly([{ ...wall, direction: null as unknown as 'outbound' }])
+
+      const body = (await get('/atlas/partly.example')).body
+
+      expect(body).toContain('Somebody got through here, and the route as a whole is still refused')
+      expect(body).not.toContain('The wall is on')
+    })
+
+    /** The `<title>` and the description, which are what a search result shows. */
+    it('titles the page as both findings rather than as a closed door', async () => {
+      await partly()
+
+      const body = (await get('/atlas/partly.example')).body
+
+      expect(body).toContain('<title>partly.example for an AI agent: what got through, and what')
+      expect(body).not.toContain('why an AI agent cannot join it')
+      expect(body).toContain('the route as a whole is refused')
+    })
+
+    /**
+     * **The shelf and the page now read one model** (`#1163`). The row was marked
+     * *cannot be joined* on a shelf whose default view is what worked, which is
+     * the disagreement in its shortest possible form.
+     */
+    it('marks the row partly on the shelf that lists it', async () => {
+      await partly()
+
+      const body = (await get(`${ATLAS_PATH}/c/telephony`)).body
+
+      expect(body).toContain('partly — some walks got in')
+      expect(body).not.toContain('cannot be joined')
+    })
+
+    /**
+     * And a refusal with nothing behind it is untouched, which is what makes the
+     * distinction worth drawing at all: `bluesky` carries no figures.
+     */
+    it('leaves a refusal nobody got through saying do not try', async () => {
+      const body = (await get('/atlas/bluesky')).body
+
+      expect(body).toContain('This cannot be joined honestly, so do not try.')
+      expect(body).not.toContain('some walks got in')
     })
   })
 

@@ -714,7 +714,7 @@ function indexRow(entry: AtlasPublicEntry): string {
       ? ''
       : `<br><small class="k-atlas-said">${escape(entry.description)}</small>`) +
     `<br><small>${escape(kindsShown(entry))}${escape(indexFigure(entry))} — ` +
-    `${escape(operatorLine(entry))}</small></li>`
+    `${escape(operatorLine(entry, atlasIsWalked(entry)))}</small></li>`
   )
 }
 
@@ -725,16 +725,36 @@ function indexRow(entry: AtlasPublicEntry): string {
  * and until now it was only discoverable by opening an entry and reading its
  * steps. A guess says it is a guess: an operator told *not needed* about a
  * provider nobody has walked will find out otherwise at the worst moment.
+ *
+ * **`unknown` is two different unknowns and it used to print only one of them**
+ * (`#1141`). *Nobody walked this* and *walkers went and did not settle it* are
+ * not the same fact, and the second is what 64 of the 166 rows on the deployed
+ * index actually were: a walked status mark and *nobody has walked this* on the
+ * same line. Four strings for three needs, therefore — a fourth `operatorNeed`
+ * would have put the distinction in the data, where `atlasEntryOperatorNeed`
+ * rolls rows up and has nothing to roll a walk into.
+ *
+ * **The walk arrives as an argument rather than being read off the entry**,
+ * because this is called with two shapes: an entry, whose walk is
+ * {@link atlasIsWalked} over its recipes, and a single recipe, whose walk is its
+ * own status. The parameter type is a structural subset on purpose and widening
+ * it to `AtlasPublicEntry` would cost the recipe callers.
  */
-function operatorLine(entry: {
-  readonly operatorNeed: AtlasPublicEntry['operatorNeed']
-  readonly operatorNeedIsGuess: boolean
-}): string {
-  const said = {
-    unaided: 'an agent can do this alone',
-    'operator-needed': 'needs a person at one step',
-    unknown: 'nobody has walked this, so who is needed is not known',
-  }[entry.operatorNeed]
+function operatorLine(
+  entry: {
+    readonly operatorNeed: AtlasPublicEntry['operatorNeed']
+    readonly operatorNeedIsGuess: boolean
+  },
+  walked: boolean,
+): string {
+  const said =
+    entry.operatorNeed === 'unknown'
+      ? walked
+        ? 'walked, but who is needed is not known'
+        : 'nobody has walked this, so who is needed is not known'
+      : { unaided: 'an agent can do this alone', 'operator-needed': 'needs a person at one step' }[
+          entry.operatorNeed
+        ]
 
   return entry.operatorNeedIsGuess ? `${said} (a guess, not a walk)` : said
 }
@@ -957,7 +977,7 @@ export function atlasEntryPage(input: {
        */
       `<p class="k-atlas-facts"><a href="${escape(atlasShelfPath(entry.category))}">${escape(
         entry.category,
-      )}</a> — ${escape(operatorLine(entry))}</p>`,
+      )}</a> — ${escape(operatorLine(entry, atlasIsWalked(entry)))}</p>`,
       paidMarker(entry),
       ...entry.recipes.map((recipe) =>
         recipeSection(recipe, briefings.get(figureKey(recipe.kind, recipe.provider))),
@@ -1010,6 +1030,14 @@ function entryTitle(entry: AtlasPublicEntry): string {
 
   if (entry.status === 'refused') return `${name}: why an agent cannot join it`
   if (entry.status === 'retired') return `${name}: withdrawn, and what the path was`
+  /**
+   * **`measured` is the one status the fallback below is false for** (`#1141`).
+   * Since `#1032` it means *a walk closed here and nobody wrote the route*, so
+   * `nobody has mapped this yet` was the page telling a searcher to go away
+   * from 35 entries built out of somebody's afternoon. `unwritten` keeps that
+   * title, because for `unwritten` it is what happened.
+   */
+  if (entry.status === 'measured') return `${name}: walked, but no recipe written yet`
   if (entry.status !== 'joinable') return `${name}: nobody has mapped this yet`
 
   /**
@@ -1089,7 +1117,17 @@ function entryDescription(entry: AtlasPublicEntry): string {
      * rolled-up answer where there are none — which is not the same as *nobody
      * is needed*, because a row nobody has walked cannot say that.
      */
-    byHand === 0 ? operatorLine(entry) : `${byHand} of them need${byHand === 1 ? 's' : ''} a human`,
+    /**
+     * `#1141` decision 5 keeps the description's *wording* out of this issue,
+     * and this is not that: the branch above has already returned for anything
+     * that is not `joinable`, a `joinable` entry has a `joinable` recipe, and
+     * {@link atlasIsWalked} is therefore true at every call that reaches here.
+     * What it removes is the one case where the clause could still have said
+     * *nobody has walked this* on a page built out of a walk.
+     */
+    byHand === 0
+      ? operatorLine(entry, atlasIsWalked(entry))
+      : `${byHand} of them need${byHand === 1 ? 's' : ''} a human`,
     proves.length === 0 ? '' : proves.map((one) => PROOF_PHRASES[one] ?? `proved with ${one}`)[0],
   ].filter((clause) => clause !== '')
 
@@ -1287,7 +1325,7 @@ function recipeSection(
   if (recipe.status === 'unwritten') {
     return [
       `<section><h2>${escape(recipeHeading(recipe))}</h2>`,
-      `<p><small>${escape(operatorLine(recipe))}</small></p>`,
+      `<p><small>${escape(operatorLine(recipe, false))}</small></p>`,
       `<p class="k-unwritten">${escape(UNWRITTEN_ENTRY_NOTE)}</p>`,
       '</section>',
     ].join('')
@@ -1321,7 +1359,12 @@ function recipeSection(
 
   return [
     `<section><h2>${escape(recipeHeading(recipe))}</h2>`,
-    `<p><small>${escape(operatorLine(recipe))}</small></p>`,
+    /**
+     * A recipe's own walk, and not the entry's: this section is one row, the
+     * three branches above have taken `refused`, `unwritten` and `retired`, and
+     * what is left is a row somebody walked. `#1141`.
+     */
+    `<p><small>${escape(operatorLine(recipe, true))}</small></p>`,
     staleNote(recipe),
     `<h3>What it takes</h3>`,
     pathShape(recipe),

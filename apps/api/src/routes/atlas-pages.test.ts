@@ -1040,6 +1040,108 @@ describe('the Atlas on the website host', () => {
   })
 
   /**
+   * The other half of the same sentence (`#1141`).
+   *
+   * `#1094` stopped the *confirmed by walking* line contradicting the figures on
+   * a provider page. The index row and the `<title>` kept doing it: `unknown`
+   * printed *nobody has walked this* whether or not anybody had, and `measured`
+   * — which since `#1032` means a walk closed and nobody wrote the route — took
+   * the `nobody has mapped this yet` title meant for `unwritten`.
+   *
+   * **`mailbox/walked.example` and `mailbox/unwritten.example` are the pair**,
+   * written by `build` above with no steps, so both roll up to `unknown` and the
+   * only thing that differs between them is the walk.
+   */
+  describe('a walked entry and an unwalked one, on the row and in the title', () => {
+    /**
+     * One index row, because the two providers under test share a page.
+     *
+     * **It throws rather than returning nothing.** A helper that answered the
+     * empty string would pass every `not.toContain` below it, which is the half
+     * of these tests that is doing the work.
+     */
+    const rowFor = (body: string, provider: string) => {
+      const row = [...body.matchAll(/<li>.*?<\/li>/gs)]
+        .map((match) => match[0])
+        .find((one) => one.includes(`/atlas/${provider}"`))
+
+      if (row === undefined) throw new Error(`no index row for ${provider}`)
+
+      return row
+    }
+
+    const titleOf = (body: string) => /<title>([^<]*)<\/title>/.exec(body)?.[1] ?? ''
+
+    it('says the walk did not settle who is needed, rather than that nobody walked', async () => {
+      const row = rowFor((await get('/atlas?worked=false')).body, 'walked.example')
+
+      expect(row).toContain('walked, but who is needed is not known')
+      expect(row).not.toContain('nobody has walked this')
+    })
+
+    /**
+     * **The rejection case, and the reason the string was worth keeping.** An
+     * entry nobody has been to still says so, verbatim — a fix that replaced the
+     * sentence everywhere would have lost the one place it is true.
+     */
+    it('still says nobody has walked an entry nobody has walked', async () => {
+      const row = rowFor((await get('/atlas?worked=false')).body, 'unwritten.example')
+
+      expect(row).toContain('nobody has walked this, so who is needed is not known')
+    })
+
+    /** The same sentence on the entry's own facts line, not only on the row. */
+    it('carries it onto the provider page', async () => {
+      expect((await get('/atlas/walked.example')).body).toContain(
+        'walked, but who is needed is not known',
+      )
+      expect((await get('/atlas/unwritten.example')).body).toContain(
+        'nobody has walked this, so who is needed is not known',
+      )
+    })
+
+    it('titles a measured entry as walked with no recipe written', async () => {
+      const title = titleOf((await get('/atlas/walked.example')).body)
+
+      expect(title).toContain('walked, but no recipe written yet')
+      expect(title).not.toContain('nobody has mapped this yet')
+    })
+
+    it('leaves the unmapped title on the status it is true of', async () => {
+      expect(titleOf((await get('/atlas/unwritten.example')).body)).toContain(
+        'nobody has mapped this yet',
+      )
+    })
+
+    /**
+     * **The guess suffix rides on a known need and never on `unknown`**, which is
+     * a property of the data rather than of the wording: `recipeOperatorNeed`
+     * returns `isGuess: false` alongside `unknown`, and `atlasEntryOperatorNeed`
+     * only calls a rolled-up need a guess where every row that decided it was
+     * one. So the two sentences above can never take the suffix, and this is the
+     * regression guard that splitting the map did not drop it from the two that
+     * can.
+     */
+    it('still marks a guessed need as a guess', async () => {
+      await app.close()
+      app = build()
+      colony.recipes.write({
+        kind: 'mailbox',
+        provider: 'guessed.example',
+        title: 'Guessed',
+        status: 'measured',
+        operatorGuess: 'operator-needed',
+      })
+      await app.ready()
+
+      const row = rowFor((await get('/atlas?worked=false')).body, 'guessed.example')
+
+      expect(row).toContain('needs a person at one step (a guess, not a walk)')
+      expect(row).not.toContain('who is needed is not known')
+    })
+  })
+
+  /**
    * What a provider page says (`#547`), and the refusal underneath it: one page
    * per provider, never one per provider × runtime.
    */

@@ -250,18 +250,67 @@ export const scriptFrom = (argv) => {
   return script
 }
 
+/**
+ * Which workspaces to run it in, from everything after the script name.
+ *
+ * **Empty means all of them**, which is what every caller but one wants and what
+ * this file did before the filter existed. `scripts/check-affected.mjs` (`#1157`)
+ * is the exception: it works out which workspaces a change can have reached and
+ * names them here, so that a one-file edit in `apps/api` does not run
+ * `packages/db`'s 187 test files.
+ *
+ * Directories rather than package names — `apps/api`, not `@kolonie-ai/api`. The
+ * caller is mapping changed *paths* to workspaces, so paths are what it holds,
+ * and one of the ten packages is named `@kolonie.ai/mcp` with a dot where the
+ * other nine have a dash.
+ */
+export const onlyFrom = (argv) => argv.slice(1).filter((argument) => !argument.startsWith('-'))
+
+/**
+ * Keep the named workspaces, and refuse a name that matches nothing.
+ *
+ * **A filter that quietly selects nothing is the failure this whole file exists
+ * to avoid**, one level up: a typo would report a green run over an empty list
+ * instead of the tests somebody asked for. So an unknown directory throws rather
+ * than narrowing the run.
+ */
+export const only = (workspaces, directories) => {
+  if (directories.length === 0) return workspaces
+
+  const known = new Set(workspaces.map((workspace) => workspace.directory))
+  const unknown = directories.filter((directory) => !known.has(directory))
+  if (unknown.length > 0) {
+    throw new Error(
+      `No workspace with that script in: ${unknown.join(', ')}. ` +
+        `Known: ${[...known].sort().join(', ')}`,
+    )
+  }
+
+  const wanted = new Set(directories)
+  return workspaces.filter((workspace) => wanted.has(workspace.directory))
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const script = scriptFrom(process.argv.slice(2))
+  const argv = process.argv.slice(2)
+  const script = scriptFrom(argv)
 
   if (script === undefined) {
     console.error('Name the npm script to run, e.g. `node scripts/run-workspace-script.mjs test`.')
     process.exit(1)
   }
 
-  const workspaces = await workspacesWithScript(script)
+  const all = await workspacesWithScript(script)
 
-  if (workspaces.length === 0) {
+  if (all.length === 0) {
     console.error(`No workspace has a ${script} script. That is not a pass.`)
+    process.exit(1)
+  }
+
+  let workspaces
+  try {
+    workspaces = only(all, onlyFrom(argv))
+  } catch (error) {
+    console.error(error.message)
     process.exit(1)
   }
 

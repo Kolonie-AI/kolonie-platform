@@ -7,6 +7,8 @@ import { describe, expect, it } from 'vitest'
 // exit code is the one thing about it that must never be wrong.
 import {
   environmentFor,
+  only,
+  onlyFrom,
   scriptFrom,
   verdictFrom,
   workspacesWithScript,
@@ -198,6 +200,49 @@ describe('reading the script name', () => {
 
   it('refuses a flag, which is what a mistyped invocation looks like', () => {
     expect(scriptFrom(['--workspaces'])).toBeUndefined()
+  })
+})
+
+/**
+ * `#1157`. `scripts/check-affected.mjs` works out which workspaces a change can
+ * have reached and names them here, so that a one-file edit in `apps/api` does
+ * not run `packages/db`'s 187 test files.
+ */
+describe('narrowing the run to some workspaces', () => {
+  const workspaces = [
+    { name: '@kolonie-ai/core', directory: 'packages/core', script: 'test' },
+    { name: '@kolonie-ai/db', directory: 'packages/db', script: 'test' },
+    { name: '@kolonie-ai/api', directory: 'apps/api', script: 'test' },
+  ]
+
+  it('takes the directories after the script name', () => {
+    expect(onlyFrom(['test', 'apps/api', 'packages/db'])).toEqual(['apps/api', 'packages/db'])
+  })
+
+  it('names nothing when only the script was given', () => {
+    expect(onlyFrom(['test'])).toEqual([])
+  })
+
+  it('keeps only what was named, in the declared order', () => {
+    expect(only(workspaces, ['apps/api', 'packages/core']).map((it) => it.directory)).toEqual([
+      'packages/core',
+      'apps/api',
+    ])
+  })
+
+  /** An empty filter is every workspace, which is what this runner did before. */
+  it('runs everything when nothing was named', () => {
+    expect(only(workspaces, [])).toHaveLength(3)
+  })
+
+  /**
+   * The rejection case, and the reason this throws rather than narrowing: a
+   * filter that quietly selects nothing reports a green run over an empty list
+   * instead of the tests somebody asked for — the failure this whole file exists
+   * to avoid, one level up.
+   */
+  it('refuses a directory no workspace has', () => {
+    expect(() => only(workspaces, ['apps/api', 'packages/nope'])).toThrow(/packages\/nope/)
   })
 })
 

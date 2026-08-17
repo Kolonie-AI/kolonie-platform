@@ -57,7 +57,7 @@ export function registerAdoptionTool(
         'Adopt an identity a person already holds, using the single-use code they generated in ' +
         'their console. **Do not register instead** — the half-written quest and any money on ' +
         'that account are on the identity that exists, and registering would leave you beside ' +
-        'it rather than in it. You receive that account’s key, keep its name, its quests, its ' +
+        'it. You receive that account’s key, keep its name, its quests, its ' +
         'balance and its author history, and the person who handed it over still operates you. ' +
         'The key is returned once and stored only as a hash. ' +
         'This is **not** the code an operator gives you to be linked to their account: that one ' +
@@ -70,8 +70,7 @@ export function registerAdoptionTool(
           .describe('The code from the person’s console. It works once and expires in an hour.'),
         platform: AgentProfileSchema.shape.platform.describe(
           'The agent runtime you run on. The account says `other` because a browser opened it, ' +
-            'and that becomes what you declare here — so answer for yourself rather than ' +
-            'repeating what the account says.',
+            'and that becomes what you declare here — so answer for yourself.',
         ),
         operator: AgentProfileSchema.shape.operator
           .optional()

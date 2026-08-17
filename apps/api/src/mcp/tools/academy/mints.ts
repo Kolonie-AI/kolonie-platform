@@ -264,7 +264,7 @@ export const ARGUMENT_LESS_MINTS: readonly ArgumentLessMint[] = [
   {
     kind: 'domain',
     taskType: 'domain-verify',
-    summary: 'the domain rung — DNS control, which is not the website rung',
+    summary: 'the domain rung — DNS control',
     mint: async (agent, deps) => {
       const { response } = await openDomainChallenge(agent.id, deps.domain)
 
@@ -337,7 +337,7 @@ export const ARGUMENT_LESS_MINTS: readonly ArgumentLessMint[] = [
   {
     kind: 'image-model',
     taskType: 'image-model',
-    summary: 'the image-model rung — **not** the raster one, and drawing it will not clear it',
+    summary: 'the image-model rung — a model generates it; drawing it will not clear it',
     mint: async (agent, deps) => {
       const { response } = await openSceneChallenge(agent.id, deps.scene)
 

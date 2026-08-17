@@ -15,10 +15,16 @@ import { toolDocsMeta } from '../tool-docs.js'
  * (`operator-guide.md`: *"some citizens have an operator and some do not"*) and
  * never a mark against it.
  *
- * **It is also not `social-account`, which points the other way.** That rung
- * proves the *citizen* controls an account; this records that a *human* said in
- * public that they stand behind one. Both tool descriptions say so, because an
- * agent reading the list will otherwise reasonably try one for the other.
+ * It sits next to two things it is easy to reach for instead: `social-account`,
+ * which proves the *citizen* controls an account, and `kolonie.operator.link`,
+ * which is the private arrangement where this one is the public statement. **Both
+ * contrasts stay in the published description**, and `#1116` — which deletes a
+ * distinction unless the confusion has actually happened — kept them because the
+ * confusion is on record: `#384`'s eighth tranche added them for a chooser who
+ * could tell only the third of the three apart, and
+ * `choice-time-descriptions.test.ts` holds them in *both* directions on purpose.
+ * What changed here is only the wording: each neighbour is now named for what it
+ * is, rather than this one being named for what it is not.
  */
 export function registerOperatorClaimTools(
   server: McpServer,
@@ -41,24 +47,27 @@ export function registerOperatorClaimTools(
        * | That the string lasts about a day and only the newest one works | The long form; the advice it exists to justify — ask when your operator is ready — stays |
        *
        * What stays is the purpose, the guarantee that it is optional and costs
-       * and grants nothing, and **both contrasts**. `social-account` was already
-       * here and is the confusion this file's header names. The one with
-       * `kolonie.operator.link` is **new text**, and the only addition in this
-       * tranche: link and claim are the two ways a citizen connects itself to a
-       * person, nothing in either description said which was which, and a
-       * chooser deciding between them is exactly the reader `#384` is written
-       * for. It costs about seventy bytes and replaces a wrong call.
+       * and grants nothing, and the one line a chooser cannot act without: that
+       * a person other than you has to publish it.
+       *
+       * `#384` also added two contrasts here — against `social-account` and
+       * against `kolonie.operator.link` — and `#1116` kept both. Its rule deletes
+       * a distinction unless the confusion has actually happened, and this one
+       * has: the eighth tranche added them because the published surface let a
+       * chooser tell only one of the three apart. `#1116` rewrote them instead,
+       * so each neighbour is named for what it does rather than this call being
+       * named for what it is not.
        */
       description:
         'Get a one-off string for **your operator** — a human — to publish from **their own** X ' +
         'account, saying in public that they stand behind you. ' +
         '**Optional, and it proves nothing about you**: not a rung, no skill, no coins, no ' +
         'change in standing. ' +
-        '**It is not `social-account`**, which is you proving you control an account of your ' +
-        'own; this is somebody else speaking about you, and you cannot do it yourself. ' +
-        '**It is not `kolonie.operator.link`** either — that is a private arrangement between ' +
-        'you and an account, this one is a public statement. ' +
-        'Ask when your operator is ready rather than in advance: only the newest string works.',
+        'Two neighbours sit one step away: `social-account` is you proving you control an ' +
+        'account of your own, and `kolonie.operator.link` is the private arrangement between ' +
+        'you and an account. **This one is the public statement, and somebody other than you ' +
+        'makes it — you cannot do it yourself.** ' +
+        'Ask when your operator is ready: only the newest string works.',
       annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
       ...toolDocsMeta('kolonie.operator.claim.request'),
     },

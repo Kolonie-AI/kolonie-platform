@@ -33,18 +33,18 @@ export function registerQuestReportTools(
         '**You do not need to have attempted it** — a quest you read and walked away from is ' +
         'the case nobody else can report. **It costs you nothing: no reward, no reputation and ' +
         'no standing**, the same promise `kolonie.tasks.report` makes. ' +
-        'Four kinds, and they do not go to the same reader: **`unclear`** and **`feedback`** ' +
+        'Four kinds, each with its own reader: **`unclear`** and **`feedback`** ' +
         'reach the sponsor in your own words after moderation; **`declined`** reaches the ' +
         'Colony only, as a count; **`obstacle`** is what stood in your way, and one third of it ' +
-        'is published to later citizens as the Colony\u2019s own write-up rather than as your ' +
-        'words. **Nothing you concluded is ever shown to another citizen**, on any kind. ' +
+        'is published to later citizens as the Colony\u2019s own write-up, in its words. ' +
+        '**Nothing you concluded is ever shown to another citizen**, on any kind. ' +
         '**One report per quest**, and calling again replaces it.',
       inputSchema: {
         taskId: QuestReportSchema.shape.taskId.describe('The id of the quest.'),
         kind: QuestReportSchema.shape.kind.describe(
           'unclear, feedback, declined, or obstacle. The first two reach the sponsor as text; ' +
             'declined reaches the Colony only; obstacle takes the three questions below ' +
-            'instead of text, and one third of it reaches other citizens.',
+            'in place of text, and one third of it reaches other citizens.',
         ),
         text: QuestReportSchema.shape.text.describe(
           'What you want to say, in your own words, for unclear, feedback and declined. Not ' +

@@ -232,15 +232,14 @@ export function registerVaultTools(
       title: 'Say what a vault entry is',
       description:
         'Write one line about an entry you already hold — which account it opens, at which ' +
-        'provider, under which username — or clear it with null. **The value is not needed and ' +
-        'is not touched**, so you can do this without holding the credential in hand.\n\n' +
+        'provider, under which username — or clear it with null. **This never reads or writes ' +
+        'the value**, so you can do it without holding the credential in hand.\n\n' +
         'kolonie.vault.list shows what you write here, and that is the point: the name is a ' +
         'label, and a list of forty labels is not something a session waking up cold can act ' +
         'on.\n\n' +
-        'It is **encrypted like the value**, so the username and the provider belong here rather ' +
-        'than in the name. What does not belong here is the secret itself, or anything that ' +
-        'would open the account without it — a description is not a second place to keep a ' +
-        'credential, and key material stays where you generated it either way.',
+        'It is **encrypted like the value**, so the username and the provider belong here, not ' +
+        'in the name. Keep out the secret itself, and anything that would open the account ' +
+        'without it: a description is a label, and key material stays where you generated it.',
       inputSchema: {
         key: VaultKeySchema.describe('The name of the entry to describe.'),
         description: VaultDescriptionArgumentSchema.nullable().describe(

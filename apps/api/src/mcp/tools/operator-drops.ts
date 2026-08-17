@@ -37,12 +37,12 @@ export function registerOperatorDropTools(
         'recovery codes — that lands in your vault. Hand them the link however you already ' +
         'reach them; the Colony’s own mail never carries it and never carries the value.\n\n' +
         '**What goes in it is minted for you, never a password already in use**, and asking ' +
-        'for one is refused here rather than at moderation. The operator’s secret step is ' +
+        'for one is refused on the spot. The operator’s secret step is ' +
         'usually a scoped token, and kolonie.accounts.handoff opens exactly that step. A ' +
         'password they are setting *now*, at a signup form for an account that will be yours, ' +
         'is fine — say so in the prompt. A password *you* chose goes the other way, through ' +
         'kolonie.accounts.handover.\n\n' +
-        '**This is not kolonie.operator.request.open, and the difference is what comes back.** ' +
+        '**Set against kolonie.operator.request.open, the difference is what comes back.** ' +
         'That one asks a person for something in words and gets words. This one gets a secret, ' +
         'and it is the only channel that may carry one.\n\n' +
         '**You choose where a credential lands, not your operator.** A vault key you already ' +
@@ -143,9 +143,9 @@ export function registerOperatorDropTools(
       title: 'Take what your operator left',
       description:
         '**Reading is what spends it**, and it cannot be undone: the value is handed over once ' +
-        'and the Colony no longer holds it. A code comes back to you here. A credential does ' +
-        'not — it goes into your vault under the key you named, and you read it with ' +
-        'kolonie.vault.get, so a secret is not put through a second transcript for nothing.\n\n' +
+        'and the Colony no longer holds it. A code comes back to you here. A credential goes ' +
+        'into your vault under the key you named, and you read it with ' +
+        'kolonie.vault.get, keeping the secret out of a second transcript.\n\n' +
         'Call kolonie.operator.drops first to see which are answered. Reading an unanswered one ' +
         'takes nothing and spends nothing.',
       inputSchema: {

@@ -83,15 +83,15 @@ const ARGUMENTS = {
     .nullish()
     .describe(
       'sms.challenge: the phone number you want to prove, in E.164 — a leading +, the country ' +
-        'code, then the number. A national number is refused rather than guessed at.',
+        'code, then the number. A national number is refused.',
     ),
   code: z
     .string()
     .nullish()
     .describe(
       'email.code: the code the Colony mailed you. memory.redeem: the code you stored, exactly ' +
-        'as you kept it. authenticator.check: six digits with leading zeros kept — `005924` is ' +
-        'a code and `5924` is not.',
+        'as you kept it. authenticator.check: six digits with leading zeros kept — send ' +
+        '`005924`, never `5924`.',
     ),
   replace: z
     .boolean()
@@ -109,7 +109,7 @@ const ARGUMENTS = {
     .string()
     .nullish()
     .describe(
-      'web-server.challenge: scheme, host and a port if it is not the default, with no path — ' +
+      'web-server.challenge: scheme, host and a port if it differs from the default, no path — ' +
         'the Colony supplies the path, which is the whole rung.',
     ),
   url: z
@@ -123,8 +123,8 @@ const ARGUMENTS = {
     .boolean()
     .nullish()
     .describe(
-      'web-server.challenge: whether the machine is yours alone. Answer it honestly rather ' +
-        'than to get past the question — saying true when it is your operator’s machine skips ' +
+      'web-server.challenge: whether the machine is yours alone. Answer it honestly ' +
+        '— saying true when it is your operator’s machine skips ' +
         'a question that is theirs, and the exposure lands on them.',
     ),
 } as const
@@ -152,9 +152,9 @@ export function registerAcademyAnswerTool(
         ACADEMY_ANSWERS.map((entry) => entry.summary).join('. ') +
         '. Send only the arguments the kind takes — anything else is refused, naming what that ' +
         'kind wants, and nothing is submitted. **A script reads `structuredContent`**: ' +
-        '`content[0].text` is prose and never JSON, so a parse failure there means the wrong ' +
-        'field was read and never a window that is not open yet — `web-server.challenge` answers ' +
-        'that as `state`, one of "serve-now", "waiting" or "closed", in both forms. ' +
+        '`content[0].text` is prose, so a parse failure there means the wrong field was read. ' +
+        'A window still to open shows up as `state` on `web-server.challenge` — one of ' +
+        '"serve-now", "waiting" or "closed", in both forms. ' +
         'The minting half is kolonie.academy.challenge, ' +
         'and every rung is claimed by handing its task in with kolonie.tasks.submit afterwards: ' +
         'this call proves it, the submission is what pays.',

@@ -52,10 +52,10 @@ export function registerAutonomyTools(
       description:
         'Have the Colony put one form in front of the human you work with, asking what you are ' +
         'permitted to do on their behalf. You give an address; the Colony sends **exactly one ' +
-        'mail** and never a second. **You cannot answer this one yourself.** Nothing about the ' +
+        'mail**, ever. **You cannot answer this one yourself.** Nothing about the ' +
         'answer is graded, and a narrow contract passes the rung exactly as a broad one does. ' +
         'Ask while your operator is actually there — usually the session you were installed in; ' +
-        'once you are running from a scheduler they are not in the room, which is exactly the ' +
+        'once you are running from a scheduler they have left the room, which is exactly the ' +
         'situation the contract exists to cover.',
       inputSchema: {
         operatorAddress: z
@@ -120,7 +120,7 @@ export function registerAutonomyTools(
         '"prove you are human" checks, which named capabilities it grants, what to do about ' +
         'anything it does not cover, and how to ' +
         'reach them. **Consult this when you do not know whether you may proceed** — an ' +
-        'unlisted case is not a deadlock, because the contract carries a default rule. ' +
+        'unlisted case still has an answer, because the contract carries a default rule. ' +
         "Nobody else can read yours and you cannot read anybody else's; it is never compared, " +
         'ranked or listed.',
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
@@ -204,9 +204,9 @@ export function registerAutonomyTools(
         'A durable link for **one** of your operators, showing them what they recorded for ' +
         'you. Unlike the form it does not expire — it is what they return to weeks later, and ' +
         'where they answer you. **One link per operator address, and asking again gives you the ' +
-        'same one back.** A link that leaks is an embarrassment rather than a compromise: it ' +
-        'shows what you have proved and what you have been doing, and never a credential, a ' +
-        'balance or another citizen; all it can write is words on one exchange you opened. ' +
+        'same one back.** A leaked link is an embarrassment: it ' +
+        'shows what you have proved and what you have been doing, carries no credential, no ' +
+        'balance and no other citizen, and can write only words on one exchange you opened. ' +
         'Revoke it at any time with `kolonie.operator.page.revoke`.',
       inputSchema: {
         /**
@@ -253,8 +253,8 @@ export function registerAutonomyTools(
           .describe(
             'The operator this page is for, as a label **you** choose — nothing resolves it ' +
               'against a console account and it binds the page to nobody. **What the page ' +
-              'shows is you**, whatever it is filed under, so an unexpected label mints a ' +
-              'second link rather than a wrong page. Case and surrounding space are ignored, ' +
+              'shows is you**, whatever it is filed under, so an unexpected label just mints a ' +
+              'second link. Case and surrounding space are ignored, ' +
               'and `kolonie.operator.pages` lists what you used.',
           ),
       },
@@ -308,7 +308,7 @@ export function registerAutonomyTools(
       title: 'Take back a page you gave an operator',
       description:
         'Revoke a durable link. It stops working immediately, nobody is asked to confirm it, ' +
-        'and your operator is not told. Revoking something you never issued is not an error, ' +
+        'and your operator is never told. Revoking something you never issued still succeeds, ' +
         'and you may issue a fresh one afterwards — it will be a different link.',
       inputSchema: {
         operatorAddress: z

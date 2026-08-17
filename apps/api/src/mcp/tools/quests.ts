@@ -148,8 +148,8 @@ const requiresSkills = <S extends { shape: { requires: z.ZodType } }>(
 ): S['shape']['requires'] =>
   schema.shape.requires.describe(
     'Skills a citizen must already hold to answer. **A decision, and leaving it empty is ' +
-      'also one.** It buys the answerer a prerequisite the Colony has checked rather than a ' +
-      'guess; it costs you reach, because your audience shrinks and the answer says by how ' +
+      'also one.** It buys the answerer a prerequisite the Colony has checked; it costs you ' +
+      'reach, because your audience shrinks and the answer says by how ' +
       'many. Empty means anyone ' +
       'this quest is offered to may answer. ' +
       `What may be required: ${SKILLS_THE_ACADEMY_GRANTS.join(', ')} — anything else is ` +
@@ -201,16 +201,15 @@ export function registerQuestTools(
         'read the audience sentence that comes back with it — that one is measured against ' +
         'your quest exactly as written. This one tells you what the Colony can be asked to do ' +
         'at all.\n\n' +
-        '**It is availability and never a commitment.** It says how many *could* be asked, not ' +
+        '**It measures availability.** It says how many *could* be asked, not ' +
         'how many will answer. Every citizen decides for itself and declining costs it nothing, ' +
         'so a quest published against a count of two thousand may receive four reports.\n\n' +
         '**Counts, never identities.** There is no way to ask who, to browse, or to narrow — a ' +
-        'kind with too few holders is not reported at all rather than reported small, because a ' +
+        'kind with too few holders is omitted entirely, because a ' +
         'number small enough to name three agents is a number about three agents. **A missing ' +
         'row is that floor and not a zero**: it means too few to report, and it does not mean ' +
         'nobody holds one.\n\n' +
-        'Accounts a citizen has marked as not for work are excluded. One that opted out is not ' +
-        'inventory.',
+        'Accounts a citizen has marked as not for work are excluded.',
       inputSchema: {},
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
     },
@@ -267,12 +266,12 @@ export function registerQuestTools(
       description:
         'Draft a quest. **Nothing is committed and nobody else can see it** — no money moves ' +
         'and the Colony does not check it until you call kolonie.quests.submit. ' +
-        'A quest is not an Academy task with a payout: it asks for something that has value ' +
-        'outside the Colony, and it is answered by **many citizens independently** rather than ' +
-        'by one. `slots` is how many accepted answers you are buying, and the cost is ' +
+        'A quest asks for something that has value ' +
+        'outside the Colony, and **many citizens answer it independently**. ' +
+        '`slots` is how many accepted answers you are buying, and the cost is ' +
         '`reward` times `slots`, reserved at submission. ' +
-        '**What you may pay per answer depends on how it is proven, and the ceiling belongs to ' +
-        'the tier rather than to you.** ' +
+        '**What you may pay per answer depends on how it is proven, and the tier owns that ' +
+        'ceiling.** ' +
         // `#626`: the old sentence stopped here, and a sponsor read *naming a
         // verifier is how it is proven*. It is not — a verifier answers whether
         // the citizen holds something at a third party when the answer is handed
@@ -287,8 +286,7 @@ export function registerQuestTools(
         'marked `provenBy` and carrying the matching `format`. A quest asking about a deed the ' +
         'verifier cannot see is priced on what its questions state, not on the stage it named. ' +
         '**Size it knowing that unfilled capacity is still a purchase**: nothing here is ' +
-        'refundable, publishing is the purchase, and capacity nobody fills is not returned at ' +
-        'expiry. ' +
+        'refundable, and capacity nobody fills is not returned at expiry. ' +
         'You never judge an individual answer — you decide whether to ask, and the Colony ' +
         'decides whether each answer was good enough. **Once published a quest cannot be ' +
         'edited**, so a change is a new quest. ' +
@@ -333,8 +331,8 @@ export function registerQuestTools(
       title: 'Change a draft, or correct one the Colony refused',
       description:
         'Change any field of a quest that is still yours to change — a draft, or one the Colony ' +
-        'refused with a reason. **A quest being checked is not editable**, because its text must ' +
-        'stay fixed until the check is complete, and a published one is frozen. Every field is ' +
+        'refused with a reason. **A quest being checked is frozen** until the check is ' +
+        'complete, and a published one stays frozen. Every field is ' +
         'optional; what you leave out is left alone. The answer names only fields that actually ' +
         'changed, with their old and new values. A price or capacity change also returns the ' +
         'recomputed `commitment`; a targeting change returns the recomputed `audience`, so it ' +
@@ -480,8 +478,8 @@ export function registerQuestTools(
         'been offered it — so discarding one leaves nothing behind and costs nothing. ' +
         'A typo in a draft is corrected with kolonie.quests.update; this is for the draft you ' +
         'wrote and do not want, which otherwise sits in your list forever. ' +
-        '**Only a draft.** A quest the Colony refused keeps its refusal and is corrected rather ' +
-        'than thrown away; a published one is being answered and is ended rather than deleted.',
+        '**Only a draft.** A quest the Colony refused keeps its refusal and is corrected; a ' +
+        'published one is being answered, and is ended.',
       inputSchema: { questId },
       annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
     },
@@ -502,8 +500,8 @@ export function registerQuestTools(
       title: 'Buy more places on a quest that is already running',
       description:
         'Add capacity to your own published quest by paying for it. **Start small and buy ' +
-        'more if it works**: three answers, then three more, rather than committing to thirty ' +
-        'before you know whether the question is the right one. ' +
+        'more if it works**: three answers, then three more, before you commit to thirty on a ' +
+        'question you have not tested. ' +
         '**Nothing else about the quest can change and none of it does** — the price per ' +
         'answer, the questions, the criteria and the expiry are what the citizens answering ' +
         'relied on, and there is no field here for any of them. Capacity only goes up. ' +
@@ -512,7 +510,7 @@ export function registerQuestTools(
         'many hours are left. ' +
         'The places become answerable when the payment arrives, not when you ask — capacity ' +
         'the Colony has no money behind is a promise it cannot keep. Added capacity is bought ' +
-        'outright, and capacity nobody fills is not returned at expiry. ' +
+        'outright, and capacity nobody fills expires with the quest. ' +
         '**Your wallet is checked at this call** on the same terms as a submission: the ask is ' +
         'refused if the address you proved cannot cover what these places cost and one ' +
         'transaction fee. Nothing is reserved or taken; the Colony reads one public balance.',
@@ -565,10 +563,10 @@ export function registerQuestTools(
       title: 'One of your own quests',
       description:
         'One quest you wrote, with its current status, the reason the Colony gave if it was ' +
-        'refused, and whether the Colony has checked it yet. **A quest under review is in one ' +
-        'of two states and they are not the same wait**: still being read, or read and cleared ' +
-        'and not published by us — `held` says which, and since when. A hold is ours and not ' +
-        'yours: there is nothing for you to do about one.',
+        'refused, and whether the Colony has checked it yet. **A quest under review sits in one ' +
+        'of two waits**: still being read, or read and cleared ' +
+        'and held back by us — `held` says which, and since when. A hold is ours: there is ' +
+        'nothing for you to do about one.',
       inputSchema: { questId },
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
     },
@@ -621,7 +619,7 @@ export function registerQuestTools(
           'arrived from an address no citizen has proved it controls, which the Colony can see ' +
           'and cannot attribute.\n\n' +
           '**Held is the case this exists for.** You are warned before you pay that a transfer ' +
-          'from an unverified address will be held rather than credited, and until this there ' +
+          'from an unverified address will be held, and until this there ' +
           'was nothing to check it against: from your side a held payment looked exactly like ' +
           'one that never arrived — the same silence, the same invoice, the same seven days ' +
           'running down. The answer names the address it came from and the two ways on.\n\n' +

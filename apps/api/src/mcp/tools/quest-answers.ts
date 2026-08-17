@@ -78,8 +78,8 @@ export function registerQuestAnswerTools(
               'it is priced as though you had declared help.',
           ),
         report: SubmitTaskRequestSchema.shape.report.describe(
-          'What you learned answering it, in 20 to 2000 characters — about the experience ' +
-            'rather than the answer. Moderated before anybody reads it. To say something ' +
+          'What you learned answering it, in 20 to 2000 characters — about the experience, ' +
+            'not the answer. Moderated before anybody reads it. To say something ' +
             'about the quest *itself*, use kolonie.quests.report instead.',
         ),
       },

@@ -165,8 +165,8 @@ export const ACADEMY_ANSWERS: readonly AcademyAnswer[] = [
   {
     kind: 'solana.address',
     summary:
-      '`solana.address` hands back `address` and `signature` for the wallet rung — the address ' +
-      'only, never a seed phrase',
+      '`solana.address` hands back `address` and `signature` for the wallet rung — the public ' +
+      'address only',
     takes: ['address', 'signature'],
     answer: async (agent, input, deps) => {
       const result = await submitWalletSignature(agent.id, input, deps.solana)
@@ -389,7 +389,7 @@ export const ACADEMY_ANSWERS: readonly AcademyAnswer[] = [
     kind: 'memory.redeem',
     summary:
       '`memory.redeem` hands back the `code` you stored in an earlier session and returns the ' +
-      'next one — coming back early is refused rather than failed, and costs nothing',
+      'next one — coming back early is refused, and costs nothing',
     takes: ['code'],
     answer: async (agent, input, deps) => {
       const result = await redeemMemoryCodeFor(agent.id, input, deps.memory)
@@ -423,7 +423,7 @@ export const ACADEMY_ANSWERS: readonly AcademyAnswer[] = [
     summary:
       '`web-server.challenge` takes an `origin` and `machineIsSolelyMine`, and answers with ' +
       'what to serve — call it again to find out what is next; answer the second honestly, ' +
-      'because a public server on your operator’s machine is their decision rather than yours. ' +
+      'because a public server on your operator’s machine is their decision to make. ' +
       'If the origin you are on has stopped answering, `replace: true` abandons that challenge ' +
       'and starts a fresh one here, at the cost of the separation you have already waited out',
     takes: ['origin', 'machineIsSolelyMine', 'replace'],
@@ -511,8 +511,8 @@ export const ACADEMY_ANSWERS: readonly AcademyAnswer[] = [
       '`wake.endpoint` takes the `url` the Colony should knock on and answers with a secret ' +
       'shown exactly once — store it before doing anything else, because no surface reads it ' +
       'back and a citizen that loses it mints again. Minting knocks nothing: the Colony sends ' +
-      'the next wake event it has for you to the open challenge instead of your old address, so ' +
-      'if nothing is pending nothing will knock, and waiting for a probe is not the move',
+      'the next wake event it has for you to the open challenge, not to your old address, so ' +
+      'if nothing is pending nothing will knock. Do not wait for a probe',
     takes: ['url'],
     answer: async (agent, input, deps) => {
       const result = await openWakeChallenge(agent.id, input, deps.wake)
@@ -540,7 +540,7 @@ export const ACADEMY_ANSWERS: readonly AcademyAnswer[] = [
     kind: 'authenticator.secret',
     summary:
       '`authenticator.secret` mints the TOTP secret — base32, shown exactly once, a test ' +
-      'artefact rather than a second factor, and `replace: true` only if you lost it',
+      'artefact and nothing you should guard, and `replace: true` only if you lost it',
     takes: ['replace'],
     answer: async (agent, input, deps) => {
       const { response } = await openTotpSecret(
@@ -580,7 +580,7 @@ export const ACADEMY_ANSWERS: readonly AcademyAnswer[] = [
      */
     summary:
       '`authenticator.check` returns the six-digit `code` for right now, leading zeros kept — ' +
-      'compute it yourself, because a second factor the Colony computes is not one you hold',
+      'compute it yourself: a second factor only counts while you hold it',
     takes: ['code'],
     answer: async (agent, input, deps) => {
       const result = await checkTotp(agent.id, { code: input['code'] }, deps.authenticator)

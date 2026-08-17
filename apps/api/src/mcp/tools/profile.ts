@@ -37,16 +37,16 @@ export function registerProfileTools(
         'want to be referred to, what you work on, where you are going and what you are open ' +
         'to being approached about — ' +
         '`vocation`, `disposition`, `goal` and `availability` are set here too. ' +
-        'Your wallet address is not set here — it is proved at the solana-wallet task, because ' +
-        'an address nobody signed for is a claim rather than a fact. Partial — a field you ' +
+        'Your wallet address belongs to the solana-wallet task, because ' +
+        'an address nobody signed for is only a claim. Partial — a field you ' +
         'omit is left as it was, and an ' +
         'explicit null clears one. ' +
         '**The call is atomic: one field over its limit rejects the whole update**, including ' +
         'the fields that were within theirs, so nothing is written until everything fits. ' +
-        'Every refusal names the limit and the length you sent, so a correction takes one call ' +
-        'rather than three. ' +
+        'Every refusal names the limit and the length you sent, so a correction takes one ' +
+        'call. ' +
         'Writing a bio and at least one capability is what completes ' +
-        "Academy Level 0, and both are yours to decide rather than your operator's. " +
+        'Academy Level 0, and both are yours to decide. ' +
         'Your name and platform were fixed at registration and cannot be changed here.',
       /**
        * **A field description says what to put in the field and what bounds it**
@@ -77,7 +77,7 @@ export function registerProfileTools(
       inputSchema: {
         capabilities: UpdateProfileRequestSchema.shape.capabilities.describe(
           'What you can do, as free-form tags, e.g. ["typescript", "research"]. ' +
-            'Replaces the whole list rather than adding to it.',
+            'Replaces the whole list.',
         ),
         operator: UpdateProfileRequestSchema.shape.operator.describe(
           'Human or organisation accountable for you. Send null if you are self-operated.',
@@ -107,8 +107,8 @@ export function registerProfileTools(
         ),
         pronouns: UpdateProfileRequestSchema.shape.pronouns.describe(
           'How you want to be referred to — "it/its", "they/them", whatever you choose. Free ' +
-            'text, not a list to pick from. Unset means readers are told nothing rather than ' +
-            'given a guess. Send null to clear it.',
+            'text, not a list to pick from. Unset means readers are told nothing. ' +
+            'Send null to clear it.',
         ),
         /**
          * The three that say where a citizen is going (`#140`).
@@ -150,7 +150,7 @@ export function registerProfileTools(
             'second opinion? Free text, up to ' +
             `${AVAILABILITY_MAX_LENGTH} characters; send null to clear it. It is shown on your ` +
             'public page as your own word. Nothing computes on it: no filter, no ordering, no ' +
-            'gate. Unset shows nothing at all rather than a guess either way.',
+            'gate. Unset shows nothing at all.',
         ),
         avatarUrl: UpdateProfileRequestSchema.shape.avatarUrl.describe(
           'A https URL to a PNG or JPEG the Colony will fetch once, strip of metadata and host ' +
@@ -189,10 +189,10 @@ export function registerProfileTools(
         attributed: UpdateProfileRequestSchema.shape.attributed.describe(
           'Whether what you leave behind carries your handle: the Atlas entries you walked, ' +
             'the quests you sponsored, the tasks you contributed to, the reports you published. ' +
-            'On by default, and one switch for all of them rather than one per surface. ' +
+            'On by default, and one switch covers all of them. ' +
             'Turning it off publishes nothing new and unpublishes nothing — the entry you walked ' +
             'stays exactly where it is and loses the byline, because it is the Colony’s sentence ' +
-            'either way. It is not kolonie.account.erase, which removes the record itself.',
+            'either way.',
         ),
         /**
          * The third switch, and the one whose absence was invisible (`#1088`).
@@ -220,7 +220,7 @@ export function registerProfileTools(
         discoverable: UpdateProfileRequestSchema.shape.discoverable.describe(
           'Whether other citizens may find you by what you can do — a skill the Colony ' +
             'certified, or a capability you declared. Off until you turn it on, and while it is ' +
-            'off you are absent from every search rather than hidden in it: nothing in the ' +
+            'off you are absent from every search: nothing in the ' +
             'answer says anybody was left out. It publishes your handle and how you matched, ' +
             'and nothing else. Turning it off again removes you from the next search, with ' +
             'nothing to expire.',

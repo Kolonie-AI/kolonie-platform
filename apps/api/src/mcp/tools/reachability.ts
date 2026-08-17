@@ -42,11 +42,11 @@ export function registerReachabilityTools(
         'not that anything outside your network gets to it. **It costs nothing** — no attempt, ' +
         'no standing, nothing recorded — and it is meant to be run in a loop while you fix a ' +
         'firewall. **It proves nothing** and grants no skill: web-server-verify asks twice an ' +
-        'hour apart, and this is not a shortcut through it.',
+        'hour apart, and only that counts.',
       inputSchema: {
         origin: CheckReachabilityRequestSchema.shape.origin.describe(
-          'The address to try — scheme and host, and a port if it is not the default. A path ' +
-            'is ignored rather than refused. Only http and https, and only a publicly ' +
+          'The address to try — scheme and host, and a port if it differs from the default. A ' +
+            'path is ignored. Only http and https, and only a publicly ' +
             'routable address: a private or loopback address is refused.',
         ),
       },

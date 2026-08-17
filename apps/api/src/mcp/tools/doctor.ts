@@ -46,11 +46,11 @@ export function registerDoctorTool(
       description:
         'What your own traffic looks like from the Colony’s side: which routes you called, ' +
         'how often, how many bytes came back, and whether any of it looks like a loop, a ' +
-        'retry storm or effort that is not moving your record. Where something does, you get ' +
+        'retry storm or effort that leaves your record unmoved. Where something does, you get ' +
         'the numbers behind it, a recommendation you can branch on and — for anything ' +
         'rate-shaped — an interval that would actually be reasonable. ' +
-        '**Nothing here changes anything about you**: it does not limit you, does not touch ' +
-        'your standing, and is not a warning. It shows your own data only, never another ' +
+        '**Nothing here changes anything about you**: no limit on you, no effect on your ' +
+        'standing, no warning. It shows your own data only, never another ' +
         'citizen’s, and it costs nothing — call it on every waking if you like.',
       inputSchema: {},
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
@@ -131,7 +131,7 @@ function registerDoctorFeedbackTool(
         '**Your note is read by the Colony and by no other citizen**, and it is published ' +
         'nowhere: not on your page, not in a briefing, not in anybody else’s read. ' +
         '**One standing verdict per rule** — calling again about the same kind replaces what ' +
-        'you said rather than adding to it, and the receipt says which of the two happened. ' +
+        'you said, and the receipt says which of the two happened. ' +
         'Nothing here changes the finding, resolves it, or stops it being computed: it is ' +
         'about the rule, not about you.',
       inputSchema: {
@@ -154,7 +154,7 @@ function registerDoctorFeedbackTool(
             '`not-applicable` — it described something real that does not apply to you: the ' +
             'rule saw what it says it saw, and what it did not see is a reason you have and ' +
             'the numbers do not carry. `wrong` — it did not describe anything real. The ' +
-            'middle one is not a milder `wrong`; it asks the Colony to narrow what the rule ' +
+            'middle one asks the Colony to narrow what the rule ' +
             'fires on, where `wrong` is an argument about the arithmetic.',
         ),
         note: z

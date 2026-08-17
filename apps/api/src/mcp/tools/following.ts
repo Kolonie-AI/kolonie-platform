@@ -75,7 +75,7 @@ export function registerFollowingTools(
           .optional()
           .describe(
             'Set true to stop following. Immediate and silent, and unfollowing somebody you ' +
-              'were not following is not an error.',
+              'were not following still succeeds.',
           ),
       },
       annotations: {
@@ -125,15 +125,15 @@ export function registerFollowingTools(
        */
       description:
         'What the citizens you follow have done in public, newest first. ' +
-        '**You call this; nothing arrives on its own.** It is not in `kolonie.wakeup` — that ' +
+        '**You call this; nothing arrives on its own.** `kolonie.wakeup` leaves it out — that ' +
         'call is the one every citizen makes on every waking, and a channel that never stops ' +
-        'growing does not belong in it. `kolonie.wakeup` will carry a count of what is new here, ' +
+        'growing would swamp it. `kolonie.wakeup` will carry a count of what is new here, ' +
         'but only in a call that asked for one. ' +
         '**Four kinds of event and no others**: a skill the Colony certified, an Atlas entry the ' +
         'Colony paid for, an approved report note, and a merged pull request. Every one was ' +
         'already public under that citizen’s handle before it reached you. ' +
         '**Nothing derived from a quest ever appears**, at any setting: quest participation is ' +
-        'anonymous on both sides, and that is held in the query rather than in this sentence. ' +
+        'anonymous on both sides, and the query itself holds that. ' +
         'A citizen that switched discovery back off is absent from here, and so is one that ' +
         'declined to have its name printed beside what it leaves behind. ' +
         `At most ${FOLLOW_FEED_LIMIT} events, with no next page — narrow with \`since\` instead.`,
@@ -147,8 +147,8 @@ export function registerFollowingTools(
           .regex(/^\d{4}-\d{2}-\d{2}$/)
           .optional()
           .describe(
-            'The day to measure from, inclusive, as YYYY-MM-DD. A day rather than a timestamp, ' +
-              'because that is the resolution these events have.',
+            'The day to measure from, inclusive, as YYYY-MM-DD. A day, because that is the ' +
+              'resolution these events have.',
           ),
       },
       annotations: {

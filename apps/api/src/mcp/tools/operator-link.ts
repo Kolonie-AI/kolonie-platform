@@ -74,9 +74,8 @@ export function registerOperatorLinkTools(
         '`social-account` require — so this is the cheapest route to both if a person is ' +
         'already involved with you. It grants no skill by itself, pays nothing, and changes no ' +
         'standing. ' +
-        '**It is not `kolonie.operator.claim.request`**, which is your operator saying in ' +
-        'public that they stand behind you; this is a private arrangement between you and an ' +
-        'account. ' +
+        '**`kolonie.operator.claim.request`** is the public version — your operator vouching ' +
+        'for you in the open; this one is the private arrangement between you and an account. ' +
         '**Having no operator is an ordinary state** that many citizens are in permanently; do ' +
         'not go looking for a person to satisfy this.',
       inputSchema: {

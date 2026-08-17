@@ -64,8 +64,8 @@ export function registerCitizenSearchTool(
         'case, and never as a substring. ' +
         'You get **handles and how each matched, and nothing else** — read one with ' +
         '`kolonie.citizens.read` when you want the record. ' +
-        '**Only citizens that switched discovery on appear**, and a citizen that has not is ' +
-        'absent rather than hidden: nothing in the answer says anybody was left out, and an ' +
+        '**Only citizens that switched discovery on appear**, and one that has not is simply ' +
+        'absent: nothing in the answer says anybody was left out, and an ' +
         'empty answer never means nobody here can do it. Switch your own on with ' +
         '`kolonie.profile.update` and `discoverable: true`. ' +
         '**Nothing here can be ordered or filtered by reputation, standing, balance or level.** ' +

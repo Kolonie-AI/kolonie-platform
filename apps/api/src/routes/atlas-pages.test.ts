@@ -1143,6 +1143,128 @@ describe('the Atlas on the website host', () => {
   })
 
   /**
+   * The four absences, and which of them prints a path (`#1169`).
+   *
+   * A `measured` row is an entry citizens walked and nobody wrote up, and it
+   * cannot carry steps: `recipeStatusAllowsSteps` refuses them in TypeScript and
+   * `provider_recipes_unjoinable_is_empty` refuses them in SQL. It fell through
+   * to the joinable layout all the same, so the page printed **What it takes**
+   * over *0 steps, none of them an operator’s* — the reading `#588` closed on the
+   * MCP side and left open on the surface a stranger meets.
+   *
+   * **The fixture is the four states side by side**: `walked.example` measured,
+   * `unwritten.example` unattempted, `bluesky` refused, `github` joinable with
+   * two steps. What is asserted is that each says its own thing and none of them
+   * says another's — the empty-state half of the issue — and that only the fourth
+   * renders a path.
+   */
+  describe('an entry with no steps, and the one with them', () => {
+    /**
+     * The page below `<main>`, for the reason `criteria.test.ts` gives: every
+     * class the body emits also appears in the stylesheet the page inlines, so a
+     * bare `toContain('k-atlas-shape')` is answered by the rule rather than by
+     * the list. The assertions below match on `class="…"` for the same reason.
+     */
+    const main = (body: string) => body.slice(body.indexOf('<main>'))
+
+    it('says a walked entry was walked and prints no path', async () => {
+      const body = main((await get('/atlas/walked.example')).body)
+
+      expect(body).toContain('class="k-unwritten"')
+      expect(body).toContain('Citizens have walked this one, and nobody has written the route.')
+      expect(body).toContain('a steward writes the route up from the walks')
+      expect(body).not.toContain('What it takes')
+      expect(body).not.toContain('class="k-atlas-shape"')
+      expect(body).not.toContain('0 steps')
+    })
+
+    /**
+     * The other side of the same fix: the layout the branch was carved out of
+     * still renders for the status it was written for.
+     */
+    it('still prints the path on an entry that has one', async () => {
+      const body = main((await get('/atlas/github')).body)
+
+      expect(body).toContain('What it takes')
+      expect(body).toContain('class="k-atlas-shape"')
+      expect(body).toContain('2 steps')
+      expect(body).not.toContain('nobody has written the route')
+    })
+
+    it('reads differently in each of the four states', async () => {
+      const walked = main((await get('/atlas/walked.example')).body)
+      const unwritten = main((await get('/atlas/unwritten.example')).body)
+      const refused = main((await get('/atlas/bluesky')).body)
+
+      expect(walked).toContain('nobody has written the route')
+      expect(walked).not.toContain('Nobody has written this one up yet')
+      expect(walked).not.toContain('do not try')
+
+      expect(unwritten).toContain('Nobody has written this one up yet')
+      expect(unwritten).not.toContain('nobody has written the route')
+      expect(unwritten).not.toContain('do not try')
+
+      expect(refused).toContain('This cannot be joined honestly, so do not try.')
+      expect(refused).not.toContain('nobody has written the route')
+    })
+
+    /**
+     * **The line that promised what the page had not got.** `citizenLine` offered
+     * *the ordered steps of the path* to anybody asking `kolonie.accounts.recipes`
+     * whenever an entry carried steps **or** walls, and a walled `measured` entry
+     * carries the second without the first. It now names what is actually there.
+     */
+    it('offers the remedy and not the steps where there are no steps', async () => {
+      await app.close()
+      app = build()
+      colony.recipes.write({
+        kind: 'mailbox',
+        provider: 'walled.example',
+        title: 'Walled',
+        status: 'measured',
+        walls: [
+          {
+            kind: 'phone-verification',
+            direction: 'inbound',
+            reportedBy: 4,
+            lastReportedAt: '2026-08-16T00:00:00.000Z',
+          },
+        ],
+      })
+      await app.ready()
+
+      const body = main((await get('/atlas/walled.example')).body)
+
+      expect(body).toContain('class="k-atlas-citizen"')
+      expect(body).toContain('the remedy that got past each wall')
+      expect(body).not.toContain('the ordered steps of the path')
+      expect(main((await get('/atlas/github')).body)).toContain('the ordered steps of the path')
+    })
+
+    /**
+     * **`#600`'s line, kept while the copy was fixed.** A walked entry may carry
+     * the last walker's own account of the way through; it reaches a citizen
+     * through `kolonie.accounts.recipes`, under their handle, and it is not
+     * published on a public page as the Colony's.
+     */
+    it('publishes no walker prose on the page', async () => {
+      await app.close()
+      app = build()
+      colony.recipes.route('mailbox', 'walked.example', {
+        walkId: '00000000-0000-4000-8000-000000000001',
+        route: 'I opened the signup form and it let me straight in.',
+        by: 'walker',
+      })
+      await app.ready()
+
+      const body = (await get('/atlas/walked.example')).body
+
+      expect(body).not.toContain('it let me straight in')
+      expect(body).not.toContain('@walker')
+    })
+  })
+
+  /**
    * The index is a contents page and stopped reading like one (`#1142`).
    *
    * 166 rows over 15 shelves is 90 kB of index, and the shelf a reader wants is

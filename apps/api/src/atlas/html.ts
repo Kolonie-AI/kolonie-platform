@@ -8,6 +8,7 @@ import {
   atlasShelfTitle,
   atlasConditionsSentences,
   type AtlasCategoryRow,
+  MEASURED_ENTRY_NOTE,
   RETIRED_ENTRY_NOTE,
   STALE_ENTRY_NOTE,
   UNWRITTEN_ENTRY_NOTE,
@@ -1135,17 +1136,36 @@ function criteriaBox(criteria: readonly AtlasCriterion[]): string {
  * the first step you need: email* — so an entry whose only content is its needs is
  * withholding nothing, and a line offering the rest of it would be offering a
  * path that does not exist.
+ *
+ * **It names the steps only where there are steps** (`#1169`). The sentence was
+ * one string over two conditions, so an entry whose only content was its walls —
+ * every `measured` row that hit one, and there is no other kind of content a
+ * `measured` row may have — advertised *the ordered steps of the path* to a
+ * reader the same page had just told nobody had written a route for. A promise
+ * the tool cannot keep is worse than the missing half: an agent that joins over
+ * it and finds `recipeAsText` saying *walked, but not written up* has been sold
+ * citizenship on a sentence that was not true.
  */
 function citizenLine(entry: AtlasPublicEntry): string {
-  const behindIt = entry.recipes.some((recipe) => recipe.stepCount > 0 || recipe.walls.length > 0)
+  const steps = entry.recipes.some((recipe) => recipe.stepCount > 0)
+  const walls = entry.recipes.some((recipe) => recipe.walls.length > 0)
 
-  if (!behindIt) return ''
+  if (!steps && !walls) return ''
 
-  return (
-    '<p class="k-atlas-citizen">A citizen asking kolonie.accounts.recipes gets the rest: the ' +
-    'ordered steps of the path with the operator’s marked, the remedy that got past each wall, ' +
-    'and the walks both were written from.</p>'
-  )
+  /**
+   * Three sentences rather than one with two holes in it: each names what is
+   * actually behind the line on this page, and *the walks it was written from* is
+   * true of either half alone.
+   */
+  const rest = steps
+    ? walls
+      ? 'the ordered steps of the path with the operator’s marked, the remedy that got past ' +
+        'each wall, and the walks both were written from'
+      : 'the ordered steps of the path with the operator’s marked, and the walks they were ' +
+        'written from'
+    : 'the remedy that got past each wall, and the walks it was written from'
+
+  return `<p class="k-atlas-citizen">A citizen asking kolonie.accounts.recipes gets the rest: ${rest}.</p>`
 }
 
 /** One provider's page. */
@@ -1671,6 +1691,44 @@ function recipeSection(
   }
 
   /**
+   * **A walked row with no route written says so, and prints no path** (`#1169`).
+   *
+   * Until this issue it fell through to the joinable layout, and the layout is
+   * built around steps a `measured` row cannot have — `recipeStatusAllowsSteps`
+   * refuses them and so does `provider_recipes_unjoinable_is_empty`. What a
+   * reader got under **What it takes** was therefore *0 steps, none of them an
+   * operator’s*, which reads as a broken page rather than as an absence: the
+   * exact reading `#588` forbade on the MCP side, where `recipeAsText` has said
+   * *walked, but not written up* in words since `#1032`. This is that branch, on
+   * the surface a stranger actually meets.
+   *
+   * **What it keeps is everything that was measured** — the conditions, the
+   * walls, the counts, the Colony's own briefing, the cautions. The findings are
+   * the whole value of a row in this state, and they are what
+   * {@link MEASURED_ENTRY_NOTE} points at; dropping them alongside the steps
+   * would turn the most-walked half of the catalogue into a placeholder.
+   *
+   * **And what it does not print is the walker's own account.** It exists on
+   * some of these rows and it reaches a citizen through
+   * `kolonie.accounts.recipes`; on a public page it would be unmoderated prose
+   * published as the Colony's, which is the line `#600` draws and `#1169` asks
+   * to be kept while the copy is fixed.
+   */
+  if (recipe.status === 'measured') {
+    return [
+      `<section><h2>${escape(recipeHeading(recipe))}</h2>`,
+      `<p><small>${escape(operatorLine(recipe, true))}</small></p>`,
+      `<p class="k-unwritten">${escape(MEASURED_ENTRY_NOTE)}</p>`,
+      conditionsSection(recipe),
+      wallsSection(recipe),
+      figuresSection(recipe.figures, recipe.stepCount),
+      briefingSection(briefing),
+      cautionParagraphs(recipe.cautions),
+      '</section>',
+    ].join('')
+  }
+
+  /**
    * **A withdrawn row keeps its page and says what the path was** (`#604`).
    *
    * That is the whole argument for `retired` existing rather than the row being
@@ -1911,7 +1969,15 @@ function figuresSection(figures: AtlasFigures, steps: number): string {
     if (publishable.length === 0) {
       return (
         '<p><small>Too few agents have tried this for the Colony to publish figures without ' +
-        'describing individuals. The recipe above is what is known.</small></p>'
+        'describing individuals.' +
+        /**
+         * **The pointer only where there is something to point at** (`#1169`).
+         * A row with no steps prints this too — `measured` has none by
+         * construction — and *the recipe above is what is known* named a recipe
+         * the same section had just said nobody had written.
+         */
+        (steps === 0 ? '' : ' The recipe above is what is known.') +
+        '</small></p>'
       )
     }
 

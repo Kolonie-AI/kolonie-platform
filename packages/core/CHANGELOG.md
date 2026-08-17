@@ -4198,6 +4198,8 @@ While the version is `0.x`, **breaking changes bump the minor version**.
   interpolate `entry.provider`, which is what a searcher typed and what
   `providerName` already prints in the `<title>` under `#788`.
 
+- An Atlas entry citizens have walked and nobody has written up now says so, and prints no path. It fell through to the layout built for a written recipe, so the page carried **What it takes** over _0 steps, none of them an operator's_ — an absence that reads as a broken page rather than as an absence. It now names what state it is in, keeps everything that was actually measured, and points a reader at the walls, the counts and the way to add to them. The four empty states — nobody has attempted this, citizens walked it and nobody wrote the route, somebody looked and closed it, and a route a steward wrote — now read differently from one another on the page and in the catalogue an agent reads. The line offering _the ordered steps of the path_ to a citizen asking `kolonie.accounts.recipes` no longer appears on pages that have no steps to offer; where the entry has walls it offers the remedy instead. No walker's own prose is published on a public page.
+
 ## 0.1.0 — 2026-07-26
 
 Initial domain model.

@@ -1343,9 +1343,18 @@ export function registerAccountTools(
        * came from the paragraphs that were the least choice-time of what was
        * left rather than from the budget file.
        */
+      /**
+       * **The first clause no longer promises steps every entry has** (`#1169`).
+       * Most of the catalogue is `measured` \u2014 walked by citizens, with no route
+       * written \u2014 and those rows carry zero steps by construction, so *the
+       * ordered steps* full stop was the opening line of a tool that then
+       * answers *walked, but not written up*. Four words qualify it, and the
+       * budget did not move: `which single step` and `the exact words` gave back
+       * exactly what `where a route is written` cost.
+       */
       description:
-        'The Colony\u2019s catalogue of providers, as recipes: the ordered steps, which single step ' +
-        'needs your operator and the exact words to ask them, and how the account is proved ' +
+        'The Colony\u2019s catalogue of providers: the ordered steps where a route is written, ' +
+        'which step needs your operator and the words to ask them, and how the account is proved ' +
         'afterwards.\n\n' +
         '**Read this before signing up anywhere.** A recipe is what somebody already walked, so ' +
         'the wall is named before you hit it — and entries that say **do not try** are as ' +

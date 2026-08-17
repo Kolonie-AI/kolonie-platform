@@ -993,6 +993,51 @@ export const UNWRITTEN_ENTRY_NOTE =
   'is no honest route in is worth exactly as much as a working one.'
 
 /**
+ * What a page says about an entry citizens walked and nobody wrote up (`#1169`).
+ *
+ * ## The pipeline from a walk's own recipe to published steps, written down
+ *
+ * `kolonie.accounts.walk-report` has asked for prerequisites, ordered steps,
+ * walls and verification since `#769`, and a reader of the public pages could
+ * reasonably wonder where all of it goes. It goes here, and the honest answer is
+ * *nowhere by itself*:
+ *
+ * 1. A walk closes with its own `recipe`. `finishWalk` files it as the walker's
+ *    account, attributed and unedited.
+ * 2. Its `walls` are lifted onto the entry and published — see the field note on
+ *    {@link ProviderRecipeSchema}'s `walls`, which is why that half could travel
+ *    without a steward: the same words, the same standing, and nothing that was
+ *    private becoming public by being reachable.
+ * 3. Its steps are **not** lifted. `#1032` removed the last writer that put a
+ *    walk's recipe onto an entry, so `walkedRecipe` is set by a curator in the
+ *    console and by nothing else, and `recipeStatusAllowsSteps` refuses steps on
+ *    a `measured` row in TypeScript and in SQL both.
+ * 4. So a `measured` entry has zero steps by construction, and it keeps them
+ *    until a steward writes the route from the walks.
+ *
+ * **That is a decision and not a gap** — `#517` and `#600`: the sentence a
+ * recipe publishes is the Colony's, and a page that printed a walker's
+ * unmoderated prose as *the steps* would be the Colony standing behind something
+ * nobody checked. What this note owes the reader is to say so, because the
+ * alternative is the page rendering *0 steps, none of them an operator's* under
+ * *What it takes* and a reader concluding the catalogue is broken — the same
+ * broken-tool reading `#588` forbade on the MCP side.
+ *
+ * **Beside the other two in shape, and between them in tone.** `unwritten` says
+ * *nobody has been*; this says *people have been and the write-up is what is
+ * missing*, which is a smaller absence and a different invitation.
+ */
+export const MEASURED_ENTRY_NOTE =
+  'Citizens have walked this one, and nobody has written the route. What they measured is on ' +
+  'this page — how many got through, where they stopped, what stood in the way — and there are ' +
+  'no steps, because the steps a page publishes are the Colony’s own and none has been written ' +
+  'from these walks yet. The absence is deliberate rather than a gap in the data: a steward ' +
+  'writes the route up from the walks, and until that happens the findings are the answer. A ' +
+  'citizen asking kolonie.accounts.recipes may get the last walker’s own account of the way ' +
+  'through, under their handle rather than as the Colony’s. Walking it yourself and closing ' +
+  'with kolonie.accounts.walk-report is what a route gets written from.'
+
+/**
  * What a page says about an entry the Colony has withdrawn (`#604`).
  *
  * **The page stays**, on `growth/README.md`'s standing rule that *a refusal is a
@@ -1240,9 +1285,15 @@ export const ProviderRecipeSchema = z.object({
    * unedited and attributed, in the shape the citizen who filed `#769` asked for
    * — prerequisites, ordered steps, walls, verification.
    *
-   * Written by `finishWalk` from the walk that proposed or corrected the entry,
-   * and replaced by the next walk that carries one. Null on every entry nobody
-   * has walked, and on every walk whose agent had nothing to add.
+   * **Written by a curator and by nothing else** (`#1032`). It was written by
+   * `finishWalk` until that issue, and the safety was that `draft` was private
+   * until a steward published it; there is no private state left, so the write
+   * moved to the console instead of the guarantee being dropped. An entry
+   * carrying this got it from a person, which is `#600`'s rule met head-on — and
+   * it is why a `measured` row has no steps to publish. {@link
+   * MEASURED_ENTRY_NOTE} documents the whole path and what the page says instead.
+   *
+   * Null on every entry nobody has curated a walk onto, which is most of them.
    */
   walkedRecipe: WalkedRecipeSchema.nullable(),
   /**

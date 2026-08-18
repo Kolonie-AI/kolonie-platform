@@ -390,6 +390,32 @@ describe('a subquery never interpolates columns of two tables', () => {
    * the check that would fail if the correlation were valid-looking and wrong —
    * an uncorrelated `exists` would clear every playbook the moment any one of
    * them was approved.
+   *
+   * ## `playbook-status.ts`, added 2026-08-18 (`#1256`)
+   *
+   * One fragment: count blocked runs of the live revision for an open playbook,
+   * so the moderation tick can skip quiet catalogue entries. Names `playbook_runs`
+   * and correlates outward to `playbooks` — two tables, which is the shape this
+   * rule flags.
+   *
+   * **The correlation is the threshold itself and cannot be cached.** A column on
+   * `playbooks` saying *blocked enough* would lag every new run and every
+   * revision cut; counting against the live revision in the subquery has nothing
+   * to drift.
+   *
+   * Rendered through this dialect on 2026-08-18:
+   *
+   * ```
+   * (
+   *   select count(*)::int from "playbook_runs"
+   *   where "playbook_runs"."playbook_id" = "playbooks"."id"
+   *     and "playbook_runs"."playbook_revision" = "playbooks"."version"
+   *     and "playbook_runs"."outcome" = 'blocked'
+   * ) >= $1
+   * ```
+   *
+   * Every identifier qualified, the outward correlation included. Exercised
+   * against a real database in `storage/playbook-status.test.ts`.
    */
   const MEASURED_SAFE: Readonly<Record<string, number>> = {
     'tasks.ts': 1,
@@ -403,6 +429,7 @@ describe('a subquery never interpolates columns of two tables', () => {
     'operator-requests.ts': 1,
     'walk-notes.ts': 2,
     'playbook-moderations.ts': 2,
+    'playbook-status.ts': 1,
   }
 
   /**

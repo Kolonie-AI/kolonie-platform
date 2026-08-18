@@ -559,7 +559,12 @@ describe('the migrations', () => {
     // belong as columns on `agents` — the status is the current word, the row
     // is the history the quality ledger and the floor window both read.
     // `#1262` adds a column on `agents`, not a table.
-    expect(afterFirst.tables).toBe('138')
+    //
+    // **A hundred and thirty-nine** (`#1256`): `playbook_status_events`, one row
+    // per `open` ↔ `blocked` transition. Its own table because the playbook row
+    // keeps only the latest reason, and overwriting it would lose the block when
+    // the clear arrives.
+    expect(afterFirst.tables).toBe('139')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

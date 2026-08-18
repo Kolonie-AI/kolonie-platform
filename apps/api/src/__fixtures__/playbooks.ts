@@ -3,8 +3,9 @@ import {
   now as currentTime,
   PLAYBOOK_EDITABLE_STATUSES,
   PLAYBOOK_FORKABLE_STATUSES,
+  emptyPlaybookSignalsTally,
   PLAYBOOK_RUN_OUTCOMES,
-  PLAYBOOK_RUN_SIGNALS,
+  tallyPlaybookSignals,
   type Account,
   type AgentId,
   type Playbook,
@@ -213,14 +214,8 @@ export function fakePlaybooks(): FakePlaybooks {
       },
 
       async signals(playbookId) {
-        const tally = Object.fromEntries(
-          PLAYBOOK_RUN_SIGNALS.map((signal) => [signal, 0]),
-        ) as Record<(typeof PLAYBOOK_RUN_SIGNALS)[number], number>
-        for (const run of filed.values()) {
-          if (run.playbookId !== playbookId) continue
-          for (const signal of run.signals) tally[signal] += 1
-        }
-        return tally
+        const runs = [...filed.values()].filter((run) => run.playbookId === playbookId)
+        return runs.length === 0 ? emptyPlaybookSignalsTally(0) : tallyPlaybookSignals(runs)
       },
 
       async notes({ playbookId, outcome, cursor, limit = 50 }) {

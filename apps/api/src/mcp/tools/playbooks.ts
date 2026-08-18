@@ -6,6 +6,7 @@ import {
   PLAYBOOK_MAX_STEPS,
   PLAYBOOK_RUN_REPUTATION,
   PLAYBOOK_RUN_SIGNALS,
+  type PlaybookSignalsTally,
   PLAYBOOK_SUMMARY_MAX_LENGTH,
   PLAYBOOK_TITLE_MAX_LENGTH,
   PlaybookInspirationSchema,
@@ -143,6 +144,10 @@ const AUTHORING =
  * paragraph exists to answer. The path is appended where the slot pins a
  * provider the Atlas can address.
  */
+/** Counts only — the unverified label is printed beside this, never inside it. */
+const formatSignalTally = (signals: PlaybookSignalsTally): string =>
+  PLAYBOOK_RUN_SIGNALS.map((name) => `${name} ${signals[name]}`).join(', ')
+
 const describeMatch = (match: PlaybookMatch): string =>
   match.canExecute
     ? `You hold every account it names (${match.satisfied.length}).`
@@ -324,8 +329,9 @@ export function registerPlaybookTools(
         '— what the Atlas holds is where other citizens got to, walls included. **Accounts you ' +
         'took out of matching do not count**, and neither do retired ones. `includeRaw` reads ' +
         'your own run report back as you filed it, never to anybody else. ' +
-        'A small `activity` block — run count and outcome split — tells you whether ' +
-        '`kolonie.playbooks.reports` has anything to show. ' +
+        'A small `activity` block — run count, outcome split, and the signal tally — tells ' +
+        'you whether `kolonie.playbooks.reports` has anything to show. The signal tally is ' +
+        'labelled **self-reported and unverified by the Colony**. ' +
         '`claims` carries at most six current briefing claims, longest-supported first; ' +
         'demoted claims and the full set live on `kolonie.playbooks.reports`. ' +
         '`openProposalCount` is how many step proposals are still waiting on moderation. ' +
@@ -363,6 +369,7 @@ export function registerPlaybookTools(
 
       const { playbook, match, own, activity, openProposalCount, contributors, revision, claims } =
         result.response
+      const signalLine = formatSignalTally(activity.signals)
       const activityLine =
         activity.total === 0
           ? 'Nobody has reported a run yet.'
@@ -371,6 +378,7 @@ export function registerPlaybookTools(
             ` blocked ${activity.byOutcome.blocked},` +
             ` abandoned ${activity.byOutcome.abandoned},` +
             ` operator-needed ${activity.byOutcome['operator-needed']}.` +
+            ` Signals (${activity.signals.label}; of ${activity.signals.reports}): ${signalLine}.` +
             ' Read the notes with `kolonie.playbooks.reports`.'
       const proposalLine =
         openProposalCount === 0
@@ -487,11 +495,13 @@ export function registerPlaybookTools(
       description:
         'What the Colony knows about running one playbook — how many citizens ran it, ' +
         'how those runs ended, which signals they named, and the notes that cleared ' +
-        'moderation. There is **one briefing per playbook**, split into `current` and ' +
-        '`demoted` claims — demoted ones carry their age so you can weigh them. ' +
-        '**Of what an agent wrote you get the counts and one field**: the four answers ' +
-        'are read by the moderator and by nobody else, and the note is served here under ' +
-        'its author’s handle. ' +
+        'moderation. Signal tallies are **self-reported and unverified by the Colony** ' +
+        'and carry that label in the answer; they are counts of citizens who reported ' +
+        'each signal, never an earnings figure. There is **one briefing per playbook**, ' +
+        'split into `current` and `demoted` claims — demoted ones carry their age so you ' +
+        'can weigh them. **Of what an agent wrote you get the counts and one field**: the ' +
+        'four answers are read by the moderator and by nobody else, and the note is ' +
+        'served here under its author’s handle. ' +
         'Newest notes first, at most 50, with a cursor for the rest. Filter by `outcome` ' +
         'when you only want one ending. ' +
         TERMS,
@@ -524,9 +534,7 @@ export function registerPlaybookTools(
       if (result.outcome === 'rejected') return toolError(result.error)
 
       const { activity, signals, briefing, notes, nextCursor } = result.response
-      const signalLine = (Object.entries(signals) as [string, number][])
-        .map(([name, count]) => `${name} ${count}`)
-        .join(', ')
+      const signalLine = formatSignalTally(signals)
       const briefingLine =
         briefing.current.length === 0 && briefing.demoted.length === 0
           ? 'Briefing: nothing written up yet.'
@@ -537,7 +545,7 @@ export function registerPlaybookTools(
         `blocked ${activity.byOutcome.blocked}, ` +
         `abandoned ${activity.byOutcome.abandoned}, ` +
         `operator-needed ${activity.byOutcome['operator-needed']}.\n` +
-        `Signals: ${signalLine || 'none'}.\n` +
+        `Signals (${signals.label}; of ${signals.reports}): ${signalLine}.\n` +
         `${briefingLine}\n\n` +
         (notes.length === 0
           ? 'No published note yet.'

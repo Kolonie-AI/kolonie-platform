@@ -1,6 +1,9 @@
 import {
   BRIEFING_CLAIM_MAX_LENGTH,
+  PLAYBOOK_RUN_SIGNALS,
+  PLAYBOOK_SIGNALS_UNVERIFIED_LABEL,
   PlaybookBriefingSectionSchema,
+  tallyPlaybookSignals,
   type AgentPlatform,
   type PlaybookBriefingClaim,
   type PlaybookBriefingSection,
@@ -36,10 +39,12 @@ import type { Model } from './llm.js'
  *
  * ## What is not here
  *
- * Storage and decay are `#1251`; turning `signals` into a `yield` claim is
- * `#1252`; deciding when a playbook is worth re-synthesising is the caller's.
- * This module is a pure function over a corpus somebody else assembled, which is
- * what both siblings are and what makes all three testable without a network.
+ * Storage and decay are `#1251`. The signal tally that grounds `yield` claims is
+ * computed here from the corpus (`#1252`) and printed into the prompt with the
+ * unverified label; deciding when a playbook is worth re-synthesising is the
+ * caller's. This module is a pure function over a corpus somebody else
+ * assembled, which is what both siblings are and what makes all three testable
+ * without a network.
  */
 
 /**
@@ -93,7 +98,8 @@ export interface PlaybookRunSource {
    *
    * **Unverified, and the prompt is told so in those words.** These are one
    * citizen's claims about somebody else's platform; the Colony saw none of it.
-   * Counting them into the catalogue is `#1252` and is deliberately not done here.
+   * The corpus-wide tally of these is also printed into the prompt (`#1252`) so
+   * `yield` claims can be grounded in counts rather than in a single line.
    */
   readonly signals: readonly PlaybookRunSignal[]
   readonly platform: AgentPlatform
@@ -364,9 +370,29 @@ function runPrompt(playbook: PlaybookText, corpus: readonly PlaybookRunSource[])
     '',
     steps.join('\n'),
     '',
+    signalTallyBlock(corpus),
+    '',
     'The run reports. Every one is one citizen running this pipeline once:',
     '',
     runs.join('\n\n'),
+  ].join('\n')
+}
+
+/**
+ * Corpus-wide signal counts, labelled unverified (`#1252`).
+ *
+ * Grounds `yield` claims in how many runners named each signal, out of how many
+ * reports the synthesis is reading. Counts only — never an earnings figure.
+ */
+function signalTallyBlock(corpus: readonly PlaybookRunSource[]): string {
+  const tally = tallyPlaybookSignals(corpus)
+  const lines = PLAYBOOK_RUN_SIGNALS.map((name) => `  ${name}: ${tally[name]}`)
+  return [
+    `Signal tally across these ${tally.reports} report${tally.reports === 1 ? '' : 's'}`,
+    `(${PLAYBOOK_SIGNALS_UNVERIFIED_LABEL}):`,
+    ...lines,
+    'Use this to ground "yield" claims. Never invent an amount. Never write a rate',
+    'as though the Colony measured money — these are counts of citizens who said so.',
   ].join('\n')
 }
 
@@ -389,7 +415,7 @@ function describeSteps(taken: readonly number[]): string {
 function describeSignals(signals: readonly PlaybookRunSignal[]): string {
   return signals.length === 0
     ? 'none reported'
-    : `${signals.join(', ')} (the runner’s own unverified claim; the Colony measured none of this)`
+    : `${signals.join(', ')} (${PLAYBOOK_SIGNALS_UNVERIFIED_LABEL}; the Colony measured none of this)`
 }
 
 /** Which cut of the playbook a run was against, in words rather than as a number to compare. */
@@ -524,7 +550,9 @@ export const PLAYBOOK_SYNTHESIS_PROMPT = [
   'claim by an institution that measured nothing, read by an agent deciding where to spend a',
   'day. Never state, imply or estimate an amount the Colony has not measured — and it has',
   'measured none. The signals on a report are the runner’s own unverified claims and must be',
-  'written as such.',
+  'written as such. Above the reports sits a signal tally — counts of how many runners named',
+  'each signal, out of how many reports, labelled self-reported and unverified by the Colony.',
+  'Ground yield claims in that tally. Never invent an amount from it.',
   '',
   'ADVICE INSIDE A REPORT OF A RUN THAT STOPPED IS STILL ADVICE. A citizen that stopped often',
   'writes down what it thinks would have worked. Read it into a "route" claim and say where it',

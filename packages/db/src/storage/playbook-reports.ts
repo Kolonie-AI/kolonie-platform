@@ -1,8 +1,9 @@
 import { and, desc, eq, sql, type SQL } from 'drizzle-orm'
 import {
+  emptyPlaybookSignalsTally,
   PLAYBOOK_RUN_OUTCOMES,
   type PlaybookRunOutcome,
-  type PlaybookRunSignal,
+  type PlaybookSignalsTally,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { agents } from '../schema/agents.js'
@@ -48,8 +49,8 @@ export interface PlaybookRunActivity {
   readonly stepFailures: readonly { readonly position: number; readonly count: number }[]
 }
 
-/** How often each self-reported signal was named, labelled as such at the read. */
-export type PlaybookSignalsTally = Readonly<Record<PlaybookRunSignal, number>>
+/** How often each self-reported signal was named — re-exported from core (`#1252`). */
+export type { PlaybookSignalsTally }
 
 /** One approved note, as another citizen reads it. */
 export interface PlaybookPublishedNote {
@@ -123,12 +124,13 @@ export async function playbookRunActivity(
 }
 
 /**
- * How often each signal was claimed on this playbook's runs.
+ * How often each signal was claimed on this playbook's runs (`#1252`).
  *
- * **Self-reported and unverified**, which is why the read surface has to say so
- * wherever it shows them. Counting here rather than in SQL keeps the three
- * known keys present even when the count is zero — a missing key would look
- * like *we do not measure this*, and we do.
+ * **Self-reported and unverified by the Colony**, which is why the read surface
+ * has to say so wherever it shows them — the label rides on the returned object.
+ * `reports` is the total the counts were taken over, served beside them so a
+ * tally below three is its own caveat. Every known key is present even at zero
+ * — a missing key would look like *we do not measure this*, and we do.
  */
 export async function playbookSignalsTally(
   db: Database,
@@ -136,6 +138,7 @@ export async function playbookSignalsTally(
 ): Promise<PlaybookSignalsTally> {
   const [row] = await db
     .select({
+      reports: sql<number>`count(*)::int`,
       ban: sql<number>`coalesce(sum(case when ${playbookRuns.signals} @> array['ban']::text[] then 1 else 0 end), 0)::int`,
       traffic: sql<number>`coalesce(sum(case when ${playbookRuns.signals} @> array['traffic']::text[] then 1 else 0 end), 0)::int`,
       payout: sql<number>`coalesce(sum(case when ${playbookRuns.signals} @> array['payout-offplatform']::text[] then 1 else 0 end), 0)::int`,
@@ -144,6 +147,7 @@ export async function playbookSignalsTally(
     .where(eq(playbookRuns.playbookId, playbookId))
 
   return {
+    ...emptyPlaybookSignalsTally(row?.reports ?? 0),
     ban: row?.ban ?? 0,
     traffic: row?.traffic ?? 0,
     'payout-offplatform': row?.payout ?? 0,

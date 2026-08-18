@@ -30,7 +30,7 @@ import {
   type PlaybookRunNoteStatus,
   type PlaybookRunOutcome,
   type PlaybookRunReport,
-  type PlaybookRunSignal,
+  type PlaybookSignalsTally,
   type PlaybookStatus,
   type PlaybookStepProposal,
   type PlaybookStepProposalKind,
@@ -621,8 +621,6 @@ export type PlaybookRunActivity = {
   readonly stepFailures: readonly { readonly position: number; readonly count: number }[]
 }
 
-export type PlaybookSignalsTally = Readonly<Record<PlaybookRunSignal, number>>
-
 export type PlaybookPublishedNote = {
   readonly noteId: string
   readonly note: string
@@ -637,14 +635,18 @@ export type PlaybookPublishedNotesPage = {
 }
 
 /**
- * The small activity block `kolonie.playbooks.get` carries (`#1247`).
+ * The small activity block `kolonie.playbooks.get` carries (`#1247`, `#1252`).
  *
- * Run count and outcome split only — enough that a reader who called `get` knows
- * there is something to read. The notes and the signals stay in `reports`.
+ * Run count, outcome split, and the signal tally — enough that a reader who
+ * called `get` knows there is something to read and what runners claimed came
+ * back. The notes themselves stay in `reports`. The signal tally carries its
+ * own unverified label; `list` and `frontier` never see it and never order by it.
  */
 export type PlaybookActivitySummary = {
   readonly total: number
   readonly byOutcome: Readonly<Record<PlaybookRunOutcome, number>>
+  /** Self-reported and unverified by the Colony — see the tally's `label`. */
+  readonly signals: PlaybookSignalsTally
 }
 
 /**
@@ -937,14 +939,16 @@ export async function readPlaybook(
     found.authorAgentId === agentId
   if (!readable) return { outcome: 'rejected', error: noSuchPlaybook }
 
-  const [accounts, mine, activity, openProposalCount, contributors, claims] = await Promise.all([
-    deps.held(agentId),
-    query.data.includeRaw === true ? deps.runs.mine(agentId, found.id) : null,
-    deps.runs.activity(found.id),
-    deps.proposals.countOpen(found.id),
-    deps.revisions.contributors(found.id),
-    deps.briefing.summary(found.id),
-  ])
+  const [accounts, mine, activity, signals, openProposalCount, contributors, claims] =
+    await Promise.all([
+      deps.held(agentId),
+      query.data.includeRaw === true ? deps.runs.mine(agentId, found.id) : null,
+      deps.runs.activity(found.id),
+      deps.runs.signals(found.id),
+      deps.proposals.countOpen(found.id),
+      deps.revisions.contributors(found.id),
+      deps.briefing.summary(found.id),
+    ])
 
   return {
     outcome: 'read',
@@ -952,7 +956,7 @@ export async function readPlaybook(
       playbook: found,
       match: matchPlaybook(found, accounts),
       own: mine ? ownRun(mine) : null,
-      activity: { total: activity.total, byOutcome: activity.byOutcome },
+      activity: { total: activity.total, byOutcome: activity.byOutcome, signals },
       openProposalCount,
       contributors: contributors.map((one) => ({
         handle: one.handle,

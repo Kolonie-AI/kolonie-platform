@@ -149,9 +149,27 @@ describe('counting and listing what a playbook has produced', () => {
     })
 
     expect(await playbookSignalsTally(db, playbookId)).toEqual({
+      reports: 2,
       ban: 1,
       traffic: 2,
       'payout-offplatform': 0,
+      label: 'self-reported and unverified by the Colony',
+    })
+  })
+
+  it('serves a tally below three reports as-is with the total beside it (#1252)', async () => {
+    await ran(runnerId, {
+      outcome: 'completed',
+      did: 'Finished once.',
+      signals: ['payout-offplatform'],
+    })
+
+    expect(await playbookSignalsTally(db, playbookId)).toEqual({
+      reports: 1,
+      ban: 0,
+      traffic: 0,
+      'payout-offplatform': 1,
+      label: 'self-reported and unverified by the Colony',
     })
   })
 

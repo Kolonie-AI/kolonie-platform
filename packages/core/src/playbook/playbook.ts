@@ -582,6 +582,75 @@ export const PlaybookRunSignalSchema = z.enum(PLAYBOOK_RUN_SIGNALS)
 export type PlaybookRunSignal = z.infer<typeof PlaybookRunSignalSchema>
 
 /**
+ * The words every surface that serves a signal tally must carry (`#1252`).
+ *
+ * Exact phrase, not a paraphrase: the Colony measured none of this, and a
+ * reader deciding whether to spend a day on a pipeline must see that before
+ * the counts.
+ */
+export const PLAYBOOK_SIGNALS_UNVERIFIED_LABEL =
+  'self-reported and unverified by the Colony' as const
+
+/**
+ * How often each signal was claimed on a playbook's runs (`#1252`).
+ *
+ * **Counts of citizens who reported a signal, never an earnings figure.** The
+ * Colony measures no money and must not appear to. `reports` is the total the
+ * tallies were taken over — served beside the counts so a tally of two out of
+ * two reads as *two people said so*, not as a rate, and a tally below three is
+ * served as-is with that total as the caveat (no suppression).
+ *
+ * `label` is {@link PLAYBOOK_SIGNALS_UNVERIFIED_LABEL}, carried in the
+ * structured answer so a surface that forgets to print it still hands the
+ * reader the words.
+ */
+export const PlaybookSignalsTallySchema = z
+  .object({
+    reports: z.number().int().min(0),
+    ban: z.number().int().min(0),
+    traffic: z.number().int().min(0),
+    'payout-offplatform': z.number().int().min(0),
+    label: z.literal(PLAYBOOK_SIGNALS_UNVERIFIED_LABEL),
+  })
+  .strict()
+export type PlaybookSignalsTally = z.infer<typeof PlaybookSignalsTallySchema>
+
+/** An empty tally over `reports` runs — every signal at zero, label attached. */
+export function emptyPlaybookSignalsTally(reports = 0): PlaybookSignalsTally {
+  return {
+    reports,
+    ban: 0,
+    traffic: 0,
+    'payout-offplatform': 0,
+    label: PLAYBOOK_SIGNALS_UNVERIFIED_LABEL,
+  }
+}
+
+/**
+ * Tally signals across a set of runs (`#1252`).
+ *
+ * One citizen naming a signal once is one count. Used by the synthesis corpus
+ * (over the moderated notes it is about to write from) and by any in-memory
+ * fixture that mirrors the storage tally.
+ */
+export function tallyPlaybookSignals(
+  runs: readonly { readonly signals: readonly PlaybookRunSignal[] }[],
+): PlaybookSignalsTally {
+  const tally = emptyPlaybookSignalsTally(runs.length)
+  const counts = {
+    ban: 0,
+    traffic: 0,
+    'payout-offplatform': 0,
+  }
+  for (const run of runs) {
+    for (const signal of run.signals) {
+      counts[signal] += 1
+    }
+  }
+  return { ...tally, ...counts }
+}
+
+/**
  * Which of the playbook's steps the runner actually took.
  *
  * The walk's `takenStepPositions` idiom, bounded by {@link PLAYBOOK_MAX_STEPS}:

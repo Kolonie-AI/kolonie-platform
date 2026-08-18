@@ -1,18 +1,18 @@
-import { PLAYBOOK_RUN_SIGNALS } from '@kolonie-ai/core'
+import { emptyPlaybookSignalsTally, PLAYBOOK_SIGNALS_UNVERIFIED_LABEL } from '@kolonie-ai/core'
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { describe, expect, it } from 'vitest'
 import { connectedClient, registeredCitizen } from '../../__fixtures__/mcp.js'
 import type { PlaybookReportsResult } from '../../playbooks.js'
 
 /**
- * What running a playbook has produced (`#1247`, `#1251`).
+ * What running a playbook has produced (`#1247`, `#1251`, `#1252`).
  *
  * Storage asserts the SQL — that only `notePublished` is selected, that
  * `attributed: false` blanks the handle, that pending and rejected notes stay
  * out. This side asserts the decision the tool makes: which playbooks may be
  * read at all, that `briefing` is the current/demoted split, that no derived
- * earnings appear, and that `get` carries the small activity block that points
- * here.
+ * earnings appear, that signal tallies carry the unverified label, and that
+ * `get` carries the small activity block (with signals) that points here.
  */
 const reports = (args: Record<string, unknown>) => ({
   name: 'kolonie.playbooks.reports',
@@ -51,12 +51,47 @@ describe('kolonie.playbooks.reports (#1247)', () => {
         abandoned: 0,
         'operator-needed': 0,
       })
-      expect(body.signals).toEqual(Object.fromEntries(PLAYBOOK_RUN_SIGNALS.map((s) => [s, 0])))
+      expect(body.signals).toEqual(emptyPlaybookSignalsTally(0))
       expect(body.briefing).toEqual({ current: [], demoted: [] })
       expect(body.notes).toEqual([])
       expect(body.nextCursor).toBeNull()
       expect(JSON.stringify(body)).not.toMatch(/earning|lamport|sol\b/i)
       expect(textOf(read)).toContain('Briefing: nothing written up yet')
+      expect(textOf(read)).toContain(PLAYBOOK_SIGNALS_UNVERIFIED_LABEL)
+    } finally {
+      await close()
+    }
+  })
+
+  it('tallies signals with the unverified label and the report total (#1252)', async () => {
+    const { colony, agent, client, close } = await aCitizen()
+    const playbook = colony.playbooks.playbook({ slug: 'signalled-pipeline', status: 'open' })
+
+    try {
+      await colony.playbooks.runs.record({
+        playbookId: playbook.id,
+        agentId: agent.id,
+        report: {
+          outcome: 'completed',
+          did: 'Finished and saw replies arrive.',
+          signals: ['traffic', 'payout-offplatform'],
+        },
+      })
+
+      const read = await client.callTool(reports({ playbook: playbook.slug }))
+
+      expect(read.isError).toBeFalsy()
+      const body = resultOf(read)
+      expect(body.signals).toEqual({
+        reports: 1,
+        ban: 0,
+        traffic: 1,
+        'payout-offplatform': 1,
+        label: PLAYBOOK_SIGNALS_UNVERIFIED_LABEL,
+      })
+      expect(textOf(read)).toContain(PLAYBOOK_SIGNALS_UNVERIFIED_LABEL)
+      expect(textOf(read)).toContain('of 1')
+      expect(JSON.stringify(body)).not.toMatch(/earning|lamport|sol\b/i)
     } finally {
       await close()
     }
@@ -112,7 +147,7 @@ describe('kolonie.playbooks.reports (#1247)', () => {
     }
   })
 
-  it('get carries the activity summary that points at reports', async () => {
+  it('get carries the activity summary — with signal tally — that points at reports', async () => {
     const { colony, agent, client, close } = await aCitizen()
     const playbook = colony.playbooks.playbook({ slug: 'active-pipeline', status: 'open' })
 
@@ -123,6 +158,7 @@ describe('kolonie.playbooks.reports (#1247)', () => {
         report: {
           outcome: 'completed',
           did: 'Ran every step in order and got to the end.',
+          signals: ['ban'],
         },
       })
 
@@ -131,12 +167,30 @@ describe('kolonie.playbooks.reports (#1247)', () => {
       expect(read.isError).toBeFalsy()
       const activity = (
         read.structuredContent as {
-          activity: { total: number; byOutcome: Record<string, number> }
+          activity: {
+            total: number
+            byOutcome: Record<string, number>
+            signals: {
+              reports: number
+              ban: number
+              traffic: number
+              'payout-offplatform': number
+              label: string
+            }
+          }
         }
       ).activity
       expect(activity.total).toBe(1)
       expect(activity.byOutcome.completed).toBe(1)
+      expect(activity.signals).toEqual({
+        reports: 1,
+        ban: 1,
+        traffic: 0,
+        'payout-offplatform': 0,
+        label: PLAYBOOK_SIGNALS_UNVERIFIED_LABEL,
+      })
       expect(textOf(read)).toContain('kolonie.playbooks.reports')
+      expect(textOf(read)).toContain(PLAYBOOK_SIGNALS_UNVERIFIED_LABEL)
       // Notes and the full briefing split stay in reports; get carries claims.
       expect(read.structuredContent as object).not.toHaveProperty('notes')
       expect(read.structuredContent as object).not.toHaveProperty('briefing')

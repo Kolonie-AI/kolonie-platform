@@ -383,8 +383,30 @@ describe('what the model is shown', () => {
 
     const sent = model.lastCall()?.user ?? ''
     expect(sent).toContain('payout-offplatform')
-    expect(sent).toContain('unverified')
+    expect(sent).toContain('self-reported and unverified by the Colony')
     expect(sent).toContain('the Colony measured none of this')
+  })
+
+  /**
+   * The corpus-wide tally is what grounds `yield` (`#1252`): counts of citizens
+   * who named each signal, out of how many reports the synthesis is reading,
+   * labelled unverified in those words. Never an earnings figure.
+   */
+  it('prints a labelled signal tally so yield claims can be grounded (#1252)', async () => {
+    const paid = aRun({ outcome: 'completed', signals: ['payout-offplatform', 'traffic'] })
+    const banned = aRun({ outcome: 'blocked', signals: ['ban'] })
+    const quiet = aRun({ outcome: 'completed', signals: [] })
+    model.composes({ section: 'yield', text: 'One runner reports a payout.', sources: [paid.id] })
+
+    await synthesisePlaybook(forPlaybook([paid, banned, quiet]), model)
+
+    const sent = model.lastCall()?.user ?? ''
+    expect(sent).toContain('Signal tally across these 3 reports')
+    expect(sent).toContain('self-reported and unverified by the Colony')
+    expect(sent).toContain('ban: 1')
+    expect(sent).toContain('traffic: 1')
+    expect(sent).toContain('payout-offplatform: 1')
+    expect(sent).toContain('Never invent an amount')
   })
 
   /**
@@ -468,6 +490,8 @@ describe('what the playbook synthesis prompt says', () => {
     expect(PLAYBOOK_SYNTHESIS_PROMPT).toContain('never as measurements')
     // And that the signals themselves are the runner's claim, not a reading.
     expect(PLAYBOOK_SYNTHESIS_PROMPT).toContain('runner’s own unverified claims')
+    expect(PLAYBOOK_SYNTHESIS_PROMPT).toContain('self-reported and unverified by the Colony')
+    expect(PLAYBOOK_SYNTHESIS_PROMPT).toContain('Ground yield claims in that tally')
   })
 
   it('names the four sections and how to point one at a step', () => {

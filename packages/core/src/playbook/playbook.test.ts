@@ -2,13 +2,17 @@ import { describe, expect, it } from 'vitest'
 import {
   applyPlaybookStepProposal,
   applyPlaybookStepProposals,
+  emptyPlaybookSignalsTally,
   PLAYBOOK_MAX_STEPS,
-  ProposePlaybookStepSchema,
   PLAYBOOK_RUN_OUTCOMES,
+  PLAYBOOK_RUN_SIGNALS,
+  PLAYBOOK_SIGNALS_UNVERIFIED_LABEL,
   PLAYBOOK_STATUSES,
+  ProposePlaybookStepSchema,
   PlaybookDraftSchema,
   PlaybookRequiredAccountSchema,
   PlaybookSlugSchema,
+  tallyPlaybookSignals,
   type PlaybookStepProposalFold,
 } from './playbook.js'
 
@@ -33,6 +37,31 @@ describe('a playbook as it is written', () => {
   it('carries the statuses and outcomes the record froze', () => {
     expect(PLAYBOOK_STATUSES).toEqual(['draft', 'review', 'open', 'blocked', 'retired'])
     expect(PLAYBOOK_RUN_OUTCOMES).toEqual(['completed', 'blocked', 'abandoned', 'operator-needed'])
+  })
+
+  it('tallies signals as counts with the unverified label (#1252)', () => {
+    expect(PLAYBOOK_RUN_SIGNALS).toEqual(['ban', 'traffic', 'payout-offplatform'])
+    expect(PLAYBOOK_SIGNALS_UNVERIFIED_LABEL).toBe('self-reported and unverified by the Colony')
+    expect(emptyPlaybookSignalsTally(0)).toEqual({
+      reports: 0,
+      ban: 0,
+      traffic: 0,
+      'payout-offplatform': 0,
+      label: PLAYBOOK_SIGNALS_UNVERIFIED_LABEL,
+    })
+    expect(
+      tallyPlaybookSignals([
+        { signals: ['ban', 'traffic'] },
+        { signals: ['traffic'] },
+        { signals: [] },
+      ]),
+    ).toEqual({
+      reports: 3,
+      ban: 1,
+      traffic: 2,
+      'payout-offplatform': 0,
+      label: PLAYBOOK_SIGNALS_UNVERIFIED_LABEL,
+    })
   })
 
   it('accepts a whole draft, and defaults the gate to open', () => {

@@ -161,7 +161,29 @@ describe('kolonie.playbooks.list/.get/.frontier (#1174)', () => {
     // answers none of the slots.
     expect(textOf(read)).toContain('Do the thing')
     // Activity is present even when empty, so a reader knows reports exists (`#1247`).
-    expect((read.structuredContent as { activity: { total: number } }).activity.total).toBe(0)
+    // Signal tally rides on activity with the unverified label (`#1252`).
+    const activity = (
+      read.structuredContent as {
+        activity: {
+          total: number
+          signals: {
+            reports: number
+            ban: number
+            traffic: number
+            'payout-offplatform': number
+            label: string
+          }
+        }
+      }
+    ).activity
+    expect(activity.total).toBe(0)
+    expect(activity.signals).toEqual({
+      reports: 0,
+      ban: 0,
+      traffic: 0,
+      'payout-offplatform': 0,
+      label: 'self-reported and unverified by the Colony',
+    })
     expect(textOf(read)).toContain('Nobody has reported a run yet')
     // Open proposal count is present even when empty (`#1253`).
     expect((read.structuredContent as { openProposalCount: number }).openProposalCount).toBe(0)
@@ -590,6 +612,41 @@ describe('kolonie.playbooks.list/.get/.frontier (#1174)', () => {
     const suggested = summariesOf(await client.callTool(frontier()))
 
     expect(suggested.map((row) => row.slug)).toEqual(['one-away', 'two-away'])
+    await close()
+  })
+
+  /**
+   * Ordering by reported earnings would be a ranking of unverified claims and
+   * would be gamed within a week (`#1252`, `#430 F`). list and frontier keep
+   * fewest-missing then recency; a playbook whose runs claim payouts must not
+   * leapfrog a newer one with none.
+   */
+  it('orders frontier by missing slots and recency, never by run signals (#1252)', async () => {
+    const { colony, agent, client, close } = await aCitizen()
+    const older = colony.playbooks.playbook({
+      slug: 'claims-payouts',
+      status: 'open',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    })
+    colony.playbooks.playbook({
+      slug: 'quiet-and-newer',
+      status: 'open',
+      createdAt: '2026-06-01T00:00:00.000Z',
+    })
+    // Older playbook is drowning in unverified payout claims. Must not reorder.
+    await colony.playbooks.runs.record({
+      playbookId: older.id,
+      agentId: agent.id,
+      report: {
+        outcome: 'completed',
+        did: 'Ran it end to end and money moved off-platform.',
+        signals: ['payout-offplatform', 'traffic'],
+      },
+    })
+
+    const suggested = summariesOf(await client.callTool(frontier()))
+
+    expect(suggested.map((row) => row.slug)).toEqual(['quiet-and-newer', 'claims-payouts'])
     await close()
   })
 

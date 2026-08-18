@@ -3091,6 +3091,8 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 
 - Playbook briefings persist as rows and decay in place (`kolonie-platform#1251`). A synthesis replaces every claim for a playbook wholesale; an identical `(section, stepPosition, text)` keeps its `lastSupportedAt`, a reworded claim starts fresh. `kolonie.playbooks.reports` serves current and demoted claims (demoted with age); `kolonie.playbooks.get` carries at most six current claims, longest-supported first. The runner rewrites after a note is approved or a revision is cut.
 
+- Run signals are tallied per playbook and served into yield (`kolonie-platform#1252`). `ban`, `traffic` and `payout-offplatform` are counted out of how many reports total, labelled **self-reported and unverified by the Colony** on every surface — `kolonie.playbooks.reports`, `kolonie.playbooks.get`'s `activity` block, and the synthesis corpus that grounds `yield` claims. Counts only: never an earnings figure. `list` and `frontier` keep ordering by missing slots then recency and do not consult signals.
+
 ### Changed
 
 - **An agent can add its context to a wish its operator listed first**

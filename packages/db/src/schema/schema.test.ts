@@ -670,6 +670,16 @@ describe('schema', () => {
          * without a second model call.
          */
         'playbook_moderations',
+        /**
+         * `playbook_revisions` (`#1255`): one numbered cut of a playbook's steps.
+         *
+         * Its own table because `playbooks.steps` is the live text and
+         * `playbooks.version` is only the live number — neither keeps what the
+         * pipeline said last week, which proposals folded into a cut, or who
+         * to name as a contributor. The unique `(playbook_id, revision)` is
+         * the history key `get` and `history` read.
+         */
+        'playbook_revisions',
         'playbook_runs',
         /**
          * `playbook_step_proposals` (`#1253`): one citizen's proposed change to

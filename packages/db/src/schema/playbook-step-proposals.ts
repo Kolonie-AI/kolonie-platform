@@ -83,6 +83,24 @@ export const playbookStepProposals = pgTable(
      */
     rejectionReason: text('rejection_reason'),
 
+    /**
+     * When a revision folded this accepted proposal in (`#1255`).
+     *
+     * Null until the fold tick writes a revision that includes it. An accepted
+     * row with a null here is what the tick selects. Set only on `accepted`.
+     */
+    foldedAt: timestamp('folded_at', { withTimezone: true, mode: 'string' }),
+
+    /**
+     * Why a fold that included this proposal was abandoned (`#1255`).
+     *
+     * Written when the combined pipeline fails the draft schema (empty steps,
+     * undeclared slots, over the ceiling). The proposal returns to `pending`
+     * with this set, and the moderation queue skips it so the same combination
+     * cannot loop. Cleared when the row is superseded by a version bump.
+     */
+    foldRefusalReason: text('fold_refusal_reason'),
+
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),
@@ -116,6 +134,19 @@ export const playbookStepProposals = pgTable(
     check(
       'playbook_step_proposals_reason_is_a_rejection',
       sql`${table.rejectionReason} is null or ${table.status} = 'rejected'`,
+    ),
+    /** A fold stamp belongs to an accepted proposal and to nothing else. */
+    check(
+      'playbook_step_proposals_folded_is_accepted',
+      sql`${table.foldedAt} is null or ${table.status} = 'accepted'`,
+    ),
+    /**
+     * A fold refusal belongs to a pending row that was bounced back from a
+     * failed cut. Accepted / rejected / superseded carry none.
+     */
+    check(
+      'playbook_step_proposals_fold_refusal_is_pending',
+      sql`${table.foldRefusalReason} is null or ${table.status} = 'pending'`,
     ),
     /**
      * Open proposals, counted fast for both rate limits.

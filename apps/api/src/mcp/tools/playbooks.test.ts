@@ -124,7 +124,8 @@ describe('kolonie.playbooks.list/.get/.frontier (#1174)', () => {
     )
 
     expect(reads).toHaveLength(listed.length - writes.length - 1)
-    expect(reads).toHaveLength(3)
+    // list, get, frontier, history (`#1255`).
+    expect(reads).toHaveLength(4)
     expect(listed.map((tool) => tool.name)).toContain(reportSurface)
     for (const tool of listed) {
       expect(tool.description, tool.name).toContain('never carries a credential')

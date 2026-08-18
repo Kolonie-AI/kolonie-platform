@@ -41,10 +41,12 @@ import { questReportTick, type QuestReportLoopDependencies } from './quest-repor
 import {
   playbookNoteTick,
   playbookProposalTick,
+  playbookRevisionTick,
   playbookTick,
   type PlaybookLoopDependencies,
   type PlaybookNoteLoopDependencies,
   type PlaybookProposalLoopDependencies,
+  type PlaybookRevisionLoopDependencies,
 } from './playbooks.js'
 import { directionTick, type DirectionLoopDependencies } from './directions.js'
 import { profileTick, type ProfileLoopDependencies } from './profiles.js'
@@ -188,6 +190,15 @@ export interface LoopDependencies {
    * accepted proposals do not apply themselves until `#1255` either way.
    */
   readonly playbookProposals?: PlaybookProposalLoopDependencies
+  /**
+   * Folding accepted step proposals into playbook revisions (`#1255`).
+   *
+   * Runs after {@link playbookProposals} so a proposal accepted this cycle can
+   * fold in the same pass. Optional: an unwired runner leaves accepted
+   * proposals unfolded, which is the safe degradation — the live steps stay
+   * as they were.
+   */
+  readonly playbookRevisions?: PlaybookRevisionLoopDependencies
   /**
    * Reading what citizens said they want to become (`#140`).
    *
@@ -1015,6 +1026,44 @@ async function moderatePlaybookProposals(
 }
 
 /**
+ * One pass folding accepted proposals into revisions (`#1255`).
+ *
+ * Its failure is swallowed for the same reason as the proposal pass: an
+ * unfolded acceptance costs nobody anything, and the live steps stay put.
+ */
+async function moderatePlaybookRevisions(
+  deps: LoopDependencies,
+  batchSize: number,
+  log: Log,
+): Promise<void> {
+  const { playbookRevisions } = deps
+  if (playbookRevisions === undefined) return
+
+  try {
+    const outcome = await playbookRevisionTick({ log, ...playbookRevisions }, batchSize)
+    if (outcome.considered > 0) {
+      log.info(
+        `playbook revisions: ${outcome.cut} cut, ${outcome.incoherent} incoherent, ` +
+          `${outcome.folded} proposals folded, ${outcome.returned} returned`,
+        {
+          event: 'playbook-revisions.pass.done',
+          considered: outcome.considered,
+          cut: outcome.cut,
+          incoherent: outcome.incoherent,
+          folded: outcome.folded,
+          returned: outcome.returned,
+          empty: outcome.empty,
+        },
+      )
+    }
+  } catch (error) {
+    log.error('the playbook revision fold pass failed', error, {
+      event: 'playbook-revisions.pass.failed',
+    })
+  }
+}
+
+/**
  * How many quest polls pass between sweeps of the held quests (`#759`).
  *
  * **A multiplier rather than a second interval**, following
@@ -1297,6 +1346,7 @@ export function startQuestRunner(deps: LoopDependencies, options: RunnerOptions 
         await moderatePlaybooks(deps, batchSize, log)
         await moderatePlaybookNotes(deps, batchSize, log)
         await moderatePlaybookProposals(deps, batchSize, log)
+        await moderatePlaybookRevisions(deps, batchSize, log)
         lastPollAt = new Date().toISOString()
         consecutiveFailures = 0
         if (running) await pause(pollIntervalMs)

@@ -1,4 +1,4 @@
-import { and, asc, count, eq, lt, ne, sql } from 'drizzle-orm'
+import { and, asc, count, eq, isNull, lt, ne, sql } from 'drizzle-orm'
 import {
   PLAYBOOK_STEP_PROPOSALS_OPEN_PER_PLAYBOOK,
   PLAYBOOK_STEP_PROPOSALS_OPEN_TOTAL,
@@ -38,6 +38,8 @@ const toProposal = (row: typeof playbookStepProposals.$inferSelect): PlaybookSte
   againstVersion: row.againstVersion,
   status: row.status as PlaybookStepProposalStatus,
   rejectionReason: row.rejectionReason,
+  foldedAt: row.foldedAt,
+  foldRefusalReason: row.foldRefusalReason,
   createdAt: row.createdAt,
   updatedAt: row.updatedAt,
 })
@@ -182,6 +184,7 @@ export async function supersedeStalePlaybookStepProposals(
     .update(playbookStepProposals)
     .set({
       status: 'superseded',
+      foldRefusalReason: null,
       updatedAt: new Date().toISOString(),
     })
     .where(
@@ -301,6 +304,9 @@ export async function pendingPlaybookStepProposalsForModeration(
       and(
         eq(playbookStepProposals.status, 'pending'),
         eq(playbookStepProposals.againstVersion, playbooks.version),
+        // A fold that bounced the proposal back left a reason; re-judging the
+        // same combination would loop. Supersede-on-bump clears these (#1255).
+        isNull(playbookStepProposals.foldRefusalReason),
       ),
     )
     .orderBy(asc(playbookStepProposals.createdAt))
@@ -475,6 +481,8 @@ export async function recordPlaybookStepProposalVerdict(
         detail: input.detail,
         why: input.why,
         rejectionReason: null,
+        foldedAt: null,
+        foldRefusalReason: null,
         updatedAt: now,
       })
       .where(eq(playbookStepProposals.id, input.proposalId))

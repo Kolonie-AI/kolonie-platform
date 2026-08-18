@@ -2094,6 +2094,13 @@
       "when": 1787075337451,
       "tag": "0298_playbook_step_proposals",
       "breakpoints": true
+    },
+    {
+      "idx": 299,
+      "version": "7",
+      "when": 1787079993386,
+      "tag": "0299_playbook_revisions",
+      "breakpoints": true
     }
   ]
 }

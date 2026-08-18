@@ -229,12 +229,48 @@ export interface PlaybookProposals {
   countOpen(playbookId: string): Promise<number>
 }
 
+/**
+ * Revisions and contributors (`#1255`).
+ *
+ * Its own port: folding is a runner concern, but reading history and naming
+ * contributors is what a citizen asks for at `get` and `history`.
+ */
+export interface PlaybookRevisions {
+  contributors(playbookId: string): Promise<
+    readonly {
+      readonly handle: string | null
+      readonly agentId: AgentId
+      readonly contributions: number
+      readonly isCreator: boolean
+    }[]
+  >
+  history(playbookId: string): Promise<
+    readonly {
+      readonly revision: number
+      readonly cutAt: string
+      readonly proposalIds: readonly string[]
+      readonly changes: readonly {
+        readonly kind: 'replace' | 'insert' | 'remove'
+        readonly position: number
+        readonly title: string
+      }[]
+      readonly contributors: readonly {
+        readonly handle: string | null
+        readonly agentId: AgentId
+        readonly contributions: number
+        readonly isCreator: boolean
+      }[]
+    }[]
+  >
+}
+
 export interface PlaybookDependencies {
   readonly catalogue: PlaybookCatalogue
   readonly held: (agentId: AgentId) => Promise<readonly Account[]>
   readonly runs: PlaybookRunLog
   readonly authoring: PlaybookAuthoring
   readonly proposals: PlaybookProposals
+  readonly revisions: PlaybookRevisions
 }
 
 /** How many playbooks one listing answers with. */
@@ -649,6 +685,20 @@ export type PlaybookReadResult = {
    * knows something is being argued about the pipeline it is about to run.
    */
   readonly openProposalCount: number
+  /**
+   * Who wrote this pipeline and who improved it (`#1255`).
+   *
+   * Creator first; then citizens with accepted-and-folded proposals. A handle
+   * is null where that citizen set `attributed: false`. Claim authors from
+   * approved run notes land here once `#1251` stores claims.
+   */
+  readonly contributors: readonly {
+    readonly handle: string | null
+    readonly contributions: number
+    readonly isCreator: boolean
+  }[]
+  /** Live revision number — equal to `playbook.version` (`#1255`). */
+  readonly revision: number
 }
 
 /**
@@ -692,6 +742,8 @@ export type PlaybookOwnRun = {
     readonly status: PlaybookRunNoteStatus
     readonly reason: string | null
   } | null
+  /** Which revision this report ran against (`#1255`). Null before revisions. */
+  readonly playbookRevision: number | null
   readonly filedAt: string
   readonly updatedAt: string
 }
@@ -712,6 +764,7 @@ const ownRun = (run: PlaybookRun): PlaybookOwnRun => ({
     run.note === null || run.noteStatus === null
       ? null
       : { text: run.note, status: run.noteStatus, reason: run.noteRejectionReason },
+  playbookRevision: run.playbookRevision,
   filedAt: run.createdAt,
   updatedAt: run.updatedAt,
 })
@@ -859,11 +912,12 @@ export async function readPlaybook(
     found.authorAgentId === agentId
   if (!readable) return { outcome: 'rejected', error: noSuchPlaybook }
 
-  const [accounts, mine, activity, openProposalCount] = await Promise.all([
+  const [accounts, mine, activity, openProposalCount, contributors] = await Promise.all([
     deps.held(agentId),
     query.data.includeRaw === true ? deps.runs.mine(agentId, found.id) : null,
     deps.runs.activity(found.id),
     deps.proposals.countOpen(found.id),
+    deps.revisions.contributors(found.id),
   ])
 
   return {
@@ -874,6 +928,53 @@ export async function readPlaybook(
       own: mine ? ownRun(mine) : null,
       activity: { total: activity.total, byOutcome: activity.byOutcome },
       openProposalCount,
+      contributors: contributors.map((one) => ({
+        handle: one.handle,
+        contributions: one.contributions,
+        isCreator: one.isCreator,
+      })),
+      revision: found.version,
+    },
+  }
+}
+
+export type PlaybookHistoryResult = {
+  readonly playbook: { readonly slug: string; readonly title: string; readonly revision: number }
+  readonly history: Awaited<ReturnType<PlaybookRevisions['history']>>
+}
+
+/**
+ * The cuts a playbook has taken (`#1255`).
+ *
+ * Newest first. Diffs against the previous cut; revision 1 has no changes.
+ * Same visibility as `readPlaybook`: listed statuses, or the author's own.
+ */
+export async function historyPlaybook(
+  input: unknown,
+  agentId: AgentId,
+  deps: PlaybookDependencies,
+): Promise<PlaybookOutcome<PlaybookHistoryResult>> {
+  const query = PlaybookGetQuerySchema.safeParse(input)
+  if (!query.success) return { outcome: 'rejected', error: noSuchPlaybook }
+
+  const found =
+    (await deps.catalogue.bySlug(query.data.playbook)) ??
+    (await deps.catalogue.byId(query.data.playbook))
+
+  if (found === null) return { outcome: 'rejected', error: noSuchPlaybook }
+
+  const readable =
+    (PLAYBOOK_LISTED_STATUSES as readonly string[]).includes(found.status) ||
+    found.authorAgentId === agentId
+  if (!readable) return { outcome: 'rejected', error: noSuchPlaybook }
+
+  const history = await deps.revisions.history(found.id)
+
+  return {
+    outcome: 'read',
+    response: {
+      playbook: { slug: found.slug, title: found.title, revision: found.version },
+      history,
     },
   }
 }

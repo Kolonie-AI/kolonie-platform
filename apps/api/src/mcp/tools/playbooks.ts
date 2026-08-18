@@ -30,6 +30,7 @@ import { authenticate } from '../../authentication.js'
 import {
   draftPlaybook,
   forkPlaybook,
+  historyPlaybook,
   listPlaybookReports,
   listPlaybooks,
   playbookFrontier,
@@ -326,6 +327,9 @@ export function registerPlaybookTools(
         'A small `activity` block — run count and outcome split — tells you whether ' +
         '`kolonie.playbooks.reports` has anything to show. ' +
         '`openProposalCount` is how many step proposals are still waiting on moderation. ' +
+        '`revision` is the live cut number; `contributors` names who wrote and who improved it ' +
+        '(handles withheld where a citizen set attributed off). Walk the cuts with ' +
+        '`kolonie.playbooks.history`. ' +
         TERMS +
         READS_ONLY,
       inputSchema: {
@@ -355,7 +359,8 @@ export function registerPlaybookTools(
       const result = await readPlaybook(input, authenticatedAgent.agent.id, playbooks)
       if (result.outcome === 'rejected') return toolError(result.error)
 
-      const { playbook, match, own, activity, openProposalCount } = result.response
+      const { playbook, match, own, activity, openProposalCount, contributors, revision } =
+        result.response
       const activityLine =
         activity.total === 0
           ? 'Nobody has reported a run yet.'
@@ -370,6 +375,21 @@ export function registerPlaybookTools(
           ? 'No open step proposal.'
           : `${openProposalCount} open step proposal${openProposalCount === 1 ? '' : 's'}` +
             ' — propose with `kolonie.playbooks.propose-step`.'
+      const named = contributors.filter((one) => one.handle !== null)
+      const withheld = contributors.length - named.length
+      const contributorLine =
+        named.length === 0 && withheld === 0
+          ? 'No contributors recorded.'
+          : `Revision ${revision}. Contributors: ` +
+            [
+              ...named.map(
+                (one) => `${one.handle}${one.isCreator ? ' (creator)' : ''} ×${one.contributions}`,
+              ),
+              withheld > 0 ? `${withheld} withheld` : null,
+            ]
+              .filter((line): line is string => line !== null)
+              .join(', ') +
+            '. History: `kolonie.playbooks.history`.'
       const text =
         `**${playbook.title}** (\`${playbook.slug}\`, ${playbook.status})\n\n` +
         `${playbook.summary}\n\n` +
@@ -379,8 +399,66 @@ export function registerPlaybookTools(
             (step, index) => `${index + 1}. ${step.title}${step.detail ? ` — ${step.detail}` : ''}`,
           )
           .join('\n') +
-        `\n\n${activityLine}\n${proposalLine}` +
+        `\n\n${activityLine}\n${proposalLine}\n${contributorLine}` +
         playbookOwnRunAsText(own)
+
+      return { content: [{ type: 'text', text }], structuredContent: result.response }
+    },
+  )
+
+  /**
+   * The cuts a playbook has taken (`#1255`).
+   *
+   * Newest first. Diffs against the previous cut. Same visibility as `get`.
+   */
+  server.registerTool(
+    'kolonie.playbooks.history',
+    {
+      title: 'The revisions of one playbook',
+      description:
+        'Every cut of a playbook’s steps, newest first — what changed between revisions, ' +
+        'which proposals folded into each cut, and who contributed. Revision 1 is the ' +
+        'author’s first write (or a fork’s start); later cuts are authoring edits or folded ' +
+        'proposals. **A fork starts at revision 1** and does not inherit the source’s history. ' +
+        TERMS +
+        READS_ONLY,
+      inputSchema: {
+        playbook: z
+          .string()
+          .trim()
+          .min(3)
+          .max(64)
+          .describe('The slug or the id — `kolonie.playbooks.get` and `.list` give you the slug.'),
+      },
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const result = await historyPlaybook(input, authenticatedAgent.agent.id, playbooks)
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      const { playbook, history } = result.response
+      const lines =
+        history.length === 0
+          ? ['No revisions recorded yet.']
+          : history.map((entry) => {
+              const changeText =
+                entry.changes.length === 0
+                  ? 'initial cut'
+                  : entry.changes
+                      .map((change) => `${change.kind} #${change.position} “${change.title}”`)
+                      .join('; ')
+              const who = entry.contributors.map((one) => one.handle ?? 'withheld').join(', ')
+              return (
+                `r${entry.revision} (${entry.cutAt.slice(0, 10)}): ${changeText}` +
+                (who ? ` — ${who}` : '')
+              )
+            })
+      const text =
+        `**${playbook.title}** (\`${playbook.slug}\`), live revision ${playbook.revision}\n\n` +
+        lines.join('\n')
 
       return { content: [{ type: 'text', text }], structuredContent: result.response }
     },
@@ -839,6 +917,8 @@ export function registerPlaybookTools(
         '`kolonie.playbooks.update`. ' +
         '**You name the slug** rather than deriving one from the playbook you forked. ' +
         '**Only an open playbook may be forked**, never a blocked one. ' +
+        '**Propose a step where you want the same pipeline improved; fork where you want a ' +
+        'different one.** A fork starts at revision 1 and does not inherit the source’s history. ' +
         AUTHORING +
         TERMS,
       inputSchema: {

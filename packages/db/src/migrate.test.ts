@@ -536,13 +536,12 @@ describe('the migrations', () => {
     // the thing being destroyed. It holds no key to the offer for the same
     // reason.
     //
-    // **A hundred and thirty-four** (`#1253`): `playbook_step_proposals`, one
-    // citizen's proposed change to one step of a published playbook. Its own
-    // table rather than a column on `playbooks` or `playbook_runs` because a
-    // proposal is not a run and is not the pipeline — it survives being
-    // declined, it cites the version it was filed against, and moderation
-    // (`#1254`) judges it without rewriting the playbook underneath readers.
-    expect(afterFirst.tables).toBe('134')
+    // **A hundred and thirty-five** (`#1255`): `playbook_revisions`, one cut of
+    // a playbook's steps per row — the history `playbooks.version` and
+    // `playbooks.steps` cannot keep. Folded proposal ids ride along so
+    // contributors and `history` can name who changed what without reading the
+    // live text backwards. `#1253` put `playbook_step_proposals` at 134.
+    expect(afterFirst.tables).toBe('135')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

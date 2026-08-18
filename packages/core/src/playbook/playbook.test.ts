@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  applyPlaybookStepProposal,
+  applyPlaybookStepProposals,
   PLAYBOOK_MAX_STEPS,
   ProposePlaybookStepSchema,
   PLAYBOOK_RUN_OUTCOMES,
@@ -7,6 +9,7 @@ import {
   PlaybookDraftSchema,
   PlaybookRequiredAccountSchema,
   PlaybookSlugSchema,
+  type PlaybookStepProposalFold,
 } from './playbook.js'
 
 const step = (title: string) => ({ title })
@@ -180,5 +183,129 @@ describe('a step proposal as it is written', () => {
         why: key,
       }).success,
     ).toBe(false)
+  })
+})
+
+/**
+ * Folding an accepted proposal into a step list (`#1255`).
+ *
+ * `cutPlaybookRevision` (`packages/db/src/storage/playbook-revisions.ts`) is
+ * what calls this against a whole batch inside a transaction; what is tested
+ * here is the pure step underneath it, one proposal and then several in filing
+ * order.
+ */
+describe('applying a step proposal to a step list (#1255)', () => {
+  const steps = [step('Read the open tickets'), step('Write one reply'), step('Close the ticket')]
+
+  const fold = (overrides: Partial<PlaybookStepProposalFold> = {}): PlaybookStepProposalFold => ({
+    id: '11111111-1111-4111-8111-111111111111',
+    kind: 'replace',
+    position: 2,
+    title: 'Write one careful reply',
+    detail: null,
+    ...overrides,
+  })
+
+  it('replace keeps the step’s own usesSlots and needsOperator, not the proposal’s', () => {
+    const gated = {
+      title: 'Read the open tickets',
+      usesSlots: ['mailbox'],
+      needsOperator: true,
+    }
+    const withGates = [gated, step('Write one reply')]
+
+    const next = applyPlaybookStepProposal(withGates, fold({ position: 1, title: 'Read faster' }))
+
+    expect(next[0]).toEqual({
+      title: 'Read faster',
+      usesSlots: ['mailbox'],
+      needsOperator: true,
+    })
+    // A copy, not the same array reference the old step held.
+    expect(next[0]?.usesSlots).not.toBe(gated.usesSlots)
+  })
+
+  it('replace with a null detail clears whatever detail the step had', () => {
+    const withDetail = [{ title: 'Write one reply', detail: 'Be polite.' }]
+
+    const next = applyPlaybookStepProposal(
+      withDetail,
+      fold({ position: 1, title: 'Write one reply', detail: null }),
+    )
+
+    expect(next[0]).toEqual({ title: 'Write one reply' })
+    expect(Object.hasOwn(next[0]!, 'detail')).toBe(false)
+  })
+
+  it('insert-after 0 inserts a new first step', () => {
+    const next = applyPlaybookStepProposal(
+      steps,
+      fold({ kind: 'insert-after', position: 0, title: 'Confirm the mailbox still works' }),
+    )
+
+    expect(next.map((one) => one.title)).toEqual([
+      'Confirm the mailbox still works',
+      'Read the open tickets',
+      'Write one reply',
+      'Close the ticket',
+    ])
+  })
+
+  it('insert-after mid-pipeline inserts after that step, not before it', () => {
+    const next = applyPlaybookStepProposal(
+      steps,
+      fold({ kind: 'insert-after', position: 2, title: 'Flag anything unclear' }),
+    )
+
+    expect(next.map((one) => one.title)).toEqual([
+      'Read the open tickets',
+      'Write one reply',
+      'Flag anything unclear',
+      'Close the ticket',
+    ])
+  })
+
+  it('remove drops exactly the step at that position', () => {
+    const next = applyPlaybookStepProposal(
+      steps,
+      fold({ kind: 'remove', position: 2, title: null }),
+    )
+
+    expect(next.map((one) => one.title)).toEqual(['Read the open tickets', 'Close the ticket'])
+  })
+
+  it('files several proposals in order, each against the result of the last', () => {
+    const next = applyPlaybookStepProposals(steps, [
+      fold({ kind: 'remove', position: 3, title: null }),
+      fold({ kind: 'insert-after', position: 0, title: 'Confirm the mailbox still works' }),
+      fold({ kind: 'replace', position: 2, title: 'Read the open tickets carefully' }),
+    ])
+
+    // Remove first (drops "Close the ticket"), then insert at the front, then
+    // replace what is now position 2 — the original "Read the open tickets",
+    // pushed one place down by the insert that ran before it.
+    expect(next.map((one) => one.title)).toEqual([
+      'Confirm the mailbox still works',
+      'Read the open tickets carefully',
+      'Write one reply',
+    ])
+  })
+
+  it('throws on a replace or remove position that is not in the list', () => {
+    expect(() => applyPlaybookStepProposal(steps, fold({ kind: 'replace', position: 0 }))).toThrow(
+      /unreal/,
+    )
+    expect(() => applyPlaybookStepProposal(steps, fold({ kind: 'replace', position: 99 }))).toThrow(
+      /unreal/,
+    )
+    expect(() =>
+      applyPlaybookStepProposal(steps, fold({ kind: 'remove', position: 99, title: null })),
+    ).toThrow(/unreal/)
+  })
+
+  it('throws on an insert-after position past the end', () => {
+    expect(() =>
+      applyPlaybookStepProposal(steps, fold({ kind: 'insert-after', position: 4, title: 'Nope' })),
+    ).toThrow(/unreal/)
   })
 })

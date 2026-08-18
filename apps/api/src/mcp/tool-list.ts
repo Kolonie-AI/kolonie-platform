@@ -646,6 +646,11 @@ export const AUTHENTICATED_TOOLS = [
    * verb for *change the pipeline itself*. Authenticated because a proposal
    * carries a handle. Raising the catalogue for it is grammar: every step of
    * every playbook anybody improves afterwards is a row under the one write.
+   *
+   * **`kolonie.playbooks.history` is the eleventh** (`#1255`), and it is the
+   * read for *what changed and who changed it*. Authenticated with the rest of
+   * the playbook surface. Raising the catalogue for it is grammar: every cut of
+   * every playbook anybody revises afterwards is a row under one read.
    */
   'kolonie.playbooks.list',
   'kolonie.playbooks.get',
@@ -653,6 +658,7 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.playbooks.run-report',
   'kolonie.playbooks.reports',
   'kolonie.playbooks.propose-step',
+  'kolonie.playbooks.history',
   'kolonie.playbooks.draft',
   'kolonie.playbooks.update',
   'kolonie.playbooks.submit',

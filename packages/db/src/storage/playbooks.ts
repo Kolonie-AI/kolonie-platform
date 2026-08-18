@@ -21,6 +21,7 @@ import {
 import type { Database, Transaction } from '../client.js'
 import { playbookRuns, playbooks } from '../schema/playbooks.js'
 import { isUniqueViolation } from './errors.js'
+import { insertPlaybookRevision } from './playbook-revisions.js'
 import { supersedeStalePlaybookStepProposals } from './playbook-step-proposals.js'
 
 /**
@@ -80,6 +81,7 @@ function toPlaybookRun(row: typeof playbookRuns.$inferSelect): PlaybookRun {
     noteStatus: row.noteStatus as PlaybookRunNoteStatus | null,
     noteRejectionReason: row.noteRejectionReason,
     notePublished: row.notePublished,
+    playbookRevision: row.playbookRevision,
     rewardedAt: row.rewardedAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -118,24 +120,39 @@ export async function createPlaybook(db: Database, input: CreatePlaybookInput): 
   const status = PlaybookStatusSchema.parse(input.status ?? 'draft')
   const draft = PlaybookDraftSchema.parse(input.draft)
 
-  const [row] = await db
-    .insert(playbooks)
-    .values({
-      slug,
-      title: draft.title,
-      summary: draft.summary,
-      status,
-      authorAgentId: input.authorAgentId,
-      parentPlaybookId: input.parentPlaybookId ?? null,
-      requiredAccounts: draft.requiredAccounts,
-      steps: draft.steps,
-      inspiration: draft.inspiration ?? [],
-      publishedAt: status === 'open' ? new Date().toISOString() : null,
-    })
-    .returning()
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .insert(playbooks)
+      .values({
+        slug,
+        title: draft.title,
+        summary: draft.summary,
+        status,
+        authorAgentId: input.authorAgentId,
+        parentPlaybookId: input.parentPlaybookId ?? null,
+        requiredAccounts: draft.requiredAccounts,
+        steps: draft.steps,
+        inspiration: draft.inspiration ?? [],
+        publishedAt: status === 'open' ? new Date().toISOString() : null,
+      })
+      .returning()
 
-  if (!row) throw new Error('playbook insert returned no row')
-  return toPlaybook(row)
+    if (!row) throw new Error('playbook insert returned no row')
+
+    /**
+     * Revision 1 is the authoring cut (`#1255`). Empty `proposalIds` — nothing
+     * was folded; the steps are the author's. A fork starts at revision 1 too:
+     * it does not inherit the source's history.
+     */
+    await insertPlaybookRevision(tx, {
+      playbookId: row.id,
+      revision: row.version,
+      steps: row.steps,
+      cutAt: row.createdAt,
+    })
+
+    return toPlaybook(row)
+  })
 }
 
 /**
@@ -358,6 +375,17 @@ export async function updatePlaybookDraft(
      * bump so a judge cannot race a proposal that no longer matches the text.
      */
     await supersedeStalePlaybookStepProposals(tx, playbook.id, playbook.version)
+    /**
+     * Authoring bumps are cuts too (`#1255`). Empty `proposalIds` — the author
+     * rewrote, nobody folded. Keeps history continuous so a later fold's
+     * revision N+1 has a predecessor to diff against.
+     */
+    await insertPlaybookRevision(tx, {
+      playbookId: playbook.id,
+      revision: playbook.version,
+      steps: playbook.steps,
+      cutAt: playbook.updatedAt,
+    })
     return { outcome: 'written', playbook }
   })
 }
@@ -601,6 +629,19 @@ export async function recordPlaybookRun(
   const now = new Date().toISOString()
 
   return db.transaction(async (tx) => {
+    /**
+     * Stamp the live revision onto the run (`#1255`). Null only for rows that
+     * existed before the column shipped; every write after that pins the
+     * playbook's current `version` so `takenStepPositions` keep meaning after
+     * a later fold.
+     */
+    const [live] = await tx
+      .select({ version: playbooks.version })
+      .from(playbooks)
+      .where(eq(playbooks.id, input.playbookId))
+      .limit(1)
+    const playbookRevision = live?.version ?? null
+
     const [row] = await tx
       .insert(playbookRuns)
       .values({
@@ -617,6 +658,7 @@ export async function recordPlaybookRun(
         noteStatus: report.note ? 'pending' : null,
         noteRejectionReason: null,
         notePublished: null,
+        playbookRevision,
         updatedAt: now,
       })
       .onConflictDoUpdate({
@@ -633,6 +675,7 @@ export async function recordPlaybookRun(
           noteStatus: report.note ? 'pending' : null,
           noteRejectionReason: null,
           notePublished: null,
+          playbookRevision,
           updatedAt: now,
         },
       })

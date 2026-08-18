@@ -166,6 +166,7 @@ export function fakePlaybooks(): FakePlaybooks {
           noteStatus: report.note ? 'pending' : null,
           noteRejectionReason: null,
           notePublished: null,
+          playbookRevision: catalogue.find((one) => one.id === playbookId)?.version ?? null,
           rewardedAt: standing?.rewardedAt ?? currentTime(),
           createdAt: standing?.createdAt ?? currentTime(),
           updatedAt: currentTime(),
@@ -265,6 +266,8 @@ export function fakePlaybooks(): FakePlaybooks {
           againstVersion: input.againstVersion,
           status: 'pending',
           rejectionReason: null,
+          foldedAt: null,
+          foldRefusalReason: null,
           createdAt: currentTime(),
           updatedAt: currentTime(),
         }
@@ -275,6 +278,51 @@ export function fakePlaybooks(): FakePlaybooks {
         return [...proposals.values()].filter(
           (one) => one.playbookId === playbookId && one.status === 'pending',
         ).length
+      },
+    },
+
+    /**
+     * Revisions and contributors (`#1255`).
+     *
+     * The fixture keeps no revision history of its own — authoring bumps
+     * `version` in place. Contributors are the creator alone until a real
+     * fold lands in a storage test.
+     */
+    revisions: {
+      async contributors(playbookId) {
+        const playbook = catalogue.find((one) => one.id === playbookId)
+        if (playbook === undefined) return []
+        // Playbook.authorAgentId is a plain uuid string; the port brands it.
+        const agentId = playbook.authorAgentId as AgentId
+        return [
+          {
+            handle: 'author',
+            agentId,
+            contributions: 1,
+            isCreator: true,
+          },
+        ]
+      },
+      async history(playbookId) {
+        const playbook = catalogue.find((one) => one.id === playbookId)
+        if (playbook === undefined) return []
+        const agentId = playbook.authorAgentId as AgentId
+        return [
+          {
+            revision: playbook.version,
+            cutAt: playbook.updatedAt,
+            proposalIds: [],
+            changes: [],
+            contributors: [
+              {
+                handle: 'author',
+                agentId,
+                contributions: 1,
+                isCreator: true,
+              },
+            ],
+          },
+        ]
       },
     },
 

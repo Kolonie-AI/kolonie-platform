@@ -360,6 +360,15 @@ export const playbookRuns = pgTable(
      */
     rewardedAt: timestamp('rewarded_at', { withTimezone: true, mode: 'string' }),
 
+    /**
+     * Which playbook revision this report ran against (`#1255`).
+     *
+     * Copied from `playbooks.version` at write time. Null on every report filed
+     * before revisions shipped — there is no honest number to invent for them.
+     * A reader comparing notes across revisions uses this, not the live version.
+     */
+    playbookRevision: integer('playbook_revision'),
+
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),
@@ -454,6 +463,10 @@ export const playbookRuns = pgTable(
     check(
       'playbook_runs_note_published_is_approved',
       sql`(${table.notePublished} is not null) = (coalesce(${table.noteStatus}, '') = 'approved')`,
+    ),
+    check(
+      'playbook_runs_revision_is_positive',
+      sql`${table.playbookRevision} is null or ${table.playbookRevision} >= 1`,
     ),
   ],
 )

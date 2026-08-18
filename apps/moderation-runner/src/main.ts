@@ -32,6 +32,8 @@ import {
   pendingPlaybookStepProposalsForModeration,
   pendingQuestModerations,
   pendingReports,
+  playbooksWithAcceptedUnfoldedProposals,
+  cutPlaybookRevision,
   publishPlaybookAfterReview,
   publishQuest,
   questsBySameSponsor,
@@ -76,6 +78,7 @@ import type {
   PlaybookModerationStore,
   PlaybookNoteModerationStore,
   PlaybookProposalModerationStore,
+  PlaybookRevisionModerationStore,
 } from './playbooks.js'
 import type { QuestModerationStore } from './quests.js'
 import type { AnswerModerationStore } from './answers.js'
@@ -323,6 +326,36 @@ const playbookNoteStore: PlaybookNoteModerationStore = {
 const playbookProposalStore: PlaybookProposalModerationStore = {
   pending: (limit) => pendingPlaybookStepProposalsForModeration(db, limit),
   record: (input) => recordPlaybookStepProposalVerdict(db, input),
+}
+
+/**
+ * The fold queue (`#1255`).
+ *
+ * No model: accepted proposals fold deterministically. One cut per playbook
+ * per tick, every accepted-unfolded proposal on that playbook in filing order.
+ */
+const playbookRevisionStore: PlaybookRevisionModerationStore = {
+  waiting: (limit) => playbooksWithAcceptedUnfoldedProposals(db, limit),
+  cut: async (playbookId) => {
+    const result = await cutPlaybookRevision(db, playbookId)
+    switch (result.outcome) {
+      case 'cut':
+        return {
+          outcome: 'cut',
+          folded: result.folded,
+          revision: result.revision.revision,
+        }
+      case 'incoherent':
+        return {
+          outcome: 'incoherent',
+          reason: result.reason,
+          returned: result.returned,
+        }
+      case 'nothing-to-fold':
+      case 'unknown-playbook':
+        return { outcome: result.outcome }
+    }
+  },
 }
 
 /**
@@ -684,6 +717,7 @@ const questRunner = startQuestRunner(
     playbooks: { store: playbookStore, model: questModel, log },
     playbookNotes: { store: playbookNoteStore, model: questModel, log },
     playbookProposals: { store: playbookProposalStore, model: questModel, log },
+    playbookRevisions: { store: playbookRevisionStore, log },
   },
   { pollIntervalMs: QUEST_POLL_INTERVAL_MS },
 )

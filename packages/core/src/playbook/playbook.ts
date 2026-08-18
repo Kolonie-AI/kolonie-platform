@@ -695,6 +695,12 @@ export const PlaybookRunSchema = z
     notePublished: z.string().nullable(),
     /** When `#1177` paid for it, and null on a run nothing has paid for. */
     rewardedAt: z.string().nullable(),
+    /**
+     * Which playbook revision this report ran against (`#1255`).
+     *
+     * Null on reports filed before revisions shipped.
+     */
+    playbookRevision: z.number().int().positive().nullable(),
     createdAt: z.string(),
     updatedAt: z.string(),
   })
@@ -814,8 +820,110 @@ export const PlaybookStepProposalSchema = z
     againstVersion: z.number().int().positive(),
     status: PlaybookStepProposalStatusSchema,
     rejectionReason: z.string().nullable(),
+    /** When a revision folded this accepted proposal in (`#1255`). */
+    foldedAt: z.string().nullable(),
+    /**
+     * Why a fold that included this proposal was abandoned (`#1255`).
+     *
+     * Set when the combined pipeline fails the draft schema; the row is
+     * `pending` again and the moderation queue skips it.
+     */
+    foldRefusalReason: z.string().nullable(),
     createdAt: z.string(),
     updatedAt: z.string(),
   })
   .strict()
 export type PlaybookStepProposal = z.infer<typeof PlaybookStepProposalSchema>
+
+/**
+ * One accepted proposal as the fold tick applies it (`#1255`).
+ *
+ * Narrower than {@link PlaybookStepProposal}: the fold only needs the fields
+ * that change the step list. Filing order is the caller's job.
+ */
+export interface PlaybookStepProposalFold {
+  readonly id: string
+  readonly kind: PlaybookStepProposalKind
+  readonly position: number
+  readonly title: string | null
+  readonly detail: string | null
+}
+
+/**
+ * Apply one proposal to a step list, returning a new array.
+ *
+ * - `replace` keeps `usesSlots` / `needsOperator` from the step it overwrites —
+ *   a proposal is prose, not a rebinding of accounts.
+ * - `insert-after` inserts after `position` (0 = new first step) with no slots.
+ * - `remove` drops the step at `position`.
+ *
+ * Throws when the position is unreal against the list as it stands *before*
+ * this proposal. The fold tick catches that as an incoherent cut.
+ */
+export function applyPlaybookStepProposal(
+  steps: readonly PlaybookStep[],
+  proposal: PlaybookStepProposalFold,
+): PlaybookStep[] {
+  const next = [...steps]
+  if (proposal.kind === 'replace') {
+    const index = proposal.position - 1
+    if (index < 0 || index >= next.length) {
+      throw new Error(
+        `replace position ${proposal.position} is unreal against ${next.length} steps`,
+      )
+    }
+    if (proposal.title === null) {
+      throw new Error('a replace proposal needs a title')
+    }
+    const current = next[index]!
+    // Prose from the proposal; slots and operator flag from the step it replaces.
+    // A null detail clears whatever detail the step had — the proposal is the
+    // whole of the new prose, not a patch on top of it.
+    next[index] = {
+      title: proposal.title,
+      ...(proposal.detail ? { detail: proposal.detail } : {}),
+      ...(current.usesSlots !== undefined ? { usesSlots: [...current.usesSlots] } : {}),
+      ...(current.needsOperator !== undefined ? { needsOperator: current.needsOperator } : {}),
+    }
+    return next
+  }
+  if (proposal.kind === 'remove') {
+    const index = proposal.position - 1
+    if (index < 0 || index >= next.length) {
+      throw new Error(`remove position ${proposal.position} is unreal against ${next.length} steps`)
+    }
+    next.splice(index, 1)
+    return next
+  }
+  // insert-after: position 0 inserts at the front; position N inserts after step N.
+  if (proposal.position < 0 || proposal.position > next.length) {
+    throw new Error(
+      `insert-after position ${proposal.position} is unreal against ${next.length} steps`,
+    )
+  }
+  if (proposal.title === null) {
+    throw new Error('an insert-after proposal needs a title')
+  }
+  const inserted: PlaybookStep = {
+    title: proposal.title,
+    ...(proposal.detail !== null && proposal.detail !== undefined
+      ? { detail: proposal.detail }
+      : {}),
+  }
+  next.splice(proposal.position, 0, inserted)
+  return next
+}
+
+/**
+ * Fold every proposal onto `steps` in order. Throws on the first unreal
+ * position — the fold tick treats that as an incoherent cut.
+ */
+export function applyPlaybookStepProposals(
+  steps: readonly PlaybookStep[],
+  proposals: readonly PlaybookStepProposalFold[],
+): PlaybookStep[] {
+  return proposals.reduce<PlaybookStep[]>(
+    (current, proposal) => applyPlaybookStepProposal(current, proposal),
+    [...steps],
+  )
+}

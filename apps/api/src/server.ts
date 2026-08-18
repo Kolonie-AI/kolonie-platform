@@ -111,6 +111,8 @@ import {
   playbookRunActivity,
   insertPlaybookStepProposal,
   countOpenPlaybookStepProposals,
+  playbookContributors,
+  playbookRevisionHistory,
   playbookRunFor,
   playbookSignalsTally,
   playbooksByStatus,
@@ -836,6 +838,19 @@ const app = buildApp({
     proposals: {
       propose: (input) => insertPlaybookStepProposal(db, input),
       countOpen: (playbookId) => countOpenPlaybookStepProposals(db, playbookId),
+    },
+    revisions: {
+      contributors: (playbookId) => playbookContributors(db, playbookId),
+      history: async (playbookId) => {
+        const rows = await playbookRevisionHistory(db, playbookId)
+        return rows.map((row) => ({
+          revision: row.revision.revision,
+          cutAt: row.revision.cutAt,
+          proposalIds: row.revision.proposalIds,
+          changes: row.changes,
+          contributors: row.contributors,
+        }))
+      },
     },
   },
   quests: databaseQuests(

@@ -1830,6 +1830,20 @@
       }
     },
     {
+      "name": "kolonie.playbooks.history",
+      "schema": {
+        "properties": {
+          "playbook": {
+            "maxLength": 64,
+            "minLength": 3,
+            "type": "string"
+          }
+        },
+        "required": ["playbook"],
+        "type": "object"
+      }
+    },
+    {
       "name": "kolonie.playbooks.list",
       "schema": {
         "properties": {

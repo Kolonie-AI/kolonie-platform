@@ -990,3 +990,93 @@ export async function playbookProposalTick(
 
   return outcome
 }
+
+/** How many playbooks one cycle may fold. Same bound as the proposal batch. */
+export const PLAYBOOK_REVISION_BATCH = 100
+
+/**
+ * What the fold tick needs from storage (`#1255`).
+ *
+ * No model: folding accepted proposals is deterministic. The store names the
+ * playbooks waiting and cuts one revision each.
+ */
+export interface PlaybookRevisionModerationStore {
+  waiting(limit: number): Promise<readonly string[]>
+  cut(playbookId: string): Promise<{
+    readonly outcome: 'cut' | 'incoherent' | 'nothing-to-fold' | 'unknown-playbook'
+    readonly folded?: number
+    readonly returned?: number
+    readonly reason?: string
+    readonly revision?: number
+  }>
+}
+
+export interface PlaybookRevisionLoopDependencies {
+  readonly store: PlaybookRevisionModerationStore
+  readonly log?: Log
+}
+
+export interface PlaybookRevisionTickOutcome {
+  readonly considered: number
+  readonly cut: number
+  readonly incoherent: number
+  readonly folded: number
+  readonly returned: number
+  readonly empty: number
+}
+
+/**
+ * Fold accepted, unfolded proposals into revisions (`#1255`).
+ *
+ * Runs after the proposal tick so a proposal accepted this cycle can fold in
+ * the same pass. One cut per playbook per call — every accepted-unfolded
+ * proposal on that playbook goes into one revision, in filing order.
+ */
+export async function playbookRevisionTick(
+  deps: PlaybookRevisionLoopDependencies,
+  batchSize: number,
+): Promise<PlaybookRevisionTickOutcome> {
+  const { store, log = silentLog } = deps
+  const outcome = {
+    considered: 0,
+    cut: 0,
+    incoherent: 0,
+    folded: 0,
+    returned: 0,
+    empty: 0,
+  }
+  const limit = Math.min(batchSize, PLAYBOOK_REVISION_BATCH)
+
+  for (const playbookId of await store.waiting(limit)) {
+    outcome.considered++
+    const result = await store.cut(playbookId)
+    switch (result.outcome) {
+      case 'cut':
+        outcome.cut++
+        outcome.folded += result.folded ?? 0
+        log.info(`folded ${result.folded ?? 0} proposals into revision ${result.revision}`, {
+          event: 'playbook.revision.cut',
+          playbookId,
+          revision: result.revision,
+          folded: result.folded,
+        })
+        break
+      case 'incoherent':
+        outcome.incoherent++
+        outcome.returned += result.returned ?? 0
+        log.warn(`fold on ${playbookId} was incoherent: ${result.reason ?? 'unknown'}`, {
+          event: 'playbook.revision.incoherent',
+          playbookId,
+          reason: result.reason,
+          returned: result.returned,
+        })
+        break
+      case 'nothing-to-fold':
+      case 'unknown-playbook':
+        outcome.empty++
+        break
+    }
+  }
+
+  return outcome
+}

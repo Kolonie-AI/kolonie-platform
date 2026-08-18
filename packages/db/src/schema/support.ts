@@ -161,6 +161,24 @@ export const supportTickets = pgTable(
       onDelete: 'set null',
     }),
 
+    /**
+     * The provider the citizen says this ticket is about (`#1098`).
+     *
+     * **Two text columns rather than a foreign key**, for `provider_briefings`'
+     * reason: a provider is a free-text pair that no table owns, and a ticket
+     * about a provider the Colony has never heard of is still a useful ticket.
+     * Both null, or both set — the check below is what keeps a half-pair out.
+     *
+     * Held as the citizen sent them (after schema normalisation). The mark path
+     * canonicalises before looking anything up; the columns themselves are the
+     * record of what was named, not a join key.
+     *
+     * Nothing indexes them. The one reader that filters by provider is the
+     * rate check inside `openTicket`, and it already holds the pair.
+     */
+    aboutProviderKind: text('about_provider_kind'),
+    aboutProviderName: text('about_provider_name'),
+
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),
@@ -230,6 +248,16 @@ export const supportTickets = pgTable(
     check(
       'support_tickets_issue_means_looked_at',
       sql`${table.issueUrl} is null or ${table.status} <> 'open'`,
+    ),
+    /**
+     * A half-pair is not a provider (`#1098`).
+     *
+     * Both null (no association) or both set. One without the other would be a
+     * row no reader can act on and no mark path can look up.
+     */
+    check(
+      'support_tickets_about_provider_is_a_pair',
+      sql`(${table.aboutProviderKind} is null) = (${table.aboutProviderName} is null)`,
     ),
     /**
      * The read every citizen makes: *my tickets, newest first*. Composite rather

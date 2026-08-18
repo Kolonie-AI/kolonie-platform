@@ -133,6 +133,41 @@ export const CURRENT_PROVIDER_CLAIM_WALKS = 20
 export const RECENT_WALKS_IN_CONTEXT = 50
 
 /**
+ * How much slower the synthesis tick runs than the moderation poll (`#1098`).
+ *
+ * Ten times, so a minute of moderation polling is ten minutes between
+ * syntheses. The number is a cost decision rather than a freshness one: nothing
+ * waits on a briefing, a reader that arrives during the gap gets the previous
+ * one with its age visible, and regenerating on every approval is the
+ * two-hundred-syntheses case this exists to prevent.
+ *
+ * **One source for the runner and for `openTicket`.** A support ticket about a
+ * provider marks that briefing stale at most once per interval; both sides read
+ * this multiplier so a change here cannot leave them disagreeing about what
+ * "one briefing interval" means.
+ */
+export const BRIEFING_TICK_MULTIPLIER = 10
+
+/**
+ * Default moderation poll, in milliseconds — the base {@link BRIEFING_TICK_MULTIPLIER}
+ * scales (`#1098`).
+ *
+ * Matches the runner's `POLL_INTERVAL_MS` default. Exported so the briefing
+ * interval is one expression rather than a magic `600_000` beside an unrelated
+ * `10`.
+ */
+export const DEFAULT_POLL_INTERVAL_MS = 60_000
+
+/**
+ * Default gap between provider-briefing syntheses (`#1098`).
+ *
+ * `POLL_INTERVAL_MS * BRIEFING_TICK_MULTIPLIER` when neither env var is set.
+ * `kolonie.support.open` uses this as the rate window for marking a provider
+ * stale: one mark per `(kind, provider)` per this interval.
+ */
+export const DEFAULT_BRIEFING_INTERVAL_MS = DEFAULT_POLL_INTERVAL_MS * BRIEFING_TICK_MULTIPLIER
+
+/**
  * Whether a claim still stands in the foreground of a provider briefing.
  *
  * > A claim is **current** while a walk has supported it within the last

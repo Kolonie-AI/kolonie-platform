@@ -93,6 +93,18 @@ export const providerBriefings = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),
+    /**
+     * When the row last changed — a write, or a staleness mark (`#1098`).
+     *
+     * **What the rate window reads.** A support ticket about this provider marks
+     * it stale at most once per briefing interval; `dirty` alone cannot say
+     * *when*, so the mark path updates this alongside the flag. `createdAt`
+     * stays the moment the row first appeared, which the synthesis queue still
+     * orders by.
+     */
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
   },
   (table) => [
     /**

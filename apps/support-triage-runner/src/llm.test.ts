@@ -37,6 +37,7 @@ describe('support model accounting', () => {
         resolution: null,
         issueUrl: null,
         aboutSubmissionId: null,
+        aboutProvider: null,
         createdAt: '2026-08-10T00:00:00.000Z',
         updatedAt: '2026-08-10T00:00:00.000Z',
       },

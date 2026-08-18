@@ -366,13 +366,27 @@ export function backendTicketsPage(
       ? '<p class="note">Nothing is waiting. The queue is empty rather than unread.</p>'
       : [
           '<table>',
-          '<thead><tr><th>Subject</th><th>Waiting</th><th>Status</th></tr></thead>',
+          '<thead><tr><th>Subject</th><th>Provider</th><th>Waiting</th><th>Status</th></tr></thead>',
           '<tbody>',
           input.sections.tickets.rows
-            .map(
-              (row) =>
-                `<tr><td>${escape(row.subject)}</td><td>${escape(relative(row.openedAt))}</td><td>${escape(row.status)}</td></tr>`,
-            )
+            .map((row) => {
+              /**
+               * The Atlas entry beside the ticket (`#1098`). A pointer, not a
+               * permission — the page is already behind the maintainer gate.
+               * Empty when the citizen named no provider.
+               */
+              const provider =
+                row.aboutProvider === null
+                  ? '—'
+                  : `<a href="/atlas/${escape(row.aboutProvider.provider)}">${escape(row.aboutProvider.provider)}</a>` +
+                    ` <small>(${escape(row.aboutProvider.kind)})</small>`
+              return (
+                `<tr><td>${escape(row.subject)}</td>` +
+                `<td>${provider}</td>` +
+                `<td>${escape(relative(row.openedAt))}</td>` +
+                `<td>${escape(row.status)}</td></tr>`
+              )
+            })
             .join(''),
           '</tbody>',
           '</table>',

@@ -1,5 +1,7 @@
 import { and, desc, eq, gte, isNull, sql } from 'drizzle-orm'
 import {
+  AccountKindSchema,
+  DEFAULT_BRIEFING_INTERVAL_MS,
   OwnTicketSchema,
   SupportTicketSchema,
   type AgentId,
@@ -9,8 +11,16 @@ import {
   type SupportTicket,
   type SupportTicketId,
 } from '@kolonie-ai/core'
-import type { Database } from '../client.js'
-import { agents, submissions, supportTickets } from '../schema/index.js'
+import type { Database, Transaction } from '../client.js'
+import {
+  agents,
+  providerBriefings,
+  providerRecipes,
+  submissions,
+  supportTickets,
+} from '../schema/index.js'
+import { canonicalProvider } from './atlas-renames.js'
+import { markProviderBriefingStale } from './provider-briefing.js'
 import { toTimestamp } from './rows.js'
 
 /**
@@ -56,6 +66,15 @@ function ticketFields(
     // Null rather than absent, so a citizen can check that no association was
     // made instead of inferring it from a missing key (`#852`).
     aboutSubmissionId: row.aboutSubmissionId,
+    /**
+     * Both null or both set, by the column check (`#1098`). Assembled here so
+     * the domain shape carries one object rather than two columns a reader has
+     * to pair itself.
+     */
+    aboutProvider:
+      row.aboutProviderKind === null || row.aboutProviderName === null
+        ? null
+        : { kind: row.aboutProviderKind, provider: row.aboutProviderName },
     createdAt: toTimestamp(row.createdAt),
     updatedAt: toTimestamp(row.updatedAt),
   }
@@ -116,6 +135,13 @@ export async function openTicket(
     if (owned === undefined) return { outcome: 'no-such-submission' }
   }
 
+  /**
+   * `null` and absent are one state (`#852`), same as `aboutSubmissionId`. The
+   * pair is recorded as the citizen named it; the mark path canonicalises
+   * before looking anything up (`#1098`).
+   */
+  const aboutProvider = input.request.aboutProvider ?? undefined
+
   const row = await db.transaction(async (tx) => {
     const [inserted] = await tx
       .insert(supportTickets)
@@ -125,6 +151,10 @@ export async function openTicket(
         subject: input.request.subject,
         body: input.request.body,
         ...(about !== undefined && { aboutSubmissionId: about }),
+        ...(aboutProvider !== undefined && {
+          aboutProviderKind: aboutProvider.kind,
+          aboutProviderName: aboutProvider.provider,
+        }),
       })
       .returning()
 
@@ -149,6 +179,18 @@ export async function openTicket(
       .update(agents)
       .set({ reporterOrdinal: sql`nextval('support_reporter_ordinal_seq')` })
       .where(and(eq(agents.id, input.agentId), isNull(agents.reporterOrdinal)))
+
+    /**
+     * Mark the provider's briefing stale when the ticket names one (`#1098`).
+     *
+     * **Inside the same transaction as the insert**, so a mark without a ticket
+     * (or a ticket without its mark) cannot land alone. The ticket itself is
+     * never evidence — synthesis reads walks, not tickets — and an unknown pair
+     * marks nothing: the ticket still opens.
+     */
+    if (aboutProvider !== undefined) {
+      await maybeMarkProviderFromTicket(tx, aboutProvider)
+    }
 
     return inserted
   })
@@ -310,3 +352,81 @@ export type OpenNoticeOutcome =
    * oracle a citizen would be refused.
    */
   | { readonly outcome: 'no-such-submission' }
+
+/**
+ * Mark a provider's briefing stale from a support ticket, or do nothing (`#1098`).
+ *
+ * **Three exits that all leave the ticket intact:**
+ *
+ * 1. The pair is unknown — no `provider_recipes` row and no `provider_briefings`
+ *    row. The ticket was useful; inventing a queue entry for a provider nobody
+ *    has walked would not be.
+ * 2. The briefing is already dirty and was marked inside the briefing interval.
+ *    Ten tickets in a minute mark once.
+ * 3. Otherwise, {@link markProviderBriefingStale}.
+ *
+ * The ticket body never reaches this path: the pair is all it reads.
+ */
+async function maybeMarkProviderFromTicket(
+  tx: Transaction,
+  about: { readonly kind: string; readonly provider: string },
+): Promise<void> {
+  const provider = await canonicalProvider(tx, about.provider)
+  const known = await providerIsKnown(tx, { kind: about.kind, provider })
+  if (!known) return
+
+  const [briefing] = await tx
+    .select({
+      dirty: providerBriefings.dirty,
+      updatedAt: providerBriefings.updatedAt,
+    })
+    .from(providerBriefings)
+    .where(and(eq(providerBriefings.kind, about.kind), eq(providerBriefings.provider, provider)))
+    .limit(1)
+
+  if (
+    briefing !== undefined &&
+    briefing.dirty &&
+    Date.now() - Date.parse(briefing.updatedAt) < DEFAULT_BRIEFING_INTERVAL_MS
+  ) {
+    return
+  }
+
+  await markProviderBriefingStale(tx, {
+    kind: AccountKindSchema.parse(about.kind),
+    provider,
+  })
+}
+
+/**
+ * Whether the Colony already holds this provider as an entry or a briefing
+ * (`#1098`).
+ *
+ * Either is enough: an entry with no briefing yet still has something a
+ * synthesis can write about once walks land, and a briefing without an entry
+ * is the dirty-marking case for a provider whose recipe row was deleted.
+ */
+async function providerIsKnown(
+  tx: Transaction,
+  where: { readonly kind: string; readonly provider: string },
+): Promise<boolean> {
+  const [row] = await tx
+    .select({
+      found: sql<number>`1`,
+    })
+    .from(providerRecipes)
+    .where(and(eq(providerRecipes.kind, where.kind), eq(providerRecipes.provider, where.provider)))
+    .limit(1)
+
+  if (row !== undefined) return true
+
+  const [briefing] = await tx
+    .select({ kind: providerBriefings.kind })
+    .from(providerBriefings)
+    .where(
+      and(eq(providerBriefings.kind, where.kind), eq(providerBriefings.provider, where.provider)),
+    )
+    .limit(1)
+
+  return briefing !== undefined
+}

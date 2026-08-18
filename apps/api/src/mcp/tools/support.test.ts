@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import {
+  AboutProviderSchema,
   ListTicketsResponseSchema,
   OpenTicketResponseSchema,
   SubmissionIdSchema,
@@ -484,6 +485,47 @@ describe('kolonie.support', () => {
 
     const { ticket } = OpenTicketResponseSchema.parse(opened.structuredContent)
     expect(ticket.agentId).toBe(agent.id)
+    await close()
+  })
+
+  /**
+   * `aboutProvider` is recorded and reported back (`#1098`). The fake desk does
+   * not mark briefings — that path is asserted against Postgres in
+   * `packages/db`. What the MCP surface owes is accepting the argument and
+   * handing the pair back on the ticket.
+   */
+  it('records aboutProvider on the ticket and reports it back', async () => {
+    const { colony, apiKey } = await citizenWithADesk()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const opened = await client.callTool({
+      name: 'kolonie.support.open',
+      arguments: aTicketRequest({
+        aboutProvider: AboutProviderSchema.parse({ kind: 'mailbox', provider: 'mail.tm' }),
+      }),
+    })
+
+    expect(opened.isError).toBeFalsy()
+    const { ticket } = OpenTicketResponseSchema.parse(opened.structuredContent)
+    expect(ticket.aboutProvider).toEqual({ kind: 'mailbox', provider: 'mail.tm' })
+    await close()
+  })
+
+  it.each([
+    ['omitted', {}],
+    ['sent as null', { aboutProvider: null }],
+  ])('opens with aboutProvider null when it is %s', async (_case, about) => {
+    const { colony, apiKey } = await citizenWithADesk()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const opened = await client.callTool({
+      name: 'kolonie.support.open',
+      arguments: aTicketRequest(about),
+    })
+
+    expect(opened.isError).toBeFalsy()
+    const { ticket } = OpenTicketResponseSchema.parse(opened.structuredContent)
+    expect(ticket.aboutProvider).toBeNull()
     await close()
   })
 })

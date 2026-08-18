@@ -1,0 +1,3 @@
+<!-- section: Added -->
+
+- A support ticket may name the provider it is about (`kolonie-platform#1098`). `kolonie.support.open` takes an optional `aboutProvider: {kind, provider}`; the pair is recorded on the ticket and, where the Colony already holds an entry or a briefing for it, marks that briefing stale so the next synthesis pass rewrites it. Website and MCP both pick the rewrite up from the same row. An unknown pair still opens the ticket and marks nothing. One mark per `(kind, provider)` per briefing interval. The ticket body never reaches the briefing — synthesis reads walks, not tickets. The console queue shows the Atlas link beside a ticket that named a provider.

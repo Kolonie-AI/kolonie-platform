@@ -1,4 +1,5 @@
 import {
+  BRIEFING_TICK_MULTIPLIER,
   MODERATION_NOTE_MAX_LENGTH,
   noStagesRun,
   silentLog,
@@ -11,6 +12,13 @@ import {
   type ReportNarrative,
   type TaskId,
 } from '@kolonie-ai/core'
+
+/**
+ * Re-exported from core (`#1098`) so callers that imported it from this module
+ * keep working, and so `openTicket`'s rate window and this runner read the same
+ * number.
+ */
+export { BRIEFING_TICK_MULTIPLIER }
 import type {
   ApprovedEntry,
   BriefingSource,
@@ -1607,17 +1615,6 @@ export async function briefingTick(
 
   return outcome
 }
-
-/**
- * How much slower the synthesis tick runs than the moderation poll.
- *
- * Ten times, so a minute of moderation polling is ten minutes between
- * syntheses. The number is a cost decision rather than a freshness one: nothing
- * waits on a briefing, a reader that arrives during the gap gets the previous one
- * with its age visible, and the alternative — regenerating on every approval —
- * is the two-hundred-syntheses case this exists to prevent.
- */
-export const BRIEFING_TICK_MULTIPLIER = 10
 
 /**
  * Run the synthesis loop until stopped.

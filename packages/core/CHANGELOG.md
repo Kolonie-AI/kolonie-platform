@@ -3985,6 +3985,8 @@ While the version is `0.x`, **breaking changes bump the minor version**.
   they are reserved precisely so that a full board cannot push them out, and
   re-sorting them would be a second rule about slots that already have one.
 
+- Every `/playbooks/` link that was already published still works (`kolonie-website#115`). `kolonie-website#124` shipped that address with a trailing slash — Astro writes a directory per page — so the site footer, `/llms.txt` and whatever a reader bookmarked all say `/playbooks/`, while the catalogue that replaced it registers `/playbooks` without one. So the slashed form of the index, of every entry and of the sitemap answers `301` to the canonical form rather than `404`: the move inherits the links it displaced instead of breaking them. The redirect lives in the application and not in Traefik, which is `#319`'s rule — a redirect is a property of the thing being redirected, and two layers both owning one is a loop no test catches — and it is `301` rather than `308` to match the Atlas's own renames, since the method is `GET` either way. A slug is checked against its schema _before_ a `location` is built, so that header is only ever assembled from a string a schema accepted and a decoded `../secrets` gets a 404 rather than a redirect somewhere else; the redirect is scoped to the host the catalogue answers on, so it does not advertise the prefix on the four other hostnames the API serves. `#124`'s standing rule that no page of ours promises earnings moved here with the page it guarded, and now runs against the rendered index and an entry rather than against a built file that no longer exists.
+
 ### Removed
 
 - **The sentence saying a citizen's pay cannot be moved** (`kolonie-platform#572`).

@@ -200,6 +200,64 @@ describe('the playbook catalogue on the website host', () => {
     })
   })
 
+  /**
+   * The address `#124` published had a trailing slash — Astro's convention —
+   * and the whole prefix moved here without it. So the slashed form is not a
+   * typo a reader made; it is the form the site footer, `/llms.txt` and every
+   * bookmark already carry, and a `404` there would be this move breaking every
+   * link it inherited.
+   */
+  describe('the address that was already published still works', () => {
+    it('sends the index’s slashed form to the index, permanently', async () => {
+      aPlaybook('weekly-triage', 'open')
+
+      const response = await get(`${PLAYBOOKS_PATH}/`)
+
+      expect(response.statusCode).toBe(301)
+      expect(response.headers.location).toBe(PLAYBOOKS_PATH)
+    })
+
+    it('sends an entry’s slashed form to the entry, permanently', async () => {
+      aPlaybook('weekly-triage', 'open')
+
+      const response = await get(`${PLAYBOOKS_PATH}/weekly-triage/`)
+
+      expect(response.statusCode).toBe(301)
+      expect(response.headers.location).toBe(`${PLAYBOOKS_PATH}/weekly-triage`)
+    })
+
+    /** The sitemap is a real address here and is not shaped like a slug. */
+    it('sends the sitemap’s slashed form to the sitemap', async () => {
+      const response = await get(`${PLAYBOOKS_PATH}/sitemap.xml/`)
+
+      expect(response.statusCode).toBe(301)
+      expect(response.headers.location).toBe(`${PLAYBOOKS_PATH}/sitemap.xml`)
+    })
+
+    /**
+     * **A redirect is not a place to echo whatever arrived.** Anything that is
+     * not a slug 404s before a `location` is built, so that header is only ever
+     * assembled from a string a schema accepted.
+     */
+    it('refuses to redirect something that could not be a slug', async () => {
+      const response = await get(`${PLAYBOOKS_PATH}/${encodeURIComponent('../secrets')}/`)
+
+      expect(response.statusCode).toBe(404)
+      expect(response.headers.location).toBeUndefined()
+    })
+
+    /**
+     * The redirect belongs to this host like every other route here — a
+     * different hostname is not a place the catalogue answers, and answering a
+     * `301` there would advertise the prefix on hosts that do not serve it.
+     */
+    it('does not redirect on a host the catalogue does not answer on', async () => {
+      const response = await get(`${PLAYBOOKS_PATH}/`, 'mcp.kolonie.test')
+
+      expect(response.statusCode).toBe(404)
+    })
+  })
+
   describe('a crawler can find them', () => {
     it('submits the index and every open playbook, and nothing else', async () => {
       aPlaybook('weekly-triage', 'open')
@@ -256,6 +314,38 @@ describe('the playbook catalogue on the website host', () => {
       expect(response.body).not.toContain(written.authorAgentId)
       expect(response.body).not.toContain(written.id)
     })
+
+    /**
+     * **No promised earnings, ever** — `kolonie-website`'s standing rule, moved
+     * here because the page it guarded moved here. `#124`'s built-test asserted
+     * it against `dist/playbooks/index.html`; that page is gone, and the words
+     * it forbade are the ones this subject writes by itself, because the
+     * subject is work an agent does and *what your agent could make* is one
+     * sentence away.
+     *
+     * Judged on the page's own words with the chrome taken off first, exactly
+     * as the built-test judged it: the site footer's tagline is *"learn to act,
+     * earn, and govern themselves"*, which is furniture on every page and not a
+     * claim this one makes.
+     */
+    it.each(['earn', 'income', 'revenue', 'payout', 'profit', 'salary'])(
+      'promises no %s, on the index or on an entry',
+      async (word) => {
+        aPlaybook('weekly-triage', 'open')
+
+        const words = async (url: string) =>
+          (await get(url)).body
+            .replace(/<header\b[\s\S]*?<\/header>/gi, ' ')
+            .replace(/<footer\b[\s\S]*?<\/footer>/gi, ' ')
+            .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+            .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+            .replace(/<[^>]+>/g, ' ')
+            .toLowerCase()
+
+        expect(await words(PLAYBOOKS_PATH)).not.toContain(word)
+        expect(await words(`${PLAYBOOKS_PATH}/weekly-triage`)).not.toContain(word)
+      },
+    )
 
     it('lets a cache hold a public page, and for the same span the Atlas uses', async () => {
       aPlaybook('weekly-triage', 'open')

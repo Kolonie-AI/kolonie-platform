@@ -104,6 +104,53 @@ export function registerPlaybookPages(app: FastifyInstance, deps: RouteDependenc
   const listed = async (): Promise<readonly Playbook[]> =>
     catalogue === undefined ? [] : catalogue.byStatus({ statuses: [...PLAYBOOK_PUBLIC_STATUSES] })
 
+  /**
+   * `/playbooks/` and `/playbooks/<slug>/` are the same pages at one more
+   * character, and they answer `301` rather than `404`.
+   *
+   * **Because the slashed form is the one already published.** `#124` shipped
+   * this address with a trailing slash — Astro's own convention — so the site
+   * footer, `/llms.txt` and whatever a reader bookmarked all say `/playbooks/`.
+   * The API registers the unslashed form (Fastify is built without
+   * `ignoreTrailingSlash`, and turning that on would serve every route here at
+   * two addresses instead of moving readers to one), so without this the move
+   * would break every link that already exists.
+   *
+   * **In the application and not in Traefik**, which is `#319`'s rule as
+   * recorded in `kolonie-infra/traefik/dynamic/routes.yml`: a redirect is a
+   * property of the application, and two layers both owning one is a loop no
+   * test catches. The proxy routes the prefix; what happens inside it is here.
+   *
+   * `301` and not `308`, matching the Atlas's renames: the method is `GET`
+   * either way, and `301` is the answer every crawler already understands.
+   */
+  const canonical = (path: string) => `${PLAYBOOKS_PATH}${path}`
+
+  app.get(`${PLAYBOOKS_PATH}/`, async (request, reply) => {
+    if (wrongHost(request) || catalogue === undefined) return reply.callNotFound()
+
+    return reply.redirect(canonical(''), 301)
+  })
+
+  app.get<{ Params: { slug: string } }>(`${PLAYBOOKS_PATH}/:slug/`, async (request, reply) => {
+    if (wrongHost(request) || catalogue === undefined) return reply.callNotFound()
+
+    /**
+     * The shape is checked before the `location` is built, so that header is
+     * only ever assembled from a string a schema accepted — a decoded
+     * parameter echoed into a redirect is how a same-origin path becomes
+     * something else. `sitemap.xml` is not a slug and is named separately for
+     * exactly that reason: it is a real address here, and the shape test
+     * would otherwise 404 it.
+     */
+    const slug = request.params.slug
+    if (slug !== 'sitemap.xml' && !PlaybookSlugSchema.safeParse(slug).success) {
+      return reply.callNotFound()
+    }
+
+    return reply.redirect(canonical(`/${slug}`), 301)
+  })
+
   app.get(PLAYBOOKS_PATH, async (request, reply) => {
     if (wrongHost(request) || catalogue === undefined) return reply.callNotFound()
 

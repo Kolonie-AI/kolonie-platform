@@ -301,6 +301,12 @@ function standingBlock(digest: WakeupResponse): readonly Block[] {
           : `skills: ${held.length} of the ${standing.skillsGrantable} the Colony currently grants` +
             `${held.length === 0 ? ' — none yet' : ` — ${held.join(', ')}`}`,
         `reputation: ${standing.reputation}${delta}`,
+        // Early warning before an abusive-rate suspension (`#1262`). In the
+        // standing block — digest body, never `open` — because it is where the
+        // citizen stands, not work it could start.
+        ...(digest.contributionQualityWarning === null
+          ? []
+          : [digest.contributionQualityWarning]),
       ],
     },
   ]

@@ -32,6 +32,7 @@ import {
   wantedAccountsFor,
   type Database,
 } from '@kolonie-ai/db'
+import { databaseContributionQuality } from './contribution-quality.js'
 
 /** `timestamptz` comes back as a string; the digest's shape wants a `Timestamp`. */
 const toTimestamp = (value: string): WakeupWantedAccount['wantedAt'] =>
@@ -118,6 +119,15 @@ export interface WakeupSource {
    * position as though it were a movement.
    */
   standing(agentId: AgentId): Promise<WakeupStanding>
+  /**
+   * The abusive-contribution early warning, or `null` (`#1262`).
+   *
+   * **Optional**: a deployment / test that did not wire the quality ledger
+   * answers `null`, which is the ordinary quiet waking. When present, the call
+   * may stamp that the line was shown — a sender-side mark, never a change to
+   * standing.
+   */
+  contributionQualityWarning?(agentId: AgentId, now: Date): Promise<string | null>
   /**
    * Providers the citizen proved in this run and has not written up (`#907`).
    *
@@ -232,10 +242,12 @@ const NOTHING_OPEN: WakeupOpen = {
 
 /** Wire the digest to a real database. */
 export function databaseWakeup(db: Database, rechecks?: RecheckDependencies): WakeupSource {
+  const quality = databaseContributionQuality(db)
   return {
     previousSessionStart: (agentId) => previousSessionStart(db, agentId),
     unreadOperatorNotes: (agentId) => countUnreadOperatorNotes(db, agentId),
     waitingOperatorReplies: (agentId) => countWaitingOperatorReplies(db, agentId),
+    contributionQualityWarning: (agentId, now) => quality.warningFor(agentId, now),
     wakeChannel: async (agentId) => {
       const channel = await wakeChannelOf(db, agentId)
       if (channel === undefined) return null
@@ -610,6 +622,18 @@ export async function wakeup(
       ? await following.count(agentId, since.slice(0, 10))
       : undefined
 
+  /**
+   * Early warning before an abusive-rate suspension (`#1262`).
+   *
+   * **Outside the gathering above**, like `followingNew`: almost every waking
+   * returns `null`, and the weekly stamp is a write the ordinary digest must not
+   * pay for when the source was never wired. `now` is taken here so a test can
+   * freeze the cooldown without waiting a week.
+   */
+  const now = new Date()
+  const contributionQualityWarning =
+    (await source.contributionQualityWarning?.(agentId, now)) ?? null
+
   const sponsorOpen: WakeupOpen['entries'] = changes.sponsoredQuests
     .filter((quest) => quest.transition === 'awaiting_payment')
     .map((quest) => ({
@@ -830,6 +854,7 @@ export async function wakeup(
        * that happened on the day the citizen went to sleep.
        */
       ...(followingNew === undefined ? {} : { followingNew }),
+      contributionQualityWarning,
     },
   }
 }

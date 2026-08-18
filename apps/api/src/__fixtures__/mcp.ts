@@ -24,6 +24,7 @@ import { fakeDomain } from './domain.js'
 import { fakeEmail } from './email.js'
 import { fakeSms } from './sms.js'
 import { fakeErasureDesk } from './erasure.js'
+import { fakeContributionQuality } from './contribution-quality.js'
 import { fakeContributions, fakeGithub } from './github.js'
 import { fakeCitizenSearch } from './citizen-search.js'
 import { fakeFollowing } from './following.js'
@@ -152,6 +153,7 @@ export const anonymousClient = (registry: AgentRegistry = fakeRegistry()) =>
     vision: fakeVision(),
     github: fakeGithub(),
     contributions: fakeContributions(),
+    contributionQuality: fakeContributionQuality(),
     wakeup: fakeWakeup(),
     /**
      * A citizen with nothing conditional true of it (`#347`), so a test that is

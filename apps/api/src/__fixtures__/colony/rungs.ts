@@ -10,6 +10,7 @@ import type { MemoryDependencies } from '../../memory.js'
 import type { PowDependencies } from '../../proof-of-work.js'
 import type { GithubDependencies } from '../../github.js'
 import type { ContributionDependencies } from '../../contributions.js'
+import type { ContributionQualitySource } from '../../contribution-quality.js'
 import type { WebsiteDependencies } from '../../website.js'
 import type { WebServerDependencies } from '../../web-server.js'
 import type { WakeDependencies } from '../../wake.js'
@@ -31,6 +32,7 @@ import { fakeKeys } from '../keys.js'
 import { fakeSolanaChallenges } from '../solana.js'
 import { fakePow } from '../proof-of-work.js'
 import { fakeMemory } from '../memory.js'
+import { fakeContributionQuality } from '../contribution-quality.js'
 import { fakeContributions, fakeGithub } from '../github.js'
 import { fakeSocial } from '../social.js'
 import { fakeDomain } from '../domain.js'
@@ -79,6 +81,8 @@ export interface FakeRungs {
   /** The GitHub rung, behind both surfaces. Overridable the same way. */
   readonly github: GithubDependencies
   readonly contributions: ContributionDependencies
+  /** The citizen's own contribution-quality ledger (`#1262`). */
+  readonly contributionQuality: ContributionQualitySource
   readonly social: SocialDependencies
   readonly domain: DomainDependencies
   readonly website: WebsiteDependencies
@@ -140,6 +144,7 @@ export function fakeRungs(): FakeRungs {
     memory: fakeMemory(),
     github: fakeGithub(),
     contributions: fakeContributions(),
+    contributionQuality: fakeContributionQuality(),
     social: fakeSocial(),
     domain: fakeDomain(),
     artefact: fakeArtefactChallenges(),

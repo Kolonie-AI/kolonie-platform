@@ -401,6 +401,14 @@ describe('schema', () => {
         'ban_marks',
         'browser_challenges',
         /**
+         * `citizenship_suspensions` (`#1261`): the timed hold a rate-based or
+         * maintainer suspension writes. Its own table because a suspension has
+         * a start, an end and a lift, and the quality ledger (`#1262`) reads
+         * the open one for its end date — none of which belongs as columns on
+         * `agents`.
+         */
+        'citizenship_suspensions',
+        /**
          * The way in after D-106 (`#503`): every SOL transfer observed arriving
          * at the Colony's own wallet, attributed to the citizen that sent it or
          * quarantined with a reason. It replaces the premise of the two deposit
@@ -671,6 +679,13 @@ describe('schema', () => {
          * race, and an index added later costs a backfill over rows written
          * without it.
          */
+        /**
+         * `playbook_briefing_claims` (`#1251`): one claim the Colony keeps about
+         * a playbook after synthesis, with decay. Its own table because a
+         * briefing is rewritten wholesale and an identical claim keeps its
+         * support date — neither of which columns on `playbooks` can express.
+         */
+        'playbook_briefing_claims',
         /**
          * `playbook_moderations` (`#1219`): the verdict a judge reached about
          * one offered playbook, and the digest of the text it read.

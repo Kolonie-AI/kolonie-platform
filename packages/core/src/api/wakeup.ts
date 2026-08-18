@@ -1244,6 +1244,20 @@ export const WakeupResponseSchema = z.object({
    * rather than an oversight.
    */
   followingNew: z.int().optional(),
+  /**
+   * Early warning when the citizen is accumulating abusive contribution
+   * verdicts (`#1262`).
+   *
+   * **In the digest body, never in `open`.** `open` is things you could do now;
+   * this is not work. Shown at ≥2 abusive in the effective 90-day window, at
+   * most once a week. `null` on every other waking — which is almost all of
+   * them.
+   *
+   * **Not part of {@link wakeupIsQuiet}.** A warning about standing is not news
+   * that something moved, and counting it would make a stuck citizen's quiet
+   * waking loud every time the cooldown elapsed.
+   */
+  contributionQualityWarning: z.string().nullable().default(null),
 })
 export type WakeupResponse = z.infer<typeof WakeupResponseSchema>
 

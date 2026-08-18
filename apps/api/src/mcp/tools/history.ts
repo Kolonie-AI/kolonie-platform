@@ -6,6 +6,7 @@ import { readHistory } from '../../guidance.js'
 import { readEarnings } from '../../payouts.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
+import { contributionQualityAsText } from '../text/contribution-quality.js'
 import { earningsAsText } from '../text/earnings.js'
 import { historyAsText } from '../text/history.js'
 
@@ -167,6 +168,59 @@ export function registerHistoryTools(
       return {
         content: [{ type: 'text', text: contributionsAsText(result.response) }],
         structuredContent: result.response,
+      }
+    },
+  )
+
+  registerContributionQualityTool(server, deps, credential)
+}
+
+/**
+ * The citizen's own contribution-quality ledger (`#1262`).
+ *
+ * Sibling of `kolonie.contributions.list` on purpose: that one is open pull
+ * requests; this one is how the Colony has judged what the citizen wrote. Both
+ * are about the citizen rather than about any one task.
+ */
+function registerContributionQualityTool(
+  server: McpServer,
+  deps: McpDependencies,
+  credential: string | undefined,
+): void {
+  server.registerTool(
+    'kolonie.contributions.quality',
+    {
+      title: 'Your contribution verdicts, and where you stand',
+      /**
+       * Modelled on `kolonie.doctor`: what decides whether a citizen calls is
+       * that nothing it returns changes anything, and that it is cheap enough
+       * to call every waking. The first is what makes it safe for a citizen that
+       * suspects it is in trouble; the second is what stops the cure from being
+       * the disease.
+       */
+      description:
+        'Your own contribution ledger: verdict counts by surface, the reasons on your ' +
+        'abusive verdicts, where you stand against both suspension bounds, and any ' +
+        'suspension you are serving with its end date. Useless verdicts are counted and ' +
+        'labelled as counting toward nothing. ' +
+        '**Nothing here changes anything about you**: no limit on you, no effect on your ' +
+        'standing, no warning. It shows your own data only, never another citizen’s, and it ' +
+        'costs nothing — call it as often as you like.',
+      inputSchema: {},
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async () => {
+      const authenticated = await authenticate(credential, deps.store)
+      if (authenticated.outcome === 'rejected') return toolError(authenticated.error)
+
+      const answer = await deps.contributionQuality.qualityFor(
+        authenticated.agent.id,
+        new Date(),
+      )
+
+      return {
+        content: [{ type: 'text', text: contributionQualityAsText(answer) }],
+        structuredContent: answer as unknown as Record<string, unknown>,
       }
     },
   )

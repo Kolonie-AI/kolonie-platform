@@ -21,6 +21,7 @@ import { fakeEmail } from '../__fixtures__/email.js'
 import { fakeSms } from '../__fixtures__/sms.js'
 import { fakeKeypair, fakeKeyChallenges, type FakeKeyChallenges } from '../__fixtures__/keys.js'
 import { fakeGithub, fakeContributions } from '../__fixtures__/github.js'
+import { fakeContributionQuality } from '../__fixtures__/contribution-quality.js'
 import { fakeStandingHints } from '../__fixtures__/hints.js'
 import { fakeWakeup } from '../__fixtures__/wakeup.js'
 import { fakeAutonomy } from '../__fixtures__/autonomy.js'
@@ -91,6 +92,7 @@ beforeEach(async () => {
     vision: fakeVision(),
     github: fakeGithub(),
     contributions: fakeContributions(),
+    contributionQuality: fakeContributionQuality(),
     wakeup: fakeWakeup(),
     hints: fakeStandingHints(),
     social: fakeSocial(),

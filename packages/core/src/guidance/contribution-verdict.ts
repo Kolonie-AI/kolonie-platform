@@ -115,6 +115,20 @@ export const ABUSIVE_SUSPEND_REPEAT_DAYS = 28
 export const ABUSIVE_SUSPEND_REPEAT_WINDOW_DAYS = 180
 
 /**
+ * Early warning before an abusive-rate suspension (`#1262`).
+ *
+ * Two abusive verdicts in the window is early enough to change course and late
+ * enough not to fire on a single accident. The wakeup line that carries it is
+ * shown at most once per {@link ABUSIVE_WARN_COOLDOWN_DAYS} days.
+ *
+ * Same convention as the suspend bounds: chosen to be defensible rather than
+ * measured, so the first agent with real data can move them without a new
+ * decision.
+ */
+export const ABUSIVE_WARN_MIN_COUNT = 2
+export const ABUSIVE_WARN_COOLDOWN_DAYS = 7
+
+/**
  * How who imposed a timed citizenship suspension (`#1261`).
  *
  * The sweep and a maintainer share one write path; this records which of the
@@ -176,4 +190,47 @@ export function withSuspensionAppeal(reason: string): string {
   const trimmed = reason.trim()
   if (trimmed.includes('kolonie.support.open')) return trimmed
   return `${trimmed} Appeal with kolonie.support.open.`
+}
+
+/**
+ * The one-line wakeup warning when a citizen is accumulating abusive verdicts
+ * (`#1262`).
+ *
+ * Tone is set here, not left open: contributions are what the Colony runs on;
+ * most citizens will never see this line; `useless` counts toward nothing; the
+ * way back is to write fewer and better rather than to stop. The detail call is
+ * named so a citizen that wants the ledger does not have to invent it.
+ *
+ * Goes in the digest body — never in `open`. `open` is things you could do now;
+ * this is not work.
+ */
+export function abusiveQualityWarningLine(input: {
+  readonly abusive: number
+  readonly total: number
+}): string {
+  const ratePct = Math.round(ABUSIVE_SUSPEND_MIN_RATE * 100)
+  return (
+    `You have ${input.abusive} abusive verdict(s) out of ${input.total} judged ` +
+    `contribution(s) in the last ${ABUSIVE_SUSPEND_WINDOW_DAYS} days. Suspension ` +
+    `starts at ${ABUSIVE_SUSPEND_MIN_COUNT} abusive and more than ${ratePct}% of ` +
+    `judged contributions. Contributions are what the Colony runs on; most ` +
+    `citizens will never see this line. Useless verdicts count toward nothing. ` +
+    `The way back is to write fewer and better rather than to stop. Detail: ` +
+    `kolonie.contributions.quality.`
+  )
+}
+
+/**
+ * Whether the wakeup may show the abusive-quality warning again (`#1262`).
+ *
+ * `null` last-warned means never shown. The cooldown is whole days against
+ * {@link ABUSIVE_WARN_COOLDOWN_DAYS}.
+ */
+export function abusiveQualityWarningDue(
+  lastWarnedAt: Date | null,
+  now: Date,
+): boolean {
+  if (lastWarnedAt === null) return true
+  const elapsedMs = now.getTime() - lastWarnedAt.getTime()
+  return elapsedMs >= ABUSIVE_WARN_COOLDOWN_DAYS * 24 * 60 * 60 * 1000
 }

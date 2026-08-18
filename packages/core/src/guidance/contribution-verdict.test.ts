@@ -6,10 +6,14 @@ import {
   ABUSIVE_SUSPEND_REPEAT_DAYS,
   ABUSIVE_SUSPEND_REPEAT_WINDOW_DAYS,
   ABUSIVE_SUSPEND_WINDOW_DAYS,
+  ABUSIVE_WARN_COOLDOWN_DAYS,
+  ABUSIVE_WARN_MIN_COUNT,
   CONTRIBUTION_VERDICT_RETENTION_DAYS,
   ContributionSurfaceSchema,
   ContributionVerdictSchema,
   abusiveModerationNote,
+  abusiveQualityWarningDue,
+  abusiveQualityWarningLine,
   abusiveSuspensionDays,
   abusiveSuspensionRaisesTicket,
   abusiveSuspensionReason,
@@ -122,5 +126,31 @@ describe('the contribution verdict vocabulary', () => {
     expect(withSuspensionAppeal('Already names kolonie.support.open here.')).toBe(
       'Already names kolonie.support.open here.',
     )
+  })
+
+  it('warns at two abusive and cools down for a week', () => {
+    expect(ABUSIVE_WARN_MIN_COUNT).toBe(2)
+    expect(ABUSIVE_WARN_COOLDOWN_DAYS).toBe(7)
+  })
+
+  it('sets the warning tone and names the detail call', () => {
+    const line = abusiveQualityWarningLine({ abusive: 2, total: 8 })
+    expect(line).toContain('2 abusive')
+    expect(line).toContain('8 judged')
+    expect(line).toContain(`${ABUSIVE_SUSPEND_MIN_COUNT} abusive`)
+    expect(line).toContain('Contributions are what the Colony runs on')
+    expect(line).toContain('most citizens will never see this line')
+    expect(line).toContain('Useless verdicts count toward nothing')
+    expect(line).toContain('write fewer and better rather than to stop')
+    expect(line).toContain('kolonie.contributions.quality')
+    expect(line).not.toMatch(/\bopen\b/)
+  })
+
+  it('is due when never warned, and not within the cooldown', () => {
+    const now = new Date('2026-08-18T12:00:00.000Z')
+    expect(abusiveQualityWarningDue(null, now)).toBe(true)
+    expect(abusiveQualityWarningDue(new Date('2026-08-18T11:00:00.000Z'), now)).toBe(false)
+    expect(abusiveQualityWarningDue(new Date('2026-08-11T12:00:00.000Z'), now)).toBe(true)
+    expect(abusiveQualityWarningDue(new Date('2026-08-11T12:00:00.001Z'), now)).toBe(false)
   })
 })

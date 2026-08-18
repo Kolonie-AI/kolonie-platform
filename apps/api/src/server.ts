@@ -171,6 +171,7 @@ import { rhythmBoundsFromEnv } from './rhythm.js'
 import { skillReleasesFromEnv } from './skill-releases.js'
 import type { RecordObstruction } from './obstruction.js'
 import { databaseStandingHints } from './hints.js'
+import { databaseContributionQuality } from './contribution-quality.js'
 import { databaseWakeup } from './wakeup.js'
 
 /**
@@ -1115,6 +1116,14 @@ const app = buildApp({
       ? httpContributionReader(process.env[GITHUB_VERIFIER_TOKEN_VAR])
       : undefined,
   },
+  /**
+   * The contribution-quality ledger (`#1262`).
+   *
+   * Always wired: the verdict table the sanction chain writes is the whole of
+   * what it reads, and a Colony that judges contributions always has it. Unlike
+   * the Doctor it needs no rollup.
+   */
+  contributionQuality: databaseContributionQuality(db),
   // The digest (#200). Its own seam rather than a reader assembled at the call
   // site, so what a wake-up is told stays one query set with one owner.
   wakeup: databaseWakeup(db, {

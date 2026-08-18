@@ -14,6 +14,7 @@ import { fakeEmail } from '../__fixtures__/email.js'
 import { fakeSms } from '../__fixtures__/sms.js'
 import { fakeErasureDesk } from '../__fixtures__/erasure.js'
 import { fakeContributions, fakeGithub } from '../__fixtures__/github.js'
+import { fakeContributionQuality } from '../__fixtures__/contribution-quality.js'
 import { fakeStandingHints } from '../__fixtures__/hints.js'
 import { fakeWakeup } from '../__fixtures__/wakeup.js'
 import { fakeGuidance } from '../__fixtures__/guidance.js'
@@ -107,6 +108,7 @@ describe('the OpenAPI document', () => {
       vision: fakeVision(),
       github: fakeGithub(),
       contributions: fakeContributions(),
+      contributionQuality: fakeContributionQuality(),
       wakeup: fakeWakeup(),
       hints: fakeStandingHints(),
       social: fakeSocial(),

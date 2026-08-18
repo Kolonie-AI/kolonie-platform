@@ -24,6 +24,7 @@ import type { ConsoleDependencies } from '../console.js'
 import type { AdoptionDesk } from '../adoption.js'
 import type { HumanDependencies } from '../humans/humans.js'
 import type { ContributionDependencies } from '../contributions.js'
+import type { ContributionQualitySource } from '../contribution-quality.js'
 import type { StandingHintSource } from '../hints.js'
 import type { WakeupSource } from '../wakeup.js'
 import type { ArtefactDependencies } from '../artefact.js'
@@ -234,6 +235,12 @@ export interface RouteDependencies {
   readonly memory: MemoryDependencies
   readonly github: GithubDependencies
   readonly contributions: ContributionDependencies
+  /**
+   * A citizen's own contribution-quality ledger (`#1262`).
+   *
+   * Always wired — see `AppDependencies.contributionQuality`.
+   */
+  readonly contributionQuality: ContributionQualitySource
   /** What changed while a citizen was not running — see `wakeup.ts` (#200). */
   readonly wakeup: WakeupSource
   /** The state facts behind the wake-up's non-rung suggestions (`#347`). */

@@ -29,6 +29,7 @@ import {
   fakeGithubChallenges,
   type FakeGithubChallenges,
 } from '../__fixtures__/github.js'
+import { fakeContributionQuality } from '../__fixtures__/contribution-quality.js'
 import { fakeStandingHints } from '../__fixtures__/hints.js'
 import { fakeWakeup } from '../__fixtures__/wakeup.js'
 import { fakeAutonomy } from '../__fixtures__/autonomy.js'
@@ -92,6 +93,7 @@ const baseDependencies = () => ({
   erasure: erasure({ desk: fakeErasureDesk() }),
   retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
   contributions: fakeContributions(),
+  contributionQuality: fakeContributionQuality(),
   wakeup: fakeWakeup(),
   hints: fakeStandingHints(),
   keys: fakeKeys(),

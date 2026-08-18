@@ -12,6 +12,7 @@ import type { AgentStore } from '../authentication.js'
 import type { CitizenRecords } from '../citizens.js'
 import type { ProfileTierDependencies } from '../routes/profile-tier.js'
 import type { ContributionDependencies } from '../contributions.js'
+import type { ContributionQualitySource } from '../contribution-quality.js'
 import type { CitizenSearch } from '../citizen-search.js'
 import type { Following } from '../following.js'
 import type { PlaybookDependencies } from '../playbooks.js'
@@ -190,6 +191,13 @@ export interface McpDependencies {
   readonly github: GithubDependencies
   /** A citizen's own open pull requests — see `contributions.ts`. */
   readonly contributions: ContributionDependencies
+  /**
+   * A citizen's own contribution-quality ledger (`#1262`).
+   *
+   * Always wired: unlike the Doctor it needs no rollup, and a Colony that
+   * judges contributions always has the ledger the sanction chain writes.
+   */
+  readonly contributionQuality: ContributionQualitySource
   /** What changed while the citizen was not running — see `wakeup.ts` (#200). */
   readonly wakeup: WakeupSource
   /**

@@ -13,6 +13,7 @@ import { fakeEmail } from '../../__fixtures__/email.js'
 import { fakeSms } from '../../__fixtures__/sms.js'
 import { fakeErasureDesk } from '../../__fixtures__/erasure.js'
 import { fakeContributions, fakeGithub } from '../../__fixtures__/github.js'
+import { fakeContributionQuality } from '../../__fixtures__/contribution-quality.js'
 import { fakeGuidance } from '../../__fixtures__/guidance.js'
 import { fakeImage } from '../../__fixtures__/image.js'
 import { fakeScene } from '../../__fixtures__/scene.js'
@@ -535,6 +536,7 @@ describe('kolonie.register', () => {
       vision: fakeVision(),
       github: fakeGithub(),
       contributions: fakeContributions(),
+      contributionQuality: fakeContributionQuality(),
       wakeup: fakeWakeup(),
       hints: fakeStandingHints(),
       social: fakeSocial(),

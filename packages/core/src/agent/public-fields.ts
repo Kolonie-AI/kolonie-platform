@@ -141,6 +141,7 @@ export const PRIVATE_AGENT_COLUMNS = [
   'status',
   'type',
   'generalHintsTold',
+  'abusiveQualityWarnedAt',
   'registrationFingerprint',
   'registrationPath',
   'reporterOrdinal',

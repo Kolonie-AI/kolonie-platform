@@ -226,7 +226,10 @@ describe('the Atlas over MCP', () => {
       // which is the shape this record exists to refuse.
       // 106 since `#1255` added `kolonie.playbooks.history`. Grammar: every cut
       // of every playbook is a row under one read — revision, not vocabulary.
-      expect(AUTHENTICATED_TOOLS.length).toBe(106)
+      // 107 since `#1262` added `kolonie.contributions.quality`. Grammar: every
+      // contribution surface's verdicts are one ledger a citizen reads about
+      // itself — quality, not a tool per surface.
+      expect(AUTHENTICATED_TOOLS.length).toBe(107)
       // 5 since `#945` took `kolonie.support.notice` out — the one tool here
       // that was not about a quest, now a person's action on `/backend/tickets`
       // rather than a tool a model holds. What is left is quests, entirely.

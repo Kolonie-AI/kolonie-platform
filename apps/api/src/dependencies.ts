@@ -20,6 +20,7 @@ import type { ConsoleDependencies } from './console.js'
 import type { AdoptionDesk } from './adoption.js'
 import type { HumanDependencies } from './humans/humans.js'
 import type { ContributionDependencies } from './contributions.js'
+import type { ContributionQualitySource } from './contribution-quality.js'
 import type { StandingHintSource } from './hints.js'
 import type { CitizenSearch } from './citizen-search.js'
 import type { Following } from './following.js'
@@ -127,6 +128,13 @@ export interface AppDependencies {
   readonly github: GithubDependencies
   /** A citizen's own open pull requests — see `contributions.ts`. */
   readonly contributions: ContributionDependencies
+  /**
+   * A citizen's own contribution-quality ledger (`#1262`).
+   *
+   * Always wired: unlike the Doctor it needs no rollup, and a Colony that
+   * judges contributions always has the ledger the sanction chain writes.
+   */
+  readonly contributionQuality: ContributionQualitySource
   /** What changed while a citizen was not running — see `wakeup.ts` (#200). */
   readonly wakeup: WakeupSource
   /**

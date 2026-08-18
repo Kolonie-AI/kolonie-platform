@@ -531,3 +531,46 @@ export async function latestSuspensionStartedAt(
 
   return row?.startedAt ?? null
 }
+
+/** The open timed suspension a citizen is serving, if any (`#1262`). */
+export interface OpenCitizenshipSuspension {
+  readonly reason: string
+  readonly source: CitizenshipSuspensionSource
+  readonly startedAt: Timestamp
+  readonly expiresAt: Timestamp
+}
+
+/**
+ * The still-open timed suspension for one citizen (`#1262`).
+ *
+ * Walk-prose suspensions never write a row here, so a citizen suspended that way
+ * answers `null` — which is correct: there is no end date to show. Only one open
+ * row is possible in the ordinary path; if a bug stacked two, the newest wins.
+ */
+export async function openCitizenshipSuspension(
+  db: Database | Transaction,
+  agentId: AgentId,
+): Promise<OpenCitizenshipSuspension | null> {
+  const [row] = await db
+    .select({
+      reason: citizenshipSuspensions.reason,
+      source: citizenshipSuspensions.source,
+      startedAt: citizenshipSuspensions.startedAt,
+      expiresAt: citizenshipSuspensions.expiresAt,
+    })
+    .from(citizenshipSuspensions)
+    .where(
+      and(eq(citizenshipSuspensions.agentId, agentId), isNull(citizenshipSuspensions.liftedAt)),
+    )
+    .orderBy(desc(citizenshipSuspensions.startedAt))
+    .limit(1)
+
+  if (row === undefined) return null
+
+  return {
+    reason: row.reason,
+    source: row.source as CitizenshipSuspensionSource,
+    startedAt: row.startedAt,
+    expiresAt: row.expiresAt,
+  }
+}

@@ -1,19 +1,24 @@
-import { and, eq, gt, lt, sql } from 'drizzle-orm'
+import { and, desc, eq, gt, lt, sql } from 'drizzle-orm'
 import {
   ABUSIVE_SUSPEND_MIN_COUNT,
   ABUSIVE_SUSPEND_MIN_RATE,
   ABUSIVE_SUSPEND_REPEAT_WINDOW_DAYS,
   ABUSIVE_SUSPEND_WINDOW_DAYS,
+  ABUSIVE_WARN_MIN_COUNT,
   CONTRIBUTION_VERDICT_RETENTION_DAYS,
+  ContributionSurfaceSchema,
   type AgentId,
+  type ContributionQualityAnswer,
   type ContributionSurface,
   type ContributionVerdict,
+  type Timestamp,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 import { agents, contributionVerdicts } from '../schema/index.js'
 import {
   lapseExpiredSuspensions,
   latestSuspensionStartedAt,
+  openCitizenshipSuspension,
   suspendCitizen,
 } from './citizenship.js'
 
@@ -97,6 +102,23 @@ export function meetsAbusiveSuspendBounds(tally: {
 }
 
 /**
+ * Effective window start for one citizen's rate / quality reads (`#1261`, `#1262`).
+ *
+ * Later of (now − 90 days) and the most recent timed suspension's `started_at`.
+ */
+async function abusiveRateWindowSince(
+  db: Database | Transaction,
+  agentId: AgentId,
+  now: Date,
+): Promise<string> {
+  const windowStart = new Date(
+    now.getTime() - ABUSIVE_SUSPEND_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+  ).toISOString()
+  const floor = await latestSuspensionStartedAt(db, agentId)
+  return floor !== null && floor > windowStart ? floor : windowStart
+}
+
+/**
  * Count judged contributions for one citizen inside the effective window (`#1261`).
  *
  * The window starts at the later of (now − 90 days) and the most recent timed
@@ -108,11 +130,7 @@ export async function abusiveRateTallyFor(
   agentId: AgentId,
   now: Date,
 ): Promise<AbusiveRateTally> {
-  const windowStart = new Date(
-    now.getTime() - ABUSIVE_SUSPEND_WINDOW_DAYS * 24 * 60 * 60 * 1000,
-  ).toISOString()
-  const floor = await latestSuspensionStartedAt(db, agentId)
-  const since = floor !== null && floor > windowStart ? floor : windowStart
+  const since = await abusiveRateWindowSince(db, agentId, now)
 
   const [row] = await db
     .select({
@@ -294,3 +312,131 @@ async function buildThirdStrikeTicketBody(
     `Abusive verdict history in the current window:\n${history}`
   )
 }
+
+/**
+ * The citizen's own contribution-quality ledger (`#1262`).
+ *
+ * **Changes nothing** — a pure read, on the same terms as `kolonie.doctor`.
+ * Counts by surface; reasons only on `abusive` rows; `useless` counted and
+ * labelled as counting toward nothing. Standing uses the same floored window
+ * the suspend sweep does.
+ */
+export async function contributionQualityFor(
+  db: Database | Transaction,
+  agentId: AgentId,
+  now: Date,
+): Promise<ContributionQualityAnswer> {
+  const since = await abusiveRateWindowSince(db, agentId, now)
+
+  const surfaceRows = await db
+    .select({
+      surface: contributionVerdicts.surface,
+      approved: sql<number>`count(*) filter (where ${contributionVerdicts.verdict} = 'approved')::int`,
+      useless: sql<number>`count(*) filter (where ${contributionVerdicts.verdict} = 'useless')::int`,
+      abusive: sql<number>`count(*) filter (where ${contributionVerdicts.verdict} = 'abusive')::int`,
+    })
+    .from(contributionVerdicts)
+    .where(
+      and(eq(contributionVerdicts.agentId, agentId), gt(contributionVerdicts.decidedAt, since)),
+    )
+    .groupBy(contributionVerdicts.surface)
+
+  const bySurface = {} as ContributionQualityAnswer['bySurface']
+  for (const surface of ContributionSurfaceSchema.options) {
+    bySurface[surface] = { approved: 0, useless: 0, abusive: 0 }
+  }
+  for (const row of surfaceRows) {
+    const surface = row.surface as ContributionSurface
+    bySurface[surface] = {
+      approved: Number(row.approved),
+      useless: Number(row.useless),
+      abusive: Number(row.abusive),
+    }
+  }
+
+  let approved = 0
+  let useless = 0
+  let abusive = 0
+  for (const counts of Object.values(bySurface)) {
+    approved += counts.approved
+    useless += counts.useless
+    abusive += counts.abusive
+  }
+  const judged = approved + useless + abusive
+
+  const abusiveRows = await db
+    .select({
+      surface: contributionVerdicts.surface,
+      reason: contributionVerdicts.reason,
+      decidedAt: contributionVerdicts.decidedAt,
+    })
+    .from(contributionVerdicts)
+    .where(
+      and(
+        eq(contributionVerdicts.agentId, agentId),
+        eq(contributionVerdicts.verdict, 'abusive'),
+        gt(contributionVerdicts.decidedAt, since),
+      ),
+    )
+    .orderBy(desc(contributionVerdicts.decidedAt))
+
+  const suspension = await openCitizenshipSuspension(db, agentId)
+
+  return {
+    windowDays: ABUSIVE_SUSPEND_WINDOW_DAYS,
+    bySurface,
+    totals: { approved, useless, abusive, judged },
+    abusiveReasons: abusiveRows.map((row) => ({
+      surface: row.surface as ContributionSurface,
+      reason: row.reason,
+      decidedAt: row.decidedAt as Timestamp,
+    })),
+    standing: {
+      abusive,
+      judged,
+      rate: judged === 0 ? null : abusive / judged,
+      warnAt: ABUSIVE_WARN_MIN_COUNT,
+      suspendMinCount: ABUSIVE_SUSPEND_MIN_COUNT,
+      suspendMinRate: ABUSIVE_SUSPEND_MIN_RATE,
+      meetsSuspendBounds: meetsAbusiveSuspendBounds({ abusive, total: judged }),
+      uselessCountsToward: 'nothing',
+    },
+    suspension,
+  }
+}
+
+/**
+ * When the abusive-quality wakeup warning was last shown (`#1262`).
+ *
+ * `null` means never. Read-only; the stamp is {@link markAbusiveQualityWarned}.
+ */
+export async function abusiveQualityWarnedAt(
+  db: Database | Transaction,
+  agentId: AgentId,
+): Promise<Date | null> {
+  const [row] = await db
+    .select({ at: agents.abusiveQualityWarnedAt })
+    .from(agents)
+    .where(eq(agents.id, agentId))
+    .limit(1)
+
+  return row?.at === null || row?.at === undefined ? null : new Date(row.at)
+}
+
+/**
+ * Record that the wakeup just showed the abusive-quality warning (`#1262`).
+ *
+ * A sender-side stamp only — nothing about standing, reputation or skills reads
+ * it. Safe to call twice; the later timestamp wins.
+ */
+export async function markAbusiveQualityWarned(
+  db: Database | Transaction,
+  agentId: AgentId,
+  at: Date,
+): Promise<void> {
+  await db
+    .update(agents)
+    .set({ abusiveQualityWarnedAt: at.toISOString(), updatedAt: at.toISOString() })
+    .where(eq(agents.id, agentId))
+}
+

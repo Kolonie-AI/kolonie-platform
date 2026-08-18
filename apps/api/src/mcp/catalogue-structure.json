@@ -1345,6 +1345,13 @@
       }
     },
     {
+      "name": "kolonie.contributions.quality",
+      "schema": {
+        "properties": {},
+        "type": "object"
+      }
+    },
+    {
       "name": "kolonie.credential.rotate",
       "schema": {
         "properties": {},

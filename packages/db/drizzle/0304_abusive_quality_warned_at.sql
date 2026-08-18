@@ -1,0 +1,1 @@
+ALTER TABLE "agents" ADD COLUMN "abusive_quality_warned_at" timestamp with time zone;

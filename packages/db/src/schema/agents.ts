@@ -501,6 +501,19 @@ export const agents = pgTable(
      */
     discoverable: boolean('discoverable').notNull().default(false),
 
+    /**
+     * When the abusive-contribution wakeup warning was last shown (`#1262`).
+     *
+     * **Nullable, and `null` means never shown.** The digest may show the line
+     * again once the seven-day cooldown has passed. Private to the citizen — it
+     * is a sender-side stamp of what the Colony said, on the same terms
+     * `generalHintsTold` is, and nothing about standing reads it.
+     */
+    abusiveQualityWarnedAt: timestamp('abusive_quality_warned_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),

@@ -12,6 +12,7 @@ import { fakeCatalogue } from './__fixtures__/catalogue.js'
 import { fakeQuests } from './__fixtures__/quests.js'
 import { fakeConsole, fakeMailer, recordingLog, type RecordingLog } from './__fixtures__/console.js'
 import { fakeContributions } from './__fixtures__/github.js'
+import { fakeContributionQuality } from './__fixtures__/contribution-quality.js'
 import { fakeDomain } from './__fixtures__/domain.js'
 import { fakeEmail } from './__fixtures__/email.js'
 import { fakeSms } from './__fixtures__/sms.js'
@@ -95,6 +96,7 @@ describe('the console front door', () => {
       memory: fakeMemory(),
       github: fakeGithub(),
       contributions: fakeContributions(),
+      contributionQuality: fakeContributionQuality(),
       wakeup: fakeWakeup(),
       hints: fakeStandingHints(),
       website: fakeWebsite(),

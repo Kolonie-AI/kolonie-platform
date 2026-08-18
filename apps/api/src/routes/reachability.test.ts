@@ -24,6 +24,7 @@ import { fakeVision } from '../__fixtures__/vision.js'
 import { fakePow } from '../__fixtures__/proof-of-work.js'
 import { fakeMemory } from '../__fixtures__/memory.js'
 import { fakeGithub, fakeContributions } from '../__fixtures__/github.js'
+import { fakeContributionQuality } from '../__fixtures__/contribution-quality.js'
 import { fakeStandingHints } from '../__fixtures__/hints.js'
 import { fakeWakeup } from '../__fixtures__/wakeup.js'
 import { fakeAutonomy } from '../__fixtures__/autonomy.js'
@@ -118,6 +119,7 @@ beforeEach(async () => {
     academy: fakeAcademy(),
     github: fakeGithub(),
     contributions: fakeContributions(),
+    contributionQuality: fakeContributionQuality(),
     wakeup: fakeWakeup(),
     hints: fakeStandingHints(),
     social: fakeSocial(),

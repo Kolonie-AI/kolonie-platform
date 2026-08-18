@@ -6,8 +6,10 @@ import {
   ABUSIVE_SUSPEND_MIN_RATE,
   ABUSIVE_SUSPEND_REPEAT_DAYS,
   ABUSIVE_SUSPEND_REPEAT_WINDOW_DAYS,
+  ABUSIVE_WARN_MIN_COUNT,
   AccountKindSchema,
   CONTRIBUTION_VERDICT_RETENTION_DAYS,
+  ContributionQualityAnswerSchema,
   noStagesRun,
   type AgentId,
   type ContributionVerdict,
@@ -24,7 +26,10 @@ import { finishWalk, recordWalkProseModeration, walkInProgress } from './account
 import { registerAgent } from './agents.js'
 import { suspendCitizen } from './citizenship.js'
 import {
+  abusiveQualityWarnedAt,
+  contributionQualityFor,
   insertContributionVerdict,
+  markAbusiveQualityWarned,
   meetsAbusiveSuspendBounds,
   sweepAbusiveRateSuspensions,
   sweepContributionVerdicts,
@@ -896,6 +901,138 @@ describe('contribution verdicts', () => {
         .where(eq(citizenshipSuspensions.agentId, agentId))
       expect(row?.source).toBe('maintainer')
       expect(row?.reason).toContain('kolonie.support.open')
+    })
+  })
+
+  /**
+   * `#1262`: the citizen's own ledger, and the stamp that caps the wakeup
+   * warning at once a week. Reading quality never writes; the stamp is a
+   * separate call the wakeup makes only when it returns a line.
+   */
+  describe('contribution quality', () => {
+    const now = new Date('2026-08-18T12:00:00.000Z')
+
+    const seedVerdicts = async (
+      agentId: AgentId,
+      abusive: number,
+      other: number,
+      otherVerdict: Exclude<ContributionVerdict, 'abusive'> = 'approved',
+    ) => {
+      for (let i = 0; i < abusive; i++) {
+        await insertContributionVerdict(db, {
+          agentId,
+          surface: 'walk-report',
+          verdict: 'abusive',
+          reason: `Abusive sample ${i}`,
+        })
+      }
+      for (let i = 0; i < other; i++) {
+        await insertContributionVerdict(db, {
+          agentId,
+          surface: 'task-report',
+          verdict: otherVerdict,
+          ...(otherVerdict === 'approved' ? {} : { reason: `Other sample ${i}` }),
+        })
+      }
+      await db
+        .update(contributionVerdicts)
+        .set({ decidedAt: new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString() })
+        .where(eq(contributionVerdicts.agentId, agentId))
+    }
+
+    it('returns an empty ledger for a citizen with no verdicts', async () => {
+      const agentId = await anAgent('quality-empty')
+      const answer = await contributionQualityFor(db, agentId, now)
+      expect(ContributionQualityAnswerSchema.parse(answer)).toMatchObject({
+        totals: { approved: 0, useless: 0, abusive: 0, judged: 0 },
+        abusiveReasons: [],
+        standing: {
+          abusive: 0,
+          judged: 0,
+          rate: null,
+          warnAt: ABUSIVE_WARN_MIN_COUNT,
+          uselessCountsToward: 'nothing',
+          meetsSuspendBounds: false,
+        },
+        suspension: null,
+      })
+    })
+
+    it('counts by surface, lists abusive reasons only, and labels useless as nothing', async () => {
+      const agentId = await anAgent('quality-mixed')
+      await seedVerdicts(agentId, 2, 3, 'useless')
+      await insertContributionVerdict(db, {
+        agentId,
+        surface: 'playbook-note',
+        verdict: 'approved',
+      })
+      await db
+        .update(contributionVerdicts)
+        .set({ decidedAt: new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString() })
+        .where(eq(contributionVerdicts.agentId, agentId))
+
+      const answer = await contributionQualityFor(db, agentId, now)
+      expect(answer.totals).toEqual({ approved: 1, useless: 3, abusive: 2, judged: 6 })
+      expect(answer.bySurface['walk-report']).toEqual({
+        approved: 0,
+        useless: 0,
+        abusive: 2,
+      })
+      expect(answer.bySurface['task-report']).toEqual({
+        approved: 0,
+        useless: 3,
+        abusive: 0,
+      })
+      expect(answer.abusiveReasons).toHaveLength(2)
+      expect(answer.abusiveReasons.every((row) => row.reason?.startsWith('Abusive'))).toBe(true)
+      expect(answer.standing.uselessCountsToward).toBe('nothing')
+      expect(answer.standing.rate).toBeCloseTo(2 / 6)
+      expect(answer.standing.meetsSuspendBounds).toBe(false)
+    })
+
+    it('includes an open suspension with its end date', async () => {
+      const agentId = await anAgent('quality-suspended')
+      await db.transaction((tx) =>
+        suspendCitizen(tx, {
+          agentId,
+          reason: 'Hold while we look at the reports.',
+          source: 'maintainer',
+          at: now,
+        }),
+      )
+
+      const answer = await contributionQualityFor(db, agentId, now)
+      expect(answer.suspension).not.toBeNull()
+      expect(answer.suspension?.source).toBe('maintainer')
+      expect(answer.suspension?.reason).toContain('kolonie.support.open')
+      expect(new Date(answer.suspension!.expiresAt).getTime()).toBeGreaterThan(now.getTime())
+    })
+
+    it('stamps the warning time only through markAbusiveQualityWarned', async () => {
+      const agentId = await anAgent('quality-stamp')
+      expect(await abusiveQualityWarnedAt(db, agentId)).toBeNull()
+
+      // Reading the ledger does not stamp.
+      await contributionQualityFor(db, agentId, now)
+      expect(await abusiveQualityWarnedAt(db, agentId)).toBeNull()
+
+      await markAbusiveQualityWarned(db, agentId, now)
+      const stamped = await abusiveQualityWarnedAt(db, agentId)
+      expect(stamped?.getTime()).toBe(now.getTime())
+    })
+
+    it(`crosses the wakeup warn threshold at ${ABUSIVE_WARN_MIN_COUNT}, not one`, async () => {
+      const under = await anAgent('warn-under')
+      await seedVerdicts(under, ABUSIVE_WARN_MIN_COUNT - 1, 0)
+      const underAnswer = await contributionQualityFor(db, under, now)
+      expect(underAnswer.standing.abusive).toBe(ABUSIVE_WARN_MIN_COUNT - 1)
+      expect(underAnswer.standing.abusive < underAnswer.standing.warnAt).toBe(true)
+
+      const at = await anAgent('warn-at')
+      await seedVerdicts(at, ABUSIVE_WARN_MIN_COUNT, 0)
+      const atAnswer = await contributionQualityFor(db, at, now)
+      expect(atAnswer.standing.abusive).toBe(ABUSIVE_WARN_MIN_COUNT)
+      expect(atAnswer.standing.abusive >= atAnswer.standing.warnAt).toBe(true)
     })
   })
 })

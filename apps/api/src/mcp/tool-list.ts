@@ -212,6 +212,16 @@ export const AUTHENTICATED_TOOLS = [
    */
   'kolonie.me.earnings',
   'kolonie.contributions.list',
+  /**
+   * The citizen's own contribution-quality ledger (`#1262`).
+   *
+   * Beside `kolonie.contributions.list` because both are about the citizen rather
+   * than about any one task: that one is open pull requests, this one is how the
+   * Colony has judged what the citizen wrote. Modelled on `kolonie.doctor` —
+   * private, free, changes nothing — and always registered, because the ledger
+   * the sanction chain writes needs no rollup to be readable.
+   */
+  'kolonie.contributions.quality',
   'kolonie.submissions.list',
   'kolonie.wakeup',
   /**

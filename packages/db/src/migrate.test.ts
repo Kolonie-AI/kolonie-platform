@@ -548,7 +548,18 @@ describe('the migrations', () => {
     // answers is about the citizen rather than the artefact — six tables each
     // holding a sixth of a record cannot be asked *how has this one behaved
     // lately*, which is the read the sanction chain (`#1261`) is built on.
-    expect(afterFirst.tables).toBe('136')
+    //
+    // **A hundred and thirty-seven** was already on the board when `#1261`
+    // landed (playbook history / step proposals from `#1255` / `#1253`); the
+    // comment above stopped at 136 and the assertion drifted.
+    //
+    // **A hundred and thirty-eight** (`#1261`): `citizenship_suspensions`, the
+    // timed hold a rate-based or maintainer suspension writes. Its own table
+    // because a suspension has a start, an end and a lift, and none of those
+    // belong as columns on `agents` — the status is the current word, the row
+    // is the history the quality ledger and the floor window both read.
+    // `#1262` adds a column on `agents`, not a table.
+    expect(afterFirst.tables).toBe('138')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import {
+  AboutProviderSchema,
   ListTicketsResponseSchema,
   OpenTicketResponseSchema,
   SubmissionIdSchema,
@@ -500,7 +501,7 @@ describe('kolonie.support', () => {
     const opened = await client.callTool({
       name: 'kolonie.support.open',
       arguments: aTicketRequest({
-        aboutProvider: { kind: 'mailbox', provider: 'mail.tm' },
+        aboutProvider: AboutProviderSchema.parse({ kind: 'mailbox', provider: 'mail.tm' }),
       }),
     })
 

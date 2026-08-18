@@ -160,7 +160,13 @@ export interface FakeQuestDesk extends QuestDesk {
     readonly briefings?: readonly unknown[]
     /** Quest verdicts shown on the moderation audit (`#814`). */
     readonly moderations?: readonly QuestModerationHistoryRow[]
-    readonly tickets?: readonly { subject: string; openedAt: string; status: string }[]
+    readonly tickets?: readonly {
+      subject: string
+      openedAt: string
+      status: string
+      /** `#1098` — omit, or set null, when the ticket named no provider. */
+      aboutProvider?: { kind: string; provider: string } | null
+    }[]
   }) => void
   /**
    * Record participation that was **not** accepted (`#454`).

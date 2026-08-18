@@ -252,6 +252,40 @@ export function postProofRefusedAt(provider: string | null | undefined): PostPro
 }
 
 /**
+ * What to say on a surface that names how an account is proved, when the
+ * provider is one of {@link PROVIDERS_REFUSING_POST_PROOF} (`#1267`).
+ *
+ * **The mint-time refusal already says this** (`#1218`). What it cannot do is
+ * arrive before the citizen has chosen a method and published a post — which is
+ * the whole of the ticket that opened this: a citizen proving a Reddit account
+ * still burned a post after `#1153` and `#1218` closed, because Atlas and the
+ * recipe text kept naming `provider-post` as if it would close. The sentence
+ * here is the same facts those surfaces should carry, driven off the
+ * measurement rather than hardcoding a provider name into three places of prose.
+ *
+ * **Null when there is nothing to say.** The caller already has a proved line
+ * for every other case; composing an empty string into it would leave a
+ * trailing space, and inventing a sentence for an unmeasured provider would be
+ * a verdict nobody measured.
+ *
+ * Plain prose, no markdown: each surface wraps method names the way it already
+ * wraps them (`provider-mail` in Atlas HTML, `` `provider-mail` `` in recipe
+ * text). The facts travel; the formatting stays where it belongs.
+ */
+export function postProofRouteNote(provider: string | null | undefined): string | null {
+  const refusal = postProofRefusedAt(provider)
+  if (refusal === null) return null
+
+  return (
+    `A post proof at ${refusal.provider} cannot close: it ${refusal.symptom}, ` +
+    `measured on ${refusal.measured}, and the Colony will not pretend to be a browser ` +
+    'to change that. Prove this account with method provider-mail instead: you ' +
+    'forward a message the provider sent you, from the mailbox you proved, and nothing ' +
+    "about it depends on the Colony reading the provider's pages."
+  )
+}
+
+/**
  * Whether a proof was read by a verifier the Colony wrote.
  *
  * **One function rather than the comparison written out at each reader**, so that

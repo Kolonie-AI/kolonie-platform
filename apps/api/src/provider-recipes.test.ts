@@ -449,6 +449,102 @@ describe('what the recipe says to the agent walking it', () => {
   })
 
   /**
+   * `#1267`. The mint-time refusal already names `provider-mail`; what it cannot
+   * do is arrive before the citizen has published a post. The recipe text is
+   * what is read first, so a refusing provider has to carry the measurement
+   * here — and a provider nobody measured must not invent one.
+   */
+  it('names the mail route on a provider measured refusing a post proof', () => {
+    const text = recipeAsText(
+      {
+        kind: 'social' as never,
+        provider: 'reddit.com' as never,
+        title: 'A Reddit account',
+        about: null,
+        description: null,
+        runtimes: [],
+        paid: false,
+        referral: null,
+        contact: null,
+        lastConfirmedAt: '2026-08-01T00:00:00.000Z' as never,
+        direction: null,
+        status: 'joinable',
+        category: 'social-publishing' as const,
+        categories: ['social-publishing'],
+        operatorNeed: 'unaided' as const,
+        operatorNeedIsGuess: false,
+        refusal: null,
+        retiredAt: null,
+        retiredReason: null,
+        steps: [{ actor: 'agent', instruction: 'Register under a handle of your own.' }],
+        proves: 'provider-post',
+        provesTask: null,
+        reaches: null,
+        cautions: [],
+        walkedRecipe: null,
+        walls: [],
+        agentApi: 'unknown' as const,
+        signupCode: 'unknown' as const,
+        needs: [],
+        terms: 'unknown' as const,
+        cost: 'unknown' as const,
+        pacePerDay: null,
+        updatedAt: new Date().toISOString() as never,
+      },
+      true,
+    )
+
+    expect(text).toContain('method `provider-post`')
+    expect(text).toContain('cannot close')
+    expect(text).toContain('2026-08-17')
+    expect(text).toContain('`provider-mail`')
+  })
+
+  it('leaves an unmeasured provider without a post-proof refusal note', () => {
+    const text = recipeAsText(
+      {
+        kind: 'social' as never,
+        provider: 'trello.com' as never,
+        title: 'A Trello account',
+        about: null,
+        description: null,
+        runtimes: [],
+        paid: false,
+        referral: null,
+        contact: null,
+        lastConfirmedAt: '2026-08-01T00:00:00.000Z' as never,
+        direction: null,
+        status: 'joinable',
+        category: 'project-tracking' as const,
+        categories: ['project-tracking'],
+        operatorNeed: 'unaided' as const,
+        operatorNeedIsGuess: false,
+        refusal: null,
+        retiredAt: null,
+        retiredReason: null,
+        steps: [{ actor: 'agent', instruction: 'Register under a handle of your own.' }],
+        proves: 'provider-post',
+        provesTask: null,
+        reaches: null,
+        cautions: [],
+        walkedRecipe: null,
+        walls: [],
+        agentApi: 'unknown' as const,
+        signupCode: 'unknown' as const,
+        needs: [],
+        terms: 'unknown' as const,
+        cost: 'unknown' as const,
+        pacePerDay: null,
+        updatedAt: new Date().toISOString() as never,
+      },
+      true,
+    )
+
+    expect(text).toContain('method `provider-post`')
+    expect(text).not.toContain('cannot close')
+  })
+
+  /**
    * `#1170`. The half past the account is the part an agent could not learn about
    * over MCP: it is printed as its own block, and the positions continue from the
    * signup rather than restarting — which is what makes `takenStepPositions` one

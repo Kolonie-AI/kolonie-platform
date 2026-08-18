@@ -2644,6 +2644,49 @@ describe('the Atlas on the website host', () => {
       )
     })
 
+    /**
+     * `#1267`. The mint-time refusal already names `provider-mail`; the Atlas
+     * page is what is read before a post is burned. A provider measured refusing
+     * the Colony's reader has to carry that measurement on the prove line, and
+     * a provider nobody measured must not invent one.
+     */
+    it('names the mail route on a provider measured refusing a post proof', async () => {
+      await rebuild((one) =>
+        one.recipes.write({
+          kind: 'social',
+          provider: 'reddit.com',
+          title: 'Reddit',
+          category: 'social-publishing',
+          steps: [{ actor: 'agent', instruction: 'Register under a handle of your own.' }],
+          proves: 'provider-post',
+        }),
+      )()
+
+      const body = (await get('/atlas/reddit.com')).body
+
+      expect(body).toContain('kolonie.accounts.prove, method provider-post')
+      expect(body).toContain('cannot close')
+      expect(body).toContain('2026-08-17')
+      expect(body).toContain('provider-mail')
+    })
+
+    it('leaves an unmeasured provider without a post-proof refusal note', async () => {
+      await rebuild((one) =>
+        one.recipes.write({
+          kind: 'trello',
+          provider: 'trello.com',
+          title: 'Trello',
+          steps: [{ actor: 'agent', instruction: 'Open the signup form.' }],
+          proves: 'provider-post',
+        }),
+      )()
+
+      const body = (await get('/atlas/trello.com')).body
+
+      expect(body).toContain('kolonie.accounts.prove, method provider-post')
+      expect(body).not.toContain('cannot close')
+    })
+
     /** A refusal and an unwalked entry are different sentences, and neither is the joinable one. */
     it('describes a refusal and an unwritten entry as what they each are', async () => {
       expect(descriptionOf((await get('/atlas/bluesky')).body)).toContain(

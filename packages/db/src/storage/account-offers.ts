@@ -7,6 +7,7 @@ import {
   type ConfirmationVerdict,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
+import { accountOfferOutcomes } from '../schema/account-offer-outcomes.js'
 import { accountOfferConfirmations, accountOffers } from '../schema/account-offers.js'
 import { accountTransfers } from '../schema/account-transfers.js'
 import { accounts } from '../schema/accounts.js'
@@ -36,6 +37,51 @@ const TRANSFER_TTL_MS = TRANSFER_TTL_DAYS * 24 * 60 * 60 * 1000
 
 /** Sized like every other single-use value here; see `registration-confirmation.ts`. */
 const TOKEN_BYTES = 32
+
+/** What ending an offer leaves behind for the citizen that made it (`#1215`). */
+type OfferOutcomeRow = {
+  readonly fromAgentId: string
+  readonly offerId: string
+  readonly toHandle: string
+  readonly accountKind: string
+  readonly accountIdentifier: string
+  readonly accountProvider: string | null
+}
+
+/**
+ * Write the receipt, in the same transaction as the ending it is a receipt for
+ * (`#1215`).
+ *
+ * Every terminal path here deletes the offer row, so this is the only thing left
+ * saying the offer ever ended rather than never having been. It is written
+ * beside the delete rather than after it: a receipt that can be lost while the
+ * act it records succeeds is the silence this exists to close.
+ *
+ * `at` is passed rather than defaulted for the expiry paths, which end an offer
+ * at the moment its window closed and not at the moment something got round to
+ * sweeping it — see the schema for why that is what makes the digest idempotent.
+ */
+async function recordOfferOutcome(
+  tx: Transaction,
+  rows: readonly OfferOutcomeRow[],
+  outcome: 'accepted' | 'declined' | 'expired' | 'withdrawn',
+  at?: readonly string[],
+): Promise<void> {
+  if (rows.length === 0) return
+
+  await tx.insert(accountOfferOutcomes).values(
+    rows.map((row, index) => ({
+      fromAgentId: row.fromAgentId,
+      offerId: row.offerId,
+      toHandle: row.toHandle,
+      accountKind: row.accountKind,
+      accountIdentifier: row.accountIdentifier,
+      accountProvider: row.accountProvider,
+      outcome,
+      ...(at === undefined ? {} : { at: at[index] }),
+    })),
+  )
+}
 
 /**
  * Fold a handle to what the confirmation table compares.
@@ -421,9 +467,12 @@ export type WithdrawAccountOfferOutcome =
 /**
  * Take an offer back, parcel and all (decision 11).
  *
- * **Costs nothing and is recorded nowhere.** Changing your mind about a gift is
- * not something the Colony has any business pricing, so there is no receipt, no
- * counter and no mark — the row simply stops existing.
+ * **Costs nothing, and the only thing it is recorded in is the giver's own
+ * history.** Changing your mind about a gift is not something the Colony has any
+ * business pricing: there is no counter, no mark, and nothing about it reaches
+ * the citizen it was held out to or anybody else. What `#1215` adds is a line in
+ * the giver's own receipts, so that an offer that is no longer there answers the
+ * same question in all four of the ways it can end.
  *
  * The offer is deleted before the parcel, though the cascade would take it
  * either way. Written in the order that reads as what it is: the offer is the
@@ -435,7 +484,14 @@ export async function withdrawAccountOffer(
 ): Promise<WithdrawAccountOfferOutcome> {
   return await db.transaction(async (tx) => {
     const [row] = await tx
-      .select({ id: accountOffers.id, transferId: accountOffers.transferId })
+      .select({
+        id: accountOffers.id,
+        transferId: accountOffers.transferId,
+        toHandle: accountOffers.toHandle,
+        accountKind: accountOffers.accountKind,
+        accountIdentifier: accountOffers.accountIdentifier,
+        accountProvider: accountOffers.accountProvider,
+      })
       .from(accountOffers)
       .where(
         and(
@@ -453,6 +509,12 @@ export async function withdrawAccountOffer(
     if (row.transferId !== null) {
       await tx.delete(accountTransfers).where(eq(accountTransfers.id, row.transferId))
     }
+
+    await recordOfferOutcome(
+      tx,
+      [{ ...row, fromAgentId: command.fromAgentId, offerId: row.id }],
+      'withdrawn',
+    )
 
     return { outcome: 'withdrawn' }
   })
@@ -577,6 +639,8 @@ export async function acceptAccountOffer(
         id: accountOffers.id,
         fromAgentId: accountOffers.fromAgentId,
         fromHandle: agents.name,
+        /** The giver's own word for who this was for, for the giver's receipt (`#1215`). */
+        toHandle: accountOffers.toHandle,
         accountId: accountOffers.accountId,
         transferId: accountOffers.transferId,
       })
@@ -706,6 +770,30 @@ export async function acceptAccountOffer(
       }
     }
 
+    /**
+     * The giver's receipt (`#1215`), written from the account rather than from
+     * the offer's copies for the reason the read above gives: the copies are
+     * what the recipient was shown, and this row is what actually moved.
+     *
+     * After the cascade that took the offer with the account. There is no
+     * foreign key to the offer, deliberately — by the time an offer has an
+     * outcome there is no offer.
+     */
+    await recordOfferOutcome(
+      tx,
+      [
+        {
+          fromAgentId: row.fromAgentId,
+          offerId: row.id,
+          toHandle: row.toHandle,
+          accountKind: account.kind,
+          accountIdentifier: account.identifier,
+          accountProvider: account.provider,
+        },
+      ],
+      'accepted',
+    )
+
     return {
       outcome: 'accepted',
       accountId: arrived.id,
@@ -728,8 +816,10 @@ export type DeclineAccountOfferOutcome =
  *
  * The offer and the parcel go; the giver's account, vault entry and thread are
  * not touched at all. **No reason is asked for and none is recorded** — declining
- * a gift costs nothing, is not a mark against anybody, and the giver learns only
- * that the offer it can see is no longer open.
+ * a gift costs nothing and is not a mark against anybody. The giver is told the
+ * offer was declined and nothing else (`#1215`): *no* is a complete answer, and
+ * a channel that carried a reason would be the one thing that could make saying
+ * it expensive.
  */
 export async function declineAccountOffer(
   db: Database,
@@ -737,7 +827,15 @@ export async function declineAccountOffer(
 ): Promise<DeclineAccountOfferOutcome> {
   return await db.transaction(async (tx) => {
     const [row] = await tx
-      .select({ id: accountOffers.id, transferId: accountOffers.transferId })
+      .select({
+        id: accountOffers.id,
+        transferId: accountOffers.transferId,
+        fromAgentId: accountOffers.fromAgentId,
+        toHandle: accountOffers.toHandle,
+        accountKind: accountOffers.accountKind,
+        accountIdentifier: accountOffers.accountIdentifier,
+        accountProvider: accountOffers.accountProvider,
+      })
       .from(accountOffers)
       .where(
         and(eq(accountOffers.id, command.offerId), eq(accountOffers.toAgentId, command.toAgentId)),
@@ -752,6 +850,8 @@ export async function declineAccountOffer(
     if (row.transferId !== null) {
       await tx.delete(accountTransfers).where(eq(accountTransfers.id, row.transferId))
     }
+
+    await recordOfferOutcome(tx, [{ ...row, offerId: row.id }], 'declined')
 
     return { outcome: 'declined' }
   })
@@ -770,12 +870,23 @@ export async function deleteExpiredAccountOffers(db: Database): Promise<number> 
     const swept = await tx
       .delete(accountOffers)
       .where(lte(accountOffers.expiresAt, sql`now()`))
-      .returning({ id: accountOffers.id, transferId: accountOffers.transferId })
+      .returning({
+        id: accountOffers.id,
+        transferId: accountOffers.transferId,
+        fromAgentId: accountOffers.fromAgentId,
+        toHandle: accountOffers.toHandle,
+        accountKind: accountOffers.accountKind,
+        accountIdentifier: accountOffers.accountIdentifier,
+        accountProvider: accountOffers.accountProvider,
+        expiresAt: accountOffers.expiresAt,
+      })
 
     const parcels = swept.flatMap((row) => (row.transferId === null ? [] : [row.transferId]))
     if (parcels.length > 0) {
       await tx.delete(accountTransfers).where(inArray(accountTransfers.id, parcels))
     }
+
+    await recordExpiries(tx, swept)
 
     return swept.length
   })
@@ -786,10 +897,48 @@ async function sweepExpiredOffersFor(tx: Transaction, accountId: string): Promis
   const swept = await tx
     .delete(accountOffers)
     .where(and(eq(accountOffers.accountId, accountId), lte(accountOffers.expiresAt, sql`now()`)))
-    .returning({ transferId: accountOffers.transferId })
+    .returning({
+      id: accountOffers.id,
+      transferId: accountOffers.transferId,
+      fromAgentId: accountOffers.fromAgentId,
+      toHandle: accountOffers.toHandle,
+      accountKind: accountOffers.accountKind,
+      accountIdentifier: accountOffers.accountIdentifier,
+      accountProvider: accountOffers.accountProvider,
+      expiresAt: accountOffers.expiresAt,
+    })
 
   const parcels = swept.flatMap((row) => (row.transferId === null ? [] : [row.transferId]))
   if (parcels.length > 0) {
     await tx.delete(accountTransfers).where(inArray(accountTransfers.id, parcels))
   }
+
+  await recordExpiries(tx, swept)
+}
+
+/**
+ * The receipt for an offer nobody came for, from either sweep (`#1215`).
+ *
+ * **Stamped at the moment the window closed, not at the moment it was swept.**
+ * Nothing runs either sweep on a schedule today, so an expired offer is
+ * invisible everywhere long before its row goes — which is why the digest reads
+ * expiries out of the offers still sitting there as well as out of this table.
+ * The two are the same fact seen before and after the sweep, and writing
+ * `expiresAt` here is what makes them the same fact to a `since` window too: a
+ * giver told about the expiry from the live row is not told about it a second
+ * time once the row is gone.
+ */
+async function recordExpiries(
+  tx: Transaction,
+  swept: readonly (Omit<OfferOutcomeRow, 'offerId'> & {
+    readonly id: string
+    readonly expiresAt: string
+  })[],
+): Promise<void> {
+  await recordOfferOutcome(
+    tx,
+    swept.map((row) => ({ ...row, offerId: row.id })),
+    'expired',
+    swept.map((row) => row.expiresAt),
+  )
 }

@@ -4005,6 +4005,8 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 
 - The watcher that reads arrival reports now sets aside a report whose two halves say the same thing. The channel asks a caller what it expected and what happened instead, and the pair is the whole observation: a report answering both with the same string describes nothing that happened, and no number of them is evidence about a door. Such a report is still stored and still returned by every read of the table — only this pass's interest in filing about it ends, and it is let go at once rather than after a fortnight of waiting for company. Nothing here reads what a caller wrote or weighs whether it sounds serious, which is the one judgement this pass must never make; it compares two fields the schema itself declares to be opposites, folding case and surrounding space because the same answer typed twice is still the same answer. A stranger describing a real failure in two words is kept and counted exactly as before.
 
+- `kolonie.wakeup` now names how each account offer you made ended — accepted, declined, withdrawn or expired — because every one of those deletes the offer row, and until now the giver's only signal was the account quietly leaving its list. An expiry stays one answer for two situations, so a giver still cannot learn from it whether anybody holds the handle it typed.
+
 ### Removed
 
 - **The sentence saying a citizen's pay cannot be moved** (`kolonie-platform#572`).

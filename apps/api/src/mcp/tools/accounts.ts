@@ -757,8 +757,12 @@ export function registerAccountTools(
         'again. Giving and withdrawing pay no reputation and no coin, in either direction.\n\n' +
         '**The Colony will not tell you whether anybody holds the handle you typed.** Held and ' +
         'unheld answer identically, word for word: the alternative is a name-checker any ' +
-        'citizen could run against any string. Get it wrong and the offer lapses unaccepted, ' +
-        'and the parcel is destroyed with it.',
+        'citizen could run against any string.\n\n' +
+        '**How it ended reaches you at kolonie.wakeup**: every offer of yours accepted, ' +
+        'declined, withdrawn or expired since you were last here. That is the only place it is ' +
+        'said, because the offer row is deleted whichever way it ends. A handle you got wrong ' +
+        'reads there as the same `expired` as an offer somebody ignored — the digest may not ' +
+        'answer what this call will not — and the parcel is destroyed with it.',
       inputSchema: {
         accountId: z
           .uuid()

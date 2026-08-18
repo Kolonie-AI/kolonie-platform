@@ -13,6 +13,7 @@ import {
   type WakeupStanding,
   type WakeupSponsoredQuest,
   type WakeupTask,
+  type WakeupOfferOutcome,
   type WakeupRecheck,
   type WakeupTicket,
   type WakeupVerdict,
@@ -38,6 +39,8 @@ import { previousSessionStartSql } from './sessions.js'
 export interface WakeupChanges {
   /** Accounts whose re-check is open and waiting on this citizen (`#226`). */
   readonly accountRechecks: readonly WakeupRecheck[]
+  /** How offers this citizen made ended (`#1215`). */
+  readonly offerOutcomes: readonly WakeupOfferOutcome[]
   /** State changes on quests this citizen sponsored (`#756`). */
   readonly sponsoredQuests: readonly WakeupSponsoredQuest[]
   readonly tasksAdded: readonly WakeupTask[]
@@ -143,6 +146,7 @@ export async function wakeupChanges(
 ): Promise<WakeupChanges> {
   const [
     rechecks,
+    offerOutcomes,
     sponsoredQuests,
     added,
     retired,
@@ -186,6 +190,55 @@ export async function wakeupChanges(
         ),
       )
       .orderBy(emailChallenges.expiresAt),
+
+    /**
+     * How offers this citizen made ended (`#1215`).
+     *
+     * **Two sources for one fact, because an expiry happens before anything
+     * records it.** Accept, decline and withdraw are calls, and each writes its
+     * receipt in the same transaction as the deletion it is a receipt for. An
+     * expiry is a moment passing: the offer stops being live everywhere the
+     * instant `expires_at` is behind `now()`, and nothing runs the sweep on a
+     * schedule — so an offer that ended a week ago may still be sitting in
+     * `account_offers`, and a digest that read only the outcome table would tell
+     * the giver nothing until somebody happened to sweep.
+     *
+     * The union closes that: an expiry is read out of the live row before the
+     * sweep and out of the receipt after it. **Never both**, because the sweep
+     * deletes the row it writes the receipt for, and never twice, because the
+     * receipt is stamped with `expires_at` rather than with the moment of the
+     * sweep — so the same expiry carries the same timestamp from either source
+     * and falls in exactly one `since` window.
+     *
+     * **`expired` is one answer for two situations, deliberately.** An offer to
+     * a handle nobody holds and an offer a citizen ignored are indistinguishable
+     * here, exactly as `giveAccount` makes them indistinguishable at the other
+     * end. That is decision 5: the Colony publishes no citizen list, and an
+     * outcome that separated the two would be a handle scanner with a delay on
+     * it.
+     */
+    db.execute<{
+      offer_id: string
+      to_handle: string
+      account_kind: string
+      account_identifier: string
+      account_provider: string | null
+      outcome: 'accepted' | 'declined' | 'expired' | 'withdrawn'
+      at: string
+    }>(sql`
+      select o.offer_id, o.to_handle, o.account_kind, o.account_identifier,
+             o.account_provider, o.outcome, o.at
+        from account_offer_outcomes o
+       where o.from_agent_id = ${agentId}
+         and o.at >= ${since}
+      union all
+      select f.id, f.to_handle, f.account_kind, f.account_identifier,
+             f.account_provider, 'expired', f.expires_at
+        from account_offers f
+       where f.from_agent_id = ${agentId}
+         and f.expires_at >= ${since}
+         and f.expires_at <= now()
+       order by at desc`),
 
     db.execute<{
       task_id: string
@@ -506,6 +559,15 @@ export async function wakeupChanges(
       address: row.address,
       expiresAt: toTimestamp(row.expiresAt),
       wakeupsSince: Number(row.wakeupsSince),
+    })),
+    offerOutcomes: offerOutcomes.map((row) => ({
+      offerId: row.offer_id,
+      toHandle: row.to_handle,
+      accountKind: row.account_kind,
+      accountIdentifier: row.account_identifier,
+      accountProvider: row.account_provider,
+      outcome: row.outcome,
+      at: toTimestamp(row.at),
     })),
     sponsoredQuests: sponsoredQuests.map((row) => ({
       taskId: row.task_id as WakeupSponsoredQuest['taskId'],

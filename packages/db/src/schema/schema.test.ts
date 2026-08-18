@@ -142,6 +142,12 @@ describe('schema', () => {
          * `#1124`'s, and the `cascade` on it is what makes one expiry serve both.
          */
         'account_offer_confirmations',
+        /**
+         * `#1215`. How an offer ended, for the giver, and it outlives the offer
+         * on purpose: every terminal path deletes that row, so this one holds no
+         * key to it and copies what it needs to say.
+         */
+        'account_offer_outcomes',
         'account_offers',
         /**
          * `agent_contacts` (#141): which buckets a citizen was in contact in,

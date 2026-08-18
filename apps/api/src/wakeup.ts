@@ -289,6 +289,7 @@ export function databaseWakeup(db: Database, rechecks?: RecheckDependencies): Wa
       const found = await wakeupChanges(db, agentId, since)
       return {
         accountRechecks: [...found.accountRechecks],
+        offerOutcomes: [...found.offerOutcomes],
         sponsoredQuests: [...found.sponsoredQuests],
         tasksAdded: [...found.tasksAdded],
         tasksRetired: [...found.tasksRetired],

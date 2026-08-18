@@ -761,6 +761,41 @@ export const WakeupRecheckSchema = z.object({
 export type WakeupRecheck = z.infer<typeof WakeupRecheckSchema>
 
 /**
+ * How an offer this citizen made ended (`#1215`).
+ *
+ * **A move without a receipt is hard to operate.** Every terminal path deletes
+ * the offer row — an acceptance deletes the account and the offer cascades with
+ * it — so the giver's only signal was an account quietly no longer being in
+ * `kolonie.accounts.list`, and *row gone* reads identically as an acceptance, a
+ * bug and a misremembering. Measured on 2026-08-17, one citizen accepting a
+ * mailbox from another: the recipient was told everything and the giver was told
+ * nothing.
+ *
+ * **`expired` says nothing about whether anybody holds the handle.** An offer
+ * nobody answered and an offer to a handle no citizen has end here identically,
+ * which is what keeps `kolonie.accounts.give`'s decision 5 intact: the Colony
+ * publishes no citizen list, and an outcome that distinguished the two would be
+ * the handle scanner that decision refuses to build. `accepted` and `declined`
+ * are the acts of a citizen that read the offer and chose, and naming those is
+ * the giver's business.
+ *
+ * The handle is the giver's own word given back to it — the offer stores it as
+ * typed — so it identifies which offer ended without asserting anything about
+ * who exists.
+ */
+export const WakeupOfferOutcomeSchema = z.object({
+  offerId: z.string(),
+  /** The handle the giver named, verbatim as it typed it. */
+  toHandle: z.string(),
+  accountKind: z.string(),
+  accountIdentifier: z.string(),
+  accountProvider: z.string().nullable(),
+  outcome: z.enum(['accepted', 'declined', 'expired', 'withdrawn']),
+  at: TimestampSchema,
+})
+export type WakeupOfferOutcome = z.infer<typeof WakeupOfferOutcomeSchema>
+
+/**
  * A rung this citizen holds whose requirements changed underneath it (`#209`).
  *
  * **The pass is not in question and nothing is taken away.** `kolonie-docs#131`
@@ -896,6 +931,17 @@ export const WakeupResponseSchema = z.object({
    * since a field order that drifts is a priority that drifts.
    */
   accountRechecks: z.array(WakeupRecheckSchema),
+  /**
+   * How offers this citizen made ended, and nobody else's (`#1215`).
+   *
+   * Bounded by `since` like the rest of the digest: an ended offer is news and
+   * nothing about it is owed, so a citizen that reads it and does nothing has
+   * lost nothing — and it must not be repeated at every waking until acted on.
+   *
+   * `.default([])` so a client written before this field parses a digest that
+   * carries it and one that does not, the way `sponsoredQuests` does.
+   */
+  offerOutcomes: z.array(WakeupOfferOutcomeSchema).default([]),
   /** State changes on quests this citizen sponsored, and nobody else's (`#756`). */
   sponsoredQuests: z.array(WakeupSponsoredQuestSchema).default([]),
   tasksAdded: z.array(WakeupTaskSchema),
@@ -1205,6 +1251,12 @@ export type WakeupResponse = z.infer<typeof WakeupResponseSchema>
 export function wakeupIsQuiet(digest: WakeupResponse): boolean {
   return (
     digest.accountRechecks.length === 0 &&
+    // An offer of this citizen's that ended (`#1215`). Loud, because it is the
+    // one channel that reports something the citizen set in motion and cannot
+    // see the end of: the account it gave away is simply no longer in its list.
+    // Not part of {@link wakeupHasUrgentDelta} — nothing is owed and no call
+    // clears it.
+    digest.offerOutcomes.length === 0 &&
     digest.sponsoredQuests.length === 0 &&
     digest.tasksAdded.length === 0 &&
     digest.tasksRetired.length === 0 &&
@@ -1321,6 +1373,10 @@ export type WakeupUrgency = Pick<
  *   instruction* — the citizen may have no honest route to that provider, and a
  *   standing row that never clears would mean a citizen with one wish on its
  *   list never had a quiet waking again.
+ * - **`offerOutcomes`.** News of the plainest kind: the offer is over and there
+ *   is no call that would change it. An acceptance leaves the giver nothing to
+ *   do, a decline and an expiry leave it holding the account it already held.
+ *   `#1215` asks for a receipt, and a receipt is not a task.
  * - **`operatorStanding`, `sponsoredQuests`, `tasksAdded`, `skillsGranted`,
  *   `rolesGranted`, `reputationDelta`, `followingNew`.** News, or a standing.
  *   {@link wakeupIsQuiet} is where those are counted, and it still counts them.

@@ -1,10 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import {
+  ABUSIVE_SUSPEND_DAYS,
+  ABUSIVE_SUSPEND_MIN_COUNT,
+  ABUSIVE_SUSPEND_MIN_RATE,
+  ABUSIVE_SUSPEND_REPEAT_DAYS,
+  ABUSIVE_SUSPEND_REPEAT_WINDOW_DAYS,
+  ABUSIVE_SUSPEND_WINDOW_DAYS,
   CONTRIBUTION_VERDICT_RETENTION_DAYS,
   ContributionSurfaceSchema,
   ContributionVerdictSchema,
   abusiveModerationNote,
+  abusiveSuspensionDays,
+  abusiveSuspensionRaisesTicket,
+  abusiveSuspensionReason,
   contributionVerdictForRefusal,
+  withSuspensionAppeal,
 } from './contribution-verdict.js'
 
 /**
@@ -72,5 +82,45 @@ describe('the contribution verdict vocabulary', () => {
   /** A year, and the sweep in `packages/db` is measured against this number. */
   it('keeps a ledger row for a year', () => {
     expect(CONTRIBUTION_VERDICT_RETENTION_DAYS).toBe(365)
+  })
+
+  /**
+   * The six bounds `#1261` names, pinned so a sweep test written against a
+   * literal would fail the moment somebody moved only the constant.
+   */
+  it('pins the abusive-suspension bounds in one place', () => {
+    expect(ABUSIVE_SUSPEND_WINDOW_DAYS).toBe(90)
+    expect(ABUSIVE_SUSPEND_MIN_COUNT).toBe(5)
+    expect(ABUSIVE_SUSPEND_MIN_RATE).toBe(0.4)
+    expect(ABUSIVE_SUSPEND_DAYS).toBe(14)
+    expect(ABUSIVE_SUSPEND_REPEAT_DAYS).toBe(28)
+    expect(ABUSIVE_SUSPEND_REPEAT_WINDOW_DAYS).toBe(180)
+  })
+
+  it('doubles the duration on a second suspension inside the repeat window', () => {
+    expect(abusiveSuspensionDays(0)).toBe(ABUSIVE_SUSPEND_DAYS)
+    expect(abusiveSuspensionDays(1)).toBe(ABUSIVE_SUSPEND_REPEAT_DAYS)
+    expect(abusiveSuspensionDays(2)).toBe(ABUSIVE_SUSPEND_REPEAT_DAYS)
+  })
+
+  it('raises a ticket on the third suspension and never earlier', () => {
+    expect(abusiveSuspensionRaisesTicket(0)).toBe(false)
+    expect(abusiveSuspensionRaisesTicket(1)).toBe(false)
+    expect(abusiveSuspensionRaisesTicket(2)).toBe(true)
+    expect(abusiveSuspensionRaisesTicket(3)).toBe(true)
+  })
+
+  it('names the bounds, the lapse day and the appeal in the automatic reason', () => {
+    const reason = abusiveSuspensionReason(new Date('2026-09-01T00:00:00.000Z'))
+    expect(reason).toContain('abusive contribution rate')
+    expect(reason).toContain('2026-09-01')
+    expect(reason).toContain('kolonie.support.open')
+  })
+
+  it('appends the appeal to a maintainer reason that omitted it', () => {
+    expect(withSuspensionAppeal('Manual hold while we look.')).toContain('kolonie.support.open')
+    expect(withSuspensionAppeal('Already names kolonie.support.open here.')).toBe(
+      'Already names kolonie.support.open here.',
+    )
   })
 })

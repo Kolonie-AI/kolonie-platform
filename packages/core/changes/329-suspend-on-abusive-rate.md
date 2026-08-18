@@ -1,0 +1,3 @@
+<!-- section: Added -->
+
+- A daily sweep suspends a citizen whose contribution verdicts are both numerous and mostly abusive (`kolonie-platform#1261`). Over the last 90 days, at least five `abusive` verdicts **and** more than 40% of judged contributions — both bounds together, neither alone. Fourteen days on the first hit; twenty-eight on a second inside 180 days. A third raises a support ticket naming the citizen and its verdict history and applies no ban — the irreversible step stays a person's. Verdicts from before a served suspension do not recount. Maintainers suspend by hand through the same `suspendCitizen` path. Bounds live in one place beside `CURRENT_CLAIM_ATTEMPTS`' convention: chosen to be defensible rather than measured.

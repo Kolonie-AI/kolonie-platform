@@ -2122,6 +2122,13 @@
       "when": 1787085549433,
       "tag": "0302_ambitious_senator_kelly",
       "breakpoints": true
+    },
+    {
+      "idx": 303,
+      "version": "7",
+      "when": 1787087535539,
+      "tag": "0303_wandering_thunderbolts",
+      "breakpoints": true
     }
   ]
 }

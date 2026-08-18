@@ -269,6 +269,19 @@ export interface LoopDependencies {
    * tested without waiting a year is not tested.
    */
   readonly sweepContributionVerdicts?: (now: Date) => Promise<number>
+  /**
+   * The daily abusive-rate suspension pass (`#1261`).
+   *
+   * Lapses expired timed suspensions and imposes new ones when both bounds
+   * hold. Optional like every other pass: an unwired runner leaves standing
+   * untouched, which is wrong in the long run and harmless for a deploy that
+   * has not yet grown the dependency.
+   */
+  readonly sweepAbusiveRateSuspensions?: (now: Date) => Promise<{
+    readonly lapsed: number
+    readonly suspended: number
+    readonly tickets: number
+  }>
 }
 
 /** The tripwire as this loop needs it: detect, then respond. */
@@ -1171,6 +1184,16 @@ async function sweepHeldQuests(deps: LoopDependencies, batchSize: number, log: L
 export const CONTRIBUTION_VERDICT_SWEEP_TICK_MULTIPLIER = 240
 
 /**
+ * How many quest polls pass between abusive-rate suspension sweeps (`#1261`).
+ *
+ * **Daily at the default fifteen-second quest poll:** 5760 × 15s = 24h. A
+ * multiplier rather than a second interval, following
+ * {@link HELD_QUEST_TICK_MULTIPLIER}. Counted from zero so a restart heals a
+ * backlog on the first tick rather than a day later.
+ */
+export const ABUSIVE_SUSPEND_SWEEP_TICK_MULTIPLIER = 5760
+
+/**
  * Drop the ledger rows past retention, on the slow tick (`#1259`).
  *
  * **Swallows its failure like every other pass, and this one can afford it more
@@ -1197,6 +1220,38 @@ async function sweepContributionVerdicts(deps: LoopDependencies, log: Log): Prom
   } catch (error) {
     log.error('the contribution verdict sweep failed', error, {
       event: 'contribution-verdicts.sweep.failed',
+    })
+  }
+}
+
+/**
+ * Lapse expired timed suspensions and impose new ones on the daily tick (`#1261`).
+ *
+ * Swallows its failure like the retention sweep: standing that is a day late to
+ * change is preferable to a throw that takes quest and playbook verdicts with it.
+ * Logs only when something moved.
+ */
+async function sweepAbusiveRateSuspensions(deps: LoopDependencies, log: Log): Promise<void> {
+  const { sweepAbusiveRateSuspensions: sweep } = deps
+  if (sweep === undefined) return
+
+  try {
+    const outcome = await sweep(new Date())
+    if (outcome.lapsed > 0 || outcome.suspended > 0 || outcome.tickets > 0) {
+      log.info(
+        `abusive suspensions: ${outcome.lapsed} lapsed, ${outcome.suspended} suspended, ` +
+          `${outcome.tickets} tickets`,
+        {
+          event: 'abusive-suspensions.sweep.done',
+          lapsed: outcome.lapsed,
+          suspended: outcome.suspended,
+          tickets: outcome.tickets,
+        },
+      )
+    }
+  } catch (error) {
+    log.error('the abusive-suspension sweep failed', error, {
+      event: 'abusive-suspensions.sweep.failed',
     })
   }
 }
@@ -1435,6 +1490,8 @@ export function startQuestRunner(deps: LoopDependencies, options: RunnerOptions 
         if (ticks % HELD_QUEST_TICK_MULTIPLIER === 0) await sweepHeldQuests(deps, batchSize, log)
         if (ticks % CONTRIBUTION_VERDICT_SWEEP_TICK_MULTIPLIER === 0)
           await sweepContributionVerdicts(deps, log)
+        if (ticks % ABUSIVE_SUSPEND_SWEEP_TICK_MULTIPLIER === 0)
+          await sweepAbusiveRateSuspensions(deps, log)
         ticks++
         await moderateQuests(deps, batchSize, log)
         await moderatePlaybooks(deps, batchSize, log)

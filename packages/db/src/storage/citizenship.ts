@@ -1,13 +1,25 @@
-import { and, eq, inArray, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, isNull, lte, sql } from 'drizzle-orm'
 import {
+  ABUSIVE_SUSPEND_REPEAT_WINDOW_DAYS,
   CITIZENSHIP_CONFERRING_SKILLS,
   PROFILE,
   WALK_PROSE_REFUSALS_BEFORE_SUSPENSION,
+  abusiveSuspensionDays,
+  abusiveSuspensionRaisesTicket,
+  abusiveSuspensionReason,
+  withSuspensionAppeal,
   type AgentId,
+  type CitizenshipSuspensionSource,
   type Timestamp,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
-import { accountWalks, agentSkills, agents } from '../schema/index.js'
+import {
+  accountWalks,
+  agentSkills,
+  agents,
+  citizenshipSuspensions,
+  supportTickets,
+} from '../schema/index.js'
 
 /**
  * The migration that last ran the backfill below.
@@ -276,6 +288,14 @@ export interface LiftResult {
  * The predicate is `status = 'suspended'`, so this call finds no row on a banned
  * agent and reports `lifted: false`. Undoing a ban is a different decision with
  * different consequences and it does not get to share a button with this one.
+ *
+ * ## Timed suspensions (`#1261`)
+ *
+ * Any open `citizenship_suspensions` row for this agent is stamped `lifted_at`
+ * in the same transaction, so a hand lift and the lapse sweep share one record
+ * of when the suspension stopped being in force. Walk-prose suspensions that
+ * never wrote such a row are unaffected by that update — there is nothing to
+ * stamp — and still restore status through this call.
  */
 export async function liftSuspension(
   tx: Transaction,
@@ -289,10 +309,225 @@ export async function liftSuspension(
 
   if (rows.length === 0) return { lifted: false, promoted: false }
 
+  await tx
+    .update(citizenshipSuspensions)
+    .set({ liftedAt: command.liftedAt })
+    .where(
+      and(
+        eq(citizenshipSuspensions.agentId, command.agentId),
+        isNull(citizenshipSuspensions.liftedAt),
+      ),
+    )
+
   const { promoted } = await promoteIfEarned(tx, {
     agentId: command.agentId,
     promotedAt: command.liftedAt,
   })
 
   return { lifted: true, promoted }
+}
+
+/** What imposing a timed suspension ended in (`#1261`). */
+export type SuspendCitizenResult =
+  | {
+      readonly outcome: 'suspended'
+      readonly suspensionId: string
+      readonly expiresAt: Timestamp
+      readonly days: number
+      readonly priorInWindow: number
+      readonly ticketId: string | null
+    }
+  /** Already suspended or banned — the status predicate matched no row. */
+  | { readonly outcome: 'unchanged' }
+
+/**
+ * Suspend a citizen for a duration, with one record (`#1261`).
+ *
+ * **This is the one write path.** The abusive-rate sweep and a maintainer both
+ * call it, so there is one place that computes the repeat duration, one place
+ * that raises the third-strike ticket, and one table that later sweeps read for
+ * the rate floor. Walk-prose suspensions stay on {@link suspendForRefusedWalkProse}
+ * — they are permanent until lifted and do not participate in the repeat window.
+ *
+ * ## Duration
+ *
+ * Counted from rows in `citizenship_suspensions` whose `started_at` falls inside
+ * {@link ABUSIVE_SUSPEND_REPEAT_WINDOW_DAYS}. Zero prior → 14 days; one or more →
+ * 28. A third (prior ≥ 2) still suspends at 28 days and opens a support ticket
+ * naming the citizen and its recent abusive verdicts — never a ban.
+ *
+ * ## Status predicate
+ *
+ * Same as {@link suspendForRefusedWalkProse}: only `candidate` and `citizen` move.
+ * An already-suspended or banned agent returns `unchanged` and writes no row, so
+ * a daily sweep cannot stack durations and a ban cannot be overwritten.
+ */
+export async function suspendCitizen(
+  tx: Transaction,
+  command: {
+    readonly agentId: AgentId
+    /**
+     * Required for `maintainer`. Ignored for `abusive-rate` — the automatic
+     * reason is derived from the computed lapse day so the text and the row
+     * cannot disagree.
+     */
+    readonly reason?: string
+    readonly source: CitizenshipSuspensionSource
+    readonly at: Date
+    /**
+     * Optional body for the third-strike ticket. The sweep passes the verdict
+     * history; a maintainer path may omit it and gets a short default.
+     */
+    readonly ticketBody?: string
+  },
+): Promise<SuspendCitizenResult> {
+  const windowStart = new Date(
+    command.at.getTime() - ABUSIVE_SUSPEND_REPEAT_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+  ).toISOString()
+
+  const priorRows = await tx
+    .select({ id: citizenshipSuspensions.id })
+    .from(citizenshipSuspensions)
+    .where(
+      and(
+        eq(citizenshipSuspensions.agentId, command.agentId),
+        gte(citizenshipSuspensions.startedAt, windowStart),
+      ),
+    )
+
+  const priorInWindow = priorRows.length
+  const days = abusiveSuspensionDays(priorInWindow)
+  const startedAt = command.at.toISOString()
+  const expiresAtDate = new Date(command.at.getTime() + days * 24 * 60 * 60 * 1000)
+  const expiresAt = expiresAtDate.toISOString()
+  const reason =
+    command.source === 'abusive-rate'
+      ? abusiveSuspensionReason(expiresAtDate)
+      : withSuspensionAppeal(command.reason ?? 'Suspended by a maintainer.')
+
+  const statusRows = await tx
+    .update(agents)
+    .set({ status: 'suspended', updatedAt: startedAt })
+    .where(and(eq(agents.id, command.agentId), inArray(agents.status, SUSPENDABLE_STATUSES)))
+    .returning({ id: agents.id, name: agents.name })
+
+  if (statusRows.length === 0) return { outcome: 'unchanged' }
+
+  const agent = statusRows[0]!
+  let ticketId: string | null = null
+
+  if (abusiveSuspensionRaisesTicket(priorInWindow)) {
+    const subject = `Third suspension inside ${ABUSIVE_SUSPEND_REPEAT_WINDOW_DAYS} days: ${agent.name}`
+    const body =
+      command.ticketBody?.trim() ||
+      `Citizen ${agent.name} (${command.agentId}) has reached a third citizenship ` +
+        `suspension inside ${ABUSIVE_SUSPEND_REPEAT_WINDOW_DAYS} days. Source: ${command.source}. ` +
+        `No automatic ban — a maintainer decides. Reason: ${reason}`
+
+    const [ticket] = await tx
+      .insert(supportTickets)
+      .values({
+        agentId: command.agentId,
+        kind: 'defect',
+        subject: subject.slice(0, 160),
+        body,
+      })
+      .returning({ id: supportTickets.id })
+
+    ticketId = ticket?.id ?? null
+  }
+
+  const [row] = await tx
+    .insert(citizenshipSuspensions)
+    .values({
+      agentId: command.agentId,
+      reason,
+      source: command.source,
+      startedAt,
+      expiresAt,
+      supportTicketId: ticketId,
+    })
+    .returning({ id: citizenshipSuspensions.id })
+
+  if (row === undefined) throw new Error('inserting a citizenship suspension returned no row')
+
+  return {
+    outcome: 'suspended',
+    suspensionId: row.id,
+    expiresAt,
+    days,
+    priorInWindow,
+    ticketId,
+  }
+}
+
+/** What the lapse sweep did for one pass (`#1261`). */
+export interface LapseSuspensionsResult {
+  readonly lapsed: number
+}
+
+/**
+ * Restore citizenship for timed suspensions whose `expires_at` has passed (`#1261`).
+ *
+ * Walks open rows past due and calls {@link liftSuspension} for each, which both
+ * restores status and stamps `lifted_at`. `now` is an argument so a fourteen-day
+ * boundary can be tested without waiting fourteen days. Takes a `Database` rather
+ * than a `Transaction` because each lift is its own commit — one failed lift must
+ * not roll back the ones that already restored a citizen.
+ */
+export async function lapseExpiredSuspensions(
+  db: Database,
+  now: Date,
+): Promise<LapseSuspensionsResult> {
+  const due = await db
+    .select({
+      agentId: citizenshipSuspensions.agentId,
+    })
+    .from(citizenshipSuspensions)
+    .where(
+      and(
+        isNull(citizenshipSuspensions.liftedAt),
+        lte(citizenshipSuspensions.expiresAt, now.toISOString()),
+      ),
+    )
+
+  // One agent may somehow have two open rows only if a bug stacked them; lifting
+  // once per distinct agent is enough because liftSuspension clears every open
+  // row for that agent.
+  const seen = new Set<string>()
+  let lapsed = 0
+
+  for (const row of due) {
+    if (seen.has(row.agentId)) continue
+    seen.add(row.agentId)
+
+    const result = await db.transaction((tx) =>
+      liftSuspension(tx, { agentId: row.agentId as AgentId, liftedAt: now.toISOString() }),
+    )
+
+    if (result.lifted) lapsed += 1
+  }
+
+  return { lapsed }
+}
+
+/**
+ * The most recent timed suspension's start, if any (`#1261`).
+ *
+ * The rate query floors its window here so verdicts that already bought a
+ * suspension do not buy the next one. Served and still-open rows both count —
+ * either way those verdicts have been acted on.
+ */
+export async function latestSuspensionStartedAt(
+  db: Database | Transaction,
+  agentId: AgentId,
+): Promise<Timestamp | null> {
+  const [row] = await db
+    .select({ startedAt: citizenshipSuspensions.startedAt })
+    .from(citizenshipSuspensions)
+    .where(eq(citizenshipSuspensions.agentId, agentId))
+    .orderBy(desc(citizenshipSuspensions.startedAt))
+    .limit(1)
+
+  return row?.startedAt ?? null
 }

@@ -1196,6 +1196,12 @@ describe('the erasure boundary', () => {
       'autonomy_form_invitations.agent_id c',
       'browser_challenges.agent_id c',
       /**
+       * `#1261`. Cascades: a timed suspension is a fact about this citizen's
+       * standing. Once the citizen is gone, the history of when they were held
+       * has nobody left to name.
+       */
+      'citizenship_suspensions.agent_id c',
+      /**
        * What a citizen paid the Colony (`#503`, D-106). **Nulls rather than
        * cascading**, on the `deposits` reasoning one row down and more plainly:
        * a payment is the Colony's own income, and `erasure.md` §4 rules out

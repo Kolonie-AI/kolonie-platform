@@ -47,6 +47,7 @@ import {
   recordPlaybookNoteVerdict,
   recordPlaybookStepProposalVerdict,
   recordQuestModeration,
+  sweepAbusiveRateSuspensions,
   sweepContributionVerdicts,
   writeScrubbedAnswers,
   staleBriefings,
@@ -769,6 +770,9 @@ const questRunner = startQuestRunner(
     // (`#1259`). One bounded delete an hour, and the only pass here whose
     // absence nobody would notice until a year of rows had built up.
     sweepContributionVerdicts: async (at) => await sweepContributionVerdicts(db, at),
+    // Daily abusive-rate suspensions (`#1261`): lapse expired ones, then impose
+    // new ones when both bounds hold. Shares the quest runner's timer.
+    sweepAbusiveRateSuspensions: async (at) => await sweepAbusiveRateSuspensions(db, at),
   },
   { pollIntervalMs: QUEST_POLL_INTERVAL_MS },
 )

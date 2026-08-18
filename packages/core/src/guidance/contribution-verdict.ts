@@ -95,3 +95,85 @@ export function abusiveModerationNote(reason: string): string {
  * first agent with real data may move the number without reopening a decision.
  */
 export const CONTRIBUTION_VERDICT_RETENTION_DAYS = 365
+
+/**
+ * Bounds for the abusive-rate suspension (`#1261`).
+ *
+ * Chosen to be defensible rather than measured, so the first agent with real
+ * data can move them without a new decision — the same convention
+ * {@link CURRENT_CLAIM_ATTEMPTS} set. Both the count and the rate must hold
+ * together: five alone punishes a prolific honest contributor who had a bad
+ * week; the rate alone punishes a citizen with three contributions of which
+ * one went wrong.
+ */
+export const ABUSIVE_SUSPEND_WINDOW_DAYS = 90
+export const ABUSIVE_SUSPEND_MIN_COUNT = 5
+/** Strictly greater than this share of judged contributions. */
+export const ABUSIVE_SUSPEND_MIN_RATE = 0.4
+export const ABUSIVE_SUSPEND_DAYS = 14
+export const ABUSIVE_SUSPEND_REPEAT_DAYS = 28
+export const ABUSIVE_SUSPEND_REPEAT_WINDOW_DAYS = 180
+
+/**
+ * How who imposed a timed citizenship suspension (`#1261`).
+ *
+ * The sweep and a maintainer share one write path; this records which of the
+ * two opened the row. Walk-prose suspensions (`#1097`) do not write here.
+ */
+export const CitizenshipSuspensionSourceSchema = z.enum(['abusive-rate', 'maintainer'])
+export type CitizenshipSuspensionSource = z.infer<typeof CitizenshipSuspensionSourceSchema>
+
+/**
+ * How many days a suspension lasts, given how many already sit inside the
+ * repeat window (`#1261`).
+ *
+ * Zero prior → {@link ABUSIVE_SUSPEND_DAYS}. One or more →
+ * {@link ABUSIVE_SUSPEND_REPEAT_DAYS}. The third still suspends at the repeat
+ * length; what changes is that a ticket is raised for a person to consider a
+ * ban — see {@link abusiveSuspensionRaisesTicket}.
+ */
+export function abusiveSuspensionDays(priorSuspensionsInWindow: number): number {
+  return priorSuspensionsInWindow >= 1 ? ABUSIVE_SUSPEND_REPEAT_DAYS : ABUSIVE_SUSPEND_DAYS
+}
+
+/**
+ * Whether imposing the next suspension should also open a moderation ticket
+ * (`#1261`).
+ *
+ * True when this would be the third (or later) inside the repeat window. A ban
+ * is never automatic — the ticket is what puts a person on the irreversible
+ * step.
+ */
+export function abusiveSuspensionRaisesTicket(priorSuspensionsInWindow: number): boolean {
+  return priorSuspensionsInWindow >= 2
+}
+
+/**
+ * The reason a citizen reads when suspended for an abusive rate (`#1261`).
+ *
+ * Names the bounds, the lapse date and the appeal channel. Maintainers who
+ * suspend by hand supply their own reason; the write path appends the appeal
+ * line when it is missing.
+ */
+export function abusiveSuspensionReason(expiresAt: Date): string {
+  const day = expiresAt.toISOString().slice(0, 10)
+  return (
+    `Suspended for an abusive contribution rate: at least ${ABUSIVE_SUSPEND_MIN_COUNT} ` +
+    `abusive verdicts and more than ${Math.round(ABUSIVE_SUSPEND_MIN_RATE * 100)}% of judged ` +
+    `contributions over ${ABUSIVE_SUSPEND_WINDOW_DAYS} days. Lapses on ${day}. ` +
+    `Appeal with kolonie.support.open.`
+  )
+}
+
+/**
+ * Ensure a suspension reason names the appeal channel (`#1261`).
+ *
+ * The automatic reason already does; a maintainer-supplied one might not, and
+ * the appeal is unconditional — both suspended and banned agents may still open
+ * a ticket.
+ */
+export function withSuspensionAppeal(reason: string): string {
+  const trimmed = reason.trim()
+  if (trimmed.includes('kolonie.support.open')) return trimmed
+  return `${trimmed} Appeal with kolonie.support.open.`
+}

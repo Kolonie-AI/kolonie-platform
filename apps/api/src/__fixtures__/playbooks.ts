@@ -8,10 +8,12 @@ import {
   type Account,
   type AgentId,
   type Playbook,
+  type PlaybookBriefingSplit,
   type PlaybookRun,
   type PlaybookRunOutcome,
   type PlaybookStatus,
   type PlaybookStepProposal,
+  type ServedPlaybookBriefingClaim,
 } from '@kolonie-ai/core'
 import type { PlaybookDependencies } from '../playbooks.js'
 
@@ -37,6 +39,8 @@ export interface FakePlaybooks extends PlaybookDependencies {
   readonly playbook: (playbook: Partial<Playbook> & Pick<Playbook, 'slug' | 'status'>) => Playbook
   /** Put one account on a citizen's register, with whatever properties the match turns on. */
   readonly account: (agentId: AgentId, account: Partial<Account> & Pick<Account, 'kind'>) => Account
+  /** Seed the briefing split a playbook's `reports` / `get` will serve (`#1251`). */
+  readonly setBriefing: (playbookId: string, split: PlaybookBriefingSplit) => void
 }
 
 /**
@@ -74,8 +78,15 @@ export function fakePlaybooks(): FakePlaybooks {
   const filed = new Map<string, PlaybookRun>()
   /** Pending proposals, keyed by id. Rate limits counted off status === pending. */
   const proposals = new Map<string, PlaybookStepProposal>()
+  /** Briefing claims per playbook (`#1251`). Empty until a test seeds one. */
+  const briefings = new Map<string, PlaybookBriefingSplit>()
+  const emptyBriefing = (): PlaybookBriefingSplit => ({ current: [], demoted: [] })
 
   return {
+    setBriefing(playbookId, split) {
+      briefings.set(playbookId, split)
+    },
+
     playbook(playbook) {
       const written: Playbook = {
         id: randomUUID(),
@@ -323,6 +334,16 @@ export function fakePlaybooks(): FakePlaybooks {
             ],
           },
         ]
+      },
+    },
+
+    briefing: {
+      async split(playbookId) {
+        return briefings.get(playbookId) ?? emptyBriefing()
+      },
+      async summary(playbookId) {
+        const split = briefings.get(playbookId) ?? emptyBriefing()
+        return split.current.slice(0, 6) as readonly ServedPlaybookBriefingClaim[]
       },
     },
 

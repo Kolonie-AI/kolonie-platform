@@ -117,6 +117,8 @@ import {
   playbookSignalsTally,
   playbooksByStatus,
   listPlaybookPublishedNotes,
+  readPlaybookBriefingSplit,
+  readPlaybookBriefingSummary,
   submitPlaybookForReview,
   updatePlaybookDraft,
   recordPlaybookRun,
@@ -851,6 +853,10 @@ const app = buildApp({
           contributors: row.contributors,
         }))
       },
+    },
+    briefing: {
+      split: (playbookId) => readPlaybookBriefingSplit(db, playbookId),
+      summary: (playbookId) => readPlaybookBriefingSummary(db, playbookId),
     },
   },
   quests: databaseQuests(

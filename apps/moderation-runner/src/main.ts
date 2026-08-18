@@ -55,6 +55,10 @@ import {
   staleProviderBriefings,
   writeProviderBriefing,
   writeProviderDescription,
+  playbookBriefingCorpus,
+  playbookBriefingSubject,
+  readPlaybookBriefingSplit,
+  replacePlaybookBriefingClaims,
   atlasCategoriesHeld,
   atlasCategoriesSettled,
   atlasCategoryList,
@@ -70,7 +74,9 @@ import {
   startQuestRunner,
   startRunner,
   synthesiseNow,
+  synthesisePlaybookNow,
   type BriefingStore,
+  type PlaybookBriefingStore,
   type Log,
   type ProviderBriefingStore,
   type ModerationStore,
@@ -321,12 +327,17 @@ const playbookNoteStore: PlaybookNoteModerationStore = {
  * The step-proposal queue (`#1254`).
  *
  * A third store beside the playbook and note ones: a proposal is neither a
- * pipeline awaiting publication nor a sentence about a run of one. Claims stay
- * unwired until `#1251` — merit treats an empty list as a real answer.
+ * pipeline awaiting publication nor a sentence about a run of one. Claims are read from the briefing rows `#1251` stores — merit treats an empty list as a real answer.
  */
 const playbookProposalStore: PlaybookProposalModerationStore = {
   pending: (limit) => pendingPlaybookStepProposalsForModeration(db, limit),
   record: (input) => recordPlaybookStepProposalVerdict(db, input),
+  claimsFor: async (playbookId, position) => {
+    const split = await readPlaybookBriefingSplit(db, playbookId)
+    return [...split.current, ...split.demoted]
+      .filter((claim) => claim.section === 'step' && claim.stepPosition === position)
+      .map((claim) => ({ section: claim.section, text: claim.text }))
+  },
 }
 
 /**
@@ -415,6 +426,32 @@ const providerBriefings: ProviderBriefingStore = {
   corpus: (where) => providerBriefingCorpus(db, where),
   write: (input) => writeProviderBriefing(db, input),
   describe: (input) => writeProviderDescription(db, input),
+}
+
+/**
+ * Playbook briefing claims (`#1251`).
+ *
+ * No dirty queue: note approval and revision cuts call `synthesisePlaybookNow`
+ * directly. The subject/corpus/write ports keep the synthesis free of SQL.
+ */
+const playbookBriefings: PlaybookBriefingStore = {
+  subject: async (playbookId) => {
+    const found = await playbookBriefingSubject(db, playbookId)
+    if (found === undefined) return undefined
+    return {
+      title: found.title,
+      summary: found.summary,
+      revision: found.revision,
+      steps: found.steps,
+    }
+  },
+  corpus: (playbookId) => playbookBriefingCorpus(db, playbookId),
+  write: (playbookId, claims, revision) =>
+    replacePlaybookBriefingClaims(db, playbookId, claims, now(), revision),
+}
+
+const rewritePlaybookBriefing = async (playbookId: string): Promise<void> => {
+  await synthesisePlaybookNow(playbookBriefings, questModel, playbookId, log)
 }
 
 /**
@@ -716,9 +753,18 @@ const questRunner = startQuestRunner(
     // that answers differently is not a cheaper verdict but a different one
     // (`#726`, `#1219`).
     playbooks: { store: playbookStore, model: questModel, log },
-    playbookNotes: { store: playbookNoteStore, model: questModel, log },
+    playbookNotes: {
+      store: playbookNoteStore,
+      model: questModel,
+      log,
+      rewriteBriefing: rewritePlaybookBriefing,
+    },
     playbookProposals: { store: playbookProposalStore, model: questModel, log },
-    playbookRevisions: { store: playbookRevisionStore, log },
+    playbookRevisions: {
+      store: playbookRevisionStore,
+      log,
+      rewriteBriefing: rewritePlaybookBriefing,
+    },
     // The ledger's retention sweep, on the slow tick beside the held quests
     // (`#1259`). One bounded delete an hour, and the only pass here whose
     // absence nobody would notice until a year of rows had built up.

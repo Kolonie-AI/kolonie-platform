@@ -11,9 +11,9 @@ import { playbookRuns } from '../schema/playbooks.js'
 /**
  * What running a playbook has actually produced (`#1247`).
  *
- * **Counts from the corpus, never from a model.** The briefing that will one
- * day sit beside them is chain 2; until then this surface returns the numbers
- * and the approved notes and says the briefing is not there yet. Inventing a
+ * **Counts from the corpus, never from a model.** The briefing beside them is
+ * assembled in `playbook-briefing.ts` (`#1251`) from the same approved notes —
+ * this module stays the numbers and the published sentences. Inventing a
  * summary here would be writing the Colony's voice without the synthesis that
  * owns it.
  *

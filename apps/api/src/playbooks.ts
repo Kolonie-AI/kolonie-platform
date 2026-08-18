@@ -22,6 +22,7 @@ import {
   type AgentId,
   type ApiError,
   type Playbook,
+  type PlaybookBriefingSplit,
   type PlaybookDraft,
   type PlaybookPatch,
   type PlaybookRequiredAccount,
@@ -34,6 +35,7 @@ import {
   type PlaybookStepProposal,
   type PlaybookStepProposalKind,
   type ProposePlaybookStep,
+  type ServedPlaybookBriefingClaim,
 } from '@kolonie-ai/core'
 import { z } from 'zod'
 
@@ -264,6 +266,17 @@ export interface PlaybookRevisions {
   >
 }
 
+/**
+ * The Colony's write-up of a playbook, as the API reads it (`#1251`).
+ *
+ * Split for `reports`, capped summary for `get`. Currency is computed in
+ * storage on read — this port just fetches.
+ */
+export interface PlaybookBriefings {
+  split(playbookId: string): Promise<PlaybookBriefingSplit>
+  summary(playbookId: string): Promise<readonly ServedPlaybookBriefingClaim[]>
+}
+
 export interface PlaybookDependencies {
   readonly catalogue: PlaybookCatalogue
   readonly held: (agentId: AgentId) => Promise<readonly Account[]>
@@ -271,6 +284,7 @@ export interface PlaybookDependencies {
   readonly authoring: PlaybookAuthoring
   readonly proposals: PlaybookProposals
   readonly revisions: PlaybookRevisions
+  readonly briefing: PlaybookBriefings
 }
 
 /** How many playbooks one listing answers with. */
@@ -335,10 +349,13 @@ export type PlaybookReportsResult = {
   readonly activity: PlaybookRunActivity
   readonly signals: PlaybookSignalsTally
   /**
-   * Always null until chain 2 lands. Named rather than omitted so a reader that
-   * expects a briefing is told it is not here yet, rather than guessing.
+   * The Colony's write-up, split into current and demoted claims (`#1251`).
+   *
+   * Demoted claims carry `ageDays`. An empty split (no synthesis yet, or nothing
+   * to say) is still an object rather than null — *nothing written* and *written
+   * empty* read the same to a caller that branches on `current.length`.
    */
-  readonly briefing: null
+  readonly briefing: PlaybookBriefingSplit
   readonly notes: readonly PlaybookPublishedNote[]
   readonly nextCursor: string | null
 }
@@ -699,6 +716,14 @@ export type PlaybookReadResult = {
   }[]
   /** Live revision number — equal to `playbook.version` (`#1255`). */
   readonly revision: number
+  /**
+   * Current claims only, at most 6, longest-supported first (`#1251`).
+   *
+   * Enough that an agent choosing a playbook sees the summary without a second
+   * call. Everything — including demoted claims with age — is on
+   * `kolonie.playbooks.reports`.
+   */
+  readonly claims: readonly ServedPlaybookBriefingClaim[]
 }
 
 /**
@@ -912,12 +937,13 @@ export async function readPlaybook(
     found.authorAgentId === agentId
   if (!readable) return { outcome: 'rejected', error: noSuchPlaybook }
 
-  const [accounts, mine, activity, openProposalCount, contributors] = await Promise.all([
+  const [accounts, mine, activity, openProposalCount, contributors, claims] = await Promise.all([
     deps.held(agentId),
     query.data.includeRaw === true ? deps.runs.mine(agentId, found.id) : null,
     deps.runs.activity(found.id),
     deps.proposals.countOpen(found.id),
     deps.revisions.contributors(found.id),
+    deps.briefing.summary(found.id),
   ])
 
   return {
@@ -934,6 +960,7 @@ export async function readPlaybook(
         isCreator: one.isCreator,
       })),
       revision: found.version,
+      claims,
     },
   }
 }
@@ -982,10 +1009,10 @@ export async function historyPlaybook(
 /**
  * What the Colony knows about running one playbook (`#1247`).
  *
- * Counts from the corpus, notes that cleared moderation, and a briefing slot
- * that stays null until chain 2. The four answers never leave storage through
- * this path — only `notePublished` is selected. No earnings of any kind: a
- * derived figure would invent money that never moved.
+ * Counts from the corpus, notes that cleared moderation, and the briefing
+ * split into current and demoted claims (`#1251`). The four answers never leave
+ * storage through this path — only `notePublished` is selected. No earnings of
+ * any kind: a derived figure would invent money that never moved.
  *
  * Refuses the same way `readPlaybook` does: a draft, a review, or another
  * citizen's draft answers as though it did not exist.
@@ -1037,9 +1064,10 @@ export async function listPlaybookReports(
     }
   }
 
-  const [activity, signals] = await Promise.all([
+  const [activity, signals, briefing] = await Promise.all([
     deps.runs.activity(found.id),
     deps.runs.signals(found.id),
+    deps.briefing.split(found.id),
   ])
 
   return {
@@ -1047,7 +1075,7 @@ export async function listPlaybookReports(
     response: {
       activity,
       signals,
-      briefing: null,
+      briefing,
       notes: notesResult.notes,
       nextCursor: notesResult.nextCursor,
     },

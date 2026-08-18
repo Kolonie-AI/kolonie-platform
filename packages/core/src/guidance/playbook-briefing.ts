@@ -96,3 +96,58 @@ export const ServedPlaybookBriefingClaimSchema = PlaybookBriefingClaimSchema.ext
   current: z.boolean(),
 })
 export type ServedPlaybookBriefingClaim = z.infer<typeof ServedPlaybookBriefingClaimSchema>
+
+/**
+ * How many claims one playbook may keep stored (`#1251`).
+ *
+ * Beyond this the synthesis is sprawling and the counter tells us. Enforced on
+ * the write, not as a database check — same shape as the sibling briefings'
+ * soft bounds.
+ */
+export const PLAYBOOK_BRIEFING_CLAIM_CAP = 40
+
+/**
+ * How many current claims `kolonie.playbooks.get` carries (`#1251`).
+ *
+ * Longest-supported first. `kolonie.playbooks.reports` serves everything.
+ */
+export const PLAYBOOK_GET_CLAIM_CAP = 6
+
+/**
+ * A demoted playbook claim as `reports` serves it: the claim, plus how many
+ * whole days since it was last supported.
+ *
+ * **Age is the point of demotion.** Hiding a demoted claim loses the
+ * September-equals-June case the decay rule was written for; serving it with
+ * its age lets the reader weigh it.
+ */
+export const DemotedPlaybookBriefingClaimSchema = ServedPlaybookBriefingClaimSchema.extend({
+  current: z.literal(false),
+  ageDays: z.int().min(0),
+})
+export type DemotedPlaybookBriefingClaim = z.infer<typeof DemotedPlaybookBriefingClaimSchema>
+
+/**
+ * What `kolonie.playbooks.reports` carries for the Colony's write-up of one
+ * playbook (`#1251`).
+ */
+export const PlaybookBriefingSplitSchema = z.object({
+  current: z.array(ServedPlaybookBriefingClaimSchema),
+  demoted: z.array(DemotedPlaybookBriefingClaimSchema),
+})
+export type PlaybookBriefingSplit = z.infer<typeof PlaybookBriefingSplitSchema>
+
+/**
+ * Whole days since a claim was last supported, floored.
+ *
+ * Zero means "today". Used when serving demoted claims so the reader can weigh
+ * age without recomputing it.
+ */
+export function claimAgeDays(
+  claim: Pick<{ lastSupportedAt: string }, 'lastSupportedAt'>,
+  now: string,
+): number {
+  const ms = Date.parse(now) - Date.parse(claim.lastSupportedAt)
+  if (!Number.isFinite(ms) || ms <= 0) return 0
+  return Math.floor(ms / 86_400_000)
+}

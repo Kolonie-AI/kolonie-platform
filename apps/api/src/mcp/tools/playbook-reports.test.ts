@@ -5,13 +5,14 @@ import { connectedClient, registeredCitizen } from '../../__fixtures__/mcp.js'
 import type { PlaybookReportsResult } from '../../playbooks.js'
 
 /**
- * What running a playbook has produced (`#1247`).
+ * What running a playbook has produced (`#1247`, `#1251`).
  *
  * Storage asserts the SQL — that only `notePublished` is selected, that
  * `attributed: false` blanks the handle, that pending and rejected notes stay
  * out. This side asserts the decision the tool makes: which playbooks may be
- * read at all, that `briefing` is named and null, that no derived earnings
- * appear, and that `get` carries the small activity block that points here.
+ * read at all, that `briefing` is the current/demoted split, that no derived
+ * earnings appear, and that `get` carries the small activity block that points
+ * here.
  */
 const reports = (args: Record<string, unknown>) => ({
   name: 'kolonie.playbooks.reports',
@@ -34,7 +35,7 @@ const aCitizen = async () => {
 }
 
 describe('kolonie.playbooks.reports (#1247)', () => {
-  it('answers counts, empty notes and a null briefing on an open playbook with no runs', async () => {
+  it('answers counts, empty notes and an empty briefing on an open playbook with no runs', async () => {
     const { colony, client, close } = await aCitizen()
     const playbook = colony.playbooks.playbook({ slug: 'quiet-pipeline', status: 'open' })
 
@@ -51,11 +52,11 @@ describe('kolonie.playbooks.reports (#1247)', () => {
         'operator-needed': 0,
       })
       expect(body.signals).toEqual(Object.fromEntries(PLAYBOOK_RUN_SIGNALS.map((s) => [s, 0])))
-      expect(body.briefing).toBeNull()
+      expect(body.briefing).toEqual({ current: [], demoted: [] })
       expect(body.notes).toEqual([])
       expect(body.nextCursor).toBeNull()
       expect(JSON.stringify(body)).not.toMatch(/earning|lamport|sol\b/i)
-      expect(textOf(read)).toContain('Briefing: not yet')
+      expect(textOf(read)).toContain('Briefing: nothing written up yet')
     } finally {
       await close()
     }
@@ -136,9 +137,10 @@ describe('kolonie.playbooks.reports (#1247)', () => {
       expect(activity.total).toBe(1)
       expect(activity.byOutcome.completed).toBe(1)
       expect(textOf(read)).toContain('kolonie.playbooks.reports')
-      // Notes stay in reports, not on get.
+      // Notes and the full briefing split stay in reports; get carries claims.
       expect(read.structuredContent as object).not.toHaveProperty('notes')
       expect(read.structuredContent as object).not.toHaveProperty('briefing')
+      expect((read.structuredContent as { claims: unknown[] }).claims).toEqual([])
     } finally {
       await close()
     }

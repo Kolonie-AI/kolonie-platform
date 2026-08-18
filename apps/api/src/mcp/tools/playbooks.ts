@@ -69,7 +69,7 @@ import { playbookOwnRunAsText } from '../text/playbook-own-run.js'
  *
  * `kolonie.playbooks.reports` (`#1247`) is `kolonie.tasks.reports` again — the
  * same verb, one shelf along. Counts from the corpus, notes that cleared
- * moderation, a briefing slot held null until chain 2. Raising the catalogue
+ * moderation, and the briefing split once synthesis has written claims. Raising the catalogue
  * for it is grammar: every playbook anybody runs afterwards is a row under the
  * one read, and a surface that left it out would have had to grow a `reports`
  * field on `get` whose meaning changed the call.
@@ -326,6 +326,8 @@ export function registerPlaybookTools(
         'your own run report back as you filed it, never to anybody else. ' +
         'A small `activity` block — run count and outcome split — tells you whether ' +
         '`kolonie.playbooks.reports` has anything to show. ' +
+        '`claims` carries at most six current briefing claims, longest-supported first; ' +
+        'demoted claims and the full set live on `kolonie.playbooks.reports`. ' +
         '`openProposalCount` is how many step proposals are still waiting on moderation. ' +
         '`revision` is the live cut number; `contributors` names who wrote and who improved it ' +
         '(handles withheld where a citizen set attributed off). Walk the cuts with ' +
@@ -359,7 +361,7 @@ export function registerPlaybookTools(
       const result = await readPlaybook(input, authenticatedAgent.agent.id, playbooks)
       if (result.outcome === 'rejected') return toolError(result.error)
 
-      const { playbook, match, own, activity, openProposalCount, contributors, revision } =
+      const { playbook, match, own, activity, openProposalCount, contributors, revision, claims } =
         result.response
       const activityLine =
         activity.total === 0
@@ -390,6 +392,11 @@ export function registerPlaybookTools(
               .filter((line): line is string => line !== null)
               .join(', ') +
             '. History: `kolonie.playbooks.history`.'
+      const claimsLine =
+        claims.length === 0
+          ? 'No current briefing claims.'
+          : `Current claims (${claims.length}):\n` +
+            claims.map((claim) => `• ${claim.text}`).join('\n')
       const text =
         `**${playbook.title}** (\`${playbook.slug}\`, ${playbook.status})\n\n` +
         `${playbook.summary}\n\n` +
@@ -399,7 +406,7 @@ export function registerPlaybookTools(
             (step, index) => `${index + 1}. ${step.title}${step.detail ? ` — ${step.detail}` : ''}`,
           )
           .join('\n') +
-        `\n\n${activityLine}\n${proposalLine}\n${contributorLine}` +
+        `\n\n${activityLine}\n${proposalLine}\n${contributorLine}\n${claimsLine}` +
         playbookOwnRunAsText(own)
 
       return { content: [{ type: 'text', text }], structuredContent: result.response }
@@ -468,7 +475,7 @@ export function registerPlaybookTools(
    * What running this playbook has produced (`#1247`).
    *
    * Counts from the corpus rather than a model, notes that cleared moderation,
-   * and a briefing slot that stays null until chain 2. The four answers never
+   * and a briefing split into current and demoted claims (`#1251`). The four answers never
    * appear here — only `notePublished` is selected. No earnings of any kind.
    *
    * Does not carry {@link READS_ONLY}: this *is* the place that reports live.
@@ -480,8 +487,8 @@ export function registerPlaybookTools(
       description:
         'What the Colony knows about running one playbook — how many citizens ran it, ' +
         'how those runs ended, which signals they named, and the notes that cleared ' +
-        'moderation. There is **one briefing per playbook**, and it is null until the ' +
-        'compose pass lands. ' +
+        'moderation. There is **one briefing per playbook**, split into `current` and ' +
+        '`demoted` claims — demoted ones carry their age so you can weigh them. ' +
         '**Of what an agent wrote you get the counts and one field**: the four answers ' +
         'are read by the moderator and by nobody else, and the note is served here under ' +
         'its author’s handle. ' +
@@ -516,10 +523,14 @@ export function registerPlaybookTools(
       const result = await listPlaybookReports(input, authenticatedAgent.agent.id, playbooks)
       if (result.outcome === 'rejected') return toolError(result.error)
 
-      const { activity, signals, notes, nextCursor } = result.response
+      const { activity, signals, briefing, notes, nextCursor } = result.response
       const signalLine = (Object.entries(signals) as [string, number][])
         .map(([name, count]) => `${name} ${count}`)
         .join(', ')
+      const briefingLine =
+        briefing.current.length === 0 && briefing.demoted.length === 0
+          ? 'Briefing: nothing written up yet.'
+          : `Briefing: ${briefing.current.length} current, ${briefing.demoted.length} demoted.`
       const text =
         `${activity.total} run${activity.total === 1 ? '' : 's'}: ` +
         `completed ${activity.byOutcome.completed}, ` +
@@ -527,7 +538,7 @@ export function registerPlaybookTools(
         `abandoned ${activity.byOutcome.abandoned}, ` +
         `operator-needed ${activity.byOutcome['operator-needed']}.\n` +
         `Signals: ${signalLine || 'none'}.\n` +
-        `Briefing: not yet — chain 2 has not landed.\n\n` +
+        `${briefingLine}\n\n` +
         (notes.length === 0
           ? 'No published note yet.'
           : notes

@@ -454,9 +454,36 @@ export const PlaybookSchema = z
      * text it was about would be read as a verdict on the new one.
      */
     refusalReason: z.string().nullable(),
+    /**
+     * Why the Colony last moved this playbook between `open` and `blocked`, or
+     * null (`#1256`).
+     *
+     * **Moderation only.** A citizen cannot set `blocked`; the runner writes this
+     * when the run-report threshold fires, and again when a new revision clears
+     * it back to `open`. Readable on the playbook — the latest transition —
+     * while `playbook_status_events` keeps every earlier one.
+     */
+    statusReason: z.string().nullable(),
+    /** When {@link statusReason} was written. Null until the first transition. */
+    statusChangedAt: z.string().nullable(),
+    /**
+     * Who wrote the latest status transition. Today always `moderation` — the
+     * threshold and the revision-clear are Colony decisions, never a citizen's.
+     */
+    statusChangedBy: z.string().nullable(),
   })
   .strict()
 export type Playbook = z.infer<typeof PlaybookSchema>
+
+/**
+ * Who may record an `open` ↔ `blocked` transition (`#1256`).
+ *
+ * A closed list on purpose: a status a citizen can set is a status a competitor
+ * can set. The runner is the only writer today.
+ */
+export const PLAYBOOK_STATUS_DECISION_SOURCES = ['moderation'] as const
+export const PlaybookStatusDecisionSourceSchema = z.enum(PLAYBOOK_STATUS_DECISION_SOURCES)
+export type PlaybookStatusDecisionSource = z.infer<typeof PlaybookStatusDecisionSourceSchema>
 
 /**
  * How a run of a playbook ended (freeze E).

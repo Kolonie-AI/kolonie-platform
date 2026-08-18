@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNotNull } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull } from 'drizzle-orm'
 import {
   CURRENT_CLAIM_ATTEMPTS,
   PLAYBOOK_BRIEFING_CLAIM_CAP,
@@ -14,11 +14,13 @@ import {
   type PlaybookBriefingSplit,
   type PlaybookRunOutcome,
   type PlaybookRunSignal,
+  type PlaybookStep,
   type ServedPlaybookBriefingClaim,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 import { agents } from '../schema/agents.js'
 import { playbookBriefingClaims } from '../schema/playbook-briefing-claims.js'
+import { playbookRevisions } from '../schema/playbook-revisions.js'
 import { playbookRuns, playbooks } from '../schema/playbooks.js'
 import { toTimestamp } from './rows.js'
 
@@ -237,6 +239,8 @@ type StoredClaim = {
   readonly platforms: Partial<Record<AgentPlatform, number>>
   readonly lastSupportedAt: string
   readonly stepPosition: number | null
+  /** The playbook revision this claim was written against (`#1256`). */
+  readonly revision: number
 }
 
 function toServed(claim: StoredClaim, current: boolean): ServedPlaybookBriefingClaim | undefined {
@@ -263,6 +267,7 @@ async function loadStoredClaims(db: Database, playbookId: string): Promise<reado
       platforms: playbookBriefingClaims.platforms,
       lastSupportedAt: playbookBriefingClaims.lastSupportedAt,
       stepPosition: playbookBriefingClaims.stepPosition,
+      revision: playbookBriefingClaims.revision,
     })
     .from(playbookBriefingClaims)
     .where(eq(playbookBriefingClaims.playbookId, playbookId))
@@ -277,7 +282,117 @@ async function loadStoredClaims(db: Database, playbookId: string): Promise<reado
     platforms: row.platforms as Partial<Record<AgentPlatform, number>>,
     lastSupportedAt: toTimestamp(row.lastSupportedAt),
     stepPosition: row.stepPosition,
+    revision: row.revision,
   }))
+}
+
+/**
+ * Live revision number and its cut time — the demotion line for older claims
+ * (`#1256`).
+ */
+async function liveRevisionCut(
+  db: Database,
+  playbookId: string,
+): Promise<{ readonly revision: number; readonly cutAt: string } | null> {
+  const [row] = await db
+    .select({
+      revision: playbookRevisions.revision,
+      cutAt: playbookRevisions.cutAt,
+    })
+    .from(playbookRevisions)
+    .where(eq(playbookRevisions.playbookId, playbookId))
+    .orderBy(desc(playbookRevisions.revision))
+    .limit(1)
+
+  if (row === undefined) return null
+  return { revision: row.revision, cutAt: toTimestamp(row.cutAt) }
+}
+
+/** Title + detail fingerprint for deciding whether a step claim still points. */
+function stepFingerprint(step: Pick<PlaybookStep, 'title' | 'detail'>): string {
+  return `${step.title}\0${step.detail ?? ''}`
+}
+
+/**
+ * Delete `step` claims whose position is gone or whose step text moved (`#1256`).
+ *
+ * Demotion is not enough for these: a claim that names "step 3" after step 3 was
+ * removed or rewritten points at nothing. Route/yield/unsolved claims stay and
+ * demote on read via {@link readPlaybookBriefingSplit}.
+ *
+ * Compares each claim against the steps of the revision it was written for, then
+ * against {@link currentSteps}. Call inside the same transaction that cut the
+ * revision so the delete and the cut land together.
+ */
+export async function dropObsoletePlaybookStepClaims(
+  db: Database | Transaction,
+  playbookId: string,
+  currentSteps: readonly PlaybookStep[],
+): Promise<number> {
+  const claims = await db
+    .select({
+      id: playbookBriefingClaims.id,
+      stepPosition: playbookBriefingClaims.stepPosition,
+      revision: playbookBriefingClaims.revision,
+    })
+    .from(playbookBriefingClaims)
+    .where(
+      and(
+        eq(playbookBriefingClaims.playbookId, playbookId),
+        eq(playbookBriefingClaims.section, 'step'),
+      ),
+    )
+
+  if (claims.length === 0) return 0
+
+  const revisionNumbers = [...new Set(claims.map((claim) => claim.revision))]
+  const revisionRows = await db
+    .select({
+      revision: playbookRevisions.revision,
+      steps: playbookRevisions.steps,
+    })
+    .from(playbookRevisions)
+    .where(
+      and(
+        eq(playbookRevisions.playbookId, playbookId),
+        inArray(playbookRevisions.revision, revisionNumbers),
+      ),
+    )
+  const stepsByRevision = new Map(revisionRows.map((row) => [row.revision, row.steps]))
+
+  const toDelete: string[] = []
+  for (const claim of claims) {
+    const position = claim.stepPosition
+    if (position === null || position < 1) {
+      toDelete.push(claim.id)
+      continue
+    }
+    if (position > currentSteps.length) {
+      toDelete.push(claim.id)
+      continue
+    }
+
+    const writtenAgainst = stepsByRevision.get(claim.revision)
+    if (writtenAgainst === undefined || position > writtenAgainst.length) {
+      toDelete.push(claim.id)
+      continue
+    }
+
+    const was = writtenAgainst[position - 1]
+    const now = currentSteps[position - 1]
+    if (was === undefined || now === undefined) {
+      toDelete.push(claim.id)
+      continue
+    }
+    if (stepFingerprint(was) !== stepFingerprint(now)) {
+      toDelete.push(claim.id)
+    }
+  }
+
+  if (toDelete.length === 0) return 0
+
+  await db.delete(playbookBriefingClaims).where(inArray(playbookBriefingClaims.id, toDelete))
+  return toDelete.length
 }
 
 /**
@@ -285,23 +400,34 @@ async function loadStoredClaims(db: Database, playbookId: string): Promise<reado
  *
  * Demoted claims carry `ageDays` so the reader can weigh them. Currency is
  * computed on read via {@link isCurrentClaim}, never stored.
+ *
+ * A claim written against an older revision gets the live revision's `cutAt` as
+ * `changeDetectedAt` (`#1256`): last-supported-before-the-cut leaves the
+ * foreground immediately. Claims rewritten against the live revision (their
+ * `revision` matches) are not demoted by that cut — the synthesis already
+ * answered it, the same guard `demotionLine` gives task briefings.
  */
 export async function readPlaybookBriefingSplit(
   db: Database,
   playbookId: string,
   at: string = currentTime(),
 ): Promise<PlaybookBriefingSplit> {
-  const [stored, oldest] = await Promise.all([
+  const [stored, oldest, live] = await Promise.all([
     loadStoredClaims(db, playbookId),
     oldestCurrentPlaybookAttempt(db, playbookId),
+    liveRevisionCut(db, playbookId),
   ])
 
-  const window = { oldestCurrentAttempt: oldest, now: at }
   const current: ServedPlaybookBriefingClaim[] = []
   const demoted: PlaybookBriefingSplit['demoted'] = []
 
   for (const claim of stored) {
-    const isCurrent = isCurrentClaim(claim, window)
+    const changeDetectedAt = live !== null && claim.revision < live.revision ? live.cutAt : null
+    const isCurrent = isCurrentClaim(claim, {
+      oldestCurrentAttempt: oldest,
+      now: at,
+      changeDetectedAt,
+    })
     const served = toServed(claim, isCurrent)
     if (served === undefined) continue
     if (isCurrent) {

@@ -710,6 +710,15 @@ describe('schema', () => {
         'playbook_revisions',
         'playbook_runs',
         /**
+         * `playbook_status_events` (`#1256`): one `open` ↔ `blocked` transition.
+         *
+         * Its own table because the playbook row only holds the latest reason —
+         * blocking and clearing both have to be recorded, and overwriting the
+         * columns would lose the block when the clear arrives. Append-only;
+         * moderation is the only writer.
+         */
+        'playbook_status_events',
+        /**
          * `playbook_step_proposals` (`#1253`): one citizen's proposed change to
          * one step of a published playbook — replace, insert-after or remove.
          *

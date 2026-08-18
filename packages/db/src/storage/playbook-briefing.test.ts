@@ -16,14 +16,17 @@ import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
 import { publishPlaybookAfterReview } from './playbook-moderations.js'
 import {
+  dropObsoletePlaybookStepClaims,
   oldestCurrentPlaybookAttempt,
   playbookBriefingCorpus,
   readPlaybookBriefingSplit,
   readPlaybookBriefingSummary,
   replacePlaybookBriefingClaims,
 } from './playbook-briefing.js'
+import { insertPlaybookRevision } from './playbook-revisions.js'
 import { recordPlaybookNoteVerdict } from './playbook-run-notes.js'
 import { createPlaybook, recordPlaybookRun, submitPlaybookForReview } from './playbooks.js'
+import { playbooks } from '../schema/playbooks.js'
 import { asc, eq } from 'drizzle-orm'
 
 const target = databaseTestTarget()
@@ -371,5 +374,119 @@ describe('playbook briefing claims (#1251)', () => {
       .from(playbookBriefingClaims)
       .where(eq(playbookBriefingClaims.playbookId, playbookId))
     expect(rows).toHaveLength(0)
+  })
+
+  it('demotes claims last supported before a newer revision cut (#1256)', async () => {
+    await replacePlaybookBriefingClaims(
+      db,
+      playbookId,
+      [
+        aClaim({
+          text: 'Supported before the cut.',
+          sources: [randomUUID()],
+          lastSupportedAt: '2026-08-01T00:00:00.000Z',
+        }),
+        aClaim({
+          text: 'Supported after the cut.',
+          sources: [randomUUID()],
+          lastSupportedAt: '2026-08-17T12:00:00.000Z',
+        }),
+      ],
+      '2026-08-10T00:00:00.000Z',
+      1,
+    )
+
+    // Open playbooks are not author-editable; cut revision 2 directly.
+    const cutAt = '2026-08-15T00:00:00.000Z'
+    await db
+      .update(playbooks)
+      .set({ version: 2, updatedAt: cutAt })
+      .where(eq(playbooks.id, playbookId))
+    await insertPlaybookRevision(db, {
+      playbookId,
+      revision: 2,
+      steps: draft.steps,
+      cutAt,
+    })
+
+    const split = await readPlaybookBriefingSplit(db, playbookId, '2026-08-18T00:00:00.000Z')
+    expect(split.demoted.map((c) => c.text)).toContain('Supported before the cut.')
+    expect(split.current.map((c) => c.text)).toContain('Supported after the cut.')
+  })
+
+  it('deletes a step claim when its step is removed or rewritten (#1256)', async () => {
+    await replacePlaybookBriefingClaims(
+      db,
+      playbookId,
+      [
+        aClaim({
+          section: 'step',
+          stepPosition: 1,
+          text: 'Reading the open tickets is where most start.',
+          sources: [randomUUID()],
+        }),
+        aClaim({
+          section: 'step',
+          stepPosition: 2,
+          text: 'Writing one reply is the finish.',
+          sources: [randomUUID()],
+        }),
+        aClaim({
+          section: 'route',
+          text: 'A route claim survives a step rewrite.',
+          sources: [randomUUID()],
+        }),
+      ],
+      '2026-08-10T00:00:00.000Z',
+      1,
+    )
+
+    const rewrittenSteps = [
+      { title: 'Read the open tickets', usesSlots: ['mailbox'] },
+      { title: 'Write one careful reply' },
+    ]
+    const dropped = await dropObsoletePlaybookStepClaims(db, playbookId, rewrittenSteps)
+    expect(dropped).toBe(1)
+
+    const afterRewrite = await db
+      .select({
+        section: playbookBriefingClaims.section,
+        stepPosition: playbookBriefingClaims.stepPosition,
+        text: playbookBriefingClaims.text,
+      })
+      .from(playbookBriefingClaims)
+      .where(eq(playbookBriefingClaims.playbookId, playbookId))
+
+    expect(afterRewrite.map((row) => row.text)).toContain(
+      'Reading the open tickets is where most start.',
+    )
+    expect(afterRewrite.map((row) => row.text)).not.toContain('Writing one reply is the finish.')
+    expect(afterRewrite.map((row) => row.text)).toContain('A route claim survives a step rewrite.')
+
+    const removedSteps = [{ title: 'Read the open tickets', usesSlots: ['mailbox'] }]
+    // Step 1 unchanged — drop count stays 0 for that claim; no step-2 claim left.
+    expect(await dropObsoletePlaybookStepClaims(db, playbookId, removedSteps)).toBe(0)
+
+    // Re-seed a step-2 claim against revision 1, then remove the position.
+    await replacePlaybookBriefingClaims(
+      db,
+      playbookId,
+      [
+        aClaim({
+          section: 'step',
+          stepPosition: 2,
+          text: 'Writing one reply is the finish.',
+          sources: [randomUUID()],
+        }),
+      ],
+      '2026-08-10T00:00:00.000Z',
+      1,
+    )
+    expect(await dropObsoletePlaybookStepClaims(db, playbookId, removedSteps)).toBe(1)
+    const afterRemove = await db
+      .select()
+      .from(playbookBriefingClaims)
+      .where(eq(playbookBriefingClaims.playbookId, playbookId))
+    expect(afterRemove).toHaveLength(0)
   })
 })

@@ -169,6 +169,24 @@ export const playbooks = pgTable(
      * the text it was about would be read as a verdict on the new one.
      */
     refusalReason: text('refusal_reason'),
+
+    /**
+     * Why the Colony last moved this playbook between `open` and `blocked`
+     * (`#1256`). Null until the first such transition.
+     *
+     * Latest only — every earlier transition lives in `playbook_status_events`.
+     * Readable on the playbook the way `refusal_reason` is.
+     */
+    statusReason: text('status_reason'),
+
+    /** When {@link statusReason} was written. */
+    statusChangedAt: timestamp('status_changed_at', { withTimezone: true, mode: 'string' }),
+
+    /**
+     * Who wrote the latest status transition. Closed vocabulary
+     * (`moderation` today); never a citizen id.
+     */
+    statusChangedBy: varchar('status_changed_by', { length: 32 }),
   },
   (table) => [
     uniqueIndex('playbooks_slug_key').on(table.slug),
@@ -201,6 +219,17 @@ export const playbooks = pgTable(
     check(
       'playbooks_open_carries_no_refusal',
       sql`${table.status} <> 'open' or ${table.refusalReason} is null`,
+    ),
+    /**
+     * The three status-transition columns move together (`#1256`). A reason
+     * without a who/when, or a who that is not in the closed vocabulary, is a
+     * half-written transition the read path would have to invent.
+     */
+    check(
+      'playbooks_status_transition_is_complete',
+      sql`(${table.statusReason} is null and ${table.statusChangedAt} is null and ${table.statusChangedBy} is null)
+        or (${table.statusReason} is not null and ${table.statusChangedAt} is not null
+          and ${table.statusChangedBy} in ('moderation'))`,
     ),
     check(
       'playbooks_no_self_parent',

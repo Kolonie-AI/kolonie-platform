@@ -34,6 +34,8 @@ import {
   pendingReports,
   playbooksWithAcceptedUnfoldedProposals,
   cutPlaybookRevision,
+  evaluatePlaybookBlocked,
+  openPlaybooksForBlockedCheck,
   publishPlaybookAfterReview,
   publishQuest,
   questsBySameSponsor,
@@ -83,6 +85,7 @@ import {
   type ModerationStore,
 } from './loop.js'
 import type {
+  PlaybookBlockedModerationStore,
   PlaybookModerationStore,
   PlaybookNoteModerationStore,
   PlaybookProposalModerationStore,
@@ -367,6 +370,26 @@ const playbookRevisionStore: PlaybookRevisionModerationStore = {
       case 'nothing-to-fold':
       case 'unknown-playbook':
         return { outcome: result.outcome }
+    }
+  },
+}
+
+/**
+ * The blocked-threshold pass (`#1256`).
+ *
+ * No model: the threshold is arithmetic over run outcomes. Clearing is the
+ * revision cut, not this store.
+ */
+const playbookBlockedStore: PlaybookBlockedModerationStore = {
+  waiting: (limit) => openPlaybooksForBlockedCheck(db, limit),
+  evaluate: async (playbookId) => {
+    const result = await evaluatePlaybookBlocked(db, playbookId)
+    return {
+      outcome: result.outcome,
+      blocked: result.threshold.blocked,
+      completed: result.threshold.completed,
+      window: result.threshold.window,
+      revision: result.threshold.revision,
     }
   },
 }
@@ -766,6 +789,7 @@ const questRunner = startQuestRunner(
       log,
       rewriteBriefing: rewritePlaybookBriefing,
     },
+    playbookBlocked: { store: playbookBlockedStore, log },
     // The ledger's retention sweep, on the slow tick beside the held quests
     // (`#1259`). One bounded delete an hour, and the only pass here whose
     // absence nobody would notice until a year of rows had built up.

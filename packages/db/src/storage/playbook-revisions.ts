@@ -12,6 +12,8 @@ import { agents } from '../schema/agents.js'
 import { playbookRevisions } from '../schema/playbook-revisions.js'
 import { playbookStepProposals } from '../schema/playbook-step-proposals.js'
 import { playbooks } from '../schema/playbooks.js'
+import { dropObsoletePlaybookStepClaims } from './playbook-briefing.js'
+import { applyPlaybookStatusTransition } from './playbook-status.js'
 import { supersedeStalePlaybookStepProposals } from './playbook-step-proposals.js'
 
 /** A pool or an open transaction. */
@@ -378,6 +380,25 @@ export async function cutPlaybookRevision(
       .where(inArray(playbookStepProposals.id, proposalIds))
 
     await supersedeStalePlaybookStepProposals(tx, playbookId, nextVersion)
+
+    /**
+     * Step claims that pointed at a removed or rewritten step are gone with
+     * the cut (`#1256`). Demotion on read handles everything else.
+     */
+    await dropObsoletePlaybookStepClaims(tx, playbookId, draft.data.steps)
+
+    /**
+     * A new revision clears `blocked` (`#1256`). Moderation-only: this fold is
+     * the Colony's cut, not a citizen write. No-op when the playbook is open.
+     */
+    await applyPlaybookStatusTransition(tx, {
+      playbookId,
+      fromStatus: 'blocked',
+      toStatus: 'open',
+      reason: `Revision ${nextVersion} cut; blocked cleared so the repaired pipeline can be offered again.`,
+      decidedBy: 'moderation',
+      at: now,
+    })
 
     return { outcome: 'cut' as const, revision, folded: proposalIds.length }
   })

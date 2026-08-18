@@ -54,10 +54,12 @@ import { questAuditTick, type QuestAuditLoopDependencies } from './quest-audit.j
 import { questEndingsTick, type QuestEndingsLoopDependencies } from './quest-endings.js'
 import { questReportTick, type QuestReportLoopDependencies } from './quest-reports.js'
 import {
+  playbookBlockedTick,
   playbookNoteTick,
   playbookProposalTick,
   playbookRevisionTick,
   playbookTick,
+  type PlaybookBlockedLoopDependencies,
   type PlaybookLoopDependencies,
   type PlaybookNoteLoopDependencies,
   type PlaybookProposalLoopDependencies,
@@ -214,6 +216,16 @@ export interface LoopDependencies {
    * as they were.
    */
   readonly playbookRevisions?: PlaybookRevisionLoopDependencies
+  /**
+   * Setting `blocked` on open playbooks that trip the run-report threshold
+   * (`#1256`).
+   *
+   * Runs after {@link playbookRevisions} so a cut that cleared `blocked` this
+   * cycle is not immediately re-blocked on the same pass against pre-cut runs
+   * (those runs carry the old revision number). Optional: an unwired runner
+   * leaves every playbook `open`, which is the state before this existed.
+   */
+  readonly playbookBlocked?: PlaybookBlockedLoopDependencies
   /**
    * Reading what citizens said they want to become (`#140`).
    *
@@ -1124,6 +1136,43 @@ async function moderatePlaybookRevisions(
 }
 
 /**
+ * One pass applying the blocked threshold to open playbooks (`#1256`).
+ *
+ * Its failure is swallowed for the same reason as the revision pass: leaving a
+ * broken pipeline `open` for one more poll is worse than ideal and better than
+ * taking the publish queue down with it.
+ */
+async function moderatePlaybookBlocked(
+  deps: LoopDependencies,
+  batchSize: number,
+  log: Log,
+): Promise<void> {
+  const { playbookBlocked } = deps
+  if (playbookBlocked === undefined) return
+
+  try {
+    const outcome = await playbookBlockedTick({ log, ...playbookBlocked }, batchSize)
+    if (outcome.considered > 0) {
+      log.info(
+        `playbook blocked: ${outcome.blocked} set, ${outcome.unchanged} left open, ` +
+          `${outcome.considered} considered`,
+        {
+          event: 'playbook-blocked.pass.done',
+          considered: outcome.considered,
+          blocked: outcome.blocked,
+          unchanged: outcome.unchanged,
+          empty: outcome.empty,
+        },
+      )
+    }
+  } catch (error) {
+    log.error('the playbook blocked-threshold pass failed', error, {
+      event: 'playbook-blocked.pass.failed',
+    })
+  }
+}
+
+/**
  * How many quest polls pass between sweeps of the held quests (`#759`).
  *
  * **A multiplier rather than a second interval**, following
@@ -1498,6 +1547,7 @@ export function startQuestRunner(deps: LoopDependencies, options: RunnerOptions 
         await moderatePlaybookNotes(deps, batchSize, log)
         await moderatePlaybookProposals(deps, batchSize, log)
         await moderatePlaybookRevisions(deps, batchSize, log)
+        await moderatePlaybookBlocked(deps, batchSize, log)
         lastPollAt = new Date().toISOString()
         consecutiveFailures = 0
         if (running) await pause(pollIntervalMs)

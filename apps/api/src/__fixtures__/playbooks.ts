@@ -104,6 +104,9 @@ export function fakePlaybooks(): FakePlaybooks {
         publishedAt: playbook.status === 'open' ? currentTime() : null,
         ...playbook,
         refusalReason: playbook.refusalReason ?? null,
+        statusReason: playbook.statusReason ?? null,
+        statusChangedAt: playbook.statusChangedAt ?? null,
+        statusChangedBy: playbook.statusChangedBy ?? null,
       }
       catalogue.push(written)
       return written
@@ -369,6 +372,9 @@ export function fakePlaybooks(): FakePlaybooks {
           slug,
           status: 'draft',
           refusalReason: null,
+          statusReason: null,
+          statusChangedAt: null,
+          statusChangedBy: null,
           authorAgentId,
           parentPlaybookId: null,
           version: 1,
@@ -459,6 +465,9 @@ export function fakePlaybooks(): FakePlaybooks {
           slug,
           status: 'draft',
           refusalReason: null,
+          statusReason: null,
+          statusChangedAt: null,
+          statusChangedBy: null,
           authorAgentId,
           parentPlaybookId: source.id,
           version: 1,

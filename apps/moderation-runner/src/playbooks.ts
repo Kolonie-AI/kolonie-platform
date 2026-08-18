@@ -60,10 +60,11 @@ import {
  * changed last week, and the Colony would be enforcing a rule it cannot state.
  * The red lines are what a playbook is judged against, and they are published.
  *
- * **No takedown.** Nothing here touches a playbook that is already `open`. A
- * pipeline that turns out to be wrong after publication is `blocked` — the
- * status freeze B keeps readable — and moving one there is a citizen's or a
- * maintainer's act, not this pass's.
+ * **No takedown in this pass.** Nothing here touches a playbook that is already
+ * `open`. A pipeline that turns out to be wrong after publication is `blocked`
+ * — the status freeze B keeps readable — and moving one there is
+ * {@link playbookBlockedTick}'s job (`#1256`), not a citizen's and not this
+ * publish pass's.
  */
 
 /** Where the playbook pass reads and writes. Injected, so the decision is testable without one. */
@@ -1099,6 +1100,7 @@ export async function playbookRevisionTick(
           folded: result.folded,
         })
         // Steps moved under existing claims: rewrite against the new revision.
+        // The cut itself clears `blocked` inside the storage transaction (`#1256`).
         await deps.rewriteBriefing?.(playbookId)
         break
       case 'incoherent':
@@ -1112,6 +1114,89 @@ export async function playbookRevisionTick(
         })
         break
       case 'nothing-to-fold':
+      case 'unknown-playbook':
+        outcome.empty++
+        break
+    }
+  }
+
+  return outcome
+}
+
+/** How many open playbooks one blocked-threshold pass considers (`#1256`). */
+export const PLAYBOOK_BLOCKED_BATCH = 100
+
+/**
+ * Where the blocked-threshold pass reads and writes (`#1256`).
+ *
+ * Injected so the decision is testable without a database. `waiting` returns
+ * open playbook ids that already have enough `blocked` runs on the live
+ * revision to possibly trip the threshold; `evaluate` applies it or leaves
+ * the playbook alone.
+ */
+export interface PlaybookBlockedModerationStore {
+  waiting(limit: number): Promise<readonly string[]>
+  evaluate(playbookId: string): Promise<{
+    readonly outcome: 'transitioned' | 'unchanged' | 'unknown-playbook'
+    readonly blocked?: number
+    readonly completed?: number
+    readonly window?: number
+    readonly revision?: number
+  }>
+}
+
+export interface PlaybookBlockedLoopDependencies {
+  readonly store: PlaybookBlockedModerationStore
+  readonly log?: Log
+}
+
+export interface PlaybookBlockedTickOutcome {
+  readonly considered: number
+  readonly blocked: number
+  readonly unchanged: number
+  readonly empty: number
+}
+
+/**
+ * Set `blocked` on open playbooks that trip the run-report threshold (`#1256`).
+ *
+ * **Moderation only.** There is no citizen path that calls this. Clearing is
+ * the revision-cut path in storage, not this tick.
+ *
+ * Sequential and oldest-activity-last (the store orders by `updatedAt` desc):
+ * a playbook that just received its fifth blocked report is considered before
+ * one that has been quietly accumulating for weeks.
+ */
+export async function playbookBlockedTick(
+  deps: PlaybookBlockedLoopDependencies,
+  batchSize: number,
+): Promise<PlaybookBlockedTickOutcome> {
+  const { store, log = silentLog } = deps
+  const outcome = { considered: 0, blocked: 0, unchanged: 0, empty: 0 }
+  const limit = Math.min(batchSize, PLAYBOOK_BLOCKED_BATCH)
+
+  for (const playbookId of await store.waiting(limit)) {
+    outcome.considered++
+    const result = await store.evaluate(playbookId)
+    switch (result.outcome) {
+      case 'transitioned':
+        outcome.blocked++
+        log.info(
+          `blocked playbook ${playbookId}: ${result.blocked ?? '?'} of ${result.window ?? '?'} ` +
+            `on revision ${result.revision ?? '?'} ended blocked, none completed`,
+          {
+            event: 'playbook.blocked.set',
+            playbookId,
+            blocked: result.blocked,
+            completed: result.completed,
+            window: result.window,
+            revision: result.revision,
+          },
+        )
+        break
+      case 'unchanged':
+        outcome.unchanged++
+        break
       case 'unknown-playbook':
         outcome.empty++
         break

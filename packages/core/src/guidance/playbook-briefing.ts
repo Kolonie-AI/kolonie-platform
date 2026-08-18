@@ -114,6 +114,25 @@ export const PLAYBOOK_BRIEFING_CLAIM_CAP = 40
 export const PLAYBOOK_GET_CLAIM_CAP = 6
 
 /**
+ * How many of a playbook's most recent run reports on the **current** revision
+ * the blocked check reads (`#1256`).
+ *
+ * Chosen to be defensible rather than measured — there was no traffic to measure
+ * against. Lives in one place with this comment, beside the same convention
+ * {@link CURRENT_CLAIM_ATTEMPTS} set, so the first agent with real data can move
+ * it without a new decision.
+ */
+export const PLAYBOOK_BLOCKED_REPORT_WINDOW = 20
+
+/**
+ * How many of those reports must have ended `blocked`, with zero `completed`,
+ * before moderation sets the playbook itself to `blocked` (`#1256`).
+ *
+ * See {@link PLAYBOOK_BLOCKED_REPORT_WINDOW}.
+ */
+export const PLAYBOOK_BLOCKED_MIN_BLOCKED = 5
+
+/**
  * A demoted playbook claim as `reports` serves it: the claim, plus how many
  * whole days since it was last supported.
  *

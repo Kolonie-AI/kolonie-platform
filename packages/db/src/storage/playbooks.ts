@@ -20,6 +20,7 @@ import {
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 import { playbookRuns, playbooks } from '../schema/playbooks.js'
+import { dropObsoletePlaybookStepClaims } from './playbook-briefing.js'
 import { isUniqueViolation } from './errors.js'
 import { insertPlaybookRevision } from './playbook-revisions.js'
 import { supersedeStalePlaybookStepProposals } from './playbook-step-proposals.js'
@@ -61,6 +62,9 @@ function toPlaybook(row: typeof playbooks.$inferSelect): Playbook {
     updatedAt: row.updatedAt,
     publishedAt: row.publishedAt,
     refusalReason: row.refusalReason,
+    statusReason: row.statusReason ?? null,
+    statusChangedAt: row.statusChangedAt ?? null,
+    statusChangedBy: row.statusChangedBy ?? null,
   }
 }
 
@@ -386,6 +390,12 @@ export async function updatePlaybookDraft(
       steps: playbook.steps,
       cutAt: playbook.updatedAt,
     })
+    /**
+     * Step claims whose position is gone or whose step text moved drop with
+     * the cut (`#1256`). Status stays where it is — a citizen rewrite does not
+     * clear `blocked`; that is the fold path, and moderation only.
+     */
+    await dropObsoletePlaybookStepClaims(tx, playbook.id, playbook.steps)
     return { outcome: 'written', playbook }
   })
 }

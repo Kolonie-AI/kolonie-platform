@@ -22,6 +22,7 @@ import {
   type PlaybookPatch,
   type PlaybookRequiredAccount,
   type PlaybookRun,
+  type PlaybookRunNoteStatus,
   type PlaybookRunReport,
   type PlaybookStatus,
 } from '@kolonie-ai/core'
@@ -532,6 +533,17 @@ export type PlaybookOwnRun = {
   }
   readonly takenStepPositions: PlaybookRun['takenStepPositions']
   readonly signals: PlaybookRun['signals']
+  /**
+   * The published sentence, as the author wrote it and where it stands
+   * (`#1245`).
+   *
+   * Here for the reason the four answers are: it is what this citizen wrote and
+   * cannot get back any other way. Unlike them it is also the one field another
+   * citizen will read — so `status` is beside it, because *did the moderator
+   * take it* is a question its author is entitled to an answer to and nobody
+   * else is. Null on a report that wrote no note.
+   */
+  readonly note: { readonly text: string; readonly status: PlaybookRunNoteStatus } | null
   readonly filedAt: string
   readonly updatedAt: string
 }
@@ -548,6 +560,10 @@ const ownRun = (run: PlaybookRun): PlaybookOwnRun => ({
   },
   takenStepPositions: run.takenStepPositions,
   signals: run.signals,
+  note:
+    run.note === null || run.noteStatus === null
+      ? null
+      : { text: run.note, status: run.noteStatus },
   filedAt: run.createdAt,
   updatedAt: run.updatedAt,
 })

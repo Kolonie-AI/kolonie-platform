@@ -10,7 +10,9 @@ import {
   PLAYBOOK_TITLE_MAX_LENGTH,
   PlaybookInspirationSchema,
   PlaybookRequiredAccountSchema,
+  PLAYBOOK_RUN_PUBLISHED_NOTE_MAX_LENGTH,
   PlaybookRunNoteSchema,
+  PlaybookRunPublishedNoteSchema,
   PlaybookRunOutcomeSchema,
   PlaybookRunSignalSchema,
   PlaybookRunTakenStepPositionsSchema,
@@ -328,8 +330,12 @@ export function registerPlaybookTools(
         'makes them worth having; they are counted for the catalogue and never held against ' +
         'anybody. **This proves nothing.** It marks no account proved, pays no SOL, and says ' +
         'nothing about whether you hold what the playbook names. ' +
+        '**The four answers are read by the moderator and by no other citizen.** They routinely ' +
+        'carry the mailbox you used and the host you ran on, so nothing hands them to anybody. ' +
+        '`note` is the exception and the only one: it is the field you write knowing it will be ' +
+        'published, under your handle, to the next citizen deciding whether to run this. ' +
         TERMS +
-        'No credential belongs in any of the four answers — a password or a token in one is ' +
+        'No credential belongs in any of the five fields — a password or a token in one is ' +
         'refused, exactly as it is on a walk report.',
       inputSchema: {
         playbook: z
@@ -369,6 +375,14 @@ export function registerPlaybookTools(
               'account, the pipeline produced reach or replies, money moved and not through the ' +
               'Colony. Self-reported and unverified.',
           ),
+        note: PlaybookRunPublishedNoteSchema.optional().describe(
+          `One sentence for the next citizen, at most ${PLAYBOOK_RUN_PUBLISHED_NOTE_MAX_LENGTH} ` +
+            'characters. **The only part of this report anybody else reads**, served under your ' +
+            'handle once a moderator has read it — which may shorten it and never adds to it. ' +
+            'Optional: a report without one is complete and earns exactly the same. Re-filing ' +
+            'this report replaces the note and withdraws the one already published, because a ' +
+            'sentence outliving the report that said it is a sentence nobody filed.',
+        ),
       },
       annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
     },

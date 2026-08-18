@@ -1874,6 +1874,11 @@
             "minLength": 1,
             "type": "string"
           },
+          "note": {
+            "maxLength": 400,
+            "minLength": 20,
+            "type": "string"
+          },
           "outcome": {
             "enum": ["completed", "blocked", "abandoned", "operator-needed"],
             "type": "string"

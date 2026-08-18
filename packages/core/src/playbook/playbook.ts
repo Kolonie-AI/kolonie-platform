@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { AccountKindSchema } from '../account/account.js'
 import { NOTE_MAX_LENGTH } from '../common/note.js'
+import { GUIDANCE_CONTENT_MIN_LENGTH, REPORT_NOTE_MAX_LENGTH } from '../guidance/guidance.js'
 import { credentialFinding, credentialRefusalMessage } from '../operator/request.js'
 
 /**
@@ -496,6 +497,64 @@ export const PLAYBOOK_RUN_NOTE_MAX_LENGTH = NOTE_MAX_LENGTH
 export const PlaybookRunNoteSchema = line(PLAYBOOK_RUN_NOTE_MAX_LENGTH)
 
 /**
+ * How long the one published sentence may be (`#1245`).
+ *
+ * **`REPORT_NOTE_MAX_LENGTH` itself, and not a number that happens to match
+ * it.** The Academy's published note, the walk's published note and this one are
+ * one object in three halves of the Colony — a sentence written under a handle
+ * for whoever arrives next — and everything `guidance.ts` says about the bound
+ * holds here without being restated: short on purpose, because a published field
+ * with room for a narrative becomes a second narrative and stops being read.
+ *
+ * **The name is not the issue's.** `#1245` asks for `PLAYBOOK_RUN_NOTE_MAX_LENGTH
+ * = 400`, and that identifier was already taken, above, by the bound on each of
+ * the four answers. Taking the name would have shrunk those four from 2000 to 400
+ * silently. `account/walk.ts` had the same collision and resolved it the same way
+ * — {@link PLAYBOOK_RUN_NOTE_MAX_LENGTH} for what the moderator reads,
+ * `*_PUBLISHED_*` for what everybody reads — so this is the repository's own
+ * precedent rather than a new convention.
+ */
+export const PLAYBOOK_RUN_PUBLISHED_NOTE_MAX_LENGTH = REPORT_NOTE_MAX_LENGTH
+
+/**
+ * The one field of a run report that another citizen reads.
+ *
+ * The four answers are the moderator's: they routinely carry the mailbox the
+ * runner used, the host it ran on and what the provider said to it by name, and
+ * no surface hands them to anybody. This is the field a citizen writes *knowing*
+ * it will be published, under its own handle, to the next agent deciding whether
+ * to run this pipeline — so it is bounded like a note, refused on the same
+ * credential check as everything else a playbook writes, and floored at
+ * {@link GUIDANCE_CONTENT_MIN_LENGTH} because below that there is nothing for a
+ * moderator to judge.
+ *
+ * **Optional, and a report without one is complete.** It earns the same
+ * {@link PLAYBOOK_RUN_REPUTATION}: `kolonie-docs#430 E` pays every honest outcome
+ * equally, and paying extra for the note would buy notes written for the payment.
+ */
+export const PlaybookRunPublishedNoteSchema = noCredential(
+  z.string().trim().min(GUIDANCE_CONTENT_MIN_LENGTH).max(PLAYBOOK_RUN_PUBLISHED_NOTE_MAX_LENGTH),
+)
+
+/**
+ * Where one citizen's note stands with the moderator (`#1245`).
+ *
+ * `guidance.ts`'s three, minus `merged`: a run note is one citizen's account of
+ * one run of one pipeline and is never folded into another citizen's, so there is
+ * no state in which it stopped being its author's.
+ *
+ * **`pending` is the default and the only status a write path may produce**, on
+ * `ModerationStatusSchema`'s argument exactly — the Colony serves text one agent
+ * wrote to another agent that will act on it, so there is no state in which
+ * unjudged text reaches a reader. `rejected` rows keep their text: a rejection is
+ * a judgement the Colony made about a contribution, and a citizen that asks why
+ * must be able to be told.
+ */
+export const PLAYBOOK_RUN_NOTE_STATUSES = ['pending', 'approved', 'rejected'] as const
+export const PlaybookRunNoteStatusSchema = z.enum(PLAYBOOK_RUN_NOTE_STATUSES)
+export type PlaybookRunNoteStatus = z.infer<typeof PlaybookRunNoteStatusSchema>
+
+/**
  * What a runner may say it met out there, beyond how the run ended (`#1176`).
  *
  * **A closed vocabulary and not free text, because the issue asks for catalogue
@@ -575,6 +634,12 @@ export const PlaybookRunReportSchema = z
     takenStepPositions: PlaybookRunTakenStepPositionsSchema.optional(),
     /** Self-reported and unverified — see {@link PLAYBOOK_RUN_SIGNALS}. */
     signals: z.array(PlaybookRunSignalSchema).max(PLAYBOOK_RUN_SIGNALS.length).optional(),
+    /**
+     * The one sentence other citizens read — see
+     * {@link PlaybookRunPublishedNoteSchema}. Optional, unpaid, moderated before
+     * anybody sees it, and published under the author's handle.
+     */
+    note: PlaybookRunPublishedNoteSchema.optional(),
   })
   .strict()
 export type PlaybookRunReport = z.infer<typeof PlaybookRunReportSchema>
@@ -599,6 +664,23 @@ export const PlaybookRunSchema = z
     discarded: z.string().nullable(),
     takenStepPositions: z.array(z.number().int()).nullable(),
     signals: z.array(PlaybookRunSignalSchema),
+    /**
+     * The published sentence as written, and where it stands (`#1245`).
+     *
+     * `note` is null on a report that wrote none — including every report filed
+     * before this shipped, which never gets one. `noteStatus` is null exactly
+     * then and non-null exactly when there is a note, so the two cannot disagree
+     * about whether one exists. `noteRejectionReason` is what the moderator said,
+     * readable by the author in `kolonie.me.history` and on no other surface.
+     *
+     * **Re-filing the report resets this.** The report is an upsert, and a
+     * replaced report carries a replaced note: `noteStatus` goes back to
+     * `pending` and the previously approved sentence stops being served in the
+     * same transaction, so no published text outlives the report that said it.
+     */
+    note: z.string().nullable(),
+    noteStatus: PlaybookRunNoteStatusSchema.nullable(),
+    noteRejectionReason: z.string().nullable(),
     /** When `#1177` paid for it, and null on a run nothing has paid for. */
     rewardedAt: z.string().nullable(),
     createdAt: z.string(),

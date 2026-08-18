@@ -155,6 +155,10 @@ export function fakePlaybooks(): FakePlaybooks {
           discarded: report.discarded ?? null,
           takenStepPositions: report.takenStepPositions ? [...report.takenStepPositions] : null,
           signals: report.signals ? [...report.signals] : [],
+          // The published sentence arrives unjudged, and a replacement replaces it (`#1245`).
+          note: report.note ?? null,
+          noteStatus: report.note ? 'pending' : null,
+          noteRejectionReason: null,
           rewardedAt: standing?.rewardedAt ?? currentTime(),
           createdAt: standing?.createdAt ?? currentTime(),
           updatedAt: currentTime(),

@@ -3,12 +3,14 @@ import { eq } from 'drizzle-orm'
 import {
   AccountKindSchema,
   PLAYBOOK_RUN_OUTCOMES,
+  PLAYBOOK_RUN_PUBLISHED_NOTE_MAX_LENGTH,
   PLAYBOOK_RUN_REPUTATION,
   looksLikeCredential,
   type AgentId,
 } from '@kolonie-ai/core'
 import type { Database } from './client.js'
 import { connectForTests, databaseTestTarget, truncateAll } from './testing.js'
+import { playbookRuns } from './schema/playbooks.js'
 import { reputationEvents } from './schema/reputation.js'
 import { registerAgent } from './storage/agents.js'
 import {
@@ -281,5 +283,96 @@ describe('recording a playbook run', () => {
 
     expect(written.run.takenStepPositions).toEqual([1, 2])
     expect(written.run.signals).toEqual(['traffic', 'ban'])
+  })
+
+  /**
+   * The published sentence (`#1245`).
+   *
+   * The four answers are the moderator's and this one is everybody's, so what is
+   * asserted here is the pair rather than the text: a note arrives unjudged, and
+   * a note and a status exist together or neither does. A write path that could
+   * produce `approved` would be a write path that publishes text nobody read.
+   */
+  it('takes a note and files it unjudged', async () => {
+    const written = await recordPlaybookRun(
+      db,
+      report({
+        note: 'The second step needs the mailbox proved first, which the summary does not say.',
+      }),
+    )
+
+    expect(written.run.note).toBe(
+      'The second step needs the mailbox proved first, which the summary does not say.',
+    )
+    expect(written.run.noteStatus).toBe('pending')
+    expect(written.run.noteRejectionReason).toBeNull()
+  })
+
+  it('leaves all three null on a report that wrote no note', async () => {
+    const written = await recordPlaybookRun(db, report())
+
+    expect(written.run.note).toBeNull()
+    expect(written.run.noteStatus).toBeNull()
+    expect(written.run.noteRejectionReason).toBeNull()
+  })
+
+  /**
+   * **The one rule `#1245` exists for.** A report is an upsert, so a replaced
+   * report carries a replaced note — and the sentence a moderator approved
+   * stops being served in the statement that writes the new one, rather than in
+   * a later sweep. A window in which a citizen's page quotes a run nobody filed
+   * is the thing being ruled out, and only the database can rule it out.
+   */
+  it('sends a replaced note back to pending in the same write', async () => {
+    const first = await recordPlaybookRun(db, report({ note: 'What I wish I had known.' }))
+    await db
+      .update(playbookRuns)
+      .set({ noteStatus: 'approved' })
+      .where(eq(playbookRuns.id, first.run.id))
+
+    const second = await recordPlaybookRun(
+      db,
+      report({ outcome: 'blocked', did: 'Ran it again.', note: 'It changed, and here is how.' }),
+    )
+
+    expect(second.replaced).toBe(true)
+    expect(second.run.note).toBe('It changed, and here is how.')
+    expect(second.run.noteStatus).toBe('pending')
+  })
+
+  /** Withdrawing what you published: a re-filed report without a note clears all three. */
+  it('clears the note when the report is re-filed without one', async () => {
+    const first = await recordPlaybookRun(
+      db,
+      report({ note: 'Something I would rather not have said.' }),
+    )
+    await db
+      .update(playbookRuns)
+      .set({ noteStatus: 'approved' })
+      .where(eq(playbookRuns.id, first.run.id))
+
+    const second = await recordPlaybookRun(db, report({ did: 'Filed again, without the note.' }))
+
+    expect(second.run.note).toBeNull()
+    expect(second.run.noteStatus).toBeNull()
+    expect(second.run.noteRejectionReason).toBeNull()
+  })
+
+  it('refuses a note longer than the published bound', async () => {
+    await expect(
+      recordPlaybookRun(
+        db,
+        report({ note: 'a'.repeat(PLAYBOOK_RUN_PUBLISHED_NOTE_MAX_LENGTH + 1) }),
+      ),
+    ).rejects.toThrow()
+    expect(await playbookRunFor(db, citizen, playbookId)).toBeNull()
+  })
+
+  it('refuses a credential in the note, exactly as in the four answers', async () => {
+    const pasted = 'Signed in with password: hunter2-correct-horse-battery'
+    expect(looksLikeCredential(pasted)).toBe(true)
+
+    await expect(recordPlaybookRun(db, report({ note: pasted }))).rejects.toThrow()
+    expect(await playbookRunFor(db, citizen, playbookId)).toBeNull()
   })
 })

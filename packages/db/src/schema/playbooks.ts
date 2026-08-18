@@ -17,6 +17,8 @@ import {
   PLAYBOOK_MAX_STEPS,
   PLAYBOOK_SUMMARY_MAX_LENGTH,
   PLAYBOOK_TITLE_MAX_LENGTH,
+  PLAYBOOK_RUN_PUBLISHED_NOTE_MAX_LENGTH,
+  PlaybookRunNoteStatusSchema,
   PlaybookRunOutcomeSchema,
   PlaybookRunSignalSchema,
   PlaybookStatusSchema,
@@ -33,6 +35,7 @@ import { agents } from './agents.js'
 const PLAYBOOK_STATUSES = PlaybookStatusSchema.options
 const PLAYBOOK_RUN_OUTCOMES = PlaybookRunOutcomeSchema.options
 const PLAYBOOK_RUN_SIGNALS = PlaybookRunSignalSchema.options
+const PLAYBOOK_RUN_NOTE_STATUSES = PlaybookRunNoteStatusSchema.options
 
 /** `in ('a', 'b')` for a check constraint, from a vocabulary core owns. */
 const oneOf = (values: readonly string[]) => sql.raw(values.map((one) => `'${one}'`).join(', '))
@@ -301,6 +304,32 @@ export const playbookRuns = pgTable(
       .default(sql`'{}'::text[]`),
 
     /**
+     * The one sentence another citizen reads, and where it stands (`#1245`).
+     *
+     * **The only publishable column on this table.** The four above are the
+     * moderator's — they routinely name the mailbox the runner used and the host
+     * it ran on — and this is the field its author wrote knowing it would be
+     * served, under its own handle, to the next citizen deciding whether to run
+     * this pipeline.
+     *
+     * `text` rather than `varchar(400)` on the argument the four answers are text
+     * for: the bound is a product rule that has moved before, and moving it
+     * should not be a table rewrite. The check below holds the bound instead.
+     *
+     * `note_status` is null exactly when `note` is, which is what the paired
+     * check asserts — a status with no note and a note with no status are both
+     * rows nothing can answer *is this published* from. `note_rejection_reason`
+     * is the moderator's answer to *why not*, readable by the author and on no
+     * other surface, and it exists only alongside `rejected`.
+     *
+     * **Nothing here is retroactive.** Reports filed before this shipped carry
+     * null in all three, permanently; they keep counting as numbers.
+     */
+    note: text('note'),
+    noteStatus: varchar('note_status', { length: 32 }),
+    noteRejectionReason: text('note_rejection_reason'),
+
+    /**
      * When `#1177` paid for this report, or null while it has not.
      *
      * **The marker that makes *replace until rewarded* a fact about the row**
@@ -360,6 +389,33 @@ export const playbookRuns = pgTable(
     check(
       'playbook_runs_signals_are_known',
       sql`${table.signals} <@ array[${oneOf(PLAYBOOK_RUN_SIGNALS)}]::text[]`,
+    ),
+    /** The published bound, held here rather than in the column's type. */
+    check(
+      'playbook_runs_note_is_short',
+      sql`${table.note} is null
+          or length(${table.note}) <= ${sql.raw(String(PLAYBOOK_RUN_PUBLISHED_NOTE_MAX_LENGTH))}`,
+    ),
+    check(
+      'playbook_runs_note_status_is_known',
+      sql`${table.noteStatus} is null
+          or ${table.noteStatus} in (${oneOf(PLAYBOOK_RUN_NOTE_STATUSES)})`,
+    ),
+    /**
+     * A note and its status exist together, or neither does.
+     *
+     * Without this the table can hold a status nothing was judged and a note
+     * nothing can say whether to serve, and every reader would have to pick one
+     * of the two columns to trust.
+     */
+    check(
+      'playbook_runs_note_has_a_status',
+      sql`(${table.note} is null) = (${table.noteStatus} is null)`,
+    ),
+    /** A reason belongs to a rejection and to nothing else. */
+    check(
+      'playbook_runs_note_reason_is_a_rejection',
+      sql`${table.noteRejectionReason} is null or ${table.noteStatus} = 'rejected'`,
     ),
   ],
 )

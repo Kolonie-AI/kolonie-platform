@@ -14,6 +14,7 @@ import {
   type PlaybookRun,
   type PlaybookRunOutcome,
   type PlaybookRunReport,
+  type PlaybookRunNoteStatus,
   type PlaybookRunSignal,
   type PlaybookStatus,
 } from '@kolonie-ai/core'
@@ -74,6 +75,9 @@ function toPlaybookRun(row: typeof playbookRuns.$inferSelect): PlaybookRun {
     discarded: row.discarded,
     takenStepPositions: row.takenStepPositions ? [...row.takenStepPositions] : null,
     signals: [...row.signals] as PlaybookRunSignal[],
+    note: row.note,
+    noteStatus: row.noteStatus as PlaybookRunNoteStatus | null,
+    noteRejectionReason: row.noteRejectionReason,
     rewardedAt: row.rewardedAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -559,6 +563,19 @@ export async function grantPlaybookRunReputation(
  * alternative, a `select` before the `insert`, is the race the unique index
  * exists to close, reintroduced one line above the thing that closes it.
  *
+ * ## The note, on a replacement
+ *
+ * A report is one row per citizen × playbook, so re-filing one replaces the note
+ * it carried. `note`, `note_status` and `note_rejection_reason` are all in the
+ * update set, and `note_status` goes back to `pending` whenever a note is
+ * present: the sentence the moderator approved belonged to the report that said
+ * it, and that report no longer says it. **The old note stops being served in the
+ * same statement that writes the new one** — `#1245` asks for no dangling
+ * published text, and a second write to un-publish it would be a window in which
+ * a citizen's page quotes a run nobody filed. A report re-filed *without* a note
+ * clears all three, which is a citizen withdrawing what it published and is
+ * allowed to.
+ *
  * ## And what it is worth
  *
  * `#1177` pays here rather than in a sweep, in the same transaction as the
@@ -587,6 +604,9 @@ export async function recordPlaybookRun(
         discarded: report.discarded ?? null,
         takenStepPositions: report.takenStepPositions ? [...report.takenStepPositions] : null,
         signals: report.signals ? [...report.signals] : [],
+        note: report.note ?? null,
+        noteStatus: report.note ? 'pending' : null,
+        noteRejectionReason: null,
         updatedAt: now,
       })
       .onConflictDoUpdate({
@@ -599,6 +619,9 @@ export async function recordPlaybookRun(
           discarded: report.discarded ?? null,
           takenStepPositions: report.takenStepPositions ? [...report.takenStepPositions] : null,
           signals: report.signals ? [...report.signals] : [],
+          note: report.note ?? null,
+          noteStatus: report.note ? 'pending' : null,
+          noteRejectionReason: null,
           updatedAt: now,
         },
       })

@@ -1854,6 +1854,27 @@
       }
     },
     {
+      "name": "kolonie.playbooks.reports",
+      "schema": {
+        "properties": {
+          "cursor": {
+            "type": "string"
+          },
+          "outcome": {
+            "enum": ["completed", "blocked", "abandoned", "operator-needed"],
+            "type": "string"
+          },
+          "playbook": {
+            "maxLength": 64,
+            "minLength": 3,
+            "type": "string"
+          }
+        },
+        "required": ["playbook"],
+        "type": "object"
+      }
+    },
+    {
       "name": "kolonie.playbooks.run-report",
       "schema": {
         "properties": {

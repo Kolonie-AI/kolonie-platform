@@ -103,6 +103,9 @@ describe('kolonie.playbooks.list/.get/.frontier (#1174)', () => {
    * is asserted against the reads by name rather than against the prefix, and a
    * fourth read added without it is still caught — `#1179` added three writes,
    * which carry the two sentences and not the third, and `#1180` a fourth.
+   * `#1247` added `reports`, which is a read that *is* the reporting surface, so
+   * it is excluded from the third sentence on purpose rather than expected to
+   * carry it.
    */
   it('says in every description that it carries no credential, whose the doing is, and that runs report elsewhere', async () => {
     const { client, close } = await aCitizen()
@@ -113,10 +116,16 @@ describe('kolonie.playbooks.list/.get/.frontier (#1174)', () => {
     const writes = ['run-report', 'draft', 'update', 'submit', 'fork'].map(
       (name) => `kolonie.playbooks.${name}`,
     )
-    const reads = listed.filter((tool) => !writes.includes(tool.name))
+    // `reports` is a read, and the one place that must *not* say runs report
+    // elsewhere — it is the elsewhere (`#1247`).
+    const reportSurface = 'kolonie.playbooks.reports'
+    const reads = listed.filter(
+      (tool) => !writes.includes(tool.name) && tool.name !== reportSurface,
+    )
 
-    expect(reads).toHaveLength(listed.length - writes.length)
+    expect(reads).toHaveLength(listed.length - writes.length - 1)
     expect(reads).toHaveLength(3)
+    expect(listed.map((tool) => tool.name)).toContain(reportSurface)
     for (const tool of listed) {
       expect(tool.description, tool.name).toContain('never carries a credential')
       expect(tool.description, tool.name).toContain('yours and your operator')
@@ -124,6 +133,8 @@ describe('kolonie.playbooks.list/.get/.frontier (#1174)', () => {
     for (const tool of reads) {
       expect(tool.description, tool.name).toContain('reported separately')
     }
+    const reports = listed.find((tool) => tool.name === reportSurface)
+    expect(reports?.description).not.toContain('reported separately')
     await close()
   })
 
@@ -148,6 +159,9 @@ describe('kolonie.playbooks.list/.get/.frontier (#1174)', () => {
     // Visible, not enforced: the steps are in the answer of a citizen that
     // answers none of the slots.
     expect(textOf(read)).toContain('Do the thing')
+    // Activity is present even when empty, so a reader knows reports exists (`#1247`).
+    expect((read.structuredContent as { activity: { total: number } }).activity.total).toBe(0)
+    expect(textOf(read)).toContain('Nobody has reported a run yet')
     await close()
   })
 

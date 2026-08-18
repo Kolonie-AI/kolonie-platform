@@ -108,8 +108,11 @@ import {
   forkPlaybook,
   playbookById,
   playbookBySlug,
+  playbookRunActivity,
   playbookRunFor,
+  playbookSignalsTally,
   playbooksByStatus,
+  listPlaybookPublishedNotes,
   submitPlaybookForReview,
   updatePlaybookDraft,
   recordPlaybookRun,
@@ -813,6 +816,9 @@ const app = buildApp({
     runs: {
       record: (input) => recordPlaybookRun(db, input),
       mine: (agentId, playbookId) => playbookRunFor(db, agentId, playbookId),
+      activity: (playbookId) => playbookRunActivity(db, playbookId),
+      signals: (playbookId) => playbookSignalsTally(db, playbookId),
+      notes: (query) => listPlaybookPublishedNotes(db, query),
     },
     /**
      * Authoring (`#1179`), a port of its own rather than a fourth catalogue

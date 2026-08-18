@@ -633,11 +633,20 @@ export const AUTHENTICATED_TOOLS = [
    * something of mine* a stranger could ask. What it costs the catalogue is one
    * registration that never moves again — every playbook anybody forks
    * afterwards, of every kind and every provider, is a row underneath it.
+   *
+   * **`kolonie.playbooks.reports` is the ninth** (`#1247`), and it is
+   * `kolonie.tasks.reports` again — the same verb, one shelf along. Authenticated
+   * because `get` already is: the answer is public in substance, but the call sits
+   * with the rest of the playbook surface rather than inventing a stranger tier.
+   * Raising the catalogue for it is grammar: every playbook anybody runs is a
+   * row under one read, and a surface that left it out would have grown a
+   * `reports` field on `get` whose meaning changed the call.
    */
   'kolonie.playbooks.list',
   'kolonie.playbooks.get',
   'kolonie.playbooks.frontier',
   'kolonie.playbooks.run-report',
+  'kolonie.playbooks.reports',
   'kolonie.playbooks.draft',
   'kolonie.playbooks.update',
   'kolonie.playbooks.submit',

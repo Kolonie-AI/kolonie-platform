@@ -12,6 +12,7 @@ import {
   PLAYBOOK_RUN_SIGNALS,
   PlaybookDraftSchema,
   PlaybookPatchSchema,
+  PlaybookRunOutcomeSchema,
   PlaybookRunReportSchema,
   PlaybookSlugSchema,
   type Account,
@@ -23,7 +24,9 @@ import {
   type PlaybookRequiredAccount,
   type PlaybookRun,
   type PlaybookRunNoteStatus,
+  type PlaybookRunOutcome,
   type PlaybookRunReport,
+  type PlaybookRunSignal,
   type PlaybookStatus,
 } from '@kolonie-ai/core'
 import { z } from 'zod'
@@ -113,6 +116,25 @@ export interface PlaybookRunLog {
    * and for the same reason.
    */
   mine(agentId: AgentId, playbookId: string): Promise<PlaybookRun | null>
+  /**
+   * How many runs a playbook has drawn, split the ways a reader asks (`#1247`).
+   *
+   * Counts from the corpus, never from a model. The runtime split joins through
+   * the authoring citizen — there is no runtime column on the run itself.
+   */
+  activity(playbookId: string): Promise<PlaybookRunActivity>
+  /** How often each self-reported signal was named on this playbook's runs. */
+  signals(playbookId: string): Promise<PlaybookSignalsTally>
+  /**
+   * Approved notes, newest first. `'invalid-cursor'` rather than a throw — every
+   * field is attacker-supplied.
+   */
+  notes(query: {
+    readonly playbookId: string
+    readonly outcome?: PlaybookRunOutcome | undefined
+    readonly cursor?: string | undefined
+    readonly limit?: number | undefined
+  }): Promise<PlaybookPublishedNotesPage | 'invalid-cursor'>
 }
 
 /**
@@ -225,6 +247,33 @@ export const PlaybookGetQuerySchema = z
     includeRaw: z.boolean().optional(),
   })
   .strict()
+
+/**
+ * What `kolonie.playbooks.reports` takes (`#1247`).
+ *
+ * Filter by `outcome` only — a per-citizen index of what somebody wrote is a
+ * different feature. Newest first, at most 50 notes, cursor for the rest: the
+ * same shape as `accounts.recipes` walks.
+ */
+export const PlaybookReportsQuerySchema = z
+  .object({
+    playbook: z.string().trim().min(3).max(64),
+    outcome: PlaybookRunOutcomeSchema.optional(),
+    cursor: z.string().optional(),
+  })
+  .strict()
+
+export type PlaybookReportsResult = {
+  readonly activity: PlaybookRunActivity
+  readonly signals: PlaybookSignalsTally
+  /**
+   * Always null until chain 2 lands. Named rather than omitted so a reader that
+   * expects a briefing is told it is not here yet, rather than guessing.
+   */
+  readonly briefing: null
+  readonly notes: readonly PlaybookPublishedNote[]
+  readonly nextCursor: string | null
+}
 
 /**
  * What `kolonie.playbooks.run-report` takes (`#1176`).
@@ -473,6 +522,47 @@ export interface PlaybookSummary {
 }
 
 /**
+ * What running a playbook has produced, as counts (`#1247`).
+ *
+ * Declared here rather than imported from `@kolonie-ai/db`, which this package
+ * does not depend on: the port is the boundary, and a boundary that borrows its
+ * vocabulary from the far side is not one. Storage's shapes and these are kept
+ * in step by the adapter in `server.ts` failing to compile when they drift.
+ */
+export type PlaybookRunActivity = {
+  readonly total: number
+  readonly byOutcome: Readonly<Record<PlaybookRunOutcome, number>>
+  readonly byRuntime: Readonly<Record<string, number>>
+  readonly stepFailures: readonly { readonly position: number; readonly count: number }[]
+}
+
+export type PlaybookSignalsTally = Readonly<Record<PlaybookRunSignal, number>>
+
+export type PlaybookPublishedNote = {
+  readonly noteId: string
+  readonly note: string
+  readonly outcome: PlaybookRunOutcome
+  readonly by: string | null
+  readonly filedAt: string
+}
+
+export type PlaybookPublishedNotesPage = {
+  readonly notes: readonly PlaybookPublishedNote[]
+  readonly nextCursor: string | null
+}
+
+/**
+ * The small activity block `kolonie.playbooks.get` carries (`#1247`).
+ *
+ * Run count and outcome split only — enough that a reader who called `get` knows
+ * there is something to read. The notes and the signals stay in `reports`.
+ */
+export type PlaybookActivitySummary = {
+  readonly total: number
+  readonly byOutcome: Readonly<Record<PlaybookRunOutcome, number>>
+}
+
+/**
  * The three answers, as type aliases rather than interfaces — deliberately, and
  * the same way `following.ts` writes `FollowResponse`.
  *
@@ -511,6 +601,14 @@ export type PlaybookReadResult = {
    * begin to: it is answered off a lookup the caller's own id is an argument to.
    */
   readonly own: PlaybookOwnRun | null
+  /**
+   * How many citizens have run this, split by outcome (`#1247`).
+   *
+   * Small on purpose: enough that a reader who called `get` knows there is
+   * something to read with `kolonie.playbooks.reports`. The notes themselves
+   * stay there, not here.
+   */
+  readonly activity: PlaybookActivitySummary
 }
 
 /**
@@ -721,9 +819,10 @@ export async function readPlaybook(
     found.authorAgentId === agentId
   if (!readable) return { outcome: 'rejected', error: noSuchPlaybook }
 
-  const [accounts, mine] = await Promise.all([
+  const [accounts, mine, activity] = await Promise.all([
     deps.held(agentId),
     query.data.includeRaw === true ? deps.runs.mine(agentId, found.id) : null,
+    deps.runs.activity(found.id),
   ])
 
   return {
@@ -732,6 +831,82 @@ export async function readPlaybook(
       playbook: found,
       match: matchPlaybook(found, accounts),
       own: mine ? ownRun(mine) : null,
+      activity: { total: activity.total, byOutcome: activity.byOutcome },
+    },
+  }
+}
+
+/**
+ * What the Colony knows about running one playbook (`#1247`).
+ *
+ * Counts from the corpus, notes that cleared moderation, and a briefing slot
+ * that stays null until chain 2. The four answers never leave storage through
+ * this path — only `notePublished` is selected. No earnings of any kind: a
+ * derived figure would invent money that never moved.
+ *
+ * Refuses the same way `readPlaybook` does: a draft, a review, or another
+ * citizen's draft answers as though it did not exist.
+ */
+export async function listPlaybookReports(
+  input: unknown,
+  agentId: AgentId,
+  deps: PlaybookDependencies,
+): Promise<PlaybookOutcome<PlaybookReportsResult>> {
+  const query = PlaybookReportsQuerySchema.safeParse(input)
+  if (!query.success) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message:
+          'Ask for a playbook by slug or id. Optionally filter notes with `outcome`, ' +
+          'and page with the `nextCursor` from a previous answer.',
+      },
+    }
+  }
+
+  const found =
+    (await deps.catalogue.bySlug(query.data.playbook)) ??
+    (await deps.catalogue.byId(query.data.playbook))
+
+  if (found === null) return { outcome: 'rejected', error: noSuchPlaybook }
+
+  const readable =
+    (PLAYBOOK_LISTED_STATUSES as readonly string[]).includes(found.status) ||
+    found.authorAgentId === agentId
+  if (!readable) return { outcome: 'rejected', error: noSuchPlaybook }
+
+  const notesResult = await deps.runs.notes({
+    playbookId: found.id,
+    outcome: query.data.outcome,
+    cursor: query.data.cursor,
+  })
+  if (notesResult === 'invalid-cursor') {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message:
+          'That cursor is not one of ours. Drop it to start at the newest note, or send ' +
+          'back the `nextCursor` from your last page exactly as it was given.',
+        details: { cursor: 'not a cursor from a previous page' },
+      },
+    }
+  }
+
+  const [activity, signals] = await Promise.all([
+    deps.runs.activity(found.id),
+    deps.runs.signals(found.id),
+  ])
+
+  return {
+    outcome: 'read',
+    response: {
+      activity,
+      signals,
+      briefing: null,
+      notes: notesResult.notes,
+      nextCursor: notesResult.nextCursor,
     },
   }
 }

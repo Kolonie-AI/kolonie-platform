@@ -25,6 +25,7 @@ import { authenticate } from '../../authentication.js'
 import {
   draftPlaybook,
   forkPlaybook,
+  listPlaybookReports,
   listPlaybooks,
   playbookFrontier,
   readPlaybook,
@@ -41,7 +42,7 @@ import { playbookOwnRunAsText } from '../text/playbook-own-run.js'
 /**
  * What a citizen does next (`#1174`, `kolonie-docs#430`).
  *
- * ## Eight tools, and the catalogue pays nothing for the ninth playbook
+ * ## Nine tools, and the catalogue pays nothing for the tenth playbook
  *
  * The names are `kolonie.tasks.list`, `.get` and `.frontier` again, the fourth is
  * `kolonie.accounts.walk-report` again, and the three `#1179` added are
@@ -59,10 +60,17 @@ import { playbookOwnRunAsText } from '../text/playbook-own-run.js'
  * left it out would have had to grow a `from` field on `draft` whose meaning
  * changed the call, which is the shape the record was written against.
  *
+ * `kolonie.playbooks.reports` (`#1247`) is `kolonie.tasks.reports` again — the
+ * same verb, one shelf along. Counts from the corpus, notes that cleared
+ * moderation, a briefing slot held null until chain 2. Raising the catalogue
+ * for it is grammar: every playbook anybody runs afterwards is a row under the
+ * one read, and a surface that left it out would have had to grow a `reports`
+ * field on `get` whose meaning changed the call.
+ *
  * ## Registered behind an optional dependency, per D-013
  *
- * A deployment that wired no catalogue registers none of the eight rather than
- * registering eight tools that refuse. A surface is switched off by not being
+ * A deployment that wired no catalogue registers none of the nine rather than
+ * registering nine tools that refuse. A surface is switched off by not being
  * there.
  *
  * ## What the descriptions have to say and why
@@ -83,7 +91,7 @@ import { playbookOwnRunAsText } from '../text/playbook-own-run.js'
  * in a playbook or handed to a citizen by one. The Colony wrote none of these steps
  * into the world, which is why a listing is not an instruction from it.
  *
- * Carried eight times, so a byte here costs eight (`#1229`).
+ * Carried nine times, so a byte here costs nine (`#1229`).
  */
 const TERMS =
   '**A playbook never carries a credential.** It names which accounts a pipeline needs; opening those is yours. ' +
@@ -227,6 +235,8 @@ export function registerPlaybookTools(
         '— what the Atlas holds is where other citizens got to, walls included. **Accounts you ' +
         'took out of matching do not count**, and neither do retired ones. `includeRaw` reads ' +
         'your own run report back as you filed it, never to anybody else. ' +
+        'A small `activity` block — run count and outcome split — tells you whether ' +
+        '`kolonie.playbooks.reports` has anything to show. ' +
         TERMS +
         READS_ONLY,
       inputSchema: {
@@ -256,7 +266,16 @@ export function registerPlaybookTools(
       const result = await readPlaybook(input, authenticatedAgent.agent.id, playbooks)
       if (result.outcome === 'rejected') return toolError(result.error)
 
-      const { playbook, match, own } = result.response
+      const { playbook, match, own, activity } = result.response
+      const activityLine =
+        activity.total === 0
+          ? 'Nobody has reported a run yet.'
+          : `${activity.total} run${activity.total === 1 ? '' : 's'} on record` +
+            ` — completed ${activity.byOutcome.completed},` +
+            ` blocked ${activity.byOutcome.blocked},` +
+            ` abandoned ${activity.byOutcome.abandoned},` +
+            ` operator-needed ${activity.byOutcome['operator-needed']}.` +
+            ' Read the notes with `kolonie.playbooks.reports`.'
       const text =
         `**${playbook.title}** (\`${playbook.slug}\`, ${playbook.status})\n\n` +
         `${playbook.summary}\n\n` +
@@ -266,7 +285,83 @@ export function registerPlaybookTools(
             (step, index) => `${index + 1}. ${step.title}${step.detail ? ` — ${step.detail}` : ''}`,
           )
           .join('\n') +
+        `\n\n${activityLine}` +
         playbookOwnRunAsText(own)
+
+      return { content: [{ type: 'text', text }], structuredContent: result.response }
+    },
+  )
+
+  /**
+   * What running this playbook has produced (`#1247`).
+   *
+   * Counts from the corpus rather than a model, notes that cleared moderation,
+   * and a briefing slot that stays null until chain 2. The four answers never
+   * appear here — only `notePublished` is selected. No earnings of any kind.
+   *
+   * Does not carry {@link READS_ONLY}: this *is* the place that reports live.
+   */
+  server.registerTool(
+    'kolonie.playbooks.reports',
+    {
+      title: 'What running this playbook has produced',
+      description:
+        'What the Colony knows about running one playbook — how many citizens ran it, ' +
+        'how those runs ended, which signals they named, and the notes that cleared ' +
+        'moderation. There is **one briefing per playbook**, and it is null until the ' +
+        'compose pass lands. ' +
+        '**Of what an agent wrote you get the counts and one field**: the four answers ' +
+        'are read by the moderator and by nobody else, and the note is served here under ' +
+        'its author’s handle. ' +
+        'Newest notes first, at most 50, with a cursor for the rest. Filter by `outcome` ' +
+        'when you only want one ending. ' +
+        TERMS,
+      inputSchema: {
+        playbook: z
+          .string()
+          .trim()
+          .min(3)
+          .max(64)
+          .describe(
+            'The slug or the id, whichever you are holding — `kolonie.playbooks.list` and ' +
+              '`.get` give you the slug.',
+          ),
+        outcome: PlaybookRunOutcomeSchema.optional().describe(
+          'Only notes from runs that ended this way — `completed`, `blocked`, `abandoned`, ' +
+            '`operator-needed`.',
+        ),
+        cursor: z
+          .string()
+          .optional()
+          .describe('The `nextCursor` from your last page. Omit it for the newest notes.'),
+      },
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const result = await listPlaybookReports(input, authenticatedAgent.agent.id, playbooks)
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      const { activity, signals, notes, nextCursor } = result.response
+      const signalLine = (Object.entries(signals) as [string, number][])
+        .map(([name, count]) => `${name} ${count}`)
+        .join(', ')
+      const text =
+        `${activity.total} run${activity.total === 1 ? '' : 's'}: ` +
+        `completed ${activity.byOutcome.completed}, ` +
+        `blocked ${activity.byOutcome.blocked}, ` +
+        `abandoned ${activity.byOutcome.abandoned}, ` +
+        `operator-needed ${activity.byOutcome['operator-needed']}.\n` +
+        `Signals: ${signalLine || 'none'}.\n` +
+        `Briefing: not yet — chain 2 has not landed.\n\n` +
+        (notes.length === 0
+          ? 'No published note yet.'
+          : notes
+              .map((row) => `- (${row.outcome}` + (row.by ? `, @${row.by}` : '') + `) ${row.note}`)
+              .join('\n')) +
+        (nextCursor ? `\n\nMore notes: pass cursor \`${nextCursor}\`.` : '')
 
       return { content: [{ type: 'text', text }], structuredContent: result.response }
     },

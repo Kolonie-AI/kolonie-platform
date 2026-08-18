@@ -3,10 +3,13 @@ import {
   now as currentTime,
   PLAYBOOK_EDITABLE_STATUSES,
   PLAYBOOK_FORKABLE_STATUSES,
+  PLAYBOOK_RUN_OUTCOMES,
+  PLAYBOOK_RUN_SIGNALS,
   type Account,
   type AgentId,
   type Playbook,
   type PlaybookRun,
+  type PlaybookRunOutcome,
   type PlaybookStatus,
 } from '@kolonie-ai/core'
 import type { PlaybookDependencies } from '../playbooks.js'
@@ -178,6 +181,58 @@ export function fakePlaybooks(): FakePlaybooks {
        */
       async mine(agentId, playbookId) {
         return filed.get(`${agentId}:${playbookId}`) ?? null
+      },
+
+      async activity(playbookId) {
+        const runs = [...filed.values()].filter((run) => run.playbookId === playbookId)
+        const byOutcome = Object.fromEntries(
+          PLAYBOOK_RUN_OUTCOMES.map((outcome) => [outcome, 0]),
+        ) as Record<PlaybookRunOutcome, number>
+        for (const run of runs) byOutcome[run.outcome] += 1
+        return {
+          total: runs.length,
+          byOutcome,
+          byRuntime: {},
+          stepFailures: [],
+        }
+      },
+
+      async signals(playbookId) {
+        const tally = Object.fromEntries(
+          PLAYBOOK_RUN_SIGNALS.map((signal) => [signal, 0]),
+        ) as Record<(typeof PLAYBOOK_RUN_SIGNALS)[number], number>
+        for (const run of filed.values()) {
+          if (run.playbookId !== playbookId) continue
+          for (const signal of run.signals) tally[signal] += 1
+        }
+        return tally
+      },
+
+      async notes({ playbookId, outcome, cursor, limit = 50 }) {
+        if (cursor !== undefined && cursor !== '') {
+          // The fixture does not page: any cursor is refused the same way storage
+          // refuses one it did not mint, so a test that wants the error path can
+          // send one without standing up a previous page.
+          return 'invalid-cursor'
+        }
+        const notes = [...filed.values()]
+          .filter(
+            (run) =>
+              run.playbookId === playbookId &&
+              run.noteStatus === 'approved' &&
+              run.notePublished !== null &&
+              (outcome === undefined || run.outcome === outcome),
+          )
+          .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
+          .slice(0, limit)
+          .map((run) => ({
+            noteId: run.id,
+            note: run.notePublished as string,
+            outcome: run.outcome,
+            by: null as string | null,
+            filedAt: run.updatedAt,
+          }))
+        return { notes, nextCursor: null }
       },
     },
 

@@ -625,6 +625,14 @@ export const AUTHENTICATED_TOOLS = [
    * a stranger could ask. **The review they submit into is a stub today** and
    * the tools say so; the judged pass that replaces it is `#1219`, and it
    * changes what `submit` answers rather than what is registered here.
+   *
+   * **`kolonie.playbooks.fork` is the eighth** (`#1180`), and it is the one
+   * playbook tool that borrows no existing verb. It is here rather than in the
+   * unauthenticated tier for the reason the authoring three are: the draft it
+   * writes belongs to the caller, and there is no version of *fork this into
+   * something of mine* a stranger could ask. What it costs the catalogue is one
+   * registration that never moves again — every playbook anybody forks
+   * afterwards, of every kind and every provider, is a row underneath it.
    */
   'kolonie.playbooks.list',
   'kolonie.playbooks.get',
@@ -633,6 +641,7 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.playbooks.draft',
   'kolonie.playbooks.update',
   'kolonie.playbooks.submit',
+  'kolonie.playbooks.fork',
 ] as const
 
 /**

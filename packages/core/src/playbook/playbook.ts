@@ -289,6 +289,28 @@ export type PlaybookDraft = z.infer<typeof PlaybookDraftSchema>
 export const PLAYBOOK_EDITABLE_STATUSES = ['draft', 'blocked'] as const
 
 /**
+ * The statuses a playbook may be forked from (`#1180`).
+ *
+ * **`open` and nothing else**, which is narrower than it first looks and is the
+ * call `#1180` asked for by name. A fork copies a pipeline into a draft of the
+ * forker's own, and what makes that worth doing is that the thing copied is
+ * something the catalogue published: a citizen forking `open` is starting from a
+ * pipeline other citizens can read, cite and file run reports against.
+ *
+ * `blocked` is the one a reader will want to argue about, because
+ * {@link PLAYBOOK_EDITABLE_STATUSES} does include it and it is listed publicly
+ * beside `open`. It is absent here on purpose. A blocked playbook is one the
+ * world broke, and the loop freeze B ratified for it is **its author fixing it**
+ * — copying the broken steps into a second citizen's draft answers a question
+ * nobody asked, and would fill the catalogue with forks of pipelines that do not
+ * work. A citizen that wants the steps can read them: `blocked` is published.
+ *
+ * `draft` and `review` are absent because they are not readable at all, and
+ * `retired` because forking one would republish what its author withdrew.
+ */
+export const PLAYBOOK_FORKABLE_STATUSES = ['open'] as const
+
+/**
  * What an author may change about a playbook it has already written (`#1179`).
  *
  * **Every field optional, and the merged result is parsed as a whole draft.**

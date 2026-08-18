@@ -102,7 +102,7 @@ describe('kolonie.playbooks.list/.get/.frontier (#1174)', () => {
    * `kolonie.playbooks.run-report` is where the elsewhere turned out to be. So it
    * is asserted against the reads by name rather than against the prefix, and a
    * fourth read added without it is still caught — `#1179` added three writes,
-   * which carry the two sentences and not the third.
+   * which carry the two sentences and not the third, and `#1180` a fourth.
    */
   it('says in every description that it carries no credential, whose the doing is, and that runs report elsewhere', async () => {
     const { client, close } = await aCitizen()
@@ -110,7 +110,7 @@ describe('kolonie.playbooks.list/.get/.frontier (#1174)', () => {
     const listed = (await client.listTools()).tools.filter((tool) =>
       tool.name.startsWith('kolonie.playbooks.'),
     )
-    const writes = ['run-report', 'draft', 'update', 'submit'].map(
+    const writes = ['run-report', 'draft', 'update', 'submit', 'fork'].map(
       (name) => `kolonie.playbooks.${name}`,
     )
     const reads = listed.filter((tool) => !writes.includes(tool.name))

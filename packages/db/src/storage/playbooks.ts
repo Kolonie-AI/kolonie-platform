@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm'
 import {
   PLAYBOOK_EDITABLE_STATUSES,
+  PLAYBOOK_FORKABLE_STATUSES,
   PLAYBOOK_RUN_REPUTATION,
   PlaybookDraftSchema,
   PlaybookRunReportSchema,
@@ -145,6 +146,15 @@ export type PlaybookWriteOutcome =
   | { readonly outcome: 'not-editable'; readonly status: PlaybookStatus }
   /** Another playbook already answers to this name. Only `draftPlaybook` returns it. */
   | { readonly outcome: 'slug-taken' }
+  /**
+   * The playbook named is not one a citizen may fork. Only `forkPlaybook` returns it.
+   *
+   * Kept apart from `not-editable` even though both carry a status and both mean
+   * *not in that list*: the lists differ, and so do the sentences a citizen needs
+   * back. `not-editable` says *this is not yours to rewrite*; this says *this is
+   * not published, so there is nothing to start from*.
+   */
+  | { readonly outcome: 'not-forkable'; readonly status: PlaybookStatus }
 
 /** What `draftPlaybook` needs beyond the author's own prose. */
 export interface DraftPlaybookInput {
@@ -183,6 +193,73 @@ export async function draftPlaybook(
       parentPlaybookId: input.parentPlaybookId ?? null,
       status: 'draft',
       draft: input.draft,
+    })
+    return { outcome: 'written', playbook }
+  } catch (error) {
+    if (isUniqueViolation(error)) return { outcome: 'slug-taken' }
+    throw error
+  }
+}
+
+export interface ForkPlaybookInput {
+  readonly authorAgentId: AgentId
+  /** The playbook being forked, by id. The tool resolves a slug before it gets here. */
+  readonly sourcePlaybookId: string
+  /** The name the fork answers to. The forker's own choice, never derived. */
+  readonly slug: string
+}
+
+/**
+ * Copy a published playbook into a draft of the caller's own (`#1180`).
+ *
+ * **A fork is a new draft and not a claim on the original.** The steps, the
+ * slots and the inspiration are copied as they stand, `parentPlaybookId` points
+ * at where they came from, and the source is not touched, told or counted — a
+ * playbook a hundred citizens forked is byte-identical to one nobody did. What
+ * the pointer buys is the answer to *where did this come from*, which freeze D
+ * made first-class rather than a note in a summary.
+ *
+ * **Only `open` may be forked**, per {@link PLAYBOOK_FORKABLE_STATUSES}, and the
+ * refusal is its own outcome rather than `not-editable`: a citizen forking is
+ * not being told the playbook is somebody else's to rewrite, it is being told
+ * there is nothing published to start from.
+ *
+ * The read and the write are two statements rather than a transaction. The
+ * source is another citizen's row and this call never writes to it, so the only
+ * thing a snapshot would buy is a fork of a playbook retired a millisecond ago —
+ * a copy of steps that were public when they were read, which is what a citizen
+ * that had listed the catalogue a moment earlier would have had anyway.
+ */
+export async function forkPlaybook(
+  db: Database,
+  input: ForkPlaybookInput,
+): Promise<PlaybookWriteOutcome> {
+  const [row] = await db
+    .select()
+    .from(playbooks)
+    .where(eq(playbooks.id, input.sourcePlaybookId))
+    .limit(1)
+
+  if (!row) return { outcome: 'unknown-playbook' }
+
+  const source = toPlaybook(row)
+  if (!(PLAYBOOK_FORKABLE_STATUSES as readonly PlaybookStatus[]).includes(source.status)) {
+    return { outcome: 'not-forkable', status: source.status }
+  }
+
+  try {
+    const playbook = await createPlaybook(db, {
+      slug: input.slug,
+      authorAgentId: input.authorAgentId,
+      parentPlaybookId: source.id,
+      status: 'draft',
+      draft: {
+        title: source.title,
+        summary: source.summary,
+        requiredAccounts: source.requiredAccounts,
+        steps: source.steps,
+        inspiration: source.inspiration,
+      },
     })
     return { outcome: 'written', playbook }
   } catch (error) {

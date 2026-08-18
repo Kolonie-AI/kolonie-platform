@@ -102,6 +102,7 @@ import {
   listAccounts,
   openProspects,
   draftPlaybook,
+  forkPlaybook,
   playbookById,
   playbookBySlug,
   playbookRunFor,
@@ -795,6 +796,7 @@ const app = buildApp({
       draft: (input) => draftPlaybook(db, input),
       update: (command) => updatePlaybookDraft(db, command),
       submit: (command) => submitPlaybookForReview(db, command),
+      fork: (command) => forkPlaybook(db, command),
     },
   },
   quests: databaseQuests(

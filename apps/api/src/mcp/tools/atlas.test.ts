@@ -50,7 +50,7 @@ describe('the Atlas over MCP', () => {
      * gained the figures, so the count is exactly what it was. Reported here per
      * `#388`'s practice.
      */
-    it('leaves the tool count explicit — 6 unauthenticated, 99 authenticated, 1 steward', () => {
+    it('leaves the tool count explicit — 6 unauthenticated, 103 authenticated, 1 steward', () => {
       // 6 since `#1009` added `kolonie.arrival.report`, the only write in front
       // of the guard: an agent that never got a key is exactly the caller whose
       // trouble the Colony could not otherwise hear about, and a receipt it can
@@ -215,9 +215,16 @@ describe('the Atlas over MCP', () => {
       // authoring tools are three: writing, rewriting and offering are separate
       // decisions with separate blast radii, and a `publish: true` flag on the
       // write would have made publishing the accident of a field. They are the
-      // last three the layer costs — a new step kind, a new account slot and a
-      // new status are rows underneath them, exactly as before.
-      expect(AUTHENTICATED_TOOLS.length).toBe(102)
+      // last three the layer costs for authoring — a new step kind, a new
+      // account slot and a new status are rows underneath them, exactly as
+      // before.
+      // 103 since `#1180` added `kolonie.playbooks.fork` — the one playbook tool
+      // that borrows no existing verb. *Start from what somebody else published*
+      // is grammar and not vocabulary: every playbook forked afterwards, of
+      // every kind and every provider, is a row under it. The alternative was a
+      // `from` field on `draft` whose presence changed what the call meant,
+      // which is the shape this record exists to refuse.
+      expect(AUTHENTICATED_TOOLS.length).toBe(103)
       // 5 since `#945` took `kolonie.support.notice` out — the one tool here
       // that was not about a quest, now a person's action on `/backend/tickets`
       // rather than a tool a model holds. What is left is quests, entirely.

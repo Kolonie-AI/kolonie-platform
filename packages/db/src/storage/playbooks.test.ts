@@ -6,6 +6,7 @@ import { registerAgent } from './agents.js'
 import {
   createPlaybook,
   draftPlaybook,
+  forkPlaybook,
   playbookById,
   playbookBySlug,
   playbooksByStatus,
@@ -394,5 +395,134 @@ describe('a citizen writing a pipeline of its own', () => {
         playbookId: '00000000-0000-4000-8000-000000000000',
       }),
     ).toEqual({ outcome: 'unknown-playbook' })
+  })
+
+  /**
+   * Forking (`#1180`).
+   *
+   * **The copy and the pointer are the whole of it.** A fork is a draft owned by
+   * whoever asked for it, carrying the steps and the slots of the playbook it
+   * came from and a `parentPlaybookId` at the source — and the source is not
+   * touched, which is the property a test has to hold on to, because *copy* is
+   * exactly the operation somebody implements one day as a move.
+   */
+  describe('forking a published one', () => {
+    const published = async (slug = 'weekly-inbox-triage') => {
+      const playbook = await written(slug)
+      const offered = await submitPlaybookForReview(db, {
+        authorAgentId: agentId,
+        playbookId: playbook.id,
+      })
+      if (offered.outcome !== 'written') throw new Error('could not publish the source')
+      return offered.playbook
+    }
+
+    it('copies the pipeline into a draft of the forker’s own, pointing at where it came from', async () => {
+      const source = await published()
+
+      const forked = await forkPlaybook(db, {
+        authorAgentId: strangerId,
+        sourcePlaybookId: source.id,
+        slug: 'inbox-triage-my-way',
+      })
+
+      expect(forked.outcome).toBe('written')
+      if (forked.outcome !== 'written') return
+      expect(forked.playbook.authorAgentId).toBe(strangerId)
+      expect(forked.playbook.status).toBe('draft')
+      expect(forked.playbook.publishedAt).toBeNull()
+      expect(forked.playbook.version).toBe(1)
+      expect(forked.playbook.parentPlaybookId).toBe(source.id)
+      expect(forked.playbook.title).toBe(source.title)
+      expect(forked.playbook.summary).toBe(source.summary)
+      expect(forked.playbook.steps).toEqual(source.steps)
+      expect(forked.playbook.requiredAccounts).toEqual(source.requiredAccounts)
+    })
+
+    /** The one a copy quietly becomes a move on: the source has to survive it unchanged. */
+    it('leaves the playbook it copied exactly as it was', async () => {
+      const source = await published()
+      await forkPlaybook(db, {
+        authorAgentId: strangerId,
+        sourcePlaybookId: source.id,
+        slug: 'inbox-triage-my-way',
+      })
+
+      expect(await playbookById(db, source.id)).toEqual(source)
+      expect(await playbooksByStatus(db, { statuses: ['open'] })).toHaveLength(1)
+    })
+
+    /** And the copy has to be a copy: rewriting the fork must not reach the original. */
+    it('hands the forker steps that are its own to rewrite', async () => {
+      const source = await published()
+      const forked = await forkPlaybook(db, {
+        authorAgentId: strangerId,
+        sourcePlaybookId: source.id,
+        slug: 'inbox-triage-my-way',
+      })
+      if (forked.outcome !== 'written') throw new Error('could not fork')
+
+      await updatePlaybookDraft(db, {
+        authorAgentId: strangerId,
+        playbookId: forked.playbook.id,
+        patch: { steps: [{ title: 'I do this differently', usesSlots: ['mailbox'] }] },
+      })
+
+      expect((await playbookById(db, source.id))?.steps).toEqual(source.steps)
+    })
+
+    it('refuses a slug another playbook already answers to', async () => {
+      const source = await published()
+      await draftPlaybook(db, { authorAgentId: strangerId, slug: 'taken-already', draft })
+
+      expect(
+        await forkPlaybook(db, {
+          authorAgentId: strangerId,
+          sourcePlaybookId: source.id,
+          slug: 'taken-already',
+        }),
+      ).toEqual({ outcome: 'slug-taken' })
+    })
+
+    /** Freeze B: blocked is published and readable, and forking it is still refused. */
+    it('will not fork a blocked playbook, whose author is the one who fixes it', async () => {
+      const blocked = await createPlaybook(db, {
+        slug: 'broke-out-there',
+        authorAgentId: agentId,
+        status: 'blocked',
+        draft,
+      })
+
+      expect(
+        await forkPlaybook(db, {
+          authorAgentId: strangerId,
+          sourcePlaybookId: blocked.id,
+          slug: 'my-fix',
+        }),
+      ).toEqual({ outcome: 'not-forkable', status: 'blocked' })
+    })
+
+    /** A draft is not readable, so forking one must not be the way to read it. */
+    it('will not fork a draft, whoever wrote it', async () => {
+      const mine = await written('still-writing-this')
+
+      expect(
+        await forkPlaybook(db, {
+          authorAgentId: strangerId,
+          sourcePlaybookId: mine.id,
+          slug: 'copied-from-a-draft',
+        }),
+      ).toEqual({ outcome: 'not-forkable', status: 'draft' })
+    })
+
+    it('answers about a playbook nobody wrote', async () => {
+      expect(
+        await forkPlaybook(db, {
+          authorAgentId: strangerId,
+          sourcePlaybookId: '00000000-0000-4000-8000-000000000000',
+          slug: 'from-nowhere',
+        }),
+      ).toEqual({ outcome: 'unknown-playbook' })
+    })
   })
 })

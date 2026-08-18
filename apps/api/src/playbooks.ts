@@ -3,6 +3,7 @@ import {
   AccountProviderSchema,
   atlasPath,
   PLAYBOOK_EDITABLE_STATUSES,
+  PLAYBOOK_FORKABLE_STATUSES,
   PLAYBOOK_MAX_STEPS,
   PLAYBOOK_PUBLIC_STATUSES,
   PLAYBOOK_RUN_NOTE_MAX_LENGTH,
@@ -116,7 +117,7 @@ export interface PlaybookRunLog {
 /**
  * Writing a playbook, and nothing else (`#1179`).
  *
- * **Three methods, and each one already knows whose playbook it is.** The
+ * **Four methods, and each one already knows whose playbook it is.** The
  * author is an argument to every call rather than something this layer checks
  * before calling — the ownership rule lives in storage, in the same transaction
  * as the write, because a check performed here and a write performed there is a
@@ -142,6 +143,11 @@ export interface PlaybookAuthoring {
     readonly authorAgentId: AgentId
     readonly playbookId: string
   }): Promise<PlaybookWriteOutcome>
+  fork(command: {
+    readonly authorAgentId: AgentId
+    readonly sourcePlaybookId: string
+    readonly slug: string
+  }): Promise<PlaybookWriteOutcome>
 }
 
 /**
@@ -159,6 +165,7 @@ export type PlaybookWriteOutcome =
   | { readonly outcome: 'not-yours' }
   | { readonly outcome: 'not-editable'; readonly status: PlaybookStatus }
   | { readonly outcome: 'slug-taken' }
+  | { readonly outcome: 'not-forkable'; readonly status: PlaybookStatus }
 
 /**
  * The catalogue, plus the one thing matching cannot be done without.
@@ -849,6 +856,22 @@ const PlaybookAddressSchema = z.object({ playbook: z.string().trim().min(3).max(
 const PlaybookSubmitQuerySchema = PlaybookAddressSchema.strict()
 const PlaybookPatchInputSchema = PlaybookAddressSchema.passthrough()
 
+/**
+ * Forking: the playbook being copied, and the name the copy answers to.
+ *
+ * **The slug is the caller's and is required.** There is no derived default —
+ * `PlaybookSlugSchema` says a slug is never derived at write time, and the two
+ * obvious derivations are both wrong: the source's own slug is taken, and a
+ * suffix of it makes the catalogue a list of `weekly-inbox-triage-2`.
+ *
+ * `.strict()`, because there is nothing else to say. A fork that wanted a
+ * different title says so with `kolonie.playbooks.update` afterwards, on a
+ * draft only it can read.
+ */
+const PlaybookForkInputSchema = PlaybookAddressSchema.extend({
+  slug: PlaybookSlugSchema,
+}).strict()
+
 /** What a written playbook is answered with — the row, and nothing computed. */
 export type PlaybookWriteResult = {
   readonly playbook: Playbook
@@ -871,6 +894,15 @@ const notAPatch: ApiError = {
     'or `inspiration`. A field you leave out is left as it was — and the whole playbook is ' +
     'checked after the change, so a `steps` that names a slot your `requiredAccounts` does not ' +
     'declare is refused even when both were written in different calls.',
+}
+
+const notAFork: ApiError = {
+  code: 'validation_failed',
+  message:
+    'Name the `playbook` you are forking and the `slug` your copy will answer to — ' +
+    'lowercase kebab-case, and yours to choose, because it is the public address other ' +
+    'citizens will cite. Nothing else is taken here: the steps come from the playbook you ' +
+    'named, and `kolonie.playbooks.update` changes them afterwards on a draft only you can read.',
 }
 
 const slugTaken: ApiError = {
@@ -899,6 +931,24 @@ const notEditable = (status: PlaybookStatus): ApiError => ({
 })
 
 /**
+ * One playbook is not forkable, and the message says what is.
+ *
+ * Kept apart from {@link notEditable} even though both carry a status: that one
+ * answers *this is not yours to rewrite*, and this one answers *this is not
+ * published, so there is nothing to start from*. A citizen reading them the
+ * other way round would go looking for permission it already has.
+ */
+const notForkable = (status: PlaybookStatus): ApiError => ({
+  code: 'conflict',
+  message:
+    `That playbook is \`${status}\`, and only an ` +
+    `${PLAYBOOK_FORKABLE_STATUSES.join(' or an ')} playbook may be forked. A fork starts from ` +
+    'what the catalogue published, so there has to be something published to start from — a ' +
+    'blocked playbook is one the world broke, and fixing it is its own author\u2019s to do.',
+  details: { status },
+})
+
+/**
  * Storage's outcome as this surface answers it.
  *
  * **`unknown-playbook` and `not-yours` become the same message**, which is the
@@ -914,6 +964,8 @@ const written = (outcome: PlaybookWriteOutcome): PlaybookOutcome<PlaybookWriteRe
       return { outcome: 'rejected', error: slugTaken }
     case 'not-editable':
       return { outcome: 'rejected', error: notEditable(outcome.status) }
+    case 'not-forkable':
+      return { outcome: 'rejected', error: notForkable(outcome.status) }
     case 'unknown-playbook':
     case 'not-yours':
       return { outcome: 'rejected', error: noSuchPlaybook }
@@ -1050,4 +1102,56 @@ export async function submitPlaybook(
   if (found === null) return { outcome: 'rejected', error: noSuchPlaybook }
 
   return written(await deps.authoring.submit({ authorAgentId: agentId, playbookId: found.id }))
+}
+
+/**
+ * Copy a published playbook into a draft of your own (`#1180`).
+ *
+ * **The fork is yours and the original is untouched.** The steps, the slots and
+ * the inspiration are copied as they stand, the draft is nobody's to read but
+ * yours until you submit it, and `parentPlaybookId` records where it came from —
+ * freeze D's first-class pointer, which is what makes *this pipeline descends
+ * from that one* answerable without reading two summaries and guessing.
+ *
+ * **Only an `open` playbook may be forked**, per `PLAYBOOK_FORKABLE_STATUSES`.
+ * `blocked` is the one worth arguing about, because it is published and it is
+ * editable — and it is refused here on purpose: freeze B's loop for a pipeline
+ * the world broke is its own author fixing it, and a catalogue filling up with
+ * forks of steps that do not work is the failure that rule prevents. A citizen
+ * that wants to read a blocked playbook can: it is on the shelf.
+ *
+ * **A playbook you cannot see refuses in the same words as one nobody wrote**,
+ * which is the rule every write on this module follows.
+ */
+export async function forkPlaybook(
+  input: unknown,
+  agentId: AgentId,
+  deps: PlaybookDependencies,
+): Promise<PlaybookOutcome<PlaybookWriteResult>> {
+  const named = PlaybookForkInputSchema.safeParse(input)
+  if (!named.success) return { outcome: 'rejected', error: notAFork }
+
+  const found = await addressed(named.data.playbook, deps)
+  if (found === null) return { outcome: 'rejected', error: noSuchPlaybook }
+
+  /**
+   * Visibility is decided here rather than in storage, and it has to be.
+   * {@link notForkable} names the status, so answering it about a draft another
+   * citizen wrote would tell a stranger both that the draft exists and which
+   * shelf it is on — through a tool whose whole argument is a slug anybody may
+   * guess. Below the line a playbook nobody may read and a slug nobody has taken
+   * are the same answer, exactly as they are on every other read here.
+   */
+  const readable =
+    (PLAYBOOK_LISTED_STATUSES as readonly string[]).includes(found.status) ||
+    found.authorAgentId === agentId
+  if (!readable) return { outcome: 'rejected', error: noSuchPlaybook }
+
+  return written(
+    await deps.authoring.fork({
+      authorAgentId: agentId,
+      sourcePlaybookId: found.id,
+      slug: named.data.slug,
+    }),
+  )
 }

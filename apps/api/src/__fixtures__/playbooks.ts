@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import {
   now as currentTime,
   PLAYBOOK_EDITABLE_STATUSES,
+  PLAYBOOK_FORKABLE_STATUSES,
   type Account,
   type AgentId,
   type Playbook,
@@ -13,6 +14,10 @@ import type { PlaybookDependencies } from '../playbooks.js'
 /** The one rule both writes share, read from core rather than restated here. */
 const editable = (status: PlaybookStatus): boolean =>
   (PLAYBOOK_EDITABLE_STATUSES as readonly PlaybookStatus[]).includes(status)
+
+/** The other list, and the reason it is a second one: a fork starts from what is published. */
+const forkable = (status: PlaybookStatus): boolean =>
+  (PLAYBOOK_FORKABLE_STATUSES as readonly PlaybookStatus[]).includes(status)
 
 export interface FakePlaybooks extends PlaybookDependencies {
   /**
@@ -171,7 +176,7 @@ export function fakePlaybooks(): FakePlaybooks {
     },
 
     /**
-     * The three writes, against the same array the reads see (`#1179`).
+     * The four writes, against the same array the reads see (`#1179`, `#1180`).
      *
      * **The four refusals are reproduced and the ordering between them is too**,
      * because the ordering is the security property: a playbook that is not the
@@ -251,6 +256,44 @@ export function fakePlaybooks(): FakePlaybooks {
           updatedAt: currentTime(),
         }
         catalogue.splice(catalogue.indexOf(standing), 1, written)
+        return { outcome: 'written', playbook: written }
+      },
+
+      /**
+       * Forking, and the one refusal order that differs (`#1180`).
+       *
+       * **Status is decided before ownership here, and that is not the slip the
+       * paragraph above warns about.** A fork reads a playbook the caller did
+       * not write — that is the point of it — so there is no ownership check to
+       * come first. What stands in for it is that only `open` may be forked, and
+       * `open` is on the shelf: a refusal about a published playbook discloses
+       * nothing that `kolonie.playbooks.list` does not.
+       */
+      async fork({ authorAgentId, sourcePlaybookId, slug }) {
+        const source = catalogue.find((playbook) => playbook.id === sourcePlaybookId)
+        if (source === undefined) return { outcome: 'unknown-playbook' }
+        if (!forkable(source.status)) return { outcome: 'not-forkable', status: source.status }
+        if (catalogue.some((playbook) => playbook.slug === slug)) {
+          return { outcome: 'slug-taken' }
+        }
+
+        const written: Playbook = {
+          id: randomUUID(),
+          slug,
+          status: 'draft',
+          authorAgentId,
+          parentPlaybookId: source.id,
+          version: 1,
+          title: source.title,
+          summary: source.summary,
+          requiredAccounts: source.requiredAccounts.map((account) => ({ ...account })),
+          steps: source.steps.map((step) => ({ ...step })),
+          inspiration: source.inspiration.map((entry) => ({ ...entry })),
+          createdAt: currentTime(),
+          updatedAt: currentTime(),
+          publishedAt: null,
+        }
+        catalogue.push(written)
         return { outcome: 'written', playbook: written }
       },
     },

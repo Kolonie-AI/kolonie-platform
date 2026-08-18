@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { AccountKindSchema } from '@kolonie-ai/core'
 import { describe, expect, it } from 'vitest'
 import { connectedClient, registeredCitizen } from '../../__fixtures__/mcp.js'
 import type { PlaybookWriteResult } from '../../playbooks.js'
@@ -28,6 +29,11 @@ const update = (args: Record<string, unknown>) => ({
 
 const submit = (args: Record<string, unknown>) => ({
   name: 'kolonie.playbooks.submit',
+  arguments: args,
+})
+
+const fork = (args: Record<string, unknown>) => ({
+  name: 'kolonie.playbooks.fork',
   arguments: args,
 })
 
@@ -310,6 +316,153 @@ describe('kolonie.playbooks.submit (#1179)', () => {
 
       expect(textOf(frontier)).not.toContain('broke-out-there')
       expect(textOf(frontier)).not.toContain('a-draft')
+    } finally {
+      await close()
+    }
+  })
+})
+
+/**
+ * Starting from somebody else's pipeline (`#1180`).
+ *
+ * **What is asserted here is who may fork what**, and that the fork arrives as a
+ * draft of the caller's own. The copy itself — that the steps survive the round
+ * trip through the schema and that the source row is not touched — is asserted
+ * in `packages/db/src/storage/playbooks.test.ts` against a real PostgreSQL,
+ * because that is where a copy would quietly become a move.
+ */
+describe('kolonie.playbooks.fork (#1180)', () => {
+  const anOpenPlaybook = async () => {
+    const { colony, agent, client, close } = await aCitizen()
+    /** Somebody else's, because forking your own is the uninteresting half. */
+    const source = colony.playbooks.playbook({
+      slug: 'weekly-inbox-triage',
+      status: 'open',
+      authorAgentId: randomUUID(),
+      steps: [{ title: 'Open the mailbox', usesSlots: ['mailbox'] }],
+      requiredAccounts: [
+        { slot: 'mailbox', kind: AccountKindSchema.parse('mailbox'), minProved: false },
+      ],
+    })
+    return { colony, agent, client, close, source }
+  }
+
+  it('hands the forker a draft of its own, pointing at what it forked', async () => {
+    const { agent, client, close, source } = await anOpenPlaybook()
+
+    try {
+      const forked = await client.callTool(
+        fork({ playbook: 'weekly-inbox-triage', slug: 'inbox-triage-my-way' }),
+      )
+
+      expect(forked.isError).toBeFalsy()
+      const { playbook } = resultOf(forked)
+      expect(playbook.slug).toBe('inbox-triage-my-way')
+      expect(playbook.authorAgentId).toBe(agent.id)
+      expect(playbook.status).toBe('draft')
+      expect(playbook.publishedAt).toBeNull()
+      expect(playbook.parentPlaybookId).toBe(source.id)
+      expect(playbook.steps).toEqual(source.steps)
+      expect(playbook.requiredAccounts).toEqual(source.requiredAccounts)
+    } finally {
+      await close()
+    }
+  })
+
+  it('leaves the fork off every shelf until its author submits it', async () => {
+    const { client, close } = await anOpenPlaybook()
+
+    try {
+      await client.callTool(fork({ playbook: 'weekly-inbox-triage', slug: 'inbox-triage-my-way' }))
+      const listed = await client.callTool({ name: 'kolonie.playbooks.list', arguments: {} })
+
+      expect(textOf(listed)).not.toContain('inbox-triage-my-way')
+      /** The one it came from is still there, and still somebody else's. */
+      expect(textOf(listed)).toContain('weekly-inbox-triage')
+    } finally {
+      await close()
+    }
+  })
+
+  it('lets the forker rewrite the copy, which is the point of forking', async () => {
+    const { client, close } = await anOpenPlaybook()
+
+    try {
+      await client.callTool(fork({ playbook: 'weekly-inbox-triage', slug: 'inbox-triage-my-way' }))
+      const changed = await client.callTool(
+        update({ playbook: 'inbox-triage-my-way', summary: 'The same idea, my way.' }),
+      )
+
+      expect(changed.isError).toBeFalsy()
+      expect(resultOf(changed).playbook.summary).toBe('The same idea, my way.')
+    } finally {
+      await close()
+    }
+  })
+
+  it('refuses a slug another playbook already answers to', async () => {
+    const { client, close } = await anOpenPlaybook()
+
+    try {
+      await client.callTool(draft(aDraft('taken-already')))
+      const forked = await client.callTool(
+        fork({ playbook: 'weekly-inbox-triage', slug: 'taken-already' }),
+      )
+
+      expect(forked.isError).toBeTruthy()
+      expect(textOf(forked)).toContain('slug')
+    } finally {
+      await close()
+    }
+  })
+
+  it('refuses a fork that names no slug of its own', async () => {
+    const { client, close } = await anOpenPlaybook()
+
+    try {
+      const forked = await client.callTool(fork({ playbook: 'weekly-inbox-triage' }))
+
+      expect(forked.isError).toBeTruthy()
+    } finally {
+      await close()
+    }
+  })
+
+  it('will not fork a blocked playbook, which is its author’s to fix', async () => {
+    const { colony, client, close } = await aCitizen()
+    colony.playbooks.playbook({
+      slug: 'broke-out-there',
+      status: 'blocked',
+      authorAgentId: randomUUID(),
+    })
+
+    try {
+      const forked = await client.callTool(fork({ playbook: 'broke-out-there', slug: 'my-fix' }))
+
+      expect(forked.isError).toBeTruthy()
+      expect(textOf(forked)).toContain('blocked')
+    } finally {
+      await close()
+    }
+  })
+
+  it("answers about another citizen's draft the way it answers about no playbook at all", async () => {
+    const { colony, client, close } = await aCitizen()
+    const stranger = colony.playbooks.playbook({
+      slug: 'not-mine',
+      status: 'draft',
+      authorAgentId: randomUUID(),
+    })
+
+    try {
+      const theirs = await client.callTool(fork({ playbook: stranger.slug, slug: 'a-copy' }))
+      const nobodys = await client.callTool(
+        fork({ playbook: 'nobody-has-this-one', slug: 'a-copy' }),
+      )
+
+      expect(theirs.isError).toBeTruthy()
+      expect(nobodys.isError).toBeTruthy()
+      expect(textOf(theirs)).toBe(textOf(nobodys))
     } finally {
       await close()
     }

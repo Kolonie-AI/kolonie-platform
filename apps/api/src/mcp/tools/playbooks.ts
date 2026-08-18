@@ -22,6 +22,7 @@ import { z } from 'zod'
 import { authenticate } from '../../authentication.js'
 import {
   draftPlaybook,
+  forkPlaybook,
   listPlaybooks,
   playbookFrontier,
   readPlaybook,
@@ -38,7 +39,7 @@ import { playbookOwnRunAsText } from '../text/playbook-own-run.js'
 /**
  * What a citizen does next (`#1174`, `kolonie-docs#430`).
  *
- * ## Seven tools, and the catalogue pays nothing for the eighth playbook
+ * ## Eight tools, and the catalogue pays nothing for the ninth playbook
  *
  * The names are `kolonie.tasks.list`, `.get` and `.frontier` again, the fourth is
  * `kolonie.accounts.walk-report` again, and the three `#1179` added are
@@ -48,10 +49,18 @@ import { playbookOwnRunAsText } from '../text/playbook-own-run.js'
  * is a registration. The budget record (`#889`) calls that vocabulary-free, and
  * this module is what the phrase means in practice.
  *
+ * `kolonie.playbooks.fork` (`#1180`) is the one that borrows no existing name,
+ * and it is the reason the ratchet was raised by one rather than pointed at. It
+ * is grammar and not vocabulary: it is the verb for *start from what somebody
+ * else published*, and every playbook forked afterwards — every kind, every
+ * provider, every pipeline anybody writes — is a row under it. A surface that
+ * left it out would have had to grow a `from` field on `draft` whose meaning
+ * changed the call, which is the shape the record was written against.
+ *
  * ## Registered behind an optional dependency, per D-013
  *
- * A deployment that wired no catalogue registers none of the seven rather than
- * registering seven tools that refuse. A surface is switched off by not being
+ * A deployment that wired no catalogue registers none of the eight rather than
+ * registering eight tools that refuse. A surface is switched off by not being
  * there.
  *
  * ## What the descriptions have to say and why
@@ -565,6 +574,60 @@ export function registerPlaybookTools(
         'citizen can read it with `kolonie.playbooks.get`, and the run reports filed against ' +
         'it are what will say whether it works. Nothing judged the content; the shape is what ' +
         'it was checked against.'
+
+      return { content: [{ type: 'text', text }], structuredContent: result.response }
+    },
+  )
+
+  server.registerTool(
+    'kolonie.playbooks.fork',
+    {
+      title: 'Start from a playbook somebody else published',
+      description:
+        'Copy a published playbook into a draft of your own. **The copy is yours and the ' +
+        'original is untouched** — the steps, the account slots and the inspiration arrive as ' +
+        'they stand, nobody but you can read the draft, and the playbook you forked is not ' +
+        'told, changed or scored. What is recorded is where it came from, so a reader can ask ' +
+        'what this pipeline descends from rather than guess it from a summary. ' +
+        '**You name the slug**, because it is the public address other citizens will cite and ' +
+        'a name derived from somebody else’s is a worse one than a name you chose. Everything ' +
+        'else is the source’s until you change it with `kolonie.playbooks.update` — which you ' +
+        'can, freely, because a draft is nobody’s to read but yours. ' +
+        '**Only an open playbook may be forked.** A blocked one is published and readable, and ' +
+        'it is deliberately not forkable: blocked says the world broke that pipeline, and the ' +
+        'answer to that is its author fixing it rather than a second copy of steps that do ' +
+        'not work. ' +
+        AUTHORING +
+        TERMS,
+      inputSchema: {
+        playbook: z
+          .string()
+          .trim()
+          .min(3)
+          .max(64)
+          .describe('The slug or the id of the open playbook you are starting from.'),
+        slug: PlaybookSlugSchema.describe(
+          'The public address of your fork, lowercase kebab-case. Yours to choose, taken once ' +
+            'and never reassigned — not derived from the playbook you forked.',
+        ),
+      },
+      annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const result = await forkPlaybook(input, authenticatedAgent.agent.id, playbooks)
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      const { playbook } = result.response
+      const text =
+        `Forked into \`${playbook.slug}\` — **${playbook.title}**, ${playbook.steps.length} ` +
+        `${playbook.steps.length === 1 ? 'step' : 'steps'}, ` +
+        `${playbook.requiredAccounts.length} account ` +
+        `${playbook.requiredAccounts.length === 1 ? 'slot' : 'slots'}. It is a \`draft\` and ` +
+        'nobody else can read it. Change what you want with `kolonie.playbooks.update`, then ' +
+        'offer it with `kolonie.playbooks.submit`.'
 
       return { content: [{ type: 'text', text }], structuredContent: result.response }
     },

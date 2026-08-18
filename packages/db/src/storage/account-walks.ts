@@ -16,6 +16,7 @@ import { alias, type PgColumn } from 'drizzle-orm/pg-core'
 import {
   AccountKindSchema,
   AccountProviderSchema,
+  AgentIdSchema,
   AgentPlatformSchema,
   atlasCanonicalKind,
   atlasCategoryForKind,
@@ -57,6 +58,7 @@ import { accountWalks, accountWalkSteps } from '../schema/account-walks.js'
 import { agents } from '../schema/agents.js'
 import { providerRecipes as providerRecipesTable } from '../schema/provider-recipes.js'
 import { canonicalProvider } from './atlas-renames.js'
+import { suspendForRefusedWalkProse } from './citizenship.js'
 import { currentSessionStartSql } from './sessions.js'
 import { markProviderBriefingStale } from './provider-briefing.js'
 import { providerRecipe, recordMeasuredProvider, writeProviderRecipe } from './provider-recipes.js'
@@ -1927,8 +1929,26 @@ const moderatedWalkProseValue = (command: WalkProseModerationCommand): WalkProse
 export async function recordWalkProseModeration(
   db: Database,
   command: WalkProseModerationCommand,
-): Promise<{ readonly outcome: 'written' | 'stale' }> {
+): Promise<WalkProseVerdictResult> {
   return db.transaction(async (tx) => await writeWalkProseVerdict(tx, command))
+}
+
+/**
+ * What a verdict did: the write, and whether it cost the citizen its standing.
+ *
+ * **`suspended` is reported rather than logged here** (`#1097`). The store is the
+ * only place that can know — the count and the write are one statement — and the
+ * runner is the only place that can say it in a tick's counters. A `console.log`
+ * at this layer would be a second, quieter answer to *how often does this
+ * happen*, and one that no test reads.
+ *
+ * It is `false` on every stale verdict and on every approval, so a caller that
+ * adds it up is counting suspensions and not writes.
+ */
+export interface WalkProseVerdictResult {
+  readonly outcome: 'written' | 'stale'
+  /** `true` only when this verdict was the refusal that crossed the threshold. */
+  readonly suspended: boolean
 }
 
 /**
@@ -1965,11 +1985,11 @@ async function walkProseUnchanged(
 }
 
 async function writeWalkProseVerdict(
-  db: Database | Transaction,
+  db: Transaction,
   command: WalkProseModerationCommand,
-): Promise<{ readonly outcome: 'written' | 'stale' }> {
+): Promise<WalkProseVerdictResult> {
   const unchanged = await walkProseUnchanged(db, command)
-  if (unchanged === undefined) return { outcome: 'stale' }
+  if (unchanged === undefined) return { outcome: 'stale', suspended: false }
 
   const written = await db
     .update(accountWalks)
@@ -2003,10 +2023,12 @@ async function writeWalkProseVerdict(
       id: accountWalks.id,
       kind: accountWalks.kind,
       provider: accountWalks.provider,
+      /** Who wrote it, for the refusal tally alone — it is never logged. */
+      agentId: accountWalks.agentId,
     })
 
   const row = written[0]
-  if (row === undefined) return { outcome: 'stale' }
+  if (row === undefined) return { outcome: 'stale', suspended: false }
 
   /**
    * **The provider's briefing is marked stale here, and not by the caller**
@@ -2023,9 +2045,35 @@ async function writeWalkProseVerdict(
       kind: AccountKindSchema.parse(row.kind),
       provider: row.provider,
     })
+
+    return { outcome: 'written', suspended: false }
   }
 
-  return { outcome: 'written' }
+  return { outcome: 'written', suspended: await suspendForRefusal(db, row.agentId) }
+}
+
+/**
+ * Count this citizen's refusals and suspend it if this one was the fifth
+ * (`#1097`).
+ *
+ * **In the verdict's own transaction**, which is the whole reason it is called
+ * from here rather than from the runner. The refusal that crosses the threshold
+ * and the suspension it causes commit together or not at all; a runner that
+ * counted afterwards would suspend on a refusal that had rolled back, or fail to
+ * suspend on one that had not.
+ *
+ * The rule itself — what is counted, what the threshold is, which statuses may be
+ * written — is {@link suspendForRefusedWalkProse} in `citizenship.ts`, beside
+ * {@link promoteIfEarned}. It lives there because *who is a citizen* is one
+ * question and this file is not where it is answered.
+ */
+async function suspendForRefusal(db: Transaction, agentId: string): Promise<boolean> {
+  const { suspended } = await suspendForRefusedWalkProse(db, {
+    agentId: AgentIdSchema.parse(agentId),
+    suspendedAt: new Date().toISOString(),
+  })
+
+  return suspended
 }
 
 /**
@@ -2046,10 +2094,10 @@ export async function recordApprovedWalkProseRescrub(
   db: Database,
   command: WalkProseModerationCommand,
   markBriefingStale: boolean,
-): Promise<{ readonly outcome: 'written' | 'stale' }> {
+): Promise<WalkProseVerdictResult> {
   return db.transaction(async (tx) => {
     const unchanged = await walkProseUnchanged(tx, command)
-    if (unchanged === undefined) return { outcome: 'stale' as const }
+    if (unchanged === undefined) return { outcome: 'stale' as const, suspended: false }
 
     const written = await tx
       .update(accountWalks)
@@ -2072,10 +2120,11 @@ export async function recordApprovedWalkProseRescrub(
         id: accountWalks.id,
         kind: accountWalks.kind,
         provider: accountWalks.provider,
+        agentId: accountWalks.agentId,
       })
 
     const row = written[0]
-    if (row === undefined) return { outcome: 'stale' as const }
+    if (row === undefined) return { outcome: 'stale' as const, suspended: false }
 
     if (markBriefingStale) {
       await markProviderBriefingStale(tx, {
@@ -2084,7 +2133,17 @@ export async function recordApprovedWalkProseRescrub(
       })
     }
 
-    return { outcome: 'written' as const }
+    /**
+     * **A reversal counts** (`#1097` decision 1). The tally is *refusals*, and a
+     * second reading that crosses a red line is the Colony refusing those words —
+     * that it once approved them is a fact about the scrubber and not about what
+     * the citizen wrote. Counting it anywhere else would mean a citizen whose
+     * every refusal arrived by repair is never suspended at all.
+     */
+    return {
+      outcome: 'written' as const,
+      suspended: command.decision === 'rejected' ? await suspendForRefusal(tx, row.agentId) : false,
+    }
   })
 }
 
@@ -2610,4 +2669,127 @@ export async function walksToAskAbout(
   `)
 
   return [...rows]
+}
+
+/** One refused walk, as the console lists it under its author (`#1097`, 7). */
+export interface RefusedWalk {
+  readonly walkId: string
+  readonly kind: string
+  readonly provider: string
+  /** Null on a walk that was refused before it was closed. */
+  readonly finishedAt: string | null
+}
+
+/** One citizen's refusals, and where that has left it (`#1097` decision 7). */
+export interface WalkRefusalTally {
+  readonly agentId: string
+  readonly name: string
+  readonly status: string
+  readonly refusals: number
+  /** Newest first, bounded by {@link REFUSED_WALKS_PER_CITIZEN}. */
+  readonly walks: readonly RefusedWalk[]
+}
+
+/**
+ * How many citizens one page of {@link walkRefusalTallies} names, and how many
+ * of each one's refusals it prints.
+ *
+ * **Bounded because the page has no filter and no search.** A maintainer opening
+ * `/backend/refusals` is asking *who is doing this*, and the answer is the top of
+ * an ordering — a citizen with one refusal is not a case anybody is looking for,
+ * and a page that grew with the table would eventually be a page nobody opens.
+ */
+export const REFUSAL_TALLY_CITIZENS = 50
+export const REFUSED_WALKS_PER_CITIZEN = 20
+
+/**
+ * Every citizen with a refused walk, worst first, with what was refused
+ * (`#1097` decision 7).
+ *
+ * ## What the maintainer is actually being shown
+ *
+ * The rule this page exists for is automatic and writes no audit row, for the
+ * reason `suspendForRefusedWalkProse` gives: an automatic suspension has no
+ * actor, and an `authority_events` row with a null one would be a record
+ * claiming somebody acted. **The refusals are the audit trail** — they are rows
+ * already, they are what the rule counted, and this is the query that reads them
+ * back in the same order the rule sees them.
+ *
+ * So the count here and the count in the `where` clause of the suspension are
+ * the same predicate, deliberately: `prose_status = 'rejected'`, all-time, per
+ * citizen. A page that counted differently would be a page that disagrees with
+ * the rule it exists to explain.
+ *
+ * ## The prose is not here, and cannot be
+ *
+ * The columns are the walk's `kind`, `provider` and `finished_at`. **A refused
+ * walk has no scrub**, so there is nothing moderated to print, and the raw
+ * columns are exactly what the red line was drawn against — the page says *what
+ * was refused* and never *what it said*. A maintainer who needs the words has
+ * `psql`, which is a deliberate step and not a link.
+ *
+ * ## Two queries, both bounded
+ *
+ * The tally, then the walks belonging to the citizens it named. One query with a
+ * join would multiply the citizen row by its walks and make the limit mean
+ * neither thing.
+ */
+export async function walkRefusalTallies(
+  db: Database,
+  limit = REFUSAL_TALLY_CITIZENS,
+): Promise<readonly WalkRefusalTally[]> {
+  const refused = eq(accountWalks.proseStatus, 'rejected')
+
+  const tallies = await db
+    .select({
+      agentId: accountWalks.agentId,
+      name: agents.name,
+      status: agents.status,
+      refusals: sql<number>`cast(count(*) as integer)`,
+    })
+    .from(accountWalks)
+    .innerJoin(agents, eq(agents.id, accountWalks.agentId))
+    .where(refused)
+    .groupBy(accountWalks.agentId, agents.name, agents.status)
+    /** The count first, then the name, so two citizens on four never swap places. */
+    .orderBy(desc(sql`count(*)`), asc(agents.name))
+    .limit(limit)
+
+  if (tallies.length === 0) return []
+
+  const walks = await db
+    .select({
+      id: accountWalks.id,
+      agentId: accountWalks.agentId,
+      kind: accountWalks.kind,
+      provider: accountWalks.provider,
+      finishedAt: accountWalks.finishedAt,
+    })
+    .from(accountWalks)
+    .where(
+      and(
+        refused,
+        inArray(
+          accountWalks.agentId,
+          tallies.map((tally) => tally.agentId),
+        ),
+      ),
+    )
+    .orderBy(desc(accountWalks.finishedAt))
+
+  return tallies.map((tally) => ({
+    agentId: tally.agentId,
+    name: tally.name,
+    status: tally.status,
+    refusals: tally.refusals,
+    walks: walks
+      .filter((walk) => walk.agentId === tally.agentId)
+      .slice(0, REFUSED_WALKS_PER_CITIZEN)
+      .map((walk) => ({
+        walkId: walk.id,
+        kind: walk.kind,
+        provider: walk.provider,
+        finishedAt: walk.finishedAt === null ? null : toTimestamp(walk.finishedAt),
+      })),
+  }))
 }

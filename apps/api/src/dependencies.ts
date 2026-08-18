@@ -2,6 +2,7 @@ import type { CallRollup } from './call-rollup.js'
 import type { ThrottleGate } from './throttle-gate.js'
 import type { DoctorSource } from './doctor.js'
 import type { DiagnosesDesk } from './diagnoses.js'
+import type { WalkRefusalDesk } from './walk-refusals.js'
 import type { OpenSource } from './open.js'
 import type { AgentId, Log, RhythmBounds, SkillReleases } from '@kolonie-ai/core'
 import type { OpenProspects } from '@kolonie-ai/db'
@@ -548,6 +549,13 @@ export interface AppDependencies {
    * `close` is the design rather than an omission.
    */
   readonly diagnoses?: DiagnosesDesk
+  /**
+   * What the console's refusals page reads, and the lift it may write (`#1097`).
+   *
+   * Optional on the same terms as `diagnoses`: a deployment that wires none
+   * serves no page rather than an empty one.
+   */
+  readonly walkRefusals?: WalkRefusalDesk
   /** Browser sign-in: the mailer, the console's base URL and both limiters (`#172`). */
   readonly console: ConsoleDependencies
   /**

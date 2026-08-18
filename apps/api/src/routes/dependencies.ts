@@ -1,6 +1,7 @@
 import type { CallRollup } from '../call-rollup.js'
 import type { DoctorSource } from '../doctor.js'
 import type { DiagnosesDesk } from '../diagnoses.js'
+import type { WalkRefusalDesk } from '../walk-refusals.js'
 import type { OpenSource } from '../open.js'
 import type { HandoverStore } from '../handovers.js'
 import type { AgentId, ApiError, Log, RhythmBounds, SkillReleases } from '@kolonie-ai/core'
@@ -123,6 +124,16 @@ export interface RouteDependencies {
    * one, which is D-013's way of switching a surface off.
    */
   readonly diagnoses?: DiagnosesDesk
+  /**
+   * What the console's refusals page reads, and the lift it may write (`#1097`).
+   *
+   * One read and one write, and the write only ever takes a suspension off:
+   * imposing one is the threshold's job, inside the verdict that reaches it.
+   *
+   * Optional on the same terms as `diagnoses`: a deployment that wires none
+   * serves no page rather than an empty one.
+   */
+  readonly walkRefusals?: WalkRefusalDesk
   /**
    * Recording that a citizen was told about a finding on waking (`#842`).
    *

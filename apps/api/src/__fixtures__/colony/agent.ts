@@ -40,7 +40,9 @@ import type { StandingHintSource } from '../../hints.js'
 import type { WakeupSource } from '../../wakeup.js'
 import type { DoctorSource } from '../../doctor.js'
 import type { DiagnosesDesk } from '../../diagnoses.js'
+import type { WalkRefusalDesk } from '../../walk-refusals.js'
 import { fakeDiagnosesDesk, fakeDoctorSource } from '../doctor.js'
+import { fakeWalkRefusalDesk } from '../walk-refusals.js'
 import { checkName, register, type AgentRegistry, type Caller } from '../../registration.js'
 import { memoryGate } from '../registry.js'
 import { fakeSkillNotes, type FakeSkillNotes } from '../skill-notes.js'
@@ -125,6 +127,14 @@ export interface FakeAgent {
    * entry a promise the test colony cannot keep.
    */
   readonly diagnoses: DiagnosesDesk
+  /**
+   * What the console's refusals page reads (`#1097`).
+   *
+   * Wired by default and answering with nothing, for the reason `diagnoses`
+   * above is: the navigation names `/backend/refusals`, and
+   * `console-links.test.ts` crawls every link the console emits.
+   */
+  readonly walkRefusals: WalkRefusalDesk
   /**
    * The state facts behind the wake-up's non-rung suggestions (`#347`).
    *
@@ -387,6 +397,7 @@ export function fakeAgent(deps: {
     // An empty Colony, which is the state the page has to render as a sentence
     // rather than as a blank panel (`#841`).
     diagnoses: fakeDiagnosesDesk(),
+    walkRefusals: fakeWalkRefusalDesk(),
     prospects: async () => ({
       hasOperator: true,
       // And nobody named on the profile to pair with in the console (`#1012`).

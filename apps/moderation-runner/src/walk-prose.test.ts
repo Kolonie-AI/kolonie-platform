@@ -88,6 +88,8 @@ const recording = (
   approvedWithoutScrub: readonly ApprovedWalkProseWithoutScrub[] = [],
   duplicates: readonly MarkedDuplicateWalk[] = [],
   requeued: readonly RequeuedWalkProse[] = [],
+  /** Whether the store reports that a refusal took the walker over the threshold. */
+  suspends = false,
 ) => {
   const written: { walkId: string; scrubbed: WalkProse }[] = []
   const refused: string[] = []
@@ -129,10 +131,11 @@ const recording = (
     },
     refuse: async ({ walk }) => {
       refused.push(walk.walkId)
+      return { suspended: suspends }
     },
     rescrub: async ({ walk, ...decision }) => {
       rescrubbed.push({ walkId: walk.walkId, ...decision })
-      return true
+      return { written: true, suspended: suspends && decision.decision === 'rejected' }
     },
     markDuplicates: async (limit) => {
       limits.markDuplicates.push(limit)
@@ -249,6 +252,7 @@ describe('the Colony scrubbing what a walker wrote', () => {
       failed: 0,
       repeats: 0,
       requeued: 0,
+      suspended: 0,
     })
   })
 
@@ -266,6 +270,7 @@ describe('the Colony scrubbing what a walker wrote', () => {
       failed: 0,
       repeats: 0,
       requeued: 0,
+      suspended: 0,
     })
     expect(rescrubbed).toEqual([
       {
@@ -291,6 +296,7 @@ describe('the Colony scrubbing what a walker wrote', () => {
       failed: 0,
       repeats: 0,
       requeued: 0,
+      suspended: 0,
     })
     expect(rescrubbed).toEqual([
       {
@@ -299,6 +305,32 @@ describe('the Colony scrubbing what a walker wrote', () => {
         markProviderStale: true,
       },
     ])
+  })
+
+  /**
+   * `#1097`: the store counts the refusals and decides, and the tick only
+   * reports what it was told — so a suspension is a number beside the refusals
+   * rather than a second query the runner runs.
+   */
+  it('counts the refusals that took a walker over the threshold', async () => {
+    const { model } = answering({ redLine: 'crossed' })
+    const { store } = recording([aWalk()], [], [], [], true)
+
+    const outcome = await walkProseTick({ store, model }, 10)
+
+    expect(outcome.refused).toBe(1)
+    expect(outcome.suspended).toBe(1)
+  })
+
+  /** A reversal is a refusal too, so the walker it belongs to reaches the same threshold. */
+  it('counts a suspension a reversed approval reached', async () => {
+    const { model } = answering({ redLine: 'crossed' })
+    const { store } = recording([], [aWalk()], [], [], true)
+
+    const outcome = await walkProseTick({ store, model }, 10)
+
+    expect(outcome.refused).toBe(1)
+    expect(outcome.suspended).toBe(1)
   })
 
   it('marks each provider in the repair batch stale once, however many walks it repairs', async () => {
@@ -343,6 +375,7 @@ describe('the Colony scrubbing what a walker wrote', () => {
       failed: 0,
       repeats: 0,
       requeued: 0,
+      suspended: 0,
     })
     expect(written).toHaveLength(2)
     expect(rescrubbed).toHaveLength(2)
@@ -387,6 +420,7 @@ describe('the Colony scrubbing what a walker wrote', () => {
       failed: 0,
       repeats: 1,
       requeued: 0,
+      suspended: 0,
     })
     /** The signal is a trigram comparison in the database, so nothing was asked. */
     expect(asked).toHaveLength(0)
@@ -434,6 +468,7 @@ describe('the Colony scrubbing what a walker wrote', () => {
       failed: 0,
       repeats: 0,
       requeued: 1,
+      suspended: 0,
     })
     /** One predicate in the database, so no model call was paid for. */
     expect(asked).toHaveLength(0)

@@ -192,6 +192,11 @@ describe('what the console can write', () => {
     // Answering somebody, which writes nothing a citizen holds.
     '/backend/tickets/notice',
     '/backend/enquiries/:id/handled',
+    // Taking a suspension off a walker the threshold suspended (`#1097`). **The
+    // only direction there is**: nothing imposes one from here, because the
+    // count does that inside the verdict that reaches it — so this list is also
+    // where a `/backend/refusals/suspend` appearing one day would be caught.
+    '/backend/refusals/lift',
     // One named setting at a time, and never a row.
     '/backend/settings/:name',
     '/backend/settings/:name/clear',

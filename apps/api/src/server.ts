@@ -1,4 +1,5 @@
 import {
+  AgentIdSchema,
   BROWSER_STAGES,
   createLog,
   OPERATOR_DROP_SEALING_KEY_VAR,
@@ -25,6 +26,7 @@ import {
   recordTelling,
   recordWalkSuggestion,
   proseForOpenDiagnoses,
+  liftSuspension,
   listDiagnoses,
   diagnosisById,
   diagnosisCounts,
@@ -113,6 +115,7 @@ import {
   readSkillNote,
   readSkillNotes,
   recordObstructedAttemptForTaskType,
+  walkRefusalTallies,
   writeSkillNote,
 } from '@kolonie-ai/db'
 import { databaseWebServerChallenges } from './web-server.js'
@@ -738,6 +741,27 @@ const app = buildApp({
     counts: () => diagnosisCounts(db),
     funnel: (since) => consultationFunnel(db, since),
     ruleHealth: () => ruleHealth(db),
+  },
+  /**
+   * The walkers whose prose kept crossing a red line (`#1097`).
+   *
+   * One read and one write, and the write only takes a suspension off. Imposing
+   * one is the threshold's job, in the transaction that writes the verdict
+   * reaching it — so there is no `suspend` here, and a lift runs in a
+   * transaction of its own because it restores what the walker had earned:
+   * `liftSuspension` writes `candidate` and then asks the ordinary promotion
+   * rule whether that walker is a citizen.
+   */
+  walkRefusals: {
+    tallies: () => walkRefusalTallies(db),
+    lift: async (agentId) => {
+      const parsed = AgentIdSchema.safeParse(agentId)
+      if (!parsed.success) return false
+      const { lifted } = await db.transaction((tx) =>
+        liftSuspension(tx, { agentId: parsed.data, liftedAt: new Date().toISOString() }),
+      )
+      return lifted
+    },
   },
   // A citizen's private notes against the skills it holds (`#348`).
   skillNotes: {

@@ -48,6 +48,8 @@ type Changes = Omit<
   // Likewise, from `skillsGranted` and the held set the openings carry in
   // (`#1025`): the source says which skills arrived, not what they crossed.
   | 'citizenship'
+  // Its own call on the source (`#1262`), not news that something moved.
+  | 'contributionQualityWarning'
 >
 
 /** A citizen at the very start: nothing held, nothing earned (`#344`). */

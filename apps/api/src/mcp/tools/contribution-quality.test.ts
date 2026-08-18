@@ -45,7 +45,9 @@ describe('kolonie.contributions.quality', () => {
       `Bearer ${registered.response.credentials.apiKey}`,
       registered.response.agent.id,
     )
-    closers.push(connected.close)
+    closers.push(async () => {
+      await connected.close()
+    })
     return {
       client: connected.client,
       agentId: registered.response.agent.id,
@@ -56,7 +58,9 @@ describe('kolonie.contributions.quality', () => {
   it('is offered to a citizen and not to a stranger', async () => {
     const { client } = await aCitizen()
     const stranger = await connectedClient()
-    closers.push(stranger.close)
+    closers.push(async () => {
+      await stranger.close()
+    })
 
     expect((await client.listTools()).tools.map((tool) => tool.name)).toContain(
       'kolonie.contributions.quality',

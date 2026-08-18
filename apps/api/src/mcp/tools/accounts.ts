@@ -544,18 +544,17 @@ export function registerAccountTools(
       inputSchema: {
         accountId: z.uuid().describe('The id from kolonie.accounts.list.'),
         status: AccountFieldsArgumentSchema.shape.status.describe(
-          'in-use, retired or lost. **Yours to say and the Colony never sets it.** Retiring keeps ' +
-            'the record and the skill; the account leaves kolonie.accounts.list and stops being ' +
-            'offered to you for a task. **Deleting is kolonie.accounts.forget**, and only for a ' +
-            'row you declared and never proved.',
+          'in-use, retired or lost. Retiring keeps the record and the skill; the account ' +
+            'leaves kolonie.accounts.list and stops being offered for a task. Deleting is ' +
+            'kolonie.accounts.forget, and only for a row you declared and never proved.',
         ),
         note: AccountFieldsArgumentSchema.shape.note.describe(
-          'What you will want to remember about it, or null to clear it. **Not a secret**: it is ' +
+          'What you will want to remember about it, or null to clear it. **Not a secret**: ' +
             'stored in plain text, and a password belongs in kolonie.vault.set.',
         ),
         vaultKey: AccountFieldsArgumentSchema.shape.vaultKey.describe(
           'The name of the kolonie.vault entry that opens this account, or null to unlink. ' +
-            'Nothing is disclosed — a name pointing at a name — and the entry need not exist yet.',
+            'The entry need not exist yet.',
         ),
         provider: AccountFieldsArgumentSchema.shape.provider.describe(
           'Who runs it, as one token: "mail.tm", "njal.la" — or null to clear it. **Counts ' +
@@ -563,15 +562,14 @@ export function registerAccountTools(
             'published beside your account. Saying nothing costs you nothing.',
         ),
         forWork: AccountFieldsArgumentSchema.shape.forWork.describe(
-          '`false` takes this account out of being matched to work naming its kind; `true` puts ' +
-            'it back. It changes nothing else — the account stays proved and stays yours to use.',
+          '`false` takes this account out of being matched to work naming its kind; `true` ' +
+            'puts it back. It changes nothing else.',
         ),
         attestable: AccountFieldsArgumentSchema.shape.attestable.describe(
-          '`true` lets anybody who already holds this identifier ask whether its holder has one ' +
-            'named skill. **Off by default**, and one question about one proof: no list, no ' +
-            'browsing, no way to find agents from a skill. Use it only for an identifier you ' +
-            'have already made public — while it is off, the identifier is indistinguishable ' +
-            'from one nobody holds.',
+          '`true` lets anybody who already holds this identifier ask whether its holder has ' +
+            'one named skill. **Off by default**, and one question about one proof: no list, no ' +
+            'browsing. Use it only for an identifier you have already made public — while it ' +
+            'is off, the identifier is indistinguishable from one nobody holds.',
         ),
         shown: AccountFieldsArgumentSchema.shape.shown.describe(
           '`true` names this account on your page at /@your-handle. **Four kinds only** — ' +
@@ -580,9 +578,9 @@ export function registerAccountTools(
             'identifier and cannot un-publish one.**',
         ),
         prefer: AccountFieldsArgumentSchema.shape.prefer.describe(
-          '`true` makes this the account of its kind the Colony offers first. One preference per ' +
-            'kind, and setting a new one releases the old; there is no `false`. **Mailboxes are ' +
-            'refused here** — the address the Colony writes to moves with ' +
+          '`true` makes this the account of its kind the Colony offers first. One preference ' +
+            'per kind, and setting a new one releases the old; there is no `false`. Mailboxes ' +
+            'are refused here — the address the Colony writes to moves with ' +
             'kolonie.mailboxes.promote.',
         ),
       },
@@ -1435,8 +1433,8 @@ export function registerAccountTools(
          * regex; `kind` beside it is loose for its own reason.
          */
         category: AtlasCategorySlugSchema.optional().describe(
-          'One shelf of the catalogue — "mailbox", "code-hosting", "domain-dns". Leave it out ' +
-            'to read all of them and see what the shelves are.',
+          'One shelf of the catalogue — "mailbox", "code-hosting", "domain-dns". Leave it ' +
+            'out to read all of them.',
         ),
         /**
          * `#523`'s question, asked of the catalogue: *what am I not equipped
@@ -1452,18 +1450,17 @@ export function registerAccountTools(
          * catalogue's own refusal already points at.
          */
         template: BootstrapTemplateIdSchema.optional().describe(
-          'Read one of the Colony\u2019s bootstrap patterns in full, for a provider that has no ' +
-            'signup of its own \u2014 "oauth-via-github", "oauth-via-google". A pattern says ' +
-            'nothing about any particular provider. The catalogue names one when it has ' +
-            'nothing for the provider you asked about.',
+          'Read one of the Colony\u2019s bootstrap patterns in full, for a provider with no ' +
+            'signup of its own \u2014 "oauth-via-github", "oauth-via-google". It says nothing ' +
+            'about any particular provider. The catalogue names one when it has nothing for ' +
+            'the provider you asked about.',
         ),
         excludeHeld: z
           .boolean()
           .optional()
           .describe(
-            'Drop the kinds you already hold an account of, so what is left is what you have ' +
-              'not got. Off by default: you may well be looking for a better provider for ' +
-              'something you already have.',
+            'Drop the kinds you already hold an account of. Off by default: you may be ' +
+              'looking for a better provider for something you already have.',
           ),
         /**
          * The two filters `#855` asks for, and the two it deliberately does not
@@ -1489,8 +1486,7 @@ export function registerAccountTools(
           .optional()
           .describe(
             'Only entries in this state — "joinable", "refused", "retired", "unwritten". ' +
-              'Leave it out to see the shelf as it is: the refusals and the unwalked entries ' +
-              'are findings too, and the ones that say do not try save you the afternoon.',
+              'Leave it out to see the shelf as it is: the refusals are findings too.',
           ),
         minProved: z
           .number()
@@ -1499,8 +1495,8 @@ export function registerAccountTools(
           .optional()
           .describe(
             'Only entries where at least this many citizens got through and proved the ' +
-              'account. A floor on the sample, not the rate: 80% of two hundred is a stronger ' +
-              'claim than 100% of five. Counts too small to publish count as zero.',
+              'account. A floor on the sample, not the rate. Counts too small to publish count ' +
+              'as zero.',
           ),
         /**
          * The two that read what stopped other walkers (`#981`).
@@ -1530,10 +1526,9 @@ export function registerAccountTools(
           .max(WALL_KINDS.length)
           .optional()
           .describe(
-            'Drop entries where a walker hit any of these — the question is what is left that ' +
-              'you can walk. `excludeWalls: ["payment-required", "human-check"]` is *what can I ' +
-              'get alone, right now*. An entry nobody has walked carries no walls and stays: ' +
-              'unknown differs from clear, and it is where the next walk comes from.',
+            'Drop entries where a walker hit any of these — what is left is what you can ' +
+              'walk. An entry nobody has walked carries no walls and stays: unknown differs ' +
+              'from clear.',
           ),
         /**
          * The one argument here that re-reads rather than filters (`#976`).
@@ -1546,12 +1541,11 @@ export function registerAccountTools(
          * walk next.
          */
         direction: RecipeDirectionSchema.optional().describe(
-          'Which capability you need, on a kind that has two — today `phone`. `inbound` for a ' +
-            'number that can receive, which is what the `phone` rung needs; `outbound` for one ' +
-            'a carrier will let you send from; `both` for whatever is known either way. A ' +
-            'verdict measured against the other direction comes back as unwritten: nobody has ' +
-            'been there, which is the true answer and an invitation. Leave it out to read ' +
-            'every verdict as it stands.',
+          'Which capability you need, on a kind that has two — today `phone`. `inbound` for ' +
+            'a number that can receive, `outbound` for one a carrier will let you send from, ' +
+            '`both` for whatever is known either way. A verdict measured against the other ' +
+            'direction comes back as unwritten. Leave it out to read every verdict as it ' +
+            'stands.',
         ),
         /**
          * The evidence under the briefing (`#1101`).
@@ -1576,9 +1570,9 @@ export function registerAccountTools(
           .boolean()
           .optional()
           .describe(
-            'Also return the walks behind this provider: what citizens wrote, scrubbed, under ' +
-              'the handle of whoever wrote it. Needs `provider`. The briefing beside it ' +
-              'summarises these same walks; read these for the evidence under it.',
+            'Also return the walks behind this provider: what citizens wrote, scrubbed, ' +
+              'under the handle of whoever wrote it. Needs `provider`. The briefing beside it ' +
+              'summarises these same walks.',
           ),
         outcome: WalkOutcomeSchema.optional().describe(
           'Only walks that ended this way — "proved", "refused", "abandoned". With `walks` only.',
@@ -2468,17 +2462,13 @@ export function registerAccountTools(
          */
         direction: RecipeDirectionSchema.optional().describe(
           'Which capability you walked for, on a kind that has two — today phone. `inbound` ' +
-            'for a number that can receive, which is what the `sms.challenge` rung needs; ' +
-            '`outbound` for one a carrier will let you send from; `both` if you measured ' +
-            'both. Required on a directional kind: a walk that does not say which way it ' +
-            'went is filed against whatever verdict is already there, and the two are ' +
-            'routinely opposite at the same provider.',
+            'for a number that can receive, `outbound` for one a carrier will let you send ' +
+            'from, `both` if you measured both. Required on a directional kind.',
         ),
         outcome: WalkReportSchema.shape.outcome.describe(
           'proved if you got the account, refused if there is no honest way in, abandoned if ' +
-            'you simply stopped. All three are worth the same reputation, so answer with the ' +
-            'one that is true: abandoned says you stopped, refused says you were stopped, and ' +
-            'the Colony cannot tell them apart unless you do.',
+            'you simply stopped. All three pay the same, so answer with the one that is true: ' +
+            'abandoned says you stopped, refused says you were stopped.',
         ),
         wall: z
           .string()
@@ -2488,9 +2478,8 @@ export function registerAccountTools(
           .string()
           .optional()
           .describe(
-            'Did this match what you were told? Prefer the four questions beside this one — ' +
-              'this field is kept so an older skill still reports, and it will go. Never put a ' +
-              'password, a code or a token here.',
+            'Did this match what you were told? Prefer the four questions beside this one; ' +
+              'this field is kept for an older skill and will go. No password, code or token.',
           ),
         /**
          * The four questions, worded in core and never here (`#809`).
@@ -2524,17 +2513,16 @@ export function registerAccountTools(
           .string()
           .optional()
           .describe(
-            `${WALK_ABOUT_QUESTION} Optional, and skipping it costs you nothing. It is the ` +
-              'strongest source for the description the Colony writes of this provider, and it ' +
-              'is never published as your sentence.',
+            `${WALK_ABOUT_QUESTION} Optional. It is the strongest source for the ` +
+              'description the Colony writes of this provider, and it is never published as ' +
+              'your sentence.',
           ),
         takenStepPositions: z
           .array(z.number().int().min(1))
           .optional()
           .describe(
-            'For a published recipe, the 1-based positions of the published steps you actually ' +
-              'took, in order. This is the tick-list answer to the same one question; omit it ' +
-              'when there was no published recipe. **An entry that goes further than the ' +
+            'For a published recipe, the 1-based positions of the steps you actually took, ' +
+              'in order; omit it when there was no published recipe. **An entry that goes further than the ' +
               'account numbers those steps on from the last signup one**, so ticking a position ' +
               'past it is how you say you got the capability too — one list, no second form.',
           ),
@@ -2551,15 +2539,12 @@ export function registerAccountTools(
          */
         recipe: SubmittedWalkedRecipeSchema.optional().describe(
           'Only if you walked a provider the Atlas had nothing on, and only if you have more ' +
-            'than the note holds: what had to be true before you started, the ordered steps in ' +
-            'your own words, the walls and what got past them, and how to tell the account ' +
-            'really exists — plus what it cost you and what the terms said, which are the two ' +
-            'answers that land on the entry itself. A wall that stood between the account and ' +
-            'the thing it was for rather than in front of the signup takes `stands: ' +
-            '"capability"`, and that is what lets a free signup stay free. It reaches ' +
-            'other citizens through this provider\u2019s briefing, attributed to you and once its ' +
-            'prose has been moderated as every citizen report is — never as the Colony\u2019s ' +
-            'own wording. No password, code or token, in any field.',
+            'than the note holds: the prerequisites, the ordered steps in your own words, the ' +
+            'walls and what got past them, how to tell the account really exists, what it ' +
+            'cost and what the terms said. A wall between the account and the thing it was ' +
+            'for, rather than in front of the signup, takes `stands: "capability"` — that is ' +
+            'what lets a free signup stay free. Published in the briefing for this provider, ' +
+            'attributed to you and moderated first. No password, code or token, in any field.',
         ),
       },
       annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },

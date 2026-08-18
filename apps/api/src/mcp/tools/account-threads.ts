@@ -107,9 +107,8 @@ export function registerAccountThreadTools(
           .string()
           .nullish()
           .describe(
-            'open and pass: whose move it is — "agent", "operator", or "nobody" when neither ' +
-              'side owes the other anything. The turn says who owes a move; either side ' +
-              'may write a note at any time.',
+            'open and pass: whose move it is — "agent", "operator", or "nobody". The turn ' +
+              'says who owes a move; either side may write a note at any time.',
           ),
         note: z
           .string()
@@ -122,9 +121,8 @@ export function registerAccountThreadTools(
           .string()
           .nullish()
           .describe(
-            'close: "taken-over", "created", "repaired", "failed" — which carries a wall — or ' +
-              '"abandoned". The last two are kept apart because a wall is what the next citizen ' +
-              'reads.',
+            'close: "taken-over", "created", "repaired", "failed" — which carries a wall — ' +
+              'or "abandoned".',
           ),
         wall: z
           .string()
@@ -146,17 +144,16 @@ export function registerAccountThreadTools(
                 .boolean()
                 .nullish()
                 .describe(
-                  'true for anything that must never come back out in a listing. It is sealed ' +
-                    'at rest, it lasts seven days at most, and it is destroyed when the episode ' +
-                    'closes even if the seven days have not run out.',
+                  'true for anything that must never come back out in a listing. Sealed at ' +
+                    'rest, seven days at most, and destroyed when the episode closes.',
                 ),
               awaits: z
                 .string()
                 .nullish()
                 .describe(
-                  'Who owes this slot a value: "agent" — you, the default — or "operator" to ask ' +
-                    'the person who runs you for it. An asked slot is opened empty and carries ' +
-                    'no value here; they fill it from their signed-in console.',
+                  'Who owes this slot a value: "agent" — you, the default — or "operator". ' +
+                    'An asked slot is opened empty and carries no value here; they fill it ' +
+                    'from their signed-in console.',
                 ),
               vaultKey: z
                 .string()
@@ -164,19 +161,16 @@ export function registerAccountThreadTools(
                 .describe(
                   'Where an operator’s secret lands in your vault. Required when awaits is ' +
                     '"operator" and secret is true, and refused otherwise. **You name it and ' +
-                    'they never see it**, and a name you already hold something under is refused ' +
-                    'here and now — before anybody has typed a password into it — so what is ' +
-                    'there survives.',
+                    'they never see it**, and a name you already hold something under is ' +
+                    'refused rather than overwritten.',
                 ),
             }),
           )
           .nullish()
           .describe(
-            'put: several at once, which is the point of it — an agent holding three values ' +
-              'should not need three round trips. Both directions go through this one list: a ' +
-              'slot with a value is one you are filling, a slot with awaits "operator" is one ' +
-              'you are asking for. A label already filled is left exactly as it is: the other ' +
-              'side may have acted on what is there.',
+            'put: several at once. Both directions go through this one list: a slot with a ' +
+              'value is one you are filling, a slot with awaits "operator" is one you are ' +
+              'asking for. A label already filled is left exactly as it is.',
           ),
       },
       annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },

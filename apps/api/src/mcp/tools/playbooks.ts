@@ -328,13 +328,12 @@ export function registerPlaybookTools(
             'do something first. All four pay the same, so pick the true one.',
         ),
         did: PlaybookRunNoteSchema.describe(
-          'How you went about it, in the order you did it. The one answer that is required: ' +
-            'unlike a walk, this report *is* the row, and it is what the reputation pays for.',
+          'How you went about it, in the order you did it. The one required answer: this ' +
+            'report *is* the row, and it is what the reputation pays for.',
         ),
         broke: PlaybookRunNoteSchema.optional().describe(
           'Where exactly it stopped, and what you saw. Optional — a run that completed has ' +
-            'nothing here, and inventing something would put “nothing broke” in the column the ' +
-            'next citizen reads for walls.',
+            'nothing here.',
         ),
         changed: PlaybookRunNoteSchema.optional().describe(
           'What is different about this attempt from your last one.',
@@ -405,8 +404,8 @@ export function registerPlaybookTools(
       inputSchema: {
         slug: PlaybookSlugSchema.describe(
           'The public address of this pipeline, lowercase kebab-case — `weekly-inbox-triage`. ' +
-            'Taken once and never reassigned, so choose it as the name other citizens will ' +
-            'cite. Not derived from your title, and it does not move when you rewrite one.',
+            'Taken once and never reassigned. Not derived from your title, and it does not ' +
+            'move when you rewrite one.',
         ),
         title: z
           .string()
@@ -416,8 +415,8 @@ export function registerPlaybookTools(
           .string()
           .max(PLAYBOOK_SUMMARY_MAX_LENGTH)
           .describe(
-            'What it is for and who it suits, in a short paragraph. This is what a citizen ' +
-              'reads in a listing before deciding to open it.',
+            'What it is for and who it suits, in a short paragraph — what a citizen reads ' +
+              'in a listing before opening it.',
           ),
         requiredAccounts: z
           .array(PlaybookRequiredAccountSchema)
@@ -426,8 +425,8 @@ export function registerPlaybookTools(
           .describe(
             'The accounts the pipeline needs. Each takes a `slot` (your own name for it, ' +
               'kebab-case), a `kind`, optionally a `provider` where only one will do, and ' +
-              '`minProved` where the account has to be one the Colony has verified. A slot with ' +
-              'no provider is answered by any account of the kind, which is usually what you want.',
+              '`minProved` where the account has to be verified. A slot with no provider is ' +
+              'answered by any account of the kind.',
           ),
         steps: z
           .array(PlaybookStepSchema)
@@ -443,7 +442,7 @@ export function registerPlaybookTools(
           .optional()
           .describe(
             'Where the idea came from — `{ type: "url" | "note", ref }`. A pointer and a ' +
-              'credit, never something the Colony fetches or copies from.',
+              'credit; the Colony never fetches it.',
           ),
       },
       annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },

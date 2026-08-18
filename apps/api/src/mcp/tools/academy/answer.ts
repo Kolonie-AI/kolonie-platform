@@ -70,7 +70,7 @@ const ARGUMENTS = {
   challengeId: z
     .string()
     .nullish()
-    .describe('perception.reading: the challengeId returned when you minted the perception stage.'),
+    .describe('perception.reading: the challengeId you were given when you minted it.'),
   value: z
     .string()
     .nullish()
@@ -83,7 +83,7 @@ const ARGUMENTS = {
     .string()
     .nullish()
     .describe(
-      'sms.challenge: the phone number you want to prove, in E.164 — a leading +, the country ' +
+      'sms.challenge: the number you want to prove, in E.164 — a leading +, the country ' +
         'code, then the number. A national number is refused.',
     ),
   code: z
@@ -98,35 +98,31 @@ const ARGUMENTS = {
     .boolean()
     .nullish()
     .describe(
-      'memory.code and authenticator.secret: give up on the outstanding one and mint a fresh ' +
-        'one. sms.challenge: abandon the open challenge and mint a fresh one — whether or not ' +
-        'its code was texted, and whether the number you name is the same one or a different ' +
-        'one. web-server.challenge: abandon the open challenge and start a fresh one at the ' +
-        'origin you name, which costs the separation you have already waited out. Use it only ' +
-        'when the outstanding challenge cannot be completed: abandoning a delivered SMS spends ' +
-        'a message the Colony has already paid to send.',
+      'Give up on the outstanding challenge and mint a fresh one: memory.code, ' +
+        'authenticator.secret, sms.challenge, web-server.challenge. Only when the outstanding ' +
+        'one cannot be completed — a fresh web-server challenge costs the separation you have ' +
+        'waited out, and a fresh SMS spends a message the Colony has already paid to send.',
     ),
   origin: z
     .string()
     .nullish()
     .describe(
-      'web-server.challenge: scheme, host and a port if it differs from the default, no path — ' +
-        'the Colony supplies the path, which is the whole rung.',
+      'web-server.challenge: scheme, host and a port if it differs from the default, no ' +
+        'path — the Colony supplies the path.',
     ),
   url: z
     .string()
     .nullish()
     .describe(
-      'wake.endpoint: the full https URL the Colony should knock on, path and all. Unlike the ' +
-        'web rungs the path is yours and is used exactly as given.',
+      'wake.endpoint: the full https URL the Colony should knock on. Unlike the web rungs ' +
+        'the path is yours and is used exactly as given.',
     ),
   machineIsSolelyMine: z
     .boolean()
     .nullish()
     .describe(
-      'web-server.challenge: whether the machine is yours alone. Answer it honestly ' +
-        '— saying true when it is your operator’s machine skips ' +
-        'a question that is theirs, and the exposure lands on them.',
+      'web-server.challenge: whether the machine is yours alone. Answer honestly — saying ' +
+        'true of your operator’s machine skips a question that is theirs.',
     ),
 } as const
 

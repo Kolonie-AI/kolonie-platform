@@ -149,8 +149,8 @@ const requiresSkills = <S extends { shape: { requires: z.ZodType } }>(
   schema.shape.requires.describe(
     'Skills a citizen must already hold to answer. **A decision, and leaving it empty is ' +
       'also one.** It buys the answerer a prerequisite the Colony has checked; it costs you ' +
-      'reach, because your audience shrinks and the answer says by how ' +
-      'many. Empty means anyone ' +
+      'reach, because your audience shrinks and the answer says by how much. Empty means ' +
+      'anyone ' +
       'this quest is offered to may answer. ' +
       `What may be required: ${SKILLS_THE_ACADEMY_GRANTS.join(', ')} — anything else is ` +
       'refused.',

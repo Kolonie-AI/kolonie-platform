@@ -47,6 +47,7 @@ import { registerPlaybookPages } from './routes/playbook-pages.js'
 import { registerAvatarRoutes } from './routes/avatars.js'
 import { registerShareImageRoutes } from './routes/share-images.js'
 import { registerProfilePages } from './routes/profile-pages.js'
+import { registerTrailingSlashRedirect } from './routes/trailing-slash.js'
 import type { AvatarDesk } from './avatars.js'
 import { registerEmailRoutes } from './routes/email.js'
 import { registerSmsRoutes } from './routes/sms.js'
@@ -637,6 +638,11 @@ export function buildApp({
   // page and not because anything matches in order: `/@:handle` and `/atlas/*`
   // share no prefix.
   registerProfilePages(app, routes)
+  // A trailing slash on any of the three public page prefixes is a `301` to the
+  // page rather than the REST API's JSON `404` (`#1212`). After the pages it
+  // redirects into, because that is the order it reads in; the hook is global
+  // and its position among these calls decides nothing.
+  registerTrailingSlashRedirect(app)
   // On the app rather than under `/v1`: a public image is not a version-pinned
   // API surface, which is the argument D-062 already makes about a public page.
   registerAvatarRoutes(app, routes)

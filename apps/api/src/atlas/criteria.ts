@@ -14,8 +14,8 @@ import type { AtlasPublicEntry, AtlasPublicRecipe } from './public-projection.js
  *
  * ## Why the rows are built once and rendered twice
  *
- * The box a reader scans and the `FAQPage` a crawler parses are the same nine
- * facts, and `#1105` decision 4 is that every question in the markup has its
+ * The box a reader scans and the `FAQPage` a crawler parses are the same facts,
+ * and `#1105` decision 4 is that every question in the markup has its
  * answer *visible on the page*. Two builders would satisfy that on the day they
  * were written and drift on the first edit to either — so there is one builder,
  * `html.ts` renders its rows into a `<dl>` and `structured-data.ts` renders the
@@ -56,16 +56,24 @@ export type AtlasCriterion = {
 }
 
 /**
- * The six wall kinds the box asks about, in the order a reader weighs them.
+ * The seven wall kinds the box asks about, in the order a reader weighs them.
  *
- * **Six of the ten**, and the four left out are left out on purpose: `absent`
- * and `other` name no criterion a reader can act on, and `public-endpoint-
- * required` and `terms-forbid-agents` are answered by the operator row and the
- * terms row directly above them. They still render in `wallsSection`, which
- * prints every wall on the row — the box is the scannable five seconds, not a
- * second copy of the findings.
+ * **Seven of the eleven**, and the four left out are left out on purpose:
+ * `absent` and `other` name no criterion a reader can act on, and `public-
+ * endpoint-required` and `terms-forbid-agents` are answered by the operator row
+ * and the terms row directly above them. They still render in `wallsSection`,
+ * which prints every wall on the row — the box is the scannable five seconds, not
+ * a second copy of the findings.
+ *
+ * **`terms-restrict-output` is asked and its neighbour is not** (`#1123`), which
+ * looks inconsistent and is the point. The terms row answers *may an agent hold
+ * this account*, so `terms-forbid-agents` would be a second copy of it — and this
+ * one is a fact the terms row cannot state at any of its four values. A reader
+ * scanning a provider whose terms will not carry what they came to publish
+ * learns it here or two sections further down.
  */
 const WALL_QUESTIONS: readonly (readonly [WallKind, string])[] = [
+  ['terms-restrict-output', 'Do the terms restrict what you may publish with it?'],
   ['human-check', 'Is there a human check to get past?'],
   ['payment-required', 'Does it want money before the account works?'],
   ['phone-verification', 'Does it need a phone number?'],
@@ -127,10 +135,14 @@ export function atlasShelfQuestion(title: string): string {
 }
 
 /**
- * The nine facts, plus a direction where the kind has one (`#1105` decision 1).
+ * The fixed facts, plus a direction where the kind has one (`#1105` decision 1).
  *
  * The order is the order a reader weighs them in: what it costs, what stands in
  * the way, what the terms say, and who has to be there.
+ *
+ * **The count is what the list comes to and is not itself a decision** (`#1123`).
+ * `#1105` chose which facts a reader weighs; ten of them today, nine of them
+ * before the terms wall was sayable. A caller wanting the number counts the rows.
  */
 export function atlasCriteria(entry: AtlasPublicEntry): readonly AtlasCriterion[] {
   const walls = entry.recipes.flatMap((recipe) => recipe.walls)

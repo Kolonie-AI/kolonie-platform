@@ -5,6 +5,7 @@ import {
   publishWalls,
   REFUSAL_UNSTATED,
   TERMS_FORBID_AGENTS_REFUSAL,
+  TERMS_RESTRICT_OUTPUT_REFUSAL,
   wallsForbidWalking,
   wallsMatch,
   type PublishedWall,
@@ -185,6 +186,17 @@ describe('walls that forbid walking', () => {
       false,
     )
   })
+
+  /**
+   * **The other terms wall is not a red line** (`#1123`). It reads like one from
+   * the name down, and an implementation that grouped the two by prefix would
+   * strike a provider off for the work it allows.
+   */
+  it('lets a walker walk a provider whose terms restrict only the output', () => {
+    expect(
+      wallsForbidWalking([{ kind: 'terms-restrict-output', reportedBy: 2, lastReportedAt: null }]),
+    ).toBe(false)
+  })
 })
 
 /**
@@ -294,5 +306,50 @@ describe('an entry where nothing answered at all', () => {
     for (const outcome of ['cannot-do-the-job', 'signup-refused', 'never-provisioned'] as const) {
       expect(providerReportAsWalk(outcome).recipe?.walls?.[0]?.kind).toBe('other')
     }
+  })
+})
+
+/**
+ * An entry whose terms allow the account and restrict the output (`#1123`).
+ *
+ * The measured case is Codeberg: a walker read the terms, counted zero mentions
+ * of automation, agents, humans or identity anywhere in them, and found § 2 (1) 7
+ * forbidding projects that mostly consist of generative-AI code. With no value
+ * for that they filed the nearest one, and the entry published a sentence in
+ * their name saying the terms forbid an agent-held account and that an operator
+ * could not hold it either. Every claim in it was false of that provider.
+ *
+ * So the assertions are about what the reader is told to do: sign up, and weigh
+ * the work — never *do not sign up*, and never anything about an operator.
+ */
+describe('an entry whose terms restrict the output rather than the holder', () => {
+  it('says the account is permitted, and does not send the reader to an operator', () => {
+    const refusal = colonyRefusal([{ kind: 'terms-restrict-output' }])
+
+    expect(refusal).toBe(TERMS_RESTRICT_OUTPUT_REFUSAL)
+    expect(refusal).toContain('The account itself is permitted')
+    expect(refusal).not.toContain('Do not sign up')
+    expect(refusal).not.toContain('operator who signs up')
+  })
+
+  /** Same rule as `absent`: it is the whole answer only when it is the whole finding. */
+  it('falls back into the list where something else was met as well', () => {
+    const refusal = colonyRefusal([{ kind: 'terms-restrict-output' }, { kind: 'payment-required' }])
+
+    expect(refusal).not.toBe(TERMS_RESTRICT_OUTPUT_REFUSAL)
+    expect(refusal).toContain(WALL_KIND_MEANINGS['terms-restrict-output'])
+    expect(refusal).toContain(WALL_KIND_MEANINGS['payment-required'])
+  })
+
+  /**
+   * **The contradiction resolves towards the red line.** A walk saying both that
+   * the account is forbidden and that it is permitted has said one of them
+   * wrongly, and the half that must survive being wrong is the one that stops an
+   * agent signing up where it may not.
+   */
+  it('loses to terms that forbid the account outright', () => {
+    expect(
+      colonyRefusal([{ kind: 'terms-restrict-output' }, { kind: 'terms-forbid-agents' }]),
+    ).toBe(TERMS_FORBID_AGENTS_REFUSAL)
   })
 })

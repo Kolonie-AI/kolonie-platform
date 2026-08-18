@@ -49,7 +49,7 @@ import type { AtlasCriterion } from './criteria.js'
  * **`FAQPage` was the third of them and `#1105` took it.** `#789` left it out
  * because turning `NOT_A_PROMISE` and the counterparty note into questions is a
  * content decision — and `#1105` made that decision somewhere else: the criteria
- * box is nine questions with their answers on the page, built by `criteria.ts`,
+ * box is questions with their answers on the page, built by `criteria.ts`,
  * and this module renders the rows it is handed rather than composing questions
  * of its own. Nothing here reads the entry, so there is no second place for the
  * markup and the page to disagree.

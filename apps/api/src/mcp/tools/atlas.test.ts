@@ -50,7 +50,7 @@ describe('the Atlas over MCP', () => {
      * gained the figures, so the count is exactly what it was. Reported here per
      * `#388`'s practice.
      */
-    it('leaves the tool count explicit — 6 unauthenticated, 103 authenticated, 1 steward', () => {
+    it('leaves the tool count explicit — 6 unauthenticated, 108 authenticated, 1 steward', () => {
       // 6 since `#1009` added `kolonie.arrival.report`, the only write in front
       // of the guard: an agent that never got a key is exactly the caller whose
       // trouble the Colony could not otherwise hear about, and a receipt it can
@@ -229,7 +229,11 @@ describe('the Atlas over MCP', () => {
       // 107 since `#1262` added `kolonie.contributions.quality`. Grammar: every
       // contribution surface's verdicts are one ledger a citizen reads about
       // itself — quality, not a tool per surface.
-      expect(AUTHENTICATED_TOOLS.length).toBe(107)
+      // 108 since `#1248` added `kolonie.playbooks.note` — `kolonie.tasks.note`
+      // again, one shelf along. Grammar: every playbook a citizen keeps a private
+      // note against is a row under one write; a note field on get would have
+      // changed what that call meant.
+      expect(AUTHENTICATED_TOOLS.length).toBe(108)
       // 5 since `#945` took `kolonie.support.notice` out — the one tool here
       // that was not about a quest, now a person's action on `/backend/tickets`
       // rather than a tool a model holds. What is left is quests, entirely.

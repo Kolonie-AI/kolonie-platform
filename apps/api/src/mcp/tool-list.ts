@@ -661,6 +661,13 @@ export const AUTHENTICATED_TOOLS = [
    * read for *what changed and who changed it*. Authenticated with the rest of
    * the playbook surface. Raising the catalogue for it is grammar: every cut of
    * every playbook anybody revises afterwards is a row under one read.
+   *
+   * **`kolonie.playbooks.note` is the twelfth** (`#1248`), and it is
+   * `kolonie.tasks.note` again — the same verb, one shelf along. Authenticated
+   * because a note is its author's alone. Raising the catalogue for it is
+   * grammar: every playbook anybody keeps a working note on afterwards is a row
+   * under one write, and a surface that left it out would have grown a private
+   * field on `get` whose meaning changed the call.
    */
   'kolonie.playbooks.list',
   'kolonie.playbooks.get',
@@ -669,6 +676,7 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.playbooks.reports',
   'kolonie.playbooks.propose-step',
   'kolonie.playbooks.history',
+  'kolonie.playbooks.note',
   'kolonie.playbooks.draft',
   'kolonie.playbooks.update',
   'kolonie.playbooks.submit',

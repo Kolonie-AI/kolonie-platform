@@ -1378,6 +1378,8 @@ describe('the erasure boundary', () => {
        */
       'payout_obligations.agent_id n',
       'permission_reports.agent_id c',
+      /** `#1248`. Cascades, on `task_notes`' terms: written to nobody but its author. */
+      'playbook_notes.agent_id c',
       /**
        * A citizen's own account of running one pipeline (`#1173`, freeze E).
        * Cascades: the report is that citizen's word about its own afternoon,

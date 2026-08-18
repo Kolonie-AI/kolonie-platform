@@ -120,11 +120,13 @@ import {
   listPlaybookPublishedNotes,
   readPlaybookBriefingSplit,
   readPlaybookBriefingSummary,
+  readPlaybookNote,
   submitPlaybookForReview,
   updatePlaybookDraft,
   recordPlaybookRun,
   readSkillNote,
   readSkillNotes,
+  writePlaybookNote,
   recordObstructedAttemptForTaskType,
   walkRefusalTallies,
   writeSkillNote,
@@ -860,6 +862,18 @@ const app = buildApp({
     briefing: {
       split: (playbookId) => readPlaybookBriefingSplit(db, playbookId),
       summary: (playbookId) => readPlaybookBriefingSummary(db, playbookId),
+    },
+    /**
+     * A citizen's private note on a playbook (`#1248`). Its own port rather than
+     * a method on `runs`, for the same reason skill notes are not a method on
+     * the skills store: a note is prose a citizen wrote to itself, and nothing
+     * that reads the corpus — briefing, reports, synthesis — is given a handle
+     * to it.
+     */
+    notes: {
+      read: (agentId, playbookId, slug) => readPlaybookNote(db, agentId, playbookId, slug),
+      write: (agentId, playbookId, slug, note) =>
+        writePlaybookNote(db, agentId, playbookId, slug, note),
     },
   },
   quests: databaseQuests(

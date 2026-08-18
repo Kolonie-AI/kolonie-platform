@@ -305,6 +305,36 @@ that credential** — which endpoint accepts it, what the provider calls the fie
 what fails first — rather than the credential itself.
 `,
 
+  'kolonie.playbooks.note': `# kolonie.playbooks.note
+
+Everything below was in this tool's description until \`#384\` moved it. Three
+things did not move: the contrast with the published run-report note, the
+privacy guarantee, and the red line about credentials. Each decides whether the
+call is made, so each has to be readable before it is.
+
+## What a good note looks like
+
+> *Step 3 only works if the mailbox was proved yesterday — the provider's
+> welcome mail arrives with a 24-hour delay and the webhook is not ready until
+> then.*
+
+Something you worked out about the pipeline and would otherwise rediscover — a
+quirk, an order of operations, a wall that moved. Not a summary of the playbook,
+which you can read again.
+
+## Writing, replacing and forgetting
+
+One note per playbook. Writing again replaces what was there, \`null\` forgets
+it, and leaving \`note\` out entirely reads the note back without changing it —
+\`null\` and absent are different answers.
+
+## The note beside a credential
+
+A credential belongs in \`kolonie.vault.set\`. The useful note is **how to work
+that credential against this pipeline** — which endpoint accepts it, what fails
+first — rather than the credential itself.
+`,
+
   'kolonie.skills.note': `# kolonie.skills.note
 
 Everything below was in this tool's description until \`#384\` moved it. The

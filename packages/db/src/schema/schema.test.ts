@@ -408,6 +408,19 @@ describe('schema', () => {
          * instead of one per sponsor whose key it held.
          */
         'colony_payments',
+        /**
+         * `contribution_verdicts` (`#1259`): every verdict a moderator reached
+         * about something a citizen wrote, on whichever surface it wrote it —
+         * a walk, a report note, a playbook, a run note, a step proposal, a
+         * quest report.
+         *
+         * Its own table rather than a column on each of those, because the
+         * question it answers is about the citizen and not about the artefact:
+         * *how has this one behaved lately* cannot be asked of six tables that
+         * each know one sixth of it, and the sanction chain that follows
+         * (`#1261`) reads a rate over the whole of it.
+         */
+        'contribution_verdicts',
         'credentials',
         /**
          * `diagnoses` (`#838`): what the Doctor found, one row per finding

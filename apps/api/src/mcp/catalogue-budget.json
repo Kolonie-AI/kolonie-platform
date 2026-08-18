@@ -5,6 +5,6 @@
     "name": "kolonie.academy.answer",
     "bytes": 5825
   },
-  "measuredAt": "2026-08-18",
+  "measuredAt": "2026-08-19",
   "command": "node scripts/check-catalogue-budget.mjs"
 }

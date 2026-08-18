@@ -7,7 +7,7 @@ import {
   type HandoverSummary,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { agentHandovers } from '../schema/agent-handovers.js'
+import { accountSlots } from '../schema/account-threads.js'
 import { agents } from '../schema/agents.js'
 import { humanAgents } from '../schema/human-links.js'
 import { openVaultValue, sealVaultValue } from '../vault-crypto.js'
@@ -26,6 +26,18 @@ import { toTimestamp } from './rows.js'
  * than a policy: `readAsOperator` is authorised by `human_agents`, which is a
  * join, and nothing in this file accepts a secret string as authorisation. A
  * leaked operator-page link cannot reach any function here.
+ *
+ * ## The rows live in `account_slots` (`#955`)
+ *
+ * A handover is a labelled container that holds one secret until the side it was
+ * opened for reads it, which is the whole of what an account slot is. Since
+ * `#955` there is one table for all three secret channels and this file is a view
+ * onto it: `channel = 'handover'`, an `agent_id` instead of an episode, and
+ * `value` where `sealed_value` was.
+ *
+ * **Every exported signature is unchanged**, deliberately, and so are the tests
+ * that prove it — a proof written after the change would prove the change rather
+ * than the property.
  */
 
 /**
@@ -39,6 +51,23 @@ import { toTimestamp } from './rows.js'
 const HANDOVER_SCOPE = 'agent-handover'
 
 const scopeFor = (id: string): string => `${HANDOVER_SCOPE}:${id}`
+
+/**
+ * A timestamp a handover row is guaranteed to carry.
+ *
+ * `account_slots` holds episode slots as well as handovers, and an episode slot
+ * has neither a creation stamp nor an expiry — so both columns are nullable in
+ * the type even though `account_slots_channel_shape` requires `created_at` on
+ * every channel row and `account_slots_secrets_expire` requires `expires_at` on
+ * every secret one, which a handover always is. The throw is unreachable; it is
+ * here so that a later reader which drops the `channel` predicate fails where it
+ * is wrong rather than dating a handover to the epoch.
+ */
+const stampOf = (value: string | null): string => {
+  if (value === null) throw new Error('a handover slot has no timestamp')
+
+  return value
+}
 
 export type OpenHandoverOutcome =
   | { readonly outcome: 'opened'; readonly id: string; readonly expiresAt: string }
@@ -67,19 +96,31 @@ export async function openHandover(
   if (sealingKey === undefined) return { outcome: 'unsealable' }
 
   const expiresAt = new Date(Date.now() + HANDOVER_EXPIRY_HOURS * 60 * 60 * 1000).toISOString()
+  const createdAt = currentTime()
 
   const [row] = await db
-    .insert(agentHandovers)
+    .insert(accountSlots)
     .values({
+      channel: 'handover',
       agentId: command.agentId,
+      secret: true,
+      /**
+       * A handover is filled by the agent at the instant it is opened, so it is
+       * `awaits: 'agent'` and filled in the same breath — unlike a drop, which
+       * waits for the side it names. There is no unfilled state to represent.
+       */
+      awaits: 'agent',
+      filledBy: 'agent',
+      filledAt: createdAt,
       provider: command.provider,
       prompt: command.prompt,
       // A placeholder the constraint accepts, replaced in the same transaction
       // by the real ciphertext once the row has an id to be labelled with.
-      sealedValue: 'pending',
+      value: 'pending',
+      createdAt,
       expiresAt,
     })
-    .returning({ id: agentHandovers.id })
+    .returning({ id: accountSlots.id })
 
   if (row === undefined) throw new Error('inserting a handover returned no row')
 
@@ -90,7 +131,7 @@ export async function openHandover(
     command.value,
   )
 
-  await db.update(agentHandovers).set({ sealedValue: sealed }).where(eq(agentHandovers.id, row.id))
+  await db.update(accountSlots).set({ value: sealed }).where(eq(accountSlots.id, row.id))
 
   return { outcome: 'opened', id: row.id, expiresAt }
 }
@@ -115,34 +156,35 @@ export async function handoversFor(
 ): Promise<readonly HandoverSummary[]> {
   const rows = await db
     .select({
-      id: agentHandovers.id,
+      id: accountSlots.id,
       agentName: agents.name,
-      provider: agentHandovers.provider,
-      prompt: agentHandovers.prompt,
-      createdAt: agentHandovers.createdAt,
-      expiresAt: agentHandovers.expiresAt,
-      reads: agentHandovers.reads,
+      provider: accountSlots.provider,
+      prompt: accountSlots.prompt,
+      createdAt: accountSlots.createdAt,
+      expiresAt: accountSlots.expiresAt,
+      reads: accountSlots.reads,
     })
-    .from(agentHandovers)
-    .innerJoin(agents, eq(agents.id, agentHandovers.agentId))
-    .innerJoin(humanAgents, eq(humanAgents.agentId, agentHandovers.agentId))
+    .from(accountSlots)
+    .innerJoin(agents, eq(agents.id, accountSlots.agentId))
+    .innerJoin(humanAgents, eq(humanAgents.agentId, accountSlots.agentId))
     .where(
       and(
+        eq(accountSlots.channel, 'handover'),
         eq(humanAgents.humanId, humanId),
-        isNull(agentHandovers.destroyedAt),
-        gt(agentHandovers.expiresAt, sql`now()`),
-        ...(agentId === undefined ? [] : [eq(agentHandovers.agentId, agentId)]),
+        isNull(accountSlots.destroyedAt),
+        gt(accountSlots.expiresAt, sql`now()`),
+        ...(agentId === undefined ? [] : [eq(accountSlots.agentId, agentId)]),
       ),
     )
-    .orderBy(asc(agentHandovers.expiresAt))
+    .orderBy(asc(accountSlots.expiresAt))
 
   return rows.map((row) => ({
     id: row.id,
     agentName: row.agentName,
-    provider: row.provider,
-    prompt: row.prompt,
-    createdAt: toTimestamp(row.createdAt),
-    expiresAt: toTimestamp(row.expiresAt),
+    provider: row.provider ?? '',
+    prompt: row.prompt ?? '',
+    createdAt: toTimestamp(stampOf(row.createdAt)),
+    expiresAt: toTimestamp(stampOf(row.expiresAt)),
     readsLeft: Math.max(HANDOVER_MAX_READS - row.reads, 0),
   }))
 }
@@ -193,22 +235,23 @@ export async function readHandoverAsOperator(
   return await db.transaction(async (tx) => {
     const [row] = await tx
       .select({
-        id: agentHandovers.id,
-        agentId: agentHandovers.agentId,
-        provider: agentHandovers.provider,
-        prompt: agentHandovers.prompt,
-        sealedValue: agentHandovers.sealedValue,
-        reads: agentHandovers.reads,
+        id: accountSlots.id,
+        agentId: accountSlots.agentId,
+        provider: accountSlots.provider,
+        prompt: accountSlots.prompt,
+        sealedValue: accountSlots.value,
+        reads: accountSlots.reads,
       })
-      .from(agentHandovers)
-      .innerJoin(humanAgents, eq(humanAgents.agentId, agentHandovers.agentId))
+      .from(accountSlots)
+      .innerJoin(humanAgents, eq(humanAgents.agentId, accountSlots.agentId))
       .where(
         and(
-          eq(agentHandovers.id, handoverId),
+          eq(accountSlots.channel, 'handover'),
+          eq(accountSlots.id, handoverId),
           eq(humanAgents.humanId, humanId),
-          isNull(agentHandovers.destroyedAt),
-          isNotNull(agentHandovers.sealedValue),
-          gt(agentHandovers.expiresAt, sql`now()`),
+          isNull(accountSlots.destroyedAt),
+          isNotNull(accountSlots.value),
+          gt(accountSlots.expiresAt, sql`now()`),
         ),
       )
       .for('update')
@@ -230,19 +273,19 @@ export async function readHandoverAsOperator(
     const spent = reads >= HANDOVER_MAX_READS
 
     await tx
-      .update(agentHandovers)
+      .update(accountSlots)
       .set({
         reads,
         lastReadAt: currentTime(),
-        ...(spent ? { sealedValue: null, destroyedAt: currentTime() } : {}),
+        ...(spent ? { value: null, destroyedAt: currentTime() } : {}),
       })
-      .where(eq(agentHandovers.id, row.id))
+      .where(eq(accountSlots.id, row.id))
 
     return {
       outcome: 'read',
       value,
-      provider: row.provider,
-      prompt: row.prompt,
+      provider: row.provider ?? '',
+      prompt: row.prompt ?? '',
       readsLeft: HANDOVER_MAX_READS - reads,
     }
   })
@@ -259,10 +302,16 @@ export async function readHandoverAsOperator(
  */
 export async function destroyExpiredHandovers(db: Database): Promise<number> {
   const destroyed = await db
-    .update(agentHandovers)
-    .set({ sealedValue: null, destroyedAt: currentTime() })
-    .where(and(isNull(agentHandovers.destroyedAt), lte(agentHandovers.expiresAt, sql`now()`)))
-    .returning({ id: agentHandovers.id })
+    .update(accountSlots)
+    .set({ value: null, destroyedAt: currentTime() })
+    .where(
+      and(
+        eq(accountSlots.channel, 'handover'),
+        isNull(accountSlots.destroyedAt),
+        lte(accountSlots.expiresAt, sql`now()`),
+      ),
+    )
+    .returning({ id: accountSlots.id })
 
   return destroyed.length
 }

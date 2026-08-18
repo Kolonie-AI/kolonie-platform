@@ -13,7 +13,7 @@ import {
   type Timestamp,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { operatorDrops } from '../schema/operator-drops.js'
+import { accountSlots } from '../schema/account-threads.js'
 import { operatorPages } from '../schema/operator-pages.js'
 import { agentVault } from '../schema/vault.js'
 import { openVaultValue, sealVaultValue } from '../vault-crypto.js'
@@ -33,6 +33,20 @@ import { toTimestamp } from './rows.js'
  * column.** There is no log line, no error message and no return value that
  * carries one, except the single deliberate one: {@link takeDrop} answering a
  * code to the agent that asked for it.
+ *
+ * ## The rows live in `account_slots` (`#955`)
+ *
+ * A drop is a labelled container that holds one secret until the side it was
+ * opened for fills it — which is the whole of what an account slot is, and the
+ * Colony had grown three tables saying it in three vocabularies. Since `#955`
+ * there is one table and this file is a view onto it: `channel = 'drop'`, an
+ * `agent_id` instead of an episode, `filled_at` where `submitted_at` was and
+ * `taken_at` where `read_at` was.
+ *
+ * **Every exported signature is unchanged**, deliberately. Nothing above
+ * `packages/db` knew which table these rows were in, and the way to be sure the
+ * merge moved nothing visible is that the tests which prove it were not touched
+ * either.
  */
 
 /** Bytes of randomness in a drop's link secret. 32 bytes is 256 bits. */
@@ -70,21 +84,25 @@ export async function openDrop(db: Database, command: OpenDropCommand): Promise<
   const expiresAt = new Date(Date.parse(currentTime()) + DROP_EXPIRY_DAYS * 86_400_000)
 
   const [row] = await db
-    .insert(operatorDrops)
+    .insert(accountSlots)
     .values({
+      channel: 'drop',
       agentId: command.agentId,
+      secret: true,
+      awaits: 'operator',
       kind: command.kind,
       tokenHash: hashToken(token),
       prompt: command.prompt,
       vaultKey: command.vaultKey ?? null,
       taskId: command.taskId ?? null,
+      createdAt: currentTime(),
       expiresAt: expiresAt.toISOString(),
     })
-    .returning({ id: operatorDrops.id, expiresAt: operatorDrops.expiresAt })
+    .returning({ id: accountSlots.id, expiresAt: accountSlots.expiresAt })
 
-  if (row === undefined) throw new Error('operator_drops insert returned no row')
+  if (row === undefined) throw new Error('account_slots insert returned no row')
 
-  return { id: row.id, token, expiresAt: toTimestamp(row.expiresAt) }
+  return { id: row.id, token, expiresAt: toTimestamp(stampOf(row.expiresAt)) }
 }
 
 /**
@@ -122,38 +140,40 @@ export async function openDropsForPageToken(
 ): Promise<readonly OpenDropForOperator[]> {
   const rows = await db
     .select({
-      id: operatorDrops.id,
-      kind: operatorDrops.kind,
-      prompt: operatorDrops.prompt,
-      createdAt: operatorDrops.createdAt,
+      id: accountSlots.id,
+      kind: accountSlots.kind,
+      prompt: accountSlots.prompt,
+      createdAt: accountSlots.createdAt,
     })
     .from(operatorPages)
-    .innerJoin(operatorDrops, eq(operatorDrops.agentId, operatorPages.agentId))
+    .innerJoin(accountSlots, eq(accountSlots.agentId, operatorPages.agentId))
     .where(
       and(
         eq(operatorPages.token, token),
         isNull(operatorPages.revokedAt),
-        isNull(operatorDrops.submittedAt),
-        sql`${operatorDrops.expiresAt} > now()`,
+        eq(accountSlots.channel, 'drop'),
+        isNull(accountSlots.filledAt),
+        sql`${accountSlots.expiresAt} > now()`,
       ),
     )
-    .orderBy(asc(operatorDrops.createdAt), asc(operatorDrops.id))
+    .orderBy(asc(accountSlots.createdAt), asc(accountSlots.id))
 
   return rows.map((row) => ({
     id: row.id,
     kind: row.kind as DropKind,
-    prompt: row.prompt,
-    createdAt: toTimestamp(row.createdAt),
+    prompt: row.prompt ?? '',
+    createdAt: toTimestamp(stampOf(row.createdAt)),
   }))
 }
 
 export async function viewDrop(db: Database, token: string): Promise<OpenDropView | null> {
   const [row] = await db.execute<{ agent_name: string; kind: string; prompt: string }>(sql`
     select a.name as agent_name, d.kind, d.prompt
-    from operator_drops d
+    from account_slots d
     join agents a on a.id = d.agent_id
-    where d.token_hash = ${hashToken(token)}
-      and d.submitted_at is null
+    where d.channel = 'drop'
+      and d.token_hash = ${hashToken(token)}
+      and d.filled_at is null
       and d.expires_at > now()
       and d.attempts < ${MAX_DROP_ATTEMPTS}
     limit 1
@@ -203,21 +223,22 @@ export async function submitDrop(
   const tokenHash = hashToken(token)
 
   const [counted] = await db
-    .update(operatorDrops)
-    .set({ attempts: sql`${operatorDrops.attempts} + 1` })
+    .update(accountSlots)
+    .set({ attempts: sql`${accountSlots.attempts} + 1` })
     .where(
       and(
-        eq(operatorDrops.tokenHash, tokenHash),
-        isNull(operatorDrops.submittedAt),
-        sql`${operatorDrops.expiresAt} > now()`,
-        sql`${operatorDrops.attempts} < ${MAX_DROP_ATTEMPTS}`,
+        eq(accountSlots.channel, 'drop'),
+        eq(accountSlots.tokenHash, tokenHash),
+        isNull(accountSlots.filledAt),
+        sql`${accountSlots.expiresAt} > now()`,
+        sql`${accountSlots.attempts} < ${MAX_DROP_ATTEMPTS}`,
       ),
     )
     .returning({
-      id: operatorDrops.id,
-      agentId: operatorDrops.agentId,
-      kind: operatorDrops.kind,
-      vaultKey: operatorDrops.vaultKey,
+      id: accountSlots.id,
+      agentId: accountSlots.agentId,
+      kind: accountSlots.kind,
+      vaultKey: accountSlots.vaultKey,
     })
 
   if (counted === undefined) return { outcome: 'closed' }
@@ -240,14 +261,16 @@ async function sealIntoDrop(
   db: Database,
   found: {
     readonly id: string
-    readonly agentId: string
-    readonly kind: string
+    readonly agentId: string | null
+    readonly kind: string | null
     readonly vaultKey: string | null
   },
   value: string,
   sealingKey: string,
 ): Promise<SubmitDropOutcome> {
   const counted = found
+
+  if (counted.agentId === null) return { outcome: 'closed' }
 
   if (counted.kind === 'credential' && counted.vaultKey !== null) {
     const occupied = await db
@@ -281,10 +304,10 @@ async function sealIntoDrop(
    * the time it was written the drop was answered.
    */
   const [stored] = await db
-    .update(operatorDrops)
-    .set({ sealedValue: sealed, submittedAt: currentTime() })
-    .where(and(eq(operatorDrops.id, counted.id), isNull(operatorDrops.submittedAt)))
-    .returning({ id: operatorDrops.id })
+    .update(accountSlots)
+    .set({ value: sealed, filledAt: currentTime(), filledBy: 'operator' })
+    .where(and(eq(accountSlots.id, counted.id), isNull(accountSlots.filledAt)))
+    .returning({ id: accountSlots.id })
 
   return stored === undefined ? { outcome: 'closed' } : { outcome: 'accepted' }
 }
@@ -341,11 +364,12 @@ export async function fillDropAsOperator(
     vault_key: string | null
   }>(sql`
     select d.id, d.agent_id, d.kind, d.vault_key
-      from operator_drops d
+      from account_slots d
       join human_agents ha on ha.agent_id = d.agent_id
-     where d.id = ${input.dropId}
+     where d.channel = 'drop'
+       and d.id = ${input.dropId}
        and ha.human_id = ${input.humanId}
-       and d.submitted_at is null
+       and d.filled_at is null
        and d.expires_at > now()
      limit 1
   `)
@@ -370,25 +394,31 @@ export async function fillDropAsOperator(
 export async function listDrops(db: Database, agentId: AgentId): Promise<readonly DropSummary[]> {
   const rows = await db
     .select({
-      id: operatorDrops.id,
-      kind: operatorDrops.kind,
-      prompt: operatorDrops.prompt,
-      vaultKey: operatorDrops.vaultKey,
-      createdAt: operatorDrops.createdAt,
-      expiresAt: operatorDrops.expiresAt,
-      submittedAt: operatorDrops.submittedAt,
+      id: accountSlots.id,
+      kind: accountSlots.kind,
+      prompt: accountSlots.prompt,
+      vaultKey: accountSlots.vaultKey,
+      createdAt: accountSlots.createdAt,
+      expiresAt: accountSlots.expiresAt,
+      submittedAt: accountSlots.filledAt,
     })
-    .from(operatorDrops)
-    .where(and(eq(operatorDrops.agentId, agentId), isNull(operatorDrops.readAt)))
-    .orderBy(asc(operatorDrops.createdAt))
+    .from(accountSlots)
+    .where(
+      and(
+        eq(accountSlots.channel, 'drop'),
+        eq(accountSlots.agentId, agentId),
+        isNull(accountSlots.takenAt),
+      ),
+    )
+    .orderBy(asc(accountSlots.createdAt))
 
   return rows.map((row) => ({
     id: row.id,
     kind: row.kind as DropKind,
-    prompt: row.prompt,
+    prompt: row.prompt ?? '',
     vaultKey: row.vaultKey,
-    createdAt: toTimestamp(row.createdAt),
-    expiresAt: toTimestamp(row.expiresAt),
+    createdAt: toTimestamp(stampOf(row.createdAt)),
+    expiresAt: toTimestamp(stampOf(row.expiresAt)),
     submittedAt: row.submittedAt === null ? null : toTimestamp(row.submittedAt),
   }))
 }
@@ -434,18 +464,19 @@ export async function takeDrop(
 ): Promise<TakeDropOutcome> {
   const [row] = await db
     .select({
-      id: operatorDrops.id,
-      kind: operatorDrops.kind,
-      vaultKey: operatorDrops.vaultKey,
-      sealedValue: operatorDrops.sealedValue,
-      submittedAt: operatorDrops.submittedAt,
+      id: accountSlots.id,
+      kind: accountSlots.kind,
+      vaultKey: accountSlots.vaultKey,
+      sealedValue: accountSlots.value,
+      submittedAt: accountSlots.filledAt,
     })
-    .from(operatorDrops)
+    .from(accountSlots)
     .where(
       and(
-        eq(operatorDrops.id, dropId),
-        eq(operatorDrops.agentId, agentId),
-        isNull(operatorDrops.readAt),
+        eq(accountSlots.channel, 'drop'),
+        eq(accountSlots.id, dropId),
+        eq(accountSlots.agentId, agentId),
+        isNull(accountSlots.takenAt),
       ),
     )
     .limit(1)
@@ -485,11 +516,22 @@ export async function takeDrop(
     if (written === undefined) return { outcome: 'nothing' }
   }
 
+  /**
+   * **`destroyed_at` is stamped in the same statement, and it is not new
+   * bookkeeping** (`#955`). `operator_drops` recorded a spent value only as an
+   * absence; `account_slots_filled_together` requires a filled row that no longer
+   * holds anything to say when it stopped. The two are the same event.
+   */
   const [spent] = await db
-    .update(operatorDrops)
-    .set({ readAt: currentTime(), sealedValue: null })
-    .where(and(eq(operatorDrops.id, row.id), isNull(operatorDrops.readAt)))
-    .returning({ id: operatorDrops.id })
+    .update(accountSlots)
+    .set({
+      takenAt: currentTime(),
+      takenTo: row.kind === 'credential' ? row.vaultKey : null,
+      value: null,
+      destroyedAt: currentTime(),
+    })
+    .where(and(eq(accountSlots.id, row.id), isNull(accountSlots.takenAt)))
+    .returning({ id: accountSlots.id })
 
   if (spent === undefined) return { outcome: 'nothing' }
 
@@ -527,10 +569,16 @@ export async function takeDrop(
  */
 export async function destroyExpiredDrops(db: Database): Promise<number> {
   const destroyed = await db
-    .update(operatorDrops)
-    .set({ sealedValue: null })
-    .where(and(isNotNull(operatorDrops.sealedValue), lte(operatorDrops.expiresAt, sql`now()`)))
-    .returning({ id: operatorDrops.id })
+    .update(accountSlots)
+    .set({ value: null, destroyedAt: currentTime() })
+    .where(
+      and(
+        eq(accountSlots.channel, 'drop'),
+        isNotNull(accountSlots.value),
+        lte(accountSlots.expiresAt, sql`now()`),
+      ),
+    )
+    .returning({ id: accountSlots.id })
 
   return destroyed.length
 }
@@ -542,4 +590,21 @@ function hashToken(token: string): string {
 
 function scopeFor(dropId: string): string {
   return `${DROP_SCOPE}:${dropId}`
+}
+
+/**
+ * A timestamp that a drop row is guaranteed to carry.
+ *
+ * `account_slots` holds episode slots as well as drops, and an episode slot has
+ * neither a creation stamp nor an expiry — so both columns are nullable in the
+ * type even though `account_slots_channel_shape` requires `created_at` on every
+ * channel row and `account_slots_secrets_expire` requires `expires_at` on every
+ * secret one, which a drop always is. The throw is unreachable; it is here so
+ * that a later reader which drops the `channel` predicate fails where it is
+ * wrong rather than dating a drop to the epoch.
+ */
+function stampOf(value: string | null): string {
+  if (value === null) throw new Error('a drop slot has no timestamp')
+
+  return value
 }

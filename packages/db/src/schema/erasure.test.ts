@@ -984,6 +984,17 @@ describe('the erasure boundary', () => {
        */
       'account_proofs.agent_id c',
       /**
+       * `#955`. Cascades, and it is the column that carries the drop and the
+       * handover now that all three secret channels are one table. Both of the
+       * tables it replaces cascaded and for the same reason: a sealed value is
+       * ciphertext nobody — the Colony included — could inspect to discover it
+       * had been left behind, which is the leftover `erasure.md` §4 rules out in
+       * its strongest form. The episode slots that shared this table before
+       * reach an agent through their account and go with it that way; this
+       * column is the one a channel row hangs off directly.
+       */
+      'account_slots.agent_id c',
+      /**
        * `#1124`. Both tables cascade, from both ends, and the second half of
        * that is the part worth writing down.
        *

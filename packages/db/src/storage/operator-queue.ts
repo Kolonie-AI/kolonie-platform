@@ -104,7 +104,9 @@ export async function waitingForOperator(
         null::text as answer_at,
         null::uuid as request_id,
         d.id as drop_id
-      from operator_drops d
+      -- The drop is a slot since kolonie-platform#955; channel = 'drop' is what
+      -- narrows this table back to the rows this branch used to have to itself.
+      from account_slots d
       join mine on mine.agent_id = d.agent_id
       join agents a on a.id = d.agent_id
       left join tasks t on t.id = d.task_id
@@ -114,7 +116,8 @@ export async function waitingForOperator(
       -- this by session rather than by token, so an exhausted counter now means
       -- the link is dead, not that this cannot be cleared -- and hiding the row
       -- would put the queue back to listing less than the operator can act on.
-      where d.submitted_at is null
+      where d.channel = 'drop'
+        and d.filled_at is null
         and d.expires_at > now()
     )
     select * from questions

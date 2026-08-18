@@ -3,11 +3,11 @@ import { eq, sql } from 'drizzle-orm'
 import { MAX_DROP_ATTEMPTS, VAULT_MAX_ENTRIES, type AgentId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import {
+  accountSlots,
   agentVault,
   agents,
   humanAgents,
   humans,
-  operatorDrops,
   operatorPages,
   tasks,
 } from '../schema/index.js'
@@ -63,6 +63,31 @@ describe('the operator drop', () => {
   const aCredentialDrop = async (vaultKey = 'mailbox-password') =>
     openDrop(db, { agentId, kind: 'credential', prompt: 'The mailbox password', vaultKey })
 
+  /**
+   * The row behind a drop, read past the storage functions on purpose.
+   *
+   * These tests reach for the table itself to age a row, to burn its attempts,
+   * and to see what survives an operation — none of which any exported function
+   * offers, and none of which should be offered. Since `#955` that table is
+   * `account_slots`, so the aliases here restore the drop's own vocabulary:
+   * `value` was `sealed_value`, `filled_at` was `submitted_at`, `taken_at` was
+   * `read_at`. Naming them in one place is what let every assertion in this file
+   * stay exactly as it was written before the merge.
+   */
+  const dropRow = async (id: string) => {
+    const [row] = await db
+      .select({
+        sealedValue: accountSlots.value,
+        submittedAt: accountSlots.filledAt,
+        readAt: accountSlots.takenAt,
+        attempts: accountSlots.attempts,
+      })
+      .from(accountSlots)
+      .where(eq(accountSlots.id, id))
+
+    return row
+  }
+
   describe('what the operator can see', () => {
     it('shows the citizen’s name and what it asked for, and nothing else', async () => {
       const drop = await aCredentialDrop()
@@ -88,16 +113,16 @@ describe('the operator drop', () => {
     it('answers nothing after it expires', async () => {
       const drop = await aCredentialDrop()
       await db
-        .update(operatorDrops)
+        .update(accountSlots)
         .set({ expiresAt: sql`now() - interval '1 minute'` })
-        .where(eq(operatorDrops.id, drop.id))
+        .where(eq(accountSlots.id, drop.id))
 
       expect(await viewDrop(db, drop.token)).toBeNull()
     })
 
     it('stores no token, only its hash — a dump yields no working link', async () => {
       const drop = await aCredentialDrop()
-      const [row] = await db.select().from(operatorDrops).where(eq(operatorDrops.id, drop.id))
+      const [row] = await db.select().from(accountSlots).where(eq(accountSlots.id, drop.id))
 
       expect(row?.tokenHash).not.toBe(drop.token)
       expect(JSON.stringify(row)).not.toContain(drop.token)
@@ -114,18 +139,18 @@ describe('the operator drop', () => {
       const filled = await aCredentialDrop('filled-password')
       const expired = await aCredentialDrop('expired-password')
       await db
-        .update(operatorDrops)
+        .update(accountSlots)
         .set({ createdAt: '2026-08-02T00:00:00.000Z' })
-        .where(eq(operatorDrops.id, later.id))
+        .where(eq(accountSlots.id, later.id))
       await db
-        .update(operatorDrops)
+        .update(accountSlots)
         .set({ createdAt: '2026-08-01T00:00:00.000Z' })
-        .where(eq(operatorDrops.id, earlier.id))
+        .where(eq(accountSlots.id, earlier.id))
       await submitDrop(db, filled.token, SECRET, SEALING_KEY)
       await db
-        .update(operatorDrops)
+        .update(accountSlots)
         .set({ expiresAt: sql`now() - interval '1 minute'` })
-        .where(eq(operatorDrops.id, expired.id))
+        .where(eq(accountSlots.id, expired.id))
 
       expect((await openDropsForPageToken(db, 'page-token')).map((drop) => drop.id)).toEqual([
         earlier.id,
@@ -154,9 +179,9 @@ describe('the operator drop', () => {
     it('refuses after expiry', async () => {
       const drop = await aCredentialDrop()
       await db
-        .update(operatorDrops)
+        .update(accountSlots)
         .set({ expiresAt: sql`now() - interval '1 minute'` })
-        .where(eq(operatorDrops.id, drop.id))
+        .where(eq(accountSlots.id, drop.id))
 
       expect(await submitDrop(db, drop.token, SECRET, SEALING_KEY)).toEqual({ outcome: 'closed' })
     })
@@ -164,9 +189,9 @@ describe('the operator drop', () => {
     it('stops listening after the attempt limit, so the field is not an oracle', async () => {
       const drop = await aCredentialDrop()
       await db
-        .update(operatorDrops)
+        .update(accountSlots)
         .set({ attempts: MAX_DROP_ATTEMPTS })
-        .where(eq(operatorDrops.id, drop.id))
+        .where(eq(accountSlots.id, drop.id))
 
       expect(await submitDrop(db, drop.token, SECRET, SEALING_KEY)).toEqual({ outcome: 'closed' })
     })
@@ -181,7 +206,7 @@ describe('the operator drop', () => {
 
       await submitDrop(db, drop.token, SECRET, SEALING_KEY)
 
-      const [row] = await db.select().from(operatorDrops).where(eq(operatorDrops.id, drop.id))
+      const row = await dropRow(drop.id)
       expect(row?.attempts).toBe(1)
     })
 
@@ -217,7 +242,7 @@ describe('the operator drop', () => {
         maxEntries: VAULT_MAX_ENTRIES,
       })
 
-      const [row] = await db.select().from(operatorDrops).where(eq(operatorDrops.id, drop.id))
+      const row = await dropRow(drop.id)
       expect(row?.sealedValue).toBeNull()
     })
 
@@ -368,13 +393,13 @@ describe('the operator drop', () => {
       const drop = await aCredentialDrop()
       await submitDrop(db, drop.token, SECRET, SEALING_KEY)
       await db
-        .update(operatorDrops)
+        .update(accountSlots)
         .set({ expiresAt: sql`now() - interval '1 minute'` })
-        .where(eq(operatorDrops.id, drop.id))
+        .where(eq(accountSlots.id, drop.id))
 
       expect(await destroyExpiredDrops(db)).toBe(1)
 
-      const [row] = await db.select().from(operatorDrops).where(eq(operatorDrops.id, drop.id))
+      const row = await dropRow(drop.id)
       expect(row?.sealedValue).toBeNull()
       // The record of what happened survives the value: *my operator answered
       // and I never came back* is a thing a citizen can only learn from here.
@@ -394,9 +419,9 @@ describe('the operator drop', () => {
       const drop = await aCredentialDrop()
       await submitDrop(db, drop.token, SECRET, SEALING_KEY)
       await db
-        .update(operatorDrops)
+        .update(accountSlots)
         .set({ expiresAt: sql`now() - interval '1 minute'` })
-        .where(eq(operatorDrops.id, drop.id))
+        .where(eq(accountSlots.id, drop.id))
       await destroyExpiredDrops(db)
 
       expect(await takeDrop(db, agentId, drop.id, SEALING_KEY, AGENT_KEY)).toEqual({
@@ -472,7 +497,7 @@ describe('the operator drop', () => {
       await submitDrop(db, drop.token, SECRET, SEALING_KEY)
       await takeDrop(db, agentId, drop.id, SEALING_KEY, AGENT_KEY)
 
-      const [row] = await db.select().from(operatorDrops).where(eq(operatorDrops.id, drop.id))
+      const row = await dropRow(drop.id)
       expect(row?.sealedValue).toBeNull()
       // The record that it happened stays. A row without its value names nothing.
       expect(row?.readAt).not.toBeNull()
@@ -531,10 +556,7 @@ describe('the operator drop', () => {
       // to somebody else's fleet.
       expect(result).toEqual({ outcome: 'closed' })
 
-      const [row] = await db
-        .select({ sealedValue: operatorDrops.sealedValue })
-        .from(operatorDrops)
-        .where(eq(operatorDrops.id, drop.id))
+      const row = await dropRow(drop.id)
       expect(row?.sealedValue).toBeNull()
     })
 
@@ -550,10 +572,7 @@ describe('the operator drop', () => {
         sealingKey: SEALING_KEY,
       })
 
-      const [row] = await db
-        .select({ attempts: operatorDrops.attempts })
-        .from(operatorDrops)
-        .where(eq(operatorDrops.id, drop.id))
+      const row = await dropRow(drop.id)
       expect(row?.attempts).toBe(0)
     })
 
@@ -566,9 +585,9 @@ describe('the operator drop', () => {
       await operates(humanId, agentId)
       const drop = await aCredentialDrop('mailbox')
       await db
-        .update(operatorDrops)
+        .update(accountSlots)
         .set({ attempts: MAX_DROP_ATTEMPTS })
-        .where(eq(operatorDrops.id, drop.id))
+        .where(eq(accountSlots.id, drop.id))
 
       expect(await viewDrop(db, drop.token)).toBeNull()
       expect(

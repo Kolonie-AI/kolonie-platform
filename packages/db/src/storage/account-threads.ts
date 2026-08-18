@@ -781,7 +781,7 @@ export async function readSlotAsOperator(
 
     return {
       outcome: 'read',
-      label: row.slot.label,
+      label: labelOf(row.slot.label),
       sealedValue: row.slot.value,
       agentId: row.account.agentId,
       readsLeft: Math.max(SLOT_MAX_READS - reads, 0),
@@ -846,7 +846,7 @@ export async function slotsForOperator(
     .filter((row) => row.slot.awaits === 'operator' || row.slot.value !== null)
     .map((row) => ({
       id: row.slot.id,
-      label: row.slot.label,
+      label: labelOf(row.slot.label),
       awaits: row.slot.awaits,
       agentId: row.account.agentId,
       filled: row.slot.value !== null,
@@ -1201,10 +1201,28 @@ const toEpisode = (row: EpisodeRow): AccountEpisode => ({
   proposedAt: row.proposedAt,
 })
 
+/**
+ * The label of a slot that was reached through its episode.
+ *
+ * `label` became nullable when the drop and the handover moved into this table
+ * (`#955`), because neither has one. Every reader that needs a label reaches its
+ * rows through `account_episodes`, and `account_slots_owner` guarantees a label
+ * on exactly those rows — so the throw is unreachable, and it is here so that a
+ * later reader which forgets the join fails where it is wrong rather than
+ * printing an empty name into a console somebody is trying to act on.
+ */
+const labelOf = (label: string | null): string => {
+  if (label === null) {
+    throw new Error('an account slot reached through its episode has no label')
+  }
+
+  return label
+}
+
 const toSlot = (row: SlotRow): AccountSlot => ({
   id: AccountSlotIdSchema.parse(row.id),
   episodeId: AccountEpisodeIdSchema.parse(row.episodeId),
-  label: row.label,
+  label: labelOf(row.label),
   secret: row.secret,
   awaits: row.awaits,
   vaultKey: row.vaultKey,

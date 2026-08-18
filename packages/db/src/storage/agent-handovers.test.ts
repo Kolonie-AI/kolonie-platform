@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq, sql } from 'drizzle-orm'
 import { HANDOVER_MAX_READS, RegisterAgentRequestSchema, type AgentId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { agentHandovers, agents, humanAgents, humans } from '../schema/index.js'
+import { accountSlots, agents, humanAgents, humans } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
 import {
@@ -68,6 +68,24 @@ describe('a secret an agent seals for its operator', () => {
    */
   const VALUE = 'not-a-real-password-0000'
 
+  /**
+   * The row behind a handover, read past the storage functions on purpose.
+   *
+   * What is asserted through this is what no exported function offers and none
+   * should: that the ciphertext is gone and that the row says when. Since `#955`
+   * the row lives in `account_slots`, so the aliases restore the handover's own
+   * vocabulary — `value` was `sealed_value` — and every assertion below stayed
+   * as it was written.
+   */
+  const handoverRow = async (id: string) => {
+    const [row] = await db
+      .select({ sealedValue: accountSlots.value, destroyedAt: accountSlots.destroyedAt })
+      .from(accountSlots)
+      .where(eq(accountSlots.id, id))
+
+    return row
+  }
+
   const sealed = async (value = VALUE) => {
     const opened = await openHandover(
       db,
@@ -97,23 +115,31 @@ describe('a secret an agent seals for its operator', () => {
    * expires and was already found rendered into console HTML (`#587`) — cannot
    * reach this. Asserted against the stored columns rather than against the
    * code, because a check somebody can forget is not a guarantee.
+   *
+   * **This is the one assertion `#955` had to rewrite.** The merged table does
+   * have a `token_hash`, because the drop is reached by a mailed link and needs
+   * one; the absence of the column was standing in for the absence of a token.
+   * So the property is now asserted directly: a handover carries no token hash,
+   * and the token lookup that could spend one narrows on `channel = 'drop'`
+   * before it looks at anything. Nothing about the guarantee moved — what moved
+   * is that it is now stated rather than inferred from a table's shape.
    */
   it('has nowhere for a token to be, so no bearer link can read it', async () => {
     const opened = await sealed()
 
-    const [row] = await db.select().from(agentHandovers).where(eq(agentHandovers.id, opened.id))
+    const [row] = await db.select().from(accountSlots).where(eq(accountSlots.id, opened.id))
 
-    expect(Object.keys(row ?? {})).not.toContain('tokenHash')
-    expect(Object.keys(row ?? {})).not.toContain('token')
+    expect(row?.channel).toBe('handover')
+    expect(row?.tokenHash).toBeNull()
   })
 
   /** Sealed at rest: the value is nowhere in the row in a form anybody can read. */
   it('is never stored in the clear', async () => {
     const opened = await sealed()
 
-    const [row] = await db.select().from(agentHandovers).where(eq(agentHandovers.id, opened.id))
+    const [row] = await db.select().from(accountSlots).where(eq(accountSlots.id, opened.id))
 
-    expect(row?.sealedValue).not.toBeNull()
+    expect(row?.value).not.toBeNull()
     expect(JSON.stringify(row)).not.toContain(VALUE)
   })
 
@@ -151,7 +177,7 @@ describe('a secret an agent seals for its operator', () => {
       outcome: 'closed',
     })
 
-    const [row] = await db.select().from(agentHandovers).where(eq(agentHandovers.id, opened.id))
+    const row = await handoverRow(opened.id)
     expect(row?.sealedValue).toBeNull()
     expect(row?.destroyedAt).not.toBeNull()
   })
@@ -159,9 +185,9 @@ describe('a secret an agent seals for its operator', () => {
   it('stops being readable when its hours have passed, whether or not anybody read it', async () => {
     const opened = await sealed()
     await db
-      .update(agentHandovers)
+      .update(accountSlots)
       .set({ expiresAt: sql`now() - interval '1 minute'` })
-      .where(eq(agentHandovers.id, opened.id))
+      .where(eq(accountSlots.id, opened.id))
 
     expect(await readHandoverAsOperator(db, opened.id, humanId, SEALING_KEY)).toEqual({
       outcome: 'closed',
@@ -172,13 +198,13 @@ describe('a secret an agent seals for its operator', () => {
   it('destroys the value of an expired handover and keeps the record', async () => {
     const opened = await sealed()
     await db
-      .update(agentHandovers)
+      .update(accountSlots)
       .set({ expiresAt: sql`now() - interval '1 minute'` })
-      .where(eq(agentHandovers.id, opened.id))
+      .where(eq(accountSlots.id, opened.id))
 
     expect(await destroyExpiredHandovers(db)).toBe(1)
 
-    const [row] = await db.select().from(agentHandovers).where(eq(agentHandovers.id, opened.id))
+    const row = await handoverRow(opened.id)
     expect(row?.sealedValue).toBeNull()
     expect(row?.destroyedAt).not.toBeNull()
     // Idempotent: a second sweep finds nothing left to do.
@@ -213,7 +239,7 @@ describe('a secret an agent seals for its operator', () => {
   it('cannot be opened under another citizen’s identity', async () => {
     const opened = await sealed()
     const other = await register('interloper')
-    await db.update(agentHandovers).set({ agentId: other }).where(eq(agentHandovers.id, opened.id))
+    await db.update(accountSlots).set({ agentId: other }).where(eq(accountSlots.id, opened.id))
     await db.insert(humanAgents).values({ humanId: await aPerson(), agentId: other })
 
     const [row] = await db.select().from(agents).where(eq(agents.id, other))

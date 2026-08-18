@@ -224,10 +224,10 @@ describe('the Atlas over MCP', () => {
       // every kind and every provider, is a row under it. The alternative was a
       // `from` field on `draft` whose presence changed what the call meant,
       // which is the shape this record exists to refuse.
-      // 104 since `#1247` added `kolonie.playbooks.reports` — `kolonie.tasks.reports`
+      // 105 since `#1253` added `kolonie.playbooks.propose-step` — `kolonie.tasks.reports`
       // again, one shelf along. Grammar: every playbook anybody runs is a row
       // under one read.
-      expect(AUTHENTICATED_TOOLS.length).toBe(104)
+      expect(AUTHENTICATED_TOOLS.length).toBe(105)
       // 5 since `#945` took `kolonie.support.notice` out — the one tool here
       // that was not about a quest, now a person's action on `/backend/tickets`
       // rather than a tool a model holds. What is left is quests, entirely.

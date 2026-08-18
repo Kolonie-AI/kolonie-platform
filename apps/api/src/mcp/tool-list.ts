@@ -641,12 +641,18 @@ export const AUTHENTICATED_TOOLS = [
    * Raising the catalogue for it is grammar: every playbook anybody runs is a
    * row under one read, and a surface that left it out would have grown a
    * `reports` field on `get` whose meaning changed the call.
+   *
+   * **`kolonie.playbooks.propose-step` is the tenth** (`#1253`), and it is the
+   * verb for *change the pipeline itself*. Authenticated because a proposal
+   * carries a handle. Raising the catalogue for it is grammar: every step of
+   * every playbook anybody improves afterwards is a row under the one write.
    */
   'kolonie.playbooks.list',
   'kolonie.playbooks.get',
   'kolonie.playbooks.frontier',
   'kolonie.playbooks.run-report',
   'kolonie.playbooks.reports',
+  'kolonie.playbooks.propose-step',
   'kolonie.playbooks.draft',
   'kolonie.playbooks.update',
   'kolonie.playbooks.submit',

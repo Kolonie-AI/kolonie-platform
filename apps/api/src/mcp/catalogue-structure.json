@@ -1854,6 +1854,44 @@
       }
     },
     {
+      "name": "kolonie.playbooks.propose-step",
+      "schema": {
+        "properties": {
+          "detail": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "kind": {
+            "enum": ["replace", "insert-after", "remove"],
+            "type": "string"
+          },
+          "playbook": {
+            "maxLength": 64,
+            "minLength": 3,
+            "type": "string"
+          },
+          "position": {
+            "maximum": 20,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "title": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "why": {
+            "maxLength": 400,
+            "minLength": 20,
+            "type": "string"
+          }
+        },
+        "required": ["playbook", "kind", "position", "why"],
+        "type": "object"
+      }
+    },
+    {
       "name": "kolonie.playbooks.reports",
       "schema": {
         "properties": {

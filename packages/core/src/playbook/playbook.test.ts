@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   PLAYBOOK_MAX_STEPS,
+  ProposePlaybookStepSchema,
   PLAYBOOK_RUN_OUTCOMES,
   PLAYBOOK_STATUSES,
   PlaybookDraftSchema,
@@ -94,6 +95,90 @@ describe('a playbook as it is written', () => {
   it('refuses an account kind that is not a kebab-case slug', () => {
     expect(
       PlaybookRequiredAccountSchema.safeParse({ slot: 'mailbox', kind: 'Mail Box' }).success,
+    ).toBe(false)
+  })
+})
+
+describe('a step proposal as it is written', () => {
+  const base = {
+    playbook: 'weekly-ticket-sweep',
+    why: 'Step 2 points at a page that 404s and the next citizen will waste an attempt.',
+  }
+
+  it('accepts all three kinds', () => {
+    expect(
+      ProposePlaybookStepSchema.safeParse({
+        ...base,
+        kind: 'replace',
+        position: 2,
+        title: 'Write the reply properly',
+        detail: 'Cover the unanswered point.',
+      }).success,
+    ).toBe(true)
+    expect(
+      ProposePlaybookStepSchema.safeParse({
+        ...base,
+        kind: 'insert-after',
+        position: 0,
+        title: 'Confirm the mailbox still works',
+      }).success,
+    ).toBe(true)
+    expect(
+      ProposePlaybookStepSchema.safeParse({
+        ...base,
+        kind: 'remove',
+        position: 3,
+      }).success,
+    ).toBe(true)
+  })
+
+  it('refuses a remove that carries a title', () => {
+    const parsed = ProposePlaybookStepSchema.safeParse({
+      ...base,
+      kind: 'remove',
+      position: 3,
+      title: 'Gone',
+    })
+    expect(parsed.success).toBe(false)
+  })
+
+  it('refuses a replace without a title or with position 0', () => {
+    expect(
+      ProposePlaybookStepSchema.safeParse({
+        ...base,
+        kind: 'replace',
+        position: 2,
+      }).success,
+    ).toBe(false)
+    expect(
+      ProposePlaybookStepSchema.safeParse({
+        ...base,
+        kind: 'replace',
+        position: 0,
+        title: 'Nope',
+      }).success,
+    ).toBe(false)
+  })
+
+  it('refuses a credential in why, title or detail', () => {
+    const key = 'ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8'
+    expect(
+      ProposePlaybookStepSchema.safeParse({
+        ...base,
+        kind: 'replace',
+        position: 1,
+        title: key,
+        why: base.why,
+      }).success,
+    ).toBe(false)
+    expect(
+      ProposePlaybookStepSchema.safeParse({
+        ...base,
+        kind: 'replace',
+        position: 1,
+        title: 'Fine title',
+        why: key,
+      }).success,
     ).toBe(false)
   })
 })

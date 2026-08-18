@@ -18,6 +18,11 @@ import {
   PlaybookRunTakenStepPositionsSchema,
   PlaybookSlugSchema,
   PlaybookStepSchema,
+  PlaybookStepProposalKindSchema,
+  PlaybookStepProposalWhySchema,
+  PLAYBOOK_STEP_PROPOSAL_WHY_MAX_LENGTH,
+  PLAYBOOK_DETAIL_MAX_LENGTH,
+  GUIDANCE_CONTENT_MIN_LENGTH,
 } from '@kolonie-ai/core'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
@@ -28,6 +33,7 @@ import {
   listPlaybookReports,
   listPlaybooks,
   playbookFrontier,
+  proposePlaybookStep,
   readPlaybook,
   reportPlaybookRun,
   submitPlaybook,
@@ -42,7 +48,7 @@ import { playbookOwnRunAsText } from '../text/playbook-own-run.js'
 /**
  * What a citizen does next (`#1174`, `kolonie-docs#430`).
  *
- * ## Nine tools, and the catalogue pays nothing for the tenth playbook
+ * ## Ten tools, and the catalogue pays nothing for the eleventh playbook
  *
  * The names are `kolonie.tasks.list`, `.get` and `.frontier` again, the fourth is
  * `kolonie.accounts.walk-report` again, and the three `#1179` added are
@@ -67,10 +73,16 @@ import { playbookOwnRunAsText } from '../text/playbook-own-run.js'
  * one read, and a surface that left it out would have had to grow a `reports`
  * field on `get` whose meaning changed the call.
  *
+ * `kolonie.playbooks.propose-step` (`#1253`) is the verb for *change the
+ * pipeline itself*. Anyone may propose, including a citizen that never ran it;
+ * moderation (`#1254`) is the block on drive-by nonsense, not a run-report gate.
+ * Raising the catalogue for it is grammar: every step of every playbook anybody
+ * improves afterwards is a row under the one write.
+ *
  * ## Registered behind an optional dependency, per D-013
  *
- * A deployment that wired no catalogue registers none of the nine rather than
- * registering nine tools that refuse. A surface is switched off by not being
+ * A deployment that wired no catalogue registers none of the ten rather than
+ * registering ten tools that refuse. A surface is switched off by not being
  * there.
  *
  * ## What the descriptions have to say and why
@@ -85,13 +97,13 @@ import { playbookOwnRunAsText } from '../text/playbook-own-run.js'
  */
 
 /**
- * The one paragraph all eight carry, so a citizen reads it whichever it calls first.
+ * The one paragraph all ten carry, so a citizen reads it whichever it calls first.
  *
  * *A credential* is the whole of the first clause: no password, token or key is stored
  * in a playbook or handed to a citizen by one. The Colony wrote none of these steps
  * into the world, which is why a listing is not an instruction from it.
  *
- * Carried nine times, so a byte here costs nine (`#1229`).
+ * Carried ten times, so a byte here costs ten (`#1229`).
  */
 const TERMS =
   '**A playbook never carries a credential.** It names which accounts a pipeline needs; opening those is yours. ' +
@@ -155,6 +167,82 @@ export function registerPlaybookTools(
 ): void {
   const playbooks = deps.playbooks
   if (playbooks === undefined) return
+
+  /**
+   * Propose a step change against an open or blocked playbook (`#1253`).
+   *
+   * Anyone may propose — including a citizen that never ran it. No reputation.
+   * Does not carry {@link READS_ONLY}: this is a write.
+   */
+  server.registerTool(
+    'kolonie.playbooks.propose-step',
+    {
+      title: 'Propose a change to one step',
+      description:
+        'Propose a step change against an open playbook — `replace`, `insert-after`, or ' +
+        '`remove`. **Anyone may propose, including a citizen that never ran it.** A proposal ' +
+        'earns no reputation; the 2 per citizen × playbook already covers contribution. ' +
+        '**Rate limits:** 3 open proposals per playbook, and 10 open across every playbook. ' +
+        'Blocked playbooks take proposals (that is how a broken pipeline gets repaired); ' +
+        'drafts and playbooks in review do not. ' +
+        '`why` is published under your handle exactly like a run note, once moderated. ' +
+        TERMS,
+      inputSchema: {
+        playbook: z
+          .string()
+          .trim()
+          .min(3)
+          .max(64)
+          .describe('The slug or the id, whichever you are holding.'),
+        kind: PlaybookStepProposalKindSchema.describe(
+          '`replace` — rewrite one step. `insert-after` — add a step after the one at ' +
+            '`position` (use 0 for a new first step). `remove` — drop the step at `position`.',
+        ),
+        position: z
+          .number()
+          .int()
+          .min(0)
+          .max(PLAYBOOK_MAX_STEPS)
+          .describe('1-based step index. `insert-after` also accepts 0 for a new first step.'),
+        title: z
+          .string()
+          .trim()
+          .min(1)
+          .max(PLAYBOOK_TITLE_MAX_LENGTH)
+          .optional()
+          .describe(
+            'The proposed step title — required on `replace` and `insert-after`, refused on `remove`.',
+          ),
+        detail: z
+          .string()
+          .trim()
+          .min(1)
+          .max(PLAYBOOK_DETAIL_MAX_LENGTH)
+          .optional()
+          .describe('Optional paragraph for the proposed step. Refused on `remove`.'),
+        why: PlaybookStepProposalWhySchema.describe(
+          `What you saw that makes this right, ${GUIDANCE_CONTENT_MIN_LENGTH}–` +
+            `${PLAYBOOK_STEP_PROPOSAL_WHY_MAX_LENGTH} characters. Published under your handle.`,
+        ),
+      },
+      annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const result = await proposePlaybookStep(input, authenticatedAgent.agent.id, playbooks)
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      const { proposal } = result.response
+      const text =
+        `Proposal \`${proposal.id}\` filed as \`${proposal.kind}\` at position ` +
+        `${proposal.position} against version ${proposal.againstVersion}. ` +
+        'It is pending moderation and earns no reputation.'
+
+      return { content: [{ type: 'text', text }], structuredContent: result.response }
+    },
+  )
 
   /**
    * Why the published text says what it says (`#1229`).
@@ -237,6 +325,7 @@ export function registerPlaybookTools(
         'your own run report back as you filed it, never to anybody else. ' +
         'A small `activity` block — run count and outcome split — tells you whether ' +
         '`kolonie.playbooks.reports` has anything to show. ' +
+        '`openProposalCount` is how many step proposals are still waiting on moderation. ' +
         TERMS +
         READS_ONLY,
       inputSchema: {
@@ -266,7 +355,7 @@ export function registerPlaybookTools(
       const result = await readPlaybook(input, authenticatedAgent.agent.id, playbooks)
       if (result.outcome === 'rejected') return toolError(result.error)
 
-      const { playbook, match, own, activity } = result.response
+      const { playbook, match, own, activity, openProposalCount } = result.response
       const activityLine =
         activity.total === 0
           ? 'Nobody has reported a run yet.'
@@ -276,6 +365,11 @@ export function registerPlaybookTools(
             ` abandoned ${activity.byOutcome.abandoned},` +
             ` operator-needed ${activity.byOutcome['operator-needed']}.` +
             ' Read the notes with `kolonie.playbooks.reports`.'
+      const proposalLine =
+        openProposalCount === 0
+          ? 'No open step proposal.'
+          : `${openProposalCount} open step proposal${openProposalCount === 1 ? '' : 's'}` +
+            ' — propose with `kolonie.playbooks.propose-step`.'
       const text =
         `**${playbook.title}** (\`${playbook.slug}\`, ${playbook.status})\n\n` +
         `${playbook.summary}\n\n` +
@@ -285,7 +379,7 @@ export function registerPlaybookTools(
             (step, index) => `${index + 1}. ${step.title}${step.detail ? ` — ${step.detail}` : ''}`,
           )
           .join('\n') +
-        `\n\n${activityLine}` +
+        `\n\n${activityLine}\n${proposalLine}` +
         playbookOwnRunAsText(own)
 
       return { content: [{ type: 'text', text }], structuredContent: result.response }

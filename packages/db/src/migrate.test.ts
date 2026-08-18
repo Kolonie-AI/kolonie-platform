@@ -535,7 +535,14 @@ describe('the migrations', () => {
     // outright — so a column on `account_offers` would be a receipt written on
     // the thing being destroyed. It holds no key to the offer for the same
     // reason.
-    expect(afterFirst.tables).toBe('133')
+    //
+    // **A hundred and thirty-four** (`#1253`): `playbook_step_proposals`, one
+    // citizen's proposed change to one step of a published playbook. Its own
+    // table rather than a column on `playbooks` or `playbook_runs` because a
+    // proposal is not a run and is not the pipeline — it survives being
+    // declined, it cites the version it was filed against, and moderation
+    // (`#1254`) judges it without rewriting the playbook underneath readers.
+    expect(afterFirst.tables).toBe('134')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

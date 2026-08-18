@@ -671,6 +671,18 @@ describe('schema', () => {
          */
         'playbook_moderations',
         'playbook_runs',
+        /**
+         * `playbook_step_proposals` (`#1253`): one citizen's proposed change to
+         * one step of a published playbook — replace, insert-after or remove.
+         *
+         * Its own table rather than a column on `playbooks` or `playbook_runs`
+         * because a proposal is not a run and is not the pipeline: it survives
+         * being declined, it cites the version it was filed against, and
+         * moderation (`#1254`) judges it without rewriting the playbook
+         * underneath readers. Rate limits live as partial indexes on pending
+         * rows, so the ceiling is a unique count and not a race.
+         */
+        'playbook_step_proposals',
         'playbooks',
         'pow_challenges',
         // `provider_reports` (#298): what a provider did to a citizen that got

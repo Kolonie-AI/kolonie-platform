@@ -109,6 +109,8 @@ import {
   playbookById,
   playbookBySlug,
   playbookRunActivity,
+  insertPlaybookStepProposal,
+  countOpenPlaybookStepProposals,
   playbookRunFor,
   playbookSignalsTally,
   playbooksByStatus,
@@ -830,6 +832,10 @@ const app = buildApp({
       update: (command) => updatePlaybookDraft(db, command),
       submit: (command) => submitPlaybookForReview(db, command),
       fork: (command) => forkPlaybook(db, command),
+    },
+    proposals: {
+      propose: (input) => insertPlaybookStepProposal(db, input),
+      countOpen: (playbookId) => countOpenPlaybookStepProposals(db, playbookId),
     },
   },
   quests: databaseQuests(

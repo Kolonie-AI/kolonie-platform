@@ -222,7 +222,9 @@ describe('counting and listing what a playbook has produced', () => {
   })
 
   it('filters by outcome and pages with a cursor', async () => {
-    await approved(runnerId, 'Take the oldest ticket; the queue reorders itself.', { outcome: 'completed' })
+    await approved(runnerId, 'Take the oldest ticket; the queue reorders itself.', {
+      outcome: 'completed',
+    })
     const blockedAgent = await registerAgent(db, {
       name: 'blocked-runner',
       platform: 'codex',
@@ -239,7 +241,9 @@ describe('counting and listing what a playbook has produced', () => {
       outcome: 'blocked',
     })
     if (onlyBlocked === 'invalid-cursor') throw new Error('cursor')
-    expect(onlyBlocked.notes.map((n) => n.note)).toEqual(['Stopped before the reply — the ticket had no address.'])
+    expect(onlyBlocked.notes.map((n) => n.note)).toEqual([
+      'Stopped before the reply — the ticket had no address.',
+    ])
 
     const first = await listPlaybookPublishedNotes(db, { playbookId, limit: 1 })
     if (first === 'invalid-cursor') throw new Error('cursor')

@@ -1373,6 +1373,13 @@ describe('the erasure boundary', () => {
        */
       'playbook_runs.agent_id c',
       /**
+       * A citizen's proposed change to one step (`#1253`). Cascades: the
+       * proposal is that citizen's word about a pipeline, and erasure means
+       * erasure. What survives for later readers is the playbook itself and
+       * whatever moderation already accepted into it.
+       */
+      'playbook_step_proposals.agent_id c',
+      /**
        * The pipelines a citizen wrote (`#1173`). Cascades, and the pointer the
        * other way — a fork at its parent — is `set null` for the opposite
        * reason: a fork is a playbook in its own right, with its own author and

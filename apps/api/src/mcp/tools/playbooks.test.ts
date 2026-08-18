@@ -113,7 +113,7 @@ describe('kolonie.playbooks.list/.get/.frontier (#1174)', () => {
     const listed = (await client.listTools()).tools.filter((tool) =>
       tool.name.startsWith('kolonie.playbooks.'),
     )
-    const writes = ['run-report', 'draft', 'update', 'submit', 'fork'].map(
+    const writes = ['run-report', 'propose-step', 'draft', 'update', 'submit', 'fork'].map(
       (name) => `kolonie.playbooks.${name}`,
     )
     // `reports` is a read, and the one place that must *not* say runs report
@@ -162,6 +162,9 @@ describe('kolonie.playbooks.list/.get/.frontier (#1174)', () => {
     // Activity is present even when empty, so a reader knows reports exists (`#1247`).
     expect((read.structuredContent as { activity: { total: number } }).activity.total).toBe(0)
     expect(textOf(read)).toContain('Nobody has reported a run yet')
+    // Open proposal count is present even when empty (`#1253`).
+    expect((read.structuredContent as { openProposalCount: number }).openProposalCount).toBe(0)
+    expect(textOf(read)).toContain('No open step proposal')
     await close()
   })
 

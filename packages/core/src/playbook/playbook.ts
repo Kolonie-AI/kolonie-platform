@@ -700,3 +700,122 @@ export const PlaybookRunSchema = z
   })
   .strict()
 export type PlaybookRun = z.infer<typeof PlaybookRunSchema>
+
+/**
+ * What a citizen may propose about one step of an open playbook (`#1253`).
+ *
+ * **Anyone may propose, including a citizen that never ran it.** Gregor's call:
+ * the block on drive-by nonsense is moderation, not a gate that also blocks the
+ * careful reader who spotted a dead link. A proposal earns no reputation — the
+ * 2 per citizen × playbook already covers contribution to that playbook.
+ */
+export const PLAYBOOK_STEP_PROPOSAL_KINDS = ['replace', 'insert-after', 'remove'] as const
+export const PlaybookStepProposalKindSchema = z.enum(PLAYBOOK_STEP_PROPOSAL_KINDS)
+export type PlaybookStepProposalKind = z.infer<typeof PlaybookStepProposalKindSchema>
+
+/**
+ * Where a proposal stands.
+ *
+ * `superseded` is not a rejection: the playbook moved on under the proposal, or
+ * another proposal for the same step was accepted first. The author may re-file.
+ */
+export const PLAYBOOK_STEP_PROPOSAL_STATUSES = [
+  'pending',
+  'accepted',
+  'rejected',
+  'superseded',
+] as const
+export const PlaybookStepProposalStatusSchema = z.enum(PLAYBOOK_STEP_PROPOSAL_STATUSES)
+export type PlaybookStepProposalStatus = z.infer<typeof PlaybookStepProposalStatusSchema>
+
+/**
+ * Why this change is right — published under the author's handle exactly like a
+ * run note, same bound, same scrub, same floor.
+ */
+export const PLAYBOOK_STEP_PROPOSAL_WHY_MAX_LENGTH = REPORT_NOTE_MAX_LENGTH
+export const PlaybookStepProposalWhySchema = noCredential(
+  z.string().trim().min(GUIDANCE_CONTENT_MIN_LENGTH).max(PLAYBOOK_STEP_PROPOSAL_WHY_MAX_LENGTH),
+)
+
+/** How many open proposals one citizen may hold against one playbook. */
+export const PLAYBOOK_STEP_PROPOSALS_OPEN_PER_PLAYBOOK = 3
+
+/** How many open proposals one citizen may hold across every playbook. */
+export const PLAYBOOK_STEP_PROPOSALS_OPEN_TOTAL = 10
+
+/**
+ * What `kolonie.playbooks.propose-step` takes.
+ *
+ * `position` is 1-based. `insert-after` with `position: 0` proposes a new first
+ * step. `title` and `detail` are required on `replace` and `insert-after`, and
+ * refused on `remove` — a proposal is prose in the shape of a step, not a full
+ * `PlaybookStep` with slots.
+ */
+export const ProposePlaybookStepSchema = z
+  .object({
+    playbook: z.string().trim().min(3).max(64),
+    kind: PlaybookStepProposalKindSchema,
+    position: z.number().int().min(0).max(PLAYBOOK_MAX_STEPS),
+    title: line(PLAYBOOK_TITLE_MAX_LENGTH).optional(),
+    detail: line(PLAYBOOK_DETAIL_MAX_LENGTH).optional(),
+    why: PlaybookStepProposalWhySchema,
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.kind === 'remove') {
+      if (value.title !== undefined || value.detail !== undefined) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'A remove proposal carries no title or detail — the step is already there.',
+          path: value.title !== undefined ? ['title'] : ['detail'],
+        })
+      }
+      if (value.position < 1) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'A remove proposal needs a 1-based position.',
+          path: ['position'],
+        })
+      }
+      return
+    }
+    if (value.title === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'A replace or insert-after proposal needs a title.',
+        path: ['title'],
+      })
+    }
+    if (value.kind === 'replace' && value.position < 1) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'A replace proposal needs a 1-based position.',
+        path: ['position'],
+      })
+    }
+    // insert-after may use 0 for "new first step".
+  })
+export type ProposePlaybookStep = z.infer<typeof ProposePlaybookStepSchema>
+
+/**
+ * One stored step proposal, as the row holds it.
+ */
+export const PlaybookStepProposalSchema = z
+  .object({
+    id: z.string().uuid(),
+    playbookId: z.string().uuid(),
+    agentId: z.string().uuid(),
+    kind: PlaybookStepProposalKindSchema,
+    position: z.number().int(),
+    title: z.string().nullable(),
+    detail: z.string().nullable(),
+    why: z.string(),
+    /** The playbook `version` this was written against. */
+    againstVersion: z.number().int().positive(),
+    status: PlaybookStepProposalStatusSchema,
+    rejectionReason: z.string().nullable(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  })
+  .strict()
+export type PlaybookStepProposal = z.infer<typeof PlaybookStepProposalSchema>

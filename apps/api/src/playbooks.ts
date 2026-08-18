@@ -10,11 +10,14 @@ import {
   PLAYBOOK_RUN_OUTCOMES,
   PLAYBOOK_RUN_REPUTATION,
   PLAYBOOK_RUN_SIGNALS,
+  PLAYBOOK_STEP_PROPOSALS_OPEN_PER_PLAYBOOK,
+  PLAYBOOK_STEP_PROPOSALS_OPEN_TOTAL,
   PlaybookDraftSchema,
   PlaybookPatchSchema,
   PlaybookRunOutcomeSchema,
   PlaybookRunReportSchema,
   PlaybookSlugSchema,
+  ProposePlaybookStepSchema,
   type Account,
   type AgentId,
   type ApiError,
@@ -28,6 +31,9 @@ import {
   type PlaybookRunReport,
   type PlaybookRunSignal,
   type PlaybookStatus,
+  type PlaybookStepProposal,
+  type PlaybookStepProposalKind,
+  type ProposePlaybookStep,
 } from '@kolonie-ai/core'
 import { z } from 'zod'
 
@@ -198,11 +204,37 @@ export type PlaybookWriteOutcome =
  * thirteen methods of which twelve write, and a read surface holding a handle to
  * `forget` is a wider blast radius than the feature bought.
  */
+/**
+ * Step proposals against a published playbook (`#1253`).
+ *
+ * Its own port rather than a fifth method on {@link PlaybookRunLog}: a proposal
+ * is not a run, and Gregor's call that *anyone may propose, including a citizen
+ * that never ran it* is exactly the reason the two must not share a store.
+ */
+export interface PlaybookProposals {
+  propose(input: {
+    readonly playbookId: string
+    readonly agentId: AgentId
+    readonly kind: PlaybookStepProposalKind
+    readonly position: number
+    readonly title: string | null
+    readonly detail: string | null
+    readonly why: string
+    readonly againstVersion: number
+  }): Promise<
+    | { readonly outcome: 'written'; readonly proposal: PlaybookStepProposal }
+    | { readonly outcome: 'rate-limited'; readonly scope: 'playbook' | 'total' }
+  >
+  /** Open (`pending`) proposals against one playbook, from anybody. */
+  countOpen(playbookId: string): Promise<number>
+}
+
 export interface PlaybookDependencies {
   readonly catalogue: PlaybookCatalogue
   readonly held: (agentId: AgentId) => Promise<readonly Account[]>
   readonly runs: PlaybookRunLog
   readonly authoring: PlaybookAuthoring
+  readonly proposals: PlaybookProposals
 }
 
 /** How many playbooks one listing answers with. */
@@ -609,6 +641,14 @@ export type PlaybookReadResult = {
    * stay there, not here.
    */
   readonly activity: PlaybookActivitySummary
+  /**
+   * How many step proposals are still open against this playbook (`#1253`).
+   *
+   * The proposals themselves are served by `kolonie.playbooks.reports` once
+   * moderated (`#1254`); the count is enough that a reader who called `get`
+   * knows something is being argued about the pipeline it is about to run.
+   */
+  readonly openProposalCount: number
 }
 
 /**
@@ -819,10 +859,11 @@ export async function readPlaybook(
     found.authorAgentId === agentId
   if (!readable) return { outcome: 'rejected', error: noSuchPlaybook }
 
-  const [accounts, mine, activity] = await Promise.all([
+  const [accounts, mine, activity, openProposalCount] = await Promise.all([
     deps.held(agentId),
     query.data.includeRaw === true ? deps.runs.mine(agentId, found.id) : null,
     deps.runs.activity(found.id),
+    deps.proposals.countOpen(found.id),
   ])
 
   return {
@@ -832,6 +873,7 @@ export async function readPlaybook(
       match: matchPlaybook(found, accounts),
       own: mine ? ownRun(mine) : null,
       activity: { total: activity.total, byOutcome: activity.byOutcome },
+      openProposalCount,
     },
   }
 }
@@ -1363,4 +1405,97 @@ export async function forkPlaybook(
       slug: named.data.slug,
     }),
   )
+}
+
+export type PlaybookProposeStepResult = {
+  readonly proposal: PlaybookStepProposal
+}
+
+const notAProposal: ApiError = {
+  code: 'validation_failed',
+  message:
+    'Propose a step change with `kind` (`replace`, `insert-after`, or `remove`), a ' +
+    '1-based `position` (or 0 with `insert-after` for a new first step), a `why` of ' +
+    'at least 20 characters, and on replace/insert-after a `title`.',
+}
+
+const rateLimited = (scope: 'playbook' | 'total'): ApiError => ({
+  code: 'validation_failed',
+  message:
+    scope === 'playbook'
+      ? `You already have ${PLAYBOOK_STEP_PROPOSALS_OPEN_PER_PLAYBOOK} open proposals against this playbook. ` +
+        'Wait for moderation to rule on one, or let one go, before filing another.'
+      : `You already have ${PLAYBOOK_STEP_PROPOSALS_OPEN_TOTAL} open proposals across every playbook. ` +
+        'Wait for moderation to rule on one before filing another.',
+})
+
+/**
+ * Propose a step change against an open or blocked playbook (`#1253`).
+ *
+ * **Anyone may propose, including a citizen that never ran it.** Drafts and
+ * playbooks in review answer as though they did not exist — the same
+ * {@link noSuchPlaybook} a stranger gets for a draft. Blocked is allowed: that
+ * is how a broken pipeline gets repaired. No reputation is paid.
+ */
+export async function proposePlaybookStep(
+  input: unknown,
+  agentId: AgentId,
+  deps: PlaybookDependencies,
+): Promise<PlaybookOutcome<PlaybookProposeStepResult>> {
+  const parsed = ProposePlaybookStepSchema.safeParse(input)
+  if (!parsed.success) return { outcome: 'rejected', error: notAProposal }
+
+  const found =
+    (await deps.catalogue.bySlug(parsed.data.playbook)) ??
+    (await deps.catalogue.byId(parsed.data.playbook))
+  if (found === null) return { outcome: 'rejected', error: noSuchPlaybook }
+
+  /** Open and blocked only — drafts, review and retired answer as not found. */
+  if (!(PLAYBOOK_LISTED_STATUSES as readonly string[]).includes(found.status)) {
+    return { outcome: 'rejected', error: noSuchPlaybook }
+  }
+
+  const positionError = positionAgainstSteps(parsed.data, found.steps.length)
+  if (positionError !== null) {
+    return { outcome: 'rejected', error: { code: 'validation_failed', message: positionError } }
+  }
+
+  const written = await deps.proposals.propose({
+    playbookId: found.id,
+    agentId,
+    kind: parsed.data.kind,
+    position: parsed.data.position,
+    title: parsed.data.title ?? null,
+    detail: parsed.data.detail ?? null,
+    why: parsed.data.why,
+    againstVersion: found.version,
+  })
+
+  if (written.outcome === 'rate-limited') {
+    return { outcome: 'rejected', error: rateLimited(written.scope) }
+  }
+
+  return { outcome: 'read', response: { proposal: written.proposal } }
+}
+
+/**
+ * Whether the proposed position makes sense against the playbook as it stands.
+ *
+ * Zod only knows the ceiling of twenty; the live length is what decides whether
+ * step 4 exists to be replaced or removed.
+ */
+const positionAgainstSteps = (proposal: ProposePlaybookStep, stepCount: number): string | null => {
+  if (proposal.kind === 'insert-after') {
+    if (stepCount >= PLAYBOOK_MAX_STEPS) {
+      return `This playbook already has ${PLAYBOOK_MAX_STEPS} steps — the ceiling. Fork it or propose a replace rather than an insert.`
+    }
+    if (proposal.position > stepCount) {
+      return `insert-after needs a position from 0 (new first step) to ${stepCount} (after the last step).`
+    }
+    return null
+  }
+  if (proposal.position < 1 || proposal.position > stepCount) {
+    return `This playbook has ${stepCount} step${stepCount === 1 ? '' : 's'}; ${proposal.kind} needs a position from 1 to ${stepCount}.`
+  }
+  return null
 }

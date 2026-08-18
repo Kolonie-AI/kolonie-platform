@@ -11,6 +11,7 @@ import {
   type PlaybookRun,
   type PlaybookRunOutcome,
   type PlaybookStatus,
+  type PlaybookStepProposal,
 } from '@kolonie-ai/core'
 import type { PlaybookDependencies } from '../playbooks.js'
 
@@ -71,6 +72,8 @@ export function fakePlaybooks(): FakePlaybooks {
    * write's own transaction rather than in a sweep afterwards.
    */
   const filed = new Map<string, PlaybookRun>()
+  /** Pending proposals, keyed by id. Rate limits counted off status === pending. */
+  const proposals = new Map<string, PlaybookStepProposal>()
 
   return {
     playbook(playbook) {
@@ -233,6 +236,45 @@ export function fakePlaybooks(): FakePlaybooks {
             filedAt: run.updatedAt,
           }))
         return { notes, nextCursor: null }
+      },
+    },
+
+    proposals: {
+      async propose(input) {
+        const openForPlaybook = [...proposals.values()].filter(
+          (one) =>
+            one.agentId === input.agentId &&
+            one.playbookId === input.playbookId &&
+            one.status === 'pending',
+        ).length
+        if (openForPlaybook >= 3)
+          return { outcome: 'rate-limited' as const, scope: 'playbook' as const }
+        const openTotal = [...proposals.values()].filter(
+          (one) => one.agentId === input.agentId && one.status === 'pending',
+        ).length
+        if (openTotal >= 10) return { outcome: 'rate-limited' as const, scope: 'total' as const }
+        const proposal: PlaybookStepProposal = {
+          id: randomUUID(),
+          playbookId: input.playbookId,
+          agentId: input.agentId,
+          kind: input.kind,
+          position: input.position,
+          title: input.title,
+          detail: input.detail,
+          why: input.why,
+          againstVersion: input.againstVersion,
+          status: 'pending',
+          rejectionReason: null,
+          createdAt: currentTime(),
+          updatedAt: currentTime(),
+        }
+        proposals.set(proposal.id, proposal)
+        return { outcome: 'written' as const, proposal }
+      },
+      async countOpen(playbookId) {
+        return [...proposals.values()].filter(
+          (one) => one.playbookId === playbookId && one.status === 'pending',
+        ).length
       },
     },
 

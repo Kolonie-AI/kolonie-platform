@@ -21,6 +21,7 @@ import {
 import type { Database, Transaction } from '../client.js'
 import { playbookRuns, playbooks } from '../schema/playbooks.js'
 import { isUniqueViolation } from './errors.js'
+import { supersedeStalePlaybookStepProposals } from './playbook-step-proposals.js'
 
 /**
  * Reading and writing playbooks (`#1173`).
@@ -350,7 +351,14 @@ export async function updatePlaybookDraft(
       .returning()
 
     if (!updated) return { outcome: 'unknown-playbook' }
-    return { outcome: 'written', playbook: toPlaybook(updated) }
+    const playbook = toPlaybook(updated)
+    /**
+     * Pending step proposals written against the previous revision are now
+     * stale (`#1253`). Mark them superseded in the same transaction as the
+     * bump so a judge cannot race a proposal that no longer matches the text.
+     */
+    await supersedeStalePlaybookStepProposals(tx, playbook.id, playbook.version)
+    return { outcome: 'written', playbook }
   })
 }
 

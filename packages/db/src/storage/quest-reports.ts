@@ -400,6 +400,11 @@ export async function recordQuestReportModeration(
      * refused without a sentence still writes the ledger row with a null reason.
      */
     readonly reason?: string
+    /**
+     * Which refusal arm the ledger records (`#1260`). Quest-report refusals are
+     * red-line only today, so the writer defaults to `abusive` when omitted.
+     */
+    readonly refusal?: 'useless' | 'abusive'
   },
 ): Promise<void> {
   const updated = await db
@@ -421,7 +426,10 @@ export async function recordQuestReportModeration(
   await insertContributionVerdict(db, {
     agentId: AgentIdSchema.parse(row.agentId),
     surface: 'quest-report',
-    verdict: command.decision === 'approved' ? 'approved' : 'useless',
+    // Quest-report refusals are red-line only today — always the abusive arm
+    // (`#1260`). An optional override keeps the writer honest if a later path
+    // refuses for a softer reason.
+    verdict: command.decision === 'approved' ? 'approved' : (command.refusal ?? 'abusive'),
     reason: command.decision === 'rejected' ? command.reason : undefined,
   })
 }

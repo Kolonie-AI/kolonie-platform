@@ -2,6 +2,7 @@ import {
   ConfidentialSpanKindSchema,
   QUEST_REPORT_FIELD_ORDER,
   REPORT_FIELDS,
+  abusiveModerationNote,
   type TaskId,
 } from '@kolonie-ai/core'
 import type { UnmoderatedQuestReport } from '@kolonie-ai/db'
@@ -46,7 +47,13 @@ export interface QuestReportModerationStore {
     /** The obstacle, when this report has one the stage cleared (`#367`). */
     readonly publishedObstacle?: string
   }): Promise<void>
-  refuse(input: { readonly id: string }): Promise<void>
+  refuse(input: {
+    readonly id: string
+    /** Author-facing reason; reaches the ledger and the citizen (`#1260`). */
+    readonly reason?: string
+    /** Which refusal arm the ledger records. Defaults to abusive on this path. */
+    readonly refusal?: 'useless' | 'abusive'
+  }): Promise<void>
   /** Tell the briefing loop this quest's published corpus has moved (`#367`). */
   markStale(taskId: TaskId): Promise<void>
 }
@@ -100,8 +107,10 @@ export async function moderateQuestReport(
     })
 
     if (verdict.decision === 'crossed') {
-      await store.refuse({ id: report.id })
-      return { kind: 'refused', reason: verdict.reason }
+      // Red-line refusals are abusive with no second model call (`#1260`).
+      const told = abusiveModerationNote(verdict.reason)
+      await store.refuse({ id: report.id, reason: told, refusal: 'abusive' })
+      return { kind: 'refused', reason: told }
     }
 
     const spans = await model.mark({

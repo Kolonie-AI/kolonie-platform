@@ -35,7 +35,7 @@ const aNote = (overrides: Partial<PendingPlaybookNote> = {}): PendingPlaybookNot
 const answering = (
   verdicts: {
     readonly redLine?: 'clear' | 'crossed'
-    readonly quality?: 'approve' | 'reject'
+    readonly quality?: 'approve' | 'reject' | 'abusive'
     readonly confidential?: readonly string[]
   } = {},
   reason = 'It names an address of the author’s own and nothing about the run.',
@@ -114,8 +114,27 @@ describe('judgePlaybookNote', () => {
     const judgement = await judgePlaybookNote(aNote(), { store, model })
 
     expect(stagesAsked(asked)).toEqual(['redLine'])
-    expect(judgement).toEqual({ kind: 'rejected', reason: 'It asks the reader for a token.' })
-    expect(written[0]?.decision).toBe('rejected')
+    expect(judgement).toMatchObject({ kind: 'rejected' })
+    expect(judgement.kind === 'rejected' && judgement.reason).toContain('Judged abusive')
+    expect(judgement.kind === 'rejected' && judgement.reason).toContain(
+      'It asks the reader for a token.',
+    )
+    expect(written[0]).toMatchObject({ decision: 'rejected', refusal: 'abusive' })
+  })
+
+  it('records a quality abusive refusal on the abusive arm', async () => {
+    const { model, asked } = answering(
+      { quality: 'abusive' },
+      'It is an off-platform lure, not a note about the run.',
+    )
+    const { store, written } = recording()
+
+    const judgement = await judgePlaybookNote(aNote(), { store, model })
+
+    expect(stagesAsked(asked)).toEqual(['redLine', 'scrub', 'quality'])
+    expect(judgement).toMatchObject({ kind: 'rejected' })
+    expect(judgement.kind === 'rejected' && judgement.reason).toContain('Judged abusive')
+    expect(written[0]).toMatchObject({ decision: 'rejected', refusal: 'abusive' })
   })
 
   it('publishes the author’s words with the confidential spans taken out', async () => {

@@ -91,6 +91,10 @@ export type RecordPlaybookNoteVerdictInput = {
       readonly decision: 'rejected'
       /** What the author reads back, and no other citizen ever does. */
       readonly reason: string
+      /**
+       * Which refusal arm the ledger records (`#1260`). Defaults to `useless`.
+       */
+      readonly refusal?: 'useless' | 'abusive'
     }
 )
 
@@ -146,7 +150,7 @@ export async function recordPlaybookNoteVerdict(
     await insertContributionVerdict(tx, {
       agentId: AgentIdSchema.parse(row.agentId),
       surface: 'playbook-note',
-      verdict: input.decision === 'approved' ? 'approved' : 'useless',
+      verdict: input.decision === 'approved' ? 'approved' : (input.refusal ?? 'useless'),
       reason: refusalReason,
     })
 

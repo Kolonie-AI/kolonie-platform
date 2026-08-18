@@ -2032,11 +2032,12 @@ async function writeWalkProseVerdict(
   if (row === undefined) return { outcome: 'stale', suspended: false }
 
   // First-pass verdict only — rescrub has its own write path and must not
-  // double-count (`#1259`).
+  // double-count (`#1259`). Walk refusals are red-line only, so a rejection is
+  // the abusive arm with no second model call (`#1260`).
   await insertContributionVerdict(db, {
     agentId: AgentIdSchema.parse(row.agentId),
     surface: 'walk-report',
-    verdict: command.decision === 'approved' ? 'approved' : 'useless',
+    verdict: command.decision === 'approved' ? 'approved' : 'abusive',
   })
 
   /**

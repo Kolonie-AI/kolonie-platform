@@ -3,6 +3,8 @@ import {
   CONTRIBUTION_VERDICT_RETENTION_DAYS,
   ContributionSurfaceSchema,
   ContributionVerdictSchema,
+  abusiveModerationNote,
+  contributionVerdictForRefusal,
 } from './contribution-verdict.js'
 
 /**
@@ -34,18 +36,37 @@ describe('the contribution verdict vocabulary', () => {
     ])
   })
 
-  /**
-   * `abusive` is in the enum and unreachable until `#1260` splits the refusal
-   * arm. That is the assertion worth having: a reader who finds nothing writing
-   * it will be tempted to delete it, and deleting it means `#1260` ships a
-   * migration to put it back.
-   */
-  it('allows the refusal split #1260 has not made yet', () => {
+  /** Three arms, and the sanctioning one is the exception (`#1260`). */
+  it('names the three verdicts the ledger records', () => {
     expect([...ContributionVerdictSchema.options].sort()).toEqual([
       'abusive',
       'approved',
       'useless',
     ])
+  })
+
+  /**
+   * Red-line refusals are abusive with no second model call; quality's default
+   * refusal stays `useless`. The helper is the only place that folds the
+   * three causes onto the two refusal arms, so a caller that invents a fourth
+   * cause is a type error rather than a silent `useless`.
+   */
+  it('maps refusal causes onto the ledger arms', () => {
+    expect(contributionVerdictForRefusal('useless')).toBe('useless')
+    expect(contributionVerdictForRefusal('abusive')).toBe('abusive')
+    expect(contributionVerdictForRefusal('red-line')).toBe('abusive')
+  })
+
+  /**
+   * The citizen is told which verdict it got, and pointed at the appeal
+   * channel — both land in the same sentence the author already reads in
+   * `me.history`.
+   */
+  it('names the abusive verdict and the appeal in the author-facing note', () => {
+    const note = abusiveModerationNote('It asks the reader for a token.')
+    expect(note).toContain('Judged abusive')
+    expect(note).toContain('It asks the reader for a token.')
+    expect(note).toContain('kolonie.support.open')
   })
 
   /** A year, and the sweep in `packages/db` is measured against this number. */

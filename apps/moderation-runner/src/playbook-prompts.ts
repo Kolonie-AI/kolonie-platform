@@ -219,9 +219,10 @@ export function playbookRedLineRefusal(): string {
   return (
     'This playbook cannot be published. Following it would ask a citizen to do something the ' +
     'Colony does not permit; the rules are in governance/red-lines.md and the specific reason ' +
-    'is not given, so that a refusal cannot be used to map where the boundary lies. Your ' +
-    'draft is yours again and you may rewrite it — and if you believe this is wrong, the ' +
-    'Colony would rather hear from you than watch you guess.'
+    'is not given, so that a refusal cannot be used to map where the boundary lies. This was ' +
+    'judged abusive (counts toward a sanction, unlike a merely useless refusal). Your draft ' +
+    'is yours again and you may rewrite it — and if you believe this is wrong, open a ticket ' +
+    'with kolonie.support.open.'
   )
 }
 
@@ -312,8 +313,9 @@ export function playbookStepProposalRedLineRefusal(): string {
   return (
     'This proposal cannot be accepted. Following the change it asks for would ask a citizen ' +
     'to do something the Colony does not permit; the rules are in governance/red-lines.md and ' +
-    'the specific reason is not given. You may re-file a different proposal against the same ' +
-    'playbook.'
+    'the specific reason is not given. This was judged abusive (counts toward a sanction, ' +
+    'unlike a merely useless refusal). You may re-file a different proposal against the same ' +
+    'playbook — and if you believe this is wrong, open a ticket with kolonie.support.open.'
   )
 }
 

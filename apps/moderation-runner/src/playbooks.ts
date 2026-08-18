@@ -1,6 +1,7 @@
 import {
   ConfidentialSpanKindSchema,
   GUIDANCE_CONTENT_MIN_LENGTH,
+  abusiveModerationNote,
   noStagesRun,
   PLAYBOOK_RUN_PUBLISHED_NOTE_MAX_LENGTH,
   type ModerationStages,
@@ -73,6 +74,11 @@ export interface PlaybookModerationStore {
     readonly decision: 'approved' | 'rejected'
     /** What the author reads back. Required on a refusal, ignored on an approval. */
     readonly reason?: string | undefined
+    /**
+     * Which refusal arm the ledger records (`#1260`). Defaults to `useless`
+     * when omitted; red-line refusals pass `abusive`.
+     */
+    readonly refusal?: 'useless' | 'abusive'
     readonly model: string
     readonly stages: ModerationStages
     readonly judged: JudgedPlaybook
@@ -191,6 +197,7 @@ export async function judgePlaybook(
         answeredBy,
         playbookRedLineRefusal(),
         redLine.reason,
+        'abusive',
       )
     }
     stages.redLine = { outcome: 'clear' }
@@ -212,6 +219,7 @@ export async function judgePlaybook(
         answeredBy,
         playbookCorrectableRefusal(quality.reason),
         quality.reason,
+        'useless',
       )
     }
     stages.quality = { outcome: 'followable' }
@@ -233,6 +241,7 @@ export async function judgePlaybook(
         answeredBy,
         playbookCorrectableRefusal(confidentiality.reason),
         confidentiality.reason,
+        'useless',
       )
     }
     stages.confidentiality = { outcome: 'clean' }
@@ -274,11 +283,13 @@ async function refuse(
   model: string,
   told: string,
   reason: string,
+  refusal: 'useless' | 'abusive',
 ): Promise<PlaybookJudgement> {
   const written = await deps.store.record({
     playbookId: playbook.id,
     decision: 'rejected',
     reason: told,
+    refusal,
     model,
     stages,
     judged,
@@ -440,6 +451,13 @@ export interface PlaybookNoteLoopDependencies {
   readonly store: PlaybookNoteModerationStore
   readonly model: Model
   readonly log?: Log
+  /**
+   * Rewrite the playbook's briefing after a note is approved (`#1251`).
+   *
+   * Optional so existing tests keep compiling. Failures inside the rewrite must
+   * not throw into this tick — the note is already published.
+   */
+  readonly rewriteBriefing?: (playbookId: string) => Promise<void>
 }
 
 /** What one note's pass came to. */
@@ -515,12 +533,16 @@ export async function judgePlaybookNote(
 ): Promise<PlaybookNoteJudgement> {
   const { store, model, log = silentLog } = deps
 
-  const refuse = async (reason: string): Promise<PlaybookNoteJudgement> => {
+  const refuse = async (
+    reason: string,
+    refusal: 'useless' | 'abusive' = 'useless',
+  ): Promise<PlaybookNoteJudgement> => {
     const { outcome } = await store.record({
       runId: entry.runId,
       judged: entry.note,
       decision: 'rejected',
       reason,
+      refusal,
     })
     return outcome === 'stale' ? { kind: 'stale' } : { kind: 'rejected', reason }
   }
@@ -531,7 +553,9 @@ export async function judgePlaybookNote(
       user: [`Playbook: ${entry.playbookTitle}`, '', entry.note].join('\n'),
       choices: ['clear', 'crossed'],
     })
-    if (redLine.decision === 'crossed') return await refuse(redLine.reason)
+    if (redLine.decision === 'crossed') {
+      return await refuse(abusiveModerationNote(redLine.reason), 'abusive')
+    }
 
     const spans = await model.mark({
       system: CONFIDENTIALITY_PROMPT,
@@ -549,10 +573,13 @@ export async function judgePlaybookNote(
     ]
 
     const published = shortenToBound(redact(entry.note, present))
-    if (published === undefined) return await refuse(NOTHING_SURVIVED_THE_SCRUB)
+    if (published === undefined) return await refuse(NOTHING_SURVIVED_THE_SCRUB, 'useless')
 
     const quality = await judgePlaybookNoteQuality(entry, published, model)
-    if (quality.kind === 'useless') return await refuse(quality.reason)
+    if (quality.kind === 'useless') return await refuse(quality.reason, 'useless')
+    if (quality.kind === 'abusive') {
+      return await refuse(abusiveModerationNote(quality.reason), 'abusive')
+    }
 
     const { outcome } = await store.record({
       runId: entry.runId,
@@ -619,6 +646,8 @@ export async function playbookNoteTick(
           playbookId: entry.playbookId,
           verdict: 'approved',
         })
+        // Corpus moved: rewrite the briefing. Errors stay inside the rewrite.
+        await deps.rewriteBriefing?.(entry.playbookId)
         break
       case 'rejected':
         outcome.rejected++
@@ -851,6 +880,9 @@ export async function judgePlaybookStepProposal(
       judged,
       decision: 'rejected',
       reason,
+      // Red-line refusals are the abusive arm; every other refusal stays useless
+      // (`#1260`).
+      refusal: redLine ? 'abusive' : 'useless',
     })
     return outcome === 'stale' ? { kind: 'stale' } : { kind: 'rejected', reason, redLine }
   }
@@ -864,7 +896,6 @@ export async function judgePlaybookStepProposal(
       choices: ['clear', 'crossed'],
     })
     if (redLine.decision === 'crossed') {
-      // `#1260` will count this as abusive; until then the refusal is the mark.
       log.info(`a step proposal on ${entry.playbookTitle} crossed a red line`, {
         event: 'playbook.proposal.abusive',
         proposalId: entry.proposalId,
@@ -1014,6 +1045,13 @@ export interface PlaybookRevisionModerationStore {
 export interface PlaybookRevisionLoopDependencies {
   readonly store: PlaybookRevisionModerationStore
   readonly log?: Log
+  /**
+   * Rewrite the playbook's briefing after a revision is cut (`#1251`).
+   *
+   * Optional for the same reason the note hook is: tests that never configured
+   * storage still compile, and a failed rewrite must not undo the cut.
+   */
+  readonly rewriteBriefing?: (playbookId: string) => Promise<void>
 }
 
 export interface PlaybookRevisionTickOutcome {
@@ -1060,6 +1098,8 @@ export async function playbookRevisionTick(
           revision: result.revision,
           folded: result.folded,
         })
+        // Steps moved under existing claims: rewrite against the new revision.
+        await deps.rewriteBriefing?.(playbookId)
         break
       case 'incoherent':
         outcome.incoherent++

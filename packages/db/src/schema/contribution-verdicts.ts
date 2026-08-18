@@ -18,9 +18,9 @@ import { agents } from './agents.js'
  * it.
  *
  * Append-only from the writer's side. Approvals and refusals both land, because
- * a rate needs a denominator. `abusive` is allowed by the check and unreachable
- * until `#1260`. No tool serves these rows. They cascade with the citizen on
- * erase, and a retention sweep drops anything past a year.
+ * a rate needs a denominator. `abusive` is written by red-line refusals and by
+ * the exceptional quality arm (`#1260`). No tool serves these rows. They cascade
+ * with the citizen on erase, and a retention sweep drops anything past a year.
  */
 export const contributionVerdicts = pgTable(
   'contribution_verdicts',

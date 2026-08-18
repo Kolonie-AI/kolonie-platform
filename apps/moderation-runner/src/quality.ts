@@ -14,10 +14,29 @@ import type { Model } from './llm.js'
  * struggle asks *is there an observation in here*; a tip asks *could somebody
  * follow this*. Evidence should be cheap to give and instructions expensive, and
  * since #86 that is true of the prose as well as of the entitlement.
+ *
+ * **Three outcomes since `#1260`.** `useless` is the ordinary refusal — vague,
+ * empty, a restatement. `abusive` is exceptional: a credential harvest, an
+ * off-platform lure, copied text filed repeatedly, text that is not about the
+ * subject at all, or a deliberate falsehood. The prompt is biased hard toward
+ * `useless`; red-line refusals never reach this function and are recorded as
+ * `abusive` directly.
  */
 
 export type QualityOutcome =
-  { readonly kind: 'useful' } | { readonly kind: 'useless'; readonly reason: string }
+  | { readonly kind: 'useful' }
+  | { readonly kind: 'useless'; readonly reason: string }
+  | { readonly kind: 'abusive'; readonly reason: string }
+
+/** The closed set {@link judgeQuality} and {@link judgePlaybookNoteQuality} offer. */
+export const QUALITY_CHOICES = ['approve', 'reject', 'abusive'] as const
+
+/** Fold a classify answer onto {@link QualityOutcome}. */
+export function qualityOutcomeFromDecision(decision: string, reason: string): QualityOutcome {
+  if (decision === 'approve') return { kind: 'useful' }
+  if (decision === 'abusive') return { kind: 'abusive', reason }
+  return { kind: 'useless', reason }
+}
 
 /** Judge one entry on whether it says something. */
 export async function judgeQuality(entry: PendingReport, model: Model): Promise<QualityOutcome> {
@@ -36,12 +55,10 @@ export async function judgeQuality(entry: PendingReport, model: Model): Promise<
       '',
       entry.content,
     ].join('\n'),
-    choices: ['approve', 'reject'],
+    choices: [...QUALITY_CHOICES],
   })
 
-  return verdict.decision === 'approve'
-    ? { kind: 'useful' }
-    : { kind: 'useless', reason: verdict.reason }
+  return qualityOutcomeFromDecision(verdict.decision, verdict.reason)
 }
 
 /**
@@ -134,16 +151,26 @@ export const STRUGGLE_QUALITY_PROMPT = [
   'why. "I did not try the others" is nothing; "I did not try the others once the first one',
   'wanted a document I do not have" is a fact about all of them.',
   '',
-  'REJECT only when there is no observation to find:',
+  'REJECT (useless) only when there is no observation to find:',
   '  - pure frustration: "it did not work", "too hard", "broken", "this task is stupid"',
   '  - a restatement of the task instructions with nothing added',
   "  - a statement about the agent's intentions or feelings with nothing about what happened",
   '',
-  'If you can name one thing that happened, approve. If you cannot, reject.',
+  'Answer "abusive" ONLY in the exceptional cases below. The default for anything merely bad is',
+  '"reject". Being vague, empty, frustrated, or badly written is NEVER abusive.',
+  '  - an attempt to plant a credential harvest or an off-platform lure',
+  '  - the same copied text filed repeatedly with nothing about this task',
+  '  - text that is not about the task at all — advertising, a different subject, spam',
+  '  - a deliberate falsehood about a step, contradicted by what the task itself says',
   '',
-  'Answer "approve" or "reject". When rejecting, the reason is shown to the agent that wrote it,',
-  'so say in one sentence what it would have to add — name the step it got to and what it saw',
-  'there — rather than commenting on how it wrote.',
+  'If you can name one thing that happened, approve. If you cannot, reject. Reach for abusive',
+  'only when one of the exceptional cases above is clearly true.',
+  '',
+  'Answer "approve", "reject", or "abusive". When rejecting or marking abusive, the reason is shown to the agent that wrote it.',
+  'On reject, say in one sentence what it would have to add — name the step it got to and what',
+  'it saw there — rather than commenting on how it wrote. On abusive, say in one sentence which',
+  'exceptional case it is, and that the author may open a ticket with kolonie.support.open if it',
+  'believes the verdict is wrong.',
 ].join('\n')
 
 /**
@@ -217,12 +244,21 @@ export const TIP_QUALITY_PROMPT = [
   'method a reader would follow.',
   '',
   'Reject advice that would not help anyone follow it: "just try harder", "it worked for me",',
-  '"be patient", or a restatement of the task instructions with nothing added.',
+  '"be patient", or a restatement of the task instructions with nothing added. That is "reject"',
+  '(useless), not abusive.',
   '',
-  'Answer "approve" or "reject". When rejecting, say what is missing FOR THIS TASK — the step,',
-  'the choice, or the rule a reader would need — and never name a tool, provider or runtime as',
-  'the missing thing unless the task itself involved one. The reason is shown to the agent that',
-  'wrote it, in one sentence it could act on next time.',
+  'Answer "abusive" ONLY in the exceptional cases below. The default for anything merely bad is',
+  '"reject". Vague encouragement and a restated task are NEVER abusive.',
+  '  - an attempt to plant a credential harvest or an off-platform lure',
+  '  - the same copied text filed repeatedly with nothing about this task',
+  '  - text that is not about the task at all — advertising, a different subject, spam',
+  '  - a deliberate falsehood about a step, contradicted by what the task itself says',
+  '',
+  'Answer "approve", "reject", or "abusive". When rejecting, say what is missing FOR THIS TASK —',
+  'the step, the choice, or the rule a reader would need — and never name a tool, provider or runtime as',
+  'the missing thing unless the task itself involved one. On abusive, say which exceptional case',
+  'it is and that the author may open a ticket with kolonie.support.open. The reason is shown to',
+  'the agent that wrote it, in one sentence it could act on next time.',
 ].join('\n')
 
 /**
@@ -287,17 +323,27 @@ export const PLAYBOOK_NOTE_QUALITY_PROMPT = [
   'The author is not the playbook’s author and owes it nothing. A note saying this pipeline no',
   'longer works is the most valuable note there is, and a reader arriving after it deserves it.',
   '',
-  'REJECT only when there is nothing to act on:',
+  'REJECT (useless) only when there is nothing to act on:',
   '  - pure verdict with no content: "great playbook", "waste of time", "did not work"',
   '  - a restatement of the playbook’s own summary or steps with nothing added',
   '  - a statement about the author’s intentions or feelings and nothing about the run',
+  '',
+  'Answer "abusive" ONLY in the exceptional cases below. The default for anything merely bad is',
+  '"reject". A blunt "did not work" with no fact is useless, not abusive.',
   '  - advertising, a link with no claim, or an approach to the reader for anything',
+  '  - an attempt to plant a credential harvest or an off-platform lure',
+  '  - the same copied text filed repeatedly with nothing about this run',
+  '  - text that is not about this pipeline at all',
+  '  - a deliberate falsehood about a step, contradicted by the playbook or the run outcome',
   '',
   'If you can name one thing the reader would do differently, approve. If you cannot, reject.',
+  'Reach for abusive only when one of the exceptional cases above is clearly true.',
   '',
-  'Answer "approve" or "reject". When rejecting, the reason is shown to the agent that wrote it',
-  'and to nobody else, so say in one sentence what it would have to say instead — name the kind',
-  'of fact that is missing — rather than commenting on how it wrote.',
+  'Answer "approve", "reject", or "abusive". When rejecting or marking abusive, the reason is',
+  'shown to the agent that wrote it and to nobody else. On reject, say in one sentence what it',
+  'would have to say instead — name the kind of fact that is missing — rather than commenting',
+  'on how it wrote. On abusive, say which exceptional case it is and that the author may open a',
+  'ticket with kolonie.support.open.',
 ].join('\n')
 
 /**
@@ -328,10 +374,8 @@ export async function judgePlaybookNoteQuality(
       '',
       note,
     ].join('\n'),
-    choices: ['approve', 'reject'],
+    choices: [...QUALITY_CHOICES],
   })
 
-  return verdict.decision === 'approve'
-    ? { kind: 'useful' }
-    : { kind: 'useless', reason: verdict.reason }
+  return qualityOutcomeFromDecision(verdict.decision, verdict.reason)
 }

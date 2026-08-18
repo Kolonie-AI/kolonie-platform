@@ -1,11 +1,13 @@
 import {
   BRIEFING_TICK_MULTIPLIER,
   MODERATION_NOTE_MAX_LENGTH,
+  abusiveModerationNote,
   noStagesRun,
   silentLog,
   type BriefingClaim,
   type ConfidentialSpan,
   type ModerationStages,
+  type PlaybookBriefingClaim,
   type ProviderBriefingClaim,
   type ReportKind,
   type Log,
@@ -32,6 +34,11 @@ import type {
 import { markConfidential } from './confidentiality.js'
 import { synthesise } from './synthesis.js'
 import { describeProvider, synthesiseProvider } from './provider-synthesis.js'
+import {
+  synthesisePlaybook,
+  type PlaybookRunSource,
+  type PlaybookText,
+} from './playbook-synthesis.js'
 import { respondToChange, type Tripwire } from './tripwire.js'
 import { findDuplicate } from './dedup.js'
 import { heldQuestTick, questTick, type QuestLoopDependencies } from './quests.js'
@@ -337,13 +344,15 @@ export async function judge(entry: PendingReport, deps: LoopDependencies): Promi
     }
 
     if (redLine.kind === 'crossed') {
+      // Red-line refusals are abusive with no second model call (`#1260`).
+      const told = note(abusiveModerationNote(redLine.reason))
       return await write(
         entry,
-        { decision: 'reject', note: note(redLine.reason) },
+        { decision: 'reject', note: told, refusal: 'abusive' },
         deps,
         stages,
         confidentialSpans,
-        { kind: 'rejected', reason: redLine.reason },
+        { kind: 'rejected', reason: told },
       )
     }
 
@@ -353,17 +362,30 @@ export async function judge(entry: PendingReport, deps: LoopDependencies): Promi
       quality:
         quality.kind === 'useful'
           ? { outcome: 'approve' }
-          : { outcome: 'reject', reason: note(quality.reason) },
+          : {
+              // `abusive` is its own outcome so an audit row can tell the two
+              // refusal arms apart without reading the ledger (`#1260`).
+              outcome: quality.kind === 'abusive' ? 'abusive' : 'reject',
+              reason: note(quality.reason),
+            },
     }
 
-    if (quality.kind === 'useless') {
+    if (quality.kind === 'useless' || quality.kind === 'abusive') {
+      const told =
+        quality.kind === 'abusive'
+          ? note(abusiveModerationNote(quality.reason))
+          : note(quality.reason)
       return await write(
         entry,
-        { decision: 'reject', note: note(quality.reason) },
+        {
+          decision: 'reject',
+          note: told,
+          refusal: quality.kind === 'abusive' ? 'abusive' : 'useless',
+        },
         deps,
         stages,
         confidentialSpans,
-        { kind: 'rejected', reason: quality.reason },
+        { kind: 'rejected', reason: told },
       )
     }
 
@@ -1517,6 +1539,25 @@ export interface ProviderBriefingStore {
   describe(input: ProviderKey & { readonly description: string }): Promise<boolean>
 }
 
+/**
+ * Where the playbook briefing is read and written (`#1251`).
+ *
+ * **No dirty queue yet.** A note approval or a revision cut calls
+ * {@link synthesisePlaybookNow} directly. Batching behind a flag is a later
+ * cost once the corpus is busy enough that one approval per synthesis is the
+ * expensive shape; until then the write at the end of each synthesis is the
+ * whole of what this issue ships.
+ */
+export interface PlaybookBriefingStore {
+  subject(playbookId: string): Promise<PlaybookText | undefined>
+  corpus(playbookId: string): Promise<readonly PlaybookRunSource[]>
+  write(
+    playbookId: string,
+    claims: readonly PlaybookBriefingClaim[],
+    revision: number,
+  ): Promise<void>
+}
+
 export interface BriefingDependencies {
   readonly store: BriefingStore
   /**
@@ -2038,6 +2079,112 @@ export async function synthesiseProviderNow(
     log.error(`could not write the briefing for ${provider}`, error, {
       event: 'provider.briefing.failed',
       provider,
+    })
+    return 'failed'
+  }
+}
+
+/**
+ * Rewrite one playbook's briefing from its moderated note corpus (`#1251`).
+ *
+ * **Storage is this function's job; synthesis is not.** `synthesisePlaybook`
+ * is the pure function `#1250` shipped; this is the call that persists what it
+ * returns and is what a note approval or a revision cut reaches for. Failures
+ * log and return — a briefing that stays one approval behind is better than
+ * one that blocks the note queue.
+ */
+export async function synthesisePlaybookNow(
+  store: PlaybookBriefingStore,
+  model: Model,
+  playbookId: string,
+  log: Log,
+): Promise<SynthesisOutcome> {
+  try {
+    const playbook = await store.subject(playbookId)
+    if (playbook === undefined) {
+      log.warn(`playbook ${playbookId} vanished before its briefing could be written`, {
+        event: 'playbook.briefing.missing',
+        playbookId,
+      })
+      return 'failed'
+    }
+
+    const corpus = await store.corpus(playbookId)
+    const { claims, proposed, unsourced, blank, overlong } = await synthesisePlaybook(
+      { playbook, corpus },
+      model,
+    )
+    await store.write(playbookId, claims, playbook.revision)
+
+    if (claims.length === 0) {
+      log.info(
+        `no briefing for playbook ${playbookId}: nothing to say from ${corpus.length} notes`,
+        {
+          event: 'playbook.briefing.none',
+          playbookId,
+          notes: corpus.length,
+        },
+      )
+    } else {
+      log.info(
+        `briefing for playbook ${playbookId} written from ${corpus.length} notes, ${claims.length} claims`,
+        {
+          event: 'playbook.briefing.written',
+          playbookId,
+          notes: corpus.length,
+          claims: claims.length,
+        },
+      )
+    }
+
+    if (corpus.length > 0 && claims.length === 0) {
+      const because =
+        proposed === 0
+          ? 'the model proposed no claims at all'
+          : `the model proposed ${proposed}, and every one was dropped here ` +
+            `(${unsourced} naming no note in the corpus, ${blank} with empty text, ` +
+            `${overlong} running past the length bound)`
+
+      log.warn(
+        `briefing for playbook ${playbookId} is empty over ${corpus.length} moderated notes — ${because}`,
+        {
+          event: 'playbook.briefing.empty',
+          playbookId,
+          notes: corpus.length,
+          proposed,
+          unsourced,
+          blank,
+          overlong,
+        },
+      )
+    }
+
+    if (overlong > 0) {
+      log.warn(
+        `${overlong} claim(s) for playbook ${playbookId} ran past the length bound and were dropped`,
+        {
+          event: 'playbook.briefing.claim.overlong',
+          playbookId,
+          overlong,
+          proposed,
+        },
+      )
+    }
+
+    return 'written'
+  } catch (error) {
+    if (error instanceof ProviderUnreachable) {
+      log.warn(`briefing for playbook ${playbookId} deferred — ${error.message}`, {
+        event: 'playbook.briefing.unreachable',
+        playbookId,
+        endpoint: error.endpoint,
+      })
+      return 'unreachable'
+    }
+
+    log.error(`could not write the briefing for playbook ${playbookId}`, error, {
+      event: 'playbook.briefing.failed',
+      playbookId,
     })
     return 'failed'
   }

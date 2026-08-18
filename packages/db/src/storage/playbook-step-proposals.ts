@@ -359,6 +359,10 @@ export type RecordPlaybookStepProposalVerdictInput = {
   | {
       readonly decision: 'rejected'
       readonly reason: string
+      /**
+       * Which refusal arm the ledger records (`#1260`). Defaults to `useless`.
+       */
+      readonly refusal?: 'useless' | 'abusive'
     }
   | {
       readonly decision: 'superseded'
@@ -478,7 +482,7 @@ export async function recordPlaybookStepProposalVerdict(
       await insertContributionVerdict(tx, {
         agentId: AgentIdSchema.parse(row.agentId),
         surface: 'step-proposal',
-        verdict: 'useless',
+        verdict: input.refusal ?? 'useless',
         reason,
       })
       return { outcome: 'written' as const, superseded: 0 }

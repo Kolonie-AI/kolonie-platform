@@ -989,7 +989,16 @@ export async function approvedOnTask(
 /** What a moderator decided about one entry. */
 export type ModerationVerdict =
   | { readonly decision: 'approve' }
-  | { readonly decision: 'reject'; readonly note: string }
+  | {
+      readonly decision: 'reject'
+      readonly note: string
+      /**
+       * Which refusal arm the ledger records (`#1260`). Defaults to `useless`
+       * when omitted, so a caller that has not yet split the arm stays correct
+       * rather than silently abusive.
+       */
+      readonly refusal?: 'useless' | 'abusive'
+    }
   | { readonly decision: 'merge'; readonly duplicateOf: string }
 
 /**
@@ -1201,7 +1210,9 @@ export async function recordModeration(
         agentId: AgentIdSchema.parse(authorId),
         surface: 'task-report',
         // A merge counts the agent (`recordModeration` doc) — record as approved.
-        verdict: input.verdict.decision === 'reject' ? 'useless' : 'approved',
+        // Refusal arm is `useless` unless the runner named `abusive` (`#1260`).
+        verdict:
+          input.verdict.decision === 'reject' ? (input.verdict.refusal ?? 'useless') : 'approved',
         reason: input.verdict.decision === 'reject' ? input.verdict.note : undefined,
       })
     }

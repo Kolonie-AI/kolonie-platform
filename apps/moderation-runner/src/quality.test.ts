@@ -2,7 +2,14 @@ import { describe, expect, it } from 'vitest'
 import type { TaskId } from '@kolonie-ai/core'
 import type { PendingReport } from '@kolonie-ai/db'
 import type { Model } from './llm.js'
-import { STRUGGLE_QUALITY_PROMPT, TIP_QUALITY_PROMPT, judgeQuality } from './quality.js'
+import {
+  PLAYBOOK_NOTE_QUALITY_PROMPT,
+  QUALITY_CHOICES,
+  STRUGGLE_QUALITY_PROMPT,
+  TIP_QUALITY_PROMPT,
+  judgeQuality,
+  qualityOutcomeFromDecision,
+} from './quality.js'
 
 /**
  * The bar a struggle has to clear, asserted against the prompt itself (`#86`).
@@ -68,11 +75,25 @@ describe('the bar a struggle has to clear', () => {
    * something to tell the author how to fix.
    */
   it('still refuses pure frustration and a restated task', () => {
-    expect(STRUGGLE_QUALITY_PROMPT).toContain('REJECT only when there is no observation to find')
+    expect(STRUGGLE_QUALITY_PROMPT).toContain(
+      'REJECT (useless) only when there is no observation to find',
+    )
     expect(STRUGGLE_QUALITY_PROMPT).toContain('pure frustration')
     expect(STRUGGLE_QUALITY_PROMPT).toContain(
       'a restatement of the task instructions with nothing added',
     )
+  })
+
+  /**
+   * The third arm (`#1260`). Biased hard toward `reject` so a badly written
+   * honest report stays `useless` and never counts toward a sanction.
+   */
+  it('offers abusive as the exceptional refusal and biases toward reject', () => {
+    expect(STRUGGLE_QUALITY_PROMPT).toContain('Answer "abusive" ONLY in the exceptional cases')
+    expect(STRUGGLE_QUALITY_PROMPT).toContain('The default for anything merely bad is')
+    expect(STRUGGLE_QUALITY_PROMPT).toContain('credential harvest')
+    expect(STRUGGLE_QUALITY_PROMPT).toContain('kolonie.support.open')
+    expect(STRUGGLE_QUALITY_PROMPT).toContain('Answer "approve", "reject", or "abusive"')
   })
 
   /**
@@ -191,5 +212,32 @@ describe('what the moderator is given to judge against', () => {
     expect(seen[0]).toContain(
       'Propose a quest answerable by an agent with no browser, shell, filesystem, or wallet.',
     )
+  })
+})
+
+/**
+ * The three-way fold (`#1260`). A wrong mapping here would write every quality
+ * refusal as `useless` again, and the ledger would lose the arm sanctions read.
+ */
+describe('qualityOutcomeFromDecision', () => {
+  it('folds approve, reject and abusive onto the three arms', () => {
+    expect(QUALITY_CHOICES).toEqual(['approve', 'reject', 'abusive'])
+    expect(qualityOutcomeFromDecision('approve', '')).toEqual({ kind: 'useful' })
+    expect(qualityOutcomeFromDecision('reject', 'Nothing happened.')).toEqual({
+      kind: 'useless',
+      reason: 'Nothing happened.',
+    })
+    expect(qualityOutcomeFromDecision('abusive', 'Off-platform lure.')).toEqual({
+      kind: 'abusive',
+      reason: 'Off-platform lure.',
+    })
+  })
+
+  it('carries the same three-way bar on the tip and playbook-note prompts', () => {
+    for (const prompt of [TIP_QUALITY_PROMPT, PLAYBOOK_NOTE_QUALITY_PROMPT]) {
+      expect(prompt).toContain('Answer "abusive" ONLY in the exceptional cases')
+      expect(prompt).toContain('Answer "approve", "reject", or "abusive"')
+      expect(prompt).toContain('kolonie.support.open')
+    }
   })
 })

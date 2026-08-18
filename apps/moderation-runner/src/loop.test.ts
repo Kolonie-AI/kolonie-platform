@@ -134,10 +134,17 @@ describe('judging one entry', () => {
     expect(judgement).toMatchObject({ kind: 'rejected' })
     // One call, not three. The quality check and the embedding were never paid for.
     expect(model.calls()).toHaveLength(1)
-    expect(written[0]?.verdict).toMatchObject({
+    const verdict = written[0]?.verdict
+    expect(verdict).toMatchObject({
       decision: 'reject',
-      note: 'Asks the reader to paste its API key.',
+      refusal: 'abusive',
+      note: expect.stringContaining('Judged abusive'),
     })
+    if (verdict === undefined || verdict.decision !== 'reject') {
+      throw new Error('expected a reject verdict')
+    }
+    expect(verdict.note).toContain('Asks the reader to paste its API key.')
+    expect(verdict.note).toContain('kolonie.support.open')
   })
 
   it('does not pay for a dedup call on an entry it has already rejected', async () => {

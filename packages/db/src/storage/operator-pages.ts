@@ -115,6 +115,16 @@ export interface OperatorPageFacts {
 
 /** What the operator sees when the page opens. */
 export interface OperatorPageView {
+  /**
+   * The agent this page is about (`#1265`).
+   *
+   * **Resolved from the token, never from the caller.** The page already names
+   * the agent; the id is what lets a link point at `/agents/:agentId/autonomy`
+   * without the renderer inventing a subject of its own. Disclosing it is fine
+   * — the page already displays the agent, and the link is words, not a
+   * permission (D-081).
+   */
+  readonly agentId: AgentId
   readonly agentName: string
   readonly contract: StoredAutonomyContract | null
   /**
@@ -253,6 +263,7 @@ export async function openOperatorPage(
   const facts = await operatorPageFacts(db, row.agentId as AgentId, agent?.created_at)
 
   return {
+    agentId: row.agentId as AgentId,
     agentName: agent?.name ?? '',
     contract,
     contractAlsoCovered,

@@ -33,6 +33,8 @@ export async function operatorPageBody(
   token: string,
   action: string,
   view: {
+    /** The subject the token named (`#1265`) — what the Autonomy console link needs. */
+    agentId: OperatorPageView['agentId']
     agentName: string
     badges: OperatorPageView['badges']
     contract: OperatorPageView['contract']
@@ -76,6 +78,7 @@ export async function operatorPageBody(
   ])
 
   return operatorDurablePage({
+    agentId: view.agentId,
     agentName: view.agentName,
     // The wall (`#241`), resolved with the page's own subject: the token
     // names the agent, and nothing here takes an id from the caller.
@@ -130,4 +133,16 @@ export async function operatorPageBody(
 /** Where the console's door posts, for one agent. Both routes derive it from here. */
 export function consoleOperatorPath(agentId: string): string {
   return `/agents/${agentId}/operator`
+}
+
+/**
+ * Where a contract is revised (`#1265`).
+ *
+ * **A pointer, not a permission.** The durable page and the thank-you page both
+ * name this path so an operator who changes their mind is not told to ask the
+ * agent whose permissions they are revising. Signing in is still what authorises
+ * the revise form; the link is words (D-081).
+ */
+export function consoleAutonomyPath(agentId: string): string {
+  return `/agents/${agentId}/autonomy`
 }

@@ -243,6 +243,9 @@ export function fakeOperatorPages(): FakeOperatorPages {
       if (row === undefined) return Promise.resolve(null)
       opened.set(token, new Date().toISOString())
       return Promise.resolve({
+        // The subject the token named (`#1265`) — what a link to the console's
+        // Autonomy page needs, and never something the caller sent.
+        agentId: row.agentId,
         agentName: names.get(row.agentId) ?? 'canary',
         contract: contracts.get(row.agentId) ?? null,
         // Nothing by default (`#514`): a contract answered on its own form

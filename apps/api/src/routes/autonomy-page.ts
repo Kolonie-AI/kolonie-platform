@@ -191,7 +191,7 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
     return reply
       .headers(CONSOLE_HEADERS)
       .type('text/html')
-      .send(autonomyDonePage(form.agentName, telegramLink))
+      .send(autonomyDonePage(form.agentName, String(form.agentId), telegramLink))
   })
 
   /**
@@ -217,6 +217,7 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
   const pageFor = async (
     token: string,
     view: {
+      agentId: OperatorPageView['agentId']
       agentName: string
       badges: OperatorPageView['badges']
       contract: OperatorPageView['contract']

@@ -417,9 +417,23 @@ export function autonomyFormPage(input: {
     : page({ ...rendered, signedIn: true, nav: input.nav })
 }
 
-/** What the operator sees afterwards. There is nothing further for them to do. */
-export function autonomyDonePage(agentName: string, telegramLink?: string | undefined): string {
+/**
+ * What the operator sees afterwards.
+ *
+ * **The contract is revisable at the console (`#1265`).** The sentence that used
+ * to send them back to the agent for a fresh form is gone — `/agents/:agentId/autonomy`
+ * already revises, and naming that path is words rather than a permission
+ * (D-081). The link discloses the agent id, which this page already names.
+ */
+export function autonomyDonePage(
+  agentName: string,
+  agentId: string,
+  telegramLink?: string | undefined,
+): string {
   const name = escape(agentName)
+  // Same path `consoleAutonomyPath` names — kept inline so this file does not
+  // import the body that imports it (`#1265`).
+  const autonomyHref = escape(`/agents/${agentId}/autonomy`)
 
   return page({
     title: 'Recorded',
@@ -427,7 +441,11 @@ export function autonomyDonePage(agentName: string, telegramLink?: string | unde
       '<h1>Recorded — thank you</h1>',
       `<p>${name} can read this now, and will act on it.</p>`,
       '<p class="note">Nothing else is expected of you and the Colony will not write to you',
-      'about this again. If you change your mind, ask your agent to send a new form.</p>',
+      'about this again. If you change your mind later, sign in at the console and open',
+      `<a href="${autonomyHref}">${name}&rsquo;s Autonomy page</a>`,
+      '— that is where a contract is revised. A first sign-in needs a link code, which you',
+      'generate in the console and hand to the agent to redeem with',
+      '<code>kolonie.operator.link</code>.</p>',
       /**
        * The Telegram offer, at the one moment it is worth making (`#793`).
        *
@@ -545,6 +563,15 @@ export function autonomyClosedPage(): string {
  * the request's words. See D-081.
  */
 export function operatorDurablePage(input: {
+  /**
+   * The agent this page is about (`#1265`).
+   *
+   * **From the token, never from the caller.** Needed so a link can point at
+   * `/agents/:agentId/autonomy` without the renderer inventing a subject. The
+   * page already names the agent; disclosing the id is fine, and the link is
+   * words rather than a permission (D-081).
+   */
+  readonly agentId: string
   readonly agentName: string
   /**
    * What the Colony has given this agent, for no reason it had to earn (`#241`).
@@ -595,6 +622,13 @@ export function operatorDurablePage(input: {
     readonly defaultRule: string
     readonly operatorRoute: string
     readonly recordedAt: string
+    /**
+     * When the contract says *unreviewed* (`#1265`, `#146`).
+     *
+     * **A review date, not an expiry.** Past it, the page prompts; nothing
+     * stops working and no mail is sent. The Colony never initiates.
+     */
+    readonly reviewDueAt: string
     /**
      * The operator's other agents the same form answered for (`#514`).
      *
@@ -979,13 +1013,42 @@ export function operatorDurablePage(input: {
                 )}</td></tr>`,
               ]),
           '</table>',
-          '<p class="note">There is nothing here to change — if you want to record something',
-          'different, ask the agent to send you a fresh form.</p>',
+          /**
+           * Point at the console revise form (`#1265`).
+           *
+           * **A pointer, not a permission.** The page stays read-only — D-081
+           * stands. `/agents/:agentId/autonomy` is where a contract is revised,
+           * and naming that path is words. The sentence that used to send the
+           * operator back to the agent for a fresh form is gone.
+           */
+          `<p class="note">To record something different, sign in at the console and open ` +
+            `<a href="${escape(`/agents/${input.agentId}/autonomy`)}">${name}&rsquo;s Autonomy page</a>` +
+            '. A first sign-in needs a link code, which you generate in the console and hand ' +
+            'to the agent to redeem with <code>kolonie.operator.link</code>.</p>',
+          /**
+           * Past the review date (`#1265`, `#146`).
+           *
+           * **A prompt, and nothing else.** The contract still holds; the Colony
+           * does not mail. Same link as above — one place to revise.
+           */
+          ...(Date.parse(input.contract.reviewDueAt) < Date.now()
+            ? [
+                `<p class="note">This contract is past its review date, which means unreviewed ` +
+                  `and nothing else — it still holds. Review it on ` +
+                  `<a href="${escape(`/agents/${input.agentId}/autonomy`)}">${name}&rsquo;s Autonomy page</a>.</p>`,
+              ]
+            : []),
           ...(input.contract.alsoCovered === undefined || input.contract.alsoCovered.length === 0
             ? []
             : [
+                /**
+                 * Same substitution as the note above (`#1265`), without a deep
+                 * link: `alsoCovered` carries names and not ids, so the page
+                 * cannot point at a sibling's Autonomy path. The console is
+                 * still what revises; the agent is no longer asked for a form.
+                 */
                 '<p class="note">Each of those keeps its own contract. Changing one changes only',
-                'that one — ask the agent whose terms you want to alter for a fresh form.</p>',
+                'that one — sign in at the console and open that agent&rsquo;s Autonomy page.</p>',
               ]),
         ]
 

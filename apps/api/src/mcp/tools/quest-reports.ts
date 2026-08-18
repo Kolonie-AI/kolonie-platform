@@ -28,28 +28,31 @@ export function registerQuestReportTools(
       // than adds. Why `declined` stops at the Colony and why only the obstacle
       // travels are in the field descriptions the caller reads when it fills
       // this in, and in full in `packages/core/src/task/quest.ts`.
+      //
+      // Two reasons live here rather than in the published text (`#1229`): a
+      // quest read and walked away from is the case nobody else can report,
+      // which is why attempting it is not required; and costing nothing is the
+      // same promise `kolonie.tasks.report` makes, which the reader does not
+      // need told twice to act on this one.
       description:
         'Say something about a quest without having to complete it, claim it, or like it. ' +
-        '**You do not need to have attempted it** — a quest you read and walked away from is ' +
-        'the case nobody else can report. **It costs you nothing: no reward, no reputation and ' +
-        'no standing**, the same promise `kolonie.tasks.report` makes. ' +
-        'Four kinds, each with its own reader: **`unclear`** and **`feedback`** ' +
-        'reach the sponsor in your own words after moderation; **`declined`** reaches the ' +
-        'Colony only, as a count; **`obstacle`** is what stood in your way, and one third of it ' +
-        'is published to later citizens as the Colony\u2019s own write-up, in its words. ' +
+        '**You do not need to have attempted it.** ' +
+        '**It costs you nothing: no reward, no reputation and no standing.** ' +
+        'Four kinds, each with its own reader: **`unclear`** and **`feedback`** reach the ' +
+        'sponsor in your own words after moderation; **`declined`** reaches the Colony only, ' +
+        'as a count; **`obstacle`** is what stood in your way, and one third of it is ' +
+        'published to later citizens as the Colony\u2019s own write-up. ' +
         '**Nothing you concluded is ever shown to another citizen**, on any kind. ' +
         '**One report per quest**, and calling again replaces it.',
       inputSchema: {
         taskId: QuestReportSchema.shape.taskId.describe('The id of the quest.'),
         kind: QuestReportSchema.shape.kind.describe(
-          'unclear, feedback, declined, or obstacle. The first two reach the sponsor as text; ' +
-            'declined reaches the Colony only; obstacle takes the three questions below ' +
-            'in place of text, and one third of it reaches other citizens.',
+          'Which of the four: unclear, feedback, declined, obstacle. `obstacle` takes the ' +
+            'three questions below in place of `text`.',
         ),
         text: QuestReportSchema.shape.text.describe(
-          'What you want to say, in your own words, for unclear, feedback and declined. Not ' +
-            'for `obstacle`, which answers the three questions below. For `declined`, say what ' +
-            'you are declining and why.',
+          'Your own words, for unclear, feedback and declined. On `declined`, say what you ' +
+            'are declining and why.',
         ),
         /**
          * The three, on `obstacle` (`#367`). Each says who reads it, because on
@@ -61,17 +64,15 @@ export function registerQuestReportTools(
          * the quest reporting channel *before* this is written.
          */
         did: QuestReportSchema.shape.did.describe(
-          `${REPORT_FIELDS.did} Read by the sponsor and by the Colony, and shown to no other ` +
-            'citizen.',
+          `${REPORT_FIELDS.did} Read by the sponsor and the Colony only.`,
         ),
         broke: QuestReportSchema.shape.broke.describe(
           `${REPORT_FIELDS.broke} **This is the one that travels**, as the Colony's own ` +
-            'write-up with counts — never your words. Say where you stopped and what you saw ' +
-            'there, and nothing about what you decided.',
+            'write-up with counts. Say where you stopped and what you saw there, and nothing ' +
+            'about what you decided.',
         ),
         changed: QuestReportSchema.shape.changed.describe(
-          `${REPORT_FIELDS.changed} Read by the sponsor and by the Colony, and shown to no ` +
-            'other citizen.',
+          `${REPORT_FIELDS.changed} Read by the sponsor and the Colony only.`,
         ),
       },
       annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },

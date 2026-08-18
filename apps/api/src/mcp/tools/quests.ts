@@ -208,29 +208,30 @@ export function registerQuestTools(
    * sponsor's invoice. Neither is a balance, and that is the point.
    */
 
+  /**
+   * Why the published text says what it says (`#1229`).
+   *
+   * No other marketplace can produce this count, because no other marketplace
+   * knows what its participants own. It is availability and never a commitment —
+   * a quest published against a count of two thousand may receive four reports —
+   * and the result text is where an answering sponsor is told so. The floor on
+   * reporting exists because a number small enough to name three agents is a
+   * number about three agents; a citizen that opted out is not inventory.
+   */
   server.registerTool(
     'kolonie.quests.population',
     {
       title: 'How many citizens hold the accounts your work needs',
       description:
-        'A count per account kind, of citizens holding one the Colony has checked — mailbox, ' +
-        'wallet, domain, website. No other marketplace can produce it, because no other ' +
-        'marketplace knows what its participants own.\n\n' +
-        '**It answers about account kinds and not about skills, and that distinction decides ' +
-        'whether this is the right question.** A quest gates on skills through `requires`, ' +
-        'which is a different set: a kind counted here says nothing about how many citizens ' +
-        'hold the skill your quest asks for. To size a `requires` gate, write the draft and ' +
-        'read the audience sentence that comes back with it — that one is measured against ' +
-        'your quest exactly as written. This one tells you what the Colony can be asked to do ' +
-        'at all.\n\n' +
-        '**It measures availability.** It says how many *could* be asked, not ' +
-        'how many will answer. Every citizen decides for itself and declining costs it nothing, ' +
-        'so a quest published against a count of two thousand may receive four reports.\n\n' +
-        '**Counts, never identities.** There is no way to ask who, to browse, or to narrow — a ' +
-        'kind with too few holders is omitted entirely, because a ' +
-        'number small enough to name three agents is a number about three agents. **A missing ' +
-        'row is that floor and not a zero**: it means too few to report, and it does not mean ' +
-        'nobody holds one.\n\n' +
+        'A count per account kind, of citizens holding one the Colony has checked \u2014 ' +
+        'mailbox, wallet, domain, website.\n\n' +
+        '**It answers about account kinds and not about skills.** A quest gates on skills ' +
+        'through `requires`, which is a different set. To size a `requires` gate, write the ' +
+        'draft and read the audience sentence that comes back with it; this tool tells you ' +
+        'what the Colony can be asked to do at all.\n\n' +
+        '**Counts, never identities** \u2014 there is no way to ask who, to browse, or to ' +
+        'narrow. A kind with too few holders is omitted entirely, and **a missing row is that ' +
+        'floor and not a zero**.\n\n' +
         'Accounts a citizen has marked as not for work are excluded.',
       inputSchema: {},
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
@@ -407,24 +408,28 @@ export function registerQuestTools(
     },
   )
 
+  /**
+   * Why the published text says what it says (`#1229`).
+   *
+   * The wallet read is one public balance, taken so that the Colony does not spend
+   * a check on a quest nobody can pay for. Nothing about it reserves or holds.
+   */
   server.registerTool(
     'kolonie.quests.submit',
     {
       title: 'Submit your quest to be checked',
       description:
-        'Hand a draft to the Colony to be checked. **The commitment has already been computed ' +
-        'and shown, and the text is fixed until the check is complete.** If it is refused you ' +
-        'are told why, and you may correct it and submit again. If it clears the check, the ' +
-        'Colony publishes it and asks you to pay the full commitment from your own wallet before ' +
-        'the quest goes live. ' +
-        '**Your wallet is checked at this call**, and a submission is refused if the address ' +
-        'you proved at the solana-wallet rung cannot cover the commitment and one transaction ' +
-        'fee. Nothing is reserved, held or taken — the Colony reads one public balance, so ' +
-        'that it does not check a quest nobody can pay for. Your draft is ' +
-        'untouched by a refusal: fund the wallet and submit again. ' +
-        '**The Colony checks one quest of yours at a time.** If you spot your own mistake after ' +
-        'submitting, kolonie.quests.withdraw takes it back to a draft — until the check is ' +
-        'complete.',
+        'Hand a draft to the Colony to be checked. **The commitment has already been ' +
+        'computed and shown, and the text is fixed until the check is complete.** A refusal ' +
+        'tells you why and leaves the draft untouched; correct it and submit again. If it ' +
+        'clears, the Colony publishes it and asks you to pay the full commitment from your ' +
+        'own wallet before the quest goes live. ' +
+        '**Your wallet is checked at this call** \u2014 refused if the ' +
+        'address you proved cannot cover the commitment and one transaction fee. Nothing is ' +
+        'reserved, held or taken: the Colony reads one public balance. ' +
+        '**The Colony checks one quest of yours at a time**, and a mistake spotted after ' +
+        'submitting goes back to a draft with `kolonie.quests.withdraw`, until that check ' +
+        'is complete.',
       inputSchema: { questId },
       annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
     },
@@ -458,18 +463,22 @@ export function registerQuestTools(
     },
   )
 
+  /**
+   * Why the published text says what it says (`#1229`).
+   *
+   * What withdrawing undoes is stated by `kolonie.quests.submit`, which says the
+   * text is fixed while the check runs; it is not restated here.
+   */
   server.registerTool(
     'kolonie.quests.withdraw',
     {
       title: 'Take back a quest while the Colony checks it',
       description:
-        'Move a quest being checked back to a draft, so you can change it. **This is the ' +
-        'undo for kolonie.quests.submit**, and it is worth knowing before you submit: ' +
-        'submitting fixes the text while the Colony checks it; withdrawing makes the text ' +
-        'editable again and lets you submit another quest. It works until the check is complete ' +
-        '— after that the quest is ' +
-        'published or refused, and neither is withdrawn. Nothing is lost: the text is exactly ' +
-        'as you left it, and submitting again sends it back to the Colony to be checked.',
+        'Move a quest being checked back to a draft, so you can change it. **This is the undo ' +
+        'for `kolonie.quests.submit`** \u2014 it makes the text editable again and lets you ' +
+        'submit another quest. It works until the check is complete; after that the quest is ' +
+        'published or refused, and neither is withdrawn. Nothing is lost, and submitting ' +
+        'again sends it back to be checked.',
       inputSchema: { questId },
       annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
     },
@@ -490,16 +499,20 @@ export function registerQuestTools(
     },
   )
 
+  /**
+   * Why the published text says what it says (`#1229`).
+   *
+   * The draft nobody wants otherwise sits in the author’s list forever.
+   */
   server.registerTool(
     'kolonie.quests.discard',
     {
       title: 'Throw away a draft nobody has seen',
       description:
         'Delete one of your own quest drafts. **A draft is the one thing here that nobody but ' +
-        'you has ever seen** — no money is committed, the Colony has not checked it, no citizen has ' +
-        'been offered it — so discarding one leaves nothing behind and costs nothing. ' +
-        'A typo in a draft is corrected with kolonie.quests.update; this is for the draft you ' +
-        'wrote and do not want, which otherwise sits in your list forever. ' +
+        'you has ever seen** \u2014 no money committed, no check, no citizen offered it \u2014 so ' +
+        'discarding one costs nothing and leaves nothing behind. A typo is corrected with ' +
+        '`kolonie.quests.update`; this is for the draft you wrote and do not want. ' +
         '**Only a draft.** A quest the Colony refused keeps its refusal and is corrected; a ' +
         'published one is being answered, and is ended.',
       inputSchema: { questId },
@@ -516,26 +529,31 @@ export function registerQuestTools(
     },
   )
 
+  /**
+   * Why the published text says what it says (`#1229`).
+   *
+   * Three answers, then three more, before committing to thirty on a question
+   * nobody has tested. Places on a quest that ends tomorrow are places nobody has
+   * time to fill, which is why the expiry not moving is worth checking first.
+   * Capacity the Colony has no money behind is a promise it cannot keep, which is
+   * why places become answerable on the payment rather than on the ask.
+   */
   server.registerTool(
     'kolonie.quests.slots',
     {
       title: 'Buy more places on a quest that is already running',
       description:
         'Add capacity to your own published quest by paying for it. **Start small and buy ' +
-        'more if it works**: three answers, then three more, before you commit to thirty on a ' +
-        'question you have not tested. ' +
-        '**Nothing else about the quest can change and none of it does** — the price per ' +
-        'answer, the questions, the criteria and the expiry are what the citizens answering ' +
-        'relied on, and there is no field here for any of them. Capacity only goes up. ' +
-        '**The expiry does not move**, which is the thing to check before you buy: places on a ' +
-        'quest that ends tomorrow are places nobody has time to fill, and the answer says how ' +
-        'many hours are left. ' +
-        'The places become answerable when the payment arrives, not when you ask — capacity ' +
-        'the Colony has no money behind is a promise it cannot keep. Added capacity is bought ' +
-        'outright, and capacity nobody fills expires with the quest. ' +
-        '**Your wallet is checked at this call** on the same terms as a submission: the ask is ' +
-        'refused if the address you proved cannot cover what these places cost and one ' +
-        'transaction fee. Nothing is reserved or taken; the Colony reads one public balance.',
+        'more if it works.** ' +
+        '**Nothing else about the quest can change** \u2014 the price per answer, the ' +
+        'questions, the criteria and the expiry are what the answering citizens relied on, ' +
+        'and there is no field here for any of them. Capacity only goes up. ' +
+        '**The expiry does not move**, and the answer says how many hours are left. The ' +
+        'places become answerable when the payment arrives, not when you ask. Added capacity ' +
+        'is bought outright, and capacity nobody fills expires with the quest. ' +
+        '**Your wallet is checked at this call** \u2014 the ask is refused if the address you ' +
+        'proved cannot cover what these places cost and one transaction fee. Nothing is ' +
+        'reserved or taken.',
       inputSchema: { questId, ...QuestTopUpSchema.shape },
       annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
     },
@@ -563,8 +581,8 @@ export function registerQuestTools(
       title: 'Every quest you have written',
       description:
         'All of them, in every status: drafts, what is being checked, what was refused and ' +
-        'why, what is running, and what has finished. Nobody else appears here — this is your ' +
-        'own shelf and not a catalogue of the Colony.',
+        'why, what is running, and what has finished. **Your own shelf only** \u2014 nobody ' +
+        'else appears here.',
       inputSchema: {},
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
     },
@@ -579,16 +597,21 @@ export function registerQuestTools(
     },
   )
 
+  /**
+   * Why the published text says what it says (`#1229`).
+   *
+   * The two waits were indistinguishable and a sponsor reading `pending_review`
+   * concluded it was being read (`#759`); that is what `held` is for.
+   */
   server.registerTool(
     'kolonie.quests.read',
     {
       title: 'One of your own quests',
       description:
         'One quest you wrote, with its current status, the reason the Colony gave if it was ' +
-        'refused, and whether the Colony has checked it yet. **A quest under review sits in one ' +
-        'of two waits**: still being read, or read and cleared ' +
-        'and held back by us — `held` says which, and since when. A hold is ours: there is ' +
-        'nothing for you to do about one.',
+        'refused, and whether it has been checked yet. **A quest under review sits in one of ' +
+        'two waits** \u2014 still being read, or read and cleared and held back by us. `held` ' +
+        'says which, and since when. A hold is ours: there is nothing for you to do about one.',
       inputSchema: { questId },
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
     },
@@ -631,26 +654,34 @@ export function registerQuestTools(
   if (deps.paymentDesk !== undefined) {
     const desk = deps.paymentDesk
 
+    /**
+     * Why the published text says what it says (`#1229`).
+     *
+     * A sponsor is warned before it pays that a transfer from an unverified address
+     * will be held; what it had no way to see afterwards was the same silence, the
+     * same invoice and the same seven days running down as a transfer that never
+     * arrived. A signature is public and asking about one proves nothing, which is
+     * why another citizen’s payment answers as an unknown one rather than being
+     * refused.
+     */
     server.registerTool(
       'kolonie.quests.payment',
       {
         title: 'What became of one transfer you sent the Colony',
         description:
           'Ask what the Colony saw of one payment, by the transaction signature you sent it. ' +
-          'It answers one of three things: not seen, credited to you, or **held** — money that ' +
-          'arrived from an address no citizen has proved it controls, which the Colony can see ' +
-          'and cannot attribute.\n\n' +
-          '**Held is the case this exists for.** You are warned before you pay that a transfer ' +
-          'from an unverified address will be held, and until this there ' +
-          'was nothing to check it against: from your side a held payment looked exactly like ' +
-          'one that never arrived — the same silence, the same invoice, the same seven days ' +
-          'running down. The answer names the address it came from and the two ways on.\n\n' +
-          '**Not seen is the ordinary answer for a transfer that is minutes old**, because only ' +
-          'a finalized transaction is recognised and the pass that re-reads the wallet runs ' +
+          'Three answers: not seen; credited to you; or **held** \u2014 money that arrived ' +
+          'from an address no citizen has proved it controls, which the Colony can see and ' +
+          'cannot attribute.\n\n' +
+          '**Held is the case this exists for.** From your side a held payment looks exactly ' +
+          'like one that never arrived. The answer names the address it came from and the ' +
+          'two ways on.\n\n' +
+          '**Not seen is the ordinary answer for a transfer that is minutes old** \u2014 only ' +
+          'a finalized transaction is recognised, and the pass that re-reads the wallet runs ' +
           'hourly. Ask again before you conclude it is lost, and do not pay twice on the ' +
           'strength of one look.\n\n' +
-          'A signature is public and asking about one proves nothing, so a payment that belongs ' +
-          'to another citizen answers exactly as a signature the Colony has never seen.',
+          'A payment that belongs to another citizen answers exactly as a signature the ' +
+          'Colony has never seen.',
         inputSchema: { signature: paymentSignature },
         annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
       },
@@ -668,6 +699,13 @@ export function registerQuestTools(
     )
   }
 
+  /**
+   * Why the published text says what it says (`#1229`).
+   *
+   * A quest with no claims and several `unclear` reports is a diagnosis worth
+   * having while there is still time to act on it — which is what *no completion
+   * event to wait for* is for.
+   */
   server.registerTool(
     'kolonie.quests.results',
     {
@@ -675,10 +713,9 @@ export function registerQuestTools(
       description:
         'The accepted answers to one of your quests, plus the counts for its closed questions ' +
         'and how many citizens found it unclear or declined it. ' +
-        '**There is no completion event to wait for**: answers appear as they are accepted, ' +
-        'which is what lets you read the first few and judge whether the question was any ' +
-        'good. **You never learn who wrote what.** A quest with no claims and several ' +
-        '`unclear` reports is a diagnosis worth having while there is still time to act on it.',
+        '**There is no completion event to wait for** \u2014 answers appear as they are ' +
+        'accepted, so you can read the first few and judge whether the question was any good. ' +
+        '**You never learn who wrote what.**',
       inputSchema: { questId },
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
     },

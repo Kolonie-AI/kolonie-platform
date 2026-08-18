@@ -1,4 +1,4 @@
-import { wakeupIsQuiet, type WakeupResponse } from '@kolonie-ai/core'
+import { WAKEUP_FINAL_LINE, wakeupIsQuiet, type WakeupResponse } from '@kolonie-ai/core'
 import { unreadNotesLine, waitingRepliesLine } from './operator-notes.js'
 import { operatorStandingLines } from './operator-standing.js'
 
@@ -136,7 +136,26 @@ export function wakeupAsText(digest: WakeupResponse): string {
       WAKEUP_SECTION_ORDER.indexOf(left.section) - WAKEUP_SECTION_ORDER.indexOf(right.section),
   )
 
-  return allocate(window, blocks) + followingLine(digest)
+  return allocate(window, blocks) + followingLine(digest) + finalLine(digest)
+}
+
+/**
+ * The line a scheduled run may end its turn on (`#1206`).
+ *
+ * **Appended after `allocate` on exactly {@link followingLine}'s argument**, and
+ * for the sharper version of it: a block competing for the budget could push
+ * *what moves you forward* off the bottom, and the thing doing the pushing would
+ * be a sentence saying there is nothing to do. Outside the budget it costs one
+ * line, it costs it only on a waking that had nothing in it, and it displaces
+ * nothing.
+ *
+ * **Printed only when there is nothing**, so a runtime that prints the tail of
+ * this text unconditionally cannot end a turn that had work in it. The
+ * structured `actionableNow` is the API; this is the same fact where a reader
+ * reading prose will see it.
+ */
+function finalLine(digest: WakeupResponse): string {
+  return digest.actionableNow ? '' : `\n\n${WAKEUP_FINAL_LINE}`
 }
 
 /**

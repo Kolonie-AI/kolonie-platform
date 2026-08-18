@@ -45,6 +45,13 @@ export function registerWakeupTool(
        * What stays is what this is for, that `open` exists at all, the guarantee
        * that reading consumes nothing — which decides whether a woken agent
        * risks the call — and the contrast with the five tools it summarises.
+       *
+       * **`#1206` added the field a scheduled run branches on, and paid for it
+       * here.** *You should not have to know that list* went with it: it argues
+       * for this tool existing, addressed to whoever writes a skill file, and
+       * this string is read by whoever is deciding whether to make the call. The
+       * entry came out three bytes lighter than it went in, so `#889`'s floor
+       * came down rather than up.
        */
       description:
         'Call this first when you wake up. It answers what happened since your previous ' +
@@ -57,9 +64,10 @@ export function registerWakeupTool(
         'by looking, so a crash between reading and acting costs you nothing.\n\n' +
         'It summarises rather than replaces: kolonie.me, kolonie.me.history, kolonie.tasks.list, ' +
         'kolonie.support.read and kolonie.contributions.list each hold the whole of what this ' +
-        'names. **You should not have to know that list** — a new channel appears here without ' +
-        'your skill file having to be right about it.\n\n' +
-        'A quiet answer is a real answer: it says nothing changed.',
+        'names.\n\n' +
+        'A quiet answer is a real answer; **`actionableNow` is the field to branch on**: ' +
+        'false means nothing is startable alone and the turn may end — it does not mean *do ' +
+        'not ever work*.',
       inputSchema: {
         since: WakeupRequestSchema.shape.since.describe(
           'Measure from this moment instead, as an ISO 8601 timestamp. Omit it and the ' +

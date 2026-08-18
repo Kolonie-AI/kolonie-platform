@@ -1815,6 +1815,102 @@ describe('the order of what is open, once feasibility is honest', () => {
 })
 
 /**
+ * Whether the board offered anything the citizen can start alone (`#1206`).
+ *
+ * The companion to `nothing`, and computed for the same reason it is: a caller
+ * cannot work this out from `entries`, because the list is never empty and is
+ * never entirely un-`ready`. Sponsoring a quest of one's own is `ready` on every
+ * waking there has ever been, and *get closer to the next skill* is `ready` by
+ * construction — so `entries.some(ready)` answers *yes* forever, which is the
+ * trap `nothing` was fixed for, one question along.
+ */
+describe('whether anything the board offered can be started alone', () => {
+  const wall = { taskId: 'a-task' as Task['id'], title: 'Prove a mailbox' }
+
+  it('is true when a rung the citizen holds every skill for is listed', async () => {
+    const open = await openingsFor(
+      agentId,
+      ['mailbox'],
+      sourceWith({ listed: [aTask({ title: 'Set a profile' })] }),
+    )
+
+    expect(open.actionable).toBe(true)
+    expect(open.nothing).toBe(false)
+  })
+
+  /**
+   * **The case the boolean exists for.** A citizen whose only board entry is
+   * decided by a stranger's transfer has nothing to do unattended, and before
+   * `#1205` this rung claimed `ready` — so there was nothing honest to read.
+   */
+  it('is false when the only rung listed waits on money the Colony does not hold', async () => {
+    const open = await openingsFor(
+      agentId,
+      ['profile', 'wallet', 'vetting'],
+      sourceWith({
+        listed: [aTask({ title: 'Earn from an API', type: TaskTypeSchema.parse('api-monetize') })],
+      }),
+    )
+
+    expect(open.entries.find((entry) => entry.what === 'Earn from an API')?.feasibility).toBe(
+      'needs-payer',
+    )
+    expect(open.actionable).toBe(false)
+    // And the entry is still there saying what it waits on — `#1207`'s rule.
+    expect(open.nothing).toBe(false)
+  })
+
+  /**
+   * **Unattended quiet is the default.** A step only a person can take is not
+   * work this run can do, so a waking holding nothing else is one a scheduled
+   * agent may end. The entry stays, and the citizen that *is* attended reads it.
+   */
+  it('is false when the board offers only a step that needs a person', async () => {
+    const open = await openingsFor(
+      agentId,
+      ['profile'],
+      sourceWith({ prospects: { operatorCouldOpenAccount: true } }),
+    )
+
+    expect(open.entries.some((entry) => entry.feasibility === 'needs-operator')).toBe(true)
+    expect(open.actionable).toBe(false)
+  })
+
+  /**
+   * **The reserved slots are not an answer to this question.** Sponsoring and
+   * the frontier closer are kept by `#347` and `#925` precisely so a full board
+   * cannot push them out; counting them would make every waking actionable and
+   * leave a scheduled run with no way to stop.
+   */
+  it('is false when only the always-present slots are ready', async () => {
+    const open = await openingsFor(agentId, ['profile'], sourceWith({ listed: [] }))
+
+    expect(open.entries.some((entry) => entry.feasibility === 'ready')).toBe(true)
+    expect(open.actionable).toBe(false)
+  })
+
+  /**
+   * **A report is unattended work like any other.** It is a board entry, it is
+   * `ready`, and writing it needs nobody — so a waking whose only startable
+   * thing is a wall to write up is a waking with something in it. The rung it
+   * sits above stays `needs-payer` and does not become startable by proximity.
+   */
+  it('is true when the one startable thing is a wall the citizen can write up', async () => {
+    const open = await openingsFor(
+      agentId,
+      ['profile', 'wallet', 'vetting'],
+      sourceWith({
+        listed: [aTask({ title: 'Earn from an API', type: TaskTypeSchema.parse('api-monetize') })],
+        prospects: { unreported: wall, failedAttempts: 2 },
+      }),
+    )
+
+    expect(open.entries[0]?.call).toContain('kolonie.tasks.report')
+    expect(open.actionable).toBe(true)
+  })
+})
+
+/**
  * What kind of thing each entry is, and a slot kept for the Colony (`#925`).
  *
  * Measured 2026-08-14: a citizen with two startable rungs and two open quests

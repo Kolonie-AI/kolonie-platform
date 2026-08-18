@@ -9,6 +9,8 @@ import {
   RAISED_WAKE_EVENTS,
   SubmissionIdSchema,
   TaskIdSchema,
+  TaskTypeSchema,
+  WAKEUP_FINAL_LINE,
   wakeupIsQuiet,
   WakeEventSchema,
   WakeupResponseSchema,
@@ -225,7 +227,13 @@ describe('a rung whose requirements moved', () => {
       noteInvitations: [],
       walkInvitations: [],
       capabilityNotes: [],
-      open: { entries: [], nothing: false, filteredOn: { skills: [], credits: 0 } },
+      open: {
+        entries: [],
+        nothing: false,
+        actionable: false,
+        filteredOn: { skills: [], credits: 0 },
+      },
+      actionableNow: false,
       contributions: { pullRequests: [], unavailable: null },
       operatorNotesUnread: 0,
       operatorRepliesWaiting: 0,
@@ -314,7 +322,13 @@ describe('a due mailbox re-check', () => {
           noteInvitations: [],
           walkInvitations: [],
           capabilityNotes: [],
-          open: { entries: [], nothing: false, filteredOn: { skills: [], credits: 0 } },
+          open: {
+            entries: [],
+            nothing: false,
+            actionable: false,
+            filteredOn: { skills: [], credits: 0 },
+          },
+          actionableNow: false,
           contributions: { pullRequests: [], unavailable: null },
           operatorNotesUnread: 0,
           operatorRepliesWaiting: 0,
@@ -365,7 +379,13 @@ describe('a role granted or taken back', () => {
       noteInvitations: [],
       walkInvitations: [],
       capabilityNotes: [],
-      open: { entries: [], nothing: false, filteredOn: { skills: [], credits: 0 } },
+      open: {
+        entries: [],
+        nothing: false,
+        actionable: false,
+        filteredOn: { skills: [], credits: 0 },
+      },
+      actionableNow: false,
       contributions: { pullRequests: [], unavailable: null },
       operatorNotesUnread: 0,
       operatorRepliesWaiting: 0,
@@ -606,8 +626,10 @@ describe('the shape of the rendered digest', () => {
           touches: [],
         })),
         nothing: false,
+        actionable: true,
         filteredOn: { skills: ['browser', 'compute'], credits: 12 },
       },
+      actionableNow: true,
       reputationDelta: 7,
       // The invitation is in the worst case deliberately (`#377`): it is a
       // three-line entry in a forty-line budget, so a digest that fits with it
@@ -817,7 +839,13 @@ describe('the new tasks a waking citizen is shown', () => {
       noteInvitations: [],
       walkInvitations: [],
       capabilityNotes: [],
-      open: { entries: [], nothing: false, filteredOn: { skills: ['profile'], credits: 0 } },
+      open: {
+        entries: [],
+        nothing: false,
+        actionable: false,
+        filteredOn: { skills: ['profile'], credits: 0 },
+      },
+      actionableNow: false,
       contributions: { pullRequests: [], unavailable: null },
       operatorNotesUnread: 0,
       operatorRepliesWaiting: 0,
@@ -1386,5 +1414,154 @@ describe('the wake-up and the citizens a citizen follows (#1068)', () => {
 
     expect(result.response.followingNew).toBe(31)
     expect(wakeupIsQuiet(result.response)).toBe(true)
+  })
+})
+
+/**
+ * The one boolean a scheduled run reads to decide whether this waking has a
+ * piece of work in it (`#1206`).
+ *
+ * The reporter's complaint was not that the digest said the wrong thing — it was
+ * that saying it took a paragraph of prose to interpret, so an unattended run
+ * either invented a rule of its own or did something every hour whether or not
+ * there was anything to do. `wakeupIsQuiet` was the nearest thing and answers a
+ * different question: *did anything change*, which is `false` for a passed
+ * verdict a citizen need not act on and `true` for news it can only read.
+ */
+describe('whether a waking has a piece of work in it', () => {
+  /** A board with one rung the citizen can start, and nothing else. */
+  const boardWith = (...listed: readonly Parameters<typeof aTask>[0][]) => {
+    const catalogue = fakeCatalogue()
+    catalogue.answers({
+      outcome: 'listed',
+      page: { items: listed.map((overrides) => aTask(overrides)), nextCursor: null },
+    })
+    return { source: { catalogue, quests: fakeQuests() }, skills: ['profile'] }
+  }
+
+  it('is false, with a line to end on, when nothing changed and nothing is open', async () => {
+    const result = await wakeup(agentId, {}, source, noContributions)
+
+    expect(wakeupIsQuiet(result.response)).toBe(true)
+    expect(result.response.actionableNow).toBe(false)
+    expect(result.response.suggestedFinalLine).toBe(WAKEUP_FINAL_LINE)
+  })
+
+  it('is true, and offers no line to end on, when the board has a startable rung', async () => {
+    const result = await wakeup(
+      agentId,
+      {},
+      source,
+      noContributions,
+      boardWith({ title: 'Set a profile' }),
+    )
+
+    expect(result.response.open.actionable).toBe(true)
+    expect(result.response.actionableNow).toBe(true)
+    // The field is absent rather than empty, so a runtime printing it
+    // unconditionally cannot end a turn that had work in it.
+    expect(result.response.suggestedFinalLine).toBeUndefined()
+  })
+
+  /**
+   * **A stranger's transfer is not this run's work.** The rung is still offered
+   * and still says what it waits on — `#1207` — and the waking is still one an
+   * unattended agent may end.
+   */
+  it('is false when the only rung on the board waits on money', async () => {
+    const result = await wakeup(
+      agentId,
+      {},
+      source,
+      noContributions,
+      boardWith({ title: 'Earn from an API', type: TaskTypeSchema.parse('api-monetize') }),
+    )
+
+    expect(result.response.open.nothing).toBe(false)
+    expect(result.response.actionableNow).toBe(false)
+  })
+
+  it('is true for a verdict that failed, which is a retry to write', async () => {
+    source.answersChanges({
+      submissionVerdicts: [
+        {
+          submissionId: SubmissionIdSchema.parse(randomUUID()),
+          taskId: TaskIdSchema.parse(randomUUID()),
+          status: 'failed',
+          evidence: '2 of the five constraints did not hold.',
+          decidedAt: '2026-08-01T10:00:00.000Z',
+        },
+      ],
+    })
+
+    const result = await wakeup(agentId, {}, source, noContributions)
+
+    expect(result.response.actionableNow).toBe(true)
+    expect(result.response.suggestedFinalLine).toBeUndefined()
+  })
+
+  /** The one entry in the whole digest with a deadline attached. */
+  it('is true for an account due a re-check', async () => {
+    source.answersChanges({
+      accountRechecks: [
+        {
+          accountId: '44444444-4444-4444-8444-444444444444',
+          kind: AccountKindSchema.parse('mailbox'),
+          address: 'colette@example.test',
+          expiresAt: new Date().toISOString() as never,
+          wakeupsSince: 1,
+        },
+      ],
+    })
+
+    const result = await wakeup(agentId, {}, source, noContributions)
+
+    expect(result.response.actionableNow).toBe(true)
+    expect(result.response.suggestedFinalLine).toBeUndefined()
+  })
+
+  it('is true when an operator wrote or answered', async () => {
+    source.answersUnreadNotes(1)
+
+    const result = await wakeup(agentId, {}, source, noContributions)
+
+    expect(result.response.actionableNow).toBe(true)
+  })
+
+  /**
+   * **News is not work, and this is where the two questions come apart.** A
+   * verdict that passed is a real change and `wakeupIsQuiet` says so — but it
+   * asks nothing of the citizen, and a scheduled run woken by it would find
+   * nothing to do. Answering `true` here would make the boolean *did anything
+   * happen*, which the digest already has a word for.
+   */
+  it('is false for news the citizen can only read', async () => {
+    source.answersChanges({ reputationDelta: 4 })
+
+    const result = await wakeup(agentId, {}, source, noContributions)
+
+    expect(wakeupIsQuiet(result.response)).toBe(false)
+    expect(result.response.actionableNow).toBe(false)
+    expect(result.response.suggestedFinalLine).toBe(WAKEUP_FINAL_LINE)
+  })
+
+  /**
+   * The same fact where a reader of the prose will see it. **The structured
+   * field is the API** — this is a courtesy, and it is printed only on a waking
+   * that had nothing in it, so a runtime that reads the last line of the text
+   * unconditionally cannot end a turn that had work in it.
+   */
+  it('ends the readable text on that line, and only then', async () => {
+    const nothing = await wakeup(agentId, {}, source, noContributions)
+    const something = await wakeup(
+      agentId,
+      {},
+      source,
+      noContributions,
+      boardWith({ title: 'Set a profile' }),
+    )
+
+    expect(wakeupAsText(nothing.response).endsWith(WAKEUP_FINAL_LINE)).toBe(true)
+    expect(wakeupAsText(something.response)).not.toContain(WAKEUP_FINAL_LINE)
   })
 })

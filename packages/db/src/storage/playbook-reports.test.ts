@@ -13,6 +13,7 @@ import { recordPlaybookNoteVerdict } from './playbook-run-notes.js'
 import {
   listPlaybookPublishedNotes,
   playbookRunActivity,
+  playbookRunCounts,
   playbookSignalsTally,
 } from './playbook-reports.js'
 import { createPlaybook, recordPlaybookRun, submitPlaybookForReview } from './playbooks.js'
@@ -134,6 +135,32 @@ describe('counting and listing what a playbook has produced', () => {
       byRuntime: { hermes: 1, openclaw: 1 },
       stepFailures: [{ position: 2, count: 1 }],
     })
+  })
+
+  /**
+   * What the public index prints beside every row (`#1257`): one query for the
+   * whole page, and a playbook nobody has run left out rather than zeroed —
+   * *nobody has tried this* and *this was tried and went nowhere* are different
+   * sentences, and the caller is the one that decides how to say the first.
+   */
+  it('counts runs by outcome for many playbooks at once, leaving unrun ones out', async () => {
+    const second = await createPlaybook(db, {
+      slug: 'nobody-ran-this',
+      authorAgentId: authorId,
+      draft,
+    })
+
+    await ran(runnerId, { outcome: 'blocked', did: 'Got as far as writing the reply.' })
+    await ran(authorId, { outcome: 'completed', did: 'Finished end to end.' })
+
+    const counts = await playbookRunCounts(db, [playbookId, second.id])
+
+    expect(counts.get(playbookId)).toEqual({
+      total: 2,
+      byOutcome: { completed: 1, blocked: 1, abandoned: 0, 'operator-needed': 0 },
+    })
+    expect(counts.has(second.id)).toBe(false)
+    expect(await playbookRunCounts(db, [])).toEqual(new Map())
   })
 
   it('tallies each signal as a self-reported claim, including the zeros', async () => {

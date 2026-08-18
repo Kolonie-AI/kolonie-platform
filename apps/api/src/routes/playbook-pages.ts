@@ -8,7 +8,13 @@ import {
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { ATLAS_HEADERS } from '../atlas/html.js'
 import { siteChromeFrom } from '../atlas/site-chrome.js'
-import { playbookEntryPage, playbookIndexPage } from '../playbooks/html.js'
+import {
+  PLAYBOOK_NOTES_SHOWN,
+  playbookEntryPage,
+  playbookIndexPage,
+  type PlaybookPageLife,
+  type PlaybookPageRuns,
+} from '../playbooks/html.js'
 import { playbookSitemap } from '../playbooks/sitemap.js'
 import { PLAYBOOK_LISTED_STATUSES } from '../playbooks.js'
 import { isAtlasRequest } from './atlas-pages.js'
@@ -105,6 +111,72 @@ export function registerPlaybookPages(app: FastifyInstance, deps: RouteDependenc
     catalogue === undefined ? [] : catalogue.byStatus({ statuses: [...PLAYBOOK_PUBLIC_STATUSES] })
 
   /**
+   * The run log behind the living half of these pages (`#1257`).
+   *
+   * **Optional exactly as the catalogue is**, and for the same reason: a
+   * deployment that wires no playbook dependencies serves the pages `#1220`
+   * served — steps, slots and no counts — rather than failing to start. What it
+   * must never do is serve a page that *looks* as though nobody has run a
+   * pipeline because the port was missing, which is why the sections are absent
+   * rather than zeroed when this is undefined.
+   */
+  const life = deps.playbooks
+
+  /**
+   * Run counts for the whole index, in one call (`#1257`).
+   *
+   * Not `runs.activity` per row: this page is served to strangers and the
+   * catalogue grows, so a query per entry is a cost the listing does not need.
+   */
+  const countsFor = async (
+    playbooks: readonly Playbook[],
+  ): Promise<ReadonlyMap<string, PlaybookPageRuns> | undefined> =>
+    life === undefined || playbooks.length === 0
+      ? undefined
+      : life.runs.counts(playbooks.map((playbook) => playbook.id))
+
+  /**
+   * Everything about one playbook that is not the playbook.
+   *
+   * **`briefing.split(...).current` and never the demoted half** (`#1257`): a
+   * public page shows what the Colony currently supports, and a claim the decay
+   * rule has taken out of the foreground stays on `kolonie.playbooks.reports`
+   * with its age. The page filters again on `current`, so this is the second of
+   * two guards rather than the only one.
+   *
+   * A cursor is never passed to `notes`, so `'invalid-cursor'` is unreachable
+   * here; it is handled rather than asserted away, because an unreachable branch
+   * that throws on a public route is a 500 waiting for a refactor.
+   */
+  const lifeOf = async (playbook: Playbook): Promise<PlaybookPageLife | undefined> => {
+    if (life === undefined) return undefined
+
+    const [briefing, activity, signals, contributors, notes, history] = await Promise.all([
+      life.briefing.split(playbook.id),
+      life.runs.activity(playbook.id),
+      life.runs.signals(playbook.id),
+      life.revisions.contributors(playbook.id),
+      life.runs.notes({ playbookId: playbook.id, limit: PLAYBOOK_NOTES_SHOWN }),
+      life.revisions.history(playbook.id),
+    ])
+
+    const cut = history.find((one) => one.revision === playbook.version) ?? history[0]
+
+    return {
+      claims: briefing.current,
+      runs: { total: activity.total, byOutcome: activity.byOutcome },
+      signals,
+      contributors: contributors.map((one) => ({
+        handle: one.handle,
+        contributions: one.contributions,
+        isCreator: one.isCreator,
+      })),
+      notes: notes === 'invalid-cursor' ? [] : notes.notes,
+      revision: { revision: playbook.version, cutAt: cut?.cutAt ?? null },
+    }
+  }
+
+  /**
    * `/playbooks/` and `/playbooks/<slug>/` are the same pages at one more
    * character, and they answer `301` rather than `404`.
    *
@@ -154,12 +226,15 @@ export function registerPlaybookPages(app: FastifyInstance, deps: RouteDependenc
   app.get(PLAYBOOKS_PATH, async (request, reply) => {
     if (wrongHost(request) || catalogue === undefined) return reply.callNotFound()
 
+    const playbooks = await listed()
+
     return send(
       reply,
       playbookIndexPage({
-        playbooks: await listed(),
+        playbooks,
         canonical: `${websiteUrl}${PLAYBOOKS_PATH}`,
         chrome: await chromeOf(),
+        runs: await countsFor(playbooks),
       }),
       'text/html; charset=utf-8',
     )
@@ -216,6 +291,7 @@ export function registerPlaybookPages(app: FastifyInstance, deps: RouteDependenc
         playbook,
         canonical: `${websiteUrl}${PLAYBOOKS_PATH}/${playbook.slug}`,
         chrome: await chromeOf(),
+        life: await lifeOf(playbook),
       }),
       'text/html; charset=utf-8',
     )

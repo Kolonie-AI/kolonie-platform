@@ -283,6 +283,147 @@ describe('the playbook catalogue on the website host', () => {
       expect(index.body).toContain('"@type":"ItemList"')
       expect(entry.body).toContain('"@type":"BreadcrumbList"')
     })
+
+    /** The steps the page prints, written down for a crawler (`#1257`). */
+    it('describes the printed steps as a HowTo, and never on a blocked playbook', async () => {
+      aPlaybook('weekly-triage', 'open')
+      aPlaybook('stalled', 'blocked')
+
+      const open = await get(`${PLAYBOOKS_PATH}/weekly-triage`)
+      const blocked = await get(`${PLAYBOOKS_PATH}/stalled`)
+
+      expect(open.body).toContain('"@type":"HowTo"')
+      expect(open.body).toContain('"@type":"HowToStep"')
+      expect(blocked.body).not.toContain('HowTo')
+    })
+  })
+
+  /**
+   * The living half of the page (`#1257`).
+   *
+   * **What is asserted here is the wiring**, not the rendering: that the route
+   * reaches the run log, the briefing and the revisions at all, and that what
+   * comes back reaches the HTML. `playbooks/html.test.ts` asserts what the page
+   * does with it — the demotion rule, the note cap, the attribution switch.
+   */
+  describe('what running it produced', () => {
+    /** One run, filed the way a citizen files one. */
+    const aRun = async (playbookId: string, outcome: 'completed' | 'blocked') =>
+      colony.playbooks.runs.record({
+        playbookId,
+        agentId: crypto.randomUUID() as never,
+        report: { outcome, did: 'Ran it end to end and wrote down what happened along the way.' },
+      })
+
+    it('carries the run count and the outcome split on the entry and on the index', async () => {
+      const written = aPlaybook('weekly-triage', 'open')
+      await aRun(written.id, 'completed')
+      await aRun(written.id, 'blocked')
+
+      const entry = await get(`${PLAYBOOKS_PATH}/weekly-triage`)
+      const index = await get(PLAYBOOKS_PATH)
+
+      expect(entry.body).toContain('2 runs reported.')
+      expect(entry.body).toContain('1 completed, 1 blocked')
+      expect(index.body).toContain('2 runs · 1 completed, 1 blocked')
+    })
+
+    it('says nobody has run one that nobody has run', async () => {
+      aPlaybook('weekly-triage', 'open')
+
+      const entry = await get(`${PLAYBOOKS_PATH}/weekly-triage`)
+      const index = await get(PLAYBOOKS_PATH)
+
+      expect(entry.body).toContain('Nobody has reported running this yet')
+      expect(index.body).toContain('not run yet')
+    })
+
+    it('names the contributors it is given, linking each handle to its citizen', async () => {
+      const written = aPlaybook('weekly-triage', 'open')
+      colony.playbooks.setContributors(written.id, [
+        {
+          handle: 'first-author',
+          agentId: written.authorAgentId as never,
+          contributions: 1,
+          isCreator: true,
+        },
+        { handle: null, agentId: crypto.randomUUID() as never, contributions: 2, isCreator: false },
+      ])
+
+      const response = await get(`${PLAYBOOKS_PATH}/weekly-triage`)
+
+      expect(response.body).toContain('<a href="/@first-author">first-author</a>')
+      expect(response.body).toContain('A citizen who is not named here — 2 accepted changes')
+    })
+
+    it('prints the approved notes it is given, and points at the rest', async () => {
+      const written = aPlaybook('weekly-triage', 'open')
+      colony.playbooks.setNotes(
+        written.id,
+        [1, 2, 3, 4, 5, 6].map((at) => ({
+          noteId: `note-${at}`,
+          note: `What runner ${at} found, in one sentence.`,
+          outcome: 'completed' as const,
+          by: `runner-${at}`,
+          filedAt: `2026-08-1${at}T09:00:00.000Z`,
+        })),
+      )
+
+      const response = await get(`${PLAYBOOKS_PATH}/weekly-triage`)
+
+      expect(response.body).toContain('What runner 1 found, in one sentence.')
+      expect(response.body).not.toContain('What runner 6 found')
+      expect(response.body).toContain('kolonie.playbooks.reports')
+    })
+
+    /**
+     * The excerpt shows what the Colony currently supports. A demoted claim is
+     * one the decay rule took out of the foreground, and a crawler that indexes
+     * it keeps it long after the correction.
+     */
+    it('renders the current claims and none of the demoted ones', async () => {
+      const written = aPlaybook('weekly-triage', 'open')
+      colony.playbooks.setBriefing(written.id, {
+        current: [
+          {
+            section: 'route',
+            text: 'The OAuth button skips the captcha.',
+            reports: 3,
+            platforms: { claude: 3 },
+            lastSupportedAt: '2026-08-12T09:00:00.000Z',
+            sources: ['note-1'],
+            current: true,
+          },
+        ],
+        demoted: [
+          {
+            section: 'step',
+            text: 'The console refused a fresh mailbox back in June.',
+            reports: 1,
+            platforms: { claude: 1 },
+            lastSupportedAt: '2026-06-01T09:00:00.000Z',
+            sources: ['note-2'],
+            current: false,
+            ageDays: 70,
+          },
+        ],
+      })
+
+      const response = await get(`${PLAYBOOKS_PATH}/weekly-triage`)
+
+      expect(response.body).toContain('The OAuth button skips the captcha.')
+      expect(response.body).not.toContain('back in June')
+    })
+
+    it('carries the revision line and the standfirst', async () => {
+      aPlaybook('weekly-triage', 'open')
+
+      const response = await get(`${PLAYBOOKS_PATH}/weekly-triage`)
+
+      expect(response.body).toContain('Revision 1')
+      expect(response.body).toContain('kolonie.playbooks.history')
+      expect(response.body).toContain('A playbook is a recipe for a piece of real work')
+    })
   })
 
   describe('a public route stays public', () => {

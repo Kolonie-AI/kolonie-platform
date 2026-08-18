@@ -16,7 +16,7 @@ import {
   type PlaybookStepProposal,
   type ServedPlaybookBriefingClaim,
 } from '@kolonie-ai/core'
-import type { PlaybookDependencies } from '../playbooks.js'
+import type { PlaybookDependencies, PlaybookPublishedNote } from '../playbooks.js'
 
 /** The one rule both writes share, read from core rather than restated here. */
 const editable = (status: PlaybookStatus): boolean =>
@@ -42,6 +42,26 @@ export interface FakePlaybooks extends PlaybookDependencies {
   readonly account: (agentId: AgentId, account: Partial<Account> & Pick<Account, 'kind'>) => Account
   /** Seed the briefing split a playbook's `reports` / `get` will serve (`#1251`). */
   readonly setBriefing: (playbookId: string, split: PlaybookBriefingSplit) => void
+  /**
+   * Seed the approved notes a playbook serves, with the handles they carry
+   * (`#1257`).
+   *
+   * The map of filed runs cannot express one: a note only becomes approved when
+   * the moderator writes `notePublished`, and nothing on this fixture moderates.
+   * Seeding them directly is what lets a test assert that a handle a citizen
+   * declined is absent from a public page.
+   */
+  readonly setNotes: (playbookId: string, notes: readonly PlaybookPublishedNote[]) => void
+  /** Seed the contributors a playbook names, handles and all (`#1255`, `#1257`). */
+  readonly setContributors: (
+    playbookId: string,
+    contributors: readonly {
+      readonly handle: string | null
+      readonly agentId: AgentId
+      readonly contributions: number
+      readonly isCreator: boolean
+    }[],
+  ) => void
 }
 
 /**
@@ -82,10 +102,29 @@ export function fakePlaybooks(): FakePlaybooks {
   /** Briefing claims per playbook (`#1251`). Empty until a test seeds one. */
   const briefings = new Map<string, PlaybookBriefingSplit>()
   const emptyBriefing = (): PlaybookBriefingSplit => ({ current: [], demoted: [] })
+  /** Approved notes and contributors, seeded rather than derived (`#1257`). */
+  const published = new Map<string, readonly PlaybookPublishedNote[]>()
+  const contributed = new Map<
+    string,
+    readonly {
+      readonly handle: string | null
+      readonly agentId: AgentId
+      readonly contributions: number
+      readonly isCreator: boolean
+    }[]
+  >()
 
   return {
     setBriefing(playbookId, split) {
       briefings.set(playbookId, split)
+    },
+
+    setNotes(playbookId, notes) {
+      published.set(playbookId, notes)
+    },
+
+    setContributors(playbookId, contributors) {
+      contributed.set(playbookId, contributors)
     },
 
     playbook(playbook) {
@@ -221,12 +260,49 @@ export function fakePlaybooks(): FakePlaybooks {
         return runs.length === 0 ? emptyPlaybookSignalsTally(0) : tallyPlaybookSignals(runs)
       },
 
+      /**
+       * The listing's counts, off the same map (`#1257`).
+       *
+       * **A playbook nobody has run is absent from the map**, exactly as storage
+       * leaves it out: a fixture that returned a zero-filled row would let the
+       * index render *0 runs* while the real page renders nothing at all.
+       */
+      async counts(playbookIds) {
+        const wanted = new Set(playbookIds)
+        const counted = new Map<
+          string,
+          { total: number; byOutcome: Record<PlaybookRunOutcome, number> }
+        >()
+        for (const run of filed.values()) {
+          if (!wanted.has(run.playbookId)) continue
+          const standing = counted.get(run.playbookId) ?? {
+            total: 0,
+            byOutcome: Object.fromEntries(
+              PLAYBOOK_RUN_OUTCOMES.map((outcome) => [outcome, 0]),
+            ) as Record<PlaybookRunOutcome, number>,
+          }
+          standing.byOutcome[run.outcome] += 1
+          standing.total += 1
+          counted.set(run.playbookId, standing)
+        }
+        return counted
+      },
+
       async notes({ playbookId, outcome, cursor, limit = 50 }) {
         if (cursor !== undefined && cursor !== '') {
           // The fixture does not page: any cursor is refused the same way storage
           // refuses one it did not mint, so a test that wants the error path can
           // send one without standing up a previous page.
           return 'invalid-cursor'
+        }
+        const seeded = published.get(playbookId)
+        if (seeded !== undefined) {
+          return {
+            notes: seeded
+              .filter((one) => outcome === undefined || one.outcome === outcome)
+              .slice(0, limit),
+            nextCursor: null,
+          }
         }
         const notes = [...filed.values()]
           .filter(
@@ -299,6 +375,8 @@ export function fakePlaybooks(): FakePlaybooks {
      */
     revisions: {
       async contributors(playbookId) {
+        const seeded = contributed.get(playbookId)
+        if (seeded !== undefined) return seeded
         const playbook = catalogue.find((one) => one.id === playbookId)
         if (playbook === undefined) return []
         // Playbook.authorAgentId is a plain uuid string; the port brands it.

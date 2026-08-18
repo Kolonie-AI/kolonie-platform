@@ -115,6 +115,7 @@ import {
   playbookRevisionHistory,
   playbookRunFor,
   playbookSignalsTally,
+  playbookRunCounts,
   playbooksByStatus,
   listPlaybookPublishedNotes,
   readPlaybookBriefingSplit,
@@ -825,6 +826,7 @@ const app = buildApp({
       mine: (agentId, playbookId) => playbookRunFor(db, agentId, playbookId),
       activity: (playbookId) => playbookRunActivity(db, playbookId),
       signals: (playbookId) => playbookSignalsTally(db, playbookId),
+      counts: (playbookIds) => playbookRunCounts(db, playbookIds),
       notes: (query) => listPlaybookPublishedNotes(db, query),
     },
     /**

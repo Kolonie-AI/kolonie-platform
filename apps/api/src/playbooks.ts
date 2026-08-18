@@ -134,6 +134,16 @@ export interface PlaybookRunLog {
   /** How often each self-reported signal was named on this playbook's runs. */
   signals(playbookId: string): Promise<PlaybookSignalsTally>
   /**
+   * Run count and outcome split for several playbooks at once (`#1257`).
+   *
+   * **For the public index, which asks the question once per row.** One call for
+   * the whole page rather than {@link activity} per playbook: the catalogue is
+   * served to strangers and grows with the Colony, so the listing must not cost
+   * a query per entry. A playbook nobody has run is absent from the map rather
+   * than present with zeros.
+   */
+  counts(playbookIds: readonly string[]): Promise<ReadonlyMap<string, PlaybookRunCounts>>
+  /**
    * Approved notes, newest first. `'invalid-cursor'` rather than a throw — every
    * field is attacker-supplied.
    */
@@ -619,6 +629,18 @@ export type PlaybookRunActivity = {
   readonly byOutcome: Readonly<Record<PlaybookRunOutcome, number>>
   readonly byRuntime: Readonly<Record<string, number>>
   readonly stepFailures: readonly { readonly position: number; readonly count: number }[]
+}
+
+/**
+ * The two figures a listing prints beside a playbook (`#1257`).
+ *
+ * Declared here for the reason {@link PlaybookRunActivity} is: this package does
+ * not depend on `@kolonie-ai/db`, and the adapter in `server.ts` fails to
+ * compile if the two shapes drift.
+ */
+export type PlaybookRunCounts = {
+  readonly total: number
+  readonly byOutcome: Readonly<Record<PlaybookRunOutcome, number>>
 }
 
 export type PlaybookPublishedNote = {

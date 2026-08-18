@@ -1,4 +1,4 @@
-import { and, desc, eq, sql, type SQL } from 'drizzle-orm'
+import { and, desc, eq, inArray, sql, type SQL } from 'drizzle-orm'
 import {
   emptyPlaybookSignalsTally,
   PLAYBOOK_RUN_OUTCOMES,
@@ -121,6 +121,64 @@ export async function playbookRunActivity(
       .sort(([a], [b]) => a - b)
       .map(([position, count]) => ({ position, count })),
   }
+}
+
+/** Run count and outcome split for one playbook — what a listing shows (`#1257`). */
+export interface PlaybookRunCounts {
+  readonly total: number
+  /** One entry per known outcome, including the zeros — a missing key is not a zero. */
+  readonly byOutcome: Readonly<Record<PlaybookRunOutcome, number>>
+}
+
+/**
+ * The same counts for many playbooks at once, in one round trip (`#1257`).
+ *
+ * **Written for the public index, which asks the question once per row.** The
+ * catalogue page prints a run count and an outcome split beside every playbook
+ * it lists, and calling {@link playbookRunActivity} per row would be a query per
+ * playbook on a page that is served to strangers. This is the same `group by`
+ * that function does in memory, done in the database over a set of ids.
+ *
+ * **Only the two figures a listing prints.** No runtime split and no step
+ * failures: those are read on a page that is about one playbook, and computing
+ * them for twenty-five rows nobody will look at is work the index does not need.
+ *
+ * A playbook nobody has run is **absent from the map** rather than present with
+ * zeros — the caller decides how to render *nobody has reported running this*,
+ * and a zero-filled row would make that decision here.
+ */
+export async function playbookRunCounts(
+  db: Database,
+  playbookIds: readonly string[],
+): Promise<ReadonlyMap<string, PlaybookRunCounts>> {
+  const counts = new Map<string, { total: number; byOutcome: Record<PlaybookRunOutcome, number> }>()
+  if (playbookIds.length === 0) return counts
+
+  const rows = await db
+    .select({
+      playbookId: playbookRuns.playbookId,
+      outcome: playbookRuns.outcome,
+      runs: sql<number>`count(*)::int`,
+    })
+    .from(playbookRuns)
+    .where(inArray(playbookRuns.playbookId, [...playbookIds]))
+    .groupBy(playbookRuns.playbookId, playbookRuns.outcome)
+
+  for (const row of rows) {
+    const standing = counts.get(row.playbookId) ?? {
+      total: 0,
+      byOutcome: Object.fromEntries(PLAYBOOK_RUN_OUTCOMES.map((o) => [o, 0])) as Record<
+        PlaybookRunOutcome,
+        number
+      >,
+    }
+    const outcome = row.outcome as PlaybookRunOutcome
+    standing.byOutcome[outcome] = (standing.byOutcome[outcome] ?? 0) + row.runs
+    standing.total += row.runs
+    counts.set(row.playbookId, standing)
+  }
+
+  return counts
 }
 
 /**

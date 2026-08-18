@@ -330,6 +330,26 @@ export const playbookRuns = pgTable(
     noteRejectionReason: text('note_rejection_reason'),
 
     /**
+     * What the moderator publishes, once it has approved one (`#1246`).
+     *
+     * **The author's text with what it should not have written taken out of
+     * it, and never a sentence a model wrote.** `#1246` allows the moderator to
+     * shorten an approved note; it also forbids adding a claim the author did
+     * not make, and the only construction that enforces the second rather than
+     * asking a model to honour it is one that can cut and cannot write. So this
+     * column holds the note scrubbed of its confidential spans and, where that
+     * pushed it past the bound, cut at a sentence boundary — every character in
+     * it came from {@link playbookRuns.note}.
+     *
+     * **Two columns because they have two readerships.** `note` stays exactly as
+     * the author wrote it and is served to the author and to moderation; this is
+     * the only one another citizen ever sees. A rejected note therefore has a
+     * `note` and no `note_published`, which is the shape a reader wants: there is
+     * nothing to serve, rather than something to remember not to.
+     */
+    notePublished: text('note_published'),
+
+    /**
      * When `#1177` paid for this report, or null while it has not.
      *
      * **The marker that makes *replace until rewarded* a fact about the row**
@@ -416,6 +436,24 @@ export const playbookRuns = pgTable(
     check(
       'playbook_runs_note_reason_is_a_rejection',
       sql`${table.noteRejectionReason} is null or ${table.noteStatus} = 'rejected'`,
+    ),
+    /** The published text is bounded exactly as the note it was cut from. */
+    check(
+      'playbook_runs_note_published_is_short',
+      sql`${table.notePublished} is null
+          or length(${table.notePublished}) <= ${sql.raw(String(PLAYBOOK_RUN_PUBLISHED_NOTE_MAX_LENGTH))}`,
+    ),
+    /**
+     * Published text exists exactly on an approved note.
+     *
+     * **`coalesce` rather than a bare comparison, deliberately.** `note_status =
+     * 'approved'` is null on a row nothing has judged, a check that evaluates to
+     * null *passes*, and the hole that leaves is the one that matters: published
+     * text sitting on a note no moderator has read.
+     */
+    check(
+      'playbook_runs_note_published_is_approved',
+      sql`(${table.notePublished} is not null) = (coalesce(${table.noteStatus}, '') = 'approved')`,
     ),
   ],
 )

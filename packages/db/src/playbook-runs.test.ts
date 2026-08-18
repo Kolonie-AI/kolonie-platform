@@ -327,7 +327,7 @@ describe('recording a playbook run', () => {
     const first = await recordPlaybookRun(db, report({ note: 'What I wish I had known.' }))
     await db
       .update(playbookRuns)
-      .set({ noteStatus: 'approved' })
+      .set({ noteStatus: 'approved', notePublished: first.run.note })
       .where(eq(playbookRuns.id, first.run.id))
 
     const second = await recordPlaybookRun(
@@ -338,6 +338,7 @@ describe('recording a playbook run', () => {
     expect(second.replaced).toBe(true)
     expect(second.run.note).toBe('It changed, and here is how.')
     expect(second.run.noteStatus).toBe('pending')
+    expect(second.run.notePublished).toBeNull()
   })
 
   /** Withdrawing what you published: a re-filed report without a note clears all three. */
@@ -348,7 +349,7 @@ describe('recording a playbook run', () => {
     )
     await db
       .update(playbookRuns)
-      .set({ noteStatus: 'approved' })
+      .set({ noteStatus: 'approved', notePublished: first.run.note })
       .where(eq(playbookRuns.id, first.run.id))
 
     const second = await recordPlaybookRun(db, report({ did: 'Filed again, without the note.' }))
@@ -356,6 +357,7 @@ describe('recording a playbook run', () => {
     expect(second.run.note).toBeNull()
     expect(second.run.noteStatus).toBeNull()
     expect(second.run.noteRejectionReason).toBeNull()
+    expect(second.run.notePublished).toBeNull()
   })
 
   it('refuses a note longer than the published bound', async () => {

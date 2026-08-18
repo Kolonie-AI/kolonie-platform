@@ -38,7 +38,12 @@ import { redLineReviewTick, type RedLineReviewLoopDependencies } from './redline
 import { questAuditTick, type QuestAuditLoopDependencies } from './quest-audit.js'
 import { questEndingsTick, type QuestEndingsLoopDependencies } from './quest-endings.js'
 import { questReportTick, type QuestReportLoopDependencies } from './quest-reports.js'
-import { playbookTick, type PlaybookLoopDependencies } from './playbooks.js'
+import {
+  playbookNoteTick,
+  playbookTick,
+  type PlaybookLoopDependencies,
+  type PlaybookNoteLoopDependencies,
+} from './playbooks.js'
 import { directionTick, type DirectionLoopDependencies } from './directions.js'
 import { profileTick, type ProfileLoopDependencies } from './profiles.js'
 import { judgeQuality } from './quality.js'
@@ -162,6 +167,16 @@ export interface LoopDependencies {
    * regression rather than a smaller installation.
    */
   readonly playbooks?: PlaybookLoopDependencies
+  /**
+   * Judging the notes citizens file about the playbooks they ran (`#1246`).
+   *
+   * Separate from {@link playbooks} because it is a separate queue with a
+   * separate store, and optional for the same reason: an unwired runner leaves
+   * a note `pending` and publishes nothing, which is the safe degradation. The
+   * report it hangs off is published either way — `#1246` is explicit that a
+   * note nobody judged costs its author nothing.
+   */
+  readonly playbookNotes?: PlaybookNoteLoopDependencies
   /**
    * Reading what citizens said they want to become (`#140`).
    *
@@ -913,6 +928,44 @@ async function moderatePlaybooks(
 }
 
 /**
+ * One pass over the run notes waiting on a verdict (`#1246`).
+ *
+ * Its failure is swallowed for {@link moderatePlaybooks}' reason, with one more
+ * behind it: a note is the optional half of a report that has already been
+ * accepted and already paid, so a queue that throws costs the Colony a sentence
+ * and costs its author nothing at all.
+ */
+async function moderatePlaybookNotes(
+  deps: LoopDependencies,
+  batchSize: number,
+  log: Log,
+): Promise<void> {
+  const { playbookNotes } = deps
+  if (playbookNotes === undefined) return
+
+  try {
+    const outcome = await playbookNoteTick({ log, ...playbookNotes }, batchSize)
+    if (outcome.judged > 0) {
+      log.info(
+        `playbook notes: ${outcome.judged} judged, ${outcome.approved} published, ` +
+          `${outcome.rejected} returned, ${outcome.failed} deferred`,
+        {
+          event: 'playbook-notes.pass.done',
+          judged: outcome.judged,
+          approved: outcome.approved,
+          rejected: outcome.rejected,
+          failed: outcome.failed,
+        },
+      )
+    }
+  } catch (error) {
+    log.error('the playbook note moderation pass failed', error, {
+      event: 'playbook-notes.pass.failed',
+    })
+  }
+}
+
+/**
  * How many quest polls pass between sweeps of the held quests (`#759`).
  *
  * **A multiplier rather than a second interval**, following
@@ -1193,6 +1246,7 @@ export function startQuestRunner(deps: LoopDependencies, options: RunnerOptions 
         ticks++
         await moderateQuests(deps, batchSize, log)
         await moderatePlaybooks(deps, batchSize, log)
+        await moderatePlaybookNotes(deps, batchSize, log)
         lastPollAt = new Date().toISOString()
         consecutiveFailures = 0
         if (running) await pause(pollIntervalMs)

@@ -1,0 +1,3 @@
+<!-- section: Added -->
+
+- A playbook run note is judged before it is published (`kolonie-platform#1246`). The moderation runner now takes notes whose status is `pending` through three judgements — red lines, a confidentiality scrub, then a quality bar written for a sentence about a pipeline — and writes either a scrubbed, bound-length `notePublished` or a rejection reason the author alone can read. The moderator cuts and cannot write: every character that goes out came from the author's text. A refused note leaves the report, the four answers, the signals and the reputation already paid untouched. The author's own-run view on `kolonie.playbooks.get` is where the rejection reason lives, and nowhere else.

@@ -2080,6 +2080,13 @@
       "when": 1787066169313,
       "tag": "0296_playbook_run_notes",
       "breakpoints": true
+    },
+    {
+      "idx": 297,
+      "version": "7",
+      "when": 1787068508174,
+      "tag": "0297_playbook_run_note_publication",
+      "breakpoints": true
     }
   ]
 }

@@ -671,7 +671,9 @@ export const PlaybookRunSchema = z
      * before this shipped, which never gets one. `noteStatus` is null exactly
      * then and non-null exactly when there is a note, so the two cannot disagree
      * about whether one exists. `noteRejectionReason` is what the moderator said,
-     * readable by the author in `kolonie.me.history` and on no other surface.
+     * readable by the author on its own run in `kolonie.playbooks.get` and on no
+     * other surface (`#1246`) — that view is reached off the author's own report
+     * and by nothing else, which is the whole of what *and nowhere else* needs.
      *
      * **Re-filing the report resets this.** The report is an upsert, and a
      * replaced report carries a replaced note: `noteStatus` goes back to
@@ -681,6 +683,16 @@ export const PlaybookRunSchema = z
     note: z.string().nullable(),
     noteStatus: PlaybookRunNoteStatusSchema.nullable(),
     noteRejectionReason: z.string().nullable(),
+    /**
+     * What the moderator published, and null until it has (`#1246`).
+     *
+     * `note` as its author wrote it, minus the confidential spans the scrub
+     * found and, where taking them out pushed it past the bound, cut at a
+     * sentence boundary. Non-null exactly on `approved`. **It is the only one of
+     * the two that another citizen reads** — see the column's own note for why
+     * the moderator cuts and never writes.
+     */
+    notePublished: z.string().nullable(),
     /** When `#1177` paid for it, and null on a run nothing has paid for. */
     rewardedAt: z.string().nullable(),
     createdAt: z.string(),

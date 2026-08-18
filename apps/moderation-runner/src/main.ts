@@ -28,6 +28,7 @@ import {
   unmoderatedQuestReports,
   recordQuestReportModeration,
   pendingPlaybookModerations,
+  pendingPlaybookNotes,
   pendingQuestModerations,
   pendingReports,
   publishPlaybookAfterReview,
@@ -40,6 +41,7 @@ import {
   recordModeration,
   recordProviderChange,
   recordPlaybookModeration,
+  recordPlaybookNoteVerdict,
   recordQuestModeration,
   writeScrubbedAnswers,
   staleBriefings,
@@ -68,7 +70,7 @@ import {
   type ProviderBriefingStore,
   type ModerationStore,
 } from './loop.js'
-import type { PlaybookModerationStore } from './playbooks.js'
+import type { PlaybookModerationStore, PlaybookNoteModerationStore } from './playbooks.js'
 import type { QuestModerationStore } from './quests.js'
 import type { AnswerModerationStore } from './answers.js'
 import type { RedLineReviewStore } from './redline-review.js'
@@ -290,6 +292,19 @@ const playbookStore: PlaybookModerationStore = {
   record: (input) => recordPlaybookModeration(db, input),
   cleared: (limit) => playbooksClearedForPublication(db, limit),
   publish: (playbookId) => publishPlaybookAfterReview(db, playbookId),
+}
+
+/**
+ * The note queue, beside the playbook queue and reading the same table (`#1246`).
+ *
+ * Two stores rather than four methods on one, because they are two verdicts with
+ * two subjects: one decides whether a pipeline may be published, the other
+ * whether one sentence about a run of it may be. Nothing either writes is
+ * visible to the other.
+ */
+const playbookNoteStore: PlaybookNoteModerationStore = {
+  pending: (limit) => pendingPlaybookNotes(db, limit),
+  record: (input) => recordPlaybookNoteVerdict(db, input),
 }
 
 /**
@@ -649,6 +664,7 @@ const questRunner = startQuestRunner(
     // that answers differently is not a cheaper verdict but a different one
     // (`#726`, `#1219`).
     playbooks: { store: playbookStore, model: questModel, log },
+    playbookNotes: { store: playbookNoteStore, model: questModel, log },
   },
   { pollIntervalMs: QUEST_POLL_INTERVAL_MS },
 )

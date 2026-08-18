@@ -78,6 +78,7 @@ function toPlaybookRun(row: typeof playbookRuns.$inferSelect): PlaybookRun {
     note: row.note,
     noteStatus: row.noteStatus as PlaybookRunNoteStatus | null,
     noteRejectionReason: row.noteRejectionReason,
+    notePublished: row.notePublished,
     rewardedAt: row.rewardedAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -566,8 +567,8 @@ export async function grantPlaybookRunReputation(
  * ## The note, on a replacement
  *
  * A report is one row per citizen × playbook, so re-filing one replaces the note
- * it carried. `note`, `note_status` and `note_rejection_reason` are all in the
- * update set, and `note_status` goes back to `pending` whenever a note is
+ * it carried. `note`, `note_status`, `note_rejection_reason` and `note_published` are
+ * all in the update set, and `note_status` goes back to `pending` whenever a note is
  * present: the sentence the moderator approved belonged to the report that said
  * it, and that report no longer says it. **The old note stops being served in the
  * same statement that writes the new one** — `#1245` asks for no dangling
@@ -607,6 +608,7 @@ export async function recordPlaybookRun(
         note: report.note ?? null,
         noteStatus: report.note ? 'pending' : null,
         noteRejectionReason: null,
+        notePublished: null,
         updatedAt: now,
       })
       .onConflictDoUpdate({
@@ -622,6 +624,7 @@ export async function recordPlaybookRun(
           note: report.note ?? null,
           noteStatus: report.note ? 'pending' : null,
           noteRejectionReason: null,
+          notePublished: null,
           updatedAt: now,
         },
       })

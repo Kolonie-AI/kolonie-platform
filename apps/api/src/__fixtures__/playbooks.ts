@@ -159,6 +159,7 @@ export function fakePlaybooks(): FakePlaybooks {
           note: report.note ?? null,
           noteStatus: report.note ? 'pending' : null,
           noteRejectionReason: null,
+          notePublished: null,
           rewardedAt: standing?.rewardedAt ?? currentTime(),
           createdAt: standing?.createdAt ?? currentTime(),
           updatedAt: currentTime(),

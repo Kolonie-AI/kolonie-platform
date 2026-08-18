@@ -1,7 +1,23 @@
-import { noStagesRun, type ModerationStages } from '@kolonie-ai/core'
-import type { JudgedPlaybook, PendingPlaybook, PlaybookPublishOutcome } from '@kolonie-ai/db'
+import {
+  ConfidentialSpanKindSchema,
+  GUIDANCE_CONTENT_MIN_LENGTH,
+  noStagesRun,
+  PLAYBOOK_RUN_PUBLISHED_NOTE_MAX_LENGTH,
+  type ModerationStages,
+} from '@kolonie-ai/core'
+import type {
+  JudgedPlaybook,
+  PendingPlaybook,
+  PendingPlaybookNote,
+  PlaybookPublishOutcome,
+  RecordPlaybookNoteVerdictInput,
+} from '@kolonie-ai/db'
+import { redact, REDACTION } from './answers.js'
+import { CONFIDENTIALITY_PROMPT } from './confidentiality.js'
 import type { Log } from './loop.js'
 import type { Model } from './llm.js'
+import { judgePlaybookNoteQuality } from './quality.js'
+import { RED_LINE_PROMPT } from './redline.js'
 import {
   PLAYBOOK_CONFIDENTIALITY_PROMPT,
   PLAYBOOK_QUALITY_PROMPT,
@@ -363,6 +379,255 @@ export async function playbookTick(
           event: 'playbook.stale',
           playbookId: playbook.id,
           slug: playbook.slug,
+        })
+        break
+      case 'failed':
+        outcome.failed++
+        break
+    }
+  }
+
+  return outcome
+}
+
+/**
+ * The stage that decides whether a run note is published (`#1246`).
+ *
+ * **A second pass on this file rather than a second file, because it is the same
+ * queue read twice.** `playbookTick` judges a pipeline before anybody may run
+ * it; this judges one sentence somebody wrote after running it. What they share
+ * is the subject — a reader deciding whether to run a playbook reads both — and
+ * sharing a module is what keeps the two verdicts legible side by side.
+ *
+ * ## Three judgements, cheapest refusal that is also the most serious first
+ *
+ * Red lines, then the scrub, then quality. The order is `#1246`'s and it is not
+ * an optimisation: a note that tells its reader to paste an API key is refused
+ * for that and never for being thin, so the most serious question is asked while
+ * it can still be the answer.
+ *
+ * ## The moderator cuts and cannot write
+ *
+ * `#1246` allows an approved note to be shortened, and forbids adding a claim
+ * its author did not make. Only one construction enforces the second rather than
+ * asking a model to honour it, so that is the one here: the published text is
+ * the author's text with its confidential spans redacted and, where that pushed
+ * it past the bound, cut at a sentence boundary. Every character published came
+ * from {@link PendingPlaybookNote.note}. There is no rewrite step and
+ * {@link Model} exposes no shape that could hold one.
+ *
+ * ## Why a refusal costs the author nothing
+ *
+ * The report stands, the four answers stand, and the reputation `#1177` paid
+ * stands. A punished report is a report nobody files, and the note is the
+ * optional part of it — what a rejection removes is the sentence, and it leaves
+ * the author a reason to read.
+ */
+
+/** One note's queue, from the runner's side. Injected, like every store here. */
+export interface PlaybookNoteModerationStore {
+  pending(limit: number): Promise<readonly PendingPlaybookNote[]>
+  record(input: RecordPlaybookNoteVerdictInput): Promise<{ readonly outcome: 'written' | 'stale' }>
+}
+
+export interface PlaybookNoteLoopDependencies {
+  readonly store: PlaybookNoteModerationStore
+  readonly model: Model
+  readonly log?: Log
+}
+
+/** What one note's pass came to. */
+export type PlaybookNoteJudgement =
+  | { readonly kind: 'approved'; readonly published: string }
+  | { readonly kind: 'rejected'; readonly reason: string }
+  | { readonly kind: 'stale' }
+  | { readonly kind: 'failed'; readonly error: unknown }
+
+/**
+ * What the note bound is measured against once the scrub has run.
+ *
+ * The redaction marker is nine characters and the handle it replaces may be
+ * three, so a note that arrived inside the bound can leave the scrub outside it.
+ * That is the only way a stored note can exceed
+ * {@link PLAYBOOK_RUN_PUBLISHED_NOTE_MAX_LENGTH}, and it is why the shortening
+ * runs after the scrub rather than instead of it.
+ */
+const SENTENCE_END = /[.!?](?=\s|$)/g
+
+/**
+ * Cut text to the bound at a boundary a reader will not notice, or refuse it.
+ *
+ * Sentence boundaries first, because a note cut mid-clause reads as a truncation
+ * bug rather than as an edit; a word boundary second, for the note that is one
+ * long sentence; and `undefined` when what survives is under
+ * {@link GUIDANCE_CONTENT_MIN_LENGTH}, which is `#1246`'s *if nothing survives
+ * the scrub it is rejected* — a note whose remaining text is four words is a
+ * note with nothing left to act on, and publishing it under its author's handle
+ * would attribute a fragment nobody wrote.
+ *
+ * **The two bounds measure two different strings, deliberately.** The maximum is
+ * measured on the text as it will be stored, markers and all, because that is
+ * what a reader receives and what the column check counts. The minimum is
+ * measured with the markers taken out, because they are the moderator's
+ * characters and not the author's: a note that scrubbed down to
+ * `[removed] — [removed].` is twenty-two characters of nothing, and a survival
+ * test that counted them would publish it.
+ *
+ * **No ellipsis and no marker for the cut.** A cut that announces itself invites
+ * the reader to ask what was taken out, and the answer is either confidential or
+ * nothing.
+ */
+export function shortenToBound(text: string): string | undefined {
+  const survives = (kept: string) =>
+    kept.split(REDACTION).join(' ').trim().length >= GUIDANCE_CONTENT_MIN_LENGTH
+
+  const trimmed = text.trim()
+  if (trimmed.length <= PLAYBOOK_RUN_PUBLISHED_NOTE_MAX_LENGTH) {
+    return survives(trimmed) ? trimmed : undefined
+  }
+
+  const window = trimmed.slice(0, PLAYBOOK_RUN_PUBLISHED_NOTE_MAX_LENGTH)
+
+  let sentence = -1
+  for (const match of window.matchAll(SENTENCE_END)) sentence = match.index + 1
+  const cut = sentence > 0 ? window.slice(0, sentence) : window.slice(0, window.lastIndexOf(' '))
+
+  const kept = cut.trim()
+  return survives(kept) ? kept : undefined
+}
+
+/**
+ * Take one note through the three judgements and write the verdict.
+ *
+ * A failure writes nothing at all, which leaves the row `pending` for the next
+ * pass — the `#170` direction, and the only handling consistent with having told
+ * the author that filing a note costs it nothing.
+ */
+export async function judgePlaybookNote(
+  entry: PendingPlaybookNote,
+  deps: PlaybookNoteLoopDependencies,
+): Promise<PlaybookNoteJudgement> {
+  const { store, model, log = silentLog } = deps
+
+  const refuse = async (reason: string): Promise<PlaybookNoteJudgement> => {
+    const { outcome } = await store.record({
+      runId: entry.runId,
+      judged: entry.note,
+      decision: 'rejected',
+      reason,
+    })
+    return outcome === 'stale' ? { kind: 'stale' } : { kind: 'rejected', reason }
+  }
+
+  try {
+    const redLine = await model.classify({
+      system: RED_LINE_PROMPT,
+      user: [`Playbook: ${entry.playbookTitle}`, '', entry.note].join('\n'),
+      choices: ['clear', 'crossed'],
+    })
+    if (redLine.decision === 'crossed') return await refuse(redLine.reason)
+
+    const spans = await model.mark({
+      system: CONFIDENTIALITY_PROMPT,
+      user: entry.note,
+      kinds: ConfidentialSpanKindSchema.options,
+    })
+
+    /**
+     * Only spans really in the note, for the reason the walk scrubber gives: a
+     * model that paraphrases what it found would have the scrub replace a string
+     * nobody wrote while leaving the one somebody did.
+     */
+    const present = [
+      ...new Set(spans.map((span) => span.text).filter((text) => entry.note.includes(text))),
+    ]
+
+    const published = shortenToBound(redact(entry.note, present))
+    if (published === undefined) return await refuse(NOTHING_SURVIVED_THE_SCRUB)
+
+    const quality = await judgePlaybookNoteQuality(entry, published, model)
+    if (quality.kind === 'useless') return await refuse(quality.reason)
+
+    const { outcome } = await store.record({
+      runId: entry.runId,
+      judged: entry.note,
+      decision: 'approved',
+      published,
+    })
+    return outcome === 'stale' ? { kind: 'stale' } : { kind: 'approved', published }
+  } catch (error) {
+    log.error(`could not moderate the note on run ${entry.runId}`, error, {
+      event: 'playbook.note.moderate.failed',
+      runId: entry.runId,
+      playbookId: entry.playbookId,
+    })
+    return { kind: 'failed', error }
+  }
+}
+
+/**
+ * What the author is told when the scrub took the note with it.
+ *
+ * Named because it is a verdict rather than a model's sentence — nothing wrote
+ * it, so nothing may vary it — and because the author's next move is in it. A
+ * note is not retried: re-filing the report is how it tries again.
+ */
+export const NOTHING_SURVIVED_THE_SCRUB = [
+  'This note was mostly an address, a handle or a credential of your own, and what was left',
+  'after taking those out was too short to publish. Re-file the report with a note that says',
+  'what the next runner should know without naming an account.',
+].join(' ')
+
+/** What one pass over the note queue came to. */
+export interface PlaybookNoteTickOutcome {
+  readonly judged: number
+  readonly approved: number
+  readonly rejected: number
+  readonly failed: number
+}
+
+/**
+ * Take one batch of unjudged run notes through the stage.
+ *
+ * Sequential and oldest-first, for the reasons {@link playbookTick} gives: this
+ * process spends money per row, and nothing here is order-dependent because a
+ * note is judged against the Colony's rules and never against the other notes.
+ */
+export async function playbookNoteTick(
+  deps: PlaybookNoteLoopDependencies,
+  batchSize: number,
+): Promise<PlaybookNoteTickOutcome> {
+  const { store, log = silentLog } = deps
+  const outcome = { judged: 0, approved: 0, rejected: 0, failed: 0 }
+
+  for (const entry of await store.pending(batchSize)) {
+    const judgement = await judgePlaybookNote(entry, deps)
+    if (judgement.kind !== 'stale') outcome.judged++
+
+    switch (judgement.kind) {
+      case 'approved':
+        outcome.approved++
+        log.info(`the note on a run of ${entry.playbookTitle} was published`, {
+          event: 'playbook.note.judged',
+          runId: entry.runId,
+          playbookId: entry.playbookId,
+          verdict: 'approved',
+        })
+        break
+      case 'rejected':
+        outcome.rejected++
+        log.info(`the note on a run of ${entry.playbookTitle} was returned to its author`, {
+          event: 'playbook.note.judged',
+          runId: entry.runId,
+          playbookId: entry.playbookId,
+          verdict: 'rejected',
+        })
+        break
+      case 'stale':
+        log.warn(`the note on run ${entry.runId} moved while it was being judged`, {
+          event: 'playbook.note.stale',
+          runId: entry.runId,
+          playbookId: entry.playbookId,
         })
         break
       case 'failed':

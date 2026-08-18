@@ -542,8 +542,18 @@ export type PlaybookOwnRun = {
    * citizen will read — so `status` is beside it, because *did the moderator
    * take it* is a question its author is entitled to an answer to and nobody
    * else is. Null on a report that wrote no note.
+   *
+   * **`reason` is here and nowhere else (`#1246`).** A rejection has to be
+   * readable by the author or it is a silence, and it must not be readable by
+   * anybody else or the refusal becomes a second publication of what was
+   * refused. This view is the only one that satisfies both — it is reached off
+   * the author's own run and by nothing else. Null except on `rejected`.
    */
-  readonly note: { readonly text: string; readonly status: PlaybookRunNoteStatus } | null
+  readonly note: {
+    readonly text: string
+    readonly status: PlaybookRunNoteStatus
+    readonly reason: string | null
+  } | null
   readonly filedAt: string
   readonly updatedAt: string
 }
@@ -563,7 +573,7 @@ const ownRun = (run: PlaybookRun): PlaybookOwnRun => ({
   note:
     run.note === null || run.noteStatus === null
       ? null
-      : { text: run.note, status: run.noteStatus },
+      : { text: run.note, status: run.noteStatus, reason: run.noteRejectionReason },
   filedAt: run.createdAt,
   updatedAt: run.updatedAt,
 })

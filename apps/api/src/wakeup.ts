@@ -216,6 +216,9 @@ export interface WakeupSource {
       // one of them crossed a threshold is a fact about the skills the citizen
       // *already* held, which arrives with the openings and not from here.
       | 'citizenship'
+      // Read by `contributionQualityWarning` on the source (`#1262`), not by
+      // `changes`. A warning about standing is not news that something moved.
+      | 'contributionQualityWarning'
     >
   >
 }

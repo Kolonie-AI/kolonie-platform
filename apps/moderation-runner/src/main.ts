@@ -525,11 +525,13 @@ const walkProseStore: WalkProseModerationStore = {
     })
   },
   refuse: async ({ walk }) => {
-    await recordWalkProseModeration(db, {
+    const { suspended } = await recordWalkProseModeration(db, {
       walkId: walk.walkId,
       judged: walk.prose,
       decision: 'rejected',
     })
+
+    return { suspended }
   },
   rescrub: async ({ walk, ...decision }) => {
     const command =
@@ -545,9 +547,9 @@ const walkProseStore: WalkProseModerationStore = {
             judged: walk.prose,
             decision: 'rejected' as const,
           }
-    const written = await recordApprovedWalkProseRescrub(db, command, decision.markProviderStale)
+    const result = await recordApprovedWalkProseRescrub(db, command, decision.markProviderStale)
 
-    return written.outcome === 'written'
+    return { written: result.outcome === 'written', suspended: result.suspended }
   },
   markDuplicates: (limit) => markPublishedDuplicateWalks(db, limit),
 }

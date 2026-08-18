@@ -112,6 +112,29 @@ export const WALK_NOTE_MAX_LENGTH = NOTE_MAX_LENGTH
 export const WALK_PUBLISHED_REPUTATION = 3
 
 /**
+ * How many refused walk reports a citizen may file before it is suspended
+ * (`#1097`).
+ *
+ * **Five, because one refusal is a mistake and two is carelessness.** A citizen
+ * that has been told five times that its words cross a red line is not
+ * misunderstanding the rule. The number is here rather than at the write so that
+ * changing it is one edit and not a search, and so that the test which asserts
+ * the boundary asserts it *at this constant* — a test written against a literal
+ * `5` would keep passing while the rule moved underneath it.
+ *
+ * **It counts refusals and not walks** (`#1097` decision 1). A citizen with many
+ * walks and no refusals is a good citizen with many walks, and the tally is
+ * derived from the walk rows themselves rather than kept in a column beside
+ * them, so it cannot drift from what it describes.
+ *
+ * **What it reaches is `suspended` and never `banned`** (decision 3). A
+ * suspension is reversible by a maintainer; a ban is what the Colony reserves
+ * for a decision a person took deliberately, and an automatic rule may not reach
+ * an irreversible outcome.
+ */
+export const WALK_PROSE_REFUSALS_BEFORE_SUSPENSION = 5
+
+/**
  * How alike two walk reports have to read before the second is a repeat
  * (`#1104`).
  *

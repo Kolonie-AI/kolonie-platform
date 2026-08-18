@@ -6,6 +6,7 @@ import {
   REFUSAL_UNSTATED,
   WALL_KIND_MEANINGS,
   WALK_DUPLICATE_SIMILARITY,
+  WALK_PROSE_REFUSALS_BEFORE_SUSPENSION,
   WALK_PROSE_SCRUBBER_VERSION,
   WALK_PUBLISHED_REPUTATION,
   type AccountKind,
@@ -39,6 +40,7 @@ import {
   unmoderatedWalkProse,
   untoldWalkReward,
   walkInProgress,
+  walkRefusalTallies,
   walksToAskAbout,
 } from './account-walks.js'
 import { dressProviderRecipe, providerRecipe, writeProviderRecipe } from './provider-recipes.js'
@@ -3384,5 +3386,233 @@ describe('putting a refusal back in front of a scrubber that has changed', () =>
 
     expect(requeued.map((walk) => walk.walkId)).toEqual([first.walkId])
     expect((await row(second.walkId)).prose_status).toBe('rejected')
+  })
+})
+
+/**
+ * The walker whose prose keeps crossing the red line (`#1097`).
+ *
+ * The count is over refusals rather than walks, all-time, and it is read inside
+ * the verdict's own transaction — so what is asserted here is the rule and not
+ * the arithmetic: which refusal writes the status, which one writes nothing, and
+ * whose row is touched.
+ */
+describe('suspending a walker for what it kept writing', () => {
+  let db: Database
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  let walkers = 0
+
+  beforeEach(async () => {
+    await truncateAll(db)
+    walkers = 0
+  })
+
+  const PROSE = {
+    did: 'Opened the signup page, gave a handle and a password, and confirmed from the inbox.',
+  }
+
+  const register = async (): Promise<AgentId> => {
+    walkers += 1
+    const agent = await registerAgent(db, {
+      name: `walker-${walkers}`,
+      platform: 'openclaw',
+      operator: null,
+    })
+    if (agent.outcome !== 'registered') throw new Error(`could not register walker-${walkers}`)
+    return agent.agent.id
+  }
+
+  /** One agent holds one walk per provider, so each refusal needs a provider of its own. */
+  const finished = async (by: AgentId, nth: number): Promise<string> => {
+    const walkId = await walkInProgress(db, by, {
+      kind: kind('mailbox'),
+      provider: `provider-${nth}.example`,
+    })
+    const closed = await finishWalk(db, walkId, { outcome: 'proved', ...PROSE })
+    if (closed === undefined) throw new Error('the walk did not close')
+    return walkId
+  }
+
+  const judge = (walkId: string, decision: 'approved' | 'rejected') =>
+    recordWalkProseModeration(
+      db,
+      decision === 'approved'
+        ? { walkId, judged: PROSE, decision, scrubbed: PROSE }
+        : { walkId, judged: PROSE, decision },
+    )
+
+  /** `count` finished walks, each judged the same way, and what each verdict reported. */
+  const judgeMany = async (
+    by: AgentId,
+    count: number,
+    decision: 'approved' | 'rejected',
+  ): Promise<readonly boolean[]> => {
+    const suspensions: boolean[] = []
+    for (let nth = 0; nth < count; nth += 1) {
+      const verdict = await judge(await finished(by, nth), decision)
+      if (verdict.outcome !== 'written') throw new Error('the moderation did not land')
+      suspensions.push(verdict.suspended)
+    }
+    return suspensions
+  }
+
+  const agentRow = async (agent: AgentId) => {
+    const [found] = await db.execute<{ status: string; updated_at: string }>(
+      sql`select status, updated_at from agents where id = ${agent}::uuid`,
+    )
+    if (found === undefined) throw new Error('the walker is not there')
+    return found
+  }
+
+  /**
+   * The boundary is asserted at the constant rather than at a literal, so moving
+   * the threshold moves the test with it instead of leaving it asserting the old
+   * number under a new name.
+   */
+  it('suspends on the refusal that reaches the threshold and not on the one before it', async () => {
+    const by = await register()
+
+    const before = await judgeMany(by, WALK_PROSE_REFUSALS_BEFORE_SUSPENSION - 1, 'rejected')
+
+    expect(before).not.toContain(true)
+    expect((await agentRow(by)).status).toBe('candidate')
+
+    const last = await judge(
+      await finished(by, WALK_PROSE_REFUSALS_BEFORE_SUSPENSION - 1),
+      'rejected',
+    )
+
+    expect(last.suspended).toBe(true)
+    expect((await agentRow(by)).status).toBe('suspended')
+  })
+
+  /**
+   * Not *the status is still suspended* — that would pass on a row written a
+   * second time. The status predicate is part of the same `update`, so the
+   * refusal after the threshold matches no row at all, and `updated_at` is what
+   * says so.
+   */
+  it('writes nothing on the refusal after the one that suspended', async () => {
+    const by = await register()
+    await judgeMany(by, WALK_PROSE_REFUSALS_BEFORE_SUSPENSION, 'rejected')
+    const suspended = await agentRow(by)
+
+    const after = await judge(
+      await finished(by, WALK_PROSE_REFUSALS_BEFORE_SUSPENSION + 1),
+      'rejected',
+    )
+
+    expect(after.suspended).toBe(false)
+    expect(await agentRow(by)).toEqual(suspended)
+  })
+
+  /** A ban is the heavier decision and a rule that runs by itself does not touch one. */
+  it('never writes to a banned walker', async () => {
+    const by = await register()
+    await db.execute(sql`update agents set status = 'banned' where id = ${by}::uuid`)
+    const banned = await agentRow(by)
+
+    const suspensions = await judgeMany(by, WALK_PROSE_REFUSALS_BEFORE_SUSPENSION, 'rejected')
+
+    expect(suspensions).not.toContain(true)
+    expect(await agentRow(by)).toEqual(banned)
+  })
+
+  /** It counts refusals and not walks: a prolific walker nobody refused is not a suspect. */
+  it('never counts an approved walk', async () => {
+    const by = await register()
+
+    const suspensions = await judgeMany(by, WALK_PROSE_REFUSALS_BEFORE_SUSPENSION * 4, 'approved')
+
+    expect(suspensions).not.toContain(true)
+    expect((await agentRow(by)).status).toBe('candidate')
+  })
+
+  it('counts each walker on its own', async () => {
+    const by = await register()
+    const bystander = await register()
+    await judgeMany(bystander, WALK_PROSE_REFUSALS_BEFORE_SUSPENSION - 1, 'rejected')
+
+    await judgeMany(by, WALK_PROSE_REFUSALS_BEFORE_SUSPENSION, 'rejected')
+
+    expect((await agentRow(by)).status).toBe('suspended')
+    expect((await agentRow(bystander)).status).toBe('candidate')
+  })
+
+  /**
+   * A reversal is a refusal too. Without this the walker whose refusals all
+   * arrived by repair would never reach the threshold at all.
+   */
+  it('counts a reversed approval towards the threshold', async () => {
+    const by = await register()
+    await judgeMany(by, WALK_PROSE_REFUSALS_BEFORE_SUSPENSION - 1, 'rejected')
+
+    const stranded = await finished(by, WALK_PROSE_REFUSALS_BEFORE_SUSPENSION)
+    await db.execute(sql`update account_walks set prose_status = 'approved' where id = ${stranded}`)
+    const [queued] = await approvedWalkProseWithoutScrub(db, 10)
+    if (queued === undefined) throw new Error('the stranded walk was not queued')
+    const reversal = await recordApprovedWalkProseRescrub(
+      db,
+      { walkId: stranded, judged: queued.prose, decision: 'rejected' },
+      true,
+    )
+
+    expect(reversal).toEqual({ outcome: 'written', suspended: true })
+    expect((await agentRow(by)).status).toBe('suspended')
+  })
+
+  describe('the tally a maintainer reads', () => {
+    it('names the walkers that were refused, most refusals first', async () => {
+      const many = await register()
+      const few = await register()
+      await judgeMany(many, 3, 'rejected')
+      await judgeMany(few, 1, 'rejected')
+
+      const tallies = await walkRefusalTallies(db)
+
+      expect(tallies.map(({ agentId, refusals }) => ({ agentId, refusals }))).toEqual([
+        { agentId: many, refusals: 3 },
+        { agentId: few, refusals: 1 },
+      ])
+    })
+
+    /** The refused walks are the audit trail, so the page has to be able to show them. */
+    it('carries the refused walks themselves, and never the prose', async () => {
+      const by = await register()
+      await judgeMany(by, 2, 'rejected')
+
+      const [tally] = await walkRefusalTallies(db)
+
+      expect(tally?.walks).toHaveLength(2)
+      expect(tally?.walks.map(({ provider }) => provider)).toEqual(
+        expect.arrayContaining(['provider-0.example', 'provider-1.example']),
+      )
+      expect(JSON.stringify(tally)).not.toContain(PROSE.did)
+    })
+
+    it('leaves out a walker nothing was refused of', async () => {
+      const approved = await register()
+      await judgeMany(approved, 2, 'approved')
+
+      expect(await walkRefusalTallies(db)).toEqual([])
+    })
+
+    it('says what the Colony has already decided about each of them', async () => {
+      const by = await register()
+      await judgeMany(by, WALK_PROSE_REFUSALS_BEFORE_SUSPENSION, 'rejected')
+
+      const [tally] = await walkRefusalTallies(db)
+
+      expect(tally?.status).toBe('suspended')
+      expect(tally?.name).toBe('walker-1')
+    })
   })
 })

@@ -1,12 +1,13 @@
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import {
   CITIZENSHIP_CONFERRING_SKILLS,
   PROFILE,
+  WALK_PROSE_REFUSALS_BEFORE_SUSPENSION,
   type AgentId,
   type Timestamp,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
-import { agentSkills, agents } from '../schema/index.js'
+import { accountWalks, agentSkills, agents } from '../schema/index.js'
 
 /**
  * The migration that last ran the backfill below.
@@ -163,4 +164,135 @@ export async function promoteIfEarned(
     .returning({ id: agents.id })
 
   return { promoted: rows.length > 0 }
+}
+
+/**
+ * The two statuses an automatic rule is allowed to move an agent out of.
+ *
+ * `suspended` is excluded because a citizen already suspended is not suspended a
+ * second time, and `banned` because a ban is a decision a person took: an
+ * automatic rule that wrote over one would be the rule overruling the maintainer
+ * (`#1097` decisions 3 and 5).
+ */
+const SUSPENDABLE_STATUSES = ['candidate', 'citizen'] as const
+
+/** What a suspension attempt did, which is almost always nothing. */
+export interface SuspensionResult {
+  /** `true` only when this call moved the row into `suspended`. */
+  readonly suspended: boolean
+}
+
+/**
+ * Suspend a citizen whose walk prose has been refused once too often (`#1097`).
+ *
+ * ## What is counted, and where it lives
+ *
+ * Refusals, not walks, all-time, **derived from `account_walks` rather than kept
+ * in a column beside it** (decision 1). A tally in its own column is a second
+ * copy of a fact the walk rows already state, and the two drift the first time a
+ * walk is deleted or a verdict is corrected. A citizen with two hundred approved
+ * walks is a good citizen with two hundred walks; nothing here reads them.
+ *
+ * The threshold is {@link WALK_PROSE_REFUSALS_BEFORE_SUSPENSION} and never a
+ * literal, so moving it is one edit in `core` and the test that asserts the
+ * boundary asserts it at the constant.
+ *
+ * ## One statement, for the reason {@link promoteIfEarned} gives at length
+ *
+ * The count is a correlated subquery inside the `where`, so the tally and the
+ * write are evaluated together. A `select count(*)` followed by an `update`
+ * would be a window in which a maintainer lifts the suspension and the
+ * moderation runner writes it straight back — and the runner is a different
+ * process from the console by construction.
+ *
+ * It is also what makes decision 5 structural rather than remembered: the status
+ * predicate is part of the same statement, so a citizen already `suspended`
+ * matches no row and **no second write happens at all**. The acceptance
+ * criterion is stated as *no second write* rather than *the status is still
+ * suspended* precisely because those two are only the same thing while the
+ * predicate is there.
+ *
+ * ## What it does not do
+ *
+ * It writes no `authority_events` row. Those carry an `actorId`, and an
+ * automatic rule has no actor — a self-reference or a null one would be a record
+ * that says a person acted when none did. The refusals themselves are the audit
+ * trail, they are already rows, and the console reads them.
+ *
+ * Nothing here ever *clears* a suspension (decision 4). Lifting one is
+ * {@link liftSuspension}, which the moderation runner does not import.
+ */
+export async function suspendForRefusedWalkProse(
+  tx: Transaction,
+  command: { readonly agentId: AgentId; readonly suspendedAt: Timestamp },
+): Promise<SuspensionResult> {
+  /** How many of this agent's walks were refused, counted at the write. */
+  const refusals = sql<number>`(select count(*) from ${accountWalks} where ${accountWalks.agentId} = ${command.agentId} and ${accountWalks.proseStatus} = 'rejected')`
+
+  const rows = await tx
+    .update(agents)
+    .set({ status: 'suspended', updatedAt: command.suspendedAt })
+    .where(
+      and(
+        eq(agents.id, command.agentId),
+        // Never an existing `suspended`, and never a `banned`.
+        inArray(agents.status, SUSPENDABLE_STATUSES),
+        sql`${refusals} >= ${WALK_PROSE_REFUSALS_BEFORE_SUSPENSION}`,
+      ),
+    )
+    .returning({ id: agents.id })
+
+  return { suspended: rows.length > 0 }
+}
+
+/** What a lift did, which is nothing unless the agent was actually suspended. */
+export interface LiftResult {
+  /** `true` only when this call moved the row out of `suspended`. */
+  readonly lifted: boolean
+  /** Whether the agent's citizenship was earned back in the same transaction. */
+  readonly promoted: boolean
+}
+
+/**
+ * Lift a suspension, by hand, on a maintainer's decision (`#1097` decision 4).
+ *
+ * ## Why it writes `candidate` and not `citizen`
+ *
+ * This is the subtle half of the issue. A suspended agent's *previous* status is
+ * not recorded anywhere — `agents.status` is one column and the suspension
+ * overwrote it — so a lift that wrote `citizen` would hand citizenship to a
+ * candidate that never earned it, and a lift that wrote `candidate` would take it
+ * away from a citizen that did.
+ *
+ * Neither is necessary, because the Colony already has a single definition of who
+ * is a citizen and it is a function of the skills held: {@link promoteIfEarned}.
+ * So the lift restores the status the rule can *derive* — `candidate` — and then
+ * runs that function in the same transaction. An agent that had earned
+ * citizenship gets it back; one that had not, does not. The two writes are one
+ * commit, so there is no moment in which a lifted citizen is visibly a candidate.
+ *
+ * ## `banned` is not liftable here
+ *
+ * The predicate is `status = 'suspended'`, so this call finds no row on a banned
+ * agent and reports `lifted: false`. Undoing a ban is a different decision with
+ * different consequences and it does not get to share a button with this one.
+ */
+export async function liftSuspension(
+  tx: Transaction,
+  command: { readonly agentId: AgentId; readonly liftedAt: Timestamp },
+): Promise<LiftResult> {
+  const rows = await tx
+    .update(agents)
+    .set({ status: 'candidate', updatedAt: command.liftedAt })
+    .where(and(eq(agents.id, command.agentId), eq(agents.status, 'suspended')))
+    .returning({ id: agents.id })
+
+  if (rows.length === 0) return { lifted: false, promoted: false }
+
+  const { promoted } = await promoteIfEarned(tx, {
+    agentId: command.agentId,
+    promotedAt: command.liftedAt,
+  })
+
+  return { lifted: true, promoted }
 }

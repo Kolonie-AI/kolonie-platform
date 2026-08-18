@@ -285,7 +285,10 @@ describe('the note a walker leaves at a provider', () => {
           decision: 'approved',
           scrubbed: { route: judged },
         }),
-      ).toEqual({ outcome: 'stale' })
+        // `suspended` is false because nothing was refused: the threshold
+        // counts refusals, and a verdict that found no row to write to did not
+        // produce one (`#1097`).
+      ).toEqual({ outcome: 'stale', suspended: false })
       expect(await publishedWalkRoutesAt(db, where.provider)).toEqual(new Map())
     })
   })

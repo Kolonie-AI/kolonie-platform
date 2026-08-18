@@ -19,6 +19,7 @@ import type {
   QuestModerationRefusalStage,
   RuleHealthRow,
   TaskWithoutReports,
+  WalkRefusalTally,
   WantedProviderCount,
 } from '@kolonie-ai/db'
 import { arrivalsSection } from './arrivals-section.js'
@@ -643,6 +644,83 @@ export function backendEnquiriesPage(
                 enquiry.handledAt === null
                   ? `<form method="post" action="/backend/enquiries/${escape(enquiry.id)}/handled"><button type="submit">Mark handled</button></form>`
                   : `handled ${escape(relative(enquiry.handledAt))}`
+              }</td>`,
+              '</tr>',
+            ].join(''),
+          ),
+          '</tbody>',
+          '</table>',
+        ]
+
+  return backendSection({ ...input, body })
+}
+
+/**
+ * `/backend/refusals` — the walkers whose prose kept crossing a red line
+ * (`#1097`).
+ *
+ * ## What it is for, and what it is not
+ *
+ * The suspension itself is automatic and happens inside the verdict that reaches
+ * the threshold, so nothing here decides one. This page answers the other
+ * question: *which citizens has that happened to, and on what.* The refusals are
+ * the audit trail — no `authority_events` row is written, because an automatic
+ * rule has no actor — so the table has to be able to show them.
+ *
+ * ## The refused prose is not on it
+ *
+ * Deliberately. A refused walk has no scrub, so the only text there is the raw
+ * text a red line was drawn against, and a maintainer's page is not where that
+ * gets read back. What each row carries is `kind`, `provider` and when the walk
+ * finished, which is enough to see a pattern and not enough to republish
+ * anything.
+ *
+ * ## One button, and it lifts
+ *
+ * A suspension is imposed by a rule and taken off by a person. There is no
+ * *suspend* to go with it — the count is the only thing that may impose one, and
+ * a button that could impose one by hand would be a second answer to a question
+ * the threshold already answers.
+ */
+export function backendRefusalsPage(
+  input: BackendPageInput & {
+    readonly tallies: readonly WalkRefusalTally[]
+    readonly notice?: string
+  },
+): string {
+  const { tallies } = input
+  const suspended = tallies.filter((tally) => tally.status === 'suspended').length
+
+  const body =
+    tallies.length === 0
+      ? [
+          '<p class="note">Nothing anybody walked has been refused. That is the reading to hope ' +
+            'for: the threshold counts refusals rather than walks, so an empty table means the ' +
+            'red line is being kept and not that nobody is walking.</p>',
+        ]
+      : [
+          `<p class="note">${tallies.length === 1 ? 'One citizen has' : `${String(tallies.length)} citizens have`} had a walk report refused, ${String(suspended)} of them suspended. Most refusals first. What each of them wrote is not shown — a refused walk has no scrub, and this page is not where the text a red line was drawn against gets read back.</p>`,
+          '<table>',
+          '<thead><tr><th>Citizen</th><th>Standing</th><th>Refusals</th><th>What was refused</th><th></th></tr></thead>',
+          '<tbody>',
+          ...tallies.map((tally) =>
+            [
+              '<tr>',
+              `<td>${escape(tally.name)}</td>`,
+              `<td>${escape(tally.status)}</td>`,
+              `<td>${String(tally.refusals)}</td>`,
+              `<td>${tally.walks
+                .map(
+                  (walk) =>
+                    `${escape(walk.kind)} at ${escape(walk.provider)}${
+                      walk.finishedAt === null ? '' : `, ${escape(relative(walk.finishedAt))}`
+                    }`,
+                )
+                .join('<br>')}</td>`,
+              `<td>${
+                tally.status === 'suspended'
+                  ? `<form method="post" action="/backend/refusals/lift"><input type="hidden" name="agentId" value="${escape(tally.agentId)}"><button type="submit">Lift</button></form>`
+                  : ''
               }</td>`,
               '</tr>',
             ].join(''),

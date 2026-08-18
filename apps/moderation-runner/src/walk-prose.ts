@@ -1,6 +1,7 @@
 import {
   ConfidentialSpanKindSchema,
   WALK_PROSE_FIELDS,
+  WALK_PROSE_REFUSALS_BEFORE_SUSPENSION,
   walkProseText,
   type WalkProse,
 } from '@kolonie-ai/core'
@@ -56,6 +57,17 @@ import type { Model } from './llm.js'
  * to touch — which is why this pass never writes anything back to the author.
  */
 
+/** What a refusal cost the walker, which is nothing until the fifth (`#1097`). */
+export interface RefusalOutcome {
+  readonly suspended: boolean
+}
+
+/** What a second reading wrote, and what it cost (`#1095`, `#1097`). */
+export interface RescrubOutcome extends RefusalOutcome {
+  /** `true` when the repair actually landed; `false` on a stale row. */
+  readonly written: boolean
+}
+
 /** Where the walk-prose pass reads and writes. Injected, like every other store here. */
 export interface WalkProseModerationStore {
   /**
@@ -69,7 +81,18 @@ export interface WalkProseModerationStore {
   pending(limit: number): Promise<readonly UnmoderatedWalkProse[]>
   approvedWithoutScrub(limit: number): Promise<readonly ApprovedWalkProseWithoutScrub[]>
   write(input: { readonly walk: UnmoderatedWalkProse; readonly scrubbed: WalkProse }): Promise<void>
-  refuse(input: { readonly walk: UnmoderatedWalkProse }): Promise<void>
+  /**
+   * Refuse the words, and say whether that refusal was the citizen's fifth
+   * (`#1097`).
+   *
+   * **The store answers because only the store can.** The tally and the
+   * suspension are one statement in one transaction, so the runner cannot count
+   * afterwards without asking a question the write has already answered. What
+   * comes back is a `boolean` and never an agent id — this pass names the
+   * provider and never the walker, and a suspension is counted here rather than
+   * attributed.
+   */
+  refuse(input: { readonly walk: UnmoderatedWalkProse }): Promise<RefusalOutcome>
   rescrub(
     input:
       | {
@@ -83,7 +106,7 @@ export interface WalkProseModerationStore {
           readonly decision: 'rejected'
           readonly markProviderStale: boolean
         },
-  ): Promise<boolean>
+  ): Promise<RescrubOutcome>
   /**
    * Compare what is already published against itself and mark the repeats
    * (`#1109`).
@@ -106,7 +129,8 @@ const silentLog: Log = { info: () => {}, warn: () => {}, error: () => {} }
 /** What one walk's pass came to. The same three every scrub in this app reports. */
 export type WalkProseJudgement =
   | { readonly kind: 'scrubbed'; readonly redacted: number }
-  | { readonly kind: 'refused'; readonly reason: string }
+  /** `suspended` is the fifth refusal and nothing else (`#1097`). */
+  | { readonly kind: 'refused'; readonly reason: string; readonly suspended: boolean }
   | { readonly kind: 'failed'; readonly error: unknown }
 
 /** How a walk is named in a log line. The provider, never the walker. */
@@ -146,8 +170,8 @@ async function moderateWalkProseWith(
     })
 
     if (verdict.decision === 'crossed') {
-      await writer.refuse({ walk })
-      return { kind: 'refused', reason: verdict.reason }
+      const { suspended } = await writer.refuse({ walk })
+      return { kind: 'refused', reason: verdict.reason, suspended }
     }
 
     const spans = await model.mark({
@@ -203,6 +227,16 @@ export interface WalkProseTickOutcome {
   readonly judged: number
   readonly scrubbed: number
   readonly refused: number
+  /**
+   * Citizens this tick's refusals suspended (`#1097`).
+   *
+   * Counted apart from `refused` because it is a different event and a much
+   * rarer one: four refusals in a tick are four refusals, and the fifth by one
+   * citizen is the only one that costs anything. A tick where this is not zero is
+   * a tick a maintainer would want to know about — which is why it is a counter
+   * and not only a log line.
+   */
+  readonly suspended: number
   readonly failed: number
   /** Published walks recognised as repeats of an earlier one (`#1109`). */
   readonly repeats: number
@@ -223,7 +257,15 @@ export async function walkProseTick(
   batchSize: number,
 ): Promise<WalkProseTickOutcome> {
   const { store, log = silentLog } = deps
-  const outcome = { judged: 0, scrubbed: 0, refused: 0, failed: 0, repeats: 0, requeued: 0 }
+  const outcome = {
+    judged: 0,
+    scrubbed: 0,
+    refused: 0,
+    suspended: 0,
+    failed: 0,
+    repeats: 0,
+    requeued: 0,
+  }
 
   const record = (walk: UnmoderatedWalkProse, judgement: WalkProseJudgement) => {
     outcome.judged++
@@ -244,6 +286,22 @@ export async function walkProseTick(
           provider: walk.provider,
           verdict: 'refused',
         })
+        /**
+         * **A second line, and it names nobody** (`#1097`). Which citizen was
+         * suspended is on the console page a maintainer opens deliberately; a log
+         * this pass writes on every refusal is the wrong place for an identity,
+         * and the count is what tells an operator the rule fired at all.
+         */
+        if (judgement.suspended) {
+          outcome.suspended++
+          log.info(
+            `a citizen reached ${WALK_PROSE_REFUSALS_BEFORE_SUSPENSION} refused walks and was suspended`,
+            {
+              event: 'walk-prose.suspended',
+              provider: walk.provider,
+            },
+          )
+        }
         break
       case 'failed':
         outcome.failed++
@@ -294,10 +352,18 @@ export async function walkProseTick(
     let written = false
     const judgement = await moderateWalkProseWith(walk, deps, {
       write: async ({ scrubbed }) => {
-        written = await store.rescrub({ walk, decision: 'approved', scrubbed, markProviderStale })
+        const outcome = await store.rescrub({
+          walk,
+          decision: 'approved',
+          scrubbed,
+          markProviderStale,
+        })
+        written = outcome.written
       },
       refuse: async () => {
-        written = await store.rescrub({ walk, decision: 'rejected', markProviderStale })
+        const outcome = await store.rescrub({ walk, decision: 'rejected', markProviderStale })
+        written = outcome.written
+        return { suspended: outcome.suspended }
       },
     })
     if (written) touched.add(providerKey)

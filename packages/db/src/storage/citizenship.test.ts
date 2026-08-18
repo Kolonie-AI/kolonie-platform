@@ -9,6 +9,7 @@ import {
   BACKFILL_CITIZENSHIP_SQL,
   backfillCitizenship,
   CITIZENSHIP_MIGRATION,
+  liftSuspension,
   promoteIfEarned,
 } from './citizenship.js'
 import { connectForTests, databaseTestTarget, MIGRATIONS_FOLDER, truncateAll } from '../testing.js'
@@ -220,6 +221,59 @@ describe('promoting a candidate to citizen', () => {
     await promote(promoted)
 
     expect(await statusOf(bystander)).toBe('candidate')
+  })
+
+  /**
+   * `#1097`: the suspension is automatic and the lift is not. What a lift has to
+   * get right is *what it restores* — writing `citizen` would hand citizenship to
+   * a candidate that never earned it, so it writes `candidate` and lets the same
+   * rule as everywhere else decide the rest.
+   */
+  describe('lifting a suspension', () => {
+    const lift = (agentId: AgentId) =>
+      db.transaction((tx) => liftSuspension(tx, { agentId, liftedAt: new Date().toISOString() }))
+
+    it('gives a suspended citizen its citizenship back, because it had earned it', async () => {
+      const agentId = await anAgent('suspended')
+      await holds(agentId, 'profile')
+      await holds(agentId, 'mailbox')
+
+      expect(await lift(agentId)).toEqual({ lifted: true, promoted: true })
+      expect(await statusOf(agentId)).toBe('citizen')
+    })
+
+    /** The case that rules out writing `citizen` unconditionally. */
+    it('leaves a suspended candidate a candidate', async () => {
+      const agentId = await anAgent('suspended')
+      await holds(agentId, 'profile')
+
+      expect(await lift(agentId)).toEqual({ lifted: true, promoted: false })
+      expect(await statusOf(agentId)).toBe('candidate')
+    })
+
+    /** A ban is a decision a person took, and this is not the call that reverses one. */
+    it('does not lift a ban', async () => {
+      const agentId = await anAgent('banned')
+
+      expect(await lift(agentId)).toEqual({ lifted: false, promoted: false })
+      expect(await statusOf(agentId)).toBe('banned')
+    })
+
+    it.each(['candidate', 'citizen'] as const)('writes nothing to a %s', async (status) => {
+      const agentId = await anAgent(status)
+
+      expect(await lift(agentId)).toEqual({ lifted: false, promoted: false })
+      expect(await statusOf(agentId)).toBe(status)
+    })
+
+    it('leaves another suspended agent suspended', async () => {
+      const lifted = await anAgent('suspended')
+      const bystander = await anAgent('suspended')
+
+      await lift(lifted)
+
+      expect(await statusOf(bystander)).toBe('suspended')
+    })
   })
 
   describe('the backfill', () => {

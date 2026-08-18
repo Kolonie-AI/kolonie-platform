@@ -93,6 +93,7 @@ import {
   backendPage,
   backendQuestPage,
   backendQuestsPage,
+  backendRefusalsPage,
   backendSettingsPage,
   backendTicketsPage,
   backendDiagnosesPage,
@@ -1792,6 +1793,57 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
           : reply.send({ diagnosis })
       },
     )
+  }
+
+  /**
+   * The walkers whose prose kept crossing a red line (`#1097`).
+   *
+   * **A read and one write, and the write only lifts.** The suspension itself is
+   * imposed by the threshold, inside the transaction that writes the verdict
+   * reaching it — so there is no route here that could impose one, and that is
+   * the design rather than an omission. A person's job is the other direction.
+   *
+   * **Registered only where a desk was wired**, exactly as the diagnoses tree
+   * above: a deployment with none serves no page rather than an empty one.
+   */
+  if (deps.walkRefusals !== undefined) {
+    const walkRefusals = deps.walkRefusals
+
+    app.get('/backend/refusals', async (request, reply) => {
+      if ((await backendGuard(request, reply)) === null) return reply
+
+      const tallies = await walkRefusals.tallies()
+
+      return wantsHtml(request)
+        ? html(reply, backendRefusalsPage({ nav: navFor(request, ['maintainer']), tallies }))
+        : reply.send({ tallies })
+    })
+
+    app.post('/backend/refusals/lift', async (request, reply) => {
+      const held = await maintainer(request, reply)
+      if (held === null) return reply
+
+      const { agentId } = (request.body ?? {}) as { agentId?: string }
+      const lifted = agentId === undefined ? false : await walkRefusals.lift(agentId)
+      const notice = lifted
+        ? 'Suspension lifted. What the walker had earned is back; nothing else about the refusals changed.'
+        : 'Nothing to lift — that walker is not suspended, or is banned, which this never touches.'
+
+      const tallies = await walkRefusals.tallies()
+
+      return wantsHtml(request)
+        ? html(
+            reply,
+            backendRefusalsPage({
+              // The path the navigation carries, not the POST's own: this
+              // renders the refusals page, so that is what `aria-current` marks.
+              nav: { current: '/backend/refusals', maintains: true },
+              tallies,
+              notice,
+            }),
+          )
+        : reply.send({ tallies, lifted })
+    })
   }
 
   /**

@@ -180,9 +180,15 @@ describe('the provider page as the guide a search finds', () => {
   })
 
   /**
-   * Decision 1: nine facts, and the box is above the prose rather than under it.
+   * Decision 1: the fixed facts, and the box is above the prose rather than under
+   * it.
+   *
+   * **It was nine and it is ten** (`#1123`). `#1105` decided which facts a reader
+   * weighs rather than how many there are, and the count is what falls out of the
+   * list — so a wall kind that answers a question nothing else on the page can
+   * answer adds a row here rather than displacing one.
    */
-  it('answers all nine criteria in a box above the prose', () => {
+  it('answers every fixed criterion in a box above the prose', () => {
     const html = page()
     const asked = box(html)
 
@@ -193,15 +199,16 @@ describe('the provider page as the guide a search finds', () => {
     expect(asked).toContain('Does it need an identity document?')
     expect(asked).toContain('Is it invite-only?')
     expect(asked).toContain('Does a person have to approve the account?')
+    expect(asked).toContain('Do the terms restrict what you may publish with it?')
     expect(asked).toContain('Do the terms allow an account held by an agent?')
     expect(asked).toContain('Can an agent do this alone, or is a person needed?')
 
-    expect(atlasCriteria(atlasPublicEntry(entry()))).toHaveLength(9)
+    expect(atlasCriteria(atlasPublicEntry(entry()))).toHaveLength(10)
     expect(main(html).indexOf('k-atlas-criteria')).toBeLessThan(main(html).indexOf('k-about'))
   })
 
   /**
-   * **The direction row is the tenth and it is conditional** (`#976`). A row
+   * **The direction row is the last one and it is conditional** (`#976`). A row
    * reading *not known* about an axis that does not exist is noise a reader has to
    * learn to skip, so only the kinds where the axis means anything get one.
    */
@@ -266,6 +273,33 @@ describe('the provider page as the guide a search finds', () => {
   })
 
   /**
+   * **The box asks about the output restriction and not about its neighbour**
+   * (`#1123`). The terms row one line down answers *may an agent hold this*, at
+   * four values none of which can say *the account is fine and the work may not
+   * be published* — so a reader scanning a provider with an AI-content policy
+   * either learns it here or reads two sections further to find out.
+   */
+  it('asks whether the terms restrict what may be published, and answers it', () => {
+    expect(box(page())).toContain('Do the terms restrict what you may publish with it?')
+
+    const asked = box(
+      page({
+        recipes: [
+          recipe({
+            walls: [
+              { kind: 'terms-restrict-output', direction: null, reportedBy: 1 },
+            ] as unknown as AtlasEntry['recipes'][number]['walls'],
+          }),
+        ] as AtlasEntry['recipes'],
+      }),
+    )
+
+    expect(asked).toContain(
+      'Yes — the terms allow the account and restrict what may be published with it. Hit by 1 walk.',
+    )
+  })
+
+  /**
    * **Decision 4, asserted as the property rather than as a snapshot.** A
    * `FAQPage` whose answers are not on the page is a spam signal and a lie in the
    * same markup, so the test extracts both sides and compares them — the markup
@@ -279,7 +313,7 @@ describe('the provider page as the guide a search finds', () => {
       acceptedAnswer: { text: string }
     }[]
 
-    expect(questions).toHaveLength(9)
+    expect(questions).toHaveLength(10)
 
     for (const one of questions) {
       expect(decoded(html)).toContain(one.name)

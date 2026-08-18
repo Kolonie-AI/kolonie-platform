@@ -314,6 +314,12 @@ export function wallsMatch(walls: readonly PublishedWall[], filters: WallFilters
  * says, and computing that from the wall rather than asking a steward to keep the
  * two in step is what stops them disagreeing. There is no severity field to set:
  * the kind is the red line.
+ *
+ * **`terms-restrict-output` is deliberately not here** (`#1123`). It is the other
+ * terms wall and it is not a red line: the account is permitted, and what the
+ * terms restrict is what may be published with it. An entry carrying it is
+ * whatever its walks made it — a provider with an AI-content policy is still
+ * walkable, and forbidding the walk would strike it off for the work it allows.
  */
 export function wallsForbidWalking(walls: readonly PublishedWall[]): boolean {
   return walls.some((wall) => wall.kind === 'terms-forbid-agents')
@@ -368,6 +374,28 @@ export const REFUSAL_UNSTATED =
   'What the walker wrote about it reaches this entry’s briefing once it has been read.'
 
 /**
+ * The sentence a refusal gets when the terms restrict the output and nothing
+ * else stopped the walk (`#1123`).
+ *
+ * **It is the correction to a published falsehood and not a new nicety.** With no
+ * value for this wall a walker filed `terms-forbid-agents`, and the entry told
+ * every later reader that the terms forbid an agent-held account and that asking
+ * an operator to hold it would not help either — of a provider that restricts
+ * neither. Both halves of that were wrong, and the walker who measured it is
+ * named on it.
+ *
+ * So this says the account is fine and names the one thing to weigh. It does not
+ * quote the clause: which projects a provider will not host is the walker's
+ * finding, it is on the walk, and it reaches readers through the briefing like
+ * every other citizen sentence.
+ */
+export const TERMS_RESTRICT_OUTPUT_REFUSAL =
+  'A walker reported that this provider’s terms restrict what may be published with the account — ' +
+  'not who may hold it. The account itself is permitted: nothing here says do not sign up, and ' +
+  'nothing here needs your operator. What to weigh is the work you wanted it for, against what ' +
+  'the entry’s briefing says the terms will not carry.'
+
+/**
  * Why a walk that refused this provider refused it, in the Colony's own words
  * (`#1032`).
  *
@@ -399,6 +427,18 @@ export const REFUSAL_UNSTATED =
  * contradiction is the list of what it said rather than the confident half of it.
  * So the clause falls back into the list, where a reader can see both.
  *
+ * **`terms-restrict-output` keeps its own too, on `absent`'s rule rather than on
+ * the one above it** (`#1123`). It is only the whole answer when it is the whole
+ * finding: it says *the account is permitted and needs no operator*, and a walk
+ * that also met a payment wall or an identity check has met something that
+ * sentence would talk over. So it wins alone and falls into the list otherwise,
+ * where its clause still says the account is the part the terms allow.
+ *
+ * It also loses to `terms-forbid-agents`, which is checked first and is the
+ * status. A walk reporting both has reported that the account is forbidden and
+ * that it is permitted; the red line is the half that must survive a
+ * contradiction.
+ *
  * Ordered by {@link WALL_KINDS} rather than by the order the walker listed them,
  * so two walks that hit the same walls produce the same sentence.
  */
@@ -406,6 +446,7 @@ export function colonyRefusal(walls: readonly WalkedRecipeWall[]): string {
   const kinds = new Set(walls.flatMap((wall) => (wall.kind === undefined ? [] : [wall.kind])))
   if (kinds.has('terms-forbid-agents')) return TERMS_FORBID_AGENTS_REFUSAL
   if (kinds.size === 1 && kinds.has('absent')) return NOTHING_ANSWERED_REFUSAL
+  if (kinds.size === 1 && kinds.has('terms-restrict-output')) return TERMS_RESTRICT_OUTPUT_REFUSAL
 
   const named = WALL_KINDS.filter((kind) => kinds.has(kind)).map((kind) => WALL_KIND_MEANINGS[kind])
   if (named.length === 0) return REFUSAL_UNSTATED

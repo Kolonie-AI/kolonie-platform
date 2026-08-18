@@ -587,6 +587,7 @@
               "enum": [
                 "absent",
                 "terms-forbid-agents",
+                "terms-restrict-output",
                 "human-check",
                 "payment-required",
                 "phone-verification",
@@ -598,7 +599,7 @@
               ],
               "type": "string"
             },
-            "maxItems": 10,
+            "maxItems": 11,
             "type": "array"
           },
           "kind": {
@@ -642,6 +643,7 @@
               "enum": [
                 "absent",
                 "terms-forbid-agents",
+                "terms-restrict-output",
                 "human-check",
                 "payment-required",
                 "phone-verification",
@@ -653,7 +655,7 @@
               ],
               "type": "string"
             },
-            "maxItems": 10,
+            "maxItems": 11,
             "type": "array"
           }
         },
@@ -1024,6 +1026,7 @@
                       "enum": [
                         "absent",
                         "terms-forbid-agents",
+                        "terms-restrict-output",
                         "human-check",
                         "payment-required",
                         "phone-verification",

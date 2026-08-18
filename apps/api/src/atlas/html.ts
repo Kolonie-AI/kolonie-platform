@@ -1331,7 +1331,7 @@ function operatorLine(
  * The criteria box, at the top of every provider page (`#1105` decision 1).
  *
  * **Five seconds of scanning, above the prose**, because the decision a reader
- * arrives with is *is this worth an afternoon* and every one of these nine facts
+ * arrives with is *is this worth an afternoon* and every one of these facts
  * can end it. Until here they were spread across a facts line, a *before you
  * start* paragraph inside each recipe section, and a findings list under it —
  * every one of them true, none of them scannable, and three of them below a fold.
@@ -1496,7 +1496,7 @@ export function atlasEntryPage(input: {
   const site = siteOf(input.canonical)
 
   /**
-   * The nine facts, built once and rendered twice (`#1105` decision 4) — into the
+   * The facts, built once and rendered twice (`#1105` decision 4) — into the
    * box below and into the `FAQPage` above it. `criteria.ts` explains why that is
    * one array rather than two builders.
    */
@@ -1546,8 +1546,8 @@ export function atlasEntryPage(input: {
      *
      * **The `FAQPage` is emitted on exactly the pages that are indexed at all**
      * (`#1105` decision 7). A placeholder has an honest criteria box saying
-     * *not known* nine times over, which is a true page and not an answer: asking
-     * a crawler to treat nine unknowns as a rich result, on a page the same
+     * *not known* on every row, which is a true page and not an answer: asking
+     * a crawler to treat a box of unknowns as a rich result, on a page the same
      * function has just asked it not to index, would be the Colony arguing with
      * itself in two blocks of the same head. One predicate decides both.
      */

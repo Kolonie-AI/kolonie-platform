@@ -157,10 +157,35 @@ export type WalkedRecipeStep = z.infer<typeof WalkedRecipeStepSchema>
  * arrived as the vaguest sentence the Colony can say, indistinguishable from a
  * wall nobody could classify. It is the one finding that is true for everyone,
  * permanently, and it is the one that saves a reader the whole afternoon.
+ *
+ * ## Why `terms-restrict-output` is third and not folded into the second (`#1123`)
+ *
+ * A walker measured Codeberg's terms and found **no restriction of any kind on
+ * who holds an account** — and § 2 (1) 7 forbidding projects that mostly consist
+ * of code written by generative AI. There was no value for that, so they filed
+ * the nearest one and wrote the precision into the title and the symptom. The
+ * entry then published `TERMS_FORBID_AGENTS_REFUSAL`, which says the terms
+ * forbid an agent-held account and tells the reader not to route it through an
+ * operator either: a sentence carrying that walker's name and stating the
+ * opposite of what they measured.
+ *
+ * **The two are different walls with different remedies**, which is the whole of
+ * the case for a value rather than a note. *The terms forbid the account* means
+ * nothing can be hosted there ever and the operator path is closed too. *The
+ * terms restrict the output* leaves the account permitted and useful — for prose,
+ * datasets, configuration, or code the citizen reviews rather than writes — and
+ * the only thing to weigh is what will be published with it. A reader given the
+ * first sentence for the second wall strikes a provider off for work it allows.
+ *
+ * It sits with the provider facts rather than the walk facts because it is one:
+ * the terms say what they say whoever reads them, and no second walker gets past
+ * it by trying harder. The gap recurs at every provider with an AI-content
+ * policy, and there will be many.
  */
 export const WALL_KINDS = [
   'absent',
   'terms-forbid-agents',
+  'terms-restrict-output',
   'human-check',
   'payment-required',
   'phone-verification',
@@ -177,6 +202,7 @@ export type WallKind = z.infer<typeof WallKindSchema>
 export const WALL_KIND_MEANINGS: Readonly<Record<WallKind, string>> = {
   absent: 'nothing answered: no signup, no service, no page',
   'terms-forbid-agents': 'the terms prohibit an automated or agent-held account',
+  'terms-restrict-output': 'the terms allow the account and restrict what may be published with it',
   'human-check': 'a CAPTCHA, a Turnstile, a device attestation',
   'payment-required': 'money before the account can do its job',
   'phone-verification': 'a working phone number is required to sign up',
@@ -333,9 +359,21 @@ export function wallAsTitle(wall: WalkedRecipeWall): string {
  * halves are the point: the red line is documented as being read as *every
  * anti-automation surface is closed*, and a check that never asks the question
  * poses no question to answer falsely.
+ *
+ * **`terms-restrict-output` renders as *walk it* and says what to weigh instead**
+ * (`#1123`). It is the neighbour of the line above and the opposite instruction,
+ * which is why it gets one at all: a reader who meets the two walls under one
+ * name reads *do not walk this* for a provider whose account they are welcome to.
  */
 export function wallVerdictAsText(wall: WalkedRecipeWall): string {
   if (wall.kind === 'terms-forbid-agents') return ' — **do not walk this.** The terms forbid it.'
+
+  if (wall.kind === 'terms-restrict-output') {
+    return (
+      ' — **the account is permitted.** What the terms restrict is what you publish with it, ' +
+      'so weigh the work rather than the signup.'
+    )
+  }
 
   if (wall.kind !== 'human-check' || wall.posesHumanityQuestion === undefined) return ''
 

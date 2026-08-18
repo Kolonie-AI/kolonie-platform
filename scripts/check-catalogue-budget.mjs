@@ -4,9 +4,15 @@
  * ## What it does, and the one thing it will not do
  *
  * It runs `apps/api/src/mcp/catalogue-budget.test.ts` with
- * `CATALOGUE_BUDGET_REPORT` set, reads the two totals that test writes, and
+ * `CATALOGUE_BUDGET_REPORT` set, reads the figures that test writes, and
  * compares them against `apps/api/src/mcp/catalogue-budget.json`. Over the floor
  * it exits non-zero. Under it, **it lowers the floor and exits zero**.
+ *
+ * Since `#1235` there are three figures rather than two: the two sums, and the
+ * heaviest single non-exempt tool. A sum permits any single tool — four small
+ * tools removed is room for one enormous one, and the ratchet would call that a
+ * saving — so the third figure moves under exactly the same rule as the other
+ * two, and is refused, lowered and committed in the same run.
  *
  * **It can only ever lower it.** Given a measurement above the floor it refuses
  * and says so. That asymmetry is the mechanism: lowering after a consolidation
@@ -101,12 +107,28 @@ try {
 const grew = measured.tools > budget.tools || measured.bytes > budget.bytes
 const shrank = measured.tools < budget.tools || measured.bytes < budget.bytes
 
-if (!grew && !shrank) {
-  console.log(
-    `The catalogue is exactly its budget: ${measured.tools} tools, ${measured.bytes} bytes.`,
+/**
+ * The per-tool ceiling (`#1235`).
+ *
+ * A missing `heaviest` in the report is a catalogue of nothing but warm tools,
+ * which the suite already asserts against — treated here as a broken report
+ * rather than a passing measurement, for the same reason the missing report is.
+ */
+const heaviest = measured.heaviest
+if (heaviest === undefined || heaviest === null || typeof heaviest.bytes !== 'number') {
+  console.error(
+    `The catalogue was measured but its heaviest tool was not: ${TEST} wrote no \`heaviest\`.\n` +
+      'That is a broken suite rather than a catalogue over budget — read the vitest output above.',
   )
-  process.exit(0)
+  process.exit(1)
 }
+
+const ceiling = budget.heaviest ?? { name: '', bytes: 0 }
+const ceilingOver = heaviest.bytes > ceiling.bytes
+// A rename at the same weight moves the ceiling nowhere and is still written:
+// the name is what a refusal quotes and what a raise has to name, so it is
+// recorded rather than inferred.
+const ceilingMoved = heaviest.bytes !== ceiling.bytes || heaviest.name !== ceiling.name
 
 if (grew) {
   console.error(
@@ -119,7 +141,30 @@ if (grew) {
       'vocabulary-free for — scripts/check-catalogue-floor.mjs reads that message and\n' +
       'refuses a raise without it. Nothing here will do it for you.',
   )
-  process.exit(1)
+}
+
+if (ceilingOver) {
+  console.error(
+    `\`${heaviest.name}\` weighs ${heaviest.bytes} bytes, past the per-tool ceiling of ` +
+      `${ceiling.bytes} set by \`${ceiling.name}\` (measured ${budget.measuredAt}).\n` +
+      'No tool may be heavier than the heaviest one already published. The sums have room\n' +
+      'for it and that is exactly why this figure exists: a sum permits any single tool.\n' +
+      'Cut its prose to fit — AGENTS.md §3 says what a description is written to — or raise\n' +
+      'the ceiling by hand in apps/api/src/mcp/catalogue-budget.json, in a commit naming the\n' +
+      'record, naming this tool, and saying why it is worth more than every other tool in the\n' +
+      'Colony. scripts/check-catalogue-floor.mjs reads that message and refuses a raise\n' +
+      'without it. Nothing here will do it for you.',
+  )
+}
+
+if (grew || ceilingOver) process.exit(1)
+
+if (!shrank && !ceilingMoved) {
+  console.log(
+    `The catalogue is exactly its budget: ${measured.tools} tools, ${measured.bytes} bytes, ` +
+      `heaviest \`${heaviest.name}\` at ${heaviest.bytes}.`,
+  )
+  process.exit(0)
 }
 
 writeFileSync(
@@ -128,6 +173,7 @@ writeFileSync(
     {
       tools: measured.tools,
       bytes: measured.bytes,
+      heaviest: { name: heaviest.name, bytes: heaviest.bytes },
       measuredAt: today(),
       // The command as it is spelled now, not the one that wrote the previous
       // floor: this field exists so a reader can reproduce the figure, and a
@@ -141,6 +187,7 @@ writeFileSync(
 )
 
 console.log(
-  `The floor came down to ${measured.tools} tools and ${measured.bytes} bytes. ` +
+  `The floor came down to ${measured.tools} tools and ${measured.bytes} bytes, ` +
+    `with \`${heaviest.name}\` at ${heaviest.bytes} setting the per-tool ceiling. ` +
     'Commit apps/api/src/mcp/catalogue-budget.json.',
 )

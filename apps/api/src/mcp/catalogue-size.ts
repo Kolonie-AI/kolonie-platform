@@ -132,6 +132,22 @@ export function proseBytesOf(tool: PublishedTool): number {
 }
 
 /**
+ * What one tool costs a citizen — its whole entry, serialised as the list
+ * serialises it.
+ *
+ * The schema as well as the prose, because both are paid for at connect and a
+ * citizen is charged for neither separately. **The sum of these is not
+ * {@link measureCatalogue}'s `bytes`**: that one weighs the array, whose own
+ * brackets and separators are real bytes on the wire. They differ by exactly
+ * those, and neither is the wrong number for its own question.
+ *
+ * `#1235`'s per-tool ceiling is the caller this was extracted for.
+ */
+export function toolBytesOf(tool: PublishedTool): number {
+  return wireBytes(tool)
+}
+
+/**
  * Weigh a published `tools/list`.
  *
  * Takes what the client received, never a list this module builds — the same

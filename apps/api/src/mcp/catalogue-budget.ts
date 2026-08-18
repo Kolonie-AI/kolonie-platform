@@ -50,12 +50,22 @@
  * which is why the rule now costs a sentence rather than describing one.
  */
 
+import { toolBytesOf, type PublishedTool } from './catalogue-size.js'
+
 /** The floor, as committed. Every field carries the measurement it came from. */
 export interface CatalogueBudget {
   /** Tools in the authenticated `tools/list`. */
   readonly tools: number
   /** Bytes of the same list, serialised the way the server publishes it. */
   readonly bytes: number
+  /**
+   * The heaviest single non-exempt tool, which no tool may exceed (`#1235`).
+   *
+   * A third figure rather than a fourth file: it is measured in the same run,
+   * moves under the same ratchet, and is judged from the same commit — and a
+   * second file would be a second commit for one decision.
+   */
+  readonly heaviest: ToolWeight
   /** The date the figures were measured, `YYYY-MM-DD`. */
   readonly measuredAt: string
   /** The command that produced them, so a reader can reproduce rather than trust. */
@@ -239,5 +249,244 @@ export function floorChangeVerdict(
       `Raising it takes a commit message naming ${GRAMMAR_RECORD} and saying what the new ` +
       'tools are vocabulary-free for. If the growth is a new rung it belongs in a `kind` enum ' +
       'and costs zero tools, and the floor should not move at all.',
+  }
+}
+
+/**
+ * The ceiling: what any one tool may weigh (`#1235`).
+ *
+ * ## Why a sum was not enough
+ *
+ * Both figures above are sums, and **a sum permits any single tool**. A new tool
+ * of 7,000 bytes passes the floor as long as something else shrank by 7,000. On
+ * 2026-08-18 the floor was raised six times in one day, once per pull request:
+ * the gate recorded the growth and did nothing to shape it. Measured the same
+ * day, the heaviest tool was `kolonie.academy.answer` at 7,668 bytes against a
+ * median of 1,600 — nearly five times it, and nothing said that was unusual,
+ * because nothing measured a tool against anything but the total.
+ *
+ * `#388` refused a hard ceiling *for the surface*, on the ground that a whole
+ * surface has to be allowed to grow with the Colony. That reasoning is right and
+ * does not carry down: **one tool has no such claim.**
+ *
+ * ## Nobody picks the number
+ *
+ * The ceiling is the current heaviest non-exempt tool, and it only comes down —
+ * the mechanism `#1118` gave the floor, applied to the maximum instead of the
+ * sum. It starts where the catalogue already is, so it accuses nothing that
+ * exists today, and every rewrite that lightens the worst tool lightens the
+ * ceiling with it. A new tool has to fit under whatever the worst one currently
+ * is, which gets stricter for free.
+ *
+ * ## `WARM_SET` is exempt, and that is the difference between a rule and a trap
+ *
+ * The thirteen tools of `defensive-prose.ts`'s warm set are exempt from cutting,
+ * so nothing may edit them. The heaviest of them is `kolonie.register` at 3,678
+ * bytes: a ceiling that counted it could never fall below 3,678 however much the
+ * rest improved, and the ratchet would seize halfway down. Exempting them lets
+ * the ceiling reach the median.
+ *
+ * The exempt set is a parameter of {@link heaviestTool} rather than an import,
+ * so that this module states the rule and `defensive-prose.ts` remains the one
+ * place the membership is written.
+ *
+ * ## Raising it
+ *
+ * As with the floor, by hand, in a commit naming {@link GRAMMAR_RECORD} — and
+ * additionally **naming the tool**. That is not decoration: the ceiling's whole
+ * question is why *this* tool is worth more than every other tool in the Colony,
+ * and a commit that cannot name it has not asked the question.
+ */
+
+/** One tool's weight, and which tool it is. Provenance, so a refusal can name it. */
+export interface ToolWeight {
+  readonly name: string
+  /** Bytes of that tool's published entry. */
+  readonly bytes: number
+}
+
+/** What a measured heaviest tool is doing relative to the ceiling. */
+export type CeilingDirection = 'over' | 'at' | 'under' | 'renamed'
+
+/** The verdict, with the arithmetic that produced it kept visible. */
+export interface CeilingVerdict {
+  readonly within: boolean
+  readonly direction: CeilingDirection
+  /** Measured minus committed. Negative after a rewrite. */
+  readonly bytes: number
+  /** One line, addressed to whoever is reading a failed check. */
+  readonly message: string
+}
+
+/**
+ * The heaviest tool the ceiling is about — the heaviest one that is not exempt.
+ *
+ * Ties go to the name that sorts first, so that two tools of equal weight cannot
+ * make the committed figure depend on the order the server happened to register
+ * them in. `undefined` when every tool is exempt, which is a fixture rather than
+ * a catalogue and is the caller's to interpret.
+ */
+export function heaviestTool(
+  tools: readonly PublishedTool[],
+  exempt: readonly string[],
+): ToolWeight | undefined {
+  const spared = new Set(exempt)
+  let heaviest: ToolWeight | undefined
+
+  for (const tool of tools) {
+    if (spared.has(tool.name)) continue
+    const bytes = toolBytesOf(tool)
+    if (heaviest === undefined) heaviest = { name: tool.name, bytes }
+    else if (bytes > heaviest.bytes) heaviest = { name: tool.name, bytes }
+    else if (bytes === heaviest.bytes && tool.name < heaviest.name) {
+      heaviest = { name: tool.name, bytes }
+    }
+  }
+
+  return heaviest
+}
+
+/**
+ * Compare the heaviest non-exempt tool against the committed ceiling.
+ *
+ * **Over is the refusal this exists for**, and it names the tool as well as the
+ * two figures, because *which* tool is the only thing the author can act on.
+ *
+ * **Under is not a pass**, for the reason the floor gives: a saving nobody
+ * records is one the next feature spends, and here it would be spent by a tool
+ * nobody weighed against it. `scripts/check-catalogue-budget.mjs` writes the
+ * lower figure in the run that measured it, so this costs nobody a decision.
+ *
+ * **A different tool at the same weight is `renamed`**, and also not a pass. The
+ * number would still be right and the name beside it would be wrong — and that
+ * name is what the raise rule reads and what a refusal quotes, so a stale one is
+ * a check pointing at the wrong tool.
+ */
+export function ceilingVerdict(measured: ToolWeight, budget: CatalogueBudget): CeilingVerdict {
+  const bytes = measured.bytes - budget.heaviest.bytes
+
+  if (bytes > 0) {
+    return {
+      within: false,
+      direction: 'over',
+      bytes,
+      message:
+        `\`${measured.name}\` weighs ${measured.bytes} bytes, past the ceiling of ` +
+        `${budget.heaviest.bytes} set by \`${budget.heaviest.name}\` (measured ${budget.measuredAt}). ` +
+        'No tool may be heavier than the heaviest one already published. Cut it to fit, ' +
+        `or raise the ceiling by hand in a commit naming ${GRAMMAR_RECORD}, naming ` +
+        `\`${measured.name}\`, and saying why that tool is worth more than every other tool ` +
+        'in the Colony.',
+    }
+  }
+
+  if (bytes < 0) {
+    return {
+      within: false,
+      direction: 'under',
+      bytes,
+      message:
+        `The heaviest tool is \`${measured.name}\` at ${measured.bytes} bytes, ` +
+        `${-bytes} under the committed ceiling of ${budget.heaviest.bytes}, ` +
+        'and the ceiling has not come down with it. `node scripts/check-catalogue-budget.mjs` ' +
+        'lowers it in the same run that measured it.',
+    }
+  }
+
+  if (measured.name !== budget.heaviest.name) {
+    return {
+      within: false,
+      direction: 'renamed',
+      bytes,
+      message:
+        `The ceiling is still ${budget.heaviest.bytes} bytes, but \`${measured.name}\` sets it ` +
+        `now rather than \`${budget.heaviest.name}\`. The name is what a refusal quotes and what ` +
+        'a raise has to name, so it is recorded rather than inferred. ' +
+        '`node scripts/check-catalogue-budget.mjs` writes it.',
+    }
+  }
+
+  return {
+    within: true,
+    direction: 'at',
+    bytes,
+    message: `The heaviest tool is \`${measured.name}\`, at the ceiling of ${measured.bytes} bytes.`,
+  }
+}
+
+/**
+ * Whether a commit message justifies raising the ceiling.
+ *
+ * The floor's sentence plus the tool's name. **The name is the substantive
+ * half**: {@link raiseIsJustified} can be satisfied by an author who has read the
+ * record, and this can only be satisfied by one who knows which tool they are
+ * making an exception for. Like the floor's, it is a string test and cannot tell
+ * a real justification from a plausible one — and like the floor's, what it makes
+ * impossible is the raise nobody had to think about.
+ */
+export function ceilingRaiseIsJustified(commitMessage: string, tool: string): boolean {
+  const text = commitMessage.toLowerCase()
+  return raiseIsJustified(commitMessage) && text.includes(tool.toLowerCase())
+}
+
+/**
+ * Which way a commit moved the ceiling.
+ *
+ * **Bytes only.** A commit where a different tool became the heaviest at the same
+ * weight has moved the ceiling nowhere, and asking it to justify itself would
+ * charge a rewrite for bookkeeping it did not choose.
+ */
+export function ceilingMove(from: ToolWeight, to: ToolWeight): FloorMove {
+  if (to.bytes > from.bytes) return 'raised'
+  if (to.bytes < from.bytes) return 'lowered'
+  return 'unchanged'
+}
+
+/**
+ * Judge a commit that moved the ceiling — the counterpart of
+ * {@link floorChangeVerdict}, and read from history by the same script.
+ *
+ * Three cases and only one can fail, exactly as with the floor: lowering is the
+ * ratchet working, unchanged is not a change, and raising needs the sentence.
+ */
+export function ceilingChangeVerdict(
+  from: ToolWeight,
+  to: ToolWeight,
+  commitMessage: string,
+): FloorChangeVerdict {
+  const move = ceilingMove(from, to)
+
+  if (move === 'unchanged') {
+    return { allowed: true, move, message: 'The per-tool ceiling did not move.' }
+  }
+
+  if (move === 'lowered') {
+    return {
+      allowed: true,
+      move,
+      message:
+        `The per-tool ceiling came down to ${to.bytes} bytes, set by \`${to.name}\`. ` +
+        'A reduction needs no justification.',
+    }
+  }
+
+  if (ceilingRaiseIsJustified(commitMessage, to.name)) {
+    return {
+      allowed: true,
+      move,
+      message:
+        `The per-tool ceiling was raised to ${to.bytes} bytes for \`${to.name}\`, ` +
+        `in a commit naming both it and ${GRAMMAR_RECORD}.`,
+    }
+  }
+
+  return {
+    allowed: false,
+    move,
+    message:
+      `The per-tool ceiling was raised from ${from.bytes} bytes to ${to.bytes}, ` +
+      'in a commit that does not say why. Raising it takes a commit message naming ' +
+      `${GRAMMAR_RECORD}, naming \`${to.name}\`, and saying why that tool is worth more than ` +
+      'every other tool in the Colony. If it cannot be said, the tool is too big.',
   }
 }

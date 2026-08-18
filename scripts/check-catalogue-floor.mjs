@@ -14,6 +14,13 @@
  * on both sides of it, and hands the pair with that commit's message to
  * `floorChangeVerdict`. A raise with no sentence exits non-zero.
  *
+ * Since `#1235` it judges the per-tool ceiling from the same two versions and
+ * the same message, through `ceilingChangeVerdict`. The rule is the floor's plus
+ * the tool's name: a commit that raises the ceiling has to say which tool it is
+ * making an exception for, because that is the half only an author who thought
+ * about it can supply. A version from before that field existed carries no
+ * ceiling, and is reported rather than failed.
+ *
  * ## Why it is its own entry point
  *
  * `scripts/check-catalogue-budget.mjs` measures, and measuring the served
@@ -59,8 +66,9 @@ const git = (...args) => {
 
 /** The rule itself, from the built api — the same module the suite tests. */
 let floorChangeVerdict
+let ceilingChangeVerdict
 try {
-  ;({ floorChangeVerdict } = await import(
+  ;({ floorChangeVerdict, ceilingChangeVerdict } = await import(
     pathToFileURL(path.join(ROOT, 'apps', 'api', 'dist', 'mcp', 'catalogue-budget.js')).href
   ))
 } catch {
@@ -78,6 +86,25 @@ const totalsOf = (json, where) => {
     throw new Error(`${where} has no tools/bytes pair`)
   }
   return { tools: parsed.tools, bytes: parsed.bytes }
+}
+
+/**
+ * The ceiling out of the same file, or `undefined` for a version written before
+ * the field existed (`#1235`). Missing is a fact about the history rather than a
+ * malformed floor, so it is reported where `totalsOf` would throw.
+ */
+const ceilingOf = (json) => {
+  const parsed = JSON.parse(json)
+  const heaviest = parsed.heaviest
+  if (
+    heaviest === undefined ||
+    heaviest === null ||
+    typeof heaviest.name !== 'string' ||
+    typeof heaviest.bytes !== 'number'
+  ) {
+    return undefined
+  }
+  return { name: heaviest.name, bytes: heaviest.bytes }
 }
 
 if (git('rev-parse', '--git-dir') === undefined) {
@@ -121,24 +148,55 @@ const verdict = floorChangeVerdict(
   message,
 )
 
-const working = totalsOf(readFileSync(BUDGET, 'utf8'), RELATIVE)
-const committed = totalsOf(after, RELATIVE)
-const uncommitted = working.tools !== committed.tools || working.bytes !== committed.bytes
+const ceilingBefore = ceilingOf(before)
+const ceilingAfter = ceilingOf(after)
+const ceiling =
+  ceilingBefore !== undefined && ceilingAfter !== undefined
+    ? ceilingChangeVerdict(ceilingBefore, ceilingAfter, message)
+    : undefined
 
-if (!verdict.allowed) {
-  console.error(`${sha.slice(0, 8)} — ${verdict.message}`)
-  process.exit(1)
+const workingSource = readFileSync(BUDGET, 'utf8')
+const working = totalsOf(workingSource, RELATIVE)
+const committed = totalsOf(after, RELATIVE)
+const workingCeiling = ceilingOf(workingSource)
+const uncommitted =
+  working.tools !== committed.tools ||
+  working.bytes !== committed.bytes ||
+  workingCeiling?.name !== ceilingAfter?.name ||
+  workingCeiling?.bytes !== ceilingAfter?.bytes
+
+// Both are reported before either exits, so that a commit which moved both
+// figures does not hide one refusal behind the other.
+for (const failed of [verdict, ceiling].filter((each) => each !== undefined && !each.allowed)) {
+  console.error(`${sha.slice(0, 8)} — ${failed.message}`)
 }
 
+if (!verdict.allowed || ceiling?.allowed === false) process.exit(1)
+
 console.log(`${sha.slice(0, 8)} — ${verdict.message}`)
+
+if (ceiling !== undefined) {
+  console.log(`${sha.slice(0, 8)} — ${ceiling.message}`)
+} else if (ceilingAfter === undefined) {
+  console.log(
+    `${RELATIVE} at ${sha.slice(0, 8)} carries no per-tool ceiling. ` +
+      '`node scripts/check-catalogue-budget.mjs` writes one.',
+  )
+} else {
+  console.log(
+    `${RELATIVE} gained its per-tool ceiling in ${sha.slice(0, 8)}, so there is no previous ` +
+      'one to compare it against.',
+  )
+}
 
 if (uncommitted) {
   // Not a failure: the message that would justify it does not exist yet. Saying
   // so is the whole of what can be done here, and saying nothing is what let the
   // floor move unremarked in the first place.
   console.log(
-    `${RELATIVE} is edited and not committed: ${working.tools} tools and ${working.bytes} bytes\n` +
-      `against ${committed.tools} and ${committed.bytes} in ${sha.slice(0, 8)}. ` +
-      'The commit that lands it is what the next run judges.',
+    `${RELATIVE} is edited and not committed: ${working.tools} tools, ${working.bytes} bytes ` +
+      `and a ceiling of ${workingCeiling?.bytes ?? 'none'}\n` +
+      `against ${committed.tools}, ${committed.bytes} and ${ceilingAfter?.bytes ?? 'none'} in ` +
+      `${sha.slice(0, 8)}. The commit that lands it is what the next run judges.`,
   )
 }

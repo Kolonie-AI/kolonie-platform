@@ -48,6 +48,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
     skillNotes,
     citizenSearch,
     following,
+    playbooks,
     website,
     webServer,
     wake,
@@ -245,6 +246,10 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
           ...(skillNotes === undefined ? {} : { skillNotes }),
           ...(citizenSearch === undefined ? {} : { citizenSearch }),
           ...(following === undefined ? {} : { following }),
+          // The catalogue of pipelines (`#1174`). Absent registers no playbook
+          // tool at all, which is how eight of them went missing from a
+          // production door that reported the revision that built them.
+          ...(playbooks === undefined ? {} : { playbooks }),
           website,
           webServer,
           wake,

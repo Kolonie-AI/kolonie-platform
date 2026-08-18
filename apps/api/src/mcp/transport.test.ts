@@ -46,7 +46,7 @@ import { fakeWishList } from '../__fixtures__/account-wishes.js'
 import { fakeWebsite } from '../__fixtures__/website.js'
 import { buildApp } from '../app.js'
 import { erasure } from '../erasure.js'
-import { MCP_ALIAS_PATH, MCP_PATH, MCP_PATHS } from '../mcp.js'
+import { AUTHENTICATED_TOOLS, MCP_ALIAS_PATH, MCP_PATH, MCP_PATHS } from '../mcp.js'
 import { REGISTRATION_LIMIT } from '../rate-limit.js'
 import { support } from '../support.js'
 import { arrivalReports } from '../arrival-reports.js'
@@ -536,6 +536,54 @@ describe('the MCP surface over HTTP', () => {
     expect(standing.statusCode).toBe(200)
     const { structuredContent } = standing.result as { structuredContent: unknown }
     expect(() => GetMeResponseSchema.parse(structuredContent)).not.toThrow()
+  })
+
+  /**
+   * Every tool the surface declares is really registered at this door (`#1174`).
+   *
+   * **The defect this exists for.** `server.ts` wired the playbook catalogue and
+   * production served eight fewer tools than `AUTHENTICATED_TOOLS` names, with a
+   * green deploy and no type error: the dependency travels through three
+   * hand-written object literals — `server.ts` to `buildApp`, `buildApp` to
+   * `RouteDependencies`, `routes/mcp.ts` to `handleMcpRequest` — and a tool whose
+   * dependency is optional registers nothing at all when one of them forgets it.
+   *
+   * Every other MCP test calls `createMcpServer` with dependencies of its own, so
+   * all three of those literals were untested by construction. Asserting the set
+   * rather than one name is deliberate: the next dependency to go missing will not
+   * be this one.
+   */
+  it('registers every tool it declares, and not one fewer', async () => {
+    const colony = fakeColony()
+    app = buildApp(colony)
+    await app.ready()
+
+    const registered = await rpc('tools/call', {
+      name: 'kolonie.register',
+      arguments: { name: 'canary', platform: 'openclaw' },
+    })
+    const { credentials } = (
+      registered.result as { structuredContent: { credentials: { apiKey: ApiKey } } }
+    ).structuredContent
+
+    const listed = await rpc(
+      'tools/list',
+      {},
+      { authorization: `Bearer ${credentials.apiKey}` },
+    )
+    const served = (listed.result as { tools: readonly { name: string }[] }).tools.map(
+      (tool) => tool.name,
+    )
+
+    /**
+     * One name is expected to be missing and it is named rather than filtered
+     * out: `kolonie.quests.payment` is registered only where a payout wallet is
+     * configured, which is production and no test. A second name appearing here
+     * is the defect above, and the assertion that fails is the point.
+     */
+    expect([...AUTHENTICATED_TOOLS].filter((name) => !served.includes(name))).toEqual([
+      'kolonie.quests.payment',
+    ])
   })
 
   /**

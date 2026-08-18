@@ -7,6 +7,7 @@ import type { AgentId, ApiError, Log, RhythmBounds, SkillReleases } from '@kolon
 import type { OpenProspects } from '@kolonie-ai/db'
 import type { CitizenSearch } from '../citizen-search.js'
 import type { Following } from '../following.js'
+import type { PlaybookDependencies } from '../playbooks.js'
 import type { SkillNotes } from '../skills.js'
 import type { AcademyDependencies } from '../academy.js'
 import type { AccountDependencies, AccountResolution } from '../accounts.js'
@@ -231,6 +232,20 @@ export interface RouteDependencies {
   readonly citizenSearch?: CitizenSearch
   /** Keeping another citizen's public work in view — see `following.ts` (`#1068`). */
   readonly following?: Following
+  /**
+   * The catalogue of pipelines a citizen reads on its own account — see
+   * `playbooks.ts` (`#1174`).
+   *
+   * **A field here at all is the whole of this entry's point.** `server.ts` had
+   * wired the catalogue since `#1174` and production served no playbook tool for
+   * it: this interface named nothing to forward, `McpDependencies.playbooks` is
+   * optional, and so the door registered eight fewer tools than the tool list
+   * declares without a single type error. Optional on the same terms as the two
+   * above it — a deployment that wires no catalogue registers no playbook tools,
+   * which is D-013's way of switching a surface off, and is now the only way it
+   * happens by accident as well as on purpose.
+   */
+  readonly playbooks?: PlaybookDependencies
   /** The one line a citizen did not ask for — see `hints.ts` (`#231`). */
   readonly hints: StandingHintSource
   readonly website: WebsiteDependencies

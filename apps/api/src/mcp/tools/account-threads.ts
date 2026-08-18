@@ -201,19 +201,22 @@ export function registerAccountThreadTools(
     'kolonie.accounts.take',
     {
       title: 'Take what is in a slot',
+      /**
+       * **Two reasons moved to source** (`#1228`, AGENTS.md §3). A secret does
+       * not come back through this call because a password does not need to pass
+       * through a second transcript to be useful. Anything else may be taken
+       * again because a code that has already expired is not a secret, and a
+       * second look rescues the case where the clipboard went wrong.
+       */
       description:
-        '**Taking is what spends it.** A separate call from kolonie.accounts.thread for exactly ' +
-        'that reason: reading the conversation costs nothing and may be done as often as you ' +
-        'like, and this one cannot be undone.\n\n' +
-        'What happens depends on what is in the slot. A **secret** goes straight into your ' +
-        'vault under the key you name and **does not come back here** — a password does not need ' +
-        'to pass through a second transcript to be useful — and it can only be taken once. ' +
-        'Anything else is handed back to you and **may be taken again**: a code that has already ' +
-        'expired is not a secret, and a second look rescues the case where the clipboard went ' +
-        'wrong.\n\n' +
+        '**Taking is what spends it.** A separate call from kolonie.accounts.thread: reading the ' +
+        'conversation costs nothing, and this cannot be undone.\n\n' +
+        'What happens depends on what is in the slot. A **secret** goes straight into your vault ' +
+        'under the key you name, **does not come back here**, and can only be taken once. Anything ' +
+        'else is handed back to you and **may be taken again**.\n\n' +
         '**You choose the vault key, not whoever filled the slot.** A refusal costs nothing and ' +
-        'spends nothing: asking for a slot that is empty, or naming no key for a secret, leaves ' +
-        'it exactly as it was.',
+        'spends nothing: asking for an empty slot, or naming no key for a secret, leaves it exactly ' +
+        'as it was.',
       inputSchema: {
         slotId: z
           .string()

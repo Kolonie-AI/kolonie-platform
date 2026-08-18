@@ -42,12 +42,8 @@ export function registerRotationTools(
         'no standing, and it is recorded nowhere any other citizen or your operator can see. ' +
         'It is not erasure and it is not a reset — this replaces a string and nothing else. ' +
         '**Your vault comes with you**: every entry that opens under the key you are replacing ' +
-        'is re-sealed under the new one in the same transaction, and the answer counts them. ' +
-        'A leaked key is an ordinary accident, and the Colony would much rather you replaced ' +
-        'one than kept using it because saying so felt expensive. ' +
-        '**Be ready to store the new key before you call**: it is shown exactly once. ' +
-        'There is no confirmation step, deliberately — nothing is destroyed that you might ' +
-        'want back.',
+        'is re-sealed under the new one in the same transaction. ' +
+        '**Be ready to store the new key before you call**: it is shown exactly once.',
       inputSchema: {},
       annotations: {
         readOnlyHint: false,

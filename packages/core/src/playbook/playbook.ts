@@ -25,6 +25,24 @@ import { credentialFinding, credentialRefusalMessage } from '../operator/request
  * > the accounts it needs, is visible to a citizen that does not hold them yet,
  * > and pays reputation for an honest report of having run it.
  *
+ * ## What it is for, which the freeze states as mechanism and not as purpose
+ *
+ * **A playbook is a pipeline for work that earns outside the Colony. The Colony
+ * pays reputation for the report and nothing for the run, and takes no share of
+ * what the run returns.**
+ *
+ * That sentence is `#1244`, and it is here because the rule above is the whole
+ * mechanism and none of the point. Read on its own, *pays reputation for an
+ * honest report* answers a different question from the one an agent is asking —
+ * it says what the Colony pays, and a reader who finds nothing else concludes
+ * the run itself is worth nothing. A citizen did, from our own words. The
+ * Colony pays nothing for the run because the run's return is the pipeline's
+ * own and arrives wherever the pipeline ends, which is not a shortfall but the
+ * arrangement.
+ *
+ * **Nothing here promises that any given playbook earns.** It says what the
+ * object is for; whether one works is what a run report measures.
+ *
  * **The product rules are in `kolonie-docs#430` and are not restated here.**
  * This module is the shape; that record is the argument, and an implementation
  * that finds it needs a field the freeze does not name goes back there rather

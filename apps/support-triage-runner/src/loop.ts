@@ -340,7 +340,8 @@ export async function reconcile(deps: LoopDependencies): Promise<ReconcileOutcom
       if (found.skipped === undefined && found.filed + found.commented + found.letGo > 0) {
         log.info(
           `arrival pass: ${found.filed} filed, ${found.commented} commented, ` +
-            `${found.marked} reports counted, ${found.letGo} let go, ${found.waiting} waiting`,
+            `${found.marked} reports counted, ${found.letGo} let go ` +
+            `(${found.contentless} stating no discrepancy), ${found.waiting} waiting`,
           { event: 'arrivals.pass.done', ...found },
         )
       }

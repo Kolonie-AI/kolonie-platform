@@ -13,6 +13,7 @@ import {
   clusterArrivals,
   openArrivalIssue,
   quoted,
+  statesNoDiscrepancy,
   watchArrivals,
 } from './arrivals.js'
 
@@ -223,6 +224,72 @@ describe('grouping what strangers said about the door', () => {
     expect(reading.aged).toHaveLength(1)
   })
 
+  /**
+   * **The case `#1221` was filed about.** The whole corpus of the table was
+   * three daily calls carrying `x` in every field — a prober exercising the
+   * endpoint, not an agent that failed at the door — and the threshold filed an
+   * issue against a door that was never broken.
+   */
+  it('makes no finding out of a group whose reports state no discrepancy', () => {
+    const reading = clusterArrivals(
+      [
+        aReport({
+          createdAt: at(3),
+          runtime: 'x',
+          step: 'reading-about',
+          expected: 'x',
+          actual: 'x',
+        }),
+        aReport({
+          createdAt: at(2),
+          runtime: 'x',
+          step: 'reading-about',
+          expected: 'x',
+          actual: 'x',
+        }),
+        aReport({
+          createdAt: at(1),
+          runtime: 'x',
+          step: 'reading-about',
+          expected: 'x',
+          actual: 'x',
+        }),
+      ],
+      NOW,
+    )
+
+    expect(reading.clusters).toEqual([])
+    expect(reading.contentless).toHaveLength(3)
+    expect(reading.waiting).toBe(0)
+  })
+
+  /** It cannot become a finding by waiting, so it is not counted as having waited. */
+  it('sets a report stating no discrepancy aside rather than ageing it', () => {
+    const fresh = aReport({ expected: 'a key', actual: 'a key' })
+    const old = aReport({
+      createdAt: at(ARRIVAL_WINDOW_DAYS + 1),
+      expected: 'a key',
+      actual: 'a key',
+    })
+
+    const reading = clusterArrivals([fresh, old], NOW)
+
+    expect(reading.contentless).toEqual([fresh.id, old.id])
+    expect(reading.aged).toEqual([])
+  })
+
+  /** One useless report does not take the two real ones beside it out of the count. */
+  it('leaves a real group standing when a contentless report shares its step', () => {
+    const reading = clusterArrivals(
+      [...aCluster(), aReport({ createdAt: at(2), expected: 'a key', actual: 'a key' })],
+      NOW,
+    )
+
+    expect(reading.clusters).toHaveLength(1)
+    expect(reading.clusters[0]?.count).toBe(3)
+    expect(reading.contentless).toHaveLength(1)
+  })
+
   it('puts the largest group first', () => {
     const reading = clusterArrivals(
       [...aCluster({ runtime: 'codex' }), ...aCluster(), aReport({ createdAt: at(2) })],
@@ -373,7 +440,14 @@ describe('one pass of the arrival watcher', () => {
 
     expect(issues.created).toHaveLength(0)
     expect(store.marked).toEqual([])
-    expect(outcome).toEqual({ filed: 0, commented: 0, marked: 0, waiting: 1, letGo: 0 })
+    expect(outcome).toEqual({
+      filed: 0,
+      commented: 0,
+      marked: 0,
+      waiting: 1,
+      letGo: 0,
+      contentless: 0,
+    })
   })
 
   it('files a group with the labels a watcher’s finding carries', async () => {
@@ -424,7 +498,14 @@ describe('one pass of the arrival watcher', () => {
     const outcome = await watchArrivals({ issues, ...store }, NOW)
 
     expect(store.marked).toEqual([])
-    expect(outcome).toEqual({ filed: 0, commented: 0, marked: 0, waiting: 0, letGo: 0 })
+    expect(outcome).toEqual({
+      filed: 0,
+      commented: 0,
+      marked: 0,
+      waiting: 0,
+      letGo: 0,
+      contentless: 0,
+    })
   })
 
   it('comments on the issue this group already has rather than filing again', async () => {
@@ -466,6 +547,47 @@ describe('one pass of the arrival watcher', () => {
   })
 
   /**
+   * The set-aside reports are finished with in the same breath as the aged ones,
+   * so the queue this pass reads stays the recent traffic rather than filling
+   * with a prober's daily call forever.
+   */
+  it('lets reports stating no discrepancy go without filing anything', async () => {
+    const issues = spyIssues()
+    const noise = [
+      aReport({
+        createdAt: at(3),
+        runtime: 'x',
+        step: 'reading-about',
+        expected: 'x',
+        actual: 'x',
+      }),
+      aReport({
+        createdAt: at(2),
+        runtime: 'x',
+        step: 'reading-about',
+        expected: 'x',
+        actual: 'x',
+      }),
+      aReport({
+        createdAt: at(1),
+        runtime: 'x',
+        step: 'reading-about',
+        expected: 'x',
+        actual: 'x',
+      }),
+    ]
+    const store = spyStore(noise)
+
+    const outcome = await watchArrivals({ issues, ...store }, NOW)
+
+    expect(issues.created).toEqual([])
+    expect(outcome.filed).toBe(0)
+    expect(outcome.contentless).toBe(3)
+    expect(outcome.letGo).toBe(3)
+    expect(store.released).toEqual(noise.map((report) => report.id))
+  })
+
+  /**
    * `#868`'s lesson: an empty corpus and an unreadable one are indistinguishable,
    * and filing against that opens a second issue every half hour for a group that
    * already has one. Ageing waits for the same pass — a report let go during an
@@ -490,5 +612,33 @@ describe('one pass of the arrival watcher', () => {
 
     expect(outcome.skipped).toBe('no-app')
     expect(store.marked).toEqual([])
+  })
+})
+
+/**
+ * The comparison itself, kept apart from the grouping because the rule it
+ * encodes is the one thing in this pass that could be mistaken for a judgement
+ * about what a stranger wrote — and is not.
+ */
+describe('whether a report states a discrepancy at all', () => {
+  it('reads two identical halves as no observation', () => {
+    expect(statesNoDiscrepancy({ expected: 'x', actual: 'x' })).toBe(true)
+  })
+
+  it('ignores case and surrounding space, which are the same answer typed twice', () => {
+    expect(statesNoDiscrepancy({ expected: 'A Key', actual: '  a key\n' })).toBe(true)
+  })
+
+  it('keeps a report whose halves differ, however badly either is written', () => {
+    expect(statesNoDiscrepancy({ expected: 'a key', actual: 'it did not work' })).toBe(false)
+  })
+
+  /**
+   * The property that makes this not a quality judgement: length, tone and
+   * usefulness are never consulted, so a stranger describing a real failure in
+   * two words is kept exactly as one describing it in two hundred.
+   */
+  it('keeps a report as terse as the one it sets aside, when the two halves differ', () => {
+    expect(statesNoDiscrepancy({ expected: 'x', actual: 'y' })).toBe(false)
   })
 })

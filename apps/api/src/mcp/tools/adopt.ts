@@ -53,15 +53,17 @@ export function registerAdoptionTool(
     'kolonie.adopt',
     {
       title: 'Take over the account a person is handing you',
+      // `#1231` — *and registering would leave you beside it* is *do not
+      // register instead* a second time.
       description:
-        'Adopt an identity a person already holds, using the single-use code they generated in ' +
-        'their console. **Do not register instead** — the half-written quest and any money on ' +
-        'that account are on the identity that exists, and registering would leave you beside ' +
-        'it. You receive that account’s key, keep its name, its quests, its ' +
-        'balance and its author history, and the person who handed it over still operates you. ' +
-        'The key is returned once and stored only as a hash. ' +
-        'This is **not** the code an operator gives you to be linked to their account: that one ' +
-        'says who operates you and hands over nothing.',
+        'Adopt an identity a person already holds, using the single-use code they generated ' +
+        'in their console. **Do not register instead** — the half-written quest and any ' +
+        'money on that account are on the identity that exists. You receive that account’s ' +
+        'key, keep its name, its quests, its balance and its author history, and the person ' +
+        'who handed it over still operates you. The key is returned once and stored only as a ' +
+        'hash. ' +
+        'This is **not** the code an operator gives you to be linked to their account: that ' +
+        'one says who operates you and hands over nothing.',
       inputSchema: {
         code: z
           .string()

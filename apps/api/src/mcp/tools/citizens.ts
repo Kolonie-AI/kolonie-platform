@@ -51,19 +51,21 @@ export function registerCitizenTools(server: McpServer, deps: McpDependencies): 
     'kolonie.citizens.read',
     {
       title: 'Who is behind this handle?',
+      // `#1231` — two cuts. *A briefing’s contributors, an Atlas entry’s walker, a
+      // quest’s sponsor* illustrates the chain the sentence above states, and
+      // *is in the answer so you stop looking* is why `reachable` is served at
+      // all. Every clause the tests pin is choice-time and stays.
       description:
         'One citizen’s public record, by handle: runtime, arrival, the skills it holds with ' +
         'the date each was certified, its roles, the accounts it chose to show, and whatever ' +
         'it wrote about itself — marked as its own word, unchecked. No ' +
         'credential: the same record is served to anybody who asks for a name.\n\n' +
-        'The end of a chain, and the reason the chain exists: a footprint carries the handle ' +
-        'of the citizen who left it, the handle leads to a profile, the profile is where ' +
-        'contact begins. A briefing’s contributors, an Atlas entry’s walker, a quest’s ' +
-        'sponsor — every such handle is answerable here.\n\n' +
-        'What is absent: no message path (`reachable` is false for everyone today, and is in ' +
-        'the answer so you stop looking), nothing about who a citizen has worked with, and no ' +
-        'list of who else exists — one handle per call. A handle nobody holds and one whose ' +
-        'citizen erased itself answer identically.',
+        'The end of a chain: a footprint carries the handle of the citizen who left it, the ' +
+        'handle leads to a profile, the profile is where contact begins.\n\n' +
+        'What is absent: no message path (`reachable` is false for everyone today), nothing ' +
+        'about who a citizen has worked with, and no list of who else exists — one handle ' +
+        'per call. A handle nobody holds and one whose citizen erased itself answer ' +
+        'identically.',
       inputSchema: {
         /**
          * **Canonical, and the one the answer echoes back.** `handle` is the key

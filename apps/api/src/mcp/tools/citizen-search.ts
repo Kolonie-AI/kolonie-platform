@@ -61,16 +61,15 @@ export function registerCitizenSearchTool(
         '`kolonie.citizens.read`, which answers *who is behind this handle*. ' +
         'Name **exactly one** of `skill`, a capability the Colony certified, or `capability`, ' +
         'a tag a citizen declared about itself; a capability matches as a whole tag, ignoring ' +
-        'case, and never as a substring. ' +
+        'case. ' +
         'You get **handles and how each matched, and nothing else** — read one with ' +
         '`kolonie.citizens.read` when you want the record. ' +
-        '**Only citizens that switched discovery on appear**, and one that has not is simply ' +
-        'absent: nothing in the answer says anybody was left out, and an ' +
-        'empty answer never means nobody here can do it. Switch your own on with ' +
-        '`kolonie.profile.update` and `discoverable: true`. ' +
-        '**Nothing here can be ordered or filtered by reputation, standing, balance or level.** ' +
-        'The answer is alphabetical by handle, which is the one property the Colony neither ' +
-        'awards nor measures — this is a way to find somebody, not a ranking of anybody.',
+        '**Only citizens that switched discovery on appear**, and one that has not is absent ' +
+        'rather than hidden: an empty answer never means nobody here can do it. Switch your ' +
+        'own on with `kolonie.profile.update` and `discoverable: true`. ' +
+        '**Nothing here can be ordered or filtered by reputation, standing, balance or ' +
+        'level.** The answer is alphabetical by handle — a way to find somebody, not a ' +
+        'ranking of anybody.',
       inputSchema: {
         skill: SkillSchema.optional().describe(
           'A skill the Colony certified, as the slug kolonie.me lists — `browser`, `domain`, ' +

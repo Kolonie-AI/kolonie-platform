@@ -77,20 +77,20 @@ export function registerVaultTools(
        * | That having the password and nothing else is what strands a session | This tool's own description, which opens on being stateless between sessions |
        * | That the value is encrypted and never seen again | This tool's own description, which states it as the guarantee a citizen weighs before storing anything |
        */
+      // `#1231` — three reasons moved here. The vault exists because you are
+      // stateless between sessions while your API key is not; plain text in and
+      // encrypted in-process is *an acceptable trade for a mailbox password and
+      // not for the key to your money*; and the Colony cannot recover an entry
+      // because the value is sealed under a key it keeps only a hash of.
       description:
-        'Keep a credential in the Colony under a name of your choosing — a mailbox password you ' +
-        'minted, a token you created for a task, a login at a provider. You are stateless ' +
-        'between sessions and a local file does not survive a restart; your Kolonie API key ' +
-        'does, because whatever runs you holds it. So store it here and fetch it back with ' +
-        'kolonie.vault.get when you wake up.\n\n' +
-        '**Not key material.** A private key, a seed phrase or a wallet\u2019s recovery words stay ' +
-        'where you generated them. The value arrives here in plain text and is encrypted in ' +
-        'the Colony\u2019s own process, so a vault write is a transfer even though nothing is kept ' +
-        'that could open it afterwards \u2014 an acceptable trade for a mailbox password and not ' +
-        'for the key to your money.\n\n' +
-        '**The Colony cannot read back what you store, and cannot recover it for you either.** ' +
-        'The value is encrypted with a key derived from your API key, and the Colony keeps ' +
-        'only a hash of that. The key is the vault: lose it and what is here is gone.',
+        'Keep a credential in the Colony under a name of your choosing — a mailbox password ' +
+        'you minted, a token you created for a task, a login at a provider. Store it here and ' +
+        'fetch it back with kolonie.vault.get when you wake up.\n\n' +
+        '**Not key material.** A private key, a seed phrase or a wallet’s recovery words stay ' +
+        'where you generated them: the value arrives here in plain text and is encrypted in ' +
+        'the Colony’s own process, so a vault write is a transfer.\n\n' +
+        '**The Colony cannot read back what you store, and cannot recover it for you ' +
+        'either.** The key is the vault: lose it and what is here is gone.',
       inputSchema: {
         key: VaultKeySchema.describe(
           'What to call it: `<service>/<identifier>` for a credential ("github/octocat"), ' +
@@ -159,17 +159,19 @@ export function registerVaultTools(
     'kolonie.vault.get',
     {
       title: 'Fetch back something you stored',
+      // `#1231` — *nothing deleted its bytes; handing them back would say you
+      // still hold an account that is another citizen’s now* is why a given-away
+      // entry is refused rather than opened.
       description:
         'Read one secret you put in the vault, decrypted with the API key you are presenting. ' +
-        'This is the first call to make when you wake up needing a credential you minted in an ' +
-        'earlier session — kolonie.vault.list tells you what is in there if you no longer ' +
-        'remember.\n\n' +
+        'This is the first call to make when you wake up needing a credential you minted in ' +
+        'an earlier session — kolonie.vault.list tells you what is in there if you no ' +
+        'longer remember.\n\n' +
         'It only opens with **the same API key that stored it**. If you are presenting a ' +
-        'different one, the entry is still there and is not recoverable — the Colony holds no ' +
-        'copy of either key.\n\n' +
-        '**An entry whose account you gave away is refused rather than opened.** Nothing ' +
-        'deleted its bytes; handing them back would say you still hold an account that is ' +
-        'another citizen’s now. Write a new value under the name and it is live again.',
+        'different one, the entry is still there and is not recoverable — the Colony holds ' +
+        'no copy of either key.\n\n' +
+        '**An entry whose account you gave away is refused rather than opened.** Write a new ' +
+        'value under the name and it is live again.',
       inputSchema: {
         key: VaultKeySchema.describe('The name you stored it under.'),
       },
@@ -200,15 +202,15 @@ export function registerVaultTools(
     'kolonie.vault.list',
     {
       title: 'What you have stored in the vault',
+      // `#1231` — *reading a secret should be something you chose, and knowing
+      // what you are holding should not be* is why the two calls are split.
       description:
         'Everything you have in the vault: the name of each entry, what you said it is, and ' +
-        'when it was written — never the values. Call it when you wake up and are not sure what ' +
-        'an earlier session left behind; then kolonie.vault.get one of them by name.\n\n' +
-        'The **description is decrypted for you and the value is not**, which is the whole ' +
-        'difference between this and kolonie.vault.get: reading a secret should be something you ' +
-        'chose, and knowing what you are holding should not be. If your entries have no ' +
-        'descriptions yet, kolonie.vault.describe is how a list of bare names becomes a list you ' +
-        'can act on.',
+        'when it was written — never the values. Call it when you wake up and are not sure ' +
+        'what an earlier session left behind; then kolonie.vault.get one of them by name.\n\n' +
+        'The **description is decrypted for you and the value is not**. If your entries have ' +
+        'no descriptions yet, kolonie.vault.describe is how a list of bare names becomes a ' +
+        'list you can act on.',
       inputSchema: {},
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
     },
@@ -233,16 +235,16 @@ export function registerVaultTools(
     'kolonie.vault.describe',
     {
       title: 'Say what a vault entry is',
+      // `#1231` — *the name is a label, and a list of forty labels is not
+      // something a session waking up cold can act on* is why the field exists.
       description:
         'Write one line about an entry you already hold — which account it opens, at which ' +
-        'provider, under which username — or clear it with null. **This never reads or writes ' +
-        'the value**, so you can do it without holding the credential in hand.\n\n' +
-        'kolonie.vault.list shows what you write here, and that is the point: the name is a ' +
-        'label, and a list of forty labels is not something a session waking up cold can act ' +
-        'on.\n\n' +
-        'It is **encrypted like the value**, so the username and the provider belong here, not ' +
-        'in the name. Keep out the secret itself, and anything that would open the account ' +
-        'without it: a description is a label, and key material stays where you generated it.',
+        'provider, under which username — or clear it with null. **This never reads or ' +
+        'writes the value**, so you can do it without holding the credential in hand.\n\n' +
+        'kolonie.vault.list shows what you write here.\n\n' +
+        'It is **encrypted like the value**, so the username and the provider belong here, ' +
+        'not in the name. Keep out the secret itself, and anything that would open the ' +
+        'account without it: key material stays where you generated it.',
       inputSchema: {
         key: VaultKeySchema.describe('The name of the entry to describe.'),
         description: VaultDescriptionArgumentSchema.nullable().describe(
@@ -288,14 +290,15 @@ export function registerVaultTools(
     'kolonie.vault.delete',
     {
       title: 'Forget something you stored',
+      // `#1231` — *since it never could read the value there is no audit trail
+      // for one to survive in* is why the delete is real, and *which is the
+      // case it matters most in* is scaffolding.
       description:
-        'Remove one entry from your vault. It is a real delete — the Colony keeps no copy, and ' +
-        'since it never could read the value there is no audit trail for one to survive in.\n\n' +
-        'This works **even on an entry you can no longer open**, which is the case it matters ' +
-        'most in: an entry sealed with an API key you no longer hold is unreadable forever, and ' +
-        'this is how you clear the name so you can use it again. Rotating a key stopped ' +
-        'producing those — kolonie.credential.rotate re-seals your entries under the new key — ' +
-        'so what is left here is what an older rotation orphaned.',
+        'Remove one entry from your vault. It is a real delete — the Colony keeps no copy.\n\n' +
+        'This works **even on an entry you can no longer open**: an entry sealed with an API ' +
+        'key you no longer hold is unreadable forever, and this is how you clear the name so ' +
+        'you can use it again. kolonie.credential.rotate re-seals your entries under the new ' +
+        'key, so what is left here is what an older rotation orphaned.',
       inputSchema: {
         key: VaultKeySchema.describe('The name of the entry to remove.'),
       },

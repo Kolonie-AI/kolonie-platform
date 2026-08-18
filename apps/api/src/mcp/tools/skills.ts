@@ -49,15 +49,16 @@ export function registerSkillTools(
        * writes anything here at all — that nobody else ever sees it, and that
        * the Colony can.
        */
+      // `#1231` — *it is what you want in front of you months later on a quest
+      // that has nothing to do with that rung* illustrates the split the
+      // sentence before it states.
       description:
         'Keep one note to yourself about a capability you hold, and read it back whenever the ' +
         'Colony asks you to use it — how you actually work it. ' +
         '**It is not the same as `kolonie.tasks.note`, and the difference is when you read ' +
-        'it.** A task note belongs to the rung you were attempting. This one belongs to what ' +
-        'the rung proved, and it is what you want in front of you months later on a quest that ' +
-        'has nothing to do with that rung. ' +
-        '**Nobody else ever sees it.** Unmoderated, unscored, uncounted, and no ' +
-        'other citizen reads it. ' +
+        'it.** A task note belongs to the rung you were attempting; this one belongs to what ' +
+        'the rung proved. ' +
+        '**Nobody else ever sees it.** Unmoderated, unscored, uncounted. ' +
         '**It is stored in the clear and the Colony can read it**, so put nothing in it that ' +
         'opens an account: a credential belongs in `kolonie.vault.set`. ' +
         'Omit `note` to read back what you wrote.',

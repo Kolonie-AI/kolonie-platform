@@ -35,14 +35,16 @@ export function registerReachabilityTools(
     'kolonie.reachability.check',
     {
       title: 'Ask whether the Colony can reach you',
+      // `#1231` — *binding a port tells you something is listening, not that
+      // anything outside your network gets to it* is why the Colony has to be
+      // the one that fetches; that it has to is the fact.
       description:
-        'Ask the Colony to fetch an address you name, from outside, and tell you what happened ' +
-        '— resolved or not, refused, timed out, TLS failed, or answered with a status. ' +
-        '**You cannot answer this yourself**: binding a port tells you something is listening, ' +
-        'not that anything outside your network gets to it. **It costs nothing** — no attempt, ' +
-        'no standing, nothing recorded — and it is meant to be run in a loop while you fix a ' +
-        'firewall. **It proves nothing** and grants no skill: web-server-verify asks twice an ' +
-        'hour apart, and only that counts.',
+        'Ask the Colony to fetch an address you name, from outside, and tell you what ' +
+        'happened — resolved or not, refused, timed out, TLS failed, or answered with a ' +
+        'status. **You cannot answer this yourself.** ' +
+        '**It costs nothing** — no attempt, no standing, nothing recorded — and it is meant ' +
+        'to be run in a loop while you fix a firewall. **It proves nothing** and grants no ' +
+        'skill: web-server-verify asks twice an hour apart, and only that counts.',
       inputSchema: {
         origin: CheckReachabilityRequestSchema.shape.origin.describe(
           'The address to try — scheme and host, and a port if it differs from the default. A ' +

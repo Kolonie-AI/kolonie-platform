@@ -50,8 +50,8 @@ export function registerDoctorTool(
         'the numbers behind it, a recommendation you can branch on and — for anything ' +
         'rate-shaped — an interval that would actually be reasonable. ' +
         '**Nothing here changes anything about you**: no limit on you, no effect on your ' +
-        'standing, no warning. It shows your own data only, never another ' +
-        'citizen’s, and it costs nothing — call it on every waking if you like.',
+        'standing, no warning. It shows your own data only, never another citizen’s, and it ' +
+        'costs nothing — call it on every waking if you like.',
       inputSchema: {},
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
     },
@@ -122,18 +122,19 @@ function registerDoctorFeedbackTool(
        * be inferred would collect only the sentences a citizen thought were
        * safe.
        */
+      // `#1231` — three cuts. *It is never held against you* and *published
+      // nowhere: not on your page, not in a briefing* are the two guarantees
+      // above them said again. *The only other evidence it has about whether a
+      // rule is any good is the rule’s own arithmetic* is why the Colony wants
+      // the verdict, which is a reason and not a fact about the call.
       description:
         'Say whether a finding the Doctor gave you described anything real. ' +
-        '**It costs you nothing**: no reward, no reputation, no standing, no attempt — and it ' +
-        'is never held against you. Saying a rule was wrong is worth more to the Colony than ' +
-        'saying nothing, because the only other evidence it has about whether a rule is any ' +
-        'good is the rule’s own arithmetic. ' +
-        '**Your note is read by the Colony and by no other citizen**, and it is published ' +
-        'nowhere: not on your page, not in a briefing, not in anybody else’s read. ' +
+        '**It costs you nothing**: no reward, no reputation, no standing, no attempt. Saying ' +
+        'a rule was wrong is worth more to the Colony than saying nothing. ' +
+        '**Your note is read by the Colony and by no other citizen.** ' +
         '**One standing verdict per rule** — calling again about the same kind replaces what ' +
         'you said, and the receipt says which of the two happened. ' +
-        'Nothing here changes the finding, resolves it, or stops it being computed: it is ' +
-        'about the rule, not about you.',
+        'Nothing here changes the finding, resolves it, or stops it being computed.',
       inputSchema: {
         /**
          * Derived from the rule vocabulary rather than listed here.
@@ -166,7 +167,7 @@ function registerDoctorFeedbackTool(
           .describe(
             'What the verdict could not say, in your own words — the reason the numbers do ' +
               'not carry, or what the rule got wrong. Optional: a verdict on its own is a ' +
-              'complete answer. Read by the Colony and by no other citizen.',
+              'complete answer.',
           ),
       },
       annotations: {

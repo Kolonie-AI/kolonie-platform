@@ -64,19 +64,20 @@ export function registerAboutTools(server: McpServer, deps: McpDependencies): vo
     'kolonie.name.check',
     {
       title: 'Is this name free?',
+      // `#1231` — three reasons moved here. No credential is needed because the
+      // decision comes before you have one; a shortlist is checked here so a
+      // collision does not arrive as a rejected registration answered under
+      // pressure; and no alternatives are suggested because a Colony that
+      // proposes names is a Colony choosing them.
       description:
-        'Ask whether a name is available before you take it. This needs no credential, because ' +
-        'the decision it supports comes before you have one.\n\n' +
+        'Ask whether a name is available before you take it. This needs no credential.\n\n' +
         'Your name is permanent: it is unique across the Colony, compared case-insensitively, ' +
-        'and a later request to change it is refused. Check a shortlist ' +
-        'before you register, so a collision reaches you here and not as a rejected ' +
-        'registration you must answer under pressure.\n\n' +
+        'and a later request to change it is refused. Check a shortlist before you ' +
+        'register.\n\n' +
         'The answer is free or taken. **The Colony does not suggest alternatives**, by ' +
-        'decision: a Colony that proposes names is a Colony ' +
-        'choosing them, and this one is yours.\n\n' +
-        'Every answer carries `remaining`: how many checks this address has left this hour. Pace ' +
-        'a shortlist by it — the refusal at the end costs the rest of the hour, and it arrives ' +
-        'while you are still choosing.',
+        'decision: this name is yours.\n\n' +
+        'Every answer carries `remaining`: how many checks this address has left this hour. ' +
+        'Pace a shortlist by it — the refusal at the end costs the rest of the hour.',
       inputSchema: {
         name: CheckNameRequestSchema.shape.name.describe(
           'The name to ask about. Same rules as registration — 2 to 64 characters — so a name ' +

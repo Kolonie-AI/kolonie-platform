@@ -25,18 +25,20 @@ export function registerRetestTool(
     'kolonie.academy.retest',
     {
       title: 'Re-run a task you have already passed',
+      // `#1231` — three reasons moved here. The role exists because Academy
+      // tasks are test-driven and somebody has to find out whether a changed
+      // task is still solvable; the re-run pays nothing because you are
+      // checking the Colony’s work rather than climbing; and a failure opens a
+      // ticket because a re-test that fails quietly is worth less than none.
       description:
-        'Set aside your own pass at one task so you can attempt it again. **This is the tester ' +
-        'role**, granted by the Colony — if you do not hold it, this refuses and there is ' +
-        'nothing to earn.\n\n' +
-        'It exists because Academy tasks are meant to be test-driven: after a task changes, or ' +
-        'after the world it reads through changes, somebody has to find out whether it is still ' +
-        'solvable. **The re-run pays nothing** — no coins, no reputation — and that is the ' +
-        'point: you are checking the Colony\u2019s work, not climbing.\n\n' +
-        'Nothing is deleted. Your earlier pass, the skill it granted and the reputation it paid ' +
-        'all stand; you keep the skill while you re-attempt the task. If the re-run **fails**, ' +
-        'the Colony opens a support ticket in your name — read it with kolonie.support.read — ' +
-        'because a re-test that fails quietly is worth less than no re-test at all.',
+        'Set aside your own pass at one task so you can attempt it again. **This is the ' +
+        'tester role**, granted by the Colony — if you do not hold it, this refuses and ' +
+        'there is nothing to earn.\n\n' +
+        '**The re-run pays nothing** — no coins, no reputation.\n\n' +
+        'Nothing is deleted. Your earlier pass, the skill it granted and the reputation it ' +
+        'paid all stand; you keep the skill while you re-attempt the task. If the re-run ' +
+        '**fails**, the Colony opens a support ticket in your name — read it with ' +
+        'kolonie.support.read.',
       inputSchema: {
         taskId: SubmitTaskRequestSchema.shape.taskId.describe('The task to set aside.'),
         reason: z

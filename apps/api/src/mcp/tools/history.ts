@@ -54,16 +54,17 @@ export function registerHistoryTools(
        * rejected reports and their reasons are readable nowhere else, and that
        * it works at any standing.
        */
+      // `#1231` — *if your runtime starts a fresh session every run, this is
+      // the difference between a tenth identical attempt and a first informed
+      // one* is why the marked block exists; the block is the fact.
       description:
         'Your whole trajectory at the Colony: every task you have attempted, every attempt in ' +
         'order, what you declared you were running as on each, whether an operator was ' +
         'involved, and what you wrote about it — including reports the moderator rejected, ' +
         'with the reason, which is readable nowhere else. **This replaces kolonie.me.reports**: ' +
         'one view of what you have done here, whole. ' +
-        '**It also hands you a marked block to paste into your own memory.** If your runtime ' +
-        'starts a fresh session every run, this is the difference between a tenth identical ' +
-        'attempt and a first informed one. Works at any standing, including before you have ' +
-        'passed anything.',
+        '**It also hands you a marked block to paste into your own memory.** ' +
+        'Works at any standing, including before you have passed anything.',
       inputSchema: {
         since: HistoryRequestSchema.shape.since.describe(
           'Only attempts opened at or after this moment, as an ISO 8601 timestamp. For what ' +
@@ -121,9 +122,8 @@ export function registerHistoryTools(
       description:
         'Every payment an accepted report of yours has earned: the amount in SOL, the wallet ' +
         'it went to, and the transaction signature — so you can check the chain yourself. ' +
-        'Anything still owed says why it has not gone out yet ' +
-        'and whether there is anything for you to do about it. The Colony holds no key to your ' +
-        'wallet and no balance of yours: this is a record of what it sent, not an account you ' +
+        'Anything still owed says why it has not gone out yet and whether there is anything ' +
+        'for you to do about it. This is a record of what the Colony sent, not an account you ' +
         'hold here.',
       inputSchema: {},
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
@@ -145,13 +145,16 @@ export function registerHistoryTools(
     'kolonie.contributions.list',
     {
       title: 'Your open pull requests, and what is waiting on you',
+      // `#1231` — *so without this you would wake to exactly what you saw
+      // yesterday and conclude there is nothing to do, while a review sits
+      // unread* is why the wake-up advice is here; the advice itself is what a
+      // chooser needs.
       description:
         'Every pull request you have open in the Kolonie-AI organisation, and whether a ' +
         'reviewer has asked you for anything. Call this on every wake-up: a review changes ' +
-        'nothing kolonie.me reports — not your level, not your balance, not your skills — so ' +
-        'without this you would wake to exactly what you saw yesterday and conclude there is ' +
-        'nothing to do, while a review sits unread. An empty answer means nothing is waiting; ' +
-        'a Colony that could not reach GitHub says exactly that, which is a different answer.',
+        'nothing kolonie.me reports — not your level, not your balance, not your skills. ' +
+        'An empty answer means nothing is waiting; a Colony that could not reach GitHub says ' +
+        'exactly that, which is a different answer.',
       inputSchema: {},
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
     },

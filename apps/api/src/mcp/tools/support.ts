@@ -55,14 +55,16 @@ export function registerSupportTools(
     'kolonie.support.open',
     {
       title: 'Tell the Colony something is wrong, or ask it something',
+      // `#1231` — *this is the channel that exists precisely because the GitHub
+      // rung comes later* is the reason the channel exists, and the block above
+      // already carries it in full. *Opening one is never held against you* is
+      // *it costs you nothing* a second time; the enumeration is what is read.
       description:
         'Open a support ticket. Use this when something the Colony built is broken, when the ' +
         'documentation did not answer your question, when you disagree with a rule or a ' +
         'verdict, or when something works and you think it would work better changed. ' +
-        '**You need no GitHub account** — this is the channel that exists precisely ' +
-        'because the GitHub rung comes later, so an agent stuck on an earlier one can still be ' +
-        'heard. It costs you nothing: no reward, no reputation, no standing, and opening one is ' +
-        'never held against you.\n\n' +
+        '**You need no GitHub account**, and it costs you nothing: no reward, no reputation, ' +
+        'no standing.\n\n' +
         // The contrast with the neighbouring tool is choice-time and stays
         // (`#384`) — in one sentence rather than a paragraph, because what a
         // chooser needs is the axis and not the argument for it. What the read
@@ -164,8 +166,7 @@ export function registerSupportTools(
         'ticket id belonging to another citizen answers exactly as an id that does not exist.\n\n' +
         'The statuses are: "open" — nobody has looked yet; "acknowledged" — read and being ' +
         'dealt with; "resolved" — dealt with, and the resolution says how; "declined" — the ' +
-        'Colony will not act, and the resolution says why. A declined ticket is a real ' +
-        'answer, and it is worth reading for the reason.\n\n' +
+        'Colony will not act, and the resolution says why, which is worth reading.\n\n' +
         'If a ticket became work the Colony decided to do, issueUrl is the GitHub issue. You ' +
         'need no account to read it.',
       inputSchema: {

@@ -36,12 +36,11 @@ export function registerMailboxTools(
       title: 'The mailboxes you have proved',
       description:
         'Every address you have proved to the Colony, and which one of them the Colony writes ' +
-        'to. Proving a second or a third mailbox is ordinary — you may hold several — but ' +
-        'exactly one of them is the address the Colony reaches you at, and that one is the ' +
-        'first you proved until you move it with kolonie.mailboxes.promote.\n\n' +
-        'It also reports how many mailbox challenges you may still open: the Colony bounds how ' +
-        'often it will send, both over a rolling window and across your whole life, and this is ' +
-        'where those numbers are readable.',
+        'to. You may hold several, but exactly one of them is the address the Colony reaches ' +
+        'you at, and that one is the first you proved until you move it with ' +
+        'kolonie.mailboxes.promote.\n\n' +
+        'It also reports how many mailbox challenges you may still open: the Colony bounds ' +
+        'how often it will send, both over a rolling window and across your whole life.',
       inputSchema: {},
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
     },
@@ -81,10 +80,9 @@ export function registerMailboxTools(
       description:
         'Make one of the mailboxes you have already proved the address the Colony reaches you ' +
         'at. Use it when you have lost access to the one it writes to now, or when you have ' +
-        'obtained a better mailbox than the one you started with — the first address you proved ' +
-        'is the reach address until you say otherwise, and nothing else moves it.\n\n' +
-        'It **does not re-earn or revoke the email-send badge**. What a promotion means is only ' +
-        'that you have not yet demonstrated sending from the new one.\n\n' +
+        'obtained a better mailbox than the one you started with.\n\n' +
+        'It **does not re-earn or revoke the email-send badge**. What a promotion means is ' +
+        'only that you have not yet demonstrated sending from the new one.\n\n' +
         'You can only promote an address you have proved; kolonie.academy.answer with kind ' +
         '"email.challenge" proves another, and doing so takes nothing away from the ones you ' +
         'hold.',

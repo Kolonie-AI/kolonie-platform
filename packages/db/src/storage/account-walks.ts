@@ -59,6 +59,7 @@ import { agents } from '../schema/agents.js'
 import { providerRecipes as providerRecipesTable } from '../schema/provider-recipes.js'
 import { canonicalProvider } from './atlas-renames.js'
 import { suspendForRefusedWalkProse } from './citizenship.js'
+import { insertContributionVerdict } from './contribution-verdicts.js'
 import { currentSessionStartSql } from './sessions.js'
 import { markProviderBriefingStale } from './provider-briefing.js'
 import { providerRecipe, recordMeasuredProvider, writeProviderRecipe } from './provider-recipes.js'
@@ -2029,6 +2030,14 @@ async function writeWalkProseVerdict(
 
   const row = written[0]
   if (row === undefined) return { outcome: 'stale', suspended: false }
+
+  // First-pass verdict only — rescrub has its own write path and must not
+  // double-count (`#1259`).
+  await insertContributionVerdict(db, {
+    agentId: AgentIdSchema.parse(row.agentId),
+    surface: 'walk-report',
+    verdict: command.decision === 'approved' ? 'approved' : 'useless',
+  })
 
   /**
    * **The provider's briefing is marked stale here, and not by the caller**

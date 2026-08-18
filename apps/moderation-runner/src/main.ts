@@ -47,6 +47,7 @@ import {
   recordPlaybookNoteVerdict,
   recordPlaybookStepProposalVerdict,
   recordQuestModeration,
+  sweepContributionVerdicts,
   writeScrubbedAnswers,
   staleBriefings,
   writeBriefing,
@@ -718,6 +719,10 @@ const questRunner = startQuestRunner(
     playbookNotes: { store: playbookNoteStore, model: questModel, log },
     playbookProposals: { store: playbookProposalStore, model: questModel, log },
     playbookRevisions: { store: playbookRevisionStore, log },
+    // The ledger's retention sweep, on the slow tick beside the held quests
+    // (`#1259`). One bounded delete an hour, and the only pass here whose
+    // absence nobody would notice until a year of rows had built up.
+    sweepContributionVerdicts: async (at) => await sweepContributionVerdicts(db, at),
   },
   { pollIntervalMs: QUEST_POLL_INTERVAL_MS },
 )

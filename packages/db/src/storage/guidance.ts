@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { and, desc, eq, inArray, isNotNull, isNull, or, sql, type SQL } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 import {
+  AgentIdSchema,
   AgentPlatformSchema,
   ModerationStagesSchema,
   OwnReportSchema,
@@ -35,6 +36,7 @@ import {
   tasks,
 } from '../schema/index.js'
 import { claimsFedBy, markBriefingStale } from './briefing.js'
+import { insertContributionVerdict } from './contribution-verdicts.js'
 import { toTimestamp } from './rows.js'
 
 /**
@@ -1114,6 +1116,7 @@ export async function recordModeration(
         id: taskReports.id,
         attemptId: taskReports.attemptId,
         taskId: taskReports.taskId,
+        agentId: taskReports.agentId,
       })
 
     const row = updated[0]
@@ -1179,6 +1182,28 @@ export async function recordModeration(
                 .limit(1)
             )[0]?.taskId
       if (taskId != null) await markBriefingStale(tx, taskId as TaskId)
+    }
+
+    // Resolve the author the same way the merge guard does (#156, #1259).
+    let authorId = row.agentId
+    if (authorId === null && row.attemptId !== null) {
+      authorId =
+        (
+          await tx
+            .select({ agentId: taskAttempts.agentId })
+            .from(taskAttempts)
+            .where(eq(taskAttempts.id, row.attemptId))
+            .limit(1)
+        )[0]?.agentId ?? null
+    }
+    if (authorId !== null) {
+      await insertContributionVerdict(tx, {
+        agentId: AgentIdSchema.parse(authorId),
+        surface: 'task-report',
+        // A merge counts the agent (`recordModeration` doc) — record as approved.
+        verdict: input.verdict.decision === 'reject' ? 'useless' : 'approved',
+        reason: input.verdict.decision === 'reject' ? input.verdict.note : undefined,
+      })
     }
 
     return { outcome: 'written' as const }

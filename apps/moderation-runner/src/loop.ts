@@ -245,6 +245,23 @@ export interface LoopDependencies {
    * the same place those words sat before this existed, and no worse.
    */
   readonly walkProse?: WalkProseLoopDependencies
+  /**
+   * The retention sweep over the contribution verdict ledger (`#1259`).
+   *
+   * **Optional like every other pass, and the one whose absence costs the
+   * least in the short run and the most in the long one.** An unwired sweep
+   * publishes nothing wrong and stops nothing working: the ledger simply keeps
+   * every row it was ever given. What it costs is the promise the table was
+   * written under — that an early bad week does not follow a citizen forever —
+   * which is a retention commitment rather than a queue, so it degrades slowly
+   * and invisibly rather than loudly.
+   *
+   * A function rather than a store, because there is exactly one call and no
+   * decision in front of it. `now` is passed in for the reason
+   * `sweepContributionVerdicts` takes it: a retention boundary that cannot be
+   * tested without waiting a year is not tested.
+   */
+  readonly sweepContributionVerdicts?: (now: Date) => Promise<number>
 }
 
 /** The tripwire as this loop needs it: detect, then respond. */
@@ -1118,6 +1135,51 @@ async function sweepHeldQuests(deps: LoopDependencies, batchSize: number, log: L
 }
 
 /**
+ * How many quest polls pass between sweeps of the contribution ledger (`#1259`).
+ *
+ * The same 240 as {@link HELD_QUEST_TICK_MULTIPLIER}, and for a weaker version
+ * of its argument: a retention boundary measured in a year does not care which
+ * hour of it the row leaves, so the interval is chosen to be cheap rather than
+ * timely. Hourly at the default poll, on one bounded delete.
+ *
+ * Counted from zero like the held sweep, so a runner that has just been given
+ * the dependency clears whatever accumulated while it was unwired rather than
+ * waiting an hour to start.
+ */
+export const CONTRIBUTION_VERDICT_SWEEP_TICK_MULTIPLIER = 240
+
+/**
+ * Drop the ledger rows past retention, on the slow tick (`#1259`).
+ *
+ * **Swallows its failure like every other pass, and this one can afford it more
+ * than any of them.** Nothing reads the sweep's result and nobody is waiting on
+ * it: a poll that throws leaves rows that are a few hours over a year old, and
+ * the next sweep takes them. What must not happen is a delete failing and taking
+ * the quest and playbook verdicts on the same loop down with it.
+ *
+ * Logs only when it deleted something, on `#108`'s rule — an hourly line saying
+ * *removed 0* is the shape of a log nobody reads.
+ */
+async function sweepContributionVerdicts(deps: LoopDependencies, log: Log): Promise<void> {
+  const { sweepContributionVerdicts: sweep } = deps
+  if (sweep === undefined) return
+
+  try {
+    const removed = await sweep(new Date())
+    if (removed > 0) {
+      log.info(`contribution verdicts: ${removed} past retention removed`, {
+        event: 'contribution-verdicts.sweep.done',
+        removed,
+      })
+    }
+  } catch (error) {
+    log.error('the contribution verdict sweep failed', error, {
+      event: 'contribution-verdicts.sweep.failed',
+    })
+  }
+}
+
+/**
  * Ask whether the world moved under any task this batch touched (#115).
  *
  * **Its own failure is swallowed**, and that is the same rule the report routing
@@ -1349,6 +1411,8 @@ export function startQuestRunner(deps: LoopDependencies, options: RunnerOptions 
     while (running) {
       try {
         if (ticks % HELD_QUEST_TICK_MULTIPLIER === 0) await sweepHeldQuests(deps, batchSize, log)
+        if (ticks % CONTRIBUTION_VERDICT_SWEEP_TICK_MULTIPLIER === 0)
+          await sweepContributionVerdicts(deps, log)
         ticks++
         await moderateQuests(deps, batchSize, log)
         await moderatePlaybooks(deps, batchSize, log)

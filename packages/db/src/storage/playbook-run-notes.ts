@@ -1,7 +1,8 @@
 import { and, asc, eq, isNotNull } from 'drizzle-orm'
-import type { PlaybookRunOutcome } from '@kolonie-ai/core'
+import { AgentIdSchema, type PlaybookRunOutcome } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { playbookRuns, playbooks } from '../schema/playbooks.js'
+import { insertContributionVerdict } from './contribution-verdicts.js'
 
 /**
  * The run-note queue, from the database's side (`#1246`).
@@ -113,7 +114,11 @@ export async function recordPlaybookNoteVerdict(
 ): Promise<{ readonly outcome: 'written' | 'stale' }> {
   return await db.transaction(async (tx) => {
     const [row] = await tx
-      .select({ note: playbookRuns.note, noteStatus: playbookRuns.noteStatus })
+      .select({
+        note: playbookRuns.note,
+        noteStatus: playbookRuns.noteStatus,
+        agentId: playbookRuns.agentId,
+      })
       .from(playbookRuns)
       .where(eq(playbookRuns.id, input.runId))
       .limit(1)
@@ -121,6 +126,9 @@ export async function recordPlaybookNoteVerdict(
     if (row === undefined) return { outcome: 'stale' as const }
     if (row.noteStatus !== 'pending') return { outcome: 'stale' as const }
     if (row.note !== input.judged) return { outcome: 'stale' as const }
+
+    const refusalReason =
+      input.decision === 'rejected' ? input.reason || DEFAULT_NOTE_REFUSAL : undefined
 
     await tx
       .update(playbookRuns)
@@ -130,10 +138,17 @@ export async function recordPlaybookNoteVerdict(
           : {
               noteStatus: 'rejected',
               notePublished: null,
-              noteRejectionReason: input.reason || DEFAULT_NOTE_REFUSAL,
+              noteRejectionReason: refusalReason ?? DEFAULT_NOTE_REFUSAL,
             },
       )
       .where(eq(playbookRuns.id, input.runId))
+
+    await insertContributionVerdict(tx, {
+      agentId: AgentIdSchema.parse(row.agentId),
+      surface: 'playbook-note',
+      verdict: input.decision === 'approved' ? 'approved' : 'useless',
+      reason: refusalReason,
+    })
 
     return { outcome: 'written' as const }
   })

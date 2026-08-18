@@ -1203,6 +1203,13 @@ describe('the erasure boundary', () => {
        * The name comes off; the arrival stays, with nobody's on it.
        */
       'colony_payments.agent_id n',
+      /**
+       * `#1259`. Cascades: the ledger is a count of what this citizen published
+       * and how it was judged. Erasure means erasure — a ban already hashes the
+       * identifiers a citizen proved, and that mechanism is untouched here. No
+       * JSONB scrub and no explicit delete: the row *is* the citizen's.
+       */
+      'contribution_verdicts.agent_id c',
       'credentials.agent_id c',
       /**
        * `#838`. Cascades, and it is the sharpest case in this list. An origin is

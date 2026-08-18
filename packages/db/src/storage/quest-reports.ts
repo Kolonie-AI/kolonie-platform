@@ -1,5 +1,6 @@
 import { and, eq, isNotNull, sql } from 'drizzle-orm'
 import {
+  AgentIdSchema,
   AgentPlatformSchema,
   QUEST_REPORT_KINDS_THE_SPONSOR_READS,
   type AgentId,
@@ -11,6 +12,7 @@ import {
 import type { Database, Transaction } from '../client.js'
 import { agents, questAnswers, questReports, taskAttempts, tasks } from '../schema/index.js'
 import type { BriefingSource } from './briefing.js'
+import { insertContributionVerdict } from './contribution-verdicts.js'
 import { toTimestamp } from './rows.js'
 
 /**
@@ -393,9 +395,14 @@ export async function recordQuestReportModeration(
      * the difference belongs to the citizen's own view rather than to a reader's.
      */
     readonly publishedObstacle?: string
+    /**
+     * What the author reads on a refusal (`#1259`). Optional: a path that
+     * refused without a sentence still writes the ledger row with a null reason.
+     */
+    readonly reason?: string
   },
 ): Promise<void> {
-  await db
+  const updated = await db
     .update(questReports)
     .set({
       status: command.decision,
@@ -406,6 +413,17 @@ export async function recordQuestReportModeration(
       scrubbedBroke: command.decision === 'approved' ? (command.publishedObstacle ?? null) : null,
     })
     .where(and(eq(questReports.id, command.id), eq(questReports.status, 'pending')))
+    .returning({ agentId: questReports.agentId })
+
+  const row = updated[0]
+  if (row === undefined) return
+
+  await insertContributionVerdict(db, {
+    agentId: AgentIdSchema.parse(row.agentId),
+    surface: 'quest-report',
+    verdict: command.decision === 'approved' ? 'approved' : 'useless',
+    reason: command.decision === 'rejected' ? command.reason : undefined,
+  })
 }
 
 /**

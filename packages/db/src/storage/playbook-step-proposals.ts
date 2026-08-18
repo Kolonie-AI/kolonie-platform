@@ -1,5 +1,6 @@
 import { and, asc, count, eq, isNull, lt, ne, sql } from 'drizzle-orm'
 import {
+  AgentIdSchema,
   PLAYBOOK_STEP_PROPOSALS_OPEN_PER_PLAYBOOK,
   PLAYBOOK_STEP_PROPOSALS_OPEN_TOTAL,
   type AgentId,
@@ -12,6 +13,7 @@ import {
 import type { Database, Transaction } from '../client.js'
 import { playbookStepProposals } from '../schema/playbook-step-proposals.js'
 import { playbooks } from '../schema/playbooks.js'
+import { insertContributionVerdict } from './contribution-verdicts.js'
 
 /** A pool or an open transaction — counters run inside the insert's write. */
 type Db = Database | Transaction
@@ -427,6 +429,7 @@ export async function recordPlaybookStepProposalVerdict(
         againstVersion: playbookStepProposals.againstVersion,
         playbookId: playbookStepProposals.playbookId,
         position: playbookStepProposals.position,
+        agentId: playbookStepProposals.agentId,
         playbookVersion: playbooks.version,
       })
       .from(playbookStepProposals)
@@ -458,18 +461,26 @@ export async function recordPlaybookStepProposalVerdict(
         .update(playbookStepProposals)
         .set({ status: 'superseded', updatedAt: now })
         .where(eq(playbookStepProposals.id, input.proposalId))
+      // Superseded is not a quality verdict — no ledger row (`#1259`).
       return { outcome: 'written' as const, superseded: 0 }
     }
 
     if (input.decision === 'rejected') {
+      const reason = input.reason || DEFAULT_PROPOSAL_REFUSAL
       await tx
         .update(playbookStepProposals)
         .set({
           status: 'rejected',
-          rejectionReason: input.reason || DEFAULT_PROPOSAL_REFUSAL,
+          rejectionReason: reason,
           updatedAt: now,
         })
         .where(eq(playbookStepProposals.id, input.proposalId))
+      await insertContributionVerdict(tx, {
+        agentId: AgentIdSchema.parse(row.agentId),
+        surface: 'step-proposal',
+        verdict: 'useless',
+        reason,
+      })
       return { outcome: 'written' as const, superseded: 0 }
     }
 
@@ -493,6 +504,12 @@ export async function recordPlaybookStepProposalVerdict(
       row.position,
       input.proposalId,
     )
+
+    await insertContributionVerdict(tx, {
+      agentId: AgentIdSchema.parse(row.agentId),
+      surface: 'step-proposal',
+      verdict: 'approved',
+    })
 
     return { outcome: 'written' as const, superseded }
   })

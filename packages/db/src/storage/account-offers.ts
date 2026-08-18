@@ -13,7 +13,7 @@ import { accounts } from '../schema/accounts.js'
 import { agents } from '../schema/agents.js'
 import { openAccountTransferIn, sealAccountTransfer } from './account-transfers.js'
 import { provedMailbox, provedMailboxes } from './email.js'
-import { getVaultEntry } from './vault.js'
+import { getVaultEntry, markVaultEntrySpent } from './vault.js'
 
 /**
  * Offering a spare account to another citizen (`#1125`).
@@ -25,9 +25,11 @@ import { getVaultEntry } from './vault.js'
  * {@link acceptAccountOffer} is the one act here that moves an account, and
  * {@link declineAccountOffer} is the one that costs nothing.
  *
- * **Nothing on the giver's side deletes or alters anything in the giver's
- * vault**, and nothing there changes the account being offered. Giving is a
- * thing a citizen says; accepting is the thing that moves.
+ * **Nothing on the giver's side deletes anything in the giver's vault**, and
+ * nothing there changes the account being offered. Giving is a thing a citizen
+ * says; accepting is the thing that moves — and the one thing it moves in the
+ * giver's vault is a flag: the entry behind a transferred account is marked
+ * spent (`#1214`), never emptied.
  */
 
 const TRANSFER_TTL_MS = TRANSFER_TTL_DAYS * 24 * 60 * 60 * 1000
@@ -545,8 +547,15 @@ export type AcceptAccountOfferOutcome =
  * **The giver's row is deleted and not retired** (decision 10). A retired row
  * would say *this citizen held this account and stopped*, which is true of a
  * citizen that lost a mailbox and false of one that handed it over; the thread
- * hanging off it cascades away with it (decision 11), and the giver's own vault
- * entry is left exactly where it is (decision 12).
+ * hanging off it cascades away with it (decision 11).
+ *
+ * **The giver's own vault entry keeps its bytes and stops answering with them**
+ * (decision 12, as `#1214` corrects it). It used to be left untouched, which
+ * left the giver holding a credential the register said it still had and the
+ * world said it did not. Nothing is deleted — a vault another citizen's act can
+ * empty is not the vault D-043 describes — but `kolonie.vault.get` answers
+ * `spent` instead of the secret, and only when no other account of the giver's
+ * still names that entry.
  */
 export async function acceptAccountOffer(
   db: Database,
@@ -597,6 +606,8 @@ export async function acceptAccountOffer(
         kind: accounts.kind,
         identifier: accounts.identifier,
         provider: accounts.provider,
+        /** Not copied anywhere. Read so the giver's own entry can be marked. */
+        vaultKey: accounts.vaultKey,
       })
       .from(accounts)
       .where(eq(accounts.id, row.accountId))
@@ -668,6 +679,32 @@ export async function acceptAccountOffer(
      * than by a list here that would fall behind the next table to reference it.
      */
     await tx.delete(accounts).where(eq(accounts.id, row.accountId))
+
+    /**
+     * Decision 12, as `#1214` corrects it: the giver's entry keeps its bytes and
+     * stops answering with them.
+     *
+     * **After the delete, and asked of what is left.** The credential cannot be
+     * split, so a name that still opens another account of the giver's is a name
+     * the giver still needs — decision 8 paused at the offer and told it exactly
+     * that, and marking the entry here would take a live credential away from
+     * accounts nobody gave anybody. Only a name with nothing of the giver's left
+     * behind it is spent.
+     *
+     * The mark moves a flag and reads no ciphertext, so the giver's key is not
+     * needed and is not here to be used.
+     */
+    if (account.vaultKey !== null && account.vaultKey.trim() !== '') {
+      const [stillMine] = await tx
+        .select({ id: accounts.id })
+        .from(accounts)
+        .where(and(eq(accounts.agentId, row.fromAgentId), eq(accounts.vaultKey, account.vaultKey)))
+        .limit(1)
+
+      if (stillMine === undefined) {
+        await markVaultEntrySpent(tx, row.fromAgentId as AgentId, account.vaultKey)
+      }
+    }
 
     return {
       outcome: 'accepted',

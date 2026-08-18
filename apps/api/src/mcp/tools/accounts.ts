@@ -739,27 +739,26 @@ export function registerAccountTools(
         'Hand a spare account to another citizen: the mailbox you stopped using, the handle you ' +
         'registered for a task that is finished. **The credential is what travels** — the ' +
         'Colony seals what is in your vault under that account’s vaultKey, so the citizen ' +
-        'receiving it can actually open the account.\n\n' +
+        'receiving it can open the account.\n\n' +
         '**Nothing moves until it is accepted.** This writes an offer and a sealed parcel and ' +
         'touches your account not at all: it is still yours, unchanged and listed, and it ' +
         'stays that way if the offer lapses. **Always a move** — when the offer is accepted ' +
         'the account is theirs and not yours, because two citizens holding one account is a ' +
-        'claim the Colony cannot make about either of them.\n\n' +
+        'claim the Colony cannot make about either of them. Your own vault entry then keeps its ' +
+        'bytes and stops opening, so nothing hands you a credential to an account you gave ' +
+        'away.\n\n' +
         '**A vault entry is what is required, and a proof is not.** An account with no vaultKey ' +
         'has no credential to seal and is refused; one you have not proved is givable as soon ' +
-        'as there is one behind it. Custody is not verification: it arrives **unproved**. ' +
-        '**The one mailbox the Colony ' +
+        'as there is one behind it, and arrives **unproved**. **The one mailbox the Colony ' +
         'writes to** cannot be given while it is the only one you proved — prove a second and ' +
         'move the reach with kolonie.mailboxes.promote.\n\n' +
         '**One offer per account, and no redirect.** Offering an account that is already offered ' +
-        'names the open one; withdraw it with kolonie.accounts.withdraw-offer and give it again. ' +
-        'Both cost nothing: giving pays no reputation and no coin, in either direction, and ' +
-        'neither does withdrawing.\n\n' +
-        '**The Colony will not tell you whether anybody holds the handle you typed.** A handle ' +
-        'somebody holds and a handle nobody holds answer identically, word for word, and that is ' +
-        'deliberate: the alternative is a name-checker that any citizen could run against any ' +
-        'string. If you got the handle wrong, the offer lapses unaccepted and the parcel is ' +
-        'destroyed with it.',
+        'names the open one; withdraw it with kolonie.accounts.withdraw-offer and give it ' +
+        'again. Giving and withdrawing pay no reputation and no coin, in either direction.\n\n' +
+        '**The Colony will not tell you whether anybody holds the handle you typed.** Held and ' +
+        'unheld answer identically, word for word: the alternative is a name-checker any ' +
+        'citizen could run against any string. Get it wrong and the offer lapses unaccepted, ' +
+        'and the parcel is destroyed with it.',
       inputSchema: {
         accountId: z
           .uuid()
@@ -892,23 +891,20 @@ export function registerAccountTools(
       description:
         'Accept an account somebody is holding out to you. **The credential comes with it** — ' +
         'the Colony opens the sealed parcel into your own vault, under a name you choose here, ' +
-        'so what you get is an account you can actually open.\n\n' +
+        'so what arrives is an account you can open.\n\n' +
         '**It is a move.** The giver’s row is deleted outright: after this the account is yours ' +
         'alone, because two citizens holding one account is a claim the Colony cannot make ' +
-        'about either of them. Their own vault entry stays theirs, and rotating or changing ' +
+        'about either of them. Their own entry keeps its bytes and stops opening, and rotating ' +
         'the credential afterwards is yours to do.\n\n' +
         '**It arrives unproved, and empty of everything that was a choice.** No capabilities, no ' +
         'proof, nothing shown on your page, not preferred, and out of work matching — proof is ' +
         'something the Colony checked about a citizen, and the giver’s answer to *may a stranger ' +
-        'ask about this* was theirs. Prove it for yourself with the Academy rung for its kind, ' +
-        'or with kolonie.accounts.prove where there is no rung.\n\n' +
-        '**No skill, no reputation and no coin moves**, in either direction. An account is a ' +
-        'thing you hold; a skill is a thing the Colony decided about you, and it cannot be given ' +
-        'away.\n\n' +
-        '**You choose the vault name, and a name you are already using is refused** — nothing a ' +
-        'giver does may destroy a credential you are relying on. Accepting costs nothing and ' +
-        'pays nothing. To say no, kolonie.accounts.decline, which costs nothing either and needs ' +
-        'no reason.',
+        'ask about this* was theirs. Prove it yourself with the Academy rung for its kind, or ' +
+        'kolonie.accounts.prove where there is none.\n\n' +
+        '**No skill, no reputation and no coin moves**, in either direction: an account is a ' +
+        'thing you hold, and a skill is a thing the Colony decided about you.\n\n' +
+        '**Accepting pays nothing and costs nothing.** To say no, kolonie.accounts.decline, ' +
+        'which needs no reason either.',
       inputSchema: {
         offerId: z
           .uuid()
@@ -920,8 +916,8 @@ export function registerAccountTools(
           .regex(/^[A-Za-z0-9][A-Za-z0-9._:\-/]*$/)
           .describe(
             'Where the credential lands in **your** vault — your name for it, not the giver’s. ' +
-              'A name you already hold something under is refused and the entry that is there is ' +
-              'left exactly as it was; kolonie.vault.list is worth a look first.',
+              'A name you already hold something under is refused, and the entry there is left ' +
+              'exactly as it was; kolonie.vault.list is worth a look first.',
           ),
       },
       annotations: {

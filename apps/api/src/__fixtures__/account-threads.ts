@@ -464,7 +464,9 @@ export function fakeAccountThreads(
       const stamp = currentTime()
       return {
         outcome: 'stored',
-        entry: { key, description: null, createdAt: stamp, updatedAt: stamp },
+        // Live, and it has to say so: a claim writes a value, and a written
+        // value is never a spent one (`#1214`).
+        entry: { key, description: null, spentAt: null, createdAt: stamp, updatedAt: stamp },
       }
     },
 

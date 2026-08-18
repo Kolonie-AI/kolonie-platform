@@ -23,6 +23,15 @@ export interface VaultEntryRow {
    * must not fail the listing of the sixty-three that open.
    */
   readonly description: string | null
+  /**
+   * When the account this entry opened moved to another citizen (`#1214`), or
+   * null — which is what it is for all but a handful of entries.
+   *
+   * **Whose it says nothing about, deliberately.** Who took the account is the
+   * recipient's business and the giver was told once, at the moment it
+   * happened; a column naming them would make every later listing repeat it.
+   */
+  readonly spentAt: Timestamp | null
   readonly createdAt: Timestamp
   readonly updatedAt: Timestamp
 }
@@ -64,6 +73,18 @@ export type GetVaultEntryOutcome =
    * existence of the row is already visible through `listVaultEntries`.
    */
   | { readonly outcome: 'unreadable' }
+  /**
+   * The account this entry opened was given away, and the credential went with
+   * it (`#1214`).
+   *
+   * **The bytes are still here and are not returned.** They are not destroyed,
+   * because nothing on another citizen's say-so may empty a vault; they are not
+   * handed back, because a citizen reading its own password out of an entry
+   * whose account it no longer holds is being told it still holds the account.
+   * The entry is still listed, still describable and still deletable, and
+   * writing a new value under the name makes it live again.
+   */
+  | { readonly outcome: 'spent'; readonly entry: VaultEntryRow }
 
 /**
  * Store a value under a name, sealed with the key the caller is presenting.
@@ -138,6 +159,10 @@ export async function setVaultEntry(
       set: {
         encryptedValue,
         updatedAt: currentTime(),
+        // A name that was spent is live again (`#1214`). The mark says *the
+        // credential that was in here left with an account*, and it stops being
+        // true of a value the citizen has just written for itself.
+        spentAt: null,
         // Only when one was supplied: an omitted description leaves the row's
         // alone, which is what makes rotating a token cheap.
         ...(encryptedDescription === undefined ? {} : { encryptedDescription }),
@@ -146,6 +171,7 @@ export async function setVaultEntry(
     .returning({
       key: agentVault.key,
       encryptedDescription: agentVault.encryptedDescription,
+      spentAt: agentVault.spentAt,
       createdAt: agentVault.createdAt,
       updatedAt: agentVault.updatedAt,
     })
@@ -154,12 +180,7 @@ export async function setVaultEntry(
 
   return {
     outcome: 'stored',
-    entry: {
-      key: row.key,
-      description: readDescription(token, agentId, row.key, row.encryptedDescription),
-      createdAt: toTimestamp(row.createdAt),
-      updatedAt: toTimestamp(row.updatedAt),
-    },
+    entry: entryRow(token, agentId, row),
     // Read from what was on record a moment ago rather than by comparing the two
     // timestamps: a row inserted and updated inside the same millisecond would
     // make that comparison say "replaced" about a brand new entry.
@@ -240,21 +261,14 @@ export async function claimVaultEntry(
     .returning({
       key: agentVault.key,
       encryptedDescription: agentVault.encryptedDescription,
+      spentAt: agentVault.spentAt,
       createdAt: agentVault.createdAt,
       updatedAt: agentVault.updatedAt,
     })
 
   if (row === undefined) return { outcome: 'key-taken' }
 
-  return {
-    outcome: 'stored',
-    entry: {
-      key: row.key,
-      description: readDescription(token, agentId, row.key, row.encryptedDescription),
-      createdAt: toTimestamp(row.createdAt),
-      updatedAt: toTimestamp(row.updatedAt),
-    },
-  }
+  return { outcome: 'stored', entry: entryRow(token, agentId, row) }
 }
 
 /**
@@ -274,6 +288,7 @@ export async function getVaultEntry(
       key: agentVault.key,
       encryptedValue: agentVault.encryptedValue,
       encryptedDescription: agentVault.encryptedDescription,
+      spentAt: agentVault.spentAt,
       createdAt: agentVault.createdAt,
       updatedAt: agentVault.updatedAt,
     })
@@ -283,19 +298,20 @@ export async function getVaultEntry(
 
   if (row === undefined) return { outcome: 'unknown' }
 
+  /**
+   * Before the envelope is opened, so that an entry whose account has moved is
+   * answered without its plaintext ever existing in this process (`#1214`). It
+   * is above `unreadable` for the same reason: a citizen that both rotated its
+   * key and gave the account away is told the thing it can act on.
+   */
+  if (row.spentAt !== null) {
+    return { outcome: 'spent', entry: entryRow(token, agentId, row) }
+  }
+
   const value = openVaultValue(token, String(agentId), row.key, row.encryptedValue)
   if (value === null) return { outcome: 'unreadable' }
 
-  return {
-    outcome: 'found',
-    entry: {
-      key: row.key,
-      description: readDescription(token, agentId, row.key, row.encryptedDescription),
-      createdAt: toTimestamp(row.createdAt),
-      updatedAt: toTimestamp(row.updatedAt),
-    },
-    value,
-  }
+  return { outcome: 'found', entry: entryRow(token, agentId, row), value }
 }
 
 /** What {@link setVaultDescription} did. */
@@ -334,21 +350,14 @@ export async function setVaultDescription(
     .returning({
       key: agentVault.key,
       encryptedDescription: agentVault.encryptedDescription,
+      spentAt: agentVault.spentAt,
       createdAt: agentVault.createdAt,
       updatedAt: agentVault.updatedAt,
     })
 
   if (row === undefined) return { outcome: 'unknown' }
 
-  return {
-    outcome: 'described',
-    entry: {
-      key: row.key,
-      description: readDescription(token, agentId, row.key, row.encryptedDescription),
-      createdAt: toTimestamp(row.createdAt),
-      updatedAt: toTimestamp(row.updatedAt),
-    },
-  }
+  return { outcome: 'described', entry: entryRow(token, agentId, row) }
 }
 
 /**
@@ -368,6 +377,34 @@ function readDescription(
 ): string | null {
   if (envelope === null) return null
   return openVaultValue(token, String(agentId), descriptionScope(key), envelope)
+}
+
+/**
+ * The row every read here answers with, built once rather than five times.
+ *
+ * It exists because `#1214` added a fifth field and four of the five copies
+ * would have been updated: a listing that answered `spentAt` and a `set` that
+ * did not is the kind of disagreement nobody notices until a citizen reads the
+ * two side by side.
+ */
+function entryRow(
+  token: string,
+  agentId: AgentId,
+  row: {
+    readonly key: string
+    readonly encryptedDescription: string | null
+    readonly spentAt: string | null
+    readonly createdAt: string
+    readonly updatedAt: string
+  },
+): VaultEntryRow {
+  return {
+    key: row.key,
+    description: readDescription(token, agentId, row.key, row.encryptedDescription),
+    spentAt: row.spentAt === null ? null : toTimestamp(row.spentAt),
+    createdAt: toTimestamp(row.createdAt),
+    updatedAt: toTimestamp(row.updatedAt),
+  }
 }
 
 /**
@@ -397,6 +434,7 @@ export async function listVaultEntries(
     .select({
       key: agentVault.key,
       encryptedDescription: agentVault.encryptedDescription,
+      spentAt: agentVault.spentAt,
       createdAt: agentVault.createdAt,
       updatedAt: agentVault.updatedAt,
     })
@@ -404,12 +442,7 @@ export async function listVaultEntries(
     .where(eq(agentVault.agentId, agentId))
     .orderBy(asc(agentVault.createdAt), asc(agentVault.key))
 
-  return rows.map((row) => ({
-    key: row.key,
-    description: readDescription(token, agentId, row.key, row.encryptedDescription),
-    createdAt: toTimestamp(row.createdAt),
-    updatedAt: toTimestamp(row.updatedAt),
-  }))
+  return rows.map((row) => entryRow(token, agentId, row))
 }
 
 /**
@@ -580,4 +613,42 @@ export async function deleteVaultEntry(
     .returning({ key: agentVault.key })
 
   return deleted.length > 0
+}
+
+/**
+ * Mark one entry as no longer this citizen's to use, because the account it
+ * opened went to somebody else (`#1214`).
+ *
+ * **The ciphertext is not touched and is not read.** No token, therefore: this
+ * moves a flag, and the one thing it must not be able to do is destroy or
+ * disclose what is sealed. That also means it works on an entry sealed with a
+ * key the citizen has since rotated away from, which is the entry least able to
+ * afford a second failure mode.
+ *
+ * **Idempotent, and it does not re-date an entry that is already spent.** The
+ * timestamp means *when custody left*, and an accept that ran twice — or a
+ * second account behind the same name, given later — must not move it.
+ *
+ * Answers whether it changed anything, so a caller can tell an entry it marked
+ * from one that was already marked or never there.
+ */
+export async function markVaultEntrySpent(
+  /** A transaction as readily as a connection: the mark belongs to the accept. */
+  db: Database | Transaction,
+  agentId: AgentId,
+  key: string,
+): Promise<boolean> {
+  const marked = await db
+    .update(agentVault)
+    .set({ spentAt: currentTime() })
+    .where(
+      and(
+        eq(agentVault.agentId, agentId),
+        eq(agentVault.key, key),
+        sql`${agentVault.spentAt} is null`,
+      ),
+    )
+    .returning({ key: agentVault.key })
+
+  return marked.length > 0
 }

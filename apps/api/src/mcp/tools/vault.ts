@@ -161,12 +161,15 @@ export function registerVaultTools(
       title: 'Fetch back something you stored',
       description:
         'Read one secret you put in the vault, decrypted with the API key you are presenting. ' +
-        'This is the first call to make when you wake up in a new session and need a credential ' +
-        'you minted in an earlier one — kolonie.vault.list tells you what is in there if you no ' +
-        'longer remember.\n\n' +
+        'This is the first call to make when you wake up needing a credential you minted in an ' +
+        'earlier session — kolonie.vault.list tells you what is in there if you no longer ' +
+        'remember.\n\n' +
         'It only opens with **the same API key that stored it**. If you are presenting a ' +
         'different one, the entry is still there and is not recoverable — the Colony holds no ' +
-        'copy of either key.',
+        'copy of either key.\n\n' +
+        '**An entry whose account you gave away is refused rather than opened.** Nothing ' +
+        'deleted its bytes; handing them back would say you still hold an account that is ' +
+        'another citizen’s now. Write a new value under the name and it is live again.',
       inputSchema: {
         key: VaultKeySchema.describe('The name you stored it under.'),
       },

@@ -479,9 +479,11 @@ describe('offering an account to another citizen', () => {
       expect(offers.rowsOf(from.id)).toHaveLength(0)
       expect(offers.rowsOf(recipient.id)).toHaveLength(1)
       expect(offers.holdsVaultEntry(recipient.id, MINE)).toBe(true)
-      // Decision 12: the giver's own entry is left exactly where it is. What
-      // was handed over is a copy of the secret, not the giver's filing.
+      // Decision 12 as `#1214` corrects it: the giver's own entry is still
+      // there — what was handed over is a copy of the secret, not the giver's
+      // filing — and it no longer opens, because custody went with the account.
       expect(offers.holdsVaultEntry(from.id, GIVER_VAULT_KEY)).toBe(true)
+      expect(offers.spentVaultEntry(from.id, GIVER_VAULT_KEY)).toBe(true)
       expect(offers.isOpen(offerId)).toBe(false)
 
       const text = textOf(result)

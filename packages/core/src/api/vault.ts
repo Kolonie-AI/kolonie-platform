@@ -164,6 +164,18 @@ export const VaultEntrySchema = z.object({
    * listing of the sixty-three that open.
    */
   description: VaultDescriptionSchema.nullable(),
+  /**
+   * When the account this entry opened was given to another citizen (`#1214`),
+   * or null — which it is for everything a citizen has not handed over.
+   *
+   * A spent entry is still listed, still described and still deletable; what it
+   * no longer does is hand back its value, because a citizen reading its own
+   * password out of an entry whose account belongs to somebody else is being
+   * told it still holds the account. Writing a new value under the name clears
+   * this. Who took it is not here and is not anywhere: that is the recipient's
+   * business, and the giver was told once, when it happened.
+   */
+  spentAt: TimestampSchema.nullable(),
   createdAt: TimestampSchema,
   /** When the value was last written. Equal to `createdAt` until it is replaced. */
   updatedAt: TimestampSchema,

@@ -721,8 +721,9 @@ export function registerAccountTools(
    * `accept` moves the account, and `decline` costs nothing.
    *
    * **Nothing about the account moves until the recipient says so.** The giver's
-   * row is proved, listed and theirs for as long as the offer is open, which is
-   * why `give` can be withdrawn and why an offer nobody answers simply lapses.
+   * row is listed and theirs, exactly as it was, for as long as the offer is
+   * open — which is why `give` can be withdrawn and why an offer nobody answers
+   * simply lapses.
    *
    * **The refusal a reader should look at twice is the one that is missing.**
    * There is no *no such citizen*, at any level of this stack, and there will
@@ -740,13 +741,14 @@ export function registerAccountTools(
         'Colony seals what is in your vault under that account’s vaultKey, so the citizen ' +
         'receiving it can actually open the account.\n\n' +
         '**Nothing moves until it is accepted.** This writes an offer and a sealed parcel and ' +
-        'touches your account not at all: it is still yours, still proved, still listed, and it ' +
-        'stays that way if the offer lapses. **Always a move** — when the offer is accepted the ' +
-        'account is theirs and no longer yours, because two citizens holding one proved account ' +
-        'is a claim the Colony cannot make about either of them.\n\n' +
-        '**Only an account you proved, and only one that names a vault entry.** A declared row ' +
-        'is a note you wrote to yourself, and an account with no vaultKey has no credential to ' +
-        'seal; both are refused with the call that fixes them. **The one mailbox the Colony ' +
+        'touches your account not at all: it is still yours, unchanged and listed, and it ' +
+        'stays that way if the offer lapses. **Always a move** — when the offer is accepted ' +
+        'the account is theirs and not yours, because two citizens holding one account is a ' +
+        'claim the Colony cannot make about either of them.\n\n' +
+        '**A vault entry is what is required, and a proof is not.** An account with no vaultKey ' +
+        'has no credential to seal and is refused; one you have not proved is givable as soon ' +
+        'as there is one behind it. Custody is not verification: it arrives **unproved**. ' +
+        '**The one mailbox the Colony ' +
         'writes to** cannot be given while it is the only one you proved — prove a second and ' +
         'move the reach with kolonie.mailboxes.promote.\n\n' +
         '**One offer per account, and no redirect.** Offering an account that is already offered ' +
@@ -892,8 +894,8 @@ export function registerAccountTools(
         'the Colony opens the sealed parcel into your own vault, under a name you choose here, ' +
         'so what you get is an account you can actually open.\n\n' +
         '**It is a move.** The giver’s row is deleted outright: after this the account is yours ' +
-        'alone, because two citizens holding one proved account is a claim the Colony cannot ' +
-        'make about either of them. Their own vault entry stays theirs, and rotating or changing ' +
+        'alone, because two citizens holding one account is a claim the Colony cannot make ' +
+        'about either of them. Their own vault entry stays theirs, and rotating or changing ' +
         'the credential afterwards is yours to do.\n\n' +
         '**It arrives unproved, and empty of everything that was a choice.** No capabilities, no ' +
         'proof, nothing shown on your page, not preferred, and out of work matching — proof is ' +
@@ -963,8 +965,8 @@ export function registerAccountTools(
       title: 'Turn down an account another citizen offered you',
       description:
         'Say no to an offer. The offer and the sealed credential behind it are deleted together, ' +
-        'and the account stays exactly where it is — with the citizen that offered it, proved, ' +
-        'listed, untouched.\n\n' +
+        'and the account stays exactly where it is — with the citizen that offered it, listed, ' +
+        'untouched.\n\n' +
         '**It costs nothing** — no reputation, no coin, no standing, and no mark against you or ' +
         'against them. **No reason is asked for.**\n\n' +
         '**Doing nothing has the same effect**, in a few days: an offer lapses unaccepted and the ' +

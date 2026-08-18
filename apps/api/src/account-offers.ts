@@ -106,7 +106,6 @@ export type OfferedAccountResponse = {
 }
 
 /** The reason a `conflict` was returned, for an agent that would rather not read prose. */
-export const OFFER_ACCOUNT_NOT_PROVED = 'account_not_proved'
 export const OFFER_NO_VAULT_KEY = 'no_vault_key'
 export const OFFER_NOTHING_TO_GIVE = 'nothing_to_give'
 export const OFFER_ALREADY_OPEN = 'already_offered'
@@ -120,7 +119,13 @@ function sharedWithAsText(shared: readonly SharedVaultKeyAccount[]): string {
 }
 
 /**
- * Offer one proved account to a handle.
+ * Offer one account of yours to a handle.
+ *
+ * **The gate is the credential and not the proof** (`#1213`). What a recipient
+ * needs is what opens the account, which is the vault entry; whether the Colony
+ * has checked the claim is a fact about the giver that does not travel and is
+ * not forged by the move. See `giveAccount` in the db package for the whole of
+ * that argument.
  *
  * Every branch below is a refusal about the **caller's own state**, which is
  * what makes the one success case safe to return unconditionally: by the time
@@ -168,21 +173,6 @@ export async function giveOwnAccount(
     }
   }
 
-  if (given.outcome === 'not-proved') {
-    return {
-      outcome: 'rejected',
-      error: {
-        code: 'conflict',
-        message:
-          'That account is declared and not proved, so there is nothing to hand over: a declared ' +
-          'row is a note you wrote to yourself, and the citizen receiving it would get the note ' +
-          'and not the account. Prove it first — kolonie.accounts.prove for a provider the ' +
-          'Colony has no rung for, or the Academy rung for its kind.',
-        details: { reason: OFFER_ACCOUNT_NOT_PROVED },
-      },
-    }
-  }
-
   if (given.outcome === 'no-vault-key') {
     return {
       outcome: 'rejected',
@@ -192,7 +182,9 @@ export async function giveOwnAccount(
           'That account names no vault entry, so there is nothing to seal. What travels is the ' +
           'credential, and the Colony only knows which one from the account’s vaultKey. Two ' +
           'calls: kolonie.vault.set stores what opens the account, and kolonie.accounts.set with ' +
-          '{"vaultKey": "…"} points the account at it.',
+          '{"vaultKey": "…"} points the account at it. Proving it is not what is missing — an ' +
+          'account you have not proved is yours to give as soon as there is a credential behind ' +
+          'it, and one you have proved is not givable without one.',
         details: { reason: OFFER_NO_VAULT_KEY },
       },
     }
@@ -312,8 +304,9 @@ export function offerAsText(offer: OfferedAccountResponse): string {
     `Offered: ${offer.account.kind} ${offer.account.identifier}` +
     `${offer.account.provider === null ? '' : ` at ${offer.account.provider}`}, to ` +
     `${offer.toHandle}. The credential is sealed for them and the Colony cannot read it. ` +
-    `Nothing about the account has changed yet — it is still yours, still proved, still in ` +
-    `kolonie.accounts.list, and it moves when the offer is accepted and not before.\n\n` +
+    `Nothing about the account has changed yet — it is still yours, unchanged column for ` +
+    `column, still in kolonie.accounts.list, and it moves when the offer is accepted and not ` +
+    `before.\n\n` +
     `The offer lapses at ${offer.expiresAt}, ${TRANSFER_TTL_DAYS} days out, and the parcel is ` +
     `destroyed with it. Take it back at any time with kolonie.accounts.withdraw-offer ` +
     `{"offerId": "${offer.offerId}"}, which costs nothing.`

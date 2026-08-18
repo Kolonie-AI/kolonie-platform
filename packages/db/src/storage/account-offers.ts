@@ -66,8 +66,6 @@ export type GiveAccountOutcome =
   | { readonly outcome: 'unsealable' }
   /** No such account, or not this citizen's. One answer for both, as everywhere. */
   | { readonly outcome: 'unknown-account' }
-  /** Decision 3: a declared row is a note to self and there is nothing to hand over. */
-  | { readonly outcome: 'not-proved' }
   /** Decision 4: no `vaultKey`, and the fix is two calls. */
   | { readonly outcome: 'no-vault-key' }
   /** The named entry is not one the giver holds, or not one its key opens. */
@@ -101,7 +99,23 @@ export type GiveAccountCommand = {
 }
 
 /**
- * Offer one proved account to a handle.
+ * Offer one account of yours to a handle.
+ *
+ * ## What is being moved is custody, and not a verdict (`#1213`)
+ *
+ * Decision 3 used to refuse a declared row here, on the reasoning that it is a
+ * note the giver wrote to itself and the recipient would get the note rather
+ * than the account. That is true of a row with no `vaultKey` and false of one
+ * with a credential behind it: a citizen that bought a mailbox, logged into it
+ * and stored what opens it holds the account in every sense that matters to the
+ * citizen receiving it, whether or not the Colony has checked the claim.
+ *
+ * So the gate is the credential and not the proof. `vaultKey` names an entry,
+ * the entry opens with the giver's own key, and what travels is what is in it —
+ * the same three conditions a proved give has always had, minus the one that
+ * was measuring something else. Proof stays where it was earned: the recipient's
+ * row arrives `proved: false` either way (`acceptAccountOffer`), and nothing
+ * that gates on proved is reachable through a transfer.
  *
  * ## The order the checks run in is the feature
  *
@@ -132,7 +146,6 @@ export async function giveAccount(
       kind: accounts.kind,
       identifier: accounts.identifier,
       provider: accounts.provider,
-      proved: accounts.proved,
       vaultKey: accounts.vaultKey,
     })
     .from(accounts)
@@ -140,7 +153,6 @@ export async function giveAccount(
     .limit(1)
 
   if (account === undefined) return { outcome: 'unknown-account' }
-  if (!account.proved) return { outcome: 'not-proved' }
 
   const vaultKey = account.vaultKey
   if (vaultKey === null || vaultKey.trim() === '') return { outcome: 'no-vault-key' }

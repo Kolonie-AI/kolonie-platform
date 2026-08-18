@@ -207,16 +207,42 @@ describe('an account offered to another citizen', () => {
     })
   })
 
-  /** Decision 3. */
-  it('refuses a declared account', async () => {
-    const declared = await anAccount({ proved: false, identifier: 'declared-only' })
-    expect(await give({ accountId: declared })).toEqual({ outcome: 'not-proved' })
+  /**
+   * `#1213`, and the reversal of what decision 3 used to say here. A declared
+   * row with a credential behind it is an account the recipient can open, which
+   * is the whole of what a transfer moves.
+   */
+  it('offers a declared account that names a vault entry the giver holds', async () => {
+    // Its own entry, not the one `accountId` names: a key two accounts share is
+    // the pause of decision 8, and it would answer before proof was even read.
+    await setVaultEntry(db, giverToken, giver, 'provider/declared', FIXTURE_VALUE)
+    const declared = await anAccount({
+      proved: false,
+      identifier: 'declared-with-a-credential',
+      vaultKey: 'provider/declared',
+    })
+
+    const offered = await give({ accountId: declared })
+    if (offered.outcome !== 'offered') throw new Error(offered.outcome)
+
+    // The parcel is the point: an offer with no credential in it would be the
+    // note-to-self the old refusal was worried about.
+    const [row] = await db.select().from(accountOffers).where(eq(accountOffers.id, offered.offerId))
+    expect(row?.transferId).not.toBeNull()
+    expect(row?.toAgentId).toBe(recipient)
   })
 
-  /** Decision 4. */
-  it('refuses an account that names no vault entry', async () => {
+  /**
+   * Decision 4, and after `#1213` it is the only thing standing in the way of a
+   * declared account: what is refused is the missing credential rather than the
+   * missing proof, and a proved row with no vault entry is refused identically.
+   */
+  it('refuses an account that names no vault entry, proved or declared', async () => {
     const unlinked = await anAccount({ vaultKey: null, identifier: 'no-key' })
     expect(await give({ accountId: unlinked })).toEqual({ outcome: 'no-vault-key' })
+
+    const declared = await anAccount({ proved: false, vaultKey: null, identifier: 'declared-bare' })
+    expect(await give({ accountId: declared })).toEqual({ outcome: 'no-vault-key' })
   })
 
   it('refuses an account naming an entry the giver does not hold', async () => {
@@ -601,6 +627,42 @@ describe('an account offered to another citizen', () => {
       // were wrong together: proof is something the Colony checked about a
       // citizen, and it has not checked it about this one.
       expect(arrived).toMatchObject({ proved: false, provedAt: null, provedBy: null })
+    })
+
+    /**
+     * `#1213` from the receiving end. The credential is what travels, so a
+     * declared account arrives openable; the register says `proved: false`
+     * because that is what it said before the move, and a transfer is not a
+     * thing the Colony checked about anybody.
+     */
+    it('opens a declared account for the recipient without inventing a proof', async () => {
+      await setVaultEntry(db, giverToken, giver, 'provider/declared', FIXTURE_VALUE)
+      const declaredId = await anAccount({
+        proved: false,
+        identifier: 'declared-and-given',
+        vaultKey: 'provider/declared',
+      })
+
+      const offered = await give({ accountId: declaredId })
+      if (offered.outcome !== 'offered') throw new Error(offered.outcome)
+
+      const taken = await accept({ offerId: offered.offerId, vaultKey: 'mine/the-declared-one' })
+      if (taken.outcome !== 'accepted') throw new Error(taken.outcome)
+
+      const [arrived] = await db.select().from(accounts).where(eq(accounts.id, taken.accountId))
+      expect(arrived).toMatchObject({
+        agentId: recipient,
+        identifier: 'declared-and-given',
+        proved: false,
+        provedAt: null,
+        provedBy: null,
+      })
+
+      expect(
+        await getVaultEntry(db, recipientToken, recipient, 'mine/the-declared-one'),
+      ).toMatchObject({ outcome: 'found', value: FIXTURE_VALUE })
+
+      expect(await db.select().from(accounts).where(eq(accounts.id, declaredId))).toEqual([])
     })
 
     /**

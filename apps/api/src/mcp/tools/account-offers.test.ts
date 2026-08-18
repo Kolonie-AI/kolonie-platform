@@ -4,7 +4,6 @@ import type { AgentId } from '@kolonie-ai/core'
 import { FAKE_CALLER_IP } from '../../__fixtures__/colony/index.js'
 import { connectedClient, registeredCitizen } from '../../__fixtures__/mcp.js'
 import {
-  OFFER_ACCOUNT_NOT_PROVED,
   OFFER_ALREADY_OPEN,
   OFFER_NO_VAULT_KEY,
   OFFER_NOTHING_TO_GIVE,
@@ -177,14 +176,35 @@ describe('offering an account to another citizen', () => {
     await close()
   })
 
-  it('refuses a declared account, an account with no vault key, and an empty vault entry', async () => {
+  /**
+   * `#1213`: what is asked for is the credential, so a declared row with one is
+   * given and a proved row without one is not. Both halves are here, because
+   * the refusal that used to answer the first of them is the thing being
+   * removed and a test that only asserted the new pass would not notice it
+   * coming back as a differently-worded conflict.
+   */
+  it('offers a declared account that names a vault entry the giver holds', async () => {
     const { client, close, offers, agent } = await giver()
 
+    offers.citizen('recipient-agent' as AgentId, 'recipient')
     const declared = offers.hold(agent.id, {
       kind: 'mailbox',
       identifier: 'declared@example.test',
       proved: false,
     })
+
+    const result = await give(client, { accountId: declared, to: 'recipient' })
+
+    expect(offered(result).account).toMatchObject({ identifier: 'declared@example.test' })
+    expect(offers.hasParcel(offered(result).offerId)).toBe(true)
+    expect(textOf(result)).not.toContain('prove')
+
+    await close()
+  })
+
+  it('refuses an account with no vault key, and an empty vault entry', async () => {
+    const { client, close, offers, agent } = await giver()
+
     const keyless = offers.hold(agent.id, {
       kind: 'mailbox',
       identifier: 'keyless@example.test',
@@ -199,16 +219,14 @@ describe('offering an account to another citizen', () => {
     })
     offers.forgetVaultEntry(agent.id, 'mailbox/nothing-stored-here')
 
-    const notProved = refusal(await give(client, { accountId: declared, to: 'recipient' }))
     const noKey = refusal(await give(client, { accountId: keyless, to: 'recipient' }))
     const nothing = refusal(await give(client, { accountId: empty, to: 'recipient' }))
 
-    expect(notProved.code).toBe('conflict')
-    expect(notProved.details?.reason).toBe(OFFER_ACCOUNT_NOT_PROVED)
-    expect(notProved.message).toContain('kolonie.accounts.prove')
-
+    expect(noKey.code).toBe('conflict')
     expect(noKey.details?.reason).toBe(OFFER_NO_VAULT_KEY)
     expect(noKey.message).toContain('kolonie.vault.set')
+    // The story is the missing credential and not the missing proof (`#1213`).
+    expect(noKey.message).not.toContain('kolonie.accounts.prove')
 
     expect(nothing.details?.reason).toBe(OFFER_NOTHING_TO_GIVE)
     expect(nothing.message).toContain('kolonie.vault.list')
@@ -391,13 +409,14 @@ describe('offering an account to another citizen', () => {
     /** The recipient's name for it, and the one decision `accept` asks for. */
     const MINE = 'mine/the-mailbox'
 
-    const pair = async () => {
+    const pair = async (over: { readonly proved?: boolean } = {}) => {
       const { colony, apiKey, agent } = await registeredCitizen()
       const offers = colony.accountOfferStore
       const accountId = offers.hold(agent.id, {
         kind: 'mailbox',
         identifier: 'spare@example.test',
         provider: 'mail.tm',
+        ...(over.proved === undefined ? {} : { proved: over.proved }),
       })
 
       const registered = await colony.registry.register(
@@ -493,6 +512,33 @@ describe('offering an account to another citizen', () => {
       expect(text).toContain('out of work matching')
       expect(text).toContain('kolonie.accounts.set')
       expect(text).toContain('forWork')
+
+      await close()
+    })
+
+    /**
+     * `#1213`, from the receiving end. A declared account moves with its
+     * credential and arrives saying exactly what it said before: the register is
+     * not made to agree with the transfer, because the transfer checked nothing.
+     */
+    it('takes a declared account, credential and all, without inventing a proof', async () => {
+      const {
+        client,
+        close,
+        offers,
+        accountId,
+        giver: from,
+        recipient,
+        offerId,
+      } = await pair({ proved: false })
+
+      const result = await accept(client, { offerId })
+
+      expect(result.isError).toBeFalsy()
+      expect(offers.row(accountId)).toBeUndefined()
+      expect(offers.rowsOf(from.id)).toHaveLength(0)
+      expect(offers.rowsOf(recipient.id)[0]).toMatchObject({ proved: false, vaultKey: MINE })
+      expect(offers.holdsVaultEntry(recipient.id, MINE)).toBe(true)
 
       await close()
     })

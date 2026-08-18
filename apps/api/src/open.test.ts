@@ -1710,6 +1710,111 @@ describe('a rung decided by money the Colony does not hold', () => {
 })
 
 /**
+ * Work the citizen can finish, before work it cannot (`#1207`).
+ *
+ * The skill is about to say *take the first entry you can act on*, and that
+ * sentence is only safe if the first entry usually is one. Measured 2026-08-17: a
+ * payment rung stood above a wall report the citizen could have written in the
+ * same waking — both offered, one finishable, and the finishable one second.
+ *
+ * `startableFirst` already did this *inside* the rungs, so the tests that matter
+ * are the ones across kinds, where the written order and the citizen's register
+ * disagree. Two would fail silently: an entry sunk out of the list rather than
+ * down it, and the written order stopping being the order among like entries.
+ */
+describe('the order of what is open, once feasibility is honest', () => {
+  const wall = { taskId: 'a-task' as Task['id'], title: 'Prove a mailbox' }
+
+  const stuckRung = () =>
+    aTask({ title: 'Earn from an API', type: TaskTypeSchema.parse('api-monetize') })
+
+  it('puts a report the citizen can write above a rung only money finishes', async () => {
+    const open = await openingsFor(
+      agentId,
+      ['profile', 'wallet', 'vetting'],
+      sourceWith({ listed: [stuckRung()], prospects: { unreported: wall, failedAttempts: 2 } }),
+    )
+
+    expect(open.entries[0]?.call).toContain('kolonie.tasks.report')
+    expect(open.entries[0]?.feasibility).toBe('ready')
+    // And the rung is still there, still saying what it needs — sunk, not dropped.
+    const rung = open.entries.find((entry) => entry.what === 'Earn from an API')
+    expect(rung?.feasibility).toBe('needs-payer')
+  })
+
+  /**
+   * **Sunk, never dropped.** The list is the same length with the same entries;
+   * an entry the register cannot finish is further down and not gone. The
+   * opposite reading of `#1207` — filter the unfinishable out — would hide from a
+   * citizen the one thing that tells it what to go and get.
+   */
+  it('keeps every entry it reorders', async () => {
+    const withSort = await openingsFor(
+      agentId,
+      ['profile', 'wallet', 'vetting'],
+      sourceWith({ listed: [stuckRung()], prospects: { unreported: wall, failedAttempts: 2 } }),
+    )
+
+    expect(withSort.entries.map((entry) => entry.what)).toContain('Earn from an API')
+    expect(withSort.nothing).toBe(false)
+  })
+
+  /**
+   * **Inside a tier the written order is untouched**, which is what keeps
+   * `WAKEUP_OPEN_ORDER` a rule rather than a hint: it states the position among
+   * entries of like standing, and two ready entries are of like standing.
+   */
+  it('leaves the written order alone among entries that are all ready', async () => {
+    const open = await openingsFor(
+      agentId,
+      ['profile'],
+      sourceWith({
+        listed: [aTask({ title: 'Set a profile' }), aQuest()],
+        prospects: { unreported: wall, failedAttempts: 2 },
+      }),
+    )
+
+    const positions = open.entries.map((entry) => entry.what)
+    expect(positions.indexOf('Set a profile')).toBeLessThan(positions.indexOf(aQuest().title))
+    expect(open.entries.every((entry) => entry.feasibility === 'ready')).toBe(true)
+  })
+
+  /**
+   * **An operator step is not unattended work either**, and it sinks on the same
+   * rule as the money rung — below what the agent can do alone, above nothing.
+   * `#1207` wants an unattended cron to be able to trust the first entry; being
+   * told to go and ask a person is a fine second thing and a poor first one.
+   *
+   * The ticket entry is what makes this a test of the sort rather than of the
+   * written order: it is written *below* the operator step in the board, so its
+   * rising above it can only be this rule. Asserted against those two positions
+   * rather than against *no ready entry anywhere below*, because the reserved
+   * slots are deliberately left where they are — sponsoring and the frontier
+   * closer are `ready` and sit after everything the board offered.
+   */
+  it('puts unattended work above a step that needs a person', async () => {
+    const open = await openingsFor(
+      agentId,
+      ['profile'],
+      sourceWith({
+        listed: [],
+        prospects: {
+          failedAttempts: 2,
+          operatorCouldOpenAccount: true,
+        },
+      }),
+    )
+
+    const operatorAt = open.entries.findIndex((entry) => entry.feasibility === 'needs-operator')
+    const ticketAt = open.entries.findIndex((entry) => entry.call === 'kolonie.support.open')
+
+    expect(operatorAt).toBeGreaterThan(-1)
+    expect(ticketAt).toBeGreaterThan(-1)
+    expect(ticketAt).toBeLessThan(operatorAt)
+  })
+})
+
+/**
  * What kind of thing each entry is, and a slot kept for the Colony (`#925`).
  *
  * Measured 2026-08-14: a citizen with two startable rungs and two open quests

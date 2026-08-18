@@ -19,9 +19,11 @@
  * number somebody picks and new tools have to be able to exist. The report ran
  * for ten days and the catalogue grew anyway — which is the finding `#1118`
  * acted on, and it did not need a ceiling to act. **The `authenticated` tier is
- * held to a floor**: the last committed measurement, moving down freely and up
- * only in a commit that says why. That is `catalogue-budget.ts` (`#889`), and it
- * carries no opinion about how big the catalogue should be.
+ * held to a floor**: on a pull request against its merge base with a byte
+ * tolerance (`#1266`), on `main` against the last committed measurement,
+ * moving down freely and up only in a commit that says why. That is
+ * `catalogue-budget.ts` (`#889`), and it carries no opinion about how big the
+ * catalogue should be.
  *
  * This file is still the measurement and not the gate, which is why
  * {@link measureToolList} returns figures and never a verdict — there is no `ok`
@@ -168,9 +170,10 @@ export function renderSurfaceReport(
 
   lines.push(
     '',
-    '**The `authenticated` tier is held to a floor** — the last committed measurement, in ' +
-      '`apps/api/src/mcp/catalogue-budget.json`. Growing past it fails this run. Shrinking ' +
-      'below it lowers the floor, and the new figure is committed to this branch. Raising it ' +
+    '**The `authenticated` tier is held to a floor.** On a pull request the comparison is ' +
+      'against the merge base: tools stay at zero, bytes get a 1,024-byte tolerance, and ' +
+      'nothing writes the floor file. On a push to `main` the comparison is against ' +
+      '`apps/api/src/mcp/catalogue-budget.json`, and a shrink lowers that file. Raising it ' +
       'takes a commit message naming `the-catalogue-encodes-grammar-never-vocabulary` and ' +
       'saying what the new tools are vocabulary-free for. The other tiers are weighed and ' +
       'reported, and nothing fails on them.',

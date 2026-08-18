@@ -32,17 +32,16 @@ name: MCP surface
 # has shown either of them growing, and a gate on a surface that is not moving is
 # a gate that only ever costs somebody an afternoon.
 #
-# ## Why this gates when the test suite already does
+# ## Why this gates when the test suite does not
 #
-# `catalogue-budget.test.ts` fails on growth wherever it runs, which is the gate;
-# this workflow does not need to duplicate it and the step below computes its
-# verdict from the head measurement that is already in hand rather than running a
-# second suite. What this adds is the half a test cannot do — **a reduction is
-# written and committed back to the branch that earned it**. Before `#1118` a
-# saving failed the run and printed a command, so the branch that had just made
-# the catalogue smaller went red, and the saving stayed unrecorded until somebody
-# went and typed something. Recorded here, the next feature cannot spend it
-# quietly.
+# `catalogue-budget.test.ts` is synthetic — stubs and arithmetic on the committed
+# numbers. `npm run check` runs `check:catalogue-floor` (the commit-message check)
+# and not `check-catalogue-budget.mjs`. **This workflow is the only place the live
+# catalogue is weighed against the floor.** What it also does that a test cannot
+# is write a reduction back: on a push to `main`, a saving is committed in the
+# same run that measured it (`#1118`). A pull request never writes the floor
+# (`#1266`) — it is judged against its merge base instead, so a later merge cannot
+# re-lower the floor underneath an open branch and retro-fail it.
 #
 # ## Why it runs on `main` as well as on a pull request
 #
@@ -202,6 +201,105 @@ jobs:
           ' --input-type=module
           cat surface-report.md >> "$GITHUB_STEP_SUMMARY"
 
+      # The verdict is computed before the sticky comment so the comment carries
+      # it, and the step does not exit non-zero here — a failing run must still
+      # leave the number where the author can read it. The fail comes after the
+      # comment, from `Fail the run when the catalogue grew past its gate`.
+      #
+      # On a pull request the comparison is head against base (`#1266`): tools
+      # stay at zero, bytes get CATALOGUE_BYTE_TOLERANCE, and nothing writes the
+      # floor file. On a push to main the comparison is against the committed
+      # floor, and a reduction is written for the commit step below.
+      #
+      # References are spelled out as words rather than written with a hash, and
+      # that is the fix rather than the quoting: in a plain YAML scalar a ` #`
+      # starts a comment, so `see #388.` was discarded before the shell saw it
+      # and the step ran an unterminated quote. Quoting would work until the next
+      # person edits the line. The character is the trap.
+      - name: Hold the authenticated tier to its floor
+        id: floor
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          node -e '
+            const {
+              budgetVerdict,
+              branchBudgetVerdict,
+            } = await import("./apps/api/dist/mcp/catalogue-budget.js")
+            const { readFile, writeFile, appendFile } = await import("node:fs/promises")
+            const BUDGET = "apps/api/src/mcp/catalogue-budget.json"
+            const say = async (line) => {
+              await appendFile(process.env.GITHUB_STEP_SUMMARY, `\n${line}\n`, "utf8")
+              console.log(line)
+            }
+            const readTiers = async (path) => {
+              try { return JSON.parse(await readFile(path, "utf8")) } catch { return null }
+            }
+            const authenticated = (tiers) =>
+              Array.isArray(tiers) ? tiers.find((tier) => tier.tier === "authenticated") : undefined
+
+            const headTiers = await readTiers("measurements/head.json")
+            const citizen = authenticated(headTiers)
+            if (citizen === undefined) {
+              // The measurement is what this judges. Missing, there is nothing
+              // to judge, and passing here would read as a catalogue at its
+              // floor rather than as a job that did not run.
+              await say("The authenticated tier was not measured, so the floor could not be checked.")
+              await appendFile(process.env.GITHUB_OUTPUT, "failed=true\n", "utf8")
+              process.exit(0)
+            }
+
+            const isPullRequest = process.env.EVENT_NAME === "pull_request"
+            let verdict
+            if (isPullRequest) {
+              const baseTiers = await readTiers("measurements/base.json")
+              const base = authenticated(baseTiers)
+              if (base === undefined) {
+                await say(
+                  "The merge-base authenticated tier was not measured, so the branch " +
+                    "could not be weighed against it.",
+                )
+                await appendFile(process.env.GITHUB_OUTPUT, "failed=true\n", "utf8")
+                process.exit(0)
+              }
+              verdict = branchBudgetVerdict(
+                { tools: citizen.tools, bytes: citizen.bytes },
+                { tools: base.tools, bytes: base.bytes },
+              )
+            } else {
+              const budget = JSON.parse(await readFile(BUDGET, "utf8"))
+              verdict = budgetVerdict({ tools: citizen.tools, bytes: citizen.bytes }, budget)
+
+              if (verdict.direction === "under") {
+                // Keep the per-tool ceiling the measurement did not recompute —
+                // this step only ratchets the two sums. The suite-driven
+                // `check-catalogue-budget.mjs` is what rewrites `heaviest`.
+                await writeFile(
+                  BUDGET,
+                  `${JSON.stringify({
+                    tools: citizen.tools,
+                    bytes: citizen.bytes,
+                    heaviest: budget.heaviest,
+                    measuredAt: new Date().toISOString().slice(0, 10),
+                    command: "node scripts/check-catalogue-budget.mjs",
+                  }, null, 2)}\n`,
+                  "utf8",
+                )
+                await say(
+                  `The floor has come down to ${citizen.tools} tools and ${citizen.bytes} bytes, ` +
+                    "committed to main below. Nothing to do.",
+                )
+                await appendFile(process.env.GITHUB_OUTPUT, "lowered=true\n", "utf8")
+              }
+            }
+
+            await say(verdict.message)
+            await appendFile("surface-report.md", `\n${verdict.message}\n`, "utf8")
+            if (!verdict.within) {
+              await appendFile(process.env.GITHUB_OUTPUT, "failed=true\n", "utf8")
+            }
+          ' --input-type=module
+
       # On a push to `main` there is no comment surface, and the job summary
       # above is the report. This step is the pull-request half only.
       - name: Say it where the review is
@@ -215,82 +313,18 @@ jobs:
           # skipped. `--edit-last --create-if-none` is the whole mechanism.
           gh pr comment "$PR" --body-file surface-report.md --edit-last --create-if-none
 
-      # The verdict runs after the comment on purpose: a failing run must still
-      # leave the number where the author can read it, and a step that fails
-      # before the report is posted is a red tick with nothing behind it.
-      #
-      # It reads the `authenticated` entry of the measurement the `measure` job
-      # already produced rather than running the suite again. That is exact and
-      # not an approximation: `measureCatalogue` and `measureToolList` both weigh
-      # the whole serialised array, so the two figures are the same number by
-      # construction. `catalogue-budget.test.ts` is what actually holds the gate
-      # wherever the suite runs; this is the same comparison, said out loud next
-      # to the table.
-      #
-      # References are spelled out as words rather than written with a hash, and
-      # that is the fix rather than the quoting: in a plain YAML scalar a ` #`
-      # starts a comment, so `see #388.` was discarded before the shell saw it
-      # and the step ran an unterminated quote. Quoting would work until the next
-      # person edits the line. The character is the trap.
-      - name: Hold the authenticated tier to its floor
-        id: floor
+      - name: Fail the run when the catalogue grew past its gate
+        if: steps.floor.outputs.failed == 'true'
         run: |
-          node -e '
-            const { budgetVerdict } = await import("./apps/api/dist/mcp/catalogue-budget.js")
-            const { readFile, writeFile, appendFile } = await import("node:fs/promises")
-            const BUDGET = "apps/api/src/mcp/catalogue-budget.json"
-            const say = async (line) => {
-              await appendFile(process.env.GITHUB_STEP_SUMMARY, `\n${line}\n`, "utf8")
-              console.log(line)
-            }
+          echo "The authenticated tier grew past its gate — see the verdict above."
+          exit 1
 
-            const tiers = JSON.parse(await readFile("measurements/head.json", "utf8"))
-            const citizen = tiers.find((tier) => tier.tier === "authenticated")
-            if (citizen === undefined) {
-              // The measurement is what this judges. Missing, there is nothing
-              // to judge, and passing here would read as a catalogue at its
-              // floor rather than as a job that did not run.
-              await say("The authenticated tier was not measured, so the floor could not be checked.")
-              process.exit(1)
-            }
-
-            const budget = JSON.parse(await readFile(BUDGET, "utf8"))
-            const verdict = budgetVerdict({ tools: citizen.tools, bytes: citizen.bytes }, budget)
-            await say(verdict.message)
-
-            if (verdict.direction === "over") process.exit(1)
-            if (verdict.direction === "at") process.exit(0)
-
-            await writeFile(
-              BUDGET,
-              `${JSON.stringify({
-                tools: citizen.tools,
-                bytes: citizen.bytes,
-                measuredAt: new Date().toISOString().slice(0, 10),
-                command: "node scripts/check-catalogue-budget.mjs",
-              }, null, 2)}\n`,
-              "utf8",
-            )
-            // `budgetVerdict` names the command a person would run, because it
-            // is written for a person at a terminal. Here that command has just
-            // been run, and a summary that ends by asking for it reads as work
-            // outstanding rather than work done.
-            await say(
-              `The floor has come down to ${citizen.tools} tools and ${citizen.bytes} bytes, ` +
-                "committed to this branch below. Nothing to do.",
-            )
-            await appendFile(process.env.GITHUB_OUTPUT, "lowered=true\n", "utf8")
-          ' --input-type=module
-
-      # Only a branch this token can push to. A fork's pull request gets the
-      # report and the verdict and no write-back — its author commits the floor
-      # themselves, and the run says so rather than failing over a permission
-      # nobody was going to be granted.
-      - name: Commit the lower floor to the branch that earned it
-        if: >-
-          steps.floor.outputs.lowered == 'true' &&
-          (github.event_name != 'pull_request' ||
-           github.event.pull_request.head.repo.full_name == github.repository)
+      # Only on a push to main. A pull request never writes the floor (`#1266`):
+      # writing it on a branch was how concurrent workers collided on the same
+      # file and how a later merge retro-failed open ones. The fork carve-out
+      # went with that branch case.
+      - name: Commit the lower floor to main
+        if: steps.floor.outputs.lowered == 'true' && github.event_name != 'pull_request'
         run: |
           git config user.name 'kolonie-surface[bot]'
           git config user.email 'kolonie-surface@users.noreply.github.com'
@@ -305,4 +339,4 @@ jobs:
           git commit \
             -m 'The catalogue floor comes down to what this branch measured' \
             -m 'Written by the MCP surface workflow, which can only ever lower it — raising it takes a commit somebody wrote. See issue 1118.'
-          git push origin "HEAD:${{ github.event.pull_request.head.ref || github.ref_name }}"
+          git push origin "HEAD:${{ github.ref_name }}"

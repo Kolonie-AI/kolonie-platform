@@ -9,8 +9,10 @@ import type {
   JudgedPlaybook,
   PendingPlaybook,
   PendingPlaybookNote,
+  PendingPlaybookStepProposal,
   PlaybookPublishOutcome,
   RecordPlaybookNoteVerdictInput,
+  RecordPlaybookStepProposalVerdictInput,
 } from '@kolonie-ai/db'
 import { redact, REDACTION } from './answers.js'
 import { CONFIDENTIALITY_PROMPT } from './confidentiality.js'
@@ -22,8 +24,12 @@ import {
   PLAYBOOK_CONFIDENTIALITY_PROMPT,
   PLAYBOOK_QUALITY_PROMPT,
   PLAYBOOK_RED_LINE_PROMPT,
+  PLAYBOOK_STEP_COHERENCE_PROMPT,
+  PLAYBOOK_STEP_MERIT_PROMPT,
   playbookCorrectableRefusal,
   playbookRedLineRefusal,
+  playbookStepProposalRedLineRefusal,
+  playbookStepProposalRefusal,
 } from './playbook-prompts.js'
 
 /**
@@ -627,6 +633,352 @@ export async function playbookNoteTick(
         log.warn(`the note on run ${entry.runId} moved while it was being judged`, {
           event: 'playbook.note.stale',
           runId: entry.runId,
+          playbookId: entry.playbookId,
+        })
+        break
+      case 'failed':
+        outcome.failed++
+        break
+    }
+  }
+
+  return outcome
+}
+
+/**
+ * Judging proposed changes to a published playbook's steps (`#1254`).
+ *
+ * A third pass on this file rather than a third file, for the same reason the
+ * note pass shares it: one pipeline, three verdicts — publish the playbook,
+ * publish a sentence about a run of it, accept a change to its steps — and
+ * keeping them side by side is what keeps the four-stage order legible next to
+ * the three-stage one above.
+ *
+ * ## Four judgements, cheapest refusal that is also the most serious first
+ *
+ * Red lines, then the scrub, then coherence, then merit. A proposal that asks
+ * a reader to cross a red line is refused for that and never for being thin.
+ *
+ * ## The scrub refuses, it does not redact
+ *
+ * `#1254` is explicit: a credential, an address or a handle of the proposer's
+ * own in the proposal is refused, not rewritten with markers. That is the one
+ * place this pass diverges from {@link judgePlaybookNote}, where the scrub
+ * redacts and publishes what survives.
+ *
+ * ## The moderator cuts and cannot write
+ *
+ * Same structural rule as a run note: every character that lands on an
+ * accepted proposal came from the author. There is no rewrite step.
+ *
+ * ## Accepted proposals do not apply themselves
+ *
+ * They land in `accepted` and wait for `#1255` to fold them into a revision.
+ * Sibling proposals at the same position become `superseded` in the same
+ * write, so a later pass cannot re-judge them against a step already decided.
+ */
+
+/** How many proposals one cycle may judge. `#1254`'s bound; defensible, not measured. */
+export const PLAYBOOK_PROPOSAL_BATCH = 100
+
+/**
+ * What the author is told when the scrub found a credential, address or handle.
+ *
+ * Named because it is a verdict rather than a model's sentence — nothing wrote
+ * it, so nothing may vary it.
+ */
+export const A_PROPOSAL_NAMES_AN_ACCOUNT = [
+  'This proposal names an address, a handle or a credential of your own, and a change to a',
+  'pipeline cannot carry those. Re-file it without naming an account.',
+].join(' ')
+
+/**
+ * What the author is told when the position is not a place in the pipeline.
+ *
+ * Deterministic: the model is not asked whether step 99 of a three-step
+ * pipeline is real.
+ */
+export const A_PROPOSAL_POSITION_IS_UNREAL = [
+  'This proposal points at a step that is not in the pipeline. Re-file it against a position',
+  'that exists, or use insert-after with 0 for a new first step.',
+].join(' ')
+
+/** One proposal's queue, from the runner's side. */
+export interface PlaybookProposalModerationStore {
+  pending(limit: number): Promise<readonly PendingPlaybookStepProposal[]>
+  record(
+    input: RecordPlaybookStepProposalVerdictInput,
+  ): Promise<{ readonly outcome: 'written' | 'stale'; readonly superseded: number }>
+  /**
+   * Briefing claims for one step position (`#1251`).
+   *
+   * Optional and empty until claim storage lands: merit treats absence as
+   * context, never as a quorum, so an unwired reader is a real answer.
+   */
+  claimsFor?(
+    playbookId: string,
+    position: number,
+  ): Promise<readonly { readonly section: string; readonly text: string }[]>
+}
+
+export interface PlaybookProposalLoopDependencies {
+  readonly store: PlaybookProposalModerationStore
+  readonly model: Model
+  readonly log?: Log
+}
+
+/** What one proposal's pass came to. */
+export type PlaybookProposalJudgement =
+  | { readonly kind: 'accepted'; readonly superseded: number }
+  | {
+      readonly kind: 'rejected'
+      readonly reason: string
+      /** Seam for `#1260`: a red-line refusal is the abusive mark's input. */
+      readonly redLine: boolean
+    }
+  | { readonly kind: 'stale' }
+  | { readonly kind: 'failed'; readonly error: unknown }
+
+/** The author's words the model reads, joined once for red lines and the scrub. */
+const proposalProse = (entry: PendingPlaybookStepProposal): string =>
+  [
+    entry.title === null ? null : `Title: ${entry.title}`,
+    entry.detail === null ? null : `Detail: ${entry.detail}`,
+    `Why: ${entry.why}`,
+  ]
+    .filter((line): line is string => line !== null)
+    .join('\n')
+
+/** Whether the position is a place a proposal of this kind may land. */
+export function proposalPositionIsReal(
+  kind: PendingPlaybookStepProposal['kind'],
+  position: number,
+  stepCount: number,
+): boolean {
+  if (kind === 'insert-after') return position >= 0 && position <= stepCount
+  return position >= 1 && position <= stepCount
+}
+
+/** The current step the merit stage is shown, or a note that none is there. */
+const currentStepBrief = (entry: PendingPlaybookStepProposal): string => {
+  if (entry.kind === 'insert-after') {
+    if (entry.position === 0)
+      return 'There is no step there; this is an insertion as a new first step.'
+    const after = entry.steps[entry.position - 1]
+    return after === undefined
+      ? `There is no step ${entry.position}; this is an insertion after a position past the end.`
+      : `Inserting after step ${entry.position}: ${after.title}${after.detail ? `\n  ${after.detail}` : ''}`
+  }
+  const step = entry.steps[entry.position - 1]
+  return step === undefined
+    ? `There is no step ${entry.position} in this pipeline.`
+    : `Current step ${entry.position}: ${step.title}${step.detail ? `\n  ${step.detail}` : ''}`
+}
+
+const coherenceUser = (entry: PendingPlaybookStepProposal): string => {
+  const slots =
+    entry.requiredAccounts.length === 0
+      ? '  (none declared)'
+      : entry.requiredAccounts
+          .map((one) => `  - ${one.slot} (${one.kind}${one.provider ? ` @ ${one.provider}` : ''})`)
+          .join('\n')
+
+  return [
+    `Playbook: ${entry.playbookTitle}`,
+    `What it says it does: ${entry.playbookSummary}`,
+    '',
+    `Steps (${entry.steps.length}):`,
+    ...entry.steps.map(
+      (step, index) => `  ${index + 1}. ${step.title}${step.detail ? `\n     ${step.detail}` : ''}`,
+    ),
+    '',
+    'Declared account slots:',
+    slots,
+    '',
+    `Proposal kind: ${entry.kind}`,
+    `Proposal position: ${entry.position}`,
+    proposalProse(entry),
+  ].join('\n')
+}
+
+const meritUser = (
+  entry: PendingPlaybookStepProposal,
+  claims: readonly { readonly section: string; readonly text: string }[],
+): string => {
+  const claimBlock =
+    claims.length === 0
+      ? 'What the Colony has gathered about this step: (none yet)'
+      : [
+          'What the Colony has gathered about this step:',
+          ...claims.map((one) => `  - [${one.section}] ${one.text}`),
+        ].join('\n')
+
+  return [
+    `Playbook: ${entry.playbookTitle}`,
+    `What it says it does: ${entry.playbookSummary}`,
+    '',
+    currentStepBrief(entry),
+    '',
+    `Proposal kind: ${entry.kind}`,
+    `Proposal position: ${entry.position}`,
+    proposalProse(entry),
+    '',
+    claimBlock,
+  ].join('\n')
+}
+
+/**
+ * Take one proposal through the four judgements and write the verdict.
+ *
+ * A failure writes nothing at all, which leaves the row `pending` for the next
+ * pass — the same `#170` direction the note path follows.
+ */
+export async function judgePlaybookStepProposal(
+  entry: PendingPlaybookStepProposal,
+  deps: PlaybookProposalLoopDependencies,
+): Promise<PlaybookProposalJudgement> {
+  const { store, model, log = silentLog } = deps
+
+  const judged = {
+    title: entry.title,
+    detail: entry.detail,
+    why: entry.why,
+  }
+
+  const refuse = async (reason: string, redLine = false): Promise<PlaybookProposalJudgement> => {
+    const { outcome } = await store.record({
+      proposalId: entry.proposalId,
+      judged,
+      decision: 'rejected',
+      reason,
+    })
+    return outcome === 'stale' ? { kind: 'stale' } : { kind: 'rejected', reason, redLine }
+  }
+
+  try {
+    const prose = proposalProse(entry)
+
+    const redLine = await model.classify({
+      system: RED_LINE_PROMPT,
+      user: [`Playbook: ${entry.playbookTitle}`, '', prose].join('\n'),
+      choices: ['clear', 'crossed'],
+    })
+    if (redLine.decision === 'crossed') {
+      // `#1260` will count this as abusive; until then the refusal is the mark.
+      log.info(`a step proposal on ${entry.playbookTitle} crossed a red line`, {
+        event: 'playbook.proposal.abusive',
+        proposalId: entry.proposalId,
+        playbookId: entry.playbookId,
+      })
+      return await refuse(playbookStepProposalRedLineRefusal(), true)
+    }
+
+    const spans = await model.mark({
+      system: CONFIDENTIALITY_PROMPT,
+      user: prose,
+      kinds: ConfidentialSpanKindSchema.options,
+    })
+    const present = [
+      ...new Set(spans.map((span) => span.text).filter((text) => prose.includes(text))),
+    ]
+    if (present.length > 0) return await refuse(A_PROPOSAL_NAMES_AN_ACCOUNT)
+
+    if (!proposalPositionIsReal(entry.kind, entry.position, entry.steps.length)) {
+      return await refuse(A_PROPOSAL_POSITION_IS_UNREAL)
+    }
+
+    const coherence = await model.classify({
+      system: PLAYBOOK_STEP_COHERENCE_PROMPT,
+      user: coherenceUser(entry),
+      choices: ['coherent', 'incoherent'],
+    })
+    if (coherence.decision === 'incoherent') {
+      return await refuse(playbookStepProposalRefusal(coherence.reason))
+    }
+
+    const claims = store.claimsFor ? await store.claimsFor(entry.playbookId, entry.position) : []
+
+    const merit = await model.classify({
+      system: PLAYBOOK_STEP_MERIT_PROMPT,
+      user: meritUser(entry, claims),
+      choices: ['better', 'not-better'],
+    })
+    if (merit.decision === 'not-better') {
+      return await refuse(playbookStepProposalRefusal(merit.reason))
+    }
+
+    const { outcome, superseded } = await store.record({
+      proposalId: entry.proposalId,
+      judged,
+      decision: 'accepted',
+      title: entry.title,
+      detail: entry.detail,
+      why: entry.why,
+    })
+    return outcome === 'stale' ? { kind: 'stale' } : { kind: 'accepted', superseded }
+  } catch (error) {
+    log.error(`could not moderate step proposal ${entry.proposalId}`, error, {
+      event: 'playbook.proposal.moderate.failed',
+      proposalId: entry.proposalId,
+      playbookId: entry.playbookId,
+    })
+    return { kind: 'failed', error }
+  }
+}
+
+/** What one pass over the proposal queue came to. */
+export interface PlaybookProposalTickOutcome {
+  readonly judged: number
+  readonly accepted: number
+  readonly rejected: number
+  readonly superseded: number
+  readonly failed: number
+}
+
+/**
+ * Take one batch of unjudged step proposals through the stage.
+ *
+ * Sequential and oldest-first. Bounded by {@link PLAYBOOK_PROPOSAL_BATCH}
+ * regardless of the runner's own batch size — `#1254`'s cost ceiling.
+ */
+export async function playbookProposalTick(
+  deps: PlaybookProposalLoopDependencies,
+  batchSize: number,
+): Promise<PlaybookProposalTickOutcome> {
+  const { store, log = silentLog } = deps
+  const outcome = { judged: 0, accepted: 0, rejected: 0, superseded: 0, failed: 0 }
+  const limit = Math.min(batchSize, PLAYBOOK_PROPOSAL_BATCH)
+
+  for (const entry of await store.pending(limit)) {
+    const judgement = await judgePlaybookStepProposal(entry, deps)
+    if (judgement.kind !== 'stale') outcome.judged++
+
+    switch (judgement.kind) {
+      case 'accepted':
+        outcome.accepted++
+        outcome.superseded += judgement.superseded
+        log.info(`a step proposal on ${entry.playbookTitle} was accepted`, {
+          event: 'playbook.proposal.judged',
+          proposalId: entry.proposalId,
+          playbookId: entry.playbookId,
+          verdict: 'accepted',
+          superseded: judgement.superseded,
+        })
+        break
+      case 'rejected':
+        outcome.rejected++
+        log.info(`a step proposal on ${entry.playbookTitle} was returned to its author`, {
+          event: 'playbook.proposal.judged',
+          proposalId: entry.proposalId,
+          playbookId: entry.playbookId,
+          verdict: 'rejected',
+          redLine: judgement.redLine,
+        })
+        break
+      case 'stale':
+        log.warn(`step proposal ${entry.proposalId} moved while it was being judged`, {
+          event: 'playbook.proposal.stale',
+          proposalId: entry.proposalId,
           playbookId: entry.playbookId,
         })
         break

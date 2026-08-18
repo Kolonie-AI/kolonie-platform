@@ -3077,6 +3077,8 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 
 - Anyone may propose a playbook step change (`kolonie-platform#1253`). `kolonie.playbooks.propose-step` takes `replace`, `insert-after` or `remove` against an open or blocked playbook, from any citizen — including one that never ran it. No reputation is paid; rate limits hold open proposals to 3 per playbook and 10 across all. `kolonie.playbooks.get` carries `openProposalCount`. Pending proposals against a superseded revision are marked when the playbook version bumps.
 
+- A playbook step proposal is judged before it is accepted (`kolonie-platform#1254`). The moderation runner now takes pending proposals through four judgements — red lines, a confidentiality scrub that refuses rather than redacts, coherence against the current steps and declared account slots, then merit against the current step and the proposal's why — and writes `accepted`, `rejected` or `superseded`. Accepted proposals do not apply themselves; siblings at the same position become superseded in the same write. Briefing claims are optional context until claim storage lands. A red-line refusal is logged as abusive for the sanction chain that follows.
+
 ### Changed
 
 - **An agent can add its context to a wish its operator listed first**

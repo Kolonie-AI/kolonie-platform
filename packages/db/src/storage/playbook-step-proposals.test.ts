@@ -16,6 +16,8 @@ import {
   countOpenPlaybookStepProposalsForPlaybook,
   insertPlaybookStepProposal,
   pendingPlaybookStepProposals,
+  pendingPlaybookStepProposalsForModeration,
+  recordPlaybookStepProposalVerdict,
   supersedeStalePlaybookStepProposals,
 } from './playbook-step-proposals.js'
 
@@ -244,5 +246,154 @@ describe('playbook step proposals', () => {
     if (written.outcome !== 'written') return
     expect(written.proposal.title).toBeNull()
     expect(written.proposal.detail).toBeNull()
+  })
+
+  describe('moderating a step proposal (#1254)', () => {
+    it('queues pending proposals with the pipeline context, oldest first', async () => {
+      const first = await propose(proposerId, 1)
+      const second = await propose(proposerId, 2)
+      expect(first.outcome).toBe('written')
+      expect(second.outcome).toBe('written')
+      if (first.outcome !== 'written' || second.outcome !== 'written') return
+
+      const queued = await pendingPlaybookStepProposalsForModeration(db, 10)
+      expect(queued).toHaveLength(2)
+      expect(queued[0]?.proposalId).toBe(first.proposal.id)
+      expect(queued[1]?.proposalId).toBe(second.proposal.id)
+      expect(queued[0]).toMatchObject({
+        playbookId,
+        playbookTitle: draft.title,
+        playbookSummary: draft.summary,
+        playbookVersion: 1,
+        againstVersion: 1,
+        kind: 'replace',
+        position: 2,
+      })
+      expect(queued[0]?.steps).toHaveLength(3)
+      expect(queued[0]?.requiredAccounts.map((one) => one.slot)).toEqual(['mailbox'])
+    })
+
+    it('leaves a proposal against an older version out of the moderation queue', async () => {
+      const editable = await createPlaybook(db, {
+        slug: 'draft-for-stale',
+        authorAgentId: authorId,
+        status: 'draft',
+        draft,
+      })
+      const written = await insertPlaybookStepProposal(db, {
+        playbookId: editable.id,
+        agentId: proposerId,
+        kind: 'replace',
+        position: 1,
+        title: 'Rewrite step 1',
+        detail: null,
+        why: 'Step 1 points at a page that 404s and the next citizen will waste an attempt.',
+        againstVersion: 1,
+      })
+      expect(written.outcome).toBe('written')
+
+      await updatePlaybookDraft(db, {
+        authorAgentId: authorId,
+        playbookId: editable.id,
+        patch: { title: 'A new title that bumps the version' },
+      })
+
+      expect(await pendingPlaybookStepProposalsForModeration(db, 10)).toEqual([])
+    })
+
+    it('accepts a proposal and supersedes siblings at the same position', async () => {
+      const accepted = await propose(proposerId, 1)
+      const sibling = await propose(proposerId, 2)
+      const otherPosition = await insertPlaybookStepProposal(db, {
+        playbookId,
+        agentId: proposerId,
+        kind: 'replace',
+        position: 1,
+        title: 'Rewrite step 1',
+        detail: null,
+        why: 'Step 1 points at a page that 404s and the next citizen will waste an attempt.',
+        againstVersion: 1,
+      })
+      expect(accepted.outcome).toBe('written')
+      expect(sibling.outcome).toBe('written')
+      expect(otherPosition.outcome).toBe('written')
+      if (
+        accepted.outcome !== 'written' ||
+        sibling.outcome !== 'written' ||
+        otherPosition.outcome !== 'written'
+      ) {
+        return
+      }
+
+      const verdict = await recordPlaybookStepProposalVerdict(db, {
+        proposalId: accepted.proposal.id,
+        judged: {
+          title: accepted.proposal.title,
+          detail: accepted.proposal.detail,
+          why: accepted.proposal.why,
+        },
+        decision: 'accepted',
+        title: accepted.proposal.title,
+        detail: accepted.proposal.detail,
+        why: accepted.proposal.why,
+      })
+      expect(verdict).toEqual({ outcome: 'written', superseded: 1 })
+
+      expect(await pendingPlaybookStepProposals(db, playbookId)).toEqual([
+        expect.objectContaining({ id: otherPosition.proposal.id, position: 1 }),
+      ])
+      expect(await countOpenPlaybookStepProposals(db, playbookId)).toBe(1)
+    })
+
+    it('rejects a proposal with a reason the author alone can read', async () => {
+      const written = await propose(proposerId)
+      expect(written.outcome).toBe('written')
+      if (written.outcome !== 'written') return
+
+      const verdict = await recordPlaybookStepProposalVerdict(db, {
+        proposalId: written.proposal.id,
+        judged: {
+          title: written.proposal.title,
+          detail: written.proposal.detail,
+          why: written.proposal.why,
+        },
+        decision: 'rejected',
+        reason: 'The position is past the end of the pipeline.',
+      })
+      expect(verdict).toEqual({ outcome: 'written', superseded: 0 })
+      expect(await pendingPlaybookStepProposalsForModeration(db, 10)).toEqual([])
+    })
+
+    it('reports a proposal that was already judged as stale', async () => {
+      const written = await propose(proposerId)
+      expect(written.outcome).toBe('written')
+      if (written.outcome !== 'written') return
+
+      await recordPlaybookStepProposalVerdict(db, {
+        proposalId: written.proposal.id,
+        judged: {
+          title: written.proposal.title,
+          detail: written.proposal.detail,
+          why: written.proposal.why,
+        },
+        decision: 'rejected',
+        reason: 'Already decided.',
+      })
+
+      expect(
+        await recordPlaybookStepProposalVerdict(db, {
+          proposalId: written.proposal.id,
+          judged: {
+            title: written.proposal.title,
+            detail: written.proposal.detail,
+            why: written.proposal.why,
+          },
+          decision: 'accepted',
+          title: written.proposal.title,
+          detail: written.proposal.detail,
+          why: written.proposal.why,
+        }),
+      ).toEqual({ outcome: 'stale', superseded: 0 })
+    })
   })
 })

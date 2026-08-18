@@ -29,6 +29,7 @@ import {
   recordQuestReportModeration,
   pendingPlaybookModerations,
   pendingPlaybookNotes,
+  pendingPlaybookStepProposalsForModeration,
   pendingQuestModerations,
   pendingReports,
   publishPlaybookAfterReview,
@@ -42,6 +43,7 @@ import {
   recordProviderChange,
   recordPlaybookModeration,
   recordPlaybookNoteVerdict,
+  recordPlaybookStepProposalVerdict,
   recordQuestModeration,
   writeScrubbedAnswers,
   staleBriefings,
@@ -70,7 +72,11 @@ import {
   type ProviderBriefingStore,
   type ModerationStore,
 } from './loop.js'
-import type { PlaybookModerationStore, PlaybookNoteModerationStore } from './playbooks.js'
+import type {
+  PlaybookModerationStore,
+  PlaybookNoteModerationStore,
+  PlaybookProposalModerationStore,
+} from './playbooks.js'
 import type { QuestModerationStore } from './quests.js'
 import type { AnswerModerationStore } from './answers.js'
 import type { RedLineReviewStore } from './redline-review.js'
@@ -305,6 +311,18 @@ const playbookStore: PlaybookModerationStore = {
 const playbookNoteStore: PlaybookNoteModerationStore = {
   pending: (limit) => pendingPlaybookNotes(db, limit),
   record: (input) => recordPlaybookNoteVerdict(db, input),
+}
+
+/**
+ * The step-proposal queue (`#1254`).
+ *
+ * A third store beside the playbook and note ones: a proposal is neither a
+ * pipeline awaiting publication nor a sentence about a run of one. Claims stay
+ * unwired until `#1251` — merit treats an empty list as a real answer.
+ */
+const playbookProposalStore: PlaybookProposalModerationStore = {
+  pending: (limit) => pendingPlaybookStepProposalsForModeration(db, limit),
+  record: (input) => recordPlaybookStepProposalVerdict(db, input),
 }
 
 /**
@@ -665,6 +683,7 @@ const questRunner = startQuestRunner(
     // (`#726`, `#1219`).
     playbooks: { store: playbookStore, model: questModel, log },
     playbookNotes: { store: playbookNoteStore, model: questModel, log },
+    playbookProposals: { store: playbookProposalStore, model: questModel, log },
   },
   { pollIntervalMs: QUEST_POLL_INTERVAL_MS },
 )

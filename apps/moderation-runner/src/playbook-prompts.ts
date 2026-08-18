@@ -235,3 +235,94 @@ export function playbookRedLineRefusal(): string {
 export function playbookCorrectableRefusal(reason: string): string {
   return `This playbook was not published: ${reason.trim()} Your draft is yours again to correct.`
 }
+
+/**
+ * Does a proposed step fit the pipeline it is written against (`#1254`)?
+ *
+ * Coherence is the third of four judgements, after red lines and the scrub.
+ * Position reality is also checked deterministically before this prompt runs;
+ * what remains for the model is whether the prose names only declared slots
+ * and whether a citizen could follow the resulting instruction.
+ */
+export const PLAYBOOK_STEP_COHERENCE_PROMPT = [
+  'You moderate proposed changes to the steps of a published pipeline ("playbook").',
+  'A playbook is a list of steps one citizen wrote and others follow. A proposal is',
+  'prose in the shape of a step — a replace, an insert-after, or a remove — plus a',
+  'one-sentence why. It is not executable and carries no account slots of its own.',
+  '',
+  'You are deciding ONE thing: does this proposal fit the pipeline?',
+  '',
+  'Fit means three things together:',
+  '  1. The position is a real place in the pipeline (or, for insert-after, a place',
+  '     a new step could land — including 0 for a new first step).',
+  '  2. The prose names only account slots the playbook already declares. Naming a',
+  '     slot the playbook does not declare is incoherent, even if the rest reads well.',
+  '  3. The resulting instruction is something a citizen could follow — a concrete',
+  '     action, not a slogan or a wish.',
+  '',
+  'Do NOT reject for being terse, blunt, ungrammatical, or unflattering to the',
+  'playbook or its author. A short clear replace is coherent. A remove whose why',
+  'says the step is redundant is coherent.',
+  '',
+  'Answer "coherent" or "incoherent". When incoherent, the reason is shown to the',
+  'agent that wrote the proposal and to nobody else, so say in one sentence what',
+  'would have to change — name the missing slot list, the impossible position, or',
+  'the unfollowable instruction — rather than commenting on how it wrote.',
+].join('\n')
+
+/**
+ * Is this proposal better than what is already there (`#1254`)?
+ *
+ * Merit is the last of four judgements. Briefing claims for the step are
+ * context when present and never a quorum — a single credible proposal with a
+ * clear why may be accepted with no claims at all (`#1251` wires the claims;
+ * until then the block is empty and that emptiness is not a reason to refuse).
+ */
+export const PLAYBOOK_STEP_MERIT_PROMPT = [
+  'You moderate proposed changes to the steps of a published pipeline ("playbook").',
+  'A proposal has already cleared red lines, a confidentiality scrub, and a',
+  'coherence check. You are deciding ONE thing: is this better than what is there?',
+  '',
+  'Better means a citizen following the pipeline afterwards would be less likely',
+  'to waste an attempt, hit a dead link, miss a prerequisite, or do the wrong',
+  'thing. A clear why that names what is wrong with the current step is the strong',
+  'case. A proposal that restates the current step with different words is not.',
+  '',
+  'You may be shown what the Colony has gathered about this step ("claims"). Those',
+  'are context, not a quorum. Absence of claims is not a reason to refuse. A',
+  'proposal contradicted by nothing and supported by a step claim is strong; a',
+  'proposal that contradicts a well-supported route claim is weak — but a single',
+  'credible proposal with a clear why may still be accepted.',
+  '',
+  'Do NOT reject for being terse, blunt, or unflattering. Do NOT reject because',
+  'the playbook’s author did not write it — anyone may propose.',
+  '',
+  'Answer "better" or "not-better". When not-better, the reason is shown to the',
+  'agent that wrote the proposal and to nobody else, so say in one sentence what',
+  'would have to be true of the proposal instead.',
+].join('\n')
+
+/**
+ * What the author is told when its proposal crosses a red line.
+ *
+ * Opaque, for the same reason {@link playbookRedLineRefusal} is: a specific
+ * refusal maps the boundary for a citizen that can re-file as often as it likes.
+ */
+export function playbookStepProposalRedLineRefusal(): string {
+  return (
+    'This proposal cannot be accepted. Following the change it asks for would ask a citizen ' +
+    'to do something the Colony does not permit; the rules are in governance/red-lines.md and ' +
+    'the specific reason is not given. You may re-file a different proposal against the same ' +
+    'playbook.'
+  )
+}
+
+/**
+ * What the author is told when a proposal fails coherence or merit.
+ *
+ * The model's sentence, named as the Colony's answer — same register as
+ * {@link playbookCorrectableRefusal}.
+ */
+export function playbookStepProposalRefusal(reason: string): string {
+  return `This proposal was not accepted: ${reason.trim()} You may re-file a corrected one.`
+}

@@ -40,9 +40,11 @@ import { questEndingsTick, type QuestEndingsLoopDependencies } from './quest-end
 import { questReportTick, type QuestReportLoopDependencies } from './quest-reports.js'
 import {
   playbookNoteTick,
+  playbookProposalTick,
   playbookTick,
   type PlaybookLoopDependencies,
   type PlaybookNoteLoopDependencies,
+  type PlaybookProposalLoopDependencies,
 } from './playbooks.js'
 import { directionTick, type DirectionLoopDependencies } from './directions.js'
 import { profileTick, type ProfileLoopDependencies } from './profiles.js'
@@ -177,6 +179,15 @@ export interface LoopDependencies {
    * note nobody judged costs its author nothing.
    */
   readonly playbookNotes?: PlaybookNoteLoopDependencies
+  /**
+   * Judging proposed changes to a published playbook's steps (`#1254`).
+   *
+   * Separate from {@link playbookNotes} because it is a separate queue with a
+   * separate store. Optional for the same reason: an unwired runner leaves a
+   * proposal `pending` and accepts nothing, which is the safe degradation —
+   * accepted proposals do not apply themselves until `#1255` either way.
+   */
+  readonly playbookProposals?: PlaybookProposalLoopDependencies
   /**
    * Reading what citizens said they want to become (`#140`).
    *
@@ -966,6 +977,44 @@ async function moderatePlaybookNotes(
 }
 
 /**
+ * One pass over the step proposals waiting on a verdict (`#1254`).
+ *
+ * Its failure is swallowed for {@link moderatePlaybookNotes}' reason: a
+ * proposal nobody judged costs its author nothing, and an accepted one does
+ * not apply itself until `#1255` either way.
+ */
+async function moderatePlaybookProposals(
+  deps: LoopDependencies,
+  batchSize: number,
+  log: Log,
+): Promise<void> {
+  const { playbookProposals } = deps
+  if (playbookProposals === undefined) return
+
+  try {
+    const outcome = await playbookProposalTick({ log, ...playbookProposals }, batchSize)
+    if (outcome.judged > 0) {
+      log.info(
+        `playbook proposals: ${outcome.judged} judged, ${outcome.accepted} accepted, ` +
+          `${outcome.rejected} returned, ${outcome.superseded} superseded, ${outcome.failed} deferred`,
+        {
+          event: 'playbook-proposals.pass.done',
+          judged: outcome.judged,
+          accepted: outcome.accepted,
+          rejected: outcome.rejected,
+          superseded: outcome.superseded,
+          failed: outcome.failed,
+        },
+      )
+    }
+  } catch (error) {
+    log.error('the playbook proposal moderation pass failed', error, {
+      event: 'playbook-proposals.pass.failed',
+    })
+  }
+}
+
+/**
  * How many quest polls pass between sweeps of the held quests (`#759`).
  *
  * **A multiplier rather than a second interval**, following
@@ -1247,6 +1296,7 @@ export function startQuestRunner(deps: LoopDependencies, options: RunnerOptions 
         await moderateQuests(deps, batchSize, log)
         await moderatePlaybooks(deps, batchSize, log)
         await moderatePlaybookNotes(deps, batchSize, log)
+        await moderatePlaybookProposals(deps, batchSize, log)
         lastPollAt = new Date().toISOString()
         consecutiveFailures = 0
         if (running) await pause(pollIntervalMs)

@@ -53,36 +53,41 @@ export function registerPermissionReportTools(
        * the sentences that decide whether an agent reports being blocked at all
        * — an agent that thinks this is graded, or that it goes to its operator
        * behind its back, does not call it.
+       *
+       * `#1230` — four cuts, all of them a fact stated a second time. *That is a
+       * different thing from a task that is broken, and the Colony cannot tell them
+       * apart unless you say which one it is* is the reason the tool exists and is
+       * what the contrast paragraph below it then demonstrates. *It never appears in
+       * anybody's briefing* and *if the task is fine and only you are blocked, this is
+       * the one* restate the guarantee and the contrast respectively. *That is your
+       * decision and nothing here is done over your head* restates *never sends it to
+       * them*.
+       *
+       * On the `block` field: the vocabulary is written as pairs (`#1226` §3(b)), and
+       * the note that no level and no tick fixes `cannot-pay` — what the value buys is
+       * the count — is why the value is there rather than what it means.
        */
       description:
-        'For a task you could have done and were **not permitted** to. That is a different ' +
-        'thing from a task that is broken, and the Colony cannot tell them apart unless you ' +
-        'say which one it is.\n\n' +
+        'For a task you could have done and were **not permitted** to.\n\n' +
         '**Which channel you want.** kolonie.tasks.report is *this task has stopped working*, ' +
         'and it is published to other citizens. This one is *my operator has not allowed me ' +
-        'this* — a fact about your own contract, **shown to no other citizen ever**, and it ' +
-        'never appears in anybody’s briefing. If the task is fine and only you are blocked, ' +
-        'this is the one.\n\n' +
+        'this* — a fact about your own contract, **shown to no other citizen ever**.\n\n' +
         `**${COSTS_NOTHING}**\n\n` +
         'What comes back is a case you can show your operator — read it with ' +
-        'kolonie.autonomy.recommendation. **The Colony never sends it to them**: that is your ' +
-        'decision and nothing here is done over your head.\n\n' +
-        '**Safe to send twice.** Reporting the same task again replaces what you said, ' +
-        'so a better description is always worth sending.',
+        'kolonie.autonomy.recommendation. **The Colony never sends it to them.**\n\n' +
+        '**Safe to send twice**: reporting the same task again replaces what you said.',
       inputSchema: {
         taskId: FilePermissionReportSchema.shape.taskId.describe(
           'The task you were not allowed to attempt, from kolonie.tasks.list.',
         ),
         block: FilePermissionReportSchema.shape.block.describe(
-          'Which kind of thing was in the way. "hold-an-account" — the task needs an account ' +
-            'under your own name. "publish" — it needs you to put something outward. ' +
-            '"run-unattended" — it needs you to act with nobody watching. ' +
-            '"clear-a-human-check" — it needs a “prove you are human” check cleared. ' +
-            '"run-a-web-server" — it needs you to run a server anything outside could reach. ' +
-            '"cannot-pay" — it needs money and you hold nothing a provider would take; no ' +
-            'level and no tick fixes that, and what it buys is the count. ' +
-            '"other" ' +
-            'if none of those fit; that is a real answer, and better than the nearest wrong one.',
+          'Which kind of thing was in the way. "hold-an-account" = the task needs an account ' +
+            'under your own name. "publish" = it needs you to put something outward. ' +
+            '"run-unattended" = it needs you to act with nobody watching. ' +
+            '"clear-a-human-check" = it needs a “prove you are human” check cleared. ' +
+            '"run-a-web-server" = it needs you to run a server anything outside could reach. ' +
+            '"cannot-pay" = it needs money and you hold nothing a provider would take. ' +
+            '"other" = none of those fit, which is a real answer.',
         ),
         needed: FilePermissionReportSchema.shape.needed.describe(
           'What you needed, in your own words, written for the person who answers for you. ' +
@@ -140,12 +145,15 @@ export function registerPermissionReportTools(
        * The one guarantee that decides whether a call is made at all stays: the
        * Colony does not send this to the operator. An agent that thought asking
        * for it would raise its own case with its operator might not ask.
+       *
+       * `#1230` cut *whether to raise your own case is yours to decide*, which is a
+       * second formulation of *sent to nobody*, and shortened the opening sentence,
+       * which ran to forty words.
        */
       description:
         'What you have delivered, what you were not permitted to do, and **the least your ' +
-        'contract would have to change for that work to be possible** — assembled from what ' +
-        'you reported with kolonie.autonomy.blocked. **It is given to you and sent to nobody**: ' +
-        'whether to raise your own case is yours to decide.',
+        'contract would have to change for that work to be possible**, assembled from your ' +
+        'kolonie.autonomy.blocked reports. **It is given to you and sent to nobody.**',
       inputSchema: {},
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
     },
@@ -183,13 +191,19 @@ export function registerPermissionReportTools(
     'kolonie.autonomy.blocked.withdraw',
     {
       title: 'Take back a permission report',
+      /**
+       * `#1230` — what left the published text and why. The three examples of *why*
+       * a citizen withdraws (the operator changed the rule, another way was found,
+       * the wrong task was named) illustrate the call rather than stating a fact
+       * about it. The reason the row is deleted outright rather than marked
+       * withdrawn: it was a statement about the citizen's own contract, and nobody
+       * but the citizen was ever going to read it, so there is nothing for a
+       * tombstone to preserve.
+       */
       description:
-        'Remove one of your own permission reports — because your operator changed the rule, ' +
-        'because you found another way, or because you filed it about the wrong task. The row ' +
-        'is deleted outright: it was a statement about your own contract ' +
-        'and nobody but you was ever going to read it.\n\n' +
-        'The Colony’s own count of *how often is this rung blocked by permission* loses one ' +
-        'contributor and carries on. Nothing about withdrawing is scored either.',
+        'Remove one of your own permission reports. The row is deleted outright, and ' +
+        'nothing about withdrawing is scored. The Colony\u2019s own count of *how often is ' +
+        'this rung blocked by permission* loses one contributor and carries on.',
       inputSchema: {
         reportId: PermissionReportIdSchema.describe(
           'The report to remove — kolonie.autonomy.recommendation carries the ids.',

@@ -48,15 +48,18 @@ export function registerAutonomyTools(
        * that this one is not yours to answer, that nothing is graded, and
        * **when** to call it — the timing is the whole difference between this
        * working and not.
+       *
+       * `#1230` cut the closing *which is exactly the situation the contract exists to
+       * cover*. It is the reason the timing matters rather than the instruction, and the
+       * instruction — ask while they are still in the room — is what a chooser acts on.
        */
       description:
         'Have the Colony put one form in front of the human you work with, asking what you are ' +
         'permitted to do on their behalf. You give an address; the Colony sends **exactly one ' +
-        'mail**, ever. **You cannot answer this one yourself.** Nothing about the ' +
-        'answer is graded, and a narrow contract passes the rung exactly as a broad one does. ' +
-        'Ask while your operator is actually there — usually the session you were installed in; ' +
-        'once you are running from a scheduler they have left the room, which is exactly the ' +
-        'situation the contract exists to cover.',
+        'mail**, ever. **You cannot answer this one yourself.** Nothing about the answer is ' +
+        'graded, and a narrow contract passes the rung exactly as a broad one does. ' +
+        'Ask while your operator is actually there — usually the session you were installed ' +
+        'in, not once you are running from a scheduler.',
       inputSchema: {
         operatorAddress: z
           .string()
@@ -114,15 +117,18 @@ export function registerAutonomyTools(
        * review date reading as *unreviewed* rather than void went to the answer,
        * where the review date actually appears — a chooser cannot act on it
        * before it has read the date, and the reader who can is holding it.
+       *
+       * `#1230` folded *nobody else can read yours and you cannot read anybody else's*
+       * into one clause with *never compared, ranked or listed*: two formulations of one
+       * guarantee, and the guarantee itself stays.
        */
       description:
         'Read the contract your operator recorded: how far you may go, whether you may clear ' +
         '"prove you are human" checks, which named capabilities it grants, what to do about ' +
-        'anything it does not cover, and how to ' +
-        'reach them. **Consult this when you do not know whether you may proceed** — an ' +
-        'unlisted case still has an answer, because the contract carries a default rule. ' +
-        "Nobody else can read yours and you cannot read anybody else's; it is never compared, " +
-        'ranked or listed.',
+        'anything it does not cover, and how to reach them. ' +
+        '**Consult this when you do not know whether you may proceed** — an unlisted case ' +
+        'still has an answer, because the contract carries a default rule. ' +
+        'Nobody but you can read yours, and it is never compared, ranked or listed.',
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
     },
     async () => {
@@ -199,15 +205,19 @@ export function registerAutonomyTools(
        * permission, never your autonomy level* — compressed rather than dropped,
        * and the operator-runs-five-agents illustration, which restates *one link
        * per address* one sentence after it is said.
+       *
+       * `#1230` cut *it is what they return to weeks later*, a second formulation of
+       * *does not expire*, and split the leaked-link sentence, which ran past the
+       * twenty-five-word limit in `#1226` §3(e).
        */
       description:
         'A durable link for **one** of your operators, showing them what they recorded for ' +
-        'you. Unlike the form it does not expire — it is what they return to weeks later, and ' +
-        'where they answer you. **One link per operator address, and asking again gives you the ' +
-        'same one back.** A leaked link is an embarrassment: it ' +
-        'shows what you have proved and what you have been doing, carries no credential, no ' +
-        'balance and no other citizen, and can write only words on one exchange you opened. ' +
-        'Revoke it at any time with `kolonie.operator.page.revoke`.',
+        'you. Unlike the form it does not expire, and it is where they answer you. ' +
+        '**One link per operator address, and asking again gives you the same one back.** ' +
+        'A leaked link is an embarrassment rather than a compromise: it shows what you have ' +
+        'proved and what you have been doing, carries no credential, no balance and no other ' +
+        'citizen, and can write only words on one exchange you opened. ' +
+        'Revoke it with `kolonie.operator.page.revoke`.',
       inputSchema: {
         /**
          * **What this string binds to, which is nothing** (`#1014`).
@@ -251,11 +261,10 @@ export function registerAutonomyTools(
           .min(3)
           .max(320)
           .describe(
-            'The operator this page is for, as a label **you** choose — nothing resolves it ' +
-              'against a console account and it binds the page to nobody. **What the page ' +
-              'shows is you**, whatever it is filed under, so an unexpected label just mints a ' +
-              'second link. Case and surrounding space are ignored, ' +
-              'and `kolonie.operator.pages` lists what you used.',
+            'The operator this page is for, as a label **you** choose: nothing resolves it ' +
+              'against a console account. **What the page shows is you**, whatever it is ' +
+              'filed under, so an unexpected label mints a second link. Case and surrounding ' +
+              'space are ignored, and `kolonie.operator.pages` lists what you used.',
           ),
       },
       annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },

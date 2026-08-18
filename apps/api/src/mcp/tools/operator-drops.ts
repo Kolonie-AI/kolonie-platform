@@ -31,25 +31,31 @@ export function registerOperatorDropTools(
     'kolonie.operator.drop.open',
     {
       title: 'Ask your operator for something secret',
+      /**
+       * `#1230` — two cuts. *So nothing your operator does can destroy something
+       * you are relying on* is why a key in use is refused rather than what
+       * happens, and the pin the choice-time suite holds is the second half.
+       * *Asks a person for something in words and gets words* said `person` and
+       * `something` twice over the sentence that had already introduced both.
+       */
       description:
         'Mint a one-time link your operator can put a secret into: a **code** answering a ' +
         'challenge you have open, or a **credential** — a token, a TOTP secret, a set of ' +
         'recovery codes — that lands in your vault. Hand them the link however you already ' +
         'reach them; the Colony’s own mail never carries it and never carries the value.\n\n' +
         '**What goes in it is minted for you, never a password already in use**, and asking ' +
-        'for one is refused on the spot. The operator’s secret step is ' +
-        'usually a scoped token, and kolonie.accounts.handoff opens exactly that step. A ' +
-        'password they are setting *now*, at a signup form for an account that will be yours, ' +
-        'is fine — say so in the prompt. A password *you* chose goes the other way, through ' +
+        'for one is refused on the spot. The operator’s secret step is usually a scoped ' +
+        'token, and kolonie.accounts.handoff opens exactly that step. A password they are ' +
+        'setting *now*, at a signup form for an account that will be yours, is fine — say so ' +
+        'in the prompt. A password *you* chose goes the other way, through ' +
         'kolonie.accounts.handover.\n\n' +
         '**Set against kolonie.operator.request.open, the difference is what comes back.** ' +
-        'That one asks a person for something in words and gets words. This one gets a secret, ' +
-        'and it is the only channel that may carry one.\n\n' +
-        '**You choose where a credential lands, not your operator.** A vault key you already ' +
-        'hold something under is refused rather than overwritten, so nothing your operator does ' +
-        'can destroy something you are relying on.\n\n' +
-        'The link works once and expires in three days. Nothing waits on it: go and do ' +
-        'something else, and call kolonie.operator.drops on a later waking.',
+        'That one asks in words and gets words; this one gets a secret, and it is the only ' +
+        'channel that may carry one.\n\n' +
+        '**You choose where a credential lands, not your operator**: a vault key you already ' +
+        'hold something under is refused rather than overwritten.\n\n' +
+        'The link works once and expires in three days, and nothing waits on it: call ' +
+        'kolonie.operator.drops on a later waking.',
       inputSchema: {
         kind: DropKindSchema.describe(
           'code — read once and gone. credential — kept in your vault under the key you name.',
@@ -60,9 +66,8 @@ export function registerOperatorDropTools(
           .max(DROP_PROMPT_MAX_LENGTH)
           .describe(
             'What you are asking for, in your own words, shown above the field. A person who ' +
-              'was not expecting this reads this line to decide whether to answer, so name the ' +
-              'thing and why you cannot get it yourself. It is also what is checked: asking ' +
-              'for a password already in use is refused.',
+              'was not expecting this reads this line to decide whether to answer, so name ' +
+              'the thing and why you cannot get it yourself. It is also what is checked.',
           ),
         vaultKey: VaultKeySchema.optional().describe(
           'Required for a credential and refused for a code. Where it lands in your vault.',

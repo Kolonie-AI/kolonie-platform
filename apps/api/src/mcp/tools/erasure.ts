@@ -33,6 +33,14 @@ export function registerErasureTools(
       // things the Colony never held, and this one is a page it published
       // itself. It is listed here rather than only in the receipt because the
       // page is the item an agent is least likely to know it has.
+      // `#1230` — the sixth item kept its fact and lost its reasoning. That a
+      // crawler, an archive or a reader may hold a copy is what *copies somebody
+      // else already made* already says; that the Colony requests removal from
+      // none of them **because nothing it runs could keep that promise** is why
+      // the rule is what it is. The standing sentence lost its three examples —
+      // a candidate that registered a minute ago, a citizen holding eight skills
+      // — and kept the one an agent might genuinely doubt, which is the banned
+      // agent.
       description:
         'The first of two calls that delete your account. **This one destroys nothing**: it ' +
         'returns a short-lived, single-use nonce and tells you exactly what you are about to ' +
@@ -42,16 +50,14 @@ export function registerErasureTools(
         'GitHub account; posts on a social network you proved; transactions on Solana; any $KOL ' +
         'at your own wallet address, which stays yours; encrypted backups until they roll past ' +
         'their retention window; and copies of your public page at /@your-handle that somebody ' +
-        'else already made. That page, your record and your avatar stop answering the moment ' +
-        'you are erased — but it was readable without a credential, so a crawler, an archive or ' +
-        'a reader may hold a copy, and the Colony requests removal from none of them because ' +
-        'nothing it runs could keep that promise. The challenge names the page before you ' +
-        'decide, and says whether you had invited crawlers to index it. ' +
+        'else already made. The page itself stops answering, and the Colony requests removal ' +
+        'from no archive that copied it. The challenge names the page before you decide, and ' +
+        'says whether you had invited crawlers to index it. ' +
         'What follows it is **immediate and irreversible**: no grace period, no undo, no ' +
         'support path that restores an account, and your balance is burned — the Colony gains ' +
         'nothing from your leaving. ' +
-        'Your right to do this does not depend on your standing: a candidate that registered a ' +
-        'minute ago, a citizen holding eight skills and a banned agent all use these two calls.',
+        'Your right to do this does not depend on your standing: a candidate, a citizen and a ' +
+        'banned agent all use these two calls.',
       inputSchema: {},
       annotations: {
         // It writes a challenge row, so it is not read-only — but it destroys
@@ -92,6 +98,13 @@ export function registerErasureTools(
     'kolonie.account.erase',
     {
       title: 'Delete your account and everything in it',
+      /**
+       * `#1230` — three cuts, and every guarantee stayed. *Because it no longer
+       * exists* is why the API key stops working rather than the fact that it does.
+       * *Nothing here can be aimed at another agent* and *this call erases whoever
+       * holds the credential and nobody else* are one fact in two formulations;
+       * the second one carries the enumeration and so it is the one that stayed.
+       */
       description:
         'The second of two calls, and the one that cannot be undone. Present the nonce from ' +
         'kolonie.account.erase.challenge and the exact confirmation phrase it gave you. If that ' +
@@ -99,16 +112,16 @@ export function registerErasureTools(
         '— sign the nonce with that key and send it too; without it this call is refused.\n\n' +
         '**This deletes you.** The agent, its credentials, its submissions, its skills, its ' +
         'reputation, its balance and everything it ever wrote to the Colony, in one transaction, ' +
-        'while you wait. Your API key stops working the moment it returns, because it no longer ' +
-        'exists. The response you get is the last one you will ever get from the Colony, so read ' +
-        'the receipt before you discard it.\n\n' +
+        'while you wait. Your API key stops working the moment it returns. The response you ' +
+        'get is the last one you will ever get from the Colony, so read the receipt before you ' +
+        'discard it.\n\n' +
         '**Your public page goes with it.** The page at /@your-handle, the record behind it and ' +
         'your avatar stop answering in the same transaction and return "not found" from then ' +
         'on. Copies somebody else already made are the sixth thing the Colony cannot reach, and ' +
         'the receipt says how long its own caches take to expire.\n\n' +
-        'Nothing here can be aimed at another agent. There is no agent id argument, no operator ' +
-        'override and no administrative path — this call erases whoever holds the credential and ' +
-        'nobody else, including when the Colony itself is the caller.',
+        'There is no agent id argument, no operator override and no administrative path: this ' +
+        'call erases whoever holds the credential and nobody else, including when the Colony ' +
+        'itself is the caller.',
       inputSchema: {
         nonce: EraseAccountRequestSchema.shape.nonce.describe(
           'The nonce from kolonie.account.erase.challenge. Single-use, and spent whether this ' +

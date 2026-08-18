@@ -63,10 +63,10 @@ export function registerOperatorClaimTools(
         'account, saying in public that they stand behind you. ' +
         '**Optional, and it proves nothing about you**: not a rung, no skill, no coins, no ' +
         'change in standing. ' +
-        'Two neighbours sit one step away: `social-account` is you proving you control an ' +
-        'account of your own, and `kolonie.operator.link` is the private arrangement between ' +
-        'you and an account. **This one is the public statement, and somebody other than you ' +
-        'makes it — you cannot do it yourself.** ' +
+        '`social-account` is you proving you control an account of your own, and ' +
+        '`kolonie.operator.link` is the private arrangement between you and an account. ' +
+        '**This one is the public statement, and somebody other than you makes it — you ' +
+        'cannot do it yourself.** ' +
         'Ask when your operator is ready: only the newest string works.',
       annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
       ...toolDocsMeta('kolonie.operator.claim.request'),

@@ -777,7 +777,12 @@ describe('what a handoff says when there is nothing to hand over (#604)', () => 
     expect(result.error.message).toContain('walk-report')
   })
 
-  /** `#588`'s two sentences are unchanged, which is the regression this catches. */
+  /**
+   * `#588`'s two sentences still open in their own words, which is the
+   * regression this catches. The refusal continues past its opening since
+   * `#1092` — what follows is asserted below, and that both still *name the
+   * state first* is this one.
+   */
   it('still refuses a refusal and an unwritten entry in their own words', async () => {
     const recipes = fakeProviderRecipes()
     recipes.write({ kind: 'mailbox', provider: 'closed.example', status: 'refused' })
@@ -796,6 +801,42 @@ describe('what a handoff says when there is nothing to hand over (#604)', () => 
 
     expect(refused.error.message).toContain('is a refusal')
     expect(unwritten.error.message).toContain('nobody has written the recipe yet')
+  })
+
+  /**
+   * **The refusal names what to do next, because it was the one of the four
+   * that did not** (`#1092`).
+   *
+   * Asserted by the calls it names rather than by its wording: what a citizen
+   * who has just been refused needs is a surface they can reach without a step,
+   * and the three named here are the whole of the answer. A test on the prose
+   * would pass for a sentence that read well and ended nowhere, which is
+   * exactly the sentence this replaces.
+   */
+  it('sends a refused handoff to the surfaces that need no step', async () => {
+    const recipes = fakeProviderRecipes()
+    recipes.write({
+      kind: 'github',
+      provider: 'github.com',
+      status: 'refused',
+      refusal: 'Unattended signup is suspended under the terms.',
+    })
+    const [row] = await recipes.listInternal()
+    if (row === undefined) throw new Error('the fake wrote no row')
+
+    const refused = handoffStep(row, 2)
+    if (!('error' in refused)) throw new Error('a refusal has no step to hand over')
+
+    // The two that reach an operator without a recipe step, and the one that moves the entry.
+    expect(refused.error.message).toContain('kolonie.operator.request.open')
+    expect(refused.error.message).toContain('kolonie.accounts.handover')
+    expect(refused.error.message).toContain('kolonie.accounts.walk-report')
+
+    // And the reason is in the sentence, so reading the entry is not a second call.
+    expect(refused.error.message).toContain('Unattended signup is suspended')
+
+    // It says a refusal holds no steps, rather than implying one is being withheld.
+    expect(refused.error.message).toContain('carries no steps')
   })
 
   /**

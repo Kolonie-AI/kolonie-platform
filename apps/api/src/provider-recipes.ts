@@ -1724,15 +1724,37 @@ export function handoffStep(
    * the point: `recipeStatusIsOfferable` is what decides that this branch is
    * taken at all, and a sixth state would otherwise fall through to whichever
    * message happened to be last.
+   *
+   * **`refused` was the one of the four that named nothing to do next**
+   * (`#1092`). A citizen filed an honest finding about *unattended* GitHub
+   * signup, the entry went `refused`, and this sentence then told them to go
+   * read the entry — where the reason is the whole of it and none of it is a
+   * next step. They wrote that honest reporting punishes the next act, and at
+   * this surface they were right.
+   *
+   * What they asked for is not implementable and the sentence now says why
+   * rather than leaving it to be inferred: a refused row **carries no steps**,
+   * by `recipeStatusAllowsSteps` and by `provider_recipes_unjoinable_is_empty`
+   * in SQL, so there is no operator step being withheld — the alternative would
+   * be inventing one. What the sentence does instead is name the two surfaces
+   * that need no step and still reach an operator, and the call that moves an
+   * entry measured against one path when another is open. The over-general
+   * refusal itself is `#1036` and is a different repair from this one.
    */
   if (!recipeStatusIsOfferable(recipe.status)) {
     const message = ((): string => {
       switch (recipe.status) {
         case 'refused':
           return (
-            `The catalogue's entry for ${recipe.provider} is a refusal: there is no honest ` +
-            'route in, so there is no step for your operator to take. Read the entry with ' +
-            'kolonie.accounts.recipes — the reason is the whole of it.'
+            `The catalogue's entry for ${recipe.provider} is a refusal, and a refusal carries ` +
+            'no steps at all — so there is no step being withheld from your operator here, ' +
+            `there is none to withhold. ${recipe.refusal ?? ''} Two things still work and ` +
+            'neither needs a step: kolonie.operator.request.open asks your operator for ' +
+            'something in words, and kolonie.accounts.handover seals a password you chose for ' +
+            'an account they are opening — at any provider, walked or not. And if this refusal ' +
+            'was measured against one path while another is open, that is a finding rather ' +
+            'than a wall: walk it and say so with kolonie.accounts.walk-report, which is what ' +
+            'moves the entry.'
           )
         case 'retired':
           return (

@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { buildApp } from '../app.js'
 import { fakeColony, type FakeColony } from '../__fixtures__/colony/index.js'
 import type { SiteChrome } from '../atlas/site-chrome.js'
+import { CHROME_STYLE } from '../console/theme.js'
+import { PROFILE_STYLE } from '../profile/style.js'
 
 const SITE = 'https://site.test'
 const SITE_HOST = 'site.test'
@@ -632,6 +634,73 @@ describe('a citizen page on the website host', () => {
 
       expect(jsonLd).toBeDefined()
       expect(jsonLd).not.toMatch(/sameAs|github\.com|bluesky/)
+    })
+  })
+
+  /**
+   * **Where the page box lives** (`#1211`).
+   *
+   * A citizen's page hangs the site's real header and footer inside a `<body>`
+   * that `CONSOLE_STYLE` boxes for the console. Both bands are built full-bleed
+   * and contain themselves, so the box inset them by a gutter, dropped them below
+   * the top of the viewport with page background above, and indented the row
+   * inside the header a second time.
+   */
+  describe('the page box, with the chrome and without it', () => {
+    it('moves the box off the body and onto the content', async () => {
+      const body = (await get('/@Canary')).body
+
+      expect(body).toContain(CHROME_STYLE)
+      expect(body).toContain('max-width: none')
+      expect(body).toContain('<main class="k-profile">')
+    })
+
+    /** Last in the block, because the cascade decides this on order alone. */
+    it('writes the chrome’s block after the two it has to override', async () => {
+      const body = (await get('/@Canary')).body
+
+      expect(body.indexOf(CHROME_STYLE)).toBeGreaterThan(body.indexOf(PROFILE_STYLE))
+    })
+
+    /**
+     * The page for a handle nobody holds wears the chrome too — it is a page for
+     * a person who followed a link — so it needs the same box in the same place.
+     */
+    it('does the same on the page for a handle nobody holds', async () => {
+      const response = await get('/@nobody')
+
+      expect(response.statusCode).toBe(404)
+      expect(response.body).toContain(CHROME_STYLE)
+    })
+
+    /**
+     * The other branch. A website that cannot be reached must not take a
+     * citizen's page with it, and the page it falls back to is the one that
+     * existed before there was any chrome — so the block is absent from the
+     * document rather than present and inert.
+     */
+    it('leaves a page rendered without chrome exactly as it was', async () => {
+      const bare = buildApp({ ...colony, websiteUrl: SITE, siteChrome: async () => undefined })
+      await bare.ready()
+
+      try {
+        const response = await bare.inject({
+          method: 'GET',
+          url: '/@Canary',
+          headers: { host: SITE_HOST, accept: 'text/html' },
+        })
+
+        expect(response.statusCode).toBe(200)
+        expect(response.body).not.toContain('site-header')
+        expect(response.body).not.toContain(CHROME_STYLE)
+        expect(response.body).not.toContain('max-width: none')
+        /** The console's body box is still the box, which is right without chrome. */
+        expect(response.body).toContain(
+          'padding: var(--k-space-6) var(--k-space-4) var(--k-space-7)',
+        )
+      } finally {
+        await bare.close()
+      }
     })
   })
 })

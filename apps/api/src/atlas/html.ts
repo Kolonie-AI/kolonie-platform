@@ -50,7 +50,7 @@ import { atlasNeighbours } from './related.js'
 import { ATLAS_PARTLY, atlasEntryVerdict, atlasRecipeVerdict } from './verdict.js'
 import { atlasRuntimeLine } from './runtimes.js'
 import { CONSOLE_MAST } from '../console/mark.js'
-import { CONSOLE_STYLE } from '../console/theme.js'
+import { CHROME_STYLE, CONSOLE_STYLE } from '../console/theme.js'
 import { ATLAS_STYLE } from './style.js'
 import type { SiteChrome } from './site-chrome.js'
 
@@ -195,8 +195,15 @@ export function atlasPage(input: {
      * with every operator surface and this is only for these pages, so a change
      * here cannot reach the console and a change there reaches both — which is
      * the point of it being shared.
+     *
+     * `CHROME_STYLE` is the third and it is conditional (`#1211`): it moves the
+     * page box off `<body>` and onto `<main>`, which is only correct when the
+     * site's full-bleed header and footer are the things inside that body. Last,
+     * so it wins over anything either block above says about `body` or `main`,
+     * and absent entirely without chrome — a page falling back to `CONSOLE_MAST`
+     * renders byte for byte what it rendered before.
      */
-    `<style>${CONSOLE_STYLE}${ATLAS_STYLE}</style>`,
+    `<style>${CONSOLE_STYLE}${ATLAS_STYLE}${chrome === undefined ? '' : CHROME_STYLE}</style>`,
     /**
      * **After the style block and inside the head that was already `<style>`-only**
      * (`#789`). It is data, not script: see `structured-data.ts` for the CSP

@@ -7,7 +7,7 @@ import {
 } from '@kolonie-ai/core'
 import { escape } from '../console/escape.js'
 import { CONSOLE_MAST } from '../console/mark.js'
-import { CONSOLE_STYLE } from '../console/theme.js'
+import { CHROME_STYLE, CONSOLE_STYLE } from '../console/theme.js'
 import {
   SHARE_IMAGE_HEIGHT,
   SHARE_IMAGE_MEDIA_TYPE,
@@ -609,7 +609,15 @@ function profileShell(input: {
     input.canonical === undefined ? '' : `<link rel="canonical" href="${escape(input.canonical)}">`,
     ...social,
     input.structuredData ?? '',
-    `<style>${CONSOLE_STYLE}${PROFILE_STYLE}</style>`,
+    /**
+     * The third block is conditional (`#1211`). `CONSOLE_STYLE` boxes `<body>`,
+     * which is right for a console page and wrong for one with the site's own
+     * full-bleed header and footer inside that body; `CHROME_STYLE` moves the
+     * box to `<main>` and is emitted only when the chrome was reached. Last, so
+     * it wins over what the two above say about `body` or `main`, and absent
+     * without chrome — the `CONSOLE_MAST` fallback renders exactly what it did.
+     */
+    `<style>${CONSOLE_STYLE}${PROFILE_STYLE}${chrome === undefined ? '' : CHROME_STYLE}</style>`,
     chrome?.head ?? '',
     '</head>',
     '<body>',

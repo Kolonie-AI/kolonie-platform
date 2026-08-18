@@ -24,6 +24,7 @@ import type {
   ColonyQuest,
   HeldReport,
   OwnQuest,
+  OwnQuestPlaybook,
   QuestModerationHistoryFilters,
   QuestModerationHistoryRow,
   QuestResult as AcceptedReport,
@@ -127,6 +128,15 @@ export interface FakeQuestDesk extends QuestDesk {
    * convenience for tests.
    */
   readonly setPriceFloor: (lamports: number) => void
+  /**
+   * Put a playbook on the catalogue's shelf, which `packages/db` owns (`#1182`).
+   *
+   * Takes the status too, because the rule the write boundary enforces is a
+   * status rule: only `open` may be named, and a test that could not shelve a
+   * `draft` or a `blocked` one could only assert the half of it that refuses a
+   * playbook nobody wrote.
+   */
+  readonly shelvesPlaybook: (playbook: OwnQuestPlaybook) => void
   /**
    * What the sponsor's wallet holds, as the chain would answer (D-115, `#751`).
    *
@@ -273,6 +283,40 @@ export function fakeQuests(): FakeQuestDesk {
   let sponsorFunding: QuestFunding = { outcome: 'unknown' }
   /** Places bought and waiting on money, per quest (`#629`). */
   const pendingSlots = new Map<string, number>()
+  /** The catalogue's shelf, empty until a test puts something on it (`#1182`). */
+  const shelf = new Map<string, OwnQuestPlaybook>()
+
+  /** What each quest's `playbook_id` column holds, which is an id and not a block. */
+  const references = new Map<TaskId, string>()
+
+  /**
+   * The playbook block a quest carries, resolved off the shelf **at read time**
+   * (`#1182`).
+   *
+   * Resolved on the way out rather than stored on the quest, because that is
+   * what storage's left join does: the column keeps an id, and what the
+   * catalogue holds today is read afresh. A fake that snapshotted the block
+   * would show a sponsor the status the playbook had when it was named, and the
+   * one rule this reference has — retiring refuses new references and leaves
+   * published ones alone — is exactly the rule that snapshot would hide.
+   *
+   * Absent rather than null where the quest names none, or where the shelf has
+   * never heard of the id: the second is what a deleted playbook row leaves
+   * behind, and storage answers it the same way.
+   */
+  const resolved = (own: OwnQuest): OwnQuest => {
+    const playbookId = references.get(own.task.id)
+    if (playbookId === undefined) return own
+    const found = shelf.get(playbookId)
+    return found === undefined ? own : { ...own, playbook: found }
+  }
+
+  /** What a patch does to the reference: names one, clears it, or says nothing. */
+  const refer = (taskId: TaskId, playbookId: string | null | undefined) => {
+    if (playbookId === undefined) return
+    if (playbookId === null) references.delete(taskId)
+    else references.set(taskId, playbookId)
+  }
 
   const task = (input: {
     readonly id: TaskId
@@ -768,12 +812,15 @@ export function fakeQuests(): FakeQuestDesk {
     async create({ authorId, draft }) {
       const parsed = QuestDraftSchema.parse(draft)
       const id = TaskIdSchema.parse(randomUUID())
-      return put({
-        task: task({ id, authorId, draft: parsed, status: 'draft' }),
-        rejectionReason: null,
-        awaitingModeration: false,
-        heldSince: null,
-      })
+      refer(id, parsed.playbookId)
+      return resolved(
+        put({
+          task: task({ id, authorId, draft: parsed, status: 'draft' }),
+          rejectionReason: null,
+          awaitingModeration: false,
+          heldSince: null,
+        }),
+      )
     },
 
     async update({ authorId, taskId, patch }) {
@@ -818,7 +865,10 @@ export function fakeQuests(): FakeQuestDesk {
         heldSince: null,
       }
 
-      return { outcome: 'written', quest: put(updated) }
+      // An edit that says nothing about the playbook leaves the reference alone.
+      refer(taskId, parsed.playbookId)
+
+      return { outcome: 'written', quest: resolved(put(updated)) }
     },
 
     async submit({ authorId, taskId }) {
@@ -987,6 +1037,15 @@ export function fakeQuests(): FakeQuestDesk {
       sponsorFunding = funding
     },
 
+    shelvesPlaybook: (playbook) => {
+      shelf.set(playbook.id, playbook)
+    },
+
+    async playbook(playbookId) {
+      const found = shelf.get(playbookId)
+      return found === undefined ? null : { status: found.status }
+    },
+
     async sponsorFunding() {
       return sponsorFunding
     },
@@ -1009,11 +1068,12 @@ export function fakeQuests(): FakeQuestDesk {
     async listOwn(authorId) {
       return [...quests.values()]
         .filter((held) => held.own.task.createdBy === authorId)
-        .map((held) => held.own)
+        .map((held) => resolved(held.own))
     },
 
     async readOwn(authorId, taskId) {
-      return mine(authorId, taskId)?.own
+      const held = mine(authorId, taskId)
+      return held === undefined ? undefined : resolved(held.own)
     },
 
     /**

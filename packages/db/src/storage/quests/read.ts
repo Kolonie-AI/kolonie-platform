@@ -28,6 +28,8 @@ import type { SettingsReader } from '../settings.js'
 import {
   heldSinceOf,
   ownQuestRow,
+  playbookOf,
+  playbooksNamedBy,
   type OwnQuest,
   type OwnQuestInvoice,
   type ScrubbedAnswer,
@@ -98,6 +100,7 @@ export async function listOwnQuests(db: Database, authorId: AgentId): Promise<re
     db,
     rows.map((row) => row.id as TaskId),
   )
+  const named = await playbooksNamedBy(db, rows)
 
   return rows.map((row) => ({
     task: toTask(row),
@@ -105,6 +108,7 @@ export async function listOwnQuests(db: Database, authorId: AgentId): Promise<re
     awaitingModeration: pending.has(row.id as TaskId),
     heldSince: heldSinceOf(row),
     ...invoiceOf(row),
+    ...playbookOf(row, named),
   }))
 }
 
@@ -118,6 +122,7 @@ export async function readOwnQuest(
   if (found.outcome !== 'found') return undefined
 
   const pending = await unmoderatedIds(db, [taskId])
+  const named = await playbooksNamedBy(db, [found.row])
 
   return {
     task: toTask(found.row),
@@ -125,6 +130,7 @@ export async function readOwnQuest(
     awaitingModeration: pending.has(taskId),
     heldSince: heldSinceOf(found.row),
     ...invoiceOf(found.row),
+    ...playbookOf(found.row, named),
   }
 }
 

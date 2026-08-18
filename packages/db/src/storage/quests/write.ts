@@ -15,7 +15,7 @@ import {
 import type { Database } from '../../client.js'
 import { tasks } from '../../schema/index.js'
 import { toTask } from '../rows.js'
-import { heldSinceOf, ownQuestRow, type OwnQuest } from './shared.js'
+import { heldSinceOf, ownQuestRow, playbookOf, playbooksNamedBy, type OwnQuest } from './shared.js'
 
 /**
  * The write path for a quest: drafted by an account, moderated, reviewed by a
@@ -106,6 +106,10 @@ export async function createQuestDraft(
       assistanceAllowed: command.draft.assistanceAllowed,
       questions: command.draft.questions,
       proofVerifier: command.draft.proofVerifier,
+      // `#1182`. Written like the rest of the draft; whether the row it points
+      // at is a published playbook was settled at the write boundary, which is
+      // where the sentence the sponsor reads is composed.
+      playbookId: command.draft.playbookId,
     })
     .returning()
 
@@ -116,6 +120,7 @@ export async function createQuestDraft(
     rejectionReason: row.rejectionReason,
     awaitingModeration: false,
     heldSince: heldSinceOf(row),
+    ...playbookOf(row, await playbooksNamedBy(db, [row])),
   }
 }
 
@@ -188,6 +193,7 @@ export async function updateQuestDraft(
         }),
         ...(patch.questions !== undefined && { questions: patch.questions }),
         ...(patch.proofVerifier !== undefined && { proofVerifier: patch.proofVerifier }),
+        ...(patch.playbookId !== undefined && { playbookId: patch.playbookId }),
         updatedAt: command.at,
         ...(textChanged && { textRevisedAt: command.at }),
       })
@@ -203,6 +209,7 @@ export async function updateQuestDraft(
         rejectionReason: updated.rejectionReason,
         awaitingModeration: false,
         heldSince: heldSinceOf(updated),
+        ...playbookOf(updated, await playbooksNamedBy(tx, [updated])),
       },
     }
   })

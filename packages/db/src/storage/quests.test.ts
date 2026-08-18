@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { desc, eq, sql } from 'drizzle-orm'
 import {
+  AccountKindSchema,
   QUEST_AUDIT_OFF,
   isAudited,
   noStagesRun,
@@ -18,6 +19,7 @@ import {
   payoutObligations,
   questAnswers,
   humans,
+  playbooks,
   questModerations,
   questReportReads,
   submissions,
@@ -31,6 +33,7 @@ import { questReportCounts, questReportCountsFor } from './quest-reports.js'
 import { expireOverdueSubmissions } from './verifications.js'
 import { eraseAgent } from './erasure.js'
 import { listTasks } from './tasks.js'
+import { createPlaybook } from './playbooks.js'
 import {
   createQuestDraft,
   heldRedLineReports,
@@ -72,6 +75,7 @@ import {
 } from './quests/index.js'
 
 const target = databaseTestTarget()
+const kind = (value: string) => AccountKindSchema.parse(value)
 
 /**
  * A quest written from outside, moderated, and published by a steward (`#176`).
@@ -262,6 +266,8 @@ describe('the quest write path', () => {
     // Neither belongs to a report quest, and the database refuses them on one (#602).
     catalogueProvider: null,
     walksAsked: null,
+    // And no playbook, which is what the ordinary quest names (#1182).
+    playbookId: null,
     ...overrides,
   })
 
@@ -2793,6 +2799,126 @@ describe('the quest write path', () => {
 
         expect(queue.map((entry) => entry.submissionId)).toContain(orphaned)
       })
+    })
+  })
+
+  /**
+   * The playbook a quest names (`#1182`).
+   *
+   * **What storage owns is the reference and the resolution, not the rule.**
+   * Whether the row behind the id is published is settled at the write boundary,
+   * where the sentence a sponsor reads is composed — so what is asserted here is
+   * that the column round-trips, that reading a quest back resolves the id into
+   * something a sponsor can recognise, and that a playbook going away takes the
+   * reference with it rather than the quest.
+   */
+  describe('the playbook a quest names', () => {
+    const shelve = async (status: 'open' | 'retired') => {
+      const author = await anAgent('playbook-author')
+      const playbook = await createPlaybook(db, {
+        slug: `answer-the-tickets-${status}`,
+        authorAgentId: author,
+        status,
+        draft: {
+          title: 'Answer the week’s unanswered support tickets',
+          summary: 'Read what nobody has answered, write one reply, and say what you could not.',
+          requiredAccounts: [{ slot: 'mailbox', kind: kind('mailbox'), minProved: true }],
+          steps: [{ title: 'Read the open tickets', usesSlots: ['mailbox'] }],
+          inspiration: [],
+        },
+      })
+      return playbook
+    }
+
+    it('reads back the id and what the playbook is called', async () => {
+      const sponsor = await anAgent('sponsor')
+      const playbook = await shelve('open')
+
+      const { task } = await createQuestDraft(db, {
+        authorId: sponsor,
+        draft: aDraft({ playbookId: playbook.id }),
+      })
+
+      const read = await readOwnQuest(db, sponsor, task.id)
+      expect(read?.playbook).toEqual({
+        id: playbook.id,
+        slug: playbook.slug,
+        title: playbook.title,
+        status: 'open',
+      })
+
+      const [listed] = await listOwnQuests(db, sponsor)
+      expect(listed?.playbook?.id).toBe(playbook.id)
+    })
+
+    /** Absent rather than null, which is what {@link OwnQuest.invoice} does. */
+    it('carries no playbook key on a quest that names none', async () => {
+      const sponsor = await anAgent('sponsor')
+      const { task } = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
+
+      expect(await readOwnQuest(db, sponsor, task.id)).not.toHaveProperty('playbook')
+    })
+
+    /**
+     * **What the catalogue says now, not what it said when the quest was
+     * written.** A sponsor whose playbook was retired under it should read that
+     * from its own quest rather than be told the route is still open.
+     */
+    it('shows the status the catalogue holds today', async () => {
+      const sponsor = await anAgent('sponsor')
+      const playbook = await shelve('open')
+      const { task } = await createQuestDraft(db, {
+        authorId: sponsor,
+        draft: aDraft({ playbookId: playbook.id }),
+      })
+
+      await db.update(playbooks).set({ status: 'retired' }).where(eq(playbooks.id, playbook.id))
+
+      expect((await readOwnQuest(db, sponsor, task.id))?.playbook?.status).toBe('retired')
+    })
+
+    /** An edit may name one, and an edit that says nothing leaves it alone. */
+    it('takes the reference from a patch and keeps it through an unrelated edit', async () => {
+      const sponsor = await anAgent('sponsor')
+      const playbook = await shelve('open')
+      const { task } = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
+
+      const named = await updateQuestDraft(db, {
+        authorId: sponsor,
+        taskId: task.id,
+        patch: { playbookId: playbook.id },
+        at: new Date().toISOString(),
+      })
+      expect(named.outcome).toBe('written')
+      if (named.outcome === 'written') expect(named.quest.playbook?.id).toBe(playbook.id)
+
+      const retitled = await updateQuestDraft(db, {
+        authorId: sponsor,
+        taskId: task.id,
+        patch: { title: 'A thousand registrations, asked again' },
+        at: new Date().toISOString(),
+      })
+      if (retitled.outcome === 'written') expect(retitled.quest.playbook?.id).toBe(playbook.id)
+    })
+
+    /**
+     * **Deleting the playbook loses the reference and not the quest** — the same
+     * reasoning `playbooks.parent_playbook_id` gives one table over. Retiring is
+     * not a deletion and is asserted above; this is the true row deletion.
+     */
+    it('loses the reference and keeps the quest when the playbook is deleted', async () => {
+      const sponsor = await anAgent('sponsor')
+      const playbook = await shelve('open')
+      const { task } = await createQuestDraft(db, {
+        authorId: sponsor,
+        draft: aDraft({ playbookId: playbook.id }),
+      })
+
+      await db.delete(playbooks).where(eq(playbooks.id, playbook.id))
+
+      const read = await readOwnQuest(db, sponsor, task.id)
+      expect(read?.task.id).toBe(task.id)
+      expect(read).not.toHaveProperty('playbook')
     })
   })
 

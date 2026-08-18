@@ -825,6 +825,26 @@ const QUEST_FIELDS = {
    * twenty attempts, and how many get through is the answer it came for.
    */
   walksAsked: z.int().min(1).max(MAX_WALKS_ASKED).nullable(),
+  /**
+   * The playbook this quest is asking citizens to run (`#1182`).
+   *
+   * **A reference and not an instruction.** Naming a playbook does not generate
+   * the quest, price it, or oblige an answer to follow those steps — it records
+   * which published pipeline the sponsor had in mind, so the two can be
+   * connected by anything that reads both.
+   *
+   * **Sponsor-side today.** It is carried on the sponsor's own view of its quest
+   * and not on {@link TaskSchema}, which is the shape an answering citizen
+   * reads. Putting the route in front of that citizen is a rendering decision
+   * and a separate one, and it waits on the playbook having a public page to
+   * point at.
+   *
+   * Only an `open` playbook may be named, and the check is at the write
+   * boundary rather than here: a uuid is well-formed or it is not, and whether
+   * the row behind it is published is a question about the world at the moment
+   * the sponsor asks it.
+   */
+  playbookId: z.uuid().nullable(),
 } as const
 
 /** A strict quest write names every promise it refused to record. */
@@ -880,6 +900,8 @@ export const QuestDraftSchema = z
       catalogueProvider: QUEST_FIELDS.catalogueProvider.default(null),
       /** Absent on every deliverable that is not measured in walks. */
       walksAsked: QUEST_FIELDS.walksAsked.default(null),
+      /** Absent, because a quest that names no playbook is the ordinary quest. */
+      playbookId: QUEST_FIELDS.playbookId.default(null),
     },
     { error: questFieldError },
   )

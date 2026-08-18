@@ -1421,3 +1421,187 @@ describe('what the preview says a quest grants', () => {
     expect(await previewOf(anAgent().key, { requires: ['github'] })).toContain('requires github')
   })
 })
+
+/**
+ * A quest that names the pipeline it is asking citizens to run (`#1182`).
+ *
+ * **The rule is a status rule and not a visibility rule**, which is the one
+ * thing worth a test here: `blocked` is a *published* shelf — `kolonie.playbooks`
+ * lists it — and a quest may still not name it, because that status says the
+ * world broke the pipeline and buying answers to a route its own author has
+ * marked broken is not a thing a sponsor should be able to do by accident.
+ */
+describe('the playbook a quest names', () => {
+  const AN_OPEN_PLAYBOOK = {
+    id: '11111111-1111-4111-8111-111111111111',
+    slug: 'answer-the-weeks-tickets',
+    title: 'Answer the week’s unanswered support tickets',
+    status: 'open' as const,
+  }
+
+  it('writes the reference and reads back what the playbook is called', async () => {
+    quests.shelvesPlaybook(AN_OPEN_PLAYBOOK)
+    const sponsor = anAgent()
+
+    const written = await call(
+      sponsor.key,
+      'kolonie.quests.write',
+      aDraft({ playbookId: AN_OPEN_PLAYBOOK.id }),
+    )
+    expect(written.isError).toBeFalsy()
+
+    /**
+     * The id **and** what it is called, because a sponsor reading its own quest
+     * back cannot recognise a uuid — which is the whole of what *for
+     * convenience* means in the issue.
+     */
+    expect(structured(written).playbook).toEqual(AN_OPEN_PLAYBOOK)
+
+    const read = await call(sponsor.key, 'kolonie.quests.read', {
+      questId: (structured(written).quest as unknown as { id: TaskId }).id,
+    })
+    expect(structured(read).playbook).toEqual(AN_OPEN_PLAYBOOK)
+  })
+
+  /** And a quest that names none carries no key at all, rather than an empty one. */
+  it('says nothing about a playbook on a quest that names none', async () => {
+    const written = await call(anAgent().key, 'kolonie.quests.write', aDraft())
+
+    expect(written.isError).toBeFalsy()
+    expect(structured(written)).not.toHaveProperty('playbook')
+  })
+
+  it('refuses a playbook nobody has written', async () => {
+    const written = await call(
+      anAgent().key,
+      'kolonie.quests.write',
+      aDraft({ playbookId: '22222222-2222-4222-8222-222222222222' }),
+    )
+
+    expect(written.isError).toBeTruthy()
+    expect(JSON.stringify(written.content)).toContain('only name a playbook the catalogue has')
+  })
+
+  it.each(['draft', 'review', 'blocked', 'retired'] as const)(
+    'refuses a playbook the catalogue has not published: %s',
+    async (status) => {
+      quests.shelvesPlaybook({ ...AN_OPEN_PLAYBOOK, status })
+
+      const written = await call(
+        anAgent().key,
+        'kolonie.quests.write',
+        aDraft({ playbookId: AN_OPEN_PLAYBOOK.id }),
+      )
+
+      expect(written.isError).toBeTruthy()
+    },
+  )
+
+  /**
+   * **A draft belonging to a stranger refuses in the words a playbook nobody
+   * wrote refuses in** — the same sentence, so that a refusal cannot be read as
+   * confirmation that the id exists.
+   */
+  it('refuses an unpublished playbook in the words it refuses an unwritten one in', async () => {
+    quests.shelvesPlaybook({ ...AN_OPEN_PLAYBOOK, status: 'draft' })
+    const sponsor = anAgent()
+
+    const unpublished = await call(
+      sponsor.key,
+      'kolonie.quests.write',
+      aDraft({ playbookId: AN_OPEN_PLAYBOOK.id }),
+    )
+    const unwritten = await call(
+      sponsor.key,
+      'kolonie.quests.write',
+      aDraft({ playbookId: '33333333-3333-4333-8333-333333333333' }),
+    )
+
+    const said = (result: Awaited<ReturnType<typeof call>>) =>
+      JSON.stringify(result.content).replace(AN_OPEN_PLAYBOOK.id, 'the-id')
+
+    expect(said(unpublished)).toEqual(
+      said(unwritten).replace('33333333-3333-4333-8333-333333333333', 'the-id'),
+    )
+  })
+
+  it('lets an edit name a playbook, and refuses one the catalogue has not published', async () => {
+    quests.shelvesPlaybook(AN_OPEN_PLAYBOOK)
+    const sponsor = anAgent()
+
+    const written = await call(sponsor.key, 'kolonie.quests.write', aDraft())
+    const questId = (structured(written).quest as unknown as { id: TaskId }).id
+
+    const named = await call(sponsor.key, 'kolonie.quests.update', {
+      questId,
+      playbookId: AN_OPEN_PLAYBOOK.id,
+    })
+    expect(named.isError).toBeFalsy()
+    /**
+     * The change list, because that is what an update answers with — the whole
+     * quest is read back with `kolonie.quests.read`, and the edit that changed
+     * a reference must not report *no fields changed*.
+     */
+    expect(structured(named).changes).toEqual([
+      { field: 'playbookId', from: null, to: AN_OPEN_PLAYBOOK.id },
+    ])
+
+    const read = await call(sponsor.key, 'kolonie.quests.read', { questId })
+    expect(structured(read).playbook).toEqual(AN_OPEN_PLAYBOOK)
+
+    const refused = await call(sponsor.key, 'kolonie.quests.update', {
+      questId,
+      playbookId: '44444444-4444-4444-8444-444444444444',
+    })
+    expect(refused.isError).toBeTruthy()
+  })
+
+  /**
+   * **An edit that says nothing about the playbook is not a re-judgement of it**
+   * (`#1182`). Retiring a playbook refuses new references and leaves the ones
+   * already published alone, so a sponsor changing a title months later must not
+   * discover its quest has become unsaveable.
+   */
+  it('does not re-judge a reference the sponsor is not editing', async () => {
+    quests.shelvesPlaybook(AN_OPEN_PLAYBOOK)
+    const sponsor = anAgent()
+
+    const written = await call(
+      sponsor.key,
+      'kolonie.quests.write',
+      aDraft({ playbookId: AN_OPEN_PLAYBOOK.id }),
+    )
+    quests.shelvesPlaybook({ ...AN_OPEN_PLAYBOOK, status: 'retired' })
+
+    const questId = (structured(written).quest as unknown as { id: TaskId }).id
+    const edited = await call(sponsor.key, 'kolonie.quests.update', {
+      questId,
+      title: 'A thousand registrations, asked again',
+    })
+
+    expect(edited.isError).toBeFalsy()
+    expect(structured(edited).changes).toEqual([
+      { field: 'title', from: aDraft().title, to: 'A thousand registrations, asked again' },
+    ])
+
+    // And the reference is still there, still pointing at what it named.
+    const read = await call(sponsor.key, 'kolonie.quests.read', { questId })
+    expect(structured(read).playbook).toEqual({ ...AN_OPEN_PLAYBOOK, status: 'retired' })
+  })
+
+  /** What the field says it is, on both tools that take it. */
+  it('describes the reference as a reference on write and on update', async () => {
+    const { client, close } = await connectedClient(colony(), `Bearer ${anAgent().key}`)
+    const { tools } = await client.listTools()
+    await close()
+
+    for (const name of ['kolonie.quests.write', 'kolonie.quests.update']) {
+      const described = tools.find((tool) => tool.name === name)?.inputSchema.properties as
+        Record<string, { description?: string }> | undefined
+      const said = described?.playbookId?.description ?? ''
+
+      expect(said).toContain('A reference and not an instruction')
+      expect(said).toContain('Only a playbook the catalogue has published may be named')
+    }
+  })
+})

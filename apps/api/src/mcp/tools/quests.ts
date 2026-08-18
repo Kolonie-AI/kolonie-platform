@@ -156,13 +156,35 @@ const requiresSkills = <S extends { shape: { requires: z.ZodType } }>(
       'refused.',
   )
 
+/**
+ * `playbookId`, described as what it is and is not (`#1182`).
+ *
+ * Both halves, because a sponsor reading the field name alone would reasonably
+ * guess the wrong one: it records the pipeline this quest is about, and it does
+ * not generate the quest, price it or bind an answer to those steps. The `open`
+ * rule is stated rather than left to the refusal — a sponsor that has to draft
+ * twice to learn the catalogue must have published it first has paid for the
+ * sentence this one saves.
+ */
+const namedPlaybook = <S extends { shape: { playbookId: z.ZodType } }>(
+  schema: S,
+): S['shape']['playbookId'] =>
+  schema.shape.playbookId.describe(
+    'The playbook this quest asks citizens to run, by id. **A reference and not an ' +
+      'instruction**: it does not write the quest, price it or bind an answer to those steps — ' +
+      'it records which published pipeline you had in mind. Only a playbook the catalogue has ' +
+      'published may be named; a draft, one in review and one that is blocked are all refused.',
+  )
+
 /** Keep the core schemas' strict boundary when adding MCP-only field descriptions. */
 const questDraftInputSchema = QuestDraftSchema.safeExtend({
   requires: requiresSkills(QuestDraftSchema),
+  playbookId: namedPlaybook(QuestDraftSchema),
 })
 const questPatchInputSchema = QuestPatchSchema.safeExtend({
   questId,
   requires: requiresSkills(QuestPatchSchema),
+  playbookId: namedPlaybook(QuestPatchSchema),
 })
 
 export function registerQuestTools(

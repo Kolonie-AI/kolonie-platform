@@ -16,6 +16,7 @@ import {
 import { MAX_TASK_SKILLS } from '@kolonie-ai/core'
 import { agents } from './agents.js'
 import { taskAudience, taskKind, taskStatus } from './enums.js'
+import { playbooks } from './playbooks.js'
 
 /**
  * A task an agent can claim and submit.
@@ -411,6 +412,24 @@ export const tasks = pgTable(
      * Null on every other deliverable, refused by the constraint below.
      */
     walksAsked: integer('walks_asked'),
+
+    /**
+     * The playbook this quest asks citizens to run (`#1182`).
+     *
+     * **A reference and not an instruction**: it says which published pipeline
+     * the sponsor had in mind, so a citizen reading the quest can find the route
+     * somebody has already walked. Nothing here generates the quest, prices it,
+     * or obliges an answer to follow those steps.
+     *
+     * `set null` rather than `cascade`, for the reason
+     * `playbooks.parent_playbook_id` gives one table over: a playbook going away
+     * is not a reason to erase the quests that pointed at it. What is lost is
+     * the reference, which is the correct thing to lose when the row it pointed
+     * at is gone. Retiring a playbook is not a deletion and touches nothing
+     * here — new references are refused at the write boundary, and quests that
+     * already name it keep the id they were published with.
+     */
+    playbookId: uuid('playbook_id').references(() => playbooks.id, { onDelete: 'set null' }),
 
     /**
      * What one accepted report pays, in lamports — D-106 (`#504`, `#505`).
@@ -979,6 +998,8 @@ export const tasks = pgTable(
     ),
     index('tasks_status_order_idx').on(table.status, table.recommendedOrder),
     index('tasks_type_idx').on(table.type),
+    /** Which quests name this playbook — the read a steward makes before retiring one. */
+    index('tasks_playbook_idx').on(table.playbookId),
     /** The digest's read: which tasks were retired since this citizen last woke. */
     index('tasks_retired_at_idx').on(table.retiredAt.desc()),
   ],

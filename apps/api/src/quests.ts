@@ -88,8 +88,10 @@ import {
   topUpQuest as topUpQuestInDatabase,
   withdrawQuestFromReview as withdrawQuestFromReviewInDatabase,
   type AudienceCriteria,
+  playbookById,
   type Database,
   type OwnQuest,
+  type OwnQuestPlaybook,
   type QuestResult as AcceptedReport,
   type FileQuestReportOutcome,
   type QuestSubmitOutcome,
@@ -189,6 +191,18 @@ export interface QuestDesk {
    * the wallet is empty; it has learned nothing, and a submission goes through.
    */
   sponsorFunding?(agentId: AgentId): Promise<QuestFunding>
+  /**
+   * One playbook by id, for the write path to check before it accepts a
+   * reference to it (`#1182`).
+   *
+   * **Optional, and absent means the reference is refused** — the same shape
+   * `tierCaps` and `sponsorFunding` take, with the failure direction spelled out
+   * as `sponsorFunding` spells out its own. A desk that cannot ask has not
+   * learned that the playbook is published; it has learned nothing, and
+   * accepting on that would let a quest point at a draft belonging to a
+   * stranger. A deployment without playbooks refuses `playbookId` and says so.
+   */
+  playbook?(playbookId: string): Promise<{ readonly status: string } | null>
   create(input: { readonly authorId: AgentId; readonly draft: unknown }): Promise<OwnQuest>
   update(input: {
     readonly authorId: AgentId
@@ -447,6 +461,7 @@ export function databaseQuests(
 ): QuestDesk {
   return {
     ...(walletAddress === undefined ? {} : { walletAddress }),
+    playbook: (playbookId) => playbookById(db, playbookId),
     ...(settings === undefined
       ? {}
       : {
@@ -735,6 +750,22 @@ export interface OwnQuestResponse {
    */
   readonly audience?: QuestAudience | undefined
   /**
+   * The playbook this quest names, resolved to something readable (`#1182`).
+   *
+   * **The id and what it is called.** A sponsor that asked for a pipeline by
+   * name and is handed a uuid back has to go and look it up to check the write
+   * landed on the one it meant.
+   *
+   * `status` is what the catalogue says now rather than what it said when the
+   * quest was written: a quest may only name an `open` playbook and nothing
+   * rewrites the reference afterwards, so a sponsor reading `retired` here is
+   * reading the truth.
+   *
+   * Absent when the quest names none, so the ordinary case carries no field a
+   * reader has to interpret.
+   */
+  readonly playbook?: OwnQuestPlaybook
+  /**
    * What this quest costs and what has been paid, while it waits — D-106
    * (`#504`).
    *
@@ -852,6 +883,7 @@ const respond = (
      */
     preview: taskAsText(quest.task, 0, false, 1, false),
     ...(audience === undefined ? {} : { audience }),
+    ...(quest.playbook === undefined ? {} : { playbook: quest.playbook }),
     /**
      * The invoice, and it is deliberately silent when there is no wallet
      * configured: a deployment that cannot take payments must not print an
@@ -1074,6 +1106,9 @@ export async function writeQuestDraft(
     return { outcome: 'rejected', error: invalid(capitalised(priced)) }
   }
 
+  const unnameable = await playbookThisQuestMayNotName(parsed.data.playbookId, desk)
+  if (unnameable !== undefined) return { outcome: 'rejected', error: unnameable }
+
   const quest = await desk.create({ authorId: input.authorId, draft: parsed.data })
   return { outcome: 'ok', response: await responding(quest, desk) }
 }
@@ -1110,6 +1145,39 @@ function skillsTheAcademyDoesNotGrant(requires: readonly string[]): ApiError | u
       'would be offered to nobody while looking correct. What may be required: ' +
       `${SKILLS_THE_ACADEMY_GRANTS.join(', ')}.`,
   )
+}
+
+/**
+ * Why this quest may not name this playbook, or `undefined` (`#1182`).
+ *
+ * **`open` and nothing else**, which is the same set `kolonie.playbooks.fork`
+ * reads and for the same reason: a reference is a claim that somebody can go and
+ * follow the pipeline, and only a published one can be followed. `blocked` is a
+ * *published* shelf and is still refused here — that status says the world broke
+ * the pipeline, so pointing a quest at one would be buying answers to a route
+ * its own author has said does not currently work.
+ *
+ * **A draft belonging to a stranger refuses in the words a playbook nobody wrote
+ * refuses in.** A draft is its author's alone, and a refusal that separated *not
+ * yours* from *not there* would be a way to learn that a slug is taken.
+ */
+async function playbookThisQuestMayNotName(
+  playbookId: string | null | undefined,
+  desk: QuestDesk,
+): Promise<ApiError | undefined> {
+  if (playbookId === null || playbookId === undefined) return undefined
+
+  const notNameable = invalid(
+    'A quest can only name a playbook the catalogue has published. There is no open playbook ' +
+      `with id ${playbookId}, so a citizen reading this quest would be sent to a pipeline it ` +
+      'cannot read.',
+  )
+
+  if (desk.playbook === undefined) return notNameable
+
+  const found = await desk.playbook(playbookId)
+
+  return found === null || found.status !== 'open' ? notNameable : undefined
 }
 
 /** Change a draft, or correct a refused quest. */
@@ -1169,6 +1237,16 @@ export async function editQuestDraft(
     return { outcome: 'rejected', error: invalid(capitalised(priced)) }
   }
 
+  /**
+   * Checked from the patch and not from the merged quest, unlike the price
+   * above: a quest that already names a playbook is not re-judged because the
+   * catalogue retired it since. Retiring refuses new references and leaves the
+   * ones already published alone (`#1182`), and re-checking here would make an
+   * unrelated edit the moment a sponsor discovers otherwise.
+   */
+  const unnameable = await playbookThisQuestMayNotName(parsed.data.playbookId, desk)
+  if (unnameable !== undefined) return { outcome: 'rejected', error: unnameable }
+
   const result = await desk.update({
     authorId: input.authorId,
     taskId,
@@ -1178,8 +1256,21 @@ export async function editQuestDraft(
 
   switch (result.outcome) {
     case 'written': {
-      const before = own.task as unknown as Readonly<Record<string, unknown>>
-      const after = result.quest.task as unknown as Readonly<Record<string, unknown>>
+      /**
+       * The playbook reference is diffed alongside the task's own columns
+       * (`#1182`). It lives on `OwnQuest` rather than on `Task`, so a diff
+       * reading only `task` reported *no fields changed* for an edit that had
+       * just renamed the pipeline the quest points at.
+       *
+       * Read off `playbook` rather than kept separately, so a reference whose
+       * playbook row has gone reads as the `null` the column now holds.
+       */
+      const diffable = (quest: OwnQuest): Readonly<Record<string, unknown>> => ({
+        ...(quest.task as unknown as Readonly<Record<string, unknown>>),
+        playbookId: quest.playbook?.id ?? null,
+      })
+      const before = diffable(own)
+      const after = diffable(result.quest)
       const changes = (Object.keys(parsed.data) as (keyof QuestPatch)[]).flatMap((field) =>
         JSON.stringify(before[field]) === JSON.stringify(after[field])
           ? []

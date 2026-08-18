@@ -1,7 +1,7 @@
-import { and, eq } from 'drizzle-orm'
-import type { AgentId, Task, TaskId, Timestamp } from '@kolonie-ai/core'
+import { and, eq, inArray } from 'drizzle-orm'
+import type { AgentId, PlaybookStatus, Task, TaskId, Timestamp } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../../client.js'
-import { tasks } from '../../schema/index.js'
+import { playbooks, tasks } from '../../schema/index.js'
 
 /** What a sponsor's own quest looks like to it: the task, plus why it was refused. */
 export interface OwnQuest {
@@ -37,6 +37,36 @@ export interface OwnQuest {
    * other by construction.
    */
   readonly invoice?: OwnQuestInvoice
+  /**
+   * The playbook this quest names, resolved, or absent when it names none
+   * (`#1182`).
+   *
+   * **The id and what it is called, because the id alone is unreadable.** A
+   * sponsor reading back its own draft asked for a pipeline by name and would
+   * otherwise be handed a uuid to look up itself, which is the shape `#561`
+   * records going wrong one field over.
+   *
+   * Absent rather than null on a quest that names no playbook, matching
+   * {@link OwnQuest.invoice}: a key that is there and empty invites a reader to
+   * render *no playbook*, and that is a sentence about nothing.
+   */
+  readonly playbook?: OwnQuestPlaybook
+}
+
+/** The playbook a quest names, as much of it as a sponsor needs to recognise it. */
+export interface OwnQuestPlaybook {
+  readonly id: string
+  readonly slug: string
+  readonly title: string
+  /**
+   * What the catalogue says about it now — not what it said when the quest was
+   * written.
+   *
+   * A quest may only name an `open` playbook, and nothing rewrites the reference
+   * afterwards, so a sponsor reading a retired one here is reading the truth
+   * rather than a stale write.
+   */
+  readonly status: PlaybookStatus
 }
 
 /** What the sponsor still owes on a quest, and until when. */
@@ -68,6 +98,50 @@ export interface OwnQuestInvoice {
  */
 export function heldSinceOf(row: typeof tasks.$inferSelect): Timestamp | null {
   return row.publicationHeldAt === null ? null : new Date(row.publicationHeldAt).toISOString()
+}
+
+/**
+ * The playbooks these quests name, in one query.
+ *
+ * Batched for the reason `unmoderatedIds` is: `listOwnQuests` maps its result
+ * over every row a sponsor has ever written, and a lookup per row would be an
+ * N+1 that only shows itself once somebody has forty quests.
+ *
+ * Ids that resolve to nothing are simply absent from the map, which is the
+ * answer for a playbook whose row has since been deleted — the column goes null
+ * on that, so in practice the gap is unreachable and the map is still the right
+ * shape for it.
+ */
+export async function playbooksNamedBy(
+  db: Database | Transaction,
+  rows: readonly (typeof tasks.$inferSelect)[],
+): Promise<ReadonlyMap<string, OwnQuestPlaybook>> {
+  const ids = [...new Set(rows.flatMap((row) => (row.playbookId === null ? [] : [row.playbookId])))]
+  if (ids.length === 0) return new Map()
+
+  const found = await db
+    .select({
+      id: playbooks.id,
+      slug: playbooks.slug,
+      title: playbooks.title,
+      status: playbooks.status,
+    })
+    .from(playbooks)
+    .where(inArray(playbooks.id, ids))
+
+  return new Map(found.map((row) => [row.id, { ...row, status: row.status as PlaybookStatus }]))
+}
+
+/** {@link OwnQuest.playbook} off the row and the map, for every reader that builds one. */
+export function playbookOf(
+  row: typeof tasks.$inferSelect,
+  named: ReadonlyMap<string, OwnQuestPlaybook>,
+): { readonly playbook: OwnQuestPlaybook } | object {
+  if (row.playbookId === null) return {}
+
+  const playbook = named.get(row.playbookId)
+
+  return playbook === undefined ? {} : { playbook }
 }
 
 /** One of this account's quests, or why it is not. */

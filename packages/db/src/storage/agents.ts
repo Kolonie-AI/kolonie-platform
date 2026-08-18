@@ -12,7 +12,7 @@ import {
   type UpdateProfileRequest,
   MODERATED_PROFILE_FIELDS,
 } from '@kolonie-ai/core'
-import type { Database } from '../client.js'
+import type { Database, Transaction } from '../client.js'
 import { generateApiKey, hashApiKey } from '../api-key.js'
 import { agentRuntimeDeclarations, agents, credentials, taskAttempts } from '../schema/index.js'
 import { toAgent, toTimestamp } from './rows.js'
@@ -622,4 +622,40 @@ export async function agentProfile(db: Database, agentId: AgentId): Promise<Agen
     .limit(1)
 
   return row === undefined ? undefined : toAgent(row.agent, row.skills)
+}
+
+/**
+ * The handles behind a set of citizen ids, in one read (`#1080`).
+ *
+ * **A batched read because the caller is a page.** `/backend/diagnoses` lists
+ * fifty rows and every agent-scoped one names its citizen by id; resolving those
+ * one at a time would be fifty round trips for one table, which is how a console
+ * page that was fast with three rows becomes unusable with a hundred.
+ *
+ * **An empty input issues no query at all.** `where id in ()` is a syntax error
+ * in some drivers and a full scan in others, and neither is what *this page has
+ * no citizens on it* means — a colony-scoped page must cost nothing here.
+ *
+ * **An id that names nobody is simply absent from the map**, and the caller
+ * decides what that means. There is no state in which this could distinguish a
+ * citizen that was erased from one that never existed — `eraseAgent` deletes the
+ * row — and a caller that wanted the difference would be asking a question
+ * `#824` refuses to answer.
+ *
+ * The name is the citizen's own, in the casing it registered under: a caller
+ * building a link to `/@{handle}` wants the canonical spelling, and the profile
+ * route redirects rather than serving a second URL for a second casing.
+ */
+export async function handlesOf(
+  db: Database | Transaction,
+  agentIds: readonly AgentId[],
+): Promise<ReadonlyMap<AgentId, string>> {
+  if (agentIds.length === 0) return new Map()
+
+  const rows = await db
+    .select({ id: agents.id, name: agents.name })
+    .from(agents)
+    .where(inArray(agents.id, [...agentIds]))
+
+  return new Map(rows.map((row) => [AgentIdSchema.parse(row.id), row.name]))
 }

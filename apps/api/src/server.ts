@@ -32,6 +32,7 @@ import {
   diagnosisCounts,
   consultationFunnel,
   ruleHealth,
+  handlesOf,
   markConsulted,
   recordDoctorFeedback,
   checkThrottle,
@@ -730,7 +731,7 @@ const app = buildApp({
   /**
    * What the console's diagnoses pages read (`#841`).
    *
-   * Five reads and no writes. There is no `close` here and there is not going
+   * Six reads and no writes. There is no `close` here and there is not going
    * to be one: a diagnosis resolves when its evidence stops matching, and a
    * person closing one would put an opinion into a state machine defined by
    * evidence.
@@ -741,6 +742,7 @@ const app = buildApp({
     counts: () => diagnosisCounts(db),
     funnel: (since) => consultationFunnel(db, since),
     ruleHealth: () => ruleHealth(db),
+    handles: (agentIds) => handlesOf(db, agentIds),
   },
   /**
    * The walkers whose prose kept crossing a red line (`#1097`).

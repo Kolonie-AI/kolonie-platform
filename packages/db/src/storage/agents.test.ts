@@ -22,6 +22,7 @@ import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { fingerprintOf } from '../registration-fingerprint.js'
 import {
   agentProfile,
+  handlesOf,
   isNameTaken,
   lastRuntimeDeclarationAt,
   registerAgent,
@@ -1000,5 +1001,70 @@ describe('agentProfile', () => {
    */
   it('answers with nothing for an id that names nobody', async () => {
     expect(await agentProfile(db, randomUUID() as AgentId)).toBeUndefined()
+  })
+})
+
+describe('handlesOf', () => {
+  let db: Database
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+  })
+
+  const anAgent = async (name: string) => {
+    const result = await registerAgent(db, aRequest({ name }))
+    if (result.outcome !== 'registered') throw new Error(result.outcome)
+    return result.agent
+  }
+
+  it('names every citizen it was asked about, in one read', async () => {
+    const one = await anAgent('canary')
+    const two = await anAgent('sentinel')
+
+    const handles = await handlesOf(db, [one.id, two.id])
+
+    expect(handles.get(one.id)).toEqual('canary')
+    expect(handles.get(two.id)).toEqual('sentinel')
+    expect(handles.size).toEqual(2)
+  })
+
+  /**
+   * **The casing the citizen registered under**, not the caller's. Names are
+   * unique case-insensitively, so a page that echoed what it was handed could
+   * print a spelling no citizen chose — and the profile route redirects to this
+   * one anyway.
+   */
+  it('answers in the citizen’s own casing', async () => {
+    const agent = await anAgent('CanaryOfTheDeep')
+
+    expect((await handlesOf(db, [agent.id])).get(agent.id)).toEqual('CanaryOfTheDeep')
+  })
+
+  /**
+   * The rejection case. An id that names nobody is absent rather than mapped to
+   * a placeholder: a citizen that erased itself and one that never existed are
+   * the same answer here, exactly as they are for `agentProfile`, and the caller
+   * renders the absence rather than a name the Colony invented.
+   */
+  it('leaves out an id that names nobody, and answers for the rest', async () => {
+    const agent = await anAgent('canary')
+
+    const handles = await handlesOf(db, [randomUUID() as AgentId, agent.id])
+
+    expect(handles.has(agent.id)).toBe(true)
+    expect(handles.size).toEqual(1)
+  })
+
+  /** No ids is no query, which is what makes the colony-scoped page free. */
+  it('answers empty for no ids at all', async () => {
+    expect(await handlesOf(db, [])).toEqual(new Map())
   })
 })

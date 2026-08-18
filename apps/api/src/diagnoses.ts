@@ -1,4 +1,4 @@
-import type { Diagnosis } from '@kolonie-ai/core'
+import type { AgentId, Diagnosis } from '@kolonie-ai/core'
 import type {
   ConsultationFunnel,
   DiagnosisPage,
@@ -9,7 +9,7 @@ import type {
 /**
  * What the console's diagnoses pages read (`#841`).
  *
- * **Five reads and no writes, and the absence is the design.** A diagnosis
+ * **Six reads and no writes, and the absence is the design.** A diagnosis
  * resolves when its evidence stops matching, decided by the rules that opened it
  * (`#838`) — so there is no `close`, no `reopen` and no `severity` on this
  * interface, and a future hand that wanted one would have to widen the seam in a
@@ -44,4 +44,18 @@ export interface DiagnosesDesk {
    * verdict is kept — and a cutoff would silently cost one of them.
    */
   ruleHealth(): Promise<readonly RuleHealthRow[]>
+  /**
+   * The handles behind a page of agent-scoped rows (`#1080`).
+   *
+   * A read like the five above it, and batched for the reason the storage
+   * function is: a page of fifty citizens is one query or it is fifty.
+   *
+   * **The ids come from the rows' `subject`**, which for an agent-scoped
+   * diagnosis *is* the citizen's id — `recordDiagnosis` writes both columns from
+   * that one value, and the published shape carries `subject` alone so that a
+   * reader cannot come to think there are two identities on a row. Nothing here
+   * parses it: the scope says which kind of subject it is, and an id that names
+   * nobody is absent from the map rather than an error.
+   */
+  handles(agentIds: readonly AgentId[]): Promise<ReadonlyMap<AgentId, string>>
 }

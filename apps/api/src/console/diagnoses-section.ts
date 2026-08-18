@@ -1,4 +1,4 @@
-import { DIAGNOSIS_RETENTION_DAYS, type Diagnosis } from '@kolonie-ai/core'
+import { DIAGNOSIS_RETENTION_DAYS, type AgentId, type Diagnosis } from '@kolonie-ai/core'
 import type { RuleHealthRow } from '@kolonie-ai/db'
 import { escape } from './escape.js'
 import { relative } from './time.js'
@@ -101,6 +101,104 @@ export function statesFor(filter: StateFilter): readonly Diagnosis['state'][] {
 }
 
 /**
+ * What the handle lookup answers with, and what it deliberately does not
+ * (`#1080`).
+ *
+ * Keyed by the citizen's id, which for an agent-scoped diagnosis is the
+ * `subject` on the row itself. An id that is absent from the map names nobody
+ * the Colony can reach — see {@link subjectOf} for why that is a state this page
+ * has to render rather than an error.
+ */
+export type Handles = ReadonlyMap<string, string>
+
+/**
+ * The ids a page of rows needs resolved, deduplicated, in the order they appear
+ * (`#1080`).
+ *
+ * **The route asks this rather than deciding for itself**, because the answer has
+ * to be the same set {@link handleFor} will look up: an id the route skips is a
+ * citizen the table cannot name, and an id it adds is a row nobody reads. One
+ * predicate, two call sites.
+ *
+ * A page holding no agent-scoped row yields an empty array — and the lookup
+ * behind it issues no query at all for one, so the ordinary colony-scoped page
+ * costs nothing.
+ */
+export function agentSubjects(rows: readonly Diagnosis[]): readonly AgentId[] {
+  const ids = new Set<AgentId>()
+  // Asserted rather than parsed: on an agent-scoped row the subject *is* the
+  // citizen's id — `recordDiagnosis` writes that column and `agent_id` from the
+  // one value — and a page that threw on a malformed one would answer 500 where
+  // the unresolved case already renders the id plainly.
+  for (const row of rows) if (row.scope === 'agent') ids.add(row.subject as AgentId)
+
+  return [...ids]
+}
+
+/**
+ * The Subject cell, which is a citizen on half the rows and a route on the other
+ * half (`#1080`).
+ *
+ * ## Why the cell is a link at all
+ *
+ * The column named thirty citizens and identified none of them: for an
+ * agent-scoped row it printed a bare UUID, and the only link on the row went to
+ * the diagnosis. So a maintainer reading their own operational page could see
+ * that somebody was looping and not who — *you cannot click the agent*, as the
+ * report on 2026-08-16 put it.
+ *
+ * ## Where it points, and why there is no console page behind it
+ *
+ * `/@{handle}`, the citizen's public profile, because that page answers *which
+ * citizen is this* and already exists. A second citizen page in the backend
+ * would be a surface to keep in step with the first for no fact it could add.
+ * The handle is written in the casing the citizen registered under; the profile
+ * route redirects if it ever disagrees, so one spelling is one page.
+ *
+ * ## Three cases, and the third is not an error
+ *
+ * A **colony-scoped** subject is a route key and is never linked — it is not a
+ * name, and `/@/v1/tasks` would be a link to nothing.
+ *
+ * An **agent-scoped** subject whose handle resolves is the link.
+ *
+ * An **agent-scoped** subject whose handle does **not** resolve prints the raw
+ * id, unlinked. A citizen that erased itself leaves no row for the cascade to
+ * have kept, and a stale page or a race can hand this a missing id either way;
+ * the id is what the column printed before this existed and is the honest
+ * answer. What it must never be is a broken link, an empty cell or a 500.
+ */
+function subjectOf(diagnosis: Diagnosis, handles: Handles): string {
+  const handle = handleFor(diagnosis, handles)
+
+  return handle === undefined ? escape(diagnosis.subject) : profileLink(handle)
+}
+
+/**
+ * The citizen a row is about, or `undefined` for the two cases that are not one:
+ * a colony-scoped route key, and an id the Colony can no longer resolve.
+ *
+ * Both call sites go through this rather than reading the map themselves, so
+ * that the list and the detail page cannot come to disagree about which rows are
+ * links.
+ */
+function handleFor(diagnosis: Diagnosis, handles: Handles): string | undefined {
+  return diagnosis.scope === 'agent' ? handles.get(diagnosis.subject) : undefined
+}
+
+/** One citizen's public page, with the handle escaped in the href and in the text. */
+function profileLink(handle: string): string {
+  return `<a href="/@${escape(handle)}">${escape(handle)}</a>`
+}
+
+/** The same subject on the detail page, where what is not a link stays a `<code>`. */
+function subjectDetail(diagnosis: Diagnosis, handles: Handles): string {
+  const handle = handleFor(diagnosis, handles)
+
+  return handle === undefined ? `<code>${escape(diagnosis.subject)}</code>` : profileLink(handle)
+}
+
+/**
  * One row.
  *
  * **Recurrence is on the row rather than behind the link**, which is the whole of
@@ -108,7 +206,7 @@ export function statesFor(filter: StateFilter): readonly Diagnosis['state'][] {
  * days* reads differently from *seen twice*, and a reader scanning a list is
  * deciding which one to open from exactly that.
  */
-function row(diagnosis: Diagnosis): string {
+function row(diagnosis: Diagnosis, handles: Handles): string {
   const span = relative(diagnosis.firstSeenAt)
 
   return [
@@ -118,7 +216,7 @@ function row(diagnosis: Diagnosis): string {
     // still matter* and a reader scanning the list decides on both (`#1079`).
     `<td>${escape(STATE_WORDS[diagnosis.state])}</td>`,
     `<td><a href="/backend/diagnoses/${escape(diagnosis.id)}">${escape(diagnosis.kind)}</a></td>`,
-    `<td>${escape(diagnosis.subject)}</td>`,
+    `<td>${subjectOf(diagnosis, handles)}</td>`,
     `<td>${diagnosis.observations}× since ${escape(span)}</td>`,
     `<td>${escape(relative(diagnosis.lastSeenAt))}</td>`,
     // *Has a sentence* rather than the sentence: a list is scanned, and a
@@ -129,7 +227,16 @@ function row(diagnosis: Diagnosis): string {
 }
 
 /** A list, or the sentence that says there is nothing in it. */
-export function diagnosesTable(rows: readonly Diagnosis[], nothing: string): readonly string[] {
+export function diagnosesTable(
+  rows: readonly Diagnosis[],
+  nothing: string,
+  /**
+   * The citizens behind the agent-scoped rows (`#1080`). Resolved once for the
+   * page and handed down, so that a table of fifty rows is one query and not
+   * fifty — see {@link subjectOf} for what an id missing from it renders as.
+   */
+  handles: Handles,
+): readonly string[] {
   if (rows.length === 0) {
     /**
      * **Said rather than left blank**, which is the `available` lesson from
@@ -151,7 +258,7 @@ export function diagnosesTable(rows: readonly Diagnosis[], nothing: string): rea
      */
     '<thead><tr><th>Severity</th><th>State</th><th>Kind</th><th>Subject</th><th>Seen</th><th>Last</th><th>Sentence</th></tr></thead>',
     '<tbody>',
-    ...rows.map(row),
+    ...rows.map((one) => row(one, handles)),
     '</tbody>',
     '</table>',
   ]
@@ -280,7 +387,16 @@ export function pager(
  * who cannot reconstruct a verdict cannot overturn it, and everything needed to
  * reconstruct this one is on this page.
  */
-export function diagnosisDetail(diagnosis: Diagnosis): readonly string[] {
+export function diagnosisDetail(
+  diagnosis: Diagnosis,
+  /**
+   * The one citizen this page may be about (`#1080`). A map rather than a
+   * handle, so that this page and the list ask {@link subjectOf} the same
+   * question and cannot come to disagree about what an unresolvable id renders
+   * as — a page reached from a row must not say something the row did not.
+   */
+  handles: Handles,
+): readonly string[] {
   const evidence = [
     ...(diagnosis.evidence.routeKeys.length === 0
       ? []
@@ -292,8 +408,15 @@ export function diagnosisDetail(diagnosis: Diagnosis): readonly string[] {
 
   return [
     `<h2>${escape(diagnosis.kind)} — ${escape(diagnosis.severity)}</h2>`,
+    /**
+     * **The citizen by name, and the route as itself** (`#1080`).
+     *
+     * A resolvable citizen is the link its row in the list is; everything else
+     * keeps the `<code>` this line has always been — a route key is not a name,
+     * and an id that resolves to nobody is still the most this page knows.
+     */
     `<p>${escape(diagnosis.scope === 'colony' ? 'About a route' : 'About a citizen')}: ` +
-      `<code>${escape(diagnosis.subject)}</code></p>`,
+      `${subjectDetail(diagnosis, handles)}</p>`,
     '<table>',
     `<tr><th>State</th><td>${escape(STATE_WORDS[diagnosis.state])}</td></tr>`,
     `<tr><th>Confidence</th><td>${escape(diagnosis.confidence.toFixed(2))}</td></tr>`,

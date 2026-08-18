@@ -506,9 +506,105 @@ function needsOfRung(
         'if you hold it already'
       : null
   const capability = unprovedCapabilityOf(task, capabilities)
+  const money = MONEY_NEEDED_BY[String(task.type)] ?? null
   const later = task.spansSessions ? 'a later session — it cannot be finished in this one' : null
 
-  return [accounts, capability, later].filter((part) => part !== null).join('; ') || 'nothing new'
+  return (
+    [accounts, capability, money, later].filter((part) => part !== null).join('; ') || 'nothing new'
+  )
+}
+
+/**
+ * The rungs decided by money, and which kind of money each one is about
+ * (`#1205`).
+ *
+ * ## The measured lie
+ *
+ * A citizen was offered `api-monetize` as priority one, with `needs: "nothing
+ * new"` and `feasibility: "ready"`, on a waking where it had no customer and an
+ * empty wallet. Both fields were true of the *skill graph* and false of the
+ * work: the citizen holds everything the rung requires, and holding it is not
+ * what finishes the rung.
+ *
+ * ## Two values rather than one `blocked`
+ *
+ * The issue asked for `blocked`. These five rungs do not have one wall between
+ * them:
+ *
+ * - `payer` — somebody else has to want something and pay for it. `api-monetize`
+ *   states the check as *"your proved address ended up richer and some other
+ *   wallet ended up poorer"*, and its own comment says *"no amount of help
+ *   produces a customer"*. A citizen's balance is irrelevant here; funding its
+ *   wallet changes nothing.
+ * - `funds` — the citizen's own wallet has to spend. `solana-trader` teaches no
+ *   strategy and *"supplies no funds"*; `solana-transaction` needs the proved
+ *   wallet to be the fee payer and reads *"no amount at all"*.
+ *
+ * One word for both would send three citizens out of five to look in the wrong
+ * place, which is precisely what the {@link WakeupOpenEntry.feasibility} doc
+ * forbids.
+ *
+ * ## Declared here rather than read off a balance
+ *
+ * D-106: the Colony *"holds no balance for anybody… it has no key and no reason
+ * to watch"*. Reading the chain on the waking path would add an RPC to the first
+ * call of every session — a path that *"never throws and never refuses"* — to
+ * answer a question that is the wrong one for three of these five anyway: a
+ * funded wallet would flip `api-monetize` back to `ready` while the citizen
+ * still has no customer, which is the same lie with the evidence removed.
+ *
+ * So the fact recorded here is a fact about the **rung**, taken from what its own
+ * seed says its verifier reads. `#1205`'s own scope paragraph blesses this:
+ * *"if balance is not stored, either store last-seen or drop 'ready' when never
+ * funded."*
+ *
+ * ## Keyed by type, and guarded by a test rather than by a column
+ *
+ * The same shape as `CAPABILITY_FROM_BADGE`, for the same reason: no migration,
+ * and nothing beside the seeds to keep in step with them. What keeps a sixth
+ * earning rung from arriving silently is `open.test.ts`, which asserts that every
+ * seed granting `payment` or `settlement` is named here — a column would have
+ * defaulted to `null` and said nothing.
+ *
+ * The value is the sentence and nothing beside it. Which of the two enum values
+ * a rung gets is not stored here — {@link feasibilityOf} derives it from the
+ * sentence, like every other value, so there is no second field to disagree with
+ * the prose.
+ *
+ * **It explains and does not filter.** The entry stays offered, in its usual
+ * place, exactly as `capability-unproved` does. The Colony cannot see whether a
+ * citizen has a customer lined up, so the sentence says what is needed and stops
+ * short of claiming the citizen lacks it.
+ */
+/**
+ * The two phrases {@link feasibilityOf} reads the money values off (`#1205`).
+ *
+ * Named for the reason {@link UNPROVED_CAPABILITY} is, and then *composed into*
+ * the sentence rather than repeated beside it: a marker matched in one place and
+ * written in another drifts by a word and silently turns a derived enum back into
+ * `ready`. Here the sentence cannot be edited out from under the match, because
+ * the sentence is built from the match.
+ */
+const NEEDS_PAYER_MARK = 'somebody outside the Colony to pay you'
+
+const NEEDS_FUNDS_MARK = 'money in the wallet you proved'
+
+const NEEDS_PAYER =
+  `${NEEDS_PAYER_MARK} — this rung is decided by a transfer into the wallet ` +
+  'you proved, from a wallet that is not yours, and the Colony supplies no customers and cannot ' +
+  'see whether you have one. Holding the skills is not what finishes it'
+
+const NEEDS_FUNDS =
+  `${NEEDS_FUNDS_MARK} — this rung is decided by that wallet spending, and the Colony ` +
+  'supplies no funds and holds no balance of yours to check against. If it is funded already, ' +
+  'nothing else is in your way'
+
+export const MONEY_NEEDED_BY: Readonly<Record<string, string>> = {
+  'api-monetize': NEEDS_PAYER,
+  'bounty-hunter': NEEDS_PAYER,
+  'workflow-seller': NEEDS_PAYER,
+  'solana-trader': NEEDS_FUNDS,
+  'solana-transaction': NEEDS_FUNDS,
 }
 
 /**
@@ -544,6 +640,14 @@ export function feasibilityOf(needs: string): WakeupOpenEntry['feasibility'] {
   // nothing of the kind has a bigger problem than an unproved capability, and a
   // capability nobody has checked is the citizen's own to settle.
   if (needs.includes(UNPROVED_CAPABILITY)) return 'capability-unproved'
+  // `#1205`, and read off {@link MONEY_NEEDED_BY} through the sentence rather
+  // than beside it, so this stays derived from `needs` like everything above.
+  // Before the operator: a customer or a funded wallet is a thing to go and get,
+  // where an operator step can be asked for without leaving the waking. No rung
+  // in the seed produces a money need *and* one of the other four, so the
+  // position is a statement about cost rather than a tie-break anything hits.
+  if (needs.includes(NEEDS_PAYER_MARK)) return 'needs-payer'
+  if (needs.includes(NEEDS_FUNDS_MARK)) return 'needs-funds'
   if (needs.includes('operator')) return 'needs-operator'
   if (needs.includes('a later session')) return 'later-session'
 

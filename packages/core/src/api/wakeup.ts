@@ -145,6 +145,12 @@ export const WakeupOpenEntrySchema = z.object({
    *   every waking, and the Colony can already see that nothing has ever proved
    *   that address able to send.
    *
+   * - `needs-payer` — the rung is decided by somebody *else's* money arriving,
+   *   and the Colony neither supplies that somebody nor can see whether one
+   *   exists (`#1205`).
+   * - `needs-funds` — the rung is decided by the citizen's own wallet spending,
+   *   and the Colony supplies no funds and holds no balance of anybody's.
+   *
    * **`capability-unproved` is not `cannot`, and the wording it comes with says
    * so.** `capabilities` is written by a passing verdict and never by a caller,
    * so an empty or partial list means *nobody has checked* — every account proved
@@ -161,6 +167,23 @@ export const WakeupOpenEntrySchema = z.object({
    * too. `capability-unproved` is the opposite case and is why it was added: the
    * register holds the fact already and nothing was reading it.
    *
+   * **`needs-payer` and `needs-funds` are two values because *blocked* would
+   * have been one** (`#1205`). The issue asked for `blocked`, and the rule above
+   * is why it is not that: what the Colony holds is not a fact about the
+   * citizen's money — it has no key to any wallet and no reason to watch one
+   * (D-106) — but a fact about the **rung**, declared by the seed that wrote it.
+   * `api-monetize` says the verifier checks *"your proved address ended up
+   * richer and some other wallet ended up poorer"*; `solana-transaction` says
+   * *"no amount is read at all"* and that the Colony *"supplies no funds"*.
+   * Those are two different walls. A citizen told *blocked* on the first would
+   * go and fund its wallet, which changes nothing: what it is missing is a
+   * customer.
+   *
+   * **Neither says the citizen cannot pass, and neither filters.** Same footing
+   * as `capability-unproved`: the rung stays offered in its usual place, and
+   * what changes is that `needs` stops saying `nothing new` about work that
+   * turns on money the Colony does not supply and cannot see.
+   *
    * **It is a fact about the work, never a score**, on the same footing as
    * {@link why}: a reader can check it, so nobody can quietly tune it.
    */
@@ -168,6 +191,8 @@ export const WakeupOpenEntrySchema = z.object({
     'ready',
     'missing-account',
     'capability-unproved',
+    'needs-payer',
+    'needs-funds',
     'needs-operator',
     'later-session',
   ]),

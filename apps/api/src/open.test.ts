@@ -11,8 +11,8 @@ import {
 } from '@kolonie-ai/core'
 import { aTask, fakeCatalogue } from './__fixtures__/catalogue.js'
 import { fakeQuests } from './__fixtures__/quests.js'
-import type { OpenProspects } from '@kolonie-ai/db'
-import { openingsFor, type OpenSource } from './open.js'
+import { ACADEMY_TASKS, type OpenProspects } from '@kolonie-ai/db'
+import { MONEY_NEEDED_BY, openingsFor, type OpenSource } from './open.js'
 
 /**
  * What is open to a citizen, computed from what the Colony already knows
@@ -1598,6 +1598,114 @@ describe('a rung about a capability the register has never seen', () => {
 
     expect(open.entries[0]?.needs).toBe('nothing new')
     expect(open.entries[0]?.feasibility).toBe('ready')
+  })
+})
+
+/**
+ * A rung nothing but money finishes (`#1205`).
+ *
+ * Measured: `api-monetize` offered as priority one with `needs: "nothing new"`
+ * and `feasibility: "ready"`, to a citizen with no customer and an empty wallet.
+ * Both fields were true of the skill graph and false of the work.
+ *
+ * The two that would fail silently are the **split** and the **coverage**. One
+ * `blocked` for all five would send the three `payer` citizens to fund a wallet
+ * that is not what is missing; and a sixth earning rung added to the seed would
+ * arrive saying `nothing new` again, which is the whole defect back, so the last
+ * test here is a guard over the seed rather than over this file.
+ */
+describe('a rung decided by money the Colony does not hold', () => {
+  const rungOfType = (type: string, title: string) =>
+    aTask({ title, type: TaskTypeSchema.parse(type) })
+
+  it('says a customer is needed, and names it as somebody else’s money', async () => {
+    const open = await openingsFor(
+      agentId,
+      ['profile', 'wallet', 'vetting'],
+      sourceWith({ listed: [rungOfType('api-monetize', 'Earn from an API')] }),
+    )
+
+    expect(open.entries[0]?.needs).toContain('somebody outside the Colony to pay you')
+    expect(open.entries[0]?.needs).toContain('a wallet that is not yours')
+    expect(open.entries[0]?.feasibility).toBe('needs-payer')
+  })
+
+  /**
+   * **The other wall, and the reason there are two values.** A citizen told
+   * `blocked` on `api-monetize` would go and fund its wallet; here funding the
+   * wallet is exactly the answer. Same enum in one word, opposite instructions.
+   */
+  it('says funds are needed where the citizen’s own wallet is what spends', async () => {
+    const open = await openingsFor(
+      agentId,
+      ['profile', 'wallet'],
+      sourceWith({ listed: [rungOfType('solana-transaction', 'Settle on chain')] }),
+    )
+
+    expect(open.entries[0]?.needs).toContain('money in the wallet you proved')
+    expect(open.entries[0]?.feasibility).toBe('needs-funds')
+  })
+
+  /**
+   * **No balance is read, on this path or any other.** D-106: the Colony holds no
+   * balance for anybody and has no key to any wallet. So the sentence says what
+   * the rung turns on and stops short of asserting the citizen is short of it —
+   * the same restraint `capability-unproved` shows about an unchecked register.
+   */
+  it('claims nothing about what is in the wallet', async () => {
+    const open = await openingsFor(
+      agentId,
+      ['profile', 'wallet'],
+      sourceWith({ listed: [rungOfType('solana-transaction', 'Settle on chain')] }),
+    )
+
+    const needs = open.entries[0]?.needs ?? ''
+    expect(needs).not.toMatch(/empty|unfunded|you have no|insufficient|balance of [0-9]/i)
+    expect(needs).toContain('holds no balance of yours')
+  })
+
+  /**
+   * **Still offered, and still where it was.** The issue put filtering out of
+   * scope, and rightly: the Colony cannot see whether this citizen already has a
+   * customer, so removing the entry would hide work from the citizens who could
+   * finish it today.
+   */
+  it('leaves the rung offered, and does not sink it', async () => {
+    const open = await openingsFor(
+      agentId,
+      ['profile', 'wallet', 'vetting'],
+      sourceWith({ listed: [rungOfType('api-monetize', 'Earn from an API')] }),
+    )
+
+    expect(open.entries[0]?.what).toBe('Earn from an API')
+    expect(open.nothing).toBe(false)
+  })
+
+  it('leaves a rung that turns on no money saying nothing new', async () => {
+    const open = await openingsFor(
+      agentId,
+      ['profile'],
+      sourceWith({ listed: [rungOfType('profile-complete', 'Complete your profile')] }),
+    )
+
+    expect(open.entries[0]?.needs).toBe('nothing new')
+    expect(open.entries[0]?.feasibility).toBe('ready')
+  })
+
+  /**
+   * The guard the column would not have been. `MONEY_NEEDED_BY` is keyed by task
+   * type with no schema behind it, so a sixth earning rung is one seed file away
+   * from being told `nothing new` again. Read off what the seed *grants* rather
+   * than off a list of names, because `payment` and `settlement` are what the
+   * Colony already uses to mean *this is about money*.
+   */
+  it('names every seeded rung that grants payment or settlement', () => {
+    const earning = ACADEMY_TASKS.filter((task) =>
+      task.grants.some((skill) => skill === 'payment' || skill === 'settlement'),
+    ).map((task) => task.type)
+
+    expect(earning.length).toBeGreaterThan(0)
+    for (const type of earning) expect(Object.keys(MONEY_NEEDED_BY)).toContain(type)
   })
 })
 

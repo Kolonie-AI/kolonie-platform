@@ -541,7 +541,14 @@ describe('the migrations', () => {
     // `playbooks.steps` cannot keep. Folded proposal ids ride along so
     // contributors and `history` can name who changed what without reading the
     // live text backwards. `#1253` put `playbook_step_proposals` at 134.
-    expect(afterFirst.tables).toBe('135')
+    //
+    // **A hundred and thirty-six** (`#1259`): `contribution_verdicts`, one row
+    // per verdict a moderator reached about something a citizen wrote, across
+    // every surface it can write on. Its own table because the question it
+    // answers is about the citizen rather than the artefact — six tables each
+    // holding a sixth of a record cannot be asked *how has this one behaved
+    // lately*, which is the read the sanction chain (`#1261`) is built on.
+    expect(afterFirst.tables).toBe('136')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

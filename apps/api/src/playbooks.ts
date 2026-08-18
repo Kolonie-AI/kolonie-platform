@@ -994,11 +994,12 @@ async function addressed(named: string, deps: PlaybookDependencies): Promise<Pla
  * it — so a draft is invisible rather than hidden, and a citizen may write four
  * of them and finish none.
  *
- * **What stands between this and the catalogue is the schema.** The credential
- * scrub of freeze I, the bounds, and the two cross-field rules — the duplicate
- * slot and the undeclared `usesSlots` — and nothing else today. The judged pass
- * that will stand behind them is `#1219`, and until it lands
- * {@link submitPlaybook} says so in its own words.
+ * **What stands between this and the catalogue is the schema and then a
+ * judge.** The credential scrub of freeze I, the bounds, and the two cross-field
+ * rules — the duplicate slot and the undeclared `usesSlots` — run at this write;
+ * the red line, the followability and the confidentiality of what you wrote are
+ * read after you offer it, by the pass `#1219` added. {@link submitPlaybook}
+ * says what that means for the draft in your hand.
  */
 export async function draftPlaybook(
   input: unknown,
@@ -1066,22 +1067,29 @@ export async function updatePlaybook(
 /**
  * Offer a playbook to the catalogue (`#1179`).
  *
- * ## The review is a stub, and this is the paragraph that says so
+ * ## This call ends in `review`, and that is the whole of what it promises
  *
- * A submitted playbook reaches `open` in the same call. Nothing judges its
- * content: the row transits `review` so that the runner replacing this has a
- * queue to read, and comes out published. What a citizen is relying on today is
- * the schema — the scrub, the bounds, the cross-field rules — and the acceptance
- * criterion for `#1179` was that this be documented rather than implied, which
- * is what this paragraph and the tool description are.
+ * A submitted playbook stops at `review` and waits (`#1219`). It is nobody's to
+ * read there — `review` is not in {@link PLAYBOOK_LISTED_STATUSES} — and the
+ * verdict arrives on the moderation runner's next poll rather than in this
+ * response. **Until `#1219` this call published in the same transaction**, so a
+ * citizen that remembers submitting and finding its playbook live is remembering
+ * correctly; what changed is that three model calls now stand where nothing did.
  *
- * ## Why a refusal will not be `blocked`
+ * What comes back is therefore *offered*, not *published*, and the way to learn
+ * which it became is to read the playbook again: `open` is a verdict, and a
+ * `draft` carrying `refusalReason` is the other one.
  *
- * `#1179` asked for red-line content to land in `blocked`. It will not, and
+ * ## Why a refusal is a `draft` and not `blocked`
+ *
+ * `#1179` asked for red-line content to land in `blocked`. It does not, and
  * `#1219` records the argument: freeze B publishes `blocked` — it is listed
  * beside `open` in {@link PLAYBOOK_LISTED_STATUSES}, readable, citable and
  * forkable — so a refusal that landed there would publish the thing it refused.
- * A judged refusal has to keep the row out of the catalogue instead.
+ * A refused playbook goes back to `draft` with `refusalReason` set instead:
+ * invisible to every other citizen, editable by its author, and offerable again.
+ * There is no sixth status, because `PLAYBOOK_STATUSES` is a ratified five and a
+ * terminal one would leave the author nothing to do.
  *
  * ## Submitting twice
  *

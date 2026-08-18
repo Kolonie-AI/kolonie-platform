@@ -357,6 +357,39 @@ describe('a subquery never interpolates columns of two tables', () => {
    * exercised against a real database in `storage/walk-notes.test.ts`, which is
    * the check that would fail if the correlation were valid-looking and wrong —
    * an uncorrelated count would give a stranger's unvoted note a count of one.
+   *
+   * ## `playbook-moderations.ts`, added 2026-08-18 (`#1219`)
+   *
+   * Two fragments, both asking whether the playbook in the outer row has a
+   * verdict newer than its own last edit: one negated, to find what is still
+   * waiting on a judge, and one affirmative and narrowed to `approved`, to find
+   * what was cleared and not yet published. Each names `playbook_moderations`
+   * and correlates outward to `playbooks` — two tables, which is the shape this
+   * rule flags.
+   *
+   * **The correlation is the whole point of the pair and cannot be cached.** A
+   * column on `playbooks` saying *judged* would be a second write in the gap
+   * between the verdict and the publication, which is exactly the gap `#1219`
+   * is written to survive; comparing the two timestamps in the subquery has
+   * nothing to drift.
+   *
+   * Rendered through this dialect on 2026-08-18:
+   *
+   * ```
+   * not exists (
+   *   select 1 from "playbook_moderations"
+   *   where "playbook_moderations"."playbook_id" = "playbooks"."id"
+   *     and "playbook_moderations"."created_at" >= "playbooks"."updated_at"
+   * )
+   * ```
+   *
+   * Every identifier qualified, the outward correlation included. The second
+   * fragment is the same statement without the negation and with
+   * `"playbook_moderations"."decision" = 'approved'` added. Both are exercised
+   * against a real database in `storage/playbook-moderations.test.ts`, which is
+   * the check that would fail if the correlation were valid-looking and wrong —
+   * an uncorrelated `exists` would clear every playbook the moment any one of
+   * them was approved.
    */
   const MEASURED_SAFE: Readonly<Record<string, number>> = {
     'tasks.ts': 1,
@@ -369,6 +402,7 @@ describe('a subquery never interpolates columns of two tables', () => {
     'read.ts': 1,
     'operator-requests.ts': 1,
     'walk-notes.ts': 2,
+    'playbook-moderations.ts': 2,
   }
 
   /**

@@ -151,6 +151,21 @@ export const playbooks = pgTable(
 
     /** When it first reached `open`. Null until moderation has published it. */
     publishedAt: timestamp('published_at', { withTimezone: true, mode: 'string' }),
+
+    /**
+     * Why the judged pass turned it back, or null (`#1219`).
+     *
+     * **A refusal returns the row to `draft` and writes this.** `blocked` was
+     * the obvious home and freeze B takes it away: that status is listed beside
+     * `open`, so a refusal parked there would publish the thing it refused.
+     *
+     * On the row rather than only in `playbook_moderations`, exactly as a
+     * quest's `rejection_reason` is: the author reads its own playbook back, not
+     * the audit trail. Null on every `open` row — see the check below — and
+     * cleared when the author offers it again, because a reason that outlived
+     * the text it was about would be read as a verdict on the new one.
+     */
+    refusalReason: text('refusal_reason'),
   },
   (table) => [
     uniqueIndex('playbooks_slug_key').on(table.slug),
@@ -170,6 +185,19 @@ export const playbooks = pgTable(
     check(
       'playbooks_open_is_published',
       sql`${table.status} <> 'open' or ${table.publishedAt} is not null`,
+    ),
+    /**
+     * A published playbook carries no refusal.
+     *
+     * The pair `open` and `refusal_reason` is a contradiction the read path
+     * would otherwise have to defend against: a citizen reading the catalogue
+     * would see why a playbook was once turned back, which is the author's
+     * business and nobody else's. Clearing it on publish is the rule; this is
+     * the check that a repair script cannot skip it.
+     */
+    check(
+      'playbooks_open_carries_no_refusal',
+      sql`${table.status} <> 'open' or ${table.refusalReason} is null`,
     ),
     check(
       'playbooks_no_self_parent',

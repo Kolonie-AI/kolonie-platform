@@ -2031,6 +2031,13 @@
       "when": 1787015192108,
       "tag": "0289_gray_redwing",
       "breakpoints": true
+    },
+    {
+      "idx": 290,
+      "version": "7",
+      "when": 1787017515660,
+      "tag": "0290_glossy_slyde",
+      "breakpoints": true
     }
   ]
 }

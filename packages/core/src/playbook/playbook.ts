@@ -121,17 +121,26 @@ export const PlaybookSlugSchema = z
  * Where a playbook is in its life (freeze B and D).
  *
  * Freeze B fixes two statuses **on content** and no more — `open` is the default
- * and `blocked` is what moderation or a red line writes — and this list is those
- * two plus the three states that are not about content at all:
+ * and `blocked` is the other — and this list is those two plus the three states
+ * that are not about content at all:
  *
  * - `draft` — the author's, unpublished, editable. Nobody else can read it.
- * - `review` — submitted, waiting on the light moderation freeze D asks for.
+ * - `review` — submitted, waiting on the judged pass (`#1219`).
  * - `open` — published and runnable. The default freeze B names.
- * - `blocked` — moderation or a red line refused it. Freeze B's other status.
+ * - `blocked` — the world broke the pipeline: a provider went away, a step no
+ *   longer works. Freeze B's other status, and editable, because fixing it is
+ *   the answer.
  * - `retired` — the author withdrew it. Not a verdict about the content, and
  *   deliberately distinct from `blocked` for the reason accounts keep `retired`
  *   apart from a failed check: a row that earned reputation has to survive its
  *   author losing interest in it.
+ *
+ * **A moderation refusal is none of these five and writes none of them.** It
+ * returns the playbook to `draft` and writes {@link Playbook.refusalReason}
+ * (`#1219`). `blocked` reads like the home for one and is not: freeze B
+ * publishes it — listed, readable, citable, forkable — so a refusal parked there
+ * would publish the thing it refused. A refusal has to keep the row out of the
+ * catalogue instead, and `draft` is the status that already does.
  *
  * **A vocabulary in core rather than a Postgres enum**, on the rule every other
  * classified column in this repository follows: the list is documented and
@@ -391,6 +400,26 @@ export const PlaybookSchema = z
     updatedAt: z.string(),
     /** When it first reached `open`. Null until moderation has published it. */
     publishedAt: z.string().nullable(),
+    /**
+     * Why the judged review turned this playbook back, or null (`#1219`).
+     *
+     * **A refusal returns the row to `draft` and writes this**, rather than
+     * inventing a sixth status. `blocked` was the obvious home and freeze B
+     * takes it away: that status is about content citizens may still read, cite
+     * and fork, so a refusal parked there would publish the thing it refused. A
+     * draft is invisible to every other citizen and is already editable, which
+     * is the pair of properties a refusal needs.
+     *
+     * **On the row rather than in the moderation record**, exactly as a quest's
+     * `rejection_reason` is: the author reads its own playbook back, not the
+     * audit trail. The model's own sentence goes to `playbook_moderations`
+     * alongside the digest of what it judged.
+     *
+     * Null on every `open` playbook, so the public read carries nothing — and
+     * cleared when the author submits again, because a reason that outlived the
+     * text it was about would be read as a verdict on the new one.
+     */
+    refusalReason: z.string().nullable(),
   })
   .strict()
 export type Playbook = z.infer<typeof PlaybookSchema>

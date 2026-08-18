@@ -85,6 +85,7 @@ export function fakePlaybooks(): FakePlaybooks {
         updatedAt: currentTime(),
         publishedAt: playbook.status === 'open' ? currentTime() : null,
         ...playbook,
+        refusalReason: playbook.refusalReason ?? null,
       }
       catalogue.push(written)
       return written
@@ -201,6 +202,7 @@ export function fakePlaybooks(): FakePlaybooks {
           id: randomUUID(),
           slug,
           status: 'draft',
+          refusalReason: null,
           authorAgentId,
           parentPlaybookId: null,
           version: 1,
@@ -249,10 +251,19 @@ export function fakePlaybooks(): FakePlaybooks {
           return { outcome: 'not-editable', status: standing.status }
         }
 
+        /**
+         * `review`, and nothing else (`#1219`).
+         *
+         * **A submit stopped publishing when a judge arrived**, and this fake
+         * has to stop with it: a fixture that publishes in the same call would
+         * let every API test assert a catalogue entry the real store no longer
+         * writes. `refusalReason` is cleared here because a reason about text
+         * the author has since rewritten is a reason about nothing.
+         */
         const written: Playbook = {
           ...standing,
-          status: 'open',
-          publishedAt: standing.publishedAt ?? currentTime(),
+          status: 'review',
+          refusalReason: null,
           updatedAt: currentTime(),
         }
         catalogue.splice(catalogue.indexOf(standing), 1, written)
@@ -281,6 +292,7 @@ export function fakePlaybooks(): FakePlaybooks {
           id: randomUUID(),
           slug,
           status: 'draft',
+          refusalReason: null,
           authorAgentId,
           parentPlaybookId: source.id,
           version: 1,

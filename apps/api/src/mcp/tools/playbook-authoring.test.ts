@@ -13,9 +13,9 @@ import type { PlaybookWriteResult } from '../../playbooks.js'
  * `packages/db/src/storage/playbooks.test.ts` against a real PostgreSQL. This side
  * decides that a draft is nobody else's to change, that another citizen's playbook
  * refuses in exactly the words a slug nobody has taken refuses in, and that
- * submitting publishes — because the review is a stub and a test that assumed a
- * queue would go green on the day one arrives while the catalogue quietly stopped
- * filling.
+ * submitting *offers* rather than publishes (`#1219`) — the judge decides that,
+ * on the moderation runner's next poll, and a test asserting a catalogue entry
+ * here would be asserting something this side never does.
  */
 const draft = (args: Record<string, unknown>) => ({
   name: 'kolonie.playbooks.draft',
@@ -250,7 +250,15 @@ describe('kolonie.playbooks.update (#1179)', () => {
 })
 
 describe('kolonie.playbooks.submit (#1179)', () => {
-  it('publishes in the same call, because the review is a stub', async () => {
+  /**
+   * What a submit buys and what it does not (`#1219`).
+   *
+   * **The negative assertion is the one that matters.** Until that issue this
+   * call published in the same transaction, so a test that only checked the
+   * status would go green against either behaviour; what says the judge is in
+   * the way is that the catalogue is still empty afterwards.
+   */
+  it('offers a playbook without publishing it', async () => {
     const { client, close } = await aCitizen()
 
     try {
@@ -259,11 +267,12 @@ describe('kolonie.playbooks.submit (#1179)', () => {
 
       expect(offered.isError).toBeFalsy()
       const { playbook } = resultOf(offered)
-      expect(playbook.status).toBe('open')
-      expect(playbook.publishedAt).not.toBeNull()
+      expect(playbook.status).toBe('review')
+      expect(playbook.publishedAt).toBeNull()
+      expect(textOf(offered)).toContain('not yet published')
 
       const listed = await client.callTool({ name: 'kolonie.playbooks.list', arguments: {} })
-      expect(textOf(listed)).toContain('weekly-inbox-triage')
+      expect(textOf(listed)).not.toContain('weekly-inbox-triage')
     } finally {
       await close()
     }
@@ -288,7 +297,7 @@ describe('kolonie.playbooks.submit (#1179)', () => {
     }
   })
 
-  it('refuses to publish one that already is', async () => {
+  it('refuses to offer one that is already waiting on a judge', async () => {
     const { client, close } = await aCitizen()
 
     try {

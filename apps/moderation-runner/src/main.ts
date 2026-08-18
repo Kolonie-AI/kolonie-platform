@@ -27,15 +27,19 @@ import {
   stewardEndedQuests,
   unmoderatedQuestReports,
   recordQuestReportModeration,
+  pendingPlaybookModerations,
   pendingQuestModerations,
   pendingReports,
+  publishPlaybookAfterReview,
   publishQuest,
   questsBySameSponsor,
+  playbooksClearedForPublication,
   questsClearedForPublication,
   questsHeldForPublication,
   readTaskText,
   recordModeration,
   recordProviderChange,
+  recordPlaybookModeration,
   recordQuestModeration,
   writeScrubbedAnswers,
   staleBriefings,
@@ -64,6 +68,7 @@ import {
   type ProviderBriefingStore,
   type ModerationStore,
 } from './loop.js'
+import type { PlaybookModerationStore } from './playbooks.js'
 import type { QuestModerationStore } from './quests.js'
 import type { AnswerModerationStore } from './answers.js'
 import type { RedLineReviewStore } from './redline-review.js'
@@ -269,6 +274,22 @@ const questStore: QuestModerationStore = {
       at: now(),
       audit: questAudit,
     }),
+}
+
+/**
+ * The playbook review pass, from the process's side (`#1219`).
+ *
+ * Four storage calls and no decision of its own, like `questStore` above it. No
+ * `siblings`: there is no dedup stage, because freeze D makes a fork of a
+ * published playbook a first-class thing to write and a dedup stage would refuse
+ * it. No `held`: the audit brake is about paid work, and a playbook pays nobody
+ * to be published.
+ */
+const playbookStore: PlaybookModerationStore = {
+  pending: (limit) => pendingPlaybookModerations(db, limit),
+  record: (input) => recordPlaybookModeration(db, input),
+  cleared: (limit) => playbooksClearedForPublication(db, limit),
+  publish: (playbookId) => publishPlaybookAfterReview(db, playbookId),
 }
 
 /**
@@ -621,6 +642,11 @@ const questRunner = startQuestRunner(
     // maintainer's finding, and it goes where the other automated ones go
     // (`#759`).
     quests: { store: questStore, model: questModel, log, issues: tripwire.issues },
+    // The playbook pass gets the same client the quests get, for the same
+    // reason: it is a citizen's publication waiting on it, and a fallback model
+    // that answers differently is not a cheaper verdict but a different one
+    // (`#726`, `#1219`).
+    playbooks: { store: playbookStore, model: questModel, log },
   },
   { pollIntervalMs: QUEST_POLL_INTERVAL_MS },
 )

@@ -521,7 +521,13 @@ describe('the migrations', () => {
     // the tool that fills it, because the rule underneath the reputation grant
     // — once per citizen and playbook — is a unique index or it is a race, and
     // adding that index later costs a backfill over rows written without it.
-    expect(afterFirst.tables).toBe('131')
+    //
+    // **A hundred and thirty-two** (`#1219`): `playbook_moderations`, the
+    // verdict a judge reached about one offered playbook. Its own table rather
+    // than columns on `playbooks`, because a verdict is about the text that was
+    // read and a playbook is about now — the digest it carries is what lets a
+    // verdict about since-rewritten words be dropped instead of applied.
+    expect(afterFirst.tables).toBe('132')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

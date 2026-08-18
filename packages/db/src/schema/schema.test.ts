@@ -652,6 +652,18 @@ describe('schema', () => {
          * race, and an index added later costs a backfill over rows written
          * without it.
          */
+        /**
+         * `playbook_moderations` (`#1219`): the verdict a judge reached about
+         * one offered playbook, and the digest of the text it read.
+         *
+         * A row here rather than columns on `playbooks` because a verdict is
+         * about a version and the playbook is about now: an author may rewrite
+         * while the judge is reading, and the digest is what lets the stale
+         * verdict be dropped rather than applied to words nobody read. Keeping
+         * the history also means a second offer of the same text is answerable
+         * without a second model call.
+         */
+        'playbook_moderations',
         'playbook_runs',
         'playbooks',
         'pow_challenges',

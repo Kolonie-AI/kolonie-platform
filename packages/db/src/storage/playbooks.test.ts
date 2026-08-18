@@ -3,6 +3,7 @@ import { AccountKindSchema, type AgentId, type PlaybookDraft } from '@kolonie-ai
 import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
+import { publishPlaybookAfterReview } from './playbook-moderations.js'
 import {
   createPlaybook,
   draftPlaybook,
@@ -336,7 +337,13 @@ describe('a citizen writing a pipeline of its own', () => {
     ).toEqual({ outcome: 'not-yours' })
   })
 
-  it('publishes on submission, because the review is a stub', async () => {
+  /**
+   * The property `#1219` bought, and the one a later change is most likely to
+   * take back: **a submit is not a publish.** Until that issue this function set
+   * `open` in the same transaction, so the assertion that matters here is the
+   * negative one — nothing is in the catalogue yet.
+   */
+  it('stops at review on submission, publishing nothing', async () => {
     const playbook = await written()
     const offered = await submitPlaybookForReview(db, {
       authorAgentId: agentId,
@@ -345,14 +352,15 @@ describe('a citizen writing a pipeline of its own', () => {
 
     expect(offered.outcome).toBe('written')
     if (offered.outcome !== 'written') return
-    expect(offered.playbook.status).toBe('open')
-    expect(offered.playbook.publishedAt).not.toBeNull()
-    expect(await playbooksByStatus(db, { statuses: ['open'] })).toHaveLength(1)
+    expect(offered.playbook.status).toBe('review')
+    expect(offered.playbook.publishedAt).toBeNull()
+    expect(await playbooksByStatus(db, { statuses: ['open'] })).toHaveLength(0)
   })
 
   it('will not rewrite or republish a playbook that is already open', async () => {
     const playbook = await written()
     await submitPlaybookForReview(db, { authorAgentId: agentId, playbookId: playbook.id })
+    await publishPlaybookAfterReview(db, playbook.id)
 
     expect(
       await updatePlaybookDraft(db, {
@@ -385,7 +393,7 @@ describe('a citizen writing a pipeline of its own', () => {
     })
     expect(offered.outcome).toBe('written')
     if (offered.outcome !== 'written') return
-    expect(offered.playbook.status).toBe('open')
+    expect(offered.playbook.status).toBe('review')
   })
 
   it('answers about a playbook nobody wrote without pretending it might be yours', async () => {
@@ -413,8 +421,12 @@ describe('a citizen writing a pipeline of its own', () => {
         authorAgentId: agentId,
         playbookId: playbook.id,
       })
-      if (offered.outcome !== 'written') throw new Error('could not publish the source')
-      return offered.playbook
+      if (offered.outcome !== 'written') throw new Error('could not offer the source')
+      const published = await publishPlaybookAfterReview(db, playbook.id)
+      if (published.outcome !== 'published') throw new Error('could not publish the source')
+      const row = await playbookById(db, playbook.id)
+      if (row === null) throw new Error('the published source went missing')
+      return row
     }
 
     it('copies the pipeline into a draft of the forker’s own, pointing at where it came from', async () => {

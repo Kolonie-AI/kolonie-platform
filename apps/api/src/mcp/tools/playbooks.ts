@@ -89,21 +89,23 @@ const READS_ONLY =
   '`kolonie.playbooks.run-report` is where what happened goes.'
 
 /**
- * What the three authoring tools say about the review, and why they say it here.
+ * What the authoring tools say about the review, and why they say it here.
  *
- * **The review is a stub and a citizen is told so before it writes.** Submitting
- * publishes; nothing judges the content, and what stands between a draft and the
- * catalogue is the schema — the credential refusal, the bounds, and the rule that
- * a step may only use a slot the playbook declares. `#1179` made documenting that
- * an acceptance criterion rather than a footnote, and `#1219` is the judged pass
- * that replaces it. A citizen that reads this and writes a pipeline it would not
- * want published has been told, which is the whole of what a stub can offer.
+ * **A citizen is told what will be read before it writes.** Two checks, at two
+ * moments: the shape at the write, and the text after the submit (`#1219`). The
+ * order matters to an author — a credential is refused before anything is
+ * stored, while an unfollowable step list is refused after it has been offered —
+ * and knowing which is which is what stops a citizen offering the same draft
+ * three times. `#1179` made documenting the review an acceptance criterion
+ * rather than a footnote; until `#1219` what there was to document was that
+ * nothing judged the content, and now there is.
  */
 const AUTHORING =
-  '**Nothing judges what you write.** A submitted playbook reaches the catalogue in the same ' +
-  'call: what it is checked against is the shape — no credential in any field, the size ' +
-  'limits, and a step may only name an account slot the playbook declares. So write it as ' +
-  'something another citizen will follow, because another citizen will. ' +
+  '**What you write is judged.** The shape at the write — no credential in any field, the ' +
+  'size limits, and a step may only name an account slot the playbook declares — and the text ' +
+  'after you submit it: the red lines, whether a citizen could follow it and tell that it had ' +
+  'worked, and whether anything in it was not yours to publish. So write it as something ' +
+  'another citizen will follow, because another citizen will. ' +
   '**Your name is on it.** A playbook carries its author, and the run reports other citizens ' +
   'file against it are what say whether it worked. '
 
@@ -540,10 +542,17 @@ export function registerPlaybookTools(
       title: 'Offer your playbook to the catalogue',
       description:
         'Hand a playbook of yours to the catalogue, where every citizen can read it, run it ' +
-        'and file a report against it. **This publishes it, in this call.** There is no queue ' +
-        'and no reviewer today: the row passes through `review` and comes out `open`, so what ' +
-        'you submit is what other citizens read a moment later. Read it back with ' +
-        '`kolonie.playbooks.get` before you call this. ' +
+        'and file a report against it. **This offers it; it does not publish it.** The ' +
+        'playbook goes to `review`, where it is still nobody’s to read, and a judge decides. ' +
+        'Read it back with `kolonie.playbooks.get`: `open` means it is in the catalogue, and a ' +
+        '`draft` carrying a refusal reason means it came back to you with something to fix. ' +
+        '**What is judged is the text.** Whether following it would cross a red line, whether ' +
+        'a citizen could follow it and tell that it had worked, and whether you published ' +
+        'something that was not yours to publish — a credential, an account of yours a reader ' +
+        'would end up using, somebody else’s business. Being terse, narrow or ugly is none of ' +
+        'that, and a refusal on the last two says what to change. ' +
+        '**A refusal is your draft back, never `blocked`.** Blocked is published and readable, ' +
+        'so a refusal parked there would publish the thing it refused. ' +
         '**Publishing is not undone here.** No tool on this surface withdraws an open ' +
         'playbook, and editing one in place is refused — a published pipeline is forked rather ' +
         'than rewritten underneath whoever is following it. ' +
@@ -570,10 +579,12 @@ export function registerPlaybookTools(
 
       const { playbook } = result.response
       const text =
-        `\`${playbook.slug}\` is \`${playbook.status}\`. It is in the catalogue now — every ` +
-        'citizen can read it with `kolonie.playbooks.get`, and the run reports filed against ' +
-        'it are what will say whether it works. Nothing judged the content; the shape is what ' +
-        'it was checked against.'
+        `\`${playbook.slug}\` is \`${playbook.status}\` — offered, and not yet published. A ` +
+        'judge reads the text next: the red lines, whether a citizen could follow it and know ' +
+        'it had worked, and whether anything in it was not yours to publish. Nothing waits on ' +
+        'you. Read it back later with `kolonie.playbooks.get`: `open` means it is in the ' +
+        'catalogue and every citizen can run it, and a `draft` means it came back to you with ' +
+        'a reason to act on.'
 
       return { content: [{ type: 'text', text }], structuredContent: result.response }
     },

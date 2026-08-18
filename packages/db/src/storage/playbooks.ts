@@ -57,6 +57,7 @@ function toPlaybook(row: typeof playbooks.$inferSelect): Playbook {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     publishedAt: row.publishedAt,
+    refusalReason: row.refusalReason,
   }
 }
 
@@ -349,34 +350,45 @@ export async function updatePlaybookDraft(
 }
 
 /**
- * Submit a playbook for review, and — today — publish it.
+ * Offer a playbook to the catalogue: `draft` or `blocked` → `review`.
  *
- * ## The review is a synchronous stub, and this is the paragraph that says so
+ * **It stops at `review` and publishes nothing** (`#1219`). Until this issue the
+ * second half of this function was a synchronous stub that set `open` in the
+ * same transaction, because `#1179` shipped the authoring surface before there
+ * was anything to judge the content. What publishes now is
+ * `apps/moderation-runner/src/playbooks.ts`, which polls this status the way
+ * `quests.ts` polls `pending_review`, judges three stages against the red lines,
+ * and calls `publishPlaybook` or `recordPlaybookModeration` in
+ * `./playbook-moderations.js`.
  *
- * `#1179` asks for *minimal* moderation and permits exactly this: the row passes
- * through `review` and comes out `open` in the same transaction. Nothing judges
- * the content. What stands between a citizen and the catalogue is the schema —
- * `PlaybookDraftSchema`, whose `line()` refuses a credential outright rather than
- * redacting one (freeze I), and whose bounds and cross-field rules make the
- * document coherent — and nothing else.
+ * So a submit is no longer a publish, and a citizen that submits and immediately
+ * reads its playbook back sees `review`. That is the state the tool description
+ * now promises, and the wait is the point of the issue rather than a regression.
  *
- * **`review` is written even though no reader observes it inside the
- * transaction**, and that is deliberate rather than ceremony. When the judged
- * pass lands it belongs in `apps/moderation-runner`, polling for `review` the way
- * `quests.ts` polls for `pending_review`; the only change here is that the second
- * update leaves this function. A submit that jumped straight to `open` would
- * leave that runner with no queue to read and no state to poll for.
+ * ## Why the refusal reason is cleared here
+ *
+ * A refused playbook carries {@link Playbook.refusalReason} and sits in `draft`.
+ * Offering it again clears it in the same write that moves the status, because a
+ * reason that outlived the text it was about would be read as a verdict on the
+ * new text — by its author, who has just rewritten the thing, and by the check
+ * `playbooks_open_carries_no_refusal` when the pass approves it.
  *
  * ## What `blocked` is not
  *
- * The issue asks for `blocked` on red-line content. Freeze B makes `blocked` a
+ * `#1179` asked for `blocked` on red-line content. Freeze B makes `blocked` a
  * status **about content that a citizen may still read, cite and fork** — a
  * pipeline the world broke — and `apps/api/src/playbooks.ts` lists it beside
- * `open` for exactly that reason. Publishing a red-line playbook under a
- * moderation label would therefore publish it. So nothing here writes `blocked`
- * from a verdict: a refusal keeps the row where it is and tells its author, and
- * `blocked` stays the content status freeze B ratified. The judged pass that
- * replaces this stub is `#1219`.
+ * `open` for exactly that reason, so a refusal parked there would publish the
+ * thing it refused. `#1219` settled it the other way: a refusal returns the row
+ * to `draft`, where no other citizen can see it and its author can rewrite it.
+ *
+ * ## Submitting twice
+ *
+ * Allowed from `blocked`, which is the case it is for: a citizen whose pipeline
+ * the world broke fixes it with {@link updatePlaybookDraft} and offers it again.
+ * `publishedAt` is not touched here at all — the pass sets it, and only the
+ * first time — so a playbook that was open, broke and was fixed keeps the day it
+ * first reached the catalogue.
  */
 export async function submitPlaybookForReview(
   db: Database,
@@ -392,27 +404,14 @@ export async function submitPlaybookForReview(
       return { outcome: 'not-editable', status }
     }
 
-    const now = new Date().toISOString()
-    await tx
+    const [offered] = await tx
       .update(playbooks)
-      .set({ status: 'review', updatedAt: now })
-      .where(eq(playbooks.id, row.id))
-
-    const [published] = await tx
-      .update(playbooks)
-      .set({
-        status: 'open',
-        // `playbooks_open_is_published` requires it, and the constraint is an
-        // implication rather than an equality so a playbook that is blocked or
-        // retired later keeps the day it first reached the catalogue.
-        publishedAt: row.publishedAt ?? now,
-        updatedAt: now,
-      })
+      .set({ status: 'review', refusalReason: null, updatedAt: new Date().toISOString() })
       .where(eq(playbooks.id, row.id))
       .returning()
 
-    if (!published) return { outcome: 'unknown-playbook' }
-    return { outcome: 'written', playbook: toPlaybook(published) }
+    if (!offered) return { outcome: 'unknown-playbook' }
+    return { outcome: 'written', playbook: toPlaybook(offered) }
   })
 }
 

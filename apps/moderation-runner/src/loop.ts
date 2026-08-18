@@ -38,6 +38,7 @@ import { redLineReviewTick, type RedLineReviewLoopDependencies } from './redline
 import { questAuditTick, type QuestAuditLoopDependencies } from './quest-audit.js'
 import { questEndingsTick, type QuestEndingsLoopDependencies } from './quest-endings.js'
 import { questReportTick, type QuestReportLoopDependencies } from './quest-reports.js'
+import { playbookTick, type PlaybookLoopDependencies } from './playbooks.js'
 import { directionTick, type DirectionLoopDependencies } from './directions.js'
 import { profileTick, type ProfileLoopDependencies } from './profiles.js'
 import { judgeQuality } from './quality.js'
@@ -149,6 +150,18 @@ export interface LoopDependencies {
    * check and a deploy step.
    */
   readonly questReports?: QuestReportLoopDependencies
+  /**
+   * The judged playbook review pass (`#1219`), or nothing.
+   *
+   * **Optional in the shape and not in a deployment**, like {@link redLineReview}
+   * and for the sharper version of its reason. The other optional passes degrade
+   * to *nothing happens yet*. This one degrades to a citizen whose playbook sits
+   * in `review` forever, because `submitPlaybookForReview` moves a draft there
+   * whether or not anything is wired to judge it — and until this pass existed
+   * that submit published in the same transaction, so an unwired runner is a
+   * regression rather than a smaller installation.
+   */
+  readonly playbooks?: PlaybookLoopDependencies
   /**
    * Reading what citizens said they want to become (`#140`).
    *
@@ -856,6 +869,50 @@ async function moderateQuests(deps: LoopDependencies, batchSize: number, log: Lo
 }
 
 /**
+ * Run one playbook pass (`#1219`).
+ *
+ * **On the quest runner's poll rather than the report runner's**, because the
+ * two waits are the same wait: a citizen that has just offered a playbook to the
+ * catalogue is sitting in front of `kolonie.playbooks.read` watching for the
+ * status to move, exactly as a sponsor watches a quest. The report queues nobody
+ * is waiting on run on the slower timer.
+ *
+ * Its failure is swallowed for {@link moderateQuests}' reason: a playbook queue
+ * that throws must not take the quests down with it, and what the playbooks lose
+ * is one poll.
+ */
+async function moderatePlaybooks(
+  deps: LoopDependencies,
+  batchSize: number,
+  log: Log,
+): Promise<void> {
+  const { playbooks } = deps
+  if (playbooks === undefined) return
+
+  try {
+    const outcome = await playbookTick({ log, ...playbooks }, batchSize)
+    if (outcome.judged > 0 || outcome.released > 0) {
+      log.info(
+        `playbooks: ${outcome.judged} judged, ${outcome.approved} cleared, ` +
+          `${outcome.published} published, ${outcome.rejected} returned, ` +
+          `${outcome.failed} deferred, ${outcome.released} released late`,
+        {
+          event: 'playbooks.pass.done',
+          judged: outcome.judged,
+          approved: outcome.approved,
+          published: outcome.published,
+          rejected: outcome.rejected,
+          failed: outcome.failed,
+          released: outcome.released,
+        },
+      )
+    }
+  } catch (error) {
+    log.error('the playbook moderation pass failed', error, { event: 'playbooks.pass.failed' })
+  }
+}
+
+/**
  * How many quest polls pass between sweeps of the held quests (`#759`).
  *
  * **A multiplier rather than a second interval**, following
@@ -1102,6 +1159,9 @@ export function startRunner(deps: LoopDependencies, options: RunnerOptions = {})
  *
  * A sponsor is waiting for this verdict after submitting a quest, so its faster
  * schedule must not be delayed by a report moderation pass already in flight.
+ * The playbook pass rides it for the same reason (`#1219`) — an author that has
+ * just offered a playbook is waiting exactly as the sponsor is — which is why
+ * the name of this function is now narrower than what it runs.
  */
 export function startQuestRunner(deps: LoopDependencies, options: RunnerOptions = {}): Runner {
   const pollIntervalMs = options.pollIntervalMs ?? DEFAULTS.pollIntervalMs
@@ -1132,6 +1192,7 @@ export function startQuestRunner(deps: LoopDependencies, options: RunnerOptions 
         if (ticks % HELD_QUEST_TICK_MULTIPLIER === 0) await sweepHeldQuests(deps, batchSize, log)
         ticks++
         await moderateQuests(deps, batchSize, log)
+        await moderatePlaybooks(deps, batchSize, log)
         lastPollAt = new Date().toISOString()
         consecutiveFailures = 0
         if (running) await pause(pollIntervalMs)

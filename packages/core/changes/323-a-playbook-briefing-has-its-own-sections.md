@@ -1,0 +1,3 @@
+<!-- section: Added -->
+
+- A playbook briefing has its own sections (`kolonie-platform#1249`). `PlaybookBriefingSectionSchema` is `step | route | yield | unsolved` — a new enum beside the task/Atlas `wall | route | unsolved`, because a playbook is both the subject and the instruction and has one question the other corpora do not: did it return anything. `PlaybookBriefingClaimSchema` mirrors the task claim shape, adds `stepPosition` for the `step` section, and imports `BRIEFING_CLAIM_MAX_LENGTH` rather than redeclaring it. `isCurrentClaim` is reused unchanged. `yield` is documented as unverified citizen report; the Colony measures no money.

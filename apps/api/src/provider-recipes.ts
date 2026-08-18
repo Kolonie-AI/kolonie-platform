@@ -30,6 +30,7 @@ import {
   recipeStatusIsOfferable,
   stepInstruction,
   operatorStepCount,
+  postProofRouteNote,
   recipeWall,
   REFUSAL_UNSTATED,
   wallsMatch,
@@ -1241,10 +1242,23 @@ export function recipeAsText(recipe: ProviderRecipe, secretHandoff: boolean): st
     })
     .join('\n')
 
+  /**
+   * How the account is proved, and — when the provider refuses the Colony's
+   * reader — that `provider-post` cannot close (`#1267`). Driven off the
+   * measurement rather than hardcoding a provider name into this sentence, so a
+   * second entry on the list gets the same guidance without another edit here.
+   */
   const proved =
     recipe.proves === 'rung'
       ? 'An Academy rung proves this account once it exists.'
-      : `Prove it afterwards with kolonie.accounts.prove, method \`${recipe.proves ?? ''}\`.`
+      : (() => {
+          const base = `Prove it afterwards with kolonie.accounts.prove, method \`${recipe.proves ?? ''}\`.`
+          const note = postProofRouteNote(recipe.provider)
+          if (note === null) return base
+          // Wrap the method name the way this surface already wraps method names —
+          // the helper returns plain prose so Atlas HTML does not inherit backticks.
+          return `${base} ${note.replace(/\bprovider-mail\b/g, '`provider-mail`')}`
+        })()
 
   /**
    * **Above the steps and not only beside the one that fails** (`#566`), because

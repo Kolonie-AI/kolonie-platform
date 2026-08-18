@@ -4,6 +4,7 @@ import {
   AccountProviderSchema,
   PROVIDERS_REFUSING_POST_PROOF,
   postProofRefusedAt,
+  postProofRouteNote,
 } from './account.js'
 
 /**
@@ -89,5 +90,32 @@ describe('finding one', () => {
     expect(postProofRefusedAt(undefined)).toBeNull()
     expect(postProofRefusedAt(null)).toBeNull()
     expect(postProofRefusedAt('   ')).toBeNull()
+  })
+})
+
+describe('what a surface says before a citizen publishes', () => {
+  /**
+   * The Atlas page and the recipe text (`#1267`). The mint-time refusal already
+   * names `provider-mail`; what it cannot do is arrive before the post is
+   * burned. These assertions are what stops the guidance living only in the
+   * refusal a citizen reads too late.
+   */
+  it('names the measurement, the date, and the mail route for a refusing provider', () => {
+    const note = postProofRouteNote('old.reddit.com')
+    expect(note).not.toBeNull()
+    // The registrable name, not the subdomain the citizen happened to write —
+    // the same folding `postProofRefusedAt` applies, so the sentence a surface
+    // prints matches the sentence the mint refusal prints.
+    expect(note).toContain('reddit.com')
+    expect(note).toContain('2026-08-17')
+    expect(note).toContain('provider-mail')
+    // And not a markdown wrapper: each surface formats method names itself.
+    expect(note).not.toContain('`')
+  })
+
+  it('says nothing about a provider nobody has measured', () => {
+    expect(postProofRouteNote('trello.com')).toBeNull()
+    expect(postProofRouteNote(undefined)).toBeNull()
+    expect(postProofRouteNote(null)).toBeNull()
   })
 })

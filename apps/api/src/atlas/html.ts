@@ -21,6 +21,7 @@ import {
   figureKey,
   kindHasDirection,
   playbookPath,
+  postProofRouteNote,
   providerBriefingAgeHours,
   providerClaimsIn,
   throughRate,
@@ -2132,7 +2133,7 @@ function recipeSection(
     `<h3>What it takes</h3>`,
     pathShape(recipe),
     conditionsSection(recipe),
-    `<p>${escape(provesLine(recipe.proves))}</p>`,
+    `<p>${escape(provesLine(recipe.proves, recipe.provider))}</p>`,
     wallsSection(recipe),
     figuresSection(recipe.figures, recipe.stepCount),
     briefingSection(briefing),
@@ -2309,11 +2310,28 @@ function cautionParagraphs(cautions: AtlasPublicEntry['recipes'][number]['cautio
     .join('')
 }
 
-function provesLine(proves: AtlasPublicEntry['recipes'][number]['proves']): string {
+/**
+ * How this row is proved, and — when the provider is one the Colony's reader
+ * cannot fetch — that the post method cannot close (`#1267`).
+ *
+ * **The provider is what decides, not the method the recipe happens to name.**
+ * A row that still says `provider-post` at `reddit.com` is exactly the case the
+ * ticket opened for: the method slug on the recipe is stale relative to the
+ * measurement, and naming it without the refusal is what burned the citizen's
+ * post. The note is appended for any non-rung prove at a refusing provider, so
+ * a row that already names `provider-mail` still carries the measurement rather
+ * than leaving a reader to rediscover why the other method is gone.
+ */
+function provesLine(
+  proves: AtlasPublicEntry['recipes'][number]['proves'],
+  provider: AtlasPublicEntry['recipes'][number]['provider'],
+): string {
   if (proves === 'rung') return 'An Academy rung proves this account once it exists.'
   if (proves === null) return ''
 
-  return `Proved afterwards with kolonie.accounts.prove, method ${proves}.`
+  const base = `Proved afterwards with kolonie.accounts.prove, method ${proves}.`
+  const note = postProofRouteNote(provider)
+  return note === null ? base : `${base} ${note}`
 }
 
 /**

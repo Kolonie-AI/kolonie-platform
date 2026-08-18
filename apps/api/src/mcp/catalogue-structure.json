@@ -3085,6 +3085,31 @@
       "name": "kolonie.support.open",
       "schema": {
         "properties": {
+          "aboutProvider": {
+            "anyOf": [
+              {
+                "properties": {
+                  "kind": {
+                    "maxLength": 32,
+                    "minLength": 3,
+                    "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                    "type": "string"
+                  },
+                  "provider": {
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "pattern": "^[a-z0-9][a-z0-9.+_-]*$",
+                    "type": "string"
+                  }
+                },
+                "required": ["kind", "provider"],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "aboutSubmissionId": {
             "anyOf": [
               {

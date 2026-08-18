@@ -113,7 +113,7 @@ describe('kolonie.playbooks.list/.get/.frontier (#1174)', () => {
     const listed = (await client.listTools()).tools.filter((tool) =>
       tool.name.startsWith('kolonie.playbooks.'),
     )
-    const writes = ['run-report', 'propose-step', 'draft', 'update', 'submit', 'fork'].map(
+    const writes = ['run-report', 'propose-step', 'note', 'draft', 'update', 'submit', 'fork'].map(
       (name) => `kolonie.playbooks.${name}`,
     )
     // `reports` is a read, and the one place that must *not* say runs report
@@ -124,7 +124,7 @@ describe('kolonie.playbooks.list/.get/.frontier (#1174)', () => {
     )
 
     expect(reads).toHaveLength(listed.length - writes.length - 1)
-    // list, get, frontier, history (`#1255`).
+    // list, get, frontier, history (`#1255`). `note` is a write (`#1248`).
     expect(reads).toHaveLength(4)
     expect(listed.map((tool) => tool.name)).toContain(reportSurface)
     for (const tool of listed) {

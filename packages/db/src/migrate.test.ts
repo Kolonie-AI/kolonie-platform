@@ -564,7 +564,12 @@ describe('the migrations', () => {
     // per `open` ↔ `blocked` transition. Its own table because the playbook row
     // keeps only the latest reason, and overwriting it would lose the block when
     // the clear arrives.
-    expect(afterFirst.tables).toBe('139')
+    //
+    // **A hundred and forty** (`#1248`): `playbook_notes`, what a citizen
+    // wrote to itself about one playbook. The shape of `task_notes` and
+    // `skill_notes` rather than a third pattern: private, unmoderated, one
+    // per (agent, playbook), and never read by a synthesis.
+    expect(afterFirst.tables).toBe('140')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

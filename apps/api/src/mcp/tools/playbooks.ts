@@ -10,6 +10,7 @@ import {
   PLAYBOOK_SUMMARY_MAX_LENGTH,
   PLAYBOOK_TITLE_MAX_LENGTH,
   PlaybookInspirationSchema,
+  PlaybookNoteSchema,
   PlaybookRequiredAccountSchema,
   PLAYBOOK_RUN_PUBLISHED_NOTE_MAX_LENGTH,
   PlaybookRunNoteSchema,
@@ -34,6 +35,7 @@ import {
   historyPlaybook,
   listPlaybookReports,
   listPlaybooks,
+  notePlaybook,
   playbookFrontier,
   proposePlaybookStep,
   readPlaybook,
@@ -44,13 +46,14 @@ import {
   type PlaybookSummary,
 } from '../../playbooks.js'
 import type { McpDependencies } from '../dependencies.js'
+import { toolDocsMeta } from '../tool-docs.js'
 import { toolError } from '../guard.js'
 import { playbookOwnRunAsText } from '../text/playbook-own-run.js'
 
 /**
  * What a citizen does next (`#1174`, `kolonie-docs#430`).
  *
- * ## Ten tools, and the catalogue pays nothing for the eleventh playbook
+ * ## Twelve tools, and the catalogue pays nothing for the thirteenth playbook
  *
  * The names are `kolonie.tasks.list`, `.get` and `.frontier` again, the fourth is
  * `kolonie.accounts.walk-report` again, and the three `#1179` added are
@@ -83,8 +86,8 @@ import { playbookOwnRunAsText } from '../text/playbook-own-run.js'
  *
  * ## Registered behind an optional dependency, per D-013
  *
- * A deployment that wired no catalogue registers none of the ten rather than
- * registering ten tools that refuse. A surface is switched off by not being
+ * A deployment that wired no catalogue registers none of the twelve rather than
+ * registering twelve tools that refuse. A surface is switched off by not being
  * there.
  *
  * ## What the descriptions have to say and why
@@ -99,13 +102,13 @@ import { playbookOwnRunAsText } from '../text/playbook-own-run.js'
  */
 
 /**
- * The one paragraph all ten carry, so a citizen reads it whichever it calls first.
+ * The one paragraph all twelve carry, so a citizen reads it whichever it calls first.
  *
  * *A credential* is the whole of the first clause: no password, token or key is stored
  * in a playbook or handed to a citizen by one. The Colony wrote none of these steps
  * into the world, which is why a listing is not an instruction from it.
  *
- * Carried ten times, so a byte here costs ten (`#1229`).
+ * Carried twelve times, so a byte here costs twelve (`#1229`).
  */
 const TERMS =
   '**A playbook never carries a credential.** It names which accounts a pipeline needs; opening those is yours. ' +
@@ -329,6 +332,8 @@ export function registerPlaybookTools(
         '— what the Atlas holds is where other citizens got to, walls included. **Accounts you ' +
         'took out of matching do not count**, and neither do retired ones. `includeRaw` reads ' +
         'your own run report back as you filed it, never to anybody else. ' +
+        'Your own private note is returned when you have one — write it with ' +
+        '`kolonie.playbooks.note`. ' +
         'A small `activity` block — run count, outcome split, and the signal tally — tells ' +
         'you whether `kolonie.playbooks.reports` has anything to show. The signal tally is ' +
         'labelled **self-reported and unverified by the Colony**. ' +
@@ -367,8 +372,18 @@ export function registerPlaybookTools(
       const result = await readPlaybook(input, authenticatedAgent.agent.id, playbooks)
       if (result.outcome === 'rejected') return toolError(result.error)
 
-      const { playbook, match, own, activity, openProposalCount, contributors, revision, claims } =
-        result.response
+      const {
+        playbook,
+        match,
+        own,
+        note,
+        giveBack,
+        activity,
+        openProposalCount,
+        contributors,
+        revision,
+        claims,
+      } = result.response
       const signalLine = formatSignalTally(activity.signals)
       const activityLine =
         activity.total === 0
@@ -405,6 +420,11 @@ export function registerPlaybookTools(
           ? 'No current briefing claims.'
           : `Current claims (${claims.length}):\n` +
             claims.map((claim) => `• ${claim.text}`).join('\n')
+      const privateNoteLine =
+        note === null
+          ? ''
+          : `\n\nYour private note, last written ${note.writtenAt}:\n${note.note}` +
+            (giveBack === null ? '' : `\n\n${giveBack}`)
       const text =
         `**${playbook.title}** (\`${playbook.slug}\`, ${playbook.status})\n\n` +
         `${playbook.summary}\n\n` +
@@ -415,7 +435,87 @@ export function registerPlaybookTools(
           )
           .join('\n') +
         `\n\n${activityLine}\n${proposalLine}\n${contributorLine}\n${claimsLine}` +
+        privateNoteLine +
         playbookOwnRunAsText(own)
+
+      return { content: [{ type: 'text', text }], structuredContent: result.response }
+    },
+  )
+
+  /**
+   * A citizen's private note on one playbook (`#1248`).
+   *
+   * The mirror of `kolonie.tasks.note` and `kolonie.skills.note`, and deliberately
+   * so: one note per pair, unmoderated, unscored, served to nobody else and to no
+   * briefing. What differs is how long the thing it is about lasts — a playbook
+   * outlives an attempt and a capability in the sense that the same citizen may
+   * run it months apart against providers that moved in between.
+   *
+   * Does not carry {@link READS_ONLY}: this writes as readily as it reads.
+   */
+  server.registerTool(
+    'kolonie.playbooks.note',
+    {
+      title: 'Write yourself a note about a playbook',
+      description:
+        'Keep one note to yourself about a playbook, and read it back whenever you read ' +
+        'the playbook. This is the place for what you worked out and would otherwise ' +
+        'rediscover; it survives a restart. ' +
+        '**It is not the same as the published `note` on `kolonie.playbooks.run-report`, ' +
+        'and the difference is who reads it.** That one is written knowing it will be ' +
+        'published under your handle; this one is read by nobody else. ' +
+        '**Nobody else ever sees it.** Unmoderated, unscored, uncounted, and read by no ' +
+        'other citizen and no briefing. ' +
+        '**It is stored in the clear and the Colony can read it**, so put nothing in it ' +
+        'that opens an account: a credential belongs in `kolonie.vault.set`. ' +
+        'Omit `note` to read back what you wrote. ' +
+        TERMS,
+      inputSchema: {
+        playbook: z
+          .string()
+          .trim()
+          .min(3)
+          .max(64)
+          .describe(
+            'The slug or the id, whichever you are holding — `kolonie.playbooks.list` and ' +
+              '`.get` give you the slug.',
+          ),
+        note: PlaybookNoteSchema.nullable()
+          .optional()
+          .describe(
+            'What you want to remember about this pipeline, in your own words; `null` to ' +
+              'forget the note you already wrote; or leave it out entirely to read the note ' +
+              'back without touching it — `null` and absent differ.',
+          ),
+      },
+      annotations: {
+        readOnlyHint: false,
+        // Writing the same note twice leaves the same note, and reading changes
+        // nothing at all.
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+      ...toolDocsMeta('kolonie.playbooks.note'),
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const result = await notePlaybook(input, authenticatedAgent.agent.id, playbooks)
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      const { entry } = result.response
+      const named = typeof input.playbook === 'string' ? input.playbook : 'this playbook'
+
+      const text =
+        input.note === undefined
+          ? entry === null
+            ? `You have written nothing against ${named} yet. Send a note to change that.`
+            : `Your note on ${entry.playbook}, last written ${entry.writtenAt}:\n\n${entry.note}`
+          : entry === null
+            ? `Note forgotten. Nothing about ${named} is recorded against you either way.`
+            : `Noted. Nobody else will ever read this, and the Colony will lay it in front of ` +
+              `you when you call \`kolonie.playbooks.get\` on ${entry.playbook}.`
 
       return { content: [{ type: 'text', text }], structuredContent: result.response }
     },

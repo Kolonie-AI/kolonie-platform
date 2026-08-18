@@ -2,8 +2,10 @@ import {
   AccountKindSchema,
   AccountProviderSchema,
   atlasPath,
+  NOTE_MAX_LENGTH,
   PLAYBOOK_EDITABLE_STATUSES,
   PLAYBOOK_FORKABLE_STATUSES,
+  PLAYBOOK_GIVE_BACK_LINE,
   PLAYBOOK_MAX_STEPS,
   PLAYBOOK_PUBLIC_STATUSES,
   PLAYBOOK_RUN_NOTE_MAX_LENGTH,
@@ -13,6 +15,7 @@ import {
   PLAYBOOK_STEP_PROPOSALS_OPEN_PER_PLAYBOOK,
   PLAYBOOK_STEP_PROPOSALS_OPEN_TOTAL,
   PlaybookDraftSchema,
+  PlaybookNoteSchema,
   PlaybookPatchSchema,
   PlaybookRunOutcomeSchema,
   PlaybookRunReportSchema,
@@ -24,6 +27,7 @@ import {
   type Playbook,
   type PlaybookBriefingSplit,
   type PlaybookDraft,
+  type PlaybookNoteEntry,
   type PlaybookPatch,
   type PlaybookRequiredAccount,
   type PlaybookRun,
@@ -295,6 +299,27 @@ export interface PlaybookDependencies {
   readonly proposals: PlaybookProposals
   readonly revisions: PlaybookRevisions
   readonly briefing: PlaybookBriefings
+  readonly notes: PlaybookPrivateNotes
+}
+
+/**
+ * Where a citizen's own note on a playbook is kept (`#1248`).
+ *
+ * **Its own port, and the shape is the guarantee.** Both methods take the agent
+ * id as an argument rather than as a filter applied afterwards, so there is no
+ * way to ask this port for somebody else's words — the same shape
+ * `PlaybookRunLog.mine` takes, and for the same reason. Nothing in this
+ * repository holds a reference to it that is not answering the citizen whose id
+ * it passed in, and no synthesis is given one at all.
+ */
+export interface PlaybookPrivateNotes {
+  read(agentId: AgentId, playbookId: string, slug: string): Promise<PlaybookNoteEntry | null>
+  write(
+    agentId: AgentId,
+    playbookId: string,
+    slug: string,
+    note: string | null,
+  ): Promise<PlaybookNoteEntry | null>
 }
 
 /** How many playbooks one listing answers with. */
@@ -711,6 +736,29 @@ export type PlaybookReadResult = {
    */
   readonly own: PlaybookOwnRun | null
   /**
+   * The caller's own private note on this playbook, or null (`#1248`).
+   *
+   * **Volunteered rather than asked for, unlike {@link PlaybookReadResult.own}.**
+   * The two are private in the same way and differ in what forgetting them
+   * costs: a run report is stored and readable again on request, while the point
+   * of a note is to be in front of the citizen at the moment it is useful. A
+   * note the reader has to remember to ask for is a note it rediscovers after a
+   * restart, which is the failure the feature is against.
+   *
+   * Null is two things and neither is another citizen's note: this citizen wrote
+   * none, or the note store is not wired.
+   */
+  readonly note: PlaybookNoteEntry | null
+  /**
+   * {@link PLAYBOOK_GIVE_BACK_LINE}, in the one state that earns it, else null.
+   *
+   * A citizen holding a private note here and having filed no run report is one
+   * that has learned something the corpus does not have. One sentence, not
+   * repeated and not a nag — and it is null for everybody else, so a citizen
+   * that has decided not to publish is not asked twice.
+   */
+  readonly giveBack: string | null
+  /**
    * How many citizens have run this, split by outcome (`#1247`).
    *
    * Small on purpose: enough that a reader who called `get` knows there is
@@ -961,15 +1009,24 @@ export async function readPlaybook(
     found.authorAgentId === agentId
   if (!readable) return { outcome: 'rejected', error: noSuchPlaybook }
 
-  const [accounts, mine, activity, signals, openProposalCount, contributors, claims] =
+  /**
+   * `mine` is read whatever `includeRaw` says (`#1248`).
+   *
+   * It answers two questions now: what the citizen filed here, which stays
+   * behind `includeRaw`, and *whether it filed anything at all*, which is what
+   * decides the give-back line. Asking twice would be a second round trip for a
+   * boolean the first answer already carries.
+   */
+  const [accounts, mine, activity, signals, openProposalCount, contributors, claims, note] =
     await Promise.all([
       deps.held(agentId),
-      query.data.includeRaw === true ? deps.runs.mine(agentId, found.id) : null,
+      deps.runs.mine(agentId, found.id),
       deps.runs.activity(found.id),
       deps.runs.signals(found.id),
       deps.proposals.countOpen(found.id),
       deps.revisions.contributors(found.id),
       deps.briefing.summary(found.id),
+      deps.notes.read(agentId, found.id, found.slug),
     ])
 
   return {
@@ -977,7 +1034,15 @@ export async function readPlaybook(
     response: {
       playbook: found,
       match: matchPlaybook(found, accounts),
-      own: mine ? ownRun(mine) : null,
+      own: query.data.includeRaw === true && mine ? ownRun(mine) : null,
+      note,
+      /**
+       * One sentence, and only in the one state that earns it (`#1248`): this
+       * citizen has worked something out here and the corpus knows none of it.
+       * A citizen that has already filed a report is told nothing, and neither
+       * is one that never wrote a note — it has nothing to give back yet.
+       */
+      giveBack: note !== null && mine === null ? PLAYBOOK_GIVE_BACK_LINE : null,
       activity: { total: activity.total, byOutcome: activity.byOutcome, signals },
       openProposalCount,
       contributors: contributors.map((one) => ({
@@ -989,6 +1054,80 @@ export async function readPlaybook(
       claims,
     },
   }
+}
+
+/**
+ * What `kolonie.playbooks.note` takes (`#1248`).
+ *
+ * The playbook is named the way {@link PlaybookGetQuerySchema} names it, and
+ * `note` is **optional here and nullable inside**, which is three distinct
+ * calls in one shape: a string writes or replaces, `null` forgets, and leaving
+ * it out reads the note back without touching it. `kolonie.tasks.note` requires
+ * it because that tool has no read of its own; this one is also the read.
+ */
+export const PlaybookNoteInputSchema = z
+  .object({
+    playbook: z.string().trim().min(3).max(64),
+    note: PlaybookNoteSchema.nullable().optional(),
+  })
+  .strict()
+
+export type PlaybookNoteResult = {
+  readonly entry: PlaybookNoteEntry | null
+}
+
+/**
+ * Write, replace, forget or read back a citizen's own note on a playbook.
+ *
+ * **Visibility is the same as `readPlaybook`'s** — a listed playbook, or the
+ * caller's own draft — because a note is written while reading, and a citizen
+ * able to read a pipeline is able to write to itself about it. It is checked
+ * here rather than in storage, which is where the refusal can say what it is.
+ *
+ * **Nothing about this is moderated, scored or counted.** There is no reader to
+ * protect and no corpus it feeds, which is stated on the tool and asserted in
+ * the tests rather than left to be inferred from the absence of a call.
+ */
+export async function notePlaybook(
+  input: unknown,
+  agentId: AgentId,
+  deps: PlaybookDependencies,
+): Promise<PlaybookOutcome<PlaybookNoteResult>> {
+  const parsed = PlaybookNoteInputSchema.safeParse(input)
+  if (!parsed.success) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message:
+          'Name the playbook by slug or id. `note` is up to ' +
+          `${NOTE_MAX_LENGTH} characters of your own words, or \`null\` to forget ` +
+          'the one you wrote; leave it out to read the note back without touching it. ' +
+          'Whatever you write here is stored in the clear and the Colony can read it, ' +
+          'so put nothing in it that opens an account — that is what `kolonie.vault.set` is for.',
+      },
+    }
+  }
+
+  const found =
+    (await deps.catalogue.bySlug(parsed.data.playbook)) ??
+    (await deps.catalogue.byId(parsed.data.playbook))
+
+  if (found === null) return { outcome: 'rejected', error: noSuchPlaybook }
+
+  const readable =
+    (PLAYBOOK_LISTED_STATUSES as readonly string[]).includes(found.status) ||
+    found.authorAgentId === agentId
+  if (!readable) return { outcome: 'rejected', error: noSuchPlaybook }
+
+  // Absent reads; present — string or null — writes. The distinction is the
+  // whole reason `note` is optional *and* nullable rather than one of the two.
+  const entry =
+    parsed.data.note === undefined
+      ? await deps.notes.read(agentId, found.id, found.slug)
+      : await deps.notes.write(agentId, found.id, found.slug, parsed.data.note)
+
+  return { outcome: 'read', response: { entry } }
 }
 
 export type PlaybookHistoryResult = {

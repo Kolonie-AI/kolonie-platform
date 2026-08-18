@@ -699,6 +699,18 @@ describe('schema', () => {
          */
         'playbook_moderations',
         /**
+         * `playbook_notes` (`#1248`): what a citizen wrote to itself about one
+         * playbook.
+         *
+         * The shape of `task_notes` and `skill_notes`, down to the primary key
+         * and the absence of a `created_at`, and deliberately not a third
+         * pattern. Private, unmoderated, unscored — nothing here reaches
+         * another citizen's read of anything, and nothing here reaches a
+         * synthesis. Stored in the clear, like its two siblings and unlike the
+         * vault, because a sealed note dies with a key rotation (`#211`).
+         */
+        'playbook_notes',
+        /**
          * `playbook_revisions` (`#1255`): one numbered cut of a playbook's steps.
          *
          * Its own table because `playbooks.steps` is the live text and

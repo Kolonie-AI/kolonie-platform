@@ -10,6 +10,7 @@ import {
   type AgentId,
   type Playbook,
   type PlaybookBriefingSplit,
+  type PlaybookNoteEntry,
   type PlaybookRun,
   type PlaybookRunOutcome,
   type PlaybookStatus,
@@ -113,6 +114,18 @@ export function fakePlaybooks(): FakePlaybooks {
       readonly isCreator: boolean
     }[]
   >()
+  /**
+   * Private notes, keyed the way the primary key is (`#1248`).
+   *
+   * The key is `agentId:playbookId` and not a list, because *one note per
+   * citizen × playbook* is the rule the tool is asserted against — a fixture
+   * that appended would let a test pass while the real upsert was inserting
+   * twice. The agent is in the key rather than a filter afterwards, which is
+   * the whole property the privacy assertion rests on: a fixture that scanned
+   * for a playbook id and returned the first match would hand one citizen
+   * another's words.
+   */
+  const privateNotes = new Map<string, PlaybookNoteEntry>()
 
   return {
     setBriefing(playbookId, split) {
@@ -420,6 +433,34 @@ export function fakePlaybooks(): FakePlaybooks {
       async summary(playbookId) {
         const split = briefings.get(playbookId) ?? emptyBriefing()
         return split.current.slice(0, 6) as readonly ServedPlaybookBriefingClaim[]
+      },
+    },
+
+    /**
+     * A citizen's own private note on a playbook (`#1248`).
+     *
+     * **The agent is in the key and not in a filter afterwards**, which is the
+     * whole property the privacy assertion rests on — see the map above. A
+     * write with `null` deletes; a write with a string upserts. Nothing here
+     * reaches a synthesis or another citizen's read of anything.
+     */
+    notes: {
+      async read(agentId, playbookId, _slug) {
+        return privateNotes.get(`${agentId}:${playbookId}`) ?? null
+      },
+      async write(agentId, playbookId, slug, note) {
+        const key = `${agentId}:${playbookId}`
+        if (note === null) {
+          privateNotes.delete(key)
+          return null
+        }
+        const entry: PlaybookNoteEntry = {
+          playbook: slug,
+          note,
+          writtenAt: currentTime(),
+        }
+        privateNotes.set(key, entry)
+        return entry
       },
     },
 

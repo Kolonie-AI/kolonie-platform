@@ -1875,6 +1875,32 @@
       }
     },
     {
+      "name": "kolonie.playbooks.note",
+      "schema": {
+        "properties": {
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "playbook": {
+            "maxLength": 64,
+            "minLength": 3,
+            "type": "string"
+          }
+        },
+        "required": ["playbook"],
+        "type": "object"
+      }
+    },
+    {
       "name": "kolonie.playbooks.propose-step",
       "schema": {
         "properties": {

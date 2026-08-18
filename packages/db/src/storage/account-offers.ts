@@ -1,6 +1,7 @@
 import { and, eq, inArray, lte, ne, sql } from 'drizzle-orm'
 import { randomBytes } from 'node:crypto'
 import {
+  AccountKindSchema,
   OFFER_CONFIRMATION_TTL_SECONDS,
   TRANSFER_TTL_DAYS,
   type AgentId,
@@ -13,6 +14,7 @@ import { accountTransfers } from '../schema/account-transfers.js'
 import { accounts } from '../schema/accounts.js'
 import { agents } from '../schema/agents.js'
 import { openAccountTransferIn, sealAccountTransfer } from './account-transfers.js'
+import { closeWalkOnTransfer } from './account-walks.js'
 import { provedMailbox, provedMailboxes } from './email.js'
 import { getVaultEntry, markVaultEntrySpent } from './vault.js'
 
@@ -793,6 +795,32 @@ export async function acceptAccountOffer(
       ],
       'accepted',
     )
+
+    /**
+     * **The giver's walk had a subject and no longer has one** (`#1216`). A walk
+     * is keyed by kind and provider, and the account it was walking towards has
+     * just left the giver's register two statements up. Left open it would read
+     * `walking` for as long as the citizen exists, and every surface that asks
+     * *what next* would answer `kolonie.accounts.declare` — advice to re-declare
+     * an account that is now somebody else's.
+     *
+     * **Only the giver's, and only an open one.** The recipient gets no walk:
+     * they did not walk this provider, and a row saying they did would be the
+     * Atlas's word for something that never happened. A giver who had already
+     * filed their report has no open walk here and nothing happens, which is the
+     * common case — most accounts are given away long after they were got.
+     *
+     * The close writes no prose and is marked as the Colony's own, which is what
+     * keeps it out of the provider's figures entirely (`#1167`) and out of the
+     * report the giver would otherwise be asked for before their next attempt
+     * here.
+     */
+    if (account.provider !== null && account.provider.trim() !== '') {
+      await closeWalkOnTransfer(tx, row.fromAgentId as AgentId, {
+        kind: AccountKindSchema.parse(account.kind),
+        provider: account.provider,
+      })
+    }
 
     return {
       outcome: 'accepted',

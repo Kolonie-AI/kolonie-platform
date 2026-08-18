@@ -17,6 +17,7 @@ export interface FakeWalkStore extends WalkStore {
     readonly provider: string
     readonly finished?: boolean
     readonly outcome?: AccountWalk['outcome']
+    readonly closedByTransferAt?: AccountWalk['closedByTransferAt']
     /** Which capability the walk measured (`#1023`); absent is the unscoped null. */
     readonly direction?: AccountWalk['direction']
     /** Whether this walk's verdict wrote the draft, which is what `amend` reaches. */
@@ -55,6 +56,8 @@ export function fakeWalks(): FakeWalkStore {
       startedAt,
       finishedAt,
       outcome: finishedAt === null ? null : (input.outcome ?? 'proved'),
+      /** Only `acceptAccountOffer` ever sets this (`#1216`); a test wanting it overrides. */
+      closedByTransferAt: input.closedByTransferAt ?? null,
       direction: input.direction ?? null,
       wall: null,
       note: null,

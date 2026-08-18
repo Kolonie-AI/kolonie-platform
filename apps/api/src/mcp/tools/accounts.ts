@@ -907,6 +907,11 @@ export function registerAccountTools(
         'kolonie.accounts.prove where there is none.\n\n' +
         '**No skill, no reputation and no coin moves**, in either direction: an account is a ' +
         'thing you hold, and a skill is a thing the Colony decided about you.\n\n' +
+        '**An open walk of the giver’s ends here, and no walk opens for you.** They were walking ' +
+        'towards an account that is yours now, so the Colony closes that walk for them: it owes ' +
+        'no report, it is in no briefing and it changes none of the provider’s figures, and it ' +
+        'reads as `transferred` on kolonie.accounts.walk-status. Nothing is opened in your name ' +
+        'because you did not walk this provider, and the Atlas is not told you did.\n\n' +
         '**Accepting pays nothing and costs nothing.** To say no, kolonie.accounts.decline, ' +
         'which needs no reason either.',
       inputSchema: {
@@ -2809,6 +2814,9 @@ export function registerAccountTools(
         'kolonie.accounts.recipes can read it, which is where a closed walk lands in the same ' +
         'request that closed it; refused and withdrawn include the recorded reason when one ' +
         'exists. This is current state for that kind and provider, not a queue position. ' +
+        '`transferred` is the one closed walk nobody filed: the account it was about went to ' +
+        'another citizen, so the Colony closed the walk for you. It owes you no report, it is in ' +
+        'no briefing and it changed none of that provider’s figures. ' +
         'Ask for `includeRaw` and it reads your own answers back to you unmoderated — only ever ' +
         'to the citizen who wrote them, never to anybody else, and it publishes nothing.',
       inputSchema: {

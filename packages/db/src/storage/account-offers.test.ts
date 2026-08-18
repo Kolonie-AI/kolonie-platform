@@ -7,6 +7,7 @@ import {
   accountOffers,
   accountThreads,
   accountTransfers,
+  accountWalks,
   accounts,
   agentVault,
   agents,
@@ -25,6 +26,8 @@ import {
   type AcceptAccountOfferOutcome,
   type GiveAccountOutcome,
 } from './account-offers.js'
+import { accountWalk, unreportedWalk, walkInProgress } from './account-walks.js'
+import { atlasFigures } from './atlas-figures.js'
 import { getVaultEntry, listVaultEntries, setVaultEntry } from './vault.js'
 
 const target = databaseTestTarget()
@@ -737,6 +740,122 @@ describe('an account offered to another citizen', () => {
       ).toMatchObject({ outcome: 'found', value: FIXTURE_VALUE })
 
       expect(await db.select().from(accounts).where(eq(accounts.id, declaredId))).toEqual([])
+    })
+
+    /**
+     * `#1216`: the giver's open walk had a subject and no longer has one.
+     *
+     * A walk is keyed by kind and provider, and the account it was walking
+     * towards is somebody else's after this call. Left open it would read
+     * `walking` for as long as the citizen exists, beside a register row that
+     * has been deleted — and the surface would keep answering *declare it*, of
+     * an account this citizen may not declare.
+     */
+    describe('the giver’s open walk', () => {
+      const where = { kind: kind('github'), provider: 'example.test' }
+
+      it('is closed, marked as the Colony’s own close, and owes no report', async () => {
+        const walkId = await walkInProgress(db, giver, where)
+
+        const taken = await accept()
+        if (taken.outcome !== 'accepted') throw new Error(taken.outcome)
+
+        const closed = await accountWalk(db, walkId)
+        expect(closed).toMatchObject({ outcome: 'abandoned' })
+        expect(closed?.finishedAt).not.toBeNull()
+        /**
+         * The marker is the whole of `#1216`'s answer to *why not a fourth
+         * outcome word*: `WalkOutcomeSchema` has three because three is what a
+         * citizen may file, `abandoned` is the vocabulary's word for *the
+         * walker stopped*, and this column is what says the Colony stopped it.
+         */
+        expect(closed?.closedByTransferAt).not.toBeNull()
+
+        /**
+         * And the giver is not held up at this provider for a sentence about
+         * somebody else's account. `#811`'s gate asks for a report before the
+         * next attempt; the issue says in as many words that clearing the
+         * zombie must not cost a second walk-report.
+         */
+        expect(await unreportedWalk(db, giver, where)).toBeUndefined()
+      })
+
+      /**
+       * **The provider's public story is not rewritten by a gift** (`#1167`).
+       * While the walk was open it was outside the walked set — `atlas-figures`
+       * has always required `finished_at` — so a close that counted would newly
+       * post a stop at this provider that no citizen ever hit. The marker is
+       * what keeps the walk out of every figure here.
+       *
+       * **The assertion is on the walk-derived half of the row rather than on
+       * the whole row, because the rest of it does move and should.** The
+       * accept deletes the giver's proved register entry and writes the
+       * recipient's unproved one, so `anyProved` and `evidenced` change for
+       * `#1213`'s reason — a transfer is not something the Colony checked about
+       * anybody. That is the account register moving and not this issue. What
+       * this issue promises is that the *walk* contributes nothing, and the
+       * fields below are where a counted close would show: `stopped` and
+       * `commonestStop` clear the floor unsuppressed, so one miscounted row
+       * publishes *walks stop most often where they gave up* about a provider
+       * nobody gave up on.
+       */
+      it('is in none of the provider’s figures', async () => {
+        await walkInProgress(db, giver, where)
+
+        const taken = await accept()
+        if (taken.outcome !== 'accepted') throw new Error(taken.outcome)
+
+        // Unfloored, so a single miscounted citizen shows up here rather than
+        // being rounded into the same zeroes a correct row would carry.
+        const figures = await atlasFigures(db, {
+          audience: 'provider',
+          provider: 'example.test',
+        })
+
+        expect(figures.find((row) => row.kind === 'github')).toMatchObject({
+          walked: { citizens: 0, gotThrough: 0, band: null, walls: [] },
+          stopped: [],
+          commonestStop: null,
+          refused: 0,
+          // The recipient holds the account and is the one citizen this pair
+          // knows of. A counted close would make the giver a second.
+          attempted: 1,
+        })
+      })
+
+      /** The recipient did not walk this provider, and the Atlas is not told they did. */
+      it('is not opened for the recipient', async () => {
+        await walkInProgress(db, giver, where)
+
+        const taken = await accept()
+        if (taken.outcome !== 'accepted') throw new Error(taken.outcome)
+
+        const [theirs] = await db
+          .select()
+          .from(accountWalks)
+          .where(eq(accountWalks.agentId, recipient))
+        expect(theirs).toBeUndefined()
+      })
+
+      /**
+       * The common case: most accounts are given away long after the walk that
+       * got them was filed, and a finished walk is somebody's own account of
+       * what they did. Reaching back into it would be the silent rewrite
+       * `#1167` forbids.
+       */
+      it('leaves a walk the giver already reported exactly as they filed it', async () => {
+        const walkId = await walkInProgress(db, giver, where)
+        await db
+          .update(accountWalks)
+          .set({ finishedAt: sql`now()`, outcome: 'proved' })
+          .where(eq(accountWalks.id, walkId))
+        const filed = await accountWalk(db, walkId)
+
+        const taken = await accept()
+        if (taken.outcome !== 'accepted') throw new Error(taken.outcome)
+
+        expect(await accountWalk(db, walkId)).toEqual(filed)
+      })
     })
 
     /**

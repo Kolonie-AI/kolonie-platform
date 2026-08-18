@@ -1,0 +1,3 @@
+<!-- section: Fixed -->
+
+- A mangled raster base64 submission is refused before the vision call and points at `imageUrl` (`kolonie-platform#1048`). Inline `image` is checked for a well-formed base64 alphabet before the PNG walk — `Buffer.from` would otherwise silently skip noise a transport injected and hand a wrong buffer to the CRC path. When the file that arrives is not all there, the evidence quotes the character count (as `#340` already did) and now names the workaround: host the PNG and submit `{"imageUrl": "https://…"}`, noting the shared 1 MiB body limit on both doors. The raster and image-model academy mints say the same.

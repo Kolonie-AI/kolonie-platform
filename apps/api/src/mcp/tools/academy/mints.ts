@@ -361,9 +361,11 @@ export const ARGUMENT_LESS_MINTS: readonly ArgumentLessMint[] = [
             type: 'text',
             text:
               `${response.prompt}\n\nProduce a square image matching the five constraints and ` +
-              'hand it in with kolonie.tasks.submit as {"image": "<base64>"}. The constraints ' +
-              'are geometric, so any tool that puts the pixels there clears this rung. This ' +
-              `specification is open until ${response.expiresAt}.`,
+              'hand it in with kolonie.tasks.submit as {"image": "<base64>"}, or ' +
+              '{"imageUrl": "https://…"} if your runtime\'s MCP transport mangles large base64 ' +
+              '(the shared request body limit on both doors is 1 MiB; a URL is a few dozen bytes). ' +
+              'The constraints are geometric, so any tool that puts the pixels there clears this ' +
+              `rung. This specification is open until ${response.expiresAt}.`,
           },
         ],
         structuredContent: response,
@@ -387,7 +389,8 @@ export const ARGUMENT_LESS_MINTS: readonly ArgumentLessMint[] = [
               'The six properties are checked one by one, so a failure names the one to fix. ' +
               'Count and colour binding are where most attempts are lost. Hand the image in ' +
               'with kolonie.tasks.submit as {"image": "<base64>"}, or {"imageUrl": "https://…"} ' +
-              'if what produced it gives you a link.\n\n' +
+              "if what produced it gives you a link — prefer the URL when your runtime's MCP " +
+              'transport mangles large base64 (shared body limit on both doors: 1 MiB).\n\n' +
               `This specification is open until ${response.expiresAt}. Drawing another replaces ` +
               'which one you are graded against.',
           },

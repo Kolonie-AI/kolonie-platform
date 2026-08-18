@@ -1,6 +1,6 @@
 import { crc32 } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
-import { readImage } from './image.js'
+import { decodeSubmittedImage, IMAGE_URL_FALLBACK, readImage } from './image.js'
 
 /**
  * A complete PNG: signature, `IHDR`, an `IDAT` and an `IEND`, every chunk
@@ -218,14 +218,17 @@ describe('a file that starts as an image and does not finish as one', () => {
    * **The header is named as good in the same breath.** *"Not an image"* would be
    * wrong and would send a citizen back to its generator, when the cause is
    * almost always the transfer — so the message says the picture began correctly
-   * and stopped early, which points at what it sent rather than at what it drew.
+   * and then failed, which points at comparing the character count with what it
+   * encoded (`#1048`).
    */
   it('tells the citizen its header was fine and its file was not', () => {
     const complete = png(640, 640)
     const read = readImage(complete.subarray(0, complete.length - 4))
 
     expect(read.outcome === 'unreadable' && read.reason).toMatch(/valid image\/png of 640×640/)
-    expect(read.outcome === 'unreadable' && read.reason).toMatch(/check that what you sent/)
+    expect(read.outcome === 'unreadable' && read.reason).toMatch(
+      /Compare the character count the Colony quotes/,
+    )
   })
 
   it('refuses a PNG that never reaches its IEND', () => {
@@ -300,5 +303,89 @@ describe('a file that starts as an image and does not finish as one', () => {
     const bytes = Uint8Array.from([...jpeg(800, 600), 1, 2, 3, 4])
 
     expect(readImage(bytes)).toMatchObject({ outcome: 'read' })
+  })
+
+  /**
+   * When the file is not all there, the reason points at `imageUrl` (`#1048`).
+   *
+   * The character-count quote lives one layer up; what this layer owes is the
+   * actionable next step — host the PNG and submit a URL — so a citizen whose
+   * runtime mangled the base64 does not spend fourteen attempts on CRC noise.
+   */
+  it('points at imageUrl when a PNG is not all there', () => {
+    const whole = png(64, 64)
+    const read = readImage(whole.subarray(0, 40))
+
+    expect(read.outcome).toBe('unreadable')
+    expect(read.outcome === 'unreadable' && read.reason).toContain('imageUrl')
+    expect(read.outcome === 'unreadable' && read.reason).toContain('1 MiB')
+  })
+})
+
+/**
+ * Strict base64 before the PNG walk (`#1048`).
+ *
+ * `Buffer.from(…, 'base64')` silently skips characters outside the alphabet, so
+ * a transport that injected noise would otherwise produce a buffer the CRC path
+ * later blamed on the image. Naming the alphabet failure here puts the fault on
+ * the string that arrived.
+ */
+describe('decodeSubmittedImage', () => {
+  it('decodes a well-formed base64 PNG', () => {
+    const encoded = Buffer.from(png(32, 32)).toString('base64')
+    const decoded = decodeSubmittedImage(encoded)
+
+    expect(decoded.outcome).toBe('decoded')
+    if (decoded.outcome !== 'decoded') return
+    expect(decoded.characters).toBe(encoded.length)
+    expect(decoded.bytes.byteLength).toBe(png(32, 32).byteLength)
+  })
+
+  it('strips a data-URL prefix before decoding', () => {
+    const encoded = Buffer.from(png(16, 16)).toString('base64')
+    const decoded = decodeSubmittedImage(`data:image/png;base64,${encoded}`)
+
+    expect(decoded.outcome).toBe('decoded')
+    if (decoded.outcome !== 'decoded') return
+    expect(decoded.characters).toBe(encoded.length)
+  })
+
+  it('accepts MIME-wrapped base64 with whitespace', () => {
+    const encoded = Buffer.from(png(16, 16)).toString('base64')
+    const wrapped = `${encoded.slice(0, 40)}\n${encoded.slice(40)}`
+    const decoded = decodeSubmittedImage(wrapped)
+
+    expect(decoded.outcome).toBe('decoded')
+  })
+
+  it('refuses a string with characters outside the alphabet and points at imageUrl', () => {
+    const encoded = Buffer.from(png(16, 16)).toString('base64')
+    const noisy = `${encoded.slice(0, 10)}!${encoded.slice(10)}`
+    const decoded = decodeSubmittedImage(noisy)
+
+    expect(decoded.outcome).toBe('refused')
+    if (decoded.outcome !== 'refused') return
+    expect(decoded.reason).toContain('not well-formed base64')
+    expect(decoded.reason).toContain('imageUrl')
+    expect(decoded.reason).toBe(
+      `The "image" field is not well-formed base64 (${noisy.length.toLocaleString('en-US')} ` +
+        `characters arrived). ${IMAGE_URL_FALLBACK}`,
+    )
+  })
+
+  it('refuses a length that is not a multiple of four', () => {
+    const decoded = decodeSubmittedImage('YQ')
+
+    expect(decoded.outcome).toBe('refused')
+    if (decoded.outcome !== 'refused') return
+    expect(decoded.reason).toContain('not well-formed base64')
+  })
+
+  it('refuses an empty field after the data-URL prefix', () => {
+    const decoded = decodeSubmittedImage('data:image/jpeg;base64,')
+
+    expect(decoded.outcome).toBe('refused')
+    if (decoded.outcome !== 'refused') return
+    expect(decoded.reason).toContain('0 characters arrived')
   })
 })

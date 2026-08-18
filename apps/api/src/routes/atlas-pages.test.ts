@@ -16,6 +16,8 @@ import type { SiteChrome } from '../atlas/site-chrome.js'
 import type { AtlasPlaybookReader } from '../atlas/playbook-links.js'
 import { ATLAS_META_DESCRIPTION_MAX_LENGTH } from '../atlas/html.js'
 import { atlasRuntimeLine } from '../atlas/runtimes.js'
+import { ATLAS_STYLE } from '../atlas/style.js'
+import { CHROME_STYLE } from '../console/theme.js'
 
 const SITE = 'https://site.test'
 const SITE_HOST = 'site.test'
@@ -423,6 +425,89 @@ describe('the Atlas on the website host', () => {
         }
       }
     })
+
+    /**
+     * **The page box belongs to the content when the chrome is around it**
+     * (`#1211`). `CONSOLE_STYLE` boxes `<body>`, which insets a band built to run
+     * edge to edge and drops it below the top of the viewport with page
+     * background above it. The block that undoes it is emitted here and only
+     * here.
+     */
+    it('moves the page box off the body when it is wearing the site’s chrome', async () => {
+      const body = (await get('/atlas')).body
+
+      expect(body).toContain(CHROME_STYLE)
+      /** The band is unboxed and the content column keeps the box it had. */
+      expect(body).toContain('max-width: none')
+      expect(body).toContain('max-width: var(--k-container)')
+    })
+
+    /**
+     * **Last, so it wins.** Both blocks above it say something about `body`, and
+     * the cascade decides this on order alone: same specificity, later rule. A
+     * refactor that composed the three in a different order would leave the band
+     * boxed with every one of these rules still present in the document.
+     */
+    it('writes the chrome’s block after the two it has to override', async () => {
+      const body = (await get('/atlas')).body
+
+      expect(body.indexOf(CHROME_STYLE)).toBeGreaterThan(body.indexOf(ATLAS_STYLE))
+    })
+
+    /**
+     * **The two roots and nothing wider.** The header's `Sign in` and the
+     * footer's links are the website's own text and are set in the website's
+     * face; the monospace face stays the identity on everything the page renders
+     * itself, which is why `ATLAS_STYLE` scopes prose to `main p, main li`.
+     */
+    it('sets the prose face on the chrome and not on the body', async () => {
+      const body = (await get('/atlas')).body
+
+      expect(body).toContain('header.site-header')
+      expect(body).toContain('footer.site-footer')
+      expect(body).not.toContain('body {\n    font-family: var(--k-font-prose')
+    })
+
+    /**
+     * The other branch, and the criterion `#1211` is careful about: a page that
+     * fell back to its own mast renders what it rendered before. The block is
+     * absent from the document rather than present and inert, so there is no
+     * selector to get wrong and nothing to test for at the browser.
+     */
+    it('leaves a page without chrome exactly as it was', async () => {
+      chrome = undefined
+      try {
+        const body = (await get('/atlas')).body
+
+        expect(body).not.toContain(CHROME_STYLE)
+        expect(body).not.toContain('max-width: none')
+        /** The console's body box is still the box, which is right without chrome. */
+        expect(body).toContain('padding: var(--k-space-6) var(--k-space-4) var(--k-space-7)')
+      } finally {
+        chrome = {
+          head: '<link rel="stylesheet" href="/_astro/theme.css">',
+          header:
+            '<header class="site-header"><a href="/" class="site-header__mark">Kolonie AI</a></header>',
+          footer:
+            '<footer class="site-footer"><a href="/privacy/">Privacy</a>' +
+            '<a href="/terms/">Terms</a><a href="/imprint/">Imprint</a>' +
+            '<a href="/citizen-terms/">Citizen terms</a></footer>',
+        }
+      }
+    })
+
+    /**
+     * The box has somewhere to go on every one of these pages. It is asserted
+     * rather than assumed: the rule is scoped to `main`, so a shell that rendered
+     * its content loose in the body would lose the column silently — the page
+     * would still be full-bleed and the prose would run the width of the screen.
+     */
+    it.each(['/atlas', '/atlas/github', '/atlas/c/mailbox'])(
+      'wraps %s in the element the box moved to',
+      async (url) => {
+        expect((await get(url)).body).toContain('<main')
+      },
+    )
 
     /**
      * **The catalogue is still live, which is `#99`'s criterion and the whole

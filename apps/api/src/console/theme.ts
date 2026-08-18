@@ -709,3 +709,61 @@ ${declarations(LOCAL_TOKENS)}
   ul.badges li strong { font-size: var(--k-text-sm); }
   ul.badges li span { color: var(--k-text-faint); font-size: var(--k-text-xs); }
 `
+
+/**
+ * The page box, moved off `<body>` and onto `<main>` for the pages that carry
+ * the site's own header and footer (`#1211`).
+ *
+ * `CONSOLE_STYLE` boxes `<body>`: `max-width: var(--k-container)`, centred, with
+ * the page's padding. That is right for the console, which is what it was
+ * written for and which has no chrome. It stops being right the moment a page
+ * hangs `<header class="site-header">` and `<footer class="site-footer">` inside
+ * that same body, because both are **full-bleed bands that contain themselves** —
+ * the header paints its surface and its bottom hairline edge to edge and does
+ * its own `max-width` on the row inside. Boxed by the body, the band stopped a
+ * gutter short of both edges, started below the top of the viewport with page
+ * background above it, and had its row indented a second time.
+ *
+ * **Emitted only when the chrome was reached**, last in the `<style>` block, and
+ * never gated by a class or an attribute: a page rendered without chrome does
+ * not contain this block at all, so there is no selector to test and the
+ * fallback mast keeps today's layout exactly. See `atlasPage` in
+ * `../atlas/html.ts` and `profilePage` in `../profile/html.ts` — the two shells
+ * that append it, and the only two that take chrome.
+ *
+ * **Not folded into `CONSOLE_STYLE`**, for the reason `atlas/html.ts` states
+ * where it composes the two: a change to `CONSOLE_STYLE` reaches the console,
+ * and the console must keep its body box.
+ *
+ * `var(--k-space-4)` in the `main` padding and not `var(--k-gutter)`: it is the
+ * value the body carried today and this is not a spacing change. `--k-gutter`
+ * widens above 40rem and would move the content column on every one of these
+ * pages.
+ *
+ * The prose face is set on the two chrome roots and nowhere else. The monospace
+ * face is the identity on everything these pages render themselves, which is why
+ * `ATLAS_STYLE` scopes prose to `main p, main li` rather than to the body; the
+ * header's `Sign in` and the footer's links belong to the website and are set in
+ * the website's face. The fallback stack is the same one `ATLAS_STYLE` carries,
+ * for the same reason: the token arrives with the site's `theme.css`, and a page
+ * whose chrome loaded but whose stylesheet did not must not fall to the
+ * browser's default serif.
+ */
+export const CHROME_STYLE = `
+  body {
+    max-width: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  main {
+    max-width: var(--k-container);
+    margin: 0 auto;
+    padding: var(--k-space-6) var(--k-space-4) var(--k-space-7);
+  }
+
+  header.site-header,
+  footer.site-footer {
+    font-family: var(--k-font-prose, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif);
+  }
+`

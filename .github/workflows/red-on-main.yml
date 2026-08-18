@@ -1,0 +1,369 @@
+name: Red on main
+
+# Standing detector for a red tip of `main` that arrived by direct push (`#1280`).
+#
+# `ci.yml` already runs on every push to `main` and goes red when the tip is red.
+# What it does not do is tell anybody: a grey or red check beside a deploy that
+# already started is easy to miss, and the next agent that cuts a branch inherits
+# two failing assertions that have nothing to do with their change. Measured
+# 2026-08-18 against two direct pushes (`0b1797c6`, `8434dc26`) that each left
+# the table-count trap behind — about half an hour of wall clock spent twice on
+# somebody else's commit.
+#
+# This workflow does not forbid the direct path (`AGENTS.md` §4; `kolonie-infra#31`).
+# It runs the repository's own check on a push that did not arrive through a pull
+# request, and on failure opens or rewrites **one** standing issue. A later green
+# tip of `main` — direct or via a pull request — closes that issue. Nothing is
+# blocked, reverted or gated.
+#
+# The name `red-on-main.yml` is already referenced from
+# `apps/support-triage-runner/src/debt.ts` as though the file existed; this is the
+# file that comment was pointing at.
+#
+# Option 2 of `#1280`, and it does not exclude options 1 or 3 — those are the
+# maintainer's call (a repository setting, or weakening a deliberate guard).
+
+on:
+  push:
+    branches: [main]
+  # Hand-start so the detector can be verified against a known-red commit
+  # (`8434dc26` is the worked example in `#1280`) without waiting for another
+  # direct push. See the `verify_red_sha` input.
+  workflow_dispatch:
+    inputs:
+      verify_red_sha:
+        description: >-
+          Optional. Check out this commit and assert that `npm run check` fails
+          (verification against a known-red tip). Does not file or close the
+          standing issue.
+        required: false
+        type: string
+
+# No concurrency group. On `main` every commit is one that was pushed, and this
+# run is the only notification that commit will ever get for a direct push —
+# the same reasoning `ci.yml` uses for `cancel-in-progress: false` on `main`.
+
+permissions:
+  contents: read
+
+jobs:
+  detect:
+    name: detect
+    runs-on: ubuntu-latest
+    # A serial `npm run check` is longer than the split `test` job alone.
+    # Twenty-five cancelled half the suite on Tuesdays (`ci.yml`); thirty keeps
+    # a hang caught without catching ordinary main.
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+
+    # Same service and env the `test` job in `ci.yml` uses — `npm run check`
+    # ends in the suite, and a missing DATABASE_URL hard-fails rather than skips.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: kolonie_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/kolonie_test
+      BAN_MARK_SALT: ci-not-a-secret-nothing-here-writes-a-ban-mark
+      DEPOSIT_SEALING_KEY: ci-not-a-secret-no-deposit-address-here-is-ever-funded
+      # First-line marker. Matching on the first line, never anywhere in the body
+      # (`#946`): an issue a person wrote *about* this watcher quoting the marker
+      # in a fence must not be adopted.
+      MARKER: '<!-- watch-finding: main-is-red -->'
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Verification may point at an ancestor; fetch enough history.
+          fetch-depth: 0
+
+      - name: Decide what this run is for
+        id: mode
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERIFY_SHA: ${{ inputs.verify_red_sha }}
+        run: |
+          set -euo pipefail
+
+          if [[ -n "${VERIFY_SHA}" ]]; then
+            echo "mode=verify" >> "$GITHUB_OUTPUT"
+            echo "sha=${VERIFY_SHA}" >> "$GITHUB_OUTPUT"
+            echo "direct=true" >> "$GITHUB_OUTPUT"
+            echo "Verification mode against ${VERIFY_SHA}; will not file or close."
+            exit 0
+          fi
+
+          echo "sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+          # Asking the commit rather than the event payload is what makes this
+          # work for a re-run and for a direct push alike (`build-and-deploy.yml`).
+          # Empty = direct push. A failed API read assumes direct — skipping the
+          # check on a read failure would silence the very case this exists for.
+          prs=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" \
+            --jq '.[].number' 2>/dev/null || true)
+          if [[ -z "${prs}" ]]; then
+            echo "mode=direct" >> "$GITHUB_OUTPUT"
+            echo "direct=true" >> "$GITHUB_OUTPUT"
+            echo "Direct push (or no PR linked); will run the check."
+          else
+            echo "mode=merge" >> "$GITHUB_OUTPUT"
+            echo "direct=false" >> "$GITHUB_OUTPUT"
+            echo "prs<<EOF" >> "$GITHUB_OUTPUT"
+            echo "${prs}" >> "$GITHUB_OUTPUT"
+            echo "EOF" >> "$GITHUB_OUTPUT"
+            echo "Arrived through PR(s): ${prs}. Skipping the expensive check; may close a standing issue."
+          fi
+
+      - name: Check out the verification commit
+        if: steps.mode.outputs.mode == 'verify'
+        run: |
+          set -euo pipefail
+          git checkout --force "${{ steps.mode.outputs.sha }}"
+
+      - uses: actions/setup-node@v7
+        if: steps.mode.outputs.direct == 'true'
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        if: steps.mode.outputs.direct == 'true'
+        run: npm ci
+
+      - name: Relax the test database's durability
+        if: steps.mode.outputs.direct == 'true'
+        run: npm run test:db:relax
+
+      - name: Run the repository's own check
+        id: check
+        if: steps.mode.outputs.direct == 'true'
+        run: |
+          set +e
+          npm run check > result.txt 2>&1
+          code=$?
+          echo "exit_code=${code}" >> "$GITHUB_OUTPUT"
+          # Keep the log readable in the Actions UI without drowning the issue body.
+          tail -n 200 result.txt
+          # Full log stays on the runner for the filing step.
+          exit 0
+
+      - name: Extract the failing assertion
+        id: fail
+        if: steps.mode.outputs.direct == 'true' && steps.check.outputs.exit_code != '0'
+        run: |
+          set -euo pipefail
+          # Prefer a vitest/assertion line; fall back to the last non-empty lines.
+          # Written to files rather than to GITHUB_OUTPUT: the block can contain
+          # quotes and backticks that would break an expression expansion later.
+          assertion=$(grep -E 'FAIL |AssertionError|expected |Error:|× ' result.txt \
+            | grep -v '^npm ' | head -n 20 || true)
+          if [[ -z "${assertion}" ]]; then
+            assertion=$(tail -n 40 result.txt)
+          fi
+          printf '%s\n' "${assertion}" > assertion.txt
+          oneline=$(printf '%s' "${assertion}" | tr '\n' ' ' | cut -c1-240)
+          # Sanitize for a markdown table cell.
+          oneline=${oneline//|/\\|}
+          echo "assertion_oneline=${oneline}" >> "$GITHUB_OUTPUT"
+
+      - name: Author of the tip
+        id: author
+        if: steps.mode.outputs.mode != 'verify'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Prefer the commit API; fall back to the push payload.
+          name=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${{ steps.mode.outputs.sha }}" \
+            --jq '.commit.author.name // .commit.committer.name // empty' 2>/dev/null || true)
+          email=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${{ steps.mode.outputs.sha }}" \
+            --jq '.commit.author.email // .commit.committer.email // empty' 2>/dev/null || true)
+          if [[ -z "${name}" ]]; then
+            name="${{ github.event.head_commit.author.name }}"
+          fi
+          if [[ -z "${email}" ]]; then
+            email="${{ github.event.head_commit.author.email }}"
+          fi
+          echo "name=${name:-unknown}" >> "$GITHUB_OUTPUT"
+          echo "email=${email:-unknown}" >> "$GITHUB_OUTPUT"
+
+      - name: Find the standing issue
+        id: standing
+        if: steps.mode.outputs.mode != 'verify'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Open first; a closed marker-bearing issue is found only when we need to reopen.
+          open=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
+            --search "\"${MARKER}\" in:body" --json number,body \
+            --jq "first(.[] | select(.body | startswith(\"${MARKER}\")) | .number)" || true)
+          echo "open=${open}" >> "$GITHUB_OUTPUT"
+          if [[ -z "${open}" ]]; then
+            closed=$(gh issue list --repo "$GITHUB_REPOSITORY" --state closed \
+              --search "\"${MARKER}\" in:body" --limit 20 --json number,body,closedAt \
+              --jq "first(.[] | select(.body | startswith(\"${MARKER}\")) | .number)" || true)
+            echo "closed=${closed}" >> "$GITHUB_OUTPUT"
+          else
+            echo "closed=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: File or update the standing issue on red
+        if: >-
+          steps.mode.outputs.mode == 'direct'
+          && steps.check.outputs.exit_code != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          sha='${{ steps.mode.outputs.sha }}'
+          short=$(echo "${sha}" | cut -c1-8)
+          author='${{ steps.author.outputs.name }}'
+          email='${{ steps.author.outputs.email }}'
+          oneline='${{ steps.fail.outputs.assertion_oneline }}'
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+          # Written line by line rather than from a heredoc: a heredoc body inside
+          # an indented `run:` block carries its indentation into the file and
+          # puts spaces in front of the marker (`build-and-deploy.yml`).
+          {
+            echo "${MARKER}"
+            echo "<!-- red-since: sha=${sha} at=${at} -->"
+            echo
+            echo "**\`main\` is red at \`${short}\`.** The tip arrived by direct push,"
+            echo "so the only check that stands between a red commit and a deploy is"
+            echo "\`npm run check\` on the pusher's machine — and that check did not pass."
+            echo
+            echo "| Commit | Author | Failing assertion (excerpt) | Run |"
+            echo "|---|---|---|---|"
+            echo "| [\`${short}\`](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${sha}) | ${author} \`<${email}>\` | \`${oneline}\` | [run](${run_url}) |"
+            echo
+            echo "Full assertion block from the detector:"
+            echo
+            echo '```'
+            cat assertion.txt
+            echo '```'
+            echo
+            echo "This is a standing finding, not one issue per push. A later green tip"
+            echo "of \`main\` — direct or through a pull request — closes it. Closing it"
+            echo "by hand while \`main\` is still red reopens it on the next red pass."
+            echo
+            echo "**Filed by a machine** (\`red-on-main.yml\`, \`#1280\`). It changes no"
+            echo "permission and forbids no path — it only makes the gap between a red"
+            echo "push and the next agent's confusion into a notification."
+          } > body.md
+
+          open='${{ steps.standing.outputs.open }}'
+          closed='${{ steps.standing.outputs.closed }}'
+
+          if [[ -n "${open}" ]]; then
+            # Rewrite the body — never comment on every pass (`#231`).
+            gh issue edit "${open}" --repo "$GITHUB_REPOSITORY" --body-file body.md
+            echo "Updated standing issue #${open}."
+          elif [[ -n "${closed}" ]]; then
+            # Maintainer closed it while the condition held — reopen, don't file a second (`#1161`).
+            gh issue reopen "${closed}" --repo "$GITHUB_REPOSITORY" \
+              --comment "Reopened: \`main\` is red again at \`${short}\` (direct push). The body is rewritten with the current tip."
+            gh issue edit "${closed}" --repo "$GITHUB_REPOSITORY" --body-file body.md
+            echo "Reopened standing issue #${closed}."
+          else
+            # One `--label` per literal name — `scripts/github-issue-labels.test.ts`
+            # cannot read a name assembled at run time (`#687`).
+            url=$(gh issue create --repo "$GITHUB_REPOSITORY" \
+              --title "main is red (direct push)" \
+              --body-file body.md \
+              --label 'from:watcher' --label 'area:platform' --label 'p1')
+            echo "Opened ${url}."
+          fi
+
+          {
+            echo "### Red on main"
+            echo
+            echo "Direct push \`${short}\` failed \`npm run check\`."
+            echo "Standing issue updated or opened."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Close the standing issue on green
+        if: >-
+          steps.mode.outputs.mode != 'verify'
+          && (steps.mode.outputs.mode == 'merge'
+              || (steps.mode.outputs.mode == 'direct' && steps.check.outputs.exit_code == '0'))
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          open='${{ steps.standing.outputs.open }}'
+          if [[ -z "${open}" ]]; then
+            echo "No open standing issue; nothing to close."
+            {
+              echo "### Red on main"
+              echo
+              if [[ '${{ steps.mode.outputs.mode }}' == 'merge' ]]; then
+                echo "Push arrived through a pull request; check skipped. No standing issue open."
+              else
+                echo "Direct push \`${GITHUB_SHA:0:8}\` is green. No standing issue open."
+              fi
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          sha='${{ steps.mode.outputs.sha }}'
+          short=$(echo "${sha}" | cut -c1-8)
+          if [[ '${{ steps.mode.outputs.mode }}' == 'merge' ]]; then
+            prs='${{ steps.mode.outputs.prs }}'
+            comment="Closed: \`main\` advanced through pull request(s) ${prs} at \`${short}\`. The tip is green on the pull-request path."
+          else
+            comment="Closed: direct push \`${short}\` passed \`npm run check\`."
+          fi
+          # Comment first, close second — an issue never ends without saying what ended it.
+          gh issue comment "${open}" --repo "$GITHUB_REPOSITORY" --body "${comment}"
+          gh issue close "${open}" --repo "$GITHUB_REPOSITORY"
+          echo "Closed standing issue #${open}."
+          {
+            echo "### Red on main"
+            echo
+            echo "Closed standing issue #${open}."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verification result
+        if: steps.mode.outputs.mode == 'verify'
+        run: |
+          set -euo pipefail
+          code='${{ steps.check.outputs.exit_code }}'
+          sha='${{ steps.mode.outputs.sha }}'
+          {
+            echo "### Red on main — verification"
+            echo
+            echo "Checked out \`${sha}\`."
+            echo "\`npm run check\` exited ${code}."
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [[ "${code}" == '0' ]]; then
+            echo "Expected a red check against the verification SHA; got green."
+            exit 1
+          fi
+          echo "Verification OK: known-red commit failed the check as expected."
+          # Do not fail the workflow for a successful verification of redness —
+          # the point of verify mode is the assertion above, not a red Actions run
+          # that looks like the detector itself is broken.
+          exit 0
+
+      - name: Fail the run when main is red
+        if: steps.mode.outputs.mode == 'direct' && steps.check.outputs.exit_code != '0'
+        run: |
+          echo "Direct push failed npm run check; standing issue filed or updated above."
+          exit 1

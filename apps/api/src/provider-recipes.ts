@@ -1,5 +1,6 @@
 import {
   AccountKindSchema,
+  AccountProviderSchema,
   ATLAS_ABSENCE_NEXT_MOVES,
   AtlasCategorySlugSchema,
   type AtlasCategoryRow,
@@ -1094,15 +1095,27 @@ export async function readRecipe(
   provider: string,
   recipes: ProviderRecipes,
 ): Promise<RecipeOutcome<ProviderRecipe>> {
-  const parsed = AccountKindSchema.safeParse(kind)
-  if (!parsed.success) {
+  const parsedKind = AccountKindSchema.safeParse(kind)
+  if (!parsedKind.success) {
     return {
       outcome: 'rejected',
       error: { code: 'validation_failed', message: 'A kind is a lowercase kebab-case slug.' },
     }
   }
 
-  const found = await recipes.one(parsed.data, provider)
+  const parsedProvider = AccountProviderSchema.safeParse(provider)
+  if (!parsedProvider.success) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message: 'A provider is one token — a hostname or short slug.',
+        details: { provider: parsedProvider.error.issues[0]?.message ?? 'invalid' },
+      },
+    }
+  }
+
+  const found = await recipes.one(parsedKind.data, parsedProvider.data)
 
   if (found === undefined) {
     return {

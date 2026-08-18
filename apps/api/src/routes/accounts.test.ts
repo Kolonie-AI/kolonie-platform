@@ -227,6 +227,18 @@ describe('GET /v1/accounts/walks/:walkId', () => {
   })
 })
 
+describe('GET /v1/accounts/recipes/:kind/:provider', () => {
+  it('refuses an encoded slash in the provider instead of throwing', async () => {
+    const response = await authed({
+      method: 'GET',
+      url: '/v1/accounts/recipes/providers/mailbox%2Fprovider',
+    })
+
+    expect(response.statusCode).toBe(422)
+    expect(response.json().code).toBe('validation_failed')
+  })
+})
+
 describe('POST /v1/accounts', () => {
   it('records a declaration and marks it unproved', async () => {
     const response = await authed({

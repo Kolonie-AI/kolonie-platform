@@ -49,6 +49,12 @@ function toTicket(row: typeof supportTickets.$inferSelect): SupportTicket {
     // The citizen's own submission, or null (`#852`). Triage reads it to say
     // what the citizen was doing; it does not travel into a public issue.
     aboutSubmissionId: row.aboutSubmissionId,
+    // The provider the citizen named, or null (`#1098`). Same pairing rule as
+    // `ticketFields` in support.ts — both null or both set.
+    aboutProvider:
+      row.aboutProviderKind === null || row.aboutProviderName === null
+        ? null
+        : { kind: row.aboutProviderKind, provider: row.aboutProviderName },
     createdAt: toTimestamp(row.createdAt),
     updatedAt: toTimestamp(row.updatedAt),
   })

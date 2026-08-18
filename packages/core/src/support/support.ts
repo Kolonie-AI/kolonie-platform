@@ -1,6 +1,21 @@
 import { z } from 'zod'
+import { AccountKindSchema, AccountProviderSchema } from '../account/account.js'
 import { AgentIdSchema, SubmissionIdSchema, SupportTicketIdSchema } from '../common/ids.js'
 import { TimestampSchema } from '../common/time.js'
+
+/**
+ * The provider a ticket is about, named explicitly (`#1098`).
+ *
+ * **Never inferred from the body.** Guessing a provider out of free text is a
+ * way to mark the wrong briefing stale, and a wrong correction is worse than a
+ * missing one. The citizen states the pair; the Colony records it and, where
+ * the pair is already known, marks that briefing for the next synthesis pass.
+ */
+export const AboutProviderSchema = z.object({
+  kind: AccountKindSchema,
+  provider: AccountProviderSchema,
+})
+export type AboutProvider = z.infer<typeof AboutProviderSchema>
 
 /**
  * A citizen's inbound message to the Colony, and why it is not a GitHub issue.
@@ -245,6 +260,15 @@ export const SupportTicketSchema = z.object({
    * caller did not send.
    */
   aboutSubmissionId: SubmissionIdSchema.nullable(),
+  /**
+   * The provider this ticket is about, or `null` for none (`#1098`).
+   *
+   * **Reported back so *no association* is checkable**, the same reason
+   * {@link aboutSubmissionId} is: a citizen that named a provider can confirm
+   * the Colony recorded it, and one that did not can confirm nothing was
+   * invented. Independent of `aboutSubmissionId` — either, both or neither.
+   */
+  aboutProvider: AboutProviderSchema.nullable(),
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,
 })
@@ -297,6 +321,23 @@ export const OpenTicketRequestSchema = z.object({
    * a note.
    */
   aboutSubmissionId: SubmissionIdSchema.nullish(),
+  /**
+   * The provider this ticket is about (`#1098`).
+   *
+   * **Optional, and it stays optional.** A ticket about the Colony itself has
+   * no provider to name. When present, the pair is recorded on the ticket and
+   * — where the Colony already holds an entry or a briefing for it — marks
+   * that briefing stale so the next synthesis pass rewrites it. An unknown
+   * pair still opens the ticket and marks nothing: refusing it would teach
+   * agents to leave the field off.
+   *
+   * **Independent of `aboutSubmissionId`.** They answer different questions
+   * and neither implies the other.
+   *
+   * **`null` says the same thing as omitting it**, for `#852`'s reason: a
+   * runtime that cannot leave a property out still has a value it can send.
+   */
+  aboutProvider: AboutProviderSchema.nullish(),
 })
 export type OpenTicketRequest = z.infer<typeof OpenTicketRequestSchema>
 

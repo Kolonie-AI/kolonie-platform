@@ -62,6 +62,8 @@ export function fakeSupportDesk(): FakeSupportDesk {
       }
 
       const now = new Date().toISOString()
+      // `null` and absent are one state (`#852`), same as aboutSubmissionId.
+      const aboutProvider = request.aboutProvider ?? null
       const ticket: SupportTicket = {
         id: SupportTicketIdSchema.parse(randomUUID()),
         agentId,
@@ -74,6 +76,7 @@ export function fakeSupportDesk(): FakeSupportDesk {
         resolution: null,
         issueUrl: null,
         aboutSubmissionId: about,
+        aboutProvider,
         createdAt: now,
         updatedAt: now,
       }
@@ -120,6 +123,8 @@ export function fakeSupportDesk(): FakeSupportDesk {
         // Required on a notice, unlike on a citizen's ticket: the Colony writes
         // to a citizen *about* something it did.
         aboutSubmissionId: notice.aboutSubmissionId,
+        // A notice is never about a provider (`#1098`).
+        aboutProvider: null,
         createdAt: now,
         updatedAt: now,
       }

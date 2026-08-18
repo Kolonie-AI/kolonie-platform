@@ -115,7 +115,35 @@ describe('the two sections on /backend', () => {
 
       const [row] = await waitingTickets(db)
 
-      expect(Object.keys(row ?? {}).sort()).toEqual(['openedAt', 'status', 'subject'])
+      expect(Object.keys(row ?? {}).sort()).toEqual([
+        'aboutProvider',
+        'openedAt',
+        'status',
+        'subject',
+      ])
+      expect(row?.aboutProvider).toBeNull()
+    })
+
+    /**
+     * A ticket that named a provider carries the pair (`#1098`), so the console
+     * can link the Atlas entry beside the subject.
+     */
+    it('carries the provider a ticket named', async () => {
+      const id = await arrived('provider-reporter', '2026-01-01T00:00:00Z')
+      await db.insert(supportTickets).values({
+        agentId: id,
+        kind: 'defect',
+        subject: 'mail.tm welcome never arrives',
+        body: 'the body, which this section deliberately never selects',
+        status: 'open',
+        createdAt: '2026-01-01T00:00:00Z',
+        aboutProviderKind: 'mailbox',
+        aboutProviderName: 'mail.tm',
+      })
+
+      const [row] = await waitingTickets(db)
+
+      expect(row?.aboutProvider).toEqual({ kind: 'mailbox', provider: 'mail.tm' })
     })
 
     it('says nothing rather than failing when the queue is empty', async () => {

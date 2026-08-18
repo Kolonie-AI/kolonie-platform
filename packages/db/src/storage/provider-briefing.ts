@@ -127,13 +127,14 @@ export async function markProviderBriefingStale(
   where: ProviderKey,
 ): Promise<void> {
   const provider = await canonicalProvider(db, where.provider)
+  const at = new Date().toISOString()
 
   await db
     .insert(providerBriefings)
-    .values({ kind: where.kind, provider })
+    .values({ kind: where.kind, provider, updatedAt: at })
     .onConflictDoUpdate({
       target: [providerBriefings.kind, providerBriefings.provider],
-      set: { dirty: true },
+      set: { dirty: true, updatedAt: at },
     })
 }
 
@@ -200,7 +201,13 @@ export async function writeProviderBriefing(
   }
 
   const at = new Date().toISOString()
-  const written = { claims: [...input.claims], model: input.model, writtenAt: at, dirty: false }
+  const written = {
+    claims: [...input.claims],
+    model: input.model,
+    writtenAt: at,
+    dirty: false,
+    updatedAt: at,
+  }
 
   await db
     .insert(providerBriefings)

@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import {
+  AccountKindSchema,
   AgentIdSchema,
   SubmissionIdSchema,
   SupportTicketIdSchema,
@@ -11,7 +12,14 @@ import {
   type SupportTicket,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { agents, submissions, supportTickets, tasks } from '../schema/index.js'
+import { agents, providerBriefings, submissions, supportTickets, tasks } from '../schema/index.js'
+import {
+  providerBriefingCorpus,
+  providerBriefingCounts,
+  readProviderBriefing,
+  staleProviderBriefings,
+} from './provider-briefing.js'
+import { writeProviderRecipe } from './provider-recipes.js'
 import { listOwnTickets, openColonyNotice, openTicket, readOwnTicket } from './support.js'
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
 
@@ -434,6 +442,170 @@ describe('support tickets', () => {
             .set({ status: 'resolved' })
             .where(eq(supportTickets.id, opened.id)),
         /support_tickets_settled_says_why/,
+      )
+    })
+  })
+
+  /**
+   * A ticket about a provider marks that briefing stale (`#1098`).
+   *
+   * The ticket is never evidence — synthesis reads walks — so the assertions
+   * here are about the mark, the rate window, and the unknown-pair exit, not
+   * about what any claim says.
+   */
+  describe('a ticket about a provider (#1098)', () => {
+    const kind = AccountKindSchema.parse('mailbox')
+    const provider = 'mail.example'
+
+    const anEntry = async () => {
+      await writeProviderRecipe(db, {
+        kind,
+        provider,
+        title: 'A mailbox',
+        status: 'joinable',
+        category: 'mailbox',
+        steps: [{ actor: 'agent', instruction: 'Sign up.' }],
+        proves: 'provider-mail',
+      })
+    }
+
+    it('records the provider and marks its briefing stale', async () => {
+      await anEntry()
+      const agentId = await anAgent()
+
+      const opened = await openedTicket(db, {
+        agentId,
+        request: aRequest({ aboutProvider: { kind, provider } }),
+      })
+
+      expect(opened.aboutProvider).toEqual({ kind, provider })
+      expect(await staleProviderBriefings(db, 10)).toEqual([{ kind, provider }])
+    })
+
+    it('marks nothing further inside one briefing interval', async () => {
+      await anEntry()
+      const agentId = await anAgent()
+
+      await openedTicket(db, {
+        agentId,
+        request: aRequest({
+          aboutProvider: { kind, provider },
+          subject: 'First report about this provider',
+        }),
+      })
+      const [first] = await db
+        .select({ updatedAt: providerBriefings.updatedAt })
+        .from(providerBriefings)
+        .where(and(eq(providerBriefings.kind, kind), eq(providerBriefings.provider, provider)))
+
+      await openedTicket(db, {
+        agentId,
+        request: aRequest({
+          aboutProvider: { kind, provider },
+          subject: 'Second report about this provider',
+        }),
+      })
+      const [second] = await db
+        .select({ updatedAt: providerBriefings.updatedAt, dirty: providerBriefings.dirty })
+        .from(providerBriefings)
+        .where(and(eq(providerBriefings.kind, kind), eq(providerBriefings.provider, provider)))
+
+      expect(second?.dirty).toBe(true)
+      expect(second?.updatedAt).toBe(first?.updatedAt)
+    })
+
+    it('opens a ticket about an unknown provider and marks nothing', async () => {
+      const agentId = await anAgent()
+
+      const opened = await openedTicket(db, {
+        agentId,
+        request: aRequest({
+          aboutProvider: { kind, provider: 'never-heard-of.example' },
+        }),
+      })
+
+      expect(opened.aboutProvider).toEqual({
+        kind,
+        provider: 'never-heard-of.example',
+      })
+      expect(await staleProviderBriefings(db, 10)).toEqual([])
+      expect(await providerBriefingCounts(db)).toEqual({ written: 0, stale: 0 })
+    })
+
+    it('marks nothing when aboutProvider is absent, and that is not an error', async () => {
+      await anEntry()
+      const agentId = await anAgent()
+
+      const opened = await openedTicket(db, { agentId, request: aRequest() })
+
+      expect(opened.aboutProvider).toBeNull()
+      expect(await staleProviderBriefings(db, 10)).toEqual([])
+    })
+
+    /**
+     * The ticket body never reaches the briefing. Synthesis reads walks; a
+     * distinctive sentence in the body must appear in no claim and in no
+     * corpus source.
+     */
+    it('keeps the ticket body out of the briefing corpus', async () => {
+      await anEntry()
+      const agentId = await anAgent()
+      const distinctive = 'UNIQUE_TICKET_SENTENCE_xq7m2 that must never become a briefing claim'
+
+      await openedTicket(db, {
+        agentId,
+        request: aRequest({
+          aboutProvider: { kind, provider },
+          body:
+            `${distinctive}. The rest of the body is long enough to clear the ` +
+            'minimum: what I called, what came back, and what I expected.',
+        }),
+      })
+
+      const corpus = await providerBriefingCorpus(db, { kind, provider })
+      expect(corpus.map((source) => source.content).join('\n')).not.toContain(distinctive)
+
+      const briefing = await readProviderBriefing(db, { kind, provider })
+      expect(briefing).toBeUndefined()
+      // The row is dirty and empty — marked, never synthesised from the ticket.
+      const [row] = await db
+        .select({ claims: providerBriefings.claims, dirty: providerBriefings.dirty })
+        .from(providerBriefings)
+        .where(and(eq(providerBriefings.kind, kind), eq(providerBriefings.provider, provider)))
+      expect(row?.dirty).toBe(true)
+      expect(JSON.stringify(row?.claims)).not.toContain(distinctive)
+    })
+
+    it('accepts aboutProvider alongside aboutSubmissionId', async () => {
+      await anEntry()
+      const agentId = await anAgent()
+      const submissionId = await aSubmission(agentId)
+
+      const opened = await openedTicket(db, {
+        agentId,
+        request: aRequest({
+          aboutProvider: { kind, provider },
+          aboutSubmissionId: submissionId,
+        }),
+      })
+
+      expect(opened.aboutProvider).toEqual({ kind, provider })
+      expect(opened.aboutSubmissionId).toBe(submissionId)
+    })
+
+    it('refuses a half-pair on the columns', async () => {
+      const agentId = await anAgent()
+
+      await expectRejection(
+        () =>
+          db.insert(supportTickets).values({
+            agentId,
+            kind: 'defect',
+            subject: 'A subject long enough to be one',
+            body: 'A body long enough to be worth reading, describing what actually happened.',
+            aboutProviderKind: 'mailbox',
+          }),
+        /support_tickets_about_provider_is_a_pair/,
       )
     })
   })

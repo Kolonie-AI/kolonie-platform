@@ -246,7 +246,12 @@ export function fakeQuests(): FakeQuestDesk {
   /** `#524`'s figure. Empty until a test says otherwise. */
   let holdings: readonly HoldingCount[] = []
   const sections: {
-    tickets: readonly { subject: string; openedAt: string; status: string }[]
+    tickets: readonly {
+      subject: string
+      openedAt: string
+      status: string
+      aboutProvider?: { kind: string; provider: string } | null
+    }[]
     /** Who arrived (`#607`). Empty until a test says otherwise. */
     arrivals: {
       agents: readonly unknown[]
@@ -535,7 +540,13 @@ export function fakeQuests(): FakeQuestDesk {
     },
 
     showsOnBackend: (input) => {
-      if (input.tickets !== undefined) sections.tickets = input.tickets
+      if (input.tickets !== undefined) {
+        // `#1098` — a fixture that omits aboutProvider means no provider named.
+        sections.tickets = input.tickets.map((row) => ({
+          ...row,
+          aboutProvider: row.aboutProvider ?? null,
+        }))
+      }
       if (input.arrivals !== undefined) sections.arrivals = input.arrivals
       if (input.unreported !== undefined) sections.unreported = input.unreported
       if (input.briefings !== undefined) sections.briefings = input.briefings

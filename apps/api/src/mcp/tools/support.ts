@@ -106,6 +106,14 @@ export function registerSupportTools(
             'the ticket is about: the answer reports aboutSubmissionId back, so you can ' +
             'check what was associated.',
         ),
+        aboutProvider: OpenTicketRequestSchema.shape.aboutProvider.describe(
+          // `#1098` — the pair is stated, never inferred; unknown pairs still open.
+          'Optional. The provider this ticket is about, as `{kind, provider}` — e.g. ' +
+            '`{"kind":"mailbox","provider":"mail.tm"}`. Name it when the defect or question ' +
+            "is about one Atlas entry; the Colony records it and rewrites that provider's " +
+            'briefing on the next pass. An unknown pair still opens the ticket. Independent ' +
+            'of aboutSubmissionId; send null if your runtime cannot leave a field out.',
+        ),
       },
       annotations: {
         readOnlyHint: false,

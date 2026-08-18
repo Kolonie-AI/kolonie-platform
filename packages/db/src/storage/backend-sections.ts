@@ -50,6 +50,13 @@ export interface WaitingTicket {
   readonly subject: string
   readonly openedAt: Timestamp
   readonly status: string
+  /**
+   * The provider the citizen named, or `null` (`#1098`).
+   *
+   * Shown on `/backend/tickets` so a maintainer reading the queue can open the
+   * Atlas entry beside the ticket. Never inferred — only what the citizen sent.
+   */
+  readonly aboutProvider: { readonly kind: string; readonly provider: string } | null
 }
 
 /**
@@ -81,6 +88,8 @@ export async function waitingTickets(
       subject: supportTickets.subject,
       openedAt: supportTickets.createdAt,
       status: supportTickets.status,
+      aboutProviderKind: supportTickets.aboutProviderKind,
+      aboutProviderName: supportTickets.aboutProviderName,
     })
     .from(supportTickets)
     .where(eq(supportTickets.status, 'open'))
@@ -91,6 +100,10 @@ export async function waitingTickets(
     subject: row.subject,
     openedAt: row.openedAt as Timestamp,
     status: row.status,
+    aboutProvider:
+      row.aboutProviderKind === null || row.aboutProviderName === null
+        ? null
+        : { kind: row.aboutProviderKind, provider: row.aboutProviderName },
   }))
 }
 

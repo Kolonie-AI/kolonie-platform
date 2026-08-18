@@ -164,6 +164,30 @@ describe('the operator’s form', () => {
       expect(await store.isRecorded(agentId)).toBe(true)
     })
 
+    /**
+     * `#1265`: the thank-you page names the console, not the agent.
+     *
+     * An operator who changes their mind was told to ask the agent for a fresh
+     * form. The revise form already lives at `/agents/:agentId/autonomy`; this
+     * is the pointer that was missing, and it is words rather than a permission
+     * (D-081).
+     */
+    it('points at the console Autonomy page rather than asking the agent for a form', async () => {
+      const token = await aForm()
+
+      const response = await post(`/operator/autonomy/${token}`, {
+        level: 'accompanied',
+        challengesAllowed: 'no',
+        defaultRule: 'refrain',
+        operatorRoute: 'Ask in the channel.',
+      })
+
+      expect(response.body).toContain(`href="/agents/${agentId}/autonomy"`)
+      expect(response.body).toContain('kolonie.operator.link')
+      expect(response.body).not.toContain('ask your agent to send a new form')
+      expect(response.body).not.toContain('fresh form')
+    })
+
     it('turns the radio value into the boolean the contract holds', async () => {
       const token = await aForm()
 
@@ -374,6 +398,95 @@ describe('the operator’s form', () => {
       expect(response.body).toContain('Slack, #kolonie.')
     })
 
+    /**
+     * `#1265`: the durable page points at the console, not the agent.
+     *
+     * *"There is nothing here to change"* sent the operator to the agent whose
+     * permissions they were revising. The page stays read-only — the link is
+     * words (D-081) — and `/agents/:agentId/autonomy` is where a contract is
+     * revised.
+     */
+    it('links to the console Autonomy page instead of asking the agent for a form', async () => {
+      pages.contractFor(agentId, {
+        level: 'independent',
+        challengesAllowed: false,
+        defaultRule: 'ask',
+        operatorRoute: 'Slack, #kolonie.',
+        recordedAt: '2026-08-03T00:00:00.000Z',
+        reviewDueAt: '2027-08-03T00:00:00.000Z',
+      })
+      const token = await aPage()
+
+      const response = await get(`/operator/page/${token}`)
+
+      expect(response.body).toContain(`href="/agents/${agentId}/autonomy"`)
+      expect(response.body).toContain('kolonie.operator.link')
+      expect(response.body).not.toContain('There is nothing here to change')
+      expect(response.body).not.toContain('ask the agent to send you a fresh form')
+    })
+
+    /**
+     * `#1265` / `#146`: past the review date the page prompts, and nothing
+     * else. The contract still holds; the Colony does not mail.
+     */
+    it('shows a review line past the review date, with the same console link', async () => {
+      pages.contractFor(agentId, {
+        level: 'independent',
+        challengesAllowed: false,
+        defaultRule: 'ask',
+        operatorRoute: 'Slack, #kolonie.',
+        recordedAt: '2025-01-01T00:00:00.000Z',
+        reviewDueAt: '2025-01-01T00:00:00.000Z',
+      })
+      const token = await aPage()
+
+      const response = await get(`/operator/page/${token}`)
+
+      expect(response.body).toContain('past its review date')
+      expect(response.body).toContain('unreviewed')
+      expect(response.body).toContain('it still holds')
+      expect(response.body).toContain(`href="/agents/${agentId}/autonomy"`)
+    })
+
+    it('draws no review line while the review date is still ahead', async () => {
+      pages.contractFor(agentId, {
+        level: 'independent',
+        challengesAllowed: false,
+        defaultRule: 'ask',
+        operatorRoute: 'Slack, #kolonie.',
+        recordedAt: '2026-08-03T00:00:00.000Z',
+        reviewDueAt: '2099-08-03T00:00:00.000Z',
+      })
+      const token = await aPage()
+
+      expect((await get(`/operator/page/${token}`)).body).not.toContain('past its review date')
+    })
+
+    /**
+     * `#1265`: siblings keep their own contracts, and the note names the
+     * console rather than asking any agent for a fresh form.
+     */
+    it('tells an operator of several agents to revise at the console', async () => {
+      pages.contractFor(agentId, {
+        level: 'independent',
+        challengesAllowed: false,
+        defaultRule: 'ask',
+        operatorRoute: 'Slack, #kolonie.',
+        recordedAt: '2026-08-03T00:00:00.000Z',
+        reviewDueAt: '2027-08-03T00:00:00.000Z',
+      })
+      pages.alsoCoveredFor(agentId, ['sibling'])
+      const token = await aPage()
+
+      const response = await get(`/operator/page/${token}`)
+
+      expect(response.body).toContain('Each of those keeps its own contract')
+      expect(response.body).toContain('sign in at the console')
+      expect(response.body).not.toContain(
+        'ask the agent whose terms you want to alter for a fresh form',
+      )
+    })
+
     it('says secrets have no route when the sealed channel is not configured', async () => {
       const response = await get(`/operator/page/${await aPage()}`)
 
@@ -471,7 +584,12 @@ describe('the operator’s form', () => {
       const response = await get(`/operator/page/${token}`)
 
       expect(response.body).not.toContain('<script')
-      expect(response.body).not.toContain(agentId)
+      /**
+       * `#1265` deliberately puts the agent id in the Autonomy console link —
+       * the page already names the agent, and a deep link needs the id. What
+       * this assertion still protects is standing: reputation, rewards, and
+       * anything a leaked link must not turn into a compromise.
+       */
       for (const word of ['reputation', 'reward', 'credits', 'submission']) {
         expect(response.body.toLowerCase()).not.toContain(word)
       }

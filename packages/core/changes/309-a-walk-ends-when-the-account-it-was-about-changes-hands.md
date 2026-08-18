@@ -1,0 +1,3 @@
+<!-- section: Changed -->
+
+- Accepting an account now ends the giver's open walk at that provider instead of leaving it walking forever at a register row that has been deleted. It closes as `abandoned` with a `closedByTransferAt` marker, which is what keeps it honest: the giver is not asked for a walk-report about somebody else's account before their next attempt there, and the row is in no briefing and in none of the provider's figures, because a gift is a fact about two citizens and never evidence about the way in. `kolonie.accounts.walk-status` reads it back as `transferred`, and no walk is opened for the recipient.

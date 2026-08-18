@@ -1,0 +1,2 @@
+ALTER TABLE "account_walks" ADD COLUMN "closed_by_transfer_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "account_walks" ADD CONSTRAINT "account_walks_transfer_close_is_a_close" CHECK ("account_walks"."closed_by_transfer_at" is null or "account_walks"."finished_at" is not null);

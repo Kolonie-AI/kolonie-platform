@@ -233,6 +233,31 @@ export const AccountWalkSchema = z.object({
   /** Null while it is still running. */
   outcome: WalkOutcomeSchema.nullable(),
   /**
+   * When the Colony closed this walk because the account left the walker's
+   * custody (`#1216`).
+   *
+   * **Null on every walk a citizen closed, which is all but a handful of them.**
+   * A walk is closed by the walker saying how it ended; this is the one close
+   * nobody asked for — an account given away with `kolonie.accounts.give` and
+   * accepted leaves the giver's register, and the walk that was about it would
+   * otherwise sit at `walking` forever, pointing at a row that is gone.
+   *
+   * **A marker rather than a fourth outcome word.** {@link WalkOutcomeSchema}
+   * has three, they are what a citizen may file, and *given away* is not
+   * something a citizen files — it is something the Colony did to the record. A
+   * fourth value would appear at the boundary of `kolonie.accounts.walk-report`
+   * as a word nobody may use, and every reader of an outcome would have to learn
+   * it. So the row is closed with `abandoned`, which is the vocabulary's word
+   * for *the walker stopped*, and this column is what says who stopped it.
+   *
+   * **It is what keeps the Atlas unmoved.** A walk closed here wrote no prose,
+   * so it is invisible to the briefing corpus and unpayable under `#1033`; and
+   * `atlas-figures.ts` drops it from the walked set outright, so the provider's
+   * public story is exactly what it was while the walk was open. Nothing about
+   * a citizen's gift is evidence about a provider.
+   */
+  closedByTransferAt: TimestampSchema.nullable(),
+  /**
    * The wall it ended at, when it ended at one.
    *
    * Required on `refused` and refused otherwise, the same pair as

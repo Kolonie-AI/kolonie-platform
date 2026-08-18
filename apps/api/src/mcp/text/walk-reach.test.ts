@@ -13,6 +13,7 @@ const walk = (over: Partial<AccountWalk> = {}): AccountWalk => ({
   startedAt: '2026-08-09T00:00:00.000Z' as never,
   finishedAt: '2026-08-09T00:40:00.000Z' as never,
   outcome: 'proved',
+  closedByTransferAt: null,
   direction: null,
   wall: null,
   note: null,

@@ -84,6 +84,8 @@ function toWalk(walk: WalkRow, steps: readonly StepRow[]): AccountWalk {
     startedAt: toTimestamp(walk.startedAt),
     finishedAt: walk.finishedAt === null ? null : toTimestamp(walk.finishedAt),
     outcome: walk.outcome === null ? null : WalkOutcomeSchema.parse(walk.outcome),
+    closedByTransferAt:
+      walk.closedByTransferAt === null ? null : toTimestamp(walk.closedByTransferAt),
     wall: walk.wall,
     note: walk.note,
     did: walk.did,
@@ -300,6 +302,64 @@ export async function accountWalkList(
 }
 
 /**
+ * Close a walk because the account it was about left the walker's custody
+ * (`#1216`).
+ *
+ * **The one close the walker did not ask for.** Every other finished row here
+ * was finished by its own citizen saying how it ended; this one is finished by
+ * `acceptAccountOffer`, because the account has just moved to somebody else and
+ * the giver has nothing left to walk towards. Left open it would read `walking`
+ * forever beside a register row that is gone, and the surface would keep telling
+ * the giver to declare an account it no longer holds.
+ *
+ * **Deliberately not {@link finishWalk}.** That one is the report: it computes a
+ * verdict against the published entry, writes or refuses a catalogue entry,
+ * moves `last_confirmed_at`, measures the provider and queues the prose for
+ * moderation. All of that is a claim about the provider, and nothing about this
+ * close is one — a citizen gave an account away, which is evidence about the
+ * citizen and not about the door they walked through. So this writes three
+ * columns and stops.
+ *
+ * **`abandoned` plus the marker, rather than a fourth outcome word.**
+ * `WalkOutcomeSchema` has three and they are the boundary of
+ * `kolonie.accounts.walk-report`; *given away* is not something a citizen files.
+ * `abandoned` is the vocabulary's word for *the walker stopped*, and
+ * `closed_by_transfer_at` is what says who stopped it — which is what
+ * `atlas-figures.ts` reads to keep the provider's public story exactly as it was
+ * (`#1167`), and what `unreportedWalk` reads so the giver is never held up for a
+ * report about somebody else's account.
+ *
+ * Silent when there is no open walk, which is the ordinary case: most accounts
+ * are given away long after the walk that got them was filed.
+ */
+export async function closeWalkOnTransfer(
+  tx: Transaction,
+  agentId: AgentId,
+  where: { readonly kind: AccountKind; readonly provider: string },
+): Promise<AccountWalk | undefined> {
+  const provider = await canonicalProvider(tx, where.provider)
+
+  const [row] = await tx
+    .update(accountWalks)
+    .set({
+      finishedAt: sql`now()`,
+      outcome: 'abandoned',
+      closedByTransferAt: sql`now()`,
+    })
+    .where(
+      and(
+        eq(accountWalks.agentId, agentId),
+        eq(accountWalks.kind, atlasCanonicalKind(where.kind)),
+        eq(accountWalks.provider, provider),
+        isNull(accountWalks.finishedAt),
+      ),
+    )
+    .returning()
+
+  return row === undefined ? undefined : toWalk(row, [])
+}
+
+/**
  * The last walk here that did not get through and never said why (`#811`).
  *
  * **The newest one only, and never a queue of them.** What the Academy gates is
@@ -328,6 +388,15 @@ export async function unreportedWalk(
         eq(accountWalks.provider, provider),
         isNotNull(accountWalks.finishedAt),
         ne(accountWalks.outcome, 'proved'),
+        /**
+         * **A walk the Colony closed is never owed a report** (`#1216`). The
+         * giver did not stop walking; the account it was walking for was given
+         * away and accepted, and this gate would otherwise hold that citizen
+         * up at the provider until it wrote a sentence about somebody else's
+         * account. `#1216` asks for the zombie to clear without a second
+         * report, and the gate is the half that would have made it one.
+         */
+        isNull(accountWalks.closedByTransferAt),
         /**
          * A walk opened and closed by `walk-report` in one transaction was
          * reported by construction. `now()` is transaction-stable, so equal

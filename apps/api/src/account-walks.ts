@@ -260,8 +260,17 @@ export interface WalkStore {
  * pair in the request that closes it, and there is no queue for it to sit in.
  * A citizen whose walk closed reads `published`, whatever the entry beside it
  * says, and `entryStatus` is where the entry answers for itself.
+ *
+ * **`transferred` is the one closed walk that is not published** (`#1216`). The
+ * Colony closed it because the account it was about moved to another citizen,
+ * and it publishes nowhere: it is out of the briefing for its pair and out of
+ * every Atlas figure, on the argument `#1167` makes — a gift is a fact about two
+ * citizens and never evidence about a provider. Reading `published` would tell
+ * the giver its walk is in a briefing it is deliberately absent from, and
+ * `walking` would be worse still, since there is nothing left to walk towards.
  */
-export type WalkPublicationStatus = 'walking' | 'published' | 'refused' | 'withdrawn'
+export type WalkPublicationStatus =
+  'walking' | 'published' | 'refused' | 'withdrawn' | 'transferred'
 
 /**
  * Where the walk stands against the entry it was filed about (`#979`).
@@ -287,8 +296,12 @@ export type WalkPublicationStatus = 'walking' | 'published' | 'refused' | 'withd
  *   wall and the entry says joinable. Both readings publish; neither side is a
  *   verdict on the other, and a reader is told they disagree rather than being
  *   handed one of them.
+ * - `transferred` — the account left this citizen's custody and the Colony
+ *   closed the walk (`#1216`). Nothing is compared, because nothing was filed:
+ *   there is no claim of this citizen's here for the entry to agree or disagree
+ *   with.
  */
-export type WalkFate = 'walking' | 'published' | 'agrees' | 'contradicted'
+export type WalkFate = 'walking' | 'published' | 'agrees' | 'contradicted' | 'transferred'
 
 /**
  * What became of the walk, as distinct from what the entry says (`#979`).
@@ -513,7 +526,17 @@ function accountAtProvider(accounts: readonly Account[], provider: string): Acco
 export function deriveWalkProofState(
   held: readonly Account[],
   tallies: readonly ProviderTally[],
-  where: { readonly kind: AccountKind; readonly provider: string },
+  where: {
+    readonly kind: AccountKind
+    readonly provider: string
+    /**
+     * Set when the Colony closed the walk because the account was given away
+     * (`#1216`). Both callers pass the walk itself, which carries it; the one
+     * caller that builds the pair by hand is `walk-report`, where a walk has
+     * just been filed by its own citizen and this is null by construction.
+     */
+    readonly closedByTransferAt?: AccountWalk['closedByTransferAt']
+  },
 ): WalkProofState {
   const account = accountAtProvider(held, where.provider)
   const tally = tallies.find((one) => one.provider === where.provider)
@@ -524,31 +547,49 @@ export function deriveWalkProofState(
     accountProvedBy: account?.provedBy ?? null,
     providerCitizens: tally?.citizens ?? 0,
     providerProved: tally?.proved ?? 0,
+    /**
+     * **The register is empty here for a reason, and the reason changes the
+     * advice** (`#1216`). `declare` is the right next call for a citizen that
+     * walked a provider and never wrote the account down. It is the wrong one
+     * for a citizen whose account was accepted by somebody else minutes ago:
+     * the row is gone because it moved, declaring it again would claim an
+     * account this citizen no longer holds, and the register would be right
+     * about nothing. So the transfer is read before the register is.
+     */
     nextAction:
-      account === undefined
+      where.closedByTransferAt != null && account === undefined
         ? {
-            call: 'kolonie.accounts.declare',
+            call: null,
             why:
-              `The walk is recorded, and nothing in the register holds a ${where.kind} account ` +
-              `at ${where.provider} for you yet. Declaring it is what puts the row there; it ` +
-              `proves nothing by itself, and proving is the call after it.`,
+              `Nothing to do: the ${where.kind} account you held at ${where.provider} is ` +
+              `another citizen's now, and the Colony closed this walk when they accepted it. ` +
+              `Do not declare it again — it is not yours. If you get a second account here, ` +
+              `that is a new walk and a new row.`,
           }
-        : account.proved
+        : account === undefined
           ? {
-              call: null,
+              call: 'kolonie.accounts.declare',
               why:
-                `Nothing to do: that account is proved, by ${account.provedBy ?? 'a verdict'}, ` +
-                `and it is counted in this provider's proved figure.`,
+                `The walk is recorded, and nothing in the register holds a ${where.kind} account ` +
+                `at ${where.provider} for you yet. Declaring it is what puts the row there; it ` +
+                `proves nothing by itself, and proving is the call after it.`,
             }
-          : {
-              call: 'kolonie.accounts.prove',
-              why:
-                `The account is declared and unproved, which is what a walk leaves it as — a ` +
-                `walk report is your account of what you did, and proving is the Colony reading ` +
-                `something itself. kolonie.accounts.prove with method "provider-mail" or ` +
-                `"provider-post" is what sets proved, provedBy and this provider's proved count. ` +
-                `Neither one asks for a password.`,
-            },
+          : account.proved
+            ? {
+                call: null,
+                why:
+                  `Nothing to do: that account is proved, by ${account.provedBy ?? 'a verdict'}, ` +
+                  `and it is counted in this provider's proved figure.`,
+              }
+            : {
+                call: 'kolonie.accounts.prove',
+                why:
+                  `The account is declared and unproved, which is what a walk leaves it as — a ` +
+                  `walk report is your account of what you did, and proving is the Colony reading ` +
+                  `something itself. kolonie.accounts.prove with method "provider-mail" or ` +
+                  `"provider-post" is what sets proved, provedBy and this provider's proved count. ` +
+                  `Neither one asks for a password.`,
+              },
   }
 }
 
@@ -607,14 +648,23 @@ async function statusOf(
    * an `unwritten` or `measured` row, is in the briefing for its pair exactly as
    * one beside a `joinable` row is.
    */
+  /**
+   * **And a walk the Colony closed is the exception to that** (`#1216`). It
+   * reads the walk before it reads the entry, because the entry is about the
+   * provider and this walk stopped being about the provider the moment the
+   * account moved. First, so no branch below can label a transfer with what the
+   * catalogue happens to say today.
+   */
   const status: WalkPublicationStatus =
-    walk.finishedAt === null
-      ? 'walking'
-      : entry?.status === 'refused'
-        ? 'refused'
-        : entry?.status === 'retired'
-          ? 'withdrawn'
-          : 'published'
+    walk.closedByTransferAt !== null
+      ? 'transferred'
+      : walk.finishedAt === null
+        ? 'walking'
+        : entry?.status === 'refused'
+          ? 'refused'
+          : entry?.status === 'retired'
+            ? 'withdrawn'
+            : 'published'
 
   return {
     walkId: walk.id,
@@ -631,8 +681,15 @@ async function statusOf(
      * briefing computed from the walks at it, so a closed walk is in it whether
      * or not anybody ever wrote an entry — and the case this field was added to
      * answer, *is what I filed readable by anyone*, is now simply yes.
+     *
+     * **Except the one close no citizen filed** (`#1216`). A walk the Colony
+     * closed because the account was given away is excluded from the walked set
+     * outright, so the honest answer here is no — and it is the same fact as
+     * `status: "transferred"` above, read from the same column rather than
+     * derived from it, because a reader that checks only this field must not be
+     * told the opposite of one that checks only that one.
      */
-    appearsInRecipes: walk.finishedAt !== null,
+    appearsInRecipes: walk.finishedAt !== null && walk.closedByTransferAt === null,
     refusalReason: status === 'refused' ? (entry?.refusal ?? walk.wall) : null,
     /**
      * The Atlas row's own reason, and no fallback to the walk (`#941`). A walk's
@@ -676,6 +733,28 @@ function walkFate(walk: AccountWalk, entry: ProviderRecipe | undefined): WalkFat
       why:
         'The walk is still open. Nothing has been proposed to the catalogue yet, and ' +
         'kolonie.accounts.walk-report is what closes it.',
+    }
+  }
+
+  /**
+   * **Before the outcome is read at all, because the outcome is not what
+   * happened here** (`#1216`). The row says `abandoned` — that is the
+   * vocabulary's word for *the walker stopped*, and `WalkOutcomeSchema` has
+   * three words because three is what a citizen may file. This walk was closed
+   * by the Colony when the account moved to somebody else, and the branch below
+   * would tell the giver *you abandoned this walk, and where you stopped is in
+   * the briefing* — both halves untrue: nobody gave up, and the row is
+   * deliberately in no briefing.
+   */
+  if (walk.closedByTransferAt !== null) {
+    return {
+      fate: 'transferred',
+      why:
+        'The account this walk was about went to another citizen, so the Colony closed the ' +
+        'walk for you — there was nothing left for you to finish, and you are not owed a ' +
+        'report for it. It is in no briefing and it changed none of this provider’s ' +
+        'figures: giving an account away is a fact about the two of you, never evidence ' +
+        'about the way in. Walking this provider again starts a new walk.',
     }
   }
 

@@ -2059,6 +2059,13 @@
       "when": 1787045860749,
       "tag": "0293_steady_masque",
       "breakpoints": true
+    },
+    {
+      "idx": 294,
+      "version": "7",
+      "when": 1787048008758,
+      "tag": "0294_solid_multiple_man",
+      "breakpoints": true
     }
   ]
 }

@@ -180,6 +180,17 @@ export async function atlasFigures(
         from account_walks
         join agents on agents.id = account_walks.agent_id
        where account_walks.finished_at is not null
+             -- **A walk the Colony closed is not evidence about a provider**
+             -- (#1216). closed_by_transfer_at marks the one row nobody filed:
+             -- the account moved to another citizen and the giver's open walk
+             -- was closed for them, with abandoned because that is the
+             -- vocabulary's word for the walker stopped. Counting it would post
+             -- a stop at this provider that no citizen ever hit, and #1167 is
+             -- exactly the rule that a transfer does not rewrite the public
+             -- story. Excluded rather than blanked: while the walk was open it
+             -- was outside this CTE anyway, so a gift leaves every figure here
+             -- bit for bit as it was.
+             and account_walks.closed_by_transfer_at is null
     ),
     -- Every provider anybody has been to, whatever direction they went in. The
     -- scoping below narrows what a row says and never which rows exist: a

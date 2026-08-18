@@ -134,6 +134,34 @@ export const accountWalks = pgTable(
     outcome: text('outcome'),
 
     /**
+     * When the Colony closed this walk because the account left the walker's
+     * custody (`#1216`).
+     *
+     * **The one close no citizen asked for.** Every other row here is closed by
+     * its walker saying how it ended; this one is closed by
+     * `kolonie.accounts.accept`, because the account the walk was about has just
+     * moved to somebody else and the giver has nothing left to finish. A walk
+     * left open would read `walking` forever beside a register row that is gone,
+     * which is `#1216` in one sentence.
+     *
+     * **A marker beside `outcome` rather than a fourth word inside it.**
+     * `WalkOutcomeSchema` has three and they are what a citizen may file; the
+     * row is closed with `abandoned` — the vocabulary's word for *the walker
+     * stopped* — and this column says who stopped it and why. That keeps the
+     * boundary of `kolonie.accounts.walk-report` exactly as wide as it was.
+     *
+     * **Nothing here reaches the Atlas.** `atlas-figures.ts` drops these rows
+     * from the walked set, so a gift changes no provider's counts, no stop
+     * tally and no evidence flag; and the row carries no prose, so it is out of
+     * the briefing corpus and unpayable under `#1033`. `#1167`'s rule that the
+     * public story is not rewritten by a transfer is what that is for.
+     */
+    closedByTransferAt: timestamp('closed_by_transfer_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+
+    /**
      * The wall it ended at, when it ended at one.
      *
      * The same pair as `status`/`refusal` on the entry: a dead end nobody
@@ -412,6 +440,17 @@ export const accountWalks = pgTable(
       'account_walks_finished_together',
       sql`(${table.finishedAt} is null and ${table.outcome} is null)
           or (${table.finishedAt} is not null and ${table.outcome} is not null)`,
+    ),
+
+    /**
+     * **The Colony's own close is a close** (`#1216`). The marker says why a
+     * walk ended, so a row carrying it with no finish time would be a reason
+     * for something that did not happen — and every reader that asks *is this
+     * walk over* asks `finished_at`, which would answer no.
+     */
+    check(
+      'account_walks_transfer_close_is_a_close',
+      sql`${table.closedByTransferAt} is null or ${table.finishedAt} is not null`,
     ),
 
     /**

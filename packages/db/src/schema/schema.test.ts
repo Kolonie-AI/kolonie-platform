@@ -672,6 +672,17 @@ describe('schema', () => {
          * without it.
          */
         /**
+         * `playbook_briefing_claims` (`#1251`): one claim the synthesis drew
+         * from the run corpus, with what supported it and when.
+         *
+         * Its own table because a claim decays. It is not a projection that can
+         * be recomputed from the reports whenever the briefing is read — the
+         * whole point is that support is dated, so the same corpus yields a
+         * different foreground a month later, and that only works if what was
+         * claimed and when is stored rather than derived.
+         */
+        'playbook_briefing_claims',
+        /**
          * `playbook_moderations` (`#1219`): the verdict a judge reached about
          * one offered playbook, and the digest of the text it read.
          *

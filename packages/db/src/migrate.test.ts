@@ -548,7 +548,13 @@ describe('the migrations', () => {
     // answers is about the citizen rather than the artefact — six tables each
     // holding a sixth of a record cannot be asked *how has this one behaved
     // lately*, which is the read the sanction chain (`#1261`) is built on.
-    expect(afterFirst.tables).toBe('136')
+    //
+    // **A hundred and thirty-seven** (`#1251`): `playbook_briefing_claims`, one
+    // claim the synthesis drew from a playbook's run corpus, with what
+    // supported it and when. Stored rather than derived because a claim decays:
+    // the same corpus has to yield a different foreground a month later, and a
+    // projection recomputed at read time has no *when* to decay against.
+    expect(afterFirst.tables).toBe('137')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

@@ -142,12 +142,10 @@ export type AccountProvenance = z.infer<typeof AccountProvenanceSchema>
  * - A provider whose profile is a page a fetch can read takes `provider-post`.
  *   Telegram's `t.me/<handle>` is one, and it capped the field at 70 characters —
  *   which is why {@link ACCOUNT_PROOF_SECRET_BYTES} is thirty and not thirty-two.
- * - A provider that answers a datacentre fetch with `403` does not, and the
- *   Colony does not dress its reader up as a browser to change that (`#1153`).
- *   Reddit is one. `provider-mail` is the route, and it depends on nothing the
- *   Colony can be refused at.
- * - A provider that puts a human check in front of its profile API — Discord's
- *   hCaptcha — does not either, for the same reason and with the same answer.
+ * - The ones that do not are in {@link PROVIDERS_REFUSING_POST_PROOF}, with what
+ *   each was measured answering and on what date. **They are a value and no
+ *   longer a list in this paragraph** (`#1218`): the prose here was the only
+ *   record of them, and prose is a thing no citizen and no code path reads.
  *
  * **No third method was added to cover any of them**, and none is needed: every
  * measured case is one of these two. And nothing here ever reaches the account's
@@ -169,6 +167,89 @@ export type AccountProofMethod = z.infer<typeof AccountProofMethodSchema>
  */
 export const GenericProofMethodSchema = z.enum(['provider-mail', 'provider-post'])
 export type GenericProofMethod = z.infer<typeof GenericProofMethodSchema>
+
+/**
+ * The providers measured refusing the Colony's reader, so a `provider-post`
+ * proof at one cannot close (`#1218`).
+ *
+ * ## Why a value and not a paragraph
+ *
+ * `#1168` measured all of this and wrote it into the doc block above, which is
+ * the correct place for a finding and the wrong place for a fact something has
+ * to act on. A citizen proving a Reddit account still minted a string, published
+ * a post, submitted it, and was told at that point that the Colony's reader is
+ * not allowed in — a refusal `#1153` had already made accurate and helpful, and
+ * which arrives one step after the step that cost the citizen something. The
+ * ticket came back a third time, which is what a fact recorded only in prose
+ * eventually does.
+ *
+ * ## What it is and what it is not
+ *
+ * **A measurement with a date on it, not a policy about a company.** Every entry
+ * says what the Colony's own fetch received and when. A provider that changes
+ * its mind changes this list; nothing here is an opinion about the provider, and
+ * the Colony is not owed access by any of them.
+ *
+ * **It closes no account and no kind.** `provider-mail` is untouched at every
+ * provider here, and it is the route: it depends on nothing the Colony can be
+ * refused at. A Reddit account is as provable as it ever was — this changes
+ * which of the two methods a citizen is pointed at, and when.
+ *
+ * **It is a hint and not a gate**, because `provider` is optional on
+ * {@link OpenAccountProofRequestSchema} and always will be — a citizen that names
+ * no provider is refused nothing, and the submit-time `url-blocked` message
+ * stays exactly where it is as the backstop. What this buys is that a citizen
+ * who *did* say where the account lives finds out before publishing rather than
+ * after.
+ *
+ * ## The thing not to do about a 403
+ *
+ * The Colony does not present itself as a browser to get past one of these. That
+ * is the red line about going at a platform's protections, and a proof obtained
+ * that way would be evidence about the disguise rather than about the citizen.
+ * Naming the provider here is the alternative to pretending, not a step towards
+ * routing around it.
+ */
+export const PROVIDERS_REFUSING_POST_PROOF = [
+  {
+    provider: 'reddit.com',
+    measured: '2026-08-17',
+    /** Both `old.` and `www.` answered `403` to the Colony's own fetch, in under 40ms. */
+    symptom: 'answers a fetch that does not come from a browser with 403',
+  },
+  {
+    provider: 'discord.com',
+    measured: '2026-08-17',
+    symptom: 'puts a human check in front of the profile a proof would be read from',
+  },
+] as const
+
+export type PostProofRefusal = (typeof PROVIDERS_REFUSING_POST_PROOF)[number]
+
+/**
+ * Whether a named provider is one of them.
+ *
+ * **Matched on the registrable name and not on the string**, because a citizen
+ * writes down where its account is rather than which host the Colony happened to
+ * fetch: `reddit.com`, `www.reddit.com` and `old.reddit.com` are one provider and
+ * a citizen naming any of them means the same thing. A suffix match only on a dot
+ * boundary, so `notreddit.com` is a different provider and stays one.
+ *
+ * Returns the entry rather than a boolean, so the caller can say *what* was
+ * measured and *when* instead of only that something was.
+ */
+export function postProofRefusedAt(provider: string | null | undefined): PostProofRefusal | null {
+  if (provider === null || provider === undefined) return null
+
+  const named = provider.trim().toLowerCase()
+  if (named === '') return null
+
+  return (
+    PROVIDERS_REFUSING_POST_PROOF.find(
+      (entry) => named === entry.provider || named.endsWith(`.${entry.provider}`),
+    ) ?? null
+  )
+}
 
 /**
  * Whether a proof was read by a verifier the Colony wrote.

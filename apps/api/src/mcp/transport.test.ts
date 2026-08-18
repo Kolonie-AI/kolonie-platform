@@ -566,11 +566,7 @@ describe('the MCP surface over HTTP', () => {
       registered.result as { structuredContent: { credentials: { apiKey: ApiKey } } }
     ).structuredContent
 
-    const listed = await rpc(
-      'tools/list',
-      {},
-      { authorization: `Bearer ${credentials.apiKey}` },
-    )
+    const listed = await rpc('tools/list', {}, { authorization: `Bearer ${credentials.apiKey}` })
     const served = (listed.result as { tools: readonly { name: string }[] }).tools.map(
       (tool) => tool.name,
     )

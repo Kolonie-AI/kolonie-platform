@@ -168,6 +168,90 @@ describe('opening a proof', () => {
     expect(text).toContain(`${opened.response.secret.length} characters`)
     expect(text).toContain('bio')
   })
+
+  /**
+   * `#1218`, and the third time this arrived as a ticket.
+   *
+   * `#1153` made the submit-time answer accurate and `#1168` measured which
+   * providers it applies to. Neither could move the moment the citizen learns:
+   * it minted a string, published a post at a provider that was already known to
+   * refuse the Colony's reader, and found out on the way back. The measurement
+   * existed the whole time, in a doc block, where nothing reads it.
+   */
+  it('refuses a post proof at a provider measured refusing the reader, before minting', async () => {
+    const opened = await openProof(
+      agentId,
+      {
+        kind: 'social',
+        identifier: 'colette',
+        method: 'provider-post',
+        provider: 'old.reddit.com',
+      },
+      deps,
+    )
+
+    expect(opened.outcome).toBe('rejected')
+    if (opened.outcome !== 'rejected') return
+    expect(opened.error.code).toBe('validation_failed')
+    // The registrable name, not the subdomain the citizen happened to write.
+    expect(opened.error.message).toContain('reddit.com')
+    // A measurement with a date on it, so a citizen can tell a stale one.
+    expect(opened.error.message).toContain('2026-08-17')
+    // The route that depends on nothing the Colony can be refused at.
+    expect(opened.error.message).toContain('provider-mail')
+    // And the thing that distinguishes this from the submit-time refusal: it is
+    // said before anything was spent, which is the whole of the issue.
+    expect(opened.error.message).toContain('nothing has been minted')
+  })
+
+  it('leaves the mail proof open at the same provider', async () => {
+    withProvedMailbox()
+
+    const opened = await openProof(
+      agentId,
+      { kind: 'social', identifier: 'colette', method: 'provider-mail', provider: 'reddit.com' },
+      deps,
+    )
+
+    /**
+     * **It closes no account and no kind.** The list refuses one method at one
+     * provider on a measurement about the Colony's reader, and a Reddit account
+     * is as provable as it ever was. A test here because the cheapest way to get
+     * this wrong is to key the refusal on the provider and forget the method.
+     */
+    expect(opened.outcome).toBe('ok')
+  })
+
+  it('opens a post proof at a provider nobody has measured', async () => {
+    const opened = await openProof(
+      agentId,
+      {
+        kind: 'trello',
+        identifier: 'colette-board',
+        method: 'provider-post',
+        provider: 'trello.com',
+      },
+      deps,
+    )
+
+    expect(opened.outcome).toBe('ok')
+  })
+
+  it('opens a post proof when no provider is named', async () => {
+    /**
+     * `provider` is optional on the request and stays optional, so this is a hint
+     * at the front of the path and never a gate across it. A citizen that names
+     * nothing is refused nothing and meets the submit-time message exactly as
+     * before — which is why `#1153`'s wording is not being removed.
+     */
+    const opened = await openProof(
+      agentId,
+      { kind: 'social', identifier: 'colette', method: 'provider-post' },
+      deps,
+    )
+
+    expect(opened.outcome).toBe('ok')
+  })
 })
 
 describe('submitting a post proof', () => {

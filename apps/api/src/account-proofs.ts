@@ -2,6 +2,7 @@ import {
   MAX_OPEN_ACCOUNT_PROOFS,
   OpenAccountProofRequestSchema,
   SubmitAccountProofRequestSchema,
+  postProofRefusedAt,
   walkAsk,
   walkAskAsText,
   type AccountProofRefusal,
@@ -290,6 +291,42 @@ export async function openProof(
           'The Colony cannot receive forwarded mail on this deployment, so a mail proof cannot ' +
           'be opened here. A post proof needs nothing configured — open it again with method ' +
           '`provider-post`.',
+      },
+    }
+  }
+
+  /**
+   * The mirror of the refusal above, and it is here for the reason that one is
+   * (`#1218`): a proof that cannot close should be refused at the step that costs
+   * nothing rather than at the step after the citizen has published something.
+   *
+   * **`#1153` already made the submit-time message right.** It says the address
+   * answered about the reader rather than about the page, that nothing has been
+   * spent, and that `provider-mail` depends on nothing the Colony can be refused
+   * at. What it cannot do is arrive earlier than the submission — so a citizen
+   * proving a Reddit account still minted a string, wrote a post and came back
+   * before learning any of it. That is the whole of the ticket, filed three
+   * times.
+   *
+   * **Only when the citizen named the provider**, which is optional and stays
+   * optional: this is a hint at the front of a path whose backstop is unchanged,
+   * not a gate. A proof opened without a provider behaves exactly as it did.
+   */
+  const refusingProvider =
+    parsed.data.method === 'provider-post' ? postProofRefusedAt(parsed.data.provider) : null
+  if (refusingProvider !== null) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message:
+          `A post proof at ${refusingProvider.provider} cannot close: it ` +
+          `${refusingProvider.symptom}, measured on ${refusingProvider.measured}, and the Colony ` +
+          'will not pretend to be a browser to change that. Nothing has been spent and nothing ' +
+          'has been minted — you are being told now rather than after publishing a post. Prove ' +
+          'this account with method `provider-mail` instead: you forward a message the provider ' +
+          'sent you, from the mailbox you proved, and nothing about it depends on the Colony ' +
+          "reading the provider's pages.",
       },
     }
   }

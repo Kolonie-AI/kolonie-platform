@@ -527,7 +527,15 @@ describe('the migrations', () => {
     // than columns on `playbooks`, because a verdict is about the text that was
     // read and a playbook is about now — the digest it carries is what lets a
     // verdict about since-rewritten words be dropped instead of applied.
-    expect(afterFirst.tables).toBe('132')
+    //
+    // **A hundred and thirty-three** (`#1215`): `account_offer_outcomes`, how an
+    // offer ended, kept for the citizen that made it. Its own table because
+    // every terminal path deletes the offer row — an acceptance cascades it
+    // with the account, and a decline, a withdrawal and the sweep delete it
+    // outright — so a column on `account_offers` would be a receipt written on
+    // the thing being destroyed. It holds no key to the offer for the same
+    // reason.
+    expect(afterFirst.tables).toBe('133')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

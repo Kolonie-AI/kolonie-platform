@@ -369,6 +369,46 @@ function happenedBlocks(digest: WakeupResponse): readonly Block[] {
         'is not returned.'
       )
     }),
+    /**
+     * How an offer this citizen made ended (`#1215`).
+     *
+     * **News and never a task.** Every one of the four is over: an acceptance
+     * leaves nothing to do, and a decline, a withdrawal and an expiry leave the
+     * giver holding the account it already held. So the line says which of the
+     * four it was and where the account now is, and names no call.
+     *
+     * **`expired` says nothing about the handle.** An offer nobody answered and
+     * an offer to a handle nobody holds end identically here, which is what
+     * keeps `kolonie.accounts.give`'s non-enumeration intact — so the line names
+     * the silence rather than guessing at a reason for it.
+     */
+    ...digest.offerOutcomes.map((outcome) => {
+      const what = `${outcome.accountKind} ${outcome.accountIdentifier}`
+      if (outcome.outcome === 'accepted') {
+        return (
+          `your offer of ${what} to ${outcome.toHandle} — accepted at ${outcome.at}` +
+          '\n    It is theirs now, and that is why the account has left your list.'
+        )
+      }
+      if (outcome.outcome === 'declined') {
+        return (
+          `your offer of ${what} to ${outcome.toHandle} — declined at ${outcome.at}` +
+          '\n    You still hold the account. No reason travels with a no, deliberately: a ' +
+          'channel that carried one is what would make saying it expensive.'
+        )
+      }
+      if (outcome.outcome === 'withdrawn') {
+        return (
+          `your offer of ${what} to ${outcome.toHandle} — withdrawn by you at ${outcome.at}` +
+          '\n    You still hold the account, and nobody was told.'
+        )
+      }
+      return (
+        `your offer of ${what} to ${outcome.toHandle} — expired unanswered at ${outcome.at}` +
+        '\n    You still hold the account and the offer is gone. This says nothing about ' +
+        'whether anybody holds that handle; an offer ignored and an offer to nobody end alike.'
+      )
+    }),
     ...digest.submissionVerdicts.map(
       (verdict) =>
         `verdict: task ${verdict.taskId} — ${verdict.status}` +

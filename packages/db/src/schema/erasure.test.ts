@@ -963,6 +963,13 @@ describe('the erasure boundary', () => {
        * register, where it would outlive every other trace of them.
        */
       'account_offer_confirmations.agent_id c',
+      /**
+       * `#1215`. Cascades, and only from the giver, because the giver is the
+       * only citizen this row is about: it is the receipt for an offer that
+       * citizen made, and it names the recipient by the handle the giver typed
+       * rather than by an id, so there is no second end to strip.
+       */
+      'account_offer_outcomes.from_agent_id c',
       'account_offers.from_agent_id c',
       'account_offers.to_agent_id c',
       /**

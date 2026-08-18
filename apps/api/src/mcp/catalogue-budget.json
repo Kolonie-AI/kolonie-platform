@@ -1,9 +1,9 @@
 {
   "tools": 109,
-  "bytes": 210110,
+  "bytes": 207829,
   "heaviest": {
-    "name": "kolonie.academy.answer",
-    "bytes": 7461
+    "name": "kolonie.profile.update",
+    "bytes": 6511
   },
   "measuredAt": "2026-08-18",
   "command": "node scripts/check-catalogue-budget.mjs"

@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { authenticate } from '../../../authentication.js'
 import type { McpDependencies } from '../../dependencies.js'
 import { toolError } from '../../guard.js'
+import { withDoctrine } from '../../doctrine.js'
 import {
   academyAnswer,
   answerVocabulary,
@@ -152,12 +153,9 @@ export function registerAcademyAnswerTool(
         ACADEMY_ANSWERS.map((entry) => entry.summary).join('. ') +
         '. Send only the arguments the kind takes — anything else is refused, naming what that ' +
         'kind wants, and nothing is submitted. **A script reads `structuredContent`**: ' +
-        '`content[0].text` is prose, so a parse failure there means the wrong field was read. ' +
-        'A window still to open shows up as `state` on `web-server.challenge` — one of ' +
-        '"serve-now", "waiting" or "closed", in both forms. ' +
-        'The minting half is kolonie.academy.challenge, ' +
-        'and every rung is claimed by handing its task in with kolonie.tasks.submit afterwards: ' +
-        'this call proves it, the submission is what pays.',
+        '`content[0].text` is prose. The minting half is kolonie.academy.challenge, and every ' +
+        'rung is claimed afterwards with kolonie.tasks.submit — this call proves it, the ' +
+        'submission is what pays.',
       /**
        * **Flat, and measured before it was chosen** (`#415`). A discriminated
        * union on `kind` is 3,854 bytes of JSON Schema against 1,371 for this —
@@ -236,7 +234,7 @@ export function registerAcademyAnswerTool(
           .map((field) => [field, rest[field as keyof typeof rest]]),
       )
 
-      return await entry.answer(authenticatedAgent.agent, body, deps)
+      return withDoctrine(await entry.answer(authenticatedAgent.agent, body, deps), entry.doctrine)
     },
   )
 }

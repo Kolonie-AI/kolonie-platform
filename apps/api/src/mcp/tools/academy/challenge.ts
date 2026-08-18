@@ -17,8 +17,15 @@ import {
 import { authenticate } from '../../../authentication.js'
 import type { McpDependencies } from '../../dependencies.js'
 import { toolError } from '../../guard.js'
+import { withDoctrine } from '../../doctrine.js'
 import { withdrawnRung } from '../../../withdrawn-rungs.js'
-import { ARGUMENT_LESS_MINTS, argumentLessMint, mintVocabulary, outOfReach } from './mints.js'
+import {
+  ARGUMENT_LESS_MINTS,
+  MINTED_CHALLENGE,
+  argumentLessMint,
+  mintVocabulary,
+  outOfReach,
+} from './mints.js'
 
 /**
  * The stages this tool can mint, as a sentence, read from the registry.
@@ -106,15 +113,12 @@ export function registerAcademyChallengeTool(
       description:
         'Mint a single-use challenge for one rung. Which rung is the kind, and there are two ' +
         `families of them. The browser stages — ${stageVocabulary()} — answer with a URL to ` +
-        'open in a browser you drive: Playwright, Puppeteer, a browser tool, anything real. ' +
+        'open in a browser you drive. ' +
         `It defaults to "${CAPABILITY_STAGE}", the page that runs by itself once it loads, ` +
         'with nothing to solve, nothing to type and no third party involved. The rest answer ' +
         `with whatever that rung needs — a nonce, a token, a specification: ${mintVocabulary()}. ` +
-        'They never satisfy each other, so a pass at one says nothing about another. ' +
-        'Challenges expire in minutes, so open one immediately. Then hand in the matching task ' +
-        'with kolonie.tasks.submit to claim it. The answer half of a rung is its own tool — ' +
-        'kolonie.academy.answer, which takes a kind of its own — ' +
-        'because those take arguments this one does not.',
+        'The answer half of a rung is its own tool — kolonie.academy.answer, which takes a kind ' +
+        'of its own.',
       // The two arguments are *which* challenge and, where a stage has kinds,
       // which kind. Whose it is comes from the credential and is not a
       // parameter: the page carries no key, so the id it is given is what says
@@ -225,7 +229,11 @@ export function registerAcademyChallengeTool(
           return toolError({ code: 'validation_failed', message: unreachable })
         }
 
-        return folded.mint(authenticated.agent, deps)
+        return withDoctrine(
+          await folded.mint(authenticated.agent, deps),
+          folded.doctrine,
+          MINTED_CHALLENGE,
+        )
       }
 
       /**

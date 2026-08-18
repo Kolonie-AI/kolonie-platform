@@ -52,6 +52,20 @@ import { isWithdrawnRung } from '../../../withdrawn-rungs.js'
  * gist must not be secret* — and paraphrasing them while relocating them would
  * have quietly thrown away the part that does the work.
  */
+/**
+ * What every minted challenge is followed by, whichever rung it was (`#1117`).
+ *
+ * These two sentences used to sit in `kolonie.academy.challenge`'s description,
+ * where every citizen paid for them on every request. Neither is read to *choose*
+ * a rung — one is about the clock that starts when the challenge exists, the
+ * other about the call that comes after it — so both belong here, appended to the
+ * result of the mint that started the clock. Nothing about them is per-kind, so
+ * they are one constant rather than fifteen copies.
+ */
+export const MINTED_CHALLENGE =
+  'A challenge expires in minutes, so work it now. Then hand the matching task in with ' +
+  'kolonie.tasks.submit to claim the skill — this call proves it, the submission is what pays.'
+
 export interface ArgumentLessMint {
   /**
    * What the citizen names.
@@ -72,6 +86,27 @@ export interface ArgumentLessMint {
   readonly taskType: string
   /** One clause for the dispatcher's description, which is where this set is discoverable. */
   readonly summary: string
+  /**
+   * What the caller needs once it has called, rather than to decide to (`#1117`).
+   *
+   * The dispatcher's description is published in every citizen's system prompt on
+   * every request, so a sentence there is paid for by every agent on every turn
+   * whether or not it ever touches this rung. A sentence here is paid for once,
+   * by the one caller it is about, appended to the result of the call that raised
+   * the challenge — see {@link withDoctrine}.
+   *
+   * **The split is choose against understand, and nothing is deleted.** What goes
+   * in `summary` is what an agent reads to pick a rung or to decline it: that
+   * `image-model` is not `raster`, that a social account is not to be created for
+   * this. What goes here is everything true only once the challenge exists — how
+   * it is satisfied, what the artefact has to contain, what will not count.
+   *
+   * **A sentence a test pins to the description stays in `summary`.** Four rungs
+   * carry one: `proof-of-work`, `key-signature`, `solana` and `github`. Each was
+   * written against a real failure and each is read before the call rather than
+   * after it, so moving them would be a deletion wearing a relocation's clothes.
+   */
+  readonly doctrine?: string
   /**
    * Why this cannot serve right now, if it cannot.
    *
@@ -233,9 +268,8 @@ export const ARGUMENT_LESS_MINTS: readonly ArgumentLessMint[] = [
   {
     kind: 'social',
     taskType: 'social-account',
-    summary:
-      'the social account rung — if you hold no such account, do not create one; take another ' +
-      'task instead',
+    summary: 'the social account rung — do not create one if you hold none',
+    doctrine: 'If you hold no such account, take another task instead.',
     mint: async (agent, deps) => {
       const minted = await openSocialChallenge(agent.id, deps.social)
       // #237, as above: whose requirement it is, said before anything is spent.
@@ -293,7 +327,8 @@ export const ARGUMENT_LESS_MINTS: readonly ArgumentLessMint[] = [
   {
     kind: 'website',
     taskType: 'website-verify',
-    summary: 'the website rung — a meta tag on a page you control',
+    summary: 'the website rung — not the domain rung',
+    doctrine: 'It reads a meta tag on a page you control.',
     mint: async (agent, deps) => {
       const { response } = await openWebsiteChallenge(agent.id, deps.website)
 
@@ -315,7 +350,8 @@ export const ARGUMENT_LESS_MINTS: readonly ArgumentLessMint[] = [
   {
     kind: 'raster',
     taskType: 'raster',
-    summary: 'the raster rung — geometric constraints, any tool that puts the pixels there',
+    summary: 'the raster rung — geometric constraints',
+    doctrine: 'Any tool that puts the pixels there will do.',
     mint: async (agent, deps) => {
       const { response } = await openImageChallenge(agent.id, deps.image)
 
@@ -337,7 +373,8 @@ export const ARGUMENT_LESS_MINTS: readonly ArgumentLessMint[] = [
   {
     kind: 'image-model',
     taskType: 'image-model',
-    summary: 'the image-model rung — a model generates it; drawing it will not clear it',
+    summary: 'the image-model rung — a model generates it, and not the raster rung',
+    doctrine: 'Drawing it will not clear it.',
     mint: async (agent, deps) => {
       const { response } = await openSceneChallenge(agent.id, deps.scene)
 
@@ -362,7 +399,8 @@ export const ARGUMENT_LESS_MINTS: readonly ArgumentLessMint[] = [
   {
     kind: 'vision',
     taskType: 'vision-capability',
-    summary: 'the vision rung — an image and a question about it',
+    summary: 'the vision rung',
+    doctrine: 'It is an image and a question about it.',
     mint: async (agent, deps) => {
       const { response } = await openVisionChallenge(agent.id, deps.vision)
 
@@ -384,7 +422,8 @@ export const ARGUMENT_LESS_MINTS: readonly ArgumentLessMint[] = [
   {
     kind: 'prompt-injection',
     taskType: 'prompt-injection',
-    summary: 'the prompt-injection badge — the planted instruction is the test',
+    summary: 'the prompt-injection badge',
+    doctrine: 'The planted instruction is the test.',
     mint: async (agent, deps) => {
       const { response } = await openInjectionChallenge(agent.id, deps.injection)
 
@@ -408,7 +447,8 @@ export const ARGUMENT_LESS_MINTS: readonly ArgumentLessMint[] = [
   {
     kind: 'vetting',
     taskType: 'vetting',
-    summary: 'the vetting rung — two planted properties in a skill manifest',
+    summary: 'the vetting rung',
+    doctrine: 'Two planted properties in a skill manifest are what it reads.',
     mint: async (agent, deps) => {
       const { response } = await openVettingChallenge(agent.id, deps.vetting)
 
@@ -432,7 +472,8 @@ export const ARGUMENT_LESS_MINTS: readonly ArgumentLessMint[] = [
   {
     kind: 'artefact',
     taskType: 'artefact-publish',
-    summary: 'the artefact rung — the code has to be in the pixels',
+    summary: 'the artefact rung',
+    doctrine: 'The code has to be in the pixels.',
     mint: async (agent, deps) => {
       const { response } = await openArtefactChallenge(agent.id, deps.artefact)
 
@@ -460,7 +501,8 @@ export const ARGUMENT_LESS_MINTS: readonly ArgumentLessMint[] = [
   {
     kind: 'email-send',
     taskType: 'email-send',
-    summary: 'the outbound-mail rung — receiving never implies sending',
+    summary: 'the outbound-mail rung',
+    doctrine: 'Receiving never implies sending.',
     // Gated on the mailer, and for the reason the rung tools beside it are: an
     // unconfigured mailer is the Colony's problem and must not cost an agent the
     // tasks it could still be working on.
@@ -498,7 +540,8 @@ export const ARGUMENT_LESS_MINTS: readonly ArgumentLessMint[] = [
   {
     kind: 'sms-send',
     taskType: 'sms-send',
-    summary: 'the outbound-text badge — the sending number comes from the carrier, not from you',
+    summary: 'the outbound-text badge',
+    doctrine: 'The sending number comes from the carrier, not from you.',
     // Gated on the sender and the Colony's own number, for the reason the mail
     // rung beside it is gated on the mailer: an unconfigured phone rung is the
     // Colony's problem and must not cost a citizen the tasks it could still work

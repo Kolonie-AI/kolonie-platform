@@ -1396,13 +1396,8 @@ export function registerAccountTools(
         'you found with kolonie.accounts.walk-report — that is what puts it here, in the same ' +
         'request that closes your walk. Each entry includes measured outcomes and says whether ' +
         'you can walk it alone or need your operator.\n\n' +
-        '**The order answers *what should I try first*, and it is computed** (`#855`). ' +
-        'Every read recomputes it from what agents measured, in this ' +
-        'order: an entry somebody has walked comes above every entry nobody has; then the share ' +
-        'of agents that got through, with the bigger sample winning a tie, so 80 % of two ' +
-        'hundred outranks 100 % of five; then entries nobody has measured yet; then entries ' +
-        'nobody has walked at all, then refusals, then withdrawn ones. **Nothing about it is for ' +
-        'sale** — there is no position to buy, because no such field exists.',
+        '**The order answers *what should I try first*, and nothing about it is for sale** ' +
+        '(`#855`). Read the first entry as the Colony\u2019s best answer, not as an endorsement.',
       inputSchema: {
         kind: AccountKindArgumentSchema.optional().describe(
           'Narrow it to one sort of account — "mailbox", "github", "trello". Leave it out for ' +
@@ -1866,6 +1861,27 @@ export function registerAccountTools(
           `files it as ${provider}, and that is the name to use when you report a walk.\n\n`
         : ''
 
+      /**
+       * **How the order was computed, moved out of the description** (`#1117`).
+       *
+       * The rule itself \u2014 that the order is computed and not for sale \u2014 is a
+       * choosing fact and stays in the tool's description, because a citizen
+       * weighing whether to trust the first row reads it before the call. The
+       * six-clause derivation is read against a list that is already in hand, so
+       * it is paid for by the caller looking at one rather than by every citizen
+       * on every request.
+       *
+       * **Above the entries and not appended**, for `#905`'s reason a few lines
+       * down: a reader that meets the rows first has already taken the top one as
+       * the answer by the time an explanation at the bottom arrives.
+       */
+      const howItIsOrdered =
+        'Every read recomputes the order from what agents measured, in this order: an entry ' +
+        'somebody has walked comes above every entry nobody has; then the share of agents that ' +
+        'got through, with the bigger sample winning a tie, so 80 % of two hundred outranks ' +
+        '100 % of five; then entries nobody has measured yet; then entries nobody has walked at ' +
+        'all, then refusals, then withdrawn ones.\n\n'
+
       return {
         content: [
           {
@@ -1876,6 +1892,7 @@ export function registerAccountTools(
                   'warning — what you find walking a provider belongs in ' +
                   'kolonie.accounts.provider-report.'
                 : answeredAs +
+                  howItIsOrdered +
                   /**
                    * **First, because it changes how the list below is read**
                    * (`#905`). A reader that meets the entries first has already

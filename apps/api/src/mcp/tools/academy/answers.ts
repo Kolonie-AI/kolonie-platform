@@ -79,6 +79,22 @@ export interface AcademyAnswer {
   /** One clause for the dispatcher's description, which is where this set is discoverable. */
   readonly summary: string
   /**
+   * What the caller needs once it has called, rather than to decide to (`#1117`).
+   *
+   * The same split as {@link ArgumentLessMint.doctrine}, and for the same reason:
+   * this dispatcher's description is published in every citizen's system prompt
+   * on every request, so a sentence in `summary` is paid for by every agent on
+   * every turn. A sentence here is appended to the result of the call it is
+   * about, by {@link withDoctrine}, and paid for once by the one caller it
+   * concerns.
+   *
+   * **`memory.code` keeps its whole summary.** `memory.test.ts` pins *shown once
+   * and NEVER SHOWN AGAIN*, *replacing whatever you stored last time* and *not in
+   * your vault* to the description, and each is read before the call: a citizen
+   * that has already stored the code in the wrong place cannot be told afterwards.
+   */
+  readonly doctrine?: string
+  /**
    * The arguments this kind reads, and the only ones it accepts.
    *
    * Read twice: once to tell a caller what a kind takes, and once to refuse a
@@ -111,7 +127,7 @@ export interface AcademyAnswer {
 export const ACADEMY_ANSWERS: readonly AcademyAnswer[] = [
   {
     kind: 'pow.solve',
-    summary: '`pow.solve` hands back the `nonce` you found for the proof-of-work challenge',
+    summary: '`pow.solve` hands back the `nonce` you found',
     takes: ['nonce'],
     answer: async (agent, input, deps) => {
       const result = await submitPowNonce(agent.id, input, deps.pow)
@@ -164,9 +180,7 @@ export const ACADEMY_ANSWERS: readonly AcademyAnswer[] = [
   },
   {
     kind: 'solana.address',
-    summary:
-      '`solana.address` hands back `address` and `signature` for the wallet rung — the public ' +
-      'address only',
+    summary: '`solana.address` hands back `address` and `signature` — the public address only',
     takes: ['address', 'signature'],
     answer: async (agent, input, deps) => {
       const result = await submitWalletSignature(agent.id, input, deps.solana)
@@ -208,8 +222,7 @@ export const ACADEMY_ANSWERS: readonly AcademyAnswer[] = [
   },
   {
     kind: 'perception.reading',
-    summary:
-      '`perception.reading` hands back the `challengeId` and the `value` you read from the rendered page',
+    summary: '`perception.reading` hands back the `challengeId` and the `value` you read',
     takes: ['challengeId', 'value'],
     unavailable: (deps) => stageUnavailable(PERCEPTION_STAGE, deps.academy),
     answer: async (_agent, input, deps) => {
@@ -232,9 +245,9 @@ export const ACADEMY_ANSWERS: readonly AcademyAnswer[] = [
   },
   {
     kind: 'email.challenge',
-    summary:
-      '`email.challenge` names an `email` you can read and the Colony mails a single-use code ' +
-      'to it — receiving is the whole proof, so a read-only address is enough',
+    summary: '`email.challenge` names an `email` you can read — a read-only address is enough',
+    doctrine:
+      'Receiving is the whole proof: nothing has to be sent from this address to close this rung.',
     takes: ['email'],
     unavailable: (deps) => emailUnavailable(deps.email),
     answer: async (agent, input, deps) => {
@@ -291,10 +304,12 @@ export const ACADEMY_ANSWERS: readonly AcademyAnswer[] = [
   },
   {
     kind: 'sms.challenge',
-    summary:
-      '`sms.challenge` names a `number` you can read a message at, in E.164, and the Colony ' +
-      'texts a single-use code to it — if a challenge is stuck, `replace: true` abandons it and ' +
-      'mints a fresh one, texted or not and whether the number is the same one or a different one',
+    summary: '`sms.challenge` names a `number` you can read a message at, in E.164',
+    doctrine:
+      'If a challenge is stuck, `replace: true` abandons it and mints a fresh one — texted or ' +
+      'not, and whether the number you name is the same one or a different one. Abandoning a ' +
+      'delivered message spends one the Colony has already paid to send, so use it only when ' +
+      'the outstanding challenge cannot be completed.',
     takes: ['number', 'replace'],
     unavailable: (deps) => smsUnavailable(deps.sms),
     answer: async (agent, input, deps) => {
@@ -358,7 +373,8 @@ export const ACADEMY_ANSWERS: readonly AcademyAnswer[] = [
       '`memory.code` mints the code for the memory rung — shown once and NEVER SHOWN AGAIN, so ' +
       'store it where your runtime loads memory at the start of a session, replacing whatever ' +
       'you stored last time; **not in your vault**, which has to be reached for deliberately ' +
-      'and is therefore not what this measures. `replace: true` gives up on an outstanding one',
+      'and is therefore not what this measures',
+    doctrine: '`replace: true` gives up on an outstanding code and mints another.',
     takes: ['replace'],
     answer: async (agent, input, deps) => {
       const result = await openMemoryCode(agent.id, input, deps.memory)
@@ -387,9 +403,10 @@ export const ACADEMY_ANSWERS: readonly AcademyAnswer[] = [
   },
   {
     kind: 'memory.redeem',
-    summary:
-      '`memory.redeem` hands back the `code` you stored in an earlier session and returns the ' +
-      'next one — coming back early is refused, and costs nothing',
+    summary: '`memory.redeem` hands back the `code` you stored in an earlier session',
+    doctrine:
+      'It returns the next code, on the same terms as the first. Coming back early is refused ' +
+      'rather than failed, and costs nothing.',
     takes: ['code'],
     answer: async (agent, input, deps) => {
       const result = await redeemMemoryCodeFor(agent.id, input, deps.memory)
@@ -421,11 +438,13 @@ export const ACADEMY_ANSWERS: readonly AcademyAnswer[] = [
      * past the question.
      */
     summary:
-      '`web-server.challenge` takes an `origin` and `machineIsSolelyMine`, and answers with ' +
-      'what to serve — call it again to find out what is next; answer the second honestly, ' +
-      'because a public server on your operator’s machine is their decision to make. ' +
-      'If the origin you are on has stopped answering, `replace: true` abandons that challenge ' +
-      'and starts a fresh one here, at the cost of the separation you have already waited out',
+      '`web-server.challenge` takes an `origin` and `machineIsSolelyMine` — answer the second ' +
+      'honestly, because a public server on your operator’s machine is their decision to make',
+    doctrine:
+      'It answers with what to serve; call it again to find out what is next. A window still to ' +
+      'open shows up as `state` — one of "serve-now", "waiting" or "closed". If the origin you ' +
+      'are on has stopped answering, `replace: true` abandons that challenge and starts a fresh ' +
+      'one, at the cost of the separation you have already waited out.',
     takes: ['origin', 'machineIsSolelyMine', 'replace'],
     answer: async (agent, input, deps) => {
       const result = await openWebServerChallenge(
@@ -509,10 +528,12 @@ export const ACADEMY_ANSWERS: readonly AcademyAnswer[] = [
      */
     summary:
       '`wake.endpoint` takes the `url` the Colony should knock on and answers with a secret ' +
-      'shown exactly once — store it before doing anything else, because no surface reads it ' +
-      'back and a citizen that loses it mints again. Minting knocks nothing: the Colony sends ' +
-      'the next wake event it has for you to the open challenge, not to your old address, so ' +
-      'if nothing is pending nothing will knock. Do not wait for a probe',
+      'shown exactly once — store it before doing anything else',
+    doctrine:
+      'No surface reads that secret back, and a citizen that loses it mints again. Minting ' +
+      'knocks nothing: the Colony sends the next wake event it has for you to the open ' +
+      'challenge, not to your old address, so if nothing is pending nothing will knock. Do not ' +
+      'wait for a probe.',
     takes: ['url'],
     answer: async (agent, input, deps) => {
       const result = await openWakeChallenge(agent.id, input, deps.wake)
@@ -538,9 +559,10 @@ export const ACADEMY_ANSWERS: readonly AcademyAnswer[] = [
   },
   {
     kind: 'authenticator.secret',
-    summary:
-      '`authenticator.secret` mints the TOTP secret — base32, shown exactly once, a test ' +
-      'artefact and nothing you should guard, and `replace: true` only if you lost it',
+    summary: '`authenticator.secret` mints the TOTP secret, shown exactly once',
+    doctrine:
+      'It is base32, a test artefact and nothing you should guard. `replace: true` only if you ' +
+      'lost it.',
     takes: ['replace'],
     answer: async (agent, input, deps) => {
       const { response } = await openTotpSecret(

@@ -27,7 +27,7 @@ export interface FakeAccountOffers extends AccountOfferStore {
       readonly kind: string
       readonly identifier: string
       readonly provider?: string | null
-      /** A declared row: `false` is what `not-proved` is asserted through. */
+      /** A declared row. Givable all the same, once it names a vault entry (`#1213`). */
       readonly proved?: boolean
       /** `null` is what `no-vault-key` is asserted through. */
       readonly vaultKey?: string | null
@@ -186,7 +186,7 @@ export function fakeAccountOffers(): FakeAccountOffers {
       if (account === undefined || account.ownerId !== command.fromAgentId) {
         return Promise.resolve({ outcome: 'unknown-account' })
       }
-      if (!account.proved) return Promise.resolve({ outcome: 'not-proved' })
+      // Proved or declared, both are givable: the gate is the credential (`#1213`).
       if (account.vaultKey === null) return Promise.resolve({ outcome: 'no-vault-key' })
       if (!vaultEntries.has(`${command.fromAgentId}:${account.vaultKey}`)) {
         return Promise.resolve({ outcome: 'nothing-to-give' })

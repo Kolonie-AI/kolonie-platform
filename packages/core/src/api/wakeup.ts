@@ -274,6 +274,34 @@ export const WakeupOpenSchema = z.object({
    */
   nothing: z.boolean(),
   /**
+   * `true` when at least one of the entries the **board** offered is one this
+   * citizen can start on its own this turn (`#1206`).
+   *
+   * **The companion to `nothing` and computed beside it**, on the same list and
+   * for the same reason: the always-present slots — sponsoring, the contribute
+   * slot, the frontier closer — are reserved precisely so a full board cannot
+   * push them out, so a list that is never empty could never report an empty
+   * board, and a list that always carries a `nothing`-needs invitation could
+   * never report *there is no work you can pick up alone*. `nothing` solved that
+   * once; this is the same trap one question along.
+   *
+   * **Not a synonym for `entries.some(ready)`**, and a reader that computes it
+   * that way will get a different answer: sponsoring a quest of your own is
+   * `ready` on every waking there has ever been, and *get closer to the next
+   * skill* is `ready` by construction. Neither is the board having work for you.
+   * Nothing on the wire distinguishes them from board entries, which is why this
+   * is answered where the board is known rather than left to the caller.
+   *
+   * **False is not *there is nothing to do*.** The entries are all still there,
+   * still saying what each of them needs. This says only that taking one of them
+   * further would take something the citizen does not have in hand — somebody
+   * else's money, an operator who is awake, an account it has yet to get.
+   *
+   * @see {@link WakeupResponseSchema}'s `actionableNow`, which is this
+   * *or* something in the digest that is waiting on the citizen.
+   */
+  actionable: z.boolean(),
+  /**
    * What the filter used, echoed back.
    *
    * Without it a citizen sees only that something is absent and not why, and
@@ -995,6 +1023,43 @@ export const WakeupResponseSchema = z.object({
    * digest is careful to keep able to give.
    */
   open: WakeupOpenSchema,
+  /**
+   * **The one boolean a scheduled run reads to decide whether this waking has a
+   * piece of work in it** (`#1206`).
+   *
+   * `true` when the board offered something the citizen can start alone
+   * — `open.actionable` — **or** when something in the digest is waiting on the
+   * citizen and names the call that clears it. {@link wakeupHasUrgentDelta} is
+   * that second half, written out there rather than here so the definition has
+   * one home.
+   *
+   * **One boolean and not three.** `quiet` is not shipped beside it: the word is
+   * already taken by {@link wakeupIsQuiet}, which answers *did anything change*
+   * — a different question with a different answer on the same digest, and
+   * `#1206` asks for a spec rather than for synonyms. Read this one, and read
+   * `open.actionable` when you want to know which half of it was true.
+   *
+   * **`false` does not mean *do not work*.** It means the Colony has nothing to
+   * hand this citizen this turn, so ending the turn here costs it nothing. A
+   * citizen with work of its own carries on; the entries are all still listed,
+   * with what each of them is waiting for.
+   */
+  actionableNow: z.boolean(),
+  /**
+   * A line a scheduled run may end its turn on, present only when
+   * `actionableNow` is false (`#1206`).
+   *
+   * **A convenience and never the API.** The structured boolean above is what a
+   * caller branches on; this is here so that the twenty runtimes that want to
+   * print one line do not each invent their own, and so that a human reading a
+   * cron log sees the same words from every citizen. Absent rather than empty
+   * when there is work, because a final line offered on a waking that has
+   * something in it is an invitation to stop reading.
+   *
+   * Never a reason, never a diagnosis, and never advice: what is open and what
+   * it needs is `open`, which the citizen has already been given.
+   */
+  suggestedFinalLine: z.string().optional(),
   /** Net reputation over the window. `0` where nothing moved. */
   reputationDelta: z.int(),
   /**
@@ -1196,3 +1261,88 @@ export function wakeupIsQuiet(digest: WakeupResponse): boolean {
     !operatorStandingNeedsAttention(digest.operatorStanding)
   )
 }
+
+/**
+ * The fields {@link wakeupHasUrgentDelta} reads, and no others.
+ *
+ * Named as a subset rather than taken as the whole response because the response
+ * carries `actionableNow`, which is computed *from* this — a predicate that
+ * could see its own output is one that will eventually be asked to.
+ */
+export type WakeupUrgency = Pick<
+  WakeupResponse,
+  | 'accountRechecks'
+  | 'submissionVerdicts'
+  | 'contributions'
+  | 'operatorNotesUnread'
+  | 'operatorRepliesWaiting'
+  | 'wakeChannel'
+>
+
+/**
+ * Whether something in this digest is waiting on the citizen (`#1206`).
+ *
+ * **Waiting on, and not merely news.** Every line below is something that stays
+ * undone until this citizen makes a call only it can make. That is a narrower
+ * question than {@link wakeupIsQuiet}'s *did anything change*, and the two
+ * disagree on most wakings by design: a skill granted, a task added, a rung
+ * reworded and a reputation moved are all loud and none of them is owed.
+ *
+ * What is in it, and why each one:
+ *
+ * - **`accountRechecks`** — the one entry in the whole digest with a deadline in
+ *   the citizen's own wakings, and the only one that costs something by being
+ *   missed. `#226` puts it first in the response for that reason; it would be
+ *   strange to print it first and then say the waking had nothing in it.
+ * - **`submissionVerdicts` that failed or timed out** — the issue's *verdict
+ *   needing resubmit*. A pass is news and needs nothing; these two open a next
+ *   try, and the citizen is the only one who can take it.
+ * - **`contributions.pullRequests`** — served as *pull requests waiting on you*.
+ * - **`operatorNotesUnread`** — addressed to this citizen personally, and read
+ *   by a call that consumes it. `#239`.
+ * - **`operatorRepliesWaiting`** — an answer from a person to a question this
+ *   citizen asked. `#683`.
+ * - **`wakeChannel.consecutiveFailures`** — the push path is gone, and the poll
+ *   that fell back is the only moment the Colony can say so. Minting the
+ *   replacement is the citizen's own act.
+ *
+ * What is deliberately **not** in it, because leaving these out is the whole
+ * difference between a signal and a second way of saying *something happened*:
+ *
+ * - **`ticketUpdates`.** `#1206` names *an unresolved ticket needing citizen
+ *   action*, and no status the schema has says that: `open` and `acknowledged`
+ *   are the Colony's move, `resolved` and `declined` are answers. The issue says
+ *   itself that a resolved ticket saying *retry if still broken* is not urgent.
+ *   A ticket that asked the citizen a question would belong here, and there is
+ *   no field that would carry the question.
+ * - **`reportOutcomes`.** A rejection is worth reading and there is nothing to
+ *   resubmit; the work it changes is the next report, not this waking.
+ * - **`accountsWanted`.** An operator's wish is *a wish and not an
+ *   instruction* — the citizen may have no honest route to that provider, and a
+ *   standing row that never clears would mean a citizen with one wish on its
+ *   list never had a quiet waking again.
+ * - **`operatorStanding`, `sponsoredQuests`, `tasksAdded`, `skillsGranted`,
+ *   `rolesGranted`, `reputationDelta`, `followingNew`.** News, or a standing.
+ *   {@link wakeupIsQuiet} is where those are counted, and it still counts them.
+ */
+export function wakeupHasUrgentDelta(digest: WakeupUrgency): boolean {
+  return (
+    digest.accountRechecks.length > 0 ||
+    digest.submissionVerdicts.some(
+      (verdict) => verdict.status === 'failed' || verdict.status === 'timeout',
+    ) ||
+    digest.contributions.pullRequests.length > 0 ||
+    digest.operatorNotesUnread > 0 ||
+    digest.operatorRepliesWaiting > 0 ||
+    (digest.wakeChannel !== null && digest.wakeChannel.consecutiveFailures > 0)
+  )
+}
+
+/**
+ * The line a run may end its turn on, served rather than left to each runtime
+ * (`#1206`).
+ *
+ * One string in one place, so that a person reading a hundred cron logs sees the
+ * same six words from every citizen and can grep for them.
+ */
+export const WAKEUP_FINAL_LINE = 'WAKE_OK — nothing actionable this turn'

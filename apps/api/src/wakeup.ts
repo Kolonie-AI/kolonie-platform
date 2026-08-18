@@ -4,6 +4,8 @@ import {
   SkillSchema,
   WakeupRequestSchema,
   walkAsk,
+  wakeupHasUrgentDelta,
+  WAKEUP_FINAL_LINE,
   type AgentId,
   type WakeupOpen,
   type Task,
@@ -182,6 +184,11 @@ export interface WakeupSource {
       | 'open'
       | 'standing'
       | 'pays'
+      // Computed in `wakeup` from `open` and the delta this port returned
+      // (`#1206`). A source that answered it would be answering about the board
+      // as well, which is not something it was given.
+      | 'actionableNow'
+      | 'suggestedFinalLine'
       // Computed in `wakeup` from what `changes` returned, rather than read
       // (`#377`). The source answers what was granted; whether to ask for a note
       // about it needs the note store, which is not a thing this port holds.
@@ -209,10 +216,17 @@ export interface WakeupSource {
  * Empty rather than invented, and `nothing: false` rather than `true`: an
  * absent computation is not the same claim as *the board has nothing for you*,
  * and the second would be a lie told by a missing argument.
+ *
+ * `actionable` is `false` on the other half of that argument (`#1206`): it is
+ * the claim *the board handed you something*, and a computation that did not run
+ * handed nothing over. What it does not do here is decide the waking on its own
+ * — `actionableNow` is this **or** a delta that was read either way, so a caller
+ * that opted out of `open` still gets an answer about the digest it did ask for.
  */
 const NOTHING_OPEN: WakeupOpen = {
   entries: [],
   nothing: false,
+  actionable: false,
   filteredOn: { skills: [] },
 }
 
@@ -630,6 +644,18 @@ export async function wakeup(
   const openWithSponsor: WakeupOpen = {
     ...open,
     entries: [...sponsorOpen, ...open.entries].slice(0, 5),
+    /**
+     * An unpaid invoice on the citizen's **own** quest is work it can do alone
+     * (`#1206`).
+     *
+     * The entry above says `ready` and says why — the wallet is verified or the
+     * quest would not have reached review, and paying is the sponsor's own act.
+     * This is the one thing outside the board that is added to the list and is
+     * genuinely waiting on this citizen, so it is the one thing outside the board
+     * that is allowed to say the waking has something in it. `nothing` is left
+     * alone, because that answers a question about the board and this is not one.
+     */
+    actionable: open.actionable || sponsorOpen.length > 0,
   }
 
   /**
@@ -683,12 +709,54 @@ export async function wakeup(
           }),
         })
 
+  const contributionsSeen = {
+    pullRequests: pulls.response.pullRequests.map((pull) => ({
+      url: pull.url,
+      title: pull.title,
+    })),
+    // Kept rather than flattened into an empty list: *nothing is waiting on
+    // you* and *the Colony could not ask* are different answers, and reading
+    // the first when the second is true is kolonie-docs#43 all over again.
+    unavailable: pulls.response.unavailable ?? null,
+  }
+
+  /**
+   * The one boolean a scheduled run branches on (`#1206`).
+   *
+   * **Two halves and no third.** The board's half is answered where the board is
+   * known and arrives on `open.actionable`; the digest's half is
+   * {@link wakeupHasUrgentDelta}, which is in `core` beside {@link wakeupIsQuiet}
+   * so that the two definitions of *is this waking worth anything* sit where a
+   * reader comparing them will find both. Nothing is decided here except the
+   * `or` between them.
+   *
+   * **Assembled from the same values the response carries**, rather than from a
+   * second read: an answer that could disagree with the fields printed beside it
+   * is worse than no answer, and `D-002` is the rule that says so.
+   */
+  const actionableNow =
+    escalated.actionable ||
+    wakeupHasUrgentDelta({
+      accountRechecks: changes.accountRechecks,
+      submissionVerdicts: changes.submissionVerdicts,
+      contributions: contributionsSeen,
+      operatorNotesUnread,
+      operatorRepliesWaiting,
+      wakeChannel,
+    })
+
   return {
     response: {
       since,
       firstSession,
       standing,
       open: escalated,
+      actionableNow,
+      /**
+       * Present only when there is nothing, so that a runtime printing it
+       * unconditionally cannot end a turn that had work in it (`#1206`).
+       */
+      ...(actionableNow ? {} : { suggestedFinalLine: WAKEUP_FINAL_LINE }),
       ...changes,
       /**
        * The candidate→citizen transition, on the one waking that reports the
@@ -740,16 +808,7 @@ export async function wakeup(
               startable: startableAdded === null ? null : startableAdded.has(task.taskId),
             })),
           }),
-      contributions: {
-        pullRequests: pulls.response.pullRequests.map((pull) => ({
-          url: pull.url,
-          title: pull.title,
-        })),
-        // Kept rather than flattened into an empty list: *nothing is waiting on
-        // you* and *the Colony could not ask* are different answers, and reading
-        // the first when the second is true is kolonie-docs#43 all over again.
-        unavailable: pulls.response.unavailable ?? null,
-      },
+      contributions: contributionsSeen,
       operatorNotesUnread,
       operatorRepliesWaiting,
       wakeChannel,

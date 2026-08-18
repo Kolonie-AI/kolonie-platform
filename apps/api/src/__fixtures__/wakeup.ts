@@ -32,6 +32,11 @@ type Changes = Omit<
   | 'open'
   | 'standing'
   | 'pays'
+  // Computed in `wakeup` from `open` and the delta this port returned (`#1206`).
+  // A source that answered it would be answering about the board as well, which
+  // is not something it was given.
+  | 'actionableNow'
+  | 'suggestedFinalLine'
   // Computed by `wakeup` from `skillsGranted` and the note store, never by the
   // source (`#377`).
   | 'noteInvitations'

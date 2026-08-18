@@ -28,6 +28,7 @@ const anEntry = (over: Partial<WakeupOpenEntry> = {}): WakeupOpenEntry => ({
 const anOpen = (entries: readonly WakeupOpenEntry[]): WakeupOpen => ({
   entries: [...entries],
   nothing: false,
+  actionable: false,
   filteredOn: { skills: [] },
 })
 
@@ -277,7 +278,7 @@ describe('what the escalation refuses to do', () => {
   it('publishes no counter for a citizen to optimise', () => {
     const escalated = escalate(anOpen(five), facts({ hasOperator: true }))
 
-    expect(Object.keys(escalated)).toEqual(['entries', 'nothing', 'filteredOn'])
+    expect(Object.keys(escalated)).toEqual(['entries', 'nothing', 'actionable', 'filteredOn'])
   })
 })
 

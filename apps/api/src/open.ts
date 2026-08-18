@@ -410,6 +410,36 @@ export async function openingsFor(
     : [...reserved, ...closer]
 
   /**
+   * Whether the board handed this citizen something it can start alone
+   * (`#1206`).
+   *
+   * **Computed here for the reason `nothing` is computed above**: the
+   * always-present slots are indistinguishable from board work once they are on
+   * the wire, and this is the last place that knows which is which. Sponsoring
+   * is `ready` on every waking there has ever been and the frontier closer is
+   * `ready` by construction, so a caller answering this from `entries` alone
+   * would answer *yes* forever — the same trap `nothing` was given its own
+   * computation to avoid.
+   *
+   * **Against the entries that survived, and by identity rather than by call.**
+   * A ready entry the citizen never saw because five other things came first is
+   * not work the board offered it, on the argument `#842` makes about the
+   * doctor's stamp. Membership is `Set` identity because the alternative is a
+   * written-out list of the calls the reserved slots use, which is a second
+   * description of the API — `D-002` refuses those, and it would go stale the
+   * first time one of those entries was reworded.
+   *
+   * **The escalation entries are not counted either**, and they are added after
+   * this: they exist because the citizen has been given the same answer three
+   * times running, so letting them report the waking as actionable would undo
+   * the thing they are for.
+   */
+  const offeredByTheBoard = new Set<OpenEntryDraft>(fromTheBoard)
+  const actionable = drafts.some(
+    (draft) => offeredByTheBoard.has(draft) && feasibilityOf(draft.needs) === 'ready',
+  )
+
+  /**
    * The one place `feasibility` is written (`#850`). See {@link OpenEntryDraft}.
    */
   const open: WakeupOpenEntry[] = drafts.map((draft) => ({
@@ -460,6 +490,7 @@ export async function openingsFor(
   return {
     entries: open,
     nothing,
+    actionable,
     filteredOn: { skills: [...skills] },
   }
 }

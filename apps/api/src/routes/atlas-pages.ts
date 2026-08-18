@@ -57,7 +57,7 @@ import type { RouteDependencies } from './dependencies.js'
  * the same call the console made (`#179`) and the mailed pages after it.
  */
 export function registerAtlasPages(app: FastifyInstance, deps: RouteDependencies): void {
-  const { recipes, websiteUrl, renames, atlasQuests } = deps
+  const { recipes, websiteUrl, renames, atlasQuests, atlasPlaybooks } = deps
 
   /**
    * The site's own header and footer, fetched from the website rather than
@@ -353,6 +353,13 @@ export function registerAtlasPages(app: FastifyInstance, deps: RouteDependencies
          * nothing for a fact only the entry page states.
          */
         quests: await atlasQuests?.naming(asked.data),
+        /**
+         * What an account here is used for (`kolonie-website#116`). Read here
+         * for the same reason as the quests above: no other Atlas surface names
+         * a playbook, and a per-provider question asked while walking the whole
+         * catalogue is four hundred queries for one page's paragraph.
+         */
+        playbooks: await atlasPlaybooks?.naming(asked.data),
         /**
          * What the Colony wrote up from this provider's walks (`#831`). Read
          * here for the reason directly above: the index and the catalogue

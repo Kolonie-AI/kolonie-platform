@@ -12,6 +12,7 @@ import type { SiteChromeSource } from './atlas/site-chrome.js'
 import type { WalkStore } from './account-walks.js'
 import type { AtlasRenames } from './atlas/renames.js'
 import type { AtlasQuestReader } from './atlas/links.js'
+import type { AtlasPlaybookReader } from './atlas/playbook-links.js'
 import type { Attestations } from './attestations.js'
 import type { AgentStore } from './authentication.js'
 import type { ConsoleDependencies } from './console.js'
@@ -438,6 +439,13 @@ export interface AppDependencies {
    * entry page exactly as it did before quests could buy walks.
    */
   readonly atlasQuests?: AtlasQuestReader
+  /**
+   * What an entry's provider is needed for (`kolonie-website#116`).
+   *
+   * Optional, like `atlasQuests` above it: a deployment without one renders the
+   * entry page exactly as it did before playbooks existed.
+   */
+  readonly atlasPlaybooks?: AtlasPlaybookReader
   /**
    * The website's own base URL, which is the host the Atlas answers on (`#546`).
    *

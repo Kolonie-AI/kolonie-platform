@@ -682,3 +682,53 @@ export async function playbooksByStatus(
 
   return rows.map(toPlaybook)
 }
+
+/** A playbook as an Atlas entry names it — enough to name it and reach it. */
+export interface PlaybookLink {
+  readonly slug: string
+  readonly title: string
+  readonly summary: string
+}
+
+/**
+ * The open playbooks that need an account at this provider (`kolonie-website#116`).
+ *
+ * **Provider-exact, and a slot naming only a kind does not match.** A playbook
+ * asking for *a mailbox* is asking for any of them, and answering the question
+ * *what is an account here for* with it would put the same module on every
+ * mailbox entry in the Atlas — which is the module spam the issue forbids and
+ * what `growth/README.md` calls doorway content. What a reader of one entry
+ * wants is the playbook that named *this* provider.
+ *
+ * **In SQL rather than a filter over `playbooksByStatus`.** The catalogue read
+ * is capped, so a client-side narrowing would start dropping a provider's
+ * playbooks the day the open catalogue passes that cap — silently, and on the
+ * page least likely to be looked at.
+ *
+ * There is no index on `required_accounts` and deliberately none added: the
+ * status index carries the selective half, the containment filters what is left,
+ * and a GIN index over a column with two-figure cardinality is a migration
+ * bought for nothing. It is worth revisiting when the open catalogue is large
+ * enough that this shows up in a slow query log.
+ *
+ * **The empty answer is an empty list and never a zero.** A caller renders
+ * nothing at all for it, which is not the same page as one saying *no playbooks
+ * need an account here*.
+ */
+export async function playbooksNamingProvider(
+  db: Database,
+  provider: string,
+  limit = 10,
+): Promise<readonly PlaybookLink[]> {
+  return await db
+    .select({ slug: playbooks.slug, title: playbooks.title, summary: playbooks.summary })
+    .from(playbooks)
+    .where(
+      and(
+        eq(playbooks.status, 'open'),
+        sql`${playbooks.requiredAccounts} @> ${JSON.stringify([{ provider }])}::jsonb`,
+      ),
+    )
+    .orderBy(desc(playbooks.createdAt), asc(playbooks.slug))
+    .limit(limit)
+}

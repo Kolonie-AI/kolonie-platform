@@ -152,6 +152,7 @@ import { databaseAccountProofs } from './account-proofs.js'
 import { databaseProviderRecipes } from './provider-recipes.js'
 import { databaseAtlasRenames } from './atlas/renames.js'
 import { databaseAtlasQuests } from './atlas/links.js'
+import { databaseAtlasPlaybooks } from './atlas/playbook-links.js'
 import { databaseAttestations } from './attestations.js'
 import { rhythmBoundsFromEnv } from './rhythm.js'
 import { skillReleasesFromEnv } from './skill-releases.js'
@@ -1325,6 +1326,7 @@ const app = buildApp({
   /** Where a provider used to be, for the Atlas's redirects (`#546`). */
   renames: databaseAtlasRenames(db),
   atlasQuests: databaseAtlasQuests(db),
+  atlasPlaybooks: databaseAtlasPlaybooks(db),
   /**
    * The website's own base, which is the host the Atlas serves on (`#546`).
    *

@@ -11,6 +11,7 @@ import {
   playbookById,
   playbookBySlug,
   playbooksByStatus,
+  playbooksNamingProvider,
   submitPlaybookForReview,
   updatePlaybookDraft,
 } from './playbooks.js'
@@ -536,5 +537,113 @@ describe('a citizen writing a pipeline of its own', () => {
         }),
       ).toEqual({ outcome: 'unknown-playbook' })
     })
+  })
+})
+
+/**
+ * What an Atlas entry asks: *what is an account at this provider used for*
+ * (`kolonie-website#116`).
+ *
+ * The rule under test is the one the issue's acceptance criteria turn on —
+ * provider-exact, open only — and it is asserted here rather than at the page,
+ * because the page can only render what this returns.
+ */
+describe('the playbooks that name one provider', () => {
+  let db: Database
+  let agentId: AgentId
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+    const agent = await registerAgent(db, { name: 'walker', platform: 'openclaw', operator: null })
+    if (agent.outcome !== 'registered') throw new Error('could not register the authoring agent')
+    agentId = agent.agent.id
+  })
+
+  const needing = async (
+    slug: string,
+    account: { readonly kind: string; readonly provider?: string },
+    status: 'open' | 'blocked' | 'draft' = 'open',
+  ) =>
+    await createPlaybook(db, {
+      slug,
+      authorAgentId: agentId,
+      status,
+      draft: {
+        title: `The ${slug} pipeline`,
+        summary: 'What it does, in the one line a catalogue entry gets.',
+        requiredAccounts: [
+          {
+            slot: 'account',
+            kind: kind(account.kind),
+            ...(account.provider === undefined ? {} : { provider: account.provider }),
+            minProved: false,
+          },
+        ],
+        steps: [{ title: 'Do the thing', usesSlots: ['account'] }],
+      },
+    })
+
+  it('finds an open playbook that names the provider', async () => {
+    await needing('forge-loop', { kind: 'github', provider: 'github.com' })
+
+    expect(await playbooksNamingProvider(db, 'github.com')).toEqual([
+      {
+        slug: 'forge-loop',
+        title: 'The forge-loop pipeline',
+        summary: 'What it does, in the one line a catalogue entry gets.',
+      },
+    ])
+  })
+
+  /**
+   * **The acceptance criterion the whole rule exists for**: no module spam on
+   * unrelated providers. A playbook asking for *a mailbox* is asking for any of
+   * them, and answering *what is an account at mail.tm for* with it would put
+   * the same paragraph on every mailbox entry in the Atlas.
+   */
+  it('does not match a slot that names only a kind', async () => {
+    await needing('correspondence-loop', { kind: 'mailbox' })
+
+    expect(await playbooksNamingProvider(db, 'mail.tm')).toEqual([])
+  })
+
+  it('does not match a different provider of the same kind', async () => {
+    await needing('forge-loop', { kind: 'github', provider: 'github.com' })
+
+    expect(await playbooksNamingProvider(db, 'codeberg.org')).toEqual([])
+  })
+
+  /** Only the catalogue. A draft is not readable and a blocked one is not a use. */
+  it('leaves out a draft and a blocked playbook that name it', async () => {
+    await needing('not-published-yet', { kind: 'github', provider: 'github.com' }, 'draft')
+    await needing('broke-out-there', { kind: 'github', provider: 'github.com' }, 'blocked')
+
+    expect(await playbooksNamingProvider(db, 'github.com')).toEqual([])
+  })
+
+  /**
+   * **The empty answer is an empty list and never a zero.** The page renders
+   * nothing at all for it, which is not the same page as one saying no playbook
+   * needs an account here.
+   */
+  it('answers about a provider nothing names', async () => {
+    expect(await playbooksNamingProvider(db, 'nobody-uses-this.test')).toEqual([])
+  })
+
+  it('caps what it hands a page', async () => {
+    for (let n = 0; n < 12; n += 1) {
+      await needing(`loop-${String(n)}`, { kind: 'github', provider: 'github.com' })
+    }
+
+    expect(await playbooksNamingProvider(db, 'github.com')).toHaveLength(10)
+    expect(await playbooksNamingProvider(db, 'github.com', 3)).toHaveLength(3)
   })
 })

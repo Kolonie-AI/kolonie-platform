@@ -15,6 +15,7 @@ import type { AccountOfferDependencies } from '../account-offers.js'
 import type { ProviderRecipes } from '../provider-recipes.js'
 import type { AtlasRenames } from '../atlas/renames.js'
 import type { AtlasQuestReader } from '../atlas/links.js'
+import type { AtlasPlaybookReader } from '../atlas/playbook-links.js'
 import type { SiteChromeSource } from '../atlas/site-chrome.js'
 import type { Attestations } from '../attestations.js'
 import type { AgentStore } from '../authentication.js'
@@ -352,6 +353,13 @@ export interface RouteDependencies {
    * walks.
    */
   readonly atlasQuests?: AtlasQuestReader | undefined
+  /**
+   * What an entry's provider is needed for (`kolonie-website#116`).
+   *
+   * Optional for the same reason as `atlasQuests` above: only the entry page
+   * reads it, and a deployment without it renders that page as it was.
+   */
+  readonly atlasPlaybooks?: AtlasPlaybookReader | undefined
   /** The website's base URL — the host the Atlas answers on (`#546`). Empty disables it. */
   readonly websiteUrl: string
   /**

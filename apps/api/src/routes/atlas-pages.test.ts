@@ -13,6 +13,7 @@ import {
   type PublishedWall,
 } from '@kolonie-ai/core'
 import type { SiteChrome } from '../atlas/site-chrome.js'
+import type { AtlasPlaybookReader } from '../atlas/playbook-links.js'
 import { ATLAS_META_DESCRIPTION_MAX_LENGTH } from '../atlas/html.js'
 import { atlasRuntimeLine } from '../atlas/runtimes.js'
 
@@ -65,7 +66,7 @@ describe('the Atlas on the website host', () => {
   let app: FastifyInstance
   let colony: FakeColony
 
-  const build = (websiteUrl: string = SITE) => {
+  const build = (websiteUrl: string = SITE, atlasPlaybooks?: AtlasPlaybookReader) => {
     colony = fakeColony()
     colony.recipes.write({
       kind: 'github',
@@ -111,7 +112,12 @@ describe('the Atlas on the website host', () => {
       status: 'unwritten',
     })
 
-    return buildApp({ ...colony, websiteUrl, siteChrome })
+    return buildApp({
+      ...colony,
+      websiteUrl,
+      siteChrome,
+      ...(atlasPlaybooks === undefined ? {} : { atlasPlaybooks }),
+    })
   }
 
   /**
@@ -1923,6 +1929,119 @@ describe('the Atlas on the website host', () => {
     /** A recipe describes a path that worked. The provider decides, and can change. */
     it('never claims a provider will accept an agent', async () => {
       expect((await get('/atlas/github')).body).toContain('not a promise')
+    })
+  })
+
+  /**
+   * **What an account at this provider is then good for**
+   * (`kolonie-website#116`).
+   *
+   * Everything else on an entry page is about getting the account and how badly
+   * that goes. This module is the only thing on the Atlas that answers the
+   * question a reader deciding whether to spend the afternoon actually has, and
+   * the two assertions that matter are that it appears where a playbook named
+   * the provider and nowhere else.
+   */
+  describe('what an account here is used for', () => {
+    /** The module itself, so an assertion about it cannot pass on the rest of the page. */
+    const HEADING = 'What an account here is used for'
+
+    /**
+     * A reader over a fixed table, provider-exact — which is the rule the
+     * storage query implements and the one the acceptance criteria turn on. A
+     * fake that answered the same list for every provider would make the
+     * no-spam assertion below unfalsifiable.
+     */
+    const playbooksNaming = (
+      by: Readonly<Record<string, readonly { slug: string; title: string; summary: string }[]>>,
+    ): AtlasPlaybookReader => ({
+      naming: async (provider) => by[provider] ?? [],
+    })
+
+    const withPlaybooks = async (reader: AtlasPlaybookReader) => {
+      await app.close()
+      app = build(SITE, reader)
+      await app.ready()
+    }
+
+    it('names the playbooks that need an account here, and links to each one', async () => {
+      await withPlaybooks(
+        playbooksNaming({
+          github: [
+            {
+              slug: 'github-contribution-loop',
+              title: 'A contribution loop on GitHub',
+              summary: 'Open a pull request a maintainer merges, once a week.',
+            },
+          ],
+        }),
+      )
+
+      const body = (await get('/atlas/github')).body
+
+      expect(body).toContain(HEADING)
+      expect(body).toContain('A contribution loop on GitHub')
+      expect(body).toContain('href="/playbooks/github-contribution-loop"')
+      expect(body).toContain('Open a pull request a maintainer merges, once a week.')
+    })
+
+    /**
+     * **The acceptance criterion the matching rule exists for.** A playbook
+     * needing *a mailbox* names no mailbox provider, so the module must not turn
+     * up on all of them — the reader is asked per provider and answers for one.
+     */
+    it('leaves the module off a provider no playbook named', async () => {
+      await withPlaybooks(
+        playbooksNaming({
+          github: [
+            {
+              slug: 'github-contribution-loop',
+              title: 'A contribution loop on GitHub',
+              summary: 'Open a pull request a maintainer merges, once a week.',
+            },
+          ],
+        }),
+      )
+
+      const body = (await get('/atlas/bluesky')).body
+
+      expect(body).not.toContain(HEADING)
+      expect(body).not.toContain('/playbooks/github-contribution-loop')
+    })
+
+    /**
+     * Absent rather than empty: a provider nothing has named yet is the ordinary
+     * state of most of the catalogue, and a heading over an empty list on four
+     * hundred pages would say the Colony had looked and found nothing.
+     */
+    it('renders no heading for a provider the reader answers empty for', async () => {
+      await withPlaybooks(playbooksNaming({}))
+
+      expect((await get('/atlas/github')).body).not.toContain(HEADING)
+    })
+
+    /** Optional at every layer: a deployment with no playbooks renders what it did before. */
+    it('renders the page it rendered before playbooks existed when none is wired', async () => {
+      expect((await get('/atlas/github')).statusCode).toBe(200)
+      expect((await get('/atlas/github')).body).not.toContain(HEADING)
+    })
+
+    /** No other Atlas surface names a playbook, so none of them pays for the read. */
+    it('names no playbook on the index or in the catalogue', async () => {
+      await withPlaybooks(
+        playbooksNaming({
+          github: [
+            {
+              slug: 'github-contribution-loop',
+              title: 'A contribution loop on GitHub',
+              summary: 'Open a pull request a maintainer merges, once a week.',
+            },
+          ],
+        }),
+      )
+
+      expect((await get('/atlas')).body).not.toContain(HEADING)
+      expect((await get('/atlas/catalogue.json')).body).not.toContain('github-contribution-loop')
     })
   })
 

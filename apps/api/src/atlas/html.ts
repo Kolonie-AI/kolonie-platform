@@ -20,6 +20,7 @@ import {
   atlasStopStep,
   figureKey,
   kindHasDirection,
+  playbookPath,
   providerBriefingAgeHours,
   providerClaimsIn,
   throughRate,
@@ -1463,6 +1464,18 @@ export function atlasEntryPage(input: {
    * minus the neighbours.
    */
   readonly catalogue?: readonly AtlasEntry[] | undefined
+  /**
+   * The open playbooks that need an account here (`kolonie-website#116`).
+   *
+   * **Read on this page and not in `listEntries`**, exactly as the quests and
+   * the briefings above are and for the same reason: the index names no
+   * playbook, and a read that asked four hundred providers what needs them to
+   * render none of it is a cost paid on the page that does not spend it.
+   *
+   * Optional at every layer, so a deployment with no playbooks renders the page
+   * it rendered before this existed.
+   */
+  readonly playbooks?: readonly NamingPlaybook[] | undefined
 }): string {
   /**
    * **The projection, on the first line and not at the caller** (`#1100`).
@@ -1614,6 +1627,13 @@ export function atlasEntryPage(input: {
       runtimesSection(entry),
       counterpartySection(entry),
       membershipSection(entry),
+      /**
+       * **Above the neighbours, because it is about this provider.** The module
+       * below offers a substitute; this one says what an account here is for,
+       * and a page that proposed somewhere else to go before it had said what
+       * this place is worth would have the two in the wrong order.
+       */
+      playbookSection(input.playbooks ?? []),
       /**
        * **Last, and below the invitation rather than above it**
        * (`kolonie-website#113`). A reader who has got this far has decided
@@ -2578,6 +2598,51 @@ function sponsorSection(quests: readonly SponsoringQuest[]): string {
     'published whether or not they flatter, and no payment moves this entry’s position — the ' +
     'order is recomputed from the measurements on every read and there is no field to ' +
     'move.</small></p>'
+  )
+}
+
+/** A playbook that needs an account here, as the page names it (`kolonie-website#116`). */
+export interface NamingPlaybook {
+  readonly slug: string
+  readonly title: string
+  readonly summary: string
+}
+
+/**
+ * What an account here is for (`kolonie-website#116`).
+ *
+ * **The answer to the question the rest of the page does not ask.** Everything
+ * above says how to get an account at this provider and how badly it goes; a
+ * reader deciding whether to spend the afternoon on it wants to know what the
+ * account is then good for, and until this the Atlas could only answer *walk it
+ * and find out*.
+ *
+ * **Absent rather than empty**, like {@link sponsorSection} above: a provider no
+ * playbook has named yet is the ordinary state of most of the catalogue, and a
+ * heading over an empty list on four hundred pages would say the Colony had
+ * looked and found nothing rather than that nobody has written one.
+ *
+ * The list is provider-exact by the time it arrives — a playbook wanting *a
+ * mailbox* does not name mail.tm — so the module cannot appear on a provider
+ * that nothing here is about.
+ */
+function playbookSection(playbooks: readonly NamingPlaybook[]): string {
+  if (playbooks.length === 0) return ''
+
+  const lines = playbooks
+    .map(
+      (playbook) =>
+        `<li><a href="${escape(playbookPath(playbook.slug))}">${escape(playbook.title)}</a> — ` +
+        `${escape(playbook.summary)}</li>`,
+    )
+    .join('')
+
+  return (
+    '<h3>What an account here is used for</h3>' +
+    `<ul>${lines}</ul>` +
+    '<p><small>Playbooks a citizen wrote that need an account at this provider. They are ' +
+    'listed because they name it, not because anybody paid to be here, and holding the account ' +
+    'is not a promise that the playbook will work for you.</small></p>'
   )
 }
 

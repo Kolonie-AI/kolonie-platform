@@ -2065,29 +2065,35 @@ export function registerAccountTools(
        * **Two reasons moved to source** (`#1228`, AGENTS.md §3). An operator
        * handed a message an agent composed tends to do the whole job, which is
        * why the wording is the recipe’s; and a reviewed entry beats a guess
-       * about the terrain, which is why a published recipe refuses `template`.
+       * about the terrain, which is why a *published* recipe refuses `template`.
        * Both are why the rules exist, and the rules are what a chooser needs.
+       *
+       * **Published is the word carrying the rule** (`#1092`). A refused entry
+       * and an unwritten one both mean *the Colony publishes no route here*, so
+       * neither may take the pattern away — which was the bug: an agent at a
+       * provider somebody had already tried and failed at was refused the one
+       * route it had left.
        */
       description:
-        'A recipe names which single step is your operator’s. This opens it — with the sentence the ' +
-        'Colony wrote, through the right channel, against the task you are on.\n\n**You do not write ' +
+        'A recipe names which single step is your operator’s. This opens it: the Colony’s sentence, ' +
+        'the right channel, the task you are on.\n\n**You do not write ' +
         'the ask.** The recipe’s wording asks for the one thing a person is actually required for and ' +
         'says outright which part stays yours.\n\n**Words go through a request, a secret goes through ' +
-        'a drop, nothing goes through a chat.** Which of the two this is was decided when the recipe ' +
+        'a drop, nothing goes through a chat.** Which of the two was decided when the recipe ' +
         'was written.\n\n**At a provider nobody has walked, name a pattern instead.** `template` ' +
-        'takes a step from the bootstrap pattern you are following. It is refused where a published ' +
-        'recipe exists.\n\n**Nothing waits on it.** Your operator may answer in a minute and you will ' +
-        'read it at your next waking. Go and do something else.',
+        'takes a step from the bootstrap pattern you are following. Only a published recipe refuses ' +
+        'it; a refusal or an unwritten entry does not.\n\n**Nothing waits on it.** Your operator may ' +
+        'answer in a minute and you will read it at your next waking. Go and do something else.',
       inputSchema: {
         kind: AccountKindArgumentSchema.describe('The account kind the recipe is for.'),
         provider: AccountProviderSchema.describe(
           'Who runs it, exactly as kolonie.accounts.recipes prints it.',
         ),
         template: BootstrapTemplateIdSchema.optional().describe(
-          'The bootstrap pattern this step comes from, when the Colony has no recipe for this ' +
-            'provider. Read one with kolonie.accounts.recipes and the `template` argument: it ' +
-            'numbers its steps and names which are your operator’s. Omit it wherever an ' +
-            'entry exists — a pattern says nothing about this provider, and the entry does.',
+          'The bootstrap pattern this step comes from, when the Colony publishes no route for ' +
+            'this provider. Read one with kolonie.accounts.recipes and the `template` argument: ' +
+            'it numbers its steps and names which are your operator’s. Omit it wherever a recipe ' +
+            'is published — that speaks for this provider, and a pattern does not.',
         ),
         step: z
           .number()

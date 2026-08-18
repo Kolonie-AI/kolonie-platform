@@ -96,6 +96,8 @@ export type VaultOutcome<T> =
  */
 export const VAULT_FULL = 'vault_full'
 export const VAULT_SEALED_WITH_ANOTHER_KEY = 'sealed_with_another_key'
+/** The account this entry opened was given away, and custody went with it (`#1214`). */
+export const VAULT_SPENT = 'credential_transferred'
 
 /**
  * The name in the path, checked before anything touches the database.
@@ -198,6 +200,22 @@ export async function readVaultEntry(
       error: {
         code: 'not_found',
         message: `You have nothing stored under "${named.key}".`,
+      },
+    }
+  }
+
+  if (read.outcome === 'spent') {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'conflict',
+        message:
+          `The account "${named.key}" opened is another citizen's now, and the credential went ` +
+          'with it when the offer was accepted. What is sealed under that name is still ' +
+          'sealed and is not handed back: reading it would tell you that you still hold an ' +
+          'account you gave away. The entry is yours to delete, to describe, and to write ' +
+          'something new into — a value you store under it now is live again.',
+        details: { reason: VAULT_SPENT, spentAt: read.entry.spentAt ?? '' },
       },
     }
   }

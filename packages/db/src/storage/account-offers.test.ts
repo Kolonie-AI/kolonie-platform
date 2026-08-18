@@ -8,6 +8,7 @@ import {
   accountThreads,
   accountTransfers,
   accounts,
+  agentVault,
   agents,
   emailChallenges,
 } from '../schema/index.js'
@@ -24,7 +25,7 @@ import {
   type AcceptAccountOfferOutcome,
   type GiveAccountOutcome,
 } from './account-offers.js'
-import { getVaultEntry, setVaultEntry } from './vault.js'
+import { getVaultEntry, listVaultEntries, setVaultEntry } from './vault.js'
 
 const target = databaseTestTarget()
 
@@ -572,15 +573,88 @@ describe('an account offered to another citizen', () => {
       const opened = await getVaultEntry(db, recipientToken, recipient, 'mine/the-account')
       expect(opened).toMatchObject({ outcome: 'found', value: FIXTURE_VALUE })
 
-      // And the giver's own entry is left exactly where it is (decision 12).
+      // And the giver's own entry is still there, no longer opening (decision
+      // 12 as `#1214` corrects it). Its own tests are below.
       expect(await getVaultEntry(db, giverToken, giver, 'provider/handle')).toMatchObject({
-        outcome: 'found',
-        value: FIXTURE_VALUE,
+        outcome: 'spent',
       })
 
       // Nothing of the handover survives it.
       expect(await db.select().from(accountOffers)).toEqual([])
       expect(await db.select().from(accountTransfers)).toEqual([])
+    })
+
+    /**
+     * What happens to the giver's own entry (`#1214`).
+     *
+     * The account moved and the credential went with it, so the name the giver
+     * knows it by has to stop handing back a secret: a citizen reading its own
+     * password out of that entry is being told it still holds an account that
+     * is somebody else's now. **Nothing is deleted for it.** A vault another
+     * citizen's act can empty is not the vault D-043 describes, and those bytes
+     * are the giver's only copy of something it may still have to reason about.
+     */
+    describe('the giver’s own vault entry', () => {
+      it('keeps its bytes and stops opening', async () => {
+        const taken = await accept()
+        if (taken.outcome !== 'accepted') throw new Error(taken.outcome)
+
+        const held = await getVaultEntry(db, giverToken, giver, 'provider/handle')
+        if (held.outcome !== 'spent') throw new Error(held.outcome)
+        expect(held.entry.spentAt).not.toBeNull()
+
+        // The row is untouched apart from that mark, and the listing carries
+        // it exactly as before — a spent entry is still the giver's to see.
+        const [row] = await db.select().from(agentVault).where(eq(agentVault.agentId, giver))
+        expect(row?.encryptedValue).toBeTruthy()
+        expect(await listVaultEntries(db, giverToken, giver)).toMatchObject([
+          { key: 'provider/handle', description: FIXTURE_DESCRIPTION },
+        ])
+      })
+
+      /** The name is the giver's again the moment it means something again. */
+      it('opens again once the giver writes something new under the name', async () => {
+        const taken = await accept()
+        if (taken.outcome !== 'accepted') throw new Error(taken.outcome)
+
+        const stored = await setVaultEntry(
+          db,
+          giverToken,
+          giver,
+          'provider/handle',
+          'another-fixture-value-not-a-credential',
+        )
+        expect(stored).toMatchObject({ outcome: 'stored', created: false })
+
+        expect(await getVaultEntry(db, giverToken, giver, 'provider/handle')).toMatchObject({
+          outcome: 'found',
+          value: 'another-fixture-value-not-a-credential',
+        })
+      })
+
+      /**
+       * The guard decision 8 makes necessary. One entry can open several
+       * accounts, and the giver was asked about that at the offer and went
+       * ahead — for *this* account. Marking the name spent would take a live
+       * credential away from the sibling, which nobody gave to anybody.
+       */
+      it('stays live while another account of the giver’s still names it', async () => {
+        await withdrawAccountOffer(db, { offerId, fromAgentId: giver })
+        await anAccount({ identifier: 'the-sibling' })
+
+        const paused = await give()
+        if (paused.outcome !== 'confirm') throw new Error(paused.outcome)
+        const offered = await give({ confirm: paused.token })
+        if (offered.outcome !== 'offered') throw new Error(offered.outcome)
+
+        const taken = await accept({ offerId: offered.offerId })
+        if (taken.outcome !== 'accepted') throw new Error(taken.outcome)
+
+        expect(await getVaultEntry(db, giverToken, giver, 'provider/handle')).toMatchObject({
+          outcome: 'found',
+          value: FIXTURE_VALUE,
+        })
+      })
     })
 
     /**

@@ -37,6 +37,12 @@ export interface FakeVault extends VaultStore {
     from: string,
     to: string,
   ) => { resealed: number; unreadable: number }
+  /**
+   * Mark one entry spent, as `acceptAccountOffer` does at the far end of a
+   * transfer (`#1214`). Here for the same reason `reSeal` is: no MCP surface
+   * calls it, and `apps/api` is on the hook for what the outcome turns into.
+   */
+  readonly spend: (agentId: AgentId, key: string) => void
 }
 
 interface Held {
@@ -50,6 +56,8 @@ interface Held {
    * listing.
    */
   description: string | null
+  /** Set when the account this opened moved to another citizen (`#1214`). */
+  spentAt: string | null
   readonly createdAt: string
   updatedAt: string
 }
@@ -80,6 +88,9 @@ export function fakeVault(): FakeVault {
         // Absent leaves what was there, which is what makes rotating a token
         // cheap in the real store too.
         description: description ?? existing?.description ?? null,
+        // A written value is a live value: the real store clears the mark on
+        // the same reasoning.
+        spentAt: null,
         createdAt,
         updatedAt: now,
       })
@@ -89,6 +100,7 @@ export function fakeVault(): FakeVault {
         entry: {
           key,
           description: description ?? existing?.description ?? null,
+          spentAt: null,
           createdAt,
           updatedAt: now,
         },
@@ -109,6 +121,7 @@ export function fakeVault(): FakeVault {
         entry: {
           key,
           description: entry.token === token ? description : null,
+          spentAt: entry.spentAt,
           createdAt: entry.createdAt,
           updatedAt: entry.updatedAt,
         },
@@ -118,18 +131,21 @@ export function fakeVault(): FakeVault {
     get: async (token, agentId, key): Promise<GetVaultEntryOutcome> => {
       const entry = held.get(at(agentId, key))
       if (entry === undefined) return { outcome: 'unknown' }
+
+      const row = {
+        key,
+        description: entry.description,
+        spentAt: entry.spentAt,
+        createdAt: entry.createdAt,
+        updatedAt: entry.updatedAt,
+      }
+
+      // Above `unreadable`, as in the real store: an entry that is both spent
+      // and sealed with an older key is answered with the fact one can act on.
+      if (entry.spentAt !== null) return { outcome: 'spent', entry: row }
       if (entry.token !== token) return { outcome: 'unreadable' }
 
-      return {
-        outcome: 'found',
-        entry: {
-          key,
-          description: entry.description,
-          createdAt: entry.createdAt,
-          updatedAt: entry.updatedAt,
-        },
-        value: entry.value,
-      }
+      return { outcome: 'found', entry: row, value: entry.value }
     },
 
     list: async (token, agentId): Promise<readonly VaultEntryRow[]> =>
@@ -142,6 +158,7 @@ export function fakeVault(): FakeVault {
             // Null when this token did not write it, which is how the real
             // store answers an entry it cannot open.
             description: entry?.token === token ? (entry?.description ?? null) : null,
+            spentAt: entry?.spentAt ?? null,
             createdAt: entry?.createdAt ?? '',
             updatedAt: entry?.updatedAt ?? '',
           }
@@ -174,6 +191,11 @@ export function fakeVault(): FakeVault {
 
       return { resealed, unreadable }
     },
+    spend: (agentId, key) => {
+      const entry = held.get(at(agentId, key))
+      if (entry === undefined || entry.spentAt !== null) return
+      held.set(at(agentId, key), { ...entry, spentAt: new Date().toISOString() })
+    },
     fill: (agentId, entries = VAULT_MAX_ENTRIES) => {
       const now = new Date().toISOString()
       for (let index = 0; index < entries; index += 1) {
@@ -181,6 +203,7 @@ export function fakeVault(): FakeVault {
           token: 'whatever',
           value: 'x',
           description: null,
+          spentAt: null,
           createdAt: now,
           updatedAt: now,
         })

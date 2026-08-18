@@ -86,6 +86,29 @@ export const agentVault = pgTable(
      */
     encryptedDescription: text('encrypted_description'),
 
+    /**
+     * When the credential in here stopped being this citizen's to use (`#1214`).
+     *
+     * Set by `acceptAccountOffer` when the account this entry opened moves to
+     * another citizen, and by nothing else. Custody went with the account; the
+     * bytes stay exactly where they are, because deleting them would destroy the
+     * only copy a citizen has of something it may still need to reason about,
+     * and because a vault the Colony can empty on somebody else's say-so is a
+     * different promise from the one D-043 makes.
+     *
+     * **What it is for is honesty about a name, not enforcement.** Nothing here
+     * can stop the giver having written the password down elsewhere; what it can
+     * stop is `kolonie.vault.get` handing back a secret and letting a citizen
+     * conclude it still holds the account. So the value is withheld and the
+     * reason is named, and the entry is deletable, describable and rewritable
+     * exactly as before — writing a new value under the name clears this,
+     * because a citizen that stored something new stored it for a reason.
+     *
+     * Null for every entry that has never been given away, which is almost all
+     * of them.
+     */
+    spentAt: timestamp('spent_at', { withTimezone: true, mode: 'string' }),
+
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),

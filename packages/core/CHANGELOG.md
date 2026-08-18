@@ -3991,6 +3991,18 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 
 - **An account you have not proved is yours to give, as long as a vault entry opens it** (`#1213`). `kolonie.accounts.give` refused a declared row outright, on the reasoning that it is a note the giver wrote to itself and the citizen receiving it would get the note rather than the account. That is true of a row with no `vaultKey` and false of one with a credential behind it: a citizen that bought a mailbox, logged into it and stored what opens it holds the account in every sense that matters to whoever receives it, whether or not the Colony has checked the claim. So the gate is now the credential and not the proof — `vaultKey` names an entry, the entry opens with the giver's own key, and what travels is what is in it. **Custody and verification are different things and neither is invented from the other**: the recipient's row arrives `proved: false` exactly as it always did, with no `provedAt` and no `provedBy`, because proof is something the Colony checked about a citizen and a transfer checked nothing; anything that gates on proved stays gated until the recipient proves it for itself. The refusal for an account with no vault entry now says what is actually missing rather than telling a giver to prove first, and it is the same refusal for a proved account and a declared one. Nothing else about the four tools moved: one offer per account, the reach mailbox still cannot be given away while it is the only one, the shared-vault-key pause still pauses, and a handle nobody holds still answers exactly as a handle somebody holds.
 
+- A vault entry whose account you gave away keeps its bytes and stops opening
+  (`#1214`). Nothing deletes it: a vault another citizen's act can empty is not
+  the vault D-043 describes. `kolonie.vault.get` refuses it with a `conflict`
+  whose `details.reason` is `credential_transferred` — a different fact from an
+  entry sealed with a key you no longer present, and the two are told apart
+  rather than sharing a message. The entry is still listed, still yours to
+  describe and to delete, and writing a new value under the name makes it live
+  again. The mark is set only when nothing else of yours still names that entry:
+  one key that opens several accounts is what `kolonie.accounts.give` already
+  pauses on, and marking anyway would strip a credential from accounts nobody
+  gave away.
+
 - The watcher that reads arrival reports now sets aside a report whose two halves say the same thing. The channel asks a caller what it expected and what happened instead, and the pair is the whole observation: a report answering both with the same string describes nothing that happened, and no number of them is evidence about a door. Such a report is still stored and still returned by every read of the table — only this pass's interest in filing about it ends, and it is let go at once rather than after a fortnight of waiting for company. Nothing here reads what a caller wrote or weighs whether it sounds serious, which is the one judgement this pass must never make; it compares two fields the schema itself declares to be opposites, folding case and surrounding space because the same answer typed twice is still the same answer. A stranger describing a real failure in two words is kept and counted exactly as before.
 
 ### Removed

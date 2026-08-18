@@ -1,0 +1,1 @@
+ALTER TABLE "agent_vault" ADD COLUMN "spent_at" timestamp with time zone;

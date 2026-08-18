@@ -62,6 +62,12 @@ export interface FakeAccountOffers extends AccountOfferStore {
   rowsOf(agentId: AgentId): readonly (ArrivedAccount & { readonly accountId: string })[]
   /** Whether a citizen's vault holds that name. The giver's must survive. */
   holdsVaultEntry(agentId: AgentId, key: string): boolean
+  /**
+   * Whether that entry has been marked as no longer the citizen's to use
+   * (`#1214`). The giver's entry survives an accept and stops opening: both
+   * halves are asserted, so the fixture has to be able to tell them apart.
+   */
+  spentVaultEntry(agentId: AgentId, key: string): boolean
 }
 
 /** An account row as a test reads it back. Nothing here is sealed. */
@@ -109,6 +115,8 @@ const handleKey = (handle: string): string => handle.trim().toLowerCase()
 export function fakeAccountOffers(): FakeAccountOffers {
   const accounts = new Map<string, HeldAccount>()
   const vaultEntries = new Set<string>()
+  /** A subset of `vaultEntries`: still held, no longer the citizen's to use. */
+  const spentEntries = new Set<string>()
   const handles = new Map<string, AgentId>()
   const offers = new Map<string, OpenOffer>()
   const confirmations = new Map<string, { accountId: string; toHandleKey: string }>()
@@ -142,10 +150,13 @@ export function fakeAccountOffers(): FakeAccountOffers {
 
     storeVaultEntry(agentId, key) {
       vaultEntries.add(`${agentId}:${key}`)
+      // Writing a value makes a spent name live again, as the store does.
+      spentEntries.delete(`${agentId}:${key}`)
     },
 
     forgetVaultEntry(agentId, key) {
       vaultEntries.delete(`${agentId}:${key}`)
+      spentEntries.delete(`${agentId}:${key}`)
     },
 
     citizen(agentId, handle) {
@@ -178,6 +189,10 @@ export function fakeAccountOffers(): FakeAccountOffers {
       return vaultEntries.has(`${agentId}:${key}`)
     },
 
+    spentVaultEntry(agentId, key) {
+      return spentEntries.has(`${agentId}:${key}`)
+    },
+
     give(command: GiveAccountCommand): Promise<GiveAccountOutcome> {
       if (sealingKey === undefined) return Promise.resolve({ outcome: 'unsealable' })
 
@@ -188,7 +203,9 @@ export function fakeAccountOffers(): FakeAccountOffers {
       }
       // Proved or declared, both are givable: the gate is the credential (`#1213`).
       if (account.vaultKey === null) return Promise.resolve({ outcome: 'no-vault-key' })
-      if (!vaultEntries.has(`${command.fromAgentId}:${account.vaultKey}`)) {
+      const entry = `${command.fromAgentId}:${account.vaultKey}`
+      // A spent entry opens nothing, so there is nothing to seal into a parcel.
+      if (!vaultEntries.has(entry) || spentEntries.has(entry)) {
         return Promise.resolve({ outcome: 'nothing-to-give' })
       }
       if (account.reachMailbox) return Promise.resolve({ outcome: 'reach-mailbox' })
@@ -323,6 +340,18 @@ export function fakeAccountOffers(): FakeAccountOffers {
       })
       accounts.delete(open.accountId)
       offers.delete(command.offerId)
+
+      /**
+       * The giver's entry keeps its bytes and stops opening (`#1214`) — and
+       * only when nothing of the giver's still names it, because a credential
+       * cannot be split and decision 8 paused at the offer to say so.
+       */
+      if (account.vaultKey !== null) {
+        const stillMine = [...accounts.values()].some(
+          (held) => held.ownerId === account.ownerId && held.vaultKey === account.vaultKey,
+        )
+        if (!stillMine) spentEntries.add(`${account.ownerId}:${account.vaultKey}`)
+      }
 
       return Promise.resolve({
         outcome: 'accepted' as const,

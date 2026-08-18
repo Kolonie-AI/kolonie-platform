@@ -44,7 +44,7 @@ import { fakeAccounts } from '../__fixtures__/accounts.js'
 import { fakeAccountOffers } from '../__fixtures__/account-offers.js'
 import { fakeConsole } from '../__fixtures__/console.js'
 import { fakeVault, type FakeVault } from '../__fixtures__/vault.js'
-import { VAULT_FULL, VAULT_SEALED_WITH_ANOTHER_KEY } from '../vault.js'
+import { VAULT_FULL, VAULT_SEALED_WITH_ANOTHER_KEY, VAULT_SPENT } from '../vault.js'
 import { fakeErasureDesk } from '../__fixtures__/erasure.js'
 import { erasure } from '../erasure.js'
 import { noObstruction } from '../__fixtures__/obstruction.js'
@@ -265,6 +265,53 @@ describe('the key that sealed it', () => {
     expect((await get('legacy')).statusCode).toBe(ERROR_STATUS.conflict)
     expect((await remove('legacy')).statusCode).toBe(200)
     expect((await get('legacy')).statusCode).toBe(ERROR_STATUS.not_found)
+  })
+})
+
+describe('an entry whose account was given away', () => {
+  it('is refused rather than opened, and says which of the two conflicts this is', async () => {
+    await put(encodeURIComponent('provider/handle'), { value: 'hunter2' })
+    vault.spend(agentId, 'provider/handle')
+
+    const read = await get('provider%2Fhandle')
+
+    expect(read.statusCode).toBe(ERROR_STATUS.conflict)
+    expect(read.json()).toMatchObject({ code: 'conflict', details: { reason: VAULT_SPENT } })
+    // The bytes are still there and are not handed back — which is the whole of
+    // `#1214`, and the one thing a message about them must not undo.
+    expect(read.body).not.toContain('hunter2')
+  })
+
+  it('is still listed, because nothing deleted it', async () => {
+    await put(encodeURIComponent('provider/handle'), {
+      value: 'hunter2',
+      description: 'the mailbox I gave away',
+    })
+    vault.spend(agentId, 'provider/handle')
+
+    const listed = await list()
+
+    expect(listed.json().entries).toMatchObject([{ key: 'provider/handle' }])
+    expect(listed.body).not.toContain('hunter2')
+  })
+
+  it('is still the citizen’s to delete', async () => {
+    await put(encodeURIComponent('provider/handle'), { value: 'hunter2' })
+    vault.spend(agentId, 'provider/handle')
+
+    expect((await remove('provider%2Fhandle')).statusCode).toBe(200)
+    expect((await get('provider%2Fhandle')).statusCode).toBe(ERROR_STATUS.not_found)
+  })
+
+  it('opens again once the citizen writes something new under the name', async () => {
+    await put(encodeURIComponent('provider/handle'), { value: 'hunter2' })
+    vault.spend(agentId, 'provider/handle')
+
+    // The name was never the point: a citizen that re-uses it for another
+    // account is holding a live credential again, and must be able to read it.
+    await put(encodeURIComponent('provider/handle'), { value: 'a-second-value' })
+
+    expect((await get('provider%2Fhandle')).json()).toMatchObject({ value: 'a-second-value' })
   })
 })
 

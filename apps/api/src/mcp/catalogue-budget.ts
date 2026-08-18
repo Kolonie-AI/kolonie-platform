@@ -27,9 +27,10 @@
  * ratchet that only caught growth would let a consolidation's saving sit
  * unrecorded until the next feature quietly spent it. **A reduction costs
  * nobody a command** (`#1118`): `scripts/check-catalogue-budget.mjs` writes the
- * lower figure in the same run that measured it, and the workflow commits it to
- * the branch that earned it. What that removes is the window where a saving is
- * real, unrecorded, and available to the next feature.
+ * lower figure in the same run that measured it, and the workflow commits it on
+ * a push to `main` (`#1266` — a pull request never writes the floor, so
+ * concurrent branches cannot collide on it). What that removes is the window
+ * where a saving is real, unrecorded, and available to the next feature.
  *
  * ## Raising it
  *
@@ -101,11 +102,33 @@ export interface CatalogueTotals {
 export const GRAMMAR_RECORD = 'the-catalogue-encodes-grammar-never-vocabulary'
 
 /**
+ * Bytes a pull request may grow against its merge base before the gate fails
+ * (`#1266`).
+ *
+ * Absolute, not a percentage: a percentage of a growing surface grows with it,
+ * which is the slack this design refuses. **It does not accumulate** — each
+ * branch is measured against its merge base, and `main`'s ratchet still records
+ * the exact figure after every merge. Ten branches at +900 B each still merge
+ * to a floor that is the exact sum, not ten forgiven kilobytes.
+ *
+ * Tools stay at zero: `+1 tool` still fails, and {@link raiseIsJustified} is
+ * still how the floor is raised. This tolerance is for the byte-only edits the
+ * old gate reddened — a wall `kind`, a clarified sentence — that added no tool
+ * and still failed on the prose documenting them.
+ */
+export const CATALOGUE_BYTE_TOLERANCE = 1024
+
+/**
  * Compare a measurement against the floor.
  *
  * **Bytes and tools are both binding, and either one alone fails it.** A change
  * that removes a tool and adds 9 KB of prose to the survivors has not made the
  * catalogue cheaper, and a count on its own would call it a saving.
+ *
+ * This is the comparison a push to `main` runs. A pull request uses
+ * {@link branchBudgetVerdict} against its merge base instead (`#1266`), so a
+ * later merge cannot retro-fail an open branch by re-lowering the committed
+ * floor underneath it.
  */
 export function budgetVerdict(measured: CatalogueTotals, budget: CatalogueBudget): BudgetVerdict {
   const tools = measured.tools - budget.tools
@@ -146,6 +169,85 @@ export function budgetVerdict(measured: CatalogueTotals, budget: CatalogueBudget
     tools,
     bytes,
     message: `The catalogue is exactly its budget: ${measured.tools} tools, ${measured.bytes} bytes.`,
+  }
+}
+
+/**
+ * Compare a pull-request head against its merge base (`#1266`).
+ *
+ * **Tools stay at zero.** One added tool fails, with the same way-out the floor
+ * names. **Bytes get {@link CATALOGUE_BYTE_TOLERANCE}.** Growth at or under it
+ * passes; past it fails, naming the tolerance and the delta. **A shrink is
+ * reported and not failed** — `main` records the saving on merge, in the same
+ * run that measures it. No branch writes `catalogue-budget.json`.
+ */
+export function branchBudgetVerdict(
+  measured: CatalogueTotals,
+  base: CatalogueTotals,
+): BudgetVerdict {
+  const tools = measured.tools - base.tools
+  const bytes = measured.bytes - base.bytes
+
+  if (tools > 0) {
+    return {
+      within: false,
+      direction: 'over',
+      tools,
+      bytes,
+      message:
+        `The catalogue grew by ${tools} tool${tools === 1 ? '' : 's'} and ${bytes} bytes ` +
+        `against its merge base (${base.tools} tools, ${base.bytes} bytes). ` +
+        `If the growth is a new rung, it belongs in a \`kind\` enum and costs zero tools — see ${GRAMMAR_RECORD}. ` +
+        'If it is a genuinely new verb, raise the floor by hand in a commit that names that record ' +
+        'and says what the new tools are vocabulary-free for.',
+    }
+  }
+
+  if (bytes > CATALOGUE_BYTE_TOLERANCE) {
+    return {
+      within: false,
+      direction: 'over',
+      tools,
+      bytes,
+      message:
+        `The catalogue grew by ${bytes} bytes against its merge base ` +
+        `(${base.tools} tools, ${base.bytes} bytes), past the tolerance of ` +
+        `${CATALOGUE_BYTE_TOLERANCE} bytes. Tools are unchanged. ` +
+        'Cut the prose, or raise the floor by hand in a commit that names ' +
+        `${GRAMMAR_RECORD} and says what the growth is vocabulary-free for.`,
+    }
+  }
+
+  if (tools < 0 || bytes < 0) {
+    return {
+      within: true,
+      direction: 'under',
+      tools,
+      bytes,
+      message:
+        `The catalogue is smaller than its merge base by ${-tools} tools and ${-bytes} bytes. ` +
+        'Reported, not committed — `main` records the saving on merge.',
+    }
+  }
+
+  if (bytes > 0) {
+    return {
+      within: true,
+      direction: 'at',
+      tools,
+      bytes,
+      message:
+        `The catalogue grew by ${bytes} bytes against its merge base, ` +
+        `within the ${CATALOGUE_BYTE_TOLERANCE}-byte tolerance. Tools unchanged.`,
+    }
+  }
+
+  return {
+    within: true,
+    direction: 'at',
+    tools,
+    bytes,
+    message: `The catalogue matches its merge base: ${measured.tools} tools, ${measured.bytes} bytes.`,
   }
 }
 

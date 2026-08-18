@@ -5,7 +5,9 @@ import process from 'node:process'
 import { describe, expect, it } from 'vitest'
 import { connectedClient, registeredCitizen } from '../__fixtures__/mcp.js'
 import {
+  branchBudgetVerdict,
   budgetVerdict,
+  CATALOGUE_BYTE_TOLERANCE,
   ceilingChangeVerdict,
   ceilingRaiseIsJustified,
   ceilingVerdict,
@@ -156,6 +158,76 @@ describe('a measurement against the floor', () => {
     expect(verdict.tools).toBe(-3)
     expect(verdict.bytes).toBe(-4_000)
     expect(verdict.message).toContain('check-catalogue-budget.mjs')
+  })
+})
+
+/**
+ * The pull-request half of the gate (`#1266`).
+ *
+ * A branch is judged against its merge base, not against the committed floor
+ * file — so a later merge cannot re-lower the floor underneath an open branch
+ * and retro-fail it. Tools stay at zero; bytes get {@link CATALOGUE_BYTE_TOLERANCE}.
+ */
+describe('a pull request against its merge base', () => {
+  const base = { tools: 110, bytes: 189_523 }
+
+  it('exports the absolute tolerance the workflow reads', () => {
+    expect(CATALOGUE_BYTE_TOLERANCE).toBe(1024)
+  })
+
+  /** The acceptance cases the issue names: +52 and +95 with no tool change. */
+  it('passes under the tolerance with no tool change', () => {
+    for (const growth of [52, 95, CATALOGUE_BYTE_TOLERANCE]) {
+      const verdict = branchBudgetVerdict({ tools: base.tools, bytes: base.bytes + growth }, base)
+
+      expect(verdict.within, `+${growth} B`).toBe(true)
+      expect(verdict.direction).toBe('at')
+      expect(verdict.tools).toBe(0)
+      expect(verdict.bytes).toBe(growth)
+      expect(verdict.message).toContain(String(CATALOGUE_BYTE_TOLERANCE))
+    }
+  })
+
+  it('fails past the tolerance, naming it and the delta', () => {
+    const growth = CATALOGUE_BYTE_TOLERANCE + 1
+    const verdict = branchBudgetVerdict({ tools: base.tools, bytes: base.bytes + growth }, base)
+
+    expect(verdict.within).toBe(false)
+    expect(verdict.direction).toBe('over')
+    expect(verdict.tools).toBe(0)
+    expect(verdict.bytes).toBe(growth)
+    expect(verdict.message).toContain(String(CATALOGUE_BYTE_TOLERANCE))
+    expect(verdict.message).toContain(String(growth))
+  })
+
+  /** Tools stay at zero even when the byte growth would fit the tolerance. */
+  it('fails on one added tool, however small the byte delta', () => {
+    const verdict = branchBudgetVerdict({ tools: base.tools + 1, bytes: base.bytes + 40 }, base)
+
+    expect(verdict.within).toBe(false)
+    expect(verdict.direction).toBe('over')
+    expect(verdict.tools).toBe(1)
+    expect(verdict.message).toContain(GRAMMAR_RECORD)
+    expect(verdict.message).toContain('`kind`')
+  })
+
+  /** A shrink is reported and not failed — `main` records it on merge. */
+  it('passes a shrink against the merge base without asking for a write-back', () => {
+    const verdict = branchBudgetVerdict({ tools: base.tools - 1, bytes: base.bytes - 400 }, base)
+
+    expect(verdict.within).toBe(true)
+    expect(verdict.direction).toBe('under')
+    expect(verdict.message).toContain('main')
+    expect(verdict.message).not.toContain('check-catalogue-budget.mjs')
+  })
+
+  it('passes an exact match', () => {
+    const verdict = branchBudgetVerdict(base, base)
+
+    expect(verdict.within).toBe(true)
+    expect(verdict.direction).toBe('at')
+    expect(verdict.tools).toBe(0)
+    expect(verdict.bytes).toBe(0)
   })
 })
 

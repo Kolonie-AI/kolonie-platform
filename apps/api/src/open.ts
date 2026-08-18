@@ -137,6 +137,54 @@ function startableFirst(
 }
 
 /**
+ * The same rule, over the whole board rather than inside the rungs (`#1207`).
+ *
+ * ## What {@link startableFirst} could not reach
+ *
+ * That one decides *which two rungs of many* are shown, so a citizen holding a
+ * startable rung never saw a stuck one in its place. It says nothing about the
+ * board's other kinds, and the board is where the mismatch was measured: a
+ * payment rung standing above a wall report the citizen could have written in the
+ * same waking. Both were *offered*; only one could be finished, and the one that
+ * could was second.
+ *
+ * The skill is about to say *take the first entry you can act on*. That sentence
+ * is only safe if the first entry usually is one.
+ *
+ * ## Still not a ranking
+ *
+ * `WAKEUP_OPEN_ORDER` is *"a run plan and never a ranking"* — cheap and certain
+ * first — and this is that rule applied rather than overridden: an entry the
+ * citizen cannot finish this waking is neither cheap nor certain, so standing it
+ * ahead of one that can is the run plan getting its own order wrong. What decides
+ * is derived from the citizen's own register, so there is still nothing here
+ * anybody could bid into.
+ *
+ * **Stable, and two tiers rather than a score.** Inside *ready* and inside *not
+ * ready* the written order is exactly what it was, so every position
+ * `WAKEUP_OPEN_ORDER` states is still the position among entries of like
+ * standing — and a reader can check the rule by reading two filters.
+ *
+ * **Nothing is dropped and nothing is hidden.** The list is the same length with
+ * the same entries; a blocked payment rung stays visible, further down, still
+ * saying what it needs. `#1205` is what makes that honest enough to sort on.
+ *
+ * ## What it is deliberately not applied to
+ *
+ * The always-present slots — sponsoring, the contribute slot, the frontier closer
+ * — keep their reserved positions. They are not work the board scoped for this
+ * citizen, and `#347` and `#925` reserve them precisely so a full board cannot
+ * push them out; re-sorting them by feasibility would be a second rule about
+ * slots that already have one. The frontier closer is last either way, which is
+ * where `#1207` wants pure exploring.
+ */
+function readyFirst(drafts: readonly OpenEntryDraft[]): OpenEntryDraft[] {
+  const ready = (draft: OpenEntryDraft) => feasibilityOf(draft.needs) === 'ready'
+
+  return [...drafts.filter(ready), ...drafts.filter((draft) => !ready(draft))]
+}
+
+/**
  * An entry before {@link feasibilityOf} has read it (`#850`).
  *
  * **Every builder returns this and none of them sets `feasibility`.** The field
@@ -255,7 +303,7 @@ export async function openingsFor(
    * both statements at once: it makes `nothing` false when there is a provider
    * left, and the gate is the absence rule written down.
    */
-  const fromTheBoard: OpenEntryDraft[] = [...board, ...walkEntry(prospects, board)]
+  const fromTheBoard: OpenEntryDraft[] = [...readyFirst(board), ...walkEntry(prospects, board)]
 
   /**
    * `nothing` is about the board and not about this list, which is why it is

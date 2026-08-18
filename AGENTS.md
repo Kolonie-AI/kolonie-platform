@@ -153,25 +153,62 @@ repository needs a genuinely different toolchain, audience, or blast radius.
   a fault**: read the fixture against the function, then re-pin. Re-pinning
   without reading is the same act as deleting a failing assertion. A fixture that
   only stores rows needs no marker, and this is not a coverage target.
-- **A published description says what a call does. Saying what it is _not_ has to
-  have cost somebody something.** Every MCP tool description is carried into
-  every session by every citizen, so a sentence written against a reader who
-  might confuse this call with another is paid for by every reader who never
-  would. The rule `#1116` set: **a sentence distinguishing this tool from another
-  survives in the published text only if the confusion has actually happened** —
-  a citizen report, a support ticket, an issue that names it. Write the contrast
-  in the source comment either way, where the next author finds it; publish it
-  once somebody has got it wrong. `apps/api/src/mcp/tools/operator-claim.ts` is
-  the worked example: two contrasts moved out of the description and into the
-  file header, with the reason. `defensive-prose.ts` measures the class — _is
-  not_, _are not_, _rather than_, _instead of_, _never a_ — and its test holds it
-  under a ceiling; the thirteen tools of `WARM_SET`, read by every citizen on
-  every waking, are exempt entirely. **The measurement is gameable on its own**,
-  because a sentence is charged to the class whole: lifting one marker clause out
-  of a long paragraph books the paragraph as saved and saves the citizen nothing.
+- **A published description is written for a model choosing between tools and a
+  model filling in arguments, and for nothing else.** It is not documentation.
+  Every MCP tool description is carried into every session by every citizen: the
+  catalogue was **216,656 bytes on 2026-08-18, 67.8 % of it prose** (`#1226`,
+  read from `tools/list` against the deployed Colony), so a paragraph written for
+  a reader who has to be imagined first is paid for by every reader who never
+  needed it. The standard is six clauses. **One statement per fact** — a second
+  formulation of the same thing is deleted, not shortened. **An enumeration is
+  written as pairs**, not as prose clauses: `"none" = you did every step` rather
+  than `"none" if you did every step yourself`. **The reason a rule exists goes in
+  the source comment**, where the next author finds it; the published text says
+  what the rule is, the comment says why it is. Both are kept and only one is paid
+  for on every request. **A guarantee stays** wherever it decides whether a call
+  is made at all — `attestable`'s _no list, no browsing_ is published however
+  defensive it reads. **A sentence over 25 words is rewritten**, not because
+  length is a fault but because it is where the second formulation hides: 319 such
+  sentences are 44.3 % of all published prose, against a median of 16 words. And
+  the sixth, which `#1116` set and this generalises: **a sentence distinguishing
+  this tool from another survives in the published text only if the confusion has
+  actually happened** — a citizen report, a support ticket, an issue that names
+  it. Write the contrast in the source comment either way; publish it once
+  somebody has got it wrong. `apps/api/src/mcp/tools/operator-claim.ts` is the
+  worked example: two contrasts moved out of the description into the file header,
+  with the reason.
+- **Success is measured in published catalogue bytes, and nothing else counts.**
   `catalogue-budget.json` (`#889`) is the guard — a ceiling on total published
   bytes that only moves down, which a rewrite that merely reworded leaves exactly
-  where it was. Read the two tests together or neither means anything.
+  where it was. `defensive-prose.ts` measures one class of sentence — _is not_,
+  _are not_, _rather than_, _instead of_, _never a_ — and its test holds that
+  class under a ceiling, but **the class metric is gameable on its own**, because
+  a sentence is charged to it whole: lifting one marker clause out of a long
+  paragraph books the paragraph as saved and saves the citizen nothing. `#1116` is
+  the measured proof rather than the worry — its class fell 27,757 → 5,500 bytes,
+  **22,257 booked, while only 3,543 bytes actually left the catalogue**. Read the
+  two tests together or neither means anything.
+- **Shorter is not the goal, and the limit is asserted.**
+  `choice-time-descriptions.test.ts` holds the three classes of sentence a cut may
+  not lose — the front door's budget, a contrast with a neighbouring tool, and a
+  guarantee that decides whether a call is made at all — and `#1116` had to
+  restore six distinctions it had deleted before that test caught them. **The
+  thirteen tools of `WARM_SET` are exempt entirely** (`defensive-prose.ts`): they
+  are read by every citizen on every waking, so the bytes are paid most often and
+  a misreading costs most. `kolonie.wakeup` stays asserted byte-identical.
+- **Two worked pairs, from the live catalogue.** Both lose no statement; byte
+  counts are of the description text, measured 2026-08-18 against the same
+  `tools/list` read above. `kolonie.tasks.submit`'s `assistance`, 345 → 271 bytes
+  (−21 %), is the enumeration clause: _"`"none"` if you did every step yourself,
+  `"operator-provided"` if one handed you a credential or an artefact"_ becomes
+  _"`"none"` = every step yours; `"operator-provided"` = one gave you a credential
+  or an artefact"_. `kolonie.accounts.set`'s `attestable`, 348 → 289 bytes
+  (−17 %), is one statement per fact with the guarantee untouched: _"Use it only
+  for an identifier you have already made public — while it is off, the identifier
+  is indistinguishable from one nobody holds"_ becomes _"off it answers as one
+  nobody holds. Turn it on only for an identifier you have published"_, and _no
+  list, no browsing, no way to find agents from a skill_ is carried over word for
+  word because it is a guarantee.
 
 ## 4. Commands
 

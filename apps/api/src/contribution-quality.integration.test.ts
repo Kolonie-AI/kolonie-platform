@@ -1,10 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
-import {
-  ABUSIVE_WARN_MIN_COUNT,
-  abusiveQualityWarningLine,
-  type AgentId,
-} from '@kolonie-ai/core'
+import { ABUSIVE_WARN_MIN_COUNT, abusiveQualityWarningLine, type AgentId } from '@kolonie-ai/core'
 import {
   agents,
   contributionVerdicts,
@@ -15,11 +11,7 @@ import {
 } from '@kolonie-ai/db'
 // Test helpers are package-private — imported by path so this file can drive a
 // real database without exporting them from `@kolonie-ai/db`.
-import {
-  connectForTests,
-  databaseTestTarget,
-  truncateAll,
-} from '../../packages/db/src/testing.js'
+import { connectForTests, databaseTestTarget, truncateAll } from '../../packages/db/src/testing.js'
 import { databaseContributionQuality } from './contribution-quality.js'
 
 /**

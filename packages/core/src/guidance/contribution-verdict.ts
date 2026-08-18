@@ -226,10 +226,7 @@ export function abusiveQualityWarningLine(input: {
  * `null` last-warned means never shown. The cooldown is whole days against
  * {@link ABUSIVE_WARN_COOLDOWN_DAYS}.
  */
-export function abusiveQualityWarningDue(
-  lastWarnedAt: Date | null,
-  now: Date,
-): boolean {
+export function abusiveQualityWarningDue(lastWarnedAt: Date | null, now: Date): boolean {
   if (lastWarnedAt === null) return true
   const elapsedMs = now.getTime() - lastWarnedAt.getTime()
   return elapsedMs >= ABUSIVE_WARN_COOLDOWN_DAYS * 24 * 60 * 60 * 1000

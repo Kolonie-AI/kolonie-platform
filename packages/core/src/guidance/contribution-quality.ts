@@ -42,9 +42,7 @@ export const ContributionQualitySuspensionSchema = z.object({
   startedAt: TimestampSchema,
   expiresAt: TimestampSchema,
 })
-export type ContributionQualitySuspension = z.infer<
-  typeof ContributionQualitySuspensionSchema
->
+export type ContributionQualitySuspension = z.infer<typeof ContributionQualitySuspensionSchema>
 
 export const ContributionQualityAnswerSchema = z
   .object({

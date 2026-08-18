@@ -3,7 +3,6 @@ import { eq } from 'drizzle-orm'
 import {
   ABUSIVE_SUSPEND_DAYS,
   ABUSIVE_SUSPEND_MIN_COUNT,
-  ABUSIVE_SUSPEND_MIN_RATE,
   ABUSIVE_SUSPEND_REPEAT_DAYS,
   ABUSIVE_SUSPEND_REPEAT_WINDOW_DAYS,
   ABUSIVE_WARN_MIN_COUNT,
@@ -20,7 +19,13 @@ import {
   type TaskId,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { agents, citizenshipSuspensions, contributionVerdicts, supportTickets, tasks } from '../schema/index.js'
+import {
+  agents,
+  citizenshipSuspensions,
+  contributionVerdicts,
+  supportTickets,
+  tasks,
+} from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { finishWalk, recordWalkProseModeration, walkInProgress } from './account-walks.js'
 import { registerAgent } from './agents.js'
@@ -751,12 +756,8 @@ describe('contribution verdicts', () => {
     it('doubles to 28 days on a second suspension inside the repeat window', async () => {
       const agentId = await anAgent('second-hit')
       // First suspension, already served, inside the 180-day window.
-      const firstStart = new Date(
-        now.getTime() - 30 * 24 * 60 * 60 * 1000,
-      ).toISOString()
-      const firstExpiry = new Date(
-        now.getTime() - 16 * 24 * 60 * 60 * 1000,
-      ).toISOString()
+      const firstStart = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString()
+      const firstExpiry = new Date(now.getTime() - 16 * 24 * 60 * 60 * 1000).toISOString()
       await db.insert(citizenshipSuspensions).values({
         agentId,
         reason: 'Prior suspension. Appeal with kolonie.support.open.',

@@ -9,8 +9,7 @@ import type { ContributionQualityAnswer } from '@kolonie-ai/core'
  */
 export function contributionQualityAsText(answer: ContributionQualityAnswer): string {
   const { totals, standing, suspension } = answer
-  const rate =
-    standing.rate === null ? 'n/a' : `${Math.round(standing.rate * 1000) / 10}%`
+  const rate = standing.rate === null ? 'n/a' : `${Math.round(standing.rate * 1000) / 10}%`
 
   const surfaceLines = Object.entries(answer.bySurface)
     .filter(([, counts]) => counts.approved + counts.useless + counts.abusive > 0)
@@ -23,8 +22,7 @@ export function contributionQualityAsText(answer: ContributionQualityAnswer): st
     answer.abusiveReasons.length === 0
       ? ['  (none)']
       : answer.abusiveReasons.map(
-          (row) =>
-            `  ${row.decidedAt.slice(0, 10)} ${row.surface}: ${row.reason ?? '(no reason)'}`,
+          (row) => `  ${row.decidedAt.slice(0, 10)} ${row.surface}: ${row.reason ?? '(no reason)'}`,
         )
 
   const lines = [

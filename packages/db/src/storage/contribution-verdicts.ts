@@ -439,4 +439,3 @@ export async function markAbusiveQualityWarned(
     .set({ abusiveQualityWarnedAt: at.toISOString(), updatedAt: at.toISOString() })
     .where(eq(agents.id, agentId))
 }
-

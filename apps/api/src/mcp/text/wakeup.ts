@@ -304,9 +304,7 @@ function standingBlock(digest: WakeupResponse): readonly Block[] {
         // Early warning before an abusive-rate suspension (`#1262`). In the
         // standing block — digest body, never `open` — because it is where the
         // citizen stands, not work it could start.
-        ...(digest.contributionQualityWarning === null
-          ? []
-          : [digest.contributionQualityWarning]),
+        ...(digest.contributionQualityWarning === null ? [] : [digest.contributionQualityWarning]),
       ],
     },
   ]

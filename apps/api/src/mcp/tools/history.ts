@@ -213,10 +213,7 @@ function registerContributionQualityTool(
       const authenticated = await authenticate(credential, deps.store)
       if (authenticated.outcome === 'rejected') return toolError(authenticated.error)
 
-      const answer = await deps.contributionQuality.qualityFor(
-        authenticated.agent.id,
-        new Date(),
-      )
+      const answer = await deps.contributionQuality.qualityFor(authenticated.agent.id, new Date())
 
       return {
         content: [{ type: 'text', text: contributionQualityAsText(answer) }],

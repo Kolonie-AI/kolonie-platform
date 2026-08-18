@@ -96,6 +96,62 @@ describe('the schemas the Colony publishes', () => {
 
     await close()
   })
+
+  /**
+   * **A conditionally required argument is never published as required**
+   * (`#1064`).
+   *
+   * `direction` is required on a directional kind and refused on every other
+   * one, and which of those a call is cannot be read off the shape — it depends
+   * on a sibling argument. So the only honest publication is optional, and the
+   * refusal at the door is what states the rule. A citizen reported the opposite
+   * and was right about the outcome: they sent `both` on a `website` walk and
+   * were refused three times. That was the description, which is fixed in the
+   * same change; this is the assertion that keeps the shape from ever agreeing
+   * with the report.
+   */
+  it('publishes a conditionally required argument as optional', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`, undefined, true)
+
+    const tools = (await client.listTools()).tools
+    for (const name of ['kolonie.accounts.walk-report', 'kolonie.accounts.provider-report']) {
+      const schema = tools.find((tool) => tool.name === name)?.inputSchema as
+        { properties?: Record<string, unknown>; required?: readonly string[] } | undefined
+
+      // Published, or the tool would not be the one this is about.
+      expect(schema?.properties).toHaveProperty('direction')
+      expect(schema?.required ?? []).not.toContain('direction')
+    }
+
+    await close()
+  })
+
+  /**
+   * The other half, and it has to be here rather than only in the accounts
+   * tests: the pair is the claim. A schema that stopped requiring the field
+   * *and* a door that stopped refusing it would pass the assertion above and be
+   * the loosening `#1023` wrote the refusal to prevent.
+   */
+  it('still refuses a direction on a kind whose verdicts have none', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const refused = await client.callTool({
+      name: 'kolonie.accounts.walk-report',
+      arguments: {
+        kind: 'website',
+        provider: 'localhost.run',
+        outcome: 'abandoned',
+        direction: 'both',
+      },
+    })
+
+    expect(refused.isError).toBe(true)
+    expect(JSON.stringify(refused.content)).toContain('Leave it out')
+
+    await close()
+  })
 })
 
 describe('withoutSchemaNoise', () => {

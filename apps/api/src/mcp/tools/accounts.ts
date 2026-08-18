@@ -2447,11 +2447,20 @@ export function registerAccountTools(
          * reason the neighbouring `direction` on `provider-report` gives: `kind`
          * is an argument of this tool and not a field of `WalkReportSchema`, so
          * the refinement belongs where `kind` is.
+         *
+         * **The description says where it is refused, and not only where it is
+         * required** (`#1064`). A citizen walking `website` read *Required on a
+         * directional kind*, could not tell from that line whether their kind was
+         * one, sent `both` to be safe and was refused three times — and reported
+         * the schema as demanding a field the door rejects. The schema had it
+         * optional throughout; the sentence was what did not say *leave it out*.
+         * The neighbour on `provider-report` has said both halves since `#976`,
+         * and this is the same sentence in the same shape.
          */
         direction: RecipeDirectionSchema.optional().describe(
-          'Which capability you walked for, on a kind that has two — today phone. `inbound` ' +
-            'for a number that can receive, `outbound` for one a carrier will let you send ' +
-            'from, `both` if you measured both. Required on a directional kind.',
+          'Which capability you walked for. **Required on `kind: phone`, refused everywhere ' +
+            'else — leave it out.** `inbound` for a number that can receive, `outbound` for ' +
+            'one a carrier lets you send from, `both` if you measured both.',
         ),
         outcome: WalkReportSchema.shape.outcome.describe(
           'proved if you got the account, refused if there is no honest way in, abandoned if ' +

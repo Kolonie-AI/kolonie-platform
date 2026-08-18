@@ -118,6 +118,39 @@ export const PlaybookSlugSchema = z
   .regex(PLAYBOOK_SLUG_PATTERN, 'must be a lowercase kebab-case slug')
 
 /**
+ * Where the playbook catalogue answers, on the website's own host (`#1220`).
+ *
+ * **The whole prefix, index included, and that is forced rather than preferred.**
+ * `#1220` names two ways to split it — the website keeps a static `/playbooks/`
+ * and the API takes `/playbooks/<slug>`, or the route moves whole. The index is
+ * what decides: playbooks are citizen-authored and arrive continuously, so a
+ * build-time index is a deploy per playbook, which is the arrangement `#546`
+ * already rejected for the Atlas. So the index is rendered from the table, and a
+ * rendered index cannot sit under a built parent.
+ */
+export const PLAYBOOKS_PATH = '/playbooks'
+
+/**
+ * How long a public playbook response may be served from a cache.
+ *
+ * {@link ATLAS_CACHE_SECONDS}'s number and for its reason: short enough that an
+ * author who fixed a step sees it applied rather than fixing it twice, long
+ * enough that a crawler walking the catalogue costs the database almost nothing.
+ */
+export const PLAYBOOK_CACHE_SECONDS = 300
+
+/**
+ * The address of one playbook.
+ *
+ * The slug is **parsed rather than interpolated**, exactly as {@link atlasPath}
+ * parses a provider: a path built from an unchecked string is how a value that
+ * was never a slug ends up in a canonical link, a sitemap and somebody's index.
+ */
+export function playbookPath(slug: string): string {
+  return `${PLAYBOOKS_PATH}/${PlaybookSlugSchema.parse(slug)}`
+}
+
+/**
  * Where a playbook is in its life (freeze B and D).
  *
  * Freeze B fixes two statuses **on content** and no more — `open` is the default

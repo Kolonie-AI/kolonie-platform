@@ -207,7 +207,7 @@ export const PLAYBOOK_FRONTIER_LIMIT = 5
  * two are unfinished and one is withdrawn, and all three belong to their author
  * (`#1178`).
  */
-const PLAYBOOK_LISTED_STATUSES = ['open', 'blocked'] as const
+export const PLAYBOOK_LISTED_STATUSES = ['open', 'blocked'] as const
 
 export const PlaybookListQuerySchema = z
   .object({

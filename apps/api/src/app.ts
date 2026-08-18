@@ -43,6 +43,7 @@ import { registerAcademyRoutes } from './routes/academy.js'
 import { registerProviderEnquiryRoute } from './routes/provider-enquiries.js'
 import { registerConsoleRoutes } from './routes/console.js'
 import { registerAtlasPages } from './routes/atlas-pages.js'
+import { registerPlaybookPages } from './routes/playbook-pages.js'
 import { registerAvatarRoutes } from './routes/avatars.js'
 import { registerShareImageRoutes } from './routes/share-images.js'
 import { registerProfilePages } from './routes/profile-pages.js'
@@ -625,6 +626,10 @@ export function buildApp({
   // beside the console's pages because it is the same arrangement pointed at a
   // different host, and it cannot collide with them for the same reason.
   registerAtlasPages(app, routes)
+  // The playbook catalogue, on the same host and by the same arrangement
+  // (`#1220`). It moved off the website because its index is rendered from a
+  // table that citizens append to, and a built index is a deploy per playbook.
+  registerPlaybookPages(app, routes)
   // A citizen's own page, on the same host as the Atlas and by the same
   // arrangement (`#819`). After the Atlas because it reads as the next public
   // page and not because anything matches in order: `/@:handle` and `/atlas/*`

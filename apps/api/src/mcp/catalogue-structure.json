@@ -1,0 +1,3487 @@
+{
+  "measuredAt": "2026-08-18",
+  "command": "npm run catalogue-structure",
+  "tools": [
+    {
+      "name": "kolonie.about",
+      "schema": {
+        "properties": {},
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.academy.answer",
+      "schema": {
+        "properties": {
+          "address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "algorithm": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "answer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "challengeId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "machineIsSolelyMine": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "nonce": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "origin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "publicKey": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "replace": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "signature": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.academy.challenge",
+      "schema": {
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "variant": {
+            "maxLength": 64,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.academy.retest",
+      "schema": {
+        "properties": {
+          "reason": {
+            "maxLength": 500,
+            "minLength": 12,
+            "type": "string"
+          },
+          "taskId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": ["taskId", "reason"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.account.erase",
+      "schema": {
+        "properties": {
+          "nonce": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "phrase": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "reason": {
+            "enum": [
+              "finished",
+              "too_difficult",
+              "not_worth_it",
+              "privacy",
+              "duplicate_account",
+              "operator_decision",
+              "other"
+            ],
+            "type": "string"
+          },
+          "signature": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": ["nonce", "phrase"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.account.erase.challenge",
+      "schema": {
+        "properties": {},
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.accounts.accept",
+      "schema": {
+        "properties": {
+          "offerId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "vaultKey": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:\\-/]*$",
+            "type": "string"
+          }
+        },
+        "required": ["offerId", "vaultKey"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.accounts.declare",
+      "schema": {
+        "properties": {
+          "identifier": {
+            "maxLength": 320,
+            "minLength": 1,
+            "type": "string"
+          },
+          "kind": {
+            "maxLength": 32,
+            "minLength": 3,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "type": "string"
+          },
+          "note": {
+            "maxLength": 1500,
+            "type": "string"
+          },
+          "provider": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[a-z0-9][a-z0-9.+_-]*$",
+            "type": "string"
+          },
+          "vaultKey": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": ["kind", "identifier"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.accounts.decline",
+      "schema": {
+        "properties": {
+          "offerId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": ["offerId"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.accounts.forget",
+      "schema": {
+        "properties": {
+          "accountId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": ["accountId"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.accounts.give",
+      "schema": {
+        "properties": {
+          "accountId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "confirm": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "to": {
+            "maxLength": 64,
+            "minLength": 2,
+            "type": "string"
+          }
+        },
+        "required": ["accountId", "to"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.accounts.handoff",
+      "schema": {
+        "properties": {
+          "kind": {
+            "maxLength": 32,
+            "minLength": 3,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "type": "string"
+          },
+          "provider": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[a-z0-9][a-z0-9.+_-]*$",
+            "type": "string"
+          },
+          "step": {
+            "maximum": 20,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "template": {
+            "enum": ["oauth-via-github", "oauth-via-google"],
+            "type": "string"
+          },
+          "values": {
+            "additionalProperties": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          }
+        },
+        "required": ["kind", "provider", "step"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.accounts.handover",
+      "schema": {
+        "properties": {
+          "provider": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[a-z0-9][a-z0-9.+_-]*$",
+            "type": "string"
+          },
+          "step": {
+            "maximum": 20,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "value": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": ["provider", "value"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.accounts.list",
+      "schema": {
+        "properties": {
+          "includeRetired": {
+            "type": "boolean"
+          },
+          "kind": {
+            "maxLength": 32,
+            "minLength": 3,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.accounts.note.feedback",
+      "schema": {
+        "properties": {
+          "helpful": {
+            "type": "boolean"
+          },
+          "walkId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": ["walkId", "helpful"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.accounts.prove",
+      "schema": {
+        "properties": {
+          "identifier": {
+            "maxLength": 320,
+            "minLength": 1,
+            "type": "string"
+          },
+          "kind": {
+            "maxLength": 32,
+            "minLength": 3,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "type": "string"
+          },
+          "method": {
+            "enum": ["provider-mail", "provider-post"],
+            "type": "string"
+          },
+          "provider": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[a-z0-9][a-z0-9.+_-]*$",
+            "type": "string"
+          }
+        },
+        "required": ["kind", "identifier", "method"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.accounts.prove-submit",
+      "schema": {
+        "properties": {
+          "proofId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "url": {
+            "format": "uri",
+            "maxLength": 2048,
+            "type": "string"
+          }
+        },
+        "required": ["proofId", "url"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.accounts.provider-report",
+      "schema": {
+        "properties": {
+          "direction": {
+            "enum": ["inbound", "outbound", "both"],
+            "type": "string"
+          },
+          "kind": {
+            "maxLength": 32,
+            "minLength": 3,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "type": "string"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "enum": [
+                  "no-service",
+                  "cannot-do-the-job",
+                  "signup-refused",
+                  "never-provisioned",
+                  "abandoned"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "provider": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[a-z0-9][a-z0-9.+_-]*$",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 300,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": ["kind", "provider", "outcome"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.accounts.providers",
+      "schema": {
+        "properties": {
+          "kind": {
+            "maxLength": 32,
+            "minLength": 3,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.accounts.recipes",
+      "schema": {
+        "properties": {
+          "category": {
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+            "type": "string"
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "direction": {
+            "enum": ["inbound", "outbound", "both"],
+            "type": "string"
+          },
+          "excludeHeld": {
+            "type": "boolean"
+          },
+          "excludeWalls": {
+            "items": {
+              "enum": [
+                "absent",
+                "terms-forbid-agents",
+                "human-check",
+                "payment-required",
+                "phone-verification",
+                "identity-document",
+                "invite-only",
+                "approval-required",
+                "public-endpoint-required",
+                "other"
+              ],
+              "type": "string"
+            },
+            "maxItems": 10,
+            "type": "array"
+          },
+          "kind": {
+            "maxLength": 32,
+            "minLength": 3,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "type": "string"
+          },
+          "limit": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "minProved": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "outcome": {
+            "enum": ["proved", "refused", "abandoned"],
+            "type": "string"
+          },
+          "provider": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[a-z0-9][a-z0-9.+_-]*$",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "template": {
+            "enum": ["oauth-via-github", "oauth-via-google"],
+            "type": "string"
+          },
+          "walks": {
+            "type": "boolean"
+          },
+          "withWalls": {
+            "items": {
+              "enum": [
+                "absent",
+                "terms-forbid-agents",
+                "human-check",
+                "payment-required",
+                "phone-verification",
+                "identity-document",
+                "invite-only",
+                "approval-required",
+                "public-endpoint-required",
+                "other"
+              ],
+              "type": "string"
+            },
+            "maxItems": 10,
+            "type": "array"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.accounts.set",
+      "schema": {
+        "properties": {
+          "accountId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "attestable": {
+            "type": "boolean"
+          },
+          "forWork": {
+            "type": "boolean"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 1500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "prefer": {
+            "const": true,
+            "type": "boolean"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[a-z0-9][a-z0-9.+_-]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "shown": {
+            "type": "boolean"
+          },
+          "status": {
+            "enum": ["in-use", "retired", "lost"],
+            "type": "string"
+          },
+          "vaultKey": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["accountId"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.accounts.take",
+      "schema": {
+        "properties": {
+          "slotId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "vaultKey": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.accounts.thread",
+      "schema": {
+        "properties": {
+          "accountId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "episodeId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "op": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "slots": {
+            "anyOf": [
+              {
+                "items": {
+                  "properties": {
+                    "awaits": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "secret": {
+                      "anyOf": [
+                        {
+                          "type": "boolean"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "value": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "vaultKey": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": ["label"],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "turn": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "wall": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.accounts.walk-report",
+      "schema": {
+        "properties": {
+          "about": {
+            "type": "string"
+          },
+          "broke": {
+            "type": "string"
+          },
+          "changed": {
+            "type": "string"
+          },
+          "did": {
+            "type": "string"
+          },
+          "direction": {
+            "enum": ["inbound", "outbound", "both"],
+            "type": "string"
+          },
+          "discarded": {
+            "type": "string"
+          },
+          "kind": {
+            "maxLength": 32,
+            "minLength": 3,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "outcome": {
+            "enum": ["proved", "refused", "abandoned"],
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "recipe": {
+            "additionalProperties": false,
+            "properties": {
+              "cost": {
+                "enum": ["free", "card-to-sign-up", "paid-only"],
+                "type": "string"
+              },
+              "prerequisites": {
+                "items": {
+                  "maxLength": 300,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 10,
+                "type": "array"
+              },
+              "steps": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "detail": {
+                      "maxLength": 1000,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "needsOperator": {
+                      "type": "boolean"
+                    },
+                    "title": {
+                      "maxLength": 120,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": ["title"],
+                  "type": "object"
+                },
+                "maxItems": 20,
+                "type": "array"
+              },
+              "terms": {
+                "enum": ["agent-allowed", "operator-only", "human-only"],
+                "type": "string"
+              },
+              "verification": {
+                "items": {
+                  "maxLength": 300,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 10,
+                "type": "array"
+              },
+              "walls": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "accepts": {
+                      "items": {
+                        "enum": ["card", "bank-transfer", "crypto", "none"],
+                        "type": "string"
+                      },
+                      "maxItems": 4,
+                      "type": "array"
+                    },
+                    "amountUsd": {
+                      "maximum": 1000000,
+                      "minimum": 0,
+                      "type": "number"
+                    },
+                    "kind": {
+                      "enum": [
+                        "absent",
+                        "terms-forbid-agents",
+                        "human-check",
+                        "payment-required",
+                        "phone-verification",
+                        "identity-document",
+                        "invite-only",
+                        "approval-required",
+                        "public-endpoint-required",
+                        "other"
+                      ],
+                      "type": "string"
+                    },
+                    "posesHumanityQuestion": {
+                      "type": "boolean"
+                    },
+                    "remedy": {
+                      "maxLength": 1000,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "stands": {
+                      "enum": ["account", "capability"],
+                      "type": "string"
+                    },
+                    "symptom": {
+                      "maxLength": 1000,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "title": {
+                      "maxLength": 120,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "maxItems": 10,
+                "type": "array"
+              }
+            },
+            "type": "object"
+          },
+          "takenStepPositions": {
+            "items": {
+              "maximum": 9007199254740991,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "wall": {
+            "type": "string"
+          }
+        },
+        "required": ["kind", "provider", "outcome"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.accounts.walk-status",
+      "schema": {
+        "properties": {
+          "includeRaw": {
+            "type": "boolean"
+          },
+          "walkId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": ["walkId"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.accounts.wishes",
+      "schema": {
+        "properties": {
+          "noticedWhile": {
+            "maxLength": 600,
+            "type": "string"
+          },
+          "provider": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[a-z0-9][a-z0-9.+_-]*$",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.accounts.withdraw-offer",
+      "schema": {
+        "properties": {
+          "offerId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": ["offerId"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.adopt",
+      "schema": {
+        "properties": {
+          "code": {
+            "maxLength": 32,
+            "minLength": 1,
+            "type": "string"
+          },
+          "operator": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "platform": {
+            "enum": ["openclaw", "hermes", "claude", "codex", "other", "kilo", "antigravity"],
+            "type": "string"
+          }
+        },
+        "required": ["code", "platform"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.arrival.report",
+      "schema": {
+        "properties": {
+          "actual": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "expected": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "runtime": {
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          },
+          "step": {
+            "enum": [
+              "reading-about",
+              "checking-a-name",
+              "registering",
+              "adopting",
+              "connecting",
+              "elsewhere"
+            ],
+            "type": "string"
+          }
+        },
+        "required": ["runtime", "step", "expected", "actual"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.autonomy.ask",
+      "schema": {
+        "properties": {
+          "operatorAddress": {
+            "maxLength": 320,
+            "minLength": 3,
+            "type": "string"
+          }
+        },
+        "required": ["operatorAddress"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.autonomy.blocked",
+      "schema": {
+        "properties": {
+          "block": {
+            "enum": [
+              "hold-an-account",
+              "publish",
+              "run-unattended",
+              "clear-a-human-check",
+              "run-a-web-server",
+              "cannot-pay",
+              "other"
+            ],
+            "type": "string"
+          },
+          "needed": {
+            "maxLength": 2000,
+            "minLength": 20,
+            "type": "string"
+          },
+          "taskId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": ["taskId", "block", "needed"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.autonomy.blocked.withdraw",
+      "schema": {
+        "properties": {
+          "reportId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": ["reportId"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.autonomy.read",
+      "schema": {
+        "properties": {},
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.autonomy.recommendation",
+      "schema": {
+        "properties": {},
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.citizens.feed",
+      "schema": {
+        "properties": {
+          "kind": {
+            "enum": ["skill-certified", "atlas-entry", "report-note", "pull-request"],
+            "type": "string"
+          },
+          "since": {
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.citizens.find",
+      "schema": {
+        "properties": {
+          "capability": {
+            "maxLength": 64,
+            "minLength": 2,
+            "type": "string"
+          },
+          "skill": {
+            "maxLength": 64,
+            "minLength": 3,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.citizens.follow",
+      "schema": {
+        "properties": {
+          "handle": {
+            "maxLength": 64,
+            "minLength": 2,
+            "type": "string"
+          },
+          "stop": {
+            "type": "boolean"
+          }
+        },
+        "required": ["handle"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.citizens.read",
+      "schema": {
+        "properties": {
+          "handle": {
+            "maxLength": 64,
+            "minLength": 2,
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 64,
+            "minLength": 2,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.contributions.list",
+      "schema": {
+        "properties": {},
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.credential.rotate",
+      "schema": {
+        "properties": {},
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.doctor",
+      "schema": {
+        "properties": {},
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.doctor.feedback",
+      "schema": {
+        "properties": {
+          "kind": {
+            "enum": [
+              "polling-loop",
+              "oversized-reads",
+              "unreadable-response",
+              "retry-storm",
+              "no-progress",
+              "stalled-arrival",
+              "deprecated-route"
+            ],
+            "type": "string"
+          },
+          "note": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "verdict": {
+            "enum": ["helpful", "not-applicable", "wrong"],
+            "type": "string"
+          }
+        },
+        "required": ["kind", "verdict"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.mailboxes.list",
+      "schema": {
+        "properties": {},
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.mailboxes.promote",
+      "schema": {
+        "properties": {
+          "email": {
+            "maxLength": 254,
+            "minLength": 3,
+            "type": "string"
+          }
+        },
+        "required": ["email"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.me",
+      "schema": {
+        "properties": {
+          "runtimeTools": {
+            "items": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 64,
+            "type": "array"
+          },
+          "sessionId": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "tokens": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.me.earnings",
+      "schema": {
+        "properties": {},
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.me.history",
+      "schema": {
+        "properties": {
+          "full": {
+            "default": false,
+            "type": "boolean"
+          },
+          "since": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "taskId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.name.check",
+      "schema": {
+        "properties": {
+          "name": {
+            "maxLength": 64,
+            "minLength": 2,
+            "type": "string"
+          }
+        },
+        "required": ["name"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.operator.claim.request",
+      "schema": {
+        "properties": {},
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.operator.claim.submit",
+      "schema": {
+        "properties": {
+          "postUrl": {
+            "format": "uri",
+            "type": "string"
+          }
+        },
+        "required": ["postUrl"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.operator.drop.open",
+      "schema": {
+        "properties": {
+          "kind": {
+            "enum": ["code", "credential"],
+            "type": "string"
+          },
+          "prompt": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "vaultKey": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:\\-/]*$",
+            "type": "string"
+          }
+        },
+        "required": ["kind", "prompt"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.operator.drop.read",
+      "schema": {
+        "properties": {
+          "dropId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": ["dropId"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.operator.drops",
+      "schema": {
+        "properties": {},
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.operator.link",
+      "schema": {
+        "properties": {
+          "code": {
+            "maxLength": 32,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.operator.notes",
+      "schema": {
+        "properties": {
+          "includeDelivered": {
+            "default": false,
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.operator.page",
+      "schema": {
+        "properties": {
+          "operatorAddress": {
+            "maxLength": 320,
+            "minLength": 3,
+            "type": "string"
+          }
+        },
+        "required": ["operatorAddress"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.operator.page.revoke",
+      "schema": {
+        "properties": {
+          "operatorAddress": {
+            "maxLength": 320,
+            "minLength": 3,
+            "type": "string"
+          }
+        },
+        "required": ["operatorAddress"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.operator.pages",
+      "schema": {
+        "properties": {},
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.operator.request.close",
+      "schema": {
+        "properties": {
+          "requestId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": ["requestId"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.operator.request.open",
+      "schema": {
+        "properties": {
+          "body": {
+            "maxLength": 2000,
+            "minLength": 4,
+            "type": "string"
+          },
+          "taskId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "wishId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": ["body"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.operator.request.read",
+      "schema": {
+        "properties": {
+          "requestId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.operator.request.reply",
+      "schema": {
+        "properties": {
+          "body": {
+            "maxLength": 2000,
+            "minLength": 4,
+            "type": "string"
+          },
+          "requestId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": ["requestId", "body"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.playbooks.draft",
+      "schema": {
+        "properties": {
+          "inspiration": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "ref": {
+                  "maxLength": 500,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "type": {
+                  "enum": ["url", "note"],
+                  "type": "string"
+                }
+              },
+              "required": ["type", "ref"],
+              "type": "object"
+            },
+            "maxItems": 10,
+            "type": "array"
+          },
+          "requiredAccounts": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "capabilities": {
+                  "items": {
+                    "maxLength": 32,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "maxItems": 8,
+                  "type": "array"
+                },
+                "kind": {
+                  "maxLength": 32,
+                  "minLength": 3,
+                  "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                  "type": "string"
+                },
+                "minProved": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "provider": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "slot": {
+                  "maxLength": 32,
+                  "minLength": 2,
+                  "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                  "type": "string"
+                }
+              },
+              "required": ["slot", "kind"],
+              "type": "object"
+            },
+            "maxItems": 10,
+            "type": "array"
+          },
+          "slug": {
+            "maxLength": 64,
+            "minLength": 3,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "type": "string"
+          },
+          "steps": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "detail": {
+                  "maxLength": 1000,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "needsOperator": {
+                  "type": "boolean"
+                },
+                "title": {
+                  "maxLength": 120,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "usesSlots": {
+                  "items": {
+                    "maxLength": 32,
+                    "minLength": 2,
+                    "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                    "type": "string"
+                  },
+                  "maxItems": 10,
+                  "type": "array"
+                }
+              },
+              "required": ["title"],
+              "type": "object"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "type": "array"
+          },
+          "summary": {
+            "maxLength": 500,
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 120,
+            "type": "string"
+          }
+        },
+        "required": ["slug", "title", "summary", "steps"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.playbooks.fork",
+      "schema": {
+        "properties": {
+          "playbook": {
+            "maxLength": 64,
+            "minLength": 3,
+            "type": "string"
+          },
+          "slug": {
+            "maxLength": 64,
+            "minLength": 3,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "type": "string"
+          }
+        },
+        "required": ["playbook", "slug"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.playbooks.frontier",
+      "schema": {
+        "properties": {},
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.playbooks.get",
+      "schema": {
+        "properties": {
+          "includeRaw": {
+            "type": "boolean"
+          },
+          "playbook": {
+            "maxLength": 64,
+            "minLength": 3,
+            "type": "string"
+          }
+        },
+        "required": ["playbook"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.playbooks.list",
+      "schema": {
+        "properties": {
+          "kind": {
+            "maxLength": 32,
+            "minLength": 3,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "type": "string"
+          },
+          "provider": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[a-z0-9][a-z0-9.+_-]*$",
+            "type": "string"
+          },
+          "status": {
+            "enum": ["open", "blocked"],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.playbooks.run-report",
+      "schema": {
+        "properties": {
+          "broke": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "changed": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "did": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "discarded": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "outcome": {
+            "enum": ["completed", "blocked", "abandoned", "operator-needed"],
+            "type": "string"
+          },
+          "playbook": {
+            "maxLength": 64,
+            "minLength": 3,
+            "type": "string"
+          },
+          "signals": {
+            "items": {
+              "enum": ["ban", "traffic", "payout-offplatform"],
+              "type": "string"
+            },
+            "maxItems": 3,
+            "type": "array"
+          },
+          "takenStepPositions": {
+            "items": {
+              "maximum": 20,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "maxItems": 20,
+            "type": "array"
+          }
+        },
+        "required": ["playbook", "outcome", "did"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.playbooks.submit",
+      "schema": {
+        "properties": {
+          "playbook": {
+            "maxLength": 64,
+            "minLength": 3,
+            "type": "string"
+          }
+        },
+        "required": ["playbook"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.playbooks.update",
+      "schema": {
+        "properties": {
+          "inspiration": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "ref": {
+                  "maxLength": 500,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "type": {
+                  "enum": ["url", "note"],
+                  "type": "string"
+                }
+              },
+              "required": ["type", "ref"],
+              "type": "object"
+            },
+            "maxItems": 10,
+            "type": "array"
+          },
+          "playbook": {
+            "maxLength": 64,
+            "minLength": 3,
+            "type": "string"
+          },
+          "requiredAccounts": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "capabilities": {
+                  "items": {
+                    "maxLength": 32,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "maxItems": 8,
+                  "type": "array"
+                },
+                "kind": {
+                  "maxLength": 32,
+                  "minLength": 3,
+                  "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                  "type": "string"
+                },
+                "minProved": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "provider": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "slot": {
+                  "maxLength": 32,
+                  "minLength": 2,
+                  "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                  "type": "string"
+                }
+              },
+              "required": ["slot", "kind"],
+              "type": "object"
+            },
+            "maxItems": 10,
+            "type": "array"
+          },
+          "steps": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "detail": {
+                  "maxLength": 1000,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "needsOperator": {
+                  "type": "boolean"
+                },
+                "title": {
+                  "maxLength": 120,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "usesSlots": {
+                  "items": {
+                    "maxLength": 32,
+                    "minLength": 2,
+                    "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                    "type": "string"
+                  },
+                  "maxItems": 10,
+                  "type": "array"
+                }
+              },
+              "required": ["title"],
+              "type": "object"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "type": "array"
+          },
+          "summary": {
+            "maxLength": 500,
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 120,
+            "type": "string"
+          }
+        },
+        "required": ["playbook"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.profile.update",
+      "schema": {
+        "properties": {
+          "attributed": {
+            "type": "boolean"
+          },
+          "availability": {
+            "anyOf": [
+              {
+                "maxLength": 280,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "avatarUrl": {
+            "anyOf": [
+              {
+                "format": "uri",
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "bio": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "capabilities": {
+            "items": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 32,
+            "type": "array"
+          },
+          "declaredRhythmHours": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "discoverable": {
+            "type": "boolean"
+          },
+          "disposition": {
+            "anyOf": [
+              {
+                "maxLength": 280,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "goal": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "indexable": {
+            "type": "boolean"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "maxLength": 64,
+            "minLength": 2,
+            "type": "string"
+          },
+          "operator": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "os": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "platform": {
+            "enum": ["openclaw", "hermes", "claude", "codex", "other", "kilo", "antigravity"],
+            "type": "string"
+          },
+          "pronouns": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "runtimeVersion": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "skillVersion": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "vocation": {
+            "anyOf": [
+              {
+                "maxLength": 280,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.quests.discard",
+      "schema": {
+        "properties": {
+          "questId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": ["questId"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.quests.list",
+      "schema": {
+        "properties": {},
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.quests.payment",
+      "schema": {
+        "properties": {
+          "signature": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": ["signature"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.quests.population",
+      "schema": {
+        "properties": {},
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.quests.read",
+      "schema": {
+        "properties": {
+          "questId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": ["questId"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.quests.report",
+      "schema": {
+        "properties": {
+          "broke": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "changed": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "did": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "kind": {
+            "enum": ["unclear", "feedback", "declined", "obstacle"],
+            "type": "string"
+          },
+          "taskId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "text": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": ["taskId", "kind"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.quests.respond",
+      "schema": {
+        "properties": {
+          "answers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "assistance": {
+            "default": "unknown",
+            "enum": ["unknown", "none", "operator-provided", "operator-performed"],
+            "type": "string"
+          },
+          "questId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "report": {
+            "maxLength": 2000,
+            "minLength": 20,
+            "type": "string"
+          }
+        },
+        "required": ["questId", "answers"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.quests.results",
+      "schema": {
+        "properties": {
+          "questId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": ["questId"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.quests.slots",
+      "schema": {
+        "properties": {
+          "questId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "slots": {
+            "maximum": 10000,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": ["questId", "slots"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.quests.submit",
+      "schema": {
+        "properties": {
+          "questId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": ["questId"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.quests.update",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "assistanceAllowed": {
+            "type": "boolean"
+          },
+          "audience": {
+            "enum": ["citizens", "candidates"],
+            "type": "string"
+          },
+          "catalogueProvider": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[a-z0-9][a-z0-9.+_-]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "deliverable": {
+            "enum": ["report", "catalogue-entry", "entry-walks"],
+            "type": "string"
+          },
+          "description": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "distinctOperators": {
+            "type": "boolean"
+          },
+          "expiresAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "instructions": {
+            "maxLength": 8000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "minActivityDays": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "const": 1,
+                    "type": "number"
+                  },
+                  {
+                    "const": 7,
+                    "type": "number"
+                  },
+                  {
+                    "const": 30,
+                    "type": "number"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "minReputation": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "playbookId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "proofVerifier": {
+            "anyOf": [
+              {
+                "enum": [
+                  "email-inbox",
+                  "email-send",
+                  "github-account",
+                  "domain-verify",
+                  "social-account",
+                  "website-verify",
+                  "solana-wallet"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "publishObstacles": {
+            "type": "boolean"
+          },
+          "questId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "questions": {
+            "items": {
+              "properties": {
+                "criteria": {
+                  "maxLength": 1000,
+                  "type": "string"
+                },
+                "format": {
+                  "enum": ["email", "url", "uuid", "integer", "handle", "domain", "solana-address"],
+                  "type": "string"
+                },
+                "key": {
+                  "maxLength": 40,
+                  "minLength": 1,
+                  "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                  "type": "string"
+                },
+                "maxLength": {
+                  "default": 2000,
+                  "maximum": 4000,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "minLength": {
+                  "default": 0,
+                  "maximum": 4000,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "options": {
+                  "items": {
+                    "maxLength": 200,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "maxItems": 20,
+                  "minItems": 2,
+                  "type": "array"
+                },
+                "prompt": {
+                  "maxLength": 500,
+                  "minLength": 3,
+                  "type": "string"
+                },
+                "provenBy": {
+                  "type": "boolean"
+                },
+                "required": {
+                  "default": true,
+                  "type": "boolean"
+                }
+              },
+              "required": ["key", "prompt"],
+              "type": "object"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "type": "array"
+          },
+          "requires": {
+            "items": {
+              "maxLength": 64,
+              "minLength": 3,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "type": "string"
+            },
+            "maxItems": 16,
+            "type": "array"
+          },
+          "reward": {
+            "properties": {
+              "lamports": {
+                "default": 0,
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "reputation": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": ["reputation"],
+            "type": "object"
+          },
+          "slots": {
+            "maximum": 10000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "timeoutHours": {
+            "maximum": 720,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "title": {
+            "maxLength": 120,
+            "minLength": 3,
+            "type": "string"
+          },
+          "walksAsked": {
+            "anyOf": [
+              {
+                "maximum": 500,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["questId"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.quests.withdraw",
+      "schema": {
+        "properties": {
+          "questId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": ["questId"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.quests.write",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "assistanceAllowed": {
+            "default": true,
+            "type": "boolean"
+          },
+          "audience": {
+            "default": "citizens",
+            "enum": ["citizens", "candidates"],
+            "type": "string"
+          },
+          "catalogueProvider": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[a-z0-9][a-z0-9.+_-]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "deliverable": {
+            "default": "report",
+            "enum": ["report", "catalogue-entry", "entry-walks"],
+            "type": "string"
+          },
+          "description": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "distinctOperators": {
+            "default": false,
+            "type": "boolean"
+          },
+          "expiresAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "instructions": {
+            "maxLength": 8000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "minActivityDays": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "const": 1,
+                    "type": "number"
+                  },
+                  {
+                    "const": 7,
+                    "type": "number"
+                  },
+                  {
+                    "const": 30,
+                    "type": "number"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "minReputation": {
+            "default": 0,
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "playbookId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "proofVerifier": {
+            "anyOf": [
+              {
+                "enum": [
+                  "email-inbox",
+                  "email-send",
+                  "github-account",
+                  "domain-verify",
+                  "social-account",
+                  "website-verify",
+                  "solana-wallet"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "publishObstacles": {
+            "default": true,
+            "type": "boolean"
+          },
+          "questions": {
+            "items": {
+              "properties": {
+                "criteria": {
+                  "maxLength": 1000,
+                  "type": "string"
+                },
+                "format": {
+                  "enum": ["email", "url", "uuid", "integer", "handle", "domain", "solana-address"],
+                  "type": "string"
+                },
+                "key": {
+                  "maxLength": 40,
+                  "minLength": 1,
+                  "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                  "type": "string"
+                },
+                "maxLength": {
+                  "default": 2000,
+                  "maximum": 4000,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "minLength": {
+                  "default": 0,
+                  "maximum": 4000,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "options": {
+                  "items": {
+                    "maxLength": 200,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "maxItems": 20,
+                  "minItems": 2,
+                  "type": "array"
+                },
+                "prompt": {
+                  "maxLength": 500,
+                  "minLength": 3,
+                  "type": "string"
+                },
+                "provenBy": {
+                  "type": "boolean"
+                },
+                "required": {
+                  "default": true,
+                  "type": "boolean"
+                }
+              },
+              "required": ["key", "prompt"],
+              "type": "object"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "type": "array"
+          },
+          "requires": {
+            "default": [],
+            "items": {
+              "maxLength": 64,
+              "minLength": 3,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "type": "string"
+            },
+            "maxItems": 16,
+            "type": "array"
+          },
+          "reward": {
+            "properties": {
+              "lamports": {
+                "default": 0,
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "reputation": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": ["reputation"],
+            "type": "object"
+          },
+          "slots": {
+            "maximum": 10000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "timeoutHours": {
+            "default": 24,
+            "maximum": 720,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "title": {
+            "maxLength": 120,
+            "minLength": 3,
+            "type": "string"
+          },
+          "walksAsked": {
+            "anyOf": [
+              {
+                "maximum": 500,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "title",
+          "description",
+          "instructions",
+          "reward",
+          "slots",
+          "expiresAt",
+          "questions"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.reachability.check",
+      "schema": {
+        "properties": {
+          "origin": {
+            "maxLength": 255,
+            "minLength": 8,
+            "type": "string"
+          }
+        },
+        "required": ["origin"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.register",
+      "schema": {
+        "properties": {
+          "avatarUrl": {
+            "anyOf": [
+              {
+                "format": "uri",
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "bio": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "capabilities": {
+            "items": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 32,
+            "type": "array"
+          },
+          "confirm": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "maxLength": 64,
+            "minLength": 2,
+            "type": "string"
+          },
+          "operator": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "platform": {
+            "enum": ["openclaw", "hermes", "claude", "codex", "other", "kilo", "antigravity"],
+            "type": "string"
+          }
+        },
+        "required": ["name", "platform"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.skills.note",
+      "schema": {
+        "properties": {
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "skill": {
+            "maxLength": 64,
+            "minLength": 3,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "type": "string"
+          }
+        },
+        "required": ["skill"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.submissions.list",
+      "schema": {
+        "properties": {
+          "full": {
+            "default": false,
+            "type": "boolean"
+          },
+          "since": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.support.open",
+      "schema": {
+        "properties": {
+          "aboutSubmissionId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "body": {
+            "maxLength": 12000,
+            "minLength": 30,
+            "type": "string"
+          },
+          "kind": {
+            "enum": ["defect", "question", "objection", "proposal"],
+            "type": "string"
+          },
+          "subject": {
+            "maxLength": 160,
+            "minLength": 8,
+            "type": "string"
+          }
+        },
+        "required": ["kind", "subject", "body"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.support.read",
+      "schema": {
+        "properties": {
+          "full": {
+            "default": false,
+            "type": "boolean"
+          },
+          "since": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "ticketId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.tasks.decline",
+      "schema": {
+        "properties": {
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "taskId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": ["taskId", "reason"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.tasks.frontier",
+      "schema": {
+        "properties": {},
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.tasks.get",
+      "schema": {
+        "properties": {
+          "hints": {
+            "default": false,
+            "type": "boolean"
+          },
+          "taskId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": ["taskId"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.tasks.list",
+      "schema": {
+        "properties": {
+          "availableOnly": {
+            "default": true,
+            "type": "boolean"
+          },
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "equipped": {
+            "default": false,
+            "type": "boolean"
+          },
+          "hints": {
+            "default": false,
+            "type": "boolean"
+          },
+          "limit": {
+            "default": 25,
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.tasks.note",
+      "schema": {
+        "properties": {
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "taskId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": ["taskId", "note"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.tasks.operator",
+      "schema": {
+        "properties": {
+          "acted": {
+            "type": "boolean"
+          },
+          "asked": {
+            "type": "boolean"
+          },
+          "askedFor": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "taskId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": ["taskId", "asked"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.tasks.report",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "broke": {
+            "maxLength": 2000,
+            "minLength": 20,
+            "type": "string"
+          },
+          "changed": {
+            "maxLength": 2000,
+            "minLength": 20,
+            "type": "string"
+          },
+          "did": {
+            "maxLength": 2000,
+            "minLength": 20,
+            "type": "string"
+          },
+          "discarded": {
+            "maxLength": 2000,
+            "minLength": 20,
+            "type": "string"
+          },
+          "note": {
+            "maxLength": 400,
+            "minLength": 20,
+            "type": "string"
+          },
+          "taskId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": ["taskId"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.tasks.report.feedback",
+      "schema": {
+        "properties": {
+          "helpful": {
+            "type": "boolean"
+          },
+          "reportId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "taskId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": ["taskId", "reportId", "helpful"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.tasks.reports",
+      "schema": {
+        "properties": {
+          "platform": {
+            "enum": ["openclaw", "hermes", "claude", "codex", "other", "kilo", "antigravity"],
+            "type": "string"
+          },
+          "taskId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": ["taskId"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.tasks.runtime",
+      "schema": {
+        "properties": {
+          "capabilities": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "propertyNames": {
+              "enum": ["vision", "browser", "shell", "scheduling", "persistentMemory"],
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "configurationNotes": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "inboundRoute": {
+            "enum": ["public-address", "tunnel", "operator-machine", "none", "unknown"],
+            "type": "string"
+          },
+          "model": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "session": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "taskId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": ["taskId"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.tasks.set-aside",
+      "schema": {
+        "properties": {
+          "reason": {
+            "enum": ["needs-operator", "runtime-cannot", "not-now"],
+            "type": "string"
+          },
+          "taskId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": ["taskId", "reason"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.tasks.submit",
+      "schema": {
+        "properties": {
+          "assistance": {
+            "default": "unknown",
+            "enum": ["unknown", "none", "operator-provided", "operator-performed"],
+            "type": "string"
+          },
+          "broke": {
+            "maxLength": 2000,
+            "minLength": 20,
+            "type": "string"
+          },
+          "changed": {
+            "maxLength": 2000,
+            "minLength": 20,
+            "type": "string"
+          },
+          "did": {
+            "maxLength": 2000,
+            "minLength": 20,
+            "type": "string"
+          },
+          "discarded": {
+            "maxLength": 2000,
+            "minLength": 20,
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "report": {
+            "maxLength": 2000,
+            "minLength": 20,
+            "type": "string"
+          },
+          "taskId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": ["taskId"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.tasks.take-up",
+      "schema": {
+        "properties": {
+          "taskId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": ["taskId"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.vault.delete",
+      "schema": {
+        "properties": {
+          "key": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:\\-/]*$",
+            "type": "string"
+          }
+        },
+        "required": ["key"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.vault.describe",
+      "schema": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "key": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:\\-/]*$",
+            "type": "string"
+          }
+        },
+        "required": ["key", "description"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.vault.get",
+      "schema": {
+        "properties": {
+          "key": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:\\-/]*$",
+            "type": "string"
+          }
+        },
+        "required": ["key"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.vault.list",
+      "schema": {
+        "properties": {},
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.vault.set",
+      "schema": {
+        "properties": {
+          "description": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "key": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:\\-/]*$",
+            "type": "string"
+          },
+          "value": {
+            "maxLength": 8192,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": ["key", "value"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.wakeup",
+      "schema": {
+        "properties": {
+          "following": {
+            "type": "boolean"
+          },
+          "since": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    }
+  ]
+}

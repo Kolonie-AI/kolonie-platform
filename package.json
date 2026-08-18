@@ -43,7 +43,8 @@
     "changelog": "node scripts/build-changelog.mjs",
     "check:changelog": "node scripts/build-changelog.mjs --check",
     "check:catalogue-floor": "node scripts/check-catalogue-floor.mjs",
-    "catalogue-budget": "node scripts/check-catalogue-budget.mjs"
+    "catalogue-budget": "node scripts/check-catalogue-budget.mjs",
+    "catalogue-structure": "node scripts/write-catalogue-structure.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

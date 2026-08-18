@@ -103,7 +103,7 @@ import {
   backendWantedPage,
   moderationTrend,
 } from '../console/backend.js'
-import { stateFilter, statesFor } from '../console/diagnoses-section.js'
+import { agentSubjects, stateFilter, statesFor } from '../console/diagnoses-section.js'
 import { curationSections } from '../console/curation.js'
 import { atlasCatalogue, atlasCuration, atlasStateAt } from '../provider-recipes.js'
 import {
@@ -1732,25 +1732,40 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         diagnoses.funnel(since),
       ])
 
-      return wantsHtml(request)
-        ? html(
-            reply,
-            backendDiagnosesPage({
-              nav: navFor(request, ['maintainer']),
-              colony,
-              agents,
-              counts,
-              funnel,
-              showing,
-              state,
-              page,
-            }),
-          )
-        : // **`state` beside `states`** (`#1079`): the word that was asked for
-          // as well as the rows it selects, so a script reading this does not
-          // have to infer the filter back out of an array — and so that
-          // `?state=deleted` is visibly `open` rather than silently it.
-          reply.send({ colony, agents, counts, funnel, showing, state, states, page })
+      // **`state` beside `states`** (`#1079`): the word that was asked for as
+      // well as the rows it selects, so a script reading this does not have to
+      // infer the filter back out of an array — and so that `?state=deleted` is
+      // visibly `open` rather than silently it.
+      if (!wantsHtml(request))
+        return reply.send({ colony, agents, counts, funnel, showing, state, states, page })
+
+      /**
+       * The citizens on the page actually being rendered (`#1080`).
+       *
+       * **After the fan-out and not inside it**, because the ids are on the rows:
+       * one extra round trip on a page that has citizens on it, and none at all
+       * on one that has not — a colony-scoped page asks for an empty set, and the
+       * lookup answers an empty map without going to the database. Only the
+       * listed half is resolved: the other half is fetched for its count and its
+       * rows are never rendered.
+       */
+      const listed = showing === 'agent' ? agents : colony
+      const handles = await diagnoses.handles(agentSubjects(listed.rows))
+
+      return html(
+        reply,
+        backendDiagnosesPage({
+          nav: navFor(request, ['maintainer']),
+          colony,
+          agents,
+          counts,
+          funnel,
+          showing,
+          state,
+          page,
+          handles,
+        }),
+      )
     })
 
     /**
@@ -1788,9 +1803,16 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         const diagnosis = await diagnoses.byId(request.params.diagnosisId)
         if (diagnosis === null) return reply.callNotFound()
 
-        return wantsHtml(request)
-          ? html(reply, backendDiagnosisPage({ nav: navFor(request, ['maintainer']), diagnosis }))
-          : reply.send({ diagnosis })
+        if (!wantsHtml(request)) return reply.send({ diagnosis })
+
+        // The one citizen this page is about, if it is about one at all
+        // (`#1080`) — the same lookup the list makes, over a page of one row.
+        const handles = await diagnoses.handles(agentSubjects([diagnosis]))
+
+        return html(
+          reply,
+          backendDiagnosisPage({ nav: navFor(request, ['maintainer']), diagnosis, handles }),
+        )
       },
     )
   }

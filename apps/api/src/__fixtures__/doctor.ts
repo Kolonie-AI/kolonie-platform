@@ -109,10 +109,10 @@ export const NOTHING_ANNOUNCED: ConsultationFunnel = {
  * the default fixture is the one that would catch a renderer which only works
  * with rows.
  *
- * **It has five methods and no sixth**, mirroring `DiagnosesDesk`. A fake with a
+ * **It has six methods and no seventh**, mirroring `DiagnosesDesk`. A fake with a
  * `close` on it would be a fake that could pass a test the production seam
- * cannot — and the fourth (`#1081`) and the fifth (`#1083`) are reads like the
- * three before them, so that stays true of it.
+ * cannot — and the fourth (`#1081`), the fifth (`#1083`) and the sixth (`#1080`)
+ * are reads like the three before them, so that stays true of it.
  */
 export function fakeDiagnosesDesk(
   rows: readonly Diagnosis[] = [],
@@ -141,6 +141,19 @@ export function fakeDiagnosesDesk(
    * the empty table the page has to render as a sentence.
    */
   ruleHealth: readonly RuleHealthRow[] = [],
+  /**
+   * Which citizens have a handle, where a test cares (`#1080`).
+   *
+   * **Handed over rather than derived from `rows`**, and this one carries the
+   * rejection case: an id absent from the map is a citizen the Colony can no
+   * longer name, which the page has to render as the bare id rather than as a
+   * broken link. A fixture that answered a handle for every id it was given
+   * could not produce that state at all.
+   *
+   * The default is *nobody resolves*, so a test that says nothing about handles
+   * asserts the unlinked rendering the column had before this existed.
+   */
+  handles: ReadonlyMap<string, string> = new Map(),
 ): DiagnosesDesk {
   return {
     list: async (query) => {
@@ -168,5 +181,14 @@ export function fakeDiagnosesDesk(
       ),
     funnel: async () => funnel,
     ruleHealth: async () => ruleHealth,
+    // Only the ids that were asked for, so a test can tell an over-broad lookup
+    // from a correct one by what comes back (`#1080`).
+    handles: async (agentIds) =>
+      new Map(
+        agentIds.flatMap((id) => {
+          const handle = handles.get(id)
+          return handle === undefined ? [] : [[id, handle] as const]
+        }),
+      ),
   }
 }

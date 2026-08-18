@@ -31,6 +31,7 @@ import {
   ruleHealthTable,
   STATE_FILTERS,
   STATE_FILTER_WORDS,
+  type Handles,
   type StateFilter,
 } from './diagnoses-section.js'
 import { briefingEffectSection } from './briefing-effect-section.js'
@@ -430,6 +431,8 @@ export function backendDiagnosesPage(
     readonly showing: 'colony' | 'agent'
     readonly state: StateFilter
     readonly page: number
+    /** The citizens behind the rows being listed, resolved once (`#1080`). */
+    readonly handles: Handles
   },
 ): string {
   const listed = input.showing === 'colony' ? input.colony : input.agents
@@ -485,6 +488,7 @@ export function backendDiagnosesPage(
         input.showing === 'colony'
           ? 'Nothing is open about the Colony itself. That is an answer rather than an empty panel.'
           : 'Nothing is open about any citizen.',
+        input.handles,
       ),
       /**
        * **`state` and never `history`**, for a reader who arrived on the old
@@ -538,14 +542,14 @@ export function backendDiagnosisRulesPage(
  * read.
  */
 export function backendDiagnosisPage(
-  input: BackendPageInput & { readonly diagnosis: Diagnosis },
+  input: BackendPageInput & { readonly diagnosis: Diagnosis; readonly handles: Handles },
 ): string {
   return backendSection({
     ...input,
     title: 'One diagnosis',
     body: [
       '<p><a href="/backend/diagnoses">← every diagnosis</a></p>',
-      ...diagnosisDetail(input.diagnosis),
+      ...diagnosisDetail(input.diagnosis, input.handles),
     ],
   })
 }

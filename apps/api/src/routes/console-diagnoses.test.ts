@@ -62,20 +62,42 @@ describe('the console’s diagnoses pages', () => {
     funnel: ConsultationFunnel = NOTHING_ANNOUNCED,
     /** What each rule did, for the tests that are about it (`#1083`). */
     rules: readonly RuleHealthRow[] = [],
+    /** Which citizens have a handle, for the tests that are about it (`#1080`). */
+    handles: ReadonlyMap<string, string> = new Map(),
   ) => {
     // Taken out of the fixture rather than overwritten: `fakeColony` wires one
     // by default, and `undefined` here has to mean *this deployment has none*
     // rather than *this deployment has an empty one*.
     const { diagnoses: _wiredByDefault, ...colony } = fakeColony()
     const humans = fakeHumanStore()
+
+    /**
+     * Every set of ids the page asked to have resolved (`#1080`).
+     *
+     * **Recorded rather than counted**, because the two questions this answers
+     * are *did it ask at all* — a page of routes must not — and *did it ask
+     * once for the whole page* rather than once per row.
+     */
+    const lookups: (readonly string[])[] = []
+    const desk = fakeDiagnosesDesk(rows ?? [], funnel, rules, handles)
     const app = buildApp({
       ...colony,
       console: { ...fakeConsole(), consoleUrl: CONSOLE_URL },
       humans: { store: humans, tenant: fakeTenant() },
-      ...(rows === undefined ? {} : { diagnoses: fakeDiagnosesDesk(rows, funnel, rules) }),
+      ...(rows === undefined
+        ? {}
+        : {
+            diagnoses: {
+              ...desk,
+              handles: async (agentIds) => {
+                lookups.push([...agentIds])
+                return desk.handles(agentIds)
+              },
+            },
+          }),
     })
     await app.ready()
-    return { app, humans }
+    return { app, humans, lookups }
   }
 
   /**
@@ -704,6 +726,160 @@ describe('the console’s diagnoses pages', () => {
 
       expect(page.statusCode).toBe(200)
       expect(page.json()).toEqual({ rules: [aRule()] })
+    })
+  })
+
+  /**
+   * Which citizen a finding is about (`#1080`).
+   *
+   * The column named thirty citizens and identified none: an agent-scoped row
+   * printed a bare id, so a maintainer could see that somebody was looping and
+   * not who. What follows asserts the link, the two cases that are not one, and
+   * that a page of routes pays nothing for any of it.
+   */
+  describe('the citizen behind a diagnosis', () => {
+    const CITIZEN = '55555555-5555-4555-8555-555555555555'
+    const OTHER = '66666666-6666-4666-8666-666666666666'
+
+    const aboutACitizen = (overrides: Partial<Diagnosis> = {}): Diagnosis =>
+      aDiagnosis({ scope: 'agent', subject: CITIZEN, kind: 'polling-loop', ...overrides })
+
+    const named = new Map([[CITIZEN, 'Canary']])
+
+    it('links an agent-scoped row to the citizen’s profile', async () => {
+      const { app, humans } = await withRows([aboutACitizen()], NOTHING_ANNOUNCED, [], named)
+      const headers = await asMaintainer(app, humans)
+
+      const page = await app.inject({
+        method: 'GET',
+        url: '/backend/diagnoses?scope=agent',
+        headers,
+      })
+
+      expect(page.statusCode).toBe(200)
+      expect(page.body).toContain('<a href="/@Canary">Canary</a>')
+      // The id it replaces is gone from the cell rather than printed beside it.
+      expect(page.body).not.toContain(CITIZEN)
+    })
+
+    it('links the same citizen on the detail page', async () => {
+      const { app, humans } = await withRows([aboutACitizen()], NOTHING_ANNOUNCED, [], named)
+      const headers = await asMaintainer(app, humans)
+
+      const page = await app.inject({
+        method: 'GET',
+        url: `/backend/diagnoses/${aboutACitizen().id}`,
+        headers,
+      })
+
+      expect(page.statusCode).toBe(200)
+      expect(page.body).toContain('<a href="/@Canary">Canary</a>')
+    })
+
+    /**
+     * **The rejection case.** An id the Colony can no longer resolve — a citizen
+     * that erased itself, a stale page — prints the id it always printed. What
+     * it must never be is a broken link, an empty cell or a 500.
+     */
+    it('prints the bare id, unlinked, for a citizen it cannot name', async () => {
+      const { app, humans } = await withRows([aboutACitizen()], NOTHING_ANNOUNCED, [], new Map())
+      const headers = await asMaintainer(app, humans)
+
+      const page = await app.inject({
+        method: 'GET',
+        url: '/backend/diagnoses?scope=agent',
+        headers,
+      })
+
+      expect(page.statusCode).toBe(200)
+      expect(page.body).toContain(CITIZEN)
+      expect(page.body).not.toContain('/@')
+    })
+
+    /** A route key is not a name, and `/@/v1/tasks` would be a link to nothing. */
+    it('leaves a colony-scoped subject alone', async () => {
+      const { app, humans } = await withRows([aDiagnosis()], NOTHING_ANNOUNCED, [], named)
+      const headers = await asMaintainer(app, humans)
+
+      const page = await app.inject({ method: 'GET', url: '/backend/diagnoses', headers })
+
+      expect(page.body).toContain('/v1/tasks')
+      expect(page.body).not.toContain('/@')
+    })
+
+    /** A handle reaches the page through `escape`, in the href as well as the text. */
+    it('escapes a handle rather than writing it into the markup', async () => {
+      const { app, humans } = await withRows(
+        [aboutACitizen()],
+        NOTHING_ANNOUNCED,
+        [],
+        new Map([[CITIZEN, 'a"b<c']]),
+      )
+      const headers = await asMaintainer(app, humans)
+
+      const page = await app.inject({
+        method: 'GET',
+        url: '/backend/diagnoses?scope=agent',
+        headers,
+      })
+
+      expect(page.body).not.toContain('a"b<c')
+      expect(page.body).toContain('/@a&quot;b&lt;c')
+    })
+
+    /** One read for the whole page, and the ids deduplicated before it is made. */
+    it('resolves a page of citizens in one lookup', async () => {
+      const rows = [
+        aboutACitizen({ id: '77777777-7777-4777-8777-777777777777' }),
+        aboutACitizen({ id: '88888888-8888-4888-8888-888888888888' }),
+        aboutACitizen({ id: '99999999-9999-4999-8999-999999999999', subject: OTHER }),
+      ]
+      const { app, humans, lookups } = await withRows(rows, NOTHING_ANNOUNCED, [], named)
+      const headers = await asMaintainer(app, humans)
+
+      await app.inject({ method: 'GET', url: '/backend/diagnoses?scope=agent', headers })
+
+      expect(lookups).toEqual([[CITIZEN, OTHER]])
+    })
+
+    /**
+     * **The reverse case, and the one worth keeping.** The default view is the
+     * Colony's own findings, which have no citizen on them at all — so the
+     * ordinary page turn must not ask the database about anybody. The rows of
+     * the other scope are fetched for their count and never rendered.
+     */
+    it('asks about nobody on a page of routes', async () => {
+      const { app, humans, lookups } = await withRows(
+        [aDiagnosis(), aboutACitizen()],
+        NOTHING_ANNOUNCED,
+        [],
+        named,
+      )
+      const headers = await asMaintainer(app, humans)
+
+      await app.inject({ method: 'GET', url: '/backend/diagnoses', headers })
+
+      expect(lookups).toEqual([[]])
+    })
+
+    /** JSON carries the ids and no names, so it resolves nothing to send them. */
+    it('resolves nothing for the JSON representation', async () => {
+      const { app, humans, lookups } = await withRows(
+        [aboutACitizen()],
+        NOTHING_ANNOUNCED,
+        [],
+        named,
+      )
+      const headers = await asMaintainer(app, humans)
+
+      const page = await app.inject({
+        method: 'GET',
+        url: '/backend/diagnoses?scope=agent',
+        headers: { ...headers, accept: 'application/json' },
+      })
+
+      expect(page.json().agents.rows[0].subject).toEqual(CITIZEN)
+      expect(lookups).toEqual([])
     })
   })
 })

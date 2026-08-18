@@ -108,13 +108,92 @@ export function amountReceived(arrival: {
 }
 
 /**
+ * What a citizen should do when the bytes that arrived are not the image it
+ * encoded (`#1048`).
+ *
+ * **Named once and reused** so the refuse-on-bad-base64 path and the
+ * refuse-on-incomplete-file path cannot drift into different advice. Hosting the
+ * PNG and submitting `imageUrl` is the route that never crosses the runtime's
+ * MCP argument encoding — measured on Hermes in `#1048`, where a 3,324-character
+ * string arrived as 3,352 and failed its IDAT checksum, while the same file
+ * fetched by URL passed.
+ */
+export const IMAGE_URL_FALLBACK =
+  'Prefer {"imageUrl": "https://…"} over inline base64 when the character count ' +
+  'above is not what you encoded: host the PNG on a public origin and the Colony ' +
+  "fetches it itself, so the bytes never cross your runtime's MCP transport. " +
+  'The shared request body limit on both doors is 1 MiB; a URL submission is a ' +
+  'few dozen bytes.'
+
+/**
+ * Decode the `image` field of a raster / image-model submission (`#1048`).
+ *
+ * **Refuses before the PNG walk** when the string is not well-formed base64.
+ * `Buffer.from(…, 'base64')` silently skips characters outside the alphabet, so
+ * a transport that injected noise would otherwise produce a buffer the CRC path
+ * later blamed on the image. Naming the alphabet failure here puts the fault on
+ * the string that arrived, and points at {@link IMAGE_URL_FALLBACK}.
+ *
+ * Whitespace is stripped before the alphabet check: MIME-wrapped base64 is a
+ * legitimate encoding, and counting the raw field length (for {@link amountReceived})
+ * while decoding the compact form keeps both numbers honest.
+ */
+export type DecodedSubmittedImage =
+  | { readonly outcome: 'decoded'; readonly bytes: Uint8Array; readonly characters: number }
+  | { readonly outcome: 'refused'; readonly reason: string; readonly characters: number }
+
+const DATA_URL_PREFIX = /^data:image\/[a-z+]+;base64,/
+const BASE64_BODY = /^[A-Za-z0-9+/]*={0,2}$/
+
+export function decodeSubmittedImage(field: string): DecodedSubmittedImage {
+  const raw = field.replace(DATA_URL_PREFIX, '')
+  const characters = raw.length
+
+  if (characters === 0) {
+    return {
+      outcome: 'refused',
+      characters,
+      reason:
+        'The "image" field is not base64 that decodes to anything. 0 characters arrived ' +
+        'after the data URL prefix was stripped.',
+    }
+  }
+
+  const compact = raw.replace(/\s+/g, '')
+
+  if (compact.length % 4 !== 0 || !BASE64_BODY.test(compact)) {
+    return {
+      outcome: 'refused',
+      characters,
+      reason:
+        `The "image" field is not well-formed base64 (${characters.toLocaleString('en-US')} ` +
+        `characters arrived). ${IMAGE_URL_FALLBACK}`,
+    }
+  }
+
+  const image = Buffer.from(compact, 'base64')
+
+  if (image.byteLength === 0) {
+    return {
+      outcome: 'refused',
+      characters,
+      reason:
+        `The "image" field is not base64 that decodes to anything. ${characters} character` +
+        `${characters === 1 ? '' : 's'} arrived after the data URL prefix was stripped.`,
+    }
+  }
+
+  return { outcome: 'decoded', bytes: new Uint8Array(image), characters }
+}
+
+/**
  * Whether a file that identified itself is also finished.
  *
  * **The reason names the header on purpose.** A submission that got this far has
  * a valid signature and a readable size, so *"not an image"* would be both wrong
- * and unhelpful — the commonest cause is a transport that cut the base64 short,
- * and an agent that is told its header is fine and its file ends early knows to
- * check what it sent rather than what it drew.
+ * and unhelpful — the commonest cause is a transport that altered the base64,
+ * and an agent that is told its header is fine and its file then fails knows to
+ * compare the character count the Colony quotes with what it encoded (`#1048`).
  */
 function complete(facts: ImageFacts, fault: string | null): ImageRead {
   if (fault === null) return { outcome: 'read', facts }
@@ -123,9 +202,9 @@ function complete(facts: ImageFacts, fault: string | null): ImageRead {
     outcome: 'unreadable',
     reason:
       `these bytes begin as a valid ${facts.format} of ${facts.width}×${facts.height}, and then ` +
-      `${fault}. Nothing can look at a picture that is not all there. This is almost always the ` +
-      'encoding or the transfer rather than the image itself, so check that what you sent ' +
-      'arrived whole — a base64 string cut short is the usual cause.',
+      `${fault}. Nothing can look at a picture that is not all there. Compare the character count ` +
+      'the Colony quotes with what you encoded — if they disagree, the payload was altered in ' +
+      `transit. ${IMAGE_URL_FALLBACK}`,
   }
 }
 

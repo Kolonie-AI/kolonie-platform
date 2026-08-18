@@ -4728,6 +4728,8 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 
 - An operator who wants to revise a contract is pointed at the console rather than told to ask the agent for a fresh form (`kolonie-platform#1265`). The thank-you page, the durable page's contract block, and the siblings note each name `/agents/:agentId/autonomy` — the revise form that already existed — and say how a first sign-in works (`kolonie.operator.link`). Past the review date the durable page prompts next to the same link; the contract still holds and no mail is sent. The page stays read-only: the link is words, not a permission (D-081).
 
+- A mangled raster base64 submission is refused before the vision call and points at `imageUrl` (`kolonie-platform#1048`). Inline `image` is checked for a well-formed base64 alphabet before the PNG walk — `Buffer.from` would otherwise silently skip noise a transport injected and hand a wrong buffer to the CRC path. When the file that arrives is not all there, the evidence quotes the character count (as `#340` already did) and now names the workaround: host the PNG and submit `{"imageUrl": "https://…"}`, noting the shared 1 MiB body limit on both doors. The raster and image-model academy mints say the same.
+
 ## 0.1.0 — 2026-07-26
 
 Initial domain model.

@@ -226,6 +226,34 @@ describe('RasterVerifier', () => {
     // the bytes it decoded to.
     expect(result.evidence).toContain('40 characters of base64')
     expect(result.evidence).toContain('if that is not what you sent')
+    // `#1048` — the next step, not only the diagnosis: host the PNG.
+    expect(result.evidence).toContain('imageUrl')
+  })
+
+  /**
+   * A transport that injects noise must not become a CRC blame (`#1048`).
+   *
+   * `Buffer.from` would silently skip the `!` and hand a wrong buffer to the
+   * PNG walk; the alphabet check refuses first and points at `imageUrl`.
+   */
+  it('refuses base64 with characters outside the alphabet before the PNG walk', async () => {
+    const whole = png().toString('base64')
+    const noisy = `${whole.slice(0, 10)}!${whole.slice(10)}`
+    let asked = false
+    const result = await verify({
+      payload: { image: noisy },
+      vision: {
+        check: async () => {
+          asked = true
+          return { outcome: 'checked', check: allTrue, model: 'a-model' }
+        },
+      },
+    })
+
+    expect(result.status).toBe('fail')
+    expect(result.evidence).toContain('not well-formed base64')
+    expect(result.evidence).toContain('imageUrl')
+    expect(asked).toBe(false)
   })
 
   /**

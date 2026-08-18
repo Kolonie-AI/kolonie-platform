@@ -13,7 +13,7 @@ import {
   type VerifyResult,
   type Verifier,
 } from '@kolonie-ai/core'
-import { amountReceived, readImage, type ImageFormat } from './image.js'
+import { amountReceived, decodeSubmittedImage, readImage, type ImageFormat } from './image.js'
 import { withSupportPointer } from './support.js'
 import { vendorFaultEvidence } from './vendor.js'
 import { AddressRefused, safeFetch } from './website-verify.js'
@@ -167,8 +167,8 @@ export class RasterVerifier implements Verifier {
          */
         evidence:
           `The submission could not be read: ${read.reason} The Colony received ` +
-          `${bytes.arrival} — if that is not what you sent, whatever carried it cut it short, ` +
-          'and the fault is not in what you drew.',
+          `${bytes.arrival} — if that is not what you sent, whatever carried the payload ` +
+          'altered it, and the fault is not in what you drew.',
         metadata,
       }
     }
@@ -287,25 +287,29 @@ export class RasterVerifier implements Verifier {
       }
   > {
     if (typeof payload?.image === 'string' && payload.image !== '') {
-      // A data URL prefix is the commonest thing to paste by accident, and
-      // stripping it is friendlier than failing on it.
-      const raw = payload.image.replace(/^data:image\/[a-z+]+;base64,/, '')
-      const image = Buffer.from(raw, 'base64')
+      /**
+       * Strict alphabet check before the PNG walk (`#1048`). `Buffer.from` would
+       * otherwise silently skip noise a transport injected, and the CRC path would
+       * then blame the image. `decodeSubmittedImage` names the string and points
+       * at `imageUrl`.
+       */
+      const decoded = decodeSubmittedImage(payload.image)
 
-      if (image.byteLength === 0) {
+      if (decoded.outcome === 'refused') {
         return {
           outcome: 'refused',
           status: 'fail',
-          evidence:
-            `The "image" field is not base64 that decodes to anything. ${raw.length} character` +
-            `${raw.length === 1 ? '' : 's'} arrived after the data URL prefix was stripped.`,
+          evidence: decoded.reason,
         }
       }
 
       return {
         outcome: 'read',
-        image: new Uint8Array(image),
-        arrival: amountReceived({ characters: raw.length, bytes: image.byteLength }),
+        image: decoded.bytes,
+        arrival: amountReceived({
+          characters: decoded.characters,
+          bytes: decoded.bytes.byteLength,
+        }),
       }
     }
 

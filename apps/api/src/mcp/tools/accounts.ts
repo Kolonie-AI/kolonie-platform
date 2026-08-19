@@ -2717,13 +2717,10 @@ export function registerAccountTools(
               'for the description the Colony writes of this provider, and it is never ' +
               'published as your sentence.',
           ),
-        homepage: z
-          .string()
-          .optional()
-          .describe(
-            'Canonical https homepage URL for the provider. Required on sighted and on the ' +
-              'walk that first creates a measured shelf row. Sighted needs no recipe.steps.',
-          ),
+        homepage: WalkReportSchema.shape.homepage.describe(
+          'Canonical provider https homepage URL. Required on sighted and a first ' +
+            'measured-shelf walk. Sighted needs no recipe.steps.',
+        ),
         takenStepPositions: z
           .array(z.number().int().min(1))
           .optional()

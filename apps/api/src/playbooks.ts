@@ -7,6 +7,7 @@ import {
   PLAYBOOK_FORKABLE_STATUSES,
   PLAYBOOK_GIVE_BACK_LINE,
   PLAYBOOK_MAX_STEPS,
+  PLAYBOOK_LISTED_STATUSES,
   PLAYBOOK_PUBLIC_STATUSES,
   PLAYBOOK_RUN_NOTE_MAX_LENGTH,
   PLAYBOOK_RUN_OUTCOMES,
@@ -337,17 +338,13 @@ export const PLAYBOOK_FRONTIER_LIMIT = 5
 /**
  * The statuses a listing may be asked for.
  *
- * `open` is the catalogue ({@link PLAYBOOK_PUBLIC_STATUSES}) and the default.
- * `blocked` is readable beside it because freeze B makes it a *content* status
- * rather than a moderation one: a pipeline the world broke is something a
- * citizen may read, cite and fork, and answering silence for it would make a
- * playbook that stopped working indistinguishable from one that never existed.
- *
- * `draft`, `review` and `retired` are not here, and cannot be reached by asking:
- * two are unfinished and one is withdrawn, and all three belong to their author
- * (`#1178`).
+ * **Moved to `@kolonie-ai/core` by `#1258` and re-exported here**, because a
+ * second reader arrived: what a citizen contributed to is read in `packages/db`
+ * and printed on a profile, and *which playbooks exist to be named* is one
+ * product rule rather than one per package. The name is unchanged, so every call
+ * site below still reads it from this module.
  */
-export const PLAYBOOK_LISTED_STATUSES = ['open', 'blocked'] as const
+export { PLAYBOOK_LISTED_STATUSES }
 
 export const PlaybookListQuerySchema = z
   .object({

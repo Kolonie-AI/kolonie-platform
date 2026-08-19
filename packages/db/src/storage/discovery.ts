@@ -1,13 +1,24 @@
 import { and, asc, eq, inArray, sql } from 'drizzle-orm'
 import {
   CITIZEN_SEARCH_LIMIT,
+  PLAYBOOK_CONTRIBUTION_FORMS,
+  PLAYBOOK_LISTED_STATUSES,
+  PlaybookSlugSchema,
   SkillSchema,
   type CitizenSearchQuery,
   type CitizenSearchResult,
   type FoundCitizen,
+  type PlaybookContributionForm,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { agentProfileReviews, agentSkills, agents } from '../schema/index.js'
+import {
+  agentProfileReviews,
+  agentSkills,
+  agents,
+  playbookRuns,
+  playbookStepProposals,
+  playbooks,
+} from '../schema/index.js'
 
 /**
  * Who here can do this (`#1067`, `kolonie-docs#413`).
@@ -44,7 +55,9 @@ export async function findCitizens(
   const found =
     query.skill !== undefined
       ? await bySkill(db, query.skill)
-      : await byCapability(db, query.capability ?? '')
+      : query.playbook !== undefined
+        ? await byPlaybook(db, query.playbook)
+        : await byCapability(db, query.capability ?? '')
 
   /**
    * One more than the ceiling is fetched and the extra is dropped here.
@@ -155,6 +168,113 @@ async function byCapability(db: Database, capability: string): Promise<readonly 
       capability: { declared: declaredTag(row.published, capability) },
     },
   }))
+}
+
+/**
+ * Who contributed to one named playbook, and how (`#1258`).
+ *
+ * ## Three reads, merged, and the merge is the answer
+ *
+ * The three forms live on three tables that share no key.
+ * `storage/public-record.ts` reads the same relation from the other end and
+ * merges the same way; the two are one relation with two entry points, which is
+ * why `PLAYBOOK_CONTRIBUTION_FORMS` orders the forms for both rather than each
+ * choosing.
+ *
+ * ## Two gates, and `attributed` is the one this file did not have before
+ *
+ * `findable()` is unchanged: discovery is the consent to be an answer. What is
+ * new is `agents.attributed`, and it belongs here because of what this answer
+ * *is* — a handle printed beside a playbook somebody worked on, which is exactly
+ * the act that flag governs. The other two searches carry no such gate and need
+ * none: a skill and a capability are facts about the citizen rather than
+ * artefacts it left behind.
+ *
+ * A playbook nobody may read yields nobody, and that is the same empty answer as
+ * a playbook nobody has contributed to. Those being indistinguishable is
+ * `kolonie-docs#413`'s criterion applied to a slug: a search must not become a
+ * way to learn that an unpublished playbook exists.
+ */
+async function byPlaybook(db: Database, slug: string): Promise<readonly FoundCitizen[]> {
+  const readable = and(
+    sql`lower(${playbooks.slug}) = lower(${slug})`,
+    inArray(playbooks.status, [...PLAYBOOK_LISTED_STATUSES]),
+  )
+  const gate = and(findable(), eq(agents.attributed, true))
+
+  const authored = await db
+    .select({ handle: agents.name, slug: playbooks.slug })
+    .from(playbooks)
+    .innerJoin(agents, eq(agents.id, playbooks.authorAgentId))
+    .where(and(gate, readable))
+
+  /** `playbookContributors`' definition of folded, for `public-record.ts`'s reason. */
+  const folded = await db
+    .selectDistinct({ handle: agents.name, slug: playbooks.slug })
+    .from(playbookStepProposals)
+    .innerJoin(agents, eq(agents.id, playbookStepProposals.agentId))
+    .innerJoin(playbooks, eq(playbooks.id, playbookStepProposals.playbookId))
+    .where(
+      and(
+        gate,
+        readable,
+        eq(playbookStepProposals.status, 'accepted'),
+        sql`${playbookStepProposals.foldedAt} is not null`,
+      ),
+    )
+
+  const noted = await db
+    .selectDistinct({ handle: agents.name, slug: playbooks.slug })
+    .from(playbookRuns)
+    .innerJoin(agents, eq(agents.id, playbookRuns.agentId))
+    .innerJoin(playbooks, eq(playbooks.id, playbookRuns.playbookId))
+    .where(
+      and(
+        gate,
+        readable,
+        eq(playbookRuns.noteStatus, 'approved'),
+        sql`${playbookRuns.notePublished} is not null`,
+      ),
+    )
+
+  const forms = new Map<string, { handle: string; slug: string; forms: Set<string> }>()
+  const add = (row: { handle: string; slug: string }, form: PlaybookContributionForm) => {
+    const held = forms.get(row.handle)
+    if (held === undefined) {
+      forms.set(row.handle, { handle: row.handle, slug: row.slug, forms: new Set([form]) })
+      return
+    }
+    held.forms.add(form)
+  }
+
+  for (const row of authored) add(row, 'author')
+  for (const row of folded) add(row, 'step')
+  for (const row of noted) add(row, 'note')
+
+  return (
+    [...forms.values()]
+      /**
+       * Alphabetical, on `findable`'s argument and with one addition of its own:
+       * ordering by how much somebody contributed would rank the contributors of
+       * a playbook against each other, which is the leaderboard
+       * `kolonie-docs#413` refuses. **This answer carries no count for the same
+       * reason** — the profile's count is about one citizen and one pipeline, and
+       * a count here would sit beside another citizen's.
+       */
+      .sort((left, right) => left.handle.toLowerCase().localeCompare(right.handle.toLowerCase()))
+      .slice(0, CITIZEN_SEARCH_LIMIT + 1)
+      .map((row) => ({
+        handle: row.handle,
+        matched: {
+          on: 'playbook' as const,
+          // The slug as the playbook holds it, not as the caller typed it: the
+          // match is case-insensitive, and echoing the query back would print a
+          // slug that resolves to nothing.
+          playbook: PlaybookSlugSchema.parse(row.slug),
+          as: PLAYBOOK_CONTRIBUTION_FORMS.filter((form) => row.forms.has(form)),
+        },
+      }))
+  )
 }
 
 /**

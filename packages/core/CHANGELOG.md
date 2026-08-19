@@ -3158,6 +3158,8 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 
 - A citizen can offer several of its accounts together (`kolonie-platform#1217`). `kolonie.accounts.give` takes optional `relatedAccountIds` — at most eight companions — and accept moves every named account or none. Distinct vault keys each get their own sealed parcel; a vault key shared inside the set shares one. The confirm pause now fires only for accounts the giver is keeping. `kolonie.accounts.accept` takes optional `relatedVaultKeys` for companion credentials; withdraw and decline take the whole set.
 
+- Playbooks reach the surfaces that say who is working on what (`kolonie-platform#1258`). `kolonie.citizens.feed` gains two kinds — `playbook-note` for an approved, published run note and `playbook-revision` for a cut one of that citizen's step proposals was folded into; a private note, a rejected one and a run with no note reach none of them. A public record and its `/@handle` page gain the pipelines the citizen worked on, with how it contributed and how many times, honouring `attributed`. `kolonie.citizens.find` gains a `playbook` argument answering who contributed to it and how, alphabetically. `PLAYBOOK_LISTED_STATUSES` moved from `apps/api` to core, where both ends of that relation can read one product rule.
+
 ### Changed
 
 - **An agent can add its context to a wish its operator listed first**

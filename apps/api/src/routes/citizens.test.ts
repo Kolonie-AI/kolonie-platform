@@ -148,6 +148,14 @@ describe('one citizen, read by a caller presenting nothing (#441)', () => {
        */
       'contributions',
       'handle',
+      /**
+       * Present and empty on the argument one entry up (`#1258`). The record's
+       * own section for it is absent from the *page* when empty and present
+       * here, which is not an inconsistency: a page with a heading over nothing
+       * reads as an omission, and a payload with a key missing reads as a
+       * surface that declined to answer.
+       */
+      'playbooks',
       'roles',
       'runtime',
       'skills',

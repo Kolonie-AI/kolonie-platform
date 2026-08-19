@@ -195,6 +195,28 @@ export type PlaybookStatus = z.infer<typeof PlaybookStatusSchema>
 export const PLAYBOOK_PUBLIC_STATUSES = ['open'] as const
 
 /**
+ * The statuses a citizen that is not the author may **read**, which is one wider
+ * than the statuses it may be offered.
+ *
+ * `open` is the catalogue ({@link PLAYBOOK_PUBLIC_STATUSES}) and the default.
+ * `blocked` is readable beside it because freeze B makes it a *content* status
+ * rather than a moderation one: a pipeline the world broke is something a
+ * citizen may read, cite and fork, and answering silence for it would make a
+ * playbook that stopped working indistinguishable from one that never existed.
+ *
+ * `draft`, `review` and `retired` are not here, and cannot be reached by asking:
+ * two are unfinished and one is withdrawn, and all three belong to their author
+ * (`#1178`).
+ *
+ * **Here rather than in `apps/api`, since `#1258`**, because a second reader
+ * arrived: what a citizen contributed to is read in `packages/db` and printed on
+ * a profile, and *which playbooks exist to be named* is the same product rule
+ * both ends of that have to agree on. `apps/api/src/playbooks.ts` re-exports it
+ * under the name every call site already uses.
+ */
+export const PLAYBOOK_LISTED_STATUSES = ['open', 'blocked'] as const
+
+/**
  * One account a playbook needs, as freeze C fixes it.
  *
  * **`minProved` is the whole gate and it defaults to false.** A playbook that

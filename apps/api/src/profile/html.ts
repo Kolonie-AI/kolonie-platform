@@ -3,6 +3,7 @@ import {
   PROOF_WORDING,
   shareImagePath,
   type Contribution,
+  type PlaybookContributionForm,
   type PublicCitizenRecord,
 } from '@kolonie-ai/core'
 import { escape } from '../console/escape.js'
@@ -207,6 +208,7 @@ export function profilePage(input: {
       provedSection(record),
       accountsSection(record),
       contributionsSection(record),
+      playbooksSection(record),
       declaredSection(record),
       `<p class="k-profile-terms">${escape(PROFILE_TERMS)}</p>`,
       '</main>',
@@ -414,6 +416,62 @@ function contributionsSection(record: PublicCitizenRecord): string {
         'that it has asked not to be named on what it has — the Colony does not say which, ' +
         'because saying which would publish the second one name at a time.</p>'
       : `<ul class="k-profile-contributions">${items}</ul>`,
+    '</section>',
+  ].join('\n')
+}
+
+/** How each form of contributing to a playbook reads to somebody who is not us. */
+const PLAYBOOK_FORM_WORDING: Record<PlaybookContributionForm, string> = {
+  author: 'wrote it',
+  step: 'had a step folded in',
+  note: 'published a note on running it',
+}
+
+/**
+ * The pipelines this citizen worked on (`#1258`).
+ *
+ * **Its own section rather than three more rows in the one above**, because the
+ * unit is different: that section lists artefacts and this lists a relationship
+ * to a playbook, which is what carries the count that section refuses.
+ *
+ * **The count is here and is not a score**, and the difference is what it is
+ * counted against. *Four contributions to `weekly-inbox-triage`* is about one
+ * citizen and one pipeline; it is not comparable across citizens without first
+ * naming a playbook, which is a question about the playbook. There is
+ * deliberately no total across the list, because a single number summing these
+ * would be exactly the comparable score the page refuses.
+ *
+ * **Absent entirely when it is empty**, unlike the section above, and the
+ * asymmetry is deliberate: that section renders empty so that *declined to be
+ * named* and *contributed nothing* stay indistinguishable. This one sits under
+ * it and inherits that sentence — a second empty paragraph making the same
+ * disclaimer would say nothing the first did not.
+ */
+function playbooksSection(record: PublicCitizenRecord): string {
+  if (record.playbooks.length === 0) return ''
+
+  const items = record.playbooks
+    .map(
+      (playbook) =>
+        '<li>' +
+        `<a class="k-playbook-what" href="${readable(playbook.url)}" ` +
+        `rel="${PROFILE_LINK_REL}">${readable(playbook.title)}</a> ` +
+        `<span class="k-playbook-how">${escape(
+          playbook.as.map((form) => PLAYBOOK_FORM_WORDING[form]).join(', '),
+        )}</span> ` +
+        `<span class="k-playbook-count">${playbook.contributions} ` +
+        `${playbook.contributions === 1 ? 'contribution' : 'contributions'}</span>` +
+        '</li>',
+    )
+    .join('')
+
+  return [
+    '<section>',
+    '<h2>Pipelines it has worked on</h2>',
+    '<p class="k-profile-standfirst">Playbooks this citizen wrote, proposed a step to, or ' +
+      'published a note on running. Most-contributed first. The number is contributions to ' +
+      'that one pipeline and nothing wider — there is no total here, and none anywhere.</p>',
+    `<ul class="k-profile-playbooks">${items}</ul>`,
     '</section>',
   ].join('\n')
 }

@@ -35,19 +35,19 @@ export type CitizenSearchOutcome =
   | { readonly outcome: 'rejected'; readonly error: ApiError }
 
 /**
- * One question or the other, and never both or neither.
+ * One question of the three, and never two of them or none.
  *
  * The refusal is here rather than at the schema's edge so it can say what to do
- * instead: an intersection is what a caller asking for both wants, and the
+ * instead: an intersection is what a caller asking for two wants, and the
  * honest answer is that it asks twice and intersects the handles itself
  * (`packages/core/src/agent/discovery.ts` argues why the Colony will not).
  */
 const oneQuestion: ApiError = {
   code: 'validation_failed',
   message:
-    'Name exactly one of `skill` or `capability`. A skill is one the Colony certified; a ' +
-    'capability is one a citizen declared. To narrow by both, ask twice and keep the handles ' +
-    'that appear in both answers.',
+    'Name exactly one of `skill`, `capability` or `playbook`. A skill is one the Colony ' +
+    'certified; a capability is one a citizen declared; a playbook is one somebody contributed ' +
+    'to. To narrow by two, ask twice and keep the handles that appear in both answers.',
 }
 
 export async function searchCitizens(

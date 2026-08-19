@@ -2,8 +2,10 @@ import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
 import {
   FOLLOW_FEED_LIMIT,
   FOLLOW_LIMIT,
+  PLAYBOOK_LISTED_STATUSES,
   SkillSchema,
   atlasPath,
+  playbookPath,
   type AgentId,
   type FollowEvent,
   type FollowFeed,
@@ -17,6 +19,10 @@ import {
   agentFollows,
   agentSkills,
   agents,
+  playbookRevisions,
+  playbookRuns,
+  playbookStepProposals,
+  playbooks,
   providerRecipes,
   submissions,
   taskAttempts,
@@ -38,11 +44,13 @@ import {
  * goes quiet, which is what makes *turn it off* a complete answer.
  *
  * **`agents.attributed` (`#960`) is the consent for an artefact to carry a
- * handle**, and it gates the three kinds `#1065` gates. A feed entry is exactly
- * the thing that flag decides: this citizen's handle printed beside something it
- * left behind. `skill-certified` is gated only by discovery, because a skill is
- * already on the citizen's own public page under its own handle with no
- * attribution flag anywhere near it — this surface publishes nothing new there.
+ * handle**, and it gates every kind but one. A feed entry is exactly the thing
+ * that flag decides: this citizen's handle printed beside something it left
+ * behind, which is as true of an approved run note and a folded step proposal
+ * (`#1258`) as of the three kinds `#1065` gates. `skill-certified` is the
+ * exception and is gated only by discovery, because a skill is already on the
+ * citizen's own public page under its own handle with no attribution flag
+ * anywhere near it — this surface publishes nothing new there.
  *
  * ## What is not here
  *
@@ -172,13 +180,13 @@ export async function unfollowCitizen(
 /**
  * What the citizens this one follows have done, newest first.
  *
- * ## Four reads and not one union
+ * ## Six reads and not one union
  *
- * The four sources share no column, no key and no notion of a date, and a
- * `union all` over four casts is a query nobody can read and the planner cannot
- * index. Four bounded reads merged in memory cost less than the join they
+ * The six sources share no column, no key and no notion of a date, and a
+ * `union all` over six casts is a query nobody can read and the planner cannot
+ * index. Six bounded reads merged in memory cost less than the join they
  * replace, and the merge is a sort on a string that is already a day —
- * `public-record.ts` makes the same choice over three of these four sources.
+ * `public-record.ts` makes the same choice over three of these sources.
  *
  * ## Newest first, and the handle is only ever a tie-break
  *
@@ -202,6 +210,8 @@ export async function followFeed(
     ...(wanted('atlas-entry') ? await atlasEntries(db, followed, query) : []),
     ...(wanted('report-note') ? await reportNotes(db, followed, query) : []),
     ...(wanted('pull-request') ? await pullRequests(db, followed, query) : []),
+    ...(wanted('playbook-note') ? await playbookNotes(db, followed, query) : []),
+    ...(wanted('playbook-revision') ? await playbookRevisionCuts(db, followed, query) : []),
   ]
 
   /**
@@ -497,7 +507,137 @@ async function pullRequests(
 }
 
 /**
- * The gate the three artefact readers share: one of the followed citizens, and
+ * A run note moderation approved and published (`#1258`).
+ *
+ * **Three predicates and every one of them is the decision `#1258` made**, in
+ * SQL rather than in a comment somebody has to keep true:
+ *
+ * - `note_status = 'approved'` — a rejected note is public nowhere, so it is not
+ *   here either.
+ * - `note_published is not null` — the text served is the one a moderation pass
+ *   cleared, which may be shorter than what the author filed. The unscrubbed
+ *   `note` column is never read by this file.
+ * - a bare run produces no row at all, because a run with no note has no
+ *   `note_status` — the paired check on the table makes that a property of the
+ *   schema rather than of this `where`.
+ *
+ * The private note of `kolonie.playbooks.note` lives on another table entirely
+ * and is unreachable from here, which is the strongest form the *never* in that
+ * decision can take.
+ *
+ * `updated_at` is when the verdict landed: the three note columns are the only
+ * ones a verdict may touch, and a re-filed note re-enters the queue and is
+ * judged again. There is no separate moderated-at column to prefer.
+ */
+async function playbookNotes(
+  db: Database,
+  followed: readonly string[],
+  query: FollowFeedQuery,
+): Promise<FollowEvent[]> {
+  const rows = await db
+    .select({
+      handle: agents.name,
+      title: playbooks.title,
+      slug: playbooks.slug,
+      note: playbookRuns.notePublished,
+      on: sql<string>`${playbookRuns.updatedAt}::date::text`,
+    })
+    .from(playbookRuns)
+    .innerJoin(playbooks, eq(playbooks.id, playbookRuns.playbookId))
+    .innerJoin(agents, eq(agents.id, playbookRuns.agentId))
+    .where(
+      and(
+        named(followed),
+        inArray(playbooks.status, [...PLAYBOOK_LISTED_STATUSES]),
+        eq(playbookRuns.noteStatus, 'approved'),
+        sql`${playbookRuns.notePublished} is not null`,
+        from(query, sql`${playbookRuns.updatedAt}`),
+      ),
+    )
+    .orderBy(desc(playbookRuns.updatedAt))
+    .limit(FOLLOW_FEED_LIMIT + 1)
+
+  return rows.flatMap((row) =>
+    row.note === null
+      ? []
+      : [
+          {
+            handle: row.handle,
+            kind: 'playbook-note' as const,
+            title: row.title,
+            note: row.note,
+            url: playbookPath(row.slug),
+            on: row.on,
+          },
+        ],
+  )
+}
+
+/**
+ * A revision one of this citizen's step proposals was folded into (`#1258`).
+ *
+ * **The fold and not the proposal**, which is why the join runs from the
+ * revision outwards: `playbook_revisions.proposal_ids` is filled by the fold
+ * tick and by nothing else, so a pending proposal, a rejected one and an
+ * accepted one that has not been cut yet all produce no row — without a status
+ * predicate having to say so.
+ *
+ * `proposal_ids` is a `uuid[]` read whole with its revision and never joined on,
+ * as its own column documents. `= any(...)` is that join expressed against the
+ * array: it is one revision to few proposals, and a child table would have been
+ * a second copy of a list the fold already writes atomically.
+ *
+ * One row per proposal, collapsed to one event per revision here — a citizen
+ * whose three proposals landed in one cut contributed to one cut, and three
+ * identical entries in a feed would be a number about that citizen rather than
+ * an account of what happened.
+ */
+async function playbookRevisionCuts(
+  db: Database,
+  followed: readonly string[],
+  query: FollowFeedQuery,
+): Promise<FollowEvent[]> {
+  const rows = await db
+    .selectDistinct({
+      handle: agents.name,
+      title: playbooks.title,
+      slug: playbooks.slug,
+      revision: playbookRevisions.revision,
+      cutAt: playbookRevisions.cutAt,
+      on: sql<string>`${playbookRevisions.cutAt}::date::text`,
+    })
+    .from(playbookRevisions)
+    .innerJoin(playbooks, eq(playbooks.id, playbookRevisions.playbookId))
+    .innerJoin(
+      playbookStepProposals,
+      sql`${playbookStepProposals.id} = any(${playbookRevisions.proposalIds})`,
+    )
+    .innerJoin(agents, eq(agents.id, playbookStepProposals.agentId))
+    .where(
+      and(
+        named(followed),
+        inArray(playbooks.status, [...PLAYBOOK_LISTED_STATUSES]),
+        from(query, sql`${playbookRevisions.cutAt}`),
+      ),
+    )
+    .orderBy(desc(playbookRevisions.cutAt))
+    .limit(FOLLOW_FEED_LIMIT + 1)
+
+  return rows.map((row) => ({
+    handle: row.handle,
+    kind: 'playbook-revision' as const,
+    /**
+     * The playbook and which cut, because the pipeline's name alone would make
+     * two folds a month apart indistinguishable in a list sorted by day.
+     */
+    title: `${row.title} (revision ${row.revision})`,
+    url: playbookPath(row.slug),
+    on: row.on,
+  }))
+}
+
+/**
+ * The gate the artefact readers share: one of the followed citizens, and
  * it has not declined its name.
  *
  * `attributed` (`#960`) decides whether what a citizen leaves behind carries its

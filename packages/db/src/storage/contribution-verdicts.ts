@@ -7,10 +7,12 @@ import {
   ABUSIVE_WARN_MIN_COUNT,
   CONTRIBUTION_VERDICT_RETENTION_DAYS,
   ContributionSurfaceSchema,
+  unrecordedSuspensionStanding,
   type AgentId,
   type ContributionQualityAnswer,
   type ContributionSurface,
   type ContributionVerdict,
+  type SuspensionStanding,
   type Timestamp,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
@@ -18,8 +20,8 @@ import { agents, contributionVerdicts } from '../schema/index.js'
 import {
   lapseExpiredSuspensions,
   latestSuspensionStartedAt,
-  openCitizenshipSuspension,
   suspendCitizen,
+  suspensionStandingOf,
 } from './citizenship.js'
 
 /**
@@ -314,12 +316,38 @@ async function buildThirdStrikeTicketBody(
 }
 
 /**
+ * The suspension standing a citizen is owed, row or no row (`#1341`).
+ *
+ * `null` means *not suspended*. A `suspended` status with no open row is the
+ * walk-prose shape (`#1097`), and it arrives as the `unrecorded` standing —
+ * word for word the one `kolonie.me` hands over, because a citizen comparing
+ * the two surfaces is comparing sentences and not schemas.
+ */
+async function suspensionStanding(
+  db: Database | Transaction,
+  agentId: AgentId,
+): Promise<SuspensionStanding | null> {
+  const { suspended, row } = await suspensionStandingOf(db, agentId)
+  if (!suspended) return null
+  return row === null ? unrecordedSuspensionStanding() : row
+}
+
+/**
  * The citizen's own contribution-quality ledger (`#1262`).
  *
  * **Changes nothing** — a pure read, on the same terms as `kolonie.doctor`.
  * Counts by surface; reasons only on `abusive` rows; `useless` counted and
  * labelled as counting toward nothing. Standing uses the same floored window
  * the suspend sweep does.
+ *
+ * ## The suspension it reports is the citizen's, not this ledger's (`#1341`)
+ *
+ * It read `citizenship_suspensions` and nothing else, so a citizen suspended by
+ * the walk-prose rule — which writes `agents.status` and no row — was told
+ * `suspension: null` here minutes after `kolonie.me` told it it was suspended.
+ * The counts above genuinely cannot see that rule; the status can, and does.
+ * {@link suspensionStandingOf} is the same read `kolonie.me` and the digest
+ * make, so all three now answer one fact once.
  */
 export async function contributionQualityFor(
   db: Database | Transaction,
@@ -380,7 +408,7 @@ export async function contributionQualityFor(
     )
     .orderBy(desc(contributionVerdicts.decidedAt))
 
-  const suspension = await openCitizenshipSuspension(db, agentId)
+  const suspension = await suspensionStanding(db, agentId)
 
   return {
     windowDays: ABUSIVE_SUSPEND_WINDOW_DAYS,
@@ -399,6 +427,7 @@ export async function contributionQualityFor(
       suspendMinCount: ABUSIVE_SUSPEND_MIN_COUNT,
       suspendMinRate: ABUSIVE_SUSPEND_MIN_RATE,
       meetsSuspendBounds: meetsAbusiveSuspendBounds({ abusive, total: judged }),
+      measures: 'abusive-verdict-rate',
       uselessCountsToward: 'nothing',
     },
     suspension,

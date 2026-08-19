@@ -37,6 +37,7 @@ export function emptyContributionQualityAnswer(): ContributionQualityAnswer {
       suspendMinCount: ABUSIVE_SUSPEND_MIN_COUNT,
       suspendMinRate: ABUSIVE_SUSPEND_MIN_RATE,
       meetsSuspendBounds: false,
+      measures: 'abusive-verdict-rate',
       uselessCountsToward: 'nothing',
     },
     suspension: null,

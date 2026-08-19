@@ -18,7 +18,7 @@ import {
   type OperatorStanding,
   type WakeupStanding,
   type SuspensionStanding,
-  unrecordedSuspensionReason,
+  unrecordedSuspensionStanding,
   type WakeupWakeChannel,
   type WakeupWantedAccount,
 } from '@kolonie-ai/core'
@@ -290,14 +290,7 @@ export function databaseWakeup(db: Database, rechecks?: RecheckDependencies): Wa
     suspension: async (agentId) => {
       const { suspended, row } = await suspensionStandingOf(db, agentId)
       if (!suspended) return null
-      if (row === null) {
-        return {
-          reason: unrecordedSuspensionReason(),
-          source: 'unrecorded',
-          startedAt: null,
-          expiresAt: null,
-        }
-      }
+      if (row === null) return unrecordedSuspensionStanding()
       return {
         reason: row.reason,
         source: row.source,

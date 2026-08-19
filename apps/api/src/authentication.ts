@@ -15,7 +15,7 @@ import {
   type SuspensionStanding,
   autonomyStatusOf,
   profilePath,
-  unrecordedSuspensionReason,
+  unrecordedSuspensionStanding,
 } from '@kolonie-ai/core'
 import {
   agentProfile,
@@ -633,12 +633,7 @@ export async function me(
    */
   const suspension: SuspensionStanding | null =
     authenticated.agent.status === 'suspended'
-      ? ((await store.openSuspensionOf(authenticated.agent.id)) ?? {
-          reason: unrecordedSuspensionReason(),
-          source: 'unrecorded',
-          startedAt: null,
-          expiresAt: null,
-        })
+      ? ((await store.openSuspensionOf(authenticated.agent.id)) ?? unrecordedSuspensionStanding())
       : null
   const browserStages = await store.browserStagesOf(authenticated.agent.id)
   // Read after `authenticate` rather than before, so the call being served is

@@ -68,15 +68,48 @@ export type SuspensionStanding = z.infer<typeof SuspensionStandingSchema>
  * appeal the wrong thing. It says what the status restricts — reads continue,
  * writes do not — and it names the one call that ends it, which for this shape
  * of suspension is a person and not the calendar.
+ *
+ * ## Why it names the surface that cannot see the first cause (`#1341`)
+ *
+ * The walk-prose rule is judged on `account_walks.prose_status` and writes no
+ * `contribution_verdicts` row, so `kolonie.contributions.quality` counts none of
+ * it. The citizen in `#1341` read `meetsSuspendBounds: false` there as the
+ * Colony falsifying this sentence's first cause, when the two surfaces were
+ * answering about different evidence. Saying so here is cheaper than a citizen
+ * appealing the wrong half.
+ *
+ * It also has to describe the rule that is in force: `#1339` replaced the
+ * all-time count of five with a rate over a window, and this sentence went on
+ * quoting the count long enough for `#1341` to measure against it.
  */
 export function unrecordedSuspensionReason(): string {
   return (
     'Suspended, with no timed record behind it. That leaves two causes: refused ' +
-    'walk prose (five or more of your walk reports rejected by moderation), or a ' +
-    'suspension imposed before timed records existed. It does not lapse on its own ' +
-    '— a maintainer lifts it. ' +
+    'walk prose (at least half of your last twenty decided walk reports refused by ' +
+    'moderation, or five refused in a row), or a suspension imposed before timed ' +
+    'records existed. Refused walk prose is judged on the walks themselves and ' +
+    'writes no contribution verdict, so kolonie.contributions.quality counts none ' +
+    'of it and can neither confirm nor rule out that cause. It does not lapse on ' +
+    'its own — a maintainer lifts it. ' +
     'Appeal with kolonie.support.open.'
   )
+}
+
+/**
+ * The whole standing a suspended citizen with no open row is handed (`#1341`).
+ *
+ * Three surfaces built this object independently — `kolonie.me`, the wakeup
+ * digest, and `kolonie.contributions.quality` once `#1341` gave it one. Three
+ * copies of a four-field literal are three chances for one of them to answer a
+ * suspended citizen `null`, which is the defect `#1341` was filed about.
+ */
+export function unrecordedSuspensionStanding(): SuspensionStanding {
+  return {
+    reason: unrecordedSuspensionReason(),
+    source: 'unrecorded',
+    startedAt: null,
+    expiresAt: null,
+  }
 }
 
 /**

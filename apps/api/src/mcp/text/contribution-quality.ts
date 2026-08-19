@@ -1,4 +1,4 @@
-import type { ContributionQualityAnswer } from '@kolonie-ai/core'
+import { suspensionStandingLine, type ContributionQualityAnswer } from '@kolonie-ai/core'
 
 /**
  * The citizen's own contribution-quality ledger, as prose (`#1262`).
@@ -44,10 +44,14 @@ export function contributionQualityAsText(answer: ContributionQualityAnswer): st
       `abusive and more than ${Math.round(standing.suspendMinRate * 100)}% of judged ` +
       `contributions` +
       (standing.meetsSuspendBounds ? ' — both bounds hold now.' : '.'),
+    'Those bounds are the abusive-verdict rule, and it is the only one these ' +
+      'counts can see. Refused walk prose is judged on the walks themselves and ' +
+      'writes no verdict row, so it can suspend a citizen without moving a single ' +
+      'number above.',
     '',
     suspension === null
-      ? 'No timed suspension in force.'
-      : `Suspended until ${suspension.expiresAt.slice(0, 10)} (${suspension.source}): ${suspension.reason}`,
+      ? 'Not suspended.'
+      : `Suspended (${suspension.source}): ${suspensionStandingLine(suspension)}`,
     '',
     'Nothing here changes anything about you: no limit, no standing change, no ' +
       'warning stamped. It shows your own data only, never another citizen’s, and ' +

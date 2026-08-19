@@ -53,6 +53,7 @@ import {
 import { atlasEntryWorked } from './worked.js'
 import { atlasNeighbours } from './related.js'
 import { ATLAS_PARTLY, atlasEntryVerdict, atlasRecipeVerdict } from './verdict.js'
+import { ATLAS_REFUSING, atlasEntryTitle, lowerFirst, providerName } from './title.js'
 import { atlasRuntimeLine } from './runtimes.js'
 import { CONSOLE_MAST } from '../console/mark.js'
 import { CHROME_STYLE, CONSOLE_STYLE } from '../console/theme.js'
@@ -1615,7 +1616,7 @@ export function atlasEntryPage(input: {
      * account, with no rung behind it* spends its width on a Colony-internal
      * distinction the reader has never heard of.
      */
-    title: entryTitle(entry),
+    title: atlasEntryTitle(entry),
     description: metaDescription(entry),
     canonical: input.canonical,
     chrome: input.chrome,
@@ -1749,92 +1750,6 @@ export function atlasEntryPage(input: {
 }
 
 /**
- * The provider's name, as a page written for a stranger says it.
- *
- * **The domain, verbatim, and there is no display-name column** (`#788`). It is
- * what a searcher types, it is what `atlasPath` already uses, and it cannot be
- * wrong — where a title-cased first label would give *Github* and *Mail.tm*,
- * and a hand-curated name would be a second copy of the provider free to
- * disagree with it. `recipeHeading` took the same decision in `#791`.
- */
-function providerName(entry: AtlasPublicEntry): string {
-  return entry.provider
-}
-
-/** A phrase that carries its own article, used mid-sentence. */
-function lowerFirst(phrase: string): string {
-  return phrase.charAt(0).toLowerCase() + phrase.slice(1)
-}
-
-/**
- * The two statuses that assert a closed door, and the only two `#1163` overrides.
- *
- * A verdict of `partly` on any other status changes nothing: `measured` already
- * says *walked, and no route written* in `#1141`'s own words, and `joinable` and
- * `unwritten` cannot produce one.
- */
-const REFUSING: ReadonlySet<AtlasPublicEntry['status']> = new Set(['refused', 'retired'])
-
-/**
- * The line a search result shows above everything else (`#788`).
- *
- * **Written for the query rather than for the catalogue**, and still derived:
- * a title field on the row would be a fourth piece of prose per entry for a
- * curator to keep true. What it says is what somebody searching *how does an
- * AI agent get a Trello account* is asking — the provider, that this is about
- * an agent, and what they will actually have to do — and the ` — Kolonie`
- * suffix {@link atlasPage} appends is what places it.
- *
- * Naming the provider descriptively is ordinary nominative use: the page is
- * about them, claims no endorsement, and {@link NOT_A_PROMISE} says so on the
- * page itself.
- */
-function entryTitle(entry: AtlasPublicEntry): string {
-  const name = providerName(entry)
-
-  /**
-   * **A refusal with successes behind it is not a refusal in the title**
-   * (`#1163`). `atlasEntryVerdict` is the one model the lead chip and the shelf
-   * default read too, and `partly` is the value that exists so that this page
-   * has something true to say: the two branches below are correct about the
-   * route and were being printed over the top of four sections of walks that got
-   * through.
-   *
-   * **`measured` keeps `#1141`'s title.** That status already says *walked, and
-   * no route written*, which is what `partly` means one word longer — and it says
-   * it more precisely. Only the two statuses that assert a closed door are
-   * overridden here.
-   */
-  if (atlasEntryVerdict(entry) === ATLAS_PARTLY && REFUSING.has(entry.status)) {
-    return `${name} for an AI agent: what got through, and what did not`
-  }
-
-  if (entry.status === 'refused') return `${name}: why an agent cannot join it`
-  if (entry.status === 'retired') return `${name}: withdrawn, and what the path was`
-  /**
-   * **`measured` is the one status the fallback below is false for** (`#1141`).
-   * Since `#1032` it means *a walk closed here and nobody wrote the route*, so
-   * `nobody has mapped this yet` was the page telling a searcher to go away
-   * from 35 entries built out of somebody's afternoon. `unwritten` keeps that
-   * title, because for `unwritten` it is what happened.
-   */
-  if (entry.status === 'measured') return `${name}: walked, but no recipe written yet`
-  if (entry.status !== 'joinable') return `${name}: nobody has mapped this yet`
-
-  /**
-   * The capability clause only where a row reaches one (`#637`): an account is
-   * usually a means, and *and an API key* is the half of the answer a reader
-   * came for. Where nothing is reached the sentence ends a word earlier rather
-   * than promising something the page does not have.
-   */
-  const reaches = entry.recipes.find((recipe) => recipe.reaches !== null)?.reaches ?? null
-  const reached =
-    reaches === null ? '' : `, ${lowerFirst(atlasCapabilityPhrase(reaches.capability))}`
-
-  return `${name} for an AI agent: sign up, prove it${reached}`
-}
-
-/**
  * How a proof method reads in a sentence somebody who is not a citizen sees.
  *
  * The slugs are the Colony's own vocabulary — `provider-post` means nothing in
@@ -1864,8 +1779,8 @@ const PROOF_PHRASES: Readonly<Record<string, string>> = {
 function entryDescription(entry: AtlasPublicEntry): string {
   const name = providerName(entry)
 
-  /** The same override as in {@link entryTitle}, on the sentence under it. */
-  if (atlasEntryVerdict(entry) === ATLAS_PARTLY && REFUSING.has(entry.status)) {
+  /** The same override as in {@link atlasEntryTitle}, on the sentence under it. */
+  if (atlasEntryVerdict(entry) === ATLAS_PARTLY && ATLAS_REFUSING.has(entry.status)) {
     return (
       `Parts of ${name} have been walked and got through; the route as a whole is refused. ` +
       'What got in, where it stopped, and why the Atlas lists both rather than picking one.'
@@ -2032,7 +1947,7 @@ function indexStatusMark(entry: AtlasPublicEntry): string {
    * same model — and marks it *cannot be joined* on the row is disagreeing with
    * itself inside one line of one page.
    */
-  if (atlasEntryVerdict(entry) === ATLAS_PARTLY && REFUSING.has(status)) {
+  if (atlasEntryVerdict(entry) === ATLAS_PARTLY && ATLAS_REFUSING.has(status)) {
     return ' <span class="k-partly">partly — some walks got in</span>'
   }
 

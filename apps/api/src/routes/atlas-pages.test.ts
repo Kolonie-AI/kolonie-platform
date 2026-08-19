@@ -1374,10 +1374,17 @@ describe('the Atlas on the website host', () => {
       )
     })
 
-    it('titles a measured entry as walked with no recipe written', async () => {
+    /**
+     * The copy itself is `title.test.ts`'s, against the helper. What is asserted
+     * here is that the served page carries it — the two used to be one test, and
+     * a rendered `<title>` regexed back out of three kilobytes of page is the
+     * reason the phrase `#1327` banned went unwatched for as long as it did.
+     */
+    it('titles a measured entry as measured, with no Colony route yet', async () => {
       const title = titleOf((await get('/atlas/walked.example')).body)
 
-      expect(title).toContain('walked, but no recipe written yet')
+      expect(title).toContain('measured — no Colony route yet')
+      expect(title).not.toContain('no recipe written yet')
       expect(title).not.toContain('nobody has mapped this yet')
     })
 

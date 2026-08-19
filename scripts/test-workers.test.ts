@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 // project, imported here for the same reason the runner beside it is: the
 // arithmetic decides how much of the machine a check gets, and getting it wrong
 // is not visible from the outside.
-import { shareOfMachine, testWorkers, WORKER_BUDGET_VAR } from './test-workers.mjs'
+import { memoryCeiling, shareOfMachine, testWorkers, WORKER_BUDGET_VAR } from './test-workers.mjs'
 
 /**
  * `#963`. `npm run check` had stopped carrying information when it was red: two
@@ -99,5 +99,50 @@ describe('applying the budget to what a workspace wanted', () => {
    */
   it.each([['four'], ['0'], ['-2'], ['2.5']])('refuses %s, rather than falling back', (value) => {
     expect(() => testWorkers(6, withBudget(value))).toThrow(new RegExp(WORKER_BUDGET_VAR))
+  })
+})
+
+/**
+ * `#1354`. `#1350` gave `apps/api` a ceiling written against cores, fixed the
+ * local failure it was for, and cost CI 23 % — 471 s against 580 s, measured as
+ * an A/B on two pull requests a minute apart. The constraint was always memory;
+ * these tests pin the arithmetic that says so.
+ */
+describe('the memory ceiling on a database-backed suite', () => {
+  const GiB = 1024 ** 3
+
+  it('gives the host where the failure was measured the configuration that passed', () => {
+    /**
+     * 8 cores, 7186 MiB, baseline 1790 MiB resident. Four workers peaked at
+     * 6405 MiB and passed all 4381 tests in 1m12s; eight failed fifteen of them
+     * in 12m12s with `sys` at two and a half times `user`.
+     */
+    expect(memoryCeiling(7186 * 1024 ** 2)).toBe(4)
+  })
+
+  it('does not lower a CI runner that has memory to spare', () => {
+    /**
+     * The regression this corrects. A four-core runner is published a budget of
+     * four; the core rule asked for two and won. Sixteen gigabytes has no memory
+     * problem, so the preference must not be what lowers it — `testWorkers`
+     * takes the smaller and the budget is meant to be the smaller one there.
+     */
+    expect(memoryCeiling(16 * GiB)).toBe(6)
+    expect(testWorkers(memoryCeiling(16 * GiB), { KOLONIE_TEST_WORKERS: '4' })).toBe(4)
+  })
+
+  it('caps at six however much memory there is, because Postgres is the other wall', () => {
+    expect(memoryCeiling(128 * GiB)).toBe(6)
+  })
+
+  it('never returns zero on a machine that could not fit one worker', () => {
+    /** A refusal here would be a suite that cannot run at all. */
+    expect(memoryCeiling(1 * GiB)).toBe(1)
+    expect(memoryCeiling(0)).toBe(1)
+  })
+
+  it('is a preference, so the budget still only lowers it', () => {
+    expect(testWorkers(memoryCeiling(7186 * 1024 ** 2), { KOLONIE_TEST_WORKERS: '2' })).toBe(2)
+    expect(testWorkers(memoryCeiling(7186 * 1024 ** 2), {})).toBe(4)
   })
 })

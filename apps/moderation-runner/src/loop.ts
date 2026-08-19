@@ -48,6 +48,7 @@ import {
   type AtlasCategoryProposalStore,
 } from './atlas-category-proposals.js'
 import { walkProseTick, type WalkProseLoopDependencies } from './walk-prose.js'
+import { operateNoteTick, type OperateNoteLoopDependencies } from './operate-notes.js'
 import { answerTick, type AnswerLoopDependencies } from './answers.js'
 import { redLineReviewTick, type RedLineReviewLoopDependencies } from './redline-review.js'
 import { questAuditTick, type QuestAuditLoopDependencies } from './quest-audit.js'
@@ -264,6 +265,14 @@ export interface LoopDependencies {
    * the same place those words sat before this existed, and no worse.
    */
   readonly walkProse?: WalkProseLoopDependencies
+  /**
+   * Post-account operate tips waiting on a verdict (`#1299`).
+   *
+   * Optional like {@link playbookNotes}: an unwired runner leaves tips `pending`
+   * and publishes nothing beside the Atlas entry, which is the safe degradation.
+   * A tip is never a recipe step either way.
+   */
+  readonly operateNotes?: OperateNoteLoopDependencies
   /**
    * The retention sweep over the contribution verdict ledger (`#1259`).
    *
@@ -1060,6 +1069,42 @@ async function moderatePlaybookNotes(
 }
 
 /**
+ * One pass over post-account operate tips waiting on a verdict (`#1299`).
+ *
+ * Failure is swallowed for the same reason playbook notes are: a tip nobody
+ * judged costs its author nothing and never becomes a recipe step.
+ */
+async function moderateOperateNotes(
+  deps: LoopDependencies,
+  batchSize: number,
+  log: Log,
+): Promise<void> {
+  const { operateNotes } = deps
+  if (operateNotes === undefined) return
+
+  try {
+    const outcome = await operateNoteTick({ log, ...operateNotes }, batchSize)
+    if (outcome.judged > 0) {
+      log.info(
+        `operate notes: ${outcome.judged} judged, ${outcome.approved} published, ` +
+          `${outcome.rejected} returned, ${outcome.failed} deferred`,
+        {
+          event: 'operate-notes.pass.done',
+          judged: outcome.judged,
+          approved: outcome.approved,
+          rejected: outcome.rejected,
+          failed: outcome.failed,
+        },
+      )
+    }
+  } catch (error) {
+    log.error('the operate-note moderation pass failed', error, {
+      event: 'operate-notes.pass.failed',
+    })
+  }
+}
+
+/**
  * One pass over the step proposals waiting on a verdict (`#1254`).
  *
  * Its failure is swallowed for {@link moderatePlaybookNotes}' reason: a
@@ -1545,6 +1590,7 @@ export function startQuestRunner(deps: LoopDependencies, options: RunnerOptions 
         await moderateQuests(deps, batchSize, log)
         await moderatePlaybooks(deps, batchSize, log)
         await moderatePlaybookNotes(deps, batchSize, log)
+        await moderateOperateNotes(deps, batchSize, log)
         await moderatePlaybookProposals(deps, batchSize, log)
         await moderatePlaybookRevisions(deps, batchSize, log)
         await moderatePlaybookBlocked(deps, batchSize, log)

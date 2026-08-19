@@ -53,6 +53,7 @@ import {
   type ProposalWithDemand,
   type ProviderBriefing,
   type ServedWalkNote,
+  type ServedOperateNote,
   type ServedWalkRoute,
   type ProviderRecipe,
   type RecipeDirection,
@@ -61,6 +62,7 @@ import {
 } from '@kolonie-ai/core'
 import type { Database } from '@kolonie-ai/db'
 import { providerBriefingAsText } from './mcp/text/provider-briefing.js'
+import { operateNotesAsText } from './mcp/text/operate-notes.js'
 import { walkNotesAsText } from './mcp/text/walk-notes.js'
 import { walkRouteAsText } from './mcp/text/walk-route.js'
 import type { WalkStore } from './account-walks.js'
@@ -75,6 +77,7 @@ import {
   fallingSuccessRates,
   pendingProposals,
   providerBriefingsAt,
+  publishedOperateNotesAt,
   publishedWalkNotesAt,
   publishedWalkRoutesAt,
   publishProviderRecipe,
@@ -167,6 +170,14 @@ export interface ProviderRecipes {
    */
   routes(provider: string): Promise<ReadonlyMap<string, ServedWalkRoute>>
   /**
+   * Post-account operate tips for one provider (`#1299`).
+   *
+   * **Bounded and keyed exactly as {@link ProviderRecipes.notes} is**, and kept
+   * out of recipe `steps` on purpose: a tip about IMAP after signup is not how
+   * the account was obtained.
+   */
+  operateNotes(provider: string): Promise<ReadonlyMap<string, readonly ServedOperateNote[]>>
+  /**
    * Who walked each row in the catalogue, by `figureKey` (`#960`).
    *
    * **The whole catalogue rather than one provider, like the figures and unlike
@@ -233,6 +244,7 @@ export function databaseProviderRecipes(db: Database): ProviderRecipes {
     briefings: (provider) => providerBriefingsAt(db, provider),
     notes: (provider) => publishedWalkNotesAt(db, provider),
     routes: (provider) => publishedWalkRoutesAt(db, provider),
+    operateNotes: (provider) => publishedOperateNotesAt(db, provider),
     walkers: () => atlasWalkers(db),
     proposals: () => pendingProposals(db),
     fallingRates: () => fallingSuccessRates(db),
@@ -681,6 +693,8 @@ export async function readAtlas(
     readonly notes: ReadonlyMap<string, readonly ServedWalkNote[]>
     /** The newest cleared route per pair, under the same bound again (`#1090`). */
     readonly routes: ReadonlyMap<string, ServedWalkRoute>
+    /** Post-account tips per pair, under the same bound (`#1299`). */
+    readonly operateNotes: ReadonlyMap<string, readonly ServedOperateNote[]>
     /**
      * Said out loud when nothing in this answer rests on evidence (`#905`),
      * `null` when something does.
@@ -854,6 +868,11 @@ export async function readAtlas(
     ? await recipes.routes(input.provider as string)
     : new Map<string, ServedWalkRoute>()
 
+  /** Post-account tips, under the same one-provider bound (`#1299`). */
+  const operateNotes = oneProvider
+    ? await recipes.operateNotes(input.provider as string)
+    : new Map<string, readonly ServedOperateNote[]>()
+
   /**
    * **Asked of what is being returned, not of the whole catalogue.** A caller
    * that narrowed to one shelf is asking about that shelf, and answering from
@@ -864,7 +883,7 @@ export async function readAtlas(
 
   return {
     outcome: 'ok',
-    response: { entries, secretHandoff, briefings, notes, routes, nothingMeasured },
+    response: { entries, secretHandoff, briefings, notes, routes, operateNotes, nothingMeasured },
   }
 }
 
@@ -906,6 +925,12 @@ export function atlasEntryAsText(
    * briefing has read the general statement and skipped only the detail.
    */
   routes: ReadonlyMap<string, ServedWalkRoute> = new Map(),
+  /**
+   * Post-account operate tips, by `figureKey` (`#1299`). Defaulted and printed
+   * after the walk notes: tips about an account you already hold are useless
+   * until you have one, so a reader still deciding whether to walk stops earlier.
+   */
+  operateNotes: ReadonlyMap<string, readonly ServedOperateNote[]> = new Map(),
 ): string {
   /**
    * **Provenance and health above the rows, because both are about the whole
@@ -948,6 +973,7 @@ export function atlasEntryAsText(
       figuresAsText(recipe.figures),
       providerBriefingAsText(briefings.get(figureKey(recipe.kind, recipe.provider))),
       walkNotesAsText(notes.get(figureKey(recipe.kind, recipe.provider))),
+      operateNotesAsText(operateNotes.get(figureKey(recipe.kind, recipe.provider))),
       walkRouteAsText(routes.get(figureKey(recipe.kind, recipe.provider))),
     )
   }

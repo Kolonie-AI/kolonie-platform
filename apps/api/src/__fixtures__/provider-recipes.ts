@@ -15,6 +15,7 @@ import {
   type ProviderRecipe,
   type RecipeOperatorGuess,
   type ServedWalkNote,
+  type ServedOperateNote,
   type ServedWalkRoute,
 } from '@kolonie-ai/core'
 import type { FallingRate } from '@kolonie-ai/db'
@@ -126,6 +127,13 @@ export interface FakeProviderRecipes extends ProviderRecipes {
    */
   readonly route: (kind: string, provider: string, route: ServedWalkRoute) => void
   /**
+   * A post-account operate tip at this pair (`#1299`).
+   *
+   * **Set rather than derived, for the reason `note` is.** Moderation and
+   * attribution are SQL decisions; the fake only says a tip reaches the page.
+   */
+  readonly operateNote: (kind: string, provider: string, note: ServedOperateNote) => void
+  /**
    * A citizen who walked this pair and is named for it (`#960`).
    *
    * **Only the ones a test wants named.** The real read already applies both
@@ -148,6 +156,7 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
   const briefed: ProviderBriefing[] = []
   const noted: { kind: string; provider: string; note: ServedWalkNote }[] = []
   const routed: { kind: string; provider: string; route: ServedWalkRoute }[] = []
+  const operated: { kind: string; provider: string; note: ServedOperateNote }[] = []
   const proposed: EntryProposal[] = []
   const providersProposed: AtlasProposal[] = []
   const falling: FallingRate[] = []
@@ -238,6 +247,21 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
 
     route(kind, provider, route) {
       routed.push({ kind, provider, route })
+    },
+
+    async operateNotes(provider) {
+      const found = new Map<string, ServedOperateNote[]>()
+      for (const one of operated) {
+        if (one.provider.toLowerCase() !== provider.toLowerCase()) continue
+        const key = figureKey(one.kind, one.provider)
+        found.set(key, [...(found.get(key) ?? []), one.note])
+      }
+
+      return found
+    },
+
+    operateNote(kind, provider, note) {
+      operated.push({ kind, provider, note })
     },
 
     /**

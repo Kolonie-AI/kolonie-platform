@@ -2185,6 +2185,13 @@
       "when": 1787130557922,
       "tag": "0311_atlas_scout_sighted_homepage",
       "breakpoints": true
+    },
+    {
+      "idx": 312,
+      "version": "7",
+      "when": 1787132174736,
+      "tag": "0312_clear_fixer",
+      "breakpoints": true
     }
   ]
 }

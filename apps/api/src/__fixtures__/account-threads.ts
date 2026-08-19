@@ -104,6 +104,11 @@ export function fakeAccountThreads(
   const slots = new Map<string, AccountSlot>()
   const entries: AccountEntry[] = []
   const vault = new Map<string, string>()
+  /** Standing tips by agent×pair×tag (`#1299`) — moderation is asserted in db tests. */
+  const operateNotes = new Map<
+    string,
+    { readonly id: string; readonly body: string; readonly episodeId?: string }
+  >()
   /** `human_agents`, in one line: which person operates which citizen. */
   const operators = new Map<string, string>()
 
@@ -445,6 +450,26 @@ export function fakeAccountThreads(
           : episodeVerdict(closed, undefined)
 
       return { outcome: 'closed', episode: closed, proposed }
+    },
+
+    async fileOperateNote(input) {
+      /**
+       * In-memory tip store for `#1299` surface tests. Moderation and SQL uniqueness
+       * live in `packages/db`; here a rewrite of the same agent×pair×tag replaces.
+       */
+      const key = `${String(input.agentId)}\0${input.kind}\0${input.provider}\0${input.tag}`
+      const existing = operateNotes.get(key)
+      if (existing !== undefined) {
+        operateNotes.set(key, { ...existing, body: input.note, episodeId: input.episodeId })
+        return { outcome: 'written', id: existing.id, replaced: true }
+      }
+      const id = randomUUID()
+      operateNotes.set(key, {
+        id,
+        body: input.note,
+        episodeId: input.episodeId,
+      })
+      return { outcome: 'written', id, replaced: false }
     },
 
     async vaultClaim(_vaultToken, agentId, key, value) {

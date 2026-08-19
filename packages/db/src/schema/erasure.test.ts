@@ -1433,6 +1433,12 @@ describe('the erasure boundary', () => {
        */
       'playbooks.author_agent_id c',
       'pow_challenges.agent_id c',
+      /**
+       * Post-account operate tips (`#1299`). Cascades: a tip is a citizen's word
+       * about a provider and goes with the citizen. The tip is about the provider,
+       * not about an episode, so episode_id is set null rather than cascade.
+       */
+      'provider_operate_notes.agent_id c',
       /** `#298`. Cascades: a report is a citizen's word and goes with the citizen. */
       'provider_reports.agent_id c',
       /**

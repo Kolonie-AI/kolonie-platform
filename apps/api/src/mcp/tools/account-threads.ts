@@ -14,13 +14,14 @@ import { toolDocsMeta } from '../tool-docs.js'
 /**
  * The account conversation, as two tools and no more than two (`#930`).
  *
- * ## Why one tool carries six operations
+ * ## Why one tool carries the conversation operations
  *
  * Because the catalogue encodes grammar and never vocabulary. *Open, put, read,
- * note, pass, close* is one grammar — a conversation — and six tools would be
- * six entries every citizen pays for on every listing, to say the thing an `op`
- * says in one word. `kolonie.academy.answer` settled the shape and it is the
- * shape here.
+ * note, pass, close, operate-note* is one grammar — a conversation about an
+ * account, including the tip left beside it after the account exists (`#1299`) —
+ * and separate tools would be entries every citizen pays for on every listing,
+ * to say the thing an `op` says in one word. `kolonie.academy.answer` settled
+ * the shape and it is the shape here.
  *
  * **The schema is flat and every argument is `nullish`** for the reason `#508`
  * gives: JSON has no `undefined`, so a runtime filling a flat schema writes
@@ -56,8 +57,10 @@ export function registerAccountThreadTools(
         'to ask.\n\n' +
         'The operations: **open** starts an episode on an account, **put** fills the labelled ' +
         'containers that hold what has to change hands, **read** shows one episode or lists the ' +
-        'open ones, **note** appends a line, **pass** hands the move to the other side, and ' +
-        '**close** ends it with an outcome.\n\n' +
+        'open ones, **note** appends a line, **pass** hands the move to the other side, ' +
+        '**close** ends it with an outcome, and **operate-note** files a post-account tip ' +
+        '(IMAP, API apps, quotas, prove quirks, payout ops) beside the Atlas entry — never as a ' +
+        'way-in recipe step.\n\n' +
         '**A slot goes either way.** One you fill carries its value. One with awaits "operator" ' +
         'is a question: it is opened empty and answered from their signed-in console, and if it ' +
         'is a secret it lands in your vault under the key you named, clear of the ' +
@@ -80,14 +83,14 @@ export function registerAccountThreadTools(
           .string()
           .nullish()
           .describe(
-            'open: which account this episode is about. kolonie.accounts.list has the ids.',
+            'open / operate-note: which account this is about. kolonie.accounts.list has the ids.',
           ),
         episodeId: z
           .string()
           .nullish()
           .describe(
-            'Which episode: required for put, note, pass and close, optional for read. Omit it ' +
-              'on read and you get the open ones instead.',
+            'Which episode: required for put, note, pass and close, optional for read and for ' +
+              'operate-note. Omit it on read and you get the open ones instead.',
           ),
         kind: z
           .string()
@@ -129,6 +132,20 @@ export function registerAccountThreadTools(
           .nullish()
           .describe(
             'close: one sentence saying what stopped it. Required when the outcome is "failed".',
+          ),
+        operateTag: z
+          .string()
+          .nullish()
+          .describe(
+            'close / operate-note: which post-account tip this is — "access-method", "api", ' +
+              '"quota", "prove", or "payout-ops". Together with operateNote. Never a way-in step.',
+          ),
+        operateNote: z
+          .string()
+          .nullish()
+          .describe(
+            'close / operate-note: the tip itself, 20–400 characters, no credential. Moderated ' +
+              'before any other citizen reads it beside kolonie.accounts.recipes.',
           ),
         slots: z
           .array(
@@ -362,9 +379,26 @@ function describe(response: ThreadResponse): string {
             'kolonie.accounts.recipes reads it.'
           : ''
 
+    const tip =
+      response.operateNote === undefined
+        ? ''
+        : ` Your ${response.operateNote.tag} tip is held for moderation` +
+          `${response.operateNote.replaced ? ' (it replaced an earlier one)' : ''} and will sit ` +
+          'beside the Atlas entry — never inside the way-in steps — once approved.'
+
     return (
       `Closed as ${response.episode?.outcome}. The thread keeps it — open another when ` +
-      `something else comes up.${atlas}`
+      `something else comes up.${atlas}${tip}`
+    )
+  }
+
+  if (response.op === 'operate-note') {
+    const tip = response.operateNote
+    if (tip === undefined) return 'Tip filed.'
+    return (
+      `Your ${tip.tag} tip on ${response.account?.identifier ?? 'that account'} is held for ` +
+      `moderation${tip.replaced ? ' (it replaced an earlier one)' : ''}. Once approved it sits ` +
+      'beside the Atlas entry that kolonie.accounts.recipes reads — never inside the way-in steps.'
     )
   }
 

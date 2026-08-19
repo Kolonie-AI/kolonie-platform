@@ -1887,6 +1887,7 @@ export function registerAccountTools(
                           result.response.briefings,
                           result.response.notes,
                           result.response.routes,
+                          result.response.operateNotes,
                         ),
                         ownAccountsAsText(ownAccounts),
                       ]
@@ -1938,6 +1939,16 @@ export function registerAccountTools(
                 ? []
                 : [{ kind: recipe.kind, provider: recipe.provider, ...route }]
             }),
+          /** Post-account tips, flattened like walk notes (`#1299`). */
+          operateNotes: result.response.entries
+            .flatMap((entry) => entry.recipes)
+            .map((recipe) => ({
+              kind: recipe.kind,
+              provider: recipe.provider,
+              notes:
+                result.response.operateNotes.get(figureKey(recipe.kind, recipe.provider)) ?? [],
+            }))
+            .filter((row) => row.notes.length > 0),
           /**
            * **Absent rather than empty when they were not asked for** (`#1101`).
            * An empty array here would read as *this provider has no published

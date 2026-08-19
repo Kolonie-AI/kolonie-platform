@@ -587,7 +587,7 @@ describe('the migrations', () => {
     // A pending request's body lives in `messages` on a conversation the
     // recipient is not yet a participant of; accepting is the insert that
     // makes those rows readable, and until then no query that exists can.
-    expect(afterFirst.tables).toBe('148')
+    expect(afterFirst.tables).toBe('149')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

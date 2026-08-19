@@ -29,6 +29,8 @@ import {
   recordQuestReportModeration,
   pendingPlaybookModerations,
   pendingPlaybookNotes,
+  pendingOperateNotes,
+  recordOperateNoteVerdict,
   pendingPlaybookStepProposalsForModeration,
   pendingQuestModerations,
   pendingReports,
@@ -98,6 +100,7 @@ import type { RedLineReviewStore } from './redline-review.js'
 import type { QuestAuditStore } from './quest-audit.js'
 import type { QuestEndingsStore } from './quest-endings.js'
 import type { WalkProseModerationStore } from './walk-prose.js'
+import type { OperateNoteModerationStore } from './operate-notes.js'
 import type { AtlasModerationStore } from './atlas.js'
 import type { AtlasCategoryProposalStore } from './atlas-category-proposals.js'
 import type { QuestReportModerationStore } from './quest-reports.js'
@@ -327,6 +330,12 @@ const playbookNoteStore: PlaybookNoteModerationStore = {
   pending: (limit) => pendingPlaybookNotes(db, limit),
   record: (input) => recordPlaybookNoteVerdict(db, input),
 }
+
+const operateNoteStore: OperateNoteModerationStore = {
+  pending: (limit) => pendingOperateNotes(db, limit),
+  record: (input) => recordOperateNoteVerdict(db, input),
+}
+
 
 /**
  * The step-proposal queue (`#1254`).
@@ -779,6 +788,7 @@ const questRunner = startQuestRunner(
     // that answers differently is not a cheaper verdict but a different one
     // (`#726`, `#1219`).
     playbooks: { store: playbookStore, model: questModel, log },
+    operateNotes: { store: operateNoteStore, model },
     playbookNotes: {
       store: playbookNoteStore,
       model: questModel,

@@ -1,15 +1,21 @@
 import {
+  AccountKindSchema,
   EPISODE_TITLE_MAX_LENGTH,
   EPISODE_WALL_MAX_LENGTH,
   ENTRY_BODY_MAX_LENGTH,
   EpisodeKindSchema,
   EpisodeOutcomeSchema,
   EpisodeTurnSchema,
+  GUIDANCE_CONTENT_MIN_LENGTH,
+  OPERATE_NOTE_MAX_LENGTH,
+  OperateNoteBodySchema,
+  OperateNoteTagSchema,
   SLOT_LABEL_MAX_LENGTH,
   SLOT_MAX_READS,
   SLOT_VALUE_MAX_LENGTH,
   SlotFillerSchema,
   VaultKeySchema,
+  episodeOperateNote,
   type AccountEntry,
   type AccountEpisode,
   type AccountSlot,
@@ -36,6 +42,7 @@ import {
   slotsOf,
   takeSlot,
   threadOf,
+  upsertOperateNote,
   vaultHoldsKey,
   writeEntry,
   openVaultValue,
@@ -45,6 +52,7 @@ import {
   type AccountThreadId,
   type Database,
   type OpenEpisodeAccount,
+  type UpsertOperateNoteInput,
 } from '@kolonie-ai/db'
 import { z } from 'zod'
 import { atlasStateAt, type ProviderRecipes } from './provider-recipes.js'
@@ -129,6 +137,14 @@ export interface AccountThreadStore {
     episodeId: AccountEpisodeId,
     command: Parameters<typeof closeEpisode>[2],
   ): ReturnType<typeof closeEpisode>
+  /**
+   * File a post-account operate tip for this provider (`#1299`).
+   *
+   * Maintenance closes and the explicit `operate-note` op both land here. The
+   * tip is moderated before any other citizen reads it, and it never writes
+   * recipe steps — that path stays `episodeVerdict`'s alone.
+   */
+  fileOperateNote(input: UpsertOperateNoteInput): ReturnType<typeof upsertOperateNote>
   /**
    * Where a taken credential lands. The caller's own key seals it.
    *
@@ -217,6 +233,7 @@ export function databaseAccountThreads(
     writeEntry: (command) => writeEntry(db, command),
     passTurn: (episodeId, to) => passTurn(db, episodeId, to),
     closeEpisode: (episodeId, command) => closeEpisode(db, episodeId, command),
+    fileOperateNote: (input) => upsertOperateNote(db, input),
     vaultClaim: (vaultToken, agentId, key, value) =>
       claimVaultEntry(db, vaultToken, agentId, key, value),
     vaultHolds: (agentId, key) => vaultHoldsKey(db, agentId, key),
@@ -299,7 +316,12 @@ export function databaseAccountThreads(
  * `#930` decided the set and decided that it is closed: a seventh operation is
  * an argument on the issue rather than a line here.
  */
-export const THREAD_OPS = ['open', 'put', 'read', 'note', 'pass', 'close'] as const
+/**
+ * `operate-note` is the explicit tip report (`#1299`): post-account, keyed by
+ * the account, and never a seventh conversation verb about the episode itself.
+ * Close may also file one when a maintenance episode supplies the tip fields.
+ */
+export const THREAD_OPS = ['open', 'put', 'read', 'note', 'pass', 'close', 'operate-note'] as const
 export type ThreadOp = (typeof THREAD_OPS)[number]
 
 const isThreadOp = (value: unknown): value is ThreadOp =>
@@ -436,6 +458,19 @@ export type ThreadResponse = {
    * or where this Colony has no catalogue wired at all.
    */
   readonly atlas?: AtlasState
+  /**
+   * What filing an operate tip did (`#1299`).
+   *
+   * Present on `operate-note` and on a maintenance `close` that carried tip
+   * fields. `pending` means the tip is held for moderation and is not yet
+   * readable beside the Atlas entry — the same contract walk notes hold.
+   */
+  readonly operateNote?: {
+    readonly id: string
+    readonly tag: string
+    readonly status: 'pending'
+    readonly replaced: boolean
+  }
 }
 
 export type ThreadOutcome =
@@ -576,6 +611,10 @@ export type ThreadCommand = {
   readonly outcome?: string | null | undefined
   readonly wall?: string | null | undefined
   readonly slots?: unknown
+  /** Post-account tip tag (`#1299`) — close / operate-note. */
+  readonly operateTag?: string | null | undefined
+  /** Post-account tip body (`#1299`) — close / operate-note. */
+  readonly operateNote?: string | null | undefined
 }
 
 export async function accountThread(
@@ -596,6 +635,13 @@ export async function accountThread(
 
   if (op === 'open') return await openOne(agentId, command, store, deps.recipes)
   if (op === 'read') return await readOne(agentId, command, store, deps.recipes)
+  /**
+   * An explicit tip report names the *account*, not an episode (`#1299`). A tip
+   * about IMAP after signup is about the provider the account sits at, and
+   * requiring an open maintenance episode would force a conversation just to
+   * leave a sentence beside the entry.
+   */
+  if (op === 'operate-note') return await fileOperateNoteOp(agentId, command, store)
 
   /**
    * Everything else names an episode, and *does this exist* and *is it yours*
@@ -617,7 +663,7 @@ export async function accountThread(
   // The account travels with the episode because the close speaks about it:
   // `#933`'s prefilled declaration is composed from the row, and `found` is the
   // read that already scoped it to this agent.
-  return await close(found, command, store)
+  return await close(agentId, found, command, store)
 }
 
 /**
@@ -975,7 +1021,137 @@ const PASSWORD_ADVICE =
   'An operator set a password on this account. It is yours now, and changing it is ' +
   'yours to decide — nothing here requires it and nothing is withheld if you do not.'
 
+/**
+ * Parse the optional tip fields shared by `close` and `operate-note` (`#1299`).
+ *
+ * Both absent → no tip. One without the other → refuse. Both present → validate
+ * tag and body. The caller decides whether this episode (or account) may file.
+ */
+function parseOperateTip(command: ThreadCommand):
+  | { readonly kind: 'absent' }
+  | { readonly kind: 'invalid'; readonly why: string }
+  | { readonly kind: 'tip'; readonly tag: string; readonly note: string } {
+  const rawTag = command.operateTag
+  const rawNote = command.operateNote
+  const tagPresent = rawTag !== undefined && rawTag !== null && String(rawTag).trim() !== ''
+  const notePresent = rawNote !== undefined && rawNote !== null && String(rawNote).trim() !== ''
+
+  if (!tagPresent && !notePresent) return { kind: 'absent' }
+  if (tagPresent !== notePresent) {
+    return {
+      kind: 'invalid',
+      why:
+        'An operate tip needs both operateTag and operateNote together — one without the other ' +
+        'is not a tip. Tags are access-method, api, quota, prove, payout-ops.',
+    }
+  }
+
+  const tag = OperateNoteTagSchema.safeParse(String(rawTag).trim())
+  if (!tag.success) {
+    return {
+      kind: 'invalid',
+      why:
+        'operateTag is one of: access-method, api, quota, prove, payout-ops. Those are the ' +
+        'post-account tips; a way-in finding belongs on a walk report, not here.',
+    }
+  }
+
+  const note = OperateNoteBodySchema.safeParse(String(rawNote))
+  if (!note.success) {
+    const first = note.error.issues[0]?.message
+    return {
+      kind: 'invalid',
+      why:
+        first ??
+        `operateNote is a tip of ${GUIDANCE_CONTENT_MIN_LENGTH} to ${OPERATE_NOTE_MAX_LENGTH} characters, with no credential in it.`,
+    }
+  }
+
+  return { kind: 'tip', tag: tag.data, note: note.data }
+}
+
+async function fileOperateNoteOp(
+  agentId: AgentId,
+  command: ThreadCommand,
+  store: AccountThreadStore,
+): Promise<ThreadOutcome> {
+  const accountId = command.accountId ?? undefined
+  if (accountId === undefined || accountId === '') {
+    return rejected(
+      'Name the account this tip is about. kolonie.accounts.list carries the ids.',
+    )
+  }
+
+  const account = await store.account(agentId, accountId)
+  if (account === undefined) {
+    return rejected(
+      'No account of yours has that id. kolonie.accounts.list carries them.',
+      'not_found',
+    )
+  }
+
+  const provider = (account.provider ?? '').trim()
+  if (provider === '') {
+    return rejected(
+      'That account names no provider, so there is nowhere for an operate tip to hang. Set the ' +
+        'provider on the account first — a tip about "the mailbox" with no host is not one the ' +
+        'next citizen can act on.',
+    )
+  }
+
+  const tip = parseOperateTip(command)
+  if (tip.kind === 'absent') {
+    return rejected(
+      'An operate tip needs operateTag and operateNote. Tags are access-method, api, quota, ' +
+        'prove, payout-ops.',
+    )
+  }
+  if (tip.kind === 'invalid') return rejected(tip.why)
+
+  const episodeIdRaw = command.episodeId ?? undefined
+  const episodeId =
+    episodeIdRaw === undefined || episodeIdRaw === ''
+      ? undefined
+      : (episodeIdRaw as AccountEpisodeId)
+
+  if (episodeId !== undefined) {
+    const found = await store.episode(agentId, episodeId)
+    if (found === undefined) return { outcome: 'rejected', error: NOT_YOURS }
+  }
+
+  const filed = await store.fileOperateNote({
+    agentId,
+    kind: account.kind,
+    provider,
+    tag: tip.tag as UpsertOperateNoteInput['tag'],
+    note: tip.note,
+    ...(episodeId === undefined ? {} : { episodeId }),
+  })
+
+  if (filed.outcome === 'rejected') return rejected(filed.why, 'conflict')
+
+  return {
+    outcome: 'ok',
+    response: {
+      op: 'operate-note',
+      account: {
+        id: account.id,
+        kind: account.kind,
+        identifier: account.identifier,
+        provider: account.provider,
+      },
+      operateNote: {
+        id: filed.id,
+        tag: tip.tag,
+        status: 'pending',
+        replaced: filed.replaced,
+      },
+    },
+  }
+}
+
 async function close(
+  agentId: AgentId,
   found: { readonly episode: AccountEpisode; readonly account: OpenEpisodeAccount },
   command: ThreadCommand,
   store: AccountThreadStore,
@@ -995,6 +1171,37 @@ async function close(
   const wall = (command.wall ?? '').trim()
   if (wall.length > EPISODE_WALL_MAX_LENGTH) {
     return rejected(`A wall is at most ${EPISODE_WALL_MAX_LENGTH} characters.`)
+  }
+
+  /**
+   * Tip fields are validated *before* the close writes, so a bad tip does not
+   * leave a closed episode and a refused tip in the same call (`#1299`). The tip
+   * itself is filed only after a successful close, and only when
+   * `episodeOperateNote` says this close may contribute one — maintenance still
+   * proposes nothing to the way-in recipe (`episodeVerdict`).
+   */
+  const tip = parseOperateTip(command)
+  if (tip.kind === 'invalid') return rejected(tip.why)
+
+  let tipReady:
+    | { readonly tag: string; readonly note: string }
+    | undefined
+  if (tip.kind === 'tip') {
+    const verdict = episodeOperateNote({
+      kind: episode.kind,
+      outcome: outcome.data,
+      wall: wall.length > 0 ? wall : null,
+    })
+    if (verdict.kind === 'nothing') return rejected(verdict.why)
+
+    const provider = (account.provider ?? '').trim()
+    if (provider === '') {
+      return rejected(
+        'That account names no provider, so there is nowhere for an operate tip to hang. Set the ' +
+          'provider on the account first.',
+      )
+    }
+    tipReady = tip
   }
 
   const closed = await store.closeEpisode(episode.id, {
@@ -1017,6 +1224,26 @@ async function close(
         'way.',
       'conflict',
     )
+  }
+
+  let filedTip: ThreadResponse['operateNote']
+  if (tipReady !== undefined && closed.outcome === 'closed') {
+    const provider = (account.provider ?? '').trim()
+    const filed = await store.fileOperateNote({
+      agentId,
+      kind: AccountKindSchema.parse(account.kind),
+      provider,
+      tag: tipReady.tag as UpsertOperateNoteInput['tag'],
+      note: tipReady.note,
+      episodeId: episode.id,
+    })
+    if (filed.outcome === 'rejected') return rejected(filed.why, 'conflict')
+    filedTip = {
+      id: filed.id,
+      tag: tipReady.tag,
+      status: 'pending',
+      replaced: filed.replaced,
+    }
   }
 
   /**
@@ -1060,6 +1287,7 @@ async function close(
           }
         : {}),
       ...(operatorSetASecret ? { advice: PASSWORD_ADVICE } : {}),
+      ...(filedTip === undefined ? {} : { operateNote: filedTip }),
     },
   }
 }

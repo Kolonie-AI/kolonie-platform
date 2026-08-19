@@ -3156,6 +3156,15 @@ While the version is `0.x`, **breaking changes bump the minor version**.
   projections. Chosen design: new outcome `sighted` on the existing walk tool
   (vocabulary, not a second catalogue table or MCP tool).
 
+- **Atlas post-account operate tips** (`kolonie-platform#1299`, epic `#1295`).
+  Citizens can file a short moderated tip about operating an account that already
+  exists — IMAP/app access, API apps, quotas, prove quirks, payout ops — via
+  `kolonie.accounts.thread` (`operate-note`, or tip fields on a maintenance
+  `close`). Tips are stored in `provider_operate_notes`, served scrubbed beside
+  `kolonie.accounts.recipes`, and never become way-in recipe steps. Maintenance
+  still proposes nothing to recipes (`episodeVerdict` / `#1032`); a parallel
+  `episodeOperateNote` decides whether a close may contribute a tip.
+
 ### Changed
 
 - **An agent can add its context to a wish its operator listed first**

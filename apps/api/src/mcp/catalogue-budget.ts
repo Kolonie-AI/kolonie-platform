@@ -199,20 +199,64 @@ export function budgetVerdict(measured: CatalogueTotals, budget: CatalogueBudget
 /**
  * Compare a pull-request head against its merge base (`#1266`).
  *
- * **Tools stay at zero.** One added tool fails, with the same way-out the floor
- * names. **Bytes get {@link CATALOGUE_BYTE_TOLERANCE}.** Growth at or under it
- * passes; past it fails, naming the tolerance and the delta. **A shrink is
- * reported and not failed** — `main` records the saving on merge, in the same
- * run that measures it. No branch writes `catalogue-budget.json`.
+ * **Tools stay at zero.** One added tool fails unless the branch justifies it.
+ * **Bytes get {@link CATALOGUE_BYTE_TOLERANCE}.** Growth at or under it passes;
+ * past it fails, unless the branch justifies it. **A shrink is reported and not
+ * failed** — `main` records the saving on merge, in the same run that measures
+ * it. No branch writes `catalogue-budget.json`.
+ *
+ * ## The way out this names, it now takes (`#1307`)
+ *
+ * Until `#1307` both failing branches printed *raise the floor by hand in a
+ * commit that names the record* and then ignored whether anybody had. The
+ * verdict compares head against merge base, so editing the floor file moved the
+ * measurement and not the comparison, and an author who followed the second
+ * remedy was told the same thing again. **The only remedy that worked was the
+ * first one** — cut the prose — which for a genuinely new verb is not a remedy
+ * at all: `tools > 0` failed outright with a way-out that led nowhere, so a
+ * justified tool addition could not pass this gate by any route.
+ *
+ * So the gate reads `justification` and calls {@link raiseIsJustified} on it,
+ * exactly as {@link floorChangeVerdict} does on `main`.
+ *
+ * **What that text is, is the point.** It is the pull request's own title and
+ * body, not a commit message from somewhere in the branch — because this repo
+ * squash-merges, and the body is what becomes the commit message on `main`. So
+ * the sentence this gate accepts is the same sentence `floorChangeVerdict` will
+ * be handed when the branch lands: passing here means the merge passes there,
+ * and a justification typed to get past this check is one that stays in the
+ * history. A gate that accepted a different text would let a branch go green and
+ * redden `main` on merge, which is the failure `#1317` spent a commit repairing.
+ *
+ * **Omitted, nothing changes.** A caller that passes no justification gets the
+ * pre-`#1307` behaviour, which is the honest default for a run that has no pull
+ * request to read one from.
  */
 export function branchBudgetVerdict(
   measured: CatalogueTotals,
   base: CatalogueTotals,
+  justification?: string,
 ): BudgetVerdict {
   const tools = measured.tools - base.tools
   const bytes = measured.bytes - base.bytes
+  const justified = justification !== undefined && raiseIsJustified(justification)
 
   if (tools > 0) {
+    if (justified) {
+      return {
+        within: true,
+        direction: 'over',
+        tools,
+        bytes,
+        message:
+          `The catalogue grew by ${tools} tool${tools === 1 ? '' : 's'} and ${bytes} bytes ` +
+          `against its merge base (${base.tools} tools, ${base.bytes} bytes), and this ` +
+          `branch says why: it names ${GRAMMAR_RECORD} and what the growth is vocabulary-free for. ` +
+          'Raise `apps/api/src/mcp/catalogue-budget.json` in the same branch, or the merge ' +
+          'to main fails against the floor instead.',
+      }
+    }
+
     return {
       within: false,
       direction: 'over',
@@ -222,12 +266,29 @@ export function branchBudgetVerdict(
         `The catalogue grew by ${tools} tool${tools === 1 ? '' : 's'} and ${bytes} bytes ` +
         `against its merge base (${base.tools} tools, ${base.bytes} bytes). ` +
         `If the growth is a new rung, it belongs in a \`kind\` enum and costs zero tools — see ${GRAMMAR_RECORD}. ` +
-        'If it is a genuinely new verb, raise the floor by hand in a commit that names that record ' +
-        'and says what the new tools are vocabulary-free for.',
+        'If it is a genuinely new verb, say so in this pull request: name that record in the ' +
+        'title or body and say what the new tools are vocabulary-free for, and raise ' +
+        '`apps/api/src/mcp/catalogue-budget.json` in the same branch.',
     }
   }
 
   if (bytes > CATALOGUE_BYTE_TOLERANCE) {
+    if (justified) {
+      return {
+        within: true,
+        direction: 'over',
+        tools,
+        bytes,
+        message:
+          `The catalogue grew by ${bytes} bytes against its merge base ` +
+          `(${base.tools} tools, ${base.bytes} bytes), past the tolerance of ` +
+          `${CATALOGUE_BYTE_TOLERANCE} bytes, and this branch says why: it names ` +
+          `${GRAMMAR_RECORD} and what the growth is vocabulary-free for. Tools are unchanged. ` +
+          'Raise `apps/api/src/mcp/catalogue-budget.json` in the same branch, or the merge ' +
+          'to main fails against the floor instead.',
+      }
+    }
+
     return {
       within: false,
       direction: 'over',
@@ -237,8 +298,9 @@ export function branchBudgetVerdict(
         `The catalogue grew by ${bytes} bytes against its merge base ` +
         `(${base.tools} tools, ${base.bytes} bytes), past the tolerance of ` +
         `${CATALOGUE_BYTE_TOLERANCE} bytes. Tools are unchanged. ` +
-        'Cut the prose, or raise the floor by hand in a commit that names ' +
-        `${GRAMMAR_RECORD} and says what the growth is vocabulary-free for.`,
+        'Cut the prose, or say why in this pull request: name ' +
+        `${GRAMMAR_RECORD} in the title or body, say what the growth is vocabulary-free for, ` +
+        'and raise `apps/api/src/mcp/catalogue-budget.json` in the same branch.',
     }
   }
 

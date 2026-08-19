@@ -242,6 +242,104 @@ describe('a pull request against its merge base', () => {
     expect(verdict.tools).toBe(0)
     expect(verdict.bytes).toBe(0)
   })
+
+  /**
+   * `#1307`: both failing branches printed *raise the floor by hand in a commit
+   * that names the record* and then never read one. The verdict compares head
+   * against merge base, so editing the floor file moved the measurement and not
+   * the comparison — an author who followed the printed remedy was told the same
+   * thing again, and a genuinely new verb had no route past this gate at all.
+   */
+  describe('the way out it prints, it takes (#1307)', () => {
+    const justified =
+      'Add kolonie.accounts.walk-status.\n\n' +
+      `A new verb, so the floor rises. Under ${GRAMMAR_RECORD} ` +
+      'the growth is vocabulary-free: it names no provider, kind or wall — those stay in the core enums.'
+    const unjustified = 'Add kolonie.accounts.walk-status.\n\nNew tool, floor bumped.'
+
+    it('passes a tool addition the pull request justifies', () => {
+      const verdict = branchBudgetVerdict(
+        { tools: base.tools + 1, bytes: base.bytes + 900 },
+        base,
+        justified,
+      )
+
+      expect(verdict.within).toBe(true)
+      expect(verdict.tools).toBe(1)
+      // Still reported as growth. Justified is not the same as unchanged, and a
+      // reader of the sticky comment is owed the number either way.
+      expect(verdict.direction).toBe('over')
+      expect(verdict.message).toContain(GRAMMAR_RECORD)
+    })
+
+    it('passes byte growth past the tolerance the pull request justifies', () => {
+      const verdict = branchBudgetVerdict(
+        { tools: base.tools, bytes: base.bytes + CATALOGUE_BYTE_TOLERANCE + 4_000 },
+        base,
+        justified,
+      )
+
+      expect(verdict.within).toBe(true)
+      expect(verdict.direction).toBe('over')
+      expect(verdict.bytes).toBe(CATALOGUE_BYTE_TOLERANCE + 4_000)
+    })
+
+    it('still fails when the pull request says nothing', () => {
+      const tools = branchBudgetVerdict(
+        { tools: base.tools + 1, bytes: base.bytes + 900 },
+        base,
+        unjustified,
+      )
+      const bytes = branchBudgetVerdict(
+        { tools: base.tools, bytes: base.bytes + CATALOGUE_BYTE_TOLERANCE + 4_000 },
+        base,
+        unjustified,
+      )
+
+      expect(tools.within).toBe(false)
+      expect(bytes.within).toBe(false)
+    })
+
+    /**
+     * The same two tokens `floorChangeVerdict` is held to, because this repo
+     * squash-merges: the body this gate reads is the message that gate is
+     * handed. A branch gate accepting a looser test would go green and redden
+     * `main` on merge.
+     */
+    it('holds the branch to the same test the floor gate applies on main', () => {
+      const half = `A new verb. See ${GRAMMAR_RECORD}.`
+      const other = 'A new verb, and the growth is vocabulary-free.'
+
+      for (const text of [half, other]) {
+        expect(raiseIsJustified(text)).toBe(false)
+        expect(
+          branchBudgetVerdict({ tools: base.tools + 1, bytes: base.bytes }, base, text).within,
+          text,
+        ).toBe(false)
+      }
+
+      expect(raiseIsJustified(justified)).toBe(true)
+    })
+
+    /** Omitted, the gate is what it was before `#1307`. */
+    it('fails as before when no justification is passed at all', () => {
+      expect(branchBudgetVerdict({ tools: base.tools + 1, bytes: base.bytes }, base).within).toBe(
+        false,
+      )
+    })
+
+    /** A shrink was never failing, and a justification does not make it growth. */
+    it('leaves a shrink alone whatever the pull request says', () => {
+      const verdict = branchBudgetVerdict(
+        { tools: base.tools - 1, bytes: base.bytes - 400 },
+        base,
+        justified,
+      )
+
+      expect(verdict.within).toBe(true)
+      expect(verdict.direction).toBe('under')
+    })
+  })
 })
 
 describe('raising the floor', () => {

@@ -216,10 +216,23 @@ jobs:
       # starts a comment, so `see #388.` was discarded before the shell saw it
       # and the step ran an unterminated quote. Quoting would work until the next
       # person edits the line. The character is the trap.
+      # PR_TEXT is what `branchBudgetVerdict` reads for the justification the
+      # failure message asks for, and this repository squash-merges, so the body
+      # is what becomes the commit message on main. The gate that runs there
+      # reads the same sentence.
+      #
+      # It goes through `env` and never through an inline expression. A pull
+      # request title is attacker-controlled text and this step is a shell
+      # heredoc around a node script: interpolated, a body containing a quote
+      # ends the script.
       - name: Hold the authenticated tier to its floor
         id: floor
         env:
           EVENT_NAME: ${{ github.event_name }}
+          PR_TEXT: |
+            ${{ github.event.pull_request.title }}
+
+            ${{ github.event.pull_request.body }}
         run: |
           node -e '
             const {
@@ -265,6 +278,7 @@ jobs:
               verdict = branchBudgetVerdict(
                 { tools: citizen.tools, bytes: citizen.bytes },
                 { tools: base.tools, bytes: base.bytes },
+                process.env.PR_TEXT,
               )
             } else {
               const budget = JSON.parse(await readFile(BUDGET, "utf8"))

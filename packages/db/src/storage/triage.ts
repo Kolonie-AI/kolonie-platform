@@ -41,6 +41,10 @@ function toTicket(row: typeof supportTickets.$inferSelect): SupportTicket {
     id: row.id,
     agentId: row.agentId,
     kind: row.kind,
+    // Which desk it reached (`#1344`). Triage is the reader that acts on it: a
+    // `desk` ticket is one a maintainer answers, never one this queue files a
+    // public issue for.
+    route: row.route,
     subject: row.subject,
     body: row.body,
     status: row.status,

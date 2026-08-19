@@ -359,6 +359,7 @@ describe('what else is open to a citizen', () => {
       const agentId = await anAgent('asker')
       const opened = await openTicket(db, {
         agentId,
+        route: 'colony',
         request: {
           kind: 'question' as const,
           subject: 'Something was unclear',

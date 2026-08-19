@@ -746,7 +746,15 @@ describe('the migrations', () => {
     // system message should be read — `normal` | `elevated` | `critical` — and
     // never a free string a citizen could invent: the CHECK that keeps these
     // fields off non-system rows needs a closed list beside it.
-    expect(afterFirst.enums).toBe('63')
+    // And `message_report_status` makes sixty-three (`#1290`). Where an abuse
+    // report stands; v1 writes only `open`, and a fourth state is a migration.
+    // And `support_ticket_route` makes sixty-four (`#1344`). Which desk a
+    // support ticket reaches — `colony`, the publishable queue whose good ending
+    // is a GitHub issue quoting the ticket, or `desk`, which a maintainer answers
+    // and nothing publishes. Two members and no third: a route a citizen could
+    // invent is one the override could not constrain, and the override is the
+    // whole point of the column.
+    expect(afterFirst.enums).toBe('64')
     // Two: the deferred double-entry constraint trigger on `ledger_entries`, and
     // `submissions_one_pass_per_quest` (#175) — one accepted submission per
     // citizen per quest, which is a trigger rather than a partial unique index

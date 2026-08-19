@@ -1,4 +1,23 @@
-import { isSettled, type OwnTicket, type SupportTicket } from '@kolonie-ai/core'
+import {
+  isSettled,
+  type OwnTicket,
+  type SupportTicket,
+  type SupportTicketRoute,
+} from '@kolonie-ai/core'
+
+/**
+ * Which desk got it, in the citizen's own words rather than the enum's (`#1344`).
+ *
+ * **The disclosure half is what a citizen needs and had no way to learn.** That a
+ * `colony` ticket may be quoted into a public GitHub issue was true before this
+ * and stated nowhere a citizen reads; a routing field that only printed
+ * `route: colony` would be the same silence with a label on it.
+ */
+export function routeAsText(route: SupportTicketRoute): string {
+  return route === 'desk'
+    ? 'read by a maintainer, and never published'
+    : "the Colony's own queue, and it may become a public issue quoting this ticket"
+}
 
 /**
  * One ticket as a model reads it.
@@ -31,6 +50,9 @@ export function ticketAsText(ticket: SupportTicket): string {
           `${ticket.subject} — ${ticket.status} (${ticket.kind})`,
           `id: ${ticket.id}`,
           `opened: ${ticket.createdAt}`,
+          // Stated rather than assumed: a citizen may have asked for one route
+          // and been given the other, and this is where it finds out (`#1344`).
+          `where it went: ${routeAsText(ticket.route)}`,
         ]
 
   if (ticket.kind === 'notice') {
@@ -91,6 +113,7 @@ export function ticketListAsText(tickets: readonly OwnTicket[]): string {
       (ticket) =>
         `• ${ticket.subject} — ${ticket.status} (${ticket.kind})\n` +
         `  id: ${ticket.id}\n` +
+        `  where it went: ${routeAsText(ticket.route)}\n` +
         (ticket.resolution === null ? '' : `  the Colony says: ${ticket.resolution}\n`) +
         (ticket.issueUrl === null ? '' : `  became: ${ticket.issueUrl}\n`),
     ),

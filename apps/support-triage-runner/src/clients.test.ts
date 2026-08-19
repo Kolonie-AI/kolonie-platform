@@ -37,6 +37,8 @@ const exercise: Record<keyof ModelClients, (clients: ModelClients) => Promise<un
         id: SupportTicketIdSchema.parse('11111111-1111-4111-8111-111111111111'),
         agentId: AgentIdSchema.parse('22222222-2222-4222-8222-222222222222'),
         kind: 'question',
+        // The queue this runner reads (`#1344`): a `desk` ticket never reaches it.
+        route: 'colony',
         subject: 'A question',
         body: 'What happened?',
         status: 'open',

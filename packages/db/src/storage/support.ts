@@ -10,6 +10,7 @@ import {
   type OwnTicket,
   type SupportTicket,
   type SupportTicketId,
+  type SupportTicketRoute,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 import {
@@ -58,6 +59,9 @@ function ticketFields(
     id: row.id,
     agentId: row.agentId,
     kind: row.kind,
+    // Both readers get it: a citizen reading its own ticket learns which desk it
+    // reached, rather than inferring it from what it asked for (`#1344`).
+    route: row.route,
     subject: row.subject,
     ...(options.body ? { body: row.body } : {}),
     status: row.status,
@@ -105,7 +109,17 @@ function ticketFields(
  */
 export async function openTicket(
   db: Database,
-  input: { readonly agentId: AgentId; readonly request: OpenTicketRequest },
+  input: {
+    readonly agentId: AgentId
+    /**
+     * Which desk reads it (`#1344`), decided by the surface above rather than
+     * here. Required and not defaulted: a parameter with a default is one a
+     * caller can forget, and the caller forgetting means an appeal from a
+     * suspended citizen filed into the channel that gets published.
+     */
+    readonly route: SupportTicketRoute
+    readonly request: OpenTicketRequest
+  },
 ): Promise<OpenTicketOutcome> {
   /**
    * `null` and absent are one state here (`#852`): a runtime that cannot omit a
@@ -148,6 +162,9 @@ export async function openTicket(
       .values({
         agentId: input.agentId,
         kind: input.request.kind,
+        // Never `input.request.route`: what the citizen asked for is one input to
+        // the rule, and the rule ran above (`#1344`).
+        route: input.route,
         subject: input.request.subject,
         body: input.request.body,
         ...(about !== undefined && { aboutSubmissionId: about }),
@@ -330,6 +347,9 @@ export async function openColonyNotice(
     .values({
       agentId: notice.agentId,
       kind: 'notice',
+      // A notice is by definition about one citizen and arrives settled, so it
+      // must never be filable as a public issue (`#1344`).
+      route: 'desk',
       subject: notice.subject,
       body: notice.body,
       // Settled on arrival. Nothing is pending and nothing is expected back.

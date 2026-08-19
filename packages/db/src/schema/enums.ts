@@ -55,6 +55,7 @@ import {
   SubmissionStatusSchema,
   QuestReportKindSchema,
   SupportTicketKindSchema,
+  SupportTicketRouteSchema,
   SupportTicketStatusSchema,
   SystemAccountSchema,
   TaskAttemptOutcomeSchema,
@@ -294,6 +295,19 @@ export const questReportKind = pgEnum('quest_report_kind', valuesOf(QuestReportK
 export const supportTicketKind = pgEnum(
   'support_ticket_kind',
   valuesOf(SupportTicketKindSchema.options),
+)
+
+/**
+ * Which desk reads a ticket: the Colony's public work queue, or a maintainer
+ * (`#1344`).
+ *
+ * An enum and not a boolean, for `support_ticket_kind`'s reason: the two values
+ * name two different readers with two different disclosure rules, and `is_private`
+ * would say what the row is *not* rather than where it goes.
+ */
+export const supportTicketRoute = pgEnum(
+  'support_ticket_route',
+  valuesOf(SupportTicketRouteSchema.options),
 )
 
 /**

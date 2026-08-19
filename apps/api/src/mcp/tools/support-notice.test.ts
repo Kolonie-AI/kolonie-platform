@@ -93,6 +93,7 @@ describe('a notice from the Colony', () => {
 
     const opened = await colony.open({
       agentId: aCitizen(),
+      standing: 'citizen',
       body: {
         kind: 'notice',
         subject: 'Speaking for the Colony',

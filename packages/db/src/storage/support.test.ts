@@ -10,6 +10,7 @@ import {
   type OpenTicketRequest,
   type SubmissionId,
   type SupportTicket,
+  type SupportTicketRoute,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { agents, providerBriefings, submissions, supportTickets, tasks } from '../schema/index.js'
@@ -44,9 +45,11 @@ const aRequest = (overrides: Partial<OpenTicketRequest> = {}): OpenTicketRequest
  */
 const openedTicket = async (
   db: Database,
-  input: Parameters<typeof openTicket>[1],
+  input: Omit<Parameters<typeof openTicket>[1], 'route'> & { route?: SupportTicketRoute },
 ): Promise<SupportTicket> => {
-  const result = await openTicket(db, input)
+  // `route` is required of the real caller, deliberately (`#1344`), and defaulted
+  // here so that the tests which are about something else do not have to name it.
+  const result = await openTicket(db, { ...input, route: input.route ?? 'colony' })
   if (result.outcome !== 'opened') throw new Error(`opening a ticket answered ${result.outcome}`)
   return result.ticket
 }
@@ -122,6 +125,47 @@ describe('support tickets', () => {
   })
 
   /**
+   * The column the routing rule writes (`#1344`).
+   *
+   * **The rule is not here and must not be.** What this storage owes is that it
+   * writes what it was handed and hands it back to both readers — a `desk`
+   * ticket that read back as `colony` would put an appeal in front of whatever
+   * files public issues.
+   */
+  it.each(['colony', 'desk'] as const)(
+    'stores the route it was given and reads it back as %s',
+    async (route) => {
+      const agentId = await anAgent()
+
+      const opened = await openedTicket(db, { agentId, route, request: aRequest() })
+
+      const [row] = await db.select().from(supportTickets).where(eq(supportTickets.id, opened.id))
+      expect(row?.route).toBe(route)
+      expect(opened.route).toBe(route)
+      // Both readers, because a citizen reading its own ticket learns where it went.
+      expect((await readOwnTicket(db, { ticketId: opened.id, agentId }))?.route).toBe(route)
+      expect((await listOwnTickets(db, agentId)).map((ticket) => ticket.route)).toEqual([route])
+    },
+  )
+
+  /**
+   * What a citizen asked for is an input to the rule and never the value: a
+   * request naming `desk` cannot reach the column past a caller that decided
+   * `colony`, or the rule could be bypassed by the party it constrains.
+   */
+  it('writes the decided route rather than the one the request carried', async () => {
+    const agentId = await anAgent()
+
+    const opened = await openedTicket(db, {
+      agentId,
+      route: 'desk',
+      request: aRequest({ route: 'colony' }),
+    })
+
+    expect(opened.route).toBe('desk')
+  })
+
+  /**
    * The optional reference a citizen may attach to say what it was doing (#255).
    */
   it('stores a reference to one of the caller’s own submissions', async () => {
@@ -178,10 +222,12 @@ describe('support tickets', () => {
 
     const refused = await openTicket(db, {
       agentId: author,
+      route: 'colony',
       request: aRequest({ aboutSubmissionId: theirs }),
     })
     const missing = await openTicket(db, {
       agentId: author,
+      route: 'colony',
       request: aRequest({ aboutSubmissionId: fictional }),
     })
 
@@ -407,6 +453,9 @@ describe('support tickets', () => {
       if (sent.outcome !== 'sent') return
       expect(sent.ticket.status).toBe('resolved')
       expect(sent.ticket.resolution).toBeNull()
+      // Never the publishable queue (`#1344`): a notice is about one citizen's own
+      // submission, and there is no version of it that is the Colony's own defect.
+      expect(sent.ticket.route).toBe('desk')
       // And the citizen finds it where it finds everything else it is told.
       expect((await listOwnTickets(db, agentId)).map((row) => row.id)).toContain(sent.ticket.id)
     })

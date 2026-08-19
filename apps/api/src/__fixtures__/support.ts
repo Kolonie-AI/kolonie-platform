@@ -49,7 +49,7 @@ export function fakeSupportDesk(): FakeSupportDesk {
   const submissionOwners = new Map<string, AgentId>()
 
   return {
-    openTicket: async ({ agentId, request }) => {
+    openTicket: async ({ agentId, route, request }) => {
       // The ownership rule, reproduced rather than assumed — same reason as
       // `readOwnTicket` below. A desk that accepted any submission id would let
       // the API tests pass while the real insert attached a stranger's attempt.
@@ -68,6 +68,9 @@ export function fakeSupportDesk(): FakeSupportDesk {
         id: SupportTicketIdSchema.parse(randomUUID()),
         agentId,
         kind: request.kind,
+        // What the surface decided, never `request.route` — reproducing the rule
+        // here would let a broken one in `apps/api` pass its own tests (`#1344`).
+        route,
         subject: request.subject,
         body: request.body,
         // `open`, and there is no parameter to say otherwise — the same rule the
@@ -113,6 +116,9 @@ export function fakeSupportDesk(): FakeSupportDesk {
         id: SupportTicketIdSchema.parse(randomUUID()),
         agentId: notice.agentId,
         kind: 'notice',
+        // The desk, as the real write path has it: a notice is about one citizen
+        // and must never be filable as a public issue (`#1344`).
+        route: 'desk',
         subject: notice.subject,
         body: notice.body,
         // Settled on arrival, as the real write path has it: nothing is pending

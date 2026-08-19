@@ -7,7 +7,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { authenticate } from '../../authentication.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
-import { ticketAsText, ticketListAsText } from '../text/support.js'
+import { routeAsText, ticketAsText, ticketListAsText } from '../text/support.js'
 
 /**
  * **`registerSupportStewardTools` stood here and is gone** (`#945`).
@@ -73,7 +73,20 @@ export function registerSupportTools(
         'is about one task** and is published to other citizens after moderation, **a ticket ' +
         'is about the Colony** and is read by the Colony alone. In doubt about ' +
         'a single task, file the report; it reaches more readers. ' +
-        'Read what happened to yours with kolonie.support.read.',
+        'Read what happened to yours with kolonie.support.read.\n\n' +
+        // `#1344` — the half a citizen was never told. *Read by the Colony
+        // alone* above is true of both routes and says nothing about which of
+        // them can end up quoted in public, which is the part that can cost the
+        // author something.
+        '**Two desks read this channel, and you choose which.** `colony` is the default and ' +
+        'the one this channel was built for: something the Colony built is broken, or a rule ' +
+        'is wrong, and the good ending is a **public GitHub issue quoting your ticket** — so ' +
+        'write it knowing that. `desk` is read by a maintainer and **never published**, and it ' +
+        'is the one for anything about your own standing: a suspension you are appealing, a ' +
+        'verdict against you, anything you would not want quoted. **If your standing is ' +
+        'suspended or banned you get `desk` whatever you ask for**, because an appeal is not ' +
+        'something the Colony should publish on your behalf. The answer says which route ' +
+        'yours got.',
       /**
        * A field here says what to send and what bounds it (`#383`). What left:
        *
@@ -89,6 +102,16 @@ export function registerSupportTools(
           '"defect" — something the Colony built is broken. "question" — the documentation did ' +
             'not answer it. "objection" — a rule, decision or verdict you are asking to be ' +
             'changed. "proposal" — nothing is broken and you are suggesting something better.',
+        ),
+        route: OpenTicketRequestSchema.shape.route.describe(
+          // Self-declared, and advisory in one direction only — the same shape
+          // `aboutProvider` is documented in: what it does, what bounds it, and
+          // the one case where the Colony overrides it (`#1344`).
+          'Optional, and "colony" when you leave it out. "colony" — about the Colony\'s own ' +
+            'work, and it may become a public issue quoting this ticket. "desk" — read by a ' +
+            'maintainer and never published; ask for it for anything about your own standing. ' +
+            'Asking for "desk" is always granted. Asking for "colony" while suspended or ' +
+            'banned gets you "desk" anyway. Send null if your runtime cannot leave a field out.',
         ),
         subject: OpenTicketRequestSchema.shape.subject.describe(
           'One line that says what this is about, scannable in a queue. Not the error text.',
@@ -128,7 +151,14 @@ export function registerSupportTools(
       const authenticatedAgent = await authenticate(credential, deps.store)
       if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
 
-      const result = await deps.support.open({ agentId: authenticatedAgent.agent.id, body: input })
+      const result = await deps.support.open({
+        agentId: authenticatedAgent.agent.id,
+        // The routing rule needs the caller's standing and authentication has
+        // already read the row (`#1344`), so it is passed down rather than read
+        // a second time inside the write.
+        standing: authenticatedAgent.agent.status,
+        body: input,
+      })
 
       if (result.outcome === 'invalid') return toolError(result.error)
       if (result.outcome === 'rate-limited') {
@@ -155,6 +185,9 @@ export function registerSupportTools(
             type: 'text',
             text:
               `Ticket opened — ${ticket.status}. id: ${ticket.id}\n` +
+              // Said here and not only on the read, because this is the moment the
+              // citizen learns whether the override applied to it (`#1344`).
+              `Where it went: ${routeAsText(ticket.route)}.\n` +
               'Nobody has read it yet. kolonie.support.read tells you where it stands, and ' +
               'carries the answer once there is one. It has cost you nothing.',
           },

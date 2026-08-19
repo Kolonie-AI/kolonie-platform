@@ -180,9 +180,31 @@ describe('what the split was not allowed to change', () => {
    * that fixed it is an acceptance criterion of `#1159` in its own right.
    */
   it('still cancels superseded runs on branches and never on main', () => {
-    expect(TEXT).toMatch(
-      /^ {2}cancel-in-progress: \$\{\{ github\.ref != 'refs\/heads\/main' \}\}$/m,
-    )
+    expect(TEXT).toMatch(/github\.ref != 'refs\/heads\/main'/)
+  })
+
+  /**
+   * **A queue entry is not a stale branch tip.** `refs/heads/gh-readonly-queue/…`
+   * is not `main`, so the condition above alone would read it as superseded — and
+   * a cancelled entry is a *dequeued* entry, so that would not merely lose an
+   * answer, it would stop the queue. Each entry is a distinct merge result whose
+   * verdict is the only one it will ever get, which is the argument `#1159` made
+   * for `main` word for word.
+   */
+  it('never cancels a merge queue entry', () => {
+    expect(TEXT).toMatch(/!startsWith\(github\.ref,\s*\n?\s*'refs\/heads\/gh-readonly-queue\/'\)/)
+  })
+
+  /**
+   * **The queue cannot be turned on without this** (`#1308`). A queued pull
+   * request is built onto a queue ref and GitHub waits for the *required*
+   * context on it; this workflow is the only thing that produces
+   * `format, lint, build, typecheck, test`, so without the trigger every entry
+   * would sit until it timed out and be dequeued. Merging would stop, quietly,
+   * on a repository whose checks all look green.
+   */
+  it('runs for a merge group, which is what makes the queue answer #1308', () => {
+    expect(TEXT).toMatch(/^ {2}merge_group:$/m)
   })
 
   /** `#971`: a `branches:` filter under `pull_request:` gave stacked pull requests

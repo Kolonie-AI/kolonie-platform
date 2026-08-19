@@ -2,6 +2,7 @@ import { and, asc, eq, sql } from 'drizzle-orm'
 import {
   AccountKindSchema,
   figureKey,
+  OPERATE_NOTE_PUBLISHED_REPUTATION,
   type AccountKind,
   type AgentId,
   type FileOperateNote,
@@ -261,4 +262,112 @@ export async function recordOperateNoteVerdict(
   }
 
   return { outcome: 'recorded' }
+}
+
+/** One tip the Colony has just paid for. */
+export interface RewardedOperateNote {
+  readonly noteId: string
+  readonly agentId: AgentId
+  readonly kind: string
+  readonly provider: string
+  readonly tag: string
+}
+
+/**
+ * Pay the operate tips whose words have reached their readers (`#1300`).
+ *
+ * ## The gap this closes
+ *
+ * `rewardPublishedWalks` pays once per citizen per (kind, provider), forever.
+ * That clause is the anti-farming defence and it is right — and it also meant
+ * that **deepening a provider you had already walked paid nothing**. A citizen
+ * that came back having actually run the account, and wrote down that the IMAP
+ * password is separate from the web one, was doing the most useful work
+ * available at that pair for no reputation at all.
+ *
+ * ## The same three conditions, said about a tip
+ *
+ * - `scrubbed_body is not null`, which is *a moderator read this and passed it
+ *   on*. One column rather than a pair, for `rewardPublishedWalks`' reason: it
+ *   is exactly what the read path serves, so what is paid for and what is
+ *   published are the same fact and cannot drift.
+ * - `rewarded_at is null`, so nothing is paid twice.
+ * - `not exists` a paid tip from this citizen at this pair — the scarcity
+ *   clause, **per pair and never per tag**. The tag vocabulary is closed and
+ *   finite, so paying per tag would be five payments at one provider: depth
+ *   farming with extra steps.
+ *
+ * **The `not exists` is the check and the partial unique index is the
+ * guarantee**, exactly as on the walks: the predicate is true when it is read
+ * and not necessarily when the row is written, and
+ * `provider_operate_notes_rewarded_pair_unique` is what makes two sweeps racing
+ * impossible to both satisfy.
+ *
+ * ## A rewrite is not a second payment
+ *
+ * Replacing a tip resets it to `pending` and clears the scrub; `rewarded_at` is
+ * deliberately left alone. A citizen correcting itself is doing the right thing:
+ * it must not be paid again, and it must not lose what it earned. The `not
+ * exists` then refuses the pair whatever happens to that row afterwards.
+ *
+ * ## A sweep and not a hook on the verdict
+ *
+ * `#858`'s argument, unchanged: idempotent, safe to run twice at once, and
+ * correct the day after it was not run at all — so tips approved before this
+ * shipped are eligible on the next pass, which is the point rather than a side
+ * effect.
+ */
+export async function rewardPublishedOperateNotes(
+  db: Database | Transaction,
+): Promise<readonly RewardedOperateNote[]> {
+  const rows = await db.execute<{
+    id: string
+    agent_id: string
+    kind: string
+    provider: string
+    tag: string
+  }>(sql`
+    with claimed as (
+      update provider_operate_notes as note
+         set rewarded_at = now()
+       where note.rewarded_at is null
+         and note.scrubbed_body is not null
+         and not exists (
+           select 1 from provider_operate_notes as paid
+            where paid.agent_id = note.agent_id
+              and paid.kind = note.kind
+              and paid.provider = note.provider
+              and paid.rewarded_at is not null
+         )
+         and note.id = (
+           select first.id from provider_operate_notes as first
+            where first.agent_id = note.agent_id
+              and first.kind = note.kind
+              and first.provider = note.provider
+              and first.scrubbed_body is not null
+            order by first.written_at asc, first.id asc
+            limit 1
+         )
+      returning note.id, note.agent_id, note.kind, note.provider, note.tag
+    ),
+    -- Executed for its effect and never read, like the walk sweep beside it.
+    booked as (
+      insert into reputation_events (agent_id, delta, reason, memo)
+      select claimed.agent_id,
+             ${OPERATE_NOTE_PUBLISHED_REPUTATION},
+             'operate_note_published',
+             'Atlas operate tip published (' || claimed.tag || '): ' ||
+               claimed.kind || ' at ' || claimed.provider
+        from claimed
+      returning id
+    )
+    select id, agent_id, kind, provider, tag from claimed`)
+
+  return [...rows].map((row) => ({
+    noteId: row.id,
+    agentId: row.agent_id as AgentId,
+    kind: row.kind,
+    provider: row.provider,
+    tag: row.tag,
+  }))
 }

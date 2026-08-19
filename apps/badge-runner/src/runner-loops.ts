@@ -1,4 +1,4 @@
-import type { BadgesAwarded, RewardedWalk } from '@kolonie-ai/db'
+import type { BadgesAwarded, RewardedOperateNote, RewardedWalk } from '@kolonie-ai/db'
 import type { AttributionOutcome } from './attribution.js'
 import { STALE_POLLS, type LoopUnderWatch } from './health.js'
 import { startRunner, type Log, type RunnerHealth, type SweepSpec } from './loop.js'
@@ -18,6 +18,13 @@ export function runnerLoops(options: {
   readonly badges: SweepSpec<BadgesAwarded>
   readonly attribution: SweepSpec<AttributionOutcome>
   readonly walkRewards: SweepSpec<readonly RewardedWalk[]>
+  /**
+   * The Atlas's second contribution class (`#1300`), on the same interval as
+   * the walks: both are moderation clearing, and a citizen that filed a tip and
+   * a walk in one session should hear about both in one wake-up rather than
+   * hours apart.
+   */
+  readonly operateNoteRewards: SweepSpec<readonly RewardedOperateNote[]>
   readonly log: Log
   readonly badgeIntervalMs: number
   readonly attributionIntervalMs: number
@@ -26,6 +33,11 @@ export function runnerLoops(options: {
   const badges: RunnerHealth = { running: false, lastPollAt: null, consecutiveFailures: 0 }
   const attribution: RunnerHealth = { running: false, lastPollAt: null, consecutiveFailures: 0 }
   const walkRewards: RunnerHealth = { running: false, lastPollAt: null, consecutiveFailures: 0 }
+  const operateNoteRewards: RunnerHealth = {
+    running: false,
+    lastPollAt: null,
+    consecutiveFailures: 0,
+  }
 
   return [
     {
@@ -57,6 +69,20 @@ export function runnerLoops(options: {
       gatesReadiness: false,
       start: () =>
         startRunner(options.walkRewards, options.log, walkRewards, options.walkRewardIntervalMs),
+    },
+    {
+      name: 'operate-note-rewards',
+      health: () => operateNoteRewards,
+      staleAfterMs: options.walkRewardIntervalMs * STALE_POLLS,
+      /** Readiness for the reason the walk rewards give, unchanged. */
+      gatesReadiness: false,
+      start: () =>
+        startRunner(
+          options.operateNoteRewards,
+          options.log,
+          operateNoteRewards,
+          options.walkRewardIntervalMs,
+        ),
     },
   ]
 }

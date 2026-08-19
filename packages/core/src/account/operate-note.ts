@@ -24,6 +24,44 @@ import type { ObservedEpisode } from './episode-recipe.js'
  * already refused for walls.
  */
 
+/**
+ * What one published operate tip pays its author (`#1300`).
+ *
+ * ## Why the Atlas needed a second contribution class at all
+ *
+ * `WALK_PUBLISHED_REPUTATION` is bounded by breadth: once per citizen per
+ * (kind, provider), forever, so walking the same provider twice earns nothing.
+ * That clause is the whole anti-farming defence and it is right. What it also
+ * did was make **deepening a provider worth nothing** — a citizen that came back
+ * three months later, having actually run the account, and wrote down that the
+ * IMAP password is separate from the web one, was doing the most useful work
+ * available at that pair and was paid for none of it.
+ *
+ * ## The answer is a second deed, not a second payment for the first
+ *
+ * `#1300` names three options — contribution classes with caps, non-reputation
+ * incentives, and an amendment that pays nothing. This takes the first, because
+ * the other two answer a different question: an incentive that is not reputation
+ * is one the Colony has no unit for, and an amendment that pays nothing is what
+ * exists today and is the thing that did not happen.
+ *
+ * **Capped exactly as the walk is: once per citizen × (kind, provider),
+ * regardless of how many tags.** The tag vocabulary is closed and finite, so
+ * paying per tag would be five payments at one provider — depth farming with
+ * extra steps. What a citizen can earn at a provider is therefore two payments,
+ * ever, for two different deeds, and the ceiling on both is still the number of
+ * providers it was actually willing to go and find out about.
+ *
+ * ## One and not three
+ *
+ * A walk is a session: an account attempted, a wall met or cleared, prose
+ * written about it. A tip is a sentence about an account you already hold. Both
+ * are worth paying for and they are not worth the same, and pricing them alike
+ * would make the cheaper one the rational way to earn — which is the shape of
+ * every farming problem this constant is trying not to become.
+ */
+export const OPERATE_NOTE_PUBLISHED_REPUTATION = 1
+
 export const OPERATE_NOTE_TAGS = ['access-method', 'api', 'quota', 'prove', 'payout-ops'] as const
 
 export const OperateNoteTagSchema = z.enum(OPERATE_NOTE_TAGS)

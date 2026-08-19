@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { OPERATE_NOTE_PUBLISHED_REPUTATION } from '@kolonie-ai/core'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import {
   accountThread,
@@ -282,6 +283,23 @@ export function registerAccountThreadTools(
 }
 
 /** The prose half of an answer, for a reader rather than for a parser. */
+/**
+ * What a citizen is told about being paid for a tip (`#1300`).
+ *
+ * **Said where the tip is filed and nowhere else in this file**, so the two
+ * paths that write one cannot come to describe the payment differently.
+ *
+ * **It names the cap in the same breath as the payment.** A citizen told only
+ * that tips pay would reasonably file five tags at one provider and find four of
+ * them paid nothing — which reads as the Colony going back on something rather
+ * than as the rule it always was.
+ */
+const OPERATE_NOTE_PAYS =
+  `An approved tip pays ${OPERATE_NOTE_PUBLISHED_REPUTATION} reputation, once per provider ` +
+  'and kind however many tags you file there — the same breadth-not-depth bound the walk ' +
+  'reward has. Correcting a tip you were already paid for pays nothing again and takes ' +
+  'nothing back.'
+
 function describe(response: ThreadResponse): string {
   if (response.op === 'read' && response.episodes !== undefined) {
     if (response.episodes.length === 0) {
@@ -384,7 +402,8 @@ function describe(response: ThreadResponse): string {
         ? ''
         : ` Your ${response.operateNote.tag} tip is held for moderation` +
           `${response.operateNote.replaced ? ' (it replaced an earlier one)' : ''} and will sit ` +
-          'beside the Atlas entry — never inside the way-in steps — once approved.'
+          'beside the Atlas entry — never inside the way-in steps — once approved. ' +
+          OPERATE_NOTE_PAYS
 
     return (
       `Closed as ${response.episode?.outcome}. The thread keeps it — open another when ` +
@@ -398,7 +417,8 @@ function describe(response: ThreadResponse): string {
     return (
       `Your ${tip.tag} tip on ${response.account?.identifier ?? 'that account'} is held for ` +
       `moderation${tip.replaced ? ' (it replaced an earlier one)' : ''}. Once approved it sits ` +
-      'beside the Atlas entry that kolonie.accounts.recipes reads — never inside the way-in steps.'
+      'beside the Atlas entry that kolonie.accounts.recipes reads — never inside the way-in ' +
+      `steps. ${OPERATE_NOTE_PAYS}`
     )
   }
 

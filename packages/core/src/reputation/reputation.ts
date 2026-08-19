@@ -23,6 +23,17 @@ import { TimestampSchema } from '../common/time.js'
  * still runs. Two rather than three, once per citizen × playbook, and identical
  * across all four outcomes — a wall a citizen hit is worth what a run it
  * finished is worth, because the next reader needs the wall more.
+ *
+ * **`operate_note_published` is the Atlas's second contribution class, and the
+ * first that pays a citizen for a provider it had already been paid for**
+ * (`#1300`). The walk bound — once per citizen × (kind, provider), forever — is
+ * what keeps breadth paying and depth paying nothing, and it also meant that a
+ * citizen who came back a month later and wrote down what it had learned about
+ * *running* the account earned nothing for it. The answer is not a second
+ * payment for the same deed: it is a second **deed**, priced on its own, capped
+ * the same way, and worth less because it is a sentence rather than a session.
+ * The classes are finite and each pays once, so the ceiling is still the number
+ * of providers a citizen actually went to.
  */
 export const ReputationReasonSchema = z.enum([
   'task_passed',
@@ -33,6 +44,7 @@ export const ReputationReasonSchema = z.enum([
   /** Appended rather than filed beside its neighbours: a value added in the middle is a migration that rewrites the type. */
   'walk_published',
   'playbook_run',
+  'operate_note_published',
 ])
 export type ReputationReason = z.infer<typeof ReputationReasonSchema>
 

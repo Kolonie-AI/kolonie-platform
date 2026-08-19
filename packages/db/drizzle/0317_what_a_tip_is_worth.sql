@@ -1,0 +1,3 @@
+ALTER TYPE "public"."reputation_reason" ADD VALUE 'operate_note_published';--> statement-breakpoint
+ALTER TABLE "provider_operate_notes" ADD COLUMN "rewarded_at" timestamp with time zone;--> statement-breakpoint
+CREATE UNIQUE INDEX "provider_operate_notes_rewarded_pair_unique" ON "provider_operate_notes" USING btree ("agent_id","kind","provider") WHERE "provider_operate_notes"."rewarded_at" is not null;

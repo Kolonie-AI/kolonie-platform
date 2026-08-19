@@ -11,6 +11,7 @@ import {
 import {
   messageRateLimited,
   messageRefusals,
+  type AcknowledgeResponse,
   type CitizenMessaging,
   type MarkReadResponse,
   type MessageSendInput,
@@ -25,13 +26,29 @@ export interface FakeMessaging extends CitizenMessaging {
    * An operator thread this citizen is in (`#1288`).
    *
    * The person is not modelled — the console route owns that side, and this fake
-   * exists for the citizen's five tools. What it reproduces is the only thing
-   * those tools can see of one: a conversation whose counterparty is a person,
-   * so `kind` is `operator-human` and the filter has something to find.
+   * exists for the citizen's tools. What it reproduces is the only thing those
+   * tools can see of one: a conversation whose counterparty is a person, so
+   * `kind` is `operator-human` and the filter has something to find.
    */
   readonly operatorThread: (handle: string, label?: string) => string
   /** Make an operator thread read-only, as removing the relationship does. */
   readonly endOperatorLink: (conversationId: string) => void
+  /**
+   * A Colony system thread with one `actionRequired` message (`#1289`).
+   *
+   * Producers mint these; the fake only stages one so acknowledge and field
+   * surfacing are assertable. A citizen API still has no way to set the party.
+   */
+  readonly systemThread: (
+    handle: string,
+    options?: {
+      role?: 'doctor' | 'support' | 'academy' | 'security'
+      body?: string
+      priority?: 'normal' | 'elevated' | 'critical'
+      actionRequired?: boolean
+      nextAction?: string
+    },
+  ) => { conversationId: string; messageId: string }
   /**
    * Put a citizen in the Colony for messaging.
    *
@@ -50,10 +67,11 @@ export interface FakeMessaging extends CitizenMessaging {
 
 type Participant = {
   id: string
-  /** Absent on the operator's row: a person is not an agent (`#1288`). */
+  /** Absent on the operator's / system row: neither is an agent. */
   agentId?: string
-  party: 'citizen' | 'operator-human'
+  party: 'citizen' | 'operator-human' | 'system-role'
   label: string
+  systemRole?: 'doctor' | 'support' | 'academy' | 'security'
   lastReadMessageId?: string
 }
 
@@ -68,6 +86,10 @@ type ConversationRow = {
     senderParticipantId: string
     body: string
     createdAt: string
+    priority?: 'normal' | 'elevated' | 'critical'
+    actionRequired?: boolean
+    nextAction?: string
+    acknowledgedAt?: string
   }[]
 }
 
@@ -125,8 +147,11 @@ export function fakeMessaging(): FakeMessaging {
     return undefined
   }
 
-  const kindOf = (row: ConversationRow): Conversation['kind'] =>
-    row.participants.some((p) => p.party === 'operator-human') ? 'operator-human' : 'citizen'
+  const kindOf = (row: ConversationRow): Conversation['kind'] => {
+    if (row.participants.some((p) => p.party === 'system-role')) return 'system-role'
+    if (row.participants.some((p) => p.party === 'operator-human')) return 'operator-human'
+    return 'citizen'
+  }
 
   const asConversation = (row: ConversationRow, readerId: string): Conversation => {
     const me = row.participants.find((p) => p.agentId === readerId)
@@ -149,6 +174,7 @@ export function fakeMessaging(): FakeMessaging {
         participantId: p.id as Conversation['participants'][number]['participantId'],
         party: p.party,
         label: p.label,
+        ...(p.systemRole === undefined ? {} : { systemRole: p.systemRole }),
       })),
       createdAt: row.createdAt,
       ...(last === undefined ? {} : { lastMessageAt: last.createdAt }),
@@ -203,6 +229,41 @@ export function fakeMessaging(): FakeMessaging {
       const row = conversations.get(conversationId)
       if (row !== undefined) row.linkEnded = true
     },
+    systemThread(handle, options = {}) {
+      const held = canonical(handle)
+      const citizen = held === undefined ? undefined : handles.get(held)
+      if (citizen === undefined) throw new Error(`no such citizen: ${handle}`)
+
+      const role = options.role ?? 'security'
+      const conversationId = id()
+      const systemParticipantId = id()
+      const messageId = id()
+      conversations.set(conversationId, {
+        id: conversationId,
+        createdAt: now(),
+        participants: [
+          { id: id(), agentId: citizen.agentId, party: 'citizen', label: held! },
+          {
+            id: systemParticipantId,
+            party: 'system-role',
+            label: role,
+            systemRole: role,
+          },
+        ],
+        messages: [
+          {
+            id: messageId,
+            senderParticipantId: systemParticipantId,
+            body: options.body ?? 'Your API key was rotated.',
+            createdAt: now(),
+            priority: options.priority ?? 'critical',
+            actionRequired: options.actionRequired ?? true,
+            ...(options.nextAction === undefined ? {} : { nextAction: options.nextAction }),
+          },
+        ],
+      })
+      return { conversationId, messageId }
+    },
 
     async listThreads(agentId, options = {}) {
       return [...conversations.values()]
@@ -218,16 +279,25 @@ export function fakeMessaging(): FakeMessaging {
 
       const messages: Message[] = row!.messages.map((m) => {
         const sender = row!.participants.find((p) => p.id === m.senderParticipantId)!
-        return {
+        const base: Message = {
           id: m.id as MessageId,
           conversationId: row!.id as ConversationId,
           sender: {
             participantId: sender.id as Message['sender']['participantId'],
             party: sender.party,
             label: sender.label,
+            ...(sender.systemRole === undefined ? {} : { systemRole: sender.systemRole }),
           },
           body: m.body,
           createdAt: m.createdAt,
+        }
+        if (sender.party !== 'system-role') return base
+        return {
+          ...base,
+          ...(m.priority === undefined ? {} : { priority: m.priority }),
+          ...(m.actionRequired === undefined ? {} : { actionRequired: m.actionRequired }),
+          ...(m.nextAction === undefined ? {} : { nextAction: m.nextAction }),
+          ...(m.acknowledgedAt === undefined ? {} : { acknowledgedAt: m.acknowledgedAt }),
         }
       })
       return { outcome: 'read', response: { messages } }
@@ -423,6 +493,29 @@ export function fakeMessaging(): FakeMessaging {
         upTo === undefined ? row.messages.at(-1)?.id : row.messages.find((m) => m.id === upTo)?.id
       if (target !== undefined) me.lastReadMessageId = target
       return { outcome: 'marked', response: { marked: true } }
+    },
+
+    // @mirrors packages/db/src/storage/messaging.ts acknowledgeSystemMessage
+    async acknowledge(agentId, messageId): Promise<AcknowledgeResponse> {
+      for (const row of conversations.values()) {
+        const me = row.participants.find((p) => p.agentId === agentId)
+        if (me === undefined) continue
+        const message = row.messages.find((m) => m.id === messageId)
+        if (message === undefined) continue
+        const sender = row.participants.find((p) => p.id === message.senderParticipantId)
+        if (
+          sender?.party !== 'system-role' ||
+          message.actionRequired !== true ||
+          message.acknowledgedAt !== undefined
+        ) {
+          return refused('nothing-to-acknowledge')
+        }
+        const acknowledgedAt = now()
+        message.actionRequired = false
+        message.acknowledgedAt = acknowledgedAt
+        return { outcome: 'acknowledged', response: { acknowledgedAt } }
+      }
+      return refused('nothing-to-acknowledge')
     },
   }
 }

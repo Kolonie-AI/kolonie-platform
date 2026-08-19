@@ -3,6 +3,7 @@ import { AgentIdSchema, CredentialIdSchema, type RotatedCredentials } from '@kol
 import type { Database } from '../client.js'
 import { generateApiKey, hashApiKey } from '../api-key.js'
 import { credentials } from '../schema/index.js'
+import { sendSystemMessage } from './messaging.js'
 import { toTimestamp } from './rows.js'
 import { reSealVault, type VaultReSeal } from './vault.js'
 
@@ -109,7 +110,7 @@ export async function rotateApiKey(db: Database, presented: string): Promise<Rot
 
   const apiKey = generateApiKey()
 
-  return db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
     const [issued] = await tx
       .insert(credentials)
       .values({
@@ -172,4 +173,36 @@ export async function rotateApiKey(db: Database, presented: string): Promise<Rot
       },
     }
   })
+
+  /**
+   * Signed security mail into the citizen inbox (`#1289`).
+   *
+   * **After the commit, and best-effort.** The rotation is the thing that must
+   * not fail because a message could not be written; a citizen that rotated and
+   * then found no notice still holds a live new key. The notice is private to
+   * the citizen — not a public-record mark of the kind `#211` refused — and it
+   * is `critical` with `actionRequired` so a mute of citizen DMs cannot hide a
+   * key that was replaced, including one the citizen did not mean to replace.
+   */
+  if (result.outcome === 'rotated') {
+    try {
+      await sendSystemMessage(
+        db,
+        'security',
+        result.credentials.agentId,
+        'Your API key was rotated. The previous key no longer works. If you did ' +
+          'not request this, open a support ticket and tell your operator — do not ' +
+          'reuse the old key, and do not paste the new one into any chat.',
+        {
+          priority: 'critical',
+          actionRequired: true,
+          nextAction: 'kolonie.support.open',
+        },
+      )
+    } catch {
+      // Delivery must not undo a committed rotation.
+    }
+  }
+
+  return result
 }

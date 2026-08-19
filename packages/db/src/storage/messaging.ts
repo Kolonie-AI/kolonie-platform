@@ -16,6 +16,7 @@ import {
   type Message,
   type MessageId,
   type MessageParty,
+  type MessagePriority,
   type MessageRefusal,
   type MessageRequest,
   type MessageRequestId,
@@ -211,11 +212,25 @@ async function hasBlocked(db: Database, owner: AgentId, subject: AgentId): Promi
 }
 
 /**
+ * Optional fields only {@link sendSystemMessage} may set (`#1289`).
+ *
+ * Absent on every citizen and operator path — `insertMessage` defaults them so
+ * those callers stay free of a parameter they must not fill.
+ */
+export type SystemMessageFields = {
+  readonly priority?: MessagePriority
+  readonly actionRequired?: boolean
+  readonly nextAction?: string
+}
+
+/**
  * Write one message into a conversation the sender is already a participant of.
  *
  * The snapshot is copied off the participant row rather than passed in, which is
  * the mechanical half of *a citizen cannot forge a sender kind*: there is no
- * argument here for a party, a label or a role.
+ * argument here for a party, a label or a role. System fields are the same
+ * shape of rule (`#1289`): only a caller that already holds a
+ * {@link MessageSystemRole} reaches the branch that sets them.
  */
 async function insertMessage(
   db: Database | Transaction,
@@ -227,7 +242,9 @@ async function insertMessage(
     systemRole: MessageSystemRole | null
   },
   body: string,
+  system?: SystemMessageFields,
 ): Promise<MessageId> {
+  const isSystem = participant.party === 'system-role'
   const [row] = await db
     .insert(messages)
     .values({
@@ -237,6 +254,13 @@ async function insertMessage(
       senderLabel: participant.label,
       senderSystemRole: participant.systemRole,
       body,
+      ...(isSystem
+        ? {
+            priority: system?.priority ?? 'normal',
+            actionRequired: system?.actionRequired ?? false,
+            nextAction: system?.nextAction ?? null,
+          }
+        : {}),
     })
     .returning({ id: messages.id })
 
@@ -604,17 +628,20 @@ export async function sendOperatorMessage(
  * Colony cannot tell it has been suspended.
  *
  * The only way to reach this is to hold a {@link MessageSystemRole}, which no
- * citizen-facing surface accepts as input.
+ * citizen-facing surface accepts as input. Priority, `actionRequired` and
+ * `nextAction` travel with the same attestation (`#1289`): a citizen API has
+ * no parameter that can set them.
  */
 export async function sendSystemMessage(
   db: Database,
   role: MessageSystemRole,
   toAgentId: AgentId,
   body: string,
+  fields: SystemMessageFields = {},
 ): Promise<SendResult> {
   const existing = await pairedConversation(db, toAgentId, { systemRole: role })
   if (existing !== undefined) {
-    const id = await insertMessage(db, existing, body)
+    const id = await insertMessage(db, existing, body, fields)
     return {
       outcome: 'delivered',
       conversationId: conversationId(existing.conversationId),
@@ -627,6 +654,7 @@ export async function sendSystemMessage(
     toAgentId,
     { party: 'system-role', systemRole: role, label: role },
     body,
+    fields,
   )
 }
 
@@ -679,6 +707,7 @@ async function openDirectConversation(
     readonly label: string
   },
   text: string,
+  system?: SystemMessageFields,
 ): Promise<SendResult> {
   return await db.transaction(async (tx) => {
     const [conversation] = await tx
@@ -722,6 +751,7 @@ async function openDirectConversation(
         systemRole: sender.systemRole ?? null,
       },
       text,
+      system,
     )
 
     return {
@@ -1149,6 +1179,10 @@ async function conversationBodies(db: Database, id: ConversationId): Promise<Rea
       senderLabel: messages.senderLabel,
       senderSystemRole: messages.senderSystemRole,
       body: messages.body,
+      priority: messages.priority,
+      actionRequired: messages.actionRequired,
+      nextAction: messages.nextAction,
+      acknowledgedAt: messages.acknowledgedAt,
       createdAt: messages.createdAt,
     })
     .from(messages)
@@ -1158,19 +1192,85 @@ async function conversationBodies(db: Database, id: ConversationId): Promise<Rea
 
   return {
     outcome: 'read',
-    messages: rows.map((row) => ({
-      id: messageId(row.id),
-      conversationId: conversationId(row.conversationId),
-      sender: asSender({
-        id: row.senderParticipantId,
-        party: row.senderParty,
-        label: row.senderLabel,
-        systemRole: row.senderSystemRole,
-      }),
-      body: row.body,
-      createdAt: row.createdAt,
-    })),
+    messages: rows.map((row) => {
+      const base: Message = {
+        id: messageId(row.id),
+        conversationId: conversationId(row.conversationId),
+        sender: asSender({
+          id: row.senderParticipantId,
+          party: row.senderParty,
+          label: row.senderLabel,
+          systemRole: row.senderSystemRole,
+        }),
+        body: row.body,
+        createdAt: row.createdAt,
+      }
+      if (row.senderParty !== 'system-role') return base
+      return {
+        ...base,
+        ...(row.priority !== null ? { priority: row.priority } : {}),
+        actionRequired: row.actionRequired,
+        ...(row.nextAction !== null ? { nextAction: row.nextAction } : {}),
+        ...(row.acknowledgedAt !== null ? { acknowledgedAt: row.acknowledgedAt } : {}),
+      }
+    }),
   }
+}
+
+/**
+ * Clear `actionRequired` on one system message the caller can read (`#1289`).
+ *
+ * **Not a read cursor.** `markConversationRead` is *I have seen the words*;
+ * this is *I have done the thing the Colony asked*. A message that was never
+ * flagged, one the caller is not in, or one already acknowledged, answers
+ * `nothing-to-acknowledge` — one refusal so the call cannot probe another
+ * citizen's inbox.
+ */
+export async function acknowledgeSystemMessage(
+  db: Database,
+  agentId: AgentId,
+  id: MessageId,
+): Promise<
+  | { readonly outcome: 'acknowledged'; readonly acknowledgedAt: string }
+  | { readonly outcome: 'refused'; readonly refusal: MessageRefusal }
+> {
+  const [row] = await db
+    .select({
+      id: messages.id,
+      conversationId: messages.conversationId,
+      senderParty: messages.senderParty,
+      actionRequired: messages.actionRequired,
+      acknowledgedAt: messages.acknowledgedAt,
+    })
+    .from(messages)
+    .where(eq(messages.id, id))
+    .limit(1)
+
+  if (row === undefined) return { outcome: 'refused', refusal: 'nothing-to-acknowledge' }
+  if (row.senderParty !== 'system-role' || !row.actionRequired || row.acknowledgedAt !== null) {
+    return { outcome: 'refused', refusal: 'nothing-to-acknowledge' }
+  }
+
+  const me = await participantOf(db, conversationId(row.conversationId), agentId)
+  if (me === undefined) return { outcome: 'refused', refusal: 'nothing-to-acknowledge' }
+
+  const [updated] = await db
+    .update(messages)
+    .set({ acknowledgedAt: sql`now()`, actionRequired: false })
+    .where(
+      and(
+        eq(messages.id, id),
+        eq(messages.actionRequired, true),
+        isNull(messages.acknowledgedAt),
+      ),
+    )
+    .returning({ acknowledgedAt: messages.acknowledgedAt })
+
+  if (updated?.acknowledgedAt === undefined || updated.acknowledgedAt === null) {
+    return { outcome: 'refused', refusal: 'nothing-to-acknowledge' }
+  }
+
+  return { outcome: 'acknowledged', acknowledgedAt: updated.acknowledgedAt }
 }
 
 /**

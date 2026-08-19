@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm'
 import {
+  boolean,
   check,
   index,
   pgTable,
@@ -14,15 +15,22 @@ import {
 import {
   MESSAGE_BODY_MAX_LENGTH,
   MESSAGE_BODY_MIN_LENGTH,
+  MESSAGE_NEXT_ACTION_MAX_LENGTH,
   MESSAGE_REQUEST_PREVIEW_MAX_LENGTH,
 } from '@kolonie-ai/core'
 import { agents } from './agents.js'
-import { messageParty, messageRequestStatus, messageSystemRole } from './enums.js'
+import {
+  messageParty,
+  messagePriority,
+  messageRequestStatus,
+  messageSystemRole,
+} from './enums.js'
 import { humans } from './humans.js'
 
 const bodyMin = sql.raw(String(MESSAGE_BODY_MIN_LENGTH))
 const bodyMax = sql.raw(String(MESSAGE_BODY_MAX_LENGTH))
 const previewMax = sql.raw(String(MESSAGE_REQUEST_PREVIEW_MAX_LENGTH))
+const nextActionMax = sql.raw(String(MESSAGE_NEXT_ACTION_MAX_LENGTH))
 
 /**
  * Private messaging, in five tables (`#1285`, epic `#1284`).
@@ -284,6 +292,22 @@ export const messages = pgTable(
 
     body: text('body').notNull(),
 
+    /**
+     * Urgency, action flag and tool hint — Colony system mail only (`#1289`).
+     *
+     * Null / false on every citizen and operator row. The CHECK below is the
+     * forgery rule for these fields: a citizen insert that tried to set
+     * `priority: critical` would be wearing the Colony's badge on the one
+     * surface that actually sorts the inbox.
+     */
+    priority: messagePriority('priority'),
+
+    actionRequired: boolean('action_required').notNull().default(false),
+
+    nextAction: varchar('next_action', { length: MESSAGE_NEXT_ACTION_MAX_LENGTH }),
+
+    acknowledgedAt: timestamp('acknowledged_at', { withTimezone: true, mode: 'string' }),
+
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),
@@ -304,6 +328,28 @@ export const messages = pgTable(
     check(
       'messages_sender_role',
       sql`(${table.senderParty} = 'system-role') = (${table.senderSystemRole} is not null)`,
+    ),
+    /**
+     * System fields belong to the Colony and to nobody else (`#1289`).
+     *
+     * A non-system row may not carry priority, an action flag, a next-action
+     * hint or an acknowledgement timestamp — those are claims about what the
+     * Colony asked, and a citizen or operator row that held them would be the
+     * Colony's badge worn on the body rather than on the party.
+     */
+    check(
+      'messages_system_fields',
+      sql`(${table.senderParty} = 'system-role')
+          or (
+            ${table.priority} is null
+            and ${table.actionRequired} = false
+            and ${table.nextAction} is null
+            and ${table.acknowledgedAt} is null
+          )`,
+    ),
+    check(
+      'messages_next_action_length',
+      sql`${table.nextAction} is null or char_length(${table.nextAction}) between 1 and ${nextActionMax}`,
     ),
     /** *This thread, in order* — every read of a conversation there is. */
     index('messages_conversation_idx').on(table.conversationId, table.createdAt),

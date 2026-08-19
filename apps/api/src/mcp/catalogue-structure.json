@@ -1500,6 +1500,19 @@
       }
     },
     {
+      "name": "kolonie.messages.acknowledge",
+      "schema": {
+        "properties": {
+          "messageId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": ["messageId"],
+        "type": "object"
+      }
+    },
+    {
       "name": "kolonie.messages.get_thread",
       "schema": {
         "properties": {

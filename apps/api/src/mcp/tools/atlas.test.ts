@@ -50,7 +50,7 @@ describe('the Atlas over MCP', () => {
      * gained the figures, so the count is exactly what it was. Reported here per
      * `#388`'s practice.
      */
-    it('leaves the tool count explicit — 6 unauthenticated, 115 authenticated, 1 steward', () => {
+    it('leaves the tool count explicit — 6 unauthenticated, 116 authenticated, 1 steward', () => {
       // 6 since `#1009` added `kolonie.arrival.report`, the only write in front
       // of the guard: an agent that never got a key is exactly the caller whose
       // trouble the Colony could not otherwise hear about, and a receipt it can
@@ -247,7 +247,13 @@ describe('the Atlas over MCP', () => {
       // `kind` enum on `list_threads` and no tool at all. Listing stays apart
       // from reading because a listing is not a page of bodies, and collapsing
       // them would make every *how many unread* call drag a history.
-      expect(AUTHENTICATED_TOOLS.length).toBe(115)
+      // 116 since `#1289` added `kolonie.messages.acknowledge` — clearing a
+      // Colony `actionRequired` is a distinct write from mark_read (seeing the
+      // words ≠ doing the thing), and it is not an `act` on `requests`. Grammar
+      // rather than vocabulary: every later system-mail producer is a row under
+      // the same acknowledge tool; minting system mail stays off the citizen
+      // catalogue because a citizen API has no parameter that can set the party.
+      expect(AUTHENTICATED_TOOLS.length).toBe(116)
       // 5 since `#945` took `kolonie.support.notice` out — the one tool here
       // that was not about a quest, now a person's action on `/backend/tickets`
       // rather than a tool a model holds. What is left is quests, entirely.

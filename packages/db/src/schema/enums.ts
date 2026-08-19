@@ -28,6 +28,7 @@ import {
   type WakeEvent,
   PaymentObserverSchema,
   MessagePartySchema,
+  MessagePrioritySchema,
   MessageRequestStatusSchema,
   MessageSystemRoleSchema,
   ModeratedProfileFieldSchema,
@@ -633,4 +634,17 @@ export const messageSystemRole = pgEnum(
 export const messageRequestStatus = pgEnum(
   'message_request_status',
   valuesOf(MessageRequestStatusSchema.options),
+)
+
+/**
+ * How urgently a Colony system message asks to be read (`#1289`).
+ *
+ * Only `system-role` messages may carry one — the CHECK on `messages` is what
+ * makes that true of a row. Three members rather than a free integer, so a
+ * fourth urgency is an argument about what the Colony may claim of a citizen's
+ * attention.
+ */
+export const messagePriority = pgEnum(
+  'message_priority',
+  valuesOf(MessagePrioritySchema.options),
 )

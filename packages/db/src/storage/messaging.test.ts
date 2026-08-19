@@ -6,6 +6,7 @@ import { agents, humanAgents, humans, messageParticipants, messages } from '../s
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
 import {
   acceptMessageRequest,
+  acknowledgeSystemMessage,
   blockSender,
   declineMessageRequest,
   listConversations,
@@ -322,8 +323,18 @@ describe('private messaging', () => {
         'security',
         recipient,
         'Your account is suspended until 2026-09-01.',
+        { priority: 'critical', actionRequired: true, nextAction: 'kolonie.support.open' },
       )
       expect(system.outcome).toBe('delivered')
+      if (system.outcome !== 'delivered') throw new Error('unreachable')
+
+      const read = await readConversation(db, recipient, system.conversationId)
+      if (read.outcome !== 'read') throw new Error('unreachable')
+      expect(read.messages[0]).toMatchObject({
+        priority: 'critical',
+        actionRequired: true,
+        nextAction: 'kolonie.support.open',
+      })
 
       const fromOperator = await sendOperatorMessage(db, operator, recipient, 'I set the key.')
       expect(fromOperator.outcome).toBe('delivered')
@@ -664,6 +675,98 @@ describe('private messaging', () => {
           }),
         /messages_sender_role/,
       )
+    })
+
+    it('refuses system fields on a citizen row at the database (#1289)', async () => {
+      const citizen = await anAgent('citizen')
+      const other = await anAgent('other')
+      const opened = await sendCitizenMessage(db, citizen, {
+        toHandle: await handleOf(other),
+        body: 'Hello.',
+      })
+      if (opened.outcome !== 'requested') throw new Error('unreachable')
+      await acceptMessageRequest(db, other, opened.requestId)
+
+      const [participant] = await db
+        .select({ id: messageParticipants.id })
+        .from(messageParticipants)
+        .where(eq(messageParticipants.agentId, citizen))
+
+      await expectRejection(
+        () =>
+          db.insert(messages).values({
+            conversationId: opened.conversationId,
+            senderParticipantId: participant!.id,
+            senderParty: 'citizen',
+            senderLabel: 'citizen',
+            body: 'Wearing the Colony badge on the body.',
+            priority: 'critical',
+            actionRequired: true,
+            nextAction: 'kolonie.support.open',
+          }),
+        /messages_system_fields/,
+      )
+    })
+  })
+
+  describe('system message fields (#1289)', () => {
+    it('round-trips priority, actionRequired and nextAction on a Colony send', async () => {
+      const citizen = await anAgent('citizen')
+      const sent = await sendSystemMessage(
+        db,
+        'security',
+        citizen,
+        'Your API key was rotated.',
+        {
+          priority: 'critical',
+          actionRequired: true,
+          nextAction: 'kolonie.support.open',
+        },
+      )
+      expect(sent.outcome).toBe('delivered')
+      if (sent.outcome !== 'delivered') throw new Error('unreachable')
+
+      const read = await readConversation(db, citizen, sent.conversationId)
+      if (read.outcome !== 'read') throw new Error('unreachable')
+      expect(read.messages[0]).toMatchObject({
+        priority: 'critical',
+        actionRequired: true,
+        nextAction: 'kolonie.support.open',
+      })
+      expect(read.messages[0]!.acknowledgedAt).toBeUndefined()
+    })
+
+    it('acknowledge clears actionRequired and stamps acknowledgedAt', async () => {
+      const citizen = await anAgent('citizen')
+      const outsider = await anAgent('outsider')
+      const sent = await sendSystemMessage(
+        db,
+        'security',
+        citizen,
+        'Your API key was rotated.',
+        { priority: 'critical', actionRequired: true, nextAction: 'kolonie.support.open' },
+      )
+      if (sent.outcome !== 'delivered') throw new Error('unreachable')
+
+      expect(await acknowledgeSystemMessage(db, outsider, sent.messageId)).toEqual({
+        outcome: 'refused',
+        refusal: 'nothing-to-acknowledge',
+      })
+
+      const done = await acknowledgeSystemMessage(db, citizen, sent.messageId)
+      expect(done.outcome).toBe('acknowledged')
+      if (done.outcome !== 'acknowledged') throw new Error('unreachable')
+      expect(done.acknowledgedAt).toMatch(/^\d{4}-/)
+
+      const read = await readConversation(db, citizen, sent.conversationId)
+      if (read.outcome !== 'read') throw new Error('unreachable')
+      expect(read.messages[0]!.actionRequired).toBe(false)
+      expect(read.messages[0]!.acknowledgedAt).toBe(done.acknowledgedAt)
+
+      expect(await acknowledgeSystemMessage(db, citizen, sent.messageId)).toEqual({
+        outcome: 'refused',
+        refusal: 'nothing-to-acknowledge',
+      })
     })
   })
 

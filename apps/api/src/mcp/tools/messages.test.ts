@@ -32,6 +32,10 @@ const markRead = (conversationId: string) => ({
   name: 'kolonie.messages.mark_read',
   arguments: { conversationId },
 })
+const acknowledge = (messageId: string) => ({
+  name: 'kolonie.messages.acknowledge',
+  arguments: { messageId },
+})
 
 const textOf = (result: Awaited<ReturnType<Client['callTool']>>) => JSON.stringify(result.content)
 
@@ -41,6 +45,7 @@ const TOOLS = [
   'kolonie.messages.send',
   'kolonie.messages.requests',
   'kolonie.messages.mark_read',
+  'kolonie.messages.acknowledge',
 ] as const
 
 /**
@@ -295,6 +300,75 @@ describe('kolonie.messages.* (#1286)', () => {
 
       const read = await alice.client.callTool(getThread(conversationId))
       expect(read.isError).toBeFalsy()
+
+      await close()
+    })
+  })
+
+  /**
+   * `#1289`: system fields surface on read; acknowledge clears actionRequired;
+   * there is still no citizen tool that mints a system-role sender.
+   */
+  describe('system messages (#1289)', () => {
+    it('surfaces priority and actionRequired, and acknowledge clears them', async () => {
+      const { colony, alice, close } = await aPair()
+      const { conversationId, messageId } = colony.messaging.systemThread(alice.agent.profile.name, {
+        nextAction: 'kolonie.support.open',
+      })
+
+      const read = await alice.client.callTool(getThread(conversationId))
+      expect(read.structuredContent).toMatchObject({
+        messages: [
+          expect.objectContaining({
+            priority: 'critical',
+            actionRequired: true,
+            nextAction: 'kolonie.support.open',
+            sender: expect.objectContaining({ party: 'system-role', systemRole: 'security' }),
+          }),
+        ],
+      })
+      expect(textOf(read)).toContain('actionRequired')
+      expect(textOf(read)).toContain('priority=critical')
+
+      const done = await alice.client.callTool(acknowledge(messageId))
+      expect(done.isError).toBeFalsy()
+      expect(done.structuredContent).toMatchObject({
+        acknowledgedAt: expect.stringMatching(/^\d{4}-/),
+      })
+
+      const again = await alice.client.callTool(getThread(conversationId))
+      expect(again.structuredContent).toMatchObject({
+        messages: [expect.objectContaining({ actionRequired: false })],
+      })
+
+      const second = await alice.client.callTool(acknowledge(messageId))
+      expect(second.isError).toBe(true)
+      expect(second.structuredContent).toMatchObject({ error: { code: 'not_found' } })
+
+      await close()
+    })
+
+    it('refuses acknowledge for a citizen-authored message and for another inbox', async () => {
+      const { colony, alice, bob, close } = await aPair()
+      const asked = await alice.client.callTool(
+        send({ to: bob.agent.profile.name, body: 'Not a system message.' }),
+      )
+      const requestId = (asked.structuredContent as { requestId: string }).requestId
+      const conversationId = (asked.structuredContent as { conversationId: string }).conversationId
+      await bob.client.callTool(requests({ act: 'accept', requestId }))
+
+      const thread = await bob.client.callTool(getThread(conversationId))
+      const messageId = (thread.structuredContent as { messages: { id: string }[] }).messages[0]!
+        .id
+
+      const onCitizen = await bob.client.callTool(acknowledge(messageId))
+      expect(onCitizen.isError).toBe(true)
+      expect(onCitizen.structuredContent).toMatchObject({ error: { code: 'not_found' } })
+
+      const { messageId: systemId } = colony.messaging.systemThread(alice.agent.profile.name)
+      const outsider = await bob.client.callTool(acknowledge(systemId))
+      expect(outsider.isError).toBe(true)
+      expect(outsider.structuredContent).toMatchObject({ error: { code: 'not_found' } })
 
       await close()
     })

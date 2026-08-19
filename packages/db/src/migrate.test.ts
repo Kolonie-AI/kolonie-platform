@@ -729,7 +729,11 @@ describe('the migrations', () => {
     // party is `system-role`, and where a stranger's ask stands. A fourth party
     // or a fifth status is an argument about what a conversation is, so each
     // costs a migration.
-    expect(afterFirst.enums).toBe('61')
+    // And `message_priority` makes sixty-two (`#1289`). How urgently a Colony
+    // system message should be read — `normal` | `elevated` | `critical` — and
+    // never a free string a citizen could invent: the CHECK that keeps these
+    // fields off non-system rows needs a closed list beside it.
+    expect(afterFirst.enums).toBe('62')
     // Two: the deferred double-entry constraint trigger on `ledger_entries`, and
     // `submissions_one_pass_per_quest` (#175) — one accepted submission per
     // citizen per quest, which is a trigger rather than a partial unique index

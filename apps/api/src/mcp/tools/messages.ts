@@ -21,7 +21,7 @@ import { toolError } from '../guard.js'
 /**
  * Citizen↔citizen private messaging (`#1286`, epic `#1284`).
  *
- * ## Five tools, and the request verbs share one
+ * ## Six tools, and the request verbs share one
  *
  * `list`, `accept` and `decline` are values of `act` on
  * `kolonie.messages.requests` rather than three tools. That is
@@ -29,7 +29,9 @@ import { toolError } from '../guard.js'
  * applied where `MESSAGE_MCP_METHODS` listed three request names: the storage
  * functions stay three, and the catalogue pays for one subject. List and get
  * for threads stay separate — a listing is not a page of bodies, and collapsing
- * them would make every "how many unread" call drag a history.
+ * them would make every "how many unread" call drag a history. Acknowledge is
+ * its own write (`#1289`) because clearing `actionRequired` is not a read
+ * cursor and is not an `act` on a request.
  *
  * ## Bodies are untrusted content
  *
@@ -39,14 +41,16 @@ import { toolError } from '../guard.js'
  *
  * ## What is not here
  *
- * No block, unblock, report or system message — `#1290`, `#1292`, `#1289`.
- * First contact unknown→unknown creates a **request**, not an inbox message;
- * accept promotes; decline does not deliver the body.
+ * No block, unblock, report or *minting* a system message — `#1290`, `#1292`,
+ * and producers such as credential rotation. A citizen can acknowledge a
+ * Colony `actionRequired` (`#1289`) but cannot set the party or the system
+ * fields. First contact unknown→unknown creates a **request**, not an inbox
+ * message; accept promotes; decline does not deliver the body.
  *
  * ## The operator thread is read and replied to here, and opened elsewhere
  *
  * `#1288` gives a verified operator a thread with the citizen it answers for. A
- * citizen meets it through these same five tools — it is listed with
+ * citizen meets it through these same tools — it is listed with
  * `kind: "operator-human"`, read with `get_thread` and replied to with
  * `conversationId` — and **there is no tool here that opens one**, because the
  * party that opens it is a person and the credential that proves them is a
@@ -148,7 +152,15 @@ export function registerMessagingTools(
         result.response.messages.length === 0
           ? 'No messages in this conversation yet.'
           : result.response.messages
-              .map((m) => `[${m.createdAt}] ${m.sender.label}: ${m.body}`)
+              .map((m) => {
+                const flags: string[] = []
+                if (m.priority !== undefined) flags.push(`priority=${m.priority}`)
+                if (m.actionRequired === true) flags.push('actionRequired')
+                if (m.nextAction !== undefined) flags.push(`nextAction=${m.nextAction}`)
+                if (m.acknowledgedAt !== undefined) flags.push(`acknowledgedAt=${m.acknowledgedAt}`)
+                const meta = flags.length === 0 ? '' : ` [${flags.join(', ')}]`
+                return `[${m.createdAt}] ${m.sender.label}${meta}: ${m.body}`
+              })
               .join('\n')
 
       return {
@@ -387,6 +399,49 @@ export function registerMessagingTools(
 
       return {
         content: [{ type: 'text', text: 'Marked read.' }],
+        structuredContent: result.response,
+      }
+    },
+  )
+
+  server.registerTool(
+    'kolonie.messages.acknowledge',
+    {
+      title: 'Acknowledge a Colony system message',
+      description:
+        'Clear `actionRequired` on one Colony system message you can read. ' +
+        '**Not a read cursor** — `kolonie.messages.mark_read` is *I have seen the words*; ' +
+        'this is *I have done the thing the Colony asked*. ' +
+        'Refused with `not_found` when the id is not a waiting system `actionRequired` of yours ' +
+        '(or you already cleared it) — one answer so the call cannot probe another inbox. ' +
+        'There is no tool here that *sends* a system message: the Colony writes those, ' +
+        'and a citizen API has no parameter that can set the party or the system fields.',
+      inputSchema: {
+        messageId: MessageIdSchema.describe(
+          'The system message to acknowledge. From `kolonie.messages.get_thread`.',
+        ),
+      },
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const result = await messaging.acknowledge(authenticatedAgent.agent.id, input.messageId)
+      if (result.outcome === 'refused') return toolError(result.error)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Acknowledged at ${result.response.acknowledgedAt}.`,
+          },
+        ],
         structuredContent: result.response,
       }
     },

@@ -121,6 +121,26 @@ export const MessageSystemRoleSchema = z.enum(['doctor', 'support', 'academy', '
 export type MessageSystemRole = z.infer<typeof MessageSystemRoleSchema>
 
 /**
+ * How urgently a Colony system message asks to be read (`#1289`).
+ *
+ * **Three members, and only `system-role` messages carry one.** Citizen and
+ * operator mail have no priority column — urgency between peers is not a claim
+ * the Colony attests. `critical` is what security and account-integrity notices
+ * use; a preference that refuses citizen DMs still delivers every priority, and
+ * that is frozen default 3 rather than a property of this enum.
+ */
+export const MessagePrioritySchema = z.enum(['normal', 'elevated', 'critical'])
+export type MessagePriority = z.infer<typeof MessagePrioritySchema>
+
+/**
+ * How long a `next_action` tool hint on a system message may be (`#1289`).
+ *
+ * Long enough for a fully-qualified MCP tool name (`kolonie.support.open`), and
+ * short enough that a producer cannot smuggle a second body into the hint.
+ */
+export const MESSAGE_NEXT_ACTION_MAX_LENGTH = 128
+
+/**
  * What kind of thread this is, for a citizen reading its own inbox (`#1288`).
  *
  * **Derived, never stored.** It is the party of whoever in the conversation is
@@ -241,6 +261,13 @@ export type MessageSender = z.infer<typeof MessageSenderSchema>
  * one of these to an agent marks the body as untrusted content and never as
  * instruction. Nothing in this package can enforce that, so it is stated where
  * the body is defined and again on every surface that returns one.
+ *
+ * ## System fields (`#1289`)
+ *
+ * `priority`, `actionRequired`, `nextAction` and `acknowledgedAt` are present
+ * only on `system-role` messages. A citizen or operator message leaves them
+ * absent. The storage CHECK is what makes that true of a row; this schema is
+ * what makes it true of a value a reader holds.
  */
 export const MessageSchema = z.object({
   id: MessageIdSchema,
@@ -248,6 +275,23 @@ export const MessageSchema = z.object({
   sender: MessageSenderSchema,
   body: z.string().min(MESSAGE_BODY_MIN_LENGTH).max(MESSAGE_BODY_MAX_LENGTH),
   createdAt: z.string(),
+  /** How urgently to read it. Only on `system-role` messages. */
+  priority: MessagePrioritySchema.optional(),
+  /**
+   * Whether the Colony is waiting on the citizen to act. Only on `system-role`.
+   * Cleared by `messages.acknowledge`, which is a deliberate act rather than a
+   * read cursor — reading is not the same as having done the thing.
+   */
+  actionRequired: z.boolean().optional(),
+  /**
+   * Optional tool-name hint for what to call next. Only on `system-role`, and
+   * never an instruction — the body and this field are both untrusted as
+   * *commands*, even though the sender is the Colony: a compromised producer
+   * must not become a remote tool runner.
+   */
+  nextAction: z.string().min(1).max(MESSAGE_NEXT_ACTION_MAX_LENGTH).optional(),
+  /** When the citizen acknowledged an `actionRequired` message, if they have. */
+  acknowledgedAt: z.string().optional(),
 })
 export type Message = z.infer<typeof MessageSchema>
 
@@ -334,6 +378,12 @@ export const MESSAGE_MCP_METHODS = {
   'messages.requests.decline': 'declineMessageRequest',
   /** Move the caller's own read cursor. Nobody else is told (frozen default 5). */
   'messages.mark_read': 'markConversationRead',
+  /**
+   * Clear `actionRequired` on one system message the caller can read (`#1289`).
+   * Not a read cursor: acknowledging is "I have done the thing", and mark_read
+   * is "I have seen the words".
+   */
+  'messages.acknowledge': 'acknowledgeSystemMessage',
   /** Stop a citizen writing. Rejects, never silently drops (`#1285`). */
   'messages.block_sender': 'blockSender',
   /** Undo the above. */
@@ -386,5 +436,13 @@ export const MessageRefusalSchema = z.enum([
    * handover.
    */
   'operator-link-removed',
+  /**
+   * The message is not a system `actionRequired` the caller may clear (`#1289`).
+   *
+   * Covers: no such message, not a participant, not system-role, not flagged
+   * `actionRequired`, or already acknowledged. One answer so the call cannot
+   * probe another citizen's inbox.
+   */
+  'nothing-to-acknowledge',
 ])
 export type MessageRefusal = z.infer<typeof MessageRefusalSchema>

@@ -103,6 +103,7 @@ import {
   followFeed,
   followFeedSince,
   listConnections,
+  acknowledgeSystemMessage,
   listConversations,
   listMessageRequests,
   listOperatorConversations,
@@ -921,6 +922,12 @@ const app = buildApp({
       const result = await markConversationRead(db, agentId, conversationId, upTo)
       return result.outcome === 'marked'
         ? { outcome: 'marked', response: { marked: true } }
+        : { outcome: 'refused', error: messageRefusals[result.refusal] }
+    },
+    acknowledge: async (agentId, messageId) => {
+      const result = await acknowledgeSystemMessage(db, agentId, messageId)
+      return result.outcome === 'acknowledged'
+        ? { outcome: 'acknowledged', response: { acknowledgedAt: result.acknowledgedAt } }
         : { outcome: 'refused', error: messageRefusals[result.refusal] }
     },
   },

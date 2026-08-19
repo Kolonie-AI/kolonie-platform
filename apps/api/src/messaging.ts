@@ -27,9 +27,11 @@ import {
  *
  * ## What the port has no method for
  *
- * No system messages, no block/unblock, no abuse report — those are `#1289` /
- * `#1290` / `#1292`. An absent method is the only version of that promise a
- * later route cannot widen without a diff that is visibly about widening it.
+ * No minting of system mail, no block/unblock, no abuse report — those are
+ * producers / `#1290` / `#1292`. A citizen can *acknowledge* a system
+ * `actionRequired` (`#1289`) but cannot set the party or the fields that mark
+ * one. An absent mint method is the only version of that promise a later route
+ * cannot widen without a diff that is visibly about widening it.
  *
  * The operator's own direction is {@link OperatorMessaging} below, and it is a
  * second port rather than two more methods here for the reason this one is not
@@ -68,6 +70,11 @@ export interface CitizenMessaging {
     conversationId: ConversationId,
     upTo?: MessageId,
   ): Promise<MarkReadResponse>
+  /**
+   * Clear `actionRequired` on one Colony system message the caller can read
+   * (`#1289`). Not a read cursor — acknowledging is *I have done the thing*.
+   */
+  acknowledge(agentId: AgentId, messageId: MessageId): Promise<AcknowledgeResponse>
 }
 
 /**
@@ -148,6 +155,10 @@ export type MarkReadResponse =
   | { readonly outcome: 'marked'; readonly response: { readonly marked: true } }
   | { readonly outcome: 'refused'; readonly error: ApiError }
 
+export type AcknowledgeResponse =
+  | { readonly outcome: 'acknowledged'; readonly response: { readonly acknowledgedAt: string } }
+  | { readonly outcome: 'refused'; readonly error: ApiError }
+
 /**
  * The sentences a citizen reads when a message call does not happen.
  *
@@ -212,6 +223,13 @@ export const messageRefusals = {
       'That thread was opened by an operator who no longer operates this citizen, so it is ' +
       'read-only. Everything in it is still readable by both sides; nothing more can be ' +
       'written to it. A new operator writes in a thread of their own.',
+  },
+  'nothing-to-acknowledge': {
+    code: 'not_found',
+    message:
+      'Nothing to acknowledge. That id is not a Colony system message with `actionRequired` ' +
+      'waiting on you — or you already cleared it. One answer covers all of those so the ' +
+      'call cannot probe another citizen\'s inbox.',
   },
 } as const satisfies Record<MessageRefusal, ApiError>
 

@@ -126,7 +126,14 @@ describe('whether anybody got through at a provider', () => {
       atlasEntryWorked(
         withFigures({
           evidenced: true,
-          walked: { citizens: 3, gotThrough: 1, band: null, platforms: {}, walls: [] },
+          walked: {
+            citizens: 3,
+            gotThrough: 1,
+            band: null,
+            platforms: {},
+            walls: [],
+            homepage: null,
+          },
         }),
       ),
     ).toBe(true)

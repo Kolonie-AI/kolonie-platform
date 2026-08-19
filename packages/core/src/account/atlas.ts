@@ -1086,12 +1086,29 @@ export function measuredOnlyRecipes(
         operatorNeedIsGuess: false,
         about: null,
         /**
-         * **Null beside `about`** (`#1296`). `ProviderRecipeSchema.homepage` is
-         * `string | null`, not optional — omitting the key here Zod-throws and
-         * takes down every `/atlas` read the moment any measured-only pair is
-         * synthesised (production 2026-08-19 after scout/homepage shipped).
+         * **The homepage the walk that first filed one gave** (`#1296`,
+         * `#1330`).
+         *
+         * It was `null` unconditionally, and the argument was that a figure is a
+         * count and a count knows nothing about identity. That was true of the
+         * counts and not of {@link AtlasWalked}, which is derived from
+         * `account_walks` and from nothing else — the walker's own
+         * `homepage` field is sitting in it.
+         *
+         * **The cost of the unconditional null was the whole feature.**
+         * `#1296` made an https homepage a bar for first shelf presence and
+         * `finishWalk` writes it onto real entries; every provider whose kind
+         * reaches no shelf has no real entry, and those are exactly the scouted
+         * earn providers the bar was raised for. Measured 2026-08-19 on
+         * `clawlancer.ai`: the scout filed a homepage, the page rendered none,
+         * and `aboutSection` was correct the whole time — it had nothing to
+         * render.
+         *
+         * `string | null` and not optional, which is why the key is written
+         * either way: omitting it Zod-throws and takes down every `/atlas` read
+         * the moment any measured-only pair is synthesised.
          */
-        homepage: null,
+        homepage: figure.walked.homepage,
         /**
          * **Null, like `about` above it, and for a stronger reason** (`#1120`).
          * The sentence is synthesised from the published walks of a provider,

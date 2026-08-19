@@ -679,6 +679,35 @@ function conditionsFromWalk(
  * faithful round trip rather than a reconstruction, and `unknown` the same
  * answer as an unset column.
  */
+/**
+ * Which homepage an entry keeps when a walk closes on it (`#1330` decision 2).
+ *
+ * **The entry's wins and a walk may only fill a null**, which is the opposite
+ * precedence to `about` beside it and is deliberate. A homepage is an identity:
+ * one that changes under a reader because a later walker typed a different
+ * domain is not an identity, it is whoever walked last. The tenth walk mistyping
+ * a host would otherwise redirect a public catalogue page with nothing between
+ * the typo and the reader.
+ *
+ * **Written as one function because it is applied twice** — once in the entry
+ * body and once after `curationFromEntry` spreads over it — and two copies of a
+ * precedence rule is one copy that will be corrected.
+ *
+ * **`https` is not re-checked here.** `ProviderHomepageSchema` refuses anything
+ * else at the walk report, and `account_walks_homepage_is_https` and
+ * `provider_recipes_homepage_is_https` hold the same line at both tables, so a
+ * value reaching this function is canonical by construction.
+ */
+function homepageFor(
+  walk: Pick<AccountWalk, 'homepage'>,
+  entry: ProviderRecipe | undefined,
+): { homepage?: string } {
+  const held = entry?.homepage ?? null
+  if (held !== null) return { homepage: held }
+
+  return walk.homepage === null ? {} : { homepage: walk.homepage }
+}
+
 function curationFromEntry(entry: ProviderRecipe | undefined): {
   about?: string | null
   homepage?: string | null
@@ -1212,13 +1241,22 @@ export async function finishWalk(
          * (`#1296`). `about` may also feed synthesis later; `homepage` is the
          * first-class URL catalogue readers get. Prefer the walker's values when
          * present so a scout filing is not wiped by an empty curation carry.
+         *
+         * **`homepage` is the exception, and it goes the other way** (`#1330`
+         * decision 2): a homepage already on the entry wins, and a walk may only
+         * fill a null. The two fields differ because of what they are — `about`
+         * is a sentence, and the freshest one is usually the best one; a
+         * homepage is an identity, and an identity that moves under a reader on
+         * the strength of who walked last is not one. The tenth walker mistyping
+         * a domain would otherwise redirect the entry, publicly, with nothing
+         * between the typo and the page.
+         *
+         * Correcting a wrong homepage is a curation act rather than a walk, on
+         * `#600`'s rule: what the Colony says about somebody else's product
+         * passes a person.
          */
         about: walk.about ?? entry?.about ?? null,
-        ...(walk.homepage !== null
-          ? { homepage: walk.homepage }
-          : entry?.homepage !== undefined && entry.homepage !== null
-            ? { homepage: entry.homepage }
-            : {}),
+        ...homepageFor(walk, entry),
         /**
          * **What a walk does not write is the walker's long form** (`#1032`).
          *
@@ -1244,7 +1282,7 @@ export async function finishWalk(
         ...conditionsFromWalk(walk.recipe, entry),
         /** Re-assert after curation spread so an empty entry about cannot wipe the walk. */
         ...(walk.about !== null ? { about: walk.about } : {}),
-        ...(walk.homepage !== null ? { homepage: walk.homepage } : {}),
+        ...homepageFor(walk, entry),
       })
 
       /**

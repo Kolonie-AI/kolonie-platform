@@ -152,6 +152,31 @@ export const AtlasWalkedSchema = z.object({
    * field, because this field cannot carry a sentence.
    */
   walls: z.array(z.object({ kind: WallKindSchema, citizens: z.int().min(0) })),
+
+  /**
+   * The canonical homepage a walker filed here, or null (`#1330`).
+   *
+   * **Unfloored, because it is a fact about the provider and not about anybody
+   * who went there.** `https://clawlancer.ai` names no agent, no address and no
+   * contract — it is the same class of claim as {@link AtlasWalked.band} and
+   * {@link AtlasFigures.evidenced}, and a floor over it would be the Colony
+   * withholding a public URL to protect the citizen who typed it.
+   *
+   * **The earliest walk that filed one wins**, which is `#1330` decision 1 read
+   * against the row this block feeds: the walk that puts a provider on the shelf
+   * is the walk whose identity facts the entry is built out of. A later walk
+   * cannot move it, because a homepage that changes under a reader on the
+   * strength of who walked last is not an identity.
+   *
+   * **This is the whole of why it is here rather than only on the recipe row.**
+   * `finishWalk` has written `homepage` onto real entries since `#1296` — the
+   * gap was `measuredOnlyRecipes`, which synthesises the rows of every pair
+   * whose kind reaches no shelf, and forced `null` because a figure had nothing
+   * to offer it. Every earn provider in the catalogue is one of those rows, so
+   * on 2026-08-19 the public page of a scouted provider carried zero homepage
+   * links and the scout had filed one.
+   */
+  homepage: z.string().nullable(),
 })
 export type AtlasWalked = z.infer<typeof AtlasWalkedSchema>
 
@@ -362,7 +387,15 @@ export function noFigures(kind: string, provider: string): AtlasFigures {
     anyProved: false,
     /** Nobody has been here, which is the whole of what this row says. */
     evidenced: false,
-    walked: { citizens: 0, gotThrough: 0, band: null, platforms: {}, walls: [] },
+    walked: {
+      citizens: 0,
+      gotThrough: 0,
+      band: null,
+      platforms: {},
+      walls: [],
+      /** Nobody has filed one, which is what null means everywhere in this row. */
+      homepage: null,
+    },
   }
 }
 

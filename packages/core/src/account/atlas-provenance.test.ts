@@ -551,6 +551,47 @@ describe('the rows the figures imply', () => {
   })
 
   /**
+   * **The homepage a walker filed, on the row that walk produced** (`#1330`).
+   *
+   * This is the assertion the feature turned on. `#1296` made an https homepage
+   * a bar for first shelf presence; `finishWalk` writes it onto real entries;
+   * and every provider whose kind reaches no shelf has no real entry, so its row
+   * is synthesised here — where the value was forced to `null` unconditionally.
+   * Measured on `clawlancer.ai`, 2026-08-19: the scout filed a homepage, the
+   * public page rendered none, and every renderer in the chain was correct.
+   */
+  it('carries the homepage the walks at this pair filed', () => {
+    const walked = {
+      ...figures({ kind: 'bounty-board', provider: 'bounties.test', attempted: 3, proved: 0 }),
+      walked: {
+        citizens: 2,
+        gotThrough: 0,
+        band: null,
+        platforms: {},
+        walls: [],
+        homepage: 'https://bounties.test',
+      },
+    }
+
+    expect(measuredOnlyRecipes([], [walked])[0]?.homepage).toBe('https://bounties.test')
+  })
+
+  /**
+   * **A pair nobody filed a homepage for still says null**, which is the honest
+   * answer and the one the renderer already handles by omitting the block. The
+   * assertion is here so that *nobody said* and *we forced it* stay
+   * distinguishable if the source of the value ever changes again.
+   */
+  it('says null where no walk filed a homepage', () => {
+    const synthesized = measuredOnlyRecipes(
+      [],
+      [figures({ kind: 'mailbox', provider: 'quiet-identity.test', attempted: 4, proved: 2 })],
+    )
+
+    expect(synthesized[0]?.homepage).toBeNull()
+  })
+
+  /**
    * **Absent rather than false on an entry somebody shelved** (`#1096`), so that
    * *nobody classified this* and *somebody put it here* are not one value read
    * two ways.

@@ -12,6 +12,10 @@ import type { ClosedIssue, KnownIssue } from './github.js'
  * would be exercising that judgement at a rate nobody reviews. So `declined` stays
  * a human's word, and the worst this process does to a citizen is put a maintainer
  * in front of them.
+ *
+ * Since `#1345` there is a fifth, and it is the one decision here that is about
+ * *where a ticket belongs* rather than *what its answer is*: `desk` takes it out
+ * of this runner's reach entirely.
  */
 export type TriageDecision =
   /** Somebody already filed this. Point the citizen at the issue. */
@@ -64,6 +68,23 @@ export type TriageDecision =
     }
   /** Triage will not call this one. A maintainer reads it. */
   | { readonly kind: 'human'; readonly why: string }
+  /**
+   * This is one citizen's own situation, and belongs to the maintainers' desk
+   * rather than to a public repository (`#1345`).
+   *
+   * **Not a second spelling of `human`, and the difference is the verdict.**
+   * `human` is triage saying *I could not decide this* — the ticket is still the
+   * Colony's business, a maintainer reads it to reach the answer triage failed to
+   * reach, and the answer may well be a public issue. `desk` is triage deciding,
+   * and deciding correctly: this is an account, a suspension, a payment, a
+   * complaint about another citizen. There is nothing to file, and a maintainer
+   * opening it is answering a person rather than reviewing a judgement.
+   *
+   * Folding the two would lose exactly the distinction the desk sorts on, and it
+   * would put every triage failure into a queue meant for citizens waiting on a
+   * personal answer.
+   */
+  | { readonly kind: 'desk'; readonly why: string }
 
 /** What the model is asked and what it is allowed to answer with. */
 export interface TriageModel {
@@ -193,6 +214,22 @@ export function readDecision(raw: unknown, input: TriageInput): TriageDecision {
     return {
       kind: 'human',
       why: typeof answer['why'] === 'string' ? answer['why'] : 'The model asked for a human.',
+    }
+  }
+
+  // **Nothing to check against the corpus, unlike every branch above** (`#1345`).
+  // `known` and `answered` are validated because they point at something the
+  // model could have invented; `desk` points at nothing. It withholds a ticket
+  // from a public repository, which is the direction a mistake is cheap in, so
+  // there is no reference to disbelieve and no reason to demote it to `human`
+  // when the reason is missing.
+  if (kind === 'desk') {
+    return {
+      kind: 'desk',
+      why:
+        typeof answer['why'] === 'string' && answer['why'].trim() !== ''
+          ? answer['why']
+          : "The model read this as the citizen's own situation rather than a report about the Colony.",
     }
   }
 

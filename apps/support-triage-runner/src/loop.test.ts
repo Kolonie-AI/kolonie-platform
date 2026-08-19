@@ -316,6 +316,76 @@ describe('one ticket', () => {
     expect(written[0]).toMatchObject({ status: 'acknowledged' })
     expect(String(written[0]?.['resolution'])).toContain('two subsystems')
     expect(written[0]?.['issueUrl']).toBeUndefined()
+    // `human` is triage failing to decide, and the ticket stays the Colony's
+    // business. Only `desk` moves it (`#1345`).
+    expect(written[0]?.['route']).toBeUndefined()
+  })
+
+  /**
+   * The decision that takes a ticket out of this runner for good (`#1345`).
+   *
+   * The wall itself is the `where` clause, tested in `packages/db`. What is worth
+   * asserting here is that the branch writes the route rather than only logging
+   * the verdict — a `desk` decision that settles the ticket without moving the
+   * column leaves it in the queue for the next tick to read again.
+   */
+  describe('a ticket the model reads as the citizen’s own situation', () => {
+    const deskDecision = { kind: 'desk', why: 'this is about one citizen’s own mailbox' }
+
+    it('routes it to the desk without filing or answering anything', async () => {
+      const ticket = aTicket({ kind: 'objection' })
+      const { store, written } = fakeStore([ticket])
+      const { issues, created, comments } = fakeIssues()
+
+      await triageOne(
+        ticket,
+        { issues: [], answered: [] },
+        deps({ store, issues, model: modelAnswering(deskDecision) }),
+      )
+
+      expect(created).toEqual([])
+      expect(comments).toEqual([])
+      expect(written[0]).toMatchObject({ status: 'acknowledged', route: 'desk' })
+      expect(written[0]?.['issueUrl']).toBeUndefined()
+    })
+
+    it('says whose situation it is without letting the model write the answer', async () => {
+      const ticket = aTicket({ kind: 'objection' })
+      const { store, written } = fakeStore([ticket])
+
+      await triageOne(
+        ticket,
+        { issues: [], answered: [] },
+        deps({ store, model: modelAnswering(deskDecision) }),
+      )
+
+      const resolution = String(written[0]?.['resolution'])
+      expect(resolution).toContain('desk')
+      expect(resolution).toContain('own mailbox')
+    })
+
+    it('takes it even when an open issue looks like it covers the ticket', async () => {
+      const ticket = aTicket({ kind: 'objection' })
+      const { store, written } = fakeStore([ticket])
+      const { issues, comments } = fakeIssues()
+
+      await triageOne(
+        ticket,
+        { issues: [knownIssue], answered: [] },
+        deps({ store, issues, model: modelAnswering(deskDecision) }),
+      )
+
+      expect(comments).toEqual([])
+      expect(written[0]).toMatchObject({ route: 'desk' })
+    })
+
+    it('counts apart from the tickets held for a human', async () => {
+      const { store } = fakeStore([aTicket({ kind: 'objection' })])
+
+      const outcome = await tick(deps({ store, model: modelAnswering(deskDecision) }), 10)
+
+      expect(outcome).toMatchObject({ seen: 1, desked: 1, held: 0, filed: 0 })
+    })
   })
 
   it('resolves a ticket by repeating an answer the Colony already gave', async () => {

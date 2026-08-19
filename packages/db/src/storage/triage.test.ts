@@ -459,4 +459,145 @@ describe('triage reads and writes', () => {
       )
     })
   })
+  /**
+   * The wall between the triage runner and a citizen's own business (`#1345`).
+   *
+   * **Asserted against the queries and not through the model**, deliberately. Every
+   * other protection in the runner is a judgement made after the ticket was read;
+   * this one is the guarantee that it is never read at all, and a test that went
+   * through the prompt would be measuring the model's obedience rather than the
+   * wall. Each of the five reads the runner makes gets its own case, because a
+   * clause is easy to add to four of them.
+   */
+  describe('a desk ticket is out of the triage runner’s reach', () => {
+    const aDeskTicket = async (): Promise<SupportTicket> =>
+      openedTicket(db, {
+        agentId: await anAgent(),
+        request: aRequest({
+          kind: 'objection',
+          subject: 'I cannot get back into the mailbox on my profile',
+          body:
+            'The provider stopped accepting the password I stored and I have no other way in. ' +
+            'This is about my own account rather than about anything the Colony built.',
+        }),
+        route: 'desk',
+      })
+
+    it('never serves one to the queue, even as the only ticket waiting', async () => {
+      await aDeskTicket()
+
+      expect(await openTickets(db, 10)).toEqual([])
+    })
+
+    it('leaves one out of the queue while serving the colony tickets around it', async () => {
+      const before = await openedTicket(db, { agentId: await anAgent(), request: aRequest() })
+      await aDeskTicket()
+      const after = await openedTicket(db, { agentId: await anAgent(), request: aRequest() })
+
+      expect((await openTickets(db, 10)).map((t) => t.id)).toEqual([before.id, after.id])
+    })
+
+    it('never offers an answered one as precedent to the corpus', async () => {
+      const ticket = await aDeskTicket()
+      await db
+        .update(supportTickets)
+        .set({ status: 'resolved', resolution: 'Answered by a maintainer, in private.' })
+        .where(eq(supportTickets.id, ticket.id))
+
+      expect(await triagedTickets(db, 10)).toEqual([])
+    })
+
+    it('refuses to settle one even when triage holds its id', async () => {
+      const ticket = await aDeskTicket()
+
+      const written = await recordTriage(db, {
+        ticketId: ticket.id,
+        status: 'acknowledged',
+        resolution: 'Filed as https://github.com/Kolonie-AI/kolonie-platform/issues/1',
+        issueUrl: 'https://github.com/Kolonie-AI/kolonie-platform/issues/1',
+      })
+
+      expect(written).toBeUndefined()
+      const [row] = await db.select().from(supportTickets).where(eq(supportTickets.id, ticket.id))
+      expect(row?.status).toBe('open')
+      expect(row?.issueUrl).toBeNull()
+    })
+
+    it('never serves one to the pass that reconciles filed issues', async () => {
+      const ticket = await aDeskTicket()
+      // Straight to the column, because `recordTriage` will not write this row —
+      // which is the state a maintainer could still produce by hand.
+      await db
+        .update(supportTickets)
+        .set({
+          status: 'acknowledged',
+          issueUrl: 'https://github.com/Kolonie-AI/kolonie-platform/issues/1',
+        })
+        .where(eq(supportTickets.id, ticket.id))
+
+      expect(await ticketsAwaitingTheirIssue(db, 10)).toEqual([])
+    })
+
+    it('does not count one against the depth the runner reports', async () => {
+      await aDeskTicket()
+
+      expect(await queueDepth(db)).toEqual({ open: 0, oldestOpenAt: null })
+    })
+  })
+
+  /**
+   * The other direction, and the reason `TriageOutcome.route` is the literal
+   * `'desk'` rather than a `SupportTicketRoute` (`#1345`).
+   */
+  describe('routing a ticket to the desk', () => {
+    it('takes a colony ticket out of the queue for good', async () => {
+      const ticket = await openedTicket(db, { agentId: await anAgent(), request: aRequest() })
+
+      const written = await recordTriage(db, {
+        ticketId: ticket.id,
+        status: 'acknowledged',
+        route: 'desk',
+        resolution: 'Read, and passed to the maintainers’ desk.',
+      })
+
+      expect(written?.route).toBe('desk')
+      expect(await openTickets(db, 10)).toEqual([])
+      expect(await queueDepth(db)).toEqual({ open: 0, oldestOpenAt: null })
+    })
+
+    it('cannot be undone by a later tick, because the row is out of reach', async () => {
+      const ticket = await openedTicket(db, { agentId: await anAgent(), request: aRequest() })
+      await recordTriage(db, {
+        ticketId: ticket.id,
+        status: 'acknowledged',
+        route: 'desk',
+        resolution: 'Read, and passed to the maintainers’ desk.',
+      })
+
+      const again = await recordTriage(db, {
+        ticketId: ticket.id,
+        status: 'acknowledged',
+        resolution: 'Filed as https://github.com/Kolonie-AI/kolonie-platform/issues/1',
+        issueUrl: 'https://github.com/Kolonie-AI/kolonie-platform/issues/1',
+      })
+
+      expect(again).toBeUndefined()
+      const [row] = await db.select().from(supportTickets).where(eq(supportTickets.id, ticket.id))
+      expect(row?.route).toBe('desk')
+      expect(row?.issueUrl).toBeNull()
+    })
+
+    it('leaves the column alone when no route is named', async () => {
+      const ticket = await openedTicket(db, { agentId: await anAgent(), request: aRequest() })
+
+      const written = await recordTriage(db, {
+        ticketId: ticket.id,
+        status: 'acknowledged',
+        resolution: 'Filed as https://github.com/Kolonie-AI/kolonie-platform/issues/1',
+        issueUrl: 'https://github.com/Kolonie-AI/kolonie-platform/issues/1',
+      })
+
+      expect(written?.route).toBe('colony')
+    })
+  })
 })

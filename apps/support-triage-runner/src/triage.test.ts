@@ -236,6 +236,36 @@ describe('reading what the model said', () => {
       expect(readDecision(raw, anInput()).kind).toBe('human')
     }
   })
+
+  /**
+   * The fifth decision (`#1345`), and the only one that carries no reference to
+   * check. It withholds a ticket from a public repository, so a missing reason is
+   * repaired rather than demoted — the reverse of every branch above.
+   */
+  describe('a desk decision', () => {
+    it('passes through with its reason', () => {
+      expect(
+        readDecision({ kind: 'desk', why: 'their own account, not the Colony' }, anInput()),
+      ).toEqual({ kind: 'desk', why: 'their own account, not the Colony' })
+    })
+
+    it.each([
+      ['no reason at all', { kind: 'desk' }],
+      ['a reason that is not a string', { kind: 'desk', why: 7 }],
+      ['an empty reason', { kind: 'desk', why: '   ' }],
+    ])('stays a desk decision with %s, rather than falling back to a human', (_label, raw) => {
+      const decision = readDecision(raw, anInput())
+
+      expect(decision.kind).toBe('desk')
+      expect(decision.kind === 'desk' && decision.why).not.toBe('')
+    })
+
+    it('is never reached by a decline, whatever the model calls it', () => {
+      for (const raw of [{ kind: 'declined' }, { kind: 'desked' }, { kind: 'private' }]) {
+        expect(readDecision(raw, anInput()).kind).toBe('human')
+      }
+    })
+  })
 })
 
 describe('where a new issue is filed', () => {

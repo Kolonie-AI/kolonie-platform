@@ -104,6 +104,8 @@ import {
   backendPage,
   backendQuestPage,
   backendQuestsPage,
+  backendDeskPage,
+  backendDeskTicketPage,
   backendRefusalsPage,
   backendSettingsPage,
   backendTicketsPage,
@@ -1354,10 +1356,24 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     if ((await backendGuard(request, reply)) === null) return reply
 
     const numbers = await deps.quests.numbers()
+    /**
+     * How much is waiting for a person (`#1347`). A second read rather than a
+     * figure inside `ColonyNumbers`, because it is not an aggregate about the
+     * Colony — it is a queue with this reader's name on it, and a deployment
+     * with no desk wired has none of it to report.
+     */
+    const desk = deps.ticketDesk === undefined ? undefined : await deps.ticketDesk.depth()
 
     return wantsHtml(request)
-      ? html(reply, backendPage({ nav: navFor(request, ['maintainer']), numbers }))
-      : reply.send({ numbers })
+      ? html(
+          reply,
+          backendPage({
+            nav: navFor(request, ['maintainer']),
+            numbers,
+            ...(desk === undefined ? {} : { desk }),
+          }),
+        )
+      : reply.send({ numbers, ...(desk === undefined ? {} : { desk }) })
   })
 
   /**
@@ -1877,6 +1893,135 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
           )
         : reply.send({ tallies, lifted })
     })
+  }
+
+  /**
+   * The tickets a person has to answer (`#1347`).
+   *
+   * **A read and three writes, and every write is a person's own word.** Triage
+   * answers what it can; what reaches this desk is what it decided it could
+   * not, plus what `#1344` routes here without asking — an appeal against a
+   * suspension is not a thing a rule may settle. So `resolved` and `declined`
+   * are both typed by hand here, and there is no route under this path that a
+   * runner could call.
+   *
+   * **Registered only where a desk was wired**, exactly as the refusals tree
+   * above: a deployment with none serves no page rather than an empty one.
+   */
+  if (deps.ticketDesk !== undefined) {
+    const ticketDesk = deps.ticketDesk
+
+    app.get('/backend/desk', async (request, reply) => {
+      if ((await backendGuard(request, reply)) === null) return reply
+
+      const tickets = await ticketDesk.tickets()
+
+      return wantsHtml(request)
+        ? html(reply, backendDeskPage({ nav: navFor(request, ['maintainer']), tickets }))
+        : reply.send({ tickets })
+    })
+
+    app.get<{ Params: { ticketId: string } }>('/backend/desk/:ticketId', async (request, reply) => {
+      if ((await backendGuard(request, reply)) === null) return reply
+
+      const ticket = await ticketDesk.ticket(request.params.ticketId)
+      if (ticket === undefined) return reply.status(404).send({ error: 'no such ticket' })
+
+      return wantsHtml(request)
+        ? html(reply, backendDeskTicketPage({ nav: navFor(request, ['maintainer']), ticket }))
+        : reply.send({ ticket })
+    })
+
+    app.post<{ Params: { ticketId: string } }>(
+      '/backend/desk/:ticketId/answer',
+      async (request, reply) => {
+        const held = await maintainer(request, reply)
+        if (held === null) return reply
+
+        const { status, resolution } = (request.body ?? {}) as {
+          status?: string
+          resolution?: string
+        }
+        /**
+         * The three the form has buttons for, checked here rather than trusted.
+         * `open` is not among them: a ticket reaches the colony queue by being
+         * promoted, which is the route below and a decision of its own.
+         */
+        if (status !== 'resolved' && status !== 'declined' && status !== 'acknowledged') {
+          return reply.status(400).send({ error: 'answer with resolved, declined or acknowledged' })
+        }
+
+        const written = await ticketDesk
+          .answer({
+            ticketId: request.params.ticketId,
+            status,
+            ...(resolution === undefined ? {} : { resolution }),
+          })
+          /**
+           * The storage layer throws when a settling answer says nothing, and
+           * that is a thing a person can put right by typing a sentence — so it
+           * is a notice on the page rather than a 500.
+           */
+          .catch(() => undefined)
+
+        if (written === undefined) {
+          const ticket = await ticketDesk.ticket(request.params.ticketId)
+          if (ticket === undefined) return reply.status(404).send({ error: 'no such ticket' })
+
+          return wantsHtml(request)
+            ? html(
+                reply,
+                backendDeskTicketPage({
+                  nav: { current: '/backend/desk', maintains: true },
+                  ticket,
+                  notice:
+                    'Nothing was written. Resolving or declining a ticket has to say why — the ' +
+                    'citizen reads those words and there is nothing else in it for them.',
+                }),
+              )
+            : reply.status(400).send({ error: 'a settled ticket has to say why' })
+        }
+
+        return wantsHtml(request)
+          ? html(
+              reply,
+              backendDeskTicketPage({
+                // The path the navigation carries, not the POST's own.
+                nav: { current: '/backend/desk', maintains: true },
+                ticket: written,
+                notice:
+                  written.status === 'acknowledged'
+                    ? 'Acknowledged. It stays on the desk and in the count — an acknowledgement is a promise to answer.'
+                    : `Answered, and ${written.status}. The citizen reads those words through kolonie.support.read.`,
+              }),
+            )
+          : reply.send({ ticket: written })
+      },
+    )
+
+    app.post<{ Params: { ticketId: string } }>(
+      '/backend/desk/:ticketId/promote',
+      async (request, reply) => {
+        const held = await maintainer(request, reply)
+        if (held === null) return reply
+
+        const promoted = await ticketDesk.promote(request.params.ticketId)
+        const tickets = await ticketDesk.tickets()
+
+        return wantsHtml(request)
+          ? html(
+              reply,
+              backendDeskPage({
+                nav: { current: '/backend/desk', maintains: true },
+                tickets,
+                notice: promoted
+                  ? 'Back in front of triage, open and unanswered. Anything already written was kept.'
+                  : 'Nothing to promote — that ticket is not on this desk.',
+              }),
+            )
+          : reply.send({ tickets, promoted })
+      },
+    )
   }
 
   /**

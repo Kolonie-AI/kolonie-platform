@@ -41,8 +41,10 @@ import type { WakeupSource } from '../../wakeup.js'
 import type { DoctorSource } from '../../doctor.js'
 import type { DiagnosesDesk } from '../../diagnoses.js'
 import type { WalkRefusalDesk } from '../../walk-refusals.js'
+import type { TicketDesk } from '../../support-desk.js'
 import { fakeDiagnosesDesk, fakeDoctorSource } from '../doctor.js'
 import { fakeWalkRefusalDesk } from '../walk-refusals.js'
+import { fakeTicketDesk } from '../ticket-desk.js'
 import { checkName, register, type AgentRegistry, type Caller } from '../../registration.js'
 import { memoryGate } from '../registry.js'
 import { fakeSkillNotes, type FakeSkillNotes } from '../skill-notes.js'
@@ -137,6 +139,14 @@ export interface FakeAgent {
    * `console-links.test.ts` crawls every link the console emits.
    */
   readonly walkRefusals: WalkRefusalDesk
+  /**
+   * What the console's tickets-to-answer page reads (`#1347`).
+   *
+   * Wired by default and answering with nothing, for the reason `walkRefusals`
+   * above is: the navigation names `/backend/desk`, and `console-links.test.ts`
+   * crawls every link the console emits.
+   */
+  readonly ticketDesk: TicketDesk
   /**
    * The state facts behind the wake-up's non-rung suggestions (`#347`).
    *
@@ -417,6 +427,9 @@ export function fakeAgent(deps: {
     // rather than as a blank panel (`#841`).
     diagnoses: fakeDiagnosesDesk(),
     walkRefusals: fakeWalkRefusalDesk(),
+    // A desk with nothing waiting on it, which is the state the page has to
+    // render as a sentence rather than as an empty table (`#1347`).
+    ticketDesk: fakeTicketDesk(),
     prospects: async () => ({
       hasOperator: true,
       // And nobody named on the profile to pair with in the console (`#1012`).

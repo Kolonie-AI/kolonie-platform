@@ -1,6 +1,7 @@
 import type { CallRollup } from '../call-rollup.js'
 import type { DoctorSource } from '../doctor.js'
 import type { DiagnosesDesk } from '../diagnoses.js'
+import type { TicketDesk } from '../support-desk.js'
 import type { WalkRefusalDesk } from '../walk-refusals.js'
 import type { OpenSource } from '../open.js'
 import type { HandoverStore } from '../handovers.js'
@@ -137,6 +138,15 @@ export interface RouteDependencies {
    * serves no page rather than an empty one.
    */
   readonly walkRefusals?: WalkRefusalDesk
+  /**
+   * The tickets a citizen addressed to a person, and what a maintainer may do
+   * to one (`#1347`).
+   *
+   * Optional on the same terms as `walkRefusals`: absent means `/backend/desk`
+   * is not served, and the nav table is what makes that visible rather than a
+   * link into a 404.
+   */
+  readonly ticketDesk?: TicketDesk
   /**
    * Recording that a citizen was told about a finding on waking (`#842`).
    *

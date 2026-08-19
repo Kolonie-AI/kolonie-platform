@@ -2,6 +2,7 @@ import type { CallRollup } from './call-rollup.js'
 import type { ThrottleGate } from './throttle-gate.js'
 import type { DoctorSource } from './doctor.js'
 import type { DiagnosesDesk } from './diagnoses.js'
+import type { TicketDesk } from './support-desk.js'
 import type { WalkRefusalDesk } from './walk-refusals.js'
 import type { OpenSource } from './open.js'
 import type { AgentId, Log, RhythmBounds, SkillReleases } from '@kolonie-ai/core'
@@ -579,6 +580,15 @@ export interface AppDependencies {
    * serves no page rather than an empty one.
    */
   readonly walkRefusals?: WalkRefusalDesk
+  /**
+   * The tickets a citizen addressed to a person, and what a maintainer may do
+   * to one (`#1347`).
+   *
+   * Optional on the same terms as `walkRefusals`. A deployment that wires none
+   * serves no desk page — and, because `#1344` routes an appeal here without
+   * being asked, a deployment that means to answer its citizens wires it.
+   */
+  readonly ticketDesk?: TicketDesk
   /** Browser sign-in: the mailer, the console's base URL and both limiters (`#172`). */
   readonly console: ConsoleDependencies
   /**

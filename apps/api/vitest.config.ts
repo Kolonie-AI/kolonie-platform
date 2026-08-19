@@ -1,3 +1,4 @@
+import { cpus } from 'node:os'
 import { defineConfig } from 'vitest/config'
 
 // @ts-expect-error the runner's helpers are build scripts, deliberately outside
@@ -66,11 +67,28 @@ export default defineConfig({
      * workers on eight cores, the machine swapped, and both went red on timeouts
      * — reproducibly, on a diff of two Markdown files.
      *
-     * `undefined` when nothing is running beside it, so `npx vitest run --root
-     * apps/api` still gets the default and the 29.90 s → 10.73 s measurement
-     * below still describes it.
+     * **`#963` fixed the pair and left the default in place for the solo run,
+     * and the solo run does not fit either** (`#1350`). This paragraph used to
+     * end *`undefined` when nothing is running beside it, so `npx vitest run
+     * --root apps/api` still gets the default* — measured on 2026-08-19 against
+     * clean `origin/main`, with nothing else running, that default fails fifteen
+     * tests in **12 m 12 s**, and the same command at four workers passes all
+     * 4381 in **1 m 12 s**. The tell is `sys` at two and a half times `user`:
+     * that is not test work, it is the machine paging. Peak resident across the
+     * run that fits was 6405 MiB of 7186, with 781 MiB left.
+     *
+     * **The ceiling is memory and not cores**, which is `packages/db`'s own
+     * sentence and the reason the shape is copied from it rather than invented:
+     * every worker holds a connection pool and a Postgres backend, so a
+     * thirty-two-core machine must not be allowed to raise this. `testWorkers`
+     * can still only lower it, so `npm run check` continues to publish a smaller
+     * share and this workspace continues to take it.
+     *
+     * The 29.90 s → 10.73 s isolation measurement below is unaffected: that is
+     * what per-file isolation costs, and it is orthogonal to how many workers
+     * pay it.
      */
-    maxWorkers: testWorkers(),
+    maxWorkers: testWorkers(Math.max(1, Math.min(6, cpus().length - 2))),
     coverage: {
       include: ['src/**/*.ts'],
       exclude: ['src/**/*.test.ts', 'src/**/index.ts'],

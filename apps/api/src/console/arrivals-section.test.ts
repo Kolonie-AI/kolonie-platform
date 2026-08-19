@@ -27,6 +27,9 @@ const anAgent = (over: Partial<Arrivals['agents'][number]> = {}): Arrivals['agen
     calls: 0,
     attempts: 0,
     skills: 0,
+    lastSeenAt: null,
+    status: 'candidate',
+    reputation: 0,
     ...over,
   }) as Arrivals['agents'][number]
 
@@ -46,6 +49,8 @@ const unconfirmed = (
   ({
     name: 'fermata',
     registeredAt: '2026-08-13T20:29:38.000Z',
+    status: 'candidate',
+    reputation: 0,
     hoursSince: 0,
     ...over,
   }) as Arrivals['unconfirmed']['oldest'][number]
@@ -324,5 +329,121 @@ describe('the accounts that never authenticated', () => {
       expect(html).not.toContain(word)
     }
     expect(html).toContain('An origin write that failed would also land a citizen here')
+  })
+})
+
+/**
+ * The four questions a row like *Johanna Wagner · 4 minutes ago · … · nothing*
+ * raised and the page could not answer without being left (`#1270`).
+ */
+describe('the four columns a maintainer had to leave the page for', () => {
+  it('links the name to the citizen’s own page, absolutely', () => {
+    const html = arrivalsSection(arrivals({ agents: [anAgent({ name: 'Johanna Wagner' })] }))
+
+    // Absolute, because the console host is not the profile host — a relative
+    // path from here would 404 — and percent-encoded by `profilePath`.
+    expect(html).toContain('href="https://kolonie.ai/@Johanna%20Wagner"')
+    // The cell text is still the name: no secondary open button to explain.
+    expect(html).toContain('>Johanna Wagner</a>')
+  })
+
+  it('answers never, candidate, 0 and nothing for a freshly registered agent', () => {
+    const html = arrivalsSection(
+      arrivals({
+        agents: [anAgent({ name: 'Johanna Wagner', lastSeenAt: null, status: 'candidate' })],
+      }),
+    )
+
+    expect(html).toContain('<th>Last online</th>')
+    expect(html).toContain('<th>Status</th>')
+    expect(html).toContain('<th>Reputation</th>')
+    expect(html).toContain('never')
+    expect(html).toContain('candidate')
+    // Zero is `0` and not a dash: nothing earned is measured, not unasked.
+    expect(html).toContain('<td>0</td>')
+    expect(html).toContain('<strong>nothing</strong>')
+  })
+
+  /**
+   * `never` and *nothing* answer different questions and both are kept. An
+   * agent that authenticated last week and then went quiet is a date beside
+   * some calls, which is not the same row as one that was never here.
+   */
+  it('keeps last online apart from what has been done', () => {
+    const html = arrivalsSection(
+      arrivals({
+        agents: [anAgent({ lastSeenAt: '2026-08-08T00:00:00.000Z', calls: 4, skills: 2 })],
+      }),
+    )
+
+    /**
+     * Scoped to the agent's own row. The page's prose says *has never made
+     * one* about the unconfirmed table, so a needle over the whole output
+     * matches a sentence rather than a cell.
+     */
+    const row = /<tbody><tr>(.*?)<\/tr>/.exec(html)?.[1] ?? ''
+    expect(row).not.toContain('never')
+    expect(row).toContain('4 calls')
+  })
+
+  it('shows a reputation without sorting or colouring by it', () => {
+    const html = arrivalsSection(
+      arrivals({
+        agents: [
+          anAgent({ name: 'newest', reputation: 0 }),
+          anAgent({ name: 'older', reputation: 42 }),
+        ],
+      }),
+    )
+
+    // Registration order, untouched: `#607`'s no ranking is about what the page
+    // concludes, and a column that reordered by standing would be the thing it
+    // refused.
+    expect(html.indexOf('newest')).toBeLessThan(html.indexOf('older'))
+    expect(html).toContain('<td>42</td>')
+    for (const tint of ['class="good"', 'class="bad"', 'class="warn"']) {
+      expect(html).not.toContain(tint)
+    }
+  })
+
+  it('gives the unconfirmed table the profile link, status and reputation — and no last online', () => {
+    const html = arrivalsSection(
+      arrivals({
+        unconfirmed: {
+          total: 1,
+          unmeasurable: 0,
+          oldest: [unconfirmed({ name: 'fermata', status: 'candidate', reputation: 0 })],
+        },
+      }),
+    )
+
+    expect(html).toContain('href="https://kolonie.ai/@fermata"')
+    expect(html).toContain('<th>Silent for</th><th>Status</th><th>Reputation</th>')
+    // A column that could only ever say `never` is a column that teaches a
+    // reader to stop reading it.
+    expect(html).not.toContain(
+      '<th>Last online</th><th>Status</th><th>Reputation</th></tr></thead>',
+    )
+  })
+
+  /** The line the whole module is written against, re-asserted per column. */
+  it('still lets no origin, operator or address reach the page', () => {
+    const html = arrivalsSection(
+      arrivals({
+        agents: [
+          anAgent({
+            name: 'canary',
+            originKey: 'a-fingerprint-value',
+            operatorKey: 'an-operator-id',
+            operated: true,
+            reputation: 7,
+            status: 'citizen',
+          }),
+        ],
+      }),
+    )
+
+    expect(html).not.toContain('a-fingerprint-value')
+    expect(html).not.toContain('an-operator-id')
   })
 })

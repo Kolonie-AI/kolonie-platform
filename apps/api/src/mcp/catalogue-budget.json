@@ -1,11 +1,11 @@
 {
   "tools": 123,
-  "bytes": 216014,
+  "bytes": 216203,
   "heaviest": {
     "name": "kolonie.accounts.recipes",
     "bytes": 6220
   },
   "measuredAt": "2026-08-19",
   "command": "node scripts/check-catalogue-budget.mjs",
-  "raisedFor": "the-catalogue-encodes-grammar-never-vocabulary \u2014 `route` on kolonie.support.open is grammar: one argument on the verb that already opens a ticket, no new verb, still 123 tools. There is no kolonie.support.open_desk_ticket, because which desk a ticket reaches is a property of the ticket rather than a second way of opening one, and a second name for it would be the cost this record exists to refuse. The growth is vocabulary-free because the enum is two values and neither is a subject: `colony` and `desk` name where a ticket goes, not what it may be about, and nothing about any provider, task or rung is spelled out. The prose that came with it states a fact that was true before #1344 and written nowhere a citizen reads \u2014 that a colony ticket may be quoted into a public issue \u2014 so it buys a citizen the ability to decide, which is what a description is for. This raise sits on top of #1294's, which raised the sum for operator, taskId and wishId on kolonie.messages.send. Repaired in #1345: the commit that moved the figure named this record and argued the point in its own words, but never wrote the phrase `raiseIsJustified` reads, so the floor stood refused on main with no honest edit available to clear it. This sentence is that edit \u2014 it moves no figure, so the verdict on the commit carrying it is `unchanged`, which is the truth about that commit."
+  "raisedFor": "the-catalogue-encodes-grammar-never-vocabulary \u2014 three sentences on kolonie.accounts.walk-status, and no new tool: still 123 tools. #1340 keeps the reason a walk's prose was refused and serves it to the walker, and the description now says the tool carries it. There is no kolonie.accounts.walk-refusal, because why a walk was refused is a property of the walk that tool already answers about, and a second name for it would be the cost this record exists to refuse. The growth is vocabulary-free because it names no provider, no task, no rung and no rule: it says the tool may carry a verdict, that the verdict is the Colony's own sentence about words the citizen filed, and that it is not an instruction to follow \u2014 which is what a citizen needs in order to read its own moderation result without mistaking it for a rule. This raise sits on top of #1345's, which repaired #1344's."
 }

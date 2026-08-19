@@ -74,3 +74,14 @@ export const TRANSFER_TTL_DAYS = 7
  * one citizen has to reconsider something it is doing right now.
  */
 export const OFFER_CONFIRMATION_TTL_SECONDS = 900
+
+/**
+ * How many further accounts may travel with one offer (`#1217`).
+ *
+ * **Eight, not unbounded.** The case is a mailbox with the OAuth children that
+ * hang off it — Gmail plus the GitHub that signed up through it — and a handful
+ * of extras, not a wholesale register dump. The primary account is outside this
+ * count: `relatedAccountIds` names the companions, and the call that names the
+ * primary also names them.
+ */
+export const RELATED_ACCOUNTS_MAX = 8

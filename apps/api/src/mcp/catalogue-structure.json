@@ -259,6 +259,16 @@
             "format": "uuid",
             "type": "string"
           },
+          "relatedVaultKeys": {
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:\\-/]*$",
+              "type": "string"
+            },
+            "maxItems": 8,
+            "type": "array"
+          },
           "vaultKey": {
             "maxLength": 128,
             "minLength": 1,
@@ -343,6 +353,14 @@
             "maxLength": 128,
             "minLength": 1,
             "type": "string"
+          },
+          "relatedAccountIds": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 8,
+            "type": "array"
           },
           "to": {
             "maxLength": 64,

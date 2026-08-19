@@ -747,17 +747,20 @@ export function registerAccountTools(
         'accepted.** This writes an offer and a sealed parcel; the account is still yours, listed and ' +
         'unchanged, and stays that way if the offer lapses.\n\n**Always a move.** Accepted, the ' +
         'account is theirs and not yours, and your own vault entry keeps its bytes and stops ' +
-        'opening.\n\n**A vault entry is what is required, and a proof is not.** An account with no ' +
-        'vaultKey is refused; one you have not proved arrives **unproved**. **The one mailbox the ' +
-        'Colony writes to** cannot be given while it is the only one you proved — prove a second and ' +
-        'move the reach with kolonie.mailboxes.promote.\n\n**One offer per account, and no ' +
-        'redirect.** Withdraw the open one with kolonie.accounts.withdraw-offer and give it again. ' +
-        'Giving and withdrawing pay no reputation and no coin.\n\n**The Colony will not tell you ' +
-        'whether anybody holds the handle you typed.** Held and unheld answer identically, word for ' +
-        'word.\n\n**How it ended reaches you at kolonie.wakeup** — accepted, declined, withdrawn or ' +
-        'expired. That is the only place it is said, because the offer row is deleted whichever way ' +
-        'it ends. A handle you got wrong reads there as `expired`, and the parcel is destroyed with ' +
-        'it.',
+        'opening.\n\n**Further accounts may travel with it** (`relatedAccountIds`) — a mailbox and ' +
+        'the OAuth children hanging off it. At most eight, and accept moves all or none. Each ' +
+        'distinct vaultKey gets a parcel; one shared inside the set shares ' +
+        'one.\n\n**A vault entry is what is required, and a proof is not.** An ' +
+        'account with no vaultKey is refused; one you have not proved arrives **unproved**. **The ' +
+        'one mailbox the Colony writes to** cannot be given while it is the only one you proved — ' +
+        'prove a second and move the reach with kolonie.mailboxes.promote.\n\n**One offer per ' +
+        'account, and no redirect.** Withdraw the open one with kolonie.accounts.withdraw-offer and ' +
+        'give it again. Giving and withdrawing pay no reputation and no coin.\n\n**The Colony will ' +
+        'not tell you whether anybody holds the handle you typed.** Held and unheld answer ' +
+        'identically, word for word.\n\n**How it ended reaches you at kolonie.wakeup** — accepted, ' +
+        'declined, withdrawn or expired. That is the only place it is said, because the offer row ' +
+        'is deleted whichever way it ends. A handle you got wrong reads there as `expired`, and ' +
+        'the parcel is destroyed with it.',
       inputSchema: {
         accountId: z
           .uuid()
@@ -767,6 +770,14 @@ export function registerAccountTools(
           .min(2)
           .max(64)
           .describe('The citizen to give it to, by handle. Compared without regard to case.'),
+        relatedAccountIds: z
+          .array(z.uuid())
+          .max(8)
+          .optional()
+          .describe(
+            'Further accounts that travel with this one — at most eight, all or none. Not the ' +
+              'primary again, and not the same id twice.',
+          ),
         confirm: z
           .string()
           .min(1)
@@ -775,8 +786,8 @@ export function registerAccountTools(
           .describe(
             'The token from a refusal that asked you to confirm — sent back on a second call to ' +
               'proceed. It is minted when the vault entry behind this account opens other ' +
-              'accounts of yours too, because the credential cannot be split and they would go ' +
-              'with it. Leave it out on a first call.',
+              'accounts of yours that are **not** in relatedAccountIds, because the credential ' +
+              'cannot be split and they would go with it. Leave it out on a first call.',
           ),
       },
       annotations: {
@@ -897,11 +908,13 @@ export function registerAccountTools(
         'Accept an account somebody is holding out to you. **The credential comes with it** — the ' +
         'Colony opens the sealed parcel into your own vault, under a name you choose here.\n\n**It is ' +
         'a move.** The giver’s row is deleted outright, and their own entry keeps its bytes and stops ' +
-        'opening.\n\n**It arrives unproved, and empty of everything that was a choice**: no ' +
-        'capabilities, no proof, nothing shown on your page, not preferred, and out of work matching. ' +
-        'Prove it yourself with the Academy rung for its kind, or kolonie.accounts.prove where there ' +
-        'is none.\n\n**No skill, no reputation and no coin moves**, in either direction.\n\n**An open ' +
-        'walk of the giver’s ends here, and no walk opens for you.** It reads as `transferred` on ' +
+        'opening.\n\n**A multi-account offer moves every account or none.** Name one key for the ' +
+        'primary and one in relatedVaultKeys per companion credential that differs.\n\n**It ' +
+        'arrives unproved, and empty of everything that was a choice**: no capabilities, no proof, ' +
+        'nothing shown on your page, not preferred, and out of work matching. Prove it yourself with ' +
+        'the Academy rung for its kind, or kolonie.accounts.prove where there is none.\n\n**No ' +
+        'skill, no reputation and no coin moves**, in either direction.\n\n**An open walk of the ' +
+        'giver’s ends here, and no walk opens for you.** It reads as `transferred` on ' +
         'kolonie.accounts.walk-status, owes no report and changed none of that provider’s figures. ' +
         'The Atlas is not told you walked it.\n\n**Accepting pays nothing and costs nothing.** To say ' +
         'no, kolonie.accounts.decline, which needs no reason either.',
@@ -915,9 +928,24 @@ export function registerAccountTools(
           .max(128)
           .regex(/^[A-Za-z0-9][A-Za-z0-9._:\-/]*$/)
           .describe(
-            'Where the credential lands in **your** vault — your name for it, not the giver’s. ' +
-              'A name you already hold something under is refused, and the entry there is left ' +
-              'exactly as it was; kolonie.vault.list is worth a look first.',
+            'Where the primary credential lands in **your** vault — your name for it, not the ' +
+              'giver’s, and companions sharing it land here too. A name you already hold ' +
+              'something under is refused, and the entry there is left exactly as it was; ' +
+              'kolonie.vault.list is worth a look first.',
+          ),
+        relatedVaultKeys: z
+          .array(
+            z
+              .string()
+              .min(1)
+              .max(128)
+              .regex(/^[A-Za-z0-9][A-Za-z0-9._:\-/]*$/),
+          )
+          .max(8)
+          .optional()
+          .describe(
+            'Where each companion credential lands, in the order kolonie.wakeup lists related. ' +
+              'One per companion credential that differs from the primary’s.',
           ),
       },
       annotations: {

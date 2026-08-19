@@ -29,6 +29,11 @@ describe('offering an account to another citizen', () => {
       readonly identifier: string
       readonly provider: string | null
     }
+    readonly related: readonly {
+      readonly kind: string
+      readonly identifier: string
+      readonly provider: string | null
+    }[]
   }
 
   const offered = (result: unknown): Offered =>
@@ -692,6 +697,103 @@ describe('offering an account to another citizen', () => {
 
         await close()
       })
+    })
+  })
+
+  /**
+   * A mailbox with the OAuth child that hangs off it (`#1217`). The surface names
+   * the companions, asks for one vault key per distinct credential, and moves
+   * every account or none.
+   */
+  describe('a multi-account offer', () => {
+    it('names the companions, moves every account, and refuses a short key list', async () => {
+      const { colony, apiKey, agent: from } = await registeredCitizen()
+      const offers = colony.accountOfferStore
+
+      const mailboxId = offers.hold(from.id, {
+        kind: 'mailbox',
+        identifier: 'bundle@example.test',
+        provider: 'mail.tm',
+      })
+      const githubId = offers.hold(from.id, {
+        kind: 'github',
+        identifier: 'bundle-oauth-child',
+        provider: 'github.com',
+      })
+
+      const registered = await colony.registry.register(
+        { name: 'recipient', platform: 'openclaw' },
+        { ip: FAKE_CALLER_IP },
+      )
+      if (registered.outcome !== 'registered') throw new Error('fixture failed to register')
+      const recipient = registered.response.agent
+      offers.citizen(from.id, 'canary')
+      offers.citizen(recipient.id, 'recipient')
+
+      const { client: giverClient, close: closeGiver } = await connectedClient(
+        colony,
+        `Bearer ${apiKey}`,
+      )
+      const given = await giverClient.callTool({
+        name: 'kolonie.accounts.give',
+        arguments: {
+          accountId: mailboxId,
+          to: 'recipient',
+          relatedAccountIds: [githubId],
+        },
+      })
+      expect(given.isError).toBeFalsy()
+      expect(offered(given).related).toEqual([
+        { kind: 'github', identifier: 'bundle-oauth-child', provider: 'github.com' },
+      ])
+      expect(textOf(given)).toContain('Travelling with it')
+      const offerId = offered(given).offerId
+      await closeGiver()
+
+      const { client, close } = await connectedClient(
+        colony,
+        `Bearer ${registered.response.credentials.apiKey}`,
+      )
+      const short = refusal(
+        await client.callTool({
+          name: 'kolonie.accounts.accept',
+          arguments: { offerId, vaultKey: 'mine/mailbox' },
+        }),
+      )
+      expect(short.code).toBe('validation_failed')
+      expect(short.details).toMatchObject({
+        reason: 'keys_incomplete',
+        needed: '2',
+        named: '1',
+      })
+      expect(offers.isOpen(offerId)).toBe(true)
+
+      const taken = await client.callTool({
+        name: 'kolonie.accounts.accept',
+        arguments: {
+          offerId,
+          vaultKey: 'mine/mailbox',
+          relatedVaultKeys: ['mine/github'],
+        },
+      })
+      expect(taken.isError).toBeFalsy()
+      expect(taken.structuredContent).toMatchObject({
+        vaultKey: 'mine/mailbox',
+        related: [
+          {
+            kind: 'github',
+            identifier: 'bundle-oauth-child',
+            vaultKey: 'mine/github',
+          },
+        ],
+      })
+      expect(textOf(taken)).toContain('Also arrived')
+      expect(offers.rowsOf(from.id)).toHaveLength(0)
+      expect(offers.rowsOf(recipient.id)).toHaveLength(2)
+      expect(offers.holdsVaultEntry(recipient.id, 'mine/mailbox')).toBe(true)
+      expect(offers.holdsVaultEntry(recipient.id, 'mine/github')).toBe(true)
+
+      await close()
     })
   })
 })

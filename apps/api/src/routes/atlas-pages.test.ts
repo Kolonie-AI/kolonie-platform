@@ -1708,6 +1708,56 @@ describe('the Atlas on the website host', () => {
       expect(body).not.toContain('After you hold an account')
     })
 
+    /**
+     * **The chips and their marks, on a measured earn fixture** (`#1332`). One
+     * assertion over the header rather than one per chip: what the freeze asks
+     * for is that status, earn and homepage are all *scannable at once*, and
+     * three separate tests would each pass on a page that showed only its own.
+     */
+    it('marks status, earn and homepage on a provider page, with no script', async () => {
+      await app.close()
+      app = build()
+      colony.recipes.measure({
+        ...noFigures('bounty-board', 'chipped.example'),
+        attempted: 3,
+        evidenced: true,
+        walked: {
+          citizens: 2,
+          gotThrough: 0,
+          band: null,
+          platforms: {},
+          walls: [],
+          homepage: 'https://chipped.example',
+          anySighted: true,
+          anyAbandoned: false,
+        },
+      })
+      await app.ready()
+
+      const body = (await get('/atlas/chipped.example')).body
+
+      expect(body).toContain('class="k-atlas-earn"')
+      expect(body).toContain('k-icon')
+      expect(body).toContain('k-homepage')
+      /** Never icon-only: the word is still there beside every mark. */
+      expect(body).toContain('pays for finished tasks')
+
+      /**
+       * **Atlas pages run no script, and a mark must not be how one arrives.**
+       * The `<script type="application/ld+json">` blocks are the exception and
+       * are not one: `asJsonLdBlock` says so in as many words — CSP treats a
+       * data block as data, and nothing in it executes. So the assertion is over
+       * scripts that are not that, plus the inline handlers a CSP with
+       * `unsafe-inline` on styles would still refuse.
+       */
+      const scripts = [...body.matchAll(/<script([^>]*)>/g)].map((one) => one[1] ?? '')
+      expect(scripts.length).toBeGreaterThan(0)
+      for (const attributes of scripts) {
+        expect(attributes).toContain('type="application/ld+json"')
+      }
+      expect(body).not.toMatch(/\son(click|load|error)=/i)
+    })
+
     /** A shelf somebody chose still leads, and still links to itself. */
     it('keeps the shelf on a provider that was genuinely classified', async () => {
       const facts = /<p class="k-atlas-facts">(.*?)<\/p>/s.exec(

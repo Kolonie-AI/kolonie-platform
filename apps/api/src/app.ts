@@ -479,6 +479,12 @@ export function buildApp({
     figures: async () => [],
     briefings: async () => new Map(),
     notes: async () => new Map(),
+    /**
+     * Empty beside `notes` (`#1299`). An absent catalogue has no post-account
+     * tips either; omitting this key fails `tsc -b` once `operateNotes` is on
+     * `ProviderRecipes` and blocks every image build after that commit.
+     */
+    operateNotes: async () => new Map(),
     routes: async () => new Map(),
     walkers: async () => new Map(),
     proposals: async () => [],

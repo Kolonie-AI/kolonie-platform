@@ -282,6 +282,52 @@ base and nothing re-checked the pair; on 2026-08-19 `main` was red on 15 of the
 16 commits between 00:11 and 10:51, and 26 of the previous 60 runs on `main` had
 failed. The cost is one more CI round per merge and a queue that serialises them.
 
+### A stack goes into the queue one at a time, or it merges the wrong end first
+
+**The queue picks the pull request that contains the others.** Working a package
+of dependent issues gives you a branch per issue, each carrying the commits below
+it — which is what _one issue per pull request_ produces on a dependent package,
+not a mistake. Arm them all and the queue orders them against each other.
+Measured 2026-08-19 on the four remaining children of `#1326`, with 1, 2, 4 and 5
+commits:
+
+```
+1 AWAITING_CHECKS #1376   ← 4 commits
+2 UNMERGEABLE     #1375   ← 2 commits
+3 UNMERGEABLE     #1372   ← 1 commit
+```
+
+`#1376` _contains_ the other two, so against the queue's projected head they had
+nothing left to merge. Had it merged from position 1 it would have landed the
+code of **four** issues while closing **two**, leaving the other two open with
+their work already on `main` and no badge for it — the outcome _one issue per
+pull request_ exists to prevent, arriving through the queue instead of through a
+wide branch.
+
+**Once a pull request is queued, the ordinary disarm stops working.**
+`gh pr merge <n> --disable-auto` prints `already queued to merge` and does
+nothing — **no `auto_merge_disabled` event is emitted**, so nothing downstream
+can know a disarm was meant, including the sweep's filter 6. And
+`dequeuePullRequest` removes it from the queue while leaving auto-merge _on_, so
+it re-enters by itself: measured at 21:37:07 removed and 21:41:16 back, with no
+disarm event anywhere in the timeline. Dequeuing without disarming is a loop, not
+a hold.
+
+**`draft` is the hold that works**, and it is the one the sweep already names:
+`gh pr ready <n> --undo` takes a pull request out of both the queue and the
+sweep, and `gh pr ready <n>` puts it back. So the recipe is bottom-up and one at
+a time:
+
+1. Draft everything above the bottom of the stack.
+2. Queue the bottom one alone.
+3. When it merges, `git rebase --onto origin/main <merged-commit> <next-branch>`
+   so the branch carries **only its own** commits.
+4. **Check the count against the body** —
+   `gh pr view <n> --json commits --jq '.commits|length'` against the number of
+   `Closes` lines. That is the one number that says whether the diff matches what
+   the pull request claims to close, and it is what catches this.
+5. Push, `gh pr ready <n>`, queue alone, repeat.
+
 **A direct push to `main` no longer lands. Measured 2026-08-19**, and it is the
 question the paragraph here used to leave open. `git push origin main` is refused
 with `GH013 … Changes must be made through the merge queue`. The queue rule is a

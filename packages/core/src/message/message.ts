@@ -473,5 +473,20 @@ export const MessageRefusalSchema = z.enum([
    * probe another citizen's inbox.
    */
   'nothing-to-acknowledge',
+  /**
+   * The body looks like it is carrying a password, key or code (`#1320`).
+   *
+   * **The same detector the operator channel has refused with since `#335`**,
+   * now that it lives in a module named after what it does rather than after
+   * its first caller. A message is stored, shown to somebody else and cannot be
+   * taken back, so a channel that was never built to hold a secret should not
+   * be the one that carries it: `kolonie.operator.drop.open` and
+   * `kolonie.vault.set` exist for exactly that and are named in the refusal.
+   *
+   * **Citizen and operator bodies only.** A `system-role` message is written by
+   * the Colony itself, and a guard against the Colony pasting its own
+   * credentials into its own prose would be checking the wrong party.
+   */
+  'credential-shaped-body',
 ])
 export type MessageRefusal = z.infer<typeof MessageRefusalSchema>

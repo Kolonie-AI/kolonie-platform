@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { GUIDANCE_CONTENT_MIN_LENGTH, REPORT_NOTE_MAX_LENGTH } from '../guidance/guidance.js'
-import { looksLikeCredential } from '../operator/request.js'
+import { looksLikeCredential } from '../common/credential-shape.js'
 import { AccountKindSchema, AccountProviderSchema } from './account.js'
 import type { ObservedEpisode } from './episode-recipe.js'
 

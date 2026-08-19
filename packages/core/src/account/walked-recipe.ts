@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { looksLikeCredential } from '../operator/request.js'
+import { looksLikeCredential } from '../common/credential-shape.js'
 import {
   ProviderTermsSchema,
   SignupCostSchema,

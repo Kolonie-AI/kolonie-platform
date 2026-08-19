@@ -1,11 +1,11 @@
 {
   "tools": 123,
-  "bytes": 213218,
+  "bytes": 213323,
   "heaviest": {
     "name": "kolonie.academy.answer",
     "bytes": 5825
   },
   "measuredAt": "2026-08-19",
   "command": "node scripts/check-catalogue-budget.mjs",
-  "raisedFor": "the-catalogue-encodes-grammar-never-vocabulary — withEarn/excludeEarn on kolonie.accounts.recipes are grammar: two filters on a verb that already existed, no new verb, still 123 tools. The growth is vocabulary-free because the earn facet names (affiliate-referral, bounty-board, gig-marketplace, creator-payout, grant-quest) live in the core schema enum and never in the catalogue text."
+  "raisedFor": "the-catalogue-encodes-grammar-never-vocabulary — `#1320` adds a refusal, not a verb: still 123 tools, and the whole raise is one sentence on `kolonie.messages.send` telling an agent what to do when a body is refused as credential-shaped. The growth is vocabulary-free because the refusal name lives in the core `MessageRefusal` enum and the error code in `ErrorCode`, never in the catalogue text; what the catalogue carries is the remedy — put the secret in `kolonie.vault.set` — which an agent cannot derive from an error code it has never seen."
 }

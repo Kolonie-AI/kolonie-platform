@@ -4,6 +4,7 @@ import {
   MESSAGE_REQUEST_EXPIRY_DAYS,
   MESSAGE_REQUEST_PREVIEW_MAX_LENGTH,
   WAKEUP_MESSAGING_SAMPLE_CAP,
+  looksLikeCredential,
   ConversationIdSchema,
   ConversationParticipantIdSchema,
   MessageIdSchema,
@@ -276,6 +277,25 @@ async function insertMessage(
 }
 
 /**
+ * Whether this body is one the Colony will not carry (`#1320`).
+ *
+ * **Applied to what a citizen or a person wrote, and to nothing else.** The
+ * three send paths below are the ones with an author outside the Colony;
+ * {@link sendSystemMessage} deliberately has no such check, because a guard
+ * against the Colony pasting a credential into its own prose is a guard on the
+ * wrong party.
+ *
+ * **A shape test, applied before anything is written**, on the same rule the
+ * block check follows: a refused body causes no row, no conversation and no
+ * request to appear anywhere. It is the detector the operator channel has used
+ * since `#335`, which is why a message that would have been refused at
+ * `kolonie.operator.request.open` is refused here too.
+ */
+function carriesACredential(body: string): boolean {
+  return looksLikeCredential(body)
+}
+
+/**
  * Citizen → citizen, by the handle the sender already has.
  *
  * **This is the delivery matrix.** The order of the checks below is the order
@@ -291,6 +311,10 @@ export async function sendCitizenMessage(
   senderId: AgentId,
   input: { readonly toHandle: string; readonly body: string },
 ): Promise<SendResult> {
+  if (carriesACredential(input.body)) {
+    return { outcome: 'refused', refusal: 'credential-shaped-body' }
+  }
+
   const recipient = await citizenByHandle(db, input.toHandle)
   if (recipient === undefined) return { outcome: 'refused', refusal: 'no-such-citizen' }
   if (recipient.id === senderId) return { outcome: 'refused', refusal: 'self' }
@@ -520,6 +544,10 @@ export async function replyInConversation(
   id: ConversationId,
   body: string,
 ): Promise<SendResult> {
+  if (carriesACredential(body)) {
+    return { outcome: 'refused', refusal: 'credential-shaped-body' }
+  }
+
   const sender = await participantOf(db, id, senderId)
   if (sender === undefined) return { outcome: 'refused', refusal: 'not-a-participant' }
 
@@ -638,6 +666,10 @@ export async function sendOperatorMessage(
   body: string,
   label = 'your operator',
 ): Promise<SendResult> {
+  if (carriesACredential(body)) {
+    return { outcome: 'refused', refusal: 'credential-shaped-body' }
+  }
+
   const [link] = await db
     .select({ agentId: humanAgents.agentId })
     .from(humanAgents)

@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { looksLikeCredential } from '../operator/request.js'
+import { looksLikeCredential } from '../common/credential-shape.js'
 import { MODERATION_STAGE_NOT_RUN, ModerationStageSchema } from '../guidance/guidance.js'
 import { AccountProofMethodSchema } from './account.js'
 import {

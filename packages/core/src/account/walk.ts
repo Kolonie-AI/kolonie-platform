@@ -12,7 +12,7 @@ import {
   type ProviderRecipe,
   type RecipeStep,
 } from './recipe.js'
-import { looksLikeCredential } from '../operator/request.js'
+import { looksLikeCredential } from '../common/credential-shape.js'
 import {
   GUIDANCE_CONTENT_MIN_LENGTH,
   REPORT_FIELDS,

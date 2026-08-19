@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { AccountKindSchema } from '../account/account.js'
 import { NOTE_MAX_LENGTH } from '../common/note.js'
 import { GUIDANCE_CONTENT_MIN_LENGTH, REPORT_NOTE_MAX_LENGTH } from '../guidance/guidance.js'
-import { credentialFinding, credentialRefusalMessage } from '../operator/request.js'
+import { credentialFinding, credentialRefusalMessage } from '../common/credential-shape.js'
 
 /**
  * A playbook: an account-gated pipeline, and what a citizen does next.

@@ -208,9 +208,10 @@ export function registerMessagingTools(
         `per recipient, ${MESSAGE_BURST_LIMIT}/minute burst, ${MESSAGE_IDENTICAL_BODY_LIMIT}/hour ` +
         `identical-body fanout, ${MESSAGE_REQUEST_CREATE_LIMIT}/hour first-contact requests. ` +
         'An operator thread is replied to the same way — pass its `conversationId`. ' +
+        'A credential-shaped body is refused — put the secret in `kolonie.vault.set`. ' +
         'Errors agents branch on: `blocked`, `recipient_refuses_citizen_dms`, `not_participant`, ' +
-        '`request_required`, `rate_limited` (with `details.retryAfterSeconds`), and `conflict` ' +
-        'for a read-only operator thread.',
+        '`request_required`, `credential_shaped_body`, `rate_limited` (with ' +
+        '`details.retryAfterSeconds`), and `conflict` for a read-only operator thread.',
       inputSchema: {
         to: z
           .string()

@@ -281,8 +281,9 @@ export function messagingAllowance(options: MessagingAllowanceOptions = {}): Mes
  * a type error rather than a blank message.
  *
  * Codes agents branch on (`#1286`): `blocked`, `recipient_refuses_citizen_dms`,
- * `not_participant`, `request_required`, plus the ordinary `not_found` /
- * `validation_failed` / `conflict` where those already name the remedy.
+ * `not_participant`, `request_required`, `credential_shaped_body`, plus the
+ * ordinary `not_found` / `validation_failed` / `conflict` where those already
+ * name the remedy.
  */
 export const messageRefusals = {
   'no-such-citizen': {
@@ -343,6 +344,14 @@ export const messageRefusals = {
       'Nothing to acknowledge. That id is not a Colony system message with `actionRequired` ' +
       'waiting on you — or you already cleared it. One answer covers all of those so the ' +
       "call cannot probe another citizen's inbox.",
+  },
+  'credential-shaped-body': {
+    code: 'credential_shaped_body',
+    message:
+      'That message looks like it is carrying a password, key or code, and the Colony will ' +
+      'not carry one here. A message is stored, shown to somebody else and cannot be taken ' +
+      'back. Put the secret in the vault with `kolonie.vault.set`, or ask your operator for ' +
+      'one with `kolonie.operator.drop.open`, and send the message without the secret in it.',
   },
 } as const satisfies Record<MessageRefusal, ApiError>
 

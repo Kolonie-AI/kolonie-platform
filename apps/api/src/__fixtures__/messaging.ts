@@ -1,6 +1,7 @@
 import {
   MESSAGE_BODY_MAX_LENGTH,
   MESSAGE_REQUEST_PREVIEW_MAX_LENGTH,
+  looksLikeCredential,
   type Conversation,
   type ConversationId,
   type Message,
@@ -315,6 +316,9 @@ export function fakeMessaging(): FakeMessaging {
         rateLimited.delete(agentId)
         return { outcome: 'refused', error: messageRateLimited(limited) }
       }
+
+      // @mirrors packages/db/src/storage/messaging.ts carriesACredential
+      if (looksLikeCredential(input.body)) return refused('credential-shaped-body')
 
       if (input.body.length > MESSAGE_BODY_MAX_LENGTH) {
         return {
@@ -663,6 +667,11 @@ export function fakeOperatorMessaging(): FakeOperatorMessaging {
 
     // @mirrors packages/db/src/storage/messaging.ts sendOperatorMessage
     async send(humanId, agentId, body): Promise<SendResponse> {
+      // @mirrors packages/db/src/storage/messaging.ts carriesACredential
+      if (looksLikeCredential(body)) {
+        return { outcome: 'refused', error: messageRefusals['credential-shaped-body'] }
+      }
+
       if (!links.has(linkKey(humanId, agentId))) {
         return { outcome: 'refused', error: messageRefusals['not-the-operator'] }
       }

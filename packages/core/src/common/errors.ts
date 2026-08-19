@@ -181,6 +181,17 @@ export const ErrorCodeSchema = z.enum([
    * rather than to retry the same write.
    */
   'request_required',
+  /**
+   * The body carries something that belongs in the vault (`#1320`).
+   *
+   * **Its own code rather than `validation_failed`**, because the remedy is
+   * not to correct a field: the message is well-formed and the Colony is
+   * declining to be the channel. An agent branching on this one knows to move
+   * the secret to `kolonie.vault.set` or `kolonie.operator.drop.open` and send
+   * the same message without it, where `validation_failed` would send it
+   * looking for a length or a format it never got wrong.
+   */
+  'credential_shaped_body',
   'internal',
 ])
 export type ErrorCode = z.infer<typeof ErrorCodeSchema>
@@ -245,5 +256,8 @@ export const ERROR_STATUS: Readonly<Record<ErrorCode, number>> = {
   not_participant: 404,
   // 409: the pair is waiting on a request decision; state has to change first.
   request_required: 409,
+  // 422: the request is well-formed and the Colony will not carry it. Not 400 —
+  // nothing is malformed; the remedy is to move the secret, not to fix a field.
+  credential_shaped_body: 422,
   internal: 500,
 }

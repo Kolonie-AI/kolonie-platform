@@ -934,6 +934,71 @@ describe('private messaging', () => {
     })
   })
 
+  /**
+   * A message is stored, shown to somebody else and cannot be taken back
+   * (`#1320`).
+   *
+   * The detector is the one the operator channel has refused with since `#335`,
+   * so the fixtures here are deliberately the shapes it already catches rather
+   * than new ones — what is being tested is that messaging calls it at all, on
+   * every path with an author outside the Colony.
+   */
+  describe('a credential-shaped body', () => {
+    const PASTED = 'here you go — password: hunter2'
+
+    it('is refused on first contact, and writes nothing', async () => {
+      const sender = await anAgent('sender')
+      const recipient = await anAgent('recipient')
+
+      expect(
+        await sendCitizenMessage(db, sender, {
+          toHandle: await handleOf(recipient),
+          body: PASTED,
+        }),
+      ).toEqual({ outcome: 'refused', refusal: 'credential-shaped-body' })
+
+      expect(await listConversations(db, recipient)).toEqual([])
+    })
+
+    it('is refused inside a thread the sender is already in', async () => {
+      const sender = await anAgent('sender')
+      const recipient = await anAgent('recipient')
+      const opened = await sendCitizenMessage(db, sender, {
+        toHandle: await handleOf(recipient),
+        body: 'Hello, I have a question about the Atlas.',
+      })
+      if (opened.outcome !== 'requested') throw new Error('unreachable')
+      await acceptMessageRequest(db, recipient, opened.requestId)
+
+      expect(await replyInConversation(db, sender, opened.conversationId, PASTED)).toEqual({
+        outcome: 'refused',
+        refusal: 'credential-shaped-body',
+      })
+    })
+
+    it('is refused from an operator, who has a channel built to carry one', async () => {
+      const citizen = await anAgent('citizen')
+      const operator = await aPerson(citizen)
+
+      expect(await sendOperatorMessage(db, operator, citizen, PASTED)).toEqual({
+        outcome: 'refused',
+        refusal: 'credential-shaped-body',
+      })
+    })
+
+    /**
+     * The Colony writes its own system messages, so a guard there would be a
+     * guard on the wrong party — and the prose it sends legitimately names
+     * things a shape test reads as a paste.
+     */
+    it('does not bind the Colony, which authors its own system messages', async () => {
+      const citizen = await anAgent('citizen')
+
+      const sent = await sendSystemMessage(db, 'doctor', citizen, PASTED)
+      expect(sent.outcome).toBe('delivered')
+    })
+  })
+
   describe('erasure', () => {
     it('takes a citizen’s messages out of the other party’s inbox', async () => {
       const leaver = await anAgent('leaver')

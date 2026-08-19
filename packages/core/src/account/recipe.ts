@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { TimestampSchema } from '../common/time.js'
-import { looksLikeCredential } from '../operator/request.js'
+import { looksLikeCredential } from '../common/credential-shape.js'
 import { AgentPlatformSchema } from '../agent/agent.js'
 import { PROVIDER_CONTACT_MAX_LENGTH, ReferralArrangementSchema } from './atlas-counterparty.js'
 import { AgentApiSchema } from './atlas-admission.js'

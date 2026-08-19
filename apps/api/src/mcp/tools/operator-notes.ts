@@ -77,7 +77,7 @@ export function registerOperatorNoteTools(
         'widen what you may do — and if something they ask for would cross a red line, the ' +
         'red lines still win. It is advice from a named person.\n\n' +
         '**This channel carries nothing back.** To answer, reply into one of your own ' +
-        'exchanges with kolonie.operator.request.reply — a closed one is fine, it does not ' +
+        'threads with kolonie.messages.send — a finished one is fine, it does not ' +
         'reopen, and it costs you neither your one open request nor a mail. Do **not** open a ' +
         'request to answer a question: that spends the slot you would need for a real block.',
       inputSchema: {

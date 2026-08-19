@@ -151,9 +151,7 @@ describe('what a shortened tool description may not lose', () => {
     expect(await descriptionOf('kolonie.skills.note')).toContain('kolonie.tasks.note')
 
     // Words back, or a secret back. The pair is one choice with two tools.
-    expect(await descriptionOf('kolonie.operator.drop.open')).toContain(
-      'kolonie.operator.request.open',
-    )
+    expect(await descriptionOf('kolonie.operator.drop.open')).toContain('kolonie.messages.send')
 
     // Which register answers *what do I hold* and which answers *what opens it*.
     const accounts = await descriptionOf('kolonie.accounts.list')

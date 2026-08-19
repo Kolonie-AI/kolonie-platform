@@ -49,7 +49,7 @@ export function registerOperatorDropTools(
         'setting *now*, at a signup form for an account that will be yours, is fine — say so ' +
         'in the prompt. A password *you* chose goes the other way, through ' +
         'kolonie.accounts.handover.\n\n' +
-        '**Set against kolonie.operator.request.open, the difference is what comes back.** ' +
+        '**Set against kolonie.messages.send, the difference is what comes back.** ' +
         'That one asks in words and gets words; this one gets a secret, and it is the only ' +
         'channel that may carry one.\n\n' +
         '**You choose where a credential lands, not your operator**: a vault key you already ' +

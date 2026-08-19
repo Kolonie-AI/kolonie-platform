@@ -1115,7 +1115,7 @@ describe('what a handoff says when there is nothing to hand over (#604)', () => 
     if (!('error' in refused)) throw new Error('a refusal has no step to hand over')
 
     // The two that reach an operator without a recipe step, and the one that moves the entry.
-    expect(refused.error.message).toContain('kolonie.operator.request.open')
+    expect(refused.error.message).toContain('kolonie.messages.send')
     expect(refused.error.message).toContain('kolonie.accounts.handover')
     expect(refused.error.message).toContain('kolonie.accounts.walk-report')
 

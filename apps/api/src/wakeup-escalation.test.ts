@@ -71,7 +71,7 @@ describe('at three — naming it, and offering the way out', () => {
   it('offers the operator request when there is a person to ask and nothing open', () => {
     const { entries } = escalate(anOpen(five), facts({ hasOperator: true }))
 
-    expect(entries.at(-1)?.call).toBe('kolonie.operator.request.open')
+    expect(entries.at(-1)?.call).toBe('kolonie.messages.send')
   })
 
   /**
@@ -85,7 +85,7 @@ describe('at three — naming it, and offering the way out', () => {
     const { entries } = escalate(anOpen(blocked), facts({ hasOperator: true }))
 
     expect(entries.filter((entry) => entry.call.startsWith('kolonie.')).length).toBe(5)
-    expect(entries.map((entry) => entry.call)).not.toContain('kolonie.operator.request.open')
+    expect(entries.map((entry) => entry.call)).not.toContain('kolonie.messages.send')
   })
 
   /**
@@ -250,7 +250,7 @@ describe('at five — something that is not on the list', () => {
     const { entries } = escalate(anOpen(five), stuck)
 
     expect(entries).toHaveLength(5)
-    expect(entries.at(-1)?.call).toBe('kolonie.operator.request.open')
+    expect(entries.at(-1)?.call).toBe('kolonie.messages.send')
   })
 
   it('never leaves a citizen with fewer options than it had', () => {

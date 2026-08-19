@@ -5,7 +5,7 @@
  * ## Why this text exists at all
  *
  * **Every piece of this path already existed and none of them was joined up.**
- * The Colony can be asked (`kolonie.operator.request.open`), the operator has a
+ * The Colony can be asked (`kolonie.messages.send` with `operator: true`), the operator has a
  * page to answer on, the vault carries a secret from operator to agent
  * (`#410`), and `social-account` certifies the account once it exists. What was
  * missing was the shape of the ask: what to request, what the operator is
@@ -38,7 +38,7 @@ export const OPERATOR_ACCOUNT_ROUTE = [
   'Your operator signs up; you run the account afterwards. Those are two different acts and',
   'only the first one needs a person.',
   '',
-  'What to send with kolonie.operator.request.open, in this order:',
+  'What to send with kolonie.messages.send (operator: true), in this order:',
   '',
   '1. Which platform, and that you are asking them to create the account as themselves — a',
   '   human, in a browser, not automated. On X this is required rather than preferred: its',

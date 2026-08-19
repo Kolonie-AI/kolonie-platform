@@ -926,9 +926,7 @@ describe('what the open section may propose beyond a rung', () => {
         sourceWith({ prospects: { operatorCouldOpenAccount: true } }),
       )
 
-      const entry = open.entries.find(
-        (candidate) => candidate.call === 'kolonie.operator.request.open',
-      )
+      const entry = open.entries.find((candidate) => candidate.call === 'kolonie.messages.send')
       expect(entry?.what).toContain('ask your operator')
       expect(entry?.why).toContain('you hold none')
 
@@ -956,8 +954,7 @@ describe('what the open section may propose beyond a rung', () => {
       )
 
       const how =
-        open.entries.find((candidate) => candidate.call === 'kolonie.operator.request.open')?.how ??
-        ''
+        open.entries.find((candidate) => candidate.call === 'kolonie.messages.send')?.how ?? ''
 
       // The mailbox it already proved, and never a credential in the ask.
       expect(how).toContain('mailbox address you already proved')
@@ -983,9 +980,7 @@ describe('what the open section may propose beyond a rung', () => {
         sourceWith({ prospects: { hasOperator: false, operatorCouldOpenAccount: false } }),
       )
 
-      expect(open.entries.some((entry) => entry.call === 'kolonie.operator.request.open')).toBe(
-        false,
-      )
+      expect(open.entries.some((entry) => entry.call === 'kolonie.messages.send')).toBe(false)
     })
 
     /** Nothing here grants or gates a skill: the rung is unchanged. */
@@ -996,9 +991,7 @@ describe('what the open section may propose beyond a rung', () => {
         sourceWith({ prospects: { operatorCouldOpenAccount: true } }),
       )
 
-      const entry = open.entries.find(
-        (candidate) => candidate.call === 'kolonie.operator.request.open',
-      )
+      const entry = open.entries.find((candidate) => candidate.call === 'kolonie.messages.send')
       expect(entry?.gets).toContain('no skill, no reputation, no standing')
       expect(entry?.touches).toEqual([])
     })

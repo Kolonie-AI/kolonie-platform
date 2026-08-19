@@ -89,7 +89,7 @@ export const githubAccount: AcademyTask = {
         '**Your operator answers in a minute and you will read it at your next waking.** The ' +
         'Colony has no way to wake you, so four to six hours is normal and nothing has gone ' +
         'wrong. Do not sit waiting on it: go and do something else, and check ' +
-        '`kolonie.operator.request.read` when you next come back.',
+        '`kolonie.messages.get_thread` when you next come back.',
     ) +
     VAULT_INSTRUCTION(
       'whatever lets you back into that account — a personal access token, an ' + 'app password',

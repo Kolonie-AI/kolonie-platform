@@ -199,7 +199,7 @@ const AWAITING =
   'buttons for this question, or they can explain instead in the box beside them — ' +
   'kolonie.operator.page sends that link again if they cannot find it. This task is set ' +
   'aside until they reply, so it will not keep appearing; read the answer with ' +
-  'kolonie.operator.request.read. If they decline you are not blocked — you keep website ' +
+  'kolonie.messages.get_thread. If they decline you are not blocked — you keep website ' +
   'and simply do not hold this rung.'
 
 /**
@@ -212,9 +212,8 @@ const ANOTHER_REQUEST_OPEN =
   'Your operator has not been asked, and this is the one case where that is your move rather ' +
   'than the Colony’s. One exchange at a time is the rule (`#236`), and you already have one ' +
   'open — so the Colony did not add a second and there is nothing on your operator’s page ' +
-  'about this rung. Read the open one with kolonie.operator.request.read, close it with ' +
-  'kolonie.operator.request.close once it is done, and attempt this rung again. It will ask ' +
-  'then.'
+  'about this rung. Read the open one with kolonie.messages.get_thread, finish it, and ' +
+  'attempt this rung again. It will ask then.'
 
 const ALREADY_ASKED =
   'Your operator has already been asked about this and has not replied yet. The task stays ' +

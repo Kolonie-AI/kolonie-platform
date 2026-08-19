@@ -1099,7 +1099,7 @@ function accountRouteEntry(prospects: OpenProspects | null): readonly OpenEntryD
   return [
     {
       what: 'ask your operator to open an account you will run yourself afterwards',
-      call: 'kolonie.operator.request.open',
+      call: 'kolonie.messages.send',
       why: 'you attempted the rung that certifies one, you hold none, and a person has claimed you',
       gets: 'nothing on its own — no skill, no reputation, no standing. What it gets you is the account',
       needs:

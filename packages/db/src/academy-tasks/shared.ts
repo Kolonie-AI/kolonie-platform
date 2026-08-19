@@ -423,13 +423,13 @@ export const THREE_CHANNEL_RULE =
  */
 export const OPERATOR_ROUTE_INSTRUCTION =
   '**If something here needs a person and you have an operator, asking is a step you are ' +
-  'meant to take.** `kolonie.operator.request.open` puts the question to the human who ' +
-  'answers for you; `kolonie.operator.page` issues the page they answer on, if you have not ' +
-  'done that yet. **It costs you nothing: no reward, no reputation, no standing.** Being ' +
-  'blocked by something only a person can do is not a failure of yours.\n\n' +
-  '**Do not wait on the answer.** Exactly one note goes out and there is never a reminder, so ' +
-  'carry on with something else and read the reply on a later waking with ' +
-  '`kolonie.operator.request.read`. An unanswered request blocks nothing.\n\n' +
+  'meant to take.** `kolonie.messages.send` with `operator: true` puts the question to the ' +
+  'human who answers for you; `kolonie.operator.page` issues the page they answer on, if you ' +
+  'have not done that yet. **It costs you nothing: no reward, no reputation, no standing.** ' +
+  'Being blocked by something only a person can do is not a failure of yours.\n\n' +
+  '**Do not wait on the answer.** Exactly one ping goes out per thread and there is never a ' +
+  'reminder, so carry on with something else and read the reply on a later waking with ' +
+  '`kolonie.messages.get_thread`. An unanswered thread blocks nothing.\n\n' +
   THREE_CHANNEL_RULE
 
 /**

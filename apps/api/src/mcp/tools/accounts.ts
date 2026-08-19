@@ -85,7 +85,6 @@ import {
   readRecipe,
   templateHandoffStep,
 } from '../../provider-recipes.js'
-import { openOperatorRequest } from '../../operator-requests.js'
 import { createDrop } from '../../operator-drops.js'
 import {
   acceptOfferedAccount,
@@ -2525,23 +2524,51 @@ export function registerAccountTools(
         }
       }
 
-      const asked = await openOperatorRequest(
-        {
-          agentId: authenticatedAgent.agent.id,
-          agentName: authenticatedAgent.agent.profile.name,
-          body: { wishId: wish.id, body: filled.ask },
-        },
-        deps.operatorRequests,
-      )
-
-      if (asked.outcome === 'rejected') return toolError(asked.error)
-      if (asked.outcome === 'rate-limited') {
+      /**
+       * **Words go through messaging, and a secret went through the drop above**
+       * (`#1322`, epic `#1318`).
+       *
+       * The channel changed and the sentence did not: the Colony still sends its
+       * own wording rather than the agent's, still names the wish so the person
+       * reading it knows which provider this is about, and still sends exactly
+       * one ping. What a person answers into is the durable page they already
+       * hold — the same page the exchange pointed at.
+       *
+       * `wishId` is the provenance, which is what makes asking twice about the
+       * same provider land in the thread that already holds the answer.
+       */
+      if (deps.messaging === undefined) {
+        /**
+         * The same class of refusal `openOperatorRequest` made with no mailer:
+         * the Colony's own gap, reported as `internal` rather than as the
+         * agent's mistake, which would send it to rewrite an ask that was fine.
+         */
         return toolError({
-          code: 'rate_limited',
-          details: { retryAfterSeconds: String(asked.retryAfterSeconds) },
+          code: 'internal',
           message:
-            `You have sent as much as the Colony carries in an hour. Wait ` +
-            `${asked.retryAfterSeconds} seconds — the recipe has not gone anywhere.`,
+            'The Colony cannot carry a message to your operator at the moment, so it did not ' +
+            'send one — there would be nobody to tell. This is not your problem and nothing ' +
+            'about your standing changed. Try again later.',
+        })
+      }
+
+      const asked = await deps.messaging.send(authenticatedAgent.agent.id, {
+        body: filled.ask,
+        operator: true,
+        wishId: wish.id,
+      })
+
+      if (asked.outcome === 'refused') return toolError(asked.error)
+      if (asked.outcome === 'requested') {
+        /**
+         * Unreachable: a request gate exists on the citizen↔citizen path and an
+         * operator open never produces one. Named rather than cast away, so a
+         * later change to the send matrix fails here rather than returning a
+         * `requestId` to a caller expecting a conversation.
+         */
+        return toolError({
+          code: 'internal',
+          message: 'An operator ask came back as a message request, which it cannot be.',
         })
       }
 
@@ -2565,11 +2592,12 @@ export function registerAccountTools(
             text:
               `Asked, in the Colony\u2019s own words rather than yours:\n\n` +
               `> ${filled.ask}\n\n` +
-              `One mail has gone to your operator and it is the only one that will be sent about ` +
-              `this.${knownNote}${patternNote}\n\n${HANDOFF_LATENCY_NOTE}`,
+              `It is in your operator's thread with you, and one ping has gone to them about it \u2014 ` +
+              `the only one that will be sent. Read what they say with ` +
+              `kolonie.messages.get_thread.${knownNote}${patternNote}\n\n${HANDOFF_LATENCY_NOTE}`,
           },
         ],
-        structuredContent: { channel: 'request', knownValues: filled.known, ...asked.response },
+        structuredContent: { channel: 'messages', knownValues: filled.known, ...asked.response },
       }
     },
   )

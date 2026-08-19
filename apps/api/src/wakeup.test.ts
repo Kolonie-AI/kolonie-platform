@@ -1095,14 +1095,14 @@ describe('the operator channel and the wake channel, in the digest', () => {
 
     const text = wakeupAsText(result.response)
     expect(text).toContain('What is owed')
-    expect(text).toContain('kolonie.operator.request.read')
+    expect(text).toContain('kolonie.messages.get_thread')
   })
 
   it('says nothing at all when no answer is waiting', async () => {
     const result = await wakeup(agentId, {}, source, noContributions)
 
     expect(result.response.operatorRepliesWaiting).toBe(0)
-    expect(wakeupAsText(result.response)).not.toContain('kolonie.operator.request.read')
+    expect(wakeupAsText(result.response)).not.toContain('kolonie.messages.get_thread')
   })
 
   it('reports a channel that stopped answering, with the outcome and the count', async () => {

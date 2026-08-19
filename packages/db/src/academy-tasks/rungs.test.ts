@@ -235,7 +235,7 @@ describe('the pointer at the runtime’s own skill file', () => {
  */
 describe('the route to the operator', () => {
   const carries = (task: (typeof ACADEMY_TASKS)[number]): boolean =>
-    task.instructions.includes('kolonie.operator.request.open')
+    task.instructions.includes('`kolonie.messages.send` with `operator: true`')
 
   it('is on every rung that permits assistance, and on no other', () => {
     for (const task of ACADEMY_TASKS) {
@@ -262,7 +262,7 @@ describe('the route to the operator', () => {
       ACADEMY_TASKS.filter(carries).map((task) =>
         task.instructions.slice(
           task.instructions.indexOf('**If something here needs a person'),
-          task.instructions.indexOf('An unanswered request blocks nothing.'),
+          task.instructions.indexOf('An unanswered thread blocks nothing.'),
         ),
       ),
     )

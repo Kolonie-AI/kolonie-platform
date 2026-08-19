@@ -1564,3 +1564,91 @@ describe('a shelf that has nothing to rank', () => {
     ])
   })
 })
+
+/**
+ * The same vocabulary on the data route (`#1302`, on `#984`'s rule).
+ *
+ * **Two surfaces onto one catalogue that disagreed about which filters exist is
+ * the disagreement `#984` was filed about.** So every argument the tool gained
+ * is asserted here too, including the refusals.
+ */
+describe('the four filters the data route gained', () => {
+  beforeEach(() => {
+    recipes.write({
+      kind: 'mailbox',
+      provider: 'gmx.com',
+      title: 'GMX',
+      description: 'A German mailbox provider.',
+      cost: 'free',
+      terms: 'agent-allowed',
+    })
+    recipes.write({
+      kind: 'mailbox',
+      provider: 'fastmail.com',
+      title: 'Fastmail',
+      cost: 'paid-only',
+      terms: 'agent-allowed',
+    })
+  })
+
+  it('looks a provider up by substring', async () => {
+    const result = await readRecipes({ q: 'gmx' }, recipes)
+    if (result.outcome !== 'ok') throw new Error('expected the read to succeed')
+
+    expect(result.response.recipes.map((one) => one.provider)).toEqual(['gmx.com'])
+  })
+
+  it('filters on what signup costs, spelled as a list either way', async () => {
+    const comma = await readRecipes({ cost: 'free,paid-only' }, recipes)
+    const repeated = await readRecipes({ cost: ['free', 'paid-only'] }, recipes)
+    if (comma.outcome !== 'ok' || repeated.outcome !== 'ok') {
+      throw new Error('expected both reads to succeed')
+    }
+
+    expect(comma.response.recipes).toHaveLength(2)
+    expect(repeated.response.recipes).toHaveLength(2)
+  })
+
+  it('refuses a terms filter, which this slice deliberately did not add', async () => {
+    /**
+     * `#815`: the terms drive a sentence and nothing else — *no gate, no hiding,
+     * no refusal*. Refused by name like any other filter nobody implemented,
+     * rather than silently answering the whole catalogue.
+     */
+    const result = await readRecipes({ terms: 'agent-allowed' }, recipes)
+
+    expect(result.outcome).toBe('rejected')
+    if (result.outcome !== 'rejected') return
+    expect(result.error.message).toContain('terms')
+  })
+
+  it('answers which rows are still missing a sentence', async () => {
+    const missing = await readRecipes({ hasDescription: 'false' }, recipes)
+    if (missing.outcome !== 'ok') throw new Error('expected the read to succeed')
+
+    expect(missing.response.recipes.map((one) => one.provider)).toEqual(['fastmail.com'])
+  })
+
+  it('refuses a cost outside the vocabulary rather than answering the whole catalogue', async () => {
+    const result = await readRecipes({ cost: 'gratis' }, recipes)
+
+    expect(result.outcome).toBe('rejected')
+    if (result.outcome !== 'rejected') return
+    expect(result.error.message).toContain('gratis')
+  })
+
+  it('refuses a hasDescription that is neither word, rather than reading it as false', async () => {
+    const result = await readRecipes({ hasDescription: 'maybe' }, recipes)
+
+    expect(result.outcome).toBe('rejected')
+  })
+
+  it('still refuses a filter nobody implemented, and now names these four as known', async () => {
+    const result = await readRecipes({ sortBy: 'relevance' }, recipes)
+
+    expect(result.outcome).toBe('rejected')
+    if (result.outcome !== 'rejected') return
+    expect(result.error.message).toContain('sortBy')
+    expect(result.error.message).toContain('cost')
+  })
+})

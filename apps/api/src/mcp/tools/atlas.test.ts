@@ -750,3 +750,275 @@ describe('the Atlas over MCP', () => {
     })
   })
 })
+
+/**
+ * Reading the Atlas at the size it is growing to (`#1302`).
+ *
+ * **What is asserted here is that the catalogue answers a lookup.** The failure
+ * `#1295` names is a scout walking a provider the Atlas already holds, because
+ * every filter narrowed by a vocabulary somebody chose and none of them could be
+ * asked *do we know anything about `gmx.com`*.
+ */
+describe('searching the Atlas', () => {
+  let colony: FakeColony
+
+  beforeEach(() => {
+    colony = fakeColony()
+    colony.recipes.write({
+      kind: 'mailbox',
+      provider: 'gmx.com',
+      title: 'GMX',
+      description: 'A German mailbox provider with a free tier.',
+      category: 'mailbox',
+      cost: 'free',
+      terms: 'agent-allowed',
+    })
+    colony.recipes.write({
+      kind: 'mailbox',
+      provider: 'fastmail.com',
+      title: 'Fastmail',
+      category: 'mailbox',
+      cost: 'paid-only',
+      terms: 'agent-allowed',
+    })
+    colony.recipes.write({
+      kind: 'github',
+      provider: 'github.com',
+      title: 'GitHub',
+      description: 'Where the Colony keeps its code.',
+      cost: 'free',
+      terms: 'human-only',
+    })
+  })
+
+  describe('looking a provider up', () => {
+    it('matches the provider name, the title and the description', async () => {
+      const byProvider = await readAtlas({ q: 'gmx' }, colony.recipes, true)
+      if (byProvider.outcome !== 'ok') throw new Error('expected the read to succeed')
+      expect(byProvider.response.entries.map((one) => one.provider)).toEqual(['gmx.com'])
+
+      const byTitle = await readAtlas({ q: 'fastmail' }, colony.recipes, true)
+      if (byTitle.outcome !== 'ok') throw new Error('expected the read to succeed')
+      expect(byTitle.response.entries.map((one) => one.provider)).toEqual(['fastmail.com'])
+
+      const byDescription = await readAtlas({ q: 'German' }, colony.recipes, true)
+      if (byDescription.outcome !== 'ok') throw new Error('expected the read to succeed')
+      expect(byDescription.response.entries.map((one) => one.provider)).toEqual(['gmx.com'])
+    })
+
+    it('answers nothing rather than everything when nothing matches', async () => {
+      /**
+       * The whole point of the argument. A query that silently did nothing would
+       * hand back the catalogue, which a scout reads as *the Atlas has all of
+       * these* rather than as *your filter was dropped*.
+       */
+      const result = await readAtlas({ q: 'nowhere.invalid' }, colony.recipes, true)
+      if (result.outcome !== 'ok') throw new Error('expected the read to succeed')
+
+      expect(result.response.entries).toEqual([])
+      expect(result.response.total).toBe(0)
+    })
+
+    it('refuses a query that is a paragraph rather than a name', async () => {
+      const result = await readAtlas({ q: 'x'.repeat(400) }, colony.recipes, true)
+
+      expect(result.outcome).toBe('rejected')
+    })
+
+    it('does not sort by the query, because position is not for sale', async () => {
+      /**
+       * `mail` matches both mailboxes. What comes back is the catalogue's own
+       * order — a relevance score would be a second ordering laid over
+       * `atlasByOutcome`, and `#855`'s guarantee is that nothing can move a row
+       * up except what was measured.
+       */
+      const withQuery = await readAtlas({ q: 'mail' }, colony.recipes, true)
+      const withoutQuery = await readAtlas({ category: 'mailbox' }, colony.recipes, true)
+      if (withQuery.outcome !== 'ok' || withoutQuery.outcome !== 'ok') {
+        throw new Error('expected both reads to succeed')
+      }
+
+      expect(withQuery.response.entries.map((one) => one.provider)).toEqual(
+        withoutQuery.response.entries.map((one) => one.provider),
+      )
+    })
+  })
+
+  describe('the signup conditions, filterable at last', () => {
+    it('keeps only the rows priced the way the reader can pay', async () => {
+      const result = await readAtlas({ cost: ['free'] }, colony.recipes, true)
+      if (result.outcome !== 'ok') throw new Error('expected the read to succeed')
+
+      expect(result.response.entries.map((one) => one.provider).sort()).toEqual([
+        'github.com',
+        'gmx.com',
+      ])
+    })
+
+    it('reads several values as *any of these*', async () => {
+      const result = await readAtlas({ cost: ['free', 'paid-only'] }, colony.recipes, true)
+      if (result.outcome !== 'ok') throw new Error('expected the read to succeed')
+
+      expect(result.response.entries).toHaveLength(3)
+    })
+
+    it('offers no terms filter, because `#815` says that field hides nothing', async () => {
+      /**
+       * The one filter this slice deliberately did not add. `#815`: *no gate, no
+       * hiding, no refusal* — the terms drive a sentence on the entry, and a
+       * filter would put the decision the record took away back on the shelf. So
+       * a human-only entry is on every read, filtered or not.
+       */
+      const unfiltered = await readAtlas({}, colony.recipes, true)
+      if (unfiltered.outcome !== 'ok') throw new Error('expected the read to succeed')
+
+      expect(unfiltered.response.entries.map((one) => one.provider)).toContain('github.com')
+    })
+
+    it('names a value outside the vocabulary rather than answering the whole shelf', async () => {
+      const result = await readAtlas({ cost: ['gratis'] }, colony.recipes, true)
+
+      expect(result.outcome).toBe('rejected')
+      if (result.outcome !== 'rejected') throw new Error('unreachable')
+      expect(result.error.message).toContain('gratis')
+    })
+
+    it('does not fold `unknown` into a priced answer', async () => {
+      colony.recipes.write({ kind: 'domain', provider: 'unpriced.test', title: 'Unpriced' })
+
+      const free = await readAtlas({ cost: ['free'] }, colony.recipes, true)
+      const unknown = await readAtlas({ cost: ['unknown'] }, colony.recipes, true)
+      if (free.outcome !== 'ok' || unknown.outcome !== 'ok') {
+        throw new Error('expected both reads to succeed')
+      }
+
+      expect(free.response.entries.map((one) => one.provider)).not.toContain('unpriced.test')
+      expect(unknown.response.entries.map((one) => one.provider)).toContain('unpriced.test')
+    })
+  })
+
+  describe('the entries still missing a sentence', () => {
+    it('answers both halves of the question', async () => {
+      const described = await readAtlas({ hasDescription: true }, colony.recipes, true)
+      const missing = await readAtlas({ hasDescription: false }, colony.recipes, true)
+      if (described.outcome !== 'ok' || missing.outcome !== 'ok') {
+        throw new Error('expected both reads to succeed')
+      }
+
+      expect(described.response.entries.map((one) => one.provider).sort()).toEqual([
+        'github.com',
+        'gmx.com',
+      ])
+      expect(missing.response.entries.map((one) => one.provider)).toEqual(['fastmail.com'])
+    })
+  })
+
+  describe('paging the catalogue', () => {
+    const wideShelf = (count: number): FakeColony => {
+      const wide = fakeColony()
+      for (let index = 0; index < count; index += 1) {
+        wide.recipes.write({
+          kind: 'mailbox',
+          provider: `provider-${String(index).padStart(4, '0')}.test`,
+          title: `Provider ${index}`,
+          category: 'mailbox',
+        })
+      }
+      return wide
+    }
+
+    it('hands back a page, the total and a cursor', async () => {
+      const wide = wideShelf(120)
+
+      const first = await readAtlas({ limit: 10 }, wide.recipes, true)
+      if (first.outcome !== 'ok') throw new Error('expected the read to succeed')
+
+      expect(first.response.entries).toHaveLength(10)
+      expect(first.response.total).toBe(120)
+      expect(first.response.nextCursor).not.toBeNull()
+
+      const second = await readAtlas(
+        { limit: 10, cursor: first.response.nextCursor as string },
+        wide.recipes,
+        true,
+      )
+      if (second.outcome !== 'ok') throw new Error('expected the read to succeed')
+
+      const firstNames = first.response.entries.map((one) => one.provider)
+      const secondNames = second.response.entries.map((one) => one.provider)
+      expect(secondNames).toHaveLength(10)
+      expect(secondNames.filter((name) => firstNames.includes(name))).toEqual([])
+    })
+
+    it('caps an unpaged read rather than answering a thousand entries', async () => {
+      const wide = wideShelf(1200)
+
+      const result = await readAtlas({}, wide.recipes, true)
+      if (result.outcome !== 'ok') throw new Error('expected the read to succeed')
+
+      expect(result.response.entries).toHaveLength(50)
+      expect(result.response.total).toBe(1200)
+      expect(result.response.nextCursor).not.toBeNull()
+    })
+
+    it('reads a whole thousand-entry shelf within a budget a caller would notice', async () => {
+      /**
+       * The performance criterion of `#1302`, as a measurement rather than a
+       * plan. The catalogue is assembled and filtered in memory, so what this
+       * asserts is that the shape is linear and not that any particular machine
+       * is fast: a thousand entries paged twenty times is the read a scout
+       * actually makes, and a quadratic filter would blow this by orders of
+       * magnitude rather than by a margin.
+       */
+      const wide = wideShelf(1000)
+
+      const started = Date.now()
+      let cursor: string | null = null
+      let seen = 0
+
+      for (let page = 0; page < 20; page += 1) {
+        const result = await readAtlas(
+          { limit: 50, ...(cursor === null ? {} : { cursor }) },
+          wide.recipes,
+          true,
+        )
+        if (result.outcome !== 'ok') throw new Error('expected the read to succeed')
+
+        seen += result.response.entries.length
+        cursor = result.response.nextCursor
+        if (cursor === null) break
+      }
+
+      expect(seen).toBe(1000)
+      expect(cursor).toBeNull()
+      expect(Date.now() - started).toBeLessThan(10_000)
+    })
+
+    it('refuses a cursor that is not one of ours rather than starting again', async () => {
+      /**
+       * A caller paging through would silently restart, which is worse than a
+       * refusal: it looks like a catalogue that keeps growing.
+       */
+      const result = await readAtlas({ cursor: 'not-a-cursor' }, colony.recipes, true)
+
+      expect(result.outcome).toBe('rejected')
+    })
+
+    it('keeps the filters and the page independent', async () => {
+      const wide = wideShelf(120)
+      wide.recipes.write({
+        kind: 'domain',
+        provider: 'findable.test',
+        title: 'Findable',
+        category: 'domain-dns',
+      })
+
+      const result = await readAtlas({ q: 'findable' }, wide.recipes, true)
+      if (result.outcome !== 'ok') throw new Error('expected the read to succeed')
+
+      expect(result.response.entries.map((one) => one.provider)).toEqual(['findable.test'])
+      expect(result.response.total).toBe(1)
+      expect(result.response.nextCursor).toBeNull()
+    })
+  })
+})

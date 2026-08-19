@@ -35,6 +35,14 @@ import {
   recipeWall,
   REFUSAL_UNSTATED,
   wallsMatch,
+  atlasConditionsMatch,
+  atlasHasDescription,
+  atlasMatchesQuery,
+  atlasPageOf,
+  decodeAtlasCursor,
+  invalidAtlasCondition,
+  ATLAS_QUERY_MAX_LENGTH,
+  type AtlasPage,
   earnFacetsMatch,
   earnFacetsOf,
   utilityFacetsOf,
@@ -382,6 +390,15 @@ const RECIPE_QUERY_FILTERS = [
   'excludeWalls',
   'withEarn',
   'excludeEarn',
+  /**
+   * The four `#1302` adds, on this route because the two surfaces onto one
+   * catalogue must not come to disagree about which vocabulary is valid — which
+   * is the disagreement `#984` was filed about, and the reason this list is
+   * closed at all.
+   */
+  'q',
+  'cost',
+  'hasDescription',
 ] as const
 
 /**
@@ -406,6 +423,21 @@ const RECIPE_WALL_FILTERS = ['withWalls', 'excludeWalls'] as const
  * agreeing.
  */
 const RECIPE_EARN_FILTERS = ['withEarn', 'excludeEarn'] as const
+
+/**
+ * The signup-condition filter, read as a list for the same reason (`#1302`).
+ *
+ * **A list rather than a value, on a closed enum of four.** *Free or
+ * card-to-sign-up* is one question an agent without a card asks, and a scalar
+ * would make it two requests it then has to merge — which is the arithmetic the
+ * catalogue exists to do.
+ *
+ * **`terms` is deliberately not beside it.** `#815` says that field drives a
+ * sentence on the entry and nothing else — *no gate, no hiding, no refusal* —
+ * and a filter hides entries. {@link invalidAtlasCondition} still knows the
+ * vocabulary, so adding one later is a line here and a decision somewhere else.
+ */
+const RECIPE_CONDITION_FILTERS = ['cost'] as const
 
 function invalidKind(kind: string): ApiError | null {
   return AccountKindSchema.safeParse(kind).success
@@ -610,6 +642,7 @@ export async function readRecipes(
     if (value === undefined) continue
     if ((RECIPE_WALL_FILTERS as readonly string[]).includes(name)) continue
     if ((RECIPE_EARN_FILTERS as readonly string[]).includes(name)) continue
+    if ((RECIPE_CONDITION_FILTERS as readonly string[]).includes(name)) continue
 
     if (typeof value !== 'string') {
       return {
@@ -655,6 +688,58 @@ export async function readRecipes(
     earn[name] = read.facets
   }
 
+  /**
+   * The signup conditions, through the same list reader and refused by the same
+   * helper the tool calls (`#1302`).
+   */
+  const conditions: { cost?: readonly string[] } = {}
+
+  for (const name of RECIPE_CONDITION_FILTERS) {
+    const value = query[name]
+    if (value === undefined) continue
+
+    const read = listFrom(name, value, `${name} values`)
+    if ('error' in read) return { outcome: 'rejected', error: read.error }
+
+    const rejection = invalidAtlasCondition(name, read.parts)
+    if (rejection !== null) return { outcome: 'rejected', error: rejection }
+
+    conditions[name] = read.parts
+  }
+
+  if (given.q !== undefined && given.q.trim().length > ATLAS_QUERY_MAX_LENGTH) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message:
+          `A query is a name, a title or a sentence — ${ATLAS_QUERY_MAX_LENGTH} characters at ` +
+          'most.',
+      },
+    }
+  }
+
+  /**
+   * **A query-string boolean is a word, and only two words are it.** Anything
+   * else is refused rather than read as `false`, which is the rule the closed
+   * filter list above rests on: a filter nobody implemented must not look like
+   * one that worked.
+   */
+  if (given.hasDescription !== undefined && !['true', 'false'].includes(given.hasDescription)) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message:
+          'hasDescription is true or false. `true` is the entries that say what the provider ' +
+          'is; `false` is the ones still missing a sentence, which is where the work is.',
+      },
+    }
+  }
+
+  const hasDescription =
+    given.hasDescription === undefined ? undefined : given.hasDescription === 'true'
+
   const listed = await recipes.list(
     given.kind === undefined ? undefined : AccountKindSchema.parse(given.kind),
   )
@@ -678,7 +763,21 @@ export async function readRecipes(
          * question asked in one request, which is the thing neither taxonomy
          * could answer alone.
          */
-        .filter((recipe) => earnFacetsMatch(recipe.facets, earn)),
+        .filter((recipe) => earnFacetsMatch(recipe.facets, earn))
+        /**
+         * The three `#1302` adds, on the rows this route serves.
+         *
+         * **The query matches the row's own identity and not the entry's.** This
+         * route answers rows rather than providers, so the sentence a reader
+         * matched against is the one it will be handed back — where the tool,
+         * which answers entries, matches the rolled-up description instead.
+         */
+        .filter((recipe) => atlasConditionsMatch(recipe, conditions))
+        .filter((recipe) => atlasMatchesQuery(recipe, given.q))
+        .filter(
+          (recipe) =>
+            hasDescription === undefined || atlasHasDescription(recipe) === hasDescription,
+        ),
     },
   }
 }
@@ -785,6 +884,44 @@ export async function readAtlas(
      */
     readonly withEarn?: readonly string[] | undefined
     readonly excludeEarn?: readonly string[] | undefined
+    /**
+     * The catalogue as something you can look a provider up in (`#1302`).
+     *
+     * **A substring over identity and never a ranked search.** Provider, title
+     * and description; no scoring, because a relevance order laid over
+     * `atlasByOutcome` would be a second ordering — and the first entry that
+     * ranked above another for repeating a word would undo the one guarantee
+     * `#855` makes about position.
+     */
+    readonly q?: string | undefined
+    /**
+     * Where the money is required, per row (`#1302`).
+     *
+     * **Readable since `#815` and filterable by nobody until now.** An agent
+     * with no card had to fetch the shelf and re-derive *which of these can I
+     * actually pay for*, which is the read the catalogue exists to save.
+     *
+     * **No `terms` beside it**, because `#815` says that field hides nothing.
+     */
+    readonly cost?: readonly string[] | undefined
+    /**
+     * Only entries that say what the provider is, or only the ones that do not
+     * (`#1302`).
+     *
+     * **Both directions, because they are two jobs.** `true` is a reader
+     * choosing; `false` is a scout finding the entries `#1297` left a sentence
+     * missing on.
+     */
+    readonly hasDescription?: boolean | undefined
+    /**
+     * One page of the catalogue rather than all of it (`#1302`).
+     *
+     * **Clamped and never refused**, exactly as the walks page is: the ceiling
+     * is a property of the response, and refusing would only make every caller
+     * learn the number by being refused once.
+     */
+    readonly limit?: number | undefined
+    readonly cursor?: string | undefined
   },
   recipes: ProviderRecipes,
   /**
@@ -818,6 +955,15 @@ export async function readAtlas(
      * evidence it does not have is worse than no order.
      */
     readonly nothingMeasured: string | null
+    /**
+     * Where the next page of the catalogue starts, and how many entries matched
+     * across all of them (`#1302`).
+     *
+     * **`null` on the last page rather than absent**, so a caller loops on a
+     * value it reads rather than on a key it tests for.
+     */
+    readonly nextCursor: string | null
+    readonly total: number
   }>
 > {
   /**
@@ -886,6 +1032,49 @@ export async function readAtlas(
     }
   }
 
+  /**
+   * The two condition filters, refused by name rather than dropped (`#1302`).
+   *
+   * Same rule as the walls and the shelves above, from the same helper both
+   * surfaces call: a filter silently ignored is a count that is wrong in a
+   * direction the caller cannot see.
+   */
+  const conditions = input.cost === undefined ? null : invalidAtlasCondition('cost', input.cost)
+
+  if (conditions !== null) return { outcome: 'rejected', error: conditions }
+
+  if (input.q !== undefined && input.q.trim().length > ATLAS_QUERY_MAX_LENGTH) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message:
+          `A query is a name, a title or a sentence — ${ATLAS_QUERY_MAX_LENGTH} characters at ` +
+          'most. It matches a provider, its title and the sentence saying what it is, and never ' +
+          'the steps: a paragraph here is asking for a search this is not.',
+      },
+    }
+  }
+
+  /**
+   * **Read before the catalogue, so a mangled cursor costs nothing.** The whole
+   * shelf would otherwise be assembled and filtered to serve a request that
+   * cannot be answered, exactly as the walks refusal argues one call up.
+   */
+  const cursor = input.cursor === undefined ? undefined : decodeAtlasCursor(input.cursor)
+
+  if (cursor === 'invalid-cursor') {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message:
+          'That cursor is not one of ours. Drop it to start at the first entry, or send back ' +
+          'the `nextCursor` from your last page exactly as it was given.',
+      },
+    }
+  }
+
   const all = await atlasCatalogue(
     recipes,
     input.direction === undefined
@@ -914,7 +1103,14 @@ export async function readAtlas(
              * referral; dropping the provider would hide the row the reader
              * asked for.
              */
-            earnFacetsMatch(recipe.facets, earn),
+            earnFacetsMatch(recipe.facets, earn) &&
+            /**
+             * **Per recipe, a third time and for the third time the same
+             * reason** (`#1302`). A provider whose mailbox is free and whose API
+             * is paid-only is two answers, and dropping the provider would lose
+             * the row the reader can act on.
+             */
+            atlasConditionsMatch(recipe, input),
         )
         .map((recipe) => ({
           ...recipe,
@@ -943,6 +1139,19 @@ export async function readAtlas(
           (sum, recipe) => sum + (recipe.figures.suppressed ? 0 : recipe.figures.proved),
           0,
         ) >= input.minProved,
+    )
+    /**
+     * The query, applied to the entry rather than to its rows (`#1302`).
+     *
+     * **After the row filters and not before them**, so `q: 'mail'` beside
+     * `cost: ['free']` is *a provider whose name says mail and whose free row
+     * survived* — which is what a reader asking both questions means, and what
+     * asking them in the other order would not be.
+     */
+    .filter((entry) => atlasMatchesQuery(entry, input.q))
+    .filter(
+      (entry) =>
+        input.hasDescription === undefined || atlasHasDescription(entry) === input.hasDescription,
     )
 
   /**
@@ -1014,9 +1223,32 @@ export async function readAtlas(
    */
   const nothingMeasured = atlasShelfHasEvidence(entries) ? null : ATLAS_NOTHING_MEASURED
 
+  /**
+   * One page of what matched (`#1302`).
+   *
+   * **Last, so every sentence above it is about the shelf and not about the
+   * page.** `nothingMeasured` answers *is there evidence behind what you asked
+   * for*, and computing it from fifty of four hundred entries would make it a
+   * fact about where the reader happens to be paging.
+   */
+  const page: AtlasPage<AtlasEntry> = atlasPageOf(entries, {
+    limit: input.limit,
+    ...(cursor === undefined ? {} : { cursor }),
+  })
+
   return {
     outcome: 'ok',
-    response: { entries, secretHandoff, briefings, notes, routes, operateNotes, nothingMeasured },
+    response: {
+      entries: page.entries,
+      secretHandoff,
+      briefings,
+      notes,
+      routes,
+      operateNotes,
+      nothingMeasured,
+      nextCursor: page.nextCursor,
+      total: page.total,
+    },
   }
 }
 

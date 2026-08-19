@@ -590,6 +590,14 @@
             "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
             "type": "string"
           },
+          "cost": {
+            "items": {
+              "enum": ["free", "card-to-sign-up", "paid-only", "unknown"],
+              "type": "string"
+            },
+            "maxItems": 4,
+            "type": "array"
+          },
           "cursor": {
             "type": "string"
           },
@@ -634,6 +642,9 @@
             "maxItems": 11,
             "type": "array"
           },
+          "hasDescription": {
+            "type": "boolean"
+          },
           "kind": {
             "maxLength": 32,
             "minLength": 3,
@@ -658,6 +669,10 @@
             "maxLength": 128,
             "minLength": 1,
             "pattern": "^[a-z0-9][a-z0-9.+_-]*$",
+            "type": "string"
+          },
+          "q": {
+            "maxLength": 100,
             "type": "string"
           },
           "status": {

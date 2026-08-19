@@ -167,6 +167,51 @@ main h1 + p {
 }
 
 /*
+ * The box a reader types a provider name into (\`#1302\`).
+ *
+ * Wraps rather than scrolls: a search that pushed its own button off a phone
+ * would be a search a phone cannot submit. The label is visible rather than
+ * hidden behind a placeholder, because a placeholder disappears the moment
+ * somebody starts typing and is the one word saying what the field is for.
+ */
+.k-atlas-search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--k-space-2);
+  margin: var(--k-space-4) 0;
+}
+
+.k-atlas-search label {
+  color: var(--k-text-faint);
+  font-size: var(--k-text-xs);
+}
+
+.k-atlas-search input {
+  flex: 1 1 14rem;
+  /* 44px, the floor kolonie-website#98 sets for anything a thumb finds. */
+  min-height: 2.75rem;
+  min-width: 0;
+  padding: var(--k-space-2);
+  border: var(--k-border) solid var(--k-hairline);
+  border-radius: var(--k-radius);
+  background: var(--k-surface);
+  color: var(--k-text);
+  font: inherit;
+}
+
+.k-atlas-search button {
+  min-height: 2.75rem;
+  padding: var(--k-space-2) var(--k-space-4);
+  border: var(--k-border) solid var(--k-hairline);
+  border-radius: var(--k-radius);
+  background: var(--k-surface);
+  color: var(--k-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+/*
  * One card per entry, in a grid that reflows on its own.
  *
  * \`auto-fit\` with \`minmax(min(100%, …), 1fr)\` is responsive with no breakpoint

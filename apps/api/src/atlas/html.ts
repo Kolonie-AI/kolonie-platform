@@ -6,6 +6,7 @@ import {
   atlasCategoryPath,
   atlasIsWalked,
   atlasKindPhrase,
+  isDualUse,
   atlasShelfHasEvidence,
   atlasShelfTitle,
   atlasConditionsSentences,
@@ -58,6 +59,7 @@ import { atlasNeighbours } from './related.js'
 import { ATLAS_PARTLY, atlasEntryVerdict, atlasRecipeVerdict } from './verdict.js'
 import { ATLAS_REFUSING, atlasEntryTitle, lowerFirst, providerName } from './title.js'
 import { atlasStatusSubline } from './lead.js'
+import { atlasIcon } from './icons.js'
 import {
   atlasEarnFacets,
   atlasEarnPhrase,
@@ -1335,7 +1337,18 @@ function rowEarn(entry: AtlasPublicEntry): string {
   const earn = atlasEarnFacets(entry)
   if (earn.length === 0) return ''
 
-  return `, ${escape(earn.map((facet) => atlasEarnPhrase(facet)).join(', '))}`
+  /**
+   * **The chip language of the provider header, on the card** (`#1326`
+   * decision 4). A reader moves between a shelf and a page constantly, and a
+   * fact that wears one shape in one place and another shape in the other is a
+   * fact they have to re-learn at every hop.
+   */
+  return earn
+    .map(
+      (facet) =>
+        ` <span class="k-atlas-earn">${atlasIcon('earn')}${escape(atlasEarnPhrase(facet))}</span>`,
+    )
+    .join('')
 }
 
 /**
@@ -2109,7 +2122,24 @@ function taxonomyLine(entry: AtlasPublicEntry): string {
 
   const clauses = [
     escape(kindsShown(entry)),
-    ...earn.map((facet) => escape(atlasEarnPhrase(facet))),
+    /**
+     * **A chip with a mark on it, and never the mark alone** (`#1332`,
+     * `#1326` decision 7). The icon is decoration beside a phrase that already
+     * says the thing, which is why `atlasIcon` emits `aria-hidden` and takes no
+     * label: a reader who cannot see it loses nothing.
+     */
+    ...earn.map(
+      (facet) =>
+        `<span class="k-atlas-earn">${atlasIcon('earn')}${escape(atlasEarnPhrase(facet))}</span>`,
+    ),
+    /**
+     * **Both axes at once is its own claim** (`#1301`). A mailbox that pays a
+     * referral is the case the facet system exists for, and a reader scanning
+     * for it should not have to notice that two unrelated chips are present.
+     */
+    isDualUse(entry.facets ?? [])
+      ? `<span class="k-atlas-dual">${atlasIcon('dual-use')}worth holding, and pays</span>`
+      : '',
     atlasShelfIsClaim(entry)
       ? `<a href="${escape(atlasShelfPath(entry.category))}">${escape(entry.category)}</a>`
       : (atlasShelfClause(entry) ?? ''),
@@ -2181,14 +2211,17 @@ function indexStatusMark(entry: AtlasPublicEntry): string {
    * itself inside one line of one page.
    */
   if (atlasEntryVerdict(entry) === ATLAS_PARTLY && ATLAS_REFUSING.has(status)) {
-    return ' <span class="k-partly">partly — some walks got in</span>'
+    return ` <span class="k-partly">${atlasIcon('joinable')}partly — some walks got in</span>`
   }
 
-  if (status === 'refused') return ' <span class="k-refused">cannot be joined</span>'
-  if (status === 'retired') return ' <span class="k-refused">withdrawn</span>'
+  if (status === 'refused') {
+    return ` <span class="k-refused">${atlasIcon('refused')}cannot be joined</span>`
+  }
+  if (status === 'retired')
+    return ` <span class="k-refused">${atlasIcon('refused')}withdrawn</span>`
   if (status === 'unwritten') return ' <span class="k-unwritten">nobody has looked yet</span>'
   if (status === 'measured') {
-    return ' <span class="k-unwritten">walked, with no route written</span>'
+    return ` <span class="k-unwritten">${atlasIcon('measured')}walked, with no route written</span>`
   }
 
   return ''
@@ -2545,10 +2578,19 @@ function wallsSection(recipe: AtlasPublicRecipe): string {
         ? ' Classified from the refusal rather than from a walk.'
         : ` Hit by ${wall.reportedBy} walk${wall.reportedBy === 1 ? '' : 's'}.`
 
-    return `<li>${escape(WALL_KIND_MEANINGS[wall.kind] + scope + stands + '.' + walks + cost + takes)}</li>`
+    /**
+     * **The mark goes on the item and not on the heading** (`#1332`). The
+     * heading says *what stopped people* once; the list is where a reader
+     * counts, and a mark per item is what makes four walls read as four rather
+     * than as a paragraph.
+     */
+    return (
+      `<li class="k-atlas-wall">${atlasIcon('wall')}` +
+      `${escape(WALL_KIND_MEANINGS[wall.kind] + scope + stands + '.' + walks + cost + takes)}</li>`
+    )
   })
 
-  return `<h3>What stopped people</h3><ul>${items.join('')}</ul>`
+  return `<h3>What stopped people</h3><ul class="k-atlas-walls">${items.join('')}</ul>`
 }
 
 /**
@@ -3027,9 +3069,8 @@ function aboutSection(entry: AtlasPublicEntry): string {
   if (homepage !== undefined) {
     const href = homepage.trim()
     parts.push(
-      `<p class="k-homepage">Homepage: <a href="${escape(href)}" rel="noopener noreferrer">${escape(
-        href,
-      )}</a></p>`,
+      `<p class="k-homepage">${atlasIcon('homepage')}Homepage: ` +
+        `<a href="${escape(href)}" rel="noopener noreferrer">${escape(href)}</a></p>`,
     )
   }
 

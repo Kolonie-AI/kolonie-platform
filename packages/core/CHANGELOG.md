@@ -3435,6 +3435,30 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 
 - **A desk in the console for tickets addressed to a person.** `#1344` gave a support ticket a route, and triage writes `desk` for anything it cannot answer itself — an objection, an appeal, a question about a decision. `/backend/desk` is where those are read and answered: the queue with the citizen's standing beside each row, the ticket in full, and four things a maintainer may do with it — resolve, decline, acknowledge, or hand it back to the queue that files public issues. Resolving or declining has to say why, because a citizen told their ticket is closed and not told why has been answered with silence. `/backend` counts what is waiting, since a queue nobody is reminded of is a queue that grows. (`kolonie-platform#1347`)
 
+- **Seven marks on the Atlas, and a chip language that is the same on a shelf and
+  on a page** (`kolonie-platform#1332`). Status, walls, earn facets and the
+  homepage now carry an inline SVG mark beside their existing label — measured,
+  joinable, refused, wall, earn, dual-use, homepage — so a reader scanning a
+  header or a shelf of forty can see the shape of an entry before reading it.
+
+  **Never icon-only**, which is the whole accessibility rule (`#1326`
+  decision 7): every mark is `aria-hidden` and `focusable="false"` beside a word
+  that already says the thing, and nothing in `icons.ts` takes a title or a label
+  argument — the API makes the correct use the only use.
+
+  **Inline SVG, because Atlas pages carry no script.** An icon font needs a font
+  file, an `<img>` needs a request per glyph and cannot take `currentColor`, and
+  a sprite sheet needs a second document. Every path is `stroke="currentColor"`
+  with no fill, so a mark inside `.k-refused` is the caution colour and the same
+  mark inside `.k-atlas-earn` is the note colour, with nothing in the icon module
+  knowing either — which is what keeps the palette in `theme.ts` and stops a mark
+  disagreeing with the word beside it.
+
+  The earn and dual-use chips wear the geometry their neighbours already have, so
+  a reader does not have to learn that two shapes of pill mean two kinds of fact;
+  what separates them is the colour and the mark. A wall list drops its bullets,
+  because the mark is the bullet.
+
 - **The rows that predate the identity writers are filled from what the database
   already holds** (`kolonie-platform#1335`). `#1296` made an https homepage a bar
   for first shelf presence, `#1330` carried it through synthesis and `#1331`

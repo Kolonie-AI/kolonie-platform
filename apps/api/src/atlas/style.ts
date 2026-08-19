@@ -392,6 +392,85 @@ main h1 + p {
   color: var(--k-text-faint);
 }
 
+/* ---- The marks beside them ---------------------------------------------- */
+
+/*
+ * **One rule for seven icons** (\`#1332\`). Every mark is drawn at \`1em\` with
+ * \`stroke="currentColor"\` and no fill, so it takes the colour of the chip it is
+ * inside and nothing here has to know which chip that is. What this adds is the
+ * two things a viewBox cannot: the optical alignment against the text baseline,
+ * and the gap.
+ *
+ * \`vertical-align: -0.125em\` rather than \`middle\`: at this size \`middle\` sits a
+ * mark visibly high against lower-case text, and the number is the usual
+ * cap-height correction rather than a taste.
+ *
+ * **No hover, no transition, no state.** These are decoration beside a word that
+ * already says the thing (\`#1326\` decision 7), so there is nothing for them to
+ * respond to — and a page with no script cannot have anything anyway.
+ */
+.k-icon {
+  vertical-align: -0.125em;
+  margin-inline-end: var(--k-space-1);
+  flex: none;
+}
+
+/*
+ * **The earn and dual-use chips wear the chip shape of their neighbours**
+ * (\`#1332\`, \`#1326\` decision 7), because a reader scanning a header should not
+ * have to learn that two different kinds of pill mean two different kinds of
+ * fact. What separates them is the colour and the mark, not the geometry.
+ *
+ * The note colour rather than a new one: \`#1326\` decision 7 refuses a palette of
+ * its own, and \`--k-note\` is what \`.k-partly\` already uses for *there is
+ * something usable here*, which is what an earn facet says.
+ */
+.k-atlas-earn,
+.k-atlas-dual {
+  display: inline-block;
+  padding: 0 var(--k-space-2);
+  border: var(--k-border) solid currentColor;
+  border-radius: 999px;
+  font-size: var(--k-text-xs);
+  letter-spacing: var(--k-tracking-label);
+  white-space: nowrap;
+  color: var(--k-note-high);
+}
+
+/*
+ * Both axes at once is the stronger claim of the two, so it takes the accent
+ * rather than the note — the one place on an Atlas page where the Colony's own
+ * colour marks a fact about a provider rather than a link.
+ */
+.k-atlas-dual {
+  color: var(--k-accent-strong);
+}
+
+/*
+ * **A wall list drops its bullets, because the mark is the bullet** (\`#1332\`).
+ * Keeping both would put two glyphs in front of every line for no second fact,
+ * and the mark is the one that says what kind of line this is.
+ *
+ * The caution colour, matching \`.k-refused\`: a wall is the same class of finding
+ * as a refusal, one row further down.
+ */
+.k-atlas-walls {
+  list-style: none;
+  padding-inline-start: 0;
+}
+
+.k-atlas-wall .k-icon {
+  color: var(--k-caution-high);
+}
+
+/*
+ * The homepage line is identity and not a chip, so the mark sits inline in a
+ * paragraph and takes the muted colour the label around it already has.
+ */
+.k-homepage .k-icon {
+  color: var(--k-text-muted);
+}
+
 /*
  * On an entry page the same classes carry a paragraph rather than a chip, so
  * the pill is undone where the element is a block. One class, two jobs, and the

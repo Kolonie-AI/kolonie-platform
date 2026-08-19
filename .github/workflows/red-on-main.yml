@@ -147,8 +147,16 @@ jobs:
           # somebody else's assertion without checking anything out. `|| true`
           # because a run whose logs have expired still deserves an issue saying
           # it was red.
+          # `--log-failed` leaves ANSI colour and a job/step/timestamp prefix on
+          # every line. Quoted into a markdown fence they read as a corrupted
+          # paste, which is the first instinct a reader of a p1 issue distrusts
+          # (`#1362`). Strip the escapes always; strip the prefix only where the
+          # line actually has that shape — the column layout is not a documented
+          # contract, so a mismatch must leave the line alone.
           gh run view "${{ steps.run.outputs.id }}" --repo "$GITHUB_REPOSITORY" \
-            --log-failed > failed.log 2>/dev/null || true
+            --log-failed 2>/dev/null \
+            | sed -E 's/\x1b\[[0-9;]*[mK]//g; s/^[^\t]*\t[^\t]*\t[0-9T:.Z-]+ //' \
+            > failed.log || true
 
           # Prefer the lines a reader can act on. The set is deliberate:
           # `FAIL <file>` names where, `AssertionError` / `expected` names what,

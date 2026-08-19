@@ -34,10 +34,13 @@ import {
   type AtlasEntry,
   type AtlasFigures,
   type ProviderBriefing,
+  type ServedOperateNote,
   type ServedProviderBriefingClaim,
 } from '@kolonie-ai/core'
 import { escape } from '../console/html.js'
 import {
+  ATLAS_NOT_KNOWN,
+  ATLAS_NOT_REPORTED,
   atlasCriteria,
   atlasEntryQuestion,
   atlasShelfQuestion,
@@ -1463,8 +1466,39 @@ function operatorLine(
  * substitutes nothing, so that the `FAQPage` in the head cannot say anything the
  * box does not.
  */
-function criteriaBox(criteria: readonly AtlasCriterion[]): string {
-  const rows = criteria
+function criteriaBox(criteria: readonly AtlasCriterion[], briefed: boolean): string {
+  /**
+   * **A row whose only answer is *nobody said* is dropped once the briefing has
+   * something to say** (`#1326` decision 3).
+   *
+   * The rows are all true and the box is right to print them on a page that has
+   * nothing else: *not known* is a measurement of the Colony's own coverage, and
+   * `#1105` decision 2 is emphatic that it must never be read as *no*. What
+   * changed is what sits beside them. Measured 2026-08-19 on `clawlancer.ai`: a
+   * strong *What citizens measured* section, and under it seven consecutive rows
+   * saying nothing — so the box was answering *has anybody asked* at the moment
+   * the reader had just been told what citizens found.
+   *
+   * **Only where the briefing is non-empty, and only the empty rows.** A page
+   * with no briefing keeps every row, because there the box is the whole of what
+   * the page knows; and a row that answers is kept either way. So this can never
+   * take the last thing off a page, which is the failure mode a blanket
+   * suppression would have.
+   *
+   * **{@link faqPageFor} is unaffected and that is deliberate.** The `FAQPage` in
+   * the head is emitted from the same `criteria` list, unfiltered, so a crawler
+   * still receives every answered question — `#1105` decision 7 ties the JSON-LD
+   * to the criteria rather than to what the box chose to render, and a reader
+   * scrolling past an empty row and a search engine indexing one are different
+   * costs.
+   */
+  const shown = briefed
+    ? criteria.filter((one) => one.answer !== ATLAS_NOT_KNOWN && one.answer !== ATLAS_NOT_REPORTED)
+    : criteria
+
+  if (shown.length === 0) return ''
+
+  const rows = shown
     .map((one) => `<dt>${escape(one.question)}</dt><dd>${escape(one.answer)}</dd>`)
     .join('')
 
@@ -1546,8 +1580,23 @@ function citizenLine(entry: AtlasPublicEntry): string {
  * that is true on every page; the issue's complaint was that the only page
  * carrying either was `github.com`, which the low one alone could not fix.
  */
-function colonyBlockFor(entry: AtlasPublicEntry): string {
-  return atlasEntryVerdict(entry) === 'refused' ? '' : ATLAS_COLONY_BLOCK
+function colonyBlockFor(entry: AtlasPublicEntry, briefed: boolean): string {
+  if (atlasEntryVerdict(entry) === 'refused') return ''
+
+  /**
+   * **Silent on a measured page that already has a briefing** (`#1326`
+   * decision 3).
+   *
+   * `#1163` argued the other way and its argument still holds where it was made:
+   * a reader who has just read that somebody got in is the reader most worth
+   * telling what an account is for. What the freeze adds is the case `#1163` was
+   * not looking at — a `measured` entry with a living briefing, where the block
+   * is four sentences of the Colony's own pitch under a section that just told
+   * the reader something about the provider. **Both conditions, so neither
+   * argument loses**: a measured page with nothing on it keeps the block, since
+   * there walking it is the ask and the block names the call.
+   */
+  return entry.status === 'measured' && briefed ? '' : ATLAS_COLONY_BLOCK
 }
 
 /** One provider's page. */
@@ -1575,6 +1624,20 @@ export function atlasEntryPage(input: {
    * renders the page it rendered before this existed.
    */
   readonly briefings?: ReadonlyMap<string, ProviderBriefing> | undefined
+  /**
+   * The post-account tips citizens filed here (`#1299`, published by `#1334`).
+   *
+   * **Keyed by {@link figureKey} exactly as the briefings above are**, because
+   * they come out of the same read for the same provider and a second keying
+   * would be a second way for a tip to land on the wrong row.
+   *
+   * Optional at every layer, on the briefings' rule: a caller with none renders
+   * the page it rendered before this existed. The section is omitted entirely
+   * when the map is empty, so *no tips* and *this deployment does not read them*
+   * produce the same page — which is right, because to a reader they are the
+   * same fact.
+   */
+  readonly operateNotes?: ReadonlyMap<string, readonly ServedOperateNote[]> | undefined
   /**
    * The catalogue this entry is one of, so the page can name its neighbours
    * (`kolonie-website#113`).
@@ -1718,10 +1781,18 @@ export function atlasEntryPage(input: {
       statusSubline(entry),
       descriptionSection(entry),
       aboutSection(entry),
+      /**
+       * **The taxonomy line moved up here** (`#1328`, hierarchy step 4). It
+       * used to sit below the criteria box, so the two facts that say what this
+       * provider *is* — the kind, and how it pays — arrived after seven rows of
+       * conditions about a thing the reader had not been told the nature of.
+       */
+      taxonomyLine(entry),
       measuredLead.html,
-      criteriaBox(criteria),
+      operateSection(entry, input.operateNotes),
+      criteriaBox(criteria, measuredLead.html !== ''),
       citizenLine(entry),
-      colonyBlockFor(entry),
+      colonyBlockFor(entry, measuredLead.html !== ''),
       /**
        * The two facts `#589` adds. A reader arrives asking *what sort of thing
        * is this* and *will I be needed*, and both used to be answerable only by
@@ -1732,7 +1803,6 @@ export function atlasEntryPage(input: {
        * shortest of the internal links that make a map out of a list, and it
        * was one-way.
        */
-      taxonomyLine(entry),
       /**
        * **Above the recipe rather than beside `runtimesSection` at the foot**
        * (`kolonie-website#110`). A reader arriving from *OpenClaw own phone
@@ -1948,6 +2018,74 @@ function metaDescription(entry: AtlasPublicEntry): string {
  * least on them and the most need of a line saying what the provider is. Here it
  * is rendered for every status, from one place, above everything a row can say.
  */
+/**
+ * The post-account tips, as a section of the provider's page (`#1334`).
+ *
+ * **Its own heading, and the exact words `#1326` decision 1 froze: *After you
+ * hold an account*.** `#1299` gave the tips a store and an MCP route and stopped
+ * there, so what a citizen learned about running an account at a provider — how
+ * to reach the API, what the quota is, how a payout works — reached only the
+ * citizens who thought to ask for it. A stranger reading the page had no way to
+ * know it existed.
+ *
+ * **After the living briefing and above the criteria box**, which is the order
+ * the briefing itself took in `#1298`: what citizens measured getting *in*, then
+ * what they learned once they were in, then the box of conditions. A tip placed
+ * above the briefing would read as a step of the signup, which is exactly what
+ * `#1299` refuses — an operate note is never a way-in step.
+ *
+ * **Unioned across the entry's rows** (`#960`): an entry is a provider, its
+ * recipes are kinds, and a citizen that filed a tip about the API of a provider
+ * filed it about the provider. Keying off one row would make which tips a reader
+ * sees depend on which kind happened to be first.
+ *
+ * **Omitted entirely when there are none.** No heading, no placeholder — a
+ * section saying *nobody has written one of these* is the page reporting on the
+ * Colony's coverage instead of on the provider, and every entry in the catalogue
+ * would carry it.
+ *
+ * The author's handle is printed where the tip carries one. `by` is null for a
+ * citizen whose profile declines attribution, and the tip is still served — the
+ * rule `ServedOperateNote` already holds and this only renders.
+ */
+function operateSection(
+  entry: AtlasPublicEntry,
+  notes: ReadonlyMap<string, readonly ServedOperateNote[]> | undefined,
+): string {
+  if (notes === undefined) return ''
+
+  const seen = new Set<string>()
+  const shown: ServedOperateNote[] = []
+
+  for (const recipe of entry.recipes) {
+    for (const note of notes.get(figureKey(recipe.kind, recipe.provider)) ?? []) {
+      if (seen.has(note.id)) continue
+      seen.add(note.id)
+      shown.push(note)
+    }
+  }
+
+  if (shown.length === 0) return ''
+
+  const rows = shown
+    .map(
+      (note) =>
+        `<li><strong>${escape(note.tag)}</strong> — ${escape(note.note)}` +
+        (note.by === null ? '' : ` <small>— ${escape(note.by)}</small>`) +
+        '</li>',
+    )
+    .join('')
+
+  return (
+    '<section class="k-atlas-operate">' +
+    '<h2>After you hold an account</h2>' +
+    `<ul>${rows}</ul>` +
+    '<p><small>Filed by citizens who hold an account here, moderated. These are notes on ' +
+    'running the account, never steps for getting one.</small></p>' +
+    '</section>'
+  )
+}
+
 /**
  * What this provider is, in the order `#1326` decision 1 froze (`#1329`).
  *

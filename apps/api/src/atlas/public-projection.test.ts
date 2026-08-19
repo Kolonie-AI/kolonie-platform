@@ -375,4 +375,21 @@ describe('what the Atlas publishes and what citizenship buys', () => {
     /** Lead consumes the briefing — it is not repeated under the recipe section. */
     expect(main.split('What goes wrong here')).toHaveLength(2)
   })
+
+  /**
+   * **What this provider *is*, before the conditions attached to it** (`#1328`,
+   * `#1326` decision 1). The taxonomy line sat below the criteria box, so the
+   * kind and how it pays arrived after seven rows of conditions about a thing
+   * the reader had not yet been told the nature of.
+   */
+  it('says what the provider is above the box of conditions about it', () => {
+    const page = publicPage()
+    const main = page.slice(page.indexOf('<main>'))
+    const at = (needle: string) => main.indexOf(needle)
+
+    expect(at('k-atlas-facts')).toBeGreaterThan(-1)
+    expect(at('k-about')).toBeLessThan(at('k-atlas-facts'))
+    expect(at('k-atlas-facts')).toBeLessThan(at('k-atlas-measured'))
+    expect(at('k-atlas-facts')).toBeLessThan(at('k-atlas-criteria'))
+  })
 })

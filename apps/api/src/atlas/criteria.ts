@@ -46,14 +46,22 @@ import type { AtlasPublicEntry, AtlasPublicRecipe } from './public-projection.js
 /** What an unset field renders as, everywhere in the box (`#1105` decision 2). */
 export const ATLAS_NOT_KNOWN = 'Not known.'
 
-/** What a walked entry says about a wall nobody hit. */
-const NOT_REPORTED = 'Not reported by anybody who walked it.'
+/**
+ * What a walked entry says about a wall nobody hit.
+ *
+ * **Exported since `#1328`**, which suppresses the rows whose only answer is
+ * this one or {@link ATLAS_NOT_KNOWN} once a living briefing is on the page. The
+ * renderer has to be able to recognise an empty answer, and recognising it by
+ * comparing against the string this file produces is the only way that cannot
+ * drift from what it produces.
+ */
+export const ATLAS_NOT_REPORTED = 'Not reported by anybody who walked it.'
 
 /**
  * What a walked entry says when walkers reported walls the FAQ kinds do not
  * cover (`#1298`).
  *
- * **Not the same as {@link NOT_REPORTED}.** `other`, free-text walls, and
+ * **Not the same as {@link ATLAS_NOT_REPORTED}.** `other`, free-text walls, and
  * briefing wall claims are findings — saying *not reported* over them emptied
  * the FAQ on pages like `agentmessage.io` while the corpus named a waitlist.
  */
@@ -181,7 +189,7 @@ export function atlasCriteria(
   /**
    * FAQ kinds vs everything else (`#1298`). When walkers only hit `other` (or
    * free-text / briefing walls the page passes in), every FAQ row would otherwise
-   * print {@link NOT_REPORTED} and claim an absence that is not true. Point at
+   * print {@link ATLAS_NOT_REPORTED} and claim an absence that is not true. Point at
    * the measured corpus instead — but only when no FAQ kind was hit, so a real
    * `payment-required` answer is not rewritten on neighbouring rows.
    */
@@ -250,7 +258,7 @@ function wallAnswer(
   if (wall === undefined) {
     if (!measured) return ATLAS_NOT_KNOWN
     if (pointAtMeasured) return ATLAS_WALL_SEE_MEASURED
-    return NOT_REPORTED
+    return ATLAS_NOT_REPORTED
   }
 
   const scope = directionScope(wall.direction ?? null)

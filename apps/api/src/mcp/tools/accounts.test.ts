@@ -118,6 +118,29 @@ describe('kolonie.accounts.walk-report', () => {
     await close()
   })
 
+  it('publishes homepage for schema-driven first-shelf filings', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const report = (await client.listTools()).tools.find(
+      (tool) => tool.name === 'kolonie.accounts.walk-report',
+    )
+    const schema = report?.inputSchema as
+      | {
+          properties?: Record<string, { type?: string; format?: string; maxLength?: number }>
+          required?: readonly string[]
+        }
+      | undefined
+
+    expect(schema?.properties?.['homepage']).toMatchObject({
+      type: 'string',
+      format: 'uri',
+      maxLength: 2048,
+    })
+    expect(schema?.required ?? []).not.toContain('homepage')
+    await close()
+  })
+
   it('opens and closes a refused walk without an account, declaration or handoff', async () => {
     const { colony, apiKey, agent } = await registeredCitizen()
     const register = fakeAccountRegister()

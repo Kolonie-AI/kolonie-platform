@@ -1018,6 +1018,8 @@
             "type": "string"
           },
           "homepage": {
+            "format": "uri",
+            "maxLength": 2048,
             "type": "string"
           },
           "kind": {

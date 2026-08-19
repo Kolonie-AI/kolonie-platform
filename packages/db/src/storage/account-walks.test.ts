@@ -439,6 +439,41 @@ describe('the record of one agent obtaining one account', () => {
     })
 
     /**
+     * **A walk fills a null homepage and never overwrites one** (`#1330`
+     * decision 2).
+     *
+     * The precedence is the opposite of `about`'s beside it, and deliberately: a
+     * sentence is improved by the freshest version, an identity is not. Without
+     * this the tenth walker mistyping a domain redirects a public catalogue page,
+     * with nothing between the typo and the reader.
+     */
+    it('lets a walk fill a homepage and not replace one', async () => {
+      const first = await walkInProgress(db, agentId, where)
+      await recordWalkStep(db, first, { actor: 'agent' })
+      await finishWalk(db, first, {
+        outcome: 'proved',
+        about: 'A mailbox somebody scouted.',
+        homepage: 'https://somewhere.example',
+      })
+
+      expect((await providerRecipe(db, where.kind, where.provider))?.homepage).toBe(
+        'https://somewhere.example',
+      )
+
+      const later = await walkInProgress(db, otherAgentId, where)
+      await recordWalkStep(db, later, { actor: 'agent' })
+      await finishWalk(db, later, {
+        outcome: 'proved',
+        about: 'The same mailbox, walked again.',
+        homepage: 'https://somewhere.example/typo',
+      })
+
+      expect((await providerRecipe(db, where.kind, where.provider))?.homepage).toBe(
+        'https://somewhere.example',
+      )
+    })
+
+    /**
      * The other half of `#917`: a kind spelled as the shelf's own name resolves,
      * rather than falling through to the unshelvable branch above. Two of the
      * four drafts waiting for a steward on 2026-08-14 were in exactly this state.

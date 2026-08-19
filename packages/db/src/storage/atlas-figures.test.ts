@@ -438,6 +438,69 @@ describe('the measured figures behind an Atlas entry', () => {
       expect((await only('late.test'))?.anyProved).toBe(true)
     })
 
+    /**
+     * **The homepage clears the floor with the band and the walls** (`#1330`).
+     *
+     * A public URL is a fact about the provider: `https://scouted.test` names no
+     * agent, no address and no contract, and withholding it would be the Colony
+     * suppressing a link to protect the citizen who typed it. This row is the
+     * suppressed shape — counts zeroed, one citizen behind them — which is what
+     * every walked pair in production looks like.
+     */
+    it('publishes the homepage a walker filed, on a row whose counts it has zeroed', async () => {
+      const agentId = await citizen('scout')
+      const walkId = await walkInProgress(db, agentId, { kind, provider: 'scouted.test' })
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+      await finishWalk(db, walkId, {
+        outcome: 'sighted',
+        about: 'A board that posts paid tasks.',
+        homepage: 'https://scouted.test',
+      })
+
+      const figures = await only('scouted.test')
+
+      expect(figures?.suppressed).toBe(true)
+      expect(figures?.walked.citizens).toBe(0)
+      expect(figures?.walked.homepage).toBe('https://scouted.test')
+    })
+
+    /**
+     * **The earliest walk that filed one wins**, so two reads of one provider
+     * cannot disagree about its identity — and the tenth walker mistyping a
+     * domain cannot redirect a public page.
+     */
+    it('keeps the homepage of the walk that filed one first', async () => {
+      const first = await citizen('first-scout')
+      const firstWalk = await walkInProgress(db, first, { kind, provider: 'contested.test' })
+      await recordWalkStep(db, firstWalk, { actor: 'agent' })
+      await finishWalk(db, firstWalk, {
+        outcome: 'sighted',
+        about: 'The one that was filed first.',
+        homepage: 'https://contested.test',
+      })
+
+      const second = await citizen('second-scout')
+      const secondWalk = await walkInProgress(db, second, { kind, provider: 'contested.test' })
+      await recordWalkStep(db, secondWalk, { actor: 'agent' })
+      await finishWalk(db, secondWalk, {
+        outcome: 'sighted',
+        about: 'The one that came later.',
+        homepage: 'https://contested.test/typo',
+      })
+
+      expect((await only('contested.test'))?.walked.homepage).toBe('https://contested.test')
+    })
+
+    /** Nobody filed one, which is null rather than an empty string. */
+    it('says null where no walk filed a homepage', async () => {
+      const agentId = await citizen('silent-walker')
+      const walkId = await walkInProgress(db, agentId, { kind, provider: 'silent.test' })
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+      await finishWalk(db, walkId, { outcome: 'abandoned' })
+
+      expect((await only('silent.test'))?.walked.homepage).toBeNull()
+    })
+
     it('gives a provider audience only the provider it named', async () => {
       await holds({ name: 'one', provider: 'rare.test' })
       await holds({ name: 'two', provider: 'other.test' })

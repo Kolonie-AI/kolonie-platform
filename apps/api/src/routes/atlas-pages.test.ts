@@ -1044,6 +1044,7 @@ describe('the Atlas on the website host', () => {
         band: 'few-got-through' as const,
         platforms: { openclaw: 9 },
         walls: [{ kind: 'identity-document' as const, citizens: 9 }],
+        homepage: null,
       },
     }
 
@@ -1118,6 +1119,7 @@ describe('the Atlas on the website host', () => {
             band: 'few-got-through' as const,
             platforms: {},
             walls: [],
+            homepage: null,
           },
         })
         one.recipes.brief(briefing)
@@ -1419,6 +1421,40 @@ describe('the Atlas on the website host', () => {
 
       expect(row).toContain('needs a person at one step (a guess, not a walk)')
       expect(row).not.toContain('who is needed is not known')
+    })
+
+    /**
+     * **The homepage of a provider that has no catalogue row at all** (`#1330`).
+     *
+     * The whole chain in one assertion, because each link of it was already
+     * correct and the page still showed nothing: a walk files a homepage, the
+     * figures carry it unfloored, `measuredOnlyRecipes` synthesises the row
+     * because no shelf maps this kind, and `aboutSection` renders it. That is the
+     * shape of every scouted earn provider — `clawlancer.ai` on 2026-08-19 had a
+     * homepage filed and rendered none.
+     */
+    it('shows the homepage of a provider whose only row is synthesised', async () => {
+      await app.close()
+      app = build()
+      colony.recipes.measure({
+        ...noFigures('bounty-board', 'scouted.example'),
+        attempted: 2,
+        evidenced: true,
+        walked: {
+          citizens: 1,
+          gotThrough: 0,
+          band: null,
+          platforms: {},
+          walls: [],
+          homepage: 'https://scouted.example',
+        },
+      })
+      await app.ready()
+
+      const body = (await get('/atlas/scouted.example')).body
+
+      expect(body).toContain('k-homepage')
+      expect(body).toContain('https://scouted.example')
     })
   })
 

@@ -1,10 +1,9 @@
-import { cpus } from 'node:os'
 import { defineConfig } from 'vitest/config'
 
 // @ts-expect-error the runner's helpers are build scripts, deliberately outside
 // the TypeScript project. This file is not typechecked either — the app's
 // tsconfig includes `src/**/*.ts` and nothing else.
-import { testWorkers } from '../../scripts/test-workers.mjs'
+import { memoryCeiling, testWorkers } from '../../scripts/test-workers.mjs'
 // @ts-expect-error the same, and for the same reason.
 import { sourceResolve } from '../../scripts/source-condition.mjs'
 
@@ -77,18 +76,25 @@ export default defineConfig({
      * that is not test work, it is the machine paging. Peak resident across the
      * run that fits was 6405 MiB of 7186, with 781 MiB left.
      *
-     * **The ceiling is memory and not cores**, which is `packages/db`'s own
-     * sentence and the reason the shape is copied from it rather than invented:
-     * every worker holds a connection pool and a Postgres backend, so a
-     * thirty-two-core machine must not be allowed to raise this. `testWorkers`
-     * can still only lower it, so `npm run check` continues to publish a smaller
-     * share and this workspace continues to take it.
+     * **The ceiling is memory and not cores, and the first version of this said
+     * so and then multiplied by cores anyway** (`#1354`, correcting `#1350`).
+     * `min(6, cpus - 2)` fixed the local failure and cost CI 23 % — measured as
+     * an A/B on two pull requests a minute apart, 471 s against 580 s — because
+     * on a four-core runner it asks for two workers where the published budget
+     * already allowed four. That runner has 16 GiB and no memory problem; it was
+     * being lowered by a rule derived from a 7 GiB laptop. {@link memoryCeiling}
+     * is the same sentence with the arithmetic to match, and it keeps the cap of
+     * six: past a handful of workers the shared Postgres saturates and no amount
+     * of RAM changes that.
+     *
+     * `testWorkers` can still only lower it, so `npm run check` continues to
+     * publish a smaller share and this workspace continues to take it.
      *
      * The 29.90 s → 10.73 s isolation measurement below is unaffected: that is
      * what per-file isolation costs, and it is orthogonal to how many workers
      * pay it.
      */
-    maxWorkers: testWorkers(Math.max(1, Math.min(6, cpus().length - 2))),
+    maxWorkers: testWorkers(memoryCeiling()),
     coverage: {
       include: ['src/**/*.ts'],
       exclude: ['src/**/*.test.ts', 'src/**/index.ts'],

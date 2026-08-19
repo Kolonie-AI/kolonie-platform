@@ -260,6 +260,33 @@ back, and it is load-bearing rather than incidental — the sweep skips any
 repository whose default branch requires nothing, which is why a green pull
 request in the seven skill repositories sits open and one here does not.
 
+**Since 2026-08-19 the check runs against the merge result, not against your
+base** (`#1308`). Two settings were turned on that afternoon, and both change
+what you should expect after you push:
+
+- **`required_status_checks.strict`.** A pull request that falls _behind_ `main`
+  is no longer mergeable. It reads `BEHIND`, the sweep will not resolve it, and
+  GitHub does not update it for you. Measured the same day: `#1357` was green and
+  current at 16:15, and `BEHIND` at 16:16 because something else merged.
+  `gh api -X PUT repos/Kolonie-AI/kolonie-platform/pulls/<n>/update-branch` is
+  the way out — it works regardless of the repository's `allow_update_branch`
+  setting, which only controls the button in the interface, and it writes a merge
+  commit rather than rebasing, which the squash then discards.
+- **A merge queue** on `main`, squash, `ALLGREEN`. `--auto --squash` now places a
+  green pull request in the queue rather than merging it; the queue builds each
+  entry onto a `refs/heads/gh-readonly-queue/…` ref and `ci.yml` runs there —
+  which is the whole point, and the reason that trigger exists at all.
+
+**Why both, and what they cost.** Every pull request was green against its own
+base and nothing re-checked the pair; on 2026-08-19 `main` was red on 15 of the
+16 commits between 00:11 and 10:51, and 26 of the previous 60 runs on `main` had
+failed. The cost is one more CI round per merge and a queue that serialises them.
+
+**Not yet measured, so do not assume it:** whether a direct push to `main` still
+lands with the queue rule in place. The rule governs _merges_; a push is not a
+merge, and the paragraph below is written from before it. If you find out, say so
+here.
+
 **`enforce_admins` is off, so a direct push to `main` still lands, and they still
 happen.** Measured 2026-08-16 against `origin/main`: of the last thirty commits,
 **seventeen arrived through a pull request and thirteen were pushed directly** —

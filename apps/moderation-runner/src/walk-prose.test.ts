@@ -17,8 +17,8 @@ import type {
 } from '@kolonie-ai/db'
 import type { Model } from './llm.js'
 import { REDACTION } from './answers.js'
-import { CONFIDENTIALITY_PROMPT } from './confidentiality.js'
 import {
+  WALK_CONFIDENTIALITY_CASES,
   WALK_RED_LINE_CASES,
   WALK_RED_LINE_CLEAR,
   WALK_RED_LINE_CROSSED,
@@ -26,6 +26,8 @@ import {
 import {
   moderateWalkProse,
   walkProseTick,
+  WALK_CONFIDENTIAL_SPAN_KINDS,
+  WALK_CONFIDENTIALITY_PROMPT,
   WALK_RED_LINE_CHOICES,
   WALK_RED_LINE_PROMPT,
   type WalkProseModerationStore,
@@ -165,7 +167,7 @@ describe('the Colony scrubbing what a walker wrote', () => {
     /** One red-line call and one marking call — not one pair per field. */
     expect(asked).toHaveLength(2)
     expect(asked[0]?.system).toBe(WALK_RED_LINE_PROMPT)
-    expect(asked[1]?.system).toBe(CONFIDENTIALITY_PROMPT)
+    expect(asked[1]?.system).toBe(WALK_CONFIDENTIALITY_PROMPT)
     /** The same bytes both times, so a span marked in one is found in the other. */
     expect(asked[0]?.user).toBe(asked[1]?.user)
     expect(asked[0]?.user).toContain(WALK_PROSE_QUESTIONS.did)
@@ -581,6 +583,96 @@ describe('the red line the walk stage asks about', () => {
 })
 
 /**
+ * What the marking arm is asked, and what it may do about the answer (`#1338`).
+ *
+ * The red-line block above asserts the same two things about the other arm. The
+ * pair is the design: one arm can refuse and asks about conduct, the other can
+ * only redact and asks about people. A test that let the second refuse would be
+ * asserting the bug this issue was filed over.
+ */
+describe('the confidentiality question the walk stage asks', () => {
+  it('asks about anybody identifiable, not only about the author', () => {
+    expect(WALK_CONFIDENTIALITY_PROMPT).toContain('A PARTICULAR PERSON')
+    expect(WALK_CONFIDENTIALITY_PROMPT).toContain('a third party')
+    expect(WALK_CONFIDENTIALITY_PROMPT).toContain('other Colony citizens')
+  })
+
+  /**
+   * Acceptance criterion 4, as the prompt rather than as a case: the page is
+   * *about* the provider, so its published contact detail is the finding.
+   */
+  it('tells the marker to leave what the provider publishes about itself', () => {
+    expect(WALK_CONFIDENTIALITY_PROMPT).toContain('DO NOT MARK')
+    expect(WALK_CONFIDENTIALITY_PROMPT).toContain('a contact detail the provider itself publishes')
+    expect(WALK_CONFIDENTIALITY_PROMPT).toContain('the provider the page is about')
+  })
+
+  /** It marks and it cannot reject, which is the sentence `confidentiality.ts` opens with. */
+  it('says outright that marking cannot cost the walker the page', () => {
+    expect(WALK_CONFIDENTIALITY_PROMPT).toContain('You cannot reject it')
+    expect(WALK_CONFIDENTIALITY_PROMPT).toContain('the rest of the\npage is published')
+  })
+
+  /**
+   * The author's eight are all a particular person's too, so widening the
+   * question cannot narrow the vocabulary — it may only add to it.
+   */
+  it('offers the author-owned kinds and the two a third party needs', () => {
+    for (const kind of ConfidentialSpanKindSchema.options) {
+      expect(WALK_CONFIDENTIAL_SPAN_KINDS).toContain(kind)
+    }
+    expect(WALK_CONFIDENTIAL_SPAN_KINDS).toContain('phone')
+    expect(WALK_CONFIDENTIAL_SPAN_KINDS).toContain('person')
+  })
+
+  it('offers those kinds to the model rather than the author-owned set', async () => {
+    const offered: (readonly string[])[] = []
+    const { model } = answering()
+    const marking = model.mark
+    const watched: Model = {
+      ...model,
+      mark: async (request) => {
+        offered.push(request.kinds)
+        return marking(request)
+      },
+    }
+    const { store } = recording()
+
+    await moderateWalkProse(aWalk(), { store, model: watched })
+
+    expect(offered).toEqual([WALK_CONFIDENTIAL_SPAN_KINDS])
+  })
+
+  it.each(WALK_CONFIDENTIALITY_CASES.map((one) => [one.name, one] as const))(
+    'publishes %s rather than refusing it',
+    async (_name, one) => {
+      const { model } = answering({ spans: one.marked })
+      const { store, written, refused } = recording([aWalk(one.prose)])
+
+      const judgement = await moderateWalkProse(aWalk(one.prose), { store, model })
+
+      expect(judgement).toEqual({ kind: 'scrubbed', redacted: one.marked.length })
+      expect(refused).toEqual([])
+      expect(written).toHaveLength(1)
+    },
+  )
+
+  it.each(WALK_CONFIDENTIALITY_CASES.map((one) => [one.name, one] as const))(
+    'keeps the finding and drops the person in %s',
+    async (_name, one) => {
+      const { model } = answering({ spans: one.marked })
+      const { store, written } = recording([aWalk(one.prose)])
+
+      await moderateWalkProse(aWalk(one.prose), { store, model })
+
+      const published = walkProseText(written[0]?.scrubbed ?? {})
+      for (const gone of one.marked) expect(published).not.toContain(gone)
+      for (const kept of one.survives) expect(published).toContain(kept)
+    },
+  )
+})
+
+/**
  * The scrubbing path, as the bytes that decide a verdict (`#1108`, 3).
  *
  * Both prompts, the choices the red-line question is answered with, the span
@@ -593,9 +685,9 @@ const scrubberInputs = () =>
     .update(
       JSON.stringify([
         WALK_RED_LINE_PROMPT,
-        CONFIDENTIALITY_PROMPT,
+        WALK_CONFIDENTIALITY_PROMPT,
         WALK_RED_LINE_CHOICES,
-        ConfidentialSpanKindSchema.options,
+        WALK_CONFIDENTIAL_SPAN_KINDS,
         WALK_PROSE_FIELDS,
       ]),
     )
@@ -604,6 +696,18 @@ const scrubberInputs = () =>
 /**
  * What {@link scrubberInputs} came to when `WALK_PROSE_SCRUBBER_VERSION` was last
  * decided.
+ *
+ * **Moved by `#1338` without the version moving, and the arm is the reason.** The
+ * marking prompt and the kind vocabulary both changed here — `CONFIDENTIALITY_PROMPT`
+ * gave way to {@link WALK_CONFIDENTIALITY_PROMPT}, which asks about anybody
+ * identifiable rather than only about the author, and the kinds gained `phone` and
+ * `person`. Both are inputs digested here, so this had to be recomputed. Neither
+ * can move a verdict: the marking arm cannot refuse, so widening what it marks can
+ * only change which spans a `scrubbed` page loses, never whether the page is
+ * scrubbed or refused. And the refusals the widening was filed to repair are
+ * already coming back — `#1337` moved the version to 2 in the same day, so every
+ * refusal stamped 1 is re-read in front of *both* new prompts. A second bump would
+ * re-read the same rows twice, at cost, to reach the same answer.
  *
  * **Moved to 2 by `#1337`, and the version moved with it — this is the case the
  * mechanism was built for.** `ANSWER_RED_LINE_PROMPT` was replaced here by
@@ -629,7 +733,7 @@ const scrubberInputs = () =>
  * refusal the Colony holds back in front of the model to be told the same thing
  * twice, at cost.
  */
-const SCRUBBER_INPUTS_DIGEST = 'a3cbab50006c45dda03dc43ba2951ded7fec81beccade56713b0a841e300b93b'
+const SCRUBBER_INPUTS_DIGEST = 'f6e4cda82e85c076e772ecc7c6b918bf4fd126b4dbbf6c8eb046a0f60da76612'
 
 /**
  * **What stops the version being forgotten is this test and not a mechanism**

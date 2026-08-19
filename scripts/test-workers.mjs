@@ -43,7 +43,7 @@
  * workspace with no opinion of its own and no budget in the environment keeps
  * vitest's default, and `npx vitest run --root apps/api` on its own is unchanged.
  */
-import { availableParallelism } from 'node:os'
+import { availableParallelism, totalmem } from 'node:os'
 import process from 'node:process'
 // Node globals, imported rather than reached for, exactly as the runner beside
 // this file does: the eslint config declares no environment for a script.
@@ -72,6 +72,53 @@ export const WORKER_BUDGET_VAR = 'KOLONIE_TEST_WORKERS'
  * change its pool size, and the alternative — every workspace sizing itself from
  * the whole machine — is the defect above.
  */
+/**
+ * How much memory one vitest worker of a database-backed suite costs.
+ *
+ * **Measured rather than chosen** (`#1354`). On the 8-core / 7186 MiB host where
+ * `#1350` was found: baseline 1790 MiB, four workers peaked at 6405 MiB, so
+ * 1150 MiB each. Rounded up, because the number that matters is the one that
+ * does not thrash.
+ */
+const MIB_PER_WORKER = 1200
+
+/**
+ * What the machine keeps for itself: the editor, the Postgres container, the
+ * agent that started the run. Taken off the top rather than hoped for — the
+ * measurement above had 1790 MiB already resident before vitest started.
+ */
+const MIB_RESERVED = 2048
+
+/**
+ * The most workers a database-backed suite may start, from **memory** rather
+ * than from cores (`#1354`).
+ *
+ * ## Why not cores
+ *
+ * `#1350` gave `apps/api` `min(6, cpus - 2)` and fixed the local failure it was
+ * for: fifteen timeouts in 12m12s became 4381 green in 1m46s. It also cost CI
+ * 23 % — measured as an A/B on two pull requests a minute apart, 471 s against
+ * 580 s — because on a four-core runner it asks for two workers where the
+ * published budget already allowed four. The runner has 16 GiB and no memory
+ * problem at all; it was being lowered by a rule derived from a 7 GiB laptop.
+ *
+ * The constraint was always memory. `packages/db`'s own comment says so — *the
+ * ceiling is memory, not cores* — and then multiplies by cores anyway. This is
+ * that sentence, arithmetic included.
+ *
+ * ## The cap stays, and it is not about this machine
+ *
+ * Six, from `packages/db`: a thirty-two-core, 128 GiB machine must not be
+ * allowed to raise it, because past a handful of workers the shared Postgres is
+ * the thing that saturates and no amount of RAM changes that.
+ *
+ * **This is a preference and `testWorkers` still only lowers it**, so
+ * `npm run check` continues to publish a smaller share and each workspace
+ * continues to take it.
+ */
+export const memoryCeiling = (totalBytes = totalmem()) =>
+  Math.max(1, Math.min(6, Math.floor((totalBytes / 1024 ** 2 - MIB_RESERVED) / MIB_PER_WORKER)))
+
 export const shareOfMachine = (concurrency, cores = availableParallelism()) =>
   Math.max(1, Math.floor(cores / Math.max(1, concurrency)))
 

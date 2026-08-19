@@ -205,16 +205,19 @@ export const ProviderHomepageSchema = z
   .refine((value) => value.startsWith('https://'), {
     message: 'homepage must be an https URL.',
   })
-  .refine((value) => {
-    try {
-      const parsed = new URL(value)
-      return parsed.username === '' && parsed.password === ''
-    } catch {
-      return false
-    }
-  }, {
-    message: 'homepage must not carry credentials.',
-  })
+  .refine(
+    (value) => {
+      try {
+        const parsed = new URL(value)
+        return parsed.username === '' && parsed.password === ''
+      } catch {
+        return false
+      }
+    },
+    {
+      message: 'homepage must not carry credentials.',
+    },
+  )
 export type ProviderHomepage = z.infer<typeof ProviderHomepageSchema>
 
 /**
@@ -601,9 +604,7 @@ export function walkIsReported(
    * are optional on a scout filing the same way they are on a prove.
    */
   return (
-    walk.outcome === 'proved' ||
-    walk.outcome === 'sighted' ||
-    walkReportAnswers(walk).length > 0
+    walk.outcome === 'proved' || walk.outcome === 'sighted' || walkReportAnswers(walk).length > 0
   )
 }
 
@@ -615,9 +616,7 @@ export function walkIsReported(
  * first measured presence. An entry that is already `measured` is presence
  * already; later walks may enrich it but do not re-open the scout bar.
  */
-export function isFirstMeasuredPresence(
-  entry: { readonly status: string } | undefined,
-): boolean {
+export function isFirstMeasuredPresence(entry: { readonly status: string } | undefined): boolean {
   return entry === undefined || entry.status === 'unwritten'
 }
 

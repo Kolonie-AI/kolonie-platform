@@ -22,6 +22,8 @@ const walk = (over: Partial<AccountWalk> = {}): AccountWalk => ({
   changed: null,
   discarded: null,
   about: null,
+  /** `#1296` added it to the walk; a fixture that omits it does not compile. */
+  homepage: null,
   takenStepPositions: null,
   recipe: null,
   steps: [],

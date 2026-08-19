@@ -1008,6 +1008,19 @@ export function measuredOnlyRecipes(
         operatorNeedIsGuess: false,
         about: null,
         /**
+         * **Null on `about`'s argument, and it is not a value anybody chose**
+         * (`#1296`). A homepage reaches a row because a scout named one; this
+         * row exists precisely because nobody filed anything about the provider,
+         * so there is no URL to carry and no way to guess one that would not be
+         * a claim.
+         *
+         * It is stated rather than left out because `#1296` made the field
+         * required: omitting it threw inside `ProviderRecipeSchema.parse` here,
+         * which took the whole measured shelf with it and answered `500` on the
+         * Atlas page for any provider whose kind is paired with no shelf.
+         */
+        homepage: null,
+        /**
          * **Null, like `about` above it, and for a stronger reason** (`#1120`).
          * The sentence is synthesised from the published walks of a provider,
          * and this row exists precisely because there are none — a description

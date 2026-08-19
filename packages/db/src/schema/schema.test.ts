@@ -615,6 +615,12 @@ describe('schema', () => {
         'message_blocks',
         'message_conversations',
         'message_participants',
+        /**
+         * The sixth, from the abuse pass: a report is a citizen telling the
+         * Colony about a message, which is neither the message nor the block it
+         * may lead to and outlives both.
+         */
+        'message_reports',
         'message_requests',
         'messages',
         'moderations',

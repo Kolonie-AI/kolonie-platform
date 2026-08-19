@@ -645,10 +645,7 @@ export const messageRequestStatus = pgEnum(
  * fourth urgency is an argument about what the Colony may claim of a citizen's
  * attention.
  */
-export const messagePriority = pgEnum(
-  'message_priority',
-  valuesOf(MessagePrioritySchema.options),
-)
+export const messagePriority = pgEnum('message_priority', valuesOf(MessagePrioritySchema.options))
 
 /**
  * Where an abuse report stands (`#1290`).

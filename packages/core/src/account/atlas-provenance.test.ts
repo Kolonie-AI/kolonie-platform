@@ -67,6 +67,8 @@ const recipe = (input: {
     paid: false,
     referral: null,
     contact: null,
+    /** `#1296` added it to the recipe; a fixture that omits it does not compile. */
+    homepage: null,
     lastConfirmedAt: (input.lastConfirmedAt === undefined
       ? daysAgo(1)
       : input.lastConfirmedAt) as ProviderRecipe['lastConfirmedAt'],

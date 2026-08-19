@@ -644,7 +644,8 @@ export async function wakeup(
     pendingRequests: messagingCounts.pendingRequests,
     highPriority: messagingCounts.highPriority,
     ...(messagingNext === undefined ? {} : { nextAction: messagingNext }),
-    ...(messagingCounts.sampleThreadIds === undefined || messagingCounts.sampleThreadIds.length === 0
+    ...(messagingCounts.sampleThreadIds === undefined ||
+    messagingCounts.sampleThreadIds.length === 0
       ? {}
       : { sampleThreadIds: messagingCounts.sampleThreadIds }),
   }

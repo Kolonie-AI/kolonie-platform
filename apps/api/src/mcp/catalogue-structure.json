@@ -619,7 +619,7 @@
             "type": "integer"
           },
           "outcome": {
-            "enum": ["proved", "refused", "abandoned"],
+            "enum": ["proved", "refused", "abandoned", "sighted"],
             "type": "string"
           },
           "provider": {
@@ -936,6 +936,9 @@
           "discarded": {
             "type": "string"
           },
+          "homepage": {
+            "type": "string"
+          },
           "kind": {
             "maxLength": 32,
             "minLength": 3,
@@ -946,7 +949,7 @@
             "type": "string"
           },
           "outcome": {
-            "enum": ["proved", "refused", "abandoned"],
+            "enum": ["proved", "refused", "abandoned", "sighted"],
             "type": "string"
           },
           "provider": {

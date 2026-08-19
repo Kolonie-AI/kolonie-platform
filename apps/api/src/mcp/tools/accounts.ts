@@ -2524,8 +2524,7 @@ export function registerAccountTools(
           .optional()
           .describe(
             'Canonical https homepage URL for the provider. Required on sighted and on the ' +
-              'walk that first creates a measured shelf row — first-class field, not only ' +
-              'buried in about prose. Sighted does not need recipe.steps.',
+              'walk that first creates a measured shelf row — here, not only in about prose.',
           ),
         takenStepPositions: z
           .array(z.number().int().min(1))

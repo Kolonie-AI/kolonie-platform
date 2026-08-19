@@ -53,6 +53,8 @@ const recipe = (input: {
     paid: false,
     referral: null,
     contact: null,
+    /** `#1296` added it to the recipe; a fixture that omits it does not compile. */
+    homepage: null,
     lastConfirmedAt: '2026-08-01T00:00:00.000Z' as never,
     status,
     /** Unscoped unless a test about the axis says otherwise (`#976`). */

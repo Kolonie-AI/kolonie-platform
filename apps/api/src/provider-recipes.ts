@@ -1193,15 +1193,12 @@ export function recipeAsText(recipe: ProviderRecipe, secretHandoff: boolean): st
    */
   if (recipe.status === 'measured') {
     const aboutLine =
-      recipe.about === null || recipe.about.trim() === ''
-        ? ''
-        : `About: ${recipe.about.trim()}\n`
+      recipe.about === null || recipe.about.trim() === '' ? '' : `About: ${recipe.about.trim()}\n`
     const homepageLine =
       recipe.homepage === null || recipe.homepage.trim() === ''
         ? ''
         : `Homepage: ${recipe.homepage.trim()}\n`
-    const identity =
-      aboutLine === '' && homepageLine === '' ? '' : `\n${aboutLine}${homepageLine}`
+    const identity = aboutLine === '' && homepageLine === '' ? '' : `\n${aboutLine}${homepageLine}`
     return (
       `${recipe.title} · ${recipe.category}\n\n${operatorNeedAsText(recipe)}\n\n` +
       `**Walked, but not written up.** Citizens have been through ${recipe.provider} and what ` +

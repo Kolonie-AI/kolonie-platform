@@ -39,6 +39,7 @@ import {
   walkHasProse,
   walkIsReported,
   walkProse,
+  walkRefusalReason,
   walkVerdict,
   type AccountKind,
   type AccountWalk,
@@ -112,6 +113,8 @@ function toWalk(walk: WalkRow, steps: readonly StepRow[]): AccountWalk {
     /** Parsed on the way out, like every other `jsonb` here: the column is not a shape. */
     recipe: walk.recipe === null ? null : WalkedRecipeSchema.parse(walk.recipe),
     direction: walk.direction === null ? null : RecipeDirectionSchema.parse(walk.direction),
+    /** The Colony's sentence about a refusal, on the walk it refused (`#1340`). */
+    proseRefusalReason: walk.proseRefusalReason,
     steps: steps
       .map((step) => ({
         position: step.position,
@@ -476,7 +479,11 @@ export async function reportFinishedWalk(
        * is not a scrub of this one.
        */
       ...(walkHasProse(walkProse(answers))
-        ? { proseStatus: 'pending' as const, scrubbedProse: null }
+        ? {
+            proseStatus: 'pending' as const,
+            scrubbedProse: null,
+            proseRefusalReason: null,
+          }
         : {}),
     })
     .where(
@@ -844,6 +851,12 @@ export async function amendWalkedRoute(
          */
         proseStatus: 'pending' as const,
         scrubbedProse: null,
+        /**
+         * And the reason with them (`#1340`): it was written about the words
+         * this call has just replaced, so it describes a page nobody can read
+         * any more. A refusal reason only ever belongs to a standing refusal.
+         */
+        proseRefusalReason: null,
       })
       .where(eq(accountWalks.id, row.id))
       .returning()
@@ -1918,6 +1931,14 @@ export interface RequeuedWalkProse {
  * leaves a `pending` row the ordinary queue picks up — the same end state as any
  * other unjudged walk.
  *
+ * **The reason goes, though** (`#1340`). A sentence saying why a walk was refused
+ * belongs to a refusal that stands; this write is the Colony withdrawing that
+ * refusal pending a second reading, so keeping the old sentence would tell the
+ * walker on `walk-status` why its words were refused while they sit unjudged.
+ * The stamp is a fact about the past and survives; the reason is a live verdict
+ * and does not. The column's own check says the same thing — a reason is only
+ * ever carried by a `rejected` row.
+ *
  * **Only `rejected`, and an approval is never re-opened** (`#1108`, 4). The
  * asymmetry is the decision and not an oversight to be tidied up: re-reading a
  * refusal can only give a citizen back something it was denied, and re-reading an
@@ -1945,7 +1966,7 @@ export async function requeueRefusedWalkProse(
 
   const rows = await db
     .update(accountWalks)
-    .set({ proseStatus: 'pending' })
+    .set({ proseStatus: 'pending', proseRefusalReason: null })
     .where(
       and(
         stale,
@@ -1984,7 +2005,15 @@ export async function requeueRefusedWalkProse(
 
 type WalkProseModerationDecision =
   | { readonly decision: 'approved'; readonly scrubbed: WalkProse }
-  | { readonly decision: 'rejected' }
+  /**
+   * The moderator's own sentence about why this page crossed a line (`#1340`).
+   *
+   * **Required rather than optional**, so a refusal that reaches the row with
+   * nothing to say is a type error and not a silent null. What arrives may
+   * still be empty — it is model output — and `walkRefusalReason` answers
+   * `null` for that; what cannot happen is a write path that forgot to carry it.
+   */
+  | { readonly decision: 'rejected'; readonly reason: string }
 
 type WalkProseModerationCommand = {
   readonly walkId: string
@@ -1994,6 +2023,13 @@ type WalkProseModerationCommand = {
 
 const moderatedWalkProseValue = (command: WalkProseModerationCommand): WalkProse | null =>
   command.decision === 'approved' ? WalkProseSchema.parse(command.scrubbed) : null
+
+/**
+ * The reason as the row keeps it: a sentence on a refusal, `null` on anything
+ * else (`#1340`). The constraint says the same thing in the database.
+ */
+const refusalReasonValue = (command: WalkProseModerationCommand): string | null =>
+  command.decision === 'rejected' ? walkRefusalReason(command.reason) : null
 
 /**
  * Write what the scrub produced, or refuse the words.
@@ -2096,6 +2132,13 @@ async function writeWalkProseVerdict(
        */
       scrubbedProse: moderatedWalkProseValue(command),
       /**
+       * **Why, on the row, in the same statement as the verdict** (`#1340`).
+       * Until this column existed the sentence reached one log line and nothing
+       * else, so a suspended walker could not be told what it had crossed and a
+       * maintainer could answer *why* only from a log that had already rotated.
+       */
+      proseRefusalReason: refusalReasonValue(command),
+      /**
        * **Both verdicts are stamped, and the caller cannot forget to** (`#1108`,
        * 1). It is written here rather than passed in because *judged by this
        * scrubber* is a fact about this write and not a decision any caller
@@ -2130,6 +2173,14 @@ async function writeWalkProseVerdict(
     agentId: AgentIdSchema.parse(row.agentId),
     surface: 'walk-report',
     verdict: command.decision === 'approved' ? 'approved' : 'abusive',
+    /**
+     * **The ledger gets the sentence too** (`#1340`). The row above is what the
+     * two readers ask — both of their questions are about a walk, and this table
+     * carries no walk — but a moderation ledger whose one reasonless surface was
+     * the walk stage would be a gap in the record for no reason at all. Null on
+     * an approval, which is what the column's own constraint requires.
+     */
+    reason: refusalReasonValue(command) ?? undefined,
   })
 
   /**
@@ -2224,6 +2275,8 @@ export async function recordApprovedWalkProseRescrub(
       .set({
         proseStatus: command.decision,
         scrubbedProse: moderatedWalkProseValue(command),
+        /** A second reading refuses with a reason like the first (`#1340`). */
+        proseRefusalReason: refusalReasonValue(command),
         /** A second reading is a reading: it is stamped like the first (`#1108`). */
         proseScrubberVersion: WALK_PROSE_SCRUBBER_VERSION,
       })
@@ -2798,6 +2851,15 @@ export interface RefusedWalk {
   readonly provider: string
   /** Null on a walk that was refused before it was closed. */
   readonly finishedAt: string | null
+  /**
+   * Why the stage refused it, in the Colony's own sentence (`#1340`).
+   *
+   * **This is the moderator speaking, not the citizen**, which is why it may be
+   * printed where the refused prose may not. `null` on every walk refused
+   * before the column existed — nothing was backfilled, so an old row says
+   * nothing rather than guessing.
+   */
+  readonly reason: string | null
 }
 
 /** One citizen's refusals, and where that has left it (`#1097` decision 7). */
@@ -2852,10 +2914,13 @@ export const REFUSED_WALKS_PER_CITIZEN = 20
  *
  * ## The prose is not here, and cannot be
  *
- * The columns are the walk's `kind`, `provider` and `finished_at`. **A refused
- * walk has no scrub**, so there is nothing moderated to print, and the raw
- * columns are exactly what the red line was drawn against — the page says *what
- * was refused* and never *what it said*. A maintainer who needs the words has
+ * The columns are the walk's `kind`, `provider`, `finished_at` and — since
+ * `#1340` — the moderator's `prose_refusal_reason`. **A refused walk has no
+ * scrub**, so there is nothing moderated to print, and the raw columns are
+ * exactly what the red line was drawn against — the page says *what was
+ * refused*, *why the Colony refused it*, and never *what it said*. The reason
+ * is the Colony's own sentence about the walk, which is the whole of why it may
+ * be shown where the walk's words may not. A maintainer who needs the words has
  * `psql`, which is a deliberate step and not a link.
  *
  * ## Three queries, all bounded
@@ -2895,6 +2960,7 @@ export async function walkRefusalTallies(
       kind: accountWalks.kind,
       provider: accountWalks.provider,
       finishedAt: accountWalks.finishedAt,
+      reason: accountWalks.proseRefusalReason,
     })
     .from(accountWalks)
     .where(
@@ -2959,6 +3025,7 @@ export async function walkRefusalTallies(
         kind: walk.kind,
         provider: walk.provider,
         finishedAt: walk.finishedAt === null ? null : toTimestamp(walk.finishedAt),
+        reason: walk.reason,
       })),
   }))
 }

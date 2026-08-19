@@ -22,6 +22,12 @@ export interface FakeWalkStore extends WalkStore {
     readonly direction?: AccountWalk['direction']
     /** Whether this walk's verdict wrote the draft, which is what `amend` reaches. */
     readonly proposed?: boolean
+    /**
+     * Why the moderation pass refused the words filed with this walk (`#1340`).
+     * Absent is the ordinary case — nothing in this fake refuses prose, so a
+     * test that wants a refused walk says so here.
+     */
+    readonly proseRefusalReason?: string | null
   }) => AccountWalk
 }
 
@@ -69,6 +75,8 @@ export function fakeWalks(): FakeWalkStore {
       homepage: null,
       takenStepPositions: null,
       recipe: null,
+      /** Nothing here refuses prose; a test wanting a refusal says so (`#1340`). */
+      proseRefusalReason: input.proseRefusalReason ?? null,
       steps: [],
     }
     rows.unshift(walk)

@@ -24,6 +24,7 @@ const aTally = (overrides: Partial<WalkRefusalTally> = {}): WalkRefusalTally => 
       kind: 'mailbox',
       provider: 'provider-one.example',
       finishedAt: '2026-08-13T09:00:00.000Z',
+      reason: 'It names the person the walker was emailing.',
     },
   ],
   ...overrides,
@@ -128,7 +129,54 @@ describe('the console’s refusals page', () => {
     // markup: the words *prose* and *refused* are in the page's own note, so a
     // string search there would pass on a page that showed the text as well.
     const [walk] = (page.json() as { tallies: readonly WalkRefusalTally[] }).tallies[0]?.walks ?? []
-    expect(Object.keys(walk ?? {})).toEqual(['walkId', 'kind', 'provider', 'finishedAt'])
+    expect(Object.keys(walk ?? {})).toEqual([
+      'walkId',
+      'kind',
+      'provider',
+      'finishedAt',
+      // The moderator's own sentence about the walk (`#1340`), which is not the
+      // walk's words and is the one thing here that may say why.
+      'reason',
+    ])
+  })
+
+  /**
+   * **Why it was refused, on the page** (`#1340`). A maintainer looking at a
+   * suspension is deciding whether to lift it, and a list of providers with no
+   * verdict beside them makes that decision on nothing. The sentence is the
+   * Colony's own — it is safe here in a way the citizen's words are not, and it
+   * goes through the same escape as every other cell.
+   */
+  it('shows the moderator’s reason beside each refused walk', async () => {
+    const { app, humans } = await withTallies([aTally()])
+    const headers = await asMaintainer(app, humans)
+
+    const page = await app.inject({ method: 'GET', url: '/backend/refusals', headers })
+
+    expect(page.body).toContain('It names the person the walker was emailing.')
+  })
+
+  /** A walk refused before `#1340` carries no sentence, and the row still draws. */
+  it('draws a walk that has no reason', async () => {
+    const { app, humans } = await withTallies([
+      aTally({
+        walks: [
+          {
+            walkId: '55555555-5555-4555-8555-555555555555',
+            kind: 'mailbox',
+            provider: 'provider-two.example',
+            finishedAt: '2026-08-13T09:00:00.000Z',
+            reason: null,
+          },
+        ],
+      }),
+    ])
+    const headers = await asMaintainer(app, humans)
+
+    const page = await app.inject({ method: 'GET', url: '/backend/refusals', headers })
+
+    expect(page.statusCode).toBe(200)
+    expect(page.body).toContain('provider-two.example')
   })
 
   it('says so when nothing has been refused, rather than drawing an empty table', async () => {

@@ -101,6 +101,7 @@ import { toolError } from '../guard.js'
 import { toolDocsMeta } from '../tool-docs.js'
 import { accountsAsText, providersAsText } from '../text/accounts.js'
 import { walkOwnProseAsText } from '../text/walk-own-prose.js'
+import { walkProseRefusalAsText } from '../text/walk-prose-refusal.js'
 import { walkReachAsText } from '../text/walk-reach.js'
 import type { HeldAccount } from '../../accounts.js'
 import { SKILL_FOR_ACCOUNT_KIND } from '../../tasks.js'
@@ -3040,7 +3041,9 @@ export function registerAccountTools(
         'that closed it; refused and withdrawn include the recorded reason when one exists. This is ' +
         'current state for that kind and provider, not a queue position. `transferred` is the one ' +
         'closed walk nobody filed: the account went to another citizen, so it owes you no report and ' +
-        'changed none of that provider’s figures. Ask for `includeRaw` and it reads your own answers ' +
+        'changed none of that provider’s figures. If the moderation pass refused the words you filed, ' +
+        'it says why — a separate verdict from the entry’s, on a separate axis, and the Colony’s own ' +
+        'sentence rather than a rule to follow. Ask for `includeRaw` and it reads your own answers ' +
         'back to you unmoderated, and publishes nothing.',
       inputSchema: {
         walkId: z.uuid().describe('The walkId returned by kolonie.accounts.walk-report.'),
@@ -3118,7 +3121,11 @@ export function registerAccountTools(
         content: [
           {
             type: 'text',
-            text: text + walkProofStateAsText(status.proof) + walkOwnProseAsText(status.own),
+            text:
+              text +
+              walkProofStateAsText(status.proof) +
+              walkProseRefusalAsText(status.proseRefusalReason) +
+              walkOwnProseAsText(status.own),
           },
         ],
         structuredContent: { ...status },

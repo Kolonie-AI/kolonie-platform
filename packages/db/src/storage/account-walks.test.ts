@@ -12,6 +12,7 @@ import {
   WALK_PROSE_SCRUBBER_VERSION,
   WALK_PROSE_WINDOW,
   WALK_PUBLISHED_REPUTATION,
+  WALK_REFUSAL_REASON_MAX_LENGTH,
   type AccountKind,
   type AgentId,
   type WalkOutcome,
@@ -1450,11 +1451,68 @@ describe('the record of one agent obtaining one account', () => {
         walkId,
         judged: { wall: 'It wanted my operator by name.' },
         decision: 'rejected',
+        reason: 'It names a person the walker was talking to.',
       })
 
       expect(await moderatedWalkProse(db, where)).toHaveLength(0)
       expect(await unmoderatedWalkProse(db, 10)).toHaveLength(0)
       expect((await accountWalk(db, walkId))?.outcome).toBe('refused')
+    })
+
+    /**
+     * `#1340`: a refusal that says nothing is a refusal nobody can answer. The
+     * reason lands in the same statement as the verdict, so there is no window
+     * in which a walk is refused and has no reason on it.
+     */
+    it('keeps the moderator’s reason on the walk it refused', async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+      await finishWalk(db, walkId, { outcome: 'refused', wall: 'It wanted my operator by name.' })
+
+      await recordWalkProseModeration(db, {
+        walkId,
+        judged: { wall: 'It wanted my operator by name.' },
+        decision: 'rejected',
+        reason: 'It names the person the walker was emailing.',
+      })
+
+      expect((await accountWalk(db, walkId))?.proseRefusalReason).toBe(
+        'It names the person the walker was emailing.',
+      )
+    })
+
+    /** The other half of the check constraint: nothing that got through carries one. */
+    it('keeps no reason on a walk it approved', async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+      await finishWalk(db, walkId, { outcome: 'refused', wall: 'A phone check.' })
+
+      await recordWalkProseModeration(db, {
+        walkId,
+        judged: { wall: 'A phone check.' },
+        decision: 'approved',
+        scrubbed: { wall: 'A phone check.' },
+      })
+
+      expect((await accountWalk(db, walkId))?.proseRefusalReason).toBeNull()
+    })
+
+    /**
+     * The reason is bounded rather than trusted to be short: it is model output
+     * about a page nobody vetted, and three surfaces read it back (`#1340`).
+     */
+    it('collapses and caps a reason the model ran on about', async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+      await finishWalk(db, walkId, { outcome: 'refused', wall: 'A phone check.' })
+
+      await recordWalkProseModeration(db, {
+        walkId,
+        judged: { wall: 'A phone check.' },
+        decision: 'rejected',
+        reason: `It   names\n\na person. ${'x'.repeat(WALK_REFUSAL_REASON_MAX_LENGTH)}`,
+      })
+
+      const kept = (await accountWalk(db, walkId))?.proseRefusalReason
+      expect(kept).toHaveLength(WALK_REFUSAL_REASON_MAX_LENGTH)
+      expect(kept?.startsWith('It names a person. x')).toBe(true)
     })
 
     /**
@@ -1652,6 +1710,7 @@ describe('the record of one agent obtaining one account', () => {
           walkId: rejected,
           judged: { did: 'Already rejected.' },
           decision: 'rejected',
+          reason: 'It names a person the walker was talking to.',
         })
 
         const published = await walkInProgress(db, otherAgentId, {
@@ -1714,6 +1773,7 @@ describe('the record of one agent obtaining one account', () => {
             walkId,
             judged: { did: PROSE },
             decision: 'rejected',
+            reason: 'It names a person the walker was talking to.',
           },
           true,
         )
@@ -2011,6 +2071,7 @@ describe('the record of one agent obtaining one account', () => {
         walkId,
         judged: { wall: 'It wanted my operator by name.' },
         decision: 'rejected',
+        reason: 'It names a person the walker was talking to.',
       })
 
       expect(await rewardPublishedWalks(db)).toEqual([])
@@ -3355,12 +3416,15 @@ describe('putting a refusal back in front of a scrubber that has changed', () =>
     return { walkId, by }
   }
 
+  /** What the judge said, so a test can assert the row kept it (`#1340`). */
+  const REFUSAL_REASON = 'It names the person the walker was emailing.'
+
   const judge = async (walkId: string, decision: 'approved' | 'rejected'): Promise<void> => {
     const verdict = await recordWalkProseModeration(
       db,
       decision === 'approved'
         ? { walkId, judged: PROSE, decision, scrubbed: PROSE }
-        : { walkId, judged: PROSE, decision },
+        : { walkId, judged: PROSE, decision, reason: REFUSAL_REASON },
     )
     if (verdict.outcome !== 'written') throw new Error('the moderation did not land')
   }
@@ -3595,12 +3659,15 @@ describe('suspending a walker for what it kept writing', () => {
     return walkId
   }
 
+  /** What the judge said, so the tally can be asserted to carry it (`#1340`). */
+  const REFUSAL_REASON = 'It names the person the walker was emailing.'
+
   const judge = (walkId: string, decision: 'approved' | 'rejected') =>
     recordWalkProseModeration(
       db,
       decision === 'approved'
         ? { walkId, judged: PROSE, decision, scrubbed: PROSE }
-        : { walkId, judged: PROSE, decision },
+        : { walkId, judged: PROSE, decision, reason: REFUSAL_REASON },
     )
 
   /**
@@ -3804,7 +3871,7 @@ describe('suspending a walker for what it kept writing', () => {
     if (queued === undefined) throw new Error('the stranded walk was not queued')
     const reversal = await recordApprovedWalkProseRescrub(
       db,
-      { walkId: stranded, judged: queued.prose, decision: 'rejected' },
+      { walkId: stranded, judged: queued.prose, decision: 'rejected', reason: 'A red line.' },
       true,
     )
 
@@ -3838,6 +3905,20 @@ describe('suspending a walker for what it kept writing', () => {
       expect(tally?.walks.map(({ provider }) => provider)).toEqual(
         expect.arrayContaining(['provider-1.example', 'provider-2.example']),
       )
+      expect(JSON.stringify(tally)).not.toContain(PROSE.did)
+    })
+
+    /**
+     * The reason is the Colony's own sentence about the walk, which is why it
+     * may be printed where the walk's words may not (`#1340`).
+     */
+    it('carries the moderator’s reason on each refused walk', async () => {
+      const by = await register()
+      await judgeMany(by, 2, 'rejected')
+
+      const [tally] = await walkRefusalTallies(db)
+
+      expect(tally?.walks.map(({ reason }) => reason)).toEqual([REFUSAL_REASON, REFUSAL_REASON])
       expect(JSON.stringify(tally)).not.toContain(PROSE.did)
     })
 

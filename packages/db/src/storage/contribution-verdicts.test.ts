@@ -446,6 +446,7 @@ describe('contribution verdicts', () => {
           walkId: refusedId,
           judged: { wall: 'It wanted my operator by name.' },
           decision: 'rejected',
+          reason: 'It names the person the walker was talking to.',
         }),
       ).toEqual({ outcome: 'written', suspended: false })
 
@@ -453,8 +454,14 @@ describe('contribution verdicts', () => {
       expect(rows).toEqual(
         expect.arrayContaining([
           { surface: 'walk-report', verdict: 'approved', reason: null },
-          // Walk refusals are red-line only → abusive (`#1260`).
-          { surface: 'walk-report', verdict: 'abusive', reason: null },
+          // Walk refusals are red-line only → abusive (`#1260`), and since
+          // `#1340` the moderator's sentence lands on the verdict row too, so
+          // the ledger is not the one refusal surface that cannot say why.
+          {
+            surface: 'walk-report',
+            verdict: 'abusive',
+            reason: 'It names the person the walker was talking to.',
+          },
         ]),
       )
       expect(rows).toHaveLength(2)

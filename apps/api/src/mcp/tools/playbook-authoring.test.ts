@@ -477,3 +477,127 @@ describe('kolonie.playbooks.fork (#1180)', () => {
     }
   })
 })
+
+/**
+ * What the Atlas has on a provider a playbook pinned (`#1303`).
+ *
+ * **What is asserted here is that the author is told and never stopped.** The
+ * failure on `#1303` is a loop: a slot pins a provider, `kolonie.playbooks.get`
+ * hands the reader an `atlasPath`, the reader meets a thin or refused page and
+ * comes back — with nothing anywhere naming the pin as the thing to look at.
+ */
+describe('a playbook pinning a provider (#1303)', () => {
+  const pinned = (slug: string, provider: string) =>
+    draft(
+      aDraft(slug, {
+        requiredAccounts: [{ slot: 'mailbox', kind: 'mailbox', provider }],
+        steps: [{ title: 'Read it', usesSlots: ['mailbox'] }],
+      }),
+    )
+
+  it('says the Atlas has never heard of it, and writes the draft anyway', async () => {
+    const { client, close } = await aCitizen()
+
+    try {
+      const written = await client.callTool(pinned('pin-absent', 'nowhere.invalid'))
+
+      expect(written.isError).toBeFalsy()
+      expect(resultOf(written).playbook.slug).toBe('pin-absent')
+      expect(textOf(written)).toContain('nowhere.invalid')
+      expect(textOf(written)).toContain('absence and not a refusal')
+    } finally {
+      await close()
+    }
+  })
+
+  it('says a refused pin cannot be run by anybody without the account', async () => {
+    const { colony, client, close } = await aCitizen()
+
+    try {
+      colony.recipes.write({
+        kind: 'mailbox',
+        provider: 'closed.test',
+        title: 'Closed',
+        status: 'refused',
+        refusal: 'No honest route in.',
+      })
+
+      const written = await client.callTool(pinned('pin-refused', 'closed.test'))
+
+      expect(written.isError).toBeFalsy()
+      expect(textOf(written)).toContain('cannot run this playbook')
+    } finally {
+      await close()
+    }
+  })
+
+  it('says nothing at all when the pin is supported', async () => {
+    /**
+     * A note on every draft is a note an author learns to skip, and the ones
+     * that matter would be skipped with it.
+     */
+    const { colony, client, close } = await aCitizen()
+
+    try {
+      colony.recipes.write({ kind: 'mailbox', provider: 'open.test', title: 'Open' })
+
+      const written = await client.callTool(pinned('pin-joinable', 'open.test'))
+
+      expect(written.isError).toBeFalsy()
+      expect(textOf(written)).not.toContain('What the Atlas has on the providers you pinned')
+    } finally {
+      await close()
+    }
+  })
+
+  it('carries the readings in structuredContent too', async () => {
+    const { client, close } = await aCitizen()
+
+    try {
+      const written = await client.callTool(pinned('pin-structured', 'nowhere.invalid'))
+
+      const pins = (written.structuredContent as { atlasPins?: unknown[] }).atlasPins
+      expect(pins).toHaveLength(1)
+      expect(pins?.[0]).toMatchObject({ slot: 'mailbox', standing: 'absent' })
+    } finally {
+      await close()
+    }
+  })
+
+  it('says nothing at all when no slot pins a provider', async () => {
+    const { client, close } = await aCitizen()
+
+    try {
+      const written = await client.callTool(
+        draft(
+          aDraft('pin-none', {
+            requiredAccounts: [{ slot: 'mailbox', kind: 'mailbox' }],
+            steps: [{ title: 'Read it', usesSlots: ['mailbox'] }],
+          }),
+        ),
+      )
+
+      expect(written.isError).toBeFalsy()
+      expect(textOf(written)).not.toContain('What the Atlas has on the providers you pinned')
+    } finally {
+      await close()
+    }
+  })
+
+  it('reads a pin under an alias against the name the Colony files it under', async () => {
+    const { colony, client, close } = await aCitizen()
+
+    try {
+      colony.recipes.write({ kind: 'mailbox', provider: 'canonical.test', title: 'Canonical' })
+      colony.renames.rename('alias.test', 'canonical.test')
+
+      const written = await client.callTool(pinned('pin-alias', 'alias.test'))
+
+      expect(written.isError).toBeFalsy()
+      /** Resolved, so a supported pin under an alias is not reported absent. */
+      expect(textOf(written)).not.toContain('What the Atlas has on the providers you pinned')
+    } finally {
+      await close()
+    }
+  })
+})

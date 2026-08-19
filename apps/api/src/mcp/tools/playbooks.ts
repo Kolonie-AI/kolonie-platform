@@ -25,6 +25,8 @@ import {
   PLAYBOOK_STEP_PROPOSAL_WHY_MAX_LENGTH,
   PLAYBOOK_DETAIL_MAX_LENGTH,
   GUIDANCE_CONTENT_MIN_LENGTH,
+  atlasPinReading,
+  type AtlasPinReading,
 } from '@kolonie-ai/core'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
@@ -45,6 +47,7 @@ import {
   type PlaybookMatch,
   type PlaybookSummary,
 } from '../../playbooks.js'
+import { atlasCatalogue } from '../../provider-recipes.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolDocsMeta } from '../tool-docs.js'
 import { toolError } from '../guard.js'
@@ -184,6 +187,78 @@ const describeMatch = (match: PlaybookMatch): string =>
             (slot.atlasPath === undefined ? '' : ` Atlas: ${slot.atlasPath}`),
         )
         .join('\n')
+
+/**
+ * What the Atlas has on the providers a playbook pinned (`#1303`).
+ *
+ * ## The loop this closes
+ *
+ * A slot may name a `provider`, and nothing checked that the Atlas had heard of
+ * it. A pin to a refused or absent entry still produced an `atlasPath` hint on
+ * `kolonie.playbooks.get`, so a citizen followed the playbook to the Atlas, met
+ * a thin or refused page, and came back — with nothing anywhere saying that the
+ * pin was the thing to look at. Same transparency problem as walk-to-joinable,
+ * arriving from the author's side.
+ *
+ * ## Told to the author, never enforced
+ *
+ * **The draft is written either way.** A playbook may legitimately pin a
+ * provider nobody has walked — its author walked it, or is writing ahead of the
+ * catalogue — and refusing would make the Atlas's coverage a gate on somebody
+ * else's work. What was wrong was never that the pins could be wrong; it was
+ * that a wrong one was silent.
+ *
+ * **Resolved through `renames` first**, so a pin under an alias is read against
+ * the entry the Colony actually files it under rather than reported absent.
+ */
+async function pinReadings(
+  requiredAccounts: readonly { readonly slot: string; readonly provider?: string | null }[],
+  deps: McpDependencies,
+): Promise<readonly AtlasPinReading[]> {
+  const pinned = requiredAccounts.flatMap((slot) =>
+    slot.provider === undefined || slot.provider === null
+      ? []
+      : [{ slot: slot.slot, provider: slot.provider }],
+  )
+
+  if (pinned.length === 0) return []
+
+  const entries = await atlasCatalogue(deps.recipes, { ordered: false })
+
+  return Promise.all(
+    pinned.map(async (pin) => {
+      const canonical = await deps.renames.canonical(pin.provider)
+      const entry = entries.find((one) => one.provider === canonical)
+
+      return atlasPinReading({
+        slot: pin.slot,
+        provider: canonical,
+        ...(entry === undefined ? {} : { entry: { status: entry.status } }),
+      })
+    }),
+  )
+}
+
+/**
+ * The readings as a paragraph, or nothing at all.
+ *
+ * **Silent when every pin is supported**, which is the ordinary case: a note on
+ * every draft is a note an author learns to skip, and the ones that matter would
+ * be skipped with it.
+ */
+const describePins = (readings: readonly AtlasPinReading[]): string => {
+  const worth = readings.filter((one) => one.note !== null)
+  if (worth.length === 0) return ''
+
+  return (
+    '\n\n**What the Atlas has on the providers you pinned.** Nothing here changed your ' +
+    'playbook — a pin the catalogue cannot support is still a pin, and this is the sentence ' +
+    'that was missing rather than a refusal.\n' +
+    worth
+      .map((one) => `- \`${one.slot}\` → ${one.provider} (${one.standing}): ${one.note}`)
+      .join('\n')
+  )
+}
 
 const describeRow = (row: PlaybookSummary): string =>
   `- \`${row.slug}\` — ${row.title} (${row.steps} steps, ` +
@@ -892,15 +967,20 @@ export function registerPlaybookTools(
       if (result.outcome === 'rejected') return toolError(result.error)
 
       const { playbook } = result.response
+      const pins = await pinReadings(playbook.requiredAccounts, deps)
       const text =
         `Drafted \`${playbook.slug}\` — **${playbook.title}**, ${playbook.steps.length} ` +
         `${playbook.steps.length === 1 ? 'step' : 'steps'}, ` +
         `${playbook.requiredAccounts.length} account ` +
         `${playbook.requiredAccounts.length === 1 ? 'slot' : 'slots'}. Nobody else can read it ` +
         'yet. Rewrite it with `kolonie.playbooks.update`; offer it to the catalogue with ' +
-        '`kolonie.playbooks.submit`.'
+        '`kolonie.playbooks.submit`.' +
+        describePins(pins)
 
-      return { content: [{ type: 'text', text }], structuredContent: result.response }
+      return {
+        content: [{ type: 'text', text }],
+        structuredContent: { ...result.response, atlasPins: pins },
+      }
     },
   )
 
@@ -961,6 +1041,7 @@ export function registerPlaybookTools(
       if (result.outcome === 'rejected') return toolError(result.error)
 
       const { playbook } = result.response
+      const pins = await pinReadings(playbook.requiredAccounts, deps)
       const text =
         `Rewrote \`${playbook.slug}\` — **${playbook.title}**, ${playbook.steps.length} ` +
         `${playbook.steps.length === 1 ? 'step' : 'steps'}, ` +
@@ -969,9 +1050,13 @@ export function registerPlaybookTools(
         `${playbook.version}. It is \`${playbook.status}\`.` +
         (playbook.status === 'draft'
           ? ' Offer it with `kolonie.playbooks.submit`.'
-          : ' Submit it again to offer the fixed pipeline back to the catalogue.')
+          : ' Submit it again to offer the fixed pipeline back to the catalogue.') +
+        describePins(pins)
 
-      return { content: [{ type: 'text', text }], structuredContent: result.response }
+      return {
+        content: [{ type: 'text', text }],
+        structuredContent: { ...result.response, atlasPins: pins },
+      }
     },
   )
 

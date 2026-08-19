@@ -48,6 +48,8 @@ const recipe = (input: {
     provider: AccountProviderSchema.parse(input.provider),
     title: input.title ?? input.provider,
     about: null,
+    /** Null beside `about` (`#1296`): the column is `string | null`, not optional. */
+    homepage: null,
     description: null,
     runtimes: [],
     paid: false,
@@ -61,6 +63,11 @@ const recipe = (input: {
     retiredReason: status === 'retired' ? 'the provider stopped taking agents' : null,
     category: input.category ?? 'code-hosting',
     categories: [input.category ?? 'code-hosting'],
+    /**
+     * The shelf as a utility facet, and nothing on the earn axis (`#1301`) —
+     * which is what storage derives for an entry no scout has classified.
+     */
+    facets: [{ axis: 'utility', slug: input.category ?? 'code-hosting' }],
     operatorNeed: need.need,
     operatorNeedIsGuess: need.isGuess,
     refusal: status === 'refused' ? 'no honest route in' : null,

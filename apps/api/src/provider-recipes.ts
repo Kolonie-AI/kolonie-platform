@@ -35,6 +35,12 @@ import {
   recipeWall,
   REFUSAL_UNSTATED,
   wallsMatch,
+  earnFacetsMatch,
+  earnFacetsOf,
+  utilityFacetsOf,
+  EarnFacetSchema,
+  EARN_FACETS,
+  type EarnFacet,
   WallKindSchema,
   WALL_KINDS,
   WALL_KIND_MEANINGS,
@@ -374,6 +380,8 @@ const RECIPE_QUERY_FILTERS = [
   'provider',
   'withWalls',
   'excludeWalls',
+  'withEarn',
+  'excludeEarn',
 ] as const
 
 /**
@@ -386,6 +394,18 @@ const RECIPE_QUERY_FILTERS = [
  * and the ordinary case here.
  */
 const RECIPE_WALL_FILTERS = ['withWalls', 'excludeWalls'] as const
+
+/**
+ * The two earn-facet filters, spelled however the caller writes a list
+ * (`#1301`).
+ *
+ * **A second pair beside the walls rather than one generic list reader**, because
+ * the two vocabularies are different closed lists and a caller that misspelled a
+ * facet should be told which list it missed. They are read by the same loop and
+ * refused by the same shape of message, which is what keeps the two surfaces
+ * agreeing.
+ */
+const RECIPE_EARN_FILTERS = ['withEarn', 'excludeEarn'] as const
 
 function invalidKind(kind: string): ApiError | null {
   return AccountKindSchema.safeParse(kind).success
@@ -465,6 +485,68 @@ function wallKindsFrom(
   name: string,
   value: unknown,
 ): { readonly kinds: readonly WallKind[] } | { readonly error: ApiError } {
+  const read = listFrom(name, value, 'wall kinds')
+  if ('error' in read) return { error: read.error }
+
+  for (const kind of read.parts) {
+    const rejection = invalidWallKind(kind)
+    if (rejection !== null) return { error: rejection }
+  }
+
+  return { kinds: read.parts.map((kind) => WallKindSchema.parse(kind)) }
+}
+
+/**
+ * One earn facet, or the rejection naming it (`#1301`).
+ *
+ * **The enum only, exactly as a wall kind is.** The earn axis exists so that
+ * *how many providers pay a referral* is a number; a caller that misspells one
+ * and is answered with the unfiltered catalogue would read *none of them* off a
+ * query that never ran.
+ */
+function invalidEarnFacet(facet: string): ApiError | null {
+  return EarnFacetSchema.safeParse(facet).success
+    ? null
+    : {
+        code: 'validation_failed',
+        message:
+          `That is not an earn facet the Atlas records: ${facet}. They are: ` +
+          `${EARN_FACETS.join(', ')}. The list is closed so that a count over it is a count — ` +
+          'a facet spelled a second way is an earn rail nobody finds.',
+      }
+}
+
+/** Read one earn filter off a query, through the same reader the walls use. */
+function earnFacetsFrom(
+  name: string,
+  value: unknown,
+): { readonly facets: readonly EarnFacet[] } | { readonly error: ApiError } {
+  const read = listFrom(name, value, 'earn facets')
+  if ('error' in read) return { error: read.error }
+
+  for (const facet of read.parts) {
+    const rejection = invalidEarnFacet(facet)
+    if (rejection !== null) return { error: rejection }
+  }
+
+  return { facets: read.parts.map((facet) => EarnFacetSchema.parse(facet)) }
+}
+
+/**
+ * A list argument, however the caller spelled it (`#981`, generalised by
+ * `#1301`).
+ *
+ * **Comma-separated, and repeated parameters too.** `?withWalls=a,b` is what a
+ * shell caller writes and `?withWalls=a&withWalls=b` is what a client library
+ * emits; refusing either would be refusing the question over spelling. Shared by
+ * both closed vocabularies because the spelling rule is about the query string
+ * and not about what the words mean.
+ */
+function listFrom(
+  name: string,
+  value: unknown,
+  what: string,
+): { readonly parts: readonly string[] } | { readonly error: ApiError } {
   const raw: unknown[] = Array.isArray(value) ? value : [value]
   const parts: string[] = []
 
@@ -473,7 +555,7 @@ function wallKindsFrom(
       return {
         error: {
           code: 'validation_failed',
-          message: `${name} is a list of wall kinds, and that is not one of them.`,
+          message: `${name} is a list of ${what}, and that is not one of them.`,
         },
       }
     }
@@ -481,14 +563,7 @@ function wallKindsFrom(
     parts.push(...one.split(',').map((part) => part.trim()))
   }
 
-  const kinds = parts.filter((part) => part.length > 0)
-
-  for (const kind of kinds) {
-    const rejection = invalidWallKind(kind)
-    if (rejection !== null) return { error: rejection }
-  }
-
-  return { kinds: kinds.map((kind) => WallKindSchema.parse(kind)) }
+  return { parts: parts.filter((part) => part.length > 0) }
 }
 
 /**
@@ -534,6 +609,7 @@ export async function readRecipes(
     const value = query[name]
     if (value === undefined) continue
     if ((RECIPE_WALL_FILTERS as readonly string[]).includes(name)) continue
+    if ((RECIPE_EARN_FILTERS as readonly string[]).includes(name)) continue
 
     if (typeof value !== 'string') {
       return {
@@ -567,6 +643,18 @@ export async function readRecipes(
     walls[name] = read.kinds
   }
 
+  const earn: { withEarn?: readonly EarnFacet[]; excludeEarn?: readonly EarnFacet[] } = {}
+
+  for (const name of RECIPE_EARN_FILTERS) {
+    const value = query[name]
+    if (value === undefined) continue
+
+    const read = earnFacetsFrom(name, value)
+    if ('error' in read) return { outcome: 'rejected', error: read.error }
+
+    earn[name] = read.facets
+  }
+
   const listed = await recipes.list(
     given.kind === undefined ? undefined : AccountKindSchema.parse(given.kind),
   )
@@ -581,7 +669,16 @@ export async function readRecipes(
         .filter((recipe) => given.status === undefined || recipe.status === given.status)
         .filter((recipe) => provider === undefined || recipe.provider === provider)
         /** The same predicate the tool filters on, from `core` (`#981`). */
-        .filter((recipe) => wallsMatch(recipe.walls, walls)),
+        .filter((recipe) => wallsMatch(recipe.walls, walls))
+        /**
+         * The earn axis, per recipe and beside the walls (`#1301`).
+         *
+         * **`category` above and this are the two axes, and they compose.**
+         * `?category=mailbox&withEarn=affiliate-referral` is the dual-use
+         * question asked in one request, which is the thing neither taxonomy
+         * could answer alone.
+         */
+        .filter((recipe) => earnFacetsMatch(recipe.facets, earn)),
     },
   }
 }
@@ -672,6 +769,22 @@ export async function readAtlas(
      */
     readonly withWalls?: readonly string[] | undefined
     readonly excludeWalls?: readonly string[] | undefined
+    /**
+     * Which earn facets the reader is after, and which it is not (`#1301`).
+     *
+     * **A second axis and not a second shelf.** `category` narrows *what sort of
+     * account this is*; this narrows *how it pays*, and the two compose rather
+     * than competing — `category: 'mailbox'` beside
+     * `withEarn: ['affiliate-referral']` is the dual-use question, and it is the
+     * one the catalogue could not be asked before.
+     *
+     * **Per recipe and never per provider**, exactly as the walls are: a
+     * provider's shelf may carry a mailbox that earns nothing and an API that
+     * pays a referral, and answering with the provider would hide which row the
+     * reader can act on.
+     */
+    readonly withEarn?: readonly string[] | undefined
+    readonly excludeEarn?: readonly string[] | undefined
   },
   recipes: ProviderRecipes,
   /**
@@ -733,6 +846,19 @@ export async function readAtlas(
     walls[name] = read.kinds
   }
 
+  /** Read through the same reader the route uses, so both refuse the same typo. */
+  const earn: { withEarn?: readonly EarnFacet[]; excludeEarn?: readonly EarnFacet[] } = {}
+
+  for (const name of RECIPE_EARN_FILTERS) {
+    const value = input[name]
+    if (value === undefined) continue
+
+    const read = earnFacetsFrom(name, [...value])
+    if ('error' in read) return { outcome: 'rejected', error: read.error }
+
+    earn[name] = read.facets
+  }
+
   if (input.direction !== undefined && !RecipeDirectionSchema.safeParse(input.direction).success) {
     return {
       outcome: 'rejected',
@@ -781,7 +907,14 @@ export async function readAtlas(
              * passport; dropping the whole provider because one of its accounts is
              * walled would hide the one the reader asked about.
              */
-            wallsMatch(recipe.walls, walls),
+            wallsMatch(recipe.walls, walls) &&
+            /**
+             * **Per recipe, beside the walls and for the same reason** (`#1301`).
+             * A provider's mailbox row may earn nothing while its API row pays a
+             * referral; dropping the provider would hide the row the reader
+             * asked for.
+             */
+            earnFacetsMatch(recipe.facets, earn),
         )
         .map((recipe) => ({
           ...recipe,
@@ -955,6 +1088,8 @@ export function atlasEntryAsText(
     )
   }
 
+  parts.push(earnFacetsAsText(entry))
+
   /**
    * **Three blocks per recipe, and the middle one is new** (`#1032`).
    *
@@ -979,6 +1114,36 @@ export function atlasEntryAsText(
   }
 
   return parts.filter((part) => part !== '').join('\n\n')
+}
+
+/**
+ * What this provider pays for, where anything does (`#1301`).
+ *
+ * **Printed on the entry and not on each row**, because it is a fact about the
+ * provider: an agent that came for the mailbox and would also take the referral
+ * should not have to scroll to the row that happened to carry the facet.
+ *
+ * **Nothing at all when the earn axis is empty**, which is nearly every entry.
+ * A line announcing that a provider pays nothing would be an absence stated as a
+ * finding, on four hundred entries, and the Colony has looked at almost none of
+ * them.
+ *
+ * **A shelf beside an earn facet is the dual-use case said out loud.** That is
+ * the reader `#1301` exists for: the account is worth holding *and* it is a way
+ * to earn, and until now the catalogue could only say one of the two.
+ */
+function earnFacetsAsText(entry: AtlasEntry): string {
+  const earn = earnFacetsOf(entry.facets)
+  if (earn.length === 0) return ''
+
+  const shelf = utilityFacetsOf(entry.facets)
+  const both =
+    shelf.length === 0
+      ? ''
+      : ` It is also an account you would hold for its own sake — ${shelf.join(', ')} — so ` +
+        'holding it and earning through it are not two decisions.'
+
+  return `**How this provider pays:** ${earn.join(', ')}.${both}`
 }
 
 /**
@@ -1219,15 +1384,12 @@ export function recipeAsText(recipe: ProviderRecipe, secretHandoff: boolean): st
    */
   if (recipe.status === 'measured') {
     const aboutLine =
-      recipe.about === null || recipe.about.trim() === ''
-        ? ''
-        : `About: ${recipe.about.trim()}\n`
+      recipe.about === null || recipe.about.trim() === '' ? '' : `About: ${recipe.about.trim()}\n`
     const homepageLine =
       recipe.homepage === null || recipe.homepage.trim() === ''
         ? ''
         : `Homepage: ${recipe.homepage.trim()}\n`
-    const identity =
-      aboutLine === '' && homepageLine === '' ? '' : `\n${aboutLine}${homepageLine}`
+    const identity = aboutLine === '' && homepageLine === '' ? '' : `\n${aboutLine}${homepageLine}`
     return (
       `${recipe.title} · ${recipe.category}\n\n${operatorNeedAsText(recipe)}\n\n` +
       `**Walked, but not written up.** Citizens have been through ${recipe.provider} and what ` +

@@ -6,6 +6,7 @@ import { PROVIDER_CONTACT_MAX_LENGTH, ReferralArrangementSchema } from './atlas-
 import { AgentApiSchema } from './atlas-admission.js'
 import { ProviderTermsSchema, RecipeNeedsSchema, SignupCostSchema } from './atlas-conditions.js'
 import { RecipeDirectionSchema, kindHasDirection } from './atlas-direction.js'
+import { AtlasFacetSchema, RECIPE_MAX_FACETS } from './atlas-facets.js'
 import { WalkedRecipeSchema } from './walked-recipe.js'
 import { PublishedWallSchema } from './wall.js'
 import {
@@ -591,9 +592,7 @@ export function descriptionFromWalkerAbout(
  * (`#1297`). Used where the about column itself is what should fill, not the
  * short identity sentence.
  */
-export function firstWalkerAbout(
-  abouts: readonly (string | null | undefined)[],
-): string | null {
+export function firstWalkerAbout(abouts: readonly (string | null | undefined)[]): string | null {
   for (const raw of abouts) {
     const text = raw?.trim() ?? ''
     if (text.length === 0) continue
@@ -1134,6 +1133,22 @@ export const ProviderRecipeSchema = z.object({
    * them.
    */
   categories: AtlasCategorySlugSchema.array(),
+  /**
+   * Every facet this entry carries, across every axis (`#1301`).
+   *
+   * **Additive and orthogonal to the shelves above, not a replacement for
+   * them.** The utility axis *is* `categories`, read as facets; the earn axis is
+   * the thing the shelves could never say — that a provider pays a referral, or
+   * posts bounties, or funds a grant. A provider is routinely both, and this is
+   * the one field that can hold that: a mailbox with `affiliate-referral` beside
+   * `mailbox` is exactly the reader `#1301` was filed for.
+   *
+   * **Derived on the way out and stored nowhere**, from the shelf rows and the
+   * earn rows — see `facetsFrom`. An empty earn axis is ordinary and permanent:
+   * most of the catalogue earns nothing, and nothing here is inferred from
+   * prose.
+   */
+  facets: AtlasFacetSchema.array().max(RECIPE_MAX_FACETS),
   /**
    * Whether the shelf above was defaulted rather than chosen (`#1096`).
    *

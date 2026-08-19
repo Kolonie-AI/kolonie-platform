@@ -37,6 +37,8 @@ import {
   RecipeDirectionSchema,
   WALL_KINDS,
   WallKindSchema,
+  EARN_FACETS,
+  EarnFacetSchema,
   WalkOutcomeSchema,
   bootstrapTemplate,
   bootstrapTemplateAsText,
@@ -1541,6 +1543,37 @@ export function registerAccountTools(
               'from clear.',
           ),
         /**
+         * The other axis of the catalogue (`#1301`).
+         *
+         * **Additive with `category` rather than competing with it.** A shelf
+         * says what sort of account this is and this says how it pays, so
+         * `category: 'mailbox'` beside `withEarn: ['affiliate-referral']` is one
+         * question — *a mailbox I would want anyway that also pays* — which
+         * neither taxonomy could be asked alone.
+         *
+         * **A closed enum, like a wall kind and unlike a shelf.** The agent reads
+         * the five off the tool rather than fetching the catalogue to discover
+         * them, and a misspelling is refused by name instead of quietly answering
+         * the unfiltered shelf.
+         */
+        withEarn: z
+          .array(EarnFacetSchema)
+          .max(EARN_FACETS.length)
+          .optional()
+          .describe(
+            'Only entries that pay one of these ways: ' +
+              `${EARN_FACETS.join(', ')}. It stacks with \`category\` rather than replacing ` +
+              'it — a mailbox that also pays a referral answers both.',
+          ),
+        excludeEarn: z
+          .array(EarnFacetSchema)
+          .max(EARN_FACETS.length)
+          .optional()
+          .describe(
+            'Drop entries that pay any of these way. Most of the catalogue claims no earn ' +
+              'facet at all and stays: unset is not a claim that it pays nothing.',
+          ),
+        /**
          * The one argument here that re-reads rather than filters (`#976`).
          *
          * **It hides no entry, which is why it is safe to have at all.** Every
@@ -1696,6 +1729,8 @@ export function registerAccountTools(
           direction: input.direction,
           withWalls: input.withWalls,
           excludeWalls: input.excludeWalls,
+          withEarn: input.withEarn,
+          excludeEarn: input.excludeEarn,
         },
         deps.recipes,
         deps.drops !== undefined,

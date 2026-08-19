@@ -66,6 +66,8 @@ const entry = (): AtlasEntry =>
     path: '/atlas/trello.com',
     status: 'joinable',
     category: 'project-tracking',
+    /** Rolled up from the row below: one shelf, and nothing on the earn axis (`#1301`). */
+    facets: [{ axis: 'utility', slug: 'project-tracking' }],
     description: null,
     operatorNeed: 'unaided',
     operatorNeedIsGuess: false,
@@ -79,6 +81,8 @@ const entry = (): AtlasEntry =>
         provider: 'trello.com',
         title: 'A Trello account',
         category: 'project-tracking',
+        /** The shelf as a utility facet, and no earn claim (`#1301`). */
+        facets: [{ axis: 'utility', slug: 'project-tracking' }],
         categories: ['project-tracking'],
         categoryIsFallback: false,
         operatorNeed: 'unaided',

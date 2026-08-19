@@ -101,6 +101,7 @@ export type AtlasPublicRecipe = Pick<
   | 'title'
   | 'category'
   | 'categories'
+  | 'facets'
   | 'categoryIsFallback'
   | 'operatorNeed'
   | 'operatorNeedIsGuess'
@@ -153,6 +154,7 @@ export type AtlasPublicEntry = Pick<
   | 'title'
   | 'status'
   | 'category'
+  | 'facets'
   | 'description'
   | 'operatorNeed'
   | 'operatorNeedIsGuess'
@@ -176,6 +178,14 @@ export function atlasPublicEntry(entry: AtlasEntry): AtlasPublicEntry {
     title: entry.title,
     status: entry.status,
     category: entry.category,
+    /**
+     * **Published rather than withheld** (`#1301`). A facet is a fact about the
+     * provider on the same footing as its shelf — *this is a mailbox* and *this
+     * pays a referral* are the same kind of claim — and withholding one from a
+     * stranger while serving the other would be the catalogue disclosing where
+     * it is convenient.
+     */
+    facets: entry.facets,
     description: entry.description,
     operatorNeed: entry.operatorNeed,
     operatorNeedIsGuess: entry.operatorNeedIsGuess,
@@ -199,6 +209,8 @@ function publicRecipe(recipe: AtlasRow): AtlasPublicRecipe {
     title: recipe.title,
     category: recipe.category,
     categories: recipe.categories,
+    /** Published for the reason the entry's are, one level up (`#1301`). */
+    facets: recipe.facets,
     categoryIsFallback: recipe.categoryIsFallback,
     operatorNeed: recipe.operatorNeed,
     operatorNeedIsGuess: recipe.operatorNeedIsGuess,

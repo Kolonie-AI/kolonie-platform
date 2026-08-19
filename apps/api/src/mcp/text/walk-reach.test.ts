@@ -22,6 +22,8 @@ const walk = (over: Partial<AccountWalk> = {}): AccountWalk => ({
   changed: null,
   discarded: null,
   about: null,
+  /** Null beside `about` (`#1296`): the field is `string | null`, not optional. */
+  homepage: null,
   takenStepPositions: null,
   recipe: null,
   steps: [],

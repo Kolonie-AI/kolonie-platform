@@ -597,6 +597,20 @@
             "enum": ["inbound", "outbound", "both"],
             "type": "string"
           },
+          "excludeEarn": {
+            "items": {
+              "enum": [
+                "affiliate-referral",
+                "bounty-board",
+                "gig-marketplace",
+                "creator-payout",
+                "grant-quest"
+              ],
+              "type": "string"
+            },
+            "maxItems": 5,
+            "type": "array"
+          },
           "excludeHeld": {
             "type": "boolean"
           },
@@ -655,6 +669,20 @@
           },
           "walks": {
             "type": "boolean"
+          },
+          "withEarn": {
+            "items": {
+              "enum": [
+                "affiliate-referral",
+                "bounty-board",
+                "gig-marketplace",
+                "creator-payout",
+                "grant-quest"
+              ],
+              "type": "string"
+            },
+            "maxItems": 5,
+            "type": "array"
           },
           "withWalls": {
             "items": {

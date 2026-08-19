@@ -1,8 +1,12 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { eq } from 'drizzle-orm'
 import {
   AccountKindSchema,
   AtlasCategorySchema,
+  earnFacetsOf,
+  isDualUse,
   looksLikeCredential,
+  utilityFacetsOf,
   WriteProviderRecipeSchema,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
@@ -13,7 +17,10 @@ import {
   providerRecipeList,
   recordMeasuredProvider,
   writeProviderRecipe,
+  writeRecipeEarnFacets,
 } from './provider-recipes.js'
+import { providerRecipeFacets } from '../schema/provider-recipe-facets.js'
+import { providerRecipes } from '../schema/provider-recipes.js'
 import { PROVIDER_CATALOGUE, seedProviderCatalogue } from '../provider-catalogue.js'
 
 const target = databaseTestTarget()
@@ -1009,6 +1016,145 @@ describe('a provider row the Colony measured', () => {
         category: 'telephony',
         steps: [{ actor: 'agent', instruction: 'Open the signup page and fill it in.' }],
       }),
+    ).rejects.toThrow()
+  })
+})
+
+/**
+ * The earn axis (`#1301`).
+ *
+ * **What is asserted here is that the two taxonomies are additive.** The failure
+ * this issue was filed about is a taxonomy that makes a reader choose: a bounty
+ * board filed under `data-apis` because no shelf fitted, and a mailbox that pays
+ * a referral describable as one or the other and not both. So every test below
+ * reads the shelf and the earn facet off one entry at once.
+ */
+describe('the earn facets on a catalogue entry', () => {
+  let db: Database
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+    await seedProviderCatalogue(db)
+    await writeProviderRecipe(db, {
+      kind: kind('mailbox'),
+      provider: 'dual.example',
+      title: 'A dual-use mailbox',
+      status: 'joinable',
+      category: 'mailbox',
+      steps: [{ actor: 'agent', instruction: 'Open the signup page and fill it in.' }],
+      proves: 'provider-mail',
+    })
+  })
+
+  it('claims nothing about earning until somebody says so', async () => {
+    const entry = await providerRecipe(db, kind('mailbox'), 'dual.example')
+
+    expect(earnFacetsOf(entry?.facets ?? [])).toEqual([])
+    /** The shelf is still a facet, so *unset earn* and *no facets* are different. */
+    expect(utilityFacetsOf(entry?.facets ?? [])).toEqual(['mailbox'])
+    expect(isDualUse(entry?.facets ?? [])).toBe(false)
+  })
+
+  /** The acceptance criterion, as one read: the mailbox and the referral together. */
+  it('carries a shelf and an earn facet at once', async () => {
+    expect(
+      await writeRecipeEarnFacets(db, kind('mailbox'), 'dual.example', ['affiliate-referral']),
+    ).toBe(true)
+
+    const entry = await providerRecipe(db, kind('mailbox'), 'dual.example')
+
+    expect(entry?.facets).toEqual([
+      { axis: 'utility', slug: 'mailbox' },
+      { axis: 'earn', slug: 'affiliate-referral' },
+    ])
+    expect(isDualUse(entry?.facets ?? [])).toBe(true)
+    /** And the shelf is untouched: a facet takes nothing away. */
+    expect(entry?.category).toBe('mailbox')
+    expect(entry?.categories).toEqual(['mailbox'])
+  })
+
+  it('takes several facets on the axis, because they are not exclusive either', async () => {
+    await writeRecipeEarnFacets(db, kind('mailbox'), 'dual.example', [
+      'bounty-board',
+      'affiliate-referral',
+    ])
+
+    const entry = await providerRecipe(db, kind('mailbox'), 'dual.example')
+
+    /** In the vocabulary's own order, so two reads of one entry agree. */
+    expect(earnFacetsOf(entry?.facets ?? [])).toEqual(['affiliate-referral', 'bounty-board'])
+  })
+
+  it('replaces rather than merges, so a claim can be withdrawn', async () => {
+    await writeRecipeEarnFacets(db, kind('mailbox'), 'dual.example', ['affiliate-referral'])
+    await writeRecipeEarnFacets(db, kind('mailbox'), 'dual.example', ['creator-payout'])
+
+    const entry = await providerRecipe(db, kind('mailbox'), 'dual.example')
+    expect(earnFacetsOf(entry?.facets ?? [])).toEqual(['creator-payout'])
+
+    await writeRecipeEarnFacets(db, kind('mailbox'), 'dual.example', [])
+    const withdrawn = await providerRecipe(db, kind('mailbox'), 'dual.example')
+    expect(earnFacetsOf(withdrawn?.facets ?? [])).toEqual([])
+  })
+
+  it('reads the facets on a list as well as on one entry', async () => {
+    await writeRecipeEarnFacets(db, kind('mailbox'), 'dual.example', ['affiliate-referral'])
+
+    const listed = await providerRecipeList(db, kind('mailbox'))
+    const entry = listed.find((one) => one.provider === 'dual.example')
+
+    expect(earnFacetsOf(entry?.facets ?? [])).toEqual(['affiliate-referral'])
+  })
+
+  it('writes nothing for a provider the catalogue has never heard of', async () => {
+    expect(
+      await writeRecipeEarnFacets(db, kind('mailbox'), 'nobody.example', ['bounty-board']),
+    ).toBe(false)
+  })
+
+  /**
+   * **Refused in SQL and not only in TypeScript**, for the reason the wall
+   * vocabulary is: this table is meant to be written to at a psql prompt, and a
+   * facet spelled a second way is an earn rail nobody's filter finds.
+   */
+  it('refuses a facet outside the vocabulary, at the database', async () => {
+    const [row] = await db
+      .select({ id: providerRecipes.id })
+      .from(providerRecipes)
+      .where(eq(providerRecipes.provider, 'dual.example'))
+      .limit(1)
+
+    await expect(
+      db
+        .insert(providerRecipeFacets)
+        .values({ recipeId: row?.id ?? '', axis: 'earn', slug: 'bounty-boards' }),
+    ).rejects.toThrow()
+  })
+
+  /**
+   * The shelves are `provider_recipe_categories` and this table refuses to be a
+   * second home for them — two homes for one fact is two answers the first time
+   * somebody writes to only one of them.
+   */
+  it('refuses a utility facet, because the shelves already hold that axis', async () => {
+    const [row] = await db
+      .select({ id: providerRecipes.id })
+      .from(providerRecipes)
+      .where(eq(providerRecipes.provider, 'dual.example'))
+      .limit(1)
+
+    await expect(
+      db
+        .insert(providerRecipeFacets)
+        .values({ recipeId: row?.id ?? '', axis: 'utility', slug: 'mailbox' }),
     ).rejects.toThrow()
   })
 })

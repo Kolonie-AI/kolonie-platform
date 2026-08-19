@@ -9,6 +9,7 @@ import {
   type AtlasFigures,
 } from './atlas-figures.js'
 import { atlasCanonicalKind, atlasCategoryForKind } from './atlas-proposal.js'
+import { AtlasFacetSchema, earnFacetsOf, facetsFrom } from './atlas-facets.js'
 import type { Log } from '../log/log.js'
 import {
   AtlasCategorySlugSchema,
@@ -291,6 +292,21 @@ export const AtlasEntrySchema = z.object({
    */
   category: AtlasCategorySlugSchema,
   /**
+   * Every facet this provider carries, across every axis (`#1301`).
+   *
+   * **The union of its rows', and the one place on an entry where several
+   * answers are right at once.** `category` above is deliberately singular — a
+   * provider gets one page and the page sits on one shelf — and that singularity
+   * is what made *is this an earn rail* unanswerable: `clawtasks.com` is a bounty
+   * board filed under `data-apis`, because no shelf fitted and one had to be
+   * chosen. A facet is additive, so the entry can say *mailbox* and *pays a
+   * referral* without either claim costing the other.
+   *
+   * Empty on the earn axis for nearly every provider, and that is the ordinary
+   * state rather than a gap: nothing here is inferred from prose.
+   */
+  facets: AtlasFacetSchema.array(),
+  /**
    * One sentence saying what the provider is, rolled up from its rows (`#1120`).
    *
    * **The lead row's, and any row's if the lead has none.** The sentence answers
@@ -554,6 +570,27 @@ export function atlasEntries(
         null,
       operatorNeed: need.need,
       operatorNeedIsGuess: need.isGuess,
+      /**
+       * Every facet any of this entry's rows carries, unioned (`#1301`).
+       *
+       * **Unioned and not taken from the lead row, which is the opposite of what
+       * `category` above does, on purpose.** The shelf is one per entry because
+       * an entry is a page and a page sits somewhere; a facet is a claim about
+       * what this provider *is*, and a provider whose mailbox row is filed under
+       * `mailbox` and whose API row pays a referral is both of those things. A
+       * reader asking *where can I earn* would otherwise miss it for having
+       * scrolled to the wrong row.
+       */
+      // Spread for the reason `walkers` below is: the schema infers a mutable
+      // array and the union hands back a frozen view of one.
+      facets: [
+        ...facetsFrom(
+          rows
+            .flatMap((row) => row.facets.filter((one) => one.axis === 'utility'))
+            .map((one) => one.slug),
+          rows.flatMap((row) => earnFacetsOf(row.facets)),
+        ),
+      ],
       recipes: measured,
       source: atlasEntrySource(rows, measuredOnly),
       // Spread because the schema infers a mutable array and the union returns a
@@ -999,6 +1036,17 @@ export function measuredOnlyRecipes(
          * list is stated here rather than left to be filled in.
          */
         categories: [category],
+        /**
+         * The shelf as a utility facet, and no earn facet at all (`#1301`).
+         *
+         * **The empty earn axis is the honest answer and not a gap.** This row
+         * exists because agents attempted a provider nobody has written up, so
+         * there is no structured claim about how it pays and nothing to read one
+         * off — and inferring one from the provider's name is exactly what
+         * `#1301` refuses. The facet arrives when a scout or a moderator says
+         * so.
+         */
+        facets: facetsFrom([category], []),
         /**
          * **Present only where it is true** (`#1096`), so that *nobody
          * classified this* and *somebody put it here* are not the same value

@@ -43,6 +43,9 @@ import {
   type ReferralArrangement,
   WalkedRecipeSchema,
   type WalkedRecipe,
+  EarnFacetSchema,
+  facetsFrom,
+  type EarnFacet,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 
@@ -56,6 +59,7 @@ import type { Database, Transaction } from '../client.js'
  */
 type Handle = Database | Transaction
 import { providerRecipeCategories } from '../schema/provider-recipe-categories.js'
+import { providerRecipeFacets } from '../schema/provider-recipe-facets.js'
 import { providerRecipes } from '../schema/provider-recipes.js'
 import { toTimestamp } from './rows.js'
 
@@ -80,6 +84,16 @@ export function toRecipe(
    * off the copy that is already here.
    */
   shelves?: readonly string[],
+  /**
+   * The earn facets on this entry, from `provider_recipe_facets` (`#1301`).
+   *
+   * **Optional exactly as `shelves` is, and absent means none.** The fallback
+   * differs from the one above and says so: an entry with no shelf rows still
+   * has the shelf its column names, whereas an entry with no facet rows makes no
+   * earn claim at all — and there is no column to fall back to, because
+   * inventing one would be the inference `#1301` refuses.
+   */
+  earn?: readonly EarnFacet[],
 ): ProviderRecipe {
   const steps = (row.steps ?? []).map((step: RecipeStep) => RecipeStepSchema.parse(step))
 
@@ -132,6 +146,20 @@ export function toRecipe(
      */
     category: AtlasCategorySlugSchema.parse(row.category),
     categories: (shelves ?? [row.category]).map((one) => AtlasCategorySlugSchema.parse(one)),
+    /**
+     * The two axes, read together and stored as neither (`#1301`).
+     *
+     * **Built here for the reason `operatorNeed` is derived here**: `toRecipe`
+     * is the one place a row becomes a recipe, so no surface can answer *is this
+     * an earn rail* differently from another, and none of them can answer it
+     * from a column that went stale.
+     */
+    facets: [
+      ...facetsFrom(
+        (shelves ?? [row.category]).map((one) => AtlasCategorySlugSchema.parse(one)),
+        (earn ?? []).map((one) => EarnFacetSchema.parse(one)),
+      ),
+    ],
     operatorNeed: need.need,
     operatorNeedIsGuess: need.isGuess,
     refusal: row.refusal,
@@ -246,12 +274,11 @@ export async function providerRecipeList(
       asc(providerRecipes.provider),
     )
 
-  const shelves = await shelvesByRecipe(
-    db,
-    rows.map((row) => row.id),
-  )
+  const ids = rows.map((row) => row.id)
+  /** One query each for the two axes, for the reason stated on `shelvesByRecipe`. */
+  const [shelves, earn] = await Promise.all([shelvesByRecipe(db, ids), earnByRecipe(db, ids)])
 
-  return rows.map((row) => toRecipe(row, shelves.get(row.id)))
+  return rows.map((row) => toRecipe(row, shelves.get(row.id), earn.get(row.id)))
 }
 
 /**
@@ -292,6 +319,94 @@ async function shelvesByRecipe(
   return byRecipe
 }
 
+/**
+ * Which earn facets each of these entries carries (`#1301`).
+ *
+ * **One query for the whole page, exactly as {@link shelvesByRecipe} is**, and
+ * for the same reason: the index renders four hundred entries and a per-row
+ * lookup would be the n+1 that grouping in memory exists to avoid.
+ *
+ * **An entry with no rows is absent and reads as no earn claim.** That is the
+ * state every entry in the catalogue is in the day this ships, and it is the
+ * honest one — an earn facet arrives when something structured says so.
+ */
+async function earnByRecipe(
+  db: Handle,
+  ids: readonly string[],
+): Promise<ReadonlyMap<string, readonly EarnFacet[]>> {
+  if (ids.length === 0) return new Map()
+
+  const rows = await db
+    .select({ recipeId: providerRecipeFacets.recipeId, slug: providerRecipeFacets.slug })
+    .from(providerRecipeFacets)
+    .where(
+      and(inArray(providerRecipeFacets.recipeId, [...ids]), eq(providerRecipeFacets.axis, 'earn')),
+    )
+
+  const byRecipe = new Map<string, EarnFacet[]>()
+  for (const row of rows) {
+    /**
+     * Parsed on the way out, like every `jsonb` shape beside it. The check
+     * constraint bounds the column and a row written before it existed is
+     * exactly what a parse on the way out is for.
+     */
+    const slug = EarnFacetSchema.parse(row.slug)
+    const held = byRecipe.get(row.recipeId)
+    if (held === undefined) byRecipe.set(row.recipeId, [slug])
+    else held.push(slug)
+  }
+
+  return byRecipe
+}
+
+/**
+ * Set the earn facets on one entry, replacing whatever stood there (`#1301`).
+ *
+ * **Replace and not merge**, on the same argument `writeProviderRecipe` makes
+ * one screen down: a facet list is a claim about a provider at a moment, and
+ * merging two of them would produce a claim nobody made. An empty list is how a
+ * facet is withdrawn.
+ *
+ * **The vocabulary is checked here and again by the table.** Twice on purpose:
+ * this is the path a scout's intake and a moderated classification will both
+ * come through, and the constraint is what holds for the psql prompt that comes
+ * through neither.
+ */
+export async function writeRecipeEarnFacets(
+  db: Handle,
+  kind: AccountKind,
+  provider: string,
+  facets: readonly EarnFacet[],
+): Promise<boolean> {
+  const [row] = await db
+    .select({ id: providerRecipes.id })
+    .from(providerRecipes)
+    .where(
+      and(
+        eq(providerRecipes.kind, kind),
+        eq(providerRecipes.provider, AccountProviderSchema.parse(provider)),
+      ),
+    )
+    .limit(1)
+
+  if (row === undefined) return false
+
+  /** Distinct and in the vocabulary's own order, so two writes of one claim agree. */
+  const wanted = [...new Set(facets.map((one) => EarnFacetSchema.parse(one)))]
+
+  await db
+    .delete(providerRecipeFacets)
+    .where(and(eq(providerRecipeFacets.recipeId, row.id), eq(providerRecipeFacets.axis, 'earn')))
+
+  if (wanted.length > 0) {
+    await db
+      .insert(providerRecipeFacets)
+      .values(wanted.map((slug) => ({ recipeId: row.id, axis: 'earn' as const, slug })))
+  }
+
+  return true
+}
+
 /** One entry, by the pair that identifies it. */
 export async function providerRecipe(
   db: Handle,
@@ -313,8 +428,12 @@ export async function providerRecipe(
 
   if (row === undefined) return undefined
 
-  const shelves = await shelvesByRecipe(db, [row.id])
-  return toRecipe(row, shelves.get(row.id))
+  const [shelves, earn] = await Promise.all([
+    shelvesByRecipe(db, [row.id]),
+    earnByRecipe(db, [row.id]),
+  ])
+
+  return toRecipe(row, shelves.get(row.id), earn.get(row.id))
 }
 
 /**

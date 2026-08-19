@@ -615,6 +615,8 @@ describe('schema', () => {
         'message_blocks',
         'message_conversations',
         'message_participants',
+        /** What a citizen reported about a message, beside the block that stopped it. */
+        'message_reports',
         'message_requests',
         'messages',
         'moderations',
@@ -803,6 +805,12 @@ describe('schema', () => {
         'provider_claims',
         'provider_enquiries',
         /**
+         * `#1299`. Post-account tips — IMAP, an API app, a quota — kept apart
+         * from the recipe steps, because how you operate an account is not how
+         * you got it.
+         */
+        'provider_operate_notes',
+        /**
          * `#1102`. Which entry is on which shelf, kept by a trigger from the
          * category the entry names in its own column. One row per pair and one
          * of them marked primary, enforced by a partial unique index — so an
@@ -811,6 +819,13 @@ describe('schema', () => {
          * learn about a second table first.
          */
         'provider_recipe_categories',
+        /**
+         * `#1301`. The earn axis, and every axis except the shelves: a check
+         * refuses `utility` here so that what shelf an entry is on stays one
+         * fact in one table. Empty on every entry until something structured
+         * says a provider pays.
+         */
+        'provider_recipe_facets',
         'provider_recipes',
         'provider_reports',
         // `quest_answers` (#177): what the sponsor is allowed to read, scrubbed

@@ -587,7 +587,13 @@ describe('the migrations', () => {
     // A pending request's body lives in `messages` on a conversation the
     // recipient is not yet a participant of; accepting is the insert that
     // makes those rows readable, and until then no query that exists can.
-    expect(afterFirst.tables).toBe('149')
+    //
+    // **A hundred and fiftieth** (`#1301`, epic `#1295`): `provider_recipe_facets`,
+    // the earn axis of the Atlas taxonomy. It is a second table rather than a
+    // column because a facet is additive — a provider is a mailbox *and* an earn
+    // rail — and it holds every axis except the shelves, which a check enforces
+    // so that *what shelf is this on* stays one fact in `provider_recipe_categories`.
+    expect(afterFirst.tables).toBe('150')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

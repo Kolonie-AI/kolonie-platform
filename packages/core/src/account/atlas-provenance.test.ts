@@ -71,10 +71,14 @@ const recipe = (input: {
       ? daysAgo(1)
       : input.lastConfirmedAt) as ProviderRecipe['lastConfirmedAt'],
     status,
+    /** Null beside `about` (`#1296`): the field is `string | null`, not optional. */
+    homepage: null,
     retiredAt: status === 'retired' ? (daysAgo(2) as never) : null,
     retiredReason: status === 'retired' ? 'the provider stopped taking agents' : null,
     category: 'code-hosting',
     categories: ['code-hosting'],
+    /** The shelf as a utility facet, and no earn claim (`#1301`). */
+    facets: [{ axis: 'utility', slug: 'code-hosting' }],
     operatorNeed: 'unaided',
     operatorNeedIsGuess: false,
     refusal: status === 'refused' ? 'no honest route in' : null,

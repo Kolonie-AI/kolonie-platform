@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { fakeProviderRecipes, type FakeProviderRecipes } from './__fixtures__/provider-recipes.js'
 import {
   HANDOFF_LATENCY_NOTE,
+  atlasEntryAsText,
   fillHandoffAsk,
   handoffStep,
   knownHandoffValues,
@@ -327,8 +328,166 @@ describe('filtering the catalogue over HTTP', () => {
       expect(result.outcome).toBe('rejected')
       if (result.outcome !== 'rejected') return
       expect(result.error.code).toBe('validation_failed')
+
       expect(result.error.message).toContain('payment-requiredd')
       expect(result.error.message).toContain('terms-forbid-agents')
+    })
+  })
+
+  /**
+   * The second axis (`#1301`).
+   *
+   * **What is under test is that the axes compose.** The failure the issue names
+   * is a taxonomy that makes a reader choose between *what sort of account is
+   * this* and *how does it pay*, so the assertions below ask both at once and
+   * expect the entry that answers both to survive.
+   */
+  describe('filtering on how a provider pays', () => {
+    const earning = async () => {
+      recipes.write({
+        kind: 'mailbox',
+        provider: 'dual.example',
+        category: 'mailbox',
+        status: 'joinable',
+        facets: [{ axis: 'earn', slug: 'affiliate-referral' }],
+      })
+      recipes.write({
+        kind: 'mailbox',
+        provider: 'plain.example',
+        category: 'mailbox',
+        status: 'joinable',
+      })
+      recipes.write({
+        kind: 'api',
+        provider: 'clawtasks.example',
+        category: 'data-apis',
+        status: 'joinable',
+        facets: [{ axis: 'earn', slug: 'bounty-board' }],
+      })
+    }
+
+    it('keeps the entries paying any of the ways asked for', async () => {
+      await earning()
+
+      expect(await listed({ withEarn: 'affiliate-referral,bounty-board' })).toEqual([
+        'dual.example',
+        'clawtasks.example',
+      ])
+    })
+
+    it('reads the same list given as a repeated parameter', async () => {
+      await earning()
+
+      expect(await listed({ withEarn: ['bounty-board'] })).toEqual(['clawtasks.example'])
+    })
+
+    /**
+     * **The dual-use question, asked in one request.** A mailbox is what the
+     * reader came for and the referral is what makes this one worth taking; the
+     * shelf alone answers the first and the earn axis alone answers the second,
+     * and only together do they answer the reader.
+     */
+    it('composes with the shelf rather than competing with it', async () => {
+      await earning()
+
+      expect(await listed({ category: 'mailbox', withEarn: 'affiliate-referral' })).toEqual([
+        'dual.example',
+      ])
+      /** And the shelf on its own still answers with both mailboxes. */
+      expect(await listed({ category: 'mailbox' })).toEqual(['dual.example', 'plain.example'])
+    })
+
+    /**
+     * Unset is not a claim that a provider pays nothing — nearly every entry is
+     * unset because nobody has looked, so the exclusion drops what is claimed
+     * and keeps what is unknown.
+     */
+    it('drops what claims a facet and keeps what claims none', async () => {
+      await earning()
+
+      expect(await listed({ excludeEarn: 'affiliate-referral' })).toEqual([
+        'plain.example',
+        'clawtasks.example',
+      ])
+    })
+
+    it('lets the exclusion win where a caller asks for both', async () => {
+      await earning()
+
+      expect(
+        await listed({ withEarn: 'affiliate-referral', excludeEarn: 'affiliate-referral' }),
+      ).toEqual([])
+    })
+
+    it('refuses a facet outside the enum, and names it', async () => {
+      const result = await readRecipes({ withEarn: 'bounty-boards' }, recipes)
+
+      expect(result.outcome).toBe('rejected')
+      if (result.outcome !== 'rejected') return
+      expect(result.error.code).toBe('validation_failed')
+      expect(result.error.message).toContain('bounty-boards')
+      expect(result.error.message).toContain('gig-marketplace')
+    })
+
+    /**
+     * The same filters on the tool's read, because `#984` was filed about a
+     * filter living on one surface and not the other.
+     */
+    it('narrows the Atlas read the tool serves, on both axes at once', async () => {
+      await earning()
+
+      const result = await readAtlas(
+        { category: 'mailbox', withEarn: ['affiliate-referral'] },
+        recipes,
+        true,
+      )
+
+      expect(result.outcome).toBe('ok')
+      if (result.outcome !== 'ok') return
+      expect(result.response.entries.map((entry) => entry.provider)).toEqual(['dual.example'])
+    })
+
+    it('refuses a facet outside the enum on the tool read too', async () => {
+      const result = await readAtlas({ withEarn: ['bounty-boards'] }, recipes, true)
+
+      expect(result.outcome).toBe('rejected')
+      if (result.outcome !== 'rejected') return
+      expect(result.error.message).toContain('bounty-boards')
+    })
+
+    /**
+     * The acceptance criterion said out loud: one entry, both taxonomies, in the
+     * text an agent actually reads.
+     */
+    it('shows a dual-use provider as both a mailbox and a way to earn', async () => {
+      await earning()
+
+      const result = await readAtlas({ provider: 'dual.example' }, recipes, true)
+      expect(result.outcome).toBe('ok')
+      if (result.outcome !== 'ok') return
+
+      const entry = result.response.entries[0]
+      expect(entry?.facets).toEqual([
+        { axis: 'utility', slug: 'mailbox' },
+        { axis: 'earn', slug: 'affiliate-referral' },
+      ])
+
+      const text = atlasEntryAsText(entry as never, true)
+      expect(text).toContain('affiliate-referral')
+      expect(text).toContain('mailbox')
+    })
+
+    /** Nearly every entry claims nothing, and a line saying so would be noise. */
+    it('says nothing about earning on an entry that claims nothing', async () => {
+      await earning()
+
+      const result = await readAtlas({ provider: 'plain.example' }, recipes, true)
+      expect(result.outcome).toBe('ok')
+      if (result.outcome !== 'ok') return
+
+      expect(atlasEntryAsText(result.response.entries[0] as never, true)).not.toContain(
+        'How this provider pays',
+      )
     })
   })
 })
@@ -341,6 +500,8 @@ describe('what the recipe says to the agent walking it', () => {
         provider: 'github.com' as never,
         title: 'A GitHub account',
         about: null,
+        /** Null beside `about` (`#1296`): the column is `string | null`, not optional. */
+        homepage: null,
         description: null,
         runtimes: [],
         paid: false,
@@ -351,6 +512,8 @@ describe('what the recipe says to the agent walking it', () => {
         status: 'joinable',
         category: 'code-hosting' as const,
         categories: ['code-hosting'],
+        /** The shelf as a utility facet, and no earn claim (`#1301`). */
+        facets: [{ axis: 'utility' as const, slug: 'code-hosting' }],
         operatorNeed: 'operator-needed' as const,
         operatorNeedIsGuess: false,
         refusal: null,
@@ -398,6 +561,8 @@ describe('what the recipe says to the agent walking it', () => {
         provider: 'phone.example' as never,
         title: 'Somewhere needing a number',
         about: null,
+        /** Null beside `about` (`#1296`): the column is `string | null`, not optional. */
+        homepage: null,
         description: null,
         runtimes: [],
         paid: false,
@@ -408,6 +573,8 @@ describe('what the recipe says to the agent walking it', () => {
         status: 'joinable',
         category: 'code-hosting' as const,
         categories: ['code-hosting'],
+        /** The shelf as a utility facet, and no earn claim (`#1301`). */
+        facets: [{ axis: 'utility' as const, slug: 'code-hosting' }],
         operatorNeed: 'operator-needed' as const,
         operatorNeedIsGuess: false,
         refusal: null,
@@ -461,6 +628,8 @@ describe('what the recipe says to the agent walking it', () => {
         provider: 'reddit.com' as never,
         title: 'A Reddit account',
         about: null,
+        /** Null beside `about` (`#1296`): the column is `string | null`, not optional. */
+        homepage: null,
         description: null,
         runtimes: [],
         paid: false,
@@ -471,6 +640,8 @@ describe('what the recipe says to the agent walking it', () => {
         status: 'joinable',
         category: 'social-publishing' as const,
         categories: ['social-publishing'],
+        /** The shelf as a utility facet, and no earn claim (`#1301`). */
+        facets: [{ axis: 'utility' as const, slug: 'social-publishing' }],
         operatorNeed: 'unaided' as const,
         operatorNeedIsGuess: false,
         refusal: null,
@@ -507,6 +678,8 @@ describe('what the recipe says to the agent walking it', () => {
         provider: 'trello.com' as never,
         title: 'A Trello account',
         about: null,
+        /** Null beside `about` (`#1296`): the column is `string | null`, not optional. */
+        homepage: null,
         description: null,
         runtimes: [],
         paid: false,
@@ -517,6 +690,8 @@ describe('what the recipe says to the agent walking it', () => {
         status: 'joinable',
         category: 'project-tracking' as const,
         categories: ['project-tracking'],
+        /** The shelf as a utility facet, and no earn claim (`#1301`). */
+        facets: [{ axis: 'utility' as const, slug: 'project-tracking' }],
         operatorNeed: 'unaided' as const,
         operatorNeedIsGuess: false,
         refusal: null,
@@ -556,6 +731,8 @@ describe('what the recipe says to the agent walking it', () => {
       provider: 'github.com' as never,
       title: 'A GitHub account',
       about: null,
+      /** Null beside `about` (`#1296`): the column is `string | null`, not optional. */
+      homepage: null,
       description: null,
       runtimes: [],
       paid: false,
@@ -566,6 +743,8 @@ describe('what the recipe says to the agent walking it', () => {
       status: 'joinable' as const,
       category: 'code-hosting' as const,
       categories: ['code-hosting'],
+      /** The shelf as a utility facet, and no earn claim (`#1301`). */
+      facets: [{ axis: 'utility' as const, slug: 'code-hosting' }],
       operatorNeed: 'unaided' as const,
       operatorNeedIsGuess: false,
       refusal: null,
@@ -629,6 +808,8 @@ describe('what the recipe says to the agent walking it', () => {
       provider: 'github.com' as never,
       title: 'A GitHub account',
       about: null,
+      /** Null beside `about` (`#1296`): the column is `string | null`, not optional. */
+      homepage: null,
       description: null,
       runtimes: [],
       paid: false,
@@ -639,6 +820,8 @@ describe('what the recipe says to the agent walking it', () => {
       status: 'joinable' as const,
       category: 'code-hosting' as const,
       categories: ['code-hosting'],
+      /** The shelf as a utility facet, and no earn claim (`#1301`). */
+      facets: [{ axis: 'utility' as const, slug: 'code-hosting' }],
       operatorNeed: 'operator-needed' as const,
       operatorNeedIsGuess: false,
       refusal: null,
@@ -704,6 +887,8 @@ describe('what the recipe says to the agent walking it', () => {
         provider: 'bsky.app' as never,
         title: 'Bluesky',
         about: null,
+        /** Null beside `about` (`#1296`): the column is `string | null`, not optional. */
+        homepage: null,
         description: null,
         runtimes: [],
         paid: false,
@@ -714,6 +899,8 @@ describe('what the recipe says to the agent walking it', () => {
         status: 'refused',
         category: 'code-hosting' as const,
         categories: ['code-hosting'],
+        /** The shelf as a utility facet, and no earn claim (`#1301`). */
+        facets: [{ axis: 'utility' as const, slug: 'code-hosting' }],
         operatorNeed: 'unknown' as const,
         operatorNeedIsGuess: false,
         refusal: 'It requires a phone number no citizen has (measured 2026-08-08).',
@@ -759,6 +946,8 @@ describe('what the recipe says to the agent walking it', () => {
       provider: 'trello.com' as never,
       title: 'A Trello account',
       about: null,
+      /** Null beside `about` (`#1296`): the column is `string | null`, not optional. */
+      homepage: null,
       description: null,
       runtimes: [],
       paid: false,
@@ -769,6 +958,8 @@ describe('what the recipe says to the agent walking it', () => {
       status: 'joinable' as const,
       category: 'project-tracking' as const,
       categories: ['project-tracking'],
+      /** The shelf as a utility facet, and no earn claim (`#1301`). */
+      facets: [{ axis: 'utility' as const, slug: 'project-tracking' }],
       operatorNeed: 'unaided' as const,
       operatorNeedIsGuess: false,
       refusal: null,
@@ -962,6 +1153,8 @@ describe('the handoff a recipe names', () => {
     provider: 'github.com' as never,
     title: 'A GitHub machine account',
     about: null,
+    /** Null beside `about` (`#1296`): the column is `string | null`, not optional. */
+    homepage: null,
     description: null,
     runtimes: [],
     paid: false,
@@ -972,6 +1165,8 @@ describe('the handoff a recipe names', () => {
     status: 'joinable' as const,
     category: 'code-hosting' as const,
     categories: ['code-hosting'],
+    /** The shelf as a utility facet, and no earn claim (`#1301`). */
+    facets: [{ axis: 'utility' as const, slug: 'code-hosting' }],
     operatorNeed: 'operator-needed' as const,
     operatorNeedIsGuess: false,
     refusal: null,
@@ -1136,6 +1331,13 @@ describe('an ask whose missing values are already held (#594 wall 3)', () => {
     provider: 'github.com',
     title: 'GitHub',
     about: null,
+    /**
+     * **Null beside `about`** (`#1296`, and this fixture had not caught up).
+     * `homepage` is `string | null` rather than optional, so omitting it throws
+     * here — which is the same shape of break the measured-only synthesis hit in
+     * production on 2026-08-19.
+     */
+    homepage: null,
     description: null,
     runtimes: [],
     paid: false,
@@ -1146,6 +1348,8 @@ describe('an ask whose missing values are already held (#594 wall 3)', () => {
     direction: null,
     category: 'code-hosting' as const,
     categories: ['code-hosting'],
+    /** The shelf as a utility facet, and no earn claim (`#1301`). */
+    facets: [{ axis: 'utility' as const, slug: 'code-hosting' }],
     operatorNeed: 'operator-needed' as const,
     operatorNeedIsGuess: false,
     refusal: null,

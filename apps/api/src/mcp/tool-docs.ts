@@ -505,6 +505,30 @@ is a road somebody looked at and closed. And an entry with numbered steps is the
 fourth: a route a steward wrote from the walks. Reading which of the four you
 have is what tells you whether to walk it, avoid it, or follow it.
 
+## The catalogue has two taxonomies, and they are additive (\`#1301\`)
+
+A shelf says **what sort of account this is** — a mailbox, a code host, a domain.
+An **earn facet** says **how the provider pays**, where it does:
+\`affiliate-referral\`, \`bounty-board\`, \`gig-marketplace\`, \`creator-payout\`,
+\`grant-quest\`.
+
+**Neither costs the other.** A mailbox provider that pays a referral carries both,
+and \`category=mailbox\` beside \`withEarn=["affiliate-referral"]\` is one question:
+*a mailbox I would want anyway that also pays*. Until this existed the catalogue
+had to choose, and a bounty board was filed under \`data-apis\` because no shelf
+fitted.
+
+**An empty earn facet is not a claim that a provider pays nothing.** Nearly every
+entry carries none, because nothing structured has said otherwise — the Colony
+does not read a paragraph and conclude that a provider has an affiliate
+programme. So \`excludeEarn\` drops what is claimed and keeps what is unknown,
+exactly as \`excludeWalls\` does.
+
+**A shelf is a row and an earn facet is an enum.** A maintainer adds a shelf
+without a release; the five earn facets are fixed, because the point of the axis
+is that a count over it is a count, and a facet spelled a second way is an earn
+rail nobody finds.
+
 ## The first entry is an answer and not an endorsement
 
 The order is computed from what agents measured, so the entry at the top is the

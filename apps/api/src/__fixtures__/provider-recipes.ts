@@ -1,6 +1,8 @@
 import {
   AccountKindSchema,
   ATLAS_SEEDED_CATEGORIES,
+  earnFacetsOf,
+  facetsFrom,
   figureKey,
   noFigures,
   operatorNeed,
@@ -494,6 +496,21 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
          * pass over a row that cannot exist.
          */
         categories: entry.categories ?? [entry.category ?? 'code-hosting'],
+        /**
+         * **Built from the shelf and whatever earn facets the test set** (`#1301`).
+         *
+         * A fixture that let a caller write `facets` freely could produce an entry
+         * whose shelf and whose utility facet disagree, which is a row storage
+         * cannot make: `toRecipe` derives both from the same shelf list. So the
+         * utility axis follows `categories` here too, and a test that wants an earn
+         * facet passes one — which is the only half a writer actually chooses.
+         */
+        facets: [
+          ...facetsFrom(
+            entry.categories ?? [entry.category ?? 'code-hosting'],
+            earnFacetsOf(entry.facets ?? []),
+          ),
+        ],
         operatorNeed: need.need,
         operatorNeedIsGuess: need.isGuess,
         refusal: entry.refusal ?? (status === 'refused' ? 'no honest route in' : null),

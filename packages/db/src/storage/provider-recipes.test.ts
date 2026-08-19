@@ -18,6 +18,7 @@ import {
   recordMeasuredProvider,
   writeProviderRecipe,
   writeRecipeEarnFacets,
+  addRecipeEarnFacets,
 } from './provider-recipes.js'
 import { providerRecipeFacets } from '../schema/provider-recipe-facets.js'
 import { providerRecipes } from '../schema/provider-recipes.js'
@@ -1103,6 +1104,42 @@ describe('the earn facets on a catalogue entry', () => {
     await writeRecipeEarnFacets(db, kind('mailbox'), 'dual.example', [])
     const withdrawn = await providerRecipe(db, kind('mailbox'), 'dual.example')
     expect(earnFacetsOf(withdrawn?.facets ?? [])).toEqual([])
+  })
+
+  /**
+   * **The union beside the replacement** (`#1331`). A walk closing knows one
+   * fact about one row and must not be able to withdraw the other four: without
+   * this, a `bounty-board` walk against an entry a moderator had also marked
+   * `affiliate-referral` would drop the referral, silently, every time somebody
+   * walked it.
+   */
+  it('adds an earn facet without disturbing the ones already held', async () => {
+    await writeRecipeEarnFacets(db, kind('mailbox'), 'dual.example', ['affiliate-referral'])
+
+    expect(await addRecipeEarnFacets(db, kind('mailbox'), 'dual.example', ['bounty-board'])).toBe(
+      true,
+    )
+
+    const entry = await providerRecipe(db, kind('mailbox'), 'dual.example')
+    expect(earnFacetsOf(entry?.facets ?? [])).toEqual(['affiliate-referral', 'bounty-board'])
+  })
+
+  /** Idempotent, which is what makes it safe on a path that runs once per walk. */
+  it('writes nothing when the facet is already on the entry', async () => {
+    await writeRecipeEarnFacets(db, kind('mailbox'), 'dual.example', ['bounty-board'])
+
+    expect(await addRecipeEarnFacets(db, kind('mailbox'), 'dual.example', ['bounty-board'])).toBe(
+      false,
+    )
+
+    const entry = await providerRecipe(db, kind('mailbox'), 'dual.example')
+    expect(earnFacetsOf(entry?.facets ?? [])).toEqual(['bounty-board'])
+  })
+
+  it('adds nothing for a provider the catalogue has never heard of', async () => {
+    expect(await addRecipeEarnFacets(db, kind('mailbox'), 'nobody.example', ['bounty-board'])).toBe(
+      false,
+    )
   })
 
   it('reads the facets on a list as well as on one entry', async () => {

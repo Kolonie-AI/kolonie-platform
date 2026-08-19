@@ -407,6 +407,57 @@ export async function writeRecipeEarnFacets(
   return true
 }
 
+/**
+ * Add earn facets to an entry without disturbing the ones already on it
+ * (`#1331`).
+ *
+ * **The union, where {@link writeRecipeEarnFacets} is the replacement**, and the
+ * two are separate calls because the callers mean different things. A scout or a
+ * moderator saying *these are the facets* is a claim about the provider at a
+ * moment and replaces what stood there, which is `#1301`'s rule and is right. A
+ * walk closing says *this kind is a bounty board* about one row, knows nothing
+ * about the other four facets and must not be able to withdraw them — a
+ * `bounty-board` walk against an entry a moderator had also marked
+ * `affiliate-referral` would otherwise silently drop the referral every time
+ * somebody walked it.
+ *
+ * **Idempotent, which is what makes it safe on a path that runs per walk.**
+ * Adding a facet already held writes nothing, so the tenth walk at a provider
+ * costs one select and no insert.
+ */
+export async function addRecipeEarnFacets(
+  db: Handle,
+  kind: AccountKind,
+  provider: string,
+  facets: readonly EarnFacet[],
+): Promise<boolean> {
+  const wanted = [...new Set(facets.map((one) => EarnFacetSchema.parse(one)))]
+  if (wanted.length === 0) return false
+
+  const [row] = await db
+    .select({ id: providerRecipes.id })
+    .from(providerRecipes)
+    .where(
+      and(
+        eq(providerRecipes.kind, kind),
+        eq(providerRecipes.provider, AccountProviderSchema.parse(provider)),
+      ),
+    )
+    .limit(1)
+
+  if (row === undefined) return false
+
+  const held = new Set((await earnByRecipe(db, [row.id])).get(row.id) ?? [])
+  const missing = wanted.filter((slug) => !held.has(slug))
+  if (missing.length === 0) return false
+
+  await db
+    .insert(providerRecipeFacets)
+    .values(missing.map((slug) => ({ recipeId: row.id, axis: 'earn' as const, slug })))
+
+  return true
+}
+
 /** One entry, by the pair that identifies it. */
 export async function providerRecipe(
   db: Handle,

@@ -10,6 +10,7 @@ import {
 } from './atlas-figures.js'
 import { atlasCanonicalKind, atlasCategoryForKind } from './atlas-proposal.js'
 import { AtlasFacetSchema, earnFacetsOf, facetsFrom } from './atlas-facets.js'
+import { earnFacetsForKind } from './atlas-earn-kinds.js'
 import type { Log } from '../log/log.js'
 import {
   AtlasCategorySlugSchema,
@@ -1048,16 +1049,25 @@ export function measuredOnlyRecipes(
          */
         categories: [category],
         /**
-         * The shelf as a utility facet, and no earn facet at all (`#1301`).
+         * The shelf as a utility facet, and whatever the kind is by definition
+         * (`#1301`, `#1331`).
          *
-         * **The empty earn axis is the honest answer and not a gap.** This row
-         * exists because agents attempted a provider nobody has written up, so
-         * there is no structured claim about how it pays and nothing to read one
-         * off — and inferring one from the provider's name is exactly what
-         * `#1301` refuses. The facet arrives when a scout or a moderator says
-         * so.
+         * **The empty earn axis was the honest answer only while nothing
+         * structured had been said.** This row exists because agents attempted a
+         * provider nobody has written up, and that remains true of everything a
+         * page could infer from its name — which is what `#1301` refuses and
+         * this does not do. What the row does have is the `kind` those agents
+         * filed, and {@link earnFacetsForKind} restates it rather than reading
+         * it: a pair counted under `bounty-board` is a bounty board, on the same
+         * footing as the shelf one line up being read off the same field.
+         *
+         * Measured on 2026-08-19: every walked earn provider in the catalogue
+         * was one of these rows, so `withEarn` returned an empty list on a
+         * catalogue that had eight of them. A facet a moderator sets later
+         * replaces nothing here — this row is derived on every read and has no
+         * stored facets to disagree with.
          */
-        facets: facetsFrom([category], []),
+        facets: facetsFrom([category], earnFacetsForKind(kind)),
         /**
          * **Present only where it is true** (`#1096`), so that *nobody
          * classified this* and *somebody put it here* are not the same value

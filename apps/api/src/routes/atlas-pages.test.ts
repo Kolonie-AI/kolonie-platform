@@ -1063,6 +1063,47 @@ describe('the Atlas on the website host', () => {
       expect(body).toContain('11 were refused outright')
     })
 
+    const criteriaBoxOf = (body: string) =>
+      /<dl class="k-atlas-criteria">(.*?)<\/dl>/s.exec(body)?.[1] ?? ''
+
+    /**
+     * **An empty FAQ row is dropped once the briefing has something to say**
+     * (`#1326` decision 3).
+     *
+     * The rows are all true and the box is right to print them on a page that has
+     * nothing else — `#1105` decision 2 is emphatic that *not known* must never
+     * be read as *no*. What changed is what sits beside them: measured
+     * 2026-08-19 on `clawlancer.ai`, a strong *What citizens measured* section
+     * with seven consecutive rows under it saying nothing at all.
+     */
+    it('drops the criteria rows that answer nothing, once a briefing is on the page', async () => {
+      await refused((one) => {
+        one.recipes.measure(walkedFigures)
+        one.recipes.brief(briefing)
+      })()
+
+      const box = criteriaBoxOf((await get('/atlas/refused.example')).body)
+
+      expect(box).not.toContain('Not known.')
+      expect(box).not.toContain('Not reported by anybody who walked it.')
+    })
+
+    /**
+     * **And keeps every one of them where the box is all the page has**, which is
+     * what stops the suppression taking the last thing off a page. Same entry,
+     * same criteria, no briefing — so what is asserted is the briefing's presence
+     * deciding it and not a property of this provider.
+     */
+    it('keeps the unanswered rows on the same page with no briefing', async () => {
+      await refused((one) => {
+        one.recipes.measure(walkedFigures)
+      })()
+
+      const box = criteriaBoxOf((await get('/atlas/refused.example')).body)
+
+      expect(box).toContain('Not known.')
+    })
+
     /**
      * **The refusal first, then the figures** (`#1094`). `#1298` may hoist the
      * moderated write-up into a labelled lead above the FAQ — that lead is not a
@@ -1560,6 +1601,73 @@ describe('the Atlas on the website host', () => {
       /** The fallback slug is not a claim, so it is neither printed nor linked. */
       expect(facts).not.toContain('data-apis')
       expect(facts).not.toContain('/atlas/c/data-apis')
+    })
+
+    /**
+     * **The Colony's own pitch goes quiet on a measured page that already says
+     * something** (`#1326` decision 3).
+     *
+     * `#1163` argued the other way and its argument still holds where it was
+     * made — a reader who has just read that somebody got in is the reader most
+     * worth telling what an account is for. Both conditions have to be true here,
+     * so neither argument loses: a measured page with nothing on it keeps the
+     * block, because there walking it is the ask and the block names the call.
+     */
+    it('drops the Colony boilerplate from a measured page with a briefing', async () => {
+      await app.close()
+      app = build()
+      colony.recipes.measure({
+        ...noFigures('bounty-board', 'briefed.example'),
+        attempted: 2,
+        evidenced: true,
+        walked: {
+          citizens: 1,
+          gotThrough: 0,
+          band: null,
+          platforms: {},
+          walls: [],
+          homepage: 'https://briefed.example',
+          anySighted: true,
+          anyAbandoned: false,
+        },
+      })
+      colony.recipes.brief({
+        kind: AccountKindSchema.parse('bounty-board'),
+        provider: 'briefed.example',
+        claims: [
+          {
+            section: 'wall' as const,
+            text: 'The board pays out only after a task is accepted by its poster.',
+            walks: 2,
+            platforms: { claude: 2 },
+            lastSupportedAt: '2026-08-18T00:00:00.000Z',
+            sources: [],
+            current: true,
+          },
+        ],
+        model: 'a-model',
+        writtenAt: '2026-08-18T00:00:00.000Z',
+      })
+      await app.ready()
+
+      const body = (await get('/atlas/briefed.example')).body
+
+      expect(body).toContain('The board pays out only after a task is accepted')
+      expect(body).not.toContain('What an account here is for')
+    })
+
+    /** And a measured page with nothing on it keeps it, because there it is the ask. */
+    it('keeps the Colony block on a measured page with no briefing', async () => {
+      await app.close()
+      app = build()
+      colony.recipes.measure({
+        ...noFigures('bounty-board', 'bare.example'),
+        attempted: 2,
+        evidenced: true,
+      })
+      await app.ready()
+
+      expect((await get('/atlas/bare.example')).body).toContain('What an account here is for')
     })
 
     /**

@@ -39,6 +39,8 @@ import {
 } from '@kolonie-ai/core'
 import { escape } from '../console/html.js'
 import {
+  ATLAS_NOT_KNOWN,
+  ATLAS_NOT_REPORTED,
   atlasCriteria,
   atlasEntryQuestion,
   atlasShelfQuestion,
@@ -1464,8 +1466,39 @@ function operatorLine(
  * substitutes nothing, so that the `FAQPage` in the head cannot say anything the
  * box does not.
  */
-function criteriaBox(criteria: readonly AtlasCriterion[]): string {
-  const rows = criteria
+function criteriaBox(criteria: readonly AtlasCriterion[], briefed: boolean): string {
+  /**
+   * **A row whose only answer is *nobody said* is dropped once the briefing has
+   * something to say** (`#1326` decision 3).
+   *
+   * The rows are all true and the box is right to print them on a page that has
+   * nothing else: *not known* is a measurement of the Colony's own coverage, and
+   * `#1105` decision 2 is emphatic that it must never be read as *no*. What
+   * changed is what sits beside them. Measured 2026-08-19 on `clawlancer.ai`: a
+   * strong *What citizens measured* section, and under it seven consecutive rows
+   * saying nothing — so the box was answering *has anybody asked* at the moment
+   * the reader had just been told what citizens found.
+   *
+   * **Only where the briefing is non-empty, and only the empty rows.** A page
+   * with no briefing keeps every row, because there the box is the whole of what
+   * the page knows; and a row that answers is kept either way. So this can never
+   * take the last thing off a page, which is the failure mode a blanket
+   * suppression would have.
+   *
+   * **{@link faqPageFor} is unaffected and that is deliberate.** The `FAQPage` in
+   * the head is emitted from the same `criteria` list, unfiltered, so a crawler
+   * still receives every answered question — `#1105` decision 7 ties the JSON-LD
+   * to the criteria rather than to what the box chose to render, and a reader
+   * scrolling past an empty row and a search engine indexing one are different
+   * costs.
+   */
+  const shown = briefed
+    ? criteria.filter((one) => one.answer !== ATLAS_NOT_KNOWN && one.answer !== ATLAS_NOT_REPORTED)
+    : criteria
+
+  if (shown.length === 0) return ''
+
+  const rows = shown
     .map((one) => `<dt>${escape(one.question)}</dt><dd>${escape(one.answer)}</dd>`)
     .join('')
 
@@ -1547,8 +1580,23 @@ function citizenLine(entry: AtlasPublicEntry): string {
  * that is true on every page; the issue's complaint was that the only page
  * carrying either was `github.com`, which the low one alone could not fix.
  */
-function colonyBlockFor(entry: AtlasPublicEntry): string {
-  return atlasEntryVerdict(entry) === 'refused' ? '' : ATLAS_COLONY_BLOCK
+function colonyBlockFor(entry: AtlasPublicEntry, briefed: boolean): string {
+  if (atlasEntryVerdict(entry) === 'refused') return ''
+
+  /**
+   * **Silent on a measured page that already has a briefing** (`#1326`
+   * decision 3).
+   *
+   * `#1163` argued the other way and its argument still holds where it was made:
+   * a reader who has just read that somebody got in is the reader most worth
+   * telling what an account is for. What the freeze adds is the case `#1163` was
+   * not looking at — a `measured` entry with a living briefing, where the block
+   * is four sentences of the Colony's own pitch under a section that just told
+   * the reader something about the provider. **Both conditions, so neither
+   * argument loses**: a measured page with nothing on it keeps the block, since
+   * there walking it is the ask and the block names the call.
+   */
+  return entry.status === 'measured' && briefed ? '' : ATLAS_COLONY_BLOCK
 }
 
 /** One provider's page. */
@@ -1733,11 +1781,18 @@ export function atlasEntryPage(input: {
       statusSubline(entry),
       descriptionSection(entry),
       aboutSection(entry),
+      /**
+       * **The taxonomy line moved up here** (`#1328`, hierarchy step 4). It
+       * used to sit below the criteria box, so the two facts that say what this
+       * provider *is* — the kind, and how it pays — arrived after seven rows of
+       * conditions about a thing the reader had not been told the nature of.
+       */
+      taxonomyLine(entry),
       measuredLead.html,
       operateSection(entry, input.operateNotes),
-      criteriaBox(criteria),
+      criteriaBox(criteria, measuredLead.html !== ''),
       citizenLine(entry),
-      colonyBlockFor(entry),
+      colonyBlockFor(entry, measuredLead.html !== ''),
       /**
        * The two facts `#589` adds. A reader arrives asking *what sort of thing
        * is this* and *will I be needed*, and both used to be answerable only by
@@ -1748,7 +1803,6 @@ export function atlasEntryPage(input: {
        * shortest of the internal links that make a map out of a list, and it
        * was one-way.
        */
-      taxonomyLine(entry),
       /**
        * **Above the recipe rather than beside `runtimesSection` at the foot**
        * (`kolonie-website#110`). A reader arriving from *OpenClaw own phone

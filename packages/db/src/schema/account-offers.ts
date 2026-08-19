@@ -92,6 +92,18 @@ export const accountOffers = pgTable(
 
     /** Written from the parcel's own TTL, never from a second constant. */
     expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'string' }).notNull(),
+
+    /**
+     * Which multi-account offer this row belongs to (`#1217`), or null for a
+     * single-account gift.
+     *
+     * **Not a foreign key.** The set is the shared uuid across the rows, and
+     * there is no parent row to cascade from — accepting or withdrawing any one
+     * of them takes the rest in the same transaction, and an orphaned uuid would
+     * only mean a set of one. Indexed so accept/withdraw/decline can find the
+     * siblings without a scan.
+     */
+    setId: uuid('set_id'),
   },
   (table) => [
     /**
@@ -109,6 +121,9 @@ export const accountOffers = pgTable(
 
     /** What the expiry sweep walks. */
     index('account_offers_expiry_idx').on(table.expiresAt),
+
+    /** The siblings of a multi-account offer (`#1217`). */
+    index('account_offers_set_idx').on(table.setId),
 
     /** Decision 6, in the table as well as in the refusal. */
     check(

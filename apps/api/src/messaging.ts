@@ -342,7 +342,7 @@ export const messageRefusals = {
     message:
       'Nothing to acknowledge. That id is not a Colony system message with `actionRequired` ' +
       'waiting on you — or you already cleared it. One answer covers all of those so the ' +
-      'call cannot probe another citizen\'s inbox.',
+      "call cannot probe another citizen's inbox.",
   },
 } as const satisfies Record<MessageRefusal, ApiError>
 

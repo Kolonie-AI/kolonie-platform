@@ -1,8 +1,9 @@
 import { and, eq, inArray, lte, ne, sql } from 'drizzle-orm'
-import { randomBytes } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import {
   AccountKindSchema,
   OFFER_CONFIRMATION_TTL_SECONDS,
+  RELATED_ACCOUNTS_MAX,
   TRANSFER_TTL_DAYS,
   type AgentId,
   type ConfirmationVerdict,
@@ -101,6 +102,13 @@ export type SharedVaultKeyAccount = {
   readonly identifier: string
 }
 
+/** One account that travels with the primary (`#1217`). Nothing here is a secret. */
+export type OfferedRelatedAccount = {
+  readonly kind: string
+  readonly identifier: string
+  readonly provider: string | null
+}
+
 export type GiveAccountOutcome =
   | {
       readonly outcome: 'offered'
@@ -111,6 +119,8 @@ export type GiveAccountOutcome =
       readonly accountKind: string
       readonly accountIdentifier: string
       readonly accountProvider: string | null
+      /** Companions that move with this offer (`#1217`). Empty for a single gift. */
+      readonly related: readonly OfferedRelatedAccount[]
     }
   /** The deployment has no sealing key, so no credential can travel. */
   | { readonly outcome: 'unsealable' }
@@ -138,6 +148,11 @@ export type GiveAccountOutcome =
       readonly expiresAt: string
       readonly sharedWith: readonly SharedVaultKeyAccount[]
     }
+  /**
+   * A related id named the primary, named itself twice, or named more than
+   * {@link RELATED_ACCOUNTS_MAX} companions (`#1217`).
+   */
+  | { readonly outcome: 'related-invalid' }
 
 export type GiveAccountCommand = {
   readonly fromAgentId: AgentId
@@ -146,6 +161,14 @@ export type GiveAccountCommand = {
   readonly toHandle: string
   /** The token from a refused first call, when there is one. */
   readonly confirm?: string | undefined
+  /**
+   * Further accounts of the giver's that travel with this one (`#1217`).
+   *
+   * Accept moves every one of them or none. Distinct vaultKeys each get their
+   * own parcel; a vaultKey shared inside the set shares one parcel. Accounts
+   * outside the set that share a vaultKey still trip the confirm pause.
+   */
+  readonly relatedAccountIds?: readonly string[] | undefined
 }
 
 /**
@@ -190,7 +213,22 @@ export async function giveAccount(
 ): Promise<GiveAccountOutcome> {
   if (sealingKey === undefined) return { outcome: 'unsealable' }
 
-  const [account] = await db
+  /**
+   * Primary first, then the companions (`#1217`). Duplicates of the primary or of
+   * each other, and a list past the bound, are `related-invalid` rather than a
+   * silent drop — a giver that meant two accounts and named three by accident
+   * should hear about the third, not watch two of them move alone.
+   */
+  const relatedIds = command.relatedAccountIds ?? []
+  if (relatedIds.length > RELATED_ACCOUNTS_MAX) return { outcome: 'related-invalid' }
+  const seen = new Set<string>([command.accountId])
+  for (const id of relatedIds) {
+    if (seen.has(id)) return { outcome: 'related-invalid' }
+    seen.add(id)
+  }
+  const allIds = [command.accountId, ...relatedIds]
+
+  const loaded = await db
     .select({
       id: accounts.id,
       kind: accounts.kind,
@@ -199,22 +237,40 @@ export async function giveAccount(
       vaultKey: accounts.vaultKey,
     })
     .from(accounts)
-    .where(and(eq(accounts.id, command.accountId), eq(accounts.agentId, command.fromAgentId)))
-    .limit(1)
+    .where(and(inArray(accounts.id, allIds), eq(accounts.agentId, command.fromAgentId)))
 
-  if (account === undefined) return { outcome: 'unknown-account' }
+  if (loaded.length !== allIds.length) return { outcome: 'unknown-account' }
 
-  const vaultKey = account.vaultKey
-  if (vaultKey === null || vaultKey.trim() === '') return { outcome: 'no-vault-key' }
+  // Preserve the caller's order: primary first, then related as named.
+  const byId = new Map(loaded.map((row) => [row.id, row]))
+  const set = allIds.map((id) => {
+    const row = byId.get(id)
+    if (row === undefined) throw new Error('giveAccount: loaded id missing from map')
+    return row
+  })
+  const primary = set[0]!
+
+  for (const account of set) {
+    if (account.vaultKey === null || account.vaultKey.trim() === '') {
+      return { outcome: 'no-vault-key' }
+    }
+  }
 
   /**
    * Read before anything else is decided, so that a giver whose entry is missing
    * learns it here rather than after the handle has been resolved. The parcel is
    * sealed from a second read inside the transaction below — one place
-   * constructs a parcel, and it is `sealAccountTransfer`.
+   * constructs a parcel, and it is `sealAccountTransfer`. One read per distinct
+   * vaultKey: two accounts that share a credential open the same entry once.
    */
-  const held = await getVaultEntry(db, giverToken, command.fromAgentId, vaultKey)
-  if (held.outcome !== 'found') return { outcome: 'nothing-to-give' }
+  const vaultKeysChecked = new Set<string>()
+  for (const account of set) {
+    const vaultKey = account.vaultKey!
+    if (vaultKeysChecked.has(vaultKey)) continue
+    vaultKeysChecked.add(vaultKey)
+    const held = await getVaultEntry(db, giverToken, command.fromAgentId, vaultKey)
+    if (held.outcome !== 'found') return { outcome: 'nothing-to-give' }
+  }
 
   const handleKey = offerHandleKey(command.toHandle)
 
@@ -233,7 +289,7 @@ export async function giveAccount(
       expiresAt: accountOffers.expiresAt,
     })
     .from(accountOffers)
-    .where(and(eq(accountOffers.accountId, account.id), sql`${accountOffers.expiresAt} > now()`))
+    .where(and(inArray(accountOffers.accountId, allIds), sql`${accountOffers.expiresAt} > now()`))
     .limit(1)
 
   if (open !== undefined) {
@@ -245,19 +301,53 @@ export async function giveAccount(
     }
   }
 
-  if (await givingAwayTheOnlyReachAddress(db, command.fromAgentId, account)) {
-    return { outcome: 'reach-mailbox' }
+  for (const account of set) {
+    if (await givingAwayTheOnlyReachAddress(db, command.fromAgentId, account)) {
+      return { outcome: 'reach-mailbox' }
+    }
   }
 
-  const sharedWith = await accountsSharingVaultKey(db, command.fromAgentId, account.id, vaultKey)
+  /**
+   * Decision 8, scoped to the set (`#1217`): a vaultKey shared only with
+   * accounts that are travelling too is not a surprise — the giver named them.
+   * What still pauses the call is a vaultKey that also opens an account the
+   * giver is *keeping*.
+   */
+  const setIdSet = new Set(allIds)
+  const sharedOutside: SharedVaultKeyAccount[] = []
+  const vaultKeysForConfirm = new Set<string>()
+  for (const account of set) {
+    const vaultKey = account.vaultKey!
+    if (vaultKeysForConfirm.has(vaultKey)) continue
+    vaultKeysForConfirm.add(vaultKey)
+    const sharing = await db
+      .select({
+        id: accounts.id,
+        kind: accounts.kind,
+        identifier: accounts.identifier,
+      })
+      .from(accounts)
+      .where(
+        and(
+          eq(accounts.agentId, command.fromAgentId),
+          eq(accounts.vaultKey, vaultKey),
+          ne(accounts.id, account.id),
+        ),
+      )
+    for (const other of sharing) {
+      if (!setIdSet.has(other.id)) {
+        sharedOutside.push({ kind: other.kind, identifier: other.identifier })
+      }
+    }
+  }
 
-  if (sharedWith.length > 0) {
+  if (sharedOutside.length > 0) {
     const confirmed =
       command.confirm === undefined
         ? false
         : (await spendOfferConfirmation(db, {
             agentId: command.fromAgentId,
-            accountId: account.id,
+            accountId: primary.id,
             toHandleKey: handleKey,
             token: command.confirm,
           })) === 'confirmed'
@@ -272,10 +362,10 @@ export async function giveAccount(
        */
       const minted = await mintOfferConfirmation(db, {
         agentId: command.fromAgentId,
-        accountId: account.id,
+        accountId: primary.id,
         toHandleKey: handleKey,
       })
-      return { outcome: 'confirm', ...minted, sharedWith }
+      return { outcome: 'confirm', ...minted, sharedWith: sharedOutside }
     }
   }
 
@@ -292,63 +382,98 @@ export async function giveAccount(
 
   return await db.transaction(async (tx) => {
     /**
-     * Expired offers for this account go first, in the same transaction. That is
-     * what lets `account_offers_one_per_account` be a plain unique index: a
-     * partial one cannot be predicated on `now()`, so the row that survives here
-     * has to be one that is genuinely still open.
+     * Expired offers for every account in the set go first, in the same
+     * transaction. That is what lets `account_offers_one_per_account` be a
+     * plain unique index: a partial one cannot be predicated on `now()`, so the
+     * row that survives here has to be one that is genuinely still open.
      */
-    await sweepExpiredOffersFor(tx, account.id)
+    for (const account of set) {
+      await sweepExpiredOffersFor(tx, account.id)
+    }
 
-    let transferId: string | null = null
+    /**
+     * One parcel per distinct vaultKey (`#1217`). Two accounts that share a
+     * credential share the parcel; accepting opens it once and both rows land
+     * under the vaultKey the recipient chose for that credential.
+     */
+    const transferByVaultKey = new Map<string, { id: string; expiresAt: string }>()
     let expiresAt = new Date(Date.now() + TRANSFER_TTL_MS).toISOString()
 
     if (recipient !== undefined) {
-      const sealed = await sealAccountTransfer(
-        tx,
-        { fromAgentId: command.fromAgentId, toAgentId: recipient.id as AgentId, vaultKey },
-        giverToken,
-        sealingKey,
-      )
-      /**
-       * The vault was read at the top of this function, so the entry is there
-       * and it opens. A parcel that will not seal now is a fault rather than an
-       * answer, and rolling back is the only correct response to it: an offer
-       * pointing at nothing would be indistinguishable from decision 5's offer
-       * to nobody, and it would be handed to a citizen that cannot open it.
-       */
-      if (sealed.outcome !== 'sealed')
-        throw new Error(`the parcel would not seal: ${sealed.outcome}`)
-
-      transferId = sealed.id
-      // Decision 12: the offer takes the parcel's expiry rather than a second one.
-      expiresAt = sealed.expiresAt
+      for (const account of set) {
+        const vaultKey = account.vaultKey!
+        if (transferByVaultKey.has(vaultKey)) continue
+        const sealed = await sealAccountTransfer(
+          tx,
+          {
+            fromAgentId: command.fromAgentId,
+            toAgentId: recipient.id as AgentId,
+            vaultKey,
+          },
+          giverToken,
+          sealingKey,
+        )
+        /**
+         * The vault was read at the top of this function, so the entry is there
+         * and it opens. A parcel that will not seal now is a fault rather than an
+         * answer, and rolling back is the only correct response to it: an offer
+         * pointing at nothing would be indistinguishable from decision 5's offer
+         * to nobody, and it would be handed to a citizen that cannot open it.
+         */
+        if (sealed.outcome !== 'sealed') {
+          throw new Error(`the parcel would not seal: ${sealed.outcome}`)
+        }
+        transferByVaultKey.set(vaultKey, { id: sealed.id, expiresAt: sealed.expiresAt })
+        // Decision 12: the offer takes the parcel's expiry rather than a second one.
+        expiresAt = sealed.expiresAt
+      }
     }
 
-    const [offer] = await tx
-      .insert(accountOffers)
-      .values({
-        fromAgentId: command.fromAgentId,
-        accountId: account.id,
-        toHandle: command.toHandle,
-        toAgentId: recipient?.id ?? null,
-        transferId,
-        accountKind: account.kind,
-        accountIdentifier: account.identifier,
-        accountProvider: account.provider,
-        expiresAt,
-      })
-      .returning({ id: accountOffers.id, expiresAt: accountOffers.expiresAt })
+    /**
+     * A set of one keeps `setId` null, so the single-account shape is unchanged
+     * for every reader that never asked about companions. Two or more share one
+     * uuid minted here — there is no parent row; the uuid *is* the set.
+     */
+    const setId = set.length > 1 ? randomUUID() : null
 
-    if (offer === undefined) throw new Error('inserting an account offer returned no row')
+    const inserted: { id: string; expiresAt: string }[] = []
+    for (const account of set) {
+      const transferId =
+        recipient === undefined ? null : (transferByVaultKey.get(account.vaultKey!)?.id ?? null)
+      const [offer] = await tx
+        .insert(accountOffers)
+        .values({
+          fromAgentId: command.fromAgentId,
+          accountId: account.id,
+          toHandle: command.toHandle,
+          toAgentId: recipient?.id ?? null,
+          transferId,
+          accountKind: account.kind,
+          accountIdentifier: account.identifier,
+          accountProvider: account.provider,
+          expiresAt,
+          setId,
+        })
+        .returning({ id: accountOffers.id, expiresAt: accountOffers.expiresAt })
 
+      if (offer === undefined) throw new Error('inserting an account offer returned no row')
+      inserted.push(offer)
+    }
+
+    const primaryOffer = inserted[0]!
     return {
-      outcome: 'offered',
-      offerId: offer.id,
+      outcome: 'offered' as const,
+      offerId: primaryOffer.id,
       toHandle: command.toHandle,
-      expiresAt: offer.expiresAt,
-      accountKind: account.kind,
-      accountIdentifier: account.identifier,
-      accountProvider: account.provider,
+      expiresAt: primaryOffer.expiresAt,
+      accountKind: primary.kind,
+      accountIdentifier: primary.identifier,
+      accountProvider: primary.provider,
+      related: set.slice(1).map((account) => ({
+        kind: account.kind,
+        identifier: account.identifier,
+        provider: account.provider,
+      })),
     }
   })
 }
@@ -376,25 +501,6 @@ async function givingAwayTheOnlyReachAddress(
 
   const proved = await provedMailboxes(db, agentId)
   return proved.length < 2
-}
-
-/** Decision 8: which other accounts of the giver's name the same vault entry. */
-async function accountsSharingVaultKey(
-  db: Database,
-  agentId: AgentId,
-  accountId: string,
-  vaultKey: string,
-): Promise<readonly SharedVaultKeyAccount[]> {
-  return await db
-    .select({ kind: accounts.kind, identifier: accounts.identifier })
-    .from(accounts)
-    .where(
-      and(
-        eq(accounts.agentId, agentId),
-        eq(accounts.vaultKey, vaultKey),
-        ne(accounts.id, accountId),
-      ),
-    )
 }
 
 async function mintOfferConfirmation(
@@ -489,6 +595,7 @@ export async function withdrawAccountOffer(
       .select({
         id: accountOffers.id,
         transferId: accountOffers.transferId,
+        setId: accountOffers.setId,
         toHandle: accountOffers.toHandle,
         accountKind: accountOffers.accountKind,
         accountIdentifier: accountOffers.accountIdentifier,
@@ -506,15 +613,50 @@ export async function withdrawAccountOffer(
 
     if (row === undefined) return { outcome: 'unknown' }
 
-    await tx.delete(accountOffers).where(eq(accountOffers.id, row.id))
+    /**
+     * Withdrawing any member takes the whole set (`#1217`). The siblings share
+     * the giver's decision; leaving one open would be the split this exists to
+     * refuse.
+     */
+    const set =
+      row.setId === null
+        ? [row]
+        : await tx
+            .select({
+              id: accountOffers.id,
+              transferId: accountOffers.transferId,
+              setId: accountOffers.setId,
+              toHandle: accountOffers.toHandle,
+              accountKind: accountOffers.accountKind,
+              accountIdentifier: accountOffers.accountIdentifier,
+              accountProvider: accountOffers.accountProvider,
+            })
+            .from(accountOffers)
+            .where(
+              and(
+                eq(accountOffers.setId, row.setId),
+                eq(accountOffers.fromAgentId, command.fromAgentId),
+              ),
+            )
+            .for('update')
 
-    if (row.transferId !== null) {
-      await tx.delete(accountTransfers).where(eq(accountTransfers.id, row.transferId))
+    const offerIds = set.map((member) => member.id)
+    await tx.delete(accountOffers).where(inArray(accountOffers.id, offerIds))
+
+    const parcels = [
+      ...new Set(set.flatMap((member) => (member.transferId === null ? [] : [member.transferId]))),
+    ]
+    if (parcels.length > 0) {
+      await tx.delete(accountTransfers).where(inArray(accountTransfers.id, parcels))
     }
 
     await recordOfferOutcome(
       tx,
-      [{ ...row, fromAgentId: command.fromAgentId, offerId: row.id }],
+      set.map((member) => ({
+        ...member,
+        fromAgentId: command.fromAgentId,
+        offerId: member.id,
+      })),
       'withdrawn',
     )
 
@@ -531,6 +673,8 @@ export type OfferedAccount = {
   readonly accountIdentifier: string
   readonly accountProvider: string | null
   readonly expiresAt: string
+  /** Companions that travel with this offer (`#1217`). Empty for a single gift. */
+  readonly related: readonly OfferedRelatedAccount[]
 }
 
 /**
@@ -547,10 +691,14 @@ export async function offersTo(
    * How many to take, oldest first. The wake-up asks for one — the `open` list
    * holds five things and an offer is not more important than the board — and a
    * caller that wants them all leaves this out.
+   *
+   * **Counts sets, not rows** (`#1217`). A three-account offer is one thing to
+   * decide about, so it costs one of `take` and appears once with its companions
+   * under `related`.
    */
   take?: number,
 ): Promise<readonly OfferedAccount[]> {
-  const rows = db
+  const rows = await db
     .select({
       offerId: accountOffers.id,
       fromHandle: agents.name,
@@ -558,13 +706,65 @@ export async function offersTo(
       accountIdentifier: accountOffers.accountIdentifier,
       accountProvider: accountOffers.accountProvider,
       expiresAt: accountOffers.expiresAt,
+      setId: accountOffers.setId,
+      createdAt: accountOffers.createdAt,
     })
     .from(accountOffers)
     .innerJoin(agents, eq(agents.id, accountOffers.fromAgentId))
     .where(and(eq(accountOffers.toAgentId, toAgentId), sql`${accountOffers.expiresAt} > now()`))
     .orderBy(accountOffers.createdAt)
 
-  return await (take === undefined ? rows : rows.limit(take))
+  /**
+   * Collapse siblings onto the oldest row of each set. A set's rows share one
+   * `createdAt` only by coincidence of the insert loop; ordering by `createdAt`
+   * then by primary-first insert order keeps the primary as the listed row.
+   */
+  const listed: OfferedAccount[] = []
+  const seenSets = new Set<string>()
+  for (const row of rows) {
+    if (row.setId !== null) {
+      if (seenSets.has(row.setId)) continue
+      seenSets.add(row.setId)
+      const siblings = rows.filter(
+        (other) => other.setId === row.setId && other.offerId !== row.offerId,
+      )
+      listed.push({
+        offerId: row.offerId,
+        fromHandle: row.fromHandle,
+        accountKind: row.accountKind,
+        accountIdentifier: row.accountIdentifier,
+        accountProvider: row.accountProvider,
+        expiresAt: row.expiresAt,
+        related: siblings.map((sibling) => ({
+          kind: sibling.accountKind,
+          identifier: sibling.accountIdentifier,
+          provider: sibling.accountProvider,
+        })),
+      })
+    } else {
+      listed.push({
+        offerId: row.offerId,
+        fromHandle: row.fromHandle,
+        accountKind: row.accountKind,
+        accountIdentifier: row.accountIdentifier,
+        accountProvider: row.accountProvider,
+        expiresAt: row.expiresAt,
+        related: [],
+      })
+    }
+    if (take !== undefined && listed.length >= take) break
+  }
+
+  return listed
+}
+
+/** One account that arrived with an accepted offer (`#1217`). */
+export type AcceptedRelatedAccount = {
+  readonly accountId: string
+  readonly kind: string
+  readonly identifier: string
+  readonly provider: string | null
+  readonly vaultKey: string
 }
 
 export type AcceptAccountOfferOutcome =
@@ -577,6 +777,8 @@ export type AcceptAccountOfferOutcome =
       readonly accountProvider: string | null
       readonly vaultKey: string
       readonly fromHandle: string
+      /** Companions that moved with it (`#1217`). Empty for a single gift. */
+      readonly related: readonly AcceptedRelatedAccount[]
     }
   /**
    * No such offer, not addressed to this citizen, expired, or the giver has
@@ -589,6 +791,17 @@ export type AcceptAccountOfferOutcome =
   | { readonly outcome: 'key-taken' }
   /** The recipient already holds an account of that kind under that identifier. */
   | { readonly outcome: 'already-held' }
+  /**
+   * Accept named vault keys that do not cover every distinct parcel in the set
+   * (`#1217`). The offer is untouched; nothing moved.
+   */
+  | {
+      readonly outcome: 'keys-incomplete'
+      /** How many distinct credentials the set carries. */
+      readonly needed: number
+      /** How many vault keys the recipient named. */
+      readonly named: number
+    }
 
 /**
  * Take the account. **One transaction, five writes** (decision 5).
@@ -626,8 +839,18 @@ export async function acceptAccountOffer(
   command: {
     readonly offerId: string
     readonly toAgentId: AgentId
-    /** The name the **recipient** chooses for it, in its own vault. */
+    /**
+     * Where the **primary** credential lands in the recipient's vault. Companions
+     * that share that credential land under the same name (`#1217`).
+     */
     readonly vaultKey: string
+    /**
+     * Where each companion's credential lands, in the same order `offersTo`
+     * lists `related` (`#1217`). Required when a companion carries a different
+     * vaultKey from the primary; companions that share the primary's credential
+     * may repeat `vaultKey` or be omitted only when every companion shares it.
+     */
+    readonly relatedVaultKeys?: readonly string[] | undefined
   },
   /** The recipient's presented API key. Seals its new vault entry and nothing else. */
   recipientToken: string,
@@ -645,6 +868,11 @@ export async function acceptAccountOffer(
         toHandle: accountOffers.toHandle,
         accountId: accountOffers.accountId,
         transferId: accountOffers.transferId,
+        setId: accountOffers.setId,
+        accountKind: accountOffers.accountKind,
+        accountIdentifier: accountOffers.accountIdentifier,
+        accountProvider: accountOffers.accountProvider,
+        createdAt: accountOffers.createdAt,
       })
       .from(accountOffers)
       .innerJoin(agents, eq(agents.id, accountOffers.fromAgentId))
@@ -663,173 +891,252 @@ export async function acceptAccountOffer(
     if (row.transferId === null) return { outcome: 'unknown' }
 
     /**
-     * Read from the account rather than from the offer's copies. The copies are
-     * what the recipient was *shown*; this row is what is actually moving, and
+     * The whole set, oldest first so the primary stays primary (`#1217`). Locked
+     * together: accepting one sibling without the others is exactly the split
+     * this exists to refuse.
+     */
+    const setRows =
+      row.setId === null
+        ? [row]
+        : await tx
+            .select({
+              id: accountOffers.id,
+              fromAgentId: accountOffers.fromAgentId,
+              fromHandle: agents.name,
+              toHandle: accountOffers.toHandle,
+              accountId: accountOffers.accountId,
+              transferId: accountOffers.transferId,
+              setId: accountOffers.setId,
+              accountKind: accountOffers.accountKind,
+              accountIdentifier: accountOffers.accountIdentifier,
+              accountProvider: accountOffers.accountProvider,
+              createdAt: accountOffers.createdAt,
+            })
+            .from(accountOffers)
+            .innerJoin(agents, eq(agents.id, accountOffers.fromAgentId))
+            .where(
+              and(
+                eq(accountOffers.setId, row.setId),
+                eq(accountOffers.toAgentId, command.toAgentId),
+                sql`${accountOffers.expiresAt} > now()`,
+              ),
+            )
+            .for('update', { of: accountOffers })
+            .orderBy(accountOffers.createdAt)
+
+    // The named offer must still be in the locked set — a race that withdrew a
+    // sibling between the two selects would leave a partial set, which we refuse.
+    if (!setRows.some((member) => member.id === row.id)) return { outcome: 'unknown' }
+    if (setRows.some((member) => member.transferId === null)) return { outcome: 'unknown' }
+
+    /**
+     * Read from the accounts rather than from the offer's copies. The copies are
+     * what the recipient was *shown*; these rows are what is actually moving, and
      * `kolonie.accounts.set` can have changed the provider in between.
      */
-    const [account] = await tx
+    const accountIds = setRows.map((member) => member.accountId)
+    const accountRows = await tx
       .select({
+        id: accounts.id,
         kind: accounts.kind,
         identifier: accounts.identifier,
         provider: accounts.provider,
-        /** Not copied anywhere. Read so the giver's own entry can be marked. */
         vaultKey: accounts.vaultKey,
       })
       .from(accounts)
-      .where(eq(accounts.id, row.accountId))
+      .where(inArray(accounts.id, accountIds))
       .for('update')
-      .limit(1)
 
-    if (account === undefined) return { outcome: 'unknown' }
+    if (accountRows.length !== setRows.length) return { outcome: 'unknown' }
+    const accountById = new Map(accountRows.map((account) => [account.id, account]))
+
+    // Primary first (the named offer), then the rest in createdAt order with the
+    // primary filtered out — matches what `offersTo` puts under `related`.
+    const ordered = [
+      setRows.find((member) => member.id === row.id)!,
+      ...setRows.filter((member) => member.id !== row.id),
+    ]
+    const relatedMembers = ordered.slice(1)
 
     /**
-     * Before the parcel is opened, so a refusal costs it nothing — the same rule
-     * `key-taken` follows, and for the same reason: both are names the recipient
-     * can change, and neither may destroy what the recipient already holds.
+     * One recipient vault name per distinct source credential (`#1217`).
+     * Companions that share the primary's credential reuse `vaultKey`; each
+     * further credential needs its own name, parallel to `related`.
      */
-    const [held] = await tx
-      .select({ id: accounts.id })
-      .from(accounts)
-      .where(
-        and(
-          eq(accounts.agentId, command.toAgentId),
-          eq(accounts.kind, account.kind),
-          sql`lower(${accounts.identifier}) = lower(${account.identifier})`,
-        ),
-      )
-      .limit(1)
+    const primaryAccount = accountById.get(row.accountId)
+    if (primaryAccount === undefined || primaryAccount.vaultKey === null) {
+      return { outcome: 'unknown' }
+    }
+    const recipientKeyBySource = new Map<string, string>()
+    recipientKeyBySource.set(primaryAccount.vaultKey, command.vaultKey)
 
-    if (held !== undefined) return { outcome: 'already-held' }
-
-    const opened = await openAccountTransferIn(
-      tx,
-      {
-        transferId: row.transferId,
-        toAgentId: command.toAgentId,
-        vaultKey: command.vaultKey,
-        accountKind: account.kind,
-        accountIdentifier: account.identifier,
-      },
-      recipientToken,
-      sealingKey,
+    const distinctSourceKeys = new Set(
+      accountRows
+        .map((account) => account.vaultKey)
+        .filter((key): key is string => key !== null && key.trim() !== ''),
     )
-
-    // Both of these return before the parcel has been touched, so there is
-    // nothing to roll back and the offer is still open when the recipient retries.
-    if (opened.outcome === 'key-taken') return { outcome: 'key-taken' }
-    if (opened.outcome !== 'settled') return { outcome: 'unknown' }
+    const relatedKeys = command.relatedVaultKeys ?? []
+    let relatedKeyIndex = 0
+    for (const member of relatedMembers) {
+      const account = accountById.get(member.accountId)
+      if (account === undefined || account.vaultKey === null) return { outcome: 'unknown' }
+      if (recipientKeyBySource.has(account.vaultKey)) continue
+      const named = relatedKeys[relatedKeyIndex]
+      relatedKeyIndex += 1
+      if (named === undefined || named.trim() === '') {
+        return {
+          outcome: 'keys-incomplete',
+          needed: distinctSourceKeys.size,
+          named: 1 + relatedKeys.filter((key) => key.trim() !== '').length,
+        }
+      }
+      recipientKeyBySource.set(account.vaultKey, named)
+    }
 
     /**
-     * Every other column is left at the default `declareAccount` leaves it at,
-     * so that what arrives is the row a citizen would have written for itself.
-     * `forWork` is the one deliberate departure: it defaults true, and decision 7
-     * says a choice is not transferable.
+     * Before any parcel is opened, so a refusal costs them nothing — the same
+     * rule `key-taken` follows, and for the same reason: both are names the
+     * recipient can change, and neither may destroy what the recipient already
+     * holds. Checked across the whole set so a partial move cannot start.
      */
-    const [arrived] = await tx
-      .insert(accounts)
-      .values({
-        agentId: command.toAgentId,
+    for (const member of ordered) {
+      const account = accountById.get(member.accountId)!
+      const [held] = await tx
+        .select({ id: accounts.id })
+        .from(accounts)
+        .where(
+          and(
+            eq(accounts.agentId, command.toAgentId),
+            eq(accounts.kind, account.kind),
+            sql`lower(${accounts.identifier}) = lower(${account.identifier})`,
+          ),
+        )
+        .limit(1)
+      if (held !== undefined) return { outcome: 'already-held' }
+    }
+
+    /**
+     * Open each distinct parcel once. After the first settles, every refusal
+     * must throw so the caller's transaction rolls the opened parcel back —
+     * `openAccountTransferIn` documents that contract and we honour it.
+     */
+    const openedParcels = new Set<string>()
+    let openedAny = false
+    for (const member of ordered) {
+      const account = accountById.get(member.accountId)!
+      const transferId = member.transferId!
+      if (openedParcels.has(transferId)) continue
+      openedParcels.add(transferId)
+      const destKey = recipientKeyBySource.get(account.vaultKey!)
+      if (destKey === undefined) {
+        throw new Error('acceptAccountOffer: source vaultKey has no recipient name')
+      }
+      const opened = await openAccountTransferIn(
+        tx,
+        {
+          transferId,
+          toAgentId: command.toAgentId,
+          vaultKey: destKey,
+          accountKind: account.kind,
+          accountIdentifier: account.identifier,
+        },
+        recipientToken,
+        sealingKey,
+      )
+      if (opened.outcome === 'key-taken') {
+        if (openedAny) throw new Error('acceptAccountOffer: key-taken after a parcel settled')
+        return { outcome: 'key-taken' }
+      }
+      if (opened.outcome !== 'settled') {
+        if (openedAny)
+          throw new Error(`acceptAccountOffer: ${opened.outcome} after a parcel settled`)
+        return { outcome: 'unknown' }
+      }
+      openedAny = true
+    }
+
+    const arrivedByOfferId = new Map<string, AcceptedRelatedAccount>()
+    for (const member of ordered) {
+      const account = accountById.get(member.accountId)!
+      const destKey = recipientKeyBySource.get(account.vaultKey!)!
+      const [arrived] = await tx
+        .insert(accounts)
+        .values({
+          agentId: command.toAgentId,
+          kind: account.kind,
+          identifier: account.identifier,
+          provider: account.provider,
+          vaultKey: destKey,
+          forWork: false,
+        })
+        .returning({ id: accounts.id })
+      if (arrived === undefined) throw new Error('inserting the accepted account returned no row')
+      arrivedByOfferId.set(member.id, {
+        accountId: arrived.id,
         kind: account.kind,
         identifier: account.identifier,
         provider: account.provider,
-        vaultKey: command.vaultKey,
-        forWork: false,
+        vaultKey: destKey,
       })
-      .returning({ id: accounts.id })
-
-    if (arrived === undefined) throw new Error('inserting the accepted account returned no row')
+    }
 
     /**
-     * Deleting the account takes the offer with it, and the thread, and anything
-     * else hanging off it — every one of them by `cascade` in the schema rather
-     * than by a list here that would fall behind the next table to reference it.
+     * Delete every giver row in the set. Cascades take the offer rows with them.
+     * Spent-marking runs after, against what is left — a vaultKey still named by
+     * an account outside the set stays live for the giver.
      */
-    await tx.delete(accounts).where(eq(accounts.id, row.accountId))
+    await tx.delete(accounts).where(inArray(accounts.id, accountIds))
 
-    /**
-     * Decision 12, as `#1214` corrects it: the giver's entry keeps its bytes and
-     * stops answering with them.
-     *
-     * **After the delete, and asked of what is left.** The credential cannot be
-     * split, so a name that still opens another account of the giver's is a name
-     * the giver still needs — decision 8 paused at the offer and told it exactly
-     * that, and marking the entry here would take a live credential away from
-     * accounts nobody gave anybody. Only a name with nothing of the giver's left
-     * behind it is spent.
-     *
-     * The mark moves a flag and reads no ciphertext, so the giver's key is not
-     * needed and is not here to be used.
-     */
-    if (account.vaultKey !== null && account.vaultKey.trim() !== '') {
+    const spentKeys = new Set<string>()
+    for (const account of accountRows) {
+      if (account.vaultKey === null || account.vaultKey.trim() === '') continue
+      if (spentKeys.has(account.vaultKey)) continue
+      spentKeys.add(account.vaultKey)
       const [stillMine] = await tx
         .select({ id: accounts.id })
         .from(accounts)
         .where(and(eq(accounts.agentId, row.fromAgentId), eq(accounts.vaultKey, account.vaultKey)))
         .limit(1)
-
       if (stillMine === undefined) {
         await markVaultEntrySpent(tx, row.fromAgentId as AgentId, account.vaultKey)
       }
     }
 
-    /**
-     * The giver's receipt (`#1215`), written from the account rather than from
-     * the offer's copies for the reason the read above gives: the copies are
-     * what the recipient was shown, and this row is what actually moved.
-     *
-     * After the cascade that took the offer with the account. There is no
-     * foreign key to the offer, deliberately — by the time an offer has an
-     * outcome there is no offer.
-     */
     await recordOfferOutcome(
       tx,
-      [
-        {
-          fromAgentId: row.fromAgentId,
-          offerId: row.id,
-          toHandle: row.toHandle,
+      ordered.map((member) => {
+        const account = accountById.get(member.accountId)!
+        return {
+          fromAgentId: member.fromAgentId,
+          offerId: member.id,
+          toHandle: member.toHandle,
           accountKind: account.kind,
           accountIdentifier: account.identifier,
           accountProvider: account.provider,
-        },
-      ],
+        }
+      }),
       'accepted',
     )
 
-    /**
-     * **The giver's walk had a subject and no longer has one** (`#1216`). A walk
-     * is keyed by kind and provider, and the account it was walking towards has
-     * just left the giver's register two statements up. Left open it would read
-     * `walking` for as long as the citizen exists, and every surface that asks
-     * *what next* would answer `kolonie.accounts.declare` — advice to re-declare
-     * an account that is now somebody else's.
-     *
-     * **Only the giver's, and only an open one.** The recipient gets no walk:
-     * they did not walk this provider, and a row saying they did would be the
-     * Atlas's word for something that never happened. A giver who had already
-     * filed their report has no open walk here and nothing happens, which is the
-     * common case — most accounts are given away long after they were got.
-     *
-     * The close writes no prose and is marked as the Colony's own, which is what
-     * keeps it out of the provider's figures entirely (`#1167`) and out of the
-     * report the giver would otherwise be asked for before their next attempt
-     * here.
-     */
-    if (account.provider !== null && account.provider.trim() !== '') {
-      await closeWalkOnTransfer(tx, row.fromAgentId as AgentId, {
-        kind: AccountKindSchema.parse(account.kind),
-        provider: account.provider,
-      })
+    for (const account of accountRows) {
+      if (account.provider !== null && account.provider.trim() !== '') {
+        await closeWalkOnTransfer(tx, row.fromAgentId as AgentId, {
+          kind: AccountKindSchema.parse(account.kind),
+          provider: account.provider,
+        })
+      }
     }
 
+    const primaryArrived = arrivedByOfferId.get(row.id)!
     return {
       outcome: 'accepted',
-      accountId: arrived.id,
-      accountKind: account.kind,
-      accountIdentifier: account.identifier,
-      accountProvider: account.provider,
-      vaultKey: command.vaultKey,
+      accountId: primaryArrived.accountId,
+      accountKind: primaryArrived.kind,
+      accountIdentifier: primaryArrived.identifier,
+      accountProvider: primaryArrived.provider,
+      vaultKey: primaryArrived.vaultKey,
       fromHandle: row.fromHandle,
+      related: relatedMembers.map((member) => arrivedByOfferId.get(member.id)!),
     }
   })
 }
@@ -858,6 +1165,7 @@ export async function declineAccountOffer(
       .select({
         id: accountOffers.id,
         transferId: accountOffers.transferId,
+        setId: accountOffers.setId,
         fromAgentId: accountOffers.fromAgentId,
         toHandle: accountOffers.toHandle,
         accountKind: accountOffers.accountKind,
@@ -873,13 +1181,48 @@ export async function declineAccountOffer(
 
     if (row === undefined) return { outcome: 'unknown' }
 
-    await tx.delete(accountOffers).where(eq(accountOffers.id, row.id))
+    /**
+     * Declining any member takes the whole set (`#1217`). The offer was one
+     * decision for the recipient; leaving a sibling open would ask them again.
+     */
+    const set =
+      row.setId === null
+        ? [row]
+        : await tx
+            .select({
+              id: accountOffers.id,
+              transferId: accountOffers.transferId,
+              setId: accountOffers.setId,
+              fromAgentId: accountOffers.fromAgentId,
+              toHandle: accountOffers.toHandle,
+              accountKind: accountOffers.accountKind,
+              accountIdentifier: accountOffers.accountIdentifier,
+              accountProvider: accountOffers.accountProvider,
+            })
+            .from(accountOffers)
+            .where(
+              and(
+                eq(accountOffers.setId, row.setId),
+                eq(accountOffers.toAgentId, command.toAgentId),
+              ),
+            )
+            .for('update')
 
-    if (row.transferId !== null) {
-      await tx.delete(accountTransfers).where(eq(accountTransfers.id, row.transferId))
+    const offerIds = set.map((member) => member.id)
+    await tx.delete(accountOffers).where(inArray(accountOffers.id, offerIds))
+
+    const parcels = [
+      ...new Set(set.flatMap((member) => (member.transferId === null ? [] : [member.transferId]))),
+    ]
+    if (parcels.length > 0) {
+      await tx.delete(accountTransfers).where(inArray(accountTransfers.id, parcels))
     }
 
-    await recordOfferOutcome(tx, [{ ...row, offerId: row.id }], 'declined')
+    await recordOfferOutcome(
+      tx,
+      set.map((member) => ({ ...member, offerId: member.id })),
+      'declined',
+    )
 
     return { outcome: 'declined' }
   })

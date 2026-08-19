@@ -1521,6 +1521,55 @@ describe('the Atlas on the website host', () => {
       expect(body).toContain('Attempted; stopped before an account.')
       expect(body).not.toContain('signup not attempted')
     })
+
+    /**
+     * **A bounty board does not lead with Data and APIs** (`#1329`).
+     *
+     * `#1096` shelves an unshelvable kind by default rather than dropping it, and
+     * that is right — but no renderer read `categoryIsFallback`, so the header of
+     * `execution.market` and `clawlancer.ai` led with the one clause on the line
+     * that classified nothing, above two that did. The kind and the earn facet
+     * `#1331` reads off it are what a reader can act on.
+     */
+    it('leads a fallback-shelved provider with its kind and how it pays', async () => {
+      await app.close()
+      app = build()
+      colony.recipes.measure({
+        ...noFigures('bounty-board', 'boards.example'),
+        attempted: 3,
+        evidenced: true,
+        walked: {
+          citizens: 2,
+          gotThrough: 0,
+          band: null,
+          platforms: {},
+          walls: [],
+          homepage: 'https://boards.example',
+          anySighted: true,
+          anyAbandoned: false,
+        },
+      })
+      await app.ready()
+
+      const facts = /<p class="k-atlas-facts">(.*?)<\/p>/s.exec(
+        (await get('/atlas/boards.example')).body,
+      )?.[1]
+
+      expect(facts).toBeDefined()
+      expect(facts).toContain('pays for finished tasks')
+      /** The fallback slug is not a claim, so it is neither printed nor linked. */
+      expect(facts).not.toContain('data-apis')
+      expect(facts).not.toContain('/atlas/c/data-apis')
+    })
+
+    /** A shelf somebody chose still leads, and still links to itself. */
+    it('keeps the shelf on a provider that was genuinely classified', async () => {
+      const facts = /<p class="k-atlas-facts">(.*?)<\/p>/s.exec(
+        (await get('/atlas/walked.example')).body,
+      )?.[1]
+
+      expect(facts).toContain('/atlas/c/code-hosting')
+    })
   })
 
   /**

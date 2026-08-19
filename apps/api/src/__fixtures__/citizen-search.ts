@@ -1,4 +1,10 @@
-import { CITIZEN_SEARCH_LIMIT, type CitizenSearchQuery, type Skill } from '@kolonie-ai/core'
+import {
+  CITIZEN_SEARCH_LIMIT,
+  PLAYBOOK_CONTRIBUTION_FORMS,
+  type CitizenSearchQuery,
+  type PlaybookContributionForm,
+  type Skill,
+} from '@kolonie-ai/core'
 import type { CitizenSearch } from '../citizen-search.js'
 
 export interface FakeCitizenSearch extends CitizenSearch {
@@ -15,6 +21,14 @@ export interface FakeCitizenSearch extends CitizenSearch {
     discoverable: boolean
     skills?: readonly string[]
     capabilities?: readonly string[]
+    /**
+     * The playbooks this citizen contributed to, and how (`#1258`).
+     *
+     * Keyed by slug, valued by the forms — which is the shape the answer carries.
+     * How the three forms are gathered out of three tables is `packages/db`'s
+     * decision and is tested there.
+     */
+    playbooks?: Readonly<Record<string, readonly PlaybookContributionForm[]>>
   }) => void
   /** Flip the switch on a citizen already here, which is what makes *off is immediate* testable. */
   readonly setDiscoverable: (handle: string, discoverable: boolean) => void
@@ -27,6 +41,7 @@ interface Row {
   discoverable: boolean
   skills: readonly string[]
   capabilities: readonly string[]
+  playbooks: Readonly<Record<string, readonly PlaybookContributionForm[]>>
 }
 
 /**
@@ -42,14 +57,22 @@ export function fakeCitizenSearch(): FakeCitizenSearch {
   const rows = new Map<string, Row>()
   const asked: CitizenSearchQuery[] = []
 
+  /** The forms this citizen contributed to the asked-for playbook in, if any. */
+  const contributedTo = (row: Row, slug: string): readonly PlaybookContributionForm[] =>
+    row.playbooks[slug] ?? []
+
   const matches = (row: Row, query: CitizenSearchQuery): boolean =>
-    query.skill === undefined
-      ? row.capabilities.some((tag) => tag.toLowerCase() === (query.capability ?? '').toLowerCase())
-      : row.skills.includes(query.skill)
+    query.skill !== undefined
+      ? row.skills.includes(query.skill)
+      : query.playbook !== undefined
+        ? contributedTo(row, query.playbook).length > 0
+        : row.capabilities.some(
+            (tag) => tag.toLowerCase() === (query.capability ?? '').toLowerCase(),
+          )
 
   return {
-    citizen({ handle, discoverable, skills = [], capabilities = [] }) {
-      rows.set(handle, { handle, discoverable, skills, capabilities })
+    citizen({ handle, discoverable, skills = [], capabilities = [], playbooks = {} }) {
+      rows.set(handle, { handle, discoverable, skills, capabilities, playbooks })
     },
     setDiscoverable(handle, discoverable) {
       const row = rows.get(handle)
@@ -62,25 +85,40 @@ export function fakeCitizenSearch(): FakeCitizenSearch {
       const found = [...rows.values()]
         .filter((row) => row.discoverable && matches(row, query))
         .sort((left, right) => left.handle.toLowerCase().localeCompare(right.handle.toLowerCase()))
-        .map((row) =>
-          query.skill === undefined
-            ? {
-                handle: row.handle,
-                matched: {
-                  on: 'capability' as const,
-                  capability: {
-                    declared:
-                      row.capabilities.find(
-                        (tag) => tag.toLowerCase() === (query.capability ?? '').toLowerCase(),
-                      ) ?? '',
-                  },
-                },
-              }
-            : {
-                handle: row.handle,
-                matched: { on: 'skill' as const, skill: query.skill as Skill },
+        .map((row) => {
+          if (query.skill !== undefined) {
+            return {
+              handle: row.handle,
+              matched: { on: 'skill' as const, skill: query.skill as Skill },
+            }
+          }
+          if (query.playbook !== undefined) {
+            const slug = query.playbook
+            return {
+              handle: row.handle,
+              matched: {
+                on: 'playbook' as const,
+                playbook: slug,
+                // Always in the declared order, exactly as the storage answers.
+                as: PLAYBOOK_CONTRIBUTION_FORMS.filter((form) =>
+                  contributedTo(row, slug).includes(form),
+                ),
               },
-        )
+            }
+          }
+          return {
+            handle: row.handle,
+            matched: {
+              on: 'capability' as const,
+              capability: {
+                declared:
+                  row.capabilities.find(
+                    (tag) => tag.toLowerCase() === (query.capability ?? '').toLowerCase(),
+                  ) ?? '',
+              },
+            },
+          }
+        })
 
       return {
         found: found.slice(0, CITIZEN_SEARCH_LIMIT),

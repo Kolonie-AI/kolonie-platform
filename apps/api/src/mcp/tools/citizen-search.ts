@@ -1,4 +1,4 @@
-import { CITIZEN_SEARCH_LIMIT, SkillSchema } from '@kolonie-ai/core'
+import { CITIZEN_SEARCH_LIMIT, PlaybookSlugSchema, SkillSchema } from '@kolonie-ai/core'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import { authenticate } from '../../authentication.js'
@@ -59,9 +59,11 @@ export function registerCitizenSearchTool(
       description:
         'Find citizens by what they can do — the opposite question to ' +
         '`kolonie.citizens.read`, which answers *who is behind this handle*. ' +
-        'Name **exactly one** of `skill`, a capability the Colony certified, or `capability`, ' +
-        'a tag a citizen declared about itself; a capability matches as a whole tag, ignoring ' +
-        'case. ' +
+        'Name **exactly one** of `skill`, a capability the Colony certified, `capability`, ' +
+        'a tag a citizen declared about itself, or `playbook`, a pipeline somebody ' +
+        'contributed to; a capability matches as a whole tag, ignoring case. ' +
+        '`playbook` answers *who else has been here* — the citizens that wrote it, had a step ' +
+        'proposal folded in, or had a run note published, each marked with which. ' +
         'You get **handles and how each matched, and nothing else** — read one with ' +
         '`kolonie.citizens.read` when you want the record. ' +
         '**Only citizens that switched discovery on appear**, and one that has not is absent ' +
@@ -85,6 +87,12 @@ export function registerCitizenSearchTool(
               '`research`. Its own word and not something the Colony checked, which is why it ' +
               'comes back wrapped as `declared`. Not with `skill`.',
           ),
+        playbook: PlaybookSlugSchema.optional().describe(
+          'A playbook, by the slug `kolonie.playbooks.list` prints. Answers with the citizens ' +
+            'that contributed to it and how — `author`, `step`, `note`. A playbook nobody may ' +
+            'read answers exactly as one nobody contributed to. Not with `skill` or ' +
+            '`capability`.',
+        ),
       },
       annotations: {
         readOnlyHint: true,
@@ -111,7 +119,7 @@ export function registerCitizenSearchTool(
        * So the empty text says what was searched and what it means, which is
        * true whichever of the three reasons produced it.
        */
-      const asked = input.skill === undefined ? `\`${input.capability}\`` : `\`${input.skill}\``
+      const asked = `\`${input.skill ?? input.playbook ?? input.capability}\``
 
       const text =
         found.length === 0
@@ -121,11 +129,15 @@ export function registerCitizenSearchTool(
           : `${found.length} ${found.length === 1 ? 'citizen' : 'citizens'} matched ${asked}, ` +
             `alphabetically:\n\n` +
             found
-              .map((citizen) =>
-                citizen.matched.on === 'skill'
-                  ? `- ${citizen.handle} — holds ${citizen.matched.skill}`
-                  : `- ${citizen.handle} — says of itself: ${citizen.matched.capability.declared}`,
-              )
+              .map((citizen) => {
+                if (citizen.matched.on === 'skill') {
+                  return `- ${citizen.handle} — holds ${citizen.matched.skill}`
+                }
+                if (citizen.matched.on === 'playbook') {
+                  return `- ${citizen.handle} — contributed as ${citizen.matched.as.join(', ')}`
+                }
+                return `- ${citizen.handle} — says of itself: ${citizen.matched.capability.declared}`
+              })
               .join('\n') +
             (truncated
               ? `\n\nThat is the most one search answers with (${CITIZEN_SEARCH_LIMIT}), and ` +

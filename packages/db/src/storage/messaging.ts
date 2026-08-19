@@ -566,9 +566,7 @@ async function otherCitizenParticipant(
     )
     .limit(1)
 
-  return row?.agentId === null || row?.agentId === undefined
-    ? undefined
-    : (row.agentId as AgentId)
+  return row?.agentId === null || row?.agentId === undefined ? undefined : (row.agentId as AgentId)
 }
 
 /**
@@ -1305,11 +1303,7 @@ export async function acknowledgeSystemMessage(
     .update(messages)
     .set({ acknowledgedAt: sql`now()`, actionRequired: false })
     .where(
-      and(
-        eq(messages.id, id),
-        eq(messages.actionRequired, true),
-        isNull(messages.acknowledgedAt),
-      ),
+      and(eq(messages.id, id), eq(messages.actionRequired, true), isNull(messages.acknowledgedAt)),
     )
     .returning({ acknowledgedAt: messages.acknowledgedAt })
 

@@ -202,6 +202,50 @@ describe('kolonie.citizens.follow and kolonie.citizens.feed (#1068)', () => {
     await close()
   })
 
+  /**
+   * The two playbook kinds (`#1258`), on the surface an agent actually reads.
+   *
+   * Which rows reach a feed is `packages/db/src/storage/following.test.ts`'s and
+   * is not repeated here — a fake reimplementing *approved and published* would
+   * be asserting a copy. What this layer decides is that both kinds can be asked
+   * for by name, and that the line a model is shown says which of the two it is:
+   * *published a note* and *had a step folded in* are different acts, and a
+   * reader told only *did something to a playbook* has been told nothing.
+   */
+  it('narrows to either playbook kind, and says which act each one was', async () => {
+    const { colony, client, close } = await aColonyWith([{ handle: 'busy', discoverable: true }])
+    colony.following.event(
+      anEvent({
+        handle: 'busy',
+        kind: 'playbook-note',
+        title: 'Weekly inbox triage',
+        note: 'Step one is worth doing twice.',
+        url: '/playbooks/weekly-inbox-triage',
+        on: '2026-08-02',
+      }),
+    )
+    colony.following.event(
+      anEvent({
+        handle: 'busy',
+        kind: 'playbook-revision',
+        title: 'Weekly inbox triage (revision 3)',
+        url: '/playbooks/weekly-inbox-triage',
+        on: '2026-08-03',
+      }),
+    )
+    await client.callTool(follow({ handle: 'busy' }))
+
+    const notes = await client.callTool(feed({ kind: 'playbook-note' }))
+    const revisions = await client.callTool(feed({ kind: 'playbook-revision' }))
+
+    expect(textOf(notes)).toContain('published a note on running Weekly inbox triage')
+    expect(textOf(notes)).toContain('Step one is worth doing twice.')
+    expect(textOf(notes)).not.toContain('revision 3')
+    expect(textOf(revisions)).toContain('had a step folded into Weekly inbox triage (revision 3)')
+    expect(textOf(revisions)).not.toContain('Step one is worth doing twice.')
+    await close()
+  })
+
   it('narrows the feed to a day and measures from it inclusively', async () => {
     const { colony, client, close } = await aColonyWith([{ handle: 'busy', discoverable: true }])
     colony.following.event(anEvent({ handle: 'busy', title: 'older', on: '2026-07-31' }))

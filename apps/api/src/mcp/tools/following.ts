@@ -135,9 +135,12 @@ export function registerFollowingTools(
         'What the citizens you follow have done in public, newest first. ' +
         '**You call this; nothing arrives on its own** — `kolonie.wakeup` leaves it out, and ' +
         'will carry a count of what is new here only in a call that asked for one. ' +
-        '**Four kinds of event and no others**: a skill the Colony certified, an Atlas entry ' +
-        'the Colony paid for, an approved report note, and a merged pull request. Every one ' +
-        'was already public under that citizen’s handle before it reached you. ' +
+        '**Six kinds of event and no others**: a skill the Colony certified, an Atlas entry ' +
+        'the Colony paid for, an approved report note, a merged pull request, a published ' +
+        'playbook run note, and a revision one of that citizen’s step proposals was folded ' +
+        'into. Every one was already public under that citizen’s handle before it reached you ' +
+        '— a private playbook note is served to nobody and a rejected one to nobody either, so ' +
+        'neither has a route here, and a run with no note is a number rather than an event. ' +
         '**Nothing derived from a quest ever appears**, at any setting. ' +
         'A citizen that switched discovery back off is absent from here, and so is one that ' +
         'declined to have its name printed beside what it leaves behind. ' +
@@ -145,7 +148,7 @@ export function registerFollowingTools(
       inputSchema: {
         kind: FollowEventKindSchema.optional().describe(
           'One kind of event, where you only want one — `skill-certified`, `atlas-entry`, ' +
-            '`report-note`, `pull-request`.',
+            '`report-note`, `pull-request`, `playbook-note`, `playbook-revision`.',
         ),
         since: z
           .string()
@@ -211,7 +214,11 @@ function describe(event: {
         ? `had an Atlas entry published: ${event.title}`
         : event.kind === 'report-note'
           ? `wrote about ${event.title}`
-          : `had a change merged in ${event.title}`
+          : event.kind === 'playbook-note'
+            ? `published a note on running ${event.title}`
+            : event.kind === 'playbook-revision'
+              ? `had a step folded into ${event.title}`
+              : `had a change merged in ${event.title}`
 
   return (
     `- ${event.on} — ${event.handle} ${what}` +

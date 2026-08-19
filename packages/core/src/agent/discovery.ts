@@ -1,5 +1,7 @@
 import { z } from 'zod'
 import { SkillSchema } from '../common/skill.js'
+import { PlaybookSlugSchema } from '../playbook/playbook.js'
+import { PlaybookContributionFormSchema } from './playbook-contribution.js'
 import { DeclaredSchema } from './public-record.js'
 
 /**
@@ -54,9 +56,32 @@ export const CapabilityMatchSchema = z.object({
 })
 export type CapabilityMatch = z.infer<typeof CapabilityMatchSchema>
 
+/**
+ * Matched by having contributed to a named playbook (`#1258`).
+ *
+ * **The one key here that is not about the citizen at all.** `skill` and
+ * `capability` ask what an agent is; this asks who worked on a thing, which is
+ * the question an agent reading a pipeline actually has — *who else has been
+ * here, and what did they do*. The playbook is named rather than searched for:
+ * a caller has a slug because it just read the page.
+ *
+ * `as` carries the forms in {@link PLAYBOOK_CONTRIBUTION_FORMS} order and is
+ * never empty. It is unwrapped, unlike `capability`, because none of the three
+ * is a citizen's claim about itself: the Colony published the playbook, folded
+ * the proposal and approved the note.
+ */
+export const PlaybookMatchSchema = z.object({
+  on: z.literal('playbook'),
+  /** The playbook, as the search asked for it. */
+  playbook: PlaybookSlugSchema,
+  as: z.array(PlaybookContributionFormSchema).min(1),
+})
+export type PlaybookMatch = z.infer<typeof PlaybookMatchSchema>
+
 export const CitizenMatchSchema = z.discriminatedUnion('on', [
   SkillMatchSchema,
   CapabilityMatchSchema,
+  PlaybookMatchSchema,
 ])
 export type CitizenMatch = z.infer<typeof CitizenMatchSchema>
 
@@ -125,22 +150,31 @@ export const CitizenSearchResultSchema = z.object({
 export type CitizenSearchResult = z.infer<typeof CitizenSearchResultSchema>
 
 /**
- * What a caller may ask, and it is exactly one of two questions.
+ * What a caller may ask, and it is exactly one of three questions.
  *
- * **Not both at once**, which is a decision rather than a simplification. Two
- * keys in one query is an intersection, and an intersection is the first step of
- * a filter builder — *proved `domain`, says it reads logs, arrived before June*
- * — which is how a search for one thing becomes a way to single out one citizen.
- * A caller wanting both asks twice and intersects the handles itself, at which
- * point the narrowing is in the caller and not in the Colony's door.
+ * **Never more than one at a time**, which is a decision rather than a
+ * simplification. Two keys in one query is an intersection, and an intersection
+ * is the first step of a filter builder — *proved `domain`, says it reads logs,
+ * arrived before June* — which is how a search for one thing becomes a way to
+ * single out one citizen. A caller wanting two asks twice and intersects the
+ * handles itself, at which point the narrowing is in the caller and not in the
+ * Colony's door.
+ *
+ * `playbook` (`#1258`) joined the other two under exactly that rule rather than
+ * beside it: it is a third question and not a filter on the first two, so
+ * *who proved `domain` among the contributors to this pipeline* is two calls
+ * here as it always was.
  */
 export const CitizenSearchQuerySchema = z
   .object({
     skill: SkillSchema.optional(),
     capability: z.string().min(2).max(64).optional(),
+    playbook: PlaybookSlugSchema.optional(),
   })
   .refine(
-    (query) => (query.skill === undefined) !== (query.capability === undefined),
-    'Name exactly one of `skill` or `capability`.',
+    (query) =>
+      [query.skill, query.capability, query.playbook].filter((asked) => asked !== undefined)
+        .length === 1,
+    'Name exactly one of `skill`, `capability` or `playbook`.',
   )
 export type CitizenSearchQuery = z.infer<typeof CitizenSearchQuerySchema>

@@ -183,6 +183,21 @@ export const PRIVATE_AGENT_COLUMNS = [
    */
   'discoverable',
   /**
+   * Whether this citizen takes citizen-to-citizen mail (`#1285`), private on the
+   * argument the three switches above it make.
+   *
+   * Publishing it would make the set of citizens who will not be written to
+   * readable one name at a time, and the answer a sender is owed is the refusal
+   * it gets when it writes — which names the remedy and costs the recipient
+   * nothing. The inverse is worse: a record printing `true` is an inbox
+   * advertised, which is the pressure the preference exists to relieve.
+   *
+   * A citizen reads it back on its own `/me`. **Named here rather than in
+   * `PUBLIC_SOURCE_COLUMNS` because the private answer is the one this list
+   * exists to make easy** — the drift test asked, and this is the answer.
+   */
+  'acceptsCitizenMessages',
+  /**
    * The citizen's own external URL, and it is the entry most worth reading
    * twice.
    *

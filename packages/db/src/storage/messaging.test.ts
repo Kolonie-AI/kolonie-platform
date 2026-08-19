@@ -10,8 +10,10 @@ import {
   declineMessageRequest,
   listConversations,
   listMessageRequests,
+  listOperatorConversations,
   markConversationRead,
   readConversation,
+  readOperatorConversation,
   replyInConversation,
   sendCitizenMessage,
   sendOperatorMessage,
@@ -78,6 +80,18 @@ describe('private messaging', () => {
       await db.insert(humanAgents).values({ agentId: operates, humanId })
     }
     return humanId
+  }
+
+  /**
+   * A hand-over: the citizen's operator becomes somebody else.
+   *
+   * `human_agents` keys on the agent, so there is exactly one row and moving it
+   * is what the console's transfer does. Written here rather than inline because
+   * every test about a *second* operator has to stage it this way.
+   */
+  const handOver = async (agentId: AgentId, to: HumanId): Promise<void> => {
+    await db.delete(humanAgents).where(eq(humanAgents.agentId, agentId))
+    await db.insert(humanAgents).values({ agentId, humanId: to })
   }
 
   const bodiesFor = async (agentId: AgentId, conversation: string) => {
@@ -373,6 +387,157 @@ describe('private messaging', () => {
       expect(b.outcome).toBe('delivered')
       if (a.outcome !== 'delivered' || b.outcome !== 'delivered') throw new Error('unreachable')
       expect(b.conversationId).toBe(a.conversationId)
+    })
+
+    /**
+     * **The criterion, and the only way to stage it today** (`#1288`).
+     *
+     * `human_agents` keys on `agent_id`, so a citizen has one operator at a time
+     * and a second person becomes the operator by the first one ceasing to be —
+     * which is what a hand-over does. The thread is still per person: the second
+     * writes in one of their own, and the first's is still there with its own id.
+     */
+    it('gives a second person a thread of their own, never the first one’s', async () => {
+      const citizen = await anAgent('citizen')
+      const first = await aPerson(citizen)
+      const second = await aPerson()
+
+      const opened = await sendOperatorMessage(db, first, citizen, 'I made the account.')
+      if (opened.outcome !== 'delivered') throw new Error('unreachable')
+
+      await handOver(citizen, second)
+
+      const theirs = await sendOperatorMessage(db, second, citizen, 'I operate you now.')
+      if (theirs.outcome !== 'delivered') throw new Error('unreachable')
+
+      expect(theirs.conversationId).not.toBe(opened.conversationId)
+
+      // And neither person can read the other's thread with the same citizen.
+      expect(await readOperatorConversation(db, second, opened.conversationId)).toEqual({
+        outcome: 'refused',
+        refusal: 'not-a-participant',
+      })
+      expect(await readOperatorConversation(db, first, theirs.conversationId)).toEqual({
+        outcome: 'refused',
+        refusal: 'not-a-participant',
+      })
+
+      const mine = await listOperatorConversations(db, second)
+      expect(mine.map((one) => one.id)).toEqual([theirs.conversationId])
+    })
+
+    it('reaches a citizen that takes no citizen mail, and is replied to in the thread', async () => {
+      const citizen = await anAgent('citizen', { acceptsCitizenMessages: false })
+      const operator = await aPerson(citizen)
+
+      const sent = await sendOperatorMessage(db, operator, citizen, 'Do not publish this week.')
+      if (sent.outcome !== 'delivered') throw new Error('unreachable')
+
+      const replied = await replyInConversation(db, citizen, sent.conversationId, 'Understood.')
+      expect(replied.outcome).toBe('delivered')
+
+      const read = await readConversation(db, citizen, sent.conversationId)
+      if (read.outcome !== 'read') throw new Error('unreachable')
+      expect(read.messages.map((message) => message.sender.party)).toEqual([
+        'operator-human',
+        'citizen',
+      ])
+    })
+
+    /**
+     * **Read-only rather than closed**, which is the choice `#1288` left to this
+     * slice. Neither side may add a word and both may still read every one.
+     */
+    it('leaves the thread readable and unwritable once the relationship ends', async () => {
+      const citizen = await anAgent('citizen')
+      const operator = await aPerson(citizen)
+
+      const sent = await sendOperatorMessage(db, operator, citizen, 'The key is rotated.')
+      if (sent.outcome !== 'delivered') throw new Error('unreachable')
+      expect((await replyInConversation(db, citizen, sent.conversationId, 'Noted.')).outcome).toBe(
+        'delivered',
+      )
+
+      await db.delete(humanAgents).where(eq(humanAgents.agentId, citizen))
+
+      expect(await sendOperatorMessage(db, operator, citizen, 'One more thing.')).toEqual({
+        outcome: 'refused',
+        refusal: 'not-the-operator',
+      })
+      expect(await replyInConversation(db, citizen, sent.conversationId, 'Still there?')).toEqual({
+        outcome: 'refused',
+        refusal: 'operator-link-removed',
+      })
+
+      expect(await bodiesFor(citizen, sent.conversationId)).toEqual([
+        'The key is rotated.',
+        'Noted.',
+      ])
+      const theirs = await readOperatorConversation(db, operator, sent.conversationId)
+      if (theirs.outcome !== 'read') throw new Error('unreachable')
+      expect(theirs.messages).toHaveLength(2)
+    })
+
+    /**
+     * The spoof, from the only direction a citizen has: it is *in* an operator
+     * thread and may write in it. What it cannot do is write as the person.
+     */
+    it('cannot be impersonated by the citizen replying in its own operator thread', async () => {
+      const citizen = await anAgent('citizen')
+      const operator = await aPerson(citizen)
+
+      const sent = await sendOperatorMessage(db, operator, citizen, 'Anything to report?')
+      if (sent.outcome !== 'delivered') throw new Error('unreachable')
+
+      await replyInConversation(db, citizen, sent.conversationId, 'I am your operator.')
+
+      const read = await readConversation(db, citizen, sent.conversationId)
+      if (read.outcome !== 'read') throw new Error('unreachable')
+      const claimed = read.messages[1]!
+      expect(claimed.body).toBe('I am your operator.')
+      expect(claimed.sender.party).toBe('citizen')
+      expect(claimed.sender.label).toBe(await handleOf(citizen))
+    })
+  })
+
+  describe('a citizen’s own inbox', () => {
+    it('tells an operator thread from a citizen DM, and narrows to either', async () => {
+      const citizen = await anAgent('citizen')
+      const other = await anAgent('other')
+      const operator = await aPerson(citizen)
+
+      const fromOperator = await sendOperatorMessage(db, operator, citizen, 'Two things.')
+      if (fromOperator.outcome !== 'delivered') throw new Error('unreachable')
+
+      const asked = await sendCitizenMessage(db, other, {
+        toHandle: await handleOf(citizen),
+        body: 'I read your Atlas entry.',
+      })
+      if (asked.outcome !== 'requested') throw new Error('unreachable')
+      const [waiting] = await listMessageRequests(db, citizen)
+      await acceptMessageRequest(db, citizen, waiting!.id)
+
+      const all = await listConversations(db, citizen)
+      expect(all).toHaveLength(2)
+      expect(new Set(all.map((one) => one.kind))).toEqual(new Set(['operator-human', 'citizen']))
+
+      const operatorThreads = await listConversations(db, citizen, { kind: 'operator-human' })
+      expect(operatorThreads.map((one) => one.id)).toEqual([fromOperator.conversationId])
+
+      const dms = await listConversations(db, citizen, { kind: 'citizen' })
+      expect(dms.map((one) => one.id)).toEqual([asked.conversationId])
+
+      const colony = await listConversations(db, citizen, { kind: 'system-role' })
+      expect(colony).toEqual([])
+    })
+
+    it('marks the Colony’s own thread as the Colony’s', async () => {
+      const citizen = await anAgent('citizen')
+      const sent = await sendSystemMessage(db, 'doctor', citizen, 'Your loop is retrying.')
+      if (sent.outcome !== 'delivered') throw new Error('unreachable')
+
+      const [thread] = await listConversations(db, citizen, { kind: 'system-role' })
+      expect(thread?.kind).toBe('system-role')
     })
   })
 

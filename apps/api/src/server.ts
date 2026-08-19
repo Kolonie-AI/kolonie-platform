@@ -105,10 +105,13 @@ import {
   listConnections,
   listConversations,
   listMessageRequests,
+  listOperatorConversations,
   markConversationRead,
   readConversation,
+  readOperatorConversation,
   removeConnection,
   replyInConversation,
+  sendOperatorMessage,
   requestConnection,
   acceptMessageRequest,
   declineMessageRequest,
@@ -857,7 +860,7 @@ const app = buildApp({
    * sentences here; `messageRefusals` is exhaustive over `MessageRefusal`.
    */
   messaging: {
-    listThreads: (agentId) => listConversations(db, agentId),
+    listThreads: (agentId, options) => listConversations(db, agentId, options),
     getThread: async (agentId, conversationId) => {
       const result = await readConversation(db, agentId, conversationId)
       return result.outcome === 'read'
@@ -919,6 +922,43 @@ const app = buildApp({
       return result.outcome === 'marked'
         ? { outcome: 'marked', response: { marked: true } }
         : { outcome: 'refused', error: messageRefusals[result.refusal] }
+    },
+  },
+  /**
+   * The operator's own direction (`#1288`). The same store, reached by
+   * `human_id` rather than `agent_id` — see `messaging.ts` for why it is a
+   * second port and not two more methods on the citizen's.
+   */
+  operatorMessaging: {
+    listThreads: (humanId, agentId) => listOperatorConversations(db, humanId, agentId),
+    getThread: async (humanId, conversationId) => {
+      const result = await readOperatorConversation(db, humanId, conversationId)
+      return result.outcome === 'read'
+        ? { outcome: 'read', response: { messages: result.messages } }
+        : { outcome: 'refused', error: messageRefusals[result.refusal] }
+    },
+    send: async (humanId, agentId, body) => {
+      const result = await sendOperatorMessage(db, humanId, agentId, body)
+      if (result.outcome === 'delivered') {
+        return {
+          outcome: 'delivered',
+          response: { conversationId: result.conversationId, messageId: result.messageId },
+        }
+      }
+      /**
+       * `requested` is unreachable on this path and is not collapsed into
+       * `delivered` for it: the operator send opens the conversation with both
+       * parties in it, so there is no gate to be waiting on. The branch is here
+       * because the shared `SendResponse` carries it, and a cast would be a
+       * promise about storage this file cannot keep.
+       */
+      if (result.outcome === 'requested') {
+        return {
+          outcome: 'requested',
+          response: { conversationId: result.conversationId, requestId: result.requestId },
+        }
+      }
+      return { outcome: 'refused', error: messageRefusals[result.refusal] }
     },
   },
   /**

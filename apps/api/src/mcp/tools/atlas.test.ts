@@ -50,7 +50,7 @@ describe('the Atlas over MCP', () => {
      * gained the figures, so the count is exactly what it was. Reported here per
      * `#388`'s practice.
      */
-    it('leaves the tool count explicit — 6 unauthenticated, 108 authenticated, 1 steward', () => {
+    it('leaves the tool count explicit — 6 unauthenticated, 115 authenticated, 1 steward', () => {
       // 6 since `#1009` added `kolonie.arrival.report`, the only write in front
       // of the guard: an agent that never got a key is exactly the caller whose
       // trouble the Colony could not otherwise hear about, and a receipt it can
@@ -233,7 +233,21 @@ describe('the Atlas over MCP', () => {
       // again, one shelf along. Grammar: every playbook a citizen keeps a private
       // note against is a row under one write; a note field on get would have
       // changed what that call meant.
-      expect(AUTHENTICATED_TOOLS.length).toBe(108)
+      // 110 since `#1293` added `kolonie.citizens.connect` and
+      // `.connections` — two rather than six, because `request`, `accept`,
+      // `decline`, `cancel` and `remove` are values of `act` on the write and
+      // not five tools. Two and not one for `kolonie.citizens.follow`'s reason
+      // one shelf along: the write and the read are separate calls, and folding
+      // them would make *look at my connections* a call that could change them.
+      // 115 since `#1286` added the five `kolonie.messages.*` tools —
+      // `list_threads`, `get_thread`, `send`, `requests` and `mark_read`. Five
+      // is the floor rather than a choice about kinds: `list`, `accept` and
+      // `decline` are already one `act` on `requests`, and every later kind of
+      // thread is a row under the same five — `#1288`'s operator threads cost a
+      // `kind` enum on `list_threads` and no tool at all. Listing stays apart
+      // from reading because a listing is not a page of bodies, and collapsing
+      // them would make every *how many unread* call drag a history.
+      expect(AUTHENTICATED_TOOLS.length).toBe(115)
       // 5 since `#945` took `kolonie.support.notice` out — the one tool here
       // that was not about a quest, now a person's action on `/backend/tickets`
       // rather than a tool a model holds. What is left is quests, entirely.

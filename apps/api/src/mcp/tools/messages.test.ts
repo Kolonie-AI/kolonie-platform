@@ -20,7 +20,10 @@ const requests = (args: Record<string, unknown> = {}) => ({
   name: 'kolonie.messages.requests',
   arguments: args,
 })
-const listThreads = () => ({ name: 'kolonie.messages.list_threads', arguments: {} })
+const listThreads = (args: Record<string, unknown> = {}) => ({
+  name: 'kolonie.messages.list_threads',
+  arguments: args,
+})
 const getThread = (conversationId: string) => ({
   name: 'kolonie.messages.get_thread',
   arguments: { conversationId },
@@ -227,5 +230,73 @@ describe('kolonie.messages.* (#1286)', () => {
       },
     })
     await close()
+  })
+
+  /**
+   * The citizen's half of `#1288`. The operator's own direction is a console
+   * route — there is deliberately no tool here that opens one, so what these
+   * assert is that a citizen can tell its operator's thread from a DM, read it
+   * and answer in it.
+   */
+  describe('operator threads (#1288)', () => {
+    it('lists them apart from citizen DMs, and narrows to either', async () => {
+      const { colony, alice, bob, close } = await aPair()
+
+      const conversationId = colony.messaging.operatorThread(alice.agent.profile.name)
+      const asked = await bob.client.callTool(
+        send({ to: alice.agent.profile.name, body: 'I read your Atlas entry.' }),
+      )
+      const requestId = (asked.structuredContent as { requestId: string }).requestId
+      await alice.client.callTool(requests({ act: 'accept', requestId }))
+
+      const all = await alice.client.callTool(listThreads())
+      expect((all.structuredContent as { threads: unknown[] }).threads).toHaveLength(2)
+
+      const mine = await alice.client.callTool(listThreads({ kind: 'operator-human' }))
+      expect(mine.structuredContent).toMatchObject({
+        threads: [expect.objectContaining({ id: conversationId, kind: 'operator-human' })],
+      })
+      /** The kind is printed, so a model reading the text can tell them apart too. */
+      expect(textOf(mine)).toContain('[operator-human]')
+
+      const dms = await alice.client.callTool(listThreads({ kind: 'citizen' }))
+      expect((dms.structuredContent as { threads: unknown[] }).threads).toHaveLength(1)
+      expect(textOf(dms)).not.toContain('[operator-human]')
+
+      await close()
+    })
+
+    it('reads the thread with the person’s party on it, and answers in it', async () => {
+      const { colony, alice, close } = await aPair()
+      const conversationId = colony.messaging.operatorThread(alice.agent.profile.name)
+
+      const read = await alice.client.callTool(getThread(conversationId))
+      expect(read.structuredContent).toMatchObject({
+        messages: [
+          expect.objectContaining({ sender: expect.objectContaining({ party: 'operator-human' }) }),
+        ],
+      })
+      expect(textOf(read)).toContain(MESSAGE_UNTRUSTED_CONTENT)
+
+      const replied = await alice.client.callTool(send({ conversationId, body: 'Understood.' }))
+      expect(replied.structuredContent).toMatchObject({ outcome: 'delivered' })
+
+      await close()
+    })
+
+    it('refuses a reply once the relationship has ended, and keeps the thread readable', async () => {
+      const { colony, alice, close } = await aPair()
+      const conversationId = colony.messaging.operatorThread(alice.agent.profile.name)
+      colony.messaging.endOperatorLink(conversationId)
+
+      const refused = await alice.client.callTool(send({ conversationId, body: 'Still there?' }))
+      expect(refused.isError).toBe(true)
+      expect(refused.structuredContent).toMatchObject({ error: { code: 'conflict' } })
+
+      const read = await alice.client.callTool(getThread(conversationId))
+      expect(read.isError).toBeFalsy()
+
+      await close()
+    })
   })
 })

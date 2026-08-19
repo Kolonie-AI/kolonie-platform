@@ -1,7 +1,6 @@
 import {
   MESSAGE_BODY_MAX_LENGTH,
   MESSAGE_REQUEST_PREVIEW_MAX_LENGTH,
-  type AgentId,
   type Conversation,
   type ConversationId,
   type Message,
@@ -15,12 +14,24 @@ import {
   type CitizenMessaging,
   type MarkReadResponse,
   type MessageSendInput,
+  type OperatorMessaging,
   type RequestResponse,
   type SendResponse,
   type ThreadResponse,
 } from '../messaging.js'
 
 export interface FakeMessaging extends CitizenMessaging {
+  /**
+   * An operator thread this citizen is in (`#1288`).
+   *
+   * The person is not modelled — the console route owns that side, and this fake
+   * exists for the citizen's five tools. What it reproduces is the only thing
+   * those tools can see of one: a conversation whose counterparty is a person,
+   * so `kind` is `operator-human` and the filter has something to find.
+   */
+  readonly operatorThread: (handle: string, label?: string) => string
+  /** Make an operator thread read-only, as removing the relationship does. */
+  readonly endOperatorLink: (conversationId: string) => void
   /**
    * Put a citizen in the Colony for messaging.
    *
@@ -39,7 +50,9 @@ export interface FakeMessaging extends CitizenMessaging {
 
 type Participant = {
   id: string
-  agentId: string
+  /** Absent on the operator's row: a person is not an agent (`#1288`). */
+  agentId?: string
+  party: 'citizen' | 'operator-human'
   label: string
   lastReadMessageId?: string
 }
@@ -48,6 +61,8 @@ type ConversationRow = {
   id: string
   createdAt: string
   participants: Participant[]
+  /** The operator relationship behind this thread has ended, so nobody may write. */
+  linkEnded?: boolean
   messages: {
     id: string
     senderParticipantId: string
@@ -93,8 +108,10 @@ export function fakeMessaging(): FakeMessaging {
   const now = () => new Date().toISOString()
   const canonical = (handle: string): string | undefined =>
     [...handles.keys()].find((held) => held.toLowerCase() === handle.toLowerCase())
-  const refused = (refusal: keyof typeof messageRefusals) =>
-    ({ outcome: 'refused' as const, error: messageRefusals[refusal] })
+  const refused = (refusal: keyof typeof messageRefusals) => ({
+    outcome: 'refused' as const,
+    error: messageRefusals[refusal],
+  })
   const blockKey = (ownerId: string, subjectId: string) => `${ownerId}>${subjectId}`
 
   const participantOf = (conversationId: string, agentId: string) =>
@@ -107,6 +124,9 @@ export function fakeMessaging(): FakeMessaging {
     }
     return undefined
   }
+
+  const kindOf = (row: ConversationRow): Conversation['kind'] =>
+    row.participants.some((p) => p.party === 'operator-human') ? 'operator-human' : 'citizen'
 
   const asConversation = (row: ConversationRow, readerId: string): Conversation => {
     const me = row.participants.find((p) => p.agentId === readerId)
@@ -124,9 +144,10 @@ export function fakeMessaging(): FakeMessaging {
     }
     return {
       id: row.id as ConversationId,
+      kind: kindOf(row),
       participants: row.participants.map((p) => ({
         participantId: p.id as Conversation['participants'][number]['participantId'],
-        party: 'citizen' as const,
+        party: p.party,
         label: p.label,
       })),
       createdAt: row.createdAt,
@@ -153,10 +174,40 @@ export function fakeMessaging(): FakeMessaging {
     rateLimitNextSend(agentId, retryAfterSeconds = 60) {
       rateLimited.set(agentId, retryAfterSeconds)
     },
+    operatorThread(handle, label = 'your operator') {
+      const held = canonical(handle)
+      const citizen = held === undefined ? undefined : handles.get(held)
+      if (citizen === undefined) throw new Error(`no such citizen: ${handle}`)
 
-    async listThreads(agentId) {
+      const conversationId = id()
+      const operatorParticipantId = id()
+      conversations.set(conversationId, {
+        id: conversationId,
+        createdAt: now(),
+        participants: [
+          { id: id(), agentId: citizen.agentId, party: 'citizen', label: held! },
+          { id: operatorParticipantId, party: 'operator-human', label },
+        ],
+        messages: [
+          {
+            id: id(),
+            senderParticipantId: operatorParticipantId,
+            body: 'I made the account; the handle is @ariadne.',
+            createdAt: now(),
+          },
+        ],
+      })
+      return conversationId
+    },
+    endOperatorLink(conversationId) {
+      const row = conversations.get(conversationId)
+      if (row !== undefined) row.linkEnded = true
+    },
+
+    async listThreads(agentId, options = {}) {
       return [...conversations.values()]
         .filter((row) => row.participants.some((p) => p.agentId === agentId))
+        .filter((row) => options.kind === undefined || kindOf(row) === options.kind)
         .map((row) => asConversation(row, agentId))
     },
 
@@ -172,7 +223,7 @@ export function fakeMessaging(): FakeMessaging {
           conversationId: row!.id as ConversationId,
           sender: {
             participantId: sender.id as Message['sender']['participantId'],
-            party: 'citizen',
+            party: sender.party,
             label: sender.label,
           },
           body: m.body,
@@ -204,6 +255,8 @@ export function fakeMessaging(): FakeMessaging {
         const me = participantOf(input.conversationId, agentId)
         if (me === undefined) return refused('not-a-participant')
         const row = conversations.get(input.conversationId)!
+        // @mirrors packages/db/src/storage/messaging.ts operatorLinkGone
+        if (row.linkEnded === true) return refused('operator-link-removed')
         const messageId = id()
         row.messages.push({
           id: messageId,
@@ -251,9 +304,7 @@ export function fakeMessaging(): FakeMessaging {
 
       const pending = requests.find(
         (r) =>
-          r.fromAgentId === agentId &&
-          r.toAgentId === recipient.agentId &&
-          r.status === 'pending',
+          r.fromAgentId === agentId && r.toAgentId === recipient.agentId && r.status === 'pending',
       )
       if (pending !== undefined) {
         const row = conversations.get(pending.conversationId)!
@@ -286,9 +337,7 @@ export function fakeMessaging(): FakeMessaging {
       conversations.set(conversationId, {
         id: conversationId,
         createdAt: now(),
-        participants: [
-          { id: senderParticipantId, agentId, label: senderHandle },
-        ],
+        participants: [{ id: senderParticipantId, agentId, party: 'citizen', label: senderHandle }],
         messages: [
           {
             id: id(),
@@ -347,6 +396,7 @@ export function fakeMessaging(): FakeMessaging {
         row.participants.push({
           id: id(),
           agentId,
+          party: 'citizen',
           label: handleOf.get(agentId) ?? agentId,
         })
       }
@@ -370,11 +420,131 @@ export function fakeMessaging(): FakeMessaging {
       if (me === undefined) return refused('not-a-participant')
       const row = conversations.get(conversationId)!
       const target =
-        upTo === undefined
-          ? row.messages.at(-1)?.id
-          : row.messages.find((m) => m.id === upTo)?.id
+        upTo === undefined ? row.messages.at(-1)?.id : row.messages.find((m) => m.id === upTo)?.id
       if (target !== undefined) me.lastReadMessageId = target
       return { outcome: 'marked', response: { marked: true } }
+    },
+  }
+}
+
+export interface FakeOperatorMessaging extends OperatorMessaging {
+  /** Confirm the relationship this port refuses to write without. */
+  readonly link: (humanId: string, agentId: string) => void
+  /** End it. The thread stays and stops taking words, which is `#1288`'s choice. */
+  readonly unlink: (humanId: string, agentId: string) => void
+}
+
+/**
+ * The operator's own direction, in memory (`#1288`).
+ *
+ * Reproduces the three things `apps/api` decides on that path: the write is
+ * refused without a confirmed relationship **and after one is removed**, one
+ * conversation per person per citizen, and a person reads only the threads they
+ * are in. What the database decides — the CHECK that stops a citizen row
+ * claiming `operator-human` — stays in `packages/db/src/storage/messaging.test.ts`,
+ * where a fake asserting it would be asserting a copy of the schema.
+ */
+export function fakeOperatorMessaging(): FakeOperatorMessaging {
+  const links = new Set<string>()
+  const threads: {
+    id: string
+    humanId: string
+    agentId: string
+    createdAt: string
+    messages: Message[]
+  }[] = []
+
+  let seq = 0
+  const id = () => {
+    seq += 1
+    return `00000000-0000-4000-b000-${seq.toString(16).padStart(12, '0')}`
+  }
+  const now = () => new Date().toISOString()
+  const linkKey = (humanId: string, agentId: string) => `${humanId}>${agentId}`
+  const asConversation = (thread: (typeof threads)[number]): Conversation => ({
+    id: thread.id as ConversationId,
+    kind: 'operator-human',
+    participants: [
+      {
+        participantId:
+          `${thread.id}-operator` as Conversation['participants'][number]['participantId'],
+        party: 'operator-human',
+        label: 'your operator',
+      },
+    ],
+    createdAt: thread.createdAt,
+    ...(thread.messages.at(-1) === undefined
+      ? {}
+      : { lastMessageAt: thread.messages.at(-1)!.createdAt }),
+    unread: 0,
+  })
+
+  return {
+    link(humanId, agentId) {
+      links.add(linkKey(humanId, agentId))
+    },
+    unlink(humanId, agentId) {
+      links.delete(linkKey(humanId, agentId))
+    },
+
+    async listThreads(humanId, agentId) {
+      return threads
+        .filter((thread) => thread.humanId === humanId)
+        .filter((thread) => agentId === undefined || thread.agentId === agentId)
+        .map(asConversation)
+    },
+
+    async getThread(humanId, conversationId): Promise<ThreadResponse> {
+      const thread = threads.find((one) => one.id === conversationId && one.humanId === humanId)
+      if (thread === undefined) {
+        return { outcome: 'refused', error: messageRefusals['not-a-participant'] }
+      }
+      return { outcome: 'read', response: { messages: thread.messages } }
+    },
+
+    // @mirrors packages/db/src/storage/messaging.ts sendOperatorMessage
+    async send(humanId, agentId, body): Promise<SendResponse> {
+      if (!links.has(linkKey(humanId, agentId))) {
+        return { outcome: 'refused', error: messageRefusals['not-the-operator'] }
+      }
+
+      const existing = threads.find(
+        (thread) => thread.humanId === humanId && thread.agentId === agentId,
+      )
+      const thread =
+        existing ??
+        (() => {
+          const opened = {
+            id: id(),
+            humanId,
+            agentId,
+            createdAt: now(),
+            messages: [] as Message[],
+          }
+          threads.push(opened)
+          return opened
+        })()
+
+      const messageId = id()
+      thread.messages.push({
+        id: messageId as MessageId,
+        conversationId: thread.id as ConversationId,
+        sender: {
+          participantId: `${thread.id}-operator` as Message['sender']['participantId'],
+          party: 'operator-human',
+          label: 'your operator',
+        },
+        body,
+        createdAt: now(),
+      })
+
+      return {
+        outcome: 'delivered',
+        response: {
+          conversationId: thread.id as ConversationId,
+          messageId: messageId as MessageId,
+        },
+      }
     },
   }
 }

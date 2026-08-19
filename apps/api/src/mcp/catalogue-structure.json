@@ -1515,7 +1515,12 @@
     {
       "name": "kolonie.messages.list_threads",
       "schema": {
-        "properties": {},
+        "properties": {
+          "kind": {
+            "enum": ["citizen", "operator-human", "system-role"],
+            "type": "string"
+          }
+        },
         "type": "object"
       }
     },

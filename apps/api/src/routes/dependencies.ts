@@ -32,6 +32,8 @@ import type { DomainDependencies } from '../domain.js'
 import type { EmailDependencies } from '../email.js'
 import type { SmsDependencies } from '../sms.js'
 import type { Erasure } from '../erasure.js'
+import type { CitizenConnections } from '../connections.js'
+import type { CitizenMessaging, OperatorMessaging } from '../messaging.js'
 import type { GithubDependencies } from '../github.js'
 import type { TaskGuidance } from '../guidance.js'
 import type { ImageDependencies } from '../image.js'
@@ -500,4 +502,25 @@ export interface RouteDependencies {
    * reaching. Appended, per the house rule on `citizens`.
    */
   readonly arrivals: ArrivalReports
+  /**
+   * A verified operator writing to the citizen it answers for (`#1288`).
+   *
+   * Optional, on D-013's terms: a deployment that wires none serves no operator
+   * thread page rather than one that refuses everything. Appended, per the house
+   * rule on `citizens`.
+   */
+  readonly operatorMessaging?: OperatorMessaging
+  /**
+   * Two citizens agreeing to be connected (`#1293`), and their private messages
+   * (`#1286`).
+   *
+   * **Declared here because the MCP door needs them and could not see them.**
+   * `buildApp` was already passing both into this object through a conditional
+   * spread, which TypeScript does not excess-property-check — so they arrived at
+   * runtime, were invisible to every route, and `routes/mcp.ts` forwarded
+   * neither. Seven declared tools were absent from the real door as a result.
+   * Optional, on D-013's terms. Appended, per the house rule on `citizens`.
+   */
+  readonly connections?: CitizenConnections
+  readonly messaging?: CitizenMessaging
 }

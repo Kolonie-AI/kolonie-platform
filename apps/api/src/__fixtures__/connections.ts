@@ -6,7 +6,22 @@ import {
 } from '@kolonie-ai/core'
 import { connectionRefusals, type CitizenConnections } from '../connections.js'
 
-export interface FakeConnections extends CitizenConnections {
+export interface FakeConnections extends Omit<CitizenConnections, 'act'> {
+  /**
+   * The port's `act`, widened to take a handle where it takes an `AgentId`.
+   *
+   * The fixture keys its citizens by handle and gives them an id only where a
+   * test needs one, so *the other side of this conversation acts* is written
+   * with the handle the test already has. Widening a parameter keeps this
+   * assignable to {@link CitizenConnections} — the port's callers still pass an
+   * `AgentId`, and only the fixture's own may pass less.
+   */
+  act(
+    agentId: Parameters<CitizenConnections['act']>[0] | string,
+    handle: string,
+    act: ConnectionAct,
+    reason?: string,
+  ): ReturnType<CitizenConnections['act']>
   /**
    * Put a citizen in the Colony, with the switch that decides whether it may be
    * asked at all.

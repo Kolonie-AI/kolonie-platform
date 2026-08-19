@@ -25,7 +25,7 @@ import type { StandingHintSource } from './hints.js'
 import type { CitizenSearch } from './citizen-search.js'
 import type { Following } from './following.js'
 import type { CitizenConnections } from './connections.js'
-import type { CitizenMessaging } from './messaging.js'
+import type { CitizenMessaging, OperatorMessaging } from './messaging.js'
 import type { PlaybookDependencies } from './playbooks.js'
 import type { SkillNotes } from './skills.js'
 import type { WakeupSource } from './wakeup.js'
@@ -163,6 +163,15 @@ export interface AppDependencies {
   readonly connections?: CitizenConnections
   /** Citizen↔citizen private messaging — see `messaging.ts` (`#1286`). */
   readonly messaging?: CitizenMessaging
+  /**
+   * A verified operator writing to the citizen it answers for — see
+   * `messaging.ts` (`#1288`).
+   *
+   * Optional on the same terms as the citizen's port: a deployment without it
+   * registers no operator message routes, so the console offers no thread rather
+   * than offering one that refuses.
+   */
+  readonly operatorMessaging?: OperatorMessaging
   /**
    * What a citizen could do next with the accounts it already holds — see
    * `playbooks.ts` (`#1174`).

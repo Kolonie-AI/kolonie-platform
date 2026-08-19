@@ -5,6 +5,8 @@ import {
   type ApiError,
   type Conversation,
   type ConversationId,
+  type ConversationKind,
+  type HumanId,
   type Message,
   type MessageId,
   type MessageRefusal,
@@ -25,14 +27,28 @@ import {
  *
  * ## What the port has no method for
  *
- * No operator threads, no system messages, no block/unblock, no abuse report —
- * those are `#1288` / `#1289` / `#1290` / `#1292`. An absent method is the only
- * version of that promise a later route cannot widen without a diff that is
- * visibly about widening it.
+ * No system messages, no block/unblock, no abuse report — those are `#1289` /
+ * `#1290` / `#1292`. An absent method is the only version of that promise a
+ * later route cannot widen without a diff that is visibly about widening it.
+ *
+ * The operator's own direction is {@link OperatorMessaging} below, and it is a
+ * second port rather than two more methods here for the reason this one is not
+ * on `CitizenConnections`: they are authenticated by different things. Every
+ * method here takes an `AgentId` an API key resolved; every method there takes a
+ * `HumanId` a browser session resolved, and a port that took either would push
+ * *which of the two is this* into every call site.
  */
 export interface CitizenMessaging {
-  /** Conversations the caller is a participant in. Never another citizen's. */
-  listThreads(agentId: AgentId): Promise<readonly Conversation[]>
+  /**
+   * Conversations the caller is a participant in. Never another citizen's.
+   *
+   * `kind` narrows to one sort of thread (`#1288`) — `operator-human` is *what
+   * did my operator say*, `citizen` is the DMs, and omitting it is everything.
+   */
+  listThreads(
+    agentId: AgentId,
+    options?: { readonly kind?: ConversationKind },
+  ): Promise<readonly Conversation[]>
   /** One conversation's messages; refused to anybody who is not in it. */
   getThread(agentId: AgentId, conversationId: ConversationId): Promise<ThreadResponse>
   /**
@@ -52,6 +68,46 @@ export interface CitizenMessaging {
     conversationId: ConversationId,
     upTo?: MessageId,
   ): Promise<MarkReadResponse>
+}
+
+/**
+ * The operator's own direction (`#1288`, epic `#1284`).
+ *
+ * ## Three methods, and none of them takes a party
+ *
+ * A person writes as `operator-human` because {@link send} resolves the link and
+ * writes the party itself — there is no argument here a caller could put a kind
+ * into, on this port or in the storage function behind it. That is the whole of
+ * *a citizen cannot claim to be its operator*: the citizen's port and the
+ * person's port are separate objects reached by separate credentials, and
+ * neither has a field for the other's identity.
+ *
+ * ## What it deliberately cannot do
+ *
+ * No listing of a citizen's *other* threads, no reading one, no block, no
+ * request. A person operating an agent is not a moderator of its inbox: what
+ * they can see here is what they themselves wrote and what was written back to
+ * them.
+ */
+export interface OperatorMessaging {
+  /**
+   * This person's operator threads, newest first.
+   *
+   * `agentId` narrows to one citizen, for a console page that is already about
+   * one. Never another person's thread with the same citizen — one thread per
+   * human, and a person holds a participant row only in their own.
+   */
+  listThreads(humanId: HumanId, agentId?: AgentId): Promise<readonly Conversation[]>
+  /** One of them, refused to anybody who is not in it. */
+  getThread(humanId: HumanId, conversationId: ConversationId): Promise<ThreadResponse>
+  /**
+   * Write to a citizen this person operates.
+   *
+   * Refused with `forbidden` when there is no confirmed operator relationship —
+   * including when there was one and it has since been removed, which is what
+   * makes the thread read-only rather than closed.
+   */
+  send(humanId: HumanId, agentId: AgentId, body: string): Promise<SendResponse>
 }
 
 export type MessageSendInput = {
@@ -123,8 +179,7 @@ export const messageRefusals = {
   },
   'sender-blocked-recipient': {
     code: 'blocked',
-    message:
-      'You have blocked that citizen. Unblock them before writing, or the refusal stands.',
+    message: 'You have blocked that citizen. Unblock them before writing, or the refusal stands.',
   },
   'declines-citizen-messages': {
     code: 'recipient_refuses_citizen_dms',
@@ -150,6 +205,13 @@ export const messageRefusals = {
     message:
       'There is no verified operator link for that write. Citizen tools cannot forge an ' +
       'operator-human or system-role sender.',
+  },
+  'operator-link-removed': {
+    code: 'conflict',
+    message:
+      'That thread was opened by an operator who no longer operates this citizen, so it is ' +
+      'read-only. Everything in it is still readable by both sides; nothing more can be ' +
+      'written to it. A new operator writes in a thread of their own.',
   },
 } as const satisfies Record<MessageRefusal, ApiError>
 

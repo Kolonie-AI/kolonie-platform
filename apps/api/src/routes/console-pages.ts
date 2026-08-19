@@ -2,6 +2,10 @@ import { randomUUID } from 'node:crypto'
 import { capabilitiesFromForm, handoverNotice } from '@kolonie-ai/core'
 import {
   ERROR_STATUS,
+  MESSAGE_BODY_MAX_LENGTH,
+  MESSAGE_BODY_MIN_LENGTH,
+  credentialFinding,
+  credentialRefusalMessage,
   AccountEpisodeIdSchema,
   AccountKindSchema,
   AccountSlotIdSchema,
@@ -51,6 +55,7 @@ import {
 } from '../console.js'
 import {
   CONSOLE_HEADERS,
+  escape,
   errorPage,
   keyMintedPage,
   keyPage,
@@ -63,6 +68,7 @@ import {
   signInPage,
 } from '../console/html.js'
 import type { ConsoleNav } from '../console/navigation.js'
+import { messageBodyError } from '../messaging.js'
 import { relative, zoneFrom } from '../console/time.js'
 import {
   activityLines,
@@ -4357,6 +4363,163 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
           .header('location', `/agents/${String(operated.agentId)}/accounts`)
           .send()
       : reply.status(200).send({ removed })
+  })
+
+  /**
+   * The operator's thread with their citizen (`#1288`, epic `#1284`).
+   *
+   * ## Why this is a page of its own and not an entry in `AGENT_PAGES`
+   *
+   * `/agents/:agentId/operator` argues it first and the argument holds here: an
+   * entry that is present for some agents and absent for others is what a
+   * navigation must not be, and this one exists only where the deployment wired
+   * the port. It is reached the way the account thread is — by knowing it is
+   * there — until a later issue gives every agent a messages page to mark empty.
+   *
+   * ## What the console adds over the storage check, and what it does not
+   *
+   * `operatedAgent` is the console's own proof of the relationship, and
+   * `sendOperatorMessage` reads `human_agents` again for itself. That is
+   * deliberate duplication rather than a belt on a brace: one of them is a guard
+   * on a browser session and the other is the rule, and the rule has to hold for
+   * a caller that never came through here.
+   *
+   * **Nothing here can write as the Colony.** The port takes a `HumanId` and a
+   * body; there is no field on it for a party, a label or a system role, so the
+   * worst a compromised session can do is say something as the person it belongs
+   * to — which is what a session is for.
+   */
+  const operatorThreadPage = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    operated: {
+      readonly humanId: HumanId
+      readonly agentId: AgentId
+      readonly roles: readonly string[]
+    },
+    outcome: { readonly error?: string; readonly status?: number; readonly said?: boolean } = {},
+  ): Promise<FastifyReply> => {
+    const desk = deps.operatorMessaging
+    if (desk === undefined) return consoleNotFound(reply, request)
+
+    const threads = await desk.listThreads(operated.humanId, operated.agentId)
+    const thread = threads[0]
+    const read =
+      thread === undefined ? undefined : await desk.getThread(operated.humanId, thread.id)
+    const messages = read?.outcome === 'read' ? read.response.messages : []
+    const status = outcome.status ?? 200
+
+    if (!wantsHtml(request)) {
+      return reply.status(status).send({
+        agentId: String(operated.agentId),
+        threads,
+        messages,
+        ...(outcome.error === undefined ? {} : { error: outcome.error }),
+      })
+    }
+
+    const held = await deps.autonomy.pages.factsOf(operated.agentId)
+    if (held === null) return consoleNotFound(reply, request)
+
+    const lines = [
+      '<p class="note">Your agent reads this as words from you — labelled as its operator and ' +
+        'never as the Colony. It is not a permission: nothing said here widens what your agent ' +
+        'may do.</p>',
+      ...(outcome.said === true ? ['<p>Sent.</p>'] : []),
+      ...(outcome.error === undefined ? [] : [`<p class="error">${escape(outcome.error)}</p>`]),
+      messages.length === 0
+        ? '<p>Nothing said yet.</p>'
+        : `<ul>${messages
+            .map(
+              (message) =>
+                `<li><strong>${escape(message.sender.label)}</strong> ` +
+                `<span>${escape(relative(message.createdAt))}</span><br>` +
+                `${escape(message.body)}</li>`,
+            )
+            .join('')}</ul>`,
+      `<form method="post" action="${escape(`/agents/${String(operated.agentId)}/messages`)}">` +
+        `<label for="body">Write to ${escape(held.name)}</label>` +
+        `<textarea id="body" name="body" required maxlength="${String(
+          MESSAGE_BODY_MAX_LENGTH,
+        )}"></textarea>` +
+        '<button type="submit">Send</button>' +
+        '</form>',
+    ]
+
+    return html(
+      reply.status(status),
+      agentSectionPage({
+        nav: navFor(request, operated.roles, await agentNavFor(operated.agentId)),
+        agentId: String(operated.agentId),
+        name: held.name,
+        title: 'Messages',
+        lines,
+      }),
+    )
+  }
+
+  app.get('/agents/:agentId/messages', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const operated = await operatedAgent(request, reply)
+    if (operated === null) return reply
+
+    const { said } = request.query as { said?: string }
+    return operatorThreadPage(request, reply, operated, { said: said === 'sent' })
+  })
+
+  /**
+   * The operator writes.
+   *
+   * **The credential check runs here for `#236`'s reason**, which the note
+   * channel states in full: a person writing to their agent has usually just
+   * made it an account, and the answer is where a password most likely actually
+   * arrives. A refusal costs them nothing — nothing is sent and the form comes
+   * back with what tripped it.
+   */
+  app.post('/agents/:agentId/messages', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const operated = await operatedAgent(request, reply)
+    if (operated === null) return reply
+
+    const desk = deps.operatorMessaging
+    if (desk === undefined) return consoleNotFound(reply, request)
+
+    const { body } = (request.body ?? {}) as { body?: unknown }
+    const written = typeof body === 'string' ? body.trim() : ''
+
+    if (written.length < MESSAGE_BODY_MIN_LENGTH || written.length > MESSAGE_BODY_MAX_LENGTH) {
+      return operatorThreadPage(request, reply, operated, {
+        error: messageBodyError.message,
+        status: ERROR_STATUS.validation_failed,
+      })
+    }
+
+    const finding = credentialFinding(written)
+    if (finding !== null) {
+      return operatorThreadPage(request, reply, operated, {
+        error: credentialRefusalMessage(finding),
+        status: ERROR_STATUS.validation_failed,
+      })
+    }
+
+    const result = await desk.send(operated.humanId, operated.agentId, written)
+    if (result.outcome === 'refused') {
+      return operatorThreadPage(request, reply, operated, {
+        error: result.error.message,
+        status: ERROR_STATUS[result.error.code],
+      })
+    }
+
+    if (!wantsHtml(request)) {
+      return reply.status(200).send({ outcome: result.outcome, ...result.response })
+    }
+
+    return reply
+      .status(303)
+      .header('location', `/agents/${String(operated.agentId)}/messages?said=sent`)
+      .send()
   })
 
   app.get('/agents/:agentId/operator', async (request, reply) => {

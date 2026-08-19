@@ -49,6 +49,8 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
     skillNotes,
     citizenSearch,
     following,
+    connections,
+    messaging,
     playbooks,
     website,
     webServer,
@@ -248,6 +250,20 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
           ...(skillNotes === undefined ? {} : { skillNotes }),
           ...(citizenSearch === undefined ? {} : { citizenSearch }),
           ...(following === undefined ? {} : { following }),
+          /**
+           * Connections (`#1293`) and private messaging (`#1286`), which this
+           * door was not forwarding.
+           *
+           * **The defect `registers every tool it declares` exists to catch, a
+           * second time.** Both ports are optional, both are wired in
+           * `server.ts`, and neither reached `createMcpServer` — so seven tools
+           * were declared in `AUTHENTICATED_TOOLS`, served by every test that
+           * builds its own dependencies, and absent from the real HTTP door.
+           * Noticed while wiring `#1288`, whose `kind` filter would have been
+           * unreachable for the same reason.
+           */
+          ...(connections === undefined ? {} : { connections }),
+          ...(messaging === undefined ? {} : { messaging }),
           // The catalogue of pipelines (`#1174`). Absent registers no playbook
           // tool at all, which is how eight of them went missing from a
           // production door that reported the revision that built them.

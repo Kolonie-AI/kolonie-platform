@@ -634,4 +634,3 @@ export const messageRequestStatus = pgEnum(
   'message_request_status',
   valuesOf(MessageRequestStatusSchema.options),
 )
-

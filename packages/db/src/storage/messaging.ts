@@ -10,6 +10,7 @@ import {
   type AgentId,
   type Conversation,
   type ConversationId,
+  type ConversationKind,
   type ConversationParticipantId,
   type HumanId,
   type Message,
@@ -57,6 +58,13 @@ import {
  * join, and none should be added: *may this caller read this* is the same
  * question as *is this caller in it*, and the day those become two questions is
  * the day one of them is answered wrongly somewhere.
+ *
+ * **The operator's side is the same join through a different column** (`#1288`):
+ * {@link listOperatorConversations} and {@link readOperatorConversation} start
+ * from a `human_id` participant row exactly as the citizen's start from an
+ * `agent_id` one. That is what makes *one thread per human* a fact about the
+ * rows rather than a filter, and it is why one operator cannot read another
+ * operator's thread with the same citizen: there is no row of theirs in it.
  *
  * A citizen that is not a participant gets `not-a-participant` for a
  * conversation it is not in **and for one that does not exist**. The two are
@@ -484,8 +492,48 @@ export async function replyInConversation(
   const sender = await participantOf(db, id, senderId)
   if (sender === undefined) return { outcome: 'refused', refusal: 'not-a-participant' }
 
+  if (await operatorLinkGone(db, id, senderId)) {
+    return { outcome: 'refused', refusal: 'operator-link-removed' }
+  }
+
   const messageIdValue = await insertMessage(db, sender, body)
   return { outcome: 'delivered', conversationId: id, messageId: messageIdValue }
+}
+
+/**
+ * Whether this thread's operator has stopped being this citizen's operator
+ * (`#1288`).
+ *
+ * **One query and it answers three things at once**: whether there is an
+ * operator party in this conversation at all, which person it is, and whether
+ * `human_agents` still links them to this citizen. False for every conversation
+ * with no operator in it, which is nearly all of them and every citizen DM.
+ *
+ * The left join is what makes the missing link the answer rather than an
+ * absence: a row comes back for the operator participant either way, and it is
+ * the null `agent_id` beside it that says the relationship is over.
+ */
+async function operatorLinkGone(
+  db: Database,
+  id: ConversationId,
+  agentId: AgentId,
+): Promise<boolean> {
+  const [row] = await db
+    .select({ stillLinked: humanAgents.agentId })
+    .from(messageParticipants)
+    .leftJoin(
+      humanAgents,
+      and(eq(humanAgents.humanId, messageParticipants.humanId), eq(humanAgents.agentId, agentId)),
+    )
+    .where(
+      and(
+        eq(messageParticipants.conversationId, id),
+        eq(messageParticipants.party, 'operator-human'),
+      ),
+    )
+    .limit(1)
+
+  return row !== undefined && row.stillLinked === null
 }
 
 /**
@@ -498,7 +546,21 @@ export async function replyInConversation(
  *
  * One conversation per person per citizen falls out of the participant match
  * rather than out of a constraint — frozen default 4, separate threads per
- * human, is a property of how the thread is found.
+ * human, is a property of how the thread is found. A second person writing to
+ * the same citizen matches no pair of theirs and opens their own thread, which
+ * is why *the owner* and *an additional operator* need no vocabulary here: they
+ * are two people with one participant row each, neither able to read the other's.
+ *
+ * **The citizen's `acceptsCitizenMessages` is not consulted, deliberately.** It
+ * refuses *citizen* mail; a person who answers for this agent is not a stranger,
+ * and a preference that quietly cut an operator off from their own agent would
+ * be a support ticket wearing a preference's clothes (`#1288`).
+ *
+ * **When the relationship ends this refuses and the thread stays.** There is no
+ * separate revocation to run: the link is read on every send, so removing the
+ * row is what makes the thread read-only, and
+ * {@link replyInConversation} refuses the citizen's side of the same thread with
+ * `operator-link-removed`. Both sides keep reading it.
  */
 export async function sendOperatorMessage(
   db: Database,
@@ -824,6 +886,52 @@ export async function listMessageRequests(
 export async function listConversations(
   db: Database,
   agentId: AgentId,
+  options: { readonly kind?: ConversationKind } = {},
+): Promise<readonly Conversation[]> {
+  return await conversationsFor(db, { agentId }, options)
+}
+
+/**
+ * Which side of a conversation a listing starts from.
+ *
+ * **Two columns of one table and never two code paths.** A citizen's inbox and
+ * a person's are the same query with a different `where`, which is the whole
+ * reason `message_participants` has three nullable subject columns instead of
+ * three tables — and the reason an operator listing cannot accidentally acquire
+ * a rule the citizen listing does not have.
+ */
+type ConversationSide = { readonly agentId: AgentId } | { readonly humanId: HumanId }
+
+const sideIs = (side: ConversationSide) =>
+  'agentId' in side
+    ? eq(messageParticipants.agentId, side.agentId)
+    : eq(messageParticipants.humanId, side.humanId)
+
+/**
+ * *Is this thread of the kind asked for*, decided in the database (`#1288`).
+ *
+ * In SQL rather than over the mapped rows, because the ceiling is applied by the
+ * query: filtering afterwards would silently return fewer than
+ * {@link CONVERSATION_LIST_LIMIT} operator threads to a citizen that had fifty
+ * citizen ones, which is the failure a caller cannot see.
+ *
+ * `citizen` is the absence of the other two rather than the presence of a
+ * citizen row, and it has to be: every conversation has citizen participants,
+ * including the operator's and the Colony's.
+ */
+const kindIs = (kind: ConversationKind) =>
+  kind === 'citizen'
+    ? sql`not exists (select 1 from ${messageParticipants} probe
+        where probe.conversation_id = ${messageParticipants.conversationId}
+          and probe.party <> 'citizen')`
+    : sql`exists (select 1 from ${messageParticipants} probe
+        where probe.conversation_id = ${messageParticipants.conversationId}
+          and probe.party = ${kind})`
+
+async function conversationsFor(
+  db: Database,
+  side: ConversationSide,
+  options: { readonly kind?: ConversationKind } = {},
 ): Promise<readonly Conversation[]> {
   const mine = await db
     .select({
@@ -835,7 +943,7 @@ export async function listConversations(
       messageConversations,
       eq(messageConversations.id, messageParticipants.conversationId),
     )
-    .where(eq(messageParticipants.agentId, agentId))
+    .where(options.kind === undefined ? sideIs(side) : and(sideIs(side), kindIs(options.kind)))
     .orderBy(desc(messageConversations.createdAt))
     .limit(CONVERSATION_LIST_LIMIT)
 
@@ -881,10 +989,7 @@ export async function listConversations(
     .from(messages)
     .innerJoin(
       messageParticipants,
-      and(
-        eq(messageParticipants.conversationId, messages.conversationId),
-        eq(messageParticipants.agentId, agentId),
-      ),
+      and(eq(messageParticipants.conversationId, messages.conversationId), sideIs(side)),
     )
     .leftJoin(cursor, eq(cursor.id, messageParticipants.lastReadMessageId))
     .where(
@@ -901,16 +1006,96 @@ export async function listConversations(
 
   return mine.map((row) => {
     const lastMessageAt = lastById.get(row.conversationId)
+    const participants = parties.filter((party) => party.conversationId === row.conversationId)
     return {
       id: conversationId(row.conversationId),
-      participants: parties
-        .filter((party) => party.conversationId === row.conversationId)
-        .map(asSender),
+      kind: conversationKind(participants),
+      participants: participants.map(asSender),
       createdAt: row.createdAt,
       ...(lastMessageAt == null ? {} : { lastMessageAt }),
       unread: unreadById.get(row.conversationId) ?? 0,
     }
   })
+}
+
+/**
+ * What kind of thread this is, from who is in it (`#1288`).
+ *
+ * **Derived on every read and stored nowhere.** A `kind` column would be a
+ * second answer to *who is in this conversation*, and the two would disagree the
+ * first time somebody joined a participant without updating it.
+ *
+ * The Colony wins over an operator in the impossible case where a thread carries
+ * both. Nothing writes such a row — the direct paths open a conversation with
+ * exactly two participants — and if one ever appears, reading it as the Colony's
+ * is the reading that does not let a person's words inherit a system thread's
+ * standing.
+ */
+export function conversationKind(
+  participants: readonly { readonly party: MessageParty }[],
+): ConversationKind {
+  if (participants.some((party) => party.party === 'system-role')) return 'system-role'
+  if (participants.some((party) => party.party === 'operator-human')) return 'operator-human'
+  return 'citizen'
+}
+
+/**
+ * The threads one person holds with the citizens they operate (`#1288`).
+ *
+ * **Theirs alone, and one per citizen.** The listing starts from this person's
+ * own participant rows, so there is no shape of input that reaches another
+ * person's thread with the same citizen — nor any of that citizen's citizen
+ * DMs, which this person has no row in and no business reading.
+ *
+ * `agentId` narrows to one citizen. It is a convenience for a console page that
+ * is already about one agent and not a permission: a person who does not operate
+ * that citizen has no participant row either way, so the answer is empty rather
+ * than refused.
+ *
+ * **A thread whose operator link has since been removed is still listed.** The
+ * relationship ending makes the conversation read-only (`operator-link-removed`)
+ * and does not un-say what was said in it.
+ */
+export async function listOperatorConversations(
+  db: Database,
+  humanId: HumanId,
+  agentId?: AgentId,
+): Promise<readonly Conversation[]> {
+  const all = await conversationsFor(db, { humanId }, { kind: 'operator-human' })
+  if (agentId === undefined) return all
+
+  const mine = await db
+    .select({ conversationId: messageParticipants.conversationId })
+    .from(messageParticipants)
+    .where(eq(messageParticipants.agentId, agentId))
+  const ids = new Set(mine.map((row) => row.conversationId))
+
+  return all.filter((conversation) => ids.has(conversation.id))
+}
+
+/**
+ * One operator thread, for the person who is in it.
+ *
+ * The citizen's {@link readConversation} with the other subject column, and the
+ * same indistinguishable refusal: a conversation this person is not in and one
+ * that does not exist both answer `not-a-participant`, so this cannot be used to
+ * probe for other people's threads either.
+ */
+export async function readOperatorConversation(
+  db: Database,
+  humanId: HumanId,
+  id: ConversationId,
+): Promise<ReadResult> {
+  const [me] = await db
+    .select({ id: messageParticipants.id })
+    .from(messageParticipants)
+    .where(
+      and(eq(messageParticipants.conversationId, id), eq(messageParticipants.humanId, humanId)),
+    )
+    .limit(1)
+
+  if (me === undefined) return { outcome: 'refused', refusal: 'not-a-participant' }
+  return await conversationBodies(db, id)
 }
 
 const asSender = (row: {
@@ -943,6 +1128,18 @@ export async function readConversation(
   const me = await participantOf(db, id, agentId)
   if (me === undefined) return { outcome: 'refused', refusal: 'not-a-participant' }
 
+  return await conversationBodies(db, id)
+}
+
+/**
+ * The bodies, once somebody has been established to be in the conversation.
+ *
+ * **Private, and it takes no caller.** Both readers above answer *is this caller
+ * in it* first and then call this; a function that took an id and returned
+ * bodies would be the second way in this file's header says must not exist, so
+ * it is not exported and there is nowhere to reach it from.
+ */
+async function conversationBodies(db: Database, id: ConversationId): Promise<ReadResult> {
   const rows = await db
     .select({
       id: messages.id,

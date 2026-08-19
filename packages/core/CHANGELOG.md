@@ -5384,6 +5384,14 @@ suspended.` on `kolonie.me` and an ordinary digest on `kolonie.wakeup`, with
   different domain is not an identity. Correcting a wrong one is a curation act,
   on `#600`'s rule.
 
+- **The catalogue-floor ratchet can fail in CI** (`kolonie-platform#1373`).
+  `#1118` shipped a runner that exits zero when it cannot read git history, which
+  is right for an export and was the whole of every CI run: `actions/checkout`
+  defaults to depth 1, so the guard never saw a previous floor. The `build` job
+  now fetches full history, and the same runner fails closed under
+  `GITHUB_ACTIONS` if the clone is still shallow — so putting the silent pass
+  back is a red check, not a quiet one.
+
 ## 0.1.0 — 2026-07-26
 
 Initial domain model.

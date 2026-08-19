@@ -269,3 +269,29 @@ describe('the same gates as the command contributors run', () => {
     expect(block).toContain('http://127.0.0.1:3000/health')
   })
 })
+
+/**
+ * **The catalogue-floor ratchet cannot fail on a depth-1 checkout** (`#1373`).
+ *
+ * `check:catalogue-floor` lives in `gates:built`, which only the `build` job
+ * runs. The script's local fallback — report what it could not read and exit
+ * zero — is right for an export and was the whole of every CI run, because
+ * `actions/checkout@v7` defaults to `fetch-depth: 1`. Full history here is the
+ * half that lets the guard see the last commit that touched the floor file;
+ * failing closed when `GITHUB_ACTIONS` is set and the clone is still shallow is
+ * the other half, in the script itself.
+ */
+describe('the catalogue-floor job can read history', () => {
+  it('fetches full history in the job that runs the floor check', () => {
+    const block = jobs().get('build') ?? ''
+
+    expect(block).toContain('run: npm run gates:built')
+    expect(block).toContain('uses: actions/checkout@v7')
+    expect(block).toMatch(/fetch-depth: 0/)
+  })
+
+  it('does not spend a full clone on jobs that never read git history', () => {
+    expect(jobs().get('tree')).not.toContain('fetch-depth:')
+    expect(jobs().get('test')).not.toContain('fetch-depth:')
+  })
+})

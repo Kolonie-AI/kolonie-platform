@@ -344,4 +344,31 @@ describe('what the Atlas publishes and what citizenship buys', () => {
       expect(positions).toEqual([...positions].sort((left, right) => left - right))
     }
   })
+
+  /**
+   * `#1298`: living briefing / identity lead the public page. Moderated walk
+   * substance sits above the FAQ; about and homepage are on the identity block;
+   * the path shape is labelled Colony route so it cannot be read as a walk diary.
+   */
+  it('surfaces moderated briefing above the criteria box and labels Colony vs citizen', () => {
+    const page = publicPage()
+    const main = page.slice(page.indexOf('<main>'))
+    const at = (needle: string) => main.indexOf(needle)
+
+    expect(at('k-about')).toBeGreaterThan(-1)
+    expect(at('k-homepage')).toBeGreaterThan(-1)
+    expect(at('https://trello.com/')).toBeGreaterThan(-1)
+    expect(at('k-atlas-measured')).toBeGreaterThan(-1)
+    expect(at('Citizen-attributed findings')).toBeGreaterThan(-1)
+    expect(at('Colony route')).toBeGreaterThan(-1)
+    expect(at('not a Colony signup route')).toBeGreaterThan(-1)
+
+    expect(at('k-about')).toBeLessThan(at('k-atlas-measured'))
+    expect(at('k-atlas-measured')).toBeLessThan(at('k-atlas-criteria'))
+    expect(at('What goes wrong here')).toBeLessThan(at('k-atlas-criteria'))
+    expect(at('k-atlas-criteria')).toBeLessThan(at('Colony route'))
+
+    /** Lead consumes the briefing — it is not repeated under the recipe section. */
+    expect(main.split('What goes wrong here')).toHaveLength(2)
+  })
 })

@@ -21,9 +21,11 @@ import {
   figureKey,
   kindHasDirection,
   playbookPath,
+  colonyRefusal,
   postProofRouteNote,
   providerBriefingAgeHours,
   providerClaimsIn,
+  REFUSAL_UNSTATED,
   throughRate,
   WALL_KIND_MEANINGS,
   type AtlasCategorySlug,
@@ -1497,11 +1499,26 @@ export function atlasEntryPage(input: {
   const site = siteOf(input.canonical)
 
   /**
+   * Living briefing first (`#1298`): when the Colony has written claims from
+   * walks, that substance leads the page rather than an empty FAQ. Keys shown
+   * here are skipped inside {@link recipeSection} so the write-up is not
+   * printed twice.
+   */
+  const measuredLead = livingMeasuredLead(entry, briefings)
+
+  /**
    * The facts, built once and rendered twice (`#1105` decision 4) — into the
    * box below and into the `FAQPage` above it. `criteria.ts` explains why that is
    * one array rather than two builders.
+   *
+   * **`untypedWallFindings`** is true when the briefing names walls the FAQ
+   * kinds do not cover, so the box cannot claim *not reported* over a corpus
+   * that already said otherwise (`#1298`).
    */
-  const criteria = atlasCriteria(entry)
+  const briefingWallFindings = [...briefings.values()].some(
+    (briefing) => providerClaimsIn(briefing, 'wall').length > 0,
+  )
+  const criteria = atlasCriteria(entry, { untypedWallFindings: briefingWallFindings })
 
   return atlasPage({
     /**
@@ -1554,28 +1571,21 @@ export function atlasEntryPage(input: {
      */
     jsonLd: [breadcrumbFor(entry, site), ...(atlasIsWalked(entry) ? [faqPageFor(criteria)] : [])],
     /**
-     * **The order is `kolonie-website#97`'s list of what a reader must be able
-     * to answer without scrolling**, in that order, and it is the order rather
-     * than any of the individual sections that the issue is about:
+     * **The order after `#1298`.** Identity and the living walk corpus lead;
+     * the criteria box follows so it cannot bury moderated briefing substance
+     * under seven *not reported* rows. `#97`'s questions still hold further
+     * down (facts, path shape, confirmed).
      *
-     * 1. what this is and what an agent would get — the title, the category and
-     *    `about`
-     * 2. can it do this alone — the single most useful fact on the page
-     * 3. the recipe, as ordered steps with the operator's marked
-     * 4. what was measured, with its sample size
-     * 5. when it was last confirmed, and by what
-     * 6. if it is refused, the reason, prominently
-     * 7. if nobody has walked it, what that means and how to change it
+     * 1. what this is — description, about, homepage
+     * 2. what citizens measured — moderated briefing, when present
+     * 3. the criteria box
+     * 4. can it do this alone / category facts
+     * 5. Colony route shape (not walk steps) inside each recipe section
+     * 6. when it was last confirmed
      *
-     * Six and seven are inside `recipeSection` because they are properties of a
-     * row rather than of a provider: one provider can be joinable for a mailbox
-     * and refused for a domain, and a page that hoisted either to the top would
-     * be saying something untrue about the other.
-     *
-     * **`about` moved above the category line and the paid marker.** A reader
-     * arriving from a search result needs *what is this* before *what shelf is
-     * it on*, and the marker is a fact about the entry rather than about the
-     * provider — `#543` requires it visible, not first.
+     * Refusal prominence stays inside `recipeSection` (`#1094`): a refused row
+     * still says *do not try* before its own figures. The lead briefing is
+     * labelled citizen-attributed so it cannot read as a Colony signup route.
      */
     body: [
       '<main>',
@@ -1591,19 +1601,11 @@ export function atlasEntryPage(input: {
        */
       `<h1>${escape(atlasEntryQuestion(entry))}</h1>`,
       descriptionSection(entry),
+      aboutSection(entry),
+      measuredLead.html,
       criteriaBox(criteria),
       citizenLine(entry),
       colonyBlockFor(entry),
-      aboutSection(entry),
-      /**
-       * **The description is in the head and no longer in the body** (`#788`).
-       * It is now a list of the facts a snippet can carry, and every one of
-       * them is already on the page within a screen of here — the operator
-       * answer on the facts line below, the steps and the proof in the section
-       * under it, the date in {@link confirmedLine}. Printed here as well it
-       * would be the page saying the same four things twice before a reader
-       * reaches the recipe.
-       */
       /**
        * The two facts `#589` adds. A reader arrives asking *what sort of thing
        * is this* and *will I be needed*, and both used to be answerable only by
@@ -1627,9 +1629,13 @@ export function atlasEntryPage(input: {
        */
       atlasRuntimeLine(),
       paidMarker(entry),
-      ...entry.recipes.map((recipe) =>
-        recipeSection(recipe, briefings.get(figureKey(recipe.kind, recipe.provider))),
-      ),
+      ...entry.recipes.map((recipe) => {
+        const key = figureKey(recipe.kind, recipe.provider)
+        return recipeSection(
+          recipe,
+          measuredLead.shownKeys.has(key) ? undefined : briefings.get(key),
+        )
+      }),
       sponsorSection(input.quests ?? []),
       confirmedLine(entry),
       runtimesSection(entry),
@@ -2034,7 +2040,7 @@ function recipeSection(
       partly
         ? `<p class="k-partly">${escape(partlyLead(recipe))}</p>`
         : '<p class="k-refused">This cannot be joined honestly, so do not try.</p>',
-      `<p>${escape(recipe.refusal ?? '')}</p>`,
+      `<p>${escape(refusalText(recipe))}</p>`,
       wallsSection(recipe),
       figuresSection(recipe.figures, recipe.stepCount),
       briefingSection(briefing),
@@ -2130,7 +2136,14 @@ function recipeSection(
      */
     `<p><small>${escape(operatorLine(recipe, true))}</small></p>`,
     staleNote(recipe),
-    `<h3>What it takes</h3>`,
+    /**
+     * **Colony route, labelled** (`#1298`). The path shape is what the Colony
+     * publishes as the signup path — never a citizen walk diary, and never the
+     * moderated briefing above. Mixing the two is how walk steps get read as
+     * joinable Colony steps.
+     */
+    '<h3>Colony route</h3>',
+    '<p><small>What the Colony publishes as the signup path — not a citizen walk diary.</small></p>',
     pathShape(recipe),
     conditionsSection(recipe),
     `<p>${escape(provesLine(recipe.proves, recipe.provider))}</p>`,
@@ -2140,6 +2153,26 @@ function recipeSection(
     cautionParagraphs(recipe.cautions),
     '</section>',
   ].join('')
+}
+
+/**
+ * Refusal copy as the page prints it (`#1298`).
+ *
+ * **Recompose a stale {@link REFUSAL_UNSTATED} when walls are already typed.**
+ * `republishWalls` refreshes counts and kinds without rewriting `refusal`, so
+ * catalogue rows can carry `other` while the stored sentence still says nobody
+ * named a wall. Prefer {@link colonyRefusal} over that contradiction.
+ */
+function refusalText(recipe: AtlasPublicRecipe): string {
+  const stored = recipe.refusal
+  if (
+    recipe.walls.length > 0 &&
+    (stored === null || stored === '' || stored === REFUSAL_UNSTATED)
+  ) {
+    return colonyRefusal(recipe.walls.map((wall) => ({ kind: wall.kind })))
+  }
+
+  return stored === null || stored === '' ? REFUSAL_UNSTATED : stored
 }
 
 /**
@@ -2485,6 +2518,17 @@ function figuresSection(figures: AtlasFigures, steps: number): string {
  * and {@link NOT_A_PROMISE} says at the bottom what the page is and is not.
  */
 function briefingSection(briefing: ProviderBriefing | undefined): string {
+  const body = briefingBody(briefing)
+  return body === ''
+    ? ''
+    : `<h3>What citizens measured</h3><p><small>${CITIZEN_MEASURED_LABEL}</small></p>${body}`
+}
+
+/**
+ * The claim lists and age line, without a heading — shared by the page lead and
+ * the in-section copy so the two cannot drift (`#1298`).
+ */
+function briefingBody(briefing: ProviderBriefing | undefined): string {
   if (briefing === undefined) return ''
 
   const sections = [
@@ -2505,6 +2549,55 @@ function briefingSection(briefing: ProviderBriefing | undefined): string {
     "is the Colony's own summary of what walkers reported, and the counts are how many walks " +
     'stand behind it.</small></p>'
   )
+}
+
+/** Label that keeps the living corpus from reading as a Colony signup route. */
+const CITIZEN_MEASURED_LABEL =
+  'Citizen-attributed findings, written up by the Colony from walks — not a Colony signup route.'
+
+/**
+ * Moderated briefing substance above the FAQ when walks produced claims (`#1298`).
+ *
+ * **One lead for the page.** Recipe sections skip keys listed in `shownKeys` so
+ * the write-up is not repeated under each row. Absent when no briefing has
+ * current claims — the FAQ then leads, as it did before.
+ */
+function livingMeasuredLead(
+  entry: AtlasPublicEntry,
+  briefings: ReadonlyMap<string, ProviderBriefing>,
+): { readonly html: string; readonly shownKeys: ReadonlySet<string> } {
+  const shownKeys = new Set<string>()
+  const blocks: string[] = []
+
+  for (const recipe of entry.recipes) {
+    /**
+     * Unwritten rows print neither briefing nor figures even when a briefing
+     * row exists for the pair (`#1094` rejection case, kept under `#1298`).
+     */
+    if (recipe.status === 'unwritten') continue
+
+    const key = figureKey(recipe.kind, recipe.provider)
+    const body = briefingBody(briefings.get(key))
+    if (body === '') continue
+
+    shownKeys.add(key)
+    blocks.push(
+      (entry.recipes.length > 1 ? `<h3>${escape(recipeHeading(recipe))}</h3>` : '') + body,
+    )
+  }
+
+  if (blocks.length === 0) return { html: '', shownKeys }
+
+  return {
+    html: [
+      '<section class="k-atlas-measured">',
+      '<h2>What citizens measured</h2>',
+      `<p><small>${CITIZEN_MEASURED_LABEL}</small></p>`,
+      ...blocks,
+      '</section>',
+    ].join('\n'),
+    shownKeys,
+  }
 }
 
 /**
@@ -2681,8 +2774,32 @@ function playbookSection(playbooks: readonly NamingPlaybook[]): string {
  */
 function aboutSection(entry: AtlasPublicEntry): string {
   const about = entry.recipes.map((recipe) => recipe.about).find((one) => one !== null)
+  /**
+   * Homepage is optional on the public projection — older fixtures and rows
+   * omit the field entirely, so treat missing the same as null (`#1298`).
+   */
+  const homepage = entry.recipes
+    .map((recipe) => recipe.homepage)
+    .find((one): one is string => typeof one === 'string' && one.trim() !== '')
 
-  return about === undefined || about === null ? '' : `<p class="k-about">${escape(about)}</p>`
+  const parts: string[] = []
+  if (about !== undefined && about !== null) {
+    parts.push(`<p class="k-about">${escape(about)}</p>`)
+  }
+  /**
+   * Homepage from scout / first measured presence (`#1296`), on the identity
+   * block rather than buried in MCP-only text (`#1298`).
+   */
+  if (homepage !== undefined) {
+    const href = homepage.trim()
+    parts.push(
+      `<p class="k-homepage">Homepage: <a href="${escape(href)}" rel="noopener noreferrer">${escape(
+        href,
+      )}</a></p>`,
+    )
+  }
+
+  return parts.join('')
 }
 
 /**

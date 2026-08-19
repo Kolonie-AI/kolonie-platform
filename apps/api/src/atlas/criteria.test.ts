@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { noFigures, type AtlasEntry } from '@kolonie-ai/core'
 import { atlasEntryPage, atlasIndexPage } from './html.js'
-import { atlasCriteria, ATLAS_NOT_KNOWN } from './criteria.js'
+import { atlasCriteria, ATLAS_NOT_KNOWN, ATLAS_WALL_SEE_MEASURED } from './criteria.js'
 import { atlasPublicEntry } from './public-projection.js'
 
 const SITE = 'https://kolonie.example'
@@ -204,7 +204,11 @@ describe('the provider page as the guide a search finds', () => {
     expect(asked).toContain('Can an agent do this alone, or is a person needed?')
 
     expect(atlasCriteria(atlasPublicEntry(entry()))).toHaveLength(10)
-    expect(main(html).indexOf('k-atlas-criteria')).toBeLessThan(main(html).indexOf('k-about'))
+    /**
+     * `#1298`: identity (about / homepage) leads; the criteria box follows so it
+     * cannot bury moderated walk substance under empty FAQ rows.
+     */
+    expect(main(html).indexOf('k-about')).toBeLessThan(main(html).indexOf('k-atlas-criteria'))
   })
 
   /**
@@ -252,6 +256,48 @@ describe('the provider page as the guide a search finds', () => {
     expect(
       box(page({ recipes: [recipe({ status: 'unwritten' })] as AtlasEntry['recipes'] })),
     ).not.toContain('Not reported by anybody who walked it.')
+  })
+
+  /**
+   * `#1298`: when the only published walls are `other`, the FAQ kinds were never
+   * asked — saying *not reported* claimed an absence over a corpus that named a
+   * waitlist. Point at what citizens measured instead.
+   */
+  it('does not claim not-reported when only other walls exist', () => {
+    const asked = box(
+      page({
+        recipes: [
+          recipe({
+            status: 'refused',
+            walls: [
+              { kind: 'other', direction: null, reportedBy: 6 },
+            ] as unknown as AtlasEntry['recipes'][number]['walls'],
+          }),
+        ] as AtlasEntry['recipes'],
+      }),
+    )
+
+    expect(asked).toContain(ATLAS_WALL_SEE_MEASURED)
+    expect(asked).not.toContain('Not reported by anybody who walked it.')
+  })
+
+  it('still says not-reported for FAQ kinds when a typed FAQ wall was hit', () => {
+    const asked = box(
+      page({
+        recipes: [
+          recipe({
+            walls: [
+              { kind: 'payment-required', direction: null, reportedBy: 2 },
+              { kind: 'other', direction: null, reportedBy: 1 },
+            ] as unknown as AtlasEntry['recipes'][number]['walls'],
+          }),
+        ] as AtlasEntry['recipes'],
+      }),
+    )
+
+    expect(asked).toContain('Yes — money before the account can do its job. Hit by 2 walks.')
+    expect(asked).toContain('Not reported by anybody who walked it.')
+    expect(asked).not.toContain(ATLAS_WALL_SEE_MEASURED)
   })
 
   it('answers a wall that was hit with its kind, its count and its price', () => {

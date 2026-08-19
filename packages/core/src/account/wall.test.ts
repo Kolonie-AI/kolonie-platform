@@ -3,6 +3,7 @@ import {
   colonyRefusal,
   NOTHING_ANSWERED_REFUSAL,
   publishWalls,
+  REFUSAL_OTHER,
   REFUSAL_UNSTATED,
   TERMS_FORBID_AGENTS_REFUSAL,
   TERMS_RESTRICT_OUTPUT_REFUSAL,
@@ -306,6 +307,18 @@ describe('an entry where nothing answered at all', () => {
     for (const outcome of ['cannot-do-the-job', 'signup-refused', 'never-provisioned'] as const) {
       expect(providerReportAsWalk(outcome).recipe?.walls?.[0]?.kind).toBe('other')
     }
+  })
+
+  /**
+   * `#1298`: `other` is a published wall. Falling through to REFUSAL_UNSTATED —
+   * or listing *none of the above* as if it were a criterion — told readers nobody
+   * named a wall when the catalogue already carried one.
+   */
+  it('points at the briefing when the only typed wall is other', () => {
+    expect(colonyRefusal([{ kind: 'other' }])).toBe(REFUSAL_OTHER)
+    expect(colonyRefusal([{ kind: 'other' }])).not.toBe(REFUSAL_UNSTATED)
+    expect(colonyRefusal([{ kind: 'other' }])).not.toContain('none of the above')
+    expect(colonyRefusal([{ kind: 'other' }])).toContain('briefing')
   })
 })
 

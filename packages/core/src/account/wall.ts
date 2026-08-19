@@ -374,6 +374,19 @@ export const REFUSAL_UNSTATED =
   'What the walker wrote about it reaches this entry’s briefing once it has been read.'
 
 /**
+ * What a refused entry says when the only typed wall is `other` (`#1298`).
+ *
+ * **Not {@link REFUSAL_UNSTATED}, and not *none of the above*.** `other` is a
+ * published finding — a waitlist, a broken form, a free-text wall — and listing
+ * {@link WALL_KIND_MEANINGS}'s *none of the above* clause treated that finding as
+ * if it were a criterion a reader could act on. Point at the briefing instead:
+ * that is where the walker's own words land once moderated.
+ */
+export const REFUSAL_OTHER =
+  'A walk closed here without the account, and the wall it named does not fit the typed kinds the Colony publishes on this page. ' +
+  'What the walker wrote about it reaches this entry’s briefing once it has been read.'
+
+/**
  * The sentence a refusal gets when the terms restrict the output and nothing
  * else stopped the walk (`#1123`).
  *
@@ -447,9 +460,17 @@ export function colonyRefusal(walls: readonly WalkedRecipeWall[]): string {
   if (kinds.has('terms-forbid-agents')) return TERMS_FORBID_AGENTS_REFUSAL
   if (kinds.size === 1 && kinds.has('absent')) return NOTHING_ANSWERED_REFUSAL
   if (kinds.size === 1 && kinds.has('terms-restrict-output')) return TERMS_RESTRICT_OUTPUT_REFUSAL
+  if (kinds.size === 1 && kinds.has('other')) return REFUSAL_OTHER
 
-  const named = WALL_KINDS.filter((kind) => kinds.has(kind)).map((kind) => WALL_KIND_MEANINGS[kind])
-  if (named.length === 0) return REFUSAL_UNSTATED
+  /**
+   * Drop `other` from the list when anything typed sits beside it (`#1298`).
+   * *None of the above* is not a criterion; the briefing carries what the walker
+   * actually wrote, and the typed kinds are what a reader can act on here.
+   */
+  const named = WALL_KINDS.filter((kind) => kinds.has(kind) && kind !== 'other').map(
+    (kind) => WALL_KIND_MEANINGS[kind],
+  )
+  if (named.length === 0) return kinds.has('other') ? REFUSAL_OTHER : REFUSAL_UNSTATED
 
   return (
     `A walk closed here without the account. What stopped it: ${named.join('; ')}. ` +

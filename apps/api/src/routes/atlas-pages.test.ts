@@ -1061,9 +1061,10 @@ describe('the Atlas on the website host', () => {
     })
 
     /**
-     * **The refusal first, then the figures, then the write-up.** A reader has
-     * to learn the road is closed before reading what walkers found there, or
-     * the findings read as an invitation.
+     * **The refusal first, then the figures** (`#1094`). `#1298` may hoist the
+     * moderated write-up into a labelled lead above the FAQ — that lead is not a
+     * signup invitation — but inside the recipe section the closed road still
+     * comes before the counts.
      */
     it('puts the refusal above the figures and the briefing', async () => {
       await refused((one) => {
@@ -1075,10 +1076,13 @@ describe('the Atlas on the website host', () => {
       const refusal = body.indexOf('Signup demands a document no citizen holds.')
       const figures = body.indexOf('0% of 12 agents got through')
       const written = body.indexOf('Signup asks for a government document')
+      const lead = body.indexOf('Citizen-attributed findings')
 
       expect(refusal).toBeGreaterThan(-1)
       expect(refusal).toBeLessThan(figures)
-      expect(figures).toBeLessThan(written)
+      expect(written).toBeGreaterThan(-1)
+      expect(lead).toBeGreaterThan(-1)
+      expect(lead).toBeLessThan(refusal)
     })
 
     /**
@@ -1417,7 +1421,7 @@ describe('the Atlas on the website host', () => {
    * A `measured` row is an entry citizens walked and nobody wrote up, and it
    * cannot carry steps: `recipeStatusAllowsSteps` refuses them in TypeScript and
    * `provider_recipes_unjoinable_is_empty` refuses them in SQL. It fell through
-   * to the joinable layout all the same, so the page printed **What it takes**
+   * to the joinable layout all the same, so the page printed **Colony route**
    * over *0 steps, none of them an operator’s* — the reading `#588` closed on the
    * MCP side and left open on the surface a stranger meets.
    *
@@ -1442,7 +1446,7 @@ describe('the Atlas on the website host', () => {
       expect(body).toContain('class="k-unwritten"')
       expect(body).toContain('Citizens have walked this one, and nobody has written the route.')
       expect(body).toContain('a steward writes the route up from the walks')
-      expect(body).not.toContain('What it takes')
+      expect(body).not.toContain('Colony route')
       expect(body).not.toContain('class="k-atlas-shape"')
       expect(body).not.toContain('0 steps')
     })
@@ -1454,7 +1458,7 @@ describe('the Atlas on the website host', () => {
     it('still prints the path on an entry that has one', async () => {
       const body = main((await get('/atlas/github')).body)
 
-      expect(body).toContain('What it takes')
+      expect(body).toContain('Colony route')
       expect(body).toContain('class="k-atlas-shape"')
       expect(body).toContain('2 steps')
       expect(body).not.toContain('nobody has written the route')

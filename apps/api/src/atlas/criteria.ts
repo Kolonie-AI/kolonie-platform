@@ -49,10 +49,31 @@ export const ATLAS_NOT_KNOWN = 'Not known.'
 /** What a walked entry says about a wall nobody hit. */
 const NOT_REPORTED = 'Not reported by anybody who walked it.'
 
+/**
+ * What a walked entry says when walkers reported walls the FAQ kinds do not
+ * cover (`#1298`).
+ *
+ * **Not the same as {@link NOT_REPORTED}.** `other`, free-text walls, and
+ * briefing wall claims are findings — saying *not reported* over them emptied
+ * the FAQ on pages like `agentmessage.io` while the corpus named a waitlist.
+ */
+export const ATLAS_WALL_SEE_MEASURED =
+  'Walkers reported walls that do not fit this question — see what citizens measured.'
+
 /** One line of the criteria box: a question a reader typed, and the answer. */
 export type AtlasCriterion = {
   readonly question: string
   readonly answer: string
+}
+
+/** Optional corpus signal the page knows and the entry walls alone may not. */
+export type AtlasCriteriaOptions = {
+  /**
+   * True when moderated walk substance names walls outside the FAQ kinds —
+   * briefing wall claims, or free-text walls that never typed. The entry's own
+   * non-FAQ kinds (`other`, `absent`, …) are detected without this flag.
+   */
+  readonly untypedWallFindings?: boolean
 }
 
 /**
@@ -144,7 +165,10 @@ export function atlasShelfQuestion(title: string): string {
  * `#1105` chose which facts a reader weighs; ten of them today, nine of them
  * before the terms wall was sayable. A caller wanting the number counts the rows.
  */
-export function atlasCriteria(entry: AtlasPublicEntry): readonly AtlasCriterion[] {
+export function atlasCriteria(
+  entry: AtlasPublicEntry,
+  options: AtlasCriteriaOptions = {},
+): readonly AtlasCriterion[] {
   const walls = entry.recipes.flatMap((recipe) => recipe.walls)
 
   /**
@@ -153,6 +177,19 @@ export function atlasCriteria(entry: AtlasPublicEntry): readonly AtlasCriterion[
    * asks not to be indexed; every other status is somebody having looked.
    */
   const measured = entry.recipes.some((recipe) => recipe.status !== 'unwritten')
+
+  /**
+   * FAQ kinds vs everything else (`#1298`). When walkers only hit `other` (or
+   * free-text / briefing walls the page passes in), every FAQ row would otherwise
+   * print {@link NOT_REPORTED} and claim an absence that is not true. Point at
+   * the measured corpus instead — but only when no FAQ kind was hit, so a real
+   * `payment-required` answer is not rewritten on neighbouring rows.
+   */
+  const faqKinds = new Set(WALL_QUESTIONS.map(([kind]) => kind))
+  const faqHit = walls.some((wall) => faqKinds.has(wall.kind))
+  const nonFaqHit = walls.some((wall) => !faqKinds.has(wall.kind))
+  const pointAtMeasured =
+    measured && !faqHit && (nonFaqHit || options.untypedWallFindings === true)
 
   return [
     /**
@@ -177,6 +214,7 @@ export function atlasCriteria(entry: AtlasPublicEntry): readonly AtlasCriterion[
       answer: wallAnswer(
         walls.find((wall) => wall.kind === kind),
         measured,
+        pointAtMeasured,
       ),
     })),
     {
@@ -208,8 +246,13 @@ export function atlasCriteria(entry: AtlasPublicEntry): readonly AtlasCriterion[
 function wallAnswer(
   wall: AtlasPublicEntry['recipes'][number]['walls'][number] | undefined,
   measured: boolean,
+  pointAtMeasured: boolean,
 ): string {
-  if (wall === undefined) return measured ? NOT_REPORTED : ATLAS_NOT_KNOWN
+  if (wall === undefined) {
+    if (!measured) return ATLAS_NOT_KNOWN
+    if (pointAtMeasured) return ATLAS_WALL_SEE_MEASURED
+    return NOT_REPORTED
+  }
 
   const scope = directionScope(wall.direction ?? null)
   const walks =

@@ -152,6 +152,7 @@ export const BACKEND_PAGES = [
   { href: '/backend/briefings', label: 'Whether briefings help' },
   { href: '/backend/unreported', label: 'What nobody has reported on' },
   { href: '/backend/tickets', label: 'Waiting to be read' },
+  { href: '/backend/desk', label: 'Tickets to answer' },
   { href: '/backend/diagnoses', label: 'What the Doctor found' },
   { href: '/backend/refusals', label: 'Walkers whose prose was refused' },
   { href: '/backend/enquiries', label: 'Providers writing in' },

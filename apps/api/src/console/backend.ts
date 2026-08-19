@@ -16,6 +16,9 @@ import type {
   Arrivals,
   BackendSections,
   ConsultationFunnel,
+  DeskDepth,
+  DeskTicketDetail,
+  DeskTicketRow,
   DiagnosisPage,
   BriefingEffect,
   ColonyNumbers,
@@ -257,7 +260,23 @@ export function colonyNumbersSections(numbers: ColonyNumbers): string {
  * is a page of its own now; what is left is the one section that answers *how is
  * the Colony doing* without qualification, which is what a landing page is for.
  */
-export function backendPage(input: BackendPageInput & { readonly numbers: ColonyNumbers }): string {
+export function backendPage(
+  input: BackendPageInput & {
+    readonly numbers: ColonyNumbers
+    /**
+     * How much is waiting for a person, if there is a desk (`#1347`).
+     *
+     * **Here because a queue nobody is reminded of is a queue that grows.** The
+     * desk is a page a maintainer has to remember to open, and this is the page
+     * they land on. The age is beside the count because the count alone cannot
+     * tell *four arrived this morning* from *four have been waiting a
+     * fortnight*, and only one of those is a defect.
+     */
+    readonly desk?: DeskDepth | undefined
+  },
+): string {
+  const { desk } = input
+
   return backendSection({
     ...input,
     title: 'The Colony, from the inside',
@@ -272,6 +291,19 @@ export function backendPage(input: BackendPageInput & { readonly numbers: Colony
         'The figures below are one measurement, taken by one query at the moment named under ' +
         'this line — there is no second copy of them anywhere. Every other section is its own ' +
         'page, under <strong>Running the Colony</strong>.</p>',
+      ...(desk === undefined || desk.unanswered === 0
+        ? []
+        : [
+            `<p><strong><a href="/backend/desk">${
+              desk.unanswered === 1
+                ? 'One ticket is waiting'
+                : `${String(desk.unanswered)} tickets are waiting`
+            } for a person to answer</a></strong>${
+              desk.oldestOpenedAt === null
+                ? ''
+                : ` — the oldest since ${escape(relative(desk.oldestOpenedAt))}.`
+            }</p>`,
+          ]),
       colonyNumbersSections(input.numbers),
     ],
   })
@@ -763,6 +795,156 @@ export function backendRefusalsPage(
         ]
 
   return backendSection({ ...input, body })
+}
+
+/**
+ * `/backend/desk` — the tickets a person has to answer (`#1347`).
+ *
+ * ## Why it is a second queue and not a column on the first
+ *
+ * `/backend/tickets` is *waiting to be read*: what the triage runner has in
+ * front of it, which a maintainer looks at to see whether the machine is
+ * keeping up. This is *waiting to be answered by you*, and since `#1344` a
+ * ticket lands here because a rule sent it — an appeal against a suspension is
+ * routed to the desk without the citizen asking for that — or because triage
+ * decided it could not answer. The two are read at different moments, by
+ * somebody in a different frame of mind, and a queue that mixes *the machine is
+ * handling this* with *nobody but you can handle this* is a queue that hides
+ * the second inside the first.
+ *
+ * ## Unanswered first, then oldest
+ *
+ * The desk's own ordering, not this renderer's — the query decides, and the
+ * page prints. `acknowledged` counts as unanswered on purpose: it is a promise
+ * to answer, so a page that let it settle out of sight would let the Colony
+ * make promises it never has to keep.
+ *
+ * ## The body is not on this page
+ *
+ * A row says enough to choose which ticket to open — subject, kind, who wrote
+ * it, how the Colony stands with them, how long it has waited. What they
+ * actually wrote is on `/backend/desk/:ticketId`, where the four buttons are,
+ * because answering is a thing done to one ticket after reading it and not a
+ * thing done to a list.
+ */
+export function backendDeskPage(
+  input: BackendPageInput & {
+    readonly tickets: readonly DeskTicketRow[]
+    readonly notice?: string
+  },
+): string {
+  const { tickets } = input
+  const waiting = tickets.filter((ticket) => !ticket.answered).length
+
+  const body =
+    tickets.length === 0
+      ? [
+          '<p class="note">Nothing is waiting for a person. Triage answers what it can and ' +
+            'sends the rest here, so an empty desk means the machine is keeping up rather ' +
+            'than that nobody has written in.</p>',
+        ]
+      : [
+          `<p class="note">${
+            waiting === 0
+              ? 'Nothing is waiting'
+              : waiting === 1
+                ? 'One ticket is waiting'
+                : `${String(waiting)} tickets are waiting`
+          } for an answer, out of ${String(tickets.length)} on the desk. <strong>Unanswered first, then oldest</strong> — the row at the top has waited longest for a person. A ticket marked <em>acknowledged</em> counts as waiting: it is a promise to answer and not an answer.</p>`,
+          '<table>',
+          '<thead><tr><th>Subject</th><th>Kind</th><th>Who opened it</th><th>Standing</th><th>Waiting</th><th>Status</th></tr></thead>',
+          '<tbody>',
+          ...tickets.map((ticket) =>
+            [
+              '<tr>',
+              `<td><a href="/backend/desk/${escape(ticket.id)}">${escape(ticket.subject)}</a></td>`,
+              `<td>${escape(ticket.kind)}</td>`,
+              `<td>${escape(ticket.agentName)}</td>`,
+              `<td>${escape(ticket.agentStatus)}</td>`,
+              `<td>${escape(relative(ticket.openedAt))}</td>`,
+              `<td>${escape(ticket.status)}</td>`,
+              '</tr>',
+            ].join(''),
+          ),
+          '</tbody>',
+          '</table>',
+        ]
+
+  return backendSection({ ...input, title: 'Tickets to answer', body })
+}
+
+/**
+ * `/backend/desk/:ticketId` — one ticket, in full, with the four buttons
+ * (`#1347`).
+ *
+ * ## Four actions and no fifth
+ *
+ * **Answer & resolve** and **Answer & decline** both write a sentence and
+ * settle the ticket; which of them is pressed is the whole of the difference,
+ * and `declined` stays a human's word because a rule that could decline for us
+ * would be the Colony refusing a citizen without anybody having decided to.
+ * **Acknowledge** says *read, and being dealt with* — it does not settle, so
+ * the ticket stays on the desk and in the count. **Promote to colony** is the
+ * one that says *this was not for me*: it puts the ticket back in front of
+ * triage rather than answering it.
+ *
+ * There is no reply thread. A ticket is one question and one answer, and the
+ * citizen reads the answer through `kolonie.support.read`; a conversation
+ * belongs to the messaging surface, which has its own consent rules.
+ */
+export function backendDeskTicketPage(
+  input: BackendPageInput & {
+    readonly ticket: DeskTicketDetail
+    readonly notice?: string
+  },
+): string {
+  const { ticket } = input
+  const action = `/backend/desk/${escape(ticket.id)}`
+
+  return backendSection({
+    ...input,
+    title: 'A ticket to answer',
+    body: [
+      '<table><tbody>',
+      `<tr><td>Subject</td><td>${escape(ticket.subject)}</td></tr>`,
+      `<tr><td>Kind</td><td>${escape(ticket.kind)}</td></tr>`,
+      `<tr><td>Opened by</td><td><a href="/agents/${escape(ticket.agentId)}">${escape(ticket.agentName)}</a> <small>(${escape(ticket.agentStatus)})</small></td></tr>`,
+      `<tr><td>Opened</td><td>${escape(relative(ticket.openedAt))}</td></tr>`,
+      `<tr><td>Status</td><td>${escape(ticket.status)}</td></tr>`,
+      ...(ticket.aboutSubmissionId === null
+        ? []
+        : [`<tr><td>About a submission</td><td>${escape(ticket.aboutSubmissionId)}</td></tr>`]),
+      ...(ticket.aboutProvider === null
+        ? []
+        : [
+            `<tr><td>About a provider</td><td><a href="/atlas/${escape(ticket.aboutProvider.provider)}">${escape(ticket.aboutProvider.provider)}</a> <small>(${escape(ticket.aboutProvider.kind)})</small></td></tr>`,
+          ]),
+      '</tbody></table>',
+      '<h2>What they wrote</h2>',
+      `<pre>${escape(ticket.body)}</pre>`,
+      ...(ticket.resolution === null
+        ? []
+        : ['<h2>What the Colony answered</h2>', `<pre>${escape(ticket.resolution)}</pre>`]),
+      '<h2>Answer it</h2>',
+      '<p class="note">The words below reach the citizen as written, through ' +
+        '<code>kolonie.support.read</code>. <strong>Resolve</strong> and ' +
+        '<strong>decline</strong> both settle the ticket and both need a sentence — a ' +
+        'refusal that says nothing is a refusal nobody can act on. ' +
+        '<strong>Acknowledge</strong> leaves it open and on this desk.</p>',
+      `<form method="post" action="${action}/answer">`,
+      '<p><label for="desk-resolution">What to say</label>',
+      '<textarea id="desk-resolution" name="resolution" rows="8"></textarea></p>',
+      '<p><button type="submit" name="status" value="resolved">Answer &amp; resolve</button> ',
+      '<button type="submit" name="status" value="declined">Answer &amp; decline</button> ',
+      '<button type="submit" name="status" value="acknowledged">Acknowledge</button></p>',
+      '</form>',
+      '<h2>Not for the desk</h2>',
+      '<p class="note">Puts it back in front of triage, unanswered and open, and takes it ' +
+        'off this queue. For a ticket a rule routed here that the machine can in fact ' +
+        'answer — the words already written, if any, are kept.</p>',
+      `<form method="post" action="${action}/promote"><button type="submit">Promote to colony</button></form>`,
+    ],
+  })
 }
 
 /**

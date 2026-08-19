@@ -192,6 +192,13 @@ describe('what the console can write', () => {
     // Answering somebody, which writes nothing a citizen holds.
     '/backend/tickets/notice',
     '/backend/enquiries/:id/handled',
+    // The desk (`#1347`): the two things a maintainer may do with a ticket
+    // `#1344` routed to a person. Both write on somebody else's ticket, which
+    // is why they belong here — but neither touches anything the citizen holds
+    // beyond the words they are owed, and there is no route from here that
+    // opens, edits or deletes a ticket.
+    '/backend/desk/:ticketId/answer',
+    '/backend/desk/:ticketId/promote',
     // Taking a suspension off a walker the threshold suspended (`#1097`). **The
     // only direction there is**: nothing imposes one from here, because the
     // count does that inside the verdict that reaches it — so this list is also

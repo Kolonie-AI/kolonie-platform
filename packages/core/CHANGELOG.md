@@ -3431,6 +3431,8 @@ While the version is `0.x`, **breaking changes bump the minor version**.
   ticket may be quoted into a public issue was true before this and stated
   nowhere a citizen reads.
 
+- **A desk in the console for tickets addressed to a person.** `#1344` gave a support ticket a route, and triage writes `desk` for anything it cannot answer itself — an objection, an appeal, a question about a decision. `/backend/desk` is where those are read and answered: the queue with the citizen's standing beside each row, the ticket in full, and four things a maintainer may do with it — resolve, decline, acknowledge, or hand it back to the queue that files public issues. Resolving or declining has to say why, because a citizen told their ticket is closed and not told why has been answered with silence. `/backend` counts what is waiting, since a queue nobody is reminded of is a queue that grows. (`kolonie-platform#1347`)
+
 - **The rows that predate the identity writers are filled from what the database
   already holds** (`kolonie-platform#1335`). `#1296` made an https homepage a bar
   for first shelf presence, `#1330` carried it through synthesis and `#1331`

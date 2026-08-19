@@ -1,6 +1,7 @@
 import {
   AgentIdSchema,
   BROWSER_STAGES,
+  SupportTicketIdSchema,
   createLog,
   OPERATOR_DROP_SEALING_KEY_VAR,
   PAYOUT_WALLET_ADDRESS_VAR,
@@ -152,6 +153,11 @@ import {
   recordObstructedAttemptForTaskType,
   walkRefusalTallies,
   writeSkillNote,
+  answerDeskTicket,
+  deskDepth,
+  deskTicket,
+  deskTickets,
+  promoteToColony,
 } from '@kolonie-ai/db'
 import { databaseWebServerChallenges } from './web-server.js'
 import { databaseWalks } from './account-walks.js'
@@ -808,6 +814,34 @@ const app = buildApp({
       )
       return lifted
     },
+  },
+  /**
+   * The tickets a citizen addressed to a person (`#1347`).
+   *
+   * Every function behind this is scoped to `route = 'desk'` in storage, so this
+   * wiring cannot widen it by forgetting a clause — and `promote` is the one
+   * write that crosses the route, which is why it is its own method rather than
+   * a status `answer` could take.
+   *
+   * The ids are parsed here rather than trusted: they arrive from a form field,
+   * and an id the schema refuses is a ticket that is not on this desk, which is
+   * the answer a wrong id gets anyway.
+   */
+  ticketDesk: {
+    tickets: () => deskTickets(db),
+    ticket: async (ticketId) => {
+      const parsed = SupportTicketIdSchema.safeParse(ticketId)
+      return parsed.success ? deskTicket(db, parsed.data) : undefined
+    },
+    answer: async (answer) => {
+      const parsed = SupportTicketIdSchema.safeParse(answer.ticketId)
+      return parsed.success ? answerDeskTicket(db, { ...answer, ticketId: parsed.data }) : undefined
+    },
+    promote: async (ticketId) => {
+      const parsed = SupportTicketIdSchema.safeParse(ticketId)
+      return parsed.success ? promoteToColony(db, parsed.data) : false
+    },
+    depth: () => deskDepth(db),
   },
   // A citizen's private notes against the skills it holds (`#348`).
   skillNotes: {

@@ -54,6 +54,7 @@ import { atlasEntryWorked } from './worked.js'
 import { atlasNeighbours } from './related.js'
 import { ATLAS_PARTLY, atlasEntryVerdict, atlasRecipeVerdict } from './verdict.js'
 import { ATLAS_REFUSING, atlasEntryTitle, lowerFirst, providerName } from './title.js'
+import { atlasStatusSubline } from './lead.js'
 import { atlasRuntimeLine } from './runtimes.js'
 import { CONSOLE_MAST } from '../console/mark.js'
 import { CHROME_STYLE, CONSOLE_STYLE } from '../console/theme.js'
@@ -1687,6 +1688,7 @@ export function atlasEntryPage(input: {
        * provider they clicked.
        */
       `<h1>${escape(atlasEntryQuestion(entry))}</h1>`,
+      statusSubline(entry),
       descriptionSection(entry),
       aboutSection(entry),
       measuredLead.html,
@@ -1801,6 +1803,25 @@ function entryDescription(entry: AtlasPublicEntry): string {
     )
   }
 
+  /**
+   * **`measured` gets the sentence its walks earned** (`#1333`).
+   *
+   * It fell through to *nobody has walked this yet* below, which is false of
+   * every measured entry by construction — the status exists because somebody
+   * did — and it was the snippet a searcher read in a result list. Which of the
+   * two sentences it gets is the same question the on-page subline answers, from
+   * the same function, so the head and the body cannot disagree.
+   */
+  if (entry.status === 'measured') {
+    const subline = atlasStatusSubline(entry)
+    if (subline !== undefined) {
+      return (
+        `${name}: ${lowerFirst(subline)} What citizens measured, where it stopped, and why the ` +
+        'Atlas publishes that rather than a route nobody has written.'
+      )
+    }
+  }
+
   if (entry.status !== 'joinable') {
     return (
       `Nobody has walked ${name} yet. It is in the Atlas because it exists, and this page says ` +
@@ -1902,6 +1923,22 @@ function metaDescription(entry: AtlasPublicEntry): string {
  * least on them and the most need of a line saying what the provider is. Here it
  * is rendered for every status, from one place, above everything a row can say.
  */
+/**
+ * Which kind of walk a measured entry is built out of (`#1333`).
+ *
+ * **Directly under the heading and above the identity block**, because it is the
+ * sentence that decides how a reader takes everything below it: the same page
+ * described as *a scout looked at this* and as *somebody tried and stopped* sends
+ * them opposite ways. `atlasStatusSubline` returns nothing on every other status
+ * and on any provider somebody got into, so this renders exactly where the
+ * question arises.
+ */
+function statusSubline(entry: AtlasPublicEntry): string {
+  const line = atlasStatusSubline(entry)
+
+  return line === undefined ? '' : `<p class="k-atlas-subline">${escape(line)}</p>`
+}
+
 function descriptionSection(entry: AtlasPublicEntry): string {
   return entry.description === null
     ? ''

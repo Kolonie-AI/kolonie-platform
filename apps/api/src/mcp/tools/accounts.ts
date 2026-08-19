@@ -1682,8 +1682,25 @@ export function registerAccountTools(
               'under the handle of whoever wrote it. Needs `provider`. The briefing beside it ' +
               'summarises these same walks.',
           ),
+        /**
+         * **All four, and `sighted` was the one missing** (`#1333`).
+         *
+         * The argument takes `WalkOutcomeSchema`, so `sighted` has been a legal
+         * value since `#1296` and the sentence beside it listed three — which
+         * reads as *those are the outcomes*, and leaves a citizen filtering for
+         * scout filings with no way to ask. A reader who inferred the vocabulary
+         * from this line would also conclude a scouted provider had been
+         * abandoned, which is the misreading `#1333` is about.
+         *
+         * **Read off the schema rather than typed again**, exactly as
+         * `EARN_FACETS` is two arguments down: a hand-written list is one that
+         * goes short again the next time the enum grows, silently, and it did.
+         * The quotes went with the retyping and the line is a byte shorter than
+         * the wrong one it replaces.
+         */
         outcome: WalkOutcomeSchema.optional().describe(
-          'Only walks that ended this way — "proved", "refused", "abandoned". With `walks` only.',
+          `Only walks that ended this way: ${WalkOutcomeSchema.options.join(', ')}. ` +
+            'With `walks` only.',
         ),
         cursor: z
           .string()

@@ -570,6 +570,8 @@ describe('the rows the figures imply', () => {
         platforms: {},
         walls: [],
         homepage: 'https://bounties.test',
+        anySighted: true,
+        anyAbandoned: false,
       },
     }
 

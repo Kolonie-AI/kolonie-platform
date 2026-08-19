@@ -1045,6 +1045,8 @@ describe('the Atlas on the website host', () => {
         platforms: { openclaw: 9 },
         walls: [{ kind: 'identity-document' as const, citizens: 9 }],
         homepage: null,
+        anySighted: false,
+        anyAbandoned: false,
       },
     }
 
@@ -1120,6 +1122,8 @@ describe('the Atlas on the website host', () => {
             platforms: {},
             walls: [],
             homepage: null,
+            anySighted: false,
+            anyAbandoned: false,
           },
         })
         one.recipes.brief(briefing)
@@ -1447,6 +1451,8 @@ describe('the Atlas on the website host', () => {
           platforms: {},
           walls: [],
           homepage: 'https://scouted.example',
+          anySighted: false,
+          anyAbandoned: false,
         },
       })
       await app.ready()
@@ -1455,6 +1461,65 @@ describe('the Atlas on the website host', () => {
 
       expect(body).toContain('k-homepage')
       expect(body).toContain('https://scouted.example')
+    })
+
+    /**
+     * **A scout filing is not a failed signup** (`#1333`), on the page and in the
+     * snippet a search result shows. The meta description fell through to
+     * *nobody has walked this yet*, which is false of every measured entry by
+     * construction — the status exists because somebody did.
+     */
+    it('reads a scout filing as scouted, in the body and in the head', async () => {
+      await app.close()
+      app = build()
+      colony.recipes.measure({
+        ...noFigures('bounty-board', 'onlyscouted.example'),
+        attempted: 1,
+        evidenced: true,
+        walked: {
+          citizens: 1,
+          gotThrough: 0,
+          band: null,
+          platforms: {},
+          walls: [],
+          homepage: 'https://onlyscouted.example',
+          anySighted: true,
+          anyAbandoned: false,
+        },
+      })
+      await app.ready()
+
+      const body = (await get('/atlas/onlyscouted.example')).body
+
+      expect(body).toContain('Scouted (identity measured; signup not attempted).')
+      expect(body).not.toContain('stopped before an account')
+      expect(body).not.toContain('Nobody has walked onlyscouted.example yet')
+    })
+
+    it('reads a stopped signup as an attempt, and not as a scout filing', async () => {
+      await app.close()
+      app = build()
+      colony.recipes.measure({
+        ...noFigures('bounty-board', 'gaveup.example'),
+        attempted: 1,
+        evidenced: true,
+        walked: {
+          citizens: 1,
+          gotThrough: 0,
+          band: null,
+          platforms: {},
+          walls: [],
+          homepage: null,
+          anySighted: false,
+          anyAbandoned: true,
+        },
+      })
+      await app.ready()
+
+      const body = (await get('/atlas/gaveup.example')).body
+
+      expect(body).toContain('Attempted; stopped before an account.')
+      expect(body).not.toContain('signup not attempted')
     })
   })
 

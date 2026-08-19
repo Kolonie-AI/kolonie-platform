@@ -147,6 +147,8 @@ export async function atlasFigures(
     walk_platforms: { platform: string; citizens: number }[] | null
     walk_walls: { kind: string; citizens: number }[] | null
     walk_homepage: string | null
+    walk_sighted: boolean
+    walk_abandoned: boolean
   }>(sql`
     with held as (
       select kind, provider, agent_id, proved, proved_at, created_at, status
@@ -315,7 +317,18 @@ export async function atlasFigures(
         where w.kind = p.kind and w.provider = p.provider
           and w.homepage is not null and ${walkAnswers}
         order by w.finished_at asc, w.agent_id asc
-        limit 1) as walk_homepage
+        limit 1) as walk_homepage,
+      -- **Which of the two kinds of stop happened here** (#1333). Booleans and
+      -- never counts, on the rule evidenced and any_proved are written to:
+      -- *somebody scouted this* names nobody, and *two citizens did* is a number
+      -- about two citizens. A page cannot tell a scout's filing from a stopped
+      -- signup without them, and reads both as one generic walk.
+      (exists (select 1 from walked w
+                where w.kind = p.kind and w.provider = p.provider
+                  and w.outcome = 'sighted' and ${walkAnswers})) as walk_sighted,
+      (exists (select 1 from walked w
+                where w.kind = p.kind and w.provider = p.provider
+                  and w.outcome = 'abandoned' and ${walkAnswers})) as walk_abandoned
       from pairs p
      where ${only}
      order by p.kind, p.provider
@@ -444,6 +457,8 @@ function walkedOf(
     walk_platforms: { platform: string; citizens: number }[] | null
     walk_walls: { kind: string; citizens: number }[] | null
     walk_homepage: string | null
+    walk_sighted: boolean
+    walk_abandoned: boolean
   },
   suppressed: boolean,
 ): AtlasWalked {
@@ -473,6 +488,13 @@ function walkedOf(
      * citizen who typed it.
      */
     homepage: row.walk_homepage,
+    /**
+     * **Unfloored beside the homepage and for the same reason** (`#1333`).
+     * Neither is a count, and a page that could not say which kind of walk
+     * happened would go on printing one sentence over both.
+     */
+    anySighted: row.walk_sighted,
+    anyAbandoned: row.walk_abandoned,
   }
 }
 

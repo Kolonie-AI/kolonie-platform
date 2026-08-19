@@ -1537,6 +1537,9 @@ describe('who arrived and what is waiting', () => {
             calls: 3,
             attempts: 1,
             skills: 0,
+            lastSeenAt: '2026-08-06T13:00:00Z',
+            status: 'citizen',
+            reputation: 5,
           },
           {
             name: 'earlier-arrival',
@@ -1554,6 +1557,11 @@ describe('who arrived and what is waiting', () => {
             calls: 0,
             attempts: 0,
             skills: 0,
+            // The lost-key shape (`#1270`): never here, nothing done, nothing
+            // earned — all four readable without leaving the page.
+            lastSeenAt: null,
+            status: 'candidate',
+            reputation: 0,
           },
         ],
         people: [],

@@ -318,3 +318,117 @@ describe('who arrived', () => {
     })
   })
 })
+
+/**
+ * The four columns `/backend/arrivals` could not answer without being left
+ * (`#1270`). All four were already stored; they were simply never selected.
+ */
+describe('what an arrival is, beyond how it arrived', () => {
+  let db: Database
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+  })
+
+  const anAgent = async (name: string): Promise<AgentId> => {
+    const result = await registerAgent(
+      db,
+      RegisterAgentRequestSchema.parse({ name, platform: 'openclaw' }),
+    )
+    if (result.outcome !== 'registered') throw new Error(result.outcome)
+    return result.agent.id
+  }
+
+  /** Straight into the event log, because what is read here is `sum(delta)`. */
+  const award = async (agentId: AgentId, delta: number): Promise<void> => {
+    await db.execute(
+      sql`insert into reputation_events (agent_id, delta, reason)
+          values (${agentId}, ${delta}, 'task_passed')`,
+    )
+  }
+
+  it('reads last online, status and reputation off the agent that arrived', async () => {
+    const agentId = await anAgent('canary')
+    await recordOrigin(db, agentId, { fingerprint: digest('a'), country: 'DE', colo: 'FRA' })
+    await db.execute(
+      sql`update agents set last_seen_at = now(), status = 'citizen' where id = ${agentId}`,
+    )
+    await award(agentId, 3)
+    await award(agentId, 4)
+
+    const row = (await recentArrivals(db)).agents[0]
+
+    expect(row?.lastSeenAt).not.toBeNull()
+    expect(row?.status).toBe('citizen')
+    // `sum(delta)`, not a count of events.
+    expect(row?.reputation).toBe(7)
+  })
+
+  /**
+   * The Johanna Wagner shape: registered, never authenticated, no operator. All
+   * four answers are on the row, so confirming it needs no second page.
+   */
+  it('answers never, candidate and zero for an account that never came back', async () => {
+    await anAgent('Johanna Wagner')
+
+    const row = (await recentArrivals(db)).agents[0]
+
+    expect(row?.lastSeenAt).toBeNull()
+    expect(row?.status).toBe('candidate')
+    // Zero and not null: nothing earned is a measured fact.
+    expect(row?.reputation).toBe(0)
+    expect(row?.calls).toBe(0)
+  })
+
+  /**
+   * **`agents.last_seen_at` and not the origins rollup.** The two can disagree —
+   * an origin is per fingerprint — and every other surface means the column.
+   */
+  it('takes last online from the agents column rather than from an origin', async () => {
+    const agentId = await anAgent('canary')
+    await recordOrigin(db, agentId, { fingerprint: digest('a'), country: 'DE', colo: 'FRA' })
+
+    const row = (await recentArrivals(db)).agents[0]
+
+    // `recordOrigin` wrote an origin and did not touch `last_seen_at`, so this
+    // is `never` beside a call count — which is the divergence the two columns
+    // exist to keep visible rather than collapse.
+    expect(row?.lastSeenAt).toBeNull()
+    expect(row?.calls).toBeGreaterThan(0)
+  })
+
+  it('carries status and reputation into the unconfirmed table too', async () => {
+    // An origin first, so the record begins before `fermata` registers: the
+    // question is only asked of accounts younger than the first observation
+    // the Colony ever made, and one registered before it is `unmeasurable`.
+    const other = await anAgent('observed')
+    await recordOrigin(db, other, { fingerprint: digest('b'), country: 'DE', colo: 'FRA' })
+    const agentId = await anAgent('fermata')
+    await award(agentId, 2)
+
+    const row = (await recentArrivals(db)).unconfirmed.oldest.find((one) => one.name === 'fermata')
+
+    expect(row?.status).toBe('candidate')
+    expect(row?.reputation).toBe(2)
+  })
+
+  /** Ordering is registration order and nothing here may touch it. */
+  it('does not reorder by reputation or by status', async () => {
+    const first = await anAgent('older')
+    await award(first, 50)
+    const second = await anAgent('newer')
+    await db.execute(sql`update agents set status = 'suspended' where id = ${second}`)
+
+    const names = (await recentArrivals(db)).agents.map((row) => row.name)
+
+    expect(names).toEqual(['newer', 'older'])
+  })
+})

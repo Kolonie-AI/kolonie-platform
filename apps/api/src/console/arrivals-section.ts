@@ -31,9 +31,37 @@
  * figure that leaves it.
  */
 
+import { profilePath } from '@kolonie-ai/core'
 import type { Arrivals, ArrivedAgent } from '@kolonie-ai/db'
+import { COLONY_HOME } from '../about.js'
 import { escape } from './escape.js'
 import { relative } from './time.js'
+
+/**
+ * The name cell, as a link to the citizen's own page (`#1270`).
+ *
+ * **Absolute, and that is forced rather than tidy.** This page is served from
+ * the console host and the profile lives on the Colony's; a relative `/@…` from
+ * here is a 404. `COLONY_HOME` is where that host is already written down.
+ *
+ * **The cell text is still the name.** The anchor wraps it, so a reader whose
+ * link fails has lost nothing — there is no second *open* button to explain.
+ *
+ * `profilePath` is the helper registration already uses, so a handle with a
+ * space in it produces the same URL here as everywhere else.
+ */
+const nameCell = (name: string): string =>
+  `<a href="${escape(`${COLONY_HOME}${profilePath(name)}`)}">${escape(name)}</a>`
+
+/**
+ * When an authenticated call last touched the row, in the people table's words.
+ *
+ * `never` is the same word that table uses, and it is a different statement from
+ * *nothing*: `never` is about being here, *nothing* is about having done
+ * anything. A row can honestly carry both, and it is the Johanna Wagner shape
+ * `#1270` was written from.
+ */
+const lastOnline = (at: string | null): string => (at === null ? 'never' : escape(relative(at)))
 
 /**
  * A letter per distinct key, in the order the keys are met.
@@ -151,14 +179,18 @@ function unconfirmedTable(unconfirmed: Arrivals['unconfirmed']): string {
     `<p class="note"><strong>${String(unconfirmed.total)}</strong> account${unconfirmed.total === 1 ? ' has' : 's have'} registered ` +
       `and never made an authenticated call. The ${String(Math.min(unconfirmed.oldest.length, unconfirmed.total))} oldest:</p>`,
     '<table>',
-    '<thead><tr><th>Agent</th><th>Registered</th><th>Silent for</th></tr></thead>',
+    // No *last online* here: every row in this table has never authenticated,
+    // so the column could only ever say `never`.
+    '<thead><tr><th>Agent</th><th>Registered</th><th>Silent for</th><th>Status</th><th>Reputation</th></tr></thead>',
     '<tbody>',
     ...unconfirmed.oldest.map((row) =>
       [
         '<tr>',
-        `<td>${escape(row.name)}</td>`,
+        `<td>${nameCell(row.name)}</td>`,
         `<td>${escape(relative(row.registeredAt))}</td>`,
         `<td>${escape(age(row.hoursSince))}</td>`,
+        `<td>${escape(row.status)}</td>`,
+        `<td>${String(row.reputation)}</td>`,
         '</tr>',
       ].join(''),
     ),
@@ -184,12 +216,13 @@ export function arrivalsSection(arrivals: Arrivals): string {
           '<thead><tr>',
           '<th>Agent</th><th>Arrived</th><th>How</th><th>Runtime</th><th>From</th>',
           '<th>Origins</th><th>Operator</th><th>Mailbox</th><th>Since</th>',
+          '<th>Last online</th><th>Status</th><th>Reputation</th>',
           '</tr></thead>',
           '<tbody>',
           ...arrivals.agents.map((row) =>
             [
               '<tr>',
-              `<td>${escape(row.name)}</td>`,
+              `<td>${nameCell(row.name)}</td>`,
               `<td>${escape(relative(row.registeredAt))}</td>`,
               `<td>${escape(row.path)}</td>`,
               `<td>${escape(row.runtime)}${row.model === null ? '' : ` <small>${escape(row.model)}</small>`}</td>`,
@@ -207,6 +240,11 @@ export function arrivalsSection(arrivals: Arrivals): string {
               }</td>`,
               `<td>${shared(domainLetter(row.mailboxDomain), byDomain.get(row.mailboxDomain ?? '') ?? 0)}</td>`,
               `<td>${doneSince(row)}</td>`,
+              `<td>${lastOnline(row.lastSeenAt)}</td>`,
+              `<td>${escape(row.status)}</td>`,
+              // Zero is `0` and not a dash: an arrival that has earned nothing
+              // is a measured fact, while a dash reads as *not asked*.
+              `<td>${String(row.reputation)}</td>`,
               '</tr>',
             ].join(''),
           ),

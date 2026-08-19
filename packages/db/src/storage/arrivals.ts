@@ -9,6 +9,7 @@ import {
   humanAgents,
   humanIdentities,
   humans,
+  reputationEvents,
   taskAttempts,
 } from '../schema/index.js'
 
@@ -91,6 +92,31 @@ export interface ArrivedAgent {
   /** Rungs attempted, whatever the outcome. */
   readonly attempts: number
   readonly skills: number
+  /**
+   * When an authenticated call last touched this row, or null for never
+   * (`#1270`).
+   *
+   * **`agents.last_seen_at` and not the origins rollup.** `touchLastSeen` writes
+   * this on every authenticated call, and it is what every other surface means
+   * by *last online*; `agent_origins.lastSeenAt` is per-fingerprint and is
+   * already used here only to pick the latest country.
+   *
+   * It answers a different question from {@link calls}: *when was it last here*
+   * against *what has it done*. A row can carry `never` and a call count if a
+   * future path ever writes one without the other, and keeping both is what
+   * would make that visible rather than hidden.
+   */
+  readonly lastSeenAt: Timestamp | null
+  /** Citizenship as stored — `candidate`, `citizen`, `suspended`, `banned`. */
+  readonly status: string
+  /**
+   * `sum(delta)` over `reputation_events`, and zero when there are none.
+   *
+   * **A fact on the row and not a sort key** (`#1270`). `#607`'s *no score, no
+   * flag, no ranking* is about what the page concludes, not about what it shows:
+   * the order stays newest-registered-first and nothing tints by standing.
+   */
+  readonly reputation: number
 }
 
 /** One person that arrived, on the same terms. */
@@ -129,6 +155,16 @@ export interface ArrivedPerson {
 export interface UnconfirmedArrival {
   readonly name: string
   readonly registeredAt: Timestamp
+  /**
+   * Citizenship as stored, and the reputation that goes with it (`#1270`).
+   *
+   * **No `lastSeenAt` here, and that is the point of leaving it out.** A row in
+   * this table has by definition never authenticated, so the column could only
+   * ever say `never` — and a column with one possible value is a column that
+   * teaches a reader to stop reading it.
+   */
+  readonly status: string
+  readonly reputation: number
   /**
    * Whole hours since it registered, computed in SQL.
    *
@@ -188,6 +224,33 @@ export interface Arrivals {
 const domainOf = (column: unknown): ReturnType<typeof sql<string | null>> =>
   sql<string | null>`nullif(split_part(${column}, '@', 2), '')`
 
+/**
+ * Reputation for a page's worth of agents, in one grouped query (`#1270`).
+ *
+ * **One round trip for twenty rows, not twenty.** `reputationOfAgent` answers
+ * for one agent and is right for a citizen reading its own standing; called per
+ * row it is the shape this module already refuses everywhere else — the four
+ * grouped queries above exist for exactly this reason.
+ *
+ * An agent with no events is **absent from the result rather than zero**, and
+ * the caller supplies the zero. That is the ordinary state for a fresh arrival,
+ * which is the row this page is most often being read for.
+ */
+async function reputationOver(db: Database, ids: readonly string[]): Promise<Map<string, number>> {
+  if (ids.length === 0) return new Map()
+
+  const rows = await db
+    .select({
+      agentId: reputationEvents.agentId,
+      total: sql<number>`coalesce(sum(${reputationEvents.delta}), 0)::int`,
+    })
+    .from(reputationEvents)
+    .where(inArray(reputationEvents.agentId, ids))
+    .groupBy(reputationEvents.agentId)
+
+  return new Map(rows.map((row) => [row.agentId, row.total]))
+}
+
 export async function recentArrivals(
   db: Database,
   limit: number = ARRIVAL_ROWS,
@@ -202,6 +265,8 @@ export async function recentArrivals(
       path: agents.registrationPath,
       runtime: agents.platform,
       model: agents.model,
+      lastSeenAt: agents.lastSeenAt,
+      status: agents.status,
     })
     .from(agents)
     .orderBy(desc(agents.createdAt))
@@ -283,6 +348,7 @@ export async function recentArrivals(
 
   const heldBy = new Map(heldByOperator.map((row) => [row.humanId, row.count]))
   const skillsOf = new Map(skills.map((row) => [row.agentId, row.count]))
+  const reputationOf = await reputationOver(db, ids)
 
   const originOf = new Map(origins.map((row) => [row.agentId, row]))
   const operatorOf = new Map(operators.map((row) => [row.agentId, row]))
@@ -316,6 +382,9 @@ export async function recentArrivals(
       calls: origin?.calls ?? 0,
       attempts: attemptsOf.get(row.id) ?? 0,
       skills: skillsOf.get(row.id) ?? 0,
+      lastSeenAt: (row.lastSeenAt as Timestamp | null) ?? null,
+      status: row.status,
+      reputation: reputationOf.get(row.id) ?? 0,
     }
   })
 
@@ -384,8 +453,10 @@ export async function recentArrivals(
   const [unconfirmedRows, unconfirmedTotal, unmeasurable] = await Promise.all([
     db
       .select({
+        id: agents.id,
         name: agents.name,
         registeredAt: agents.createdAt,
+        status: agents.status,
         hoursSince: sql<number>`floor(extract(epoch from (now() - ${agents.createdAt})) / 3600)::int`,
       })
       .from(agents)
@@ -402,6 +473,19 @@ export async function recentArrivals(
       .where(sql`${neverObserved} and ${agents.createdAt} < ${recordBegan}`),
   ])
 
+  /**
+   * The same grouped read, over the unconfirmed page's ids (`#1270`).
+   *
+   * A second call rather than one over both lists: the two tables are windowed
+   * differently — twenty newest against twenty oldest — and overlap only by
+   * accident, so a union would be a query whose cost depends on how much the
+   * two happen to share.
+   */
+  const unconfirmedReputation = await reputationOver(
+    db,
+    unconfirmedRows.map((row) => row.id),
+  )
+
   return {
     agents: agentRows,
     unconfirmed: {
@@ -410,6 +494,8 @@ export async function recentArrivals(
       oldest: unconfirmedRows.map((row) => ({
         name: row.name,
         registeredAt: row.registeredAt as Timestamp,
+        status: row.status,
+        reputation: unconfirmedReputation.get(row.id) ?? 0,
         hoursSince: row.hoursSince,
       })),
     },

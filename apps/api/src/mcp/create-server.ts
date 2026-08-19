@@ -14,6 +14,7 @@ import { registerCitizenSearchTool } from './tools/citizen-search.js'
 import { registerCitizenTools } from './tools/citizens.js'
 import { registerFollowingTools } from './tools/following.js'
 import { registerConnectionTools } from './tools/connections.js'
+import { registerMessagingTools } from './tools/messages.js'
 import { registerPlaybookTools } from './tools/playbooks.js'
 import { registerArrivalTool } from './tools/arrival.js'
 import { registerDoctorTool } from './tools/doctor.js'
@@ -345,6 +346,13 @@ export function createMcpServer(
    * message channel on.
    */
   registerConnectionTools(server, deps, credential)
+  /**
+   * Beside the connection because first contact is the other half of knowing
+   * another citizen (`#1286`): a connection may later skip the request gate, and
+   * a message is the words themselves. Registers nothing where no messaging
+   * port was wired.
+   */
+  registerMessagingTools(server, deps, credential)
   /**
    * What a citizen does next, after the rungs and beside the tasks (`#1174`).
    *

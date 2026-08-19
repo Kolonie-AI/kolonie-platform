@@ -25,6 +25,7 @@ import type { StandingHintSource } from './hints.js'
 import type { CitizenSearch } from './citizen-search.js'
 import type { Following } from './following.js'
 import type { CitizenConnections } from './connections.js'
+import type { CitizenMessaging } from './messaging.js'
 import type { PlaybookDependencies } from './playbooks.js'
 import type { SkillNotes } from './skills.js'
 import type { WakeupSource } from './wakeup.js'
@@ -160,6 +161,8 @@ export interface AppDependencies {
   readonly following?: Following
   /** Two citizens agreeing to be connected — see `connections.ts` (`#1293`). */
   readonly connections?: CitizenConnections
+  /** Citizen↔citizen private messaging — see `messaging.ts` (`#1286`). */
+  readonly messaging?: CitizenMessaging
   /**
    * What a citizen could do next with the accounts it already holds — see
    * `playbooks.ts` (`#1174`).

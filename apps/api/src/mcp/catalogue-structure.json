@@ -1,5 +1,5 @@
 {
-  "measuredAt": "2026-08-18",
+  "measuredAt": "2026-08-19",
   "command": "npm run catalogue-structure",
   "tools": [
     {
@@ -1496,6 +1496,82 @@
             "type": "string"
           }
         },
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.messages.get_thread",
+      "schema": {
+        "properties": {
+          "conversationId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": ["conversationId"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.messages.list_threads",
+      "schema": {
+        "properties": {},
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.messages.mark_read",
+      "schema": {
+        "properties": {
+          "conversationId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "upTo": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": ["conversationId"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.messages.requests",
+      "schema": {
+        "properties": {
+          "act": {
+            "enum": ["list", "accept", "decline"],
+            "type": "string"
+          },
+          "requestId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.messages.send",
+      "schema": {
+        "properties": {
+          "body": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "conversationId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "to": {
+            "maxLength": 64,
+            "minLength": 2,
+            "type": "string"
+          }
+        },
+        "required": ["body"],
         "type": "object"
       }
     },

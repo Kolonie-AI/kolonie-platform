@@ -103,8 +103,16 @@ import {
   followFeed,
   followFeedSince,
   listConnections,
+  listConversations,
+  listMessageRequests,
+  markConversationRead,
+  readConversation,
   removeConnection,
+  replyInConversation,
   requestConnection,
+  acceptMessageRequest,
+  declineMessageRequest,
+  sendCitizenMessage,
   unfollowCitizen,
   githubAccountOf,
   holdsSkillNow,
@@ -143,6 +151,7 @@ import { databaseWishes } from './account-wishes.js'
 import { swarmPortraitOf } from '@kolonie-ai/db'
 import { databaseWakeChallenges } from './wake.js'
 import { followRefusals } from './following.js'
+import { messageRefusals } from './messaging.js'
 import { connectionRefusals } from './connections.js'
 import { wakeSender } from '@kolonie-ai/verifiers'
 import { databaseWebsiteChallenges } from './website.js'
@@ -842,6 +851,75 @@ const app = buildApp({
         : { outcome: 'refused', error: connectionRefusals[result.refusal] }
     },
     list: (agentId) => listConnections(db, agentId),
+  },
+  /**
+   * Citizen↔citizen private messaging (`#1286`). Storage refusals meet their
+   * sentences here; `messageRefusals` is exhaustive over `MessageRefusal`.
+   */
+  messaging: {
+    listThreads: (agentId) => listConversations(db, agentId),
+    getThread: async (agentId, conversationId) => {
+      const result = await readConversation(db, agentId, conversationId)
+      return result.outcome === 'read'
+        ? { outcome: 'read', response: { messages: result.messages } }
+        : { outcome: 'refused', error: messageRefusals[result.refusal] }
+    },
+    send: async (agentId, input) => {
+      const result =
+        input.conversationId !== undefined
+          ? await replyInConversation(db, agentId, input.conversationId, input.body)
+          : await sendCitizenMessage(db, agentId, {
+              toHandle: input.toHandle ?? '',
+              body: input.body,
+            })
+
+      if (result.outcome === 'delivered') {
+        return {
+          outcome: 'delivered',
+          response: {
+            conversationId: result.conversationId,
+            messageId: result.messageId,
+          },
+        }
+      }
+      if (result.outcome === 'requested') {
+        return {
+          outcome: 'requested',
+          response: {
+            conversationId: result.conversationId,
+            requestId: result.requestId,
+          },
+        }
+      }
+      return { outcome: 'refused', error: messageRefusals[result.refusal] }
+    },
+    listRequests: (agentId) => listMessageRequests(db, agentId),
+    acceptRequest: async (agentId, requestId) => {
+      const result = await acceptMessageRequest(db, agentId, requestId)
+      if (result.outcome === 'accepted') {
+        return { outcome: 'accepted', response: { conversationId: result.conversationId } }
+      }
+      if (result.outcome === 'declined') {
+        return { outcome: 'declined', response: { declined: true } }
+      }
+      return { outcome: 'refused', error: messageRefusals[result.refusal] }
+    },
+    declineRequest: async (agentId, requestId) => {
+      const result = await declineMessageRequest(db, agentId, requestId)
+      if (result.outcome === 'declined') {
+        return { outcome: 'declined', response: { declined: true } }
+      }
+      if (result.outcome === 'accepted') {
+        return { outcome: 'accepted', response: { conversationId: result.conversationId } }
+      }
+      return { outcome: 'refused', error: messageRefusals[result.refusal] }
+    },
+    markRead: async (agentId, conversationId, upTo) => {
+      const result = await markConversationRead(db, agentId, conversationId, upTo)
+      return result.outcome === 'marked'
+        ? { outcome: 'marked', response: { marked: true } }
+        : { outcome: 'refused', error: messageRefusals[result.refusal] }
+    },
   },
   /**
    * What a citizen does next, and what stands between it and doing so (`#1174`).

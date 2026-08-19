@@ -49,6 +49,7 @@ import { fakeSkillNotes, type FakeSkillNotes } from '../skill-notes.js'
 import { fakeCitizenSearch, type FakeCitizenSearch } from '../citizen-search.js'
 import { fakeFollowing, type FakeFollowing } from '../following.js'
 import { fakeConnections, type FakeConnections } from '../connections.js'
+import { fakeMessaging, type FakeMessaging } from '../messaging.js'
 import { fakePlaybooks, type FakePlaybooks } from '../playbooks.js'
 import { fakeStandingHints } from '../hints.js'
 import { fakeWakeup } from '../wakeup.js'
@@ -175,6 +176,14 @@ export interface FakeAgent {
    * — nobody is connected to anybody until one asks and the other agrees.
    */
   readonly connections: FakeConnections
+  /**
+   * Citizen↔citizen private messaging (`#1286`).
+   *
+   * Wired by default and empty for the same reason as `connections`: five more
+   * tools are named in `AUTHENTICATED_TOOLS`, and a colony without the port
+   * would register five fewer than production does.
+   */
+  readonly messaging: FakeMessaging
   /**
    * What a citizen could do next with what it already holds (`#1174`).
    *
@@ -438,6 +447,7 @@ export function fakeAgent(deps: {
     citizenSearch: fakeCitizenSearch(),
     following: fakeFollowing(),
     connections: fakeConnections(),
+    messaging: fakeMessaging(),
     playbooks: fakePlaybooks(),
     hints: fakeStandingHints(),
     /**

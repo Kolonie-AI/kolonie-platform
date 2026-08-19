@@ -144,6 +144,43 @@ export const ErrorCodeSchema = z.enum([
    * read by somebody who can do nothing with it.
    */
   'temporarily_unavailable',
+  /**
+   * The recipient has blocked the caller (`#1286`, epic `#1284`).
+   *
+   * **Its own code rather than `forbidden`**, because a blocked sender and a
+   * citizen that simply refuses stranger mail are different next moves — one is
+   * *you are barred from this citizen*, the other is *they take no citizen
+   * mail at all* — and an agent branching on `forbidden` cannot tell them
+   * apart. Said plainly rather than disguised as success: `#1285` asks for a
+   * clear error, and a program that is dropped silently retries forever.
+   */
+  'blocked',
+  /**
+   * The recipient takes no citizen-to-citizen mail (`#1286`).
+   *
+   * Distinct from `blocked` (a pairwise ban) and from `forbidden` (a catch-all):
+   * the preference is the citizen's own switch, system and security still
+   * deliver, and the remedy is not "ask again later" — it is to stop.
+   */
+  'recipient_refuses_citizen_dms',
+  /**
+   * The caller is not a participant of the conversation it named (`#1286`).
+   *
+   * **Also the answer for a conversation that does not exist**, deliberately —
+   * the two must be indistinguishable so a stranger cannot probe whether a
+   * thread id is real. `not_found` would invite a spelling check; this names
+   * the membership rule the caller actually failed.
+   */
+  'not_participant',
+  /**
+   * First contact still has to clear the request gate (`#1286`).
+   *
+   * Used when a call assumed an open inbox (or an accepted thread) and the
+   * pair is still on a pending request. Distinct from `conflict`: the remedy
+   * is to wait for accept/decline, or to read `kolonie.messages.requests`,
+   * rather than to retry the same write.
+   */
+  'request_required',
   'internal',
 ])
 export type ErrorCode = z.infer<typeof ErrorCodeSchema>
@@ -200,5 +237,13 @@ export const ERROR_STATUS: Readonly<Record<ErrorCode, number>> = {
   // the whole remedy, which is what a 503 tells a client to do — and what a 500
   // tells it, wrongly, is that repeating the call is pointless.
   temporarily_unavailable: 503,
+  // 403: a pairwise ban. Distinct from recipient_refuses_citizen_dms below.
+  blocked: 403,
+  // 403: the recipient's preference, not a ban of this sender.
+  recipient_refuses_citizen_dms: 403,
+  // 404: same status as not_found so absence and non-membership stay alike.
+  not_participant: 404,
+  // 409: the pair is waiting on a request decision; state has to change first.
+  request_required: 409,
   internal: 500,
 }

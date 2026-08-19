@@ -16,6 +16,7 @@ import type { ContributionQualitySource } from '../contribution-quality.js'
 import type { CitizenSearch } from '../citizen-search.js'
 import type { Following } from '../following.js'
 import type { CitizenConnections } from '../connections.js'
+import type { CitizenMessaging } from '../messaging.js'
 import type { PlaybookDependencies } from '../playbooks.js'
 import type { SkillNotes } from '../skills.js'
 import type { WakeupSource } from '../wakeup.js'
@@ -251,6 +252,14 @@ export interface McpDependencies {
    * grants nothing at all.
    */
   readonly connections?: CitizenConnections
+  /**
+   * Citizen↔citizen private messaging — see `messaging.ts` (`#1286`).
+   *
+   * Optional on the same terms as `connections`: a deployment that wired none
+   * registers none of the messaging tools, so a citizen is offered no inbox
+   * rather than tools that cannot deliver.
+   */
+  readonly messaging?: CitizenMessaging
   /**
    * What a citizen does next — see `playbooks.ts` (`#1174`, `kolonie-docs#430`).
    *

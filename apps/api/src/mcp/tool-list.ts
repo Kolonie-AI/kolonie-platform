@@ -610,6 +610,20 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.citizens.connect',
   'kolonie.citizens.connections',
   /**
+   * Citizen↔citizen private messaging (`#1286`, epic `#1284`).
+   *
+   * **Five tools.** List and get stay separate so a listing never drags bodies;
+   * send is its own write; requests collapse list/accept/decline into one `act`
+   * on the catalogue grammar rule; mark_read moves only the caller's cursor.
+   * Bodies are untrusted content on every tool that returns or accepts one.
+   * Block, report, operator and system mail are other issues.
+   */
+  'kolonie.messages.list_threads',
+  'kolonie.messages.get_thread',
+  'kolonie.messages.send',
+  'kolonie.messages.requests',
+  'kolonie.messages.mark_read',
+  /**
    * The catalogue of pipelines, and what stands between a citizen and one
    * (`#1174`, `kolonie-docs#430`).
    *

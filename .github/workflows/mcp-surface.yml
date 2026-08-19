@@ -63,6 +63,14 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # The queue builds each entry onto a `gh-readonly-queue/…` ref, and a check
+  # that does not run there can never be required — it would report nothing, the
+  # entry would wait out `check_response_timeout_minutes` and be evicted. So a
+  # workflow that is meant to gate has to answer on all three events, and this
+  # one is meant to gate: the floor is judged against the message of the commit
+  # that lands, and under a squash queue that message exists for the first time
+  # here (issue 1379).
+  merge_group:
 
 # The tip is the only revision anybody reads a size report for.
 concurrency:
@@ -97,14 +105,14 @@ jobs:
           # so `<sha>^` reaches git as `+refs/heads/<sha>^*` and fails with
           # `invalid refspec`. A revision expression has to be resolved by git,
           # which means after a checkout rather than in `ref`.
-          ref: ${{ github.event_name == 'pull_request' && matrix.side == 'base' && github.event.pull_request.base.sha || github.sha }}
+          ref: ${{ matrix.side == 'base' && (github.event.pull_request.base.sha || github.event.merge_group.base_sha) || github.sha }}
           # The parent has to be in the clone for that walk back to be possible.
           fetch-depth: 2
 
       # A push compares against the commit before it, and only git can name that.
       - name: Step back to the revision this side weighs
         id: rev
-        if: matrix.side == 'base' && github.event_name != 'pull_request'
+        if: matrix.side == 'base' && github.event_name == 'push'
         run: |
           parent="$(git rev-parse --verify --quiet 'HEAD^' || true)"
           if [ -z "$parent" ]; then
@@ -234,6 +242,16 @@ jobs:
 
             ${{ github.event.pull_request.body }}
         run: |
+          # On a queue entry there is no pull request in the payload, so the two
+          # expressions above are empty. The commit sitting on the queue ref *is*
+          # the squash, and its message is the pull request's title and body —
+          # the very text the gate on main will read once it lands. Taking it
+          # from git rather than from the event is what makes this run and that
+          # one agree.
+          if [ "${EVENT_NAME}" = "merge_group" ]; then
+            PR_TEXT="$(git log -1 --pretty=%B)"
+            export PR_TEXT
+          fi
           node -e '
             const {
               budgetVerdict,
@@ -262,9 +280,13 @@ jobs:
               process.exit(0)
             }
 
-            const isPullRequest = process.env.EVENT_NAME === "pull_request"
+            // A pull request and a queue entry are both judged against a base
+            // rather than against the committed floor; only a push to main
+            // ratchets it. Named for what it decides rather than for the event,
+            // because it is now true of two of the three.
+            const judgedAgainstBase = process.env.EVENT_NAME !== "push"
             let verdict
-            if (isPullRequest) {
+            if (judgedAgainstBase) {
               const baseTiers = await readTiers("measurements/base.json")
               const base = authenticated(baseTiers)
               if (base === undefined) {
@@ -338,7 +360,7 @@ jobs:
       # file and how a later merge retro-failed open ones. The fork carve-out
       # went with that branch case.
       - name: Commit the lower floor to main
-        if: steps.floor.outputs.lowered == 'true' && github.event_name != 'pull_request'
+        if: steps.floor.outputs.lowered == 'true' && github.event_name == 'push'
         run: |
           git config user.name 'kolonie-surface[bot]'
           git config user.email 'kolonie-surface@users.noreply.github.com'

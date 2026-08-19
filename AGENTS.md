@@ -282,20 +282,33 @@ base and nothing re-checked the pair; on 2026-08-19 `main` was red on 15 of the
 16 commits between 00:11 and 10:51, and 26 of the previous 60 runs on `main` had
 failed. The cost is one more CI round per merge and a queue that serialises them.
 
-**Not yet measured, so do not assume it:** whether a direct push to `main` still
-lands with the queue rule in place. The rule governs _merges_; a push is not a
-merge, and the paragraph below is written from before it. If you find out, say so
-here.
+**A direct push to `main` no longer lands. Measured 2026-08-19**, and it is the
+question the paragraph here used to leave open. `git push origin main` is refused
+with `GH013 … Changes must be made through the merge queue`. The queue rule is a
+_ruleset_ rather than branch protection, and a ruleset is not governed by
+`enforce_admins` — that flag is still off and buys nobody anything here.
 
-**`enforce_admins` is off, so a direct push to `main` still lands, and they still
-happen.** Measured 2026-08-16 against `origin/main`: of the last thirty commits,
-**seventeen arrived through a pull request and thirteen were pushed directly** —
-the newest of those `26be4b61`, the same day. The direct path is not forbidden.
-What it is, is unchecked: the push lands, the deploy starts, and CI reports
-afterwards. So on that path **running `npm run check` before you push is the only
-thing standing between a red commit and a deploy.** Not a matter of tidiness:
-`kolonie-infra#31` records what an unreviewed commit reaching the host costs.
-Force-pushing and deleting `main` are still refused.
+**`git push --dry-run` does not tell you this.** It returns success against a
+branch the ruleset refuses, because the rule is evaluated on the real receive and
+a dry run never gets that far. Anybody checking whether a push would land with it
+learns nothing and concludes the opposite.
+
+There is one bypass, `OrganizationAdmin`, added 2026-08-20 so that a wedged queue
+is something a person can still get past. It is `pull_request` mode on purpose:
+it lets an admin merge a pull request without waiting for the queue, and it does
+**not** reopen the unchecked direct-push path for anybody. The sweep does not use
+it either — `--auto` without `--admin`.
+
+So branch → pull request → queue is the only path, and the advice that used to
+hang off the direct one has moved with it: **`npm run check` before you push is
+no longer the last thing between a red commit and a deploy** — the queue builds
+your entry against the merge result and CI gates it there. Run it anyway, because
+an entry that fails costs a full merge-group round and everybody behind you waits
+for it. `kolonie-infra#31` records what an unreviewed commit reaching the host
+costs, and that is now prevented rather than discouraged.
+
+Force-pushing and deleting `main` are still refused, and a branch already queued
+cannot be force-pushed either (`GH006`).
 
 **Write `Closes #<n>` into the pull request body.** `gh pr create --fill` builds
 the body out of the commit subjects and carries no closing keyword, so a branch

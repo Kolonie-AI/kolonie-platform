@@ -112,27 +112,61 @@ export const WALK_NOTE_MAX_LENGTH = NOTE_MAX_LENGTH
 export const WALK_PUBLISHED_REPUTATION = 3
 
 /**
- * How many refused walk reports a citizen may file before it is suspended
- * (`#1097`).
+ * How many decided walk reports the suspension rule looks at (`#1339`).
  *
- * **Five, because one refusal is a mistake and two is carelessness.** A citizen
- * that has been told five times that its words cross a red line is not
- * misunderstanding the rule. The number is here rather than at the write so that
- * changing it is one edit and not a search, and so that the test which asserts
- * the boundary asserts it *at this constant* — a test written against a literal
- * `5` would keep passing while the rule moved underneath it.
+ * **Twenty, because the question is what a citizen is doing now.** The rule this
+ * bounds used to count refusals over a whole lifetime, which meant a walker that
+ * filed nine bad reports in its first week and seventy good ones since was
+ * carrying a suspension it had already earned its way out of — the count only
+ * ever went up, so the longer a citizen worked the more certain its suspension
+ * became. A window forgets, and forgetting is the point.
  *
- * **It counts refusals and not walks** (`#1097` decision 1). A citizen with many
- * walks and no refusals is a good citizen with many walks, and the tally is
- * derived from the walk rows themselves rather than kept in a column beside
- * them, so it cannot drift from what it describes.
- *
- * **What it reaches is `suspended` and never `banned`** (decision 3). A
- * suspension is reversible by a maintainer; a ban is what the Colony reserves
- * for a decision a person took deliberately, and an automatic rule may not reach
- * an irreversible outcome.
+ * **Decided walks only** (`prose_status <> 'pending'`). A walk nobody has read
+ * yet is not evidence either way, and letting pending rows into the window would
+ * make the rule fire or not fire on how busy the moderation runner was.
  */
-export const WALK_PROSE_REFUSALS_BEFORE_SUSPENSION = 5
+export const WALK_PROSE_WINDOW = 20
+
+/**
+ * What share of the window has to be refused before a citizen is suspended
+ * (`#1339`).
+ *
+ * **Half.** A citizen whose last twenty decided reports are half refusals is not
+ * making mistakes at the edges of a rule, it is writing that way. Below half
+ * there is a plausible reading in which the moderator and the walker disagree
+ * about a handful of walls; above it there is not.
+ *
+ * The threshold is a ratio and not a count so that it says the same thing about
+ * a citizen that files constantly and one that files rarely — the old count
+ * punished volume, because more walks meant more chances to accumulate five.
+ */
+export const WALK_PROSE_REFUSAL_RATE = 0.5
+
+/**
+ * How many decided walks the window needs before the rate may fire (`#1339`).
+ *
+ * **Eight, because a rate over three walks is not a rate.** Two refusals out of
+ * three is the same ratio as ten out of fifteen and nothing like the same claim
+ * about a citizen. Below this floor the rule falls back on
+ * {@link WALK_PROSE_CONSECUTIVE}, which is the case where a small sample does
+ * say something.
+ */
+export const WALK_PROSE_MIN_DECIDED = 8
+
+/**
+ * How many refusals in a row suspend a citizen whatever the sample (`#1339`).
+ *
+ * **Five, and it is the backstop rather than the rule.** A citizen that has been
+ * told five times running that its words cross a red line is not misunderstanding
+ * the rule, and waiting for {@link WALK_PROSE_MIN_DECIDED} before saying so would
+ * be waiting for it to do it three more times.
+ *
+ * **What it reaches is `suspended` and never `banned`** (`#1097` decision 3), as
+ * does the rate. A suspension is reversible by a maintainer; a ban is what the
+ * Colony reserves for a decision a person took deliberately, and an automatic
+ * rule may not reach an irreversible outcome.
+ */
+export const WALK_PROSE_CONSECUTIVE = 5
 
 /**
  * How alike two walk reports have to read before the second is a repeat

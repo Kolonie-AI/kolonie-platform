@@ -3,7 +3,10 @@ import {
   ABUSIVE_SUSPEND_REPEAT_WINDOW_DAYS,
   CITIZENSHIP_CONFERRING_SKILLS,
   PROFILE,
-  WALK_PROSE_REFUSALS_BEFORE_SUSPENSION,
+  WALK_PROSE_CONSECUTIVE,
+  WALK_PROSE_MIN_DECIDED,
+  WALK_PROSE_REFUSAL_RATE,
+  WALK_PROSE_WINDOW,
   abusiveSuspensionDays,
   abusiveSuspensionRaisesTicket,
   abusiveSuspensionReason,
@@ -19,6 +22,7 @@ import {
   agents,
   citizenshipSuspensions,
   supportTickets,
+  walkProseLifts,
 } from '../schema/index.js'
 
 /**
@@ -195,33 +199,60 @@ export interface SuspensionResult {
 }
 
 /**
- * Suspend a citizen whose walk prose has been refused once too often (`#1097`).
+ * Suspend a citizen whose walk prose is being refused too often (`#1097`,
+ * rewritten as a rate by `#1339`).
  *
  * ## What is counted, and where it lives
  *
- * Refusals, not walks, all-time, **derived from `account_walks` rather than kept
- * in a column beside it** (decision 1). A tally in its own column is a second
+ * Refusals, not walks, **derived from `account_walks` rather than kept in a
+ * column beside it** (`#1097` decision 1). A tally in its own column is a second
  * copy of a fact the walk rows already state, and the two drift the first time a
- * walk is deleted or a verdict is corrected. A citizen with two hundred approved
- * walks is a good citizen with two hundred walks; nothing here reads them.
+ * walk is deleted or a verdict is corrected.
  *
- * The threshold is {@link WALK_PROSE_REFUSALS_BEFORE_SUSPENSION} and never a
- * literal, so moving it is one edit in `core` and the test that asserts the
- * boundary asserts it at the constant.
+ * ## Why it is a rate over a window and not a count (`#1339`)
+ *
+ * The count was all-time and only ever went up, so a walker that filed a bad
+ * week early and seventy good reports since was carrying a suspension it had
+ * already worked its way out of — and the more a citizen walked, the more
+ * certain that suspension became. **A window forgets.** The rule reads the last
+ * {@link WALK_PROSE_WINDOW} decided walks and suspends when at least
+ * {@link WALK_PROSE_REFUSAL_RATE} of them were refused, provided there are at
+ * least {@link WALK_PROSE_MIN_DECIDED} of them: a ratio over three walks is not
+ * a ratio, it is two walks and an opinion.
+ *
+ * {@link WALK_PROSE_CONSECUTIVE} refusals in a row suspend regardless of sample
+ * size. That is the small-and-egregious case the minimum sample would otherwise
+ * wave through, and it is a backstop rather than the rule.
+ *
+ * ## What counts as decided
+ *
+ * `prose_status <> 'pending'` **and finished**. A pending walk is not evidence —
+ * letting it in would make the rule fire on how busy the moderation runner is —
+ * and an *open* walk carries the column's `approved` default because it has
+ * written nothing yet, so counting it would pad the denominator with walks
+ * nobody has judged.
+ *
+ * ## A lift floors the window (`#1339` decision 5)
+ *
+ * Walks finished at or before the newest `walk_prose_lifts` row do not count.
+ * The floor is `finished_at` because the Colony records when a walk was closed
+ * and not when its prose was read: a walk finished before the lift and judged
+ * after it falls outside, which is the reading that takes a maintainer at their
+ * word. See {@link walkProseLifts} for why the lift is the row that exists.
  *
  * ## One statement, for the reason {@link promoteIfEarned} gives at length
  *
- * The count is a correlated subquery inside the `where`, so the tally and the
- * write are evaluated together. A `select count(*)` followed by an `update`
- * would be a window in which a maintainer lifts the suspension and the
- * moderation runner writes it straight back — and the runner is a different
- * process from the console by construction.
+ * The whole predicate is a correlated subquery inside the `where`, so the tally
+ * and the write are evaluated together. A `select` followed by an `update` would
+ * be a window in which a maintainer lifts the suspension and the moderation
+ * runner writes it straight back — and the runner is a different process from
+ * the console by construction.
  *
- * It is also what makes decision 5 structural rather than remembered: the status
- * predicate is part of the same statement, so a citizen already `suspended`
- * matches no row and **no second write happens at all**. The acceptance
- * criterion is stated as *no second write* rather than *the status is still
- * suspended* precisely because those two are only the same thing while the
+ * It is also what makes `#1097` decision 5 structural rather than remembered:
+ * the status predicate is part of the same statement, so a citizen already
+ * `suspended` matches no row and **no second write happens at all**. The
+ * acceptance criterion is stated as *no second write* rather than *the status is
+ * still suspended* precisely because those two are only the same thing while the
  * predicate is there.
  *
  * ## What it does not do
@@ -231,15 +262,44 @@ export interface SuspensionResult {
  * that says a person acted when none did. The refusals themselves are the audit
  * trail, they are already rows, and the console reads them.
  *
- * Nothing here ever *clears* a suspension (decision 4). Lifting one is
+ * Nothing here ever *clears* a suspension (`#1097` decision 4). Lifting one is
  * {@link liftSuspension}, which the moderation runner does not import.
  */
 export async function suspendForRefusedWalkProse(
   tx: Transaction,
   command: { readonly agentId: AgentId; readonly suspendedAt: Timestamp },
 ): Promise<SuspensionResult> {
-  /** How many of this agent's walks were refused, counted at the write. */
-  const refusals = sql<number>`(select count(*) from ${accountWalks} where ${accountWalks.agentId} = ${command.agentId} and ${accountWalks.proseStatus} = 'rejected')`
+  /** The newest lift, or the beginning of time for a citizen never suspended. */
+  const floor = sql`coalesce((select max(${walkProseLifts.liftedAt}) from ${walkProseLifts} where ${walkProseLifts.agentId} = ${command.agentId}), '-infinity'::timestamptz)`
+
+  /** The decided walks the rule may look at, newest first, at most a window's worth. */
+  const recent = sql`(
+    select w.prose_status as status,
+           row_number() over (order by w.finished_at desc, w.id desc) as position
+      from ${accountWalks} w
+     where w.agent_id = ${command.agentId}
+       and w.finished_at is not null
+       and w.prose_status <> 'pending'
+       and w.finished_at > ${floor}
+     order by w.finished_at desc, w.id desc
+     limit ${WALK_PROSE_WINDOW}
+  )`
+
+  /**
+   * The rate over a large enough sample, or the consecutive backstop.
+   *
+   * The rate is written into the statement rather than bound: a bound JavaScript
+   * number arrives as a `bigint` parameter and `0.5` is not one.
+   */
+  const overTheLine = sql`(
+    select (count(*) >= ${WALK_PROSE_MIN_DECIDED}
+            and count(*) filter (where recent.status = 'rejected')::numeric
+                >= count(*) * ${sql.raw(String(WALK_PROSE_REFUSAL_RATE))}::numeric)
+        or count(*) filter (
+             where recent.status = 'rejected' and recent.position <= ${WALK_PROSE_CONSECUTIVE}
+           ) >= ${WALK_PROSE_CONSECUTIVE}
+      from ${recent} recent
+  )`
 
   const rows = await tx
     .update(agents)
@@ -249,7 +309,7 @@ export async function suspendForRefusedWalkProse(
         eq(agents.id, command.agentId),
         // Never an existing `suspended`, and never a `banned`.
         inArray(agents.status, SUSPENDABLE_STATUSES),
-        sql`${refusals} >= ${WALK_PROSE_REFUSALS_BEFORE_SUSPENSION}`,
+        overTheLine,
       ),
     )
     .returning({ id: agents.id })
@@ -296,6 +356,16 @@ export interface LiftResult {
  * of when the suspension stopped being in force. Walk-prose suspensions that
  * never wrote such a row are unaffected by that update — there is nothing to
  * stamp — and still restore status through this call.
+ *
+ * ## Every lift writes a walk-prose floor (`#1339` decision 5)
+ *
+ * A `walk_prose_lifts` row goes down whenever this call actually moved a citizen
+ * out of `suspended`, and {@link suspendForRefusedWalkProse} counts nothing
+ * finished at or before it. It is written on *every* lift rather than only the
+ * ones aimed at walk prose, because `agents.status` does not record which rule
+ * imposed the suspension — deciding afterwards which rule a maintainer meant to
+ * forgive would be the Colony inferring an intention nobody stated. A lift is a
+ * maintainer saying carry on, and the window takes them at their word.
  */
 export async function liftSuspension(
   tx: Transaction,
@@ -318,6 +388,11 @@ export async function liftSuspension(
         isNull(citizenshipSuspensions.liftedAt),
       ),
     )
+
+  await tx.insert(walkProseLifts).values({
+    agentId: command.agentId,
+    liftedAt: command.liftedAt,
+  })
 
   const { promoted } = await promoteIfEarned(tx, {
     agentId: command.agentId,

@@ -1597,6 +1597,12 @@ describe('the erasure boundary', () => {
        * than a cached number some later pass would have to repair.
        */
       'walk_note_feedback.agent_id c',
+      /**
+       * `#1339`. Cascades: the row records that a maintainer let *this* citizen
+       * out from under the walk-prose rule, and it is read by nothing but that
+       * citizen's own window. A lift belonging to nobody floors nothing.
+       */
+      'walk_prose_lifts.agent_id c',
       'web_server_challenges.agent_id c',
       /**
        * `#243`. Cascades: the row records that the Colony read this citizen's

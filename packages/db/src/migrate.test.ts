@@ -593,7 +593,14 @@ describe('the migrations', () => {
     // column because a facet is additive — a provider is a mailbox *and* an earn
     // rail — and it holds every axis except the shelves, which a check enforces
     // so that *what shelf is this on* stays one fact in `provider_recipe_categories`.
-    expect(afterFirst.tables).toBe('150')
+    //
+    // **A hundred and fifty-first** (`#1339`): `walk_prose_lifts`, one row each
+    // time a maintainer lifts a walk-prose suspension. The rule reads a refusal
+    // rate over a window and a lift starts that window again, so the lift has to
+    // be somewhere the predicate can see; `agents.status` says a citizen is
+    // suspended and not which rule suspended it, and `citizenship_suspensions`
+    // carries an `expires_at` a permanent-until-lifted suspension has no value for.
+    expect(afterFirst.tables).toBe('151')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

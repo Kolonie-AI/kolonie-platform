@@ -16,6 +16,8 @@ const aTally = (overrides: Partial<WalkRefusalTally> = {}): WalkRefusalTally => 
   name: 'a-walker',
   status: 'suspended',
   refusals: 5,
+  decidedInWindow: 12,
+  refusedInWindow: 7,
   walks: [
     {
       walkId: '55555555-5555-4555-8555-555555555555',

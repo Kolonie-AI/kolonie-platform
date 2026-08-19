@@ -6,8 +6,10 @@ import {
   REFUSAL_UNSTATED,
   WALL_KIND_MEANINGS,
   WALK_DUPLICATE_SIMILARITY,
-  WALK_PROSE_REFUSALS_BEFORE_SUSPENSION,
+  WALK_PROSE_CONSECUTIVE,
+  WALK_PROSE_MIN_DECIDED,
   WALK_PROSE_SCRUBBER_VERSION,
+  WALK_PROSE_WINDOW,
   WALK_PUBLISHED_REPUTATION,
   type AccountKind,
   type AgentId,
@@ -49,6 +51,7 @@ import { registerAgent, updateAgentProfile } from './agents.js'
 import { renameProvider } from './atlas-renames.js'
 import { nameSession } from './sessions.js'
 import { reputationOfAgent } from './balance.js'
+import { liftSuspension } from './citizenship.js'
 
 const target = databaseTestTarget()
 const kind = (value: string) => AccountKindSchema.parse(value)
@@ -3443,15 +3446,20 @@ describe('suspending a walker for what it kept writing', () => {
   })
 
   let walkers = 0
+  let walks = 0
 
   beforeEach(async () => {
     await truncateAll(db)
     walkers = 0
+    walks = 0
   })
 
   const PROSE = {
     did: 'Opened the signup page, gave a handle and a password, and confirmed from the inbox.',
   }
+
+  /** Distinct and increasing, a minute apart, so the window has an order to read. */
+  const stampedAt = (nth: number) => new Date(Date.UTC(2026, 0, 1, 0, nth)).toISOString()
 
   const register = async (): Promise<AgentId> => {
     walkers += 1
@@ -3464,14 +3472,25 @@ describe('suspending a walker for what it kept writing', () => {
     return agent.agent.id
   }
 
-  /** One agent holds one walk per provider, so each refusal needs a provider of its own. */
-  const finished = async (by: AgentId, nth: number): Promise<string> => {
+  /**
+   * One walk, closed and stamped at a time of its own.
+   *
+   * A walker holds one walk per provider, so each needs a provider nobody else
+   * used. `finished_at` is stamped rather than left on the clock because it is
+   * what the window orders by (`#1339`), and two walks closed inside the same
+   * millisecond order by nothing a test can predict.
+   */
+  const finished = async (by: AgentId): Promise<string> => {
+    walks += 1
     const walkId = await walkInProgress(db, by, {
       kind: kind('mailbox'),
-      provider: `provider-${nth}.example`,
+      provider: `provider-${walks}.example`,
     })
     const closed = await finishWalk(db, walkId, { outcome: 'proved', ...PROSE })
     if (closed === undefined) throw new Error('the walk did not close')
+    await db.execute(
+      sql`update account_walks set finished_at = ${stampedAt(walks)} where id = ${walkId}`,
+    )
     return walkId
   }
 
@@ -3483,19 +3502,40 @@ describe('suspending a walker for what it kept writing', () => {
         : { walkId, judged: PROSE, decision },
     )
 
-  /** `count` finished walks, each judged the same way, and what each verdict reported. */
-  const judgeMany = async (
-    by: AgentId,
-    count: number,
-    decision: 'approved' | 'rejected',
-  ): Promise<readonly boolean[]> => {
+  /**
+   * A run of decided walks, oldest first, written as `A` for approved and `R`
+   * for refused — and what each verdict in turn reported.
+   *
+   * The rule is evaluated once per verdict, so a test that only asserts the last
+   * one has not said the earlier ones were quiet. That is why this hands back
+   * every answer rather than the final status.
+   */
+  const judgePattern = async (by: AgentId, pattern: string): Promise<readonly boolean[]> => {
     const suspensions: boolean[] = []
-    for (let nth = 0; nth < count; nth += 1) {
-      const verdict = await judge(await finished(by, nth), decision)
+    for (const mark of pattern) {
+      const verdict = await judge(await finished(by), mark === 'R' ? 'rejected' : 'approved')
       if (verdict.outcome !== 'written') throw new Error('the moderation did not land')
       suspensions.push(verdict.suspended)
     }
     return suspensions
+  }
+
+  /** `count` finished walks, each judged the same way. */
+  const judgeMany = (by: AgentId, count: number, decision: 'approved' | 'rejected') =>
+    judgePattern(by, (decision === 'rejected' ? 'R' : 'A').repeat(count))
+
+  /**
+   * A lift, stamped at the newest walk there is.
+   *
+   * The floor is `finished_at > lifted_at`, so a lift stamped here sits between
+   * everything that has been walked and everything that has not — which is where
+   * a maintainer pressing the button actually stands.
+   */
+  const lift = async (by: AgentId) => {
+    const lifted = await db.transaction((tx) =>
+      liftSuspension(tx, { agentId: by, liftedAt: stampedAt(walks) }),
+    )
+    if (!lifted.lifted) throw new Error('the suspension did not come off')
   }
 
   const agentRow = async (agent: AgentId) => {
@@ -3507,25 +3547,96 @@ describe('suspending a walker for what it kept writing', () => {
   }
 
   /**
-   * The boundary is asserted at the constant rather than at a literal, so moving
-   * the threshold moves the test with it instead of leaving it asserting the old
-   * number under a new name.
+   * Three refusals out of three is a rate of one and suspends nobody: a rate
+   * over three walks is not a rate (`#1339` decision 3). The backstop is the
+   * other way in, and it is asserted at the constant rather than at a literal so
+   * that moving it moves the test with it.
    */
-  it('suspends on the refusal that reaches the threshold and not on the one before it', async () => {
+  it('never suspends under the minimum sample, and suspends on the run that reaches the backstop', async () => {
     const by = await register()
+    const short = Math.min(WALK_PROSE_MIN_DECIDED, WALK_PROSE_CONSECUTIVE) - 1
 
-    const before = await judgeMany(by, WALK_PROSE_REFUSALS_BEFORE_SUSPENSION - 1, 'rejected')
+    const under = await judgePattern(by, 'R'.repeat(short))
 
-    expect(before).not.toContain(true)
+    expect(under).not.toContain(true)
     expect((await agentRow(by)).status).toBe('candidate')
 
-    const last = await judge(
-      await finished(by, WALK_PROSE_REFUSALS_BEFORE_SUSPENSION - 1),
-      'rejected',
-    )
+    const rest = await judgePattern(by, 'R'.repeat(WALK_PROSE_CONSECUTIVE - short))
 
-    expect(last.suspended).toBe(true)
+    expect(rest.at(-1)).toBe(true)
     expect((await agentRow(by)).status).toBe('suspended')
+  })
+
+  /**
+   * The walker this issue was opened for (`#1339`): seventy-four decided walks,
+   * nine of them refused across a long history, one of them inside the window.
+   * An all-time count suspends it. A rate over a window does not, and that is
+   * the whole of the change.
+   */
+  it('leaves a long walker whose refusals are behind it alone', async () => {
+    const by = await register()
+    // Eight refusals spread through the first fifty-four walks, then nineteen
+    // clean ones, then one refusal: one refusal in the twenty the rule can see.
+    const early = Array.from({ length: 54 }, (_, nth) =>
+      (nth + 1) % 6 === 0 && nth + 1 <= 48 ? 'R' : 'A',
+    ).join('')
+
+    const suspensions = await judgePattern(by, `${early}${'A'.repeat(19)}R`)
+
+    expect(suspensions).not.toContain(true)
+    expect((await agentRow(by)).status).toBe('candidate')
+  })
+
+  /**
+   * The same nine refusals would have suspended nobody; ten inside a window of
+   * twenty do. The pattern is arranged so that no shorter prefix of it is over
+   * the line either — the suspension is the twentieth verdict and nothing before
+   * it, which is what says the rate is being read over the window rather than
+   * over whatever has accumulated.
+   */
+  it('suspends a walker half of whose window was refused', async () => {
+    const by = await register()
+
+    const suspensions = await judgePattern(by, 'ARARARAARARARARARARR')
+
+    expect(suspensions.slice(0, -1)).not.toContain(true)
+    expect(suspensions.at(-1)).toBe(true)
+    expect((await agentRow(by)).status).toBe('suspended')
+  })
+
+  /**
+   * Decision 5 of `#1339`. A lift is a maintainer saying carry on, so what is
+   * behind it stops counting and the walker starts from nothing.
+   */
+  it('counts only what was finished after a lift', async () => {
+    const by = await register()
+    await judgeMany(by, WALK_PROSE_CONSECUTIVE, 'rejected')
+    expect((await agentRow(by)).status).toBe('suspended')
+
+    await lift(by)
+
+    const after = await judgeMany(by, WALK_PROSE_CONSECUTIVE - 1, 'rejected')
+
+    expect(after).not.toContain(true)
+    expect((await agentRow(by)).status).toBe('candidate')
+  })
+
+  /**
+   * Two lifts, and the window starts at the second. Were it floored on the first
+   * instead, the nine refusals standing after it would be a rate of one over a
+   * large enough sample and this walker would be suspended again.
+   */
+  it('floors on the newest lift when there have been several', async () => {
+    const by = await register()
+    await judgeMany(by, WALK_PROSE_CONSECUTIVE, 'rejected')
+    await lift(by)
+    await judgeMany(by, WALK_PROSE_CONSECUTIVE, 'rejected')
+    await lift(by)
+
+    const after = await judgeMany(by, WALK_PROSE_CONSECUTIVE - 1, 'rejected')
+
+    expect(after).not.toContain(true)
+    expect((await agentRow(by)).status).toBe('candidate')
   })
 
   /**
@@ -3536,13 +3647,10 @@ describe('suspending a walker for what it kept writing', () => {
    */
   it('writes nothing on the refusal after the one that suspended', async () => {
     const by = await register()
-    await judgeMany(by, WALK_PROSE_REFUSALS_BEFORE_SUSPENSION, 'rejected')
+    await judgeMany(by, WALK_PROSE_CONSECUTIVE, 'rejected')
     const suspended = await agentRow(by)
 
-    const after = await judge(
-      await finished(by, WALK_PROSE_REFUSALS_BEFORE_SUSPENSION + 1),
-      'rejected',
-    )
+    const after = await judge(await finished(by), 'rejected')
 
     expect(after.suspended).toBe(false)
     expect(await agentRow(by)).toEqual(suspended)
@@ -3554,17 +3662,17 @@ describe('suspending a walker for what it kept writing', () => {
     await db.execute(sql`update agents set status = 'banned' where id = ${by}::uuid`)
     const banned = await agentRow(by)
 
-    const suspensions = await judgeMany(by, WALK_PROSE_REFUSALS_BEFORE_SUSPENSION, 'rejected')
+    const suspensions = await judgeMany(by, WALK_PROSE_CONSECUTIVE, 'rejected')
 
     expect(suspensions).not.toContain(true)
     expect(await agentRow(by)).toEqual(banned)
   })
 
-  /** It counts refusals and not walks: a prolific walker nobody refused is not a suspect. */
+  /** It reads refusals and not walks: a prolific walker nobody refused is not a suspect. */
   it('never counts an approved walk', async () => {
     const by = await register()
 
-    const suspensions = await judgeMany(by, WALK_PROSE_REFUSALS_BEFORE_SUSPENSION * 4, 'approved')
+    const suspensions = await judgeMany(by, WALK_PROSE_WINDOW, 'approved')
 
     expect(suspensions).not.toContain(true)
     expect((await agentRow(by)).status).toBe('candidate')
@@ -3573,9 +3681,9 @@ describe('suspending a walker for what it kept writing', () => {
   it('counts each walker on its own', async () => {
     const by = await register()
     const bystander = await register()
-    await judgeMany(bystander, WALK_PROSE_REFUSALS_BEFORE_SUSPENSION - 1, 'rejected')
+    await judgeMany(bystander, WALK_PROSE_CONSECUTIVE - 1, 'rejected')
 
-    await judgeMany(by, WALK_PROSE_REFUSALS_BEFORE_SUSPENSION, 'rejected')
+    await judgeMany(by, WALK_PROSE_CONSECUTIVE, 'rejected')
 
     expect((await agentRow(by)).status).toBe('suspended')
     expect((await agentRow(bystander)).status).toBe('candidate')
@@ -3583,13 +3691,13 @@ describe('suspending a walker for what it kept writing', () => {
 
   /**
    * A reversal is a refusal too. Without this the walker whose refusals all
-   * arrived by repair would never reach the threshold at all.
+   * arrived by repair would never reach the line at all.
    */
-  it('counts a reversed approval towards the threshold', async () => {
+  it('counts a reversed approval towards the line', async () => {
     const by = await register()
-    await judgeMany(by, WALK_PROSE_REFUSALS_BEFORE_SUSPENSION - 1, 'rejected')
+    await judgeMany(by, WALK_PROSE_CONSECUTIVE - 1, 'rejected')
 
-    const stranded = await finished(by, WALK_PROSE_REFUSALS_BEFORE_SUSPENSION)
+    const stranded = await finished(by)
     await db.execute(sql`update account_walks set prose_status = 'approved' where id = ${stranded}`)
     const [queued] = await approvedWalkProseWithoutScrub(db, 10)
     if (queued === undefined) throw new Error('the stranded walk was not queued')
@@ -3627,7 +3735,7 @@ describe('suspending a walker for what it kept writing', () => {
 
       expect(tally?.walks).toHaveLength(2)
       expect(tally?.walks.map(({ provider }) => provider)).toEqual(
-        expect.arrayContaining(['provider-0.example', 'provider-1.example']),
+        expect.arrayContaining(['provider-1.example', 'provider-2.example']),
       )
       expect(JSON.stringify(tally)).not.toContain(PROSE.did)
     })
@@ -3641,12 +3749,43 @@ describe('suspending a walker for what it kept writing', () => {
 
     it('says what the Colony has already decided about each of them', async () => {
       const by = await register()
-      await judgeMany(by, WALK_PROSE_REFUSALS_BEFORE_SUSPENSION, 'rejected')
+      await judgeMany(by, WALK_PROSE_CONSECUTIVE, 'rejected')
 
       const [tally] = await walkRefusalTallies(db)
 
       expect(tally?.status).toBe('suspended')
       expect(tally?.name).toBe('walker-1')
+    })
+
+    /**
+     * The page shows two numbers because the rule reads one of them (`#1339`).
+     * The lifetime count is the ordering; the window is what suspends anybody.
+     */
+    it('carries the window the rule reads alongside the lifetime count', async () => {
+      const by = await register()
+      await judgePattern(by, 'AARA')
+
+      const [tally] = await walkRefusalTallies(db)
+
+      expect(tally?.refusals).toBe(1)
+      expect(tally?.decidedInWindow).toBe(4)
+      expect(tally?.refusedInWindow).toBe(1)
+    })
+
+    /**
+     * A lift starts the window again, so a walker just let out reads as none of
+     * none — while the refusals it was let out for stay on the record.
+     */
+    it('reads a lifted walker as an empty window', async () => {
+      const by = await register()
+      await judgeMany(by, WALK_PROSE_CONSECUTIVE, 'rejected')
+      await lift(by)
+
+      const [tally] = await walkRefusalTallies(db)
+
+      expect(tally?.refusals).toBe(WALK_PROSE_CONSECUTIVE)
+      expect(tally?.decidedInWindow).toBe(0)
+      expect(tally?.refusedInWindow).toBe(0)
     })
   })
 })

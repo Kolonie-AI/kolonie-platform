@@ -32,6 +32,7 @@ import {
   WALK_DUPLICATE_SIMILARITY,
   WALK_PROSE_COLUMNS,
   WALK_PROSE_SCRUBBER_VERSION,
+  WALK_PROSE_WINDOW,
   WALK_PUBLISHED_REPUTATION,
   WalkedRecipeSchema,
   walkHasProse,
@@ -57,6 +58,7 @@ import type { Database, Transaction } from '../client.js'
 import { accountWalks, accountWalkSteps } from '../schema/account-walks.js'
 import { agents } from '../schema/agents.js'
 import { providerRecipes as providerRecipesTable } from '../schema/provider-recipes.js'
+import { walkProseLifts } from '../schema/walk-prose-lifts.js'
 import { canonicalProvider } from './atlas-renames.js'
 import { suspendForRefusedWalkProse } from './citizenship.js'
 import { insertContributionVerdict } from './contribution-verdicts.js'
@@ -2739,7 +2741,12 @@ export interface WalkRefusalTally {
   readonly agentId: string
   readonly name: string
   readonly status: string
+  /** All-time, which is the ordering and no longer the rule (`#1339`). */
   readonly refusals: number
+  /** Decided walks the rule can currently see, at most {@link WALK_PROSE_WINDOW}. */
+  readonly decidedInWindow: number
+  /** How many of those were refused — the numerator the rule actually reads. */
+  readonly refusedInWindow: number
   /** Newest first, bounded by {@link REFUSED_WALKS_PER_CITIZEN}. */
   readonly walks: readonly RefusedWalk[]
 }
@@ -2769,10 +2776,15 @@ export const REFUSED_WALKS_PER_CITIZEN = 20
  * already, they are what the rule counted, and this is the query that reads them
  * back in the same order the rule sees them.
  *
- * So the count here and the count in the `where` clause of the suspension are
- * the same predicate, deliberately: `prose_status = 'rejected'`, all-time, per
- * citizen. A page that counted differently would be a page that disagrees with
- * the rule it exists to explain.
+ * **The page shows two numbers because the rule reads one of them** (`#1339`).
+ * `refusals` is all-time and is what orders the table — it is the question *who
+ * is doing this*, and a citizen that was refused forty times is worth looking at
+ * whenever it happened. The window beside it is the predicate the suspension
+ * actually evaluates: refusals among the last {@link WALK_PROSE_WINDOW} decided
+ * walks, floored on the citizen's newest lift. A page that printed only the
+ * lifetime count would be a page that disagrees with the rule it exists to
+ * explain — a walker suspended on nine of its last twenty and a reformed one
+ * sitting on nine from a bad week last year read identically.
  *
  * ## The prose is not here, and cannot be
  *
@@ -2782,11 +2794,12 @@ export const REFUSED_WALKS_PER_CITIZEN = 20
  * was refused* and never *what it said*. A maintainer who needs the words has
  * `psql`, which is a deliberate step and not a link.
  *
- * ## Two queries, both bounded
+ * ## Three queries, all bounded
  *
- * The tally, then the walks belonging to the citizens it named. One query with a
- * join would multiply the citizen row by its walks and make the limit mean
- * neither thing.
+ * The tally, then the walks belonging to the citizens it named, then each of
+ * those citizens' windows. One query with a join would multiply the citizen row
+ * by its walks and make the limit mean neither thing, and the window is a
+ * per-citizen `limit` that cannot be expressed in the same `group by` at all.
  */
 export async function walkRefusalTallies(
   db: Database,
@@ -2831,11 +2844,49 @@ export async function walkRefusalTallies(
     )
     .orderBy(desc(accountWalks.finishedAt))
 
+  /**
+   * What the suspension rule would see right now, per citizen: the last
+   * {@link WALK_PROSE_WINDOW} decided walks since that citizen's newest lift.
+   * The `limit` is per row, so it is a lateral and not a `group by`.
+   */
+  const windows = [
+    ...(await db.execute<{ agent_id: string; decided: number; refused: number }>(sql`
+    select a.id as agent_id,
+           coalesce(w.decided, 0)::integer as decided,
+           coalesce(w.refused, 0)::integer as refused
+      from ${agents} a
+      left join lateral (
+        select count(*) as decided,
+               count(*) filter (where r.prose_status = 'rejected') as refused
+          from (
+            select aw.prose_status
+              from ${accountWalks} aw
+             where aw.agent_id = a.id
+               and aw.finished_at is not null
+               and aw.prose_status <> 'pending'
+               and aw.finished_at > coalesce(
+                     (select max(l.lifted_at) from ${walkProseLifts} l where l.agent_id = a.id),
+                     '-infinity'::timestamptz)
+             order by aw.finished_at desc, aw.id desc
+             limit ${WALK_PROSE_WINDOW}
+          ) r
+      ) w on true
+     where a.id in (${sql.join(
+       tallies.map((tally) => sql`${tally.agentId}`),
+       sql`, `,
+     )})
+  `)),
+  ]
+
+  const byAgent = new Map(windows.map((row) => [row.agent_id, row]))
+
   return tallies.map((tally) => ({
     agentId: tally.agentId,
     name: tally.name,
     status: tally.status,
     refusals: tally.refusals,
+    decidedInWindow: byAgent.get(tally.agentId)?.decided ?? 0,
+    refusedInWindow: byAgent.get(tally.agentId)?.refused ?? 0,
     walks: walks
       .filter((walk) => walk.agentId === tally.agentId)
       .slice(0, REFUSED_WALKS_PER_CITIZEN)

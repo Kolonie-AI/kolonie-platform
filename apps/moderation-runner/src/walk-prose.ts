@@ -1,7 +1,8 @@
 import {
   ConfidentialSpanKindSchema,
   WALK_PROSE_FIELDS,
-  WALK_PROSE_REFUSALS_BEFORE_SUSPENSION,
+  WALK_PROSE_REFUSAL_RATE,
+  WALK_PROSE_WINDOW,
   walkProseText,
   type WalkProse,
 } from '@kolonie-ai/core'
@@ -295,7 +296,7 @@ export async function walkProseTick(
         if (judgement.suspended) {
           outcome.suspended++
           log.info(
-            `a citizen reached ${WALK_PROSE_REFUSALS_BEFORE_SUSPENSION} refused walks and was suspended`,
+            `a citizen's refusals passed ${WALK_PROSE_REFUSAL_RATE} of its last ${WALK_PROSE_WINDOW} decided walks and it was suspended`,
             {
               event: 'walk-prose.suspended',
               provider: walk.provider,

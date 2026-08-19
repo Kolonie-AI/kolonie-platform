@@ -1071,6 +1071,14 @@ describe('schema', () => {
          * so there is nothing for the erasing transaction to recompute.
          */
         'walk_note_feedback',
+        /**
+         * `#1339`. One row per lift of a walk-prose suspension, and the only
+         * read is the newest one for a citizen. It is a table rather than a
+         * column on `agents` because a citizen may be let out more than once,
+         * and rather than a reuse of `citizenship_suspensions` because that row
+         * expires and a walk-prose suspension stands until somebody lifts it.
+         */
+        'walk_prose_lifts',
         'web_server_challenges',
         /**
          * `#243`. One row per citizen, saying the Colony read its proved page

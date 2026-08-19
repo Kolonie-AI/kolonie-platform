@@ -1,5 +1,9 @@
 import {
   PERMISSION_AGGREGATE_FLOOR,
+  WALK_PROSE_CONSECUTIVE,
+  WALK_PROSE_MIN_DECIDED,
+  WALK_PROSE_REFUSAL_RATE,
+  WALK_PROSE_WINDOW,
   TICKET_BODY_MAX_LENGTH,
   TICKET_BODY_MIN_LENGTH,
   TICKET_SUBJECT_MAX_LENGTH,
@@ -718,8 +722,14 @@ export function backendRefusalsPage(
         ]
       : [
           `<p class="note">${tallies.length === 1 ? 'One citizen has' : `${String(tallies.length)} citizens have`} had a walk report refused, ${String(suspended)} of them suspended. Most refusals first. What each of them wrote is not shown — a refused walk has no scrub, and this page is not where the text a red line was drawn against gets read back.</p>`,
+          /**
+           * The sentence without which the two columns are one column read
+           * twice (`#1339`). The rule is the window; the lifetime figure orders
+           * the table and decides nothing.
+           */
+          `<p class="note"><strong>The rule reads the window, not the total.</strong> A citizen is suspended when at least ${String(Math.round(WALK_PROSE_REFUSAL_RATE * 100))}% of its last ${String(WALK_PROSE_WINDOW)} decided walks were refused — over at least ${String(WALK_PROSE_MIN_DECIDED)} of them — or when ${String(WALK_PROSE_CONSECUTIVE)} in a row were. A lift starts the window again, so a walker that was let out reads as none of none until it walks. The lifetime count is what this table is ordered by and is not what suspends anybody.</p>`,
           '<table>',
-          '<thead><tr><th>Citizen</th><th>Standing</th><th>Refusals</th><th>What was refused</th><th></th></tr></thead>',
+          '<thead><tr><th>Citizen</th><th>Standing</th><th>Refusals, all time</th><th>In the window</th><th>What was refused</th><th></th></tr></thead>',
           '<tbody>',
           ...tallies.map((tally) =>
             [
@@ -727,6 +737,11 @@ export function backendRefusalsPage(
               `<td>${escape(tally.name)}</td>`,
               `<td>${escape(tally.status)}</td>`,
               `<td>${String(tally.refusals)}</td>`,
+              `<td>${String(tally.refusedInWindow)} of ${String(tally.decidedInWindow)}${
+                tally.decidedInWindow === 0
+                  ? ''
+                  : ` (${String(Math.round((tally.refusedInWindow / tally.decidedInWindow) * 100))}%)`
+              }</td>`,
               `<td>${tally.walks
                 .map(
                   (walk) =>

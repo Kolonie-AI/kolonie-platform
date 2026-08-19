@@ -71,6 +71,30 @@ export interface CatalogueBudget {
   readonly measuredAt: string
   /** The command that produced them, so a reader can reproduce rather than trust. */
   readonly command: string
+  /**
+   * Why the floor stands where it does, when the last move was a raise
+   * (`#1317`).
+   *
+   * **The commit message is still what {@link raiseIsJustified} reads**, and
+   * this field changes nothing about that check. What it fixes is that the floor
+   * had nowhere to be repaired. `d33a421b` raised the floor with a message that
+   * justified the raise in substance and paraphrased the record's name instead
+   * of writing it, so {@link floorChangeVerdict} refused it — and because that
+   * verdict is computed against the *last* commit to touch this file, the
+   * refusal stood on `main` for every later commit, with no honest edit
+   * available to clear it. A file that can only be repaired by a diff nobody
+   * meant is a file with no repair.
+   *
+   * So a raise states its own justification here, and a follow-up commit that
+   * writes this field moves no figure — the verdict reads `unchanged`, which is
+   * the truth about that commit.
+   *
+   * **Optional, and dropped by a lowering.** `scripts/check-catalogue-budget.mjs`
+   * rewrites this file from a measurement, and a measurement knows nothing about
+   * why the previous floor was raised. A justification outliving the figure it
+   * justified is worse than an absent one.
+   */
+  readonly raisedFor?: string
 }
 
 /** What a measurement is doing relative to the floor. */

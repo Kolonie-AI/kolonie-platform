@@ -84,6 +84,19 @@ describe('the committed budget', () => {
     expect(budget.bytes).toBeGreaterThan(0)
   })
 
+  /**
+   * `#1317`: the floor stood raised by a commit whose message justified it in
+   * substance and did not name the record, and nothing on disk said why the
+   * number was what it was. The field is optional because a lowering drops it —
+   * present, it has to name the record, or it is decoration.
+   */
+  it('says why it stands where it does, naming the record, when it says anything', () => {
+    if (budget.raisedFor === undefined) return
+
+    expect(budget.raisedFor).toContain(GRAMMAR_RECORD)
+    expect(budget.raisedFor).toContain('vocabulary-free')
+  })
+
   it('carries the tool the per-tool ceiling is set by, not only its weight', () => {
     // A ceiling with no name is a number nobody can act on: the refusal quotes
     // the name and the raise rule reads it (`#1235`).

@@ -179,6 +179,10 @@ writeFileSync(
       // floor: this field exists so a reader can reproduce the figure, and a
       // flag that is no longer read is not the way to reproduce anything.
       command: 'node scripts/check-catalogue-budget.mjs',
+      // `raisedFor` is deliberately not carried across (`#1317`). It says why a
+      // *raise* stood where it did, and this branch runs because the catalogue
+      // got smaller — the figure it justified no longer exists. A justification
+      // that outlives its figure reads as current and is not.
     },
     null,
     2,

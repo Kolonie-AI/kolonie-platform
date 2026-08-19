@@ -6,5 +6,6 @@
     "bytes": 5825
   },
   "measuredAt": "2026-08-19",
-  "command": "node scripts/check-catalogue-budget.mjs"
+  "command": "node scripts/check-catalogue-budget.mjs",
+  "raisedFor": "the-catalogue-encodes-grammar-never-vocabulary — withEarn/excludeEarn on kolonie.accounts.recipes are grammar: two filters on a verb that already existed, no new verb, still 123 tools. The growth is vocabulary-free because the earn facet names (affiliate-referral, bounty-board, gig-marketplace, creator-payout, grant-quest) live in the core schema enum and never in the catalogue text."
 }

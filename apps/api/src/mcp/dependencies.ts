@@ -15,6 +15,7 @@ import type { ContributionDependencies } from '../contributions.js'
 import type { ContributionQualitySource } from '../contribution-quality.js'
 import type { CitizenSearch } from '../citizen-search.js'
 import type { Following } from '../following.js'
+import type { CitizenConnections } from '../connections.js'
 import type { PlaybookDependencies } from '../playbooks.js'
 import type { SkillNotes } from '../skills.js'
 import type { WakeupSource } from '../wakeup.js'
@@ -239,6 +240,17 @@ export interface McpDependencies {
    * rather than followed without the switch that consents to it.
    */
   readonly following?: Following
+  /**
+   * Two citizens agreeing to be connected — see `connections.ts` (`#1293`).
+   *
+   * Its own entry beside `following` rather than a method on it, and optional on
+   * the same terms: a deployment that wired none registers neither tool, so a
+   * citizen is asked by nobody rather than asked through a surface that cannot
+   * record the answer. What makes it a separate port is what it grants — a
+   * connection is the fact `#1294` opens a message channel on, and a follow
+   * grants nothing at all.
+   */
+  readonly connections?: CitizenConnections
   /**
    * What a citizen does next — see `playbooks.ts` (`#1174`, `kolonie-docs#430`).
    *

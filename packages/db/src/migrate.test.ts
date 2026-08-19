@@ -569,7 +569,16 @@ describe('the migrations', () => {
     // wrote to itself about one playbook. The shape of `task_notes` and
     // `skill_notes` rather than a third pattern: private, unmoderated, one
     // per (agent, playbook), and never read by a synthesis.
-    expect(afterFirst.tables).toBe('140')
+    //
+    // **A hundred and forty-one and a hundred and forty-two** (`#1293`, epic
+    // `#1292`): `agent_connection_requests`, one unanswered ask with the reason
+    // it was made for, and `agent_connections`, the pair that agreed. Two tables
+    // and not a `status` column on one, because the rows have opposite lifetimes
+    // — a request is answered and gone, a connection stands until somebody ends
+    // it — and the pair is directional in the first and unordered in the second.
+    // A declined request leaves no row at all, which is why there is no third
+    // table here for refusals.
+    expect(afterFirst.tables).toBe('142')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

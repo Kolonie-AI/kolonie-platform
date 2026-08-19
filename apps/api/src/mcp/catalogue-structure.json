@@ -1268,6 +1268,35 @@
       }
     },
     {
+      "name": "kolonie.citizens.connect",
+      "schema": {
+        "properties": {
+          "act": {
+            "enum": ["request", "accept", "decline", "cancel", "remove"],
+            "type": "string"
+          },
+          "handle": {
+            "maxLength": 64,
+            "minLength": 2,
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 280,
+            "type": "string"
+          }
+        },
+        "required": ["handle"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.citizens.connections",
+      "schema": {
+        "properties": {},
+        "type": "object"
+      }
+    },
+    {
       "name": "kolonie.citizens.feed",
       "schema": {
         "properties": {

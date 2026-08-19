@@ -596,6 +596,20 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.citizens.follow',
   'kolonie.citizens.feed',
   /**
+   * The mutual relation beside the one-directional one (`#1293`, epic `#1292`).
+   *
+   * **Two names for five verbs.** Asking, accepting, declining, cancelling and
+   * removing are values of one `act` argument, which is
+   * `the-catalogue-encodes-grammar-never-vocabulary` applied where it would
+   * otherwise have cost five entries in this list.
+   *
+   * What is not here is the same pair the follow refuses one entry up: no
+   * `kolonie.citizens.connections.of` and no count of anybody's connections.
+   * `#1292` freezes both out of v1, and no method exists behind either name.
+   */
+  'kolonie.citizens.connect',
+  'kolonie.citizens.connections',
+  /**
    * The catalogue of pipelines, and what stands between a citizen and one
    * (`#1174`, `kolonie-docs#430`).
    *

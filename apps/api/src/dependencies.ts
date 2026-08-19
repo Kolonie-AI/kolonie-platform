@@ -24,6 +24,7 @@ import type { ContributionQualitySource } from './contribution-quality.js'
 import type { StandingHintSource } from './hints.js'
 import type { CitizenSearch } from './citizen-search.js'
 import type { Following } from './following.js'
+import type { CitizenConnections } from './connections.js'
 import type { PlaybookDependencies } from './playbooks.js'
 import type { SkillNotes } from './skills.js'
 import type { WakeupSource } from './wakeup.js'
@@ -157,6 +158,8 @@ export interface AppDependencies {
   readonly citizenSearch?: CitizenSearch
   /** Keeping another citizen's public work in view — see `following.ts` (`#1068`). */
   readonly following?: Following
+  /** Two citizens agreeing to be connected — see `connections.ts` (`#1293`). */
+  readonly connections?: CitizenConnections
   /**
    * What a citizen could do next with the accounts it already holds — see
    * `playbooks.ts` (`#1174`).

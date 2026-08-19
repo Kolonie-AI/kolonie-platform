@@ -96,9 +96,15 @@ import {
 } from '@kolonie-ai/verifiers'
 import {
   findCitizens,
+  acceptConnection,
+  cancelConnectionRequest,
+  declineConnectionRequest,
   followCitizen,
   followFeed,
   followFeedSince,
+  listConnections,
+  removeConnection,
+  requestConnection,
   unfollowCitizen,
   githubAccountOf,
   holdsSkillNow,
@@ -137,6 +143,7 @@ import { databaseWishes } from './account-wishes.js'
 import { swarmPortraitOf } from '@kolonie-ai/db'
 import { databaseWakeChallenges } from './wake.js'
 import { followRefusals } from './following.js'
+import { connectionRefusals } from './connections.js'
 import { wakeSender } from '@kolonie-ai/verifiers'
 import { databaseWebsiteChallenges } from './website.js'
 import { databaseImageChallenges } from './image.js'
@@ -806,6 +813,35 @@ const app = buildApp({
     },
     feed: (followerId, query) => followFeed(db, followerId, query),
     count: (followerId, since) => followFeedSince(db, followerId, since),
+  },
+  /**
+   * Two citizens agreeing to be connected (`#1293`). The five acts meet their
+   * storage functions here and nowhere else, and `connectionRefusals` is
+   * exhaustive over `ConnectionRefusal` — a refusal added in storage without a
+   * sentence beside it is a type error rather than a blank message.
+   *
+   * `reason` is passed through unvalidated on purpose: the trim, the emptiness
+   * and the ceiling are one rule, and it lives in storage next to the CHECK
+   * constraint that also holds it.
+   */
+  connections: {
+    act: async (agentId, handle, act, reason) => {
+      const result =
+        act === 'request'
+          ? await requestConnection(db, agentId, handle, reason ?? '')
+          : act === 'accept'
+            ? await acceptConnection(db, agentId, handle)
+            : act === 'decline'
+              ? await declineConnectionRequest(db, agentId, handle)
+              : act === 'cancel'
+                ? await cancelConnectionRequest(db, agentId, handle)
+                : await removeConnection(db, agentId, handle)
+
+      return result.outcome === 'connection'
+        ? { outcome: 'connection', response: result.response }
+        : { outcome: 'refused', error: connectionRefusals[result.refusal] }
+    },
+    list: (agentId) => listConnections(db, agentId),
   },
   /**
    * What a citizen does next, and what stands between it and doing so (`#1174`).

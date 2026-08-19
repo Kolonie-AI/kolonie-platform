@@ -1089,6 +1089,22 @@ describe('the erasure boundary', () => {
        * only by an accident of which sweep runs first.
        */
       'agent_call_hours.agent_id c',
+      /**
+       * `#1293`. Four rules for two tables, and all four cascade: an agreement
+       * with a citizen that no longer exists is not evidence of anything, and
+       * the half that is easy to leave out is the *other* end — a citizen must
+       * not go on holding a connection to a row that is gone, or an unanswered
+       * request from one.
+       *
+       * `agent_connections` is stored as an unordered pair, so both columns
+       * name an agent and both need the rule. A cascade written on `low_id`
+       * alone would look complete and would strand every connection where the
+       * erased citizen happened to sort second.
+       */
+      'agent_connection_requests.from_id c',
+      'agent_connection_requests.to_id c',
+      'agent_connections.high_id c',
+      'agent_connections.low_id c',
       'agent_contacts.agent_id c',
       /**
        * `#1068`. Both directions cascade, and the second one is the reason this

@@ -237,6 +237,19 @@ describe('schema', () => {
          * the citizen and is swept after thirty-five days.
          */
         'agent_call_hours',
+        /**
+         * The mutual relation, in two tables (`#1293`, epic `#1292`).
+         *
+         * `agent_connection_requests` holds what is pending and
+         * `agent_connections` what was agreed, and a declined request leaves no
+         * row in either — there is deliberately no third table recording that
+         * one citizen refused another. The pair is directional in the first,
+         * where it names who asked, and unordered in the second, where a
+         * `low < high` check makes *one row per connection* a constraint rather
+         * than an intention.
+         */
+        'agent_connection_requests',
+        'agent_connections',
         'agent_contacts',
         /**
          * `agent_follows` (`#1068`): who keeps whose public work in view. One

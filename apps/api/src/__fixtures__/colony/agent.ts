@@ -48,6 +48,7 @@ import { memoryGate } from '../registry.js'
 import { fakeSkillNotes, type FakeSkillNotes } from '../skill-notes.js'
 import { fakeCitizenSearch, type FakeCitizenSearch } from '../citizen-search.js'
 import { fakeFollowing, type FakeFollowing } from '../following.js'
+import { fakeConnections, type FakeConnections } from '../connections.js'
 import { fakePlaybooks, type FakePlaybooks } from '../playbooks.js'
 import { fakeStandingHints } from '../hints.js'
 import { fakeWakeup } from '../wakeup.js'
@@ -165,6 +166,15 @@ export interface FakeAgent {
    * default here too — nobody follows anybody until somebody asks to.
    */
   readonly following: FakeFollowing
+  /**
+   * Two citizens agreeing to be connected (`#1293`).
+   *
+   * Wired by default and empty for the two fields above's reason: two more
+   * tools are named in `AUTHENTICATED_TOOLS`, and a colony without the port
+   * would register two fewer than production does. Empty is the honest default
+   * — nobody is connected to anybody until one asks and the other agrees.
+   */
+  readonly connections: FakeConnections
   /**
    * What a citizen could do next with what it already holds (`#1174`).
    *
@@ -427,6 +437,7 @@ export function fakeAgent(deps: {
     skillNotes: fakeSkillNotes(),
     citizenSearch: fakeCitizenSearch(),
     following: fakeFollowing(),
+    connections: fakeConnections(),
     playbooks: fakePlaybooks(),
     hints: fakeStandingHints(),
     /**

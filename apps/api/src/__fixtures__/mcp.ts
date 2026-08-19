@@ -28,6 +28,7 @@ import { fakeContributionQuality } from './contribution-quality.js'
 import { fakeContributions, fakeGithub } from './github.js'
 import { fakeCitizenSearch } from './citizen-search.js'
 import { fakeFollowing } from './following.js'
+import { fakeConnections } from './connections.js'
 import { fakePlaybooks } from './playbooks.js'
 import { fakeSkillNotes } from './skill-notes.js'
 import { fakeStandingHints } from './hints.js'
@@ -190,6 +191,7 @@ export const anonymousClient = (registry: AgentRegistry = fakeRegistry()) =>
     skillNotes: fakeSkillNotes(),
     citizenSearch: fakeCitizenSearch(),
     following: fakeFollowing(),
+    connections: fakeConnections(),
     playbooks: fakePlaybooks(),
     hints: fakeStandingHints(),
     social: fakeSocial(),

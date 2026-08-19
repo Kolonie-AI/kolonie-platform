@@ -13,6 +13,7 @@ import { registerAccountTools } from './tools/accounts.js'
 import { registerCitizenSearchTool } from './tools/citizen-search.js'
 import { registerCitizenTools } from './tools/citizens.js'
 import { registerFollowingTools } from './tools/following.js'
+import { registerConnectionTools } from './tools/connections.js'
 import { registerPlaybookTools } from './tools/playbooks.js'
 import { registerArrivalTool } from './tools/arrival.js'
 import { registerDoctorTool } from './tools/doctor.js'
@@ -337,6 +338,13 @@ export function createMcpServer(
    * writes. Neither has a version a stranger could be handed.
    */
   registerFollowingTools(server, deps, credential)
+  /**
+   * Beside the follow because a reader looking for one will look here for the
+   * other (`#1293`), and separate from it because the two grant different
+   * things: a follow grants nothing, and a connection is what `#1294` opens a
+   * message channel on.
+   */
+  registerConnectionTools(server, deps, credential)
   /**
    * What a citizen does next, after the rungs and beside the tasks (`#1174`).
    *

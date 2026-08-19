@@ -177,6 +177,34 @@ export const AtlasWalkedSchema = z.object({
    * links and the scout had filed one.
    */
   homepage: z.string().nullable(),
+
+  /**
+   * Whether anybody filed a `sighted` walk here (`#1333`).
+   *
+   * **A boolean and never the count**, on the rule the floor is made of and
+   * exactly as {@link AtlasFigures.evidenced} and {@link AtlasFigures.anyProved}
+   * are: *somebody scouted this provider* names nobody, and *two citizens did*
+   * is a number about two citizens.
+   *
+   * **It exists because no public surface can otherwise tell the two apart.**
+   * `#1296` split `sighted` — a scout that read the public site and filed what
+   * the provider is — from `abandoned`, a signup somebody started and stopped.
+   * That distinction is the whole of what the outcome bought, and every page has
+   * been rendering one generic *walked* sentence over both since, so a scout's
+   * filing reads to a stranger as a failed signup.
+   */
+  anySighted: z.boolean(),
+
+  /**
+   * Whether anybody filed an `abandoned` walk here (`#1333`).
+   *
+   * The other half of the pair above, and the stronger of the two claims: an
+   * abandoned walk says somebody got as far as trying. Where both are true the
+   * page leads with this one, because *an attempt stopped here* is what a reader
+   * deciding whether to spend an hour needs first, and the scouting is mentioned
+   * beside it rather than instead of it.
+   */
+  anyAbandoned: z.boolean(),
 })
 export type AtlasWalked = z.infer<typeof AtlasWalkedSchema>
 
@@ -395,6 +423,8 @@ export function noFigures(kind: string, provider: string): AtlasFigures {
       walls: [],
       /** Nobody has filed one, which is what null means everywhere in this row. */
       homepage: null,
+      anySighted: false,
+      anyAbandoned: false,
     },
   }
 }

@@ -133,6 +133,8 @@ describe('whether anybody got through at a provider', () => {
             platforms: {},
             walls: [],
             homepage: null,
+            anySighted: false,
+            anyAbandoned: false,
           },
         }),
       ),

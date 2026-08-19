@@ -491,6 +491,61 @@ describe('the measured figures behind an Atlas entry', () => {
       expect((await only('contested.test'))?.walked.homepage).toBe('https://contested.test')
     })
 
+    /**
+     * **Which kind of stop happened, as two booleans** (`#1333`). A scout filing
+     * and a stopped signup are different facts about a provider and send a reader
+     * different ways; both clear the floor for the reason the homepage above does.
+     */
+    it('says a scout filed here, on a row whose counts it has zeroed', async () => {
+      const agentId = await citizen('lone-scout')
+      const walkId = await walkInProgress(db, agentId, { kind, provider: 'onlyscouted.test' })
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+      await finishWalk(db, walkId, {
+        outcome: 'sighted',
+        about: 'A board nobody has attempted.',
+        homepage: 'https://onlyscouted.test',
+      })
+
+      const figures = await only('onlyscouted.test')
+
+      expect(figures?.walked.anySighted).toBe(true)
+      expect(figures?.walked.anyAbandoned).toBe(false)
+    })
+
+    it('says an attempt stopped here, and keeps the two apart', async () => {
+      const scout = await citizen('the-scout')
+      const scouted = await walkInProgress(db, scout, { kind, provider: 'bothways.test' })
+      await recordWalkStep(db, scouted, { actor: 'agent' })
+      await finishWalk(db, scouted, {
+        outcome: 'sighted',
+        about: 'Somebody looked at it.',
+        homepage: 'https://bothways.test',
+      })
+
+      const trier = await citizen('the-trier')
+      const tried = await walkInProgress(db, trier, { kind, provider: 'bothways.test' })
+      await recordWalkStep(db, tried, { actor: 'agent' })
+      await finishWalk(db, tried, { outcome: 'abandoned' })
+
+      const figures = await only('bothways.test')
+
+      expect(figures?.walked.anySighted).toBe(true)
+      expect(figures?.walked.anyAbandoned).toBe(true)
+    })
+
+    /** A refusal is neither, which is what leaves the rest of the page to answer. */
+    it('says neither of a provider whose only walk was a refusal', async () => {
+      const agentId = await citizen('refused-walker')
+      const walkId = await walkInProgress(db, agentId, { kind, provider: 'closed.test' })
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+      await finishWalk(db, walkId, { outcome: 'refused', wall: 'It asks for a passport.' })
+
+      const figures = await only('closed.test')
+
+      expect(figures?.walked.anySighted).toBe(false)
+      expect(figures?.walked.anyAbandoned).toBe(false)
+    })
+
     /** Nobody filed one, which is null rather than an empty string. */
     it('says null where no walk filed a homepage', async () => {
       const agentId = await citizen('silent-walker')

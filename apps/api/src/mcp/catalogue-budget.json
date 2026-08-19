@@ -1,11 +1,10 @@
 {
   "tools": 123,
-  "bytes": 216203,
+  "bytes": 216197,
   "heaviest": {
     "name": "kolonie.accounts.recipes",
-    "bytes": 6220
+    "bytes": 6214
   },
   "measuredAt": "2026-08-19",
-  "command": "node scripts/check-catalogue-budget.mjs",
-  "raisedFor": "the-catalogue-encodes-grammar-never-vocabulary \u2014 three sentences on kolonie.accounts.walk-status, and no new tool: still 123 tools. #1340 keeps the reason a walk's prose was refused and serves it to the walker, and the description now says the tool carries it. There is no kolonie.accounts.walk-refusal, because why a walk was refused is a property of the walk that tool already answers about, and a second name for it would be the cost this record exists to refuse. The growth is vocabulary-free because it names no provider, no task, no rung and no rule: it says the tool may carry a verdict, that the verdict is the Colony's own sentence about words the citizen filed, and that it is not an instruction to follow \u2014 which is what a citizen needs in order to read its own moderation result without mistaking it for a rule. This raise sits on top of #1345's, which repaired #1344's."
+  "command": "node scripts/check-catalogue-budget.mjs"
 }

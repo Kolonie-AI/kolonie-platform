@@ -19,6 +19,7 @@ import {
   MESSAGE_REPORT_REASON_MAX_LENGTH,
   MESSAGE_REQUEST_PREVIEW_MAX_LENGTH,
 } from '@kolonie-ai/core'
+import { accountWishes } from './account-wishes.js'
 import { agents } from './agents.js'
 import {
   messageParty,
@@ -26,8 +27,10 @@ import {
   messageReportStatus,
   messageRequestStatus,
   messageSystemRole,
+  operatorAnswerKind,
 } from './enums.js'
 import { humans } from './humans.js'
+import { tasks } from './tasks.js'
 
 const bodyMin = sql.raw(String(MESSAGE_BODY_MIN_LENGTH))
 const bodyMax = sql.raw(String(MESSAGE_BODY_MAX_LENGTH))
@@ -78,11 +81,53 @@ const reportReasonMax = sql.raw(String(MESSAGE_REPORT_REASON_MAX_LENGTH))
  * join, a renamed handle does not rewrite history, and a party that leaves a
  * conversation without being erased stays legible in what it already said.
  */
-export const messageConversations = pgTable('message_conversations', {
-  id: uuid('id').primaryKey().defaultRandom(),
+export const messageConversations = pgTable(
+  'message_conversations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
 
-  createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
-})
+    /**
+     * The task this thread is about, or null when it is about nothing in
+     * particular (`#1319`).
+     *
+     * **Provenance is conversation-scoped and not message-scoped** (epic
+     * `#1318`, decision 12). An exchange is about one thing for its whole
+     * length: a citizen that needs its operator for a second task opens a second
+     * conversation rather than changing what this one was about halfway down.
+     * That is also why there is no ceiling on how many may be open — a limit on
+     * *how many things you may be blocked on at once* is not a limit anybody
+     * asked for.
+     *
+     * `cascade`, like every other provenance column here: a task that is gone
+     * cannot be what a thread is about.
+     */
+    taskId: uuid('task_id').references(() => tasks.id, { onDelete: 'cascade' }),
+
+    /** The wanted account wish, on the threads that came from one (`#594`). */
+    wishId: uuid('wish_id').references(() => accountWishes.id, { onDelete: 'cascade' }),
+
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    /**
+     * At most one provenance, and both-null is the ordinary case.
+     *
+     * Not the `<>` of `operator_requests_exactly_one_provenance`, deliberately:
+     * an exchange there was always *about* something because opening one
+     * required naming it, and a conversation here may be two citizens talking.
+     * What must stay impossible is a thread claiming to be about a task **and**
+     * a wish, which is a thread that answers *why was this person asked* twice.
+     */
+    check(
+      'message_conversations_provenance',
+      sql`${table.taskId} is null or ${table.wishId} is null`,
+    ),
+    /** *What is this operator being asked about* — read per task, when it is read. */
+    index('message_conversations_task_idx').on(table.taskId),
+  ],
+)
 
 /**
  * One party to one conversation.
@@ -311,6 +356,21 @@ export const messages = pgTable(
 
     acknowledgedAt: timestamp('acknowledged_at', { withTimezone: true, mode: 'string' }),
 
+    /**
+     * What the operator declared this message to be, or null (`#1093`, `#1319`).
+     *
+     * **Its own column, and not `actionRequired` widened.** Those fields belong
+     * to the Colony and say what the Colony asked; this one says what a person
+     * meant, and the two would have to be told apart by every reader if they
+     * shared a home. The CHECK below is the same forgery rule the ones above it
+     * are: a citizen row carrying `permission` would be a citizen permitting
+     * itself, on the surface a handoff is actually read from.
+     *
+     * Null is the honest value for free text — see
+     * `packages/core/src/message/answer-kind.ts`.
+     */
+    answerKind: operatorAnswerKind('answer_kind'),
+
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),
@@ -349,6 +409,19 @@ export const messages = pgTable(
             and ${table.nextAction} is null
             and ${table.acknowledgedAt} is null
           )`,
+    ),
+    /**
+     * Only a person declares (`#1319`).
+     *
+     * A citizen cannot permit itself and the Colony does not permit on anybody's
+     * behalf, so `answer_kind` is null on every row whose sender is not
+     * `operator-human`. Written here rather than checked in storage for the
+     * reason the file's table gives: a citizen that reached an `insert` some
+     * other way must still fail, and it does, at the lowest layer there is.
+     */
+    check(
+      'messages_answer_kind_party',
+      sql`${table.answerKind} is null or ${table.senderParty} = 'operator-human'`,
     ),
     check(
       'messages_next_action_length',

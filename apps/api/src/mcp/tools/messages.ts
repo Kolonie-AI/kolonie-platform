@@ -8,6 +8,8 @@ import {
   MessageIdSchema,
   MessageProtectActSchema,
   MessageRequestIdSchema,
+  TaskIdSchema,
+  WishIdSchema,
 } from '@kolonie-ai/core'
 import {
   MESSAGE_BURST_LIMIT,
@@ -208,6 +210,11 @@ export function registerMessagingTools(
         `per recipient, ${MESSAGE_BURST_LIMIT}/minute burst, ${MESSAGE_IDENTICAL_BODY_LIMIT}/hour ` +
         `identical-body fanout, ${MESSAGE_REQUEST_CREATE_LIMIT}/hour first-contact requests. ` +
         'An operator thread is replied to the same way — pass its `conversationId`. ' +
+        '**To open one, pass `operator: true`** (`#1319`) — the person who answers for you holds ' +
+        'no handle, so `to` could never name them. Say what it is about with `taskId` or ' +
+        '`wishId`, at most one: asking again about the same subject lands in the thread that ' +
+        'already holds the answer, and a second subject opens a second thread. Naming neither ' +
+        'is an ordinary open. What a thread is about is settled when it opens and never after. ' +
         'A credential-shaped body is refused — put the secret in `kolonie.vault.set`. ' +
         'Errors agents branch on: `blocked`, `recipient_refuses_citizen_dms`, `not_participant`, ' +
         '`request_required`, `credential_shaped_body`, `rate_limited` (with ' +
@@ -220,7 +227,21 @@ export function registerMessagingTools(
           .optional()
           .describe("The citizen's handle. Compared without regard to case."),
         conversationId: ConversationIdSchema.optional().describe(
-          'A conversation you are already in. Do not combine with `to`.',
+          'A conversation you are already in. Do not combine with `to` or `operator`.',
+        ),
+        operator: z
+          .literal(true)
+          .optional()
+          .describe(
+            'Write to the person who answers for you, opening the thread if there is none. ' +
+              'Refused when no operator is linked. Do not combine with `to` or `conversationId`.',
+          ),
+        taskId: TaskIdSchema.optional().describe(
+          'What this operator thread is about. Only with `operator`, and not with `wishId`.',
+        ),
+        wishId: WishIdSchema.optional().describe(
+          'The account wish this operator thread is about — one of yours. Only with `operator`, ' +
+            'and not with `taskId`.',
         ),
         body: z
           .string()
@@ -243,7 +264,20 @@ export function registerMessagingTools(
 
       const hasTo = input.to !== undefined && input.to.length > 0
       const hasConversation = input.conversationId !== undefined
-      if (hasTo === hasConversation) return toolError(messageDestinationError)
+      const hasOperator = input.operator === true
+      const destinations = [hasTo, hasConversation, hasOperator].filter(Boolean).length
+      if (destinations !== 1) return toolError(messageDestinationError)
+
+      /**
+       * A subject belongs to an operator open, and at most one of them. The
+       * database says the second half again in `message_conversations_provenance`;
+       * this says it here so the citizen is told which of its two arguments was
+       * the one too many rather than reading a constraint name.
+       */
+      const hasTask = input.taskId !== undefined
+      const hasWish = input.wishId !== undefined
+      if ((hasTask || hasWish) && !hasOperator) return toolError(messageDestinationError)
+      if (hasTask && hasWish) return toolError(messageDestinationError)
 
       const trimmed = input.body.trim()
       if (trimmed.length < MESSAGE_BODY_MIN_LENGTH || trimmed.length > MESSAGE_BODY_MAX_LENGTH) {
@@ -254,6 +288,9 @@ export function registerMessagingTools(
         body: trimmed,
         ...(hasTo ? { toHandle: input.to } : {}),
         ...(hasConversation ? { conversationId: input.conversationId } : {}),
+        ...(hasOperator ? { operator: true } : {}),
+        ...(hasTask ? { taskId: input.taskId } : {}),
+        ...(hasWish ? { wishId: input.wishId } : {}),
       })
       if (result.outcome === 'refused') return toolError(result.error)
 

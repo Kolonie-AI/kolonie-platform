@@ -1,5 +1,6 @@
 import {
   MESSAGE_BODY_MAX_LENGTH,
+  OPERATOR_ANSWER_BODIES,
   MESSAGE_REQUEST_PREVIEW_MAX_LENGTH,
   looksLikeCredential,
   type Conversation,
@@ -36,6 +37,15 @@ export interface FakeMessaging extends CitizenMessaging {
   readonly operatorThread: (handle: string, label?: string) => string
   /** Make an operator thread read-only, as removing the relationship does. */
   readonly endOperatorLink: (conversationId: string) => void
+  /**
+   * Give this citizen an operator, without a thread (`#1319`).
+   *
+   * `operatorThread` seeds a link *and* the conversation a person already
+   * opened. This one seeds only the relationship, which is the state an
+   * operator open starts from: nobody has written yet, and the citizen is the
+   * one opening the thread.
+   */
+  readonly operatorLink: (handle: string) => void
   /**
    * A Colony system thread with one `actionRequired` message (`#1289`).
    *
@@ -84,6 +94,11 @@ type ConversationRow = {
   participants: Participant[]
   /** The operator relationship behind this thread has ended, so nobody may write. */
   linkEnded?: boolean
+  /**
+   * What an operator thread is about, as the provenance pair settles it
+   * (`#1319`). Absent on the plain thread, which is a subject of its own.
+   */
+  operatorSubject?: string
   messages: {
     id: string
     senderParticipantId: string
@@ -124,6 +139,8 @@ export function fakeMessaging(): FakeMessaging {
   const conversations = new Map<string, ConversationRow>()
   const requests: RequestRow[] = []
   const rateLimited = new Map<string, number>()
+  /** Agent ids with somebody answering for them. */
+  const operatorLinks = new Set<string>()
   const reports: { id: string; reporterId: string; reportedId: string; reason?: string }[] = []
 
   let seq = 0
@@ -211,6 +228,7 @@ export function fakeMessaging(): FakeMessaging {
       const citizen = held === undefined ? undefined : handles.get(held)
       if (citizen === undefined) throw new Error(`no such citizen: ${handle}`)
 
+      operatorLinks.add(citizen.agentId)
       const conversationId = id()
       const operatorParticipantId = id()
       conversations.set(conversationId, {
@@ -234,6 +252,12 @@ export function fakeMessaging(): FakeMessaging {
     endOperatorLink(conversationId) {
       const row = conversations.get(conversationId)
       if (row !== undefined) row.linkEnded = true
+    },
+    operatorLink(handle) {
+      const held = canonical(handle)
+      const citizen = held === undefined ? undefined : handles.get(held)
+      if (citizen === undefined) throw new Error(`no such citizen: ${handle}`)
+      operatorLinks.add(citizen.agentId)
     },
     systemThread(handle, options = {}) {
       const held = canonical(handle)
@@ -357,6 +381,58 @@ export function fakeMessaging(): FakeMessaging {
           outcome: 'delivered',
           response: {
             conversationId: input.conversationId,
+            messageId: messageId as MessageId,
+          },
+        }
+      }
+
+      // @mirrors packages/db/src/storage/messaging.ts openOperatorHelpConversation
+      if (input.operator === true) {
+        if (!operatorLinks.has(agentId)) return refused('not-the-operator')
+        // The provenance pair, flattened: at most one of the two is set, so a
+        // single key orders the threads. The empty string is the plain thread,
+        // which is a subject of its own rather than the absence of one.
+        const subject = input.taskId ?? input.wishId ?? ''
+        const existing = [...conversations.values()].find(
+          (row) =>
+            row.participants.some((p) => p.party === 'operator-human') &&
+            row.participants.some((p) => p.agentId === agentId) &&
+            (row.operatorSubject ?? '') === subject,
+        )
+        const row =
+          existing ??
+          (() => {
+            const conversationId = id()
+            const opened: ConversationRow = {
+              id: conversationId,
+              createdAt: now(),
+              participants: [
+                {
+                  id: id(),
+                  agentId,
+                  party: 'citizen',
+                  label: handleOf.get(agentId) ?? agentId,
+                },
+                { id: id(), party: 'operator-human', label: 'your operator' },
+              ],
+              messages: [],
+              ...(subject === '' ? {} : { operatorSubject: subject }),
+            }
+            conversations.set(conversationId, opened)
+            return opened
+          })()
+        const me = row.participants.find((p) => p.agentId === agentId)!
+        const messageId = id()
+        row.messages.push({
+          id: messageId,
+          senderParticipantId: me.id,
+          body: input.body,
+          createdAt: now(),
+        })
+        return {
+          outcome: 'delivered',
+          response: {
+            conversationId: row.id as ConversationId,
             messageId: messageId as MessageId,
           },
         }
@@ -595,14 +671,24 @@ export interface FakeOperatorMessaging extends OperatorMessaging {
   readonly link: (humanId: string, agentId: string) => void
   /** End it. The thread stays and stops taking words, which is `#1288`'s choice. */
   readonly unlink: (humanId: string, agentId: string) => void
+  /**
+   * A thread a citizen opened, empty (`#1319`).
+   *
+   * The console never opens a second one — a citizen asking about a second
+   * subject does. This is how a test gets the state a person actually arrives
+   * at: more than one thread, each about something, and an answer that has to
+   * name which of them it answers.
+   */
+  readonly thread: (humanId: string, agentId: string) => string
 }
 
 /**
  * The operator's own direction, in memory (`#1288`).
  *
  * Reproduces the three things `apps/api` decides on that path: the write is
- * refused without a confirmed relationship **and after one is removed**, one
- * conversation per person per citizen, and a person reads only the threads they
+ * refused without a confirmed relationship **and after one is removed**, an
+ * answer landing in the thread it names rather than the first one (`#1319`),
+ * and a person reads only the threads they
  * are in. What the database decides — the CHECK that stops a citizen row
  * claiming `operator-human` — stays in `packages/db/src/storage/messaging.test.ts`,
  * where a fake asserting it would be asserting a copy of the schema.
@@ -649,6 +735,11 @@ export function fakeOperatorMessaging(): FakeOperatorMessaging {
     unlink(humanId, agentId) {
       links.delete(linkKey(humanId, agentId))
     },
+    thread(humanId, agentId) {
+      const opened = { id: id(), humanId, agentId, createdAt: now(), messages: [] as Message[] }
+      threads.push(opened)
+      return opened.id
+    },
 
     async listThreads(humanId, agentId) {
       return threads
@@ -666,9 +757,23 @@ export function fakeOperatorMessaging(): FakeOperatorMessaging {
     },
 
     // @mirrors packages/db/src/storage/messaging.ts sendOperatorMessage
-    async send(humanId, agentId, body): Promise<SendResponse> {
+    async send(humanId, agentId, input): Promise<SendResponse> {
+      /**
+       * A declaration carries the Colony's own sentence (`#1093`, `#1319`).
+       *
+       * Which is why the credential check runs on free text only: there is no
+       * body to inspect when the person pressed one of the three controls, and
+       * the words that go out were written here rather than typed.
+       */
+      const body = input.body ?? (input.answerKind && OPERATOR_ANSWER_BODIES[input.answerKind])
+      if (body === undefined || body === '') {
+        return {
+          outcome: 'refused',
+          error: { code: 'validation_failed', message: 'Nothing to send.' },
+        }
+      }
       // @mirrors packages/db/src/storage/messaging.ts carriesACredential
-      if (looksLikeCredential(body)) {
+      if (input.body !== undefined && looksLikeCredential(input.body)) {
         return { outcome: 'refused', error: messageRefusals['credential-shaped-body'] }
       }
 
@@ -676,9 +781,20 @@ export function fakeOperatorMessaging(): FakeOperatorMessaging {
         return { outcome: 'refused', error: messageRefusals['not-the-operator'] }
       }
 
-      const existing = threads.find(
-        (thread) => thread.humanId === humanId && thread.agentId === agentId,
-      )
+      const named =
+        input.conversationId === undefined
+          ? undefined
+          : threads.find(
+              (thread) =>
+                thread.id === input.conversationId &&
+                thread.humanId === humanId &&
+                thread.agentId === agentId,
+            )
+      if (input.conversationId !== undefined && named === undefined) {
+        return { outcome: 'refused', error: messageRefusals['not-a-participant'] }
+      }
+      const existing =
+        named ?? threads.find((thread) => thread.humanId === humanId && thread.agentId === agentId)
       const thread =
         existing ??
         (() => {
@@ -704,6 +820,7 @@ export function fakeOperatorMessaging(): FakeOperatorMessaging {
         },
         body,
         createdAt: now(),
+        ...(input.answerKind === undefined ? {} : { answerKind: input.answerKind }),
       })
 
       return {

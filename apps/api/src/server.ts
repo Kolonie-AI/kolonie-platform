@@ -114,6 +114,7 @@ import {
   removeConnection,
   replyInConversation,
   reportMessageAbuse,
+  openOperatorHelpConversation,
   sendOperatorMessage,
   requestConnection,
   acceptMessageRequest,
@@ -900,13 +901,27 @@ const app = buildApp({
         return { outcome: 'refused', error: messageRateLimited(charged.retryAfterSeconds) }
       }
 
+      /**
+       * Three destinations, one send (`#1319`). The operator one is its own
+       * storage function rather than a branch inside `sendCitizenMessage`,
+       * because what it does that the others do not is settle what the thread is
+       * about — and provenance is written on the conversation insert or never.
+       */
       const result =
-        input.conversationId !== undefined
-          ? await replyInConversation(db, agentId, input.conversationId, input.body)
-          : await sendCitizenMessage(db, agentId, {
-              toHandle: input.toHandle ?? '',
+        input.operator === true
+          ? await openOperatorHelpConversation(db, agentId, {
               body: input.body,
+              provenance: {
+                taskId: input.taskId ?? null,
+                wishId: input.wishId ?? null,
+              },
             })
+          : input.conversationId !== undefined
+            ? await replyInConversation(db, agentId, input.conversationId, input.body)
+            : await sendCitizenMessage(db, agentId, {
+                toHandle: input.toHandle ?? '',
+                body: input.body,
+              })
 
       if (result.outcome === 'delivered') {
         return {
@@ -998,8 +1013,16 @@ const app = buildApp({
         ? { outcome: 'read', response: { messages: result.messages } }
         : { outcome: 'refused', error: messageRefusals[result.refusal] }
     },
-    send: async (humanId, agentId, body) => {
-      const result = await sendOperatorMessage(db, humanId, agentId, body)
+    send: async (humanId, agentId, input) => {
+      const result = await sendOperatorMessage(
+        db,
+        humanId,
+        agentId,
+        input.body ?? null,
+        undefined,
+        input.answerKind,
+        input.conversationId,
+      )
       if (result.outcome === 'delivered') {
         return {
           outcome: 'delivered',

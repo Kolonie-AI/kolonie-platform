@@ -1,18 +1,29 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq, sql } from 'drizzle-orm'
-import { AgentIdSchema, HumanIdSchema, type AgentId, type HumanId } from '@kolonie-ai/core'
+import {
+  AgentIdSchema,
+  HumanIdSchema,
+  OPERATOR_ANSWER_BODIES,
+  OperatorAnswerKindSchema,
+  type AgentId,
+  type HumanId,
+} from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import {
+  accountWishes,
   agents,
   humanAgents,
   humans,
+  messageConversations,
   messageParticipants,
   messageReports,
   messages,
+  tasks,
 } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
 import { acceptConnection, removeConnection, requestConnection } from './connections.js'
 import { followCitizen } from './following.js'
+import { listSetAsides, setAside } from './set-asides.js'
 import {
   acceptMessageRequest,
   acknowledgeSystemMessage,
@@ -23,6 +34,7 @@ import {
   listOperatorConversations,
   markConversationRead,
   messagingWakeupDelta,
+  openOperatorHelpConversation,
   readConversation,
   readOperatorConversation,
   replyInConversation,
@@ -1205,6 +1217,286 @@ describe('private messaging', () => {
         pendingRequests: 0,
         highPriority: 0,
       })
+    })
+  })
+
+  /**
+   * Provenance and the declaration (`#1319`).
+   *
+   * Two properties the epic rests on, and neither is visible from a passing
+   * send. *A thread per subject* is only true while the lookup matches on the
+   * subject — a lookup that matched on the person alone would deliver every
+   * one of these and file two problems in one history. And a declaration is
+   * only worth reading while the database refuses to let a citizen write one:
+   * the whole point of the three controls is that the sentence came from the
+   * person, so an `answer_kind` a citizen could set is a label that proves
+   * nothing.
+   */
+  describe('provenance and the operator declaration (#1319)', () => {
+    const aTask = async (type: string): Promise<string> => {
+      const [row] = await db
+        .insert(tasks)
+        .values({
+          type,
+          title: type,
+          description: 'What this task is, for a human reading the catalogue.',
+          instructions: 'What the agent must actually do.',
+          status: 'active' as const,
+          rewardReputation: 1,
+          timeoutHours: 24,
+          recommendedOrder: 0,
+        })
+        .returning({ id: tasks.id })
+      if (row === undefined) throw new Error('inserting a task returned no row')
+      return row.id
+    }
+
+    const aWish = async (owner: AgentId, provider = 'github.com'): Promise<string> => {
+      const [row] = await db
+        .insert(accountWishes)
+        .values({ agentId: owner, provider, author: 'citizen', wantedAt: new Date().toISOString() })
+        .returning({ id: accountWishes.id })
+      if (row === undefined) throw new Error('inserting a wish returned no row')
+      return row.id
+    }
+
+    it('opens a second thread for a second task, and reuses the first for the first', async () => {
+      const citizen = await anAgent('citizen')
+      await aPerson(citizen)
+      const one = await aTask('github-account')
+      const two = await aTask('domain-verify')
+
+      const first = await openOperatorHelpConversation(db, citizen, {
+        body: 'I cannot open the account without you.',
+        provenance: { taskId: one as never, wishId: null },
+      })
+      const again = await openOperatorHelpConversation(db, citizen, {
+        body: 'Still waiting on this one.',
+        provenance: { taskId: one as never, wishId: null },
+      })
+      const other = await openOperatorHelpConversation(db, citizen, {
+        body: 'And the domain needs a card.',
+        provenance: { taskId: two as never, wishId: null },
+      })
+
+      if (
+        first.outcome !== 'delivered' ||
+        again.outcome !== 'delivered' ||
+        other.outcome !== 'delivered'
+      ) {
+        throw new Error('unreachable')
+      }
+      expect(again.conversationId).toBe(first.conversationId)
+      expect(other.conversationId).not.toBe(first.conversationId)
+    })
+
+    /**
+     * Chat is a subject like any other, and the one with no subject.
+     *
+     * Which is what keeps the pre-`#1319` thread where it was: a citizen that
+     * names nothing lands in the plain thread, and neither task thread is it.
+     */
+    it('keeps the plain thread apart from every thread about something', async () => {
+      const citizen = await anAgent('citizen')
+      await aPerson(citizen)
+      const task = await aTask('github-account')
+
+      const plain = await openOperatorHelpConversation(db, citizen, { body: 'Are you there?' })
+      const about = await openOperatorHelpConversation(db, citizen, {
+        body: 'This one needs you.',
+        provenance: { taskId: task as never, wishId: null },
+      })
+
+      if (plain.outcome !== 'delivered' || about.outcome !== 'delivered') {
+        throw new Error('unreachable')
+      }
+      expect(about.conversationId).not.toBe(plain.conversationId)
+    })
+
+    it('refuses a wish that belongs to somebody else', async () => {
+      const citizen = await anAgent('citizen')
+      const stranger = await anAgent('stranger')
+      await aPerson(citizen)
+      const theirs = await aWish(stranger)
+
+      expect(
+        await openOperatorHelpConversation(db, citizen, {
+          body: 'About that account.',
+          provenance: { taskId: null, wishId: theirs as never },
+        }),
+      ).toEqual({ outcome: 'refused', refusal: 'not-a-participant' })
+    })
+
+    it('refuses to ask when nobody operates the citizen', async () => {
+      const citizen = await anAgent('citizen')
+
+      expect(
+        await openOperatorHelpConversation(db, citizen, { body: 'Is anybody there?' }),
+      ).toEqual({ outcome: 'refused', refusal: 'not-the-operator' })
+    })
+
+    /**
+     * A thread is about one thing or about nothing, never about two.
+     *
+     * Both-null is the ordinary case and has to stay allowed: most threads are
+     * two participants talking, and a CHECK that demanded a subject would have
+     * made every one of those unwritable.
+     */
+    it('refuses a thread that claims both a task and a wish, and allows neither', async () => {
+      const citizen = await anAgent('citizen')
+      await aPerson(citizen)
+      const task = await aTask('github-account')
+      const wish = await aWish(citizen)
+
+      const plain = await openOperatorHelpConversation(db, citizen, {
+        body: 'Nothing in particular.',
+      })
+      if (plain.outcome !== 'delivered') throw new Error('unreachable')
+
+      await expectRejection(
+        () =>
+          db
+            .update(messageConversations)
+            .set({ taskId: task, wishId: wish })
+            .where(eq(messageConversations.id, plain.conversationId)),
+        /message_conversations_provenance/,
+      )
+    })
+
+    it('carries the Colony’s own sentence for each declaration, and the citizen can read which', async () => {
+      const citizen = await anAgent('citizen')
+      const operator = await aPerson(citizen)
+
+      for (const kind of OperatorAnswerKindSchema.options) {
+        const sent = await sendOperatorMessage(db, operator, citizen, null, 'your operator', kind)
+        if (sent.outcome !== 'delivered') throw new Error('unreachable')
+
+        const read = await readConversation(db, citizen, sent.conversationId)
+        if (read.outcome !== 'read') throw new Error('unreachable')
+        const last = read.messages.at(-1)!
+        expect(last.body).toBe(OPERATOR_ANSWER_BODIES[kind])
+        expect(last.answerKind).toBe(kind)
+      }
+    })
+
+    it('leaves answerKind off free text, which declares nothing', async () => {
+      const citizen = await anAgent('citizen')
+      const operator = await aPerson(citizen)
+
+      const sent = await sendOperatorMessage(db, operator, citizen, 'I will look tonight.')
+      if (sent.outcome !== 'delivered') throw new Error('unreachable')
+
+      const read = await readConversation(db, citizen, sent.conversationId)
+      if (read.outcome !== 'read') throw new Error('unreachable')
+      expect(read.messages[0]!.answerKind).toBeUndefined()
+    })
+
+    /**
+     * The spoof: a citizen labelling its own message as its operator's answer.
+     *
+     * `answer_kind` is what a surface would branch on — *the person said they
+     * had done it, so stop waiting* — and a citizen that could set it could
+     * clear its own blocker and call it an answer. The CHECK refuses the row,
+     * so there is nowhere to write it from, including code that never read
+     * this schema.
+     */
+    it('refuses an answer kind on any sender that is not the person', async () => {
+      const citizen = await anAgent('citizen')
+      const operator = await aPerson(citizen)
+      const sent = await sendOperatorMessage(db, operator, citizen, 'Ask me anything.')
+      if (sent.outcome !== 'delivered') throw new Error('unreachable')
+
+      const [side] = await db
+        .select({ id: messageParticipants.id })
+        .from(messageParticipants)
+        .where(eq(messageParticipants.agentId, citizen))
+        .limit(1)
+
+      const label = await handleOf(citizen)
+      await expectRejection(
+        () =>
+          db.insert(messages).values({
+            conversationId: sent.conversationId,
+            senderParticipantId: side!.id,
+            senderParty: 'citizen',
+            senderLabel: label,
+            body: 'I have done it.',
+            answerKind: 'completion',
+          }),
+        /messages_answer_kind_party/,
+      )
+    })
+
+    /**
+     * Decision 13, and the reason all three kinds are asserted together.
+     *
+     * `answerOperatorRequest` clears the set-aside on any answer, so this does
+     * too: a refusal is an answer, and a task still put down after the person
+     * said *no* is a task the citizen never gets to close. Inventing a matrix
+     * here would make the two surfaces disagree for as long as the epic runs
+     * both.
+     */
+    it('clears the task’s set-aside on every kind of answer, refusal included', async () => {
+      for (const kind of OperatorAnswerKindSchema.options) {
+        await truncateAll(db)
+        const citizen = await anAgent('citizen')
+        const operator = await aPerson(citizen)
+        const task = await aTask('github-account')
+
+        const asked = await openOperatorHelpConversation(db, citizen, {
+          body: 'This one needs you.',
+          provenance: { taskId: task as never, wishId: null },
+        })
+        if (asked.outcome !== 'delivered') throw new Error('unreachable')
+
+        await setAside(db, citizen, task as never, 'needs-operator')
+        expect(await listSetAsides(db, citizen)).toHaveLength(1)
+
+        const answered = await sendOperatorMessage(
+          db,
+          operator,
+          citizen,
+          null,
+          'your operator',
+          kind,
+          asked.conversationId,
+        )
+        expect(answered.outcome).toBe('delivered')
+        expect(await listSetAsides(db, citizen)).toHaveLength(0)
+      }
+    })
+
+    it('leaves a set-aside alone when the thread is about nothing', async () => {
+      const citizen = await anAgent('citizen')
+      const operator = await aPerson(citizen)
+      const task = await aTask('github-account')
+      await setAside(db, citizen, task as never, 'needs-operator')
+
+      const sent = await sendOperatorMessage(db, operator, citizen, 'Unrelated, but hello.')
+      expect(sent.outcome).toBe('delivered')
+      expect(await listSetAsides(db, citizen)).toHaveLength(1)
+    })
+
+    it('refuses to answer into a thread that is not this person’s', async () => {
+      const mine = await anAgent('mine')
+      const other = await anAgent('other')
+      const operator = await aPerson(mine)
+      await aPerson(other)
+
+      const theirs = await openOperatorHelpConversation(db, other, { body: 'Mine, not yours.' })
+      if (theirs.outcome !== 'delivered') throw new Error('unreachable')
+
+      expect(
+        await sendOperatorMessage(
+          db,
+          operator,
+          mine,
+          'Wrong thread.',
+          'your operator',
+          undefined,
+          theirs.conversationId,
+        ),
+      ).toEqual({ outcome: 'refused', refusal: 'not-a-participant' })
     })
   })
 })

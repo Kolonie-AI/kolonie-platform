@@ -441,4 +441,102 @@ describe('kolonie.messages.* (#1286)', () => {
       await close()
     })
   })
+
+  describe('operator opens (#1319)', () => {
+    const A_TASK = '11111111-1111-4111-a111-111111111111'
+    const B_TASK = '22222222-2222-4222-a222-222222222222'
+    const A_WISH = '33333333-3333-4333-a333-333333333333'
+
+    it('needs exactly one destination, and says which argument was the one too many', async () => {
+      const { alice, close } = await aPair()
+
+      const none = await alice.client.callTool(send({ body: 'Nobody is named here.' }))
+      expect(none.isError).toBe(true)
+      expect(none.structuredContent).toMatchObject({ error: { code: 'validation_failed' } })
+
+      const both = await alice.client.callTool(
+        send({ to: 'correspondent', operator: true, body: 'Two destinations at once.' }),
+      )
+      expect(both.isError).toBe(true)
+      expect(both.structuredContent).toMatchObject({ error: { code: 'validation_failed' } })
+
+      await close()
+    })
+
+    it('refuses a subject that does not belong to an operator open', async () => {
+      const { colony, alice, close } = await aPair()
+      colony.messaging.operatorLink(alice.agent.profile.name)
+
+      /** A subject on a citizen DM: the thread it would qualify cannot hold one. */
+      const dm = await alice.client.callTool(
+        send({ to: 'correspondent', taskId: A_TASK, body: 'What is this thread about?' }),
+      )
+      expect(dm.isError).toBe(true)
+      expect(dm.structuredContent).toMatchObject({ error: { code: 'validation_failed' } })
+
+      /** Both halves of the provenance pair, refused before the CHECK sees it. */
+      const both = await alice.client.callTool(
+        send({ operator: true, taskId: A_TASK, wishId: A_WISH, body: 'About two things at once.' }),
+      )
+      expect(both.isError).toBe(true)
+      expect(both.structuredContent).toMatchObject({ error: { code: 'validation_failed' } })
+
+      await close()
+    })
+
+    it('refuses to open when nobody answers for this citizen', async () => {
+      const { alice, close } = await aPair()
+
+      const refused = await alice.client.callTool(
+        send({ operator: true, body: 'Could you open the account for me?' }),
+      )
+      expect(refused.isError).toBe(true)
+      expect(refused.structuredContent).toMatchObject({ error: { code: 'forbidden' } })
+
+      await close()
+    })
+
+    it('opens one thread per subject, and lands the same subject in the thread that holds it', async () => {
+      const { colony, alice, close } = await aPair()
+      colony.messaging.operatorLink(alice.agent.profile.name)
+
+      const first = await alice.client.callTool(
+        send({
+          operator: true,
+          taskId: A_TASK,
+          body: 'This rung needs a card. Could you add one?',
+        }),
+      )
+      expect(first.structuredContent).toMatchObject({ outcome: 'delivered' })
+      const firstThread = (first.structuredContent as { conversationId: string }).conversationId
+
+      const again = await alice.client.callTool(
+        send({
+          operator: true,
+          taskId: A_TASK,
+          body: 'Still the same rung, in case it was missed.',
+        }),
+      )
+      expect(again.structuredContent).toMatchObject({ conversationId: firstThread })
+
+      const second = await alice.client.callTool(
+        send({ operator: true, taskId: B_TASK, body: 'A different rung, and a different ask.' }),
+      )
+      const secondThread = (second.structuredContent as { conversationId: string }).conversationId
+      expect(secondThread).not.toBe(firstThread)
+
+      /** Naming neither is an ordinary open, and the plain thread is its own. */
+      const plain = await alice.client.callTool(
+        send({ operator: true, body: 'Nothing in particular — are you there?' }),
+      )
+      const plainThread = (plain.structuredContent as { conversationId: string }).conversationId
+      expect(plainThread).not.toBe(firstThread)
+      expect(plainThread).not.toBe(secondThread)
+
+      const threads = await alice.client.callTool(listThreads({ kind: 'operator-human' }))
+      expect((threads.structuredContent as { threads: unknown[] }).threads).toHaveLength(3)
+
+      await close()
+    })
+  })
 })

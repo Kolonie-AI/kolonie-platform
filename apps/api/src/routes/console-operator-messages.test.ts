@@ -12,6 +12,7 @@ import {
   fakeOperatorPages,
 } from '../__fixtures__/autonomy.js'
 import { fakeOperatorMessaging, type FakeOperatorMessaging } from '../__fixtures__/messaging.js'
+import { OPERATOR_ANSWER_BODIES, OPERATOR_ANSWER_LABELS } from '@kolonie-ai/core'
 import { SESSION_COOKIE } from './console.js'
 import { OAUTH_STATE_COOKIE } from '../humans/humans.js'
 
@@ -230,5 +231,113 @@ describe('an operator writing to their citizen (#1288)', () => {
     await operates(id)
 
     expect((await get(cookie, id)).statusCode).toBe(404)
+  })
+})
+
+/**
+ * The three fixed controls, and the thread each answer belongs to (`#1319`).
+ *
+ * **Two things the free-text path could not tell apart.** A person pressing
+ * *You may go ahead* and a person pressing *I have done it* both used to send
+ * the word *Allow*, and a person answering the second of two questions used to
+ * send it into whichever thread the port found first. The first is fixed by the
+ * kind, which the Colony turns into its own sentence; the second by the
+ * `conversationId` the form carries.
+ */
+describe('the declaration, and the thread it answers (#1319)', () => {
+  const KINDS = ['permission', 'completion', 'refusal'] as const
+
+  it.each(KINDS)('sends the Colony’s own sentence for %s, with nothing typed', async (kind) => {
+    const cookie = await signedInCookie()
+    await operates(agentId)
+
+    const sent = await post(cookie, agentId, { kind })
+    expect(sent.statusCode).toBe(200)
+
+    const read = (await get(cookie, agentId)).json() as {
+      messages: { body: string; answerKind?: string }[]
+    }
+    expect(read.messages[0]?.answerKind).toBe(kind)
+    expect(read.messages[0]?.body).toBe(OPERATOR_ANSWER_BODIES[kind])
+  })
+
+  /**
+   * The typed words are dropped rather than sent beside the sentence, so a
+   * message declared `permission` can never carry a body saying it was done.
+   */
+  it('drops what was typed when a control was pressed', async () => {
+    const cookie = await signedInCookie()
+    await operates(agentId)
+
+    await post(cookie, agentId, { kind: 'permission', body: 'I already made the account.' })
+
+    const read = (await get(cookie, agentId)).json() as { messages: { body: string }[] }
+    expect(read.messages[0]?.body).toBe(OPERATOR_ANSWER_BODIES.permission)
+  })
+
+  it('refuses a kind it cannot read, and sends nothing', async () => {
+    const cookie = await signedInCookie()
+    await operates(agentId)
+
+    const refused = await post(cookie, agentId, { kind: 'allow', body: 'Go on then.' })
+
+    expect(refused.statusCode).toBe(422)
+    expect((refused.json() as { messages: unknown[] }).messages).toHaveLength(0)
+  })
+
+  it('lands the answer in the thread it names rather than the first one', async () => {
+    const cookie = await signedInCookie()
+    const humanId = await operates(agentId)
+    const first = messages.thread(humanId, agentId)
+    const second = messages.thread(humanId, agentId)
+
+    const sent = await post(cookie, agentId, { kind: 'completion', conversationId: second })
+
+    expect(sent.json()).toMatchObject({ conversationId: second })
+    const read = (await get(cookie, agentId)).json() as {
+      conversations: { id: string; messages: unknown[] }[]
+    }
+    expect(read.conversations.find((one) => one.id === first)?.messages).toHaveLength(0)
+    expect(read.conversations.find((one) => one.id === second)?.messages).toHaveLength(1)
+  })
+
+  it('refuses a conversation that is not this person’s, exactly as it refuses nonsense', async () => {
+    const cookie = await signedInCookie()
+    const humanId = await operates(agentId)
+    messages.thread(humanId, agentId)
+    const strangers = messages.thread('another-person', strangersAgentId)
+
+    const elsewhere = await post(cookie, agentId, {
+      body: 'Wrong thread.',
+      conversationId: strangers,
+    })
+    const nonsense = await post(cookie, agentId, {
+      body: 'Not an id.',
+      conversationId: 'not-an-id',
+    })
+
+    expect(elsewhere.statusCode).toBe(404)
+    expect(nonsense.statusCode).toBe(422)
+  })
+
+  /** One form per thread, so there is no answer that cannot say what it answers. */
+  it('renders a control set per thread, labelled for the person pressing it', async () => {
+    const cookie = await signedInCookie()
+    const humanId = await operates(agentId)
+    messages.thread(humanId, agentId)
+    messages.thread(humanId, agentId)
+
+    const page = await app.inject({
+      method: 'GET',
+      url: `/agents/${agentId}/messages`,
+      headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
+    })
+
+    expect(page.statusCode).toBe(200)
+    expect(page.body.split('name="conversationId"')).toHaveLength(3)
+    for (const kind of KINDS) {
+      expect(page.body).toContain(`value="${kind}"`)
+      expect(page.body).toContain(OPERATOR_ANSWER_LABELS[kind])
+    }
   })
 })

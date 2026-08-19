@@ -3,6 +3,7 @@ import { alias } from 'drizzle-orm/pg-core'
 import {
   MESSAGE_REQUEST_EXPIRY_DAYS,
   MESSAGE_REQUEST_PREVIEW_MAX_LENGTH,
+  OPERATOR_ANSWER_BODIES,
   WAKEUP_MESSAGING_SAMPLE_CAP,
   looksLikeCredential,
   ConversationIdSchema,
@@ -24,10 +25,14 @@ import {
   type MessageRequestId,
   type MessageSender,
   type MessageSystemRole,
+  type OperatorAnswerKind,
+  type TaskId,
   type WakeupMessagingDelta,
+  type WishId,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 import {
+  accountWishes,
   agents,
   humanAgents,
   messageBlocks,
@@ -38,6 +43,7 @@ import {
   messages,
 } from '../schema/index.js'
 import { isAcceptedConnection } from './connections.js'
+import { clearSetAside } from './set-asides.js'
 
 /**
  * Sending, reading and refusing private messages (`#1285`, epic `#1284`).
@@ -232,6 +238,24 @@ export type SystemMessageFields = {
 }
 
 /**
+ * What one thread is about, settled when it is opened (`#1319`, epic `#1318`).
+ *
+ * **At most one, and neither is the ordinary case.** A citizen writing to its
+ * operator about nothing in particular names no task and no wish, and that is a
+ * complete answer: `message_conversations_provenance` forbids a thread claiming
+ * both and permits a thread claiming neither. It is deliberately *not* the
+ * `<>` of `operator_requests_exactly_one_provenance` — an exchange had to be
+ * about something, and a conversation does not.
+ *
+ * **Written once.** There is no function here that changes it, on purpose: see
+ * {@link openDirectConversation}.
+ */
+export type ConversationProvenance = {
+  readonly taskId?: TaskId | null
+  readonly wishId?: WishId | null
+}
+
+/**
  * Write one message into a conversation the sender is already a participant of.
  *
  * The snapshot is copied off the participant row rather than passed in, which is
@@ -239,6 +263,13 @@ export type SystemMessageFields = {
  * argument here for a party, a label or a role. System fields are the same
  * shape of rule (`#1289`): only a caller that already holds a
  * {@link MessageSystemRole} reaches the branch that sets them.
+ *
+ * The declaration a person makes about their own answer (`#1319`) is the third
+ * of these, and the narrowest: `answer_kind` is written only where the party is
+ * already `operator-human`, so a citizen calling any of the send paths below
+ * cannot reach it whatever it passes. The database says the same thing again in
+ * `messages_answer_kind_party`, because a rule that only one layer holds is a
+ * rule one refactor removes.
  */
 async function insertMessage(
   db: Database | Transaction,
@@ -251,8 +282,10 @@ async function insertMessage(
   },
   body: string,
   system?: SystemMessageFields,
+  answerKind?: OperatorAnswerKind,
 ): Promise<MessageId> {
   const isSystem = participant.party === 'system-role'
+  const isOperator = participant.party === 'operator-human'
   const [row] = await db
     .insert(messages)
     .values({
@@ -269,6 +302,7 @@ async function insertMessage(
             nextAction: system?.nextAction ?? null,
           }
         : {}),
+      ...(isOperator ? { answerKind: answerKind ?? null } : {}),
     })
     .returning({ id: messages.id })
 
@@ -663,10 +697,15 @@ export async function sendOperatorMessage(
   db: Database,
   humanId: HumanId,
   toAgentId: AgentId,
-  body: string,
+  body: string | null,
   label = 'your operator',
+  answerKind?: OperatorAnswerKind,
+  conversation?: ConversationId,
 ): Promise<SendResult> {
-  if (carriesACredential(body)) {
+  const text = body ?? (answerKind === undefined ? null : OPERATOR_ANSWER_BODIES[answerKind])
+  if (text === null) throw new Error('an operator message needs a body or an answer kind')
+
+  if (carriesACredential(text)) {
     return { outcome: 'refused', refusal: 'credential-shaped-body' }
   }
 
@@ -678,9 +717,98 @@ export async function sendOperatorMessage(
 
   if (link === undefined) return { outcome: 'refused', refusal: 'not-the-operator' }
 
-  const existing = await pairedConversation(db, toAgentId, { humanId })
+  const existing =
+    conversation === undefined
+      ? await pairedConversation(db, toAgentId, { humanId })
+      : await pairedConversation(db, toAgentId, { humanId, conversationId: conversation })
+
+  if (existing === undefined && conversation !== undefined) {
+    return { outcome: 'refused', refusal: 'not-a-participant' }
+  }
+
   if (existing !== undefined) {
-    const id = await insertMessage(db, existing, body)
+    return await db.transaction(async (tx) => {
+      const id = await insertMessage(tx, existing, text, undefined, answerKind)
+      await clearNeedsOperator(tx, toAgentId, existing.conversationId)
+      return {
+        outcome: 'delivered' as const,
+        conversationId: conversationId(existing.conversationId),
+        messageId: id,
+      }
+    })
+  }
+
+  return await openDirectConversation(
+    db,
+    toAgentId,
+    { party: 'operator-human', humanId, label },
+    text,
+    { answerKind },
+  )
+}
+
+/**
+ * The citizen asks its own operator for help, about a task or a wish (`#1319`).
+ *
+ * **The messaging-side replacement for `kolonie.operator.request.open`**, and
+ * the reason the epic can retire that surface without losing what it did: the
+ * thing an exchange carried that a chat did not was *what this is about*, and
+ * that now lives on the conversation.
+ *
+ * **A thread per subject, found by the subject.** The lookup matches this
+ * citizen's operator thread with exactly this provenance, so asking again about
+ * the same task lands in the thread that already holds the answer, and asking
+ * about a second task opens a second thread rather than interleaving two
+ * problems in one history. Casual chat — neither task nor wish — is a subject
+ * like any other and gets the plain thread.
+ *
+ * **No ceiling and no *one open request at a time*.** That limit was a property
+ * of the exchange object; a citizen with four problems has four threads, which
+ * is what a person reading them wants anyway.
+ */
+export async function openOperatorHelpConversation(
+  db: Database,
+  agentId: AgentId,
+  input: {
+    readonly body: string
+    readonly provenance?: ConversationProvenance
+    readonly label?: string
+  },
+): Promise<SendResult> {
+  if (carriesACredential(input.body)) {
+    return { outcome: 'refused', refusal: 'credential-shaped-body' }
+  }
+
+  const [link] = await db
+    .select({ humanId: humanAgents.humanId })
+    .from(humanAgents)
+    .where(eq(humanAgents.agentId, agentId))
+    .limit(1)
+
+  if (link === undefined) return { outcome: 'refused', refusal: 'not-the-operator' }
+
+  const humanId = link.humanId as HumanId
+  const taskId = input.provenance?.taskId ?? null
+  const wishId = input.provenance?.wishId ?? null
+
+  if (wishId !== null) {
+    const [wish] = await db
+      .select({ id: accountWishes.id })
+      .from(accountWishes)
+      .where(and(eq(accountWishes.id, wishId), eq(accountWishes.agentId, agentId)))
+      .limit(1)
+    if (wish === undefined) return { outcome: 'refused', refusal: 'not-a-participant' }
+  }
+
+  const existing = await pairedConversation(db, agentId, {
+    humanId,
+    provenance: { taskId, wishId },
+  })
+
+  if (existing !== undefined) {
+    const citizenSide = await participantOf(db, conversationId(existing.conversationId), agentId)
+    if (citizenSide === undefined) throw new Error('a paired conversation has no citizen side')
+    const id = await insertMessage(db, citizenSide, input.body)
     return {
       outcome: 'delivered',
       conversationId: conversationId(existing.conversationId),
@@ -690,10 +818,37 @@ export async function sendOperatorMessage(
 
   return await openDirectConversation(
     db,
-    toAgentId,
-    { party: 'operator-human', humanId, label },
-    body,
+    agentId,
+    { party: 'operator-human', humanId, label: input.label ?? 'your operator' },
+    input.body,
+    { provenance: { taskId, wishId }, openedBy: 'citizen' },
   )
+}
+
+/**
+ * An operator answered in a thread that was opened about a task, so the task
+ * comes back (`#1319`, decision 13).
+ *
+ * **Unconditional on the kind, which is what `answerOperatorRequest` does
+ * today.** A refusal clears the set-aside exactly as a permission does there,
+ * and porting the behaviour is the instruction: a third matrix invented here
+ * would make the two surfaces disagree during the very window the epic runs
+ * both. In the same transaction as the message, so nothing can observe an
+ * answer whose task is still put down.
+ */
+async function clearNeedsOperator(
+  tx: Transaction,
+  agentId: AgentId,
+  conversation: string,
+): Promise<boolean> {
+  const [row] = await tx
+    .select({ taskId: messageConversations.taskId })
+    .from(messageConversations)
+    .where(eq(messageConversations.id, conversation))
+    .limit(1)
+
+  if (row?.taskId == null) return false
+  return await clearSetAside(tx, agentId, row.taskId as TaskId)
 }
 
 /**
@@ -731,19 +886,35 @@ export async function sendSystemMessage(
     toAgentId,
     { party: 'system-role', systemRole: role, label: role },
     body,
-    fields,
+    { system: fields },
   )
 }
 
-/** The conversation this citizen already shares with one person or one role. */
+/**
+ * The conversation this citizen already shares with one person or one role.
+ *
+ * **Provenance narrows it rather than being read off it** (`#1319`): asked for a
+ * subject, this matches the thread about exactly that subject, nulls included,
+ * so *the same task again* finds the thread that already holds the answer and
+ * *a different task* finds nothing and opens a second one. Asked for no subject
+ * at all, it matches on the person alone and keeps the pre-`#1319` behaviour —
+ * which is what the operator's own send path wants, because a person writing to
+ * their citizen is not writing about anything in particular.
+ */
 async function pairedConversation(
   db: Database,
   agentId: AgentId,
-  other: { readonly humanId?: HumanId; readonly systemRole?: MessageSystemRole },
+  other: {
+    readonly humanId?: HumanId
+    readonly systemRole?: MessageSystemRole
+    readonly conversationId?: ConversationId
+    readonly provenance?: { readonly taskId: TaskId | null; readonly wishId: WishId | null }
+  },
 ) {
   const citizen = alias(messageParticipants, 'citizen_side')
   const counterpart = alias(messageParticipants, 'counterpart')
 
+  const provenance = other.provenance
   const [row] = await db
     .select({
       id: counterpart.id,
@@ -757,11 +928,28 @@ async function pairedConversation(
       citizen,
       and(eq(citizen.conversationId, counterpart.conversationId), eq(citizen.agentId, agentId)),
     )
+    .innerJoin(messageConversations, eq(messageConversations.id, counterpart.conversationId))
     .where(
-      other.humanId === undefined
-        ? eq(counterpart.systemRole, other.systemRole!)
-        : eq(counterpart.humanId, other.humanId),
+      and(
+        other.humanId === undefined
+          ? eq(counterpart.systemRole, other.systemRole!)
+          : eq(counterpart.humanId, other.humanId),
+        other.conversationId === undefined
+          ? undefined
+          : eq(counterpart.conversationId, other.conversationId),
+        provenance === undefined
+          ? undefined
+          : and(
+              provenance.taskId === null
+                ? isNull(messageConversations.taskId)
+                : eq(messageConversations.taskId, provenance.taskId),
+              provenance.wishId === null
+                ? isNull(messageConversations.wishId)
+                : eq(messageConversations.wishId, provenance.wishId),
+            ),
+      ),
     )
+    .orderBy(asc(counterpart.joinedAt))
     .limit(1)
 
   return row
@@ -773,6 +961,14 @@ async function pairedConversation(
  * The citizen's participant row is written here rather than on acceptance, which
  * is the whole difference between the direct paths and the citizen one — and it
  * is why *delivered* is the honest word for what these two return.
+ *
+ * **The one place a conversation row is ever written, which is what makes
+ * provenance immutable** (`#1319`). What a thread is about is settled in this
+ * insert and nowhere else: no storage function updates `task_id` or `wish_id`,
+ * so a thread opened about one task cannot later be made to be about another.
+ * Asking for help on a second task opens a second thread, and the two histories
+ * stay apart — which is the whole point of hanging provenance on the
+ * conversation rather than on the citizen.
  */
 async function openDirectConversation(
   db: Database,
@@ -784,12 +980,21 @@ async function openDirectConversation(
     readonly label: string
   },
   text: string,
-  system?: SystemMessageFields,
+  extra: {
+    readonly system?: SystemMessageFields
+    readonly provenance?: ConversationProvenance
+    readonly answerKind?: OperatorAnswerKind
+    /** Whose words the first message is. `sender` unless the citizen opened it (`#1319`). */
+    readonly openedBy?: 'sender' | 'citizen'
+  } = {},
 ): Promise<SendResult> {
   return await db.transaction(async (tx) => {
     const [conversation] = await tx
       .insert(messageConversations)
-      .values({})
+      .values({
+        taskId: extra.provenance?.taskId ?? null,
+        wishId: extra.provenance?.wishId ?? null,
+      })
       .returning({ id: messageConversations.id })
     if (conversation === undefined) throw new Error('inserting a conversation returned no row')
 
@@ -799,12 +1004,17 @@ async function openDirectConversation(
       .where(eq(agents.id, agentId))
       .limit(1)
 
-    await tx.insert(messageParticipants).values({
-      conversationId: conversation.id,
-      party: 'citizen',
-      agentId,
-      label: recipientHandle?.handle ?? 'a citizen',
-    })
+    const citizenLabel = recipientHandle?.handle ?? 'a citizen'
+    const [citizenParticipant] = await tx
+      .insert(messageParticipants)
+      .values({
+        conversationId: conversation.id,
+        party: 'citizen',
+        agentId,
+        label: citizenLabel,
+      })
+      .returning({ id: messageParticipants.id })
+    if (citizenParticipant === undefined) throw new Error('inserting a participant returned no row')
 
     const [participant] = await tx
       .insert(messageParticipants)
@@ -818,18 +1028,24 @@ async function openDirectConversation(
       .returning({ id: messageParticipants.id })
     if (participant === undefined) throw new Error('inserting a participant returned no row')
 
-    const id = await insertMessage(
-      tx,
-      {
-        id: participant.id,
-        conversationId: conversation.id,
-        party: sender.party,
-        label: sender.label,
-        systemRole: sender.systemRole ?? null,
-      },
-      text,
-      system,
-    )
+    const author =
+      extra.openedBy === 'citizen'
+        ? {
+            id: citizenParticipant.id,
+            conversationId: conversation.id,
+            party: 'citizen' as const,
+            label: citizenLabel,
+            systemRole: null,
+          }
+        : {
+            id: participant.id,
+            conversationId: conversation.id,
+            party: sender.party,
+            label: sender.label,
+            systemRole: sender.systemRole ?? null,
+          }
+
+    const id = await insertMessage(tx, author, text, extra.system, extra.answerKind)
 
     return {
       outcome: 'delivered' as const,
@@ -1260,6 +1476,7 @@ async function conversationBodies(db: Database, id: ConversationId): Promise<Rea
       actionRequired: messages.actionRequired,
       nextAction: messages.nextAction,
       acknowledgedAt: messages.acknowledgedAt,
+      answerKind: messages.answerKind,
       createdAt: messages.createdAt,
     })
     .from(messages)
@@ -1281,6 +1498,16 @@ async function conversationBodies(db: Database, id: ConversationId): Promise<Rea
         }),
         body: row.body,
         createdAt: row.createdAt,
+        /**
+         * Above the branch, because it belongs to the other party (`#1319`).
+         *
+         * Everything below is a system-role field and is added after the
+         * early return; this one is only ever set on an `operator-human` row,
+         * which the CHECK enforces rather than this map. So it goes on the
+         * base — the branch would drop it on exactly the messages that carry
+         * it.
+         */
+        ...(row.answerKind !== null ? { answerKind: row.answerKind } : {}),
       }
       if (row.senderParty !== 'system-role') return base
       return {

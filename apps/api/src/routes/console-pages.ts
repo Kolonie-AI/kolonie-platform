@@ -26,10 +26,15 @@ import {
   platformFeePercentFromEnv,
   reportAudience,
   whyNotPublishable,
+  ConversationIdSchema,
+  OPERATOR_ANSWER_LABELS,
+  OperatorAnswerKindSchema,
   type Agent,
   type AgentId,
   type ApiError,
+  type ConversationId,
   type HumanId,
+  type Message,
   type Log,
   type QuestTier,
   type Task,
@@ -68,7 +73,7 @@ import {
   signInPage,
 } from '../console/html.js'
 import type { ConsoleNav } from '../console/navigation.js'
-import { messageBodyError } from '../messaging.js'
+import { messageBodyError, messageDeclarationError } from '../messaging.js'
 import { relative, zoneFrom } from '../console/time.js'
 import {
   activityLines,
@@ -4389,6 +4394,48 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
    * worst a compromised session can do is say something as the person it belongs
    * to — which is what a session is for.
    */
+  /**
+   * One answer form, per thread (`#1093`, `#1319`).
+   *
+   * **The three declarations post the kind alone**, with no body of their own:
+   * the sentence each sends is written in `OPERATOR_ANSWER_BODIES`, so a button
+   * labelled *I have done it* cannot be made to carry words saying otherwise.
+   * The textarea is the fourth control and declares nothing — free text is what
+   * an operator writes when none of the three is what they mean.
+   *
+   * The hidden `conversationId` is what makes an answer land in the thread it
+   * answers. Without it a reply about one task would be filed against whichever
+   * thread the port happened to return first, which is the defect provenance
+   * exists to prevent.
+   */
+  const answerForm = (
+    agentId: AgentId,
+    name: string,
+    conversationId: ConversationId | undefined,
+    index: number,
+  ): string => {
+    const field = `body-${String(index)}`
+    return (
+      `<form method="post" action="${escape(`/agents/${String(agentId)}/messages`)}">` +
+      (conversationId === undefined
+        ? ''
+        : `<input type="hidden" name="conversationId" value="${escape(String(conversationId))}">`) +
+      `<label for="${escape(field)}">Write to ${escape(name)}</label>` +
+      `<textarea id="${escape(field)}" name="body" maxlength="${String(
+        MESSAGE_BODY_MAX_LENGTH,
+      )}"></textarea>` +
+      '<button type="submit">Send</button>' +
+      OperatorAnswerKindSchema.options
+        .map(
+          (kind) =>
+            `<button type="submit" name="kind" value="${escape(kind)}">` +
+            `${escape(OPERATOR_ANSWER_LABELS[kind])}</button>`,
+        )
+        .join('') +
+      '</form>'
+    )
+  }
+
   const operatorThreadPage = async (
     request: FastifyRequest,
     reply: FastifyReply,
@@ -4402,17 +4449,36 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     const desk = deps.operatorMessaging
     if (desk === undefined) return consoleNotFound(reply, request)
 
+    /**
+     * Every thread, not the newest one (`#1319`).
+     *
+     * A citizen asking for help about a task opens a thread about that task, and
+     * a second task opens a second thread — so *the first one* stopped being a
+     * complete view of what a person has been asked the moment provenance
+     * existed. Each is rendered with its own form, which is also what makes an
+     * answer land in the thread it answers: a form without a `conversationId`
+     * would put every reply into whichever thread the port found first.
+     */
     const threads = await desk.listThreads(operated.humanId, operated.agentId)
-    const thread = threads[0]
-    const read =
-      thread === undefined ? undefined : await desk.getThread(operated.humanId, thread.id)
-    const messages = read?.outcome === 'read' ? read.response.messages : []
+    const conversations: {
+      readonly id: ConversationId
+      readonly messages: readonly Message[]
+    }[] = []
+    for (const thread of threads) {
+      const read = await desk.getThread(operated.humanId, thread.id)
+      conversations.push({
+        id: thread.id,
+        messages: read.outcome === 'read' ? read.response.messages : [],
+      })
+    }
+    const messages = conversations[0]?.messages ?? []
     const status = outcome.status ?? 200
 
     if (!wantsHtml(request)) {
       return reply.status(status).send({
         agentId: String(operated.agentId),
         threads,
+        conversations,
         messages,
         ...(outcome.error === undefined ? {} : { error: outcome.error }),
       })
@@ -4427,23 +4493,21 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         'may do.</p>',
       ...(outcome.said === true ? ['<p>Sent.</p>'] : []),
       ...(outcome.error === undefined ? [] : [`<p class="error">${escape(outcome.error)}</p>`]),
-      messages.length === 0
-        ? '<p>Nothing said yet.</p>'
-        : `<ul>${messages
-            .map(
-              (message) =>
-                `<li><strong>${escape(message.sender.label)}</strong> ` +
-                `<span>${escape(relative(message.createdAt))}</span><br>` +
-                `${escape(message.body)}</li>`,
-            )
-            .join('')}</ul>`,
-      `<form method="post" action="${escape(`/agents/${String(operated.agentId)}/messages`)}">` +
-        `<label for="body">Write to ${escape(held.name)}</label>` +
-        `<textarea id="body" name="body" required maxlength="${String(
-          MESSAGE_BODY_MAX_LENGTH,
-        )}"></textarea>` +
-        '<button type="submit">Send</button>' +
-        '</form>',
+      ...(conversations.length === 0
+        ? ['<p>Nothing said yet.</p>', answerForm(operated.agentId, held.name, undefined, 0)]
+        : conversations.flatMap((conversation, index) => [
+            conversation.messages.length === 0
+              ? '<p>Nothing said yet.</p>'
+              : `<ul>${conversation.messages
+                  .map(
+                    (message) =>
+                      `<li><strong>${escape(message.sender.label)}</strong> ` +
+                      `<span>${escape(relative(message.createdAt))}</span><br>` +
+                      `${escape(message.body)}</li>`,
+                  )
+                  .join('')}</ul>`,
+            answerForm(operated.agentId, held.name, conversation.id, index),
+          ])),
     ]
 
     return html(
@@ -4486,25 +4550,57 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     const desk = deps.operatorMessaging
     if (desk === undefined) return consoleNotFound(reply, request)
 
-    const { body } = (request.body ?? {}) as { body?: unknown }
+    const { body, kind, conversationId } = (request.body ?? {}) as {
+      body?: unknown
+      kind?: unknown
+      conversationId?: unknown
+    }
     const written = typeof body === 'string' ? body.trim() : ''
+    const declared = OperatorAnswerKindSchema.safeParse(kind)
+    const thread = ConversationIdSchema.safeParse(conversationId)
 
-    if (written.length < MESSAGE_BODY_MIN_LENGTH || written.length > MESSAGE_BODY_MAX_LENGTH) {
+    if (kind !== undefined && !declared.success) {
       return operatorThreadPage(request, reply, operated, {
-        error: messageBodyError.message,
+        error: messageDeclarationError.message,
+        status: ERROR_STATUS.validation_failed,
+      })
+    }
+    if (conversationId !== undefined && conversationId !== '' && !thread.success) {
+      return operatorThreadPage(request, reply, operated, {
+        error: messageDeclarationError.message,
         status: ERROR_STATUS.validation_failed,
       })
     }
 
-    const finding = credentialFinding(written)
-    if (finding !== null) {
-      return operatorThreadPage(request, reply, operated, {
-        error: credentialRefusalMessage(finding),
-        status: ERROR_STATUS.validation_failed,
-      })
+    /**
+     * A declaration carries no body of its own (`#1093`).
+     *
+     * The typed text is dropped rather than sent alongside, so the sentence a
+     * citizen reads is always the canonical one for the button that was pressed.
+     * The two checks below are about free text and have nothing to check when
+     * there is none: the Colony wrote the words.
+     */
+    if (!declared.success) {
+      if (written.length < MESSAGE_BODY_MIN_LENGTH || written.length > MESSAGE_BODY_MAX_LENGTH) {
+        return operatorThreadPage(request, reply, operated, {
+          error: messageBodyError.message,
+          status: ERROR_STATUS.validation_failed,
+        })
+      }
+
+      const finding = credentialFinding(written)
+      if (finding !== null) {
+        return operatorThreadPage(request, reply, operated, {
+          error: credentialRefusalMessage(finding),
+          status: ERROR_STATUS.validation_failed,
+        })
+      }
     }
 
-    const result = await desk.send(operated.humanId, operated.agentId, written)
+    const result = await desk.send(operated.humanId, operated.agentId, {
+      ...(declared.success ? { answerKind: declared.data } : { body: written }),
+      ...(thread.success ? { conversationId: thread.data } : {}),
+    })
     if (result.outcome === 'refused') {
       return operatorThreadPage(request, reply, operated, {
         error: result.error.message,

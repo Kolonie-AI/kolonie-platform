@@ -13,6 +13,9 @@ import {
   type MessageRefusal,
   type MessageRequest,
   type MessageRequestId,
+  type OperatorAnswerKind,
+  type TaskId,
+  type WishId,
 } from '@kolonie-ai/core'
 import { createHash } from 'node:crypto'
 import {
@@ -134,7 +137,32 @@ export interface OperatorMessaging {
    * including when there was one and it has since been removed, which is what
    * makes the thread read-only rather than closed.
    */
-  send(humanId: HumanId, agentId: AgentId, body: string): Promise<SendResponse>
+  send(
+    humanId: HumanId,
+    agentId: AgentId,
+    input: {
+      /**
+       * The words. Omitted only with an `answerKind`, whose canonical sentence
+       * is then written for them — the control and the sentence cannot disagree
+       * because the surface never sends both.
+       */
+      readonly body?: string
+      /**
+       * What this person declared their own answer to be (`#1319`, from
+       * `#1093`). Written only on a message whose sender party is already
+       * `operator-human`; the database says the same thing again in
+       * `messages_answer_kind_party`, so no citizen credential can reach it.
+       */
+      readonly answerKind?: OperatorAnswerKind
+      /**
+       * Which thread. Omitted means the plain one — a person writing to their
+       * citizen about nothing in particular. Named when they are answering a
+       * thread the citizen opened about a task or a wish, which is the only way
+       * a set-aside clears.
+       */
+      readonly conversationId?: ConversationId
+    },
+  ): Promise<SendResponse>
 }
 
 export type MessageSendInput = {
@@ -143,6 +171,27 @@ export type MessageSendInput = {
   readonly toHandle?: string
   /** Reply in a conversation the caller is already in. */
   readonly conversationId?: ConversationId
+  /**
+   * Write to the person who operates you (`#1319`, epic `#1318`).
+   *
+   * **The third destination, and the one a handle cannot name.** An operator is
+   * not a citizen and holds no handle, so `toHandle` could never have reached
+   * one; before this, a citizen could only reply into a thread a person had
+   * already opened. It is a flag rather than a reserved handle because
+   * `operator` is a name a citizen may hold, and a destination that a handle
+   * could shadow is a destination that breaks the day somebody registers it.
+   */
+  readonly operator?: boolean
+  /**
+   * What the thread is about, on an operator open — at most one of the two.
+   *
+   * A subject rather than a filter: it settles the provenance of the thread it
+   * opens, so asking again about the same task lands in the thread that already
+   * holds the answer, and asking about a second one opens a second thread.
+   * Naming neither is an ordinary open and gets the plain thread.
+   */
+  readonly taskId?: TaskId
+  readonly wishId?: WishId
 }
 
 export type SendResponse =
@@ -367,9 +416,27 @@ export const messageBodyError: ApiError = {
 export const messageDestinationError: ApiError = {
   code: 'validation_failed',
   message:
-    'Say who to write to with `to` (a handle) or `conversationId` (a thread you are in), ' +
-    'exactly one of the two. First contact by handle creates a request rather than an inbox ' +
-    'message when you are strangers.',
+    'Say who to write to with `to` (a handle), `conversationId` (a thread you are in) or ' +
+    '`operator: true` (the person who answers for you), exactly one of the three. First ' +
+    'contact by handle creates a request rather than an inbox message when you are strangers. ' +
+    '`taskId` and `wishId` say what an operator thread is about, at most one of the two, and ' +
+    'belong only to an `operator: true` open.',
+}
+
+/**
+ * The console posted a declaration or a thread the Colony cannot read (`#1319`).
+ *
+ * One sentence for both, because both mean the same thing to the person reading
+ * it: the form sent something that is not one of the fixed controls. Neither is
+ * reachable by pressing a button on the page — a hand-written post is the only
+ * way here — so it names what the controls are rather than what was wrong.
+ */
+export const messageDeclarationError: ApiError = {
+  code: 'validation_failed',
+  message:
+    'An answer is either free text or one of the three declarations — “You may go ahead”, ' +
+    '“I have done it”, “No” — sent into a thread that exists. Go back to the messages page ' +
+    'and use the controls on the thread you mean to answer.',
 }
 
 /**

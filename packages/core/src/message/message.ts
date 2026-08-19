@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { OperatorAnswerKindSchema } from './answer-kind.js'
 import {
   ConversationIdSchema,
   ConversationParticipantIdSchema,
@@ -322,6 +323,17 @@ export const MessageSchema = z.object({
   nextAction: z.string().min(1).max(MESSAGE_NEXT_ACTION_MAX_LENGTH).optional(),
   /** When the citizen acknowledged an `actionRequired` message, if they have. */
   acknowledgedAt: z.string().optional(),
+  /**
+   * What an operator declared this message to be (`#1093`, `#1319`).
+   *
+   * Only on `operator-human` messages, and absent on most of those: free text
+   * declares nothing, and inferring a declaration from words would be the
+   * guesswork the fixed controls replace. The body says the same thing in a
+   * sentence, so a reader that ignores this field still tells *you may go
+   * ahead* from *I have done it* — this is the field for one that would rather
+   * branch than read.
+   */
+  answerKind: OperatorAnswerKindSchema.optional(),
 })
 export type Message = z.infer<typeof MessageSchema>
 

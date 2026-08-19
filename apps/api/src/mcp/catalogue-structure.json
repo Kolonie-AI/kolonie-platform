@@ -1710,9 +1710,21 @@
             "format": "uuid",
             "type": "string"
           },
+          "operator": {
+            "const": true,
+            "type": "boolean"
+          },
+          "taskId": {
+            "format": "uuid",
+            "type": "string"
+          },
           "to": {
             "maxLength": 64,
             "minLength": 2,
+            "type": "string"
+          },
+          "wishId": {
+            "format": "uuid",
             "type": "string"
           }
         },

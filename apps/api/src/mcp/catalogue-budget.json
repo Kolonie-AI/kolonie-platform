@@ -1,11 +1,11 @@
 {
   "tools": 123,
-  "bytes": 213858,
+  "bytes": 214825,
   "heaviest": {
     "name": "kolonie.accounts.recipes",
     "bytes": 6220
   },
   "measuredAt": "2026-08-19",
   "command": "node scripts/check-catalogue-budget.mjs",
-  "raisedFor": "the-catalogue-encodes-grammar-never-vocabulary — q, cost and hasDescription on kolonie.accounts.recipes are grammar: three filters and a page on the verb that already reads the catalogue, no new verb, still 123 tools. The growth is vocabulary-free because the four signup costs (free, card-to-sign-up, paid-only, unknown) live in the core schema enum and never in the catalogue text. The per-tool ceiling moves to this tool because the alternative was kolonie.atlas.search — a second name for a read every citizen already carries, which is the cost this record exists to refuse. No `terms` filter was added beside `cost`: #815 says that field drives a sentence and nothing else — no gate, no hiding, no refusal — and a filter hides entries. This raise sits on top of #1320's, which raised the sum for one refusal sentence on kolonie.messages.send."
+  "raisedFor": "the-catalogue-encodes-grammar-never-vocabulary — `operator`, `taskId` and `wishId` on kolonie.messages.send are grammar: three arguments on the verb that already sends a message, no new verb, still 123 tools. There is no kolonie.messages.open_operator_thread, because opening a thread is sending the first message to it and a second name for that would be the cost this record exists to refuse. The growth is vocabulary-free because nothing about a subject is spelled out in the catalogue: `taskId` and `wishId` are ids the caller already holds, and the rule that at most one may be sent is a refusal sentence rather than an enumeration. This raise sits on top of #1302's, which raised the sum for q, cost and hasDescription on kolonie.accounts.recipes."
 }

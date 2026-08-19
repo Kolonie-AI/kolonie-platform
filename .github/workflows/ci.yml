@@ -115,6 +115,10 @@ concurrency:
 
 permissions:
   contents: read
+  # The catalogue-floor check reads the pull request title and body on a
+  # merge_group event (`#1379`), because that is the text the squash will land
+  # and the merge_group payload does not carry it.
+  pull-requests: read
 
 # **Three jobs and a summary, rather than one job of seventeen minutes** (`#1159`).
 #
@@ -298,6 +302,34 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      # The squash commit message is the pull request title and body (`#1379`).
+      # `check:catalogue-floor` judges the last commit that touched the floor
+      # file, which on a branch is the author's own — so a justified commit and
+      # an unjustified body both go green, then `main` goes red. Hand the text
+      # the squash will use to the same runner, through a file, never through
+      # an inline expression: the title is attacker-controlled.
+      - name: Remember the text the squash will land
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          HEAD_REF: ${{ github.event.merge_group.head_ref }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          file="$RUNNER_TEMP/catalogue-floor-pr.txt"
+          if [ "$EVENT_NAME" = pull_request ]; then
+            printf '%s\n\n%s\n' "$PR_TITLE" "$PR_BODY" > "$file"
+          else
+            n=$(printf '%s' "$HEAD_REF" | sed -n 's/.*\/pr-\([0-9]\+\)-.*/\1/p')
+            if [ -z "$n" ]; then
+              echo "could not read a pull request number from HEAD_REF=$HEAD_REF"
+              exit 1
+            fi
+            gh api "repos/${GITHUB_REPOSITORY}/pulls/$n" --jq '[.title, .body] | join("\n\n")' > "$file"
+          fi
+          echo "CATALOGUE_FLOOR_PR_TEXT_FILE=$file" >> "$GITHUB_ENV"
 
       # check:dist, check:catalogue-floor, check:migrations, typecheck —
       # everything that reads `dist/` and therefore cannot run in `tree`

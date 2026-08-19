@@ -42,6 +42,14 @@
  * ordinary case: the floor moving because a check was failing and moving it was
  * the quickest way to a green run.
  *
+ * **A justified branch commit whose pull request body is not.** The merge queue
+ * squashes (`#1379`): the commit that lands on `main` is a new commit whose
+ * message is the pull request title and body, not the branch commit this script
+ * would otherwise judge. When `CATALOGUE_FLOOR_PR_TEXT_FILE` (or
+ * `CATALOGUE_FLOOR_PR_TEXT`) is set, a raise is judged against that text too.
+ * Locally, with neither set, a raise whose last touching commit is not on
+ * `origin/main` is allowed and warned — the next run in CI is what fails it.
+ *
  * **Anything, in a repository without history, locally.** A shallow clone or an
  * export has no previous version to compare against. Locally it reports what it
  * could not read and exits zero rather than failing a working tree over the
@@ -195,6 +203,45 @@ for (const failed of [verdict, ceiling].filter((each) => each !== undefined && !
 }
 
 if (!verdict.allowed || ceiling?.allowed === false) process.exit(1)
+
+const prTextPath = process.env.CATALOGUE_FLOOR_PR_TEXT_FILE
+const prText =
+  (prTextPath !== undefined && prTextPath !== ''
+    ? readFileSync(prTextPath, 'utf8')
+    : process.env.CATALOGUE_FLOOR_PR_TEXT) ?? ''
+
+const beforeTotals = totalsOf(before, `${RELATIVE} before ${sha.slice(0, 8)}`)
+const afterTotals = totalsOf(after, `${RELATIVE} at ${sha.slice(0, 8)}`)
+const raised = afterTotals.tools > beforeTotals.tools || afterTotals.bytes > beforeTotals.bytes
+const ceilingRaised =
+  ceilingBefore !== undefined &&
+  ceilingAfter !== undefined &&
+  (ceilingAfter.bytes > ceilingBefore.bytes || ceilingAfter.name !== ceilingBefore.name)
+
+if (prText.trim() !== '' && (raised || ceilingRaised)) {
+  const prFloor = floorChangeVerdict(beforeTotals, afterTotals, prText)
+  const prCeiling =
+    ceilingBefore !== undefined && ceilingAfter !== undefined
+      ? ceilingChangeVerdict(ceilingBefore, ceilingAfter, prText)
+      : undefined
+  for (const failed of [prFloor, prCeiling].filter((each) => each !== undefined && !each.allowed)) {
+    console.error(
+      'The pull request title and body will become the squash commit message, ' +
+        `and they do not justify this raise (kolonie-platform#1379). ${failed.message}`,
+    )
+  }
+  if (!prFloor.allowed || prCeiling?.allowed === false) process.exit(1)
+} else if (raised || ceilingRaised) {
+  const onDefault = git('merge-base', '--is-ancestor', sha, 'origin/main') !== undefined
+  if (!onDefault) {
+    console.log(
+      'This raise is justified on the branch commit. A squash merge will judge the pull ' +
+        'request title and body instead — they must name ' +
+        'the-catalogue-encodes-grammar-never-vocabulary and say what is vocabulary-free ' +
+        '(kolonie-platform#1379).',
+    )
+  }
+}
 
 console.log(`${sha.slice(0, 8)} — ${verdict.message}`)
 

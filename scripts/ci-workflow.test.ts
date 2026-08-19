@@ -294,4 +294,19 @@ describe('the catalogue-floor job can read history', () => {
     expect(jobs().get('tree')).not.toContain('fetch-depth:')
     expect(jobs().get('test')).not.toContain('fetch-depth:')
   })
+
+  /**
+   * The required check already runs on `merge_group`. Handing it the squash
+   * text is what stops a justified branch commit with an unjustified body from
+   * landing (`#1379`). Making `Report the change` required cannot happen until
+   * that workflow itself runs on `merge_group`, or the queue stalls.
+   */
+  it('hands the squash text to the floor check on pull_request and merge_group', () => {
+    const block = jobs().get('build') ?? ''
+
+    expect(block).toContain('CATALOGUE_FLOOR_PR_TEXT_FILE')
+    expect(block).toContain(
+      "github.event_name == 'pull_request' || github.event_name == 'merge_group'",
+    )
+  })
 })

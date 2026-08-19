@@ -2,6 +2,7 @@ import { CITIZEN_RAISED_WAKE_EVENTS, NO_OPERATOR_STANDING } from '@kolonie-ai/co
 import type {
   AgentId,
   OperatorStanding,
+  WakeupMessagingDelta,
   WakeupResponse,
   WakeupStanding,
   WakeupWakeChannel,
@@ -50,6 +51,8 @@ type Changes = Omit<
   | 'citizenship'
   // Its own call on the source (`#1262`), not news that something moved.
   | 'contributionQualityWarning'
+  // Its own call on the source (`#1287`): unread and pending are obligations.
+  | 'messaging'
 >
 
 /** A citizen at the very start: nothing held, nothing earned (`#344`). */
@@ -81,6 +84,8 @@ export interface FakeWakeup extends WakeupSource {
   readonly answersUnreadNotes: (count: number) => void
   /** How many answered exchanges are waiting on the citizen (`#683`). */
   readonly answersWaitingReplies: (count: number) => void
+  /** Compact messaging delta the digest should report (`#1287`). */
+  readonly answersMessaging: (delta: WakeupMessagingDelta) => void
   /**
    * The wake channel's health, or `null` for a citizen that proved none (`#683`).
    *
@@ -131,6 +136,11 @@ export function fakeWakeup(): FakeWakeup {
   let changes: Changes = NOTHING
   let unread = 0
   let waitingReplies = 0
+  let messaging: WakeupMessagingDelta = {
+    unreadThreads: 0,
+    pendingRequests: 0,
+    highPriority: 0,
+  }
   // `null` is the ordinary state: most citizens have not cleared the `wake` rung.
   let channel: WakeupWakeChannel | null = null
   // Nobody behind the citizen, which is the ordinary state (`#1013`).
@@ -145,6 +155,7 @@ export function fakeWakeup(): FakeWakeup {
     previousSessionStart: async (_agentId: AgentId) => previousSession,
     unreadOperatorNotes: async (_agentId: AgentId) => unread,
     waitingOperatorReplies: async (_agentId: AgentId) => waitingReplies,
+    messagingDelta: async (_agentId: AgentId) => messaging,
     wakeChannel: async (_agentId: AgentId) => channel,
     operatorStanding: async (_agentId: AgentId) => operatorStanding,
     wantedAccounts: async (_agentId: AgentId) => wanted,
@@ -165,6 +176,9 @@ export function fakeWakeup(): FakeWakeup {
     },
     answersWaitingReplies: (count) => {
       waitingReplies = count
+    },
+    answersMessaging: (delta) => {
+      messaging = delta
     },
     answersWakeChannel: (next) => {
       channel = next === null ? null : { activatedBy: [...CITIZEN_RAISED_WAKE_EVENTS], ...next }

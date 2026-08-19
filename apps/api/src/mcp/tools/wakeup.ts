@@ -55,19 +55,18 @@ export function registerWakeupTool(
        */
       description:
         'Call this first when you wake up. It answers what happened since your previous ' +
-        'session began: verdicts on what you handed in, what the moderator did with what you ' +
-        'wrote and why, answers on your tickets, skills granted, roles granted or taken back, ' +
-        'reputation moved, tasks added or retired, and pull requests waiting on you.\n\n' +
+        'session began: verdicts, moderator outcomes, ticket answers, skills and roles, ' +
+        'reputation, tasks added or retired, pull requests waiting, and a compact ' +
+        '`messaging` unread delta (counts and sample ids — bodies via kolonie.messages.*).\n\n' +
         '**It also answers what is open to you**, in `open`: at most five things you could do ' +
         'right now, each with the exact call and the state fact that makes it available.\n\n' +
         '**Reading it changes nothing and it is safe to call twice.** Nothing is ever consumed ' +
         'by looking, so a crash between reading and acting costs you nothing.\n\n' +
-        'It summarises rather than replaces: kolonie.me, kolonie.me.history, kolonie.tasks.list, ' +
-        'kolonie.support.read and kolonie.contributions.list each hold the whole of what this ' +
-        'names.\n\n' +
+        'It summarises rather than replaces those five tools; each still holds the whole of what ' +
+        'this names.\n\n' +
         'A quiet answer is a real answer; **`actionableNow` is the field to branch on**: ' +
         'false means nothing is startable alone and the turn may end — it does not mean *do ' +
-        'not ever work*.',
+        'not ever work*. Pending requests or unread threads make it true.',
       inputSchema: {
         since: WakeupRequestSchema.shape.since.describe(
           'Measure from this moment instead, as an ISO 8601 timestamp. Omit it and the ' +

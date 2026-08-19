@@ -5,8 +5,10 @@ import {
   WakeupRequestSchema,
   walkAsk,
   wakeupHasUrgentDelta,
+  wakeupMessagingNextAction,
   WAKEUP_FINAL_LINE,
   type AgentId,
+  type WakeupMessagingDelta,
   type WakeupOpen,
   type Task,
   type WakeupResponse,
@@ -22,6 +24,7 @@ import {
   countUnreadOperatorNotes,
   countWaitingOperatorReplies,
   escalationFactsFor,
+  messagingWakeupDelta,
   walksToAskAbout,
   previousSessionStart,
   recordWakeupAnswer,
@@ -129,6 +132,18 @@ export interface WakeupSource {
    */
   contributionQualityWarning?(agentId: AgentId, now: Date): Promise<string | null>
   /**
+   * Compact private-messaging counts (`#1287`).
+   *
+   * **Optional**: a deployment without messaging answers zeros, which is the
+   * honest empty inbox rather than a claim that the surface is closed. Its own
+   * call rather than a field on `changes`, for the reason `unreadOperatorNotes`
+   * is one — unread threads and pending requests are obligations, not news
+   * inside a window.
+   *
+   * **Bodies never travel on this path.** Counts and sample ids only.
+   */
+  messagingDelta?(agentId: AgentId): Promise<WakeupMessagingDelta>
+  /**
    * Providers the citizen proved in this run and has not written up (`#907`).
    *
    * **Optional, and absent means the digest simply does not ask.** Every real
@@ -219,6 +234,9 @@ export interface WakeupSource {
       // Read by `contributionQualityWarning` on the source (`#1262`), not by
       // `changes`. A warning about standing is not news that something moved.
       | 'contributionQualityWarning'
+      // Read by `messagingDelta` on the source (`#1287`), not by `changes`.
+      // Unread and pending are obligations rather than news inside a window.
+      | 'messaging'
     >
   >
 }
@@ -251,6 +269,7 @@ export function databaseWakeup(db: Database, rechecks?: RecheckDependencies): Wa
     unreadOperatorNotes: (agentId) => countUnreadOperatorNotes(db, agentId),
     waitingOperatorReplies: (agentId) => countWaitingOperatorReplies(db, agentId),
     contributionQualityWarning: (agentId, now) => quality.warningFor(agentId, now),
+    messagingDelta: (agentId) => messagingWakeupDelta(db, agentId),
     wakeChannel: async (agentId) => {
       const channel = await wakeChannelOf(db, agentId)
       if (channel === undefined) return null
@@ -585,6 +604,12 @@ export async function wakeup(
       ? Promise.resolve([] as readonly Task[])
       : availableNow(agentId, openings.source)
 
+  const emptyMessaging: WakeupMessagingDelta = {
+    unreadThreads: 0,
+    pendingRequests: 0,
+    highPriority: 0,
+  }
+
   const [
     changes,
     pulls,
@@ -596,6 +621,7 @@ export async function wakeup(
     standing,
     open,
     startableAdded,
+    messagingCounts,
   ] = await Promise.all([
     source.changes(agentId, since),
     listContributions(agentId, contributions),
@@ -609,7 +635,19 @@ export async function wakeup(
       ? Promise.resolve(NOTHING_OPEN)
       : openingsFor(agentId, openings.skills, openings.source, available),
     startableSince(agentId, since, openings?.source),
+    source.messagingDelta?.(agentId) ?? Promise.resolve(emptyMessaging),
   ])
+
+  const messagingNext = wakeupMessagingNextAction(messagingCounts)
+  const messaging: WakeupMessagingDelta = {
+    unreadThreads: messagingCounts.unreadThreads,
+    pendingRequests: messagingCounts.pendingRequests,
+    highPriority: messagingCounts.highPriority,
+    ...(messagingNext === undefined ? {} : { nextAction: messagingNext }),
+    ...(messagingCounts.sampleThreadIds === undefined || messagingCounts.sampleThreadIds.length === 0
+      ? {}
+      : { sampleThreadIds: messagingCounts.sampleThreadIds }),
+  }
 
   /**
    * How much the feed moved, for the callers that asked (`#1068`).
@@ -771,6 +809,7 @@ export async function wakeup(
       operatorNotesUnread,
       operatorRepliesWaiting,
       wakeChannel,
+      messaging,
     })
 
   return {
@@ -839,6 +878,11 @@ export async function wakeup(
       contributions: contributionsSeen,
       operatorNotesUnread,
       operatorRepliesWaiting,
+      /**
+       * Compact messaging delta (`#1287`). Counts and sample ids only — bodies
+       * stay on `kolonie.messages.*`, so a waking never embeds private words.
+       */
+      messaging,
       wakeChannel,
       // Beside the channel and read the same way (`#1013`): both answer whether
       // the Colony can still reach somebody on this citizen's behalf, and both

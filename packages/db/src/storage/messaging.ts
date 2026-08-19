@@ -1,8 +1,9 @@
-import { and, asc, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 import {
   MESSAGE_REQUEST_EXPIRY_DAYS,
   MESSAGE_REQUEST_PREVIEW_MAX_LENGTH,
+  WAKEUP_MESSAGING_SAMPLE_CAP,
   ConversationIdSchema,
   ConversationParticipantIdSchema,
   MessageIdSchema,
@@ -22,6 +23,7 @@ import {
   type MessageRequestId,
   type MessageSender,
   type MessageSystemRole,
+  type WakeupMessagingDelta,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 import {
@@ -1492,4 +1494,89 @@ export async function reportMessageAbuse(
     .returning({ id: messageReports.id })
 
   return { outcome: 'reported', reportId: inserted!.id }
+}
+
+/**
+ * Compact messaging counts for `kolonie.wakeup` (`#1287`).
+ *
+ * **Counts and sample ids, never bodies.** The digest must not become a second
+ * inbox scrape: a waking learns whether anything is waiting and which call clears
+ * it, then fetches words through `kolonie.messages.*`.
+ *
+ * Unread uses the same cursor rule as {@link listConversations}: the caller's
+ * own messages never count, and a null cursor means nothing has been read.
+ * Pending requests are counted from `message_requests` with a live expiry —
+ * unaccepted requests have no recipient participant row, so they cannot appear
+ * in the unread join.
+ *
+ * High priority is unread Colony system mail that still asks for action
+ * (`action_required` and not acknowledged) or carries `elevated` / `critical`
+ * priority, counted as distinct conversations.
+ */
+export async function messagingWakeupDelta(
+  db: Database,
+  agentId: AgentId,
+): Promise<WakeupMessagingDelta> {
+  const cursor = alias(messages, 'wakeup_read_cursor')
+
+  const [pendingRow, unreadRows] = await Promise.all([
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(messageRequests)
+      .where(
+        and(
+          eq(messageRequests.toAgentId, agentId),
+          eq(messageRequests.status, 'pending'),
+          gt(messageRequests.expiresAt, sql`now()`),
+        ),
+      )
+      .then((rows) => rows[0]),
+    db
+      .select({
+        conversationId: messages.conversationId,
+        highPriority: sql<boolean>`bool_or(
+          ${messages.senderParty} = 'system-role'
+          and (
+            (${messages.actionRequired} = true and ${messages.acknowledgedAt} is null)
+            or ${messages.priority} in ('elevated', 'critical')
+          )
+        )`,
+        latestAt: sql<string>`max(${messages.createdAt})`,
+      })
+      .from(messages)
+      .innerJoin(
+        messageParticipants,
+        and(
+          eq(messageParticipants.conversationId, messages.conversationId),
+          eq(messageParticipants.agentId, agentId),
+        ),
+      )
+      .leftJoin(cursor, eq(cursor.id, messageParticipants.lastReadMessageId))
+      .where(
+        and(
+          sql`${messages.senderParticipantId} <> ${messageParticipants.id}`,
+          or(isNull(cursor.id), sql`${messages.createdAt} > ${cursor.createdAt}`),
+        ),
+      )
+      .groupBy(messages.conversationId),
+  ])
+
+  const pendingRequests = pendingRow?.count ?? 0
+  const ranked = [...unreadRows].sort((a, b) => {
+    const priorityDelta = Number(b.highPriority) - Number(a.highPriority)
+    if (priorityDelta !== 0) return priorityDelta
+    return a.latestAt < b.latestAt ? 1 : a.latestAt > b.latestAt ? -1 : 0
+  })
+  const unreadThreads = ranked.length
+  const highPriority = ranked.filter((row) => row.highPriority).length
+  const sampleThreadIds = ranked
+    .slice(0, WAKEUP_MESSAGING_SAMPLE_CAP)
+    .map((row) => conversationId(row.conversationId))
+
+  return {
+    unreadThreads,
+    pendingRequests,
+    highPriority,
+    ...(sampleThreadIds.length === 0 ? {} : { sampleThreadIds }),
+  }
 }

@@ -936,12 +936,61 @@ function wakeChannelLine(channel: NonNullable<WakeupResponse['wakeChannel']>): s
   )
 }
 
+/**
+ * Counts only — never bodies (`#1287`). Fetch words with the messaging tools
+ * named in `nextAction`, not from this digest.
+ */
+function messagingDeltaLine(messaging: WakeupResponse['messaging']): string | null {
+  if (
+    messaging.unreadThreads === 0 &&
+    messaging.pendingRequests === 0 &&
+    messaging.highPriority === 0
+  ) {
+    return null
+  }
+
+  const parts: string[] = []
+  if (messaging.pendingRequests > 0) {
+    parts.push(
+      messaging.pendingRequests === 1
+        ? '1 pending message request'
+        : `${messaging.pendingRequests} pending message requests`,
+    )
+  }
+  if (messaging.unreadThreads > 0) {
+    parts.push(
+      messaging.unreadThreads === 1
+        ? '1 unread thread'
+        : `${messaging.unreadThreads} unread threads`,
+    )
+  }
+  if (messaging.highPriority > 0) {
+    parts.push(
+      messaging.highPriority === 1
+        ? '1 high-priority thread'
+        : `${messaging.highPriority} high-priority threads`,
+    )
+  }
+
+  const next =
+    messaging.nextAction === undefined
+      ? 'kolonie.messages.list_threads'
+      : `kolonie.${messaging.nextAction}`
+
+  return (
+    `Private messaging is waiting: ${parts.join(', ')}. ` +
+    `Counts only — fetch bodies with ${next}, not from this digest.`
+  )
+}
+
 function owedBlocks(digest: WakeupResponse): readonly Block[] {
+  const messagingLine = messagingDeltaLine(digest.messaging)
   const entries: string[] = [
     ...(digest.operatorNotesUnread === 0 ? [] : [unreadNotesLine(digest.operatorNotesUnread)]),
     ...(digest.operatorRepliesWaiting === 0
       ? []
       : [waitingRepliesLine(digest.operatorRepliesWaiting)]),
+    ...(messagingLine === null ? [] : [messagingLine]),
     ...(digest.wakeChannel === null || digest.wakeChannel.consecutiveFailures === 0
       ? []
       : [wakeChannelLine(digest.wakeChannel)]),

@@ -885,6 +885,60 @@ export const WakeupWakeChannelSchema = z.object({
 })
 export type WakeupWakeChannel = z.infer<typeof WakeupWakeChannelSchema>
 
+/**
+ * How many sample conversation ids a wake-up may name (`#1287`).
+ *
+ * Small on purpose: enough to open a thread without turning the digest into a
+ * second inbox listing.
+ */
+export const WAKEUP_MESSAGING_SAMPLE_CAP = 5
+
+/**
+ * The next messaging call a waking may take (`#1287`).
+ *
+ * Tool names rather than prose, so a runtime can branch without parsing English.
+ * Bodies stay on the messaging tools — this is only the pointer.
+ */
+export const WakeupMessagingNextActionSchema = z.enum([
+  'messages.requests.list',
+  'messages.list_threads',
+  'messages.get_thread',
+])
+export type WakeupMessagingNextAction = z.infer<typeof WakeupMessagingNextActionSchema>
+
+/**
+ * Compact private-messaging delta on `kolonie.wakeup` (`#1287`).
+ *
+ * **No bodies, no previews, no handles.** Counts and at most
+ * {@link WAKEUP_MESSAGING_SAMPLE_CAP} conversation ids. High priority covers
+ * unread Colony system mail that still asks for action (`actionRequired`) or
+ * carries `elevated` / `critical` priority — there is no separate
+ * `needs_human_input` column on the model.
+ */
+export const WakeupMessagingDeltaSchema = z.object({
+  unreadThreads: z.number().int().min(0),
+  pendingRequests: z.number().int().min(0),
+  highPriority: z.number().int().min(0),
+  nextAction: WakeupMessagingNextActionSchema.optional(),
+  sampleThreadIds: z.array(z.string()).max(WAKEUP_MESSAGING_SAMPLE_CAP).optional(),
+})
+export type WakeupMessagingDelta = z.infer<typeof WakeupMessagingDeltaSchema>
+
+/**
+ * Which messaging call clears the delta, if any (`#1287`).
+ *
+ * Pending requests first (they are invisible to `list_threads`), then a
+ * high-priority thread, then the ordinary unread listing.
+ */
+export function wakeupMessagingNextAction(
+  delta: Pick<WakeupMessagingDelta, 'unreadThreads' | 'pendingRequests' | 'highPriority'>,
+): WakeupMessagingNextAction | undefined {
+  if (delta.pendingRequests > 0) return 'messages.requests.list'
+  if (delta.highPriority > 0) return 'messages.get_thread'
+  if (delta.unreadThreads > 0) return 'messages.list_threads'
+  return undefined
+}
+
 export const WakeupResponseSchema = z.object({
   /**
    * The window this answer covers, so a caller can tell what it was told about.
@@ -1258,6 +1312,22 @@ export const WakeupResponseSchema = z.object({
    * waking loud every time the cooldown elapsed.
    */
   contributionQualityWarning: z.string().nullable().default(null),
+  /**
+   * Compact private-messaging delta (`#1287`, epic `#1284`).
+   *
+   * **Counts and sample ids, never bodies.** Fetching words is
+   * `kolonie.messages.get_thread` / `kolonie.messages.requests` — this field
+   * exists so a waking does not have to scrape the whole inbox to learn whether
+   * anything is waiting. Defaults to zeros when messaging is not wired.
+   *
+   * **Not windowed by `since`**, for the reason `operatorNotesUnread` is not: an
+   * unread thread and a pending request are open obligations rather than news.
+   */
+  messaging: WakeupMessagingDeltaSchema.default({
+    unreadThreads: 0,
+    pendingRequests: 0,
+    highPriority: 0,
+  }),
 })
 export type WakeupResponse = z.infer<typeof WakeupResponseSchema>
 
@@ -1303,6 +1373,13 @@ export function wakeupIsQuiet(digest: WakeupResponse): boolean {
     // (`#683`). Loud for the reason an unread note is loud, and one step more
     // so: the citizen asked for this one.
     digest.operatorRepliesWaiting === 0 &&
+    // Private messaging waiting on this citizen (`#1287`). Loud for the same
+    // reason an unread operator note is loud: a wake-up that called itself quiet
+    // over pending requests or unread threads would hide the one channel built
+    // for private words. Bodies stay off this digest; the counts are enough.
+    digest.messaging.unreadThreads === 0 &&
+    digest.messaging.pendingRequests === 0 &&
+    digest.messaging.highPriority === 0 &&
     // **A working channel is not news and a broken one is.** Only the failure
     // makes a wake-up loud (`#683`): a citizen whose endpoint answers learns
     // nothing from being told so every waking, and a citizen whose endpoint
@@ -1343,6 +1420,7 @@ export type WakeupUrgency = Pick<
   | 'operatorNotesUnread'
   | 'operatorRepliesWaiting'
   | 'wakeChannel'
+  | 'messaging'
 >
 
 /**
@@ -1371,6 +1449,10 @@ export type WakeupUrgency = Pick<
  * - **`wakeChannel.consecutiveFailures`** — the push path is gone, and the poll
  *   that fell back is the only moment the Colony can say so. Minting the
  *   replacement is the citizen's own act.
+ * - **`messaging`** — pending first-contact requests or unread threads
+ *   (`#1287`). Accept/decline and mark_read / acknowledge are this citizen's
+ *   calls; a wake-up that said WAKE_OK over them would hide private work. Counts
+ *   only — bodies stay on `kolonie.messages.*`.
  *
  * What is deliberately **not** in it, because leaving these out is the whole
  * difference between a signal and a second way of saying *something happened*:
@@ -1404,7 +1486,10 @@ export function wakeupHasUrgentDelta(digest: WakeupUrgency): boolean {
     digest.contributions.pullRequests.length > 0 ||
     digest.operatorNotesUnread > 0 ||
     digest.operatorRepliesWaiting > 0 ||
-    (digest.wakeChannel !== null && digest.wakeChannel.consecutiveFailures > 0)
+    (digest.wakeChannel !== null && digest.wakeChannel.consecutiveFailures > 0) ||
+    digest.messaging.unreadThreads > 0 ||
+    digest.messaging.pendingRequests > 0 ||
+    digest.messaging.highPriority > 0
   )
 }
 

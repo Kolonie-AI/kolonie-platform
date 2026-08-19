@@ -1565,3 +1565,114 @@ describe('whether a waking has a piece of work in it', () => {
     expect(wakeupAsText(something.response)).not.toContain(WAKEUP_FINAL_LINE)
   })
 })
+
+/**
+ * Compact messaging unread delta on wakeup (`#1287`).
+ *
+ * Counts and sample ids only — never bodies. Pending requests and unread
+ * threads make the waking actionable so WAKE_OK is not printed over private
+ * work waiting on the citizen.
+ */
+describe('messaging unread delta on wakeup', () => {
+  beforeEach(() => {
+    source.answersPreviousSession('2026-08-01T09:00:00.000Z')
+  })
+
+  it('is zero state when nothing is waiting', async () => {
+    const result = await wakeup(agentId, {}, source, noContributions)
+
+    expect(result.response.messaging).toEqual({
+      unreadThreads: 0,
+      pendingRequests: 0,
+      highPriority: 0,
+    })
+    expect(result.response.messaging.nextAction).toBeUndefined()
+    expect(result.response.messaging.sampleThreadIds).toBeUndefined()
+    expect(result.response.actionableNow).toBe(false)
+    expect(wakeupIsQuiet(result.response)).toBe(true)
+    expect(wakeupAsText(result.response)).not.toContain('Private messaging is waiting')
+  })
+
+  it('is actionable for a pending request only', async () => {
+    source.answersMessaging({ unreadThreads: 0, pendingRequests: 1, highPriority: 0 })
+
+    const result = await wakeup(agentId, {}, source, noContributions)
+
+    expect(result.response.messaging).toMatchObject({
+      unreadThreads: 0,
+      pendingRequests: 1,
+      highPriority: 0,
+      nextAction: 'messages.requests.list',
+    })
+    expect(result.response.actionableNow).toBe(true)
+    expect(result.response.suggestedFinalLine).toBeUndefined()
+    expect(wakeupIsQuiet(result.response)).toBe(false)
+    expect(wakeupAsText(result.response)).toContain('1 pending message request')
+    expect(wakeupAsText(result.response)).toContain('kolonie.messages.requests.list')
+    expect(wakeupAsText(result.response)).not.toMatch(/body|preview|hello/i)
+  })
+
+  it('is actionable for an unread thread only', async () => {
+    const threadId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    source.answersMessaging({
+      unreadThreads: 1,
+      pendingRequests: 0,
+      highPriority: 0,
+      sampleThreadIds: [threadId],
+    })
+
+    const result = await wakeup(agentId, {}, source, noContributions)
+
+    expect(result.response.messaging).toMatchObject({
+      unreadThreads: 1,
+      pendingRequests: 0,
+      highPriority: 0,
+      nextAction: 'messages.list_threads',
+      sampleThreadIds: [threadId],
+    })
+    expect(result.response.actionableNow).toBe(true)
+    expect(wakeupIsQuiet(result.response)).toBe(false)
+    expect(wakeupAsText(result.response)).toContain('1 unread thread')
+    expect(JSON.stringify(result.response.messaging)).not.toMatch(/body|preview/i)
+  })
+
+  it('prefers requests then high-priority on a mixed delta', async () => {
+    source.answersMessaging({
+      unreadThreads: 2,
+      pendingRequests: 1,
+      highPriority: 1,
+      sampleThreadIds: [
+        'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      ],
+    })
+
+    const result = await wakeup(agentId, {}, source, noContributions)
+
+    expect(result.response.messaging.nextAction).toBe('messages.requests.list')
+    expect(result.response.messaging.unreadThreads).toBe(2)
+    expect(result.response.messaging.pendingRequests).toBe(1)
+    expect(result.response.messaging.highPriority).toBe(1)
+    expect(result.response.actionableNow).toBe(true)
+    expect(wakeupIsQuiet(result.response)).toBe(false)
+    const text = wakeupAsText(result.response)
+    expect(text).toContain('1 pending message request')
+    expect(text).toContain('2 unread threads')
+    expect(text).toContain('1 high-priority thread')
+    expect(text).toContain('fetch bodies')
+  })
+
+  it('points at get_thread when only high-priority unread remains', async () => {
+    source.answersMessaging({
+      unreadThreads: 1,
+      pendingRequests: 0,
+      highPriority: 1,
+      sampleThreadIds: ['dddddddd-dddd-4ddd-8ddd-dddddddddddd'],
+    })
+
+    const result = await wakeup(agentId, {}, source, noContributions)
+
+    expect(result.response.messaging.nextAction).toBe('messages.get_thread')
+    expect(result.response.actionableNow).toBe(true)
+  })
+})

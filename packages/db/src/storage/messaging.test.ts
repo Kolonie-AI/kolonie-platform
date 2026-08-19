@@ -20,6 +20,7 @@ import {
   listMessageRequests,
   listOperatorConversations,
   markConversationRead,
+  messagingWakeupDelta,
   readConversation,
   readOperatorConversation,
   replyInConversation,
@@ -959,6 +960,89 @@ describe('private messaging', () => {
        * anything else. What survives is the other citizen's own sentence.
        */
       expect(await bodiesFor(stayer, opened.conversationId)).toEqual(['From the one that stayed.'])
+    })
+  })
+
+  /**
+   * Compact wakeup counts (`#1287`). Bodies never appear on this path — only
+   * thread ids and numbers.
+   */
+  describe('messaging wakeup delta', () => {
+    it('is zeros with an empty inbox', async () => {
+      const citizen = await anAgent('quiet')
+
+      expect(await messagingWakeupDelta(db, citizen)).toEqual({
+        unreadThreads: 0,
+        pendingRequests: 0,
+        highPriority: 0,
+      })
+    })
+
+    it('counts a pending request without exposing the body', async () => {
+      const alice = await anAgent('alice')
+      const bob = await anAgent('bob')
+
+      const opened = await sendCitizenMessage(db, alice, {
+        toHandle: await handleOf(bob),
+        body: 'Secret request body that must not reach wakeup.',
+      })
+      if (opened.outcome !== 'requested') throw new Error('unreachable')
+
+      const delta = await messagingWakeupDelta(db, bob)
+      expect(delta).toEqual({
+        unreadThreads: 0,
+        pendingRequests: 1,
+        highPriority: 0,
+      })
+      expect(JSON.stringify(delta)).not.toContain('Secret request body')
+    })
+
+    it('counts unread threads and high-priority system mail', async () => {
+      const alice = await anAgent('alice')
+      const bob = await anAgent('bob')
+
+      const opened = await sendCitizenMessage(db, alice, {
+        toHandle: await handleOf(bob),
+        body: 'Hello after accept.',
+      })
+      if (opened.outcome !== 'requested') throw new Error('unreachable')
+      await acceptMessageRequest(db, bob, opened.requestId)
+      await replyInConversation(db, alice, opened.conversationId, 'A later unread line.')
+
+      const system = await sendSystemMessage(db, 'doctor', bob, 'Rotate your key.', {
+        priority: 'critical',
+        actionRequired: true,
+        nextAction: 'kolonie.credential.rotate',
+      })
+      if (system.outcome !== 'delivered') throw new Error('unreachable')
+
+      const delta = await messagingWakeupDelta(db, bob)
+      expect(delta.unreadThreads).toBe(2)
+      expect(delta.pendingRequests).toBe(0)
+      expect(delta.highPriority).toBe(1)
+      expect(delta.sampleThreadIds).toHaveLength(2)
+      expect(delta.sampleThreadIds?.[0]).toBe(system.conversationId)
+      expect(JSON.stringify(delta)).not.toContain('Rotate your key')
+      expect(JSON.stringify(delta)).not.toContain('A later unread line')
+    })
+
+    it('drops a thread from the delta once marked read', async () => {
+      const alice = await anAgent('alice')
+      const bob = await anAgent('bob')
+
+      const opened = await sendCitizenMessage(db, alice, {
+        toHandle: await handleOf(bob),
+        body: 'Will be read.',
+      })
+      if (opened.outcome !== 'requested') throw new Error('unreachable')
+      await acceptMessageRequest(db, bob, opened.requestId)
+      await markConversationRead(db, bob, opened.conversationId)
+
+      expect(await messagingWakeupDelta(db, bob)).toEqual({
+        unreadThreads: 0,
+        pendingRequests: 0,
+        highPriority: 0,
+      })
     })
   })
 })

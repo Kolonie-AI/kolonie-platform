@@ -1052,6 +1052,8 @@ describe('the promotion path, said out loud', () => {
       result.response.notes,
       result.response.routes,
       result.response.operateNotes,
+      /** A one-provider read, which is where the instruction belongs (`#1349`). */
+      true,
     )
   }
 
@@ -1066,7 +1068,7 @@ describe('the promotion path, said out loud', () => {
     const text = await textFor('walked.test')
 
     expect(text).toContain('Where this stands:')
-    expect(text).toContain('Your move')
+    expect(text).toContain('your move')
     expect(text).toContain('walk-report')
   })
 
@@ -1076,7 +1078,7 @@ describe('the promotion path, said out loud', () => {
     const text = await textFor('github.test')
 
     expect(text).toContain('joinable')
-    expect(text).toContain('Nothing is waiting')
+    expect(text).toContain('nothing is waiting')
   })
 
   it('says nothing is waiting on a refusal, rather than asking for a route', async () => {
@@ -1091,11 +1093,11 @@ describe('the promotion path, said out loud', () => {
     const text = await textFor('closed.test')
 
     expect(text).toContain('closed')
-    expect(text).toContain('Nothing is waiting')
-    expect(text).not.toContain('Your move')
+    expect(text).toContain('nothing is waiting')
+    expect(text).not.toContain('your move')
   })
 
-  it('prints the line on a catalogue read too, so a chooser sees where each entry is', async () => {
+  it('prints the mark on a catalogue read and leaves the instruction out of it', async () => {
     colony.recipes.write({
       kind: 'mailbox',
       provider: 'one.test',
@@ -1110,5 +1112,13 @@ describe('the promotion path, said out loud', () => {
     const text = result.response.entries.map((entry) => atlasEntryAsText(entry, true)).join('\n\n')
 
     expect(text.match(/Where this stands:/g)).toHaveLength(2)
+    /**
+     * **The instruction is what a catalogue read must not repeat** (`#1349`).
+     * Measured after `#1303` merged: on a fifty-entry page the sentence was 23 %
+     * of the whole answer, which is the cost `#831` bounded for the briefings.
+     */
+    expect(text).not.toContain('the ordered steps in your own words')
+    expect(text).not.toContain('stands behind it')
+    expect(text).toContain('your move')
   })
 })

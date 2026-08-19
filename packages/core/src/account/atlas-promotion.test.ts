@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   atlasPinReading,
+  atlasPromotionMark,
   atlasPromotionOf,
   atlasPromotionSentence,
   type AtlasPromotionStage,
@@ -97,17 +98,34 @@ describe('where one row stands', () => {
   })
 })
 
-describe('the sentence a page and a tool print', () => {
-  it('names the stage and whose move it is', () => {
-    const yours = atlasPromotionSentence(atlasPromotionOf(row({ attempted: 1 })))
-    const theirs = atlasPromotionSentence(
+describe('the two forms, and why there are two', () => {
+  it('names the stage and whose move it is, in both', () => {
+    const yours = atlasPromotionMark(atlasPromotionOf(row({ attempted: 1 })))
+    const theirs = atlasPromotionMark(
       atlasPromotionOf(row({ attempted: 1 }), { hasClearedRoute: true }),
     )
-    const nobody = atlasPromotionSentence(atlasPromotionOf(row({ status: 'refused' })))
+    const nobody = atlasPromotionMark(atlasPromotionOf(row({ status: 'refused' })))
 
-    expect(yours).toContain('Your move')
-    expect(theirs).toContain('Waiting on a steward')
-    expect(nobody).toContain('Nothing is waiting')
+    expect(yours).toContain('your move')
+    expect(theirs).toContain('waiting on a steward')
+    expect(nobody).toContain('nothing is waiting')
+  })
+
+  it('leaves the instruction out of the mark and keeps it in the sentence', () => {
+    /**
+     * The whole reason the two exist (`#1349`). Measured on a fifty-entry page
+     * with two rows each: the sentence on every row was 25,200 of 108,088
+     * characters — 23 % of the answer, one repeated instruction. The mark is a
+     * fraction of that and says the part a chooser is using.
+     */
+    const promotion = atlasPromotionOf(row({ attempted: 1 }))
+    const mark = atlasPromotionMark(promotion)
+    const sentence = atlasPromotionSentence(promotion)
+
+    expect(mark).not.toContain('walk-report')
+    expect(sentence).toContain('walk-report')
+    expect(sentence.startsWith(mark)).toBe(true)
+    expect(mark.length * 4).toBeLessThan(sentence.length)
   })
 })
 

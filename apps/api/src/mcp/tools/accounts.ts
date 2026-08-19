@@ -2047,6 +2047,16 @@ export function registerAccountTools(
                           result.response.notes,
                           result.response.routes,
                           result.response.operateNotes,
+                          /**
+                           * **The whole promotion sentence on one provider and
+                           * the mark on the shelf** (`#1349`, correcting
+                           * `#1303`). The same bound the three maps above carry:
+                           * a reader that named a provider has decided and is
+                           * asking what to do; a reader on the catalogue is
+                           * still choosing, and 23 % of that page was one
+                           * repeated instruction.
+                           */
+                          provider !== undefined,
                         ),
                         ownAccountsAsText(ownAccounts),
                       ]

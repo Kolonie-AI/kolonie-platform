@@ -127,7 +127,7 @@ permissions:
 #
 # | job | answers | needs |
 # |---|---|---|
-# | `tree` | is the source as written acceptable — lock, format, lint, migrations, fixtures, changelog | nothing |
+# | `tree` | is the source as written acceptable — lock, format, lint, fixtures, changelog | nothing |
 # | `build` | does it compile, and is what it compiled usable | nothing |
 # | `test` | does it behave | `build` |
 # | `check` | the verdict the branch protection reads | all three |
@@ -168,10 +168,11 @@ jobs:
       - name: Check the lock file
         run: npm run check:lock
 
-      # format:check, lint, check:migrations, check:fixtures, check:changelog —
-      # concurrently, all five reported even when one fails (`#1158`). The gates
-      # are named in `package.json` rather than here, so this file does not have
-      # to be edited when one is added.
+      # format:check, lint, check:fixtures, check:changelog — concurrently, all
+      # four reported even when one fails (`#1158`). `check:migrations` reads
+      # `dist` and lives in `gates:built` (`#1367`). The gates are named in
+      # `package.json` rather than here, so this file does not have to be edited
+      # when one is added.
       - name: Tree gates
         run: npm run gates:tree
 
@@ -298,10 +299,10 @@ jobs:
       - name: Build
         run: npm run build
 
-      # check:dist, check:catalogue-floor, typecheck — everything that reads
-      # `dist/` and therefore cannot run in `tree`. Hoisted up there they would
-      # fail with *"The catalogue floor rule was not built"* on a tree that is
-      # perfectly fine.
+      # check:dist, check:catalogue-floor, check:migrations, typecheck —
+      # everything that reads `dist/` and therefore cannot run in `tree`
+      # (`#1367`). Hoisted up there they would fail with a message about the
+      # wrong thing entirely, on a tree that is fine.
       - name: Built gates
         run: npm run gates:built
 

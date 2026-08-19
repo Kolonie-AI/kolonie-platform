@@ -4,11 +4,14 @@
  *
  * ## Why this exists
  *
- * `npm run check` was ten steps joined by `&&` (`#1158`). **Six of them depend on
+ * `npm run check` was ten steps joined by `&&` (`#1158`). **Five of them depend on
  * nothing but the working tree** — `check:lock`, `format:check`, `lint`,
- * `check:migrations`, `check:fixtures`, `check:changelog` — and ran one after
- * another for no reason but the order somebody typed them in. Three more depend
- * only on the build: `check:dist`, `check:catalogue-floor` and `typecheck`.
+ * `check:fixtures`, `check:changelog` — and ran one after another for no reason
+ * but the order somebody typed them in. Four more depend only on the build:
+ * `check:dist`, `check:catalogue-floor`, `check:migrations` and `typecheck`.
+ * `check:migrations` reads `@kolonie-ai/core`'s `dist` (`#1367`); hoisted into
+ * the tree phase it reported a missing migration that did not exist, against a
+ * stale build.
  *
  * A shell chain also loses answers. `check:lock && format:check && lint` tells
  * you the lock file is stale and nothing about the other two, so a session fixes
@@ -45,10 +48,10 @@
  * **It does not know which gates may run together.** The caller names them, and
  * the ordering that matters is asserted in `scripts/run-gates.test.ts` against
  * `package.json` itself: `check:catalogue-floor` reads
- * `apps/api/dist/mcp/catalogue-budget.js` and `check:dist` reads every `dist/`,
- * so both belong after `build` and a phase that hoisted them in front of it would
- * fail with *"The catalogue floor rule was not built"* — a message about the
- * wrong thing entirely.
+ * `apps/api/dist/mcp/catalogue-budget.js`, `check:dist` reads every `dist/`, and
+ * `check:migrations` reads `@kolonie-ai/core`'s `dist` (`#1367`), so all three
+ * belong after `build`. A phase that hoisted them in front of it would fail with
+ * a message about the wrong thing entirely.
  */
 import { Buffer } from 'node:buffer'
 import { spawn } from 'node:child_process'

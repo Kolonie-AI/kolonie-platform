@@ -35,8 +35,9 @@
 # This must run **after** `npm run build`. `src/schema/enums.ts` derives every
 # database enum from the Zod enum in `@kolonie-ai/core`, reading the built
 # package — so against a stale `dist` the generator dies on a symbol that does
-# not exist yet, pointing at `enums.ts` rather than at the build. `check` in the
-# root `package.json` places it correctly; if you run this by hand, build first.
+# not exist yet, or reports a missing migration that already exists (`#1367`).
+# `gates:built` in the root `package.json` is what places it; if you run this
+# by hand, build first.
 
 set -euo pipefail
 

@@ -5490,6 +5490,12 @@ suspended.` on `kolonie.me` and an ordinary digest on `kolonie.wakeup`, with
   The escapes are stripped; the prefix is stripped only where the line actually
   has that shape, because the column layout is not a contract.
 
+- **`check:migrations` runs after the build, against a fresh `dist`**
+  (`kolonie-platform#1367`). It reads `@kolonie-ai/core`'s compiled enums, so
+  sitting in `gates:tree` it compared the schema to yesterday's build and
+  reported a missing migration that already existed. It now lives in
+  `gates:built`, with the other gates that read build output.
+
 ## 0.1.0 — 2026-07-26
 
 Initial domain model.

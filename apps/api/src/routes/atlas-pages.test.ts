@@ -1601,6 +1601,13 @@ describe('the Atlas on the website host', () => {
       /** The fallback slug is not a claim, so it is neither printed nor linked. */
       expect(facts).not.toContain('data-apis')
       expect(facts).not.toContain('/atlas/c/data-apis')
+      /**
+       * **And it is not a utility claim either** (`#1388`). The dual-use chip
+       * read the fallback shelf as the utility axis, so this same header said
+       * *worth holding, and pays* about a shelf nobody chose — the one clause
+       * `#1329` had just demoted, restored in stronger words.
+       */
+      expect(facts).not.toContain('worth holding, and pays')
     })
 
     /**

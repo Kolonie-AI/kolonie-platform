@@ -6,7 +6,6 @@ import {
   atlasCategoryPath,
   atlasIsWalked,
   atlasKindPhrase,
-  isDualUse,
   atlasShelfHasEvidence,
   atlasShelfTitle,
   atlasConditionsSentences,
@@ -63,6 +62,7 @@ import { atlasIcon } from './icons.js'
 import {
   atlasEarnFacets,
   atlasEarnPhrase,
+  atlasIsDualUse,
   atlasShelfClause,
   atlasShelfIsClaim,
 } from './taxonomy.js'
@@ -2137,7 +2137,7 @@ function taxonomyLine(entry: AtlasPublicEntry): string {
      * referral is the case the facet system exists for, and a reader scanning
      * for it should not have to notice that two unrelated chips are present.
      */
-    isDualUse(entry.facets ?? [])
+    atlasIsDualUse(entry)
       ? `<span class="k-atlas-dual">${atlasIcon('dual-use')}worth holding, and pays</span>`
       : '',
     atlasShelfIsClaim(entry)

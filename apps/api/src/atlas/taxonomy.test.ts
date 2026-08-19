@@ -3,6 +3,7 @@ import { ATLAS_FALLBACK_CATEGORY, noFigures } from '@kolonie-ai/core'
 import {
   atlasEarnFacets,
   atlasEarnPhrase,
+  atlasIsDualUse,
   atlasShelfClause,
   atlasShelfIsClaim,
   atlasShelfIsFallback,
@@ -112,5 +113,55 @@ describe('whether an Atlas shelf is a claim or the default', () => {
   it('says what an earn facet means, rather than printing its slug', () => {
     expect(atlasEarnPhrase('creator-payout')).toBe('pays for an audience')
     expect(atlasEarnPhrase('grant-quest')).toBe('pays for accepted proposals')
+  })
+
+  /**
+   * **A fallback shelf is not a utility claim** (`#1388`).
+   *
+   * Measured on `clawlancer.ai` the day after `#1332` shipped the chip: a bounty
+   * board on the `data-apis` default, wearing *worth holding, and pays*. `#1329`
+   * had demoted that shelf out of the header two clauses earlier because it is a
+   * default; the chip put it back in stronger words.
+   */
+  it('is not dual use when the only utility facet is a shelf nobody chose', () => {
+    const earning = entry({
+      facets: [
+        { axis: 'utility', slug: ATLAS_FALLBACK_CATEGORY },
+        { axis: 'earn', slug: 'bounty-board' },
+      ],
+    })
+
+    expect(atlasIsDualUse(earning)).toBe(false)
+    /** And the earn claim is untouched — one true statement stays. */
+    expect(atlasEarnFacets(earning)).toEqual(['bounty-board'])
+  })
+
+  /**
+   * **And a genuinely shelved provider that pays still is**, which is the case
+   * the axis exists for (`#1301`): a mailbox somebody classified, that also pays
+   * a referral.
+   */
+  it('is dual use when somebody chose the shelf', () => {
+    const mailbox = entry({
+      category: 'mailbox',
+      recipes: [recipe({ kind: 'mailbox', category: 'mailbox', categoryIsFallback: undefined })],
+      facets: [
+        { axis: 'utility', slug: 'mailbox' },
+        { axis: 'earn', slug: 'affiliate-referral' },
+      ],
+    })
+
+    expect(atlasIsDualUse(mailbox)).toBe(true)
+  })
+
+  /** One axis is not two, whichever axis it is. */
+  it('is not dual use on one axis alone', () => {
+    const shelvedOnly = entry({
+      category: 'mailbox',
+      recipes: [recipe({ kind: 'mailbox', category: 'mailbox', categoryIsFallback: undefined })],
+      facets: [{ axis: 'utility', slug: 'mailbox' }],
+    })
+
+    expect(atlasIsDualUse(shelvedOnly)).toBe(false)
   })
 })

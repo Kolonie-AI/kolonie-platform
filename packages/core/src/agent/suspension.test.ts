@@ -4,6 +4,7 @@ import {
   SuspensionStandingSchema,
   suspensionStandingLine,
   unrecordedSuspensionReason,
+  unrecordedSuspensionStanding,
 } from './suspension.js'
 
 describe('a suspension a citizen can read (#1291)', () => {
@@ -46,6 +47,21 @@ describe('a suspension a citizen can read (#1291)', () => {
     const line = suspensionStandingLine(standing)
     expect(line).toBe(reason)
     expect(line.match(/lapse/gi)).toHaveLength(1)
+  })
+
+  it('hands three surfaces one standing rather than three literals (#1341)', () => {
+    const standing = unrecordedSuspensionStanding()
+    expect(SuspensionStandingSchema.parse(standing)).toEqual(standing)
+    expect(standing.source).toBe('unrecorded')
+    expect(standing.startedAt).toBeNull()
+    expect(standing.expiresAt).toBeNull()
+    expect(standing.reason).toBe(unrecordedSuspensionReason())
+  })
+
+  it('names the surface that cannot see a walk-prose suspension (#1341)', () => {
+    // The citizen in #1341 read `contributions.quality` as evidence against the
+    // walk-prose cause. The reason has to say why that ledger is silent on it.
+    expect(unrecordedSuspensionReason()).toContain('kolonie.contributions.quality')
   })
 
   it('refuses a source the write paths cannot produce', () => {

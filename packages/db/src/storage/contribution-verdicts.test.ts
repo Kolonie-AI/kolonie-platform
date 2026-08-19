@@ -10,6 +10,7 @@ import {
   CONTRIBUTION_VERDICT_RETENTION_DAYS,
   ContributionQualityAnswerSchema,
   noStagesRun,
+  unrecordedSuspensionStanding,
   type AgentId,
   type ContributionVerdict,
   type ModerationStages,
@@ -1006,7 +1007,25 @@ describe('contribution verdicts', () => {
       expect(answer.suspension).not.toBeNull()
       expect(answer.suspension?.source).toBe('maintainer')
       expect(answer.suspension?.reason).toContain('kolonie.support.open')
-      expect(new Date(answer.suspension!.expiresAt).getTime()).toBeGreaterThan(now.getTime())
+      expect(new Date(answer.suspension!.expiresAt!).getTime()).toBeGreaterThan(now.getTime())
+    })
+
+    it('reports a suspension with no timed row behind it, rather than none (#1341)', async () => {
+      const agentId = await anAgent('quality-unrecorded')
+      await db.update(agents).set({ status: 'suspended' }).where(eq(agents.id, agentId))
+
+      const answer = await contributionQualityFor(db, agentId, now)
+      expect(ContributionQualityAnswerSchema.parse(answer).suspension).toEqual({
+        reason: unrecordedSuspensionStanding().reason,
+        source: 'unrecorded',
+        startedAt: null,
+        expiresAt: null,
+      })
+      // The bounds are the abusive-verdict rule, and it did not fire — which is
+      // the whole point: walk prose writes no verdict, so a citizen suspended by
+      // it reads a clean ledger and a suspension at the same time.
+      expect(answer.standing.meetsSuspendBounds).toBe(false)
+      expect(answer.standing.measures).toBe('abusive-verdict-rate')
     })
 
     it('stamps the warning time only through markAbusiveQualityWarned', async () => {

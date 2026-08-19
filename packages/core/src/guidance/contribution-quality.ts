@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { SuspensionStandingSchema } from '../agent/suspension.js'
 import { TimestampSchema } from '../common/time.js'
 import {
   ABUSIVE_SUSPEND_MIN_COUNT,
@@ -6,7 +7,6 @@ import {
   ABUSIVE_SUSPEND_WINDOW_DAYS,
   ABUSIVE_WARN_MIN_COUNT,
   ContributionSurfaceSchema,
-  CitizenshipSuspensionSourceSchema,
 } from './contribution-verdict.js'
 
 /**
@@ -36,14 +36,6 @@ export type ContributionQualityAbusiveReason = z.infer<
   typeof ContributionQualityAbusiveReasonSchema
 >
 
-export const ContributionQualitySuspensionSchema = z.object({
-  reason: z.string(),
-  source: CitizenshipSuspensionSourceSchema,
-  startedAt: TimestampSchema,
-  expiresAt: TimestampSchema,
-})
-export type ContributionQualitySuspension = z.infer<typeof ContributionQualitySuspensionSchema>
-
 export const ContributionQualityAnswerSchema = z
   .object({
     /** The window these figures cover — the same 90 days the sanction reads. */
@@ -69,6 +61,14 @@ export const ContributionQualityAnswerSchema = z
      * Where the citizen stands against both suspend bounds, and the early-warn
      * threshold. The numbers are the floored window the sweep uses — verdicts
      * from before a served suspension do not recount.
+     *
+     * **These bounds are one rule and not the only one** (`#1341`). They are the
+     * abusive-verdict rate (`#1261`), counted from `contribution_verdicts`. The
+     * walk-prose rule (`#1097`, rewritten by `#1339`) is judged on the walks
+     * themselves, writes no verdict row, and is therefore invisible in every
+     * number here — so `meetsSuspendBounds: false` is an answer about this rule
+     * and never a statement that the citizen is unsuspended. {@link
+     * ContributionQualityAnswerSchema.shape.suspension} is what answers that.
      */
     standing: z.object({
       abusive: z.int().nonnegative(),
@@ -80,11 +80,22 @@ export const ContributionQualityAnswerSchema = z
       /** Strictly greater than this share. */
       suspendMinRate: z.literal(ABUSIVE_SUSPEND_MIN_RATE),
       meetsSuspendBounds: z.boolean(),
+      /** Which rule the bounds above belong to, said outright (`#1341`). */
+      measures: z.literal('abusive-verdict-rate'),
       /** `useless` is shown so the totals add up, and it counts toward nothing. */
       uselessCountsToward: z.literal('nothing'),
     }),
-    /** The open timed suspension, if any, with its end date. */
-    suspension: ContributionQualitySuspensionSchema.nullable(),
+    /**
+     * The citizen's suspension standing — the same shape `kolonie.me` and the
+     * wakeup digest return, on purpose (`#1341`).
+     *
+     * It was the open timed row and nothing else, so a citizen suspended by the
+     * walk-prose rule — which writes no row — read `null` here minutes after
+     * `kolonie.me` told it it was suspended. Two surfaces, one fact, two
+     * answers. `null` now means *not suspended*, and a suspension with no row
+     * behind it arrives as the `unrecorded` standing rather than as silence.
+     */
+    suspension: SuspensionStandingSchema.nullable(),
   })
   .strict()
 export type ContributionQualityAnswer = z.infer<typeof ContributionQualityAnswerSchema>

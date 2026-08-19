@@ -116,6 +116,9 @@ import {
   replyInConversation,
   reportMessageAbuse,
   openOperatorHelpConversation,
+  operatorThreadContext,
+  operatorRequestRecipient,
+  citizenHandle,
   sendOperatorMessage,
   requestConnection,
   acceptMessageRequest,
@@ -193,6 +196,10 @@ import { databaseAccountOffers } from './account-offers.js'
 import { databaseAccountThreads } from './account-threads.js'
 import { databaseDrops, usableSealingKey } from './operator-drops.js'
 import { operatorNotifierFor } from './operator-notifier.js'
+import {
+  notifyOperatorAboutThread,
+  type OperatorThreadNotifyDependencies,
+} from './operator-thread-notify.js'
 import {
   databaseTelegram,
   httpTelegramBot,
@@ -675,6 +682,31 @@ const operatorTelegram = ((): TelegramDesk | undefined => {
   }
 })()
 
+/**
+ * Telling a person their citizen has opened a thread (`#1321`, epic `#1318`).
+ *
+ * **The same notifier the exchange path takes**, resolved once here for the
+ * reason `operatorNotifierFor` gives: Telegram where the operator bound it, mail
+ * everywhere else, and the choice made at wiring time rather than at send time.
+ * The recipient read is `operatorRequestRecipient` too — the page an operator
+ * holds is one page, whichever surface asked them to open it.
+ */
+const operatorThreadNotify: OperatorThreadNotifyDependencies = {
+  ...(mail.operatorMailer === undefined
+    ? {}
+    : {
+        notifier: operatorNotifierFor({
+          mailer: mail.operatorMailer,
+          telegram: operatorTelegram,
+          log,
+        }),
+      }),
+  ...(process.env['CONSOLE_URL'] ? { pageBaseUrl: process.env['CONSOLE_URL'] } : {}),
+  log,
+  recipient: (agentId) => operatorRequestRecipient(db, agentId),
+  context: (conversationId) => operatorThreadContext(db, conversationId),
+}
+
 /** A whole number from the environment, or nothing. Never a silent zero. */
 function numericEnv(name: string): number | undefined {
   const raw = process.env[name]?.trim()
@@ -958,6 +990,26 @@ const app = buildApp({
               })
 
       if (result.outcome === 'delivered') {
+        /**
+         * One ping per thread, after the row and never before it (`#1321`).
+         *
+         * `opened` is set by storage only when this send created the
+         * conversation, which is what carries `operator_addresses`' rule across:
+         * exactly one message per ask and never a reminder. It is awaited so a
+         * test can assert on it, and it throws nothing — a mail desk that is
+         * down leaves a thread the operator can still read on the page.
+         */
+        if (result.opened === true) {
+          await notifyOperatorAboutThread(
+            {
+              agentId,
+              agentName: (await citizenHandle(db, agentId)) ?? 'your agent',
+              conversationId: result.conversationId,
+            },
+            operatorThreadNotify,
+          )
+        }
+
         return {
           outcome: 'delivered',
           response: {

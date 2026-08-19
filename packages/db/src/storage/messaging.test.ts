@@ -18,6 +18,7 @@ import {
   messageParticipants,
   messageReports,
   messages,
+  operatorTelegramChats,
   tasks,
 } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
@@ -27,6 +28,7 @@ import { listSetAsides, setAside } from './set-asides.js'
 import {
   acceptMessageRequest,
   acknowledgeSystemMessage,
+  answerOperatorMessageFromChat,
   blockSender,
   declineMessageRequest,
   listConversations,
@@ -35,7 +37,9 @@ import {
   markConversationRead,
   messagingWakeupDelta,
   openOperatorHelpConversation,
+  operatorThreadContext,
   readConversation,
+  recordMessageTelegramAsk,
   readOperatorConversation,
   replyInConversation,
   reportMessageAbuse,
@@ -1497,6 +1501,219 @@ describe('private messaging', () => {
           theirs.conversationId,
         ),
       ).toEqual({ outcome: 'refused', refusal: 'not-a-participant' })
+    })
+  })
+
+  /**
+   * Telling a person, and letting them answer where they were told (`#1321`).
+   *
+   * The exchange path had both and messaging had neither, so retiring the
+   * exchange without these would have silenced every operator who answers from
+   * a chat.
+   */
+  describe('the notify path an operator thread carries', () => {
+    const bindChat = async (agentId: AgentId, chatId: number): Promise<void> => {
+      await db.insert(operatorTelegramChats).values({ agentId, chatId })
+    }
+
+    /**
+     * **One ping per thread, never a reminder.** `opened` is the whole of how
+     * the caller tells a citizen's first ask from its fourth follow-up.
+     */
+    it('says a thread was opened, and says nothing on the next message into it', async () => {
+      const citizen = await anAgent('citizen')
+      await aPerson(citizen)
+
+      const first = await openOperatorHelpConversation(db, citizen, { body: 'Could you help?' })
+      const second = await openOperatorHelpConversation(db, citizen, { body: 'Still stuck.' })
+
+      expect(first).toMatchObject({ outcome: 'delivered', opened: true })
+      expect(second).toMatchObject({ outcome: 'delivered' })
+      expect((second as { opened?: boolean }).opened).toBeUndefined()
+    })
+
+    it('names what a thread is about, and nothing for one about nothing', async () => {
+      const citizen = await anAgent('citizen')
+      await aPerson(citizen)
+      const [task] = await db
+        .insert(tasks)
+        .values({
+          type: 'github-account',
+          title: 'Hold a GitHub account',
+          description: 'What this task is, for a human reading the catalogue.',
+          instructions: 'What the agent must actually do.',
+          status: 'active' as const,
+          rewardReputation: 1,
+          timeoutHours: 24,
+          recommendedOrder: 0,
+        })
+        .returning({ id: tasks.id })
+
+      const about = await openOperatorHelpConversation(db, citizen, {
+        body: 'This rung needs you.',
+        provenance: { taskId: task!.id as never, wishId: null },
+      })
+      const plain = await openOperatorHelpConversation(db, citizen, { body: 'Are you there?' })
+      if (about.outcome !== 'delivered' || plain.outcome !== 'delivered') {
+        throw new Error('unreachable')
+      }
+
+      expect(await operatorThreadContext(db, about.conversationId)).toBe('Hold a GitHub account')
+      expect(await operatorThreadContext(db, plain.conversationId)).toBeUndefined()
+    })
+
+    it('writes a reply from the bound chat into the thread it answers', async () => {
+      const citizen = await anAgent('citizen')
+      await aPerson(citizen)
+      await bindChat(citizen, 4242)
+
+      const thread = await openOperatorHelpConversation(db, citizen, { body: 'Could you help?' })
+      if (thread.outcome !== 'delivered') throw new Error('unreachable')
+      await recordMessageTelegramAsk(db, {
+        conversationId: thread.conversationId,
+        chatId: 4242,
+        messageId: 11,
+      })
+
+      const answered = await answerOperatorMessageFromChat(db, {
+        chatId: 4242,
+        replyToMessageId: 11,
+        body: 'Go ahead — the account is yours.',
+      })
+
+      expect(answered).toMatchObject({
+        outcome: 'answered',
+        agentId: citizen,
+        conversationId: thread.conversationId,
+      })
+
+      const read = await readConversation(db, citizen, thread.conversationId)
+      if (read.outcome !== 'read') throw new Error('unreachable')
+      expect(read.messages.at(-1)).toMatchObject({
+        body: 'Go ahead — the account is yours.',
+        sender: { party: 'operator-human' },
+      })
+    })
+
+    /**
+     * **The middle condition, and the one a lazier query would drop.** A chat
+     * that was unbound with `/stop`, or rebound to somebody else, must not write
+     * into a thread it once received a message about.
+     */
+    it('refuses a reply from a chat that is no longer bound to that citizen', async () => {
+      const citizen = await anAgent('citizen')
+      await aPerson(citizen)
+      await bindChat(citizen, 4242)
+
+      const thread = await openOperatorHelpConversation(db, citizen, { body: 'Could you help?' })
+      if (thread.outcome !== 'delivered') throw new Error('unreachable')
+      await recordMessageTelegramAsk(db, {
+        conversationId: thread.conversationId,
+        chatId: 4242,
+        messageId: 11,
+      })
+
+      await db.delete(operatorTelegramChats).where(eq(operatorTelegramChats.agentId, citizen))
+
+      expect(
+        await answerOperatorMessageFromChat(db, {
+          chatId: 4242,
+          replyToMessageId: 11,
+          body: 'Still here?',
+        }),
+      ).toEqual({ outcome: 'unreachable' })
+    })
+
+    it('refuses a reply to a message the Colony never sent', async () => {
+      const citizen = await anAgent('citizen')
+      await aPerson(citizen)
+      await bindChat(citizen, 4242)
+      await openOperatorHelpConversation(db, citizen, { body: 'Could you help?' })
+
+      expect(
+        await answerOperatorMessageFromChat(db, {
+          chatId: 4242,
+          replyToMessageId: 999,
+          body: 'Out of nowhere.',
+        }),
+      ).toEqual({ outcome: 'unreachable' })
+    })
+
+    /** One ping per thread at rest, so a retry updates rather than duplicates. */
+    it('keeps one mapping per thread when a send is recorded twice', async () => {
+      const citizen = await anAgent('citizen')
+      await aPerson(citizen)
+      await bindChat(citizen, 4242)
+
+      const thread = await openOperatorHelpConversation(db, citizen, { body: 'Could you help?' })
+      if (thread.outcome !== 'delivered') throw new Error('unreachable')
+
+      await recordMessageTelegramAsk(db, {
+        conversationId: thread.conversationId,
+        chatId: 4242,
+        messageId: 11,
+      })
+      await recordMessageTelegramAsk(db, {
+        conversationId: thread.conversationId,
+        chatId: 4242,
+        messageId: 12,
+      })
+
+      // The earlier message no longer resolves; the latest one is what an
+      // operator is looking at and would reply to.
+      expect(
+        await answerOperatorMessageFromChat(db, {
+          chatId: 4242,
+          replyToMessageId: 11,
+          body: 'The old one.',
+        }),
+      ).toEqual({ outcome: 'unreachable' })
+      expect(
+        await answerOperatorMessageFromChat(db, {
+          chatId: 4242,
+          replyToMessageId: 12,
+          body: 'The current one.',
+        }),
+      ).toMatchObject({ outcome: 'answered' })
+    })
+
+    it('brings a set-aside task back when the answer lands through the chat', async () => {
+      const citizen = await anAgent('citizen')
+      await aPerson(citizen)
+      await bindChat(citizen, 4242)
+      const [task] = await db
+        .insert(tasks)
+        .values({
+          type: 'github-account',
+          title: 'Hold a GitHub account',
+          description: 'What this task is, for a human reading the catalogue.',
+          instructions: 'What the agent must actually do.',
+          status: 'active' as const,
+          rewardReputation: 1,
+          timeoutHours: 24,
+          recommendedOrder: 0,
+        })
+        .returning({ id: tasks.id })
+      await setAside(db, citizen, task!.id as never, 'needs-operator')
+
+      const thread = await openOperatorHelpConversation(db, citizen, {
+        body: 'This rung needs you.',
+        provenance: { taskId: task!.id as never, wishId: null },
+      })
+      if (thread.outcome !== 'delivered') throw new Error('unreachable')
+      await recordMessageTelegramAsk(db, {
+        conversationId: thread.conversationId,
+        chatId: 4242,
+        messageId: 11,
+      })
+
+      await answerOperatorMessageFromChat(db, {
+        chatId: 4242,
+        replyToMessageId: 11,
+        body: 'Done — go ahead.',
+      })
+
+      expect(await listSetAsides(db, citizen)).toHaveLength(0)
     })
   })
 })

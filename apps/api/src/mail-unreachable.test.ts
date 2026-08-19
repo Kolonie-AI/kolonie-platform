@@ -181,7 +181,7 @@ describe('a mail desk that cannot be reached', () => {
 
     const notified = await notifier.notify({
       agentId: randomUUID() as AgentId,
-      requestId: randomUUID() as OperatorRequestId,
+      subject: { kind: 'request', requestId: randomUUID() as OperatorRequestId },
       agentName: 'canary',
       context: 'browser-capability',
       link: 'https://console.example.invalid/operator/page/a-token#exchange-1',

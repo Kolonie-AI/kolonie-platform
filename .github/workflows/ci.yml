@@ -240,6 +240,15 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The catalogue-floor ratchet reads git history (`#1373`). Default depth
+          # of 1 made `check:catalogue-floor` exit zero in every CI run — the
+          # script's own header says a shallow clone reports what it could not
+          # read and exits zero rather than failing a build over checkout depth.
+          # That fallback is right for an export and wrong here, which is the one
+          # place the ratchet was meant to hold. Full history, because the last
+          # commit that touched the floor file is often not HEAD.
+          fetch-depth: 0
 
       - uses: actions/setup-node@v7
         with:

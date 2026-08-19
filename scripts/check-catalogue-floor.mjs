@@ -42,9 +42,14 @@
  * ordinary case: the floor moving because a check was failing and moving it was
  * the quickest way to a green run.
  *
- * **Anything, in a repository without history.** A shallow clone or an export
- * has no previous version to compare against. It reports what it could not read
- * and exits zero rather than failing a build over the checkout depth.
+ * **Anything, in a repository without history, locally.** A shallow clone or an
+ * export has no previous version to compare against. Locally it reports what it
+ * could not read and exits zero rather than failing a working tree over the
+ * checkout depth. **In CI (`GITHUB_ACTIONS`) that is a failure** (`#1373`): the
+ * ratchet's only job is to hold there, and exiting zero on a depth-1 checkout
+ * is how it went unenforced on every run since it shipped. The `build` job
+ * fetches full history so this path should not fire; failing closed is what
+ * keeps a later editor from putting the silent pass back.
  */
 import console from 'node:console'
 import { spawnSync } from 'node:child_process'
@@ -107,18 +112,37 @@ const ceilingOf = (json) => {
   return { name: heaviest.name, bytes: heaviest.bytes }
 }
 
-if (git('rev-parse', '--git-dir') === undefined) {
-  console.log(`Not a git checkout, so there is no commit to judge. ${RELATIVE} left unchecked.`)
+/** Locally a missing history is an export; in CI it is the guard not running. */
+const failClosedInCi = (why) => {
+  if (process.env.GITHUB_ACTIONS === 'true') {
+    console.error(
+      `${why}\n` +
+        'CI must be able to read history so the catalogue floor can fail. ' +
+        'Set fetch-depth: 0 on the job that runs this check (kolonie-platform#1373).',
+    )
+    process.exit(1)
+  }
+  console.log(why)
   process.exit(0)
+}
+
+if (git('rev-parse', '--git-dir') === undefined) {
+  failClosedInCi(`Not a git checkout, so there is no commit to judge. ${RELATIVE} left unchecked.`)
+}
+
+if (git('rev-parse', '--is-shallow-repository')?.trim() === 'true') {
+  failClosedInCi(
+    `This checkout is shallow, so the last commit that touched ${RELATIVE} may be missing ` +
+      'and there is no previous version to compare against.',
+  )
 }
 
 const log = git('log', '-1', '--format=%H%n%B', '--', RELATIVE)
 if (log === undefined || log.trim() === '') {
-  console.log(
+  failClosedInCi(
     `No commit in this checkout touches ${RELATIVE} — a shallow clone, or a floor that has\n` +
       'never moved here. Nothing to judge.',
   )
-  process.exit(0)
 }
 
 const [sha, ...messageLines] = log.split('\n')
@@ -128,8 +152,7 @@ const after = git('show', `${sha}:${RELATIVE}`)
 const before = git('show', `${sha}^:${RELATIVE}`)
 
 if (after === undefined) {
-  console.log(`${RELATIVE} could not be read at ${sha.slice(0, 8)}. Nothing to judge.`)
-  process.exit(0)
+  failClosedInCi(`${RELATIVE} could not be read at ${sha.slice(0, 8)}. Nothing to judge.`)
 }
 
 if (before === undefined) {

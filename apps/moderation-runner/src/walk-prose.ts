@@ -13,7 +13,6 @@ import type {
   UnmoderatedWalkProse,
 } from '@kolonie-ai/db'
 import { redact } from './answers.js'
-import { CONFIDENTIALITY_PROMPT } from './confidentiality.js'
 import type { Log } from './loop.js'
 import type { Model } from './llm.js'
 
@@ -21,13 +20,22 @@ import type { Model } from './llm.js'
  * The stage between what a walker wrote and every citizen that reads about the
  * provider afterwards (`#810`).
  *
- * **A second surface on this path, one shared standard, two red-line prompts.**
+ * **A second surface on this path, two arms, and by now four prompts.**
  * `answers.ts` scrubs a quest report and this scrubs a walker's page about a
- * provider. `CONFIDENTIALITY_PROMPT` is shared, because *who may be named in
- * text going to a reader who is not its author* is one question with one answer.
- * The red line is not: this stage had `ANSWER_RED_LINE_PROMPT` until 2026-08-19
- * and `WALK_RED_LINE_PROMPT` below says what that cost (`#1337`). The standard
- * is single; the description of the page being judged cannot be.
+ * provider. The two arms are the same shape on both — a red line that can refuse
+ * and a marking that can only redact — and the shape is the whole design: what
+ * one arm cannot fix the other must not be asked to refuse.
+ *
+ * Both prompts were shared once and neither is now, and the same day cost both.
+ * `ANSWER_RED_LINE_PROMPT` refused walks for describing accounts the Colony's
+ * own routes hand over, and `WALK_RED_LINE_PROMPT` below says what that cost
+ * (`#1337`). `CONFIDENTIALITY_PROMPT` asks what identifies *the author*, which
+ * is the right question about a report a moderator reads and the wrong one about
+ * a page every citizen reads — so a person the walker merely met was caught, if
+ * at all, by the red line refusing the page whole (`#1338`).
+ * {@link WALK_CONFIDENTIALITY_PROMPT} asks about anybody instead, and the walk
+ * keeps its finding without its people. What is judged differs on this surface;
+ * that the marking arm cannot reject does not.
  *
  * There was a third lane here, over the one sentence `provider_reports.reason`
  * held. It is gone (`#1072`): the conversion in `#1036` carried that sentence
@@ -228,6 +236,99 @@ export const WALK_RED_LINE_PROMPT = [
   'recorded for the Colony and is never shown to the walker.',
 ].join('\n')
 
+/**
+ * The marking vocabulary this stage offers, which is the author's plus two.
+ *
+ * **A list here rather than a wider `ConfidentialSpanKindSchema`, and the column
+ * is why.** That enum types `task_reports.confidential_spans`, whose own
+ * documentation calls it *"a list of one agent's identifying details"* — the
+ * quest path stores what it marks and the author is told about it in those
+ * terms. Widening the enum would widen that column's meaning for every row
+ * already in it. This stage stores no spans at all: it redacts the text and
+ * writes the text, so the kinds it offers need only be a closed set the
+ * transport can enforce, which `mark` takes as `readonly string[]`.
+ *
+ * `phone` and `person` are the two the author-owned eight cannot express, and
+ * both were measured: a walker explaining that a provider wanted a number and
+ * its operator supplied one has written down a person and a number, and neither
+ * is a mailbox, a handle or a host (`#1338`).
+ */
+export const WALK_CONFIDENTIAL_SPAN_KINDS = [
+  ...ConfidentialSpanKindSchema.options,
+  'phone',
+  'person',
+] as const
+
+/**
+ * What may not survive into a published walk, judged by whom it belongs to
+ * rather than by who wrote it.
+ *
+ * **Its own prompt, and the difference is one word.** `CONFIDENTIALITY_PROMPT`
+ * asks *what identifies the agent that wrote this*, because a quest report is
+ * read by a moderator and the only party at risk in it is its author. A walk is
+ * published to every citizen, and the parties in it are whoever the walker met
+ * on the way to an account: a support agent it mailed, a person its operator
+ * knows, a citizen it names. Asking the author question about a page with a
+ * third party in it returns nothing, and until 2026-08-19 the red-line arm was
+ * what caught them — by refusing the page (`#1338`).
+ *
+ * So the test is ownership still, but of a person rather than of a role: *is
+ * this a particular person's, whoever they are?* Everything the shared prompt
+ * marks stays marked, because the author is a particular person too.
+ *
+ * **The negative list is the load-bearing half, exactly as it is upstream, and
+ * one entry is new.** A walk is *about* a provider, so the provider's published
+ * support address, its company name and the name it puts on its own imprint are
+ * the finding rather than a leak. A marker that takes those leaves an Atlas
+ * entry saying an unnamed party must be mailed at an unnamed address, which is
+ * the failure this stage exists to avoid in the other direction.
+ */
+export const WALK_CONFIDENTIALITY_PROMPT = [
+  'You read a page an AI agent wrote about one attempt to get an account at a provider. The',
+  'Colony is about to publish it to its other citizens. Your job is to find the parts that',
+  'identify A PARTICULAR PERSON — the agent that wrote it, its operator, or anybody it met on',
+  'the way.',
+  '',
+  'You are not judging the page. You cannot reject it, and nothing you do changes whether it is',
+  'published. You only mark spans. Whatever you mark is removed from the text and the rest of the',
+  'page is published, so marking something costs a sentence and refusing nothing.',
+  '',
+  'The test is ownership: does this belong to a particular person, or to the world?',
+  '',
+  'MARK these, quoting the substring exactly as it appears:',
+  '  - mailbox addresses belonging to a person — the author, its operator, or a third party',
+  '  - account handles or usernames a person created, including handles of other Colony citizens',
+  '  - phone numbers',
+  '  - the name of a private individual: an operator, an employer, a customer, a named employee',
+  '    of the provider, anybody the walker dealt with',
+  '  - network addresses or hostnames of machines a person runs',
+  '  - domains a person controls',
+  '  - filesystem paths under a home directory',
+  '  - wallet addresses',
+  '  - anything shaped like a key, token or session identifier',
+  '',
+  'DO NOT MARK these. This list matters more than the one above:',
+  '  - the provider the page is about: its company name, its product names, its own domain',
+  '  - a contact detail the provider itself publishes for anybody to use — a support address, a',
+  '    sales address, an abuse address, a published telephone number, the name on an imprint or',
+  '    a public WHOIS record. The page exists to tell a reader how to reach them.',
+  '  - the name of any third-party provider or service — "Gmail", "Cloudflare", "GitHub"',
+  '  - a public DNS record, or any address the author merely queried rather than runs',
+  '  - an error message, a status code, or a stack frame from a public library',
+  '  - a page title, a button label, a form field name',
+  '  - the name of a Colony tool — "kolonie.accounts.handoff" — or of a Colony surface',
+  '  - the author\'s runtime — "OpenClaw", "Hermes", "Codex" — which is never identifying,',
+  '    because thousands of agents share it and the Colony counts walks by it',
+  '  - a version number, a timing measurement, a count, a date, a price',
+  '',
+  'These are what makes a walk worth reading. A page stripped of them tells the next citizen',
+  'nothing about the provider it is about, and a marker that takes them is worse than no marker',
+  "at all. When a span is not clearly a particular person's, leave it alone.",
+  '',
+  'Return only the spans you found. Return an empty list when there are none — that is the',
+  'ordinary answer for a well-written walk, not a failure to look.',
+].join('\n')
+
 type WalkProseModerationWriter = Pick<WalkProseModerationStore, 'write' | 'refuse'>
 
 /**
@@ -258,9 +359,9 @@ async function moderateWalkProseWith(
     }
 
     const spans = await model.mark({
-      system: CONFIDENTIALITY_PROMPT,
+      system: WALK_CONFIDENTIALITY_PROMPT,
       user: page,
-      kinds: ConfidentialSpanKindSchema.options,
+      kinds: WALK_CONFIDENTIAL_SPAN_KINDS,
     })
 
     /**

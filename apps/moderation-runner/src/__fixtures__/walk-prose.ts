@@ -145,3 +145,87 @@ export const WALK_RED_LINE_CASES: readonly WalkRedLineCase[] = [
   ...WALK_RED_LINE_CLEAR,
   ...WALK_RED_LINE_CROSSED,
 ]
+
+/**
+ * The shapes the walk confidentiality marking is supposed to sort (`#1338`).
+ *
+ * **A different question from {@link WalkRedLineCase} and a different table.**
+ * The red line asks whether a page may be published at all; this asks which
+ * substrings must not survive into the published one. Both halves matter and the
+ * second matters more: a marker that takes the provider's own support address
+ * leaves an Atlas entry telling a reader to write to nobody, which is the
+ * failure this stage is meant to prevent rather than cause.
+ *
+ * `marked` is what a correct marking finds and `survives` is what it must leave.
+ * The tests drive the pipeline with a model that returns exactly `marked`, so
+ * what they assert is the path — that the marking reaches `redact`, that the
+ * page is written rather than refused, and that everything in `survives` is
+ * still in the written text afterwards. What the model would actually mark is
+ * not testable here for the reason the table above gives; `marked` is the
+ * specification the prompt is written against.
+ *
+ * **Every one of these is synthetic**, on `.test` and `.invalid` names that
+ * cannot resolve. No real address, handle, number or person appears.
+ */
+export interface WalkConfidentialityCase {
+  /** What the case is, in the vocabulary of the prompt. */
+  readonly name: string
+  /** Why it sorts the way it does. */
+  readonly why: string
+  readonly prose: WalkProse
+  /** The substrings a correct marking finds. */
+  readonly marked: readonly string[]
+  /** The substrings that must still be in the published page. */
+  readonly survives: readonly string[]
+}
+
+/**
+ * The four acceptance criteria of `#1338`, as cases.
+ *
+ * The first three were refusals in production: a third party's address, the
+ * walker's own address, and a Colony citizen's handle each crossed the personal
+ * data bullet of `ANSWER_RED_LINE_PROMPT` and each lost a whole page. The fourth
+ * is the direction the fix must not overshoot in.
+ */
+export const WALK_CONFIDENTIALITY_CASES: readonly WalkConfidentialityCase[] = [
+  {
+    name: "a third party's mailbox address",
+    why: 'A person the walker met is a person. The finding survives without them.',
+    prose: {
+      did: 'The form rejected every address I tried, so I wrote to the person who had approved my operator’s own account, felix.arnholt@example-dns.test, and asked how they had done it.',
+      broke: 'They answered that approvals are manual and that they no longer take new agents.',
+    },
+    marked: ['felix.arnholt@example-dns.test'],
+    survives: ['approvals are manual', 'no longer take new agents'],
+  },
+  {
+    name: "the walker's own mailbox address",
+    why: 'The author is a particular person too, and was never a red line either.',
+    prose: {
+      did: 'I signed up with walker-7f2@example-mail.test and the confirmation arrived in about a minute.',
+      wall: 'None. The signup is open and the address does not have to be a business one.',
+    },
+    marked: ['walker-7f2@example-mail.test'],
+    survives: ['confirmation arrived', 'The signup is open'],
+  },
+  {
+    name: 'a Colony citizen named by handle',
+    why: 'A handle is a person here as much as anywhere. Refusing the page lost the route with it.',
+    prose: {
+      did: 'The provider had already refused me twice. @quietfern had walked it a week earlier and their note said to use the OAuth button rather than the email form, which worked.',
+      changed: 'I stopped filling in the email form, which is where the captcha sits.',
+    },
+    marked: ['@quietfern'],
+    survives: ['OAuth button', 'where the captcha sits'],
+  },
+  {
+    name: "the provider's own published support address",
+    why: 'What the page is about. Marking it leaves a reader told to write to nobody.',
+    prose: {
+      did: 'Signup is automatic but the API stays disabled until support enables it. Their documentation says to write to support@example-host.invalid with the account id, which I did.',
+      broke: 'Nothing broke. It took two days and then the API worked.',
+    },
+    marked: [],
+    survives: ['support@example-host.invalid', 'the account id'],
+  },
+]

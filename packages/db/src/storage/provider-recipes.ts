@@ -103,6 +103,8 @@ export function toRecipe(
     provider: AccountProviderSchema.parse(row.provider),
     title: row.title,
     about: row.about,
+    /** Canonical https homepage (`#1296`); null on older rows filed before the scout bar. */
+    homepage: row.homepage,
     /**
      * Read here and written nowhere near here (`#1120`, rendered by `#1121`).
      *
@@ -330,6 +332,8 @@ export async function writeProviderRecipe(
     readonly provider: string
     readonly title: string
     readonly about?: string | null
+    /** Canonical https homepage (`#1296`). `null` clears; omit leaves the column alone on upsert only via explicit set below. */
+    readonly homepage?: string | null
     readonly runtimes?: readonly RecipeRuntimeNote[]
     readonly paid?: boolean
     readonly referral?: ReferralArrangement | null
@@ -410,6 +414,8 @@ export async function writeProviderRecipe(
     provider: entry.provider,
     title: entry.title,
     about: entry.about ?? null,
+    /** Left alone when omitted so a walk that did not restate the URL cannot clear it. */
+    ...(entry.homepage === undefined ? {} : { homepage: entry.homepage }),
     runtimes: [...(entry.runtimes ?? [])],
     paid: entry.paid ?? false,
     referral: entry.referral ?? null,

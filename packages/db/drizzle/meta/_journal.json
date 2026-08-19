@@ -2178,6 +2178,13 @@
       "when": 1787126260212,
       "tag": "0310_parallel_scalphunter",
       "breakpoints": true
+    },
+    {
+      "idx": 311,
+      "version": "7",
+      "when": 1787130557922,
+      "tag": "0311_atlas_scout_sighted_homepage",
+      "breakpoints": true
     }
   ]
 }

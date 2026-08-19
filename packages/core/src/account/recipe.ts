@@ -1129,6 +1129,14 @@ export const ProviderRecipeSchema = z.object({
    */
   about: z.string().max(RECIPE_ABOUT_MAX_LENGTH).nullable(),
   /**
+   * Canonical https homepage URL (`#1296`).
+   *
+   * First-class identity fact for scout / sighted intake and for catalogue
+   * readers (catalogue.json / MCP). Null on older measured rows filed before
+   * the scout bar; never only buried in `about` prose.
+   */
+  homepage: z.string().max(2048).nullable(),
+  /**
    * One sentence saying what the provider is, written by the Colony (`#1120`).
    *
    * **Carried beside `about` and owned by neither the same hand nor the same
@@ -1420,6 +1428,8 @@ export const WriteProviderRecipeSchema = z
     operatorGuess: RecipeOperatorGuessSchema.optional(),
     /** What the provider is and why an agent would want one (`#547`). */
     about: z.string().trim().min(1).max(RECIPE_ABOUT_MAX_LENGTH).optional(),
+    /** Canonical https homepage (`#1296`). Cleared with an explicit null. */
+    homepage: z.string().trim().max(2048).nullable().optional(),
     /** Where a named runtime genuinely differs, and nowhere else (`#547`). */
     runtimes: z.array(RecipeRuntimeNoteSchema).max(RECIPE_MAX_RUNTIME_NOTES).default([]),
     /** Whether the entry is paid for. Visible on the page, never a footnote. */

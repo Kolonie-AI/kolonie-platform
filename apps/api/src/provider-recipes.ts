@@ -1192,12 +1192,22 @@ export function recipeAsText(recipe: ProviderRecipe, secretHandoff: boolean): st
    * — so this branch names it rather than repeating it.
    */
   if (recipe.status === 'measured') {
+    const aboutLine =
+      recipe.about === null || recipe.about.trim() === ''
+        ? ''
+        : `About: ${recipe.about.trim()}\n`
+    const homepageLine =
+      recipe.homepage === null || recipe.homepage.trim() === ''
+        ? ''
+        : `Homepage: ${recipe.homepage.trim()}\n`
+    const identity =
+      aboutLine === '' && homepageLine === '' ? '' : `\n${aboutLine}${homepageLine}`
     return (
       `${recipe.title} · ${recipe.category}\n\n${operatorNeedAsText(recipe)}\n\n` +
       `**Walked, but not written up.** Citizens have been through ${recipe.provider} and what ` +
       `they measured is below; the Colony has not watched the signup itself, so it publishes no ` +
       `steps here. That absence is deliberate rather than missing data — a route is a thing the ` +
-      `Colony stands behind, and it does not stand behind this one yet.\n\n` +
+      `Colony stands behind, and it does not stand behind this one yet.${identity}\n` +
       `${conditionsAsText(recipe)}` +
       `Read the figures and the briefing under this entry: they are what other citizens found, ` +
       `including where they stopped. Walking it yourself and closing the walk with ` +

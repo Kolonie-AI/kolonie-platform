@@ -1,6 +1,7 @@
 import {
   WalkNoteSchema,
   WalkPublishedNoteSchema,
+  ProviderHomepageSchema,
   RecipeDirectionSchema,
   SubmittedWalkedRecipeSchema,
   directionAnswers,
@@ -118,6 +119,8 @@ export interface WalkStore {
       readonly discarded?: string | null
       /** What the provider is, in one sentence (`#1120`), where the walk said. */
       readonly about?: string | null
+      /** Canonical https homepage (`#1296`), where the walk said. */
+      readonly homepage?: string | null
       readonly takenStepPositions?: readonly number[] | null
       /**
        * **The walker's own account, declared on the port at last** (`#982`).
@@ -197,6 +200,7 @@ export interface WalkStore {
       readonly changed?: string | null
       readonly discarded?: string | null
       readonly about?: string | null
+      readonly homepage?: string | null
     },
   ): Promise<AccountWalk | undefined>
   /** The walk this agent is on, if it is on one. */
@@ -1089,12 +1093,19 @@ export const WalkReportSchema = z
      * The seventh, and the only one about the provider rather than the attempt
      * (`#1120`).
      *
-     * Held to `WalkNoteSchema` like the four above it, and optional like all of
-     * them: a walk that answers nothing here is accepted, published and paid
-     * exactly as one that answers it. What it buys is the strongest source the
-     * synthesised provider description can have — never that sentence itself.
+     * Held to `WalkNoteSchema` like the four above it. Optional on most closings;
+     * **required on `sighted` and on any walk that first creates a measured shelf
+     * row** (`#1296`), together with `homepage`.
      */
     about: WalkNoteSchema.optional(),
+    /**
+     * Canonical https homepage URL (`#1296`).
+     *
+     * First-class field for scout / first measured presence. Required on
+     * `sighted`; also required when `proved` / `abandoned` would create the first
+     * measured row (that gate runs after the entry is read, with `next_action`).
+     */
+    homepage: ProviderHomepageSchema.optional(),
     /** The one question's tick-list answer, against the published recipe. */
     takenStepPositions: WalkTakenStepPositionsSchema.optional(),
     /**
@@ -1127,6 +1138,23 @@ export const WalkReportSchema = z
   .refine((report) => report.outcome === 'refused' || report.wall === undefined, {
     message: 'only a walk that ended at a wall carries one.',
     path: ['wall'],
+  })
+  .refine(
+    (report) =>
+      report.outcome !== 'sighted' ||
+      (report.about !== undefined && report.about.trim() !== ''),
+    {
+      message:
+        'a sighted scout filing needs a non-empty about — what this provider is to a stranger. ' +
+        'Sighted is not a prove and does not need recipe.steps; identity facts are the bar.',
+      path: ['about'],
+    },
+  )
+  .refine((report) => report.outcome !== 'sighted' || report.homepage !== undefined, {
+    message:
+      'a sighted scout filing needs a canonical https homepage URL as its own field. ' +
+      'Sighted is not a prove and does not need recipe.steps.',
+    path: ['homepage'],
   })
 export type WalkReport = z.infer<typeof WalkReportSchema>
 

@@ -36,6 +36,88 @@ describe('kolonie.accounts.walk-report', () => {
     ).toBe(false)
   })
 
+  it('refuses a sighted scout filing without about or homepage', () => {
+    expect(WalkReportSchema.safeParse({ outcome: 'sighted' }).success).toBe(false)
+    expect(
+      WalkReportSchema.safeParse({
+        outcome: 'sighted',
+        about: 'A disposable mailbox.',
+      }).success,
+    ).toBe(false)
+    expect(
+      WalkReportSchema.safeParse({
+        outcome: 'sighted',
+        homepage: 'https://example.test/',
+      }).success,
+    ).toBe(false)
+  })
+
+  it('takes a sighted scout filing with about and https homepage', () => {
+    expect(
+      WalkReportSchema.safeParse({
+        outcome: 'sighted',
+        about: 'A disposable mailbox with a web inbox.',
+        homepage: 'https://example.test/',
+      }).success,
+    ).toBe(true)
+  })
+
+  it('refuses first measured presence without about and homepage, with next_action', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const walks = fakeWalks()
+    const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.walk-report',
+      arguments: {
+        kind: 'mailbox',
+        provider: 'scout-missing.test',
+        outcome: 'abandoned',
+      },
+    })
+
+    expect(result.isError).toBe(true)
+    const body = JSON.stringify(result.structuredContent ?? result.content)
+    expect(body).toContain('next_action')
+    expect(body).toContain('kolonie.accounts.walk-report')
+    expect(body).toContain('about')
+    expect(await walks.list(agent.id)).toEqual([])
+    await close()
+  })
+
+  it('accepts a sighted scout filing with about and homepage', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const walks = fakeWalks()
+    const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.walk-report',
+      arguments: {
+        kind: 'mailbox',
+        provider: 'scout-sighted.test',
+        outcome: 'sighted',
+        about: 'A disposable mailbox with a web inbox.',
+        homepage: 'https://scout-sighted.test/',
+      },
+    })
+
+    expect(result.isError).not.toBe(true)
+    expect(result.structuredContent).toMatchObject({
+      walkId: expect.any(String),
+      outcome: 'sighted',
+    })
+    expect(await walks.list(agent.id)).toMatchObject([
+      {
+        kind: 'mailbox',
+        provider: 'scout-sighted.test',
+        outcome: 'sighted',
+        about: 'A disposable mailbox with a web inbox.',
+        homepage: 'https://scout-sighted.test/',
+      },
+    ])
+    await close()
+  })
+
   it('opens and closes a refused walk without an account, declaration or handoff', async () => {
     const { colony, apiKey, agent } = await registeredCitizen()
     const register = fakeAccountRegister()
@@ -79,7 +161,11 @@ describe('kolonie.accounts.walk-report', () => {
 
     const first = await client.callTool({
       name: 'kolonie.accounts.walk-report',
-      arguments: { kind: 'mailbox', provider: 'blocked-provider', outcome: 'abandoned' },
+      arguments: {
+        kind: 'mailbox', provider: 'blocked-provider', outcome: 'abandoned',
+        about: 'A disposable test provider for scout intake.',
+        homepage: 'https://example.test/',
+      },
     })
     const [original] = await walks.list(agent.id)
     const second = await client.callTool({
@@ -141,7 +227,11 @@ describe('kolonie.accounts.walk-report', () => {
 
     const unknownKind = await client.callTool({
       name: 'kolonie.accounts.walk-report',
-      arguments: { kind: 'not a kind', provider: 'blocked-provider', outcome: 'abandoned' },
+      arguments: {
+        kind: 'not a kind', provider: 'blocked-provider', outcome: 'abandoned',
+        about: 'A disposable test provider for scout intake.',
+        homepage: 'https://example.test/',
+      },
     })
     const missingWall = await client.callTool({
       name: 'kolonie.accounts.walk-report',
@@ -343,6 +433,7 @@ describe('kolonie.accounts.walk-status', () => {
       discarded: 'The API signup, which wants a card before it issues a key.',
       note: 'It matched the entry except for the wait.',
       about: 'A mailbox provider that issues addresses without a phone number.',
+      homepage: 'https://readback.example/',
       takenStepPositions: [1, 2],
       recipe: {
         steps: [
@@ -929,7 +1020,11 @@ describe('provider aliases', () => {
 
     const result = await client.callTool({
       name: 'kolonie.accounts.walk-report',
-      arguments: { kind: 'github', provider: 'clawhub.com', outcome: 'proved' },
+      arguments: {
+        kind: 'github', provider: 'clawhub.com', outcome: 'proved',
+        about: 'A disposable test provider for scout intake.',
+        homepage: 'https://example.test/',
+      },
     })
 
     expect(result.isError).not.toBe(true)
@@ -985,6 +1080,8 @@ describe('kolonie.accounts.walk-report long form', () => {
         kind: 'github',
         provider: 'clawhub.ai',
         outcome: 'proved',
+        about: 'A disposable test provider for scout intake.',
+        homepage: 'https://example.test/',
         note: 'It matched, except that the OAuth wall is not mentioned anywhere.',
         recipe: RECIPE,
       },
@@ -1021,6 +1118,8 @@ describe('kolonie.accounts.walk-report long form', () => {
         kind: 'github',
         provider: 'clawhub.ai',
         outcome: 'proved',
+        about: 'A disposable test provider for scout intake.',
+        homepage: 'https://example.test/',
         recipe: RECIPE,
       },
     })
@@ -1056,6 +1155,8 @@ describe('kolonie.accounts.walk-report long form', () => {
         kind: 'github',
         provider: 'clawhub.ai',
         outcome: 'proved',
+        about: 'A disposable test provider for scout intake.',
+        homepage: 'https://example.test/',
         recipe: {
           ...RECIPE,
           cost: 'free',
@@ -1088,6 +1189,8 @@ describe('kolonie.accounts.walk-report long form', () => {
         kind: 'github',
         provider: 'clawhub.ai',
         outcome: 'proved',
+        about: 'A disposable test provider for scout intake.',
+        homepage: 'https://example.test/',
         recipe: {
           ...RECIPE,
           cost: 'free',
@@ -1146,7 +1249,11 @@ describe('kolonie.accounts.walk-report long form', () => {
 
     const result = await client.callTool({
       name: 'kolonie.accounts.walk-report',
-      arguments: { kind: 'github', provider: 'clawhub.ai', outcome: 'proved' },
+      arguments: {
+        kind: 'github', provider: 'clawhub.ai', outcome: 'proved',
+        about: 'A disposable test provider for scout intake.',
+        homepage: 'https://example.test/',
+      },
     })
 
     expect(JSON.stringify(result.content)).not.toContain('counted toward this provider')
@@ -1199,6 +1306,8 @@ describe('kolonie.accounts.walk-report long form', () => {
           kind: 'github',
           provider: 'clawhub.ai',
           outcome: 'proved',
+        about: 'A disposable test provider for scout intake.',
+        homepage: 'https://example.test/',
           takenStepPositions: [1, 2, 3],
         },
       })
@@ -1227,6 +1336,8 @@ describe('kolonie.accounts.walk-report long form', () => {
           kind: 'github',
           provider: 'clawhub.ai',
           outcome: 'proved',
+        about: 'A disposable test provider for scout intake.',
+        homepage: 'https://example.test/',
           takenStepPositions: [1, 2],
         },
       })
@@ -1256,6 +1367,8 @@ describe('kolonie.accounts.walk-report long form', () => {
           kind: 'github',
           provider: 'clawhub.ai',
           outcome: 'proved',
+        about: 'A disposable test provider for scout intake.',
+        homepage: 'https://example.test/',
           takenStepPositions: [1],
         },
       })
@@ -1282,6 +1395,8 @@ describe('kolonie.accounts.walk-report long form', () => {
         kind: 'github',
         provider: 'clawhub.ai',
         outcome: 'proved',
+        about: 'A disposable test provider for scout intake.',
+        homepage: 'https://example.test/',
         recipe: {
           steps: [{ title: 'fine' }, { title: 'too long', detail: 'a'.repeat(1001) }],
         },
@@ -1305,6 +1420,8 @@ describe('kolonie.accounts.walk-report long form', () => {
         kind: 'github',
         provider: 'clawhub.ai',
         outcome: 'proved',
+        about: 'A disposable test provider for scout intake.',
+        homepage: 'https://example.test/',
         recipe: { verification: ['ghp_0123456789abcdefghijklmnopqrstuvwxyzAB'] },
       },
     })
@@ -1338,7 +1455,9 @@ describe('kolonie.accounts.walk-report long form', () => {
 
     const result = await client.callTool({
       name: 'kolonie.accounts.walk-report',
-      arguments: { kind: 'github', provider: 'clawhub.ai', outcome: 'proved', recipe: RECIPE },
+      arguments: { kind: 'github', provider: 'clawhub.ai', outcome: 'proved',
+        about: 'A disposable test provider for scout intake.',
+        homepage: 'https://example.test/', recipe: RECIPE },
     })
 
     expect(result.isError).not.toBe(true)
@@ -1370,7 +1489,9 @@ describe('kolonie.accounts.walk-report long form', () => {
 
     const result = await client.callTool({
       name: 'kolonie.accounts.walk-report',
-      arguments: { kind: 'github', provider: 'clawhub.ai', outcome: 'proved', recipe: RECIPE },
+      arguments: { kind: 'github', provider: 'clawhub.ai', outcome: 'proved',
+        about: 'A disposable test provider for scout intake.',
+        homepage: 'https://example.test/', recipe: RECIPE },
     })
 
     expect(result.isError).not.toBe(true)
@@ -1656,6 +1777,8 @@ describe('kolonie.accounts.walk-report, four questions', () => {
         kind: 'github',
         provider: 'clawhub.ai',
         outcome: 'proved',
+        about: 'A disposable test provider for scout intake.',
+        homepage: 'https://example.test/',
         did: 'I opened the signup page and worked down it.',
         broke: 'Nothing did in the end, but the mailbox step took two tries.',
         changed: 'I asked the operator for the code instead of waiting for the mail to arrive.',
@@ -1684,7 +1807,11 @@ describe('kolonie.accounts.walk-report, four questions', () => {
 
     const result = await client.callTool({
       name: 'kolonie.accounts.walk-report',
-      arguments: { kind: 'github', provider: 'clawhub.ai', outcome: 'proved' },
+      arguments: {
+        kind: 'github', provider: 'clawhub.ai', outcome: 'proved',
+        about: 'A disposable test provider for scout intake.',
+        homepage: 'https://example.test/',
+      },
     })
 
     expect(result.isError).not.toBe(true)
@@ -1700,6 +1827,8 @@ describe('kolonie.accounts.walk-report, four questions', () => {
         kind: 'github',
         provider: 'clawhub.ai',
         outcome: 'proved',
+        about: 'A disposable test provider for scout intake.',
+        homepage: 'https://example.test/',
         note: 'It matched what the entry said.',
       },
     })
@@ -1719,6 +1848,8 @@ describe('kolonie.accounts.walk-report, four questions', () => {
           kind: 'github',
           provider: 'clawhub.ai',
           outcome: 'proved',
+        about: 'A disposable test provider for scout intake.',
+        homepage: 'https://example.test/',
           [field]: 'ghp_0123456789abcdefghijklmnopqrstuvwxyzAB',
         },
       })
@@ -1769,7 +1900,11 @@ describe('kolonie.accounts.walk-report, the direction axis', () => {
 
     const result = await client.callTool({
       name: 'kolonie.accounts.walk-report',
-      arguments: { kind: 'phone', provider: 'agentphone.example', outcome: 'proved' },
+      arguments: {
+        kind: 'phone', provider: 'agentphone.example', outcome: 'proved',
+        about: 'A disposable test provider for scout intake.',
+        homepage: 'https://example.test/',
+      },
     })
 
     expect(result.isError).toBe(true)
@@ -1786,6 +1921,8 @@ describe('kolonie.accounts.walk-report, the direction axis', () => {
         kind: 'mailbox',
         provider: 'mail.example',
         outcome: 'proved',
+        about: 'A disposable test provider for scout intake.',
+        homepage: 'https://example.test/',
         direction: 'inbound',
       },
     })
@@ -1804,6 +1941,8 @@ describe('kolonie.accounts.walk-report, the direction axis', () => {
         kind: 'phone',
         provider: 'agentphone.example',
         outcome: 'proved',
+        about: 'A disposable test provider for scout intake.',
+        homepage: 'https://example.test/',
         direction: 'inbound',
       },
     })
@@ -2491,6 +2630,8 @@ describe('kolonie.accounts.walk-report answering a repeat', () => {
         kind: 'github',
         provider: 'clawhub.ai',
         outcome: 'proved',
+        about: 'A disposable test provider for scout intake.',
+        homepage: 'https://example.test/',
         did: 'Signed in with GitHub and it took the handle.',
       },
     })

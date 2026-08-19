@@ -105,6 +105,7 @@ export type AtlasPublicRecipe = Pick<
   | 'operatorNeed'
   | 'operatorNeedIsGuess'
   | 'about'
+  | 'homepage'
   | 'description'
   | 'runtimes'
   | 'paid'
@@ -202,6 +203,7 @@ function publicRecipe(recipe: AtlasRow): AtlasPublicRecipe {
     operatorNeed: recipe.operatorNeed,
     operatorNeedIsGuess: recipe.operatorNeedIsGuess,
     about: recipe.about,
+    homepage: recipe.homepage,
     description: recipe.description,
     runtimes: recipe.runtimes,
     paid: recipe.paid,

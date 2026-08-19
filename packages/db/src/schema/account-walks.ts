@@ -15,6 +15,7 @@ import {
 } from 'drizzle-orm/pg-core'
 import {
   DIRECTIONAL_KINDS,
+  PROVIDER_HOMEPAGE_MAX_LENGTH,
   RECIPE_MAX_STEPS,
   RECIPE_STEP_MAX_LENGTH,
   RecipeActorSchema,
@@ -214,10 +215,19 @@ export const accountWalks = pgTable(
      * the whole page — and it feeds the synthesised provider description rather
      * than being served as anybody's sentence.
      *
-     * Nullable and optional like the rest: a walk that leaves it blank is
-     * accepted, published and paid identically.
+     * Nullable in the column; **required at the door on first measured presence**
+     * (`#1296`), together with {@link homepage}.
      */
     about: text('about'),
+
+    /**
+     * Canonical https homepage URL (`#1296`).
+     *
+     * First-class identity fact for scout / sighted intake and for any walk that
+     * first creates a measured shelf row. Nullable on older walks; the intake
+     * gate refuses a first measured write without it.
+     */
+    homepage: text('homepage'),
 
     /** The one tick-list answer, as 1-based positions in the published recipe. */
     takenStepPositions: integer('taken_step_positions').array(),
@@ -505,6 +515,17 @@ export const accountWalks = pgTable(
       'account_walks_about_is_short',
       sql`${table.about} is null
           or length(${table.about}) <= ${sql.raw(String(WALK_NOTE_MAX_LENGTH))}`,
+    ),
+
+    /**
+     * Homepage is https and bounded (`#1296`). Null stays allowed for walks filed
+     * before the scout bar; intake refuses a first measured write without a value.
+     */
+    check(
+      'account_walks_homepage_is_https',
+      sql`${table.homepage} is null
+          or (${table.homepage} like 'https://%'
+              and length(${table.homepage}) <= ${sql.raw(String(PROVIDER_HOMEPAGE_MAX_LENGTH))})`,
     ),
 
     /**

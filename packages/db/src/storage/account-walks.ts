@@ -96,6 +96,7 @@ function toWalk(walk: WalkRow, steps: readonly StepRow[]): AccountWalk {
     changed: walk.changed,
     discarded: walk.discarded,
     about: walk.about,
+    homepage: walk.homepage,
     takenStepPositions: walk.takenStepPositions,
     /** Parsed on the way out, like every other `jsonb` here: the column is not a shape. */
     recipe: walk.recipe === null ? null : WalkedRecipeSchema.parse(walk.recipe),
@@ -442,6 +443,7 @@ export async function reportFinishedWalk(
     readonly changed?: string | null
     readonly discarded?: string | null
     readonly about?: string | null
+    readonly homepage?: string | null
   },
 ): Promise<AccountWalk | undefined> {
   const [updated] = await db
@@ -453,6 +455,7 @@ export async function reportFinishedWalk(
       changed: answers.changed ?? null,
       discarded: answers.discarded ?? null,
       about: answers.about ?? null,
+      ...(answers.homepage !== undefined ? { homepage: answers.homepage } : {}),
       /**
        * **Re-queued, including a wall something already read** (`#810`). This
        * writes the answers onto a walk that may have been closed with a wall and
@@ -667,6 +670,7 @@ function conditionsFromWalk(
  */
 function curationFromEntry(entry: ProviderRecipe | undefined): {
   about?: string | null
+  homepage?: string | null
   runtimes?: ProviderRecipe['runtimes']
   paid?: boolean
   referral?: ProviderRecipe['referral']
@@ -682,6 +686,7 @@ function curationFromEntry(entry: ProviderRecipe | undefined): {
 
   return {
     about: entry.about,
+    homepage: entry.homepage,
     runtimes: entry.runtimes,
     paid: entry.paid,
     referral: entry.referral,
@@ -881,6 +886,8 @@ type WalkFinishInput = {
   readonly discarded?: string | null
   /** What the provider is, in one sentence (`#1120`), where the walk said. */
   readonly about?: string | null
+  /** Canonical https homepage (`#1296`), where the walk said. */
+  readonly homepage?: string | null
   /** Published recipe positions checked by the agent, in order. */
   readonly takenStepPositions?: readonly number[] | null
   /** The walker's own long-form account of the path (`#769`), where it gave one. */
@@ -1049,6 +1056,7 @@ export async function finishWalk(
         changed: input.changed ?? null,
         discarded: input.discarded ?? null,
         about: input.about ?? null,
+        homepage: input.homepage ?? null,
         takenStepPositions: input.takenStepPositions == null ? null : [...input.takenStepPositions],
         recipe: input.recipe ?? null,
         direction: input.direction ?? null,
@@ -1189,6 +1197,18 @@ export async function finishWalk(
         /** No route: see `status` above (`#1032`). */
         steps: [],
         /**
+         * **Identity facts from the walk that first put the provider on the shelf**
+         * (`#1296`). `about` may also feed synthesis later; `homepage` is the
+         * first-class URL catalogue readers get. Prefer the walker's values when
+         * present so a scout filing is not wiped by an empty curation carry.
+         */
+        about: walk.about ?? entry?.about ?? null,
+        ...(walk.homepage !== null
+          ? { homepage: walk.homepage }
+          : entry?.homepage !== undefined && entry.homepage !== null
+            ? { homepage: entry.homepage }
+            : {}),
+        /**
          * **What a walk does not write is the walker's long form** (`#1032`).
          *
          * `#769` put `walkedRecipe` here, and the safety was structural: a walk
@@ -1211,6 +1231,9 @@ export async function finishWalk(
          */
         ...curationFromEntry(entry),
         ...conditionsFromWalk(walk.recipe, entry),
+        /** Re-assert after curation spread so an empty entry about cannot wipe the walk. */
+        ...(walk.about !== null ? { about: walk.about } : {}),
+        ...(walk.homepage !== null ? { homepage: walk.homepage } : {}),
       })
 
       /**

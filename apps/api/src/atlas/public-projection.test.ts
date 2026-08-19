@@ -84,6 +84,7 @@ const entry = (): AtlasEntry =>
         operatorNeed: 'unaided',
         operatorNeedIsGuess: false,
         about: 'Boards and cards, with an API key behind the same login.',
+        homepage: 'https://trello.com/',
         description: null,
         runtimes: [],
         paid: false,

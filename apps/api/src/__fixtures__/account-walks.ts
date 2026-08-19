@@ -66,6 +66,7 @@ export function fakeWalks(): FakeWalkStore {
       changed: null,
       discarded: null,
       about: null,
+      homepage: null,
       takenStepPositions: null,
       recipe: null,
       steps: [],
@@ -94,6 +95,7 @@ export function fakeWalks(): FakeWalkStore {
       discarded: input.discarded ?? null,
       /** The seventh field lands like the six, so the walk a tool result reads back carries it. */
       about: input.about ?? null,
+      homepage: input.homepage ?? null,
       takenStepPositions: input.takenStepPositions == null ? null : [...input.takenStepPositions],
       /**
        * **The long form lands on the walk here too** (`#982`), the way
@@ -113,6 +115,7 @@ export function fakeWalks(): FakeWalkStore {
      * stopped part-way both write the row — an abandoned walk measured where it
      * stopped, and where citizens stop is the half of a briefing nothing else
      * observes. Only a refusal that names no wall proposes nothing.
+     * `sighted` writes the same measured shelf presence as abandoned (`#1296`).
      */
     const verdict: WalkVerdict =
       input.outcome === 'refused'
@@ -208,6 +211,7 @@ export function fakeWalks(): FakeWalkStore {
              * served as though its author had stood behind it.
              */
             about: null,
+            homepage: null,
             takenStepPositions: null,
             recipe: null,
           }

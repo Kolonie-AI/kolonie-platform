@@ -17,6 +17,7 @@ import {
   RecipeStatusSchema,
   RecipeDirectionSchema,
   DIRECTIONAL_KINDS,
+  PROVIDER_HOMEPAGE_MAX_LENGTH,
   RECIPE_MAX_CAUTIONS,
   type RecipeReach,
   type RecipeRuntimeNote,
@@ -77,8 +78,19 @@ export const providerRecipes = pgTable(
      *
      * Nullable: a recipe is worth publishing before somebody has written its
      * prose, and a page with steps and no paragraph is more useful than no page.
+     * First measured presence still requires a walker `about` at intake (`#1296`);
+     * that sentence may land here or feed the synthesised {@link description}.
      */
     about: text('about'),
+
+    /**
+     * Canonical https homepage URL (`#1296`).
+     *
+     * First-class field on the entry so catalogue.json / MCP recipes can return
+     * it without parsing prose. Required on the walk that first creates a
+     * measured row; later curation may set or clear it.
+     */
+    homepage: text('homepage'),
 
     /**
      * One sentence saying what the provider is, written by the Colony (`#1120`).
@@ -474,6 +486,17 @@ export const providerRecipes = pgTable(
     check(
       'provider_recipes_status_is_known',
       sql`${table.status} in (${sql.raw(RECIPE_STATUSES.map((one) => `'${one}'`).join(', '))})`,
+    ),
+
+    /**
+     * Homepage is https and bounded (`#1296`). Null stays allowed on older rows;
+     * scout intake refuses first measured presence without a value.
+     */
+    check(
+      'provider_recipes_homepage_is_https',
+      sql`${table.homepage} is null
+          or (${table.homepage} like 'https://%'
+              and length(${table.homepage}) <= ${sql.raw(String(PROVIDER_HOMEPAGE_MAX_LENGTH))})`,
     ),
 
     /**

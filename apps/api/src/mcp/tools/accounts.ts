@@ -45,6 +45,8 @@ import {
   kindHasDirection,
   reachedByWalk,
   recipeStatusIsOfferable,
+  requiresScoutIntake,
+  scoutIntakeMissing,
   walkIsReported,
   walkProse,
   wishAtlasSentence,
@@ -2464,8 +2466,10 @@ export function registerAccountTools(
         ),
         outcome: WalkReportSchema.shape.outcome.describe(
           'proved if you got the account, refused if there is no honest way in, abandoned if ' +
-            'you simply stopped. All three pay the same, so answer with the one that is true: ' +
-            'abandoned says you stopped, refused says you were stopped.',
+            'you simply stopped, sighted if you only scouted the public site (what it is + ' +
+            'homepage URL) without claiming a signup or a prove. Sighted is never a prove and ' +
+            'does not need recipe.steps. All outcomes that pay, pay the same — answer with the ' +
+            'one that is true.',
         ),
         wall: z
           .string()
@@ -2510,9 +2514,18 @@ export function registerAccountTools(
           .string()
           .optional()
           .describe(
-            `${WALK_ABOUT_QUESTION} Optional. It is the strongest source for the ` +
-              'description the Colony writes of this provider, and it is never published as ' +
-              'your sentence.',
+            `${WALK_ABOUT_QUESTION} Required on sighted and on the walk that first puts a ` +
+              'provider on the measured shelf; otherwise optional. It is the strongest source ' +
+              'for the description the Colony writes of this provider, and it is never ' +
+              'published as your sentence.',
+          ),
+        homepage: z
+          .string()
+          .optional()
+          .describe(
+            'Canonical https homepage URL for the provider. Required on sighted and on the ' +
+              'walk that first creates a measured shelf row — first-class field, not only ' +
+              'buried in about prose. Sighted does not need recipe.steps.',
           ),
         takenStepPositions: z
           .array(z.number().int().min(1))
@@ -2586,6 +2599,7 @@ export function registerAccountTools(
         ...(input.changed === undefined ? {} : { changed: input.changed }),
         ...(input.discarded === undefined ? {} : { discarded: input.discarded }),
         ...(input.about === undefined ? {} : { about: input.about }),
+        ...(input.homepage === undefined ? {} : { homepage: input.homepage }),
         ...(input.takenStepPositions === undefined
           ? {}
           : { takenStepPositions: input.takenStepPositions }),
@@ -2621,9 +2635,38 @@ export function registerAccountTools(
        * true of the string and false of the world.
        */
       const canonical = await deps.renames.canonical(provider.data)
+      const kind = AccountKindSchema.parse(input.kind)
+
+      /**
+       * Scout / first measured presence bar (`#1296`). Sighted always needs
+       * about + homepage (also enforced on WalkReportSchema). proved/abandoned
+       * need them when they would create the first measured shelf row. Incomplete
+       * filings are refused with next_action rather than writing a bare measured
+       * row.
+       */
+      const assertScoutIntake = async (): Promise<ReturnType<typeof toolError> | undefined> => {
+        if (deps.recipes === undefined) return undefined
+        const entry = await deps.recipes.one(kind, canonical)
+        if (!requiresScoutIntake(report.data.outcome, entry)) return undefined
+        const missing = scoutIntakeMissing(report.data)
+        if (missing === undefined) return undefined
+        return toolError({
+          code: 'validation_failed',
+          message: `${missing.field}: ${missing.why}`,
+          details: {
+            next_action: 'kolonie.accounts.walk-report',
+            why:
+              'Resubmit with non-empty about and a canonical https homepage URL. ' +
+              'Sighted scout filings need both and never need recipe.steps; the same ' +
+              'identity bar applies to the walk that first creates a measured shelf row.',
+            fields: 'about,homepage',
+            missing: missing.field,
+          },
+        })
+      }
 
       const open = await deps.walks.inProgress(authenticatedAgent.agent.id, {
-        kind: AccountKindSchema.parse(input.kind),
+        kind,
         provider: canonical,
       })
 
@@ -2700,6 +2743,8 @@ export function registerAccountTools(
 
         if (owed === undefined) {
           if (amended === undefined) {
+            const scoutGate = await assertScoutIntake()
+            if (scoutGate !== undefined) return scoutGate
             const submitted = await deps.walks.submit(
               authenticatedAgent.agent.id,
               { kind: AccountKindSchema.parse(input.kind), provider: canonical },
@@ -2786,6 +2831,8 @@ export function registerAccountTools(
         }
       }
 
+      const scoutGate = await assertScoutIntake()
+      if (scoutGate !== undefined) return scoutGate
       const finished = await deps.walks.finish(open.id, report.data)
       if (finished === undefined) {
         return toolError({

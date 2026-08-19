@@ -173,15 +173,49 @@ export const WALK_DUPLICATE_COMPARED = 200
 /**
  * How a walk ended.
  *
- * **Three, and `abandoned` is the one that earns its place.** A walk that stops
- * halfway is the common case — an agent runs out of session, an operator does
- * not answer today — and it must produce nothing: no entry, no confirmation, no
- * refusal. Without a name for it, *stopped halfway* and *ended at a wall* would
- * be the same row, and the second writes a `refused` entry about somebody
- * else's product.
+ * **Four, and `sighted` is the scout path** (`#1296`). `abandoned` still earns
+ * its place for a signup that stopped halfway — no entry claim beyond a
+ * measurement where one already exists. `sighted` is the other half of shelf
+ * discovery: a citizen fetched the public site, can say what the provider is,
+ * and names a canonical homepage URL, without claiming a signup recipe or a
+ * Colony-backed prove. Sighted is never a prove.
+ *
+ * Without `sighted`, *looked at the homepage* collapses into `abandoned` and
+ * either seeds a bare measured row with no identity facts, or cannot be filed
+ * honestly at all.
  */
-export const WalkOutcomeSchema = z.enum(['proved', 'refused', 'abandoned'])
+export const WalkOutcomeSchema = z.enum(['proved', 'refused', 'abandoned', 'sighted'])
 export type WalkOutcome = z.infer<typeof WalkOutcomeSchema>
+
+/**
+ * Canonical provider homepage URL for scout / first shelf presence (`#1296`).
+ *
+ * **https only, no path required beyond `/`, and no credentials in the URL.**
+ * Stored as a first-class field on the walk and on the measured entry — never
+ * only buried in `about` prose — so catalogue readers and website#139 can show
+ * it without parsing sentences.
+ */
+export const PROVIDER_HOMEPAGE_MAX_LENGTH = 2048
+
+export const ProviderHomepageSchema = z
+  .string()
+  .trim()
+  .max(PROVIDER_HOMEPAGE_MAX_LENGTH)
+  .url()
+  .refine((value) => value.startsWith('https://'), {
+    message: 'homepage must be an https URL.',
+  })
+  .refine((value) => {
+    try {
+      const parsed = new URL(value)
+      return parsed.username === '' && parsed.password === ''
+    } catch {
+      return false
+    }
+  }, {
+    message: 'homepage must not carry credentials.',
+  })
+export type ProviderHomepage = z.infer<typeof ProviderHomepageSchema>
 
 /**
  * One thing that happened during a walk.
@@ -316,8 +350,20 @@ export const AccountWalkSchema = z.object({
    * every walk that skipped it, which costs the walker nothing — the description
    * is synthesised from the whole corpus and an answer here is its strongest
    * source, not its only one.
+   *
+   * **Required on the walk that first creates a measured shelf row** (`#1296`),
+   * including every `sighted` scout filing: identity facts are the bar for first
+   * presence, not a full recipe.
    */
   about: z.string().max(WALK_NOTE_MAX_LENGTH).nullable(),
+  /**
+   * Canonical https homepage for the provider (`#1296`).
+   *
+   * Null on walks filed before the scout bar and on later walks that did not
+   * restate it. Required together with `about` whenever the walk would create
+   * the first measured row.
+   */
+  homepage: z.string().max(PROVIDER_HOMEPAGE_MAX_LENGTH).nullable(),
   /** Null when no published recipe tick-list was available or answered. */
   takenStepPositions: WalkTakenStepPositionsSchema.nullable(),
   /**
@@ -549,7 +595,88 @@ export function walkReportAnswers(
 export function walkIsReported(
   walk: Pick<AccountWalk, 'outcome' | 'note' | WalkReportField>,
 ): boolean {
-  return walk.outcome === 'proved' || walkReportAnswers(walk).length > 0
+  /**
+   * `sighted` carries its own required identity facts (`about` + homepage) at
+   * the door (`#1296`), so it is reported by closing — the four Academy questions
+   * are optional on a scout filing the same way they are on a prove.
+   */
+  return (
+    walk.outcome === 'proved' ||
+    walk.outcome === 'sighted' ||
+    walkReportAnswers(walk).length > 0
+  )
+}
+
+/**
+ * Whether closing this walk would create the provider's first `measured` row
+ * (`#1296`).
+ *
+ * Absent and `unwritten` are the only states where a `writes` verdict is the
+ * first measured presence. An entry that is already `measured` is presence
+ * already; later walks may enrich it but do not re-open the scout bar.
+ */
+export function isFirstMeasuredPresence(
+  entry: { readonly status: string } | undefined,
+): boolean {
+  return entry === undefined || entry.status === 'unwritten'
+}
+
+/**
+ * What a first measured / sighted filing still owes before the shelf may carry
+ * the provider (`#1296`).
+ *
+ * Returns the first missing field, or `undefined` when both identity facts are
+ * present. Callers turn this into a refusal with `next_action` pointing at
+ * `kolonie.accounts.walk-report` with `about` and `homepage`.
+ */
+export function scoutIntakeMissing(input: {
+  readonly about?: string | null
+  readonly homepage?: string | null
+}): { readonly field: 'about' | 'homepage'; readonly why: string } | undefined {
+  const about = input.about?.trim() ?? ''
+  if (about.length === 0) {
+    return {
+      field: 'about',
+      why:
+        'First shelf presence needs a non-empty about — what this provider is to a stranger — ' +
+        'before the Atlas will carry it.',
+    }
+  }
+  const homepage = input.homepage?.trim() ?? ''
+  if (homepage.length === 0) {
+    return {
+      field: 'homepage',
+      why:
+        'First shelf presence needs a canonical https homepage URL as its own field, not only ' +
+        'buried in prose.',
+    }
+  }
+  const parsed = ProviderHomepageSchema.safeParse(homepage)
+  if (!parsed.success) {
+    return {
+      field: 'homepage',
+      why: parsed.error.issues[0]?.message ?? 'homepage must be an https URL.',
+    }
+  }
+  return undefined
+}
+
+/**
+ * Whether this closing must clear the scout bar (`#1296`).
+ *
+ * `sighted` always does — identity facts are its content. `proved` / `abandoned`
+ * do when they would create the first measured row. `refused` writes a refused
+ * entry, not a measured one, and is not gated here.
+ */
+export function requiresScoutIntake(
+  outcome: WalkOutcome,
+  entry: { readonly status: string } | undefined,
+): boolean {
+  if (outcome === 'sighted') return true
+  if (outcome === 'proved' || outcome === 'abandoned') {
+    return isFirstMeasuredPresence(entry)
+  }
+  return false
 }
 
 /**
@@ -707,6 +834,14 @@ export function reachedByWalk(
  * | refused | anything | it writes `refused`, with the wall |
  * | abandoned | `unwritten`, `measured` or absent | it writes the entry |
  * | abandoned | anything the Colony stands behind | **nothing** |
+ * | sighted | `unwritten`, `measured` or absent | it writes the entry |
+ * | sighted | anything the Colony stands behind | **nothing** |
+ *
+ * **`sighted` is scout discovery** (`#1296`): public-site identity facts without a
+ * signup claim. It writes `measured` the same way `abandoned` does, never proves
+ * an account, and never requires `recipe.steps`. First measured presence — from
+ * `sighted`, `abandoned` or `proved` — still needs non-empty `about` + homepage
+ * at the intake door; that gate lives beside this verdict, not inside it.
  *
  * **`abandoned` writing an entry is the change `#1032` makes here.** It produced
  * nothing while a verdict became a route: a walk that stopped halfway observed
@@ -781,6 +916,24 @@ export function walkVerdict(
           why:
             'the walk stopped part-way, so it saw no shape to match against what the Colony ' +
             'already publishes here — what it did measure is in this provider’s briefing',
+        }
+      : { kind: 'writes' }
+  }
+
+  /**
+   * **Scout / sighted** (`#1296`). Fetched the public site; did not claim a
+   * signup recipe and did not prove an account. Same shelf write as an abandoned
+   * first visit — `measured`, no steps — and the same silence against anything
+   * the Colony already stands behind.
+   */
+  if (walk.outcome === 'sighted') {
+    return entry !== undefined && entry.status !== 'unwritten' && entry.status !== 'measured'
+      ? {
+          kind: 'nothing',
+          why:
+            'this provider is already on the shelf with a Colony-backed status, so a scout ' +
+            'filing adds no measured row — keep the identity facts on the walk; they still feed ' +
+            'the briefing once moderated',
         }
       : { kind: 'writes' }
   }

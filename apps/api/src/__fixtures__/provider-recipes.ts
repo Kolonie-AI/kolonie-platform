@@ -440,6 +440,7 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
         provider: entry.provider as ProviderRecipe['provider'],
         title: entry.title ?? `${entry.provider}`,
         about: entry.about ?? null,
+        homepage: entry.homepage ?? null,
         /**
          * **Null unless a test asks for it** (`#1120`, rendered by `#1121`). The
          * live column is filled by the moderation runner and by no write path,

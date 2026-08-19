@@ -8,7 +8,10 @@ import {
   unreportedWalkRefusal,
   WalkOutcomeSchema,
   WalkTakenStepPositionsSchema,
+  isFirstMeasuredPresence,
   reachedByWalk,
+  requiresScoutIntake,
+  scoutIntakeMissing,
   walkMatchesRecipe,
   walkIsReported,
   walkReportAnswers,
@@ -62,6 +65,7 @@ const walk = (steps: readonly WalkStep[], over: Partial<AccountWalk> = {}): Acco
   changed: null,
   discarded: null,
   about: null,
+  homepage: null,
   takenStepPositions: null,
   recipe: null,
   steps: [...steps],
@@ -302,6 +306,21 @@ describe('what a finished walk proposes', () => {
     expect(walkVerdict(walk(one, { outcome: 'abandoned' }), undefined).kind).toBe('writes')
   })
 
+  it('writes a measured row for a sighted scout filing where nobody has walked', () => {
+    expect(walkVerdict(walk(one, { outcome: 'sighted' }), undefined).kind).toBe('writes')
+    expect(walkVerdict(walk(one, { outcome: 'sighted' }), { status: 'unwritten', steps: [] }).kind).toBe(
+      'writes',
+    )
+  })
+
+  it('proposes nothing for a sighted filing against a Colony-backed entry', () => {
+    const verdict = walkVerdict(walk(one, { outcome: 'sighted' }), {
+      status: 'joinable',
+      steps: one,
+    })
+    expect(verdict.kind).toBe('nothing')
+  })
+
   /**
    * **And it still cannot answer for an entry the Colony stands behind.** A walk
    * that did not finish saw no shape to match, so it neither confirms nor
@@ -462,8 +481,8 @@ describe('the one question an agent is asked', () => {
     ).toBe(true)
   })
 
-  it('has three outcomes and abandoned is one of them', () => {
-    expect(WalkOutcomeSchema.options).toEqual(['proved', 'refused', 'abandoned'])
+  it('has four outcomes and sighted is the scout path', () => {
+    expect(WalkOutcomeSchema.options).toEqual(['proved', 'refused', 'abandoned', 'sighted'])
   })
 
   it('takes an ordered tick-list and refuses duplicates or reordering', () => {
@@ -580,5 +599,38 @@ describe('whether a walk that ended said what happened', () => {
     expect(refusal).toContain('kolonie.accounts.walk-report')
     expect(refusal).toContain(REPORT_FIELDS.changed)
     expect(refusal).toContain('Only the next try here waits')
+  })
+
+  it('counts a sighted scout filing as reported without the Academy four', () => {
+    expect(walkIsReported(ended({ outcome: 'sighted', wall: null }))).toBe(true)
+  })
+})
+
+describe('scout intake for first measured presence', () => {
+  it('treats absent and unwritten as first measured presence', () => {
+    expect(isFirstMeasuredPresence(undefined)).toBe(true)
+    expect(isFirstMeasuredPresence({ status: 'unwritten' })).toBe(true)
+    expect(isFirstMeasuredPresence({ status: 'measured' })).toBe(false)
+    expect(isFirstMeasuredPresence({ status: 'joinable' })).toBe(false)
+  })
+
+  it('always requires scout intake for sighted', () => {
+    expect(requiresScoutIntake('sighted', undefined)).toBe(true)
+    expect(requiresScoutIntake('sighted', { status: 'joinable' })).toBe(true)
+  })
+
+  it('requires scout intake for proved or abandoned only on first measured presence', () => {
+    expect(requiresScoutIntake('proved', undefined)).toBe(true)
+    expect(requiresScoutIntake('abandoned', { status: 'unwritten' })).toBe(true)
+    expect(requiresScoutIntake('proved', { status: 'measured' })).toBe(false)
+    expect(requiresScoutIntake('refused', undefined)).toBe(false)
+  })
+
+  it('names the missing about or homepage field', () => {
+    expect(scoutIntakeMissing({})?.field).toBe('about')
+    expect(scoutIntakeMissing({ about: 'A mailbox.' })?.field).toBe('homepage')
+    expect(
+      scoutIntakeMissing({ about: 'A mailbox.', homepage: 'https://example.test/' }),
+    ).toBeUndefined()
   })
 })

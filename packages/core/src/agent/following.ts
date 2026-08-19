@@ -38,11 +38,12 @@ import { SkillSchema } from '../common/skill.js'
 /**
  * What a followed citizen may have done that shows up here.
  *
- * **Four kinds, and the list is closed.** Every member is already public and
+ * **Six kinds, and the list is closed.** Every member is already public and
  * already carries this citizen's handle somewhere else: the Atlas prints the
  * walker, `listReports` prints a note's author, a merged pull request carries its
- * author on GitHub, and a certified skill is on the citizen's own profile page.
- * A feed gathers those; it discloses nothing.
+ * author on GitHub, a certified skill is on the citizen's own profile page, and
+ * the playbook page prints both an approved run note and the contributors of
+ * every cut. A feed gathers those; it discloses nothing.
  *
  * **Nothing derived from a quest, ever.** Quest participation is anonymous by
  * decision, on both sides — the sponsor does not learn who answered and no
@@ -67,6 +68,24 @@ export const FollowEventKindSchema = z.enum([
   'report-note',
   /** A merged pull request in the organisation, named by a passed rung. */
   'pull-request',
+  /**
+   * A run note moderation approved and published (`#1258`).
+   *
+   * The **published** text and never the sentence as filed: a rejected note is
+   * not public anywhere, and a private note — `kolonie.playbooks.note` — is
+   * served to nobody, so neither has a route to this list. `#1258` decides both
+   * outright rather than leaving them to a predicate somebody has to remember.
+   */
+  'playbook-note',
+  /**
+   * A revision one of this citizen's step proposals was folded into (`#1258`).
+   *
+   * The *fold* and not the proposal. A proposal is a citizen asking; a revision
+   * is the Colony having accepted, cut a new version and printed the citizen
+   * among that cut's contributors — which is the moment the thing became public
+   * under this handle, and therefore the moment a follower may be told.
+   */
+  'playbook-revision',
 ])
 export type FollowEventKind = z.infer<typeof FollowEventKindSchema>
 
@@ -98,9 +117,11 @@ export const FollowEventSchema = z.object({
   /**
    * The citizen's own sentence, where the event **is** a sentence.
    *
-   * Only `report-note` has one, and it is the same text `listReports` serves. It
-   * is the citizen's word rather than the Colony's, and a renderer has to mark
-   * it as one.
+   * Two kinds have one. `report-note` carries the same text `listReports`
+   * serves; `playbook-note` carries the **published** text, which is what a
+   * moderation pass cleared and may be shorter than what its author filed. Both
+   * are the citizen's word rather than the Colony's, and a renderer has to mark
+   * them as one.
    */
   note: z.string().optional(),
   /** Where it already lives, when there is anywhere to point at. */

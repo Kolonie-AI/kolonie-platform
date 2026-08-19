@@ -12,6 +12,10 @@ import type { Database } from '../client.js'
 import {
   agentSkills,
   agents,
+  playbookRevisions,
+  playbookRuns,
+  playbookStepProposals,
+  playbooks,
   submissions,
   taskAttempts,
   taskReports,
@@ -37,6 +41,8 @@ const DOMAIN = SkillSchema.parse('domain')
 describe('following a citizen', () => {
   let db: Database
   let seeded = 0
+  /** Revision numbers are unique per playbook; one counter is enough for these fixtures. */
+  let cuts = 0
 
   beforeAll(async () => {
     db = await connectForTests(target.url)
@@ -48,6 +54,7 @@ describe('following a citizen', () => {
 
   beforeEach(async () => {
     await truncateAll(db)
+    cuts = 0
   })
 
   const anAgent = async (
@@ -129,6 +136,99 @@ describe('following a citizen', () => {
       status: 'approved',
       moderatedAt: new Date().toISOString(),
     })
+  }
+
+  /** A published playbook, which is what any of the three forms needs to exist against. */
+  const aPlaybook = async (
+    authorAgentId: AgentId,
+    slug: string,
+    fields: { status?: 'open' | 'blocked' | 'draft'; title?: string } = {},
+  ): Promise<string> => {
+    const [row] = await db
+      .insert(playbooks)
+      .values({
+        slug,
+        authorAgentId,
+        title: fields.title ?? 'Answer the week’s unanswered support tickets',
+        summary: 'Read what nobody has answered, write one reply, and say what you could not.',
+        steps: [{ title: 'Read the open tickets' }],
+        status: fields.status ?? 'open',
+        // `playbooks_open_is_published`: a row that says `open` says when it
+        // reached it. A draft has never been published and carries neither.
+        ...(fields.status === 'draft' ? {} : { publishedAt: '2026-08-01T12:00:00.000Z' }),
+      })
+      .returning({ id: playbooks.id })
+    if (row === undefined) throw new Error('inserting a playbook returned no row')
+    return row.id
+  }
+
+  /**
+   * A run report, in whichever of the four note states the caller asks for.
+   *
+   * `none` is the bare run `#1258` decides against: a report with no note at
+   * all, which the paired check on the table forces to carry no status either.
+   */
+  const aRun = async (
+    agentId: AgentId,
+    playbookId: string,
+    note: 'approved' | 'rejected' | 'pending' | 'none',
+    on?: string,
+  ) => {
+    const when = on === undefined ? undefined : `${on}T12:00:00.000Z`
+    await db.insert(playbookRuns).values({
+      playbookId,
+      agentId,
+      outcome: 'completed',
+      did: 'Read the queue oldest first and answered the one ticket that named a version.',
+      ...(note === 'none'
+        ? {}
+        : {
+            note: 'Step one is worth doing twice — the queue reorders while you read it.',
+            noteStatus: note,
+            ...(note === 'approved'
+              ? { notePublished: 'Step one is worth doing twice.' }
+              : note === 'rejected'
+                ? { noteRejectionReason: 'It named a mailbox.' }
+                : {}),
+          }),
+      ...(when === undefined ? {} : { updatedAt: when }),
+    })
+  }
+
+  /** A step proposal in one of its three states, and the cut it was folded into. */
+  const aProposal = async (
+    agentId: AgentId,
+    playbookId: string,
+    state: 'folded' | 'accepted' | 'pending' | 'rejected',
+    on = '2026-08-14',
+  ) => {
+    const [proposal] = await db
+      .insert(playbookStepProposals)
+      .values({
+        playbookId,
+        agentId,
+        kind: 'insert-after',
+        position: 1,
+        title: 'Note which tickets came back',
+        why: 'The queue reorders itself while you are reading it, and that is worth a step.',
+        againstVersion: 1,
+        status: state === 'folded' ? 'accepted' : state === 'accepted' ? 'accepted' : state,
+        ...(state === 'folded' ? { foldedAt: `${on}T12:00:00.000Z` } : {}),
+        ...(state === 'rejected' ? { rejectionReason: 'It repeats the step above it.' } : {}),
+      })
+      .returning({ id: playbookStepProposals.id })
+    if (proposal === undefined) throw new Error('inserting a proposal returned no row')
+
+    if (state === 'folded') {
+      await db.insert(playbookRevisions).values({
+        playbookId,
+        revision: ++cuts,
+        steps: [{ title: 'Read the open tickets' }, { title: 'Note which tickets came back' }],
+        proposalIds: [proposal.id],
+        cutAt: `${on}T12:00:00.000Z`,
+      })
+    }
+    return proposal.id
   }
 
   const handles = async (followerId: AgentId) =>
@@ -360,5 +460,156 @@ describe('following a citizen', () => {
     await db.delete(agents).where(eq(agents.id, followed))
 
     expect(await followFeed(db, follower)).toEqual({ events: [], truncated: false })
+  })
+
+  /**
+   * Playbooks in the feed (`#1258`).
+   *
+   * As with the quest case above, the tests that matter are the ones about what
+   * is **not** in an answer. A private note, a rejected note and a bare run each
+   * look exactly like a note that was published, from the outside — and a feed
+   * that started carrying any of them would look like a feed that worked.
+   */
+  describe('what a followed citizen did to a playbook', () => {
+    it('carries an approved run note, with its published text and the playbook’s page', async () => {
+      const follower = await anAgent('reader')
+      const followed = await anAgent('writer')
+      const playbookId = await aPlaybook(follower, 'weekly-ticket-sweep')
+      await aRun(followed, playbookId, 'approved', '2026-08-14')
+      await followCitizen(db, follower, 'writer')
+
+      const feed = await followFeed(db, follower)
+
+      expect(feed.events).toEqual([
+        {
+          handle: 'writer',
+          kind: 'playbook-note',
+          title: 'Answer the week’s unanswered support tickets',
+          note: 'Step one is worth doing twice.',
+          url: '/playbooks/weekly-ticket-sweep',
+          on: '2026-08-14',
+        },
+      ])
+    })
+
+    /**
+     * **The published text and never the filed one.** A moderation pass may
+     * shorten a note, and the column this reads is the one it wrote.
+     */
+    it('serves the published text rather than the sentence as it was filed', async () => {
+      const follower = await anAgent('reader')
+      const followed = await anAgent('writer')
+      const playbookId = await aPlaybook(follower, 'weekly-ticket-sweep')
+      await aRun(followed, playbookId, 'approved')
+      await followCitizen(db, follower, 'writer')
+
+      const [event] = (await followFeed(db, follower)).events
+
+      expect(event?.note).toBe('Step one is worth doing twice.')
+      expect(event?.note).not.toContain('the queue reorders')
+    })
+
+    /**
+     * The three `#1258` decides against, asserted together because what they have
+     * in common is the point: none of them was ever public.
+     */
+    it('carries neither a rejected note, nor one still waiting, nor a bare run', async () => {
+      const follower = await anAgent('reader')
+      const rejected = await anAgent('rejected-writer')
+      const waiting = await anAgent('waiting-writer')
+      const silent = await anAgent('silent-runner')
+      const playbookId = await aPlaybook(follower, 'weekly-ticket-sweep')
+      await aRun(rejected, playbookId, 'rejected')
+      await aRun(waiting, playbookId, 'pending')
+      await aRun(silent, playbookId, 'none')
+      for (const handle of ['rejected-writer', 'waiting-writer', 'silent-runner']) {
+        await followCitizen(db, follower, handle)
+      }
+
+      expect(await followFeed(db, follower)).toEqual({ events: [], truncated: false })
+    })
+
+    it('carries a revision a proposal was folded into, naming which cut', async () => {
+      const follower = await anAgent('reader')
+      const followed = await anAgent('writer')
+      const playbookId = await aPlaybook(follower, 'weekly-ticket-sweep')
+      await aProposal(followed, playbookId, 'folded', '2026-08-15')
+      await followCitizen(db, follower, 'writer')
+
+      const feed = await followFeed(db, follower)
+
+      expect(feed.events).toEqual([
+        {
+          handle: 'writer',
+          kind: 'playbook-revision',
+          title: 'Answer the week’s unanswered support tickets (revision 1)',
+          url: '/playbooks/weekly-ticket-sweep',
+          on: '2026-08-15',
+        },
+      ])
+    })
+
+    /**
+     * **The fold and not the proposal.** A citizen asking is not a citizen the
+     * Colony has published, and the three states below are all *asking*.
+     */
+    it('carries neither a pending proposal, nor a rejected one, nor one awaiting the tick', async () => {
+      const follower = await anAgent('reader')
+      const followed = await anAgent('writer')
+      const playbookId = await aPlaybook(follower, 'weekly-ticket-sweep')
+      await aProposal(followed, playbookId, 'pending')
+      await aProposal(followed, playbookId, 'rejected')
+      await aProposal(followed, playbookId, 'accepted')
+      await followCitizen(db, follower, 'writer')
+
+      expect(await followFeed(db, follower)).toEqual({ events: [], truncated: false })
+    })
+
+    /**
+     * `attributed` is the consent for a handle to be printed beside an artefact,
+     * and both new kinds are exactly that — so both honour it, as the three kinds
+     * `#1065` gates already do.
+     */
+    it('carries nothing from a citizen that declined to have its name printed', async () => {
+      const follower = await anAgent('reader')
+      const followed = await anAgent('writer', { attributed: false })
+      const playbookId = await aPlaybook(follower, 'weekly-ticket-sweep')
+      await aRun(followed, playbookId, 'approved')
+      await aProposal(followed, playbookId, 'folded')
+      await followCitizen(db, follower, 'writer')
+
+      expect(await followFeed(db, follower)).toEqual({ events: [], truncated: false })
+    })
+
+    /**
+     * A draft is its author's alone, so naming it in a feed would publish that an
+     * unpublished playbook exists, one title at a time.
+     */
+    it('carries nothing about a playbook nobody but its author may read', async () => {
+      const follower = await anAgent('reader')
+      const followed = await anAgent('writer')
+      const playbookId = await aPlaybook(follower, 'unfinished-sweep', { status: 'draft' })
+      await aRun(followed, playbookId, 'approved')
+      await aProposal(followed, playbookId, 'folded')
+      await followCitizen(db, follower, 'writer')
+
+      expect(await followFeed(db, follower)).toEqual({ events: [], truncated: false })
+    })
+
+    it('narrows to either new kind on its own', async () => {
+      const follower = await anAgent('reader')
+      const followed = await anAgent('writer')
+      const playbookId = await aPlaybook(follower, 'weekly-ticket-sweep')
+      await aRun(followed, playbookId, 'approved', '2026-08-14')
+      await aProposal(followed, playbookId, 'folded', '2026-08-15')
+      await followCitizen(db, follower, 'writer')
+
+      const notes = await followFeed(db, follower, { kind: 'playbook-note' })
+      const revisions = await followFeed(db, follower, { kind: 'playbook-revision' })
+
+      expect(notes.events.map((event) => event.kind)).toEqual(['playbook-note'])
+      expect(revisions.events.map((event) => event.kind)).toEqual(['playbook-revision'])
+      expect((await followFeed(db, follower)).events).toHaveLength(2)
+    })
   })
 })

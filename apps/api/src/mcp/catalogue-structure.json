@@ -259,6 +259,16 @@
             "format": "uuid",
             "type": "string"
           },
+          "relatedVaultKeys": {
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:\\-/]*$",
+              "type": "string"
+            },
+            "maxItems": 8,
+            "type": "array"
+          },
           "vaultKey": {
             "maxLength": 128,
             "minLength": 1,
@@ -343,6 +353,14 @@
             "maxLength": 128,
             "minLength": 1,
             "type": "string"
+          },
+          "relatedAccountIds": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 8,
+            "type": "array"
           },
           "to": {
             "maxLength": 64,
@@ -619,7 +637,7 @@
             "type": "integer"
           },
           "outcome": {
-            "enum": ["proved", "refused", "abandoned"],
+            "enum": ["proved", "refused", "abandoned", "sighted"],
             "type": "string"
           },
           "provider": {
@@ -810,6 +828,26 @@
               }
             ]
           },
+          "operateNote": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "operateTag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "outcome": {
             "anyOf": [
               {
@@ -936,6 +974,9 @@
           "discarded": {
             "type": "string"
           },
+          "homepage": {
+            "type": "string"
+          },
           "kind": {
             "maxLength": 32,
             "minLength": 3,
@@ -946,7 +987,7 @@
             "type": "string"
           },
           "outcome": {
-            "enum": ["proved", "refused", "abandoned"],
+            "enum": ["proved", "refused", "abandoned", "sighted"],
             "type": "string"
           },
           "provider": {
@@ -1301,7 +1342,14 @@
       "schema": {
         "properties": {
           "kind": {
-            "enum": ["skill-certified", "atlas-entry", "report-note", "pull-request"],
+            "enum": [
+              "skill-certified",
+              "atlas-entry",
+              "report-note",
+              "pull-request",
+              "playbook-note",
+              "playbook-revision"
+            ],
             "type": "string"
           },
           "since": {
@@ -1319,6 +1367,12 @@
           "capability": {
             "maxLength": 64,
             "minLength": 2,
+            "type": "string"
+          },
+          "playbook": {
+            "maxLength": 64,
+            "minLength": 3,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
             "type": "string"
           },
           "skill": {

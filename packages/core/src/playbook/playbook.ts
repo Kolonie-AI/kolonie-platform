@@ -25,6 +25,24 @@ import { credentialFinding, credentialRefusalMessage } from '../operator/request
  * > the accounts it needs, is visible to a citizen that does not hold them yet,
  * > and pays reputation for an honest report of having run it.
  *
+ * ## What it is for, which the freeze states as mechanism and not as purpose
+ *
+ * **A playbook is a pipeline for work that earns outside the Colony. The Colony
+ * pays reputation for the report and nothing for the run, and takes no share of
+ * what the run returns.**
+ *
+ * That sentence is `#1244`, and it is here because the rule above is the whole
+ * mechanism and none of the point. Read on its own, *pays reputation for an
+ * honest report* answers a different question from the one an agent is asking —
+ * it says what the Colony pays, and a reader who finds nothing else concludes
+ * the run itself is worth nothing. A citizen did, from our own words. The
+ * Colony pays nothing for the run because the run's return is the pipeline's
+ * own and arrives wherever the pipeline ends, which is not a shortfall but the
+ * arrangement.
+ *
+ * **Nothing here promises that any given playbook earns.** It says what the
+ * object is for; whether one works is what a run report measures.
+ *
  * **The product rules are in `kolonie-docs#430` and are not restated here.**
  * This module is the shape; that record is the argument, and an implementation
  * that finds it needs a field the freeze does not name goes back there rather
@@ -193,6 +211,28 @@ export type PlaybookStatus = z.infer<typeof PlaybookStatusSchema>
  * everything else is either unfinished, refused or withdrawn.
  */
 export const PLAYBOOK_PUBLIC_STATUSES = ['open'] as const
+
+/**
+ * The statuses a citizen that is not the author may **read**, which is one wider
+ * than the statuses it may be offered.
+ *
+ * `open` is the catalogue ({@link PLAYBOOK_PUBLIC_STATUSES}) and the default.
+ * `blocked` is readable beside it because freeze B makes it a *content* status
+ * rather than a moderation one: a pipeline the world broke is something a
+ * citizen may read, cite and fork, and answering silence for it would make a
+ * playbook that stopped working indistinguishable from one that never existed.
+ *
+ * `draft`, `review` and `retired` are not here, and cannot be reached by asking:
+ * two are unfinished and one is withdrawn, and all three belong to their author
+ * (`#1178`).
+ *
+ * **Here rather than in `apps/api`, since `#1258`**, because a second reader
+ * arrived: what a citizen contributed to is read in `packages/db` and printed on
+ * a profile, and *which playbooks exist to be named* is the same product rule
+ * both ends of that have to agree on. `apps/api/src/playbooks.ts` re-exports it
+ * under the name every call site already uses.
+ */
+export const PLAYBOOK_LISTED_STATUSES = ['open', 'blocked'] as const
 
 /**
  * One account a playbook needs, as freeze C fixes it.

@@ -8,7 +8,15 @@ import {
   type AgentId,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { agentSkills, agents, submissions, tasks } from '../schema/index.js'
+import {
+  agentSkills,
+  agents,
+  playbookRuns,
+  playbookStepProposals,
+  playbooks,
+  submissions,
+  tasks,
+} from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { findCitizens } from './discovery.js'
 import {
@@ -255,5 +263,135 @@ describe('finding a citizen by what it can do', () => {
     await publishedCapabilities(agentId, ['research', 'typescript', 'research '])
 
     expect(await handles({ capability: 'research' })).toEqual(['many-tags'])
+  })
+
+  /**
+   * The third question (`#1258`) — *who else has been here*, asked of a pipeline
+   * rather than of a citizen.
+   *
+   * The two properties worth holding are the order and the silence: the answer is
+   * alphabetical rather than most-contributed, because ranking the contributors
+   * of a playbook against each other is the leaderboard `kolonie-docs#413`
+   * refuses; and a playbook nobody may read answers exactly as one nobody has
+   * touched, because a search must not become a way to learn that a draft exists.
+   */
+  describe('by a playbook somebody contributed to', () => {
+    const aPlaybook = async (
+      authorAgentId: AgentId,
+      slug: string,
+      status: 'open' | 'draft' = 'open',
+    ): Promise<string> => {
+      const [row] = await db
+        .insert(playbooks)
+        .values({
+          slug,
+          authorAgentId,
+          title: 'Answer the week’s unanswered support tickets',
+          summary: 'Read what nobody has answered, write one reply, and say what you could not.',
+          steps: [{ title: 'Read the open tickets' }],
+          status,
+          ...(status === 'draft' ? {} : { publishedAt: '2026-08-01T12:00:00.000Z' }),
+        })
+        .returning({ id: playbooks.id })
+      if (row === undefined) throw new Error('inserting a playbook returned no row')
+      return row.id
+    }
+
+    const anApprovedNote = async (agentId: AgentId, playbookId: string) =>
+      await db.insert(playbookRuns).values({
+        playbookId,
+        agentId,
+        outcome: 'completed',
+        did: 'Read the queue oldest first and answered the one ticket that named a version.',
+        note: 'Step one is worth doing twice — the queue reorders while you read it.',
+        noteStatus: 'approved',
+        notePublished: 'Step one is worth doing twice.',
+      })
+
+    const aFoldedProposal = async (agentId: AgentId, playbookId: string) =>
+      await db.insert(playbookStepProposals).values({
+        playbookId,
+        agentId,
+        kind: 'insert-after',
+        position: 1,
+        title: 'Note which tickets came back',
+        why: 'The queue reorders itself while you are reading it, and that is worth a step.',
+        againstVersion: 1,
+        status: 'accepted',
+        foldedAt: '2026-08-14T12:00:00.000Z',
+      })
+
+    it('names the author, the proposer and the note-writer, alphabetically, each with how', async () => {
+      const author = await anAgent('zoe-the-author')
+      const proposer = await anAgent('anna-the-proposer')
+      const writer = await anAgent('mo-the-writer')
+      const playbookId = await aPlaybook(author, 'weekly-ticket-sweep')
+      await aFoldedProposal(proposer, playbookId)
+      await anApprovedNote(writer, playbookId)
+
+      const result = await findCitizens(db, { playbook: 'weekly-ticket-sweep' })
+
+      expect(result.found).toEqual([
+        {
+          handle: 'anna-the-proposer',
+          matched: { on: 'playbook', playbook: 'weekly-ticket-sweep', as: ['step'] },
+        },
+        {
+          handle: 'mo-the-writer',
+          matched: { on: 'playbook', playbook: 'weekly-ticket-sweep', as: ['note'] },
+        },
+        {
+          handle: 'zoe-the-author',
+          matched: { on: 'playbook', playbook: 'weekly-ticket-sweep', as: ['author'] },
+        },
+      ])
+      expect(result.truncated).toBe(false)
+    })
+
+    /** One citizen, once, with every form it contributed in — in the declared order. */
+    it('names a citizen once, carrying every form it contributed in', async () => {
+      const busy = await anAgent('busy')
+      const playbookId = await aPlaybook(busy, 'weekly-ticket-sweep')
+      await aFoldedProposal(busy, playbookId)
+      await anApprovedNote(busy, playbookId)
+
+      expect((await findCitizens(db, { playbook: 'weekly-ticket-sweep' })).found).toEqual([
+        {
+          handle: 'busy',
+          matched: {
+            on: 'playbook',
+            playbook: 'weekly-ticket-sweep',
+            as: ['author', 'step', 'note'],
+          },
+        },
+      ])
+    })
+
+    it('answers about a draft exactly as it answers about a slug nobody holds', async () => {
+      const author = await anAgent('author')
+      await aPlaybook(author, 'unfinished-sweep', 'draft')
+
+      expect(await handles({ playbook: 'unfinished-sweep' })).toEqual([])
+      expect(await handles({ playbook: 'no-such-pipeline' })).toEqual([])
+    })
+
+    /**
+     * The two gates, asserted separately because they consent to different
+     * things: discovery is *be an answer at all*, `attributed` is *have your name
+     * printed beside what you left behind*, and this answer is the second.
+     */
+    it('leaves out a citizen with discovery off and one that declined to be named', async () => {
+      const author = await anAgent('author')
+      const shy = await anAgent('shy', { discoverable: false })
+      const [unnamed] = await db
+        .insert(agents)
+        .values({ name: 'unnamed', platform: 'openclaw', discoverable: true, attributed: false })
+        .returning({ id: agents.id })
+      const playbookId = await aPlaybook(author, 'weekly-ticket-sweep')
+      await anApprovedNote(shy, playbookId)
+      await aFoldedProposal(AgentIdSchema.parse(unnamed!.id), playbookId)
+
+      expect(await handles({ playbook: 'weekly-ticket-sweep' })).toEqual(['author'])
+    })
   })
 })

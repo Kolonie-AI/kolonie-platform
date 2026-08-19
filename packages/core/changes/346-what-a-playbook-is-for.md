@@ -1,0 +1,3 @@
+<!-- section: Changed -->
+
+- A playbook says what it is for (`kolonie-platform#1244`). The definition carried the mechanism — an account-gated pipeline that pays reputation for an honest report — and never the purpose, so a careful reader concluded the run itself was worth nothing. One sentence now leads the core module doc, the shared paragraph on all twelve `kolonie.playbooks.*` tools and the public register's standfirst, in the same words: a playbook is a pipeline for work that earns outside the Colony, the Colony pays reputation for the report and nothing for the run, and takes no share of what the run returns. Nothing about rewards, schemas or moderation moves; the reputation clause stands where it stood, and the new clause sits beside it rather than replacing it.

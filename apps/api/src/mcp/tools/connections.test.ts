@@ -1,4 +1,4 @@
-import { CONNECTION_PENDING_LIMIT, CONNECTION_REASON_MAX } from '@kolonie-ai/core'
+import { CONNECTION_PENDING_LIMIT, CONNECTION_REASON_MAX, type AgentId } from '@kolonie-ai/core'
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { describe, expect, it } from 'vitest'
 import { anonymousClient, connectedClient, registeredCitizen } from '../../__fixtures__/mcp.js'
@@ -24,6 +24,17 @@ const connections = () => ({ name: 'kolonie.citizens.connections', arguments: {}
 const textOf = (result: Awaited<ReturnType<Client['callTool']>>) => JSON.stringify(result.content)
 
 const REASON = 'We both walked mail.tm last week and reached opposite conclusions.'
+
+/**
+ * The other citizen, as the identifier its own acts arrive under.
+ *
+ * The fixture keys rows by identifier and a citizen written without one is its
+ * own handle, so this is `'walker'` either way. It is spelled once, branded,
+ * because `act` takes the caller's identifier and a handle in that order — and
+ * the two being the same string here is what would otherwise let a plain
+ * `'walker'` pass unnoticed in the wrong position.
+ */
+const WALKER = 'walker' as AgentId
 
 /**
  * A citizen asking, and a colony of citizens to be asked.
@@ -153,12 +164,7 @@ describe('kolonie.citizens.connect and kolonie.citizens.connections (#1293)', ()
     await client.callTool(connect({ handle: 'cartographer', reason: REASON }))
     // And one coming the other way, written straight onto the fixture.
     colony.connections.citizen('walker', true)
-    await colony.connections.act(
-      'walker',
-      agent.profile.name,
-      'request',
-      'I read your Atlas entry.',
-    )
+    await colony.connections.act(WALKER, agent.profile.name, 'request', 'I read your Atlas entry.')
 
     const result = await client.callTool(connections())
 
@@ -184,12 +190,7 @@ describe('kolonie.citizens.connect and kolonie.citizens.connections (#1293)', ()
   it('accepts a request, and both sides then hold the connection', async () => {
     const { client, colony, agent, close } = await aColonyWith([])
     colony.connections.citizen('walker', true)
-    await colony.connections.act(
-      'walker',
-      agent.profile.name,
-      'request',
-      'I read your Atlas entry.',
-    )
+    await colony.connections.act(WALKER, agent.profile.name, 'request', 'I read your Atlas entry.')
 
     const accepted = await client.callTool(connect({ handle: 'walker', act: 'accept' }))
 
@@ -208,12 +209,7 @@ describe('kolonie.citizens.connect and kolonie.citizens.connections (#1293)', ()
   it('declines a request, and leaves nothing behind', async () => {
     const { client, colony, agent, close } = await aColonyWith([])
     colony.connections.citizen('walker', true)
-    await colony.connections.act(
-      'walker',
-      agent.profile.name,
-      'request',
-      'I read your Atlas entry.',
-    )
+    await colony.connections.act(WALKER, agent.profile.name, 'request', 'I read your Atlas entry.')
 
     const declined = await client.callTool(connect({ handle: 'walker', act: 'decline' }))
 
@@ -257,12 +253,7 @@ describe('kolonie.citizens.connect and kolonie.citizens.connections (#1293)', ()
   it('removes a connection, and removing again succeeds', async () => {
     const { client, colony, agent, close } = await aColonyWith([])
     colony.connections.citizen('walker', true)
-    await colony.connections.act(
-      'walker',
-      agent.profile.name,
-      'request',
-      'I read your Atlas entry.',
-    )
+    await colony.connections.act(WALKER, agent.profile.name, 'request', 'I read your Atlas entry.')
     await client.callTool(connect({ handle: 'walker', act: 'accept' }))
 
     const first = await client.callTool(connect({ handle: 'walker', act: 'remove' }))
@@ -278,12 +269,7 @@ describe('kolonie.citizens.connect and kolonie.citizens.connections (#1293)', ()
   it('refuses the reverse request while one is already pending', async () => {
     const { client, colony, agent, close } = await aColonyWith([])
     colony.connections.citizen('walker', true)
-    await colony.connections.act(
-      'walker',
-      agent.profile.name,
-      'request',
-      'I read your Atlas entry.',
-    )
+    await colony.connections.act(WALKER, agent.profile.name, 'request', 'I read your Atlas entry.')
 
     const result = await client.callTool(connect({ handle: 'walker', reason: REASON }))
 

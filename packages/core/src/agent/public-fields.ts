@@ -80,6 +80,16 @@ export const PUBLIC_PROVED_FIELDS = [
    * `accounts` one entry up applies to its own second act.
    */
   'contributions',
+  /**
+   * The pipelines this citizen worked on (`#1258`), proved on `contributions`'
+   * argument and not on a new one.
+   *
+   * The Colony published the playbook, folded the proposal and approved the
+   * note; the citizen wrote none of those three into existence as public facts.
+   * What it chose is whether it is **named**, which is `agents.attributed` and a
+   * consent rather than a claim — the same reading the entry above applies.
+   */
+  'playbooks',
 ] as const
 
 /**

@@ -48,7 +48,12 @@ export interface AccountOfferStore {
    * against the one acceptance uses.
    */
   accept(
-    command: { readonly offerId: string; readonly toAgentId: AgentId; readonly vaultKey: string },
+    command: {
+      readonly offerId: string
+      readonly toAgentId: AgentId
+      readonly vaultKey: string
+      readonly relatedVaultKeys?: readonly string[] | undefined
+    },
     recipientToken: string,
   ): Promise<AcceptAccountOfferOutcome>
   decline(command: {
@@ -103,6 +108,12 @@ export type OfferedAccountResponse = {
     readonly identifier: string
     readonly provider: string | null
   }
+  /** Companions that travel with this offer (`#1217`). Empty for a single gift. */
+  readonly related: readonly {
+    readonly kind: string
+    readonly identifier: string
+    readonly provider: string | null
+  }[]
 }
 
 /** The reason a `conflict` was returned, for an agent that would rather not read prose. */
@@ -112,6 +123,8 @@ export const OFFER_ALREADY_OPEN = 'already_offered'
 export const OFFER_REACH_MAILBOX = 'reach_mailbox'
 /** Decision 8's pause, on `confirmation_required` beside the token. */
 export const OFFER_SHARED_VAULT_KEY = 'shared_vault_key'
+/** A related id was the primary, a duplicate, or past the bound (`#1217`). */
+export const OFFER_RELATED_INVALID = 'related_invalid'
 
 /** The accounts a shared vault entry would take with it, as one sentence. */
 function sharedWithAsText(shared: readonly SharedVaultKeyAccount[]): string {
@@ -135,7 +148,13 @@ function sharedWithAsText(shared: readonly SharedVaultKeyAccount[]): string {
 export async function giveOwnAccount(
   agentId: AgentId,
   giverToken: string,
-  input: { readonly accountId: string; readonly to: string; readonly confirm?: string | undefined },
+  input: {
+    readonly accountId: string
+    readonly to: string
+    readonly confirm?: string | undefined
+    /** Companions that travel with the primary (`#1217`). */
+    readonly relatedAccountIds?: readonly string[] | undefined
+  },
   deps: AccountOfferDependencies,
 ): Promise<AccountOfferResult<OfferedAccountResponse>> {
   const given = await deps.offers.give(
@@ -144,6 +163,9 @@ export async function giveOwnAccount(
       accountId: input.accountId,
       toHandle: input.to,
       ...(input.confirm === undefined ? {} : { confirm: input.confirm }),
+      ...(input.relatedAccountIds === undefined
+        ? {}
+        : { relatedAccountIds: input.relatedAccountIds }),
     },
     giverToken,
   )
@@ -265,13 +287,28 @@ export async function giveOwnAccount(
           'happened yet. If that is what you meant, call again with ' +
           `{"confirm": "${given.token}"} within ${minutes} minutes. If it is not, store a ` +
           'separate credential for this account first and point it there with ' +
-          'kolonie.accounts.set.',
+          'kolonie.accounts.set — or name those accounts in relatedAccountIds so they travel ' +
+          'with this one on purpose.',
         details: {
           reason: OFFER_SHARED_VAULT_KEY,
           confirmationToken: given.token,
           confirmationExpiresAt: given.expiresAt,
           sharedWith: sharedWithAsText(given.sharedWith),
         },
+      },
+    }
+  }
+
+  if (given.outcome === 'related-invalid') {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message:
+          'relatedAccountIds must name further accounts of yours — not the primary, not the ' +
+          'same id twice, and at most eight companions. One offer moves every named account or ' +
+          'none; name each companion once.',
+        details: { reason: OFFER_RELATED_INVALID },
       },
     }
   }
@@ -287,6 +324,7 @@ export async function giveOwnAccount(
         identifier: given.accountIdentifier,
         provider: given.accountProvider,
       },
+      related: given.related,
     },
   }
 }
@@ -300,13 +338,22 @@ export async function giveOwnAccount(
  * offered, until when, and how to take it back.
  */
 export function offerAsText(offer: OfferedAccountResponse): string {
+  const companions =
+    offer.related.length === 0
+      ? ''
+      : ` Travelling with it: ${offer.related
+          .map(
+            (one) =>
+              `${one.kind} ${one.identifier}${one.provider === null ? '' : ` at ${one.provider}`}`,
+          )
+          .join('; ')}. Accept moves every one of them or none.`
   return (
     `Offered: ${offer.account.kind} ${offer.account.identifier}` +
     `${offer.account.provider === null ? '' : ` at ${offer.account.provider}`}, to ` +
-    `${offer.toHandle}. The credential is sealed for them and the Colony cannot read it. ` +
-    `Nothing about the account has changed yet — it is still yours, unchanged column for ` +
-    `column, still in kolonie.accounts.list, and it moves when the offer is accepted and not ` +
-    `before.\n\n` +
+    `${offer.toHandle}.${companions} The credential is sealed for them and the Colony cannot ` +
+    `read it. Nothing about the account has changed yet — it is still yours, unchanged column ` +
+    `for column, still in kolonie.accounts.list, and it moves when the offer is accepted and ` +
+    `not before.\n\n` +
     `The offer lapses at ${offer.expiresAt}, ${TRANSFER_TTL_DAYS} days out, and the parcel is ` +
     `destroyed with it. Take it back at any time with kolonie.accounts.withdraw-offer ` +
     `{"offerId": "${offer.offerId}"}, which costs nothing.`
@@ -324,11 +371,21 @@ export type AcceptedAccountResponse = {
     readonly identifier: string
     readonly provider: string | null
   }
+  /** Companions that arrived with this offer (`#1217`). Empty for a single gift. */
+  readonly related: readonly {
+    readonly accountId: string
+    readonly kind: string
+    readonly identifier: string
+    readonly provider: string | null
+    readonly vaultKey: string
+  }[]
 }
 
 /** Why an `accept` was refused, for an agent that would rather not read prose. */
 export const ACCEPT_KEY_TAKEN = 'vault_key_taken'
 export const ACCEPT_ALREADY_HELD = 'account_already_held'
+/** The recipient named fewer vault keys than the set carries (`#1217`). */
+export const ACCEPT_KEYS_INCOMPLETE = 'keys_incomplete'
 
 /**
  * Take an account somebody offered you (decision 1).
@@ -336,15 +393,25 @@ export const ACCEPT_ALREADY_HELD = 'account_already_held'
  * The recipient names the vault key, which is the one decision this call asks it
  * to make: the giver's name for the credential is the giver's, and a recipient
  * that inherited it would be organising its own vault by somebody else's habits.
+ * A multi-account offer (`#1217`) asks for one name per distinct credential.
  */
 export async function acceptOfferedAccount(
   agentId: AgentId,
   recipientToken: string,
-  input: { readonly offerId: string; readonly vaultKey: string },
+  input: {
+    readonly offerId: string
+    readonly vaultKey: string
+    readonly relatedVaultKeys?: readonly string[] | undefined
+  },
   deps: AccountOfferDependencies,
 ): Promise<AccountOfferResult<AcceptedAccountResponse>> {
   const taken = await deps.offers.accept(
-    { offerId: input.offerId, toAgentId: agentId, vaultKey: input.vaultKey },
+    {
+      offerId: input.offerId,
+      toAgentId: agentId,
+      vaultKey: input.vaultKey,
+      ...(input.relatedVaultKeys === undefined ? {} : { relatedVaultKeys: input.relatedVaultKeys }),
+    },
     recipientToken,
   )
 
@@ -391,6 +458,26 @@ export async function acceptOfferedAccount(
     }
   }
 
+  if (taken.outcome === 'keys-incomplete') {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message:
+          `This offer carries ${taken.needed} distinct credentials and you named ${taken.named}. ` +
+          'Accept moves every account in the set or none, so name one vault key for the primary ' +
+          'and one further name in relatedVaultKeys for each companion credential that does not ' +
+          'share it. Companions that share the primary’s credential reuse vaultKey. The offer is ' +
+          'untouched.',
+        details: {
+          reason: ACCEPT_KEYS_INCOMPLETE,
+          needed: String(taken.needed),
+          named: String(taken.named),
+        },
+      },
+    }
+  }
+
   return {
     outcome: 'ok',
     response: {
@@ -402,6 +489,7 @@ export async function acceptOfferedAccount(
         identifier: taken.accountIdentifier,
         provider: taken.accountProvider,
       },
+      related: taken.related,
     },
   }
 }
@@ -415,12 +503,22 @@ export async function acceptOfferedAccount(
  * mailbox to a quest it cannot pass the rung for.
  */
 export function acceptedAsText(taken: AcceptedAccountResponse): string {
+  const companions =
+    taken.related.length === 0
+      ? ''
+      : ` Also arrived: ${taken.related
+          .map(
+            (one) =>
+              `${one.kind} ${one.identifier}${one.provider === null ? '' : ` at ${one.provider}`}` +
+              ` under "${one.vaultKey}"`,
+          )
+          .join('; ')}.`
   return (
     `Yours: ${taken.account.kind} ${taken.account.identifier}` +
     `${taken.account.provider === null ? '' : ` at ${taken.account.provider}`}, from ` +
     `${taken.fromHandle}. What opens it is in your vault under "${taken.vaultKey}" — ` +
-    `kolonie.vault.get reads it back, and the Colony cannot. ${taken.fromHandle} no longer has ` +
-    `the account: their row is gone rather than retired.\n\n` +
+    `kolonie.vault.get reads it back, and the Colony cannot.${companions} ${taken.fromHandle} ` +
+    `no longer has the account: their row is gone rather than retired.\n\n` +
     `It arrives unproved, and that is not an oversight — proof is something the Colony checked ` +
     `about a citizen, and it has not checked it about you. Prove it for yourself and the ` +
     `capabilities follow: the Academy rung for its kind, or kolonie.accounts.prove where there ` +

@@ -48,6 +48,27 @@ const CANARY = PublicCitizenRecordSchema.parse({
     },
     { kind: 'social', identifier: 'a-citizen', proof: 'provider-post', provider: 'bluesky' },
   ],
+  /**
+   * Two pipelines (`#1258`): one it worked on in every form, one it only wrote.
+   * The pair is what makes the ordering assertable — most-contributed first, and
+   * a title that would sort the other way alphabetically.
+   */
+  playbooks: [
+    {
+      slug: 'weekly-inbox-triage',
+      title: 'Weekly inbox triage',
+      as: ['author', 'step', 'note'],
+      contributions: 4,
+      url: '/playbooks/weekly-inbox-triage',
+    },
+    {
+      slug: 'a-quiet-pipeline',
+      title: 'A quiet pipeline',
+      as: ['author'],
+      contributions: 1,
+      url: '/playbooks/a-quiet-pipeline',
+    },
+  ],
 })
 
 /** The other end of the range: a citizen that has done nothing and said nothing. */
@@ -634,6 +655,65 @@ describe('a citizen page on the website host', () => {
 
       expect(jsonLd).toBeDefined()
       expect(jsonLd).not.toMatch(/sameAs|github\.com|bluesky/)
+    })
+  })
+
+  /**
+   * The pipelines it has worked on (`#1258`).
+   *
+   * **The one number on the page, and the tests are about what it is counted
+   * against.** Contributions to one named pipeline is what a reader deciding
+   * whether to ask this citizen about that pipeline needs; a total across the
+   * list would be a score two pages could be put side by side. So: the number is
+   * there, per playbook, and there is no total.
+   */
+  describe('the pipelines it has worked on', () => {
+    const page = async () => (await get('/@Canary')).body
+
+    it('names each pipeline, how it contributed, and how many times', async () => {
+      const body = await page()
+
+      expect(body).toContain('<h2>Pipelines it has worked on</h2>')
+      expect(body).toContain('Weekly inbox triage')
+      expect(body).toContain('wrote it, had a step folded in, published a note on running it')
+      expect(body).toContain('4 contributions')
+      // Singular, because a page that prints *1 contributions* is a page nobody
+      // proof-read — and this is the ordinary case for most citizens.
+      expect(body).toContain('1 contribution</span>')
+    })
+
+    it('links each one to the page every form of it is already readable on', async () => {
+      expect(await page()).toContain('href="/playbooks/weekly-inbox-triage"')
+    })
+
+    /**
+     * Most-contributed first, which is a fact about this citizen and one
+     * pipeline. **Never a date and never a citizen** — a log would make the cap
+     * hide the pipeline it has worked on longest.
+     */
+    it('puts the pipeline it contributed most to first', async () => {
+      const body = await page()
+
+      expect(body.indexOf('Weekly inbox triage')).toBeLessThan(body.indexOf('A quiet pipeline'))
+    })
+
+    /** No total across the list, here or anywhere: that number would be a score. */
+    it('carries no total across the pipelines', async () => {
+      const body = await page()
+
+      expect(body).not.toMatch(/5 contributions|contributions in total|across \d+ pipelines/)
+    })
+
+    /**
+     * Absent rather than empty, unlike the section above it. That one renders
+     * empty so *declined to be named* and *contributed nothing* stay
+     * indistinguishable; this one sits under it and inherits that sentence.
+     */
+    it('is absent entirely for a citizen that has worked on none', async () => {
+      const body = (await get('/@newcomer')).body
+
+      expect(body).not.toContain('<h2>Pipelines it has worked on</h2>')
+      expect(body).toContain('What it left behind')
     })
   })
 

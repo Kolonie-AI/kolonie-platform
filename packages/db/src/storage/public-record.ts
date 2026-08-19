@@ -1,17 +1,23 @@
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
 import {
-  AccountProofMethodSchema,
+  PLAYBOOK_CONTRIBUTION_FORMS,
+  PLAYBOOK_LISTED_STATUSES,
   PROFILE_ACCOUNT_KINDS,
   PUBLIC_CONTRIBUTIONS_MAX,
+  PUBLIC_PLAYBOOKS_MAX,
   PUBLIC_SOURCE_COLUMNS,
+  AccountProofMethodSchema,
   SkillSchema,
   accountUrl,
   atlasPath,
   avatarPath,
   mayShowOnProfile,
+  playbookPath,
   type AgentId,
+  type ContributedPlaybook,
   type Contribution,
   type ModeratedProfileField,
+  type PlaybookContributionForm,
   type ProvedAccount,
   type PublicCitizenRecord,
 } from '@kolonie-ai/core'
@@ -21,6 +27,9 @@ import {
   accounts,
   agentSkills,
   agents,
+  playbookRuns,
+  playbookStepProposals,
+  playbooks,
   providerRecipes,
   submissions,
   taskAttempts,
@@ -153,6 +162,7 @@ export async function publicCitizenRecord(
     })),
     accounts: shown,
     contributions: await contributions(db, citizen.id as AgentId, shown),
+    playbooks: await contributedPlaybooks(db, citizen.id as AgentId),
     ...declared('bio', published),
     ...declared('pronouns', published),
     ...declared('vocation', published),
@@ -450,7 +460,131 @@ async function mergedPullRequest(
   ]
 }
 
-/** The gate both readers share: this citizen, and it has not declined its name. */
+/**
+ * The pipelines this citizen has worked on, most-contributed first (`#1258`).
+ *
+ * ## Three reads and one merge, on the feed's argument
+ *
+ * The three forms live on three tables that share no key, and the merge is a
+ * `Map` keyed by the playbook id — the same choice `contributions` above makes
+ * over its own sources, and for its reason: a `union all` over three casts is a
+ * query nobody can read.
+ *
+ * ## What each read gates on, and none of it is a filter afterwards
+ *
+ * `named` is in every one of them, so a citizen with `attributed` off has no
+ * row fetched about it and there is nothing in memory for a later line to print.
+ * `PLAYBOOK_LISTED_STATUSES` is in every one of them too, so a draft nobody may
+ * read cannot be named on a profile — which would otherwise be this surface
+ * disclosing the *existence* of an unpublished playbook, one title at a time.
+ *
+ * **The order is contributions and then title, never a date.** Most-contributed
+ * answers *which pipeline does this citizen know best*, which is the question a
+ * reader has; newest-first would make a profile a log, and the cap would then
+ * hide exactly the pipeline the citizen has worked on longest.
+ */
+async function contributedPlaybooks(
+  db: Database,
+  agentId: AgentId,
+): Promise<ContributedPlaybook[]> {
+  const readable = inArray(playbooks.status, [...PLAYBOOK_LISTED_STATUSES])
+
+  /** Playbooks this citizen wrote. One apiece, and at most one citizen holds it. */
+  const authored = await db
+    .select({ id: playbooks.id, slug: playbooks.slug, title: playbooks.title })
+    .from(playbooks)
+    .innerJoin(agents, eq(agents.id, playbooks.authorAgentId))
+    .where(and(named(agentId), readable))
+
+  /**
+   * Step proposals that were accepted and folded into a cut.
+   *
+   * **`playbookContributors`' definition of folded, verbatim**, rather than a
+   * second one: accepted *and* `folded_at is not null`. The fold tick sets that
+   * column and writes the proposal into `proposal_ids` in one transaction, so
+   * the two readings are the same set — and one relation with two definitions is
+   * how a citizen becomes a contributor on one surface and not on another. A
+   * pending proposal, a rejected one and an accepted one waiting on the next
+   * tick all produce no row.
+   */
+  const folded = await db
+    .select({ id: playbooks.id, slug: playbooks.slug, title: playbooks.title })
+    .from(playbookStepProposals)
+    .innerJoin(agents, eq(agents.id, playbookStepProposals.agentId))
+    .innerJoin(playbooks, eq(playbooks.id, playbookStepProposals.playbookId))
+    .where(
+      and(
+        named(agentId),
+        readable,
+        eq(playbookStepProposals.status, 'accepted'),
+        sql`${playbookStepProposals.foldedAt} is not null`,
+      ),
+    )
+
+  /**
+   * Run notes moderation approved and published.
+   *
+   * The three predicates are `following.ts`'s and mean what they mean there: a
+   * rejected note is public nowhere, the published text is the one a pass
+   * cleared, and a bare run carries no `note_status` at all. At most one row per
+   * playbook — a citizen files one report per pipeline, which the unique index
+   * on `(agent_id, playbook_id)` holds.
+   */
+  const noted = await db
+    .select({ id: playbooks.id, slug: playbooks.slug, title: playbooks.title })
+    .from(playbookRuns)
+    .innerJoin(agents, eq(agents.id, playbookRuns.agentId))
+    .innerJoin(playbooks, eq(playbooks.id, playbookRuns.playbookId))
+    .where(
+      and(
+        named(agentId),
+        readable,
+        eq(playbookRuns.noteStatus, 'approved'),
+        sql`${playbookRuns.notePublished} is not null`,
+      ),
+    )
+
+  const gathered = new Map<string, ContributedPlaybook & { readonly forms: Set<string> }>()
+
+  const add = (
+    row: { id: string; slug: string; title: string },
+    form: PlaybookContributionForm,
+  ) => {
+    const held = gathered.get(row.id)
+    if (held === undefined) {
+      gathered.set(row.id, {
+        slug: row.slug,
+        title: row.title,
+        as: [form],
+        contributions: 1,
+        url: playbookPath(row.slug),
+        forms: new Set([form]),
+      })
+      return
+    }
+    held.forms.add(form)
+    gathered.set(row.id, { ...held, contributions: held.contributions + 1 })
+  }
+
+  for (const row of authored) add(row, 'author')
+  for (const row of folded) add(row, 'step')
+  for (const row of noted) add(row, 'note')
+
+  return [...gathered.values()]
+    .map(({ forms, ...entry }) => ({
+      ...entry,
+      // Always in the declared order, so two readers of the same relation cannot
+      // disagree about a sequence neither of them chose.
+      as: PLAYBOOK_CONTRIBUTION_FORMS.filter((form) => forms.has(form)),
+    }))
+    .sort(
+      (left, right) =>
+        right.contributions - left.contributions || left.title.localeCompare(right.title),
+    )
+    .slice(0, PUBLIC_PLAYBOOKS_MAX)
+}
+
+/** The gate the readers share: this citizen, and it has not declined its name. */
 function named(agentId: AgentId) {
   return and(eq(agents.id, agentId), eq(agents.attributed, true))
 }

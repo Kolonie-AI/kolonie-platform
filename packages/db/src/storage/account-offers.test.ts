@@ -138,7 +138,12 @@ describe('an account offered to another citizen', () => {
   }
 
   const give = async (
-    over: { readonly accountId?: string; readonly to?: string; readonly confirm?: string } = {},
+    over: {
+      readonly accountId?: string
+      readonly to?: string
+      readonly confirm?: string
+      readonly relatedAccountIds?: readonly string[]
+    } = {},
   ): Promise<GiveAccountOutcome> =>
     await giveAccount(
       db,
@@ -147,6 +152,9 @@ describe('an account offered to another citizen', () => {
         accountId: over.accountId ?? accountId,
         toHandle: over.to ?? 'recipient',
         confirm: over.confirm,
+        ...(over.relatedAccountIds === undefined
+          ? {}
+          : { relatedAccountIds: over.relatedAccountIds }),
       },
       giverToken,
       SEALING_KEY,
@@ -532,6 +540,7 @@ describe('an account offered to another citizen', () => {
         readonly offerId?: string
         readonly toAgentId?: AgentId
         readonly vaultKey?: string
+        readonly relatedVaultKeys?: readonly string[]
         readonly token?: string
       } = {},
     ): Promise<AcceptAccountOfferOutcome> =>
@@ -541,6 +550,9 @@ describe('an account offered to another citizen', () => {
           offerId: over.offerId ?? offerId,
           toAgentId: over.toAgentId ?? recipient,
           vaultKey: over.vaultKey ?? 'mine/the-account',
+          ...(over.relatedVaultKeys === undefined
+            ? {}
+            : { relatedVaultKeys: over.relatedVaultKeys }),
         },
         over.token ?? recipientToken,
         SEALING_KEY,
@@ -1026,6 +1038,264 @@ describe('an account offered to another citizen', () => {
         }),
       ).toEqual({ outcome: 'unknown' })
       expect(await db.select().from(accountOffers)).toHaveLength(1)
+    })
+  })
+
+  /**
+   * A mailbox with the OAuth child that hangs off it (`#1217`). Accept moves
+   * every named account or none; distinct vaultKeys each get their own parcel;
+   * a vaultKey shared inside the set shares one; the confirm pause only fires
+   * for accounts the giver is keeping.
+   */
+  describe('a multi-account offer', () => {
+    let mailboxId: string
+    let githubId: string
+    let recipientToken: string
+
+    beforeEach(async () => {
+      recipientToken = String(generateApiKey())
+
+      await setVaultEntry(db, giverToken, giver, 'mailbox/spare', FIXTURE_VALUE)
+      await setVaultEntry(db, giverToken, giver, 'github/spare', FIXTURE_VALUE)
+
+      mailboxId = await anAccount({
+        kind: 'mailbox',
+        identifier: 'spare@example.test',
+        vaultKey: 'mailbox/spare',
+      })
+      githubId = await anAccount({
+        kind: 'github',
+        identifier: 'spare-oauth-child',
+        vaultKey: 'github/spare',
+      })
+    })
+
+    it('writes one offer per member under a shared setId, and one parcel per vaultKey', async () => {
+      const offered = await give({
+        accountId: mailboxId,
+        relatedAccountIds: [githubId],
+      })
+      if (offered.outcome !== 'offered') throw new Error(offered.outcome)
+
+      expect(offered.related).toEqual([
+        { kind: 'github', identifier: 'spare-oauth-child', provider: 'example.test' },
+      ])
+
+      const rows = await db.select().from(accountOffers).orderBy(accountOffers.createdAt)
+      expect(rows).toHaveLength(2)
+      expect(rows[0]?.setId).not.toBeNull()
+      expect(rows[0]?.setId).toBe(rows[1]?.setId)
+      expect(rows.map((row) => row.accountId).sort()).toEqual([mailboxId, githubId].sort())
+
+      const parcels = await db.select().from(accountTransfers)
+      expect(parcels).toHaveLength(2)
+
+      expect(await offersTo(db, recipient)).toMatchObject([
+        {
+          offerId: offered.offerId,
+          accountKind: 'mailbox',
+          accountIdentifier: 'spare@example.test',
+          related: [{ kind: 'github', identifier: 'spare-oauth-child' }],
+        },
+      ])
+    })
+
+    it('shares one parcel when companions share a vaultKey', async () => {
+      await setVaultEntry(db, giverToken, giver, 'shared/credential', FIXTURE_VALUE)
+      const twin = await anAccount({
+        kind: 'social',
+        identifier: 'same-credential-child',
+        vaultKey: 'shared/credential',
+      })
+      const primary = await anAccount({
+        kind: 'mailbox',
+        identifier: 'shared-credential-parent@example.test',
+        vaultKey: 'shared/credential',
+      })
+
+      const offered = await give({ accountId: primary, relatedAccountIds: [twin] })
+      if (offered.outcome !== 'offered') throw new Error(offered.outcome)
+
+      expect(await db.select().from(accountOffers)).toHaveLength(2)
+      expect(await db.select().from(accountTransfers)).toHaveLength(1)
+    })
+
+    it('refuses a related id that is the primary, a duplicate, or past the bound', async () => {
+      expect(await give({ accountId: mailboxId, relatedAccountIds: [mailboxId] })).toEqual({
+        outcome: 'related-invalid',
+      })
+      expect(await give({ accountId: mailboxId, relatedAccountIds: [githubId, githubId] })).toEqual(
+        { outcome: 'related-invalid' },
+      )
+
+      const extras: string[] = []
+      for (let i = 0; i < 9; i += 1) {
+        await setVaultEntry(db, giverToken, giver, `extra/${i}`, FIXTURE_VALUE)
+        extras.push(
+          await anAccount({
+            kind: 'social',
+            identifier: `extra-${i}`,
+            vaultKey: `extra/${i}`,
+          }),
+        )
+      }
+      expect(await give({ accountId: mailboxId, relatedAccountIds: extras })).toEqual({
+        outcome: 'related-invalid',
+      })
+    })
+
+    it('does not pause for a vaultKey shared only with a companion in the set', async () => {
+      await setVaultEntry(db, giverToken, giver, 'shared/inside', FIXTURE_VALUE)
+      const parent = await anAccount({
+        kind: 'mailbox',
+        identifier: 'parent-inside@example.test',
+        vaultKey: 'shared/inside',
+      })
+      const child = await anAccount({
+        kind: 'github',
+        identifier: 'child-inside',
+        vaultKey: 'shared/inside',
+      })
+
+      expect(await give({ accountId: parent, relatedAccountIds: [child] })).toMatchObject({
+        outcome: 'offered',
+      })
+    })
+
+    it('still pauses when a vaultKey is shared with an account the giver is keeping', async () => {
+      await setVaultEntry(db, giverToken, giver, 'shared/outside', FIXTURE_VALUE)
+      await anAccount({
+        kind: 'social',
+        identifier: 'kept-outside',
+        vaultKey: 'shared/outside',
+      })
+      const moving = await anAccount({
+        kind: 'mailbox',
+        identifier: 'moving-outside@example.test',
+        vaultKey: 'shared/outside',
+      })
+
+      const paused = await give({ accountId: moving, relatedAccountIds: [githubId] })
+      expect(paused).toMatchObject({
+        outcome: 'confirm',
+        sharedWith: [{ kind: 'social', identifier: 'kept-outside' }],
+      })
+    })
+
+    it('moves every account or none, and spends each vaultKey only when nothing of the giver’s remains', async () => {
+      const offered = await give({
+        accountId: mailboxId,
+        relatedAccountIds: [githubId],
+      })
+      if (offered.outcome !== 'offered') throw new Error(offered.outcome)
+
+      const taken = await acceptAccountOffer(
+        db,
+        {
+          offerId: offered.offerId,
+          toAgentId: recipient,
+          vaultKey: 'mine/mailbox',
+          relatedVaultKeys: ['mine/github'],
+        },
+        recipientToken,
+        SEALING_KEY,
+      )
+      if (taken.outcome !== 'accepted') throw new Error(taken.outcome)
+
+      expect(taken.related).toHaveLength(1)
+      expect(taken.related[0]).toMatchObject({
+        kind: 'github',
+        identifier: 'spare-oauth-child',
+        vaultKey: 'mine/github',
+      })
+
+      expect(await db.select().from(accounts).where(eq(accounts.id, mailboxId))).toEqual([])
+      expect(await db.select().from(accounts).where(eq(accounts.id, githubId))).toEqual([])
+      expect(await db.select().from(accountOffers)).toEqual([])
+      expect(await offersTo(db, recipient)).toEqual([])
+
+      expect(await getVaultEntry(db, recipientToken, recipient, 'mine/mailbox')).toMatchObject({
+        outcome: 'found',
+        value: FIXTURE_VALUE,
+      })
+      expect(await getVaultEntry(db, recipientToken, recipient, 'mine/github')).toMatchObject({
+        outcome: 'found',
+        value: FIXTURE_VALUE,
+      })
+
+      const listed = await listVaultEntries(db, giverToken, giver)
+      expect(listed).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ key: 'mailbox/spare' }),
+          expect.objectContaining({ key: 'github/spare' }),
+        ]),
+      )
+      expect(await getVaultEntry(db, giverToken, giver, 'mailbox/spare')).toMatchObject({
+        outcome: 'spent',
+      })
+      expect(await getVaultEntry(db, giverToken, giver, 'github/spare')).toMatchObject({
+        outcome: 'spent',
+      })
+    })
+
+    it('refuses when the recipient names fewer vault keys than the set carries', async () => {
+      const offered = await give({
+        accountId: mailboxId,
+        relatedAccountIds: [githubId],
+      })
+      if (offered.outcome !== 'offered') throw new Error(offered.outcome)
+
+      expect(
+        await acceptAccountOffer(
+          db,
+          {
+            offerId: offered.offerId,
+            toAgentId: recipient,
+            vaultKey: 'mine/mailbox',
+          },
+          recipientToken,
+          SEALING_KEY,
+        ),
+      ).toEqual({ outcome: 'keys-incomplete', needed: 2, named: 1 })
+
+      expect(await db.select().from(accountOffers)).toHaveLength(2)
+      expect(await db.select().from(accounts).where(eq(accounts.id, mailboxId))).toHaveLength(1)
+    })
+
+    it('withdrawing any member takes the whole set', async () => {
+      const offered = await give({
+        accountId: mailboxId,
+        relatedAccountIds: [githubId],
+      })
+      if (offered.outcome !== 'offered') throw new Error(offered.outcome)
+
+      expect(
+        await withdrawAccountOffer(db, { offerId: offered.offerId, fromAgentId: giver }),
+      ).toEqual({ outcome: 'withdrawn' })
+
+      expect(await db.select().from(accountOffers)).toEqual([])
+      expect(await db.select().from(accountTransfers)).toEqual([])
+      expect(await db.select().from(accounts).where(eq(accounts.id, mailboxId))).toHaveLength(1)
+      expect(await db.select().from(accounts).where(eq(accounts.id, githubId))).toHaveLength(1)
+    })
+
+    it('declining any member takes the whole set', async () => {
+      const offered = await give({
+        accountId: mailboxId,
+        relatedAccountIds: [githubId],
+      })
+      if (offered.outcome !== 'offered') throw new Error(offered.outcome)
+
+      const rows = await db.select().from(accountOffers)
+      const sibling = rows.find((row) => row.id !== offered.offerId)
+      if (sibling === undefined) throw new Error('expected a sibling offer')
+
+      expect(await declineAccountOffer(db, { offerId: sibling.id, toAgentId: recipient })).toEqual({
+        outcome: 'declined',
+      })
+
+      expect(await db.select().from(accountOffers)).toEqual([])
+      expect(await db.select().from(accountTransfers)).toEqual([])
     })
   })
 })

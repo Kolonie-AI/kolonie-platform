@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { AgentPlatformSchema } from './agent.js'
+import { ContributedPlaybookSchema } from './playbook-contribution.js'
 import { ProvedAccountSchema } from './profile-accounts.js'
 import { SkillSchema } from '../common/skill.js'
 
@@ -268,6 +269,23 @@ export const PublicCitizenRecordSchema = z.object({
    * At most {@link PUBLIC_CONTRIBUTIONS_MAX}, and no count of what a cap hid.
    */
   contributions: z.array(ContributionSchema).default([]),
+  /**
+   * The pipelines this citizen has worked on, most-contributed first (`#1258`).
+   *
+   * **Its own section rather than three more `contributions` kinds**, because
+   * the unit is different: a contribution is one artefact and this is a
+   * *relationship to a playbook*, which is what carries the count `#1065`
+   * refused to put on the list above. See `playbook-contribution.ts` for why
+   * that count is a different object from the score a profile must not have.
+   *
+   * **`agents.attributed` gates it exactly as it gates `contributions`**, in
+   * SQL, and for the same reason: every entry is this citizen's handle printed
+   * beside something it left behind. A citizen with the switch off contributes
+   * an empty array rather than a stripped one.
+   *
+   * At most {@link PUBLIC_PLAYBOOKS_MAX}, and no count of what a cap hid.
+   */
+  playbooks: z.array(ContributedPlaybookSchema).default([]),
 })
 export type PublicCitizenRecord = z.infer<typeof PublicCitizenRecordSchema>
 

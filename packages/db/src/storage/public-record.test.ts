@@ -3,6 +3,7 @@ import {
   AccountKindSchema,
   PRIVATE_AGENT_COLUMNS,
   PUBLIC_CONTRIBUTIONS_MAX,
+  PUBLIC_PLAYBOOKS_MAX,
   PUBLIC_SOURCE_COLUMNS,
   type AgentId,
 } from '@kolonie-ai/core'
@@ -12,6 +13,9 @@ import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import {
   accountWalks,
   agents,
+  playbookRuns,
+  playbookStepProposals,
+  playbooks,
   submissions,
   taskAttempts,
   taskReports,
@@ -757,6 +761,177 @@ describe('what a public citizen record carries', () => {
       expect(JSON.stringify(await publicCitizenRecord(db, 'colette'))).not.toMatch(
         /p01\.test|p02\.test|p03\.test/,
       )
+    })
+  })
+
+  /**
+   * The pipelines a page may name (`#1258`).
+   *
+   * **The count is the thing to hold here**, and what makes it defensible is what
+   * it is counted against: contributions to *one named pipeline*, which is not
+   * comparable across citizens without first choosing a playbook. So the tests
+   * assert that the number is per-playbook, that there is no total anywhere, and
+   * that the ordering is by that number rather than by anything about a citizen.
+   */
+  describe('the pipelines a page may name', () => {
+    const aPlaybook = async (
+      slug: string,
+      title: string,
+      options: { author?: AgentId; status?: 'open' | 'draft' } = {},
+    ): Promise<string> => {
+      const status = options.status ?? 'open'
+      const [row] = await db
+        .insert(playbooks)
+        .values({
+          slug,
+          authorAgentId: options.author ?? agentId,
+          title,
+          summary: 'Read what nobody has answered, write one reply, and say what you could not.',
+          steps: [{ title: 'Read the open tickets' }],
+          status,
+          ...(status === 'draft' ? {} : { publishedAt: '2026-08-01T12:00:00.000Z' }),
+        })
+        .returning({ id: playbooks.id })
+      if (row === undefined) throw new Error('inserting a playbook returned no row')
+      return row.id
+    }
+
+    const anApprovedNote = async (playbookId: string, on = agentId) =>
+      await db.insert(playbookRuns).values({
+        playbookId,
+        agentId: on,
+        outcome: 'completed',
+        did: 'Read the queue oldest first and answered the one ticket that named a version.',
+        note: 'Step one is worth doing twice — the queue reorders while you read it.',
+        noteStatus: 'approved',
+        notePublished: 'Step one is worth doing twice.',
+      })
+
+    const aProposal = async (
+      playbookId: string,
+      state: 'folded' | 'accepted' | 'pending' = 'folded',
+    ) =>
+      await db.insert(playbookStepProposals).values({
+        playbookId,
+        agentId,
+        kind: 'insert-after',
+        position: 1,
+        title: 'Note which tickets came back',
+        why: 'The queue reorders itself while you are reading it, and that is worth a step.',
+        againstVersion: 1,
+        status: state === 'pending' ? 'pending' : 'accepted',
+        ...(state === 'folded' ? { foldedAt: '2026-08-14T12:00:00.000Z' } : {}),
+      })
+
+    const listed = async () => (await publicCitizenRecord(db, 'colette'))?.playbooks ?? []
+
+    it('names a playbook it wrote, with the form, the count and the page', async () => {
+      await aPlaybook('weekly-ticket-sweep', 'Answer the week’s unanswered support tickets')
+
+      expect(await listed()).toEqual([
+        {
+          slug: 'weekly-ticket-sweep',
+          title: 'Answer the week’s unanswered support tickets',
+          as: ['author'],
+          contributions: 1,
+          url: '/playbooks/weekly-ticket-sweep',
+        },
+      ])
+    })
+
+    /**
+     * Every form, on one pipeline, counted once each and listed in the order
+     * `PLAYBOOK_CONTRIBUTION_FORMS` fixes — so two readers of the same relation
+     * cannot disagree about a sequence neither of them chose.
+     */
+    it('counts each form once and lists them in the declared order', async () => {
+      const playbookId = await aPlaybook('weekly-ticket-sweep', 'The sweep')
+      await aProposal(playbookId)
+      await anApprovedNote(playbookId)
+
+      expect(await listed()).toEqual([
+        {
+          slug: 'weekly-ticket-sweep',
+          title: 'The sweep',
+          as: ['author', 'step', 'note'],
+          contributions: 3,
+          url: '/playbooks/weekly-ticket-sweep',
+        },
+      ])
+    })
+
+    it('orders by contributions to that one pipeline, and carries no total', async () => {
+      const someoneElse = await registerAgent(db, {
+        name: 'other',
+        platform: 'openclaw',
+        operator: null,
+      })
+      if (someoneElse.outcome !== 'registered') throw new Error('could not register')
+      const busy = await aPlaybook('busy-pipeline', 'Where the work went', {
+        author: someoneElse.agent.id,
+      })
+      await aProposal(busy)
+      await anApprovedNote(busy)
+      await aPlaybook('quiet-pipeline', 'Where it did not')
+
+      const carried = await listed()
+
+      expect(carried.map((one) => [one.slug, one.contributions])).toEqual([
+        ['busy-pipeline', 2],
+        ['quiet-pipeline', 1],
+      ])
+      // No total across the list, on this record or anywhere: a single number
+      // summing these would be the comparable score the record refuses.
+      expect(JSON.stringify(await publicCitizenRecord(db, 'colette'))).not.toMatch(
+        /"playbookContributions"|"totalContributions"/,
+      )
+    })
+
+    it('names no playbook nobody but its author may read', async () => {
+      await aPlaybook('unfinished-sweep', 'Not yet', { status: 'draft' })
+
+      expect(await listed()).toEqual([])
+    })
+
+    /** An accepted proposal is a citizen asking until the tick has cut it. */
+    it('counts a folded proposal and not one still waiting on the tick', async () => {
+      const someoneElse = await registerAgent(db, {
+        name: 'other',
+        platform: 'openclaw',
+        operator: null,
+      })
+      if (someoneElse.outcome !== 'registered') throw new Error('could not register')
+      const playbookId = await aPlaybook('weekly-ticket-sweep', 'The sweep', {
+        author: someoneElse.agent.id,
+      })
+      await aProposal(playbookId, 'accepted')
+
+      expect(await listed()).toEqual([])
+    })
+
+    /**
+     * **The rejection case, and it is the same one the section above rests on.**
+     * `attributed` off is an empty array rather than a shorter one — the switch
+     * is answered in SQL, so nothing about the citizen was ever fetched.
+     */
+    it('carries nothing for a citizen that declined to be named', async () => {
+      const playbookId = await aPlaybook('weekly-ticket-sweep', 'The sweep')
+      await anApprovedNote(playbookId)
+      await db.update(agents).set({ attributed: false }).where(eq(agents.id, agentId))
+
+      expect(await listed()).toEqual([])
+    })
+
+    it('stops at the cap, and says nothing about what the cap hid', async () => {
+      for (let index = 0; index < PUBLIC_PLAYBOOKS_MAX + 2; index += 1) {
+        const number = String(index + 1).padStart(2, '0')
+        await aPlaybook(`pipeline-${number}`, `Pipeline ${number}`)
+      }
+
+      const carried = await listed()
+
+      expect(carried).toHaveLength(PUBLIC_PLAYBOOKS_MAX)
+      expect(JSON.stringify(await publicCitizenRecord(db, 'colette'))).not.toMatch(/and \d+ more/)
     })
   })
 })

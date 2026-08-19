@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { TRANSFER_TTL_DAYS, type AgentId } from '@kolonie-ai/core'
+import { RELATED_ACCOUNTS_MAX, TRANSFER_TTL_DAYS, type AgentId } from '@kolonie-ai/core'
 import type { AccountOfferStore } from '../account-offers.js'
 import type { GiveAccountCommand, GiveAccountOutcome, SharedVaultKeyAccount } from '@kolonie-ai/db'
 
@@ -17,6 +17,9 @@ import type { GiveAccountCommand, GiveAccountOutcome, SharedVaultKeyAccount } fr
  * nobody is not a refusal — it writes the offer with no parcel behind it. A
  * fixture that resolved the handle first would let a tool test pass while the
  * surface it stands in for leaked which names are taken.
+ *
+ * Multi-account offers (`#1217`) share a `setId` across sibling rows. Accept,
+ * withdraw and decline take the whole set or none.
  */
 export interface FakeAccountOffers extends AccountOfferStore {
   /** Put a proved, givable account on a citizen's register. */
@@ -108,6 +111,8 @@ type OpenOffer = {
   readonly toHandle: string
   readonly expiresAt: string
   readonly hasParcel: boolean
+  /** Shared across siblings of a multi-account offer (`#1217`), else null. */
+  readonly setId: string | null
 }
 
 const handleKey = (handle: string): string => handle.trim().toLowerCase()
@@ -124,6 +129,14 @@ export function fakeAccountOffers(): FakeAccountOffers {
 
   const expiry = (): string =>
     new Date(Date.now() + TRANSFER_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString()
+
+  /** Every open offer in the same set as `offerId`, including itself. */
+  function setOf(offerId: string): OpenOffer[] {
+    const open = offers.get(offerId)
+    if (open === undefined) return []
+    if (open.setId === null) return [open]
+    return [...offers.values()].filter((member) => member.setId === open.setId)
+  }
 
   return {
     hold(agentId, account) {
@@ -196,22 +209,47 @@ export function fakeAccountOffers(): FakeAccountOffers {
     give(command: GiveAccountCommand): Promise<GiveAccountOutcome> {
       if (sealingKey === undefined) return Promise.resolve({ outcome: 'unsealable' })
 
-      const account = accounts.get(command.accountId)
-      // One answer for *not yours* and *does not exist*, as the storage gives.
-      if (account === undefined || account.ownerId !== command.fromAgentId) {
-        return Promise.resolve({ outcome: 'unknown-account' })
+      const relatedIds = command.relatedAccountIds ?? []
+      if (relatedIds.length > RELATED_ACCOUNTS_MAX) {
+        return Promise.resolve({ outcome: 'related-invalid' })
       }
-      // Proved or declared, both are givable: the gate is the credential (`#1213`).
-      if (account.vaultKey === null) return Promise.resolve({ outcome: 'no-vault-key' })
-      const entry = `${command.fromAgentId}:${account.vaultKey}`
-      // A spent entry opens nothing, so there is nothing to seal into a parcel.
-      if (!vaultEntries.has(entry) || spentEntries.has(entry)) {
-        return Promise.resolve({ outcome: 'nothing-to-give' })
+      const seen = new Set<string>([command.accountId])
+      for (const id of relatedIds) {
+        if (seen.has(id)) return Promise.resolve({ outcome: 'related-invalid' })
+        seen.add(id)
       }
-      if (account.reachMailbox) return Promise.resolve({ outcome: 'reach-mailbox' })
+
+      const allIds = [command.accountId, ...relatedIds]
+      const set: HeldAccount[] = []
+      for (const id of allIds) {
+        const account = accounts.get(id)
+        if (account === undefined || account.ownerId !== command.fromAgentId) {
+          return Promise.resolve({ outcome: 'unknown-account' })
+        }
+        set.push(account)
+      }
+
+      for (const account of set) {
+        if (account.vaultKey === null) return Promise.resolve({ outcome: 'no-vault-key' })
+      }
+
+      const vaultKeysChecked = new Set<string>()
+      for (const account of set) {
+        const vaultKey = account.vaultKey as string
+        if (vaultKeysChecked.has(vaultKey)) continue
+        vaultKeysChecked.add(vaultKey)
+        const entry = `${command.fromAgentId}:${vaultKey}`
+        if (!vaultEntries.has(entry) || spentEntries.has(entry)) {
+          return Promise.resolve({ outcome: 'nothing-to-give' })
+        }
+      }
+
+      if (handles.get(handleKey(command.toHandle)) === command.fromAgentId) {
+        return Promise.resolve({ outcome: 'self' })
+      }
 
       for (const [offerId, open] of offers) {
-        if (open.accountId === command.accountId) {
+        if (allIds.includes(open.accountId)) {
           return Promise.resolve({
             outcome: 'already-offered',
             offerId,
@@ -221,13 +259,45 @@ export function fakeAccountOffers(): FakeAccountOffers {
         }
       }
 
-      // Self is exempt from decision 5 (decision 6), so it is the one place a
-      // handle is compared before the offer is written.
-      if (handles.get(handleKey(command.toHandle)) === command.fromAgentId) {
-        return Promise.resolve({ outcome: 'self' })
+      for (const account of set) {
+        if (account.reachMailbox) return Promise.resolve({ outcome: 'reach-mailbox' })
       }
 
-      if (account.sharedWith.length > 0) {
+      /**
+       * Confirm only for vault keys shared with accounts the giver is **keeping**
+       * (`#1217`). Companions inside the set do not trip the pause.
+       */
+      const setIdSet = new Set(allIds)
+      const sharedOutside: SharedVaultKeyAccount[] = []
+      const vaultKeysForConfirm = new Set<string>()
+      for (const account of set) {
+        const vaultKey = account.vaultKey as string
+        if (vaultKeysForConfirm.has(vaultKey)) continue
+        vaultKeysForConfirm.add(vaultKey)
+        for (const [id, held] of accounts) {
+          if (held.ownerId !== command.fromAgentId) continue
+          if (held.vaultKey !== vaultKey) continue
+          if (setIdSet.has(id)) continue
+          sharedOutside.push({ kind: held.kind, identifier: held.identifier })
+        }
+        for (const named of account.sharedWith) {
+          if (
+            sharedOutside.some(
+              (one) => one.kind === named.kind && one.identifier === named.identifier,
+            )
+          ) {
+            continue
+          }
+          // `sharedWith` is what the test author declared; honour it when the
+          // named companion is not itself in the set.
+          const companionInSet = set.some(
+            (member) => member.kind === named.kind && member.identifier === named.identifier,
+          )
+          if (!companionInSet) sharedOutside.push(named)
+        }
+      }
+
+      if (sharedOutside.length > 0) {
         const held = command.confirm === undefined ? undefined : confirmations.get(command.confirm)
         const answered =
           held !== undefined &&
@@ -243,33 +313,52 @@ export function fakeAccountOffers(): FakeAccountOffers {
             outcome: 'confirm',
             token,
             expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
-            sharedWith: account.sharedWith,
+            sharedWith: sharedOutside,
           })
         }
         confirmations.delete(command.confirm as string)
       }
 
-      // The handle, last and unrefusable. A recipient nobody answers to gets an
-      // offer with no parcel, and the giver cannot tell the two apart.
-      const offerId = randomUUID()
+      const hasParcel = handles.has(handleKey(command.toHandle))
       const expiresAt = expiry()
-      offers.set(offerId, {
+      const setId = set.length > 1 ? randomUUID() : null
+      const primaryOfferId = randomUUID()
+
+      offers.set(primaryOfferId, {
         fromAgentId: command.fromAgentId,
         accountId: command.accountId,
         toHandle: command.toHandle,
         expiresAt,
-        hasParcel: handles.has(handleKey(command.toHandle)),
+        hasParcel,
+        setId,
+      })
+
+      const related = set.slice(1).map((account, index) => {
+        const relatedOfferId = randomUUID()
+        offers.set(relatedOfferId, {
+          fromAgentId: command.fromAgentId,
+          accountId: allIds[index + 1] as string,
+          toHandle: command.toHandle,
+          expiresAt,
+          hasParcel,
+          setId,
+        })
+        return {
+          kind: account.kind,
+          identifier: account.identifier,
+          provider: account.provider,
+        }
       })
 
       return Promise.resolve({
         outcome: 'offered',
-        offerId,
-        // Verbatim as the giver typed it, never as the recipient holds it.
+        offerId: primaryOfferId,
         toHandle: command.toHandle,
         expiresAt,
-        accountKind: account.kind,
-        accountIdentifier: account.identifier,
-        accountProvider: account.provider,
+        accountKind: set[0]!.kind,
+        accountIdentifier: set[0]!.identifier,
+        accountProvider: set[0]!.provider,
+        related,
       })
     },
 
@@ -278,7 +367,11 @@ export function fakeAccountOffers(): FakeAccountOffers {
       if (open === undefined || open.fromAgentId !== command.fromAgentId) {
         return Promise.resolve({ outcome: 'unknown' as const })
       }
-      offers.delete(command.offerId)
+      for (const [id, member] of offers) {
+        if (member === open || (open.setId !== null && member.setId === open.setId)) {
+          offers.delete(id)
+        }
+      }
       return Promise.resolve({ outcome: 'withdrawn' as const })
     },
 
@@ -295,6 +388,8 @@ export function fakeAccountOffers(): FakeAccountOffers {
      * id nobody ever issued.** That is decision 5 arriving on this side: an
      * offer written to a handle nobody holds cannot be accepted by anybody, so
      * there is no recipient to answer and nothing to distinguish.
+     *
+     * Multi-account offers (`#1217`) move every member or none.
      */
     accept(command, _recipientToken) {
       const open = offers.get(command.offerId)
@@ -303,64 +398,127 @@ export function fakeAccountOffers(): FakeAccountOffers {
         return Promise.resolve({ outcome: 'unknown' as const })
       }
 
-      const account = accounts.get(open.accountId)
-      // The giver erased itself, taking the account with it. One answer.
-      if (account === undefined) return Promise.resolve({ outcome: 'unknown' as const })
+      const members = setOf(command.offerId)
+      if (members.length === 0) return Promise.resolve({ outcome: 'unknown' as const })
 
-      if (vaultEntries.has(`${command.toAgentId}:${command.vaultKey}`)) {
-        return Promise.resolve({ outcome: 'key-taken' as const })
+      const memberAccounts: { offer: OpenOffer; account: HeldAccount; accountId: string }[] = []
+      for (const member of members) {
+        const accountId = [...accounts].find(
+          ([id, held]) => id === member.accountId && held.ownerId === member.fromAgentId,
+        )?.[0]
+        if (accountId === undefined) return Promise.resolve({ outcome: 'unknown' as const })
+        const account = accounts.get(accountId)
+        if (account === undefined || account.vaultKey === null) {
+          return Promise.resolve({ outcome: 'unknown' as const })
+        }
+        memberAccounts.push({ offer: member, account, accountId })
       }
 
-      // `accounts_identifier_per_agent_unique`, which the issue does not
-      // enumerate: one row per kind and identifier per citizen, so a recipient
-      // that already declared the same thing has nowhere for this to arrive.
-      const clash = [...accounts.values()].some(
-        (held) =>
-          held.ownerId === command.toAgentId &&
-          held.kind === account.kind &&
-          held.identifier.toLowerCase() === account.identifier.toLowerCase(),
+      // Primary first (the named offer), then the rest in insertion order.
+      const ordered = [
+        memberAccounts.find((member) => member.offer === open)!,
+        ...memberAccounts.filter((member) => member.offer !== open),
+      ]
+
+      const primaryVaultKey = ordered[0]!.account.vaultKey as string
+      const recipientKeyBySource = new Map<string, string>([[primaryVaultKey, command.vaultKey]])
+      const relatedKeys = command.relatedVaultKeys ?? []
+      let relatedKeyIndex = 0
+      const distinctSourceKeys = new Set(
+        ordered
+          .map((member) => member.account.vaultKey)
+          .filter((key): key is string => key !== null && key.trim() !== ''),
       )
-      if (clash) return Promise.resolve({ outcome: 'already-held' as const })
-
-      // Five writes, and in the fixture they cannot half-happen either.
-      vaultEntries.add(`${command.toAgentId}:${command.vaultKey}`)
-      const accountId = randomUUID()
-      accounts.set(accountId, {
-        ownerId: command.toAgentId,
-        kind: account.kind,
-        identifier: account.identifier,
-        provider: account.provider,
-        // Proof is something the Colony checked about a citizen, and it has
-        // not checked it about this one (decision 7).
-        proved: false,
-        vaultKey: command.vaultKey,
-        reachMailbox: false,
-        sharedWith: [],
-        forWork: false,
-      })
-      accounts.delete(open.accountId)
-      offers.delete(command.offerId)
-
-      /**
-       * The giver's entry keeps its bytes and stops opening (`#1214`) — and
-       * only when nothing of the giver's still names it, because a credential
-       * cannot be split and decision 8 paused at the offer to say so.
-       */
-      if (account.vaultKey !== null) {
-        const stillMine = [...accounts.values()].some(
-          (held) => held.ownerId === account.ownerId && held.vaultKey === account.vaultKey,
-        )
-        if (!stillMine) spentEntries.add(`${account.ownerId}:${account.vaultKey}`)
+      for (const member of ordered.slice(1)) {
+        const sourceKey = member.account.vaultKey as string
+        if (recipientKeyBySource.has(sourceKey)) continue
+        const named = relatedKeys[relatedKeyIndex]
+        relatedKeyIndex += 1
+        if (named === undefined || named.trim() === '') {
+          return Promise.resolve({
+            outcome: 'keys-incomplete' as const,
+            needed: distinctSourceKeys.size,
+            named: 1 + relatedKeys.filter((key) => key.trim() !== '').length,
+          })
+        }
+        recipientKeyBySource.set(sourceKey, named)
       }
 
+      for (const destKey of new Set(recipientKeyBySource.values())) {
+        if (vaultEntries.has(`${command.toAgentId}:${destKey}`)) {
+          return Promise.resolve({ outcome: 'key-taken' as const })
+        }
+      }
+
+      for (const member of ordered) {
+        const clash = [...accounts.values()].some(
+          (held) =>
+            held.ownerId === command.toAgentId &&
+            held.kind === member.account.kind &&
+            held.identifier.toLowerCase() === member.account.identifier.toLowerCase(),
+        )
+        if (clash) return Promise.resolve({ outcome: 'already-held' as const })
+      }
+
+      const arrived: {
+        accountId: string
+        kind: string
+        identifier: string
+        provider: string | null
+        vaultKey: string
+      }[] = []
+      for (const member of ordered) {
+        const destKey = recipientKeyBySource.get(member.account.vaultKey as string)!
+        vaultEntries.add(`${command.toAgentId}:${destKey}`)
+        const accountId = randomUUID()
+        accounts.set(accountId, {
+          ownerId: command.toAgentId,
+          kind: member.account.kind,
+          identifier: member.account.identifier,
+          provider: member.account.provider,
+          proved: false,
+          vaultKey: destKey,
+          reachMailbox: false,
+          sharedWith: [],
+          forWork: false,
+        })
+        arrived.push({
+          accountId,
+          kind: member.account.kind,
+          identifier: member.account.identifier,
+          provider: member.account.provider,
+          vaultKey: destKey,
+        })
+        accounts.delete(member.accountId)
+      }
+
+      for (const [id, member] of offers) {
+        if (member === open || (open.setId !== null && member.setId === open.setId)) {
+          offers.delete(id)
+        }
+      }
+
+      const spentKeys = new Set<string>()
+      for (const member of ordered) {
+        const vaultKey = member.account.vaultKey
+        if (vaultKey === null || spentKeys.has(vaultKey)) continue
+        spentKeys.add(vaultKey)
+        const stillMine = [...accounts.values()].some(
+          (held) => held.ownerId === member.account.ownerId && held.vaultKey === vaultKey,
+        )
+        if (!stillMine) spentEntries.add(`${member.account.ownerId}:${vaultKey}`)
+      }
+
+      const primary = arrived[0]!
       return Promise.resolve({
         outcome: 'accepted' as const,
-        accountId,
-        accountKind: account.kind,
-        accountIdentifier: account.identifier,
-        accountProvider: account.provider,
-        vaultKey: command.vaultKey,
+        accountId: primary.accountId,
+        accountKind: primary.kind,
+        accountIdentifier: primary.identifier,
+        accountProvider: primary.provider,
+        vaultKey: primary.vaultKey,
         fromHandle: giverHandle(open.fromAgentId),
+        related: arrived.slice(1),
       })
     },
 
@@ -371,7 +529,11 @@ export function fakeAccountOffers(): FakeAccountOffers {
       if (open === undefined || addressee !== command.toAgentId) {
         return Promise.resolve({ outcome: 'unknown' as const })
       }
-      offers.delete(command.offerId)
+      for (const [id, member] of offers) {
+        if (member === open || (open.setId !== null && member.setId === open.setId)) {
+          offers.delete(id)
+        }
+      }
       return Promise.resolve({ outcome: 'declined' as const })
     },
   }

@@ -1,4 +1,4 @@
-import { CITIZEN_SEARCH_LIMIT } from '@kolonie-ai/core'
+import { CITIZEN_SEARCH_LIMIT, type PlaybookContributionForm } from '@kolonie-ai/core'
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { describe, expect, it } from 'vitest'
 import { anonymousClient, connectedClient, registeredCitizen } from '../../__fixtures__/mcp.js'
@@ -30,6 +30,7 @@ const aColonyWith = async (
     discoverable: boolean
     skills?: readonly string[]
     capabilities?: readonly string[]
+    playbooks?: Readonly<Record<string, readonly PlaybookContributionForm[]>>
   }[],
 ) => {
   const { colony, apiKey } = await registeredCitizen()
@@ -210,7 +211,11 @@ describe('kolonie.citizens.find (#1067)', () => {
     const { tools } = await client.listTools()
     const schema = tools.find((tool) => tool.name === 'kolonie.citizens.find')?.inputSchema
 
-    expect(Object.keys(schema?.properties ?? {}).sort()).toEqual(['capability', 'skill'])
+    expect(Object.keys(schema?.properties ?? {}).sort()).toEqual([
+      'capability',
+      'playbook',
+      'skill',
+    ])
     await close()
   })
 
@@ -232,5 +237,83 @@ describe('kolonie.citizens.find (#1067)', () => {
     // And the way in: a citizen reading this is the citizen that could be found.
     expect(description).toContain('discoverable: true')
     await close()
+  })
+
+  /**
+   * The third question (`#1258`) — *who else has been here*, asked of a pipeline.
+   *
+   * Which citizens the storage gathers out of which three tables is
+   * `packages/db/src/storage/discovery.test.ts`'s and is not repeated here. What
+   * this layer decides is that the argument exists, that it is exclusive with the
+   * other two, and that a caller reading the answer is told **how** each one
+   * contributed rather than only that it did.
+   */
+  describe('by a playbook somebody contributed to', () => {
+    it('names the contributors and how each one contributed', async () => {
+      const { client, close } = await aColonyWith([
+        {
+          handle: 'anna',
+          discoverable: true,
+          playbooks: { 'weekly-inbox-triage': ['step', 'note'] },
+        },
+        { handle: 'zoe', discoverable: true, playbooks: { 'weekly-inbox-triage': ['author'] } },
+        { handle: 'elsewhere', discoverable: true, playbooks: { 'another-pipeline': ['author'] } },
+      ])
+
+      const result = await client.callTool(find({ playbook: 'weekly-inbox-triage' }))
+
+      expect(result.isError).toBeFalsy()
+      expect(result.structuredContent).toEqual({
+        found: [
+          {
+            handle: 'anna',
+            matched: { on: 'playbook', playbook: 'weekly-inbox-triage', as: ['step', 'note'] },
+          },
+          {
+            handle: 'zoe',
+            matched: { on: 'playbook', playbook: 'weekly-inbox-triage', as: ['author'] },
+          },
+        ],
+        truncated: false,
+      })
+      // The text says how, not only who: *anna contributed* would leave a reader
+      // to guess whether it wrote the thing or ran it once.
+      expect(textOf(result)).toContain('contributed as step, note')
+      await close()
+    })
+
+    /**
+     * Exclusive with the other two, on the schema's own rule. An intersection is
+     * the first step of a filter builder, and a caller wanting one asks twice.
+     */
+    it('refuses a playbook asked together with a skill, and names the three', async () => {
+      const { client, close } = await aColonyWith([])
+
+      const result = await client.callTool(
+        find({ playbook: 'weekly-inbox-triage', skill: 'domain' }),
+      )
+
+      expect(result.isError).toBe(true)
+      expect(result.structuredContent).toMatchObject({
+        error: { code: 'validation_failed' },
+      })
+      expect(textOf(result)).toContain('`playbook`')
+      await close()
+    })
+
+    /**
+     * The empty answer means what it means for the other two questions, and the
+     * sentence says so: a playbook nobody may read and one nobody has touched are
+     * the same answer, so a caller must not read *nobody* out of it.
+     */
+    it('says an empty answer is not the same as nobody', async () => {
+      const { client, close } = await aColonyWith([])
+
+      const result = await client.callTool(find({ playbook: 'weekly-inbox-triage' }))
+
+      expect(textOf(result)).toContain('not the same as nobody')
+      expect(textOf(result)).toContain('weekly-inbox-triage')
+      await close()
+    })
   })
 })

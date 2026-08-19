@@ -51,6 +51,19 @@ on:
   # labels linked issues the same way a push does. Confirmed rather than assumed,
   # because a status label that silently stopped following manual runs would be a
   # worse failure than the one this fixes.
+  # **The merge queue's own check, and the queue cannot be turned on without it.**
+  #
+  # A queued pull request is built onto a `refs/heads/gh-readonly-queue/…` ref
+  # and GitHub waits for the *required* context on that ref. This workflow is the
+  # only thing that produces `format, lint, build, typecheck, test`, so without
+  # this trigger every entry would sit until it timed out and be dequeued —
+  # merging would stop, quietly, on a repository whose checks all look green.
+  #
+  # It is the trigger that makes the queue answer `#1308`: the required check
+  # finally runs against the *merge result* rather than against each branch's own
+  # base, which is the hole `required_status_checks.strict` narrows and a queue
+  # closes.
+  merge_group:
   workflow_dispatch:
 
 # A newer push makes the previous run irrelevant — on a pull request branch, and
@@ -90,7 +103,15 @@ on:
 # `origin/main`, which is a different mechanism and belongs in `kolonie-infra`.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  # **A queue entry is not a stale branch tip.** The test above reads *anything
+  # that is not `main` may be superseded*, which is right for a pull request
+  # branch and wrong for `refs/heads/gh-readonly-queue/…`: each entry is a
+  # distinct merge result and its verdict is the only one it will ever get, which
+  # is the argument the paragraph above makes for `main` word for word. A
+  # cancelled entry is also a dequeued entry, so treating it as superseded would
+  # not merely lose an answer — it would stop the queue.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref,
+    'refs/heads/gh-readonly-queue/') }}
 
 permissions:
   contents: read

@@ -391,6 +391,61 @@ describe('kolonie.accounts.walk-status', () => {
     await close()
   })
 
+  /**
+   * **A refused walk told the walker nothing** (`#1340`). The prose a citizen
+   * files is moderated, and until now a refusal was a silence: the words stopped
+   * being served and no surface said why, so a walker had nothing to change.
+   *
+   * The other half of the assertion is the one the issue is really about — the
+   * sentence is labelled as a verdict *about* the walk, so an agent reading its
+   * own moderation result cannot mistake model output about an unvetted page for
+   * an instruction it has been given.
+   */
+  it('tells the walker why the words it filed were refused', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const walks = fakeWalks()
+    const walk = walks.add({
+      agentId: agent.id,
+      kind: 'github',
+      provider: 'provider',
+      proseRefusalReason: 'It names the person the walker was emailing.',
+    })
+    colony.recipes.write({ kind: 'github', provider: 'provider', status: 'measured' })
+    const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.walk-status',
+      arguments: { walkId: walk.id },
+    })
+
+    expect(result.structuredContent).toMatchObject({
+      proseRefusalReason: 'It names the person the walker was emailing.',
+    })
+    const text = JSON.stringify(result.content)
+    expect(text).toContain('It names the person the walker was emailing.')
+    expect(text).toContain('refused by the moderation pass')
+    expect(text).toContain('not quoting a rule you must now follow')
+    await close()
+  })
+
+  /** Nothing was refused, so nothing is said about a refusal (`#1340`). */
+  it('says nothing about refused words when none were', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const walks = fakeWalks()
+    const walk = walks.add({ agentId: agent.id, kind: 'github', provider: 'provider' })
+    colony.recipes.write({ kind: 'github', provider: 'provider', status: 'measured' })
+    const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.walk-status',
+      arguments: { walkId: walk.id },
+    })
+
+    expect(result.structuredContent).toMatchObject({ proseRefusalReason: null })
+    expect(JSON.stringify(result.content)).not.toContain('refused by the moderation pass')
+    await close()
+  })
+
   it("does not reveal an unknown or another citizen's walk", async () => {
     const { colony, apiKey } = await registeredCitizen()
     const walks = fakeWalks()

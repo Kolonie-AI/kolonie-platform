@@ -316,6 +316,32 @@ export const WalkTakenStepPositionsSchema = z
 export type WalkTakenStepPositions = z.infer<typeof WalkTakenStepPositionsSchema>
 
 /** One walk, whole. */
+/**
+ * How much of a refusal's reason is kept (`#1340`).
+ *
+ * **The reason is model output about a text nobody vetted**, so it is stored
+ * bounded rather than trusted to be short. A sentence is what the red-line
+ * prompt asks for and a sentence is what arrives; the cap is what stops a model
+ * that decided to quote the whole page from putting it back on a row the scrub
+ * exists to keep it off.
+ */
+export const WALK_REFUSAL_REASON_MAX_LENGTH = 500
+
+/**
+ * A refusal's reason, as the row keeps it (`#1340`).
+ *
+ * Collapsed and capped in one place because three surfaces read it back — the
+ * walker's `walk-status`, the maintainer's `/backend/refusals` and the
+ * moderation ledger — and a normalisation any of them owned would be one the
+ * other two disagreed with. `null` for a model that answered with nothing,
+ * which is the same value as a row refused before this column existed: neither
+ * has a reason to show and a reader treats them identically.
+ */
+export function walkRefusalReason(reason: string): string | null {
+  const collapsed = reason.replace(/\s+/gu, ' ').trim()
+  return collapsed === '' ? null : collapsed.slice(0, WALK_REFUSAL_REASON_MAX_LENGTH)
+}
+
 export const AccountWalkSchema = z.object({
   id: z.uuid(),
   agentId: z.uuid(),
@@ -426,6 +452,25 @@ export const AccountWalkSchema = z.object({
    * same claim about a walk that was.
    */
   direction: RecipeDirectionSchema.nullable(),
+  /**
+   * Why the moderation pass refused this walk's words (`#1340`).
+   *
+   * **The Colony's sentence about the walk, and never the walk's own words.**
+   * The prose a refusal was drawn against is not published anywhere, to anybody;
+   * this is the judge's reason for drawing the line, which is what makes it the
+   * one thing about a refusal that can go back to its author.
+   *
+   * **Null on everything that is not a refusal**, which the row's own check
+   * constraint enforces rather than trusts — and null on every walk refused
+   * before the column existed, because nothing was backfilled. A reader cannot
+   * tell those two apart and does not need to: both mean *no reason is
+   * recorded*.
+   *
+   * **Declared here rather than left off the port** for the reason `#982` gives
+   * about `recipe` two fields up: a shape that does not name a column is a shape
+   * a fake can satisfy while dropping it.
+   */
+  proseRefusalReason: z.string().max(WALK_REFUSAL_REASON_MAX_LENGTH).nullable(),
   steps: z.array(WalkStepSchema).max(RECIPE_MAX_STEPS),
 })
 export type AccountWalk = z.infer<typeof AccountWalkSchema>

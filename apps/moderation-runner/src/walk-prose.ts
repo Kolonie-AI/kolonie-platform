@@ -102,7 +102,17 @@ export interface WalkProseModerationStore {
    * provider and never the walker, and a suspension is counted here rather than
    * attributed.
    */
-  refuse(input: { readonly walk: UnmoderatedWalkProse }): Promise<RefusalOutcome>
+  refuse(input: {
+    readonly walk: UnmoderatedWalkProse
+    /**
+     * Why, in the judge's own sentence (`#1340`).
+     *
+     * **It travels with the refusal rather than after it**, because the store
+     * writes the verdict and the reason in one statement — a second call would
+     * be a second transaction and could leave a refusal with no reason at all.
+     */
+    readonly reason: string
+  }): Promise<RefusalOutcome>
   rescrub(
     input:
       | {
@@ -114,6 +124,8 @@ export interface WalkProseModerationStore {
       | {
           readonly walk: ApprovedWalkProseWithoutScrub
           readonly decision: 'rejected'
+          /** A re-reading refuses with a reason like a first reading (`#1340`). */
+          readonly reason: string
           readonly markProviderStale: boolean
         },
   ): Promise<RescrubOutcome>
@@ -354,7 +366,7 @@ async function moderateWalkProseWith(
     })
 
     if (verdict.decision === 'crossed') {
-      const { suspended } = await writer.refuse({ walk })
+      const { suspended } = await writer.refuse({ walk, reason: verdict.reason })
       return { kind: 'refused', reason: verdict.reason, suspended }
     }
 
@@ -544,8 +556,13 @@ export async function walkProseTick(
         })
         written = outcome.written
       },
-      refuse: async () => {
-        const outcome = await store.rescrub({ walk, decision: 'rejected', markProviderStale })
+      refuse: async ({ reason }) => {
+        const outcome = await store.rescrub({
+          walk,
+          decision: 'rejected',
+          reason,
+          markProviderStale,
+        })
         written = outcome.written
         return { suspended: outcome.suspended }
       },

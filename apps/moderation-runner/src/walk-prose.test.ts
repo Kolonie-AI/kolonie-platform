@@ -101,11 +101,13 @@ const recording = (
   suspends = false,
 ) => {
   const written: { walkId: string; scrubbed: WalkProse }[] = []
-  const refused: string[] = []
+  /** The reason travels with the refusal (`#1340`), so the fake records both. */
+  const refused: { walkId: string; reason: string }[] = []
   const rescrubbed: {
     walkId: string
     decision: 'approved' | 'rejected'
     scrubbed?: WalkProse
+    reason?: string
     markProviderStale: boolean
   }[] = []
   const limits = {
@@ -138,8 +140,8 @@ const recording = (
     write: async ({ walk, scrubbed }) => {
       written.push({ walkId: walk.walkId, scrubbed })
     },
-    refuse: async ({ walk }) => {
-      refused.push(walk.walkId)
+    refuse: async ({ walk, reason }) => {
+      refused.push({ walkId: walk.walkId, reason })
       return { suspended: suspends }
     },
     rescrub: async ({ walk, ...decision }) => {
@@ -217,7 +219,10 @@ describe('the Colony scrubbing what a walker wrote', () => {
 
     expect(judgement.kind).toBe('refused')
     expect(asked).toHaveLength(1)
-    expect(refused).toEqual(['11111111-1111-4111-8111-111111111111'])
+    /** The judge's sentence reaches the store with the refusal (`#1340`). */
+    expect(refused).toEqual([
+      { walkId: '11111111-1111-4111-8111-111111111111', reason: 'It names a person.' },
+    ])
     expect(written).toHaveLength(0)
   })
 
@@ -311,6 +316,8 @@ describe('the Colony scrubbing what a walker wrote', () => {
       {
         walkId: '11111111-1111-4111-8111-111111111111',
         decision: 'rejected',
+        /** A second reading refuses with a reason like the first (`#1340`). */
+        reason: 'It names a person.',
         markProviderStale: true,
       },
     ])

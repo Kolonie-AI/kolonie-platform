@@ -15,6 +15,8 @@ const walk = (over: Partial<AccountWalk> = {}): AccountWalk => ({
   outcome: 'proved',
   closedByTransferAt: null,
   direction: null,
+  /** Nothing here is refused; the moderation axis has its own tests (`#1340`). */
+  proseRefusalReason: null,
   wall: null,
   note: null,
   did: null,

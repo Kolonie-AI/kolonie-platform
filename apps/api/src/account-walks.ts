@@ -358,6 +358,28 @@ export interface WalkStatus {
   readonly withdrawnReason: string | null
   readonly requiredChanges: readonly string[] | null
   /**
+   * Why the moderation pass refused this walk's words (`#1340`).
+   *
+   * **A third subject, and it is the walk's** — `refusalReason` above is the
+   * *entry's* verdict on the provider, which `#979` established and which this
+   * must not be confused with. A walk whose page crossed a red line is refused
+   * on its own axis: the entry may be published and thriving while the walker's
+   * account of it was never readable by anybody.
+   *
+   * **The reason and never the words.** What is handed back is the judge's own
+   * sentence about why the line was drawn. The prose it was drawn against is
+   * published to nobody, including to this reader, and `own` above is the field
+   * that hands an author its own filing back.
+   *
+   * **Reaching it is already scoped and nothing here re-checks it.**
+   * {@link readWalkStatus} reads through `walks.one(agentId, walkId)`, which
+   * answers `undefined` for another citizen's walk, so a caller that is not the
+   * author never holds a status object at all. Null on every walk that was not
+   * refused, and on every refusal decided before the column existed — nothing
+   * was backfilled, and *no reason recorded* is the honest answer for both.
+   */
+  readonly proseRefusalReason: string | null
+  /**
    * The Atlas row's own status, in the Atlas's own vocabulary (`#979`).
    *
    * `status` above is the walk-shaped reading of it and stays that; this is the
@@ -711,6 +733,8 @@ async function statusOf(
      * null says the question has an answer and the answer is nothing.
      */
     requiredChanges: null,
+    /** Off the walk's own column, on the walk's own axis (`#1340`). */
+    proseRefusalReason: walk.proseRefusalReason,
     entryStatus: entry?.status ?? null,
     walk: walkFate(walk, entry),
     proof,

@@ -21,6 +21,7 @@ import {
   RecipeActorSchema,
   RecipeDirectionSchema,
   WALK_NOTE_MAX_LENGTH,
+  WALK_REFUSAL_REASON_MAX_LENGTH,
   WalkOutcomeSchema,
   type WalkProse,
   type WalkedRecipe,
@@ -303,6 +304,33 @@ export const accountWalks = pgTable(
     proseScrubberVersion: integer('prose_scrubber_version'),
 
     /**
+     * Why the stage refused this walk, in the moderator's own sentence (`#1340`).
+     *
+     * **The verdict row was the obvious home and is the wrong one.**
+     * `contribution_verdicts` already has a `reason` column and a refusal
+     * already writes a row there, but that table carries no subject: it says
+     * *this citizen was refused on `walk-report`* and cannot say *for this
+     * walk*. Both readers this exists for ask the walk-shaped question — the
+     * walker's `walk-status` is about one walk, `/backend/refusals` lists a
+     * citizen's refused walks one by one — and neither can be answered by a row
+     * that would have to be matched to a walk by timestamp. The ledger is also
+     * swept for retention, so the answer would expire while the refusal it
+     * explains stayed on the row forever. **The reason is written both places**:
+     * here for the readers, and on the verdict so the moderation ledger is not
+     * the one refusal surface with a null reason.
+     *
+     * **Null on every refusal decided before this column existed**, and the
+     * migration backfills nothing — the reasons were never written down, and a
+     * sentence invented now would be the Colony claiming it had said something
+     * it had not. A reader shows the state and no reason, which is what those
+     * rows have always meant.
+     *
+     * Capped at `WALK_REFUSAL_REASON_MAX_LENGTH` by the constraint below, and
+     * `walkRefusalReason` is what every writer puts it through.
+     */
+    proseRefusalReason: text('prose_refusal_reason'),
+
+    /**
      * The published walk this one repeats, where it repeats one (`#1104`).
      *
      * **Stored and answered, never refused.** A citizen that walked a provider
@@ -541,6 +569,23 @@ export const accountWalks = pgTable(
     check(
       'account_walks_scrubbed_prose_iff_approved',
       sql`${table.scrubbedProse} is null or ${table.proseStatus} = 'approved'`,
+    ),
+
+    /**
+     * A reason belongs to a refusal and to nothing else (`#1340`).
+     *
+     * The acceptance criterion *approved and scrubbed walks store no reason* as
+     * a constraint rather than as a convention: the two write paths that refuse
+     * are the runner's first pass and its re-scrub, and a third one added later
+     * would have to change this line out loud to put a sentence on an approval.
+     * The length is here too, because the value is model output and the cap is
+     * the only thing between it and the page it was asked to keep off the row.
+     */
+    check(
+      'account_walks_prose_refusal_reason_iff_rejected',
+      sql`${table.proseRefusalReason} is null
+          or (${table.proseStatus} = 'rejected'
+              and length(${table.proseRefusalReason}) <= ${sql.raw(String(WALK_REFUSAL_REASON_MAX_LENGTH))})`,
     ),
 
     /**

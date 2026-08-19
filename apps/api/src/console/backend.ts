@@ -689,13 +689,17 @@ export function backendEnquiriesPage(
  * the audit trail — no `authority_events` row is written, because an automatic
  * rule has no actor — so the table has to be able to show them.
  *
- * ## The refused prose is not on it
+ * ## The refused prose is not on it, and the reason for refusing it is
  *
- * Deliberately. A refused walk has no scrub, so the only text there is the raw
- * text a red line was drawn against, and a maintainer's page is not where that
- * gets read back. What each row carries is `kind`, `provider` and when the walk
- * finished, which is enough to see a pattern and not enough to republish
- * anything.
+ * Deliberately, both ways. A refused walk has no scrub, so the only text there
+ * is the raw text a red line was drawn against, and a maintainer's page is not
+ * where that gets read back. What each row carries is `kind`, `provider`, when
+ * the walk finished and — since `#1340` — the moderator's own sentence about why
+ * it was refused. That last one is the Colony speaking rather than the citizen,
+ * which is the whole of why it may be printed where the walk's words may not:
+ * the page says *what was refused* and *why*, and never *what it said*. A
+ * maintainer who needs the words has `psql`, which is a deliberate step and not
+ * a link.
  *
  * ## One button, and it lifts
  *
@@ -721,7 +725,7 @@ export function backendRefusalsPage(
             'red line is being kept and not that nobody is walking.</p>',
         ]
       : [
-          `<p class="note">${tallies.length === 1 ? 'One citizen has' : `${String(tallies.length)} citizens have`} had a walk report refused, ${String(suspended)} of them suspended. Most refusals first. What each of them wrote is not shown — a refused walk has no scrub, and this page is not where the text a red line was drawn against gets read back.</p>`,
+          `<p class="note">${tallies.length === 1 ? 'One citizen has' : `${String(tallies.length)} citizens have`} had a walk report refused, ${String(suspended)} of them suspended. Most refusals first. What each of them wrote is not shown — a refused walk has no scrub, and this page is not where the text a red line was drawn against gets read back. Why it was refused is shown: that sentence is the Colony&rsquo;s own, about the walk rather than from it.</p>`,
           /**
            * The sentence without which the two columns are one column read
            * twice (`#1339`). The rule is the window; the lifetime figure orders
@@ -729,7 +733,7 @@ export function backendRefusalsPage(
            */
           `<p class="note"><strong>The rule reads the window, not the total.</strong> A citizen is suspended when at least ${String(Math.round(WALK_PROSE_REFUSAL_RATE * 100))}% of its last ${String(WALK_PROSE_WINDOW)} decided walks were refused — over at least ${String(WALK_PROSE_MIN_DECIDED)} of them — or when ${String(WALK_PROSE_CONSECUTIVE)} in a row were. A lift starts the window again, so a walker that was let out reads as none of none until it walks. The lifetime count is what this table is ordered by and is not what suspends anybody.</p>`,
           '<table>',
-          '<thead><tr><th>Citizen</th><th>Standing</th><th>Refusals, all time</th><th>In the window</th><th>What was refused</th><th></th></tr></thead>',
+          '<thead><tr><th>Citizen</th><th>Standing</th><th>Refusals, all time</th><th>In the window</th><th>What was refused, and why</th><th></th></tr></thead>',
           '<tbody>',
           ...tallies.map((tally) =>
             [
@@ -747,6 +751,16 @@ export function backendRefusalsPage(
                   (walk) =>
                     `${escape(walk.kind)} at ${escape(walk.provider)}${
                       walk.finishedAt === null ? '' : `, ${escape(relative(walk.finishedAt))}`
+                    }${
+                      /**
+                       * The moderator's sentence, escaped like everything else
+                       * on the row (`#1340`). Null on every walk refused before
+                       * the column existed — nothing was backfilled, so an old
+                       * row says nothing rather than guessing at one.
+                       */
+                      walk.reason === null
+                        ? ''
+                        : `<br><span class="note">${escape(walk.reason)}</span>`
                     }`,
                 )
                 .join('<br>')}</td>`,

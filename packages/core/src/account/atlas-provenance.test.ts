@@ -329,6 +329,12 @@ describe('the rows the figures imply', () => {
     expect(synthesized[0]?.status).toBe('measured')
     expect(synthesized[0]?.steps).toEqual([])
     expect(synthesized[0]?.category).toBe('mailbox')
+    /**
+     * `#1296` made `homepage` required (`string | null`). Omitting it here
+     * Zod-throws and 500s every `/atlas` read once any measured-only pair exists.
+     */
+    expect(synthesized[0]?.homepage).toBeNull()
+    expect(synthesized[0]?.about).toBeNull()
   })
 
   it('leaves a provider the catalogue already has alone', () => {

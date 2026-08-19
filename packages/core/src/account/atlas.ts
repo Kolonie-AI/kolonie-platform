@@ -1017,6 +1017,13 @@ export function measuredOnlyRecipes(
         operatorNeedIsGuess: false,
         about: null,
         /**
+         * **Null beside `about`** (`#1296`). `ProviderRecipeSchema.homepage` is
+         * `string | null`, not optional — omitting the key here Zod-throws and
+         * takes down every `/atlas` read the moment any measured-only pair is
+         * synthesised (production 2026-08-19 after scout/homepage shipped).
+         */
+        homepage: null,
+        /**
          * **Null, like `about` above it, and for a stronger reason** (`#1120`).
          * The sentence is synthesised from the published walks of a provider,
          * and this row exists precisely because there are none — a description

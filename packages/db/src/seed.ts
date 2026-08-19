@@ -3,6 +3,7 @@ import { seedProviderCatalogue } from './provider-catalogue.js'
 import { curateListedAtlasEntries, seedListedAtlasEntries } from './atlas-providers.js'
 import { seedBundles } from './storage/provider-bundles.js'
 import { backfillMeasuredProviders } from './atlas-backfill.js'
+import { backfillAtlasIdentity } from './atlas-identity-backfill.js'
 import { scopeTelephonyDirections } from './atlas-directions.js'
 import { reconcileAtlasKinds } from './atlas-kinds.js'
 import { repairAtlasShelves } from './atlas-shelf.js'
@@ -102,6 +103,22 @@ async function main(): Promise<void> {
       `atlas backfill: ${measured} providers the Colony has evidence about newly on a shelf, ` +
         `${alreadyShelved} already in the catalogue and left untouched, ` +
         `${unshelved} skipped for want of a shelf`,
+    )
+
+    /**
+     * Homepage and earn facets, onto the rows that predate their writers
+     * (`#1335`).
+     *
+     * **After the backfill above, because the rows it fills are ones that pass
+     * may have just created.** A run in the other order would leave every
+     * newly-shelved provider without the identity its own walks already carry,
+     * until the next deploy.
+     */
+    const identity = await backfillAtlasIdentity(db)
+    console.log(
+      `atlas identity: ${identity.homepages} homepages copied from the walks that filed them, ` +
+        `${identity.facets} earn facets read off the kind, ` +
+        `${identity.withoutSource} rows left null because no walk filed one`,
     )
 
     /**

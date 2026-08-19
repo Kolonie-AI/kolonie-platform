@@ -13,6 +13,10 @@ export {
   type CatalogueSeedResult,
 } from './provider-catalogue.js'
 export { backfillMeasuredProviders, type AtlasBackfillResult } from './atlas-backfill.js'
+export {
+  backfillAtlasIdentity,
+  type AtlasIdentityBackfillResult,
+} from './atlas-identity-backfill.js'
 export { scopeTelephonyDirections, type AtlasDirectionResult } from './atlas-directions.js'
 export { reconcileAtlasKinds, type AtlasKindReconcileResult } from './atlas-kinds.js'
 export { repairAtlasShelves, type AtlasShelfRepairResult } from './atlas-shelf.js'

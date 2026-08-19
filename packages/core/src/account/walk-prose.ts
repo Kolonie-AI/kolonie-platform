@@ -111,8 +111,16 @@ export type WalkProseField = z.infer<typeof WalkProseFieldSchema>
  * agree on it — the runner that pins the prompt to it, and the storage that
  * stamps and compares it — and a constant either of them owned would be imported
  * by the other.
+ *
+ * **2 since `#1337`, and that bump is the first one.** The walk stage stopped
+ * borrowing the quest-report red-line prompt and got `WALK_RED_LINE_PROMPT` of
+ * its own, which no longer reads the Colony's `kolonie.accounts.give` and
+ * `kolonie.accounts.handoff` routes as *using a shared account* and no longer
+ * refuses a page for naming a person. Thirty-one refusals across two walkers
+ * were measured false positives under the old prompt; moving this number is what
+ * puts them back in front of the scrubber to be read again.
  */
-export const WALK_PROSE_SCRUBBER_VERSION = 1
+export const WALK_PROSE_SCRUBBER_VERSION = 2
 
 /**
  * The wall, as a question rather than a label.

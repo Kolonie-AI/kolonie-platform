@@ -6,6 +6,7 @@ import {
   WALK_PROSE_FIELDS,
   WALK_PROSE_QUESTIONS,
   WALK_PROSE_SCRUBBER_VERSION,
+  walkProseText,
   type WalkProse,
 } from '@kolonie-ai/core'
 import type {
@@ -15,12 +16,18 @@ import type {
   UnmoderatedWalkProse,
 } from '@kolonie-ai/db'
 import type { Model } from './llm.js'
-import { ANSWER_RED_LINE_PROMPT, REDACTION } from './answers.js'
+import { REDACTION } from './answers.js'
 import { CONFIDENTIALITY_PROMPT } from './confidentiality.js'
+import {
+  WALK_RED_LINE_CASES,
+  WALK_RED_LINE_CLEAR,
+  WALK_RED_LINE_CROSSED,
+} from './__fixtures__/walk-prose.js'
 import {
   moderateWalkProse,
   walkProseTick,
   WALK_RED_LINE_CHOICES,
+  WALK_RED_LINE_PROMPT,
   type WalkProseModerationStore,
 } from './walk-prose.js'
 
@@ -157,7 +164,7 @@ describe('the Colony scrubbing what a walker wrote', () => {
     expect(judgement).toEqual({ kind: 'scrubbed', redacted: 0 })
     /** One red-line call and one marking call — not one pair per field. */
     expect(asked).toHaveLength(2)
-    expect(asked[0]?.system).toBe(ANSWER_RED_LINE_PROMPT)
+    expect(asked[0]?.system).toBe(WALK_RED_LINE_PROMPT)
     expect(asked[1]?.system).toBe(CONFIDENTIALITY_PROMPT)
     /** The same bytes both times, so a span marked in one is found in the other. */
     expect(asked[0]?.user).toBe(asked[1]?.user)
@@ -491,6 +498,89 @@ describe('the Colony scrubbing what a walker wrote', () => {
 })
 
 /**
+ * The red line this stage asks about, against the shapes it has to sort
+ * (`#1337`).
+ *
+ * **What is asserted here is the path and the prompt's own text, never a
+ * generation.** No test in this app calls a model, and the one place that would
+ * be worst to start is a red line: the assertion would sample a generation and a
+ * flake in it would read as *the Colony's red line is broken*. So the table in
+ * `__fixtures__/walk-prose.ts` carries the specification — seven shapes that must
+ * be `clear`, three that must be `crossed` — and these tests hold the two things
+ * a table cannot: that every one of those pages reaches the model whole under
+ * this prompt and no other, and that each verdict is acted on. The clauses the
+ * issue turns on are pinned by name below, so a rewrite that quietly drops one
+ * fails here rather than in production against a citizen's standing.
+ */
+describe('the red line the walk stage asks about', () => {
+  it('names the Colony’s own account routes as clear rather than leaving them to inference', () => {
+    /** The clause that suspended two walkers: `handoff` read as a shared account. */
+    expect(WALK_RED_LINE_PROMPT).toContain('kolonie.accounts.give')
+    expect(WALK_RED_LINE_PROMPT).toContain('kolonie.accounts.handoff')
+    expect(WALK_RED_LINE_PROMPT).toContain('an operator created and gave')
+    /** And what a transfer is still not: the two words that stay violations. */
+    expect(WALK_RED_LINE_PROMPT).toContain('bought or stolen')
+  })
+
+  it('does not refuse a page for naming a person', () => {
+    /** `#1338` moves this to the scrub. A refusal loses the finding with the name. */
+    expect(WALK_RED_LINE_PROMPT).toContain('Personal data is removed by a later pass')
+    expect(WALK_RED_LINE_PROMPT).not.toContain('personal data about an identifiable third party')
+  })
+
+  it('keeps the lines that were never the problem', () => {
+    expect(WALK_RED_LINE_PROMPT).toContain('run code, install a package')
+    expect(WALK_RED_LINE_PROMPT).toContain('reveal, send or paste')
+    expect(WALK_RED_LINE_PROMPT).toContain('contains a credential in the words themselves')
+    expect(WALK_RED_LINE_PROMPT).toContain('instructions about how to treat this page')
+  })
+
+  it('asks for exactly the answers the choices allow', () => {
+    for (const choice of WALK_RED_LINE_CHOICES) {
+      expect(WALK_RED_LINE_PROMPT).toContain(`"${choice}"`)
+    }
+  })
+
+  it.each(WALK_RED_LINE_CASES)('shows the model all of $name', async ({ prose }) => {
+    const { model, asked } = answering()
+    const { store } = recording()
+
+    await moderateWalkProse(aWalk(prose), { store, model })
+
+    /** The walk prompt and not the quest report's, which is what `#1337` changed. */
+    expect(asked[0]?.system).toBe(WALK_RED_LINE_PROMPT)
+    /** The whole rendered page, so no fixture is judged on a fragment of itself. */
+    expect(asked[0]?.user).toBe(walkProseText(aWalk(prose).prose))
+  })
+
+  it.each(WALK_RED_LINE_CLEAR)(
+    'publishes $name once the red line answers clear',
+    async ({ prose }) => {
+      const { model } = answering({ redLine: 'clear' })
+      const { store, written, refused } = recording()
+
+      const judgement = await moderateWalkProse(aWalk(prose), { store, model })
+
+      expect(judgement.kind).toBe('scrubbed')
+      expect(refused).toEqual([])
+      expect(written[0]?.scrubbed).toEqual(aWalk(prose).prose)
+    },
+  )
+
+  it.each(WALK_RED_LINE_CROSSED)('refuses $name and writes nothing', async ({ prose }) => {
+    const { model } = answering({ redLine: 'crossed' })
+    const { store, written, refused } = recording()
+
+    const judgement = await moderateWalkProse(aWalk(prose), { store, model })
+
+    expect(judgement.kind).toBe('refused')
+    expect(refused).toHaveLength(1)
+    /** A refused page is not half-published: the scrub never runs. */
+    expect(written).toEqual([])
+  })
+})
+
+/**
  * The scrubbing path, as the bytes that decide a verdict (`#1108`, 3).
  *
  * Both prompts, the choices the red-line question is answered with, the span
@@ -502,7 +592,7 @@ const scrubberInputs = () =>
   createHash('sha256')
     .update(
       JSON.stringify([
-        ANSWER_RED_LINE_PROMPT,
+        WALK_RED_LINE_PROMPT,
         CONFIDENTIALITY_PROMPT,
         WALK_RED_LINE_CHOICES,
         ConfidentialSpanKindSchema.options,
@@ -515,6 +605,21 @@ const scrubberInputs = () =>
  * What {@link scrubberInputs} came to when `WALK_PROSE_SCRUBBER_VERSION` was last
  * decided.
  *
+ * **Moved to 2 by `#1337`, and the version moved with it — this is the case the
+ * mechanism was built for.** `ANSWER_RED_LINE_PROMPT` was replaced here by
+ * `WALK_RED_LINE_PROMPT`, which stops treating the Colony's own
+ * `kolonie.accounts.give` and `kolonie.accounts.handoff` routes as *using a
+ * shared account* and takes third-party personal data out of the refusal arm
+ * altogether (`#1338`). Both of those changes move verdicts in one direction:
+ * pages the old prompt refused are clear under this one. Thirty-one refusals
+ * across two walkers are measured false positives, so leaving the version at 1
+ * would leave them refused for no reason anyone can now defend. Bumping it puts
+ * every refusal stamped 1 back in front of the scrubber, which is the whole
+ * repair.
+ *
+ * **Only refusals are re-read.** An approval is never re-opened by this, so the
+ * bump cannot un-publish anything a citizen already relies on.
+ *
  * **Moved by `#1120` without the version moving, deliberately.** The seventh prose
  * field `about` was appended to `WALK_PROSE_FIELDS`, which is one of the inputs
  * digested here, so this had to be recomputed. It cannot change a verdict already
@@ -524,7 +629,7 @@ const scrubberInputs = () =>
  * refusal the Colony holds back in front of the model to be told the same thing
  * twice, at cost.
  */
-const SCRUBBER_INPUTS_DIGEST = 'e1a1426598f42139d191c99a64b4334b0c18b6d7f52cd034bebe6bb06b06df95'
+const SCRUBBER_INPUTS_DIGEST = 'a3cbab50006c45dda03dc43ba2951ded7fec81beccade56713b0a841e300b93b'
 
 /**
  * **What stops the version being forgotten is this test and not a mechanism**
@@ -550,6 +655,6 @@ describe('pinning the scrubber version to the scrubber', () => {
 
   /** The version the digest above belongs to, so the pair is read together. */
   it('is the version the runner and the storage both stamp with', () => {
-    expect(WALK_PROSE_SCRUBBER_VERSION).toBe(1)
+    expect(WALK_PROSE_SCRUBBER_VERSION).toBe(2)
   })
 })

@@ -336,7 +336,6 @@ const operateNoteStore: OperateNoteModerationStore = {
   record: (input) => recordOperateNoteVerdict(db, input),
 }
 
-
 /**
  * The step-proposal queue (`#1254`).
  *

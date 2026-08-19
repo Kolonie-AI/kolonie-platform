@@ -24,13 +24,7 @@ import type { ObservedEpisode } from './episode-recipe.js'
  * already refused for walls.
  */
 
-export const OPERATE_NOTE_TAGS = [
-  'access-method',
-  'api',
-  'quota',
-  'prove',
-  'payout-ops',
-] as const
+export const OPERATE_NOTE_TAGS = ['access-method', 'api', 'quota', 'prove', 'payout-ops'] as const
 
 export const OperateNoteTagSchema = z.enum(OPERATE_NOTE_TAGS)
 export type OperateNoteTag = z.infer<typeof OperateNoteTagSchema>
@@ -109,8 +103,7 @@ export type FileOperateNote = z.infer<typeof FileOperateNoteSchema>
  * how the account was obtained; the walk note and the recipe steps cover that.
  */
 export type OperateNoteVerdict =
-  | { readonly kind: 'nothing'; readonly why: string }
-  | { readonly kind: 'note' }
+  { readonly kind: 'nothing'; readonly why: string } | { readonly kind: 'note' }
 
 export function episodeOperateNote(episode: ObservedEpisode): OperateNoteVerdict {
   if (episode.kind !== 'maintenance') {
@@ -136,10 +129,7 @@ export function episodeOperateNote(episode: ObservedEpisode): OperateNoteVerdict
     }
   }
 
-  if (
-    episode.outcome === 'taken-over' ||
-    episode.outcome === 'created'
-  ) {
+  if (episode.outcome === 'taken-over' || episode.outcome === 'created') {
     return {
       kind: 'nothing',
       why: 'taken-over and created are acquisition outcomes; a maintenance episode that closed as one is not a tip source',

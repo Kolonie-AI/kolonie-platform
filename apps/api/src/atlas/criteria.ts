@@ -188,8 +188,7 @@ export function atlasCriteria(
   const faqKinds = new Set(WALL_QUESTIONS.map(([kind]) => kind))
   const faqHit = walls.some((wall) => faqKinds.has(wall.kind))
   const nonFaqHit = walls.some((wall) => !faqKinds.has(wall.kind))
-  const pointAtMeasured =
-    measured && !faqHit && (nonFaqHit || options.untypedWallFindings === true)
+  const pointAtMeasured = measured && !faqHit && (nonFaqHit || options.untypedWallFindings === true)
 
   return [
     /**

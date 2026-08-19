@@ -422,7 +422,8 @@ describe('the playbook catalogue on the website host', () => {
 
       expect(response.body).toContain('Revision 1')
       expect(response.body).toContain('kolonie.playbooks.history')
-      expect(response.body).toContain('A playbook is a recipe for a piece of real work')
+      // The opening clause only — see `playbooks/html.test.ts` for why.
+      expect(response.body).toContain('A playbook is a pipeline for work that earns outside')
     })
   })
 
@@ -468,8 +469,26 @@ describe('the playbook catalogue on the website host', () => {
      * as the built-test judged it: the site footer's tagline is *"learn to act,
      * earn, and govern themselves"*, which is furniture on every page and not a
      * claim this one makes.
+     *
+     * ## `earn` came off this list, and the rule is why
+     *
+     * `AGENTS.md` §5 forbids **a number, a rate or an implied income**, and in
+     * the same breath permits *paid work exists and is optional*. A word-list is
+     * a proxy for that, and this one was stricter than the thing it proxied: it
+     * banned the plainest way to say the permitted sentence, on the page whose
+     * whole subject is work done elsewhere. It caught `#1244`'s standfirst,
+     * which names no number and no rate and is followed immediately by
+     * *reputation for the report, nothing for the run, no share of what the run
+     * returns* — the promise taken back out in the next clause.
+     *
+     * **The five that stay are the ones that cannot be said without promising.**
+     * `income`, `revenue`, `payout`, `profit` and `salary` each name a sum
+     * accruing to the reader; `earn` is the only one of the six that also works
+     * as a plain description of what a kind of work is. The numeric guard below
+     * is what replaces it, and it is the rule's own words rather than a
+     * synonym for them.
      */
-    it.each(['earn', 'income', 'revenue', 'payout', 'profit', 'salary'])(
+    it.each(['income', 'revenue', 'payout', 'profit', 'salary'])(
       'promises no %s, on the index or on an entry',
       async (word) => {
         aPlaybook('weekly-triage', 'open')
@@ -487,6 +506,37 @@ describe('the playbook catalogue on the website host', () => {
         expect(await words(`${PLAYBOOKS_PATH}/weekly-triage`)).not.toContain(word)
       },
     )
+
+    /**
+     * **The rule's own words, where the word-list above is a proxy for them.**
+     * `AGENTS.md` §5: never *a number, a rate or an implied income*. This is the
+     * half that survives a rewording — an author who says *€400 a month* has
+     * broken the rule without using any of the five nouns, and that is the shape
+     * the list could never catch.
+     *
+     * A currency figure, a *per week / per month* rate, and a bare *N SOL*. The
+     * page carries plenty of other numbers — revisions, step positions, counts
+     * of runs — so this asks about a sum of money and not about a digit.
+     */
+    it.each([
+      ['a currency figure', /[$€£]\s?\d|\d+\s?(?:sol|usd|eur|dollars?|euros?)\b/],
+      ['a rate', /\bper\s+(?:hour|day|week|month|year)\b|\ba\s+(?:month|week|year)\b/],
+      ['an amount somebody could make', /\b(?:make|makes|made)\s+(?:up\s+to\s+)?[$€£]?\d/],
+    ])('promises no %s, on the index or on an entry', async (_what, pattern) => {
+      aPlaybook('weekly-triage', 'open')
+
+      const words = async (url: string) =>
+        (await get(url)).body
+          .replace(/<header\b[\s\S]*?<\/header>/gi, ' ')
+          .replace(/<footer\b[\s\S]*?<\/footer>/gi, ' ')
+          .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+          .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+          .replace(/<[^>]+>/g, ' ')
+          .toLowerCase()
+
+      expect(await words(PLAYBOOKS_PATH)).not.toMatch(pattern)
+      expect(await words(`${PLAYBOOKS_PATH}/weekly-triage`)).not.toMatch(pattern)
+    })
 
     it('lets a cache hold a public page, and for the same span the Atlas uses', async () => {
       aPlaybook('weekly-triage', 'open')

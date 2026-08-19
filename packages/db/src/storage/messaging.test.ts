@@ -11,11 +11,7 @@ import {
   messages,
 } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
-import {
-  acceptConnection,
-  removeConnection,
-  requestConnection,
-} from './connections.js'
+import { acceptConnection, removeConnection, requestConnection } from './connections.js'
 import { followCitizen } from './following.js'
 import {
   acceptMessageRequest,
@@ -339,9 +335,9 @@ describe('private messaging', () => {
       await acceptMessageRequest(db, recipient, second.requestId)
       await blockSender(db, recipient, otherHandle)
 
-      expect(
-        await replyInConversation(db, other, second.conversationId, 'Still writing?'),
-      ).toEqual({ outcome: 'refused', refusal: 'blocked' })
+      expect(await replyInConversation(db, other, second.conversationId, 'Still writing?')).toEqual(
+        { outcome: 'refused', refusal: 'blocked' },
+      )
     })
   })
 
@@ -804,17 +800,11 @@ describe('private messaging', () => {
   describe('system message fields (#1289)', () => {
     it('round-trips priority, actionRequired and nextAction on a Colony send', async () => {
       const citizen = await anAgent('citizen')
-      const sent = await sendSystemMessage(
-        db,
-        'security',
-        citizen,
-        'Your API key was rotated.',
-        {
-          priority: 'critical',
-          actionRequired: true,
-          nextAction: 'kolonie.support.open',
-        },
-      )
+      const sent = await sendSystemMessage(db, 'security', citizen, 'Your API key was rotated.', {
+        priority: 'critical',
+        actionRequired: true,
+        nextAction: 'kolonie.support.open',
+      })
       expect(sent.outcome).toBe('delivered')
       if (sent.outcome !== 'delivered') throw new Error('unreachable')
 
@@ -831,13 +821,11 @@ describe('private messaging', () => {
     it('acknowledge clears actionRequired and stamps acknowledgedAt', async () => {
       const citizen = await anAgent('citizen')
       const outsider = await anAgent('outsider')
-      const sent = await sendSystemMessage(
-        db,
-        'security',
-        citizen,
-        'Your API key was rotated.',
-        { priority: 'critical', actionRequired: true, nextAction: 'kolonie.support.open' },
-      )
+      const sent = await sendSystemMessage(db, 'security', citizen, 'Your API key was rotated.', {
+        priority: 'critical',
+        actionRequired: true,
+        nextAction: 'kolonie.support.open',
+      })
       if (sent.outcome !== 'delivered') throw new Error('unreachable')
 
       expect(await acknowledgeSystemMessage(db, outsider, sent.messageId)).toEqual({

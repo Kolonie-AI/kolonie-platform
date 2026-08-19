@@ -57,24 +57,24 @@ describe('filing and serving shapes (#1299)', () => {
 
 describe('episodeOperateNote (#1299)', () => {
   it('accepts a closed maintenance repair or failure as a tip source', () => {
-    expect(
-      episodeOperateNote({ kind: 'maintenance', outcome: 'repaired', wall: null }).kind,
-    ).toBe('note')
+    expect(episodeOperateNote({ kind: 'maintenance', outcome: 'repaired', wall: null }).kind).toBe(
+      'note',
+    )
     expect(
       episodeOperateNote({ kind: 'maintenance', outcome: 'failed', wall: 'no IMAP' }).kind,
     ).toBe('note')
   })
 
   it('refuses acquisition, abandoned, and open episodes', () => {
-    expect(
-      episodeOperateNote({ kind: 'acquisition', outcome: 'created', wall: null }).kind,
-    ).toBe('nothing')
-    expect(
-      episodeOperateNote({ kind: 'maintenance', outcome: 'abandoned', wall: null }).kind,
-    ).toBe('nothing')
-    expect(
-      episodeOperateNote({ kind: 'maintenance', outcome: null, wall: null }).kind,
-    ).toBe('nothing')
+    expect(episodeOperateNote({ kind: 'acquisition', outcome: 'created', wall: null }).kind).toBe(
+      'nothing',
+    )
+    expect(episodeOperateNote({ kind: 'maintenance', outcome: 'abandoned', wall: null }).kind).toBe(
+      'nothing',
+    )
+    expect(episodeOperateNote({ kind: 'maintenance', outcome: null, wall: null }).kind).toBe(
+      'nothing',
+    )
   })
 
   it('leaves episodeVerdict untouched — maintenance still proposes no recipe steps', () => {
@@ -87,9 +87,9 @@ describe('episodeOperateNote (#1299)', () => {
       expect(episodeVerdict(episode, undefined).kind).toBe('nothing')
     }
     // A repaired maintenance may file an operate tip without ever writing steps.
-    expect(
-      episodeOperateNote({ kind: 'maintenance', outcome: 'repaired', wall: null }).kind,
-    ).toBe('note')
+    expect(episodeOperateNote({ kind: 'maintenance', outcome: 'repaired', wall: null }).kind).toBe(
+      'note',
+    )
     expect(
       episodeVerdict({ kind: 'maintenance', outcome: 'repaired', wall: null }, undefined).kind,
     ).toBe('nothing')

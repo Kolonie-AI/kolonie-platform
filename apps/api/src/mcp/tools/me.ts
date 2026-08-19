@@ -10,6 +10,7 @@ import {
   citizenStandingAsText,
   identityAsText,
   returnerAsText,
+  suspensionAsText,
   runtimeNudge,
   holdingsAsText,
   skillVersionNotice,
@@ -100,6 +101,7 @@ export function registerMeTools(
         verifiedSolanaAddress,
         runtimeDeclaredAt,
         absentHours,
+        suspension,
         browserStages,
         origins,
         holdings,
@@ -128,6 +130,10 @@ export function registerMeTools(
              * its first rung writing who it is never saw that answer again.
              */
             text:
+              // Before everything, including the returner line (`#1291`): a
+              // citizen whose writes are refused this session needs the cause
+              // before it is told it came back late. Silent for everybody else.
+              suspensionAsText(suspension) +
               returnerAsText(agent, absentHours) +
               identityAsText(agent) +
               citizenStandingAsText(agent, balance) +
@@ -173,6 +179,15 @@ export function registerMeTools(
           verifiedSolanaAddress,
           runtimeDeclaredAt,
           absentHours,
+          /**
+           * Why this citizen is suspended, as data as well as prose (`#1291`).
+           *
+           * `null` for everybody not suspended, which is almost everybody, and
+           * present either way so a client never has to tell an absent field
+           * from an empty one. A client must not have to parse the line above
+           * to learn that its writes are being refused.
+           */
+          suspension,
           browserStages,
           // Where the Colony has observed this citizen calling from (`#191`).
           // Data only: nothing about it is rendered into the text above,

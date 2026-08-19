@@ -333,6 +333,13 @@ export function fakeStore(): FakeStore {
     browserStagesOf: async () => [],
     absenceOf: async (agentId: AgentId) => absences.get(String(agentId)) ?? null,
 
+    /**
+     * No timed suspension by default (`#1291`). A fake citizen with
+     * `status: 'suspended'` therefore reads as `unrecorded`, which is the
+     * walk-prose case and the one worth having as the default.
+     */
+    openSuspensionOf: async () => null,
+
     nameSession: async (agentId: AgentId, declaration: SessionDeclaration) => {
       named.push({ agentId, declaration })
     },

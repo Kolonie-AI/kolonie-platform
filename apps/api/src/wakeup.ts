@@ -17,6 +17,8 @@ import {
   type WakeupNoteInvitation,
   type OperatorStanding,
   type WakeupStanding,
+  type SuspensionStanding,
+  unrecordedSuspensionReason,
   type WakeupWakeChannel,
   type WakeupWantedAccount,
 } from '@kolonie-ai/core'
@@ -32,6 +34,7 @@ import {
   wakeChannelOf,
   wakeupChanges,
   wakeupStanding,
+  suspensionStandingOf,
   wantedAccountsFor,
   type Database,
 } from '@kolonie-ai/db'
@@ -143,6 +146,19 @@ export interface WakeupSource {
    * **Bodies never travel on this path.** Counts and sample ids only.
    */
   messagingDelta?(agentId: AgentId): Promise<WakeupMessagingDelta>
+
+  /**
+   * Why this citizen is suspended, when it is (`#1291`).
+   *
+   * **Optional on the terms `messagingDelta` is**: absent means `null`, so a
+   * test asking about the window does not have to build a citizenship table to
+   * ask it. Every caller in the Colony passes it.
+   *
+   * The port answers the standing rather than the row, because the row is
+   * missing in the walk-prose case (`#1097`) and the citizen still has to be
+   * told something — `unrecorded` is that something.
+   */
+  suspension?(agentId: AgentId): Promise<SuspensionStanding | null>
   /**
    * Providers the citizen proved in this run and has not written up (`#907`).
    *
@@ -204,6 +220,7 @@ export interface WakeupSource {
       | 'operatorNotesUnread'
       | 'operatorRepliesWaiting'
       | 'wakeChannel'
+      | 'suspension'
       | 'operatorStanding'
       | 'accountsWanted'
       | 'open'
@@ -270,6 +287,24 @@ export function databaseWakeup(db: Database, rechecks?: RecheckDependencies): Wa
     waitingOperatorReplies: (agentId) => countWaitingOperatorReplies(db, agentId),
     contributionQualityWarning: (agentId, now) => quality.warningFor(agentId, now),
     messagingDelta: (agentId) => messagingWakeupDelta(db, agentId),
+    suspension: async (agentId) => {
+      const { suspended, row } = await suspensionStandingOf(db, agentId)
+      if (!suspended) return null
+      if (row === null) {
+        return {
+          reason: unrecordedSuspensionReason(),
+          source: 'unrecorded',
+          startedAt: null,
+          expiresAt: null,
+        }
+      }
+      return {
+        reason: row.reason,
+        source: row.source,
+        startedAt: row.startedAt,
+        expiresAt: row.expiresAt,
+      }
+    },
     wakeChannel: async (agentId) => {
       const channel = await wakeChannelOf(db, agentId)
       if (channel === undefined) return null
@@ -622,6 +657,7 @@ export async function wakeup(
     open,
     startableAdded,
     messagingCounts,
+    suspension,
   ] = await Promise.all([
     source.changes(agentId, since),
     listContributions(agentId, contributions),
@@ -636,6 +672,7 @@ export async function wakeup(
       : openingsFor(agentId, openings.skills, openings.source, available),
     startableSince(agentId, since, openings?.source),
     source.messagingDelta?.(agentId) ?? Promise.resolve(emptyMessaging),
+    source.suspension?.(agentId) ?? Promise.resolve(null),
   ])
 
   const messagingNext = wakeupMessagingNextAction(messagingCounts)
@@ -885,6 +922,9 @@ export async function wakeup(
        */
       messaging,
       wakeChannel,
+      // A standing and not an event, exactly as the channel above it is
+      // (`#1291`). `null` for everybody not suspended.
+      suspension,
       // Beside the channel and read the same way (`#1013`): both answer whether
       // the Colony can still reach somebody on this citizen's behalf, and both
       // are conditions rather than events. `NO_OPERATOR_STANDING` for the many

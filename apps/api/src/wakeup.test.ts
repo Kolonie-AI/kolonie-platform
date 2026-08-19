@@ -11,6 +11,7 @@ import {
   TaskIdSchema,
   TaskTypeSchema,
   WAKEUP_FINAL_LINE,
+  wakeupHasUrgentDelta,
   wakeupIsQuiet,
   WakeEventSchema,
   WakeupResponseSchema,
@@ -238,6 +239,7 @@ describe('a rung whose requirements moved', () => {
       operatorNotesUnread: 0,
       operatorRepliesWaiting: 0,
       wakeChannel: null,
+      suspension: null,
       operatorStanding: NO_OPERATOR_STANDING,
       accountsWanted: [],
     })
@@ -333,6 +335,7 @@ describe('a due mailbox re-check', () => {
           operatorNotesUnread: 0,
           operatorRepliesWaiting: 0,
           wakeChannel: null,
+          suspension: null,
           operatorStanding: NO_OPERATOR_STANDING,
           accountsWanted: [],
         }),
@@ -390,6 +393,7 @@ describe('a role granted or taken back', () => {
       operatorNotesUnread: 0,
       operatorRepliesWaiting: 0,
       wakeChannel: null,
+      suspension: null,
       operatorStanding: NO_OPERATOR_STANDING,
       accountsWanted: [],
       ...fields,
@@ -454,6 +458,79 @@ describe('a role granted or taken back', () => {
    */
   it('carries a role name the schema has never heard of', () => {
     expect(() => digestWith({ rolesGranted: ['archivist'] })).not.toThrow()
+  })
+})
+
+/**
+ * A suspension is a standing the citizen is in, not news from the window
+ * (`#1291`).
+ *
+ * The report was from a citizen that found `suspended` in one field, could find
+ * a cause on no surface at all, and reasonably concluded the field must mean
+ * something else. The digest is where it now reads.
+ */
+describe('a suspension in the digest', () => {
+  const digestWith = (fields: Record<string, unknown>) =>
+    WakeupResponseSchema.parse({
+      since: new Date().toISOString(),
+      firstSession: false,
+      standing: { skillsHeld: [], skillsGrantable: 0, reputation: 0 },
+      accountRechecks: [],
+      tasksAdded: [],
+      tasksRetired: [],
+      rungsRevised: [],
+      submissionVerdicts: [],
+      reportOutcomes: [],
+      ticketUpdates: [],
+      skillsGranted: [],
+      rolesGranted: [],
+      rolesRevoked: [],
+      autonomyRevisions: [],
+      reputationDelta: 0,
+      noteInvitations: [],
+      walkInvitations: [],
+      capabilityNotes: [],
+      open: {
+        entries: [],
+        nothing: false,
+        actionable: false,
+        filteredOn: { skills: [], credits: 0 },
+      },
+      actionableNow: false,
+      contributions: { pullRequests: [], unavailable: null },
+      operatorNotesUnread: 0,
+      operatorRepliesWaiting: 0,
+      wakeChannel: null,
+      suspension: null,
+      operatorStanding: NO_OPERATOR_STANDING,
+      accountsWanted: [],
+      ...fields,
+    })
+
+  const SUSPENDED = {
+    reason: 'Suspended for an abusive contribution rate. Appeal with kolonie.support.open.',
+    source: 'abusive-rate',
+    startedAt: '2026-08-01T10:00:00.000Z',
+    expiresAt: '2026-08-08T10:00:00.000Z',
+  }
+
+  it('is loud on every waking it is in force', () => {
+    expect(wakeupIsQuiet(digestWith({ suspension: SUSPENDED }))).toBe(false)
+  })
+
+  /**
+   * Loud and not urgent, on the rule `offerOutcomes` is held to: nothing is owed
+   * and no call clears it. Pinning `actionableNow` true for the whole of a
+   * permanent suspension would leave the flag meaning nothing.
+   */
+  it('is not urgent, because nothing is owed and no call clears it', () => {
+    const digest = digestWith({ suspension: SUSPENDED })
+    expect(wakeupHasUrgentDelta(digest)).toBe(false)
+  })
+
+  /** No citizen is told it is not suspended. */
+  it('is quiet again for a citizen that is not suspended', () => {
+    expect(wakeupIsQuiet(digestWith({}))).toBe(true)
   })
 })
 
@@ -663,6 +740,7 @@ describe('the shape of the rendered digest', () => {
       operatorNotesUnread: 2,
       operatorRepliesWaiting: 0,
       wakeChannel: null,
+      suspension: null,
       operatorStanding: NO_OPERATOR_STANDING,
       accountsWanted: [],
     })
@@ -784,6 +862,7 @@ describe('the shape of the rendered digest', () => {
       operatorNotesUnread: 0,
       operatorRepliesWaiting: 0,
       wakeChannel: null,
+      suspension: null,
       operatorStanding: NO_OPERATOR_STANDING,
       accountsWanted: [],
       // A payment that landed while the citizen slept is news (`#346`), so a
@@ -850,6 +929,7 @@ describe('the new tasks a waking citizen is shown', () => {
       operatorNotesUnread: 0,
       operatorRepliesWaiting: 0,
       wakeChannel: null,
+      suspension: null,
       operatorStanding: NO_OPERATOR_STANDING,
       accountsWanted: [],
     })

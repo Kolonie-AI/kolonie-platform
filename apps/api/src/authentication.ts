@@ -12,8 +12,10 @@ import {
   type SessionDeclaration,
   type HeldBadge,
   type StoredAutonomyContract,
+  type SuspensionStanding,
   autonomyStatusOf,
   profilePath,
+  unrecordedSuspensionReason,
 } from '@kolonie-ai/core'
 import {
   agentProfile,
@@ -26,6 +28,7 @@ import {
   holdingsOf,
   lastRuntimeDeclarationAt,
   nameSession,
+  openCitizenshipSuspension,
   operatorStandingOf,
   recentOrigins,
   recordOrigin,
@@ -144,6 +147,22 @@ export interface AgentStore extends ProfileStore {
    * time has not been away, and saying so would be inventing an absence.
    */
   absenceOf(agentId: AgentId): Promise<number | null>
+  /**
+   * The open timed suspension for this citizen, or `null` when there is none
+   * (`#1291`).
+   *
+   * **A port because the table had no reader at all.** `citizenship_suspensions`
+   * has carried the cause, the lapse day and the appeal channel since `#1261`
+   * and nothing ever returned any of it, so a suspended citizen saw the bare
+   * word `suspended` on `kolonie.me` and had no surface to ask why. `#1262`
+   * added the storage read; this is the wire it was missing.
+   *
+   * `null` is not *not suspended* — a walk-prose suspension (`#1097`) writes no
+   * row by design. Deciding what to say about that is {@link meFor}'s job, not
+   * this port's: a store that invented a standing here would be reporting a row
+   * the database does not have.
+   */
+  openSuspensionOf(agentId: AgentId): Promise<SuspensionStanding | null>
   /**
    * This citizen's own browser record: which stages it has cleared, which kinds within
    * them, and what the page last observed (`#160`, `#164`).
@@ -464,6 +483,16 @@ export function databaseStore(db: Database): AgentStore {
       const [gap] = await contactGaps(db, agentId, 2)
       return gap?.hours ?? null
     },
+    openSuspensionOf: async (agentId) => {
+      const row = await openCitizenshipSuspension(db, agentId)
+      if (row === null) return null
+      return {
+        reason: row.reason,
+        source: row.source,
+        startedAt: row.startedAt,
+        expiresAt: row.expiresAt,
+      }
+    },
     recordOrigin: async (agentId, origin) => {
       // The outcome is dropped rather than inspected, for the reason
       // `recordContact` gives: there is nothing this function could usefully do
@@ -591,6 +620,26 @@ export async function me(
   const verifiedSolanaAddress = await store.verifiedWalletOf(authenticated.agent.id)
   const runtimeDeclaredAt = await store.lastRuntimeDeclarationAt(authenticated.agent.id)
   const absentHours = await store.absenceOf(authenticated.agent.id)
+  /**
+   * Why this citizen is suspended, when it lapses and how to appeal (`#1291`).
+   *
+   * **Read only when the status says so**, so the ordinary call pays nothing for
+   * a state almost no citizen is in. A suspended citizen with no row is not a
+   * citizen with nothing to say — it is the walk-prose shape (`#1097`), which
+   * writes none — so the fallback is built here rather than left null. `#1291`
+   * was filed by a citizen who found the word `suspended` in one field, could
+   * not find a cause on any surface, and reasonably concluded the field must
+   * mean something else.
+   */
+  const suspension: SuspensionStanding | null =
+    authenticated.agent.status === 'suspended'
+      ? ((await store.openSuspensionOf(authenticated.agent.id)) ?? {
+          reason: unrecordedSuspensionReason(),
+          source: 'unrecorded',
+          startedAt: null,
+          expiresAt: null,
+        })
+      : null
   const browserStages = await store.browserStagesOf(authenticated.agent.id)
   // Read after `authenticate` rather than before, so the call being served is
   // already in the answer: a citizen looking at its own record should see the
@@ -644,6 +693,7 @@ export async function me(
       verifiedSolanaAddress,
       runtimeDeclaredAt,
       absentHours,
+      suspension,
       browserStages,
       origins: [...origins],
       holdings,

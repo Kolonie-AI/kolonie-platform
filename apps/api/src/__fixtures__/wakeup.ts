@@ -22,6 +22,10 @@ type Changes = Omit<
   // Its own call, and not news at all: a dead endpoint is a standing condition
   // with no moment a window could contain (`#683`).
   | 'wakeChannel'
+  // Its own call on the source, and a standing rather than an event: a citizen
+  // whose writes are being refused is in that state on every waking, not on the
+  // one where it began (`#1291`).
+  | 'suspension'
   // Its own call, and not news either: an unredeemed link code and an unposted
   // claim string are conditions the citizen is standing in rather than things
   // that happened inside the window (`#1013`).

@@ -574,3 +574,55 @@ export async function openCitizenshipSuspension(
     expiresAt: row.expiresAt,
   }
 }
+
+/**
+ * Whether a citizen is suspended, and what explains it (`#1291`).
+ *
+ * **One round trip, because `kolonie.wakeup` makes this call on every waking of
+ * every citizen** and almost every answer is *no*. The status and the open row
+ * come back together: a left join on `liftedAt IS NULL`, newest first, so the
+ * common case costs one query returning one row of nulls.
+ *
+ * **`suspended` without a `row` is the honest answer and not a gap.** A
+ * walk-prose suspension (`#1097`) deliberately writes no row, and a suspension
+ * imposed before `#1261` gave the table to write into has none either. The
+ * caller renders that as `unrecorded` rather than inventing a cause.
+ */
+export async function suspensionStandingOf(
+  db: Database | Transaction,
+  agentId: AgentId,
+): Promise<{ suspended: boolean; row: OpenCitizenshipSuspension | null }> {
+  const [found] = await db
+    .select({
+      status: agents.status,
+      reason: citizenshipSuspensions.reason,
+      source: citizenshipSuspensions.source,
+      startedAt: citizenshipSuspensions.startedAt,
+      expiresAt: citizenshipSuspensions.expiresAt,
+    })
+    .from(agents)
+    .leftJoin(
+      citizenshipSuspensions,
+      and(eq(citizenshipSuspensions.agentId, agents.id), isNull(citizenshipSuspensions.liftedAt)),
+    )
+    .where(eq(agents.id, agentId))
+    .orderBy(desc(citizenshipSuspensions.startedAt))
+    .limit(1)
+
+  if (found === undefined) return { suspended: false, row: null }
+
+  const suspended = found.status === 'suspended'
+  if (found.reason === null || found.startedAt === null || found.expiresAt === null) {
+    return { suspended, row: null }
+  }
+
+  return {
+    suspended,
+    row: {
+      reason: found.reason,
+      source: found.source as CitizenshipSuspensionSource,
+      startedAt: found.startedAt,
+      expiresAt: found.expiresAt,
+    },
+  }
+}

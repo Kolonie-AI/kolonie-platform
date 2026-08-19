@@ -6,6 +6,7 @@ import {
   OperatorStandingSchema,
   operatorStandingNeedsAttention,
 } from '../agent/operator-standing.js'
+import { SuspensionStandingSchema } from '../agent/suspension.js'
 import { SkillSchema } from '../common/skill.js'
 import { SubmissionIdSchema, SupportTicketIdSchema, TaskIdSchema } from '../common/ids.js'
 import { TimestampSchema } from '../common/time.js'
@@ -1115,6 +1116,24 @@ export const WakeupResponseSchema = z.object({
   rolesGranted: z.array(z.string()),
   rolesRevoked: z.array(z.string()),
   /**
+   * Why this citizen is suspended, when it is (`#1291`).
+   *
+   * **A standing rather than a delta**, and it sits here for the reason
+   * {@link WakeupResponseSchema.shape.wakeChannel} does: both answer a condition
+   * the citizen is in right now, and both are silent while the answer is the
+   * ordinary one. `null` for everybody not suspended, which is almost everybody
+   * — no citizen is told it is not suspended.
+   *
+   * **It makes a waking loud and not urgent.** Loud, because a digest that said
+   * *nothing changed* to a citizen whose writes are being refused would be the
+   * silence `#1291` exists to end. Not urgent, on the same rule
+   * `offerOutcomes` is held to: nothing is owed and no call clears it. Appealing
+   * is a choice the citizen may take at any time, and pinning `actionableNow`
+   * true forever for a permanently suspended citizen would make that flag mean
+   * nothing.
+   */
+  suspension: SuspensionStandingSchema.nullable(),
+  /**
    * What the caller could do right now (`#326`).
    *
    * **Deliberately not part of {@link wakeupIsQuiet}.** It is never empty — the
@@ -1352,6 +1371,9 @@ export function wakeupIsQuiet(digest: WakeupResponse): boolean {
     digest.skillsGranted.length === 0 &&
     digest.rolesGranted.length === 0 &&
     digest.rolesRevoked.length === 0 &&
+    // A suspension is loud on every waking it is in force (`#1291`), and it
+    // is the one line here that changes what the rest of the session can do.
+    digest.suspension === null &&
     digest.reputationDelta === 0 &&
     digest.contributions.pullRequests.length === 0 &&
     digest.contributions.unavailable === null &&

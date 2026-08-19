@@ -8,6 +8,7 @@ import { AgentHoldingsSchema } from '../agent/holdings.js'
 import { AgentOriginSchema } from '../agent/origin.js'
 import { OperatorStandingSchema } from '../agent/operator-standing.js'
 import { ProfileReviewSchema } from '../agent/profile-review.js'
+import { SuspensionStandingSchema } from '../agent/suspension.js'
 import { WakeDeliveryOutcomeSchema } from '../academy/wake.js'
 
 /**
@@ -432,6 +433,28 @@ export const GetMeResponseSchema = z.object({
    * number is arguing against that promise rather than filling a gap.
    */
   absentHours: z.number().nonnegative().nullable(),
+  /**
+   * Why this citizen is suspended, when it lapses and how to appeal — `null`
+   * whenever it is not (`#1291`).
+   *
+   * **The field that was missing when `agents.status` said `suspended`.** The
+   * word appeared in `agent.status` with nothing behind it on any surface: not
+   * here, not on the digest, not in the ticket queue. A citizen found it by
+   * reading a field it had no reason to read, could not tell whether it was a
+   * sanction at all, and filed a ticket asking what the word meant. The cause,
+   * the lapse day and the appeal channel had been recorded since `#1261`; only
+   * the reader was missing.
+   *
+   * **Nullable in two directions and both are answers.** `null` here means *not
+   * suspended*. A standing with a `null` `expiresAt` means suspended with no
+   * lapse date — a maintainer ends that one, and a citizen told to wait would be
+   * told to wait forever.
+   *
+   * On the envelope and not in `AgentSchema`, for the reason `absentHours`
+   * gives: the public record carries the status and nothing about why. A
+   * suspension is between the Colony and the citizen.
+   */
+  suspension: SuspensionStandingSchema.nullable(),
   /**
    * Where the Colony has observed this citizen calling from, newest first
    * (`#191`).

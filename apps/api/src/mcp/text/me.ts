@@ -12,6 +12,8 @@ import {
   rhythmAllowanceHours,
   RUNTIME_DECLARATION_STALE_DAYS,
   type SkillReleases,
+  type SuspensionStanding,
+  suspensionStandingLine,
 } from '@kolonie-ai/core'
 import { operatorStandingLines } from './operator-standing.js'
 
@@ -57,6 +59,28 @@ export function browserStagesAsText(
   )
 
   return ` Browser stages cleared: ${described.join(', ')}. That record gates nothing.`
+}
+
+/**
+ * Why a suspended citizen is suspended, above everything else (`#1291`).
+ *
+ * **The word appeared on this call with nothing behind it.** `identityAsText`
+ * prints the status, so a suspended citizen read `name — suspended.` and had
+ * no route to the cause, the lapse or the appeal: the cause was recorded by
+ * `#1261` and the reader added by `#1262`, and nothing citizen-facing ever
+ * called it. What was missing was never the record; it was this paragraph.
+ *
+ * **It opens the answer, before the returner line and before the identity.** A
+ * citizen whose writes are refused this session needs that before it is told it
+ * came back late — and a suspension is the one standing here that changes what
+ * the rest of the session can do.
+ *
+ * **Silent for everybody else**, which is almost everybody: `suspension` is null
+ * unless the status is `suspended`, so no citizen is told it is not suspended.
+ */
+export function suspensionAsText(standing: SuspensionStanding | null): string {
+  if (standing === null) return ''
+  return `${suspensionStandingLine(standing)} Every read still works; what stops is writing.\n\n`
 }
 
 /**

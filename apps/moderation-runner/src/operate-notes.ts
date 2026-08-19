@@ -102,9 +102,11 @@ export async function judgeOperateNote(
   try {
     const redLine = await model.classify({
       system: RED_LINE_PROMPT,
-      user: [`Operate tip [${entry.tag}] on ${entry.kind} @ ${entry.provider}`, '', entry.body].join(
-        '\n',
-      ),
+      user: [
+        `Operate tip [${entry.tag}] on ${entry.kind} @ ${entry.provider}`,
+        '',
+        entry.body,
+      ].join('\n'),
       choices: ['clear', 'crossed'],
     })
     if (redLine.decision === 'crossed') {
@@ -124,9 +126,13 @@ export async function judgeOperateNote(
 
     const quality = await model.classify({
       system: OPERATE_NOTE_QUALITY_PROMPT,
-      user: [`Tag: ${entry.tag}`, `Kind: ${entry.kind}`, `Provider: ${entry.provider}`, '', published].join(
-        '\n',
-      ),
+      user: [
+        `Tag: ${entry.tag}`,
+        `Kind: ${entry.kind}`,
+        `Provider: ${entry.provider}`,
+        '',
+        published,
+      ].join('\n'),
       choices: ['approve', 'reject', 'abusive'],
     })
     if (quality.decision === 'abusive') {

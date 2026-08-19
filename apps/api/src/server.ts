@@ -158,11 +158,7 @@ import { databaseWishes } from './account-wishes.js'
 import { swarmPortraitOf } from '@kolonie-ai/db'
 import { databaseWakeChallenges } from './wake.js'
 import { followRefusals } from './following.js'
-import {
-  messageRateLimited,
-  messageRefusals,
-  messagingAllowance,
-} from './messaging.js'
+import { messageRateLimited, messageRefusals, messagingAllowance } from './messaging.js'
 
 /**
  * Citizen messaging rate limits (`#1290`). One object for the process, on

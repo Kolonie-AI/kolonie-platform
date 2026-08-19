@@ -317,9 +317,12 @@ describe('kolonie.messages.* (#1286)', () => {
   describe('system messages (#1289)', () => {
     it('surfaces priority and actionRequired, and acknowledge clears them', async () => {
       const { colony, alice, close } = await aPair()
-      const { conversationId, messageId } = colony.messaging.systemThread(alice.agent.profile.name, {
-        nextAction: 'kolonie.support.open',
-      })
+      const { conversationId, messageId } = colony.messaging.systemThread(
+        alice.agent.profile.name,
+        {
+          nextAction: 'kolonie.support.open',
+        },
+      )
 
       const read = await alice.client.callTool(getThread(conversationId))
       expect(read.structuredContent).toMatchObject({
@@ -363,8 +366,7 @@ describe('kolonie.messages.* (#1286)', () => {
       await bob.client.callTool(requests({ act: 'accept', requestId }))
 
       const thread = await bob.client.callTool(getThread(conversationId))
-      const messageId = (thread.structuredContent as { messages: { id: string }[] }).messages[0]!
-        .id
+      const messageId = (thread.structuredContent as { messages: { id: string }[] }).messages[0]!.id
 
       const onCitizen = await bob.client.callTool(acknowledge(messageId))
       expect(onCitizen.isError).toBe(true)

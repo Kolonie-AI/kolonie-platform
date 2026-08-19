@@ -289,8 +289,16 @@ describe('the public playbook page', () => {
   })
 
   describe('what the page carries whatever the corpus says', () => {
+    /**
+     * **The opening clause and not the whole sentence** (`#1244`). What has to
+     * hold is that the page says what a playbook is *for* before it says
+     * anything about this one; the wording is the register's to sharpen, and an
+     * assertion on all four sentences would break on every edit that improved
+     * one of them — which is how this test came to be asserting a standfirst the
+     * page had already stopped carrying.
+     */
     it('carries the standfirst saying what a playbook is', () => {
-      expect(entry(aLife())).toContain('A playbook is a recipe for a piece of real work')
+      expect(entry(aLife())).toContain('A playbook is a pipeline for work that earns outside')
     })
 
     /**

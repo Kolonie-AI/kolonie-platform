@@ -223,8 +223,7 @@ export type RecordOperateNoteVerdictInput = {
   readonly id: string
   readonly judged: string
 } & (
-  | { readonly decision: 'approved'; readonly published: string }
-  | { readonly decision: 'rejected' }
+  { readonly decision: 'approved'; readonly published: string } | { readonly decision: 'rejected' }
 )
 
 /**

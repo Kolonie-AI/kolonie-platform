@@ -308,9 +308,9 @@ describe('what a finished walk proposes', () => {
 
   it('writes a measured row for a sighted scout filing where nobody has walked', () => {
     expect(walkVerdict(walk(one, { outcome: 'sighted' }), undefined).kind).toBe('writes')
-    expect(walkVerdict(walk(one, { outcome: 'sighted' }), { status: 'unwritten', steps: [] }).kind).toBe(
-      'writes',
-    )
+    expect(
+      walkVerdict(walk(one, { outcome: 'sighted' }), { status: 'unwritten', steps: [] }).kind,
+    ).toBe('writes')
   })
 
   it('proposes nothing for a sighted filing against a Colony-backed entry', () => {

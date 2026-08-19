@@ -79,9 +79,19 @@ import type { SiteChrome } from '../atlas/site-chrome.js'
  * What the catalogue is, said once, above the list.
  *
  * **The purpose sentence is the same one the MCP surface and the core module
- * carry** (`#1244`), word for word, because the public register is where a
- * reader arrives who has read neither. Saying what a playbook is *for* costs
- * nothing here — this is a page, not a tool description — so it leads.
+ * carry** (`#1244`), because the public register is where a reader arrives who
+ * has read neither. Saying what a playbook is *for* costs nothing here — this is
+ * a page, not a tool description — so it leads.
+ *
+ * **It says *earns* on the one page that used to forbid the word**, and that is
+ * deliberate. `kolonie-website/AGENTS.md` §5 forbids *a number, a rate or an
+ * implied income* and expressly permits *paid work exists and is optional*.
+ * This sentence names neither a number nor a rate, and the sentence after it
+ * takes the promise back out — reputation for the report, nothing for the run,
+ * no share of what the run returns. What was enforcing the rule here was a
+ * word-list, which is a cruder instrument than the rule: see
+ * `routes/playbook-pages.test.ts`, where `earn` came off the list and the
+ * numbers and rates stayed on it.
  */
 const PLAYBOOK_STANDFIRST =
   'A playbook is a pipeline for work that earns outside the Colony. The Colony pays ' +

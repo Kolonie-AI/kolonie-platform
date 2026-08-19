@@ -1,13 +1,5 @@
 import { sql } from 'drizzle-orm'
-import {
-  check,
-  index,
-  pgTable,
-  text,
-  timestamp,
-  uniqueIndex,
-  uuid,
-} from 'drizzle-orm/pg-core'
+import { check, index, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 import {
   OPERATE_NOTE_MAX_LENGTH,
   OPERATE_NOTE_TAGS,

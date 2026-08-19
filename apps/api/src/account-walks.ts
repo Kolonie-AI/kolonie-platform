@@ -1141,8 +1141,7 @@ export const WalkReportSchema = z
   })
   .refine(
     (report) =>
-      report.outcome !== 'sighted' ||
-      (report.about !== undefined && report.about.trim() !== ''),
+      report.outcome !== 'sighted' || (report.about !== undefined && report.about.trim() !== ''),
     {
       message:
         'a sighted scout filing needs a non-empty about — what this provider is to a stranger. ' +

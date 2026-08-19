@@ -1027,7 +1027,9 @@ const PASSWORD_ADVICE =
  * Both absent → no tip. One without the other → refuse. Both present → validate
  * tag and body. The caller decides whether this episode (or account) may file.
  */
-function parseOperateTip(command: ThreadCommand):
+function parseOperateTip(
+  command: ThreadCommand,
+):
   | { readonly kind: 'absent' }
   | { readonly kind: 'invalid'; readonly why: string }
   | { readonly kind: 'tip'; readonly tag: string; readonly note: string } {
@@ -1077,9 +1079,7 @@ async function fileOperateNoteOp(
 ): Promise<ThreadOutcome> {
   const accountId = command.accountId ?? undefined
   if (accountId === undefined || accountId === '') {
-    return rejected(
-      'Name the account this tip is about. kolonie.accounts.list carries the ids.',
-    )
+    return rejected('Name the account this tip is about. kolonie.accounts.list carries the ids.')
   }
 
   const account = await store.account(agentId, accountId)
@@ -1183,9 +1183,7 @@ async function close(
   const tip = parseOperateTip(command)
   if (tip.kind === 'invalid') return rejected(tip.why)
 
-  let tipReady:
-    | { readonly tag: string; readonly note: string }
-    | undefined
+  let tipReady: { readonly tag: string; readonly note: string } | undefined
   if (tip.kind === 'tip') {
     const verdict = episodeOperateNote({
       kind: episode.kind,

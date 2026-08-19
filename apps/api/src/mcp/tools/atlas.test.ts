@@ -1022,3 +1022,93 @@ describe('searching the Atlas', () => {
     })
   })
 })
+
+/**
+ * Where an entry stands on the way to being a route (`#1303`).
+ *
+ * **What is asserted here is that the sentence names whose move it is.** `#1032`
+ * decided walker prose is never published as the Colony's route, and left a
+ * catalogue full of `measured` pages with nothing saying how one gets written —
+ * so a citizen could not tell whether it was waiting on itself, on a moderator
+ * or on a steward.
+ */
+describe('the promotion path, said out loud', () => {
+  let colony: FakeColony
+
+  beforeEach(() => {
+    colony = fakeColony()
+  })
+
+  const textFor = async (provider: string): Promise<string> => {
+    const result = await readAtlas({ provider }, colony.recipes, true)
+    if (result.outcome !== 'ok') throw new Error('expected the read to succeed')
+    const entry = result.response.entries[0]
+    if (entry === undefined) throw new Error('expected an entry')
+
+    return atlasEntryAsText(
+      entry,
+      true,
+      result.response.briefings,
+      result.response.notes,
+      result.response.routes,
+      result.response.operateNotes,
+    )
+  }
+
+  it('tells a citizen the next move is its own on an entry nobody wrote up', async () => {
+    colony.recipes.write({
+      kind: 'mailbox',
+      provider: 'walked.test',
+      title: 'Walked',
+      status: 'measured',
+    })
+
+    const text = await textFor('walked.test')
+
+    expect(text).toContain('Where this stands:')
+    expect(text).toContain('Your move')
+    expect(text).toContain('walk-report')
+  })
+
+  it('says nothing is waiting on a route the Colony wrote', async () => {
+    colony.recipes.write({ kind: 'github', provider: 'github.test', title: 'GitHub' })
+
+    const text = await textFor('github.test')
+
+    expect(text).toContain('joinable')
+    expect(text).toContain('Nothing is waiting')
+  })
+
+  it('says nothing is waiting on a refusal, rather than asking for a route', async () => {
+    colony.recipes.write({
+      kind: 'social',
+      provider: 'closed.test',
+      title: 'Closed',
+      status: 'refused',
+      refusal: 'No honest route in for a citizen without a phone.',
+    })
+
+    const text = await textFor('closed.test')
+
+    expect(text).toContain('closed')
+    expect(text).toContain('Nothing is waiting')
+    expect(text).not.toContain('Your move')
+  })
+
+  it('prints the line on a catalogue read too, so a chooser sees where each entry is', async () => {
+    colony.recipes.write({
+      kind: 'mailbox',
+      provider: 'one.test',
+      title: 'One',
+      status: 'measured',
+    })
+    colony.recipes.write({ kind: 'github', provider: 'two.test', title: 'Two' })
+
+    const result = await readAtlas({}, colony.recipes, true)
+    if (result.outcome !== 'ok') throw new Error('expected the read to succeed')
+
+    const text = result.response.entries.map((entry) => atlasEntryAsText(entry, true)).join('\n\n')
+
+    expect(text.match(/Where this stands:/g)).toHaveLength(2)
+  })
+})

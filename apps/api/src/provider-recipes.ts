@@ -13,6 +13,8 @@ import {
   atlasEntries,
   atlasShelfHasEvidence,
   atlasStateOf,
+  atlasPromotionOf,
+  atlasPromotionSentence,
   ATLAS_NOTHING_MEASURED,
   type Log,
   measuredOnlyRecipes,
@@ -1334,14 +1336,33 @@ export function atlasEntryAsText(
    * last because it is the longest.
    */
   for (const recipe of entry.recipes) {
+    const key = figureKey(recipe.kind, recipe.provider)
+
     parts.push(
       recipeAsText(recipe, secretHandoff),
       walkedAsText(recipe.figures.walked),
       figuresAsText(recipe.figures),
-      providerBriefingAsText(briefings.get(figureKey(recipe.kind, recipe.provider))),
-      walkNotesAsText(notes.get(figureKey(recipe.kind, recipe.provider))),
-      operateNotesAsText(operateNotes.get(figureKey(recipe.kind, recipe.provider))),
-      walkRouteAsText(routes.get(figureKey(recipe.kind, recipe.provider))),
+      /**
+       * Where this row stands on the way to being a route, and whose move is
+       * next (`#1303`).
+       *
+       * **Under the figures and above the prose**, because it is the sentence
+       * that decides whether the paragraphs below are worth reading: a citizen
+       * told that the next move is a steward's does not need the briefing to
+       * work out that there is nothing here for it to do.
+       *
+       * **`hasClearedRoute` is only true where the routes were actually
+       * loaded** — a one-provider read (`#1090`). On a catalogue read the map is
+       * empty for every key, and {@link atlasPromotionOf} is told nothing rather
+       * than told `false`.
+       */
+      atlasPromotionSentence(
+        atlasPromotionOf(recipe, routes.size === 0 ? {} : { hasClearedRoute: routes.has(key) }),
+      ),
+      providerBriefingAsText(briefings.get(key)),
+      walkNotesAsText(notes.get(key)),
+      operateNotesAsText(operateNotes.get(key)),
+      walkRouteAsText(routes.get(key)),
     )
   }
 

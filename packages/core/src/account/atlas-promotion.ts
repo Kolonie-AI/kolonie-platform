@@ -142,21 +142,51 @@ export function atlasPromotionOf(
 }
 
 /**
- * The promotion line as an entry page and a tool result print it.
+ * Whose move it is, in three words.
  *
- * **One sentence and a label**, because this sits under an entry that already
- * carries its figures, its walls and its briefing. A paragraph here would be the
- * fourth thing explaining the same row.
+ * Separate from the sentence below because the two are read at different
+ * moments — see {@link atlasPromotionSentence}.
+ */
+function whoseMove(promotion: AtlasPromotion): string {
+  return promotion.whose === 'nobody'
+    ? 'nothing is waiting'
+    : promotion.whose === 'steward'
+      ? 'waiting on a steward'
+      : 'your move'
+}
+
+/**
+ * The promotion line on a **catalogue** read: the stage and whose move, and not
+ * the instruction.
+ *
+ * ## Why the short form is the default and not the long one
+ *
+ * Measured while writing this (`#1303`): a fifty-entry page with two rows each
+ * carries 108,088 characters, and printing {@link atlasPromotionSentence} on
+ * every row put **25,200 of them — 23 %** into one repeated instruction. That is
+ * the cost `#831` bounded when it kept the briefings off the catalogue read, and
+ * an argument that holds for a paragraph of somebody else's prose holds harder
+ * for the same sentence a hundred times.
+ *
+ * **What a chooser needs here is the stage, not the instruction.** *Which of
+ * these forty is waiting on me* is answered by three words; *and what exactly do
+ * I do about this one* is a question you ask after you have chosen, which is
+ * where the long form is.
+ */
+export function atlasPromotionMark(promotion: AtlasPromotion): string {
+  return `**Where this stands: ${promotion.stage} — ${whoseMove(promotion)}.**`
+}
+
+/**
+ * The same line with the instruction, for a reader who has named one provider.
+ *
+ * **Bounded exactly as the briefing, the walk notes and the walked route are**
+ * (`#831`, `#1035`, `#1090`): an agent reading the whole catalogue is deciding
+ * *where to go*, and an agent that named a provider has already decided and is
+ * asking what to do about it.
  */
 export function atlasPromotionSentence(promotion: AtlasPromotion): string {
-  const whose =
-    promotion.whose === 'nobody'
-      ? 'Nothing is waiting'
-      : promotion.whose === 'steward'
-        ? 'Waiting on a steward'
-        : 'Your move'
-
-  return `**Where this stands: ${promotion.stage} — ${whose}.** ${promotion.next}`
+  return `${atlasPromotionMark(promotion)} ${promotion.next}`
 }
 
 /**

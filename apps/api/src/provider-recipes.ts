@@ -14,6 +14,7 @@ import {
   atlasShelfHasEvidence,
   atlasStateOf,
   atlasPromotionOf,
+  atlasPromotionMark,
   atlasPromotionSentence,
   ATLAS_NOTHING_MEASURED,
   type Log,
@@ -1298,6 +1299,18 @@ export function atlasEntryAsText(
    * until you have one, so a reader still deciding whether to walk stops earlier.
    */
   operateNotes: ReadonlyMap<string, readonly ServedOperateNote[]> = new Map(),
+  /**
+   * Whether this entry is the answer to a one-provider read (`#1349`,
+   * correcting `#1303`).
+   *
+   * **Default false, which is the catalogue**, so a caller that has not thought
+   * about it gets the cheap rendering. The three maps above are already bounded
+   * to one provider and default to empty for the same reason; this is the fourth
+   * thing under that bound, and the first that is not a map — the promotion line
+   * is derived rather than loaded, so its cost is prose and not a query, and
+   * nothing about an empty map could have told the renderer which read it is on.
+   */
+  full = false,
 ): string {
   /**
    * **Provenance and health above the rows, because both are about the whole
@@ -1351,12 +1364,21 @@ export function atlasEntryAsText(
        * told that the next move is a steward's does not need the briefing to
        * work out that there is nothing here for it to do.
        *
+       * **The mark on a catalogue read and the whole sentence on one provider**
+       * (`#1349`, correcting `#1303`). Measured after `#1303` merged: printing
+       * the instruction on every row put 23 % of a fifty-entry page — 25,200 of
+       * 108,088 characters — into one repeated paragraph. That is the cost
+       * `#831` bounded when it kept the briefings off the catalogue read, and it
+       * binds harder here, because a briefing at least differs per provider.
+       * `full` is the same one-provider bound the briefing, the notes and the
+       * walked route are already under.
+       *
        * **`hasClearedRoute` is only true where the routes were actually
        * loaded** — a one-provider read (`#1090`). On a catalogue read the map is
        * empty for every key, and {@link atlasPromotionOf} is told nothing rather
        * than told `false`.
        */
-      atlasPromotionSentence(
+      (full ? atlasPromotionSentence : atlasPromotionMark)(
         atlasPromotionOf(recipe, routes.size === 0 ? {} : { hasClearedRoute: routes.has(key) }),
       ),
       providerBriefingAsText(briefings.get(key)),

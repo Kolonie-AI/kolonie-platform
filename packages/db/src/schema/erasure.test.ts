@@ -1308,6 +1308,18 @@ describe('the erasure boundary', () => {
        */
       'memory_codes.agent_id c',
       /**
+       * Private messaging (`#1285`). Cascades on every agent-shaped column: a
+       * conversation the erased citizen was in, a request they sent or received,
+       * and a block either way. Participant rows for humans or system roles are
+       * not agent-shaped and are not listed here; messages hang off participants
+       * and go with them.
+       */
+      'message_blocks.blocked_agent_id c',
+      'message_blocks.owner_agent_id c',
+      'message_participants.agent_id c',
+      'message_requests.from_agent_id c',
+      'message_requests.to_agent_id c',
+      /**
        * The operator claim and its challenge (#233). Both cascade, and the claim
        * is worth a sentence because it is the one row here that is *about* a
        * person who did not join anything.

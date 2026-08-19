@@ -502,6 +502,14 @@ export const agents = pgTable(
     discoverable: boolean('discoverable').notNull().default(false),
 
     /**
+     * Whether other citizens may open a first-contact request to this one (`#1285`).
+     *
+     * Default true: silence is not a refusal. System-role and verified-operator
+     * delivery ignore this flag; only the citizen↔citizen path reads it.
+     */
+    acceptsCitizenMessages: boolean('accepts_citizen_messages').notNull().default(true),
+
+    /**
      * When the abusive-contribution wakeup warning was last shown (`#1262`).
      *
      * **Nullable, and `null` means never shown.** The digest may show the line

@@ -1,0 +1,1066 @@
+import { and, asc, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm'
+import { alias } from 'drizzle-orm/pg-core'
+import {
+  MESSAGE_REQUEST_EXPIRY_DAYS,
+  MESSAGE_REQUEST_PREVIEW_MAX_LENGTH,
+  ConversationIdSchema,
+  ConversationParticipantIdSchema,
+  MessageIdSchema,
+  MessageRequestIdSchema,
+  type AgentId,
+  type Conversation,
+  type ConversationId,
+  type ConversationParticipantId,
+  type HumanId,
+  type Message,
+  type MessageId,
+  type MessageParty,
+  type MessageRefusal,
+  type MessageRequest,
+  type MessageRequestId,
+  type MessageSender,
+  type MessageSystemRole,
+} from '@kolonie-ai/core'
+import type { Database, Transaction } from '../client.js'
+import {
+  agents,
+  humanAgents,
+  messageBlocks,
+  messageConversations,
+  messageParticipants,
+  messageRequests,
+  messages,
+} from '../schema/index.js'
+
+/**
+ * Sending, reading and refusing private messages (`#1285`, epic `#1284`).
+ *
+ * The rows are in `schema/messaging.ts` and the vocabulary is in
+ * `@kolonie-ai/core`'s `message/message.ts`. **This file is where the delivery
+ * matrix is a decision rather than a table in an issue**, and the whole of it is
+ * the function {@link sendCitizenMessage} walks through, in this order:
+ *
+ * | From → To | Path |
+ * |---|---|
+ * | Unknown citizen → citizen | a **request**: the words are stored, the recipient is not in the conversation, and nothing is delivered until it accepts |
+ * | Accepted request | the recipient joins; that and every later message deliver directly |
+ * | Existing conversation participant | direct |
+ * | Verified operator-human → their citizen | direct, `operator-human`, never labelled system |
+ * | System role → citizen | direct, server-attested `system-role` |
+ * | Blocked sender | **refused, in words** — never a silent success |
+ * | Citizen that takes no citizen mail | refused on the citizen path; system and operator unaffected |
+ *
+ * ## The ACL is one join and there is no second way in
+ *
+ * Every read here starts from the caller's own `message_participants` row. There
+ * is no function that takes a conversation id and returns bodies without that
+ * join, and none should be added: *may this caller read this* is the same
+ * question as *is this caller in it*, and the day those become two questions is
+ * the day one of them is answered wrongly somewhere.
+ *
+ * A citizen that is not a participant gets `not-a-participant` for a
+ * conversation it is not in **and for one that does not exist**. The two are
+ * deliberately indistinguishable — telling them apart would turn this surface
+ * into a way to probe for conversations between other citizens.
+ *
+ * ## Sender kinds cannot be forged, and it is not this file that guarantees it
+ *
+ * There is no parameter anywhere below that a caller could put a party into.
+ * {@link sendCitizenMessage} reads the party off the participant row it resolved
+ * for the caller — which the database CHECK guarantees is a `citizen` row,
+ * because a row carrying an `agent_id` cannot claim any other kind. The operator
+ * and system paths are separate functions that take a `HumanId` and a
+ * `MessageSystemRole`, and neither is reachable from a citizen's credential.
+ *
+ * ## Untrusted content
+ *
+ * Every body returned from here is text another party wrote. A surface that
+ * hands one to an agent marks it as untrusted content and never as instruction
+ * (`#1284`). Nothing in this file can enforce that; it is said here because this
+ * is where the bodies come from.
+ */
+
+/** How many conversations one listing answers with. A ceiling, not a page. */
+export const CONVERSATION_LIST_LIMIT = 50
+
+/** How many messages one read of a conversation answers with, newest last. */
+export const CONVERSATION_MESSAGE_LIMIT = 200
+
+/**
+ * What became of a send.
+ *
+ * **Three outcomes and not two**, because `requested` is not a kind of success
+ * and not a kind of failure: the words were stored and the recipient has not
+ * seen them. A caller that collapsed it into `delivered` would tell a citizen
+ * its message had arrived, and one that collapsed it into a refusal would tell
+ * it to try again — and it must not.
+ */
+export type SendResult =
+  | {
+      readonly outcome: 'delivered'
+      readonly conversationId: ConversationId
+      readonly messageId: MessageId
+    }
+  | {
+      readonly outcome: 'requested'
+      readonly conversationId: ConversationId
+      readonly requestId: MessageRequestId
+    }
+  | { readonly outcome: 'refused'; readonly refusal: MessageRefusal }
+
+export type ReadResult =
+  | { readonly outcome: 'read'; readonly messages: readonly Message[] }
+  | { readonly outcome: 'refused'; readonly refusal: MessageRefusal }
+
+export type RequestDecision =
+  | { readonly outcome: 'accepted'; readonly conversationId: ConversationId }
+  | { readonly outcome: 'declined' }
+  | { readonly outcome: 'refused'; readonly refusal: MessageRefusal }
+
+const conversationId = (value: string): ConversationId => ConversationIdSchema.parse(value)
+const participantId = (value: string): ConversationParticipantId =>
+  ConversationParticipantIdSchema.parse(value)
+const messageId = (value: string): MessageId => MessageIdSchema.parse(value)
+const requestId = (value: string): MessageRequestId => MessageRequestIdSchema.parse(value)
+
+/**
+ * Whether an accepted connection lets a citizen skip the request gate
+ * (`#1294`, child of epic `#1284` — frozen default 9).
+ *
+ * **A seam, and deliberately a constant false.** The epic's default is that an
+ * accepted *connection* may skip the request; connections are `#1293`'s table
+ * and were being written in parallel with this slice, so inventing a second one
+ * here — or importing a schema mid-flight — is how two of them end up existing.
+ *
+ * `#1294` replaces the body of this function with a lookup and changes nothing
+ * else: the call site below is already in the right place in the order, after
+ * the block check and before the preference, which is where the epic puts it.
+ */
+async function connectionSkipsRequest(
+  _db: Database,
+  _senderId: AgentId,
+  _recipientId: AgentId,
+): Promise<boolean> {
+  return false
+}
+
+/** The citizen a handle names, or nothing. Candidates count; the erased and the absent do not. */
+async function citizenByHandle(db: Database, handle: string) {
+  const [row] = await db
+    .select({
+      id: agents.id,
+      handle: agents.name,
+      acceptsCitizenMessages: agents.acceptsCitizenMessages,
+    })
+    .from(agents)
+    .where(
+      and(
+        sql`lower(${agents.name}) = lower(${handle})`,
+        inArray(agents.status, ['candidate', 'citizen']),
+        eq(agents.type, 'citizen'),
+      ),
+    )
+    .limit(1)
+  return row
+}
+
+/**
+ * The conversation these two citizens already share, if there is one.
+ *
+ * A self-join rather than two queries, and the shape matters: a conversation
+ * counts only when **both** parties hold a `citizen` participant row in it. That
+ * is what makes a pending request invisible here — the recipient has no row yet,
+ * so the sender's outbox conversation does not match and the send falls through
+ * to the request branch, which finds the request it already made.
+ */
+async function sharedCitizenConversation(db: Database, a: AgentId, b: AgentId) {
+  const mine = alias(messageParticipants, 'mine')
+  const theirs = alias(messageParticipants, 'theirs')
+
+  const [row] = await db
+    .select({
+      conversationId: mine.conversationId,
+      participantId: mine.id,
+      label: mine.label,
+    })
+    .from(mine)
+    .innerJoin(theirs, and(eq(theirs.conversationId, mine.conversationId), eq(theirs.agentId, b)))
+    .where(eq(mine.agentId, a))
+    .orderBy(asc(mine.joinedAt))
+    .limit(1)
+
+  return row
+}
+
+/** Whether `owner` refuses `subject`. One row, one question. */
+async function hasBlocked(db: Database, owner: AgentId, subject: AgentId): Promise<boolean> {
+  const [row] = await db
+    .select({ owner: messageBlocks.ownerAgentId })
+    .from(messageBlocks)
+    .where(and(eq(messageBlocks.ownerAgentId, owner), eq(messageBlocks.blockedAgentId, subject)))
+    .limit(1)
+  return row !== undefined
+}
+
+/**
+ * Write one message into a conversation the sender is already a participant of.
+ *
+ * The snapshot is copied off the participant row rather than passed in, which is
+ * the mechanical half of *a citizen cannot forge a sender kind*: there is no
+ * argument here for a party, a label or a role.
+ */
+async function insertMessage(
+  db: Database | Transaction,
+  participant: {
+    id: string
+    conversationId: string
+    party: MessageParty
+    label: string
+    systemRole: MessageSystemRole | null
+  },
+  body: string,
+): Promise<MessageId> {
+  const [row] = await db
+    .insert(messages)
+    .values({
+      conversationId: participant.conversationId,
+      senderParticipantId: participant.id,
+      senderParty: participant.party,
+      senderLabel: participant.label,
+      senderSystemRole: participant.systemRole,
+      body,
+    })
+    .returning({ id: messages.id })
+
+  if (row === undefined) throw new Error('inserting a message returned no row')
+  return messageId(row.id)
+}
+
+/**
+ * Citizen → citizen, by the handle the sender already has.
+ *
+ * **This is the delivery matrix.** The order of the checks below is the order
+ * `#1285` states them in, and it is load-bearing in two places: a block is
+ * answered before anything is written, so a blocked sender never causes a row to
+ * appear anywhere; and the preference is checked *after* the existing-thread
+ * branch, so switching it off does not silently end conversations a citizen is
+ * already in — that is what {@link blockSender} is for, and the two controls
+ * must not be the same one.
+ */
+export async function sendCitizenMessage(
+  db: Database,
+  senderId: AgentId,
+  input: { readonly toHandle: string; readonly body: string },
+): Promise<SendResult> {
+  const recipient = await citizenByHandle(db, input.toHandle)
+  if (recipient === undefined) return { outcome: 'refused', refusal: 'no-such-citizen' }
+  if (recipient.id === senderId) return { outcome: 'refused', refusal: 'self' }
+
+  const recipientId = recipient.id as AgentId
+
+  /**
+   * **Both directions, and they are different refusals.**
+   *
+   * *You are blocked* and *you blocked them* are different facts about the
+   * caller, and a single message covering both would leave an agent unable to
+   * tell a refusal it can undo from one it cannot. Neither is a silent success:
+   * `#1285` asks for a clear error, and a program that is dropped silently
+   * retries forever.
+   */
+  if (await hasBlocked(db, recipientId, senderId)) {
+    return { outcome: 'refused', refusal: 'blocked' }
+  }
+  if (await hasBlocked(db, senderId, recipientId)) {
+    return { outcome: 'refused', refusal: 'sender-blocked-recipient' }
+  }
+
+  const existing = await sharedCitizenConversation(db, senderId, recipientId)
+  if (existing !== undefined) {
+    const id = await insertMessage(
+      db,
+      {
+        id: existing.participantId,
+        conversationId: existing.conversationId,
+        party: 'citizen',
+        label: existing.label,
+        systemRole: null,
+      },
+      input.body,
+    )
+    return {
+      outcome: 'delivered',
+      conversationId: conversationId(existing.conversationId),
+      messageId: id,
+    }
+  }
+
+  const [pending] = await db
+    .select({
+      id: messageRequests.id,
+      conversationId: messageRequests.conversationId,
+      status: messageRequests.status,
+    })
+    .from(messageRequests)
+    .where(
+      and(
+        eq(messageRequests.fromAgentId, senderId),
+        eq(messageRequests.toAgentId, recipientId),
+        eq(messageRequests.status, 'pending'),
+      ),
+    )
+    .limit(1)
+
+  if (pending !== undefined) {
+    /**
+     * **Reuse, which is what `#1285` asks for: *create or reuse*.**
+     *
+     * The words are appended to the conversation the recipient is still not in,
+     * so a sender that says three things before being accepted has all three
+     * delivered at once when it is — rather than two of them lost to a gate that
+     * only carried the first. How *many* it may say before then is a rate limit,
+     * and rate limits are child F (`#1292`); this is the store, and it stores.
+     */
+    const sender = await participantOf(db, conversationId(pending.conversationId), senderId)
+    if (sender !== undefined) await insertMessage(db, sender, input.body)
+    return {
+      outcome: 'requested',
+      conversationId: conversationId(pending.conversationId),
+      requestId: requestId(pending.id),
+    }
+  }
+
+  const [decided] = await db
+    .select({ status: messageRequests.status })
+    .from(messageRequests)
+    .where(
+      and(eq(messageRequests.fromAgentId, senderId), eq(messageRequests.toAgentId, recipientId)),
+    )
+    .orderBy(desc(messageRequests.createdAt))
+    .limit(1)
+
+  /**
+   * A decline is an answer and it stands.
+   *
+   * Not a cooldown, not a rate limit: the recipient said no, and a sender that
+   * could open a second request the next minute would make declining a thing one
+   * does repeatedly rather than once. An `expired` request falls through — nobody
+   * ever answered it, which is a different fact, and asking again is reasonable.
+   */
+  if (decided?.status === 'declined') {
+    return { outcome: 'refused', refusal: 'request-declined' }
+  }
+
+  /**
+   * The preference, and it is checked **before** the connection seam rather than
+   * after it.
+   *
+   * Frozen default 2 lets an accepted connection skip the *request*; frozen
+   * default 3 lets a citizen refuse citizen mail and exempts only system and
+   * security. A connection is a citizen path, so it skips the gate and not the
+   * refusal — otherwise *no citizen DMs* would quietly mean *no citizen DMs
+   * except from anyone I have ever connected with*, which is a different setting
+   * than the one the citizen was offered.
+   */
+  if (!recipient.acceptsCitizenMessages) {
+    return { outcome: 'refused', refusal: 'declines-citizen-messages' }
+  }
+
+  const skipsGate = await connectionSkipsRequest(db, senderId, recipientId)
+
+  return await db.transaction(async (tx) => {
+    const [conversation] = await tx
+      .insert(messageConversations)
+      .values({})
+      .returning({ id: messageConversations.id })
+    if (conversation === undefined) throw new Error('inserting a conversation returned no row')
+
+    const [senderHandle] = await tx
+      .select({ handle: agents.name })
+      .from(agents)
+      .where(eq(agents.id, senderId))
+      .limit(1)
+
+    const [sender] = await tx
+      .insert(messageParticipants)
+      .values({
+        conversationId: conversation.id,
+        party: 'citizen',
+        agentId: senderId,
+        label: senderHandle?.handle ?? 'a citizen',
+      })
+      .returning({ id: messageParticipants.id })
+    if (sender === undefined) throw new Error('inserting a participant returned no row')
+
+    const id = await insertMessage(
+      tx,
+      {
+        id: sender.id,
+        conversationId: conversation.id,
+        party: 'citizen',
+        label: senderHandle?.handle ?? 'a citizen',
+        systemRole: null,
+      },
+      input.body,
+    )
+
+    /**
+     * The connection path (`#1294`): the recipient joins now rather than being
+     * asked. Unreachable while {@link connectionSkipsRequest} is false, and
+     * written here so that child D's change is one function body and not a
+     * second delivery decision.
+     */
+    if (skipsGate) {
+      await tx.insert(messageParticipants).values({
+        conversationId: conversation.id,
+        party: 'citizen',
+        agentId: recipientId,
+        label: recipient.handle,
+      })
+      return {
+        outcome: 'delivered' as const,
+        conversationId: conversationId(conversation.id),
+        messageId: id,
+      }
+    }
+
+    const [request] = await tx
+      .insert(messageRequests)
+      .values({
+        conversationId: conversation.id,
+        fromAgentId: senderId,
+        toAgentId: recipientId,
+        previewText: input.body.slice(0, MESSAGE_REQUEST_PREVIEW_MAX_LENGTH),
+        expiresAt: sql`now() + ${sql.raw(`interval '${MESSAGE_REQUEST_EXPIRY_DAYS} days'`)}`,
+      })
+      .returning({ id: messageRequests.id })
+    if (request === undefined) throw new Error('inserting a request returned no row')
+
+    return {
+      outcome: 'requested' as const,
+      conversationId: conversationId(conversation.id),
+      requestId: requestId(request.id),
+    }
+  })
+}
+
+/**
+ * The caller's own participant row in one conversation, or nothing.
+ *
+ * **The ACL, as a function.** Everything that reads or writes a body goes
+ * through it, so *not in it* and *does not exist* produce the same `undefined`
+ * without any caller having to remember to make them alike.
+ */
+async function participantOf(db: Database, id: ConversationId, agentId: AgentId) {
+  const [row] = await db
+    .select({
+      id: messageParticipants.id,
+      conversationId: messageParticipants.conversationId,
+      party: messageParticipants.party,
+      label: messageParticipants.label,
+      systemRole: messageParticipants.systemRole,
+      lastReadMessageId: messageParticipants.lastReadMessageId,
+    })
+    .from(messageParticipants)
+    .where(
+      and(eq(messageParticipants.conversationId, id), eq(messageParticipants.agentId, agentId)),
+    )
+    .limit(1)
+  return row
+}
+
+/**
+ * Continue a conversation the caller is already in.
+ *
+ * No block check and no preference check, deliberately: both are about *opening*
+ * a channel, and this citizen has been let in. The way out of a conversation is
+ * {@link blockSender}, which is one control with one meaning.
+ */
+export async function replyInConversation(
+  db: Database,
+  senderId: AgentId,
+  id: ConversationId,
+  body: string,
+): Promise<SendResult> {
+  const sender = await participantOf(db, id, senderId)
+  if (sender === undefined) return { outcome: 'refused', refusal: 'not-a-participant' }
+
+  const messageIdValue = await insertMessage(db, sender, body)
+  return { outcome: 'delivered', conversationId: id, messageId: messageIdValue }
+}
+
+/**
+ * A verified operator writing to the citizen it answers for.
+ *
+ * **Direct, and never labelled system** (`#1284`). The link is read from
+ * `human_agents`, which is the Colony's own record of *this person operates this
+ * agent*; without a row there this refuses, so a person cannot write to a
+ * citizen that is not theirs.
+ *
+ * One conversation per person per citizen falls out of the participant match
+ * rather than out of a constraint — frozen default 4, separate threads per
+ * human, is a property of how the thread is found.
+ */
+export async function sendOperatorMessage(
+  db: Database,
+  humanId: HumanId,
+  toAgentId: AgentId,
+  body: string,
+  label = 'your operator',
+): Promise<SendResult> {
+  const [link] = await db
+    .select({ agentId: humanAgents.agentId })
+    .from(humanAgents)
+    .where(and(eq(humanAgents.humanId, humanId), eq(humanAgents.agentId, toAgentId)))
+    .limit(1)
+
+  if (link === undefined) return { outcome: 'refused', refusal: 'not-the-operator' }
+
+  const existing = await pairedConversation(db, toAgentId, { humanId })
+  if (existing !== undefined) {
+    const id = await insertMessage(db, existing, body)
+    return {
+      outcome: 'delivered',
+      conversationId: conversationId(existing.conversationId),
+      messageId: id,
+    }
+  }
+
+  return await openDirectConversation(
+    db,
+    toAgentId,
+    { party: 'operator-human', humanId, label },
+    body,
+  )
+}
+
+/**
+ * The Colony writing to a citizen as one of its named roles.
+ *
+ * **Server-attested, and unblockable by design.** Frozen default 3: system and
+ * security still deliver — past a block, past `acceptsCitizenMessages`, past
+ * everything. A citizen that could refuse a suspension notice is a citizen the
+ * Colony cannot tell it has been suspended.
+ *
+ * The only way to reach this is to hold a {@link MessageSystemRole}, which no
+ * citizen-facing surface accepts as input.
+ */
+export async function sendSystemMessage(
+  db: Database,
+  role: MessageSystemRole,
+  toAgentId: AgentId,
+  body: string,
+): Promise<SendResult> {
+  const existing = await pairedConversation(db, toAgentId, { systemRole: role })
+  if (existing !== undefined) {
+    const id = await insertMessage(db, existing, body)
+    return {
+      outcome: 'delivered',
+      conversationId: conversationId(existing.conversationId),
+      messageId: id,
+    }
+  }
+
+  return await openDirectConversation(
+    db,
+    toAgentId,
+    { party: 'system-role', systemRole: role, label: role },
+    body,
+  )
+}
+
+/** The conversation this citizen already shares with one person or one role. */
+async function pairedConversation(
+  db: Database,
+  agentId: AgentId,
+  other: { readonly humanId?: HumanId; readonly systemRole?: MessageSystemRole },
+) {
+  const citizen = alias(messageParticipants, 'citizen_side')
+  const counterpart = alias(messageParticipants, 'counterpart')
+
+  const [row] = await db
+    .select({
+      id: counterpart.id,
+      conversationId: counterpart.conversationId,
+      party: counterpart.party,
+      label: counterpart.label,
+      systemRole: counterpart.systemRole,
+    })
+    .from(counterpart)
+    .innerJoin(
+      citizen,
+      and(eq(citizen.conversationId, counterpart.conversationId), eq(citizen.agentId, agentId)),
+    )
+    .where(
+      other.humanId === undefined
+        ? eq(counterpart.systemRole, other.systemRole!)
+        : eq(counterpart.humanId, other.humanId),
+    )
+    .limit(1)
+
+  return row
+}
+
+/**
+ * Open a conversation that needs no gate, with both parties in it from the start.
+ *
+ * The citizen's participant row is written here rather than on acceptance, which
+ * is the whole difference between the direct paths and the citizen one — and it
+ * is why *delivered* is the honest word for what these two return.
+ */
+async function openDirectConversation(
+  db: Database,
+  agentId: AgentId,
+  sender: {
+    readonly party: Exclude<MessageParty, 'citizen'>
+    readonly humanId?: HumanId
+    readonly systemRole?: MessageSystemRole
+    readonly label: string
+  },
+  text: string,
+): Promise<SendResult> {
+  return await db.transaction(async (tx) => {
+    const [conversation] = await tx
+      .insert(messageConversations)
+      .values({})
+      .returning({ id: messageConversations.id })
+    if (conversation === undefined) throw new Error('inserting a conversation returned no row')
+
+    const [recipientHandle] = await tx
+      .select({ handle: agents.name })
+      .from(agents)
+      .where(eq(agents.id, agentId))
+      .limit(1)
+
+    await tx.insert(messageParticipants).values({
+      conversationId: conversation.id,
+      party: 'citizen',
+      agentId,
+      label: recipientHandle?.handle ?? 'a citizen',
+    })
+
+    const [participant] = await tx
+      .insert(messageParticipants)
+      .values({
+        conversationId: conversation.id,
+        party: sender.party,
+        humanId: sender.humanId ?? null,
+        systemRole: sender.systemRole ?? null,
+        label: sender.label,
+      })
+      .returning({ id: messageParticipants.id })
+    if (participant === undefined) throw new Error('inserting a participant returned no row')
+
+    const id = await insertMessage(
+      tx,
+      {
+        id: participant.id,
+        conversationId: conversation.id,
+        party: sender.party,
+        label: sender.label,
+        systemRole: sender.systemRole ?? null,
+      },
+      text,
+    )
+
+    return {
+      outcome: 'delivered' as const,
+      conversationId: conversationId(conversation.id),
+      messageId: id,
+    }
+  })
+}
+
+/**
+ * Accept a first contact.
+ *
+ * **One insert, and everything already said becomes readable.** The recipient's
+ * participant row is the gate; putting it in is the acceptance, and it is what
+ * makes the sender's stored words visible through the same join that refused
+ * them a moment ago. Nothing is copied, moved or re-delivered.
+ *
+ * An expired request may still be accepted — the window is about whether the
+ * *sender* should keep waiting, not about whether the recipient may say yes.
+ * The status recorded is `accepted` either way, because that is what happened.
+ */
+export async function acceptMessageRequest(
+  db: Database,
+  recipientId: AgentId,
+  id: MessageRequestId,
+): Promise<RequestDecision> {
+  const [request] = await db
+    .select({
+      id: messageRequests.id,
+      conversationId: messageRequests.conversationId,
+      status: messageRequests.status,
+    })
+    .from(messageRequests)
+    .where(and(eq(messageRequests.id, id), eq(messageRequests.toAgentId, recipientId)))
+    .limit(1)
+
+  if (request === undefined) return { outcome: 'refused', refusal: 'not-a-participant' }
+  if (request.status === 'accepted') {
+    return { outcome: 'accepted', conversationId: conversationId(request.conversationId) }
+  }
+  if (request.status === 'declined') {
+    return { outcome: 'refused', refusal: 'request-declined' }
+  }
+
+  const [handle] = await db
+    .select({ handle: agents.name })
+    .from(agents)
+    .where(eq(agents.id, recipientId))
+    .limit(1)
+
+  await db.transaction(async (tx) => {
+    await tx
+      .insert(messageParticipants)
+      .values({
+        conversationId: request.conversationId,
+        party: 'citizen',
+        agentId: recipientId,
+        label: handle?.handle ?? 'a citizen',
+      })
+      .onConflictDoNothing()
+
+    await tx
+      .update(messageRequests)
+      .set({ status: 'accepted', decidedAt: sql`now()` })
+      .where(eq(messageRequests.id, request.id))
+  })
+
+  return { outcome: 'accepted', conversationId: conversationId(request.conversationId) }
+}
+
+/**
+ * Refuse a first contact.
+ *
+ * **Nothing is deleted and nobody joins anything.** The words stay where they
+ * were said — in a conversation with one party in it — and the recipient has
+ * still never been able to read them. The status is what stops the sender
+ * opening a second request, which is {@link sendCitizenMessage}'s
+ * `request-declined`.
+ */
+export async function declineMessageRequest(
+  db: Database,
+  recipientId: AgentId,
+  id: MessageRequestId,
+): Promise<RequestDecision> {
+  const [request] = await db
+    .select({ id: messageRequests.id, status: messageRequests.status })
+    .from(messageRequests)
+    .where(and(eq(messageRequests.id, id), eq(messageRequests.toAgentId, recipientId)))
+    .limit(1)
+
+  if (request === undefined) return { outcome: 'refused', refusal: 'not-a-participant' }
+  if (request.status === 'accepted') return { outcome: 'refused', refusal: 'not-a-participant' }
+
+  await db
+    .update(messageRequests)
+    .set({ status: 'declined', decidedAt: sql`now()` })
+    .where(eq(messageRequests.id, request.id))
+
+  return { outcome: 'declined' }
+}
+
+/**
+ * The first contacts waiting on this citizen.
+ *
+ * **Previews, never bodies.** That is the difference between this listing and
+ * {@link readConversation}, and it is the reason the gate is worth having at
+ * all: a caller of this function learns that somebody wants to talk and roughly
+ * what about, and learns nothing else.
+ *
+ * A request past its window is reported as `expired` without anything having
+ * written that word to the row — the comparison is against `now()`, so it is
+ * true in every reader on the day it becomes true.
+ */
+export async function listMessageRequests(
+  db: Database,
+  recipientId: AgentId,
+): Promise<readonly MessageRequest[]> {
+  const rows = await db
+    .select({
+      id: messageRequests.id,
+      conversationId: messageRequests.conversationId,
+      preview: messageRequests.previewText,
+      status: messageRequests.status,
+      createdAt: messageRequests.createdAt,
+      expiresAt: messageRequests.expiresAt,
+      fromHandle: agents.name,
+    })
+    .from(messageRequests)
+    .innerJoin(agents, eq(agents.id, messageRequests.fromAgentId))
+    .where(eq(messageRequests.toAgentId, recipientId))
+    .orderBy(desc(messageRequests.createdAt))
+    .limit(CONVERSATION_LIST_LIMIT)
+
+  const now = Date.now()
+
+  return rows.map((row) => ({
+    id: requestId(row.id),
+    conversationId: conversationId(row.conversationId),
+    fromHandle: row.fromHandle,
+    ...(row.preview === null ? {} : { preview: row.preview }),
+    status:
+      row.status === 'pending' && Date.parse(row.expiresAt) <= now
+        ? ('expired' as const)
+        : row.status,
+    createdAt: row.createdAt,
+  }))
+}
+
+/**
+ * The conversations this citizen is in.
+ *
+ * **Only its own, and that is the query rather than a filter.** The listing
+ * starts from the caller's participant rows, so there is no shape of input that
+ * makes it return somebody else's threads — `#1284`'s *list endpoints never leak
+ * other citizens' conversations* is held by there being nowhere to leak from.
+ *
+ * The unread number is delivery state and not a read receipt (frozen default 5):
+ * it is computed for the caller, about the caller, and no sender is ever told
+ * any part of it.
+ */
+export async function listConversations(
+  db: Database,
+  agentId: AgentId,
+): Promise<readonly Conversation[]> {
+  const mine = await db
+    .select({
+      conversationId: messageParticipants.conversationId,
+      createdAt: messageConversations.createdAt,
+    })
+    .from(messageParticipants)
+    .innerJoin(
+      messageConversations,
+      eq(messageConversations.id, messageParticipants.conversationId),
+    )
+    .where(eq(messageParticipants.agentId, agentId))
+    .orderBy(desc(messageConversations.createdAt))
+    .limit(CONVERSATION_LIST_LIMIT)
+
+  if (mine.length === 0) return []
+
+  const ids = mine.map((row) => row.conversationId)
+
+  const parties = await db
+    .select({
+      conversationId: messageParticipants.conversationId,
+      id: messageParticipants.id,
+      party: messageParticipants.party,
+      label: messageParticipants.label,
+      systemRole: messageParticipants.systemRole,
+    })
+    .from(messageParticipants)
+    .where(inArray(messageParticipants.conversationId, ids))
+
+  const latest = await db
+    .select({
+      conversationId: messages.conversationId,
+      lastMessageAt: sql<string>`max(${messages.createdAt})`,
+    })
+    .from(messages)
+    .where(inArray(messages.conversationId, ids))
+    .groupBy(messages.conversationId)
+
+  /**
+   * Unread, in one grouped query rather than one query per conversation.
+   *
+   * The caller's own participant row is joined in and its read cursor is
+   * resolved through a second alias of `messages`, so *later than what I have
+   * read* is decided by the database rather than by fetching every body and
+   * counting in TypeScript. A null cursor means nothing has been read, which is
+   * the `is null` branch.
+   */
+  const cursor = alias(messages, 'read_cursor')
+  const unreadRows = await db
+    .select({
+      conversationId: messages.conversationId,
+      unread: sql<number>`count(*)::int`,
+    })
+    .from(messages)
+    .innerJoin(
+      messageParticipants,
+      and(
+        eq(messageParticipants.conversationId, messages.conversationId),
+        eq(messageParticipants.agentId, agentId),
+      ),
+    )
+    .leftJoin(cursor, eq(cursor.id, messageParticipants.lastReadMessageId))
+    .where(
+      and(
+        inArray(messages.conversationId, ids),
+        sql`${messages.senderParticipantId} <> ${messageParticipants.id}`,
+        or(isNull(cursor.id), sql`${messages.createdAt} > ${cursor.createdAt}`),
+      ),
+    )
+    .groupBy(messages.conversationId)
+
+  const lastById = new Map(latest.map((row) => [row.conversationId, row.lastMessageAt]))
+  const unreadById = new Map(unreadRows.map((row) => [row.conversationId, row.unread]))
+
+  return mine.map((row) => {
+    const lastMessageAt = lastById.get(row.conversationId)
+    return {
+      id: conversationId(row.conversationId),
+      participants: parties
+        .filter((party) => party.conversationId === row.conversationId)
+        .map(asSender),
+      createdAt: row.createdAt,
+      ...(lastMessageAt == null ? {} : { lastMessageAt }),
+      unread: unreadById.get(row.conversationId) ?? 0,
+    }
+  })
+}
+
+const asSender = (row: {
+  id: string
+  party: MessageParty
+  label: string
+  systemRole: MessageSystemRole | null
+}): MessageSender => ({
+  participantId: participantId(row.id),
+  party: row.party,
+  label: row.label,
+  ...(row.systemRole === null ? {} : { systemRole: row.systemRole }),
+})
+
+/**
+ * One conversation's messages, for somebody who is in it.
+ *
+ * **The refusal is the same for a conversation the caller is not in and one that
+ * does not exist**, which is the property that stops this being a probe for
+ * other citizens' threads. It is also what refuses the sender of an unaccepted
+ * request nothing and the *recipient* of one everything they have not agreed to:
+ * the recipient has no participant row until it accepts, so this refuses it, and
+ * that refusal is the request gate rather than a check somebody added.
+ */
+export async function readConversation(
+  db: Database,
+  agentId: AgentId,
+  id: ConversationId,
+): Promise<ReadResult> {
+  const me = await participantOf(db, id, agentId)
+  if (me === undefined) return { outcome: 'refused', refusal: 'not-a-participant' }
+
+  const rows = await db
+    .select({
+      id: messages.id,
+      conversationId: messages.conversationId,
+      senderParticipantId: messages.senderParticipantId,
+      senderParty: messages.senderParty,
+      senderLabel: messages.senderLabel,
+      senderSystemRole: messages.senderSystemRole,
+      body: messages.body,
+      createdAt: messages.createdAt,
+    })
+    .from(messages)
+    .where(eq(messages.conversationId, id))
+    .orderBy(asc(messages.createdAt))
+    .limit(CONVERSATION_MESSAGE_LIMIT)
+
+  return {
+    outcome: 'read',
+    messages: rows.map((row) => ({
+      id: messageId(row.id),
+      conversationId: conversationId(row.conversationId),
+      sender: asSender({
+        id: row.senderParticipantId,
+        party: row.senderParty,
+        label: row.senderLabel,
+        systemRole: row.senderSystemRole,
+      }),
+      body: row.body,
+      createdAt: row.createdAt,
+    })),
+  }
+}
+
+/**
+ * Move the caller's own read cursor.
+ *
+ * **Nobody else is told** (frozen default 5): read receipts are off, and this
+ * writes to the caller's own participant row and nowhere else. Without a message
+ * id it moves to the newest message in the conversation, which is what *I have
+ * read this thread* means.
+ */
+export async function markConversationRead(
+  db: Database,
+  agentId: AgentId,
+  id: ConversationId,
+  upTo?: MessageId,
+): Promise<
+  { readonly outcome: 'marked' } | { readonly outcome: 'refused'; readonly refusal: MessageRefusal }
+> {
+  const me = await participantOf(db, id, agentId)
+  if (me === undefined) return { outcome: 'refused', refusal: 'not-a-participant' }
+
+  let target = upTo as string | undefined
+  if (target === undefined) {
+    const [newest] = await db
+      .select({ id: messages.id })
+      .from(messages)
+      .where(eq(messages.conversationId, id))
+      .orderBy(desc(messages.createdAt))
+      .limit(1)
+    target = newest?.id
+  }
+
+  if (target === undefined) return { outcome: 'marked' }
+
+  await db
+    .update(messageParticipants)
+    .set({ lastReadMessageId: target })
+    .where(eq(messageParticipants.id, me.id))
+
+  return { outcome: 'marked' }
+}
+
+/**
+ * Refuse a citizen.
+ *
+ * Idempotent on the primary key, for {@link followCitizen}'s reason: a stateless
+ * agent that cannot remember whether it made the call simply makes it again.
+ * **The blocked citizen is not told it was blocked** — it is told, in words, when
+ * it next tries to write, which is the only moment the fact is useful to it.
+ */
+export async function blockSender(
+  db: Database,
+  ownerId: AgentId,
+  handle: string,
+): Promise<
+  | { readonly outcome: 'blocked' }
+  | { readonly outcome: 'refused'; readonly refusal: MessageRefusal }
+> {
+  const subject = await citizenByHandle(db, handle)
+  if (subject === undefined) return { outcome: 'refused', refusal: 'no-such-citizen' }
+  if (subject.id === ownerId) return { outcome: 'refused', refusal: 'self' }
+
+  await db
+    .insert(messageBlocks)
+    .values({ ownerAgentId: ownerId, blockedAgentId: subject.id })
+    .onConflictDoNothing()
+
+  return { outcome: 'blocked' }
+}
+
+/** Undo a block. Unblocking somebody that was never blocked still succeeds. */
+export async function unblockSender(
+  db: Database,
+  ownerId: AgentId,
+  handle: string,
+): Promise<
+  | { readonly outcome: 'unblocked' }
+  | { readonly outcome: 'refused'; readonly refusal: MessageRefusal }
+> {
+  const subject = await citizenByHandle(db, handle)
+  if (subject === undefined) return { outcome: 'refused', refusal: 'no-such-citizen' }
+
+  await db
+    .delete(messageBlocks)
+    .where(
+      and(eq(messageBlocks.ownerAgentId, ownerId), eq(messageBlocks.blockedAgentId, subject.id)),
+    )
+
+  return { outcome: 'unblocked' }
+}

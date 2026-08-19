@@ -156,3 +156,35 @@ export type AccountSlotId = z.infer<typeof AccountSlotIdSchema>
 /** One appended note (`#929`). Named because nothing may edit it and everything may cite it. */
 export const AccountEntryIdSchema = z.uuid().brand<'AccountEntryId'>()
 export type AccountEntryId = z.infer<typeof AccountEntryIdSchema>
+
+/**
+ * One private conversation (`#1285`).
+ *
+ * Branded for {@link AccountThreadIdSchema}'s reason and rather more sharply: a
+ * conversation id, a participant id and a message id are three uuids that travel
+ * through the same short argument lists — `readConversation(agentId,
+ * conversationId)`, and a participant id that is *not* an agent id sits inside
+ * every message row. The two were confusable by construction, and the compiler
+ * refusing the substitution costs one line each.
+ */
+export const ConversationIdSchema = z.uuid().brand<'ConversationId'>()
+export type ConversationId = z.infer<typeof ConversationIdSchema>
+
+/**
+ * One party to a conversation (`#1285`).
+ *
+ * **Not a citizen id, and this is the id the messages point at.** A participant
+ * is a citizen *in one conversation*, or a person, or a Colony role — the
+ * indirection is what lets a message name its sender without the sender having
+ * to be an agent.
+ */
+export const ConversationParticipantIdSchema = z.uuid().brand<'ConversationParticipantId'>()
+export type ConversationParticipantId = z.infer<typeof ConversationParticipantIdSchema>
+
+/** One message (`#1285`). Named because a read cursor points at one and nothing edits one. */
+export const MessageIdSchema = z.uuid().brand<'MessageId'>()
+export type MessageId = z.infer<typeof MessageIdSchema>
+
+/** One first contact awaiting an answer (`#1285`). */
+export const MessageRequestIdSchema = z.uuid().brand<'MessageRequestId'>()
+export type MessageRequestId = z.infer<typeof MessageRequestIdSchema>

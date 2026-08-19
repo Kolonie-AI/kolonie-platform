@@ -27,6 +27,9 @@ import {
   type RetiredWakeEvent,
   type WakeEvent,
   PaymentObserverSchema,
+  MessagePartySchema,
+  MessageRequestStatusSchema,
+  MessageSystemRoleSchema,
   ModeratedProfileFieldSchema,
   ProfileReviewStateSchema,
   WakeDeliveryOutcomeSchema,
@@ -589,3 +592,46 @@ export const doctorFeedbackVerdict = pgEnum(
   'doctor_feedback_verdict',
   valuesOf(DoctorFeedbackVerdictSchema.options),
 )
+/**
+ * Who is speaking in a private conversation (`#1285`).
+ *
+ * **The enum is the first of three places the forgery rule lives**, and the only
+ * one a future writer of this schema cannot route around: a `text` column would
+ * accept `system-role` from anybody who could write a row, and the CHECKs in
+ * `messaging.ts` that tie each kind to the column it may fill have to have a
+ * closed vocabulary to be written against at all.
+ *
+ * From core's list rather than repeated here, for the reason this file gives
+ * everywhere else: a fourth party to a conversation is an argument about what
+ * the Colony is, and it should cost a migration.
+ */
+export const messageParty = pgEnum('message_party', valuesOf(MessagePartySchema.options))
+
+/**
+ * Which part of the Colony wrote, when the party is `system-role` (`#1285`).
+ *
+ * An enum although a role is a name, and the difference from `accounts.kind` —
+ * which is text — is what the value *buys*: every member here writes past the
+ * request gate and past a citizen's refusal of citizen mail, because frozen
+ * default 3 says system and security still deliver. A member added without an
+ * argument is authority granted without one.
+ */
+export const messageSystemRole = pgEnum(
+  'message_system_role',
+  valuesOf(MessageSystemRoleSchema.options),
+)
+
+/**
+ * Where a first contact stands (`#1285`).
+ *
+ * Four members, and `expired` is the one worth defending: it is computed from
+ * the row's own age rather than swept, so it exists to be *written* only when a
+ * recipient's decision arrives after the window — and having it in the
+ * vocabulary is what keeps *nobody answered* distinguishable from *this was
+ * refused*, which are two different sentences to the sender.
+ */
+export const messageRequestStatus = pgEnum(
+  'message_request_status',
+  valuesOf(MessageRequestStatusSchema.options),
+)
+

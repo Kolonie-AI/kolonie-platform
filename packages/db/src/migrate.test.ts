@@ -578,7 +578,16 @@ describe('the migrations', () => {
     // it — and the pair is directional in the first and unordered in the second.
     // A declined request leaves no row at all, which is why there is no third
     // table here for refusals.
-    expect(afterFirst.tables).toBe('142')
+    //
+    // **A hundred and forty-three through a hundred and forty-seven** (`#1285`,
+    // epic `#1284`): `message_blocks`, `message_conversations`,
+    // `message_participants`, `message_requests`, `messages`. Five tables, and
+    // `agents.accepts_citizen_messages` is a column rather than a sixth — the
+    // refusal is a preference on the citizen, not a row about a conversation.
+    // A pending request's body lives in `messages` on a conversation the
+    // recipient is not yet a participant of; accepting is the insert that
+    // makes those rows readable, and until then no query that exists can.
+    expect(afterFirst.tables).toBe('147')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and
@@ -714,7 +723,13 @@ describe('the migrations', () => {
     // one word — `Allow` — and a citizen that had asked for a machine account
     // could not tell which of them it had been given. A closed list is also what
     // lets the CHECK beside it hold, since only an operator declares.
-    expect(afterFirst.enums).toBe('58')
+    // And `message_party`, `message_system_role` and `message_request_status`
+    // make sixty-one (`#1285`). Three closed lists for the forgery rule and the
+    // first-contact gate: who is speaking, which Colony role wrote when the
+    // party is `system-role`, and where a stranger's ask stands. A fourth party
+    // or a fifth status is an argument about what a conversation is, so each
+    // costs a migration.
+    expect(afterFirst.enums).toBe('61')
     // Two: the deferred double-entry constraint trigger on `ledger_entries`, and
     // `submissions_one_pass_per_quest` (#175) — one accepted submission per
     // citizen per quest, which is a trigger rather than a partial unique index

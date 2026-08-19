@@ -604,6 +604,19 @@ describe('schema', () => {
          * rather than anything either call contained.
          */
         'memory_codes',
+        /**
+         * Private messaging (`#1285`, epic `#1284`): five tables. A pending
+         * request's body is already a `messages` row on a conversation the
+         * recipient is not a participant of — accepting is the single insert
+         * that makes those rows readable. `message_blocks` is the abuse edge;
+         * there is no sixth table for a citizen's refusal of citizen mail,
+         * which is a column on `agents`.
+         */
+        'message_blocks',
+        'message_conversations',
+        'message_participants',
+        'message_requests',
+        'messages',
         'moderations',
         // `pow_challenges` joined with the compute rung (#37): the third root,
         // and the only one whose evidence is a value the agent spent CPU to

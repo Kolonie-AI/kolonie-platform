@@ -5,12 +5,13 @@ import {
   databaseUrlFromEnv,
   recordAttributionReading,
   rewardPublishedWalks,
+  rewardPublishedOperateNotes,
   sweepBadges,
 } from '@kolonie-ai/db'
 import { fetchPage, PAGE_TIMEOUT_MS } from '@kolonie-ai/verifiers'
 import type { Log } from './loop.js'
 import { attributionSweep, sweepAttribution } from './attribution.js'
-import { badgeSweep, walkRewardSweep } from './sweeps.js'
+import { badgeSweep, operateNoteRewardSweep, walkRewardSweep } from './sweeps.js'
 import { createHealthServer } from './health.js'
 import { runnerLoops } from './runner-loops.js'
 
@@ -97,6 +98,7 @@ const loops = runnerLoops({
     ),
   ),
   walkRewards: walkRewardSweep(() => rewardPublishedWalks(db)),
+  operateNoteRewards: operateNoteRewardSweep(() => rewardPublishedOperateNotes(db)),
   log,
   badgeIntervalMs: POLL_INTERVAL_MS,
   attributionIntervalMs: ATTRIBUTION_INTERVAL_MS,

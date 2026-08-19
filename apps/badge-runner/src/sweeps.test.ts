@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentId } from '@kolonie-ai/core'
-import { badgeSweep, walkRewardSweep } from './sweeps.js'
+import { badgeSweep, operateNoteRewardSweep, walkRewardSweep } from './sweeps.js'
 
 describe('what a pass is worth saying', () => {
   describe('badges', () => {
@@ -51,5 +51,34 @@ describe('what a pass is worth saying', () => {
       expect(JSON.stringify(line)).not.toContain(paid.agentId)
       expect(JSON.stringify(line)).not.toContain(paid.walkId)
     })
+  })
+})
+
+/**
+ * The Atlas's second contribution class (`#1300`).
+ *
+ * **A sweep of its own rather than a branch in the walk sweep.** The two pay for
+ * different deeds under different scarcity clauses, and a pass that paid four
+ * walks and no tips should say so rather than report a total that hides which.
+ */
+describe('the operate tip reward sweep', () => {
+  const paid = {
+    noteId: 'a-note',
+    agentId: 'an-agent' as never,
+    kind: 'mailbox',
+    provider: 'gmx.com',
+    tag: 'access-method',
+  }
+
+  it('says nothing about a pass that paid nothing', () => {
+    expect(operateNoteRewardSweep(async () => []).report([])).toBeUndefined()
+  })
+
+  it('names the pair and the tag, and never the citizen', () => {
+    const line = operateNoteRewardSweep(async () => []).report([paid])
+
+    expect(line?.fields).toMatchObject({ event: 'operate-notes.rewarded', paid: 1 })
+    expect(JSON.stringify(line)).toContain('mailbox:gmx.com:access-method')
+    expect(JSON.stringify(line)).not.toContain('an-agent')
   })
 })

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { attributionSweep, type AttributionOutcome } from './attribution.js'
 import type { Log } from './loop.js'
 import { runnerLoops } from './runner-loops.js'
-import { badgeSweep, walkRewardSweep } from './sweeps.js'
+import { badgeSweep, operateNoteRewardSweep, walkRewardSweep } from './sweeps.js'
 
 describe('the badge runner loop set', () => {
   const silent: Log = { info: () => undefined, error: () => undefined }
@@ -17,6 +17,7 @@ describe('the badge runner loop set', () => {
         deferred: 0,
       })),
       walkRewards: walkRewardSweep(async () => []),
+      operateNoteRewards: operateNoteRewardSweep(async () => []),
       log: silent,
       badgeIntervalMs: 60_000,
       attributionIntervalMs: 60_000,
@@ -44,6 +45,7 @@ describe('the badge runner loop set', () => {
         deferred: 0,
       })),
       walkRewards: walkRewardSweep(async () => []),
+      operateNoteRewards: operateNoteRewardSweep(async () => []),
       log: silent,
       badgeIntervalMs: 60_000,
       attributionIntervalMs: 60_000,

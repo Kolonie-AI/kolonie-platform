@@ -81,6 +81,23 @@ export const providerOperateNotes = pgTable(
     writtenAt: timestamp('written_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),
+
+    /**
+     * When the Colony paid for this tip (`#1300`).
+     *
+     * **Once per citizen × pair and never per tag**, which is the whole
+     * anti-farming shape: the tag vocabulary is closed and finite, so paying per
+     * tag would be five payments at one provider — depth farming with extra
+     * steps, and the thing `WALK_PUBLISHED_REPUTATION`'s scarcity clause exists
+     * to refuse. The partial unique index below is what makes that true under a
+     * race rather than only in the sweep's `not exists`.
+     *
+     * **A rewrite is not a second payment.** Replacing a tip resets it to
+     * `pending` and clears the scrub, and this column is deliberately left
+     * alone: a citizen correcting itself is doing the right thing and must not
+     * be paid again for it, nor punished by losing what it earned.
+     */
+    rewardedAt: timestamp('rewarded_at', { withTimezone: true, mode: 'string' }),
   },
   (table) => [
     uniqueIndex('provider_operate_notes_agent_pair_tag').on(
@@ -89,6 +106,16 @@ export const providerOperateNotes = pgTable(
       table.provider,
       table.tag,
     ),
+    /**
+     * One payment per citizen per pair, guaranteed rather than checked
+     * (`#1300`). Mirrors `account_walks_rewarded_provider_unique`: the sweep's
+     * `not exists` is true when it is read and not necessarily when the row is
+     * written, and this is what makes two sweeps racing impossible to both
+     * satisfy.
+     */
+    uniqueIndex('provider_operate_notes_rewarded_pair_unique')
+      .on(table.agentId, table.kind, table.provider)
+      .where(sql`${table.rewardedAt} is not null`),
     check(
       'provider_operate_notes_tag_is_known',
       sql`${table.tag} in (${sql.raw(OPERATE_NOTE_TAGS.map((one) => `'${one}'`).join(', '))})`,

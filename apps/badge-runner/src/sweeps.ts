@@ -1,4 +1,4 @@
-import type { BadgesAwarded, RewardedWalk } from '@kolonie-ai/db'
+import type { BadgesAwarded, RewardedOperateNote, RewardedWalk } from '@kolonie-ai/db'
 import type { SweepSpec } from './loop.js'
 
 /**
@@ -53,6 +53,40 @@ export function walkRewardSweep(
               event: 'walks.rewarded',
               paid: paid.length,
               providers: paid.map((walk) => `${walk.kind}:${walk.provider}:${walk.outcome}`),
+            },
+          },
+  }
+}
+
+/**
+ * Paying the operate tips whose words have reached their readers (`#1300`).
+ *
+ * **A second sweep beside the walks rather than a branch inside one**, on the
+ * reason this file exists: the two pay for different deeds under different
+ * scarcity clauses, and a pass that paid four walks and no tips should say so
+ * rather than report a total that hides which.
+ *
+ * **The tag is in the line and the citizen is not**, exactly as the walk sweep
+ * puts the outcome in and leaves the walker out: *which providers the Atlas
+ * learned how to operate* is the number this feature exists to move, and who
+ * earned it belongs on the reputation record.
+ */
+export function operateNoteRewardSweep(
+  sweep: () => Promise<readonly RewardedOperateNote[]>,
+): SweepSpec<readonly RewardedOperateNote[]> {
+  return {
+    name: 'operate-note-rewards',
+    sweep,
+    empty: [],
+    report: (paid) =>
+      paid.length === 0
+        ? undefined
+        : {
+            message: 'operate tip rewards paid',
+            fields: {
+              event: 'operate-notes.rewarded',
+              paid: paid.length,
+              providers: paid.map((note) => `${note.kind}:${note.provider}:${note.tag}`),
             },
           },
   }

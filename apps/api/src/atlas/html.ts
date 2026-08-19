@@ -55,6 +55,12 @@ import { atlasNeighbours } from './related.js'
 import { ATLAS_PARTLY, atlasEntryVerdict, atlasRecipeVerdict } from './verdict.js'
 import { ATLAS_REFUSING, atlasEntryTitle, lowerFirst, providerName } from './title.js'
 import { atlasStatusSubline } from './lead.js'
+import {
+  atlasEarnFacets,
+  atlasEarnPhrase,
+  atlasShelfClause,
+  atlasShelfIsClaim,
+} from './taxonomy.js'
 import { atlasRuntimeLine } from './runtimes.js'
 import { CONSOLE_MAST } from '../console/mark.js'
 import { CHROME_STYLE, CONSOLE_STYLE } from '../console/theme.js'
@@ -1293,7 +1299,7 @@ function indexRow(entry: AtlasPublicEntry): string {
     (entry.description === null
       ? ''
       : `<br><small class="k-atlas-said">${escape(entry.description)}</small>`) +
-    `<br><small>${escape(kindsShown(entry))}${escape(indexFigure(entry))} — ` +
+    `<br><small>${escape(kindsShown(entry))}${rowEarn(entry)}${escape(indexFigure(entry))} — ` +
     /**
      * **A chip and not the tail of a sentence** (`#1164`). It is the one fact
      * on the row that decides whether a reader has to volunteer an afternoon,
@@ -1306,6 +1312,27 @@ function indexRow(entry: AtlasPublicEntry): string {
     rowDirection(entry) +
     '</small></li>'
   )
+}
+
+/**
+ * How a provider pays, on its row, where anything says it does (`#1329`).
+ *
+ * **Beside the kinds and not instead of the shelf heading above it.** A shelf
+ * groups the index and has to put every entry somewhere; the row is where a
+ * reader learns that the thing filed under *Data and APIs* is in fact a bounty
+ * board. Nothing here changes the grouping — `#1326` decision 4 refuses to
+ * invent a shelf to escape the fallback, and this is the other way of answering
+ * the same reader.
+ *
+ * **Absent where there is no earn claim**, on `rowCost`'s rule beside it: nearly
+ * every entry carries none, and printing the fact that the axis is empty would
+ * fill the shelf with silence.
+ */
+function rowEarn(entry: AtlasPublicEntry): string {
+  const earn = atlasEarnFacets(entry)
+  if (earn.length === 0) return ''
+
+  return `, ${escape(earn.map((facet) => atlasEarnPhrase(facet)).join(', '))}`
 }
 
 /**
@@ -1705,9 +1732,7 @@ export function atlasEntryPage(input: {
        * shortest of the internal links that make a map out of a list, and it
        * was one-way.
        */
-      `<p class="k-atlas-facts"><a href="${escape(atlasShelfPath(entry.category))}">${escape(
-        entry.category,
-      )}</a> — ${escape(operatorLine(entry, atlasIsWalked(entry)))}</p>`,
+      taxonomyLine(entry),
       /**
        * **Above the recipe rather than beside `runtimesSection` at the foot**
        * (`kolonie-website#110`). A reader arriving from *OpenClaw own phone
@@ -1923,6 +1948,39 @@ function metaDescription(entry: AtlasPublicEntry): string {
  * least on them and the most need of a line saying what the provider is. Here it
  * is rendered for every status, from one place, above everything a row can say.
  */
+/**
+ * What this provider is, in the order `#1326` decision 1 froze (`#1329`).
+ *
+ * **Kind, then earn facets, then the shelf — and the shelf only where somebody
+ * chose it.** The line printed the shelf slug first and unconditionally, so a
+ * bounty board that reaches no shelf led with `data-apis`: the one clause on the
+ * line that classified nothing, above two that did.
+ *
+ * **The fallback is demoted rather than hidden.** Where an earn facet says what
+ * the provider is, the shelf clause is dropped entirely — a reader told *pays
+ * for finished tasks* has been classified, and adding *and nobody filed it on a
+ * shelf* spends a line on the Colony's bookkeeping. Where nothing else
+ * classifies it, `atlasShelfClause` says so in words, because a page that simply
+ * omitted the shelf would read as one nobody had asked about.
+ *
+ * The link stays where the shelf is real: entry to shelf and shelf to entry is
+ * what makes a map out of a list (`kolonie-website#97`).
+ */
+function taxonomyLine(entry: AtlasPublicEntry): string {
+  const earn = atlasEarnFacets(entry)
+
+  const clauses = [
+    escape(kindsShown(entry)),
+    ...earn.map((facet) => escape(atlasEarnPhrase(facet))),
+    atlasShelfIsClaim(entry)
+      ? `<a href="${escape(atlasShelfPath(entry.category))}">${escape(entry.category)}</a>`
+      : (atlasShelfClause(entry) ?? ''),
+    escape(operatorLine(entry, atlasIsWalked(entry))),
+  ].filter((clause) => clause !== '')
+
+  return `<p class="k-atlas-facts">${clauses.join(' — ')}</p>`
+}
+
 /**
  * Which kind of walk a measured entry is built out of (`#1333`).
  *

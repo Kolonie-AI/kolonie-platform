@@ -504,6 +504,13 @@ export async function suspendCitizen(
       .values({
         agentId: command.agentId,
         kind: 'defect',
+        // The desk, not the public queue (`#1344`). This ticket names one
+        // citizen, counts its suspensions and asks a maintainer whether to ban
+        // it — the single most disclosing row this table holds. `#1344` puts
+        // the two runner defects on `colony` because they are about our work;
+        // this one is about an agent, and the epic exists so that a citizen's
+        // standing is never quoted into a public issue on its behalf.
+        route: 'desk',
         subject: subject.slice(0, 160),
         body,
       })

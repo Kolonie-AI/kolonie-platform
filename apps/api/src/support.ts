@@ -1,9 +1,11 @@
 import {
   ColonyNoticeSchema,
   OpenTicketRequestSchema,
+  ticketRouteFor,
   ReadTicketsRequestSchema,
   SupportTicketIdSchema,
   type AgentId,
+  type CitizenshipStatus,
   type ApiError,
   type ColonyNotice,
   type ListTicketsResponse,
@@ -13,6 +15,7 @@ import {
   type ReadTicketsRequest,
   type SupportTicket,
   type SupportTicketId,
+  type SupportTicketRoute,
 } from '@kolonie-ai/core'
 import {
   listOwnTickets as listOwnTicketsInDatabase,
@@ -61,6 +64,16 @@ export const TICKET_WINDOW_MS = 60 * 60 * 1000
 export interface SupportDesk {
   openTicket(input: {
     readonly agentId: AgentId
+    /**
+     * Which desk reads it, already decided (`#1344`).
+     *
+     * **Resolved here rather than inside the query**, because the rule needs the
+     * citizen's own standing and the credential has already been read by the time
+     * anything reaches this port. A lookup inside `openTicket` would be a second
+     * read of a row the caller is holding, and a storage layer that could decide
+     * routing is one that could decide it differently from the surface.
+     */
+    readonly route: SupportTicketRoute
     readonly request: OpenTicketRequest
   }): Promise<OpenTicketOutcome>
   listOwnTickets(agentId: AgentId, query?: ReadTicketsRequest): Promise<readonly OwnTicket[]>
@@ -142,7 +155,16 @@ export interface OutboundAllowance {
 
 /** The support surface, over one desk and one limiter. */
 export interface Support extends OutboundAllowance {
-  open(input: { readonly agentId: AgentId; readonly body: unknown }): Promise<OpenTicketResult>
+  open(input: {
+    readonly agentId: AgentId
+    /**
+     * The caller's own citizenship standing, for the routing rule (`#1344`). A
+     * suspended or banned citizen's ticket goes to the desk whatever it asked
+     * for, and this is the only field that can say so.
+     */
+    readonly standing: CitizenshipStatus
+    readonly body: unknown
+  }): Promise<OpenTicketResult>
   read(input: {
     readonly agentId: AgentId
     readonly ticketId?: string | undefined
@@ -173,7 +195,7 @@ export function support(options: {
       return limiter.take(String(agentId))
     },
 
-    async open({ agentId, body }) {
+    async open({ agentId, standing, body }) {
       /**
        * Validated **before** the limiter is charged.
        *
@@ -220,7 +242,15 @@ export function support(options: {
         return { outcome: 'rate-limited', retryAfterSeconds: verdict.retryAfterSeconds }
       }
 
-      const opened = await options.desk.openTicket({ agentId, request: parsed.data })
+      /**
+       * Decided once, here, from what the citizen asked for and what its own
+       * standing says (`#1344`). Deterministic and never a model call: a routing
+       * decision a triage model could revisit is one a citizen cannot rely on,
+       * and the thing being relied on is that an appeal is not published.
+       */
+      const route = ticketRouteFor({ declared: parsed.data.route, status: standing })
+
+      const opened = await options.desk.openTicket({ agentId, route, request: parsed.data })
       if (opened.outcome === 'no-such-submission') {
         /**
          * **The same answer for a stranger's submission and for one that does

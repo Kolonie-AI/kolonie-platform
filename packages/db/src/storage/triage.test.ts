@@ -7,6 +7,7 @@ import {
   type OpenTicketRequest,
   type SubmissionId,
   type SupportTicket,
+  type SupportTicketRoute,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { agents, submissions, supportTickets, tasks } from '../schema/index.js'
@@ -44,9 +45,11 @@ const aRequest = (overrides: Partial<OpenTicketRequest> = {}): OpenTicketRequest
  */
 const openedTicket = async (
   db: Database,
-  input: Parameters<typeof openTicket>[1],
+  input: Omit<Parameters<typeof openTicket>[1], 'route'> & { route?: SupportTicketRoute },
 ): Promise<SupportTicket> => {
-  const result = await openTicket(db, input)
+  // `route` is required of the real caller, deliberately (`#1344`), and defaulted
+  // here so that the tests which are about something else do not have to name it.
+  const result = await openTicket(db, { ...input, route: input.route ?? 'colony' })
   if (result.outcome !== 'opened') throw new Error(`opening a ticket answered ${result.outcome}`)
   return result.ticket
 }

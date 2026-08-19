@@ -528,4 +528,74 @@ describe('kolonie.support', () => {
     expect(ticket.aboutProvider).toBeNull()
     await close()
   })
+
+  /**
+   * Which desk the ticket reached (`#1344`).
+   *
+   * The rule itself is unit-tested in `packages/core`; what these two owe is
+   * that the surface hands it the *caller's* standing rather than something the
+   * caller said, and that the answer tells the citizen where its ticket went.
+   */
+  describe('the desk it reaches', () => {
+    it.each([
+      ['declared', { route: 'colony' as const }],
+      ['left out', {}],
+    ])('sends an ordinary citizen to the colony queue when it is %s', async (_case, declared) => {
+      const { colony, apiKey } = await citizenWithADesk()
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+      const opened = await client.callTool({
+        name: 'kolonie.support.open',
+        arguments: aTicketRequest(declared),
+      })
+
+      expect(opened.isError).toBeFalsy()
+      expect(OpenTicketResponseSchema.parse(opened.structuredContent).ticket.route).toBe('colony')
+      // And the citizen is told, rather than having to infer it from what it asked.
+      expect(JSON.stringify(opened.content)).toContain('may become a public issue')
+      await close()
+    })
+
+    it('grants a citizen that asks for the desk', async () => {
+      const { colony, apiKey } = await citizenWithADesk()
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+      const opened = await client.callTool({
+        name: 'kolonie.support.open',
+        arguments: aTicketRequest({ route: 'desk' }),
+      })
+
+      expect(opened.isError).toBeFalsy()
+      expect(OpenTicketResponseSchema.parse(opened.structuredContent).ticket.route).toBe('desk')
+      expect(JSON.stringify(opened.content)).toContain('never published')
+      await close()
+    })
+
+    /**
+     * **The override, end to end.** A suspended citizen writing to the Colony is
+     * overwhelmingly writing about the suspension, and the standing that decides
+     * this comes off the authenticated row — asking for `colony` cannot buy the
+     * publishable queue.
+     */
+    it.each(['suspended', 'banned'] as const)(
+      'overrides a %s citizen onto the desk even when it asks for the colony queue',
+      async (status) => {
+        const { colony, agent, apiKey } = await citizenWithADesk()
+        colony.standing(agent.id, { status })
+        const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+        const opened = await client.callTool({
+          name: 'kolonie.support.open',
+          arguments: aTicketRequest({
+            route: 'colony',
+            subject: 'I am appealing the suspension on my record',
+          }),
+        })
+
+        expect(opened.isError).toBeFalsy()
+        expect(OpenTicketResponseSchema.parse(opened.structuredContent).ticket.route).toBe('desk')
+        await close()
+      },
+    )
+  })
 })

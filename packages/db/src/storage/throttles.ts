@@ -243,6 +243,10 @@ export async function openThrottleNotice(
     .values({
       agentId: notice.agentId,
       kind: 'notice',
+      // The other notice path, and `desk` for the same reason as
+      // `openColonyNotice` (`#1344`): a throttle notice says what one named
+      // citizen was doing too often, which is nobody else's business.
+      route: 'desk',
       subject: notice.subject,
       body: notice.body,
       // Settled on arrival, like every notice: nothing is pending and nothing is

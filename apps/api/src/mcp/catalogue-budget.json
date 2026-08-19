@@ -1,11 +1,11 @@
 {
   "tools": 123,
-  "bytes": 214825,
+  "bytes": 216014,
   "heaviest": {
     "name": "kolonie.accounts.recipes",
     "bytes": 6220
   },
   "measuredAt": "2026-08-19",
   "command": "node scripts/check-catalogue-budget.mjs",
-  "raisedFor": "the-catalogue-encodes-grammar-never-vocabulary — `operator`, `taskId` and `wishId` on kolonie.messages.send are grammar: three arguments on the verb that already sends a message, no new verb, still 123 tools. There is no kolonie.messages.open_operator_thread, because opening a thread is sending the first message to it and a second name for that would be the cost this record exists to refuse. The growth is vocabulary-free because nothing about a subject is spelled out in the catalogue: `taskId` and `wishId` are ids the caller already holds, and the rule that at most one may be sent is a refusal sentence rather than an enumeration. This raise sits on top of #1302's, which raised the sum for q, cost and hasDescription on kolonie.accounts.recipes."
+  "raisedFor": "the-catalogue-encodes-grammar-never-vocabulary \u2014 `route` on kolonie.support.open is grammar: one argument on the verb that already opens a ticket, no new verb, still 123 tools. There is no kolonie.support.open_desk_ticket, because which desk a ticket reaches is a property of the ticket rather than a second way of opening one, and a second name for it would be the cost this record exists to refuse. The growth is vocabulary-free because the enum is two values and neither is a subject: `colony` and `desk` name where a ticket goes, not what it may be about, and nothing about any provider, task or rung is spelled out. The prose that came with it states a fact that was true before #1344 and written nowhere a citizen reads \u2014 that a colony ticket may be quoted into a public issue \u2014 so it buys a citizen the ability to decide, which is what a description is for. This raise sits on top of #1294's, which raised the sum for operator, taskId and wishId on kolonie.messages.send."
 }

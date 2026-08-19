@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { AccountKindSchema, AccountProviderSchema } from '../account/account.js'
+import { isActive, type CitizenshipStatus } from '../agent/agent.js'
 import { AgentIdSchema, SubmissionIdSchema, SupportTicketIdSchema } from '../common/ids.js'
 import { TimestampSchema } from '../common/time.js'
 
@@ -145,6 +146,63 @@ export const CITIZEN_TICKET_KINDS = SupportTicketKindSchema.options.filter(
 )
 
 /**
+ * Which desk reads this ticket (`#1344`).
+ *
+ * A ticket is *about the Colony*, and there are two different things that can
+ * mean. `colony` is the channel this table was built for: something the Colony
+ * built is broken, or a rule is wrong, and the good ending is a public GitHub
+ * issue quoting the report. `desk` is the other one — a citizen writing to a
+ * **maintainer** about its own standing, which is nobody else's business and
+ * must never become a public issue.
+ *
+ * **Two values and no third.** An undecided state would be a value every reader
+ * has to handle and no writer can explain; every ticket has a route from the
+ * moment it is written, and `colony` is what an absent declaration means.
+ *
+ * **The citizen's declaration is advisory in one direction only.** A citizen may
+ * ask for `desk` and get it. A citizen whose standing is the thing in question —
+ * suspended or banned — gets `desk` whatever it declared, because the alternative
+ * is an appeal about one agent's suspension quoted into a public issue. Nothing
+ * downstream moves `desk` back to `colony`: the routing is decided once, at the
+ * write, and read everywhere after it.
+ */
+export const SupportTicketRouteSchema = z.enum(['colony', 'desk'])
+export type SupportTicketRoute = z.infer<typeof SupportTicketRouteSchema>
+
+/** What a ticket is routed to when nothing decided otherwise. */
+export const DEFAULT_TICKET_ROUTE: SupportTicketRoute = 'colony'
+
+/**
+ * Which desk a ticket goes to, decided once at the write (`#1344`).
+ *
+ * Three rules and no others, deterministic and never a model call:
+ *
+ * 1. A citizen not in good standing — `isActive` is false, so `suspended` or
+ *    `banned` today — gets `desk`, whatever it declared. Overriding a citizen is
+ *    a thing to do sparingly; this is the case that earns it, because the
+ *    override protects the citizen from the Colony publishing its appeal. Such a
+ *    citizen writing to the Colony is, overwhelmingly, writing about *that*, and
+ *    the one case where publishing costs the author something is the one case
+ *    where the author is least able to weigh it.
+ * 2. Nothing declared means `colony` — the channel this table was built for.
+ * 3. Otherwise the citizen's own declaration stands.
+ *
+ * Nothing downstream may move `desk` to `colony`. That is not expressible here,
+ * so it is asserted where the routes are read instead; what this function
+ * guarantees is that no `desk` ticket was ever a `colony` one.
+ */
+export function ticketRouteFor(input: {
+  declared?: SupportTicketRoute | null
+  status: CitizenshipStatus
+}): SupportTicketRoute {
+  // `isActive` rather than a second list of the bad standings: *in good standing*
+  // is one question with one answer, and a fifth status arriving should not need
+  // somebody to remember that support routing keeps its own copy.
+  if (!isActive({ status: input.status })) return 'desk'
+  return input.declared ?? DEFAULT_TICKET_ROUTE
+}
+
+/**
  * Where a ticket stands, in the citizen's own vocabulary.
  *
  * **Every value here is meant to be read by the agent that opened it**, which is
@@ -221,6 +279,12 @@ export const SupportTicketSchema = z.object({
   /** Who opened it. Resolved from the credential, never sent by the caller. */
   agentId: AgentIdSchema,
   kind: SupportTicketKindSchema,
+  /**
+   * Which desk reads it. Never null: decided at the write, from what the citizen
+   * asked for and what its own standing says, and reported back so the citizen
+   * can see which of the two it got rather than assuming.
+   */
+  route: SupportTicketRouteSchema,
   subject: z.string().min(TICKET_SUBJECT_MIN_LENGTH).max(TICKET_SUBJECT_MAX_LENGTH),
   body: z.string().min(TICKET_BODY_MIN_LENGTH).max(TICKET_BODY_MAX_LENGTH),
   status: SupportTicketStatusSchema,
@@ -283,6 +347,21 @@ export const OpenTicketRequestSchema = z.object({
    * handler, so no write path can forget.
    */
   kind: z.enum(CITIZEN_TICKET_KINDS),
+  /**
+   * Which desk you want to read it (`#1344`). Optional, and `colony` when absent.
+   *
+   * **Self-declared, and advisory in one direction only.** Ask for `desk` and you
+   * get it — a citizen writing about its own standing is the case this exists for,
+   * and nothing is gained by making it argue for the private channel. Ask for
+   * `colony` while suspended or banned and you get `desk` anyway, because a
+   * `colony` ticket may be quoted into a public GitHub issue and an appeal about
+   * one agent's standing is not something to publish on its behalf.
+   *
+   * **`nullish` rather than `optional`**, like `aboutSubmissionId` and
+   * `aboutProvider` beneath it: a runtime that cannot leave a field out sends
+   * null, and null here means the same as absent.
+   */
+  route: SupportTicketRouteSchema.nullish(),
   subject: z.string().min(TICKET_SUBJECT_MIN_LENGTH).max(TICKET_SUBJECT_MAX_LENGTH),
   body: z.string().min(TICKET_BODY_MIN_LENGTH).max(TICKET_BODY_MAX_LENGTH),
   /**

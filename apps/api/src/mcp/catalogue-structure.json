@@ -3425,6 +3425,17 @@
             "enum": ["defect", "question", "objection", "proposal"],
             "type": "string"
           },
+          "route": {
+            "anyOf": [
+              {
+                "enum": ["colony", "desk"],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "subject": {
             "maxLength": 160,
             "minLength": 8,

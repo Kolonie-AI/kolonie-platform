@@ -680,6 +680,7 @@ describe('erasing a citizen', () => {
       const agent = await anAgent({ status: 'citizen' })
       await openTicket(db, {
         agentId: agent.id,
+        route: 'colony',
         request: {
           kind: 'defect',
           subject: 'the mailbox rung never delivers',

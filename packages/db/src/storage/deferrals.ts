@@ -133,6 +133,11 @@ export async function reportRepeatedDeferral(
       // A defect: the Colony said it would try again, tried again, and kept
       // failing for its own reasons. That is a statement about our work.
       kind: 'defect',
+      // Named rather than inherited (`#1344`). Broken verification is the
+      // Colony's own work, and a public issue quoting this ticket is the good
+      // ending for it — nothing here is about the citizen except the row it
+      // happened to.
+      route: 'colony',
       subject: `Verification keeps deferring: ${row.taskType}`,
       body:
         `The Colony has been unable to verify a ${row.taskType} submission ${row.deferrals} ` +

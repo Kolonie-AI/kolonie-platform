@@ -240,6 +240,10 @@ export async function reportFailedRerun(
       // A defect: the tester re-ran a task the Colony believed was solvable and it
       // was not. That is a statement about the Colony's own work.
       kind: 'defect',
+      // Named rather than inherited (`#1344`). A task that stopped being
+      // solvable is a defect in the Academy, and belongs in the queue that can
+      // become a public issue.
+      route: 'colony',
       subject: `Re-test failed: ${row.taskType}`,
       body:
         `A tester re-ran ${row.taskType} and the attempt failed.\n\n` +

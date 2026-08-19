@@ -19,7 +19,7 @@ import {
 } from '@kolonie-ai/core'
 import { agents } from './agents.js'
 import { submissions } from './submissions.js'
-import { supportTicketKind, supportTicketStatus } from './enums.js'
+import { supportTicketKind, supportTicketRoute, supportTicketStatus } from './enums.js'
 
 const settledStatusList = sql.raw(SETTLED_TICKET_STATUSES.map((s) => `'${s}'`).join(', '))
 const subjectMin = sql.raw(String(TICKET_SUBJECT_MIN_LENGTH))
@@ -70,6 +70,25 @@ export const supportTickets = pgTable(
       .references(() => agents.id, { onDelete: 'cascade' }),
 
     kind: supportTicketKind('kind').notNull(),
+
+    /**
+     * Which desk reads it (`#1344`).
+     *
+     * **`colony` by default, and the default is what every existing row gets.**
+     * The column was added to a table full of tickets that were all written for
+     * the public queue, and that is exactly what `colony` means — so the backfill
+     * is the default and there is no migration step that has to guess.
+     *
+     * **Not nullable.** A third *undecided* state would be a value every reader
+     * has to handle and no writer can explain; the routing rule runs at the write
+     * and always produces one of the two.
+     *
+     * **Nothing downstream may move `desk` to `colony`.** That is a rule about
+     * updates and no column type expresses it, so it lives in the update paths
+     * and in their tests. What this column guarantees is only that the value is
+     * present and is one of the two.
+     */
+    route: supportTicketRoute('route').notNull().default('colony'),
 
     subject: varchar('subject', { length: TICKET_SUBJECT_MAX_LENGTH }).notNull(),
     body: text('body').notNull(),
@@ -278,5 +297,14 @@ export const supportTickets = pgTable(
     index('support_tickets_open_idx')
       .on(table.createdAt)
       .where(sql`${table.status} in ('open', 'acknowledged')`),
+    /**
+     * The read a desk console makes: *this route's queue, by status* (`#1344`).
+     *
+     * Composite and unfiltered, unlike `support_tickets_open_idx` above: a
+     * maintainer's desk wants the settled ones too — what it answered last week
+     * is the point of having a desk — so a partial index on the two live statuses
+     * would serve the queue and nothing else.
+     */
+    index('support_tickets_route_status_idx').on(table.route, table.status),
   ],
 )

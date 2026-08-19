@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import type { ConversationId } from '@kolonie-ai/core'
 import {
   agentPage,
   agentSectionPage,
@@ -30,6 +31,7 @@ const aView = (overrides: Partial<Parameters<typeof agentPage>[0]> = {}) =>
     quests: [],
     accounts: { held: 0, planned: 0, wanted: 0 },
     autonomyHistory: [],
+    threads: [],
     ...overrides,
   }) as unknown as Parameters<typeof agentPage>[0]
 
@@ -43,6 +45,7 @@ const NOTHING = {
   questsWritten: 0,
   accounts: 0,
   autonomyVersions: 0,
+  threads: 0,
 }
 
 describe('the autonomy contract', () => {
@@ -193,6 +196,7 @@ describe('which of an agent’s pages have nothing on them', () => {
       'quests-written',
       'accounts',
       'autonomy',
+      'messages',
     ])
   })
 
@@ -219,6 +223,7 @@ describe('which of an agent’s pages have nothing on them', () => {
         questsWritten: 1,
         accounts: 1,
         autonomyVersions: 1,
+        threads: 1,
       }),
     ).toEqual([])
   })
@@ -280,7 +285,7 @@ describe('an agent’s pages in the console navigation', () => {
   it('keeps the empty pages and marks them', () => {
     const html = inAgent(emptyAgentPages(NOTHING))
 
-    expect([...html.matchAll(/\(empty\)/g)]).toHaveLength(8)
+    expect([...html.matchAll(/\(empty\)/g)]).toHaveLength(9)
     for (const entry of AGENT_PAGES) {
       expect(hrefs(html)).toContain(agentPagePath(AGENT, entry.slug))
     }
@@ -288,7 +293,7 @@ describe('an agent’s pages in the console navigation', () => {
 
   /**
    * **The current agent only.** *All agents* is above it and is how somebody
-   * reaches a different one; a navigation listing every agent's ten pages would
+   * reaches a different one; a navigation listing every agent's eleven pages would
    * be the long page again, in a column.
    */
   it('is absent everywhere outside an agent', () => {
@@ -350,15 +355,15 @@ describe('the overview on the agent page', () => {
 
   /**
    * **The rejection case the definition of done asks for.** An agent with
-   * nothing renders nine lines saying so — `#583`'s rule, which this page
+   * nothing renders ten lines saying so — `#583`'s rule, which this page
    * cannot break: a missing entry reads as *this agent cannot do that*, and an
    * entry marked empty reads as *nothing here yet*.
    */
-  it('gives an agent that has done nothing nine lines saying so', () => {
+  it('gives an agent that has done nothing ten lines saying so', () => {
     const html = agentPage(aView())
-    const nine = lines(html)
+    const ten = lines(html)
 
-    expect(nine).toHaveLength(9)
+    expect(ten).toHaveLength(10)
     expect(overview(html)).toContain('No wallet proved yet')
     expect(overview(html)).toContain('None held yet')
     expect(overview(html)).toContain('None cleared yet')
@@ -367,6 +372,7 @@ describe('the overview on the agent page', () => {
     expect(overview(html)).toContain('None written')
     expect(overview(html)).toContain('Nothing proved yet')
     expect(overview(html)).toContain('No contract recorded yet')
+    expect(overview(html)).toContain('Nothing said yet')
     // The one line that says nothing is missing: the page exists either way.
     expect(overview(html)).toContain('asking for this agent by name')
   })
@@ -392,6 +398,7 @@ describe('the overview on the agent page', () => {
       `/agents/${AGENT}/quests-written`,
       `/agents/${AGENT}/accounts`,
       `/agents/${AGENT}/autonomy`,
+      `/agents/${AGENT}/messages`,
       `/agents/${AGENT}/profile`,
     ])
     for (const target of targets) expect(target).not.toContain('#')
@@ -516,12 +523,43 @@ describe('the overview on the agent page', () => {
     expect(body).not.toMatch(/<details\b/)
   })
 
-  it('adds a tenth line only when there is a door to leave a note at', () => {
-    expect(lines(agentPage(aView()))).toHaveLength(9)
+  it('adds a line for the door only when there is one to leave a note at', () => {
+    expect(lines(agentPage(aView()))).toHaveLength(10)
 
     const withDoor = lines(agentPage(aView({ hasDoor: true })))
-    expect(withDoor).toHaveLength(10)
-    expect(withDoor[9]).toContain('A door is open')
-    expect(withDoor[9]).toContain(`/agents/${AGENT}/operator`)
+    expect(withDoor).toHaveLength(11)
+    expect(withDoor[10]).toContain('A door is open')
+    expect(withDoor[10]).toContain(`/agents/${AGENT}/operator`)
+  })
+
+  /**
+   * **The messages line counts what is waiting, not what was said** (`#1305`).
+   *
+   * The entry is in `AGENT_PAGES` and the operator door is not, and the
+   * difference is what each varies with: this page exists for every agent and
+   * is empty until somebody writes, which is the case `#583` says to mark.
+   */
+  it('says how many threads there are and how many are unread', () => {
+    const withThreads = lines(
+      agentPage(
+        aView({
+          threads: [
+            {
+              id: '22222222-2222-4222-8222-222222222222' as ConversationId,
+              kind: 'operator-human',
+              participants: [],
+              createdAt: '2026-08-01T00:00:00.000Z',
+              lastMessageAt: '2026-08-02T00:00:00.000Z',
+              unread: 2,
+            },
+          ],
+        }),
+      ),
+    )
+
+    expect(withThreads[8]).toContain('1 thread')
+    expect(withThreads[8]).toContain('2 unread')
+    expect(withThreads[8]).toContain(`/agents/${AGENT}/messages`)
+    expect(withThreads[8]).not.toContain('(empty)')
   })
 })

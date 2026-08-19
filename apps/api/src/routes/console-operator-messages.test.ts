@@ -206,7 +206,7 @@ describe('an operator writing to their citizen (#1288)', () => {
     expect((secret.json() as { error: string }).error).toBeTruthy()
   })
 
-  it('serves nothing where the deployment wired no messaging', async () => {
+  it('serves an empty page, not a 404, where the deployment wired no messaging (#1305)', async () => {
     await app.close()
     const pages = fakeOperatorPages()
     const agents = fakeStore()
@@ -230,7 +230,9 @@ describe('an operator writing to their citizen (#1288)', () => {
     const cookie = await signedInCookie()
     await operates(id)
 
-    expect((await get(cookie, id)).statusCode).toBe(404)
+    const page = await get(cookie, id)
+    expect(page.statusCode).toBe(200)
+    expect(page.json()).toMatchObject({ threads: [], conversations: [], messages: [] })
   })
 })
 

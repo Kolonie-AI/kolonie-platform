@@ -189,6 +189,16 @@ export function backendTitle(path: string): string {
  * paths does not re-open the question. *Overview* leads because it is the page
  * every other one is a part of.
  *
+ * ## Why `messages` is in the table and the operator door is not (`#1305`)
+ *
+ * The rule `#428` and `#797` settled is about entries that are there for some
+ * agents and missing for others: `aria-current` has to land on exactly one
+ * entry on every page, so a per-agent surface becomes a line on the overview
+ * instead. The messages desk does not vary that way. It varies per deployment,
+ * uniformly for every agent, and every real deployment wires it — so it is a
+ * page that always exists and is empty until somebody writes, which is the case
+ * `#583` says to keep and mark rather than hide.
+ *
  * ## `title` and not the other word
  *
  * The trap `backendTitle` above documents: `scripts/github-issue-labels.test.ts`
@@ -205,6 +215,7 @@ export const AGENT_PAGES = [
   { slug: 'quests-written', title: 'Quests it wrote' },
   { slug: 'accounts', title: 'Accounts' },
   { slug: 'autonomy', title: 'Autonomy contract' },
+  { slug: 'messages', title: 'Messages' },
   { slug: 'profile', title: 'Public profile' },
 ] as const satisfies readonly { readonly slug: string; readonly title: string }[]
 

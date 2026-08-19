@@ -2702,14 +2702,14 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
    *
    * ## Why every page pays for every mark
    *
-   * The navigation lists all ten of an agent's pages on each of them, and `#583`'s
+   * The navigation lists all eleven of an agent's pages on each of them, and `#583`'s
    * rule is that a page with nothing on it keeps its entry and is marked rather
    * than dropped. So *is the wallet empty* has to be answered on the rungs page,
    * and *are there quests* on the wallet page: the marks are a property of the
    * navigation, not of the page being rendered.
    *
-   * That is one round trip of six parallel reads on pages that would otherwise do
-   * one or two. It is the price of the rule, and it is smaller than what it
+   * That is one round trip of seven parallel reads on pages that would otherwise
+   * do one or two. It is the price of the rule, and it is smaller than what it
    * replaced — the single long page did all six of these *plus* the catalogue,
    * the operator door and the door's rendered body, on every view.
    *
@@ -2719,14 +2719,27 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
    * noted here rather than fixed, because the fix is a cache and this project
    * does not have one.
    */
-  const agentNavFor = async (agentId: AgentId): Promise<ConsoleNav['agent'] | undefined> => {
-    const [facts, wallet, quests, written, history, planned] = await Promise.all([
+  const agentNavFor = async (operated: {
+    readonly humanId: HumanId
+    readonly agentId: AgentId
+  }): Promise<ConsoleNav['agent'] | undefined> => {
+    const { agentId } = operated
+    const [facts, wallet, quests, written, history, planned, threads] = await Promise.all([
       deps.autonomy.pages.factsOf(agentId),
       deps.store.verifiedWalletOf(agentId),
       deps.quests.takenPartIn(agentId),
       deps.quests.listOwn(agentId),
       deps.autonomy.store.history(agentId),
       deps.wishes.store.list(agentId),
+      /**
+       * The operator threads, which is why this takes the human as well as the
+       * agent (`#1305`). A person holds a participant row only in their own
+       * thread, so *how many threads are there* has no answer without them.
+       *
+       * **A deployment with no desk reads as none**, which is the same mark an
+       * operator who has never written gets — and the page says the same thing.
+       */
+      deps.operatorMessaging?.listThreads(operated.humanId, agentId) ?? [],
     ])
     if (facts === null) return undefined
 
@@ -2743,6 +2756,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         accounts:
           facts.facts.accounts.reduce((sum, account) => sum + account.count, 0) + planned.length,
         autonomyVersions: history.length,
+        threads: threads.length,
       }),
     }
   }
@@ -2760,7 +2774,11 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
   const renderAgentSection = async (
     request: FastifyRequest,
     reply: FastifyReply,
-    operated: { readonly agentId: AgentId; readonly roles: readonly string[] },
+    operated: {
+      readonly humanId: HumanId
+      readonly agentId: AgentId
+      readonly roles: readonly string[]
+    },
     slug: string,
     lines: (
       facts: NonNullable<Awaited<ReturnType<typeof deps.autonomy.pages.factsOf>>>,
@@ -2769,7 +2787,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     const held = await deps.autonomy.pages.factsOf(operated.agentId)
     if (held === null) return consoleNotFound(reply, request)
 
-    const [agent, rendered] = await Promise.all([agentNavFor(operated.agentId), lines(held)])
+    const [agent, rendered] = await Promise.all([agentNavFor(operated), lines(held)])
 
     return html(
       reply,
@@ -2912,6 +2930,17 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
      * On both representations, because a route here answers the same thing two
      * ways and never two different things.
      */
+    /**
+     * The operator threads, for the overview line and the mark (`#1305`).
+     *
+     * **The same read `/agents/:agentId/messages` does**, so the sentence here
+     * and the page it leads to cannot disagree about how many there are. Kept
+     * out of `view` deliberately: the JSON answer to this route is what an
+     * operator's own facts are, and thread ids belong to the messages route.
+     */
+    const threads =
+      (await deps.operatorMessaging?.listThreads(operated.humanId, operated.agentId)) ?? []
+
     const planned = await deps.wishes.store.list(operated.agentId)
     const accounts = {
       held: held.facts.accounts.reduce((sum, account) => sum + account.count, 0),
@@ -2944,6 +2973,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         questsWritten: written.length,
         accounts: accounts.held + accounts.planned,
         autonomyVersions: autonomyHistory.length,
+        threads: threads.length,
       }),
     }
 
@@ -2960,6 +2990,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
          * records of one fact.
          */
         accounts,
+        threads,
         hasDoor: token !== undefined,
       }),
     )
@@ -3137,7 +3168,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     const [current, history, agent] = await Promise.all([
       deps.autonomy.store.read(operated.agentId),
       deps.autonomy.store.history(operated.agentId),
-      agentNavFor(operated.agentId),
+      agentNavFor(operated),
     ])
     const { agentId } = request.params as { agentId: string }
 
@@ -3355,7 +3386,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       reply,
       agentAccountsPage({
         /** Inside an agent, so the navigation carries that agent's pages (`#797`). */
-        nav: navFor(request, operated.roles, await agentNavFor(operated.agentId)),
+        nav: navFor(request, operated.roles, await agentNavFor(operated)),
         agentId: String(operated.agentId),
         name: held.name,
         zone: zoneFrom(request.headers),
@@ -3565,7 +3596,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     return html(
       reply,
       accountThreadPage({
-        nav: navFor(request, operated.roles, await agentNavFor(operated.agentId)),
+        nav: navFor(request, operated.roles, await agentNavFor(operated)),
         agentId: String(operated.agentId),
         name: held.name,
         zone: zoneFrom(request.headers),
@@ -4131,7 +4162,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
 
     const input = {
       /** Inside an agent, so the navigation carries that agent's pages (`#797`). */
-      nav: navFor(request, operated.roles, await agentNavFor(operated.agentId)),
+      nav: navFor(request, operated.roles, await agentNavFor(operated)),
       agentId: String(operated.agentId),
       entries,
       state,
@@ -4446,8 +4477,16 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     },
     outcome: { readonly error?: string; readonly status?: number; readonly said?: boolean } = {},
   ): Promise<FastifyReply> => {
+    /**
+     * **No desk is an empty page and not a 404** (`#1305`).
+     *
+     * The entry is in `AGENT_PAGES` now, so every agent page links here — and a
+     * navigation entry that answers 404 is what `console-links.test.ts` exists
+     * to catch. A deployment with no port has nothing to show and nowhere to
+     * send an answer, which is *nothing said yet* with no form under it rather
+     * than *this page does not exist*.
+     */
     const desk = deps.operatorMessaging
-    if (desk === undefined) return consoleNotFound(reply, request)
 
     /**
      * Every thread, not the newest one (`#1319`).
@@ -4459,12 +4498,14 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
      * answer land in the thread it answers: a form without a `conversationId`
      * would put every reply into whichever thread the port found first.
      */
-    const threads = await desk.listThreads(operated.humanId, operated.agentId)
+    const threads =
+      desk === undefined ? [] : await desk.listThreads(operated.humanId, operated.agentId)
     const conversations: {
       readonly id: ConversationId
       readonly messages: readonly Message[]
     }[] = []
     for (const thread of threads) {
+      if (desk === undefined) break
       const read = await desk.getThread(operated.humanId, thread.id)
       conversations.push({
         id: thread.id,
@@ -4488,13 +4529,20 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     if (held === null) return consoleNotFound(reply, request)
 
     const lines = [
-      '<p class="note">Your agent reads this as words from you — labelled as its operator and ' +
-        'never as the Colony. It is not a permission: nothing said here widens what your agent ' +
-        'may do.</p>',
+      desk === undefined
+        ? '<p class="note">This deployment has no messages desk wired, so there is nothing to ' +
+          'read here and nowhere to write. The page stays where it is: the agent has one, and ' +
+          'it is empty rather than missing.</p>'
+        : '<p class="note">Your agent reads this as words from you — labelled as its operator ' +
+          'and never as the Colony. It is not a permission: nothing said here widens what your ' +
+          'agent may do.</p>',
       ...(outcome.said === true ? ['<p>Sent.</p>'] : []),
       ...(outcome.error === undefined ? [] : [`<p class="error">${escape(outcome.error)}</p>`]),
       ...(conversations.length === 0
-        ? ['<p>Nothing said yet.</p>', answerForm(operated.agentId, held.name, undefined, 0)]
+        ? [
+            '<p>Nothing said yet.</p>',
+            ...(desk === undefined ? [] : [answerForm(operated.agentId, held.name, undefined, 0)]),
+          ]
         : conversations.flatMap((conversation, index) => [
             conversation.messages.length === 0
               ? '<p>Nothing said yet.</p>'
@@ -4513,7 +4561,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     return html(
       reply.status(status),
       agentSectionPage({
-        nav: navFor(request, operated.roles, await agentNavFor(operated.agentId)),
+        nav: navFor(request, operated.roles, await agentNavFor(operated)),
         agentId: String(operated.agentId),
         name: held.name,
         title: 'Messages',
@@ -4753,7 +4801,11 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
   const renderAgentProfile = async (
     request: FastifyRequest,
     reply: FastifyReply,
-    operated: { readonly agentId: AgentId; readonly roles: readonly string[] },
+    operated: {
+      readonly humanId: HumanId
+      readonly agentId: AgentId
+      readonly roles: readonly string[]
+    },
     outcome: {
       readonly error?: string
       readonly values?: Readonly<Record<string, string>>
@@ -4810,7 +4862,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       reply.status(status),
       profileSectionPage({
         /** Inside an agent, so the navigation carries that agent's pages (`#797`). */
-        nav: navFor(request, operated.roles, await agentNavFor(operated.agentId)),
+        nav: navFor(request, operated.roles, await agentNavFor(operated)),
         agentId: String(operated.agentId),
         name: agent.profile.name,
         canonical,

@@ -70,7 +70,7 @@
  * the overview rather than a redirect table for links nobody minted.
  */
 
-import type { AutonomyContractVersion } from '@kolonie-ai/core'
+import type { AutonomyContractVersion, Conversation } from '@kolonie-ai/core'
 import type { OperatorPageView } from '@kolonie-ai/db'
 import { escape, page } from './html.js'
 import { agentPagePath, AGENT_PAGES, type ConsoleNav } from './navigation.js'
@@ -170,6 +170,15 @@ export interface AgentPageInput {
   readonly accounts: AccountCounts
   /** Current and superseded operator agreements, newest first (#658). */
   readonly autonomyHistory: readonly AutonomyContractVersion[]
+  /**
+   * The operator threads with this agent, newest first (`#1305`).
+   *
+   * **The same rows `/agents/:agentId/messages` draws**, so the line and the
+   * page cannot disagree about how many there are or when the last one was.
+   * Empty where the deployment wired no desk, which is also what it is before
+   * anybody has written.
+   */
+  readonly threads: readonly Conversation[]
 }
 
 /**
@@ -243,6 +252,14 @@ export interface AgentMarks {
   /** Proved plus planned — the accounts page is the two of them together. */
   readonly accounts: number
   readonly autonomyVersions: number
+  /**
+   * Operator threads with this agent (`#1305`).
+   *
+   * **A count and never *whether the desk is wired*.** A deployment without the
+   * port reads as zero threads, which is what an operator who has never written
+   * one sees anyway — and the page it marks answers the same either way.
+   */
+  readonly threads: number
 }
 
 export function emptyAgentPages(marks: AgentMarks): readonly string[] {
@@ -255,6 +272,7 @@ export function emptyAgentPages(marks: AgentMarks): readonly string[] {
   if (marks.questsWritten === 0) empty.push('quests-written')
   if (marks.accounts === 0) empty.push('accounts')
   if (marks.autonomyVersions === 0) empty.push('autonomy')
+  if (marks.threads === 0) empty.push('messages')
   return empty
 }
 
@@ -621,6 +639,12 @@ export function agentPage(input: AgentPageInput): string {
     (quest) => quest.status === 'awaiting moderation',
   ).length
 
+  const lastMessage = lastMoment(
+    input.threads,
+    (thread) => thread.lastMessageAt ?? thread.createdAt,
+  )
+  const unread = input.threads.reduce((total, thread) => total + thread.unread, 0)
+
   const currentContract = input.autonomyHistory[0]
 
   /**
@@ -729,6 +753,22 @@ export function agentPage(input: AgentPageInput): string {
           ? 'No contract recorded yet.'
           : `${escape(currentContract.level)}, review due ` +
             `${escape(relative(currentContract.reviewDueAt))}.`,
+    },
+    {
+      slug: 'messages',
+      title: titleOf('messages'),
+      empty: input.threads.length === 0,
+      /**
+       * Unread and not *how many messages* — the count an operator can act on
+       * is the one that says somebody is waiting on them, and the thread rows
+       * carry it without a second read.
+       */
+      summary:
+        lastMessage === null
+          ? 'Nothing said yet — writing here is how a person reaches this agent.'
+          : `${String(input.threads.length)} thread${input.threads.length === 1 ? '' : 's'}, ` +
+            `the last ${escape(relative(lastMessage))}` +
+            (unread === 0 ? '.' : `, ${String(unread)} unread.`),
     },
     /**
      * The public profile, as one line and a link (`#829`).

@@ -14,8 +14,10 @@ import {
   type AcknowledgeResponse,
   type CitizenMessaging,
   type MarkReadResponse,
+  type MessageProtectInput,
   type MessageSendInput,
   type OperatorMessaging,
+  type ProtectResponse,
   type RequestResponse,
   type SendResponse,
   type ThreadResponse,
@@ -104,12 +106,14 @@ type RequestRow = {
 }
 
 /**
- * Messaging, in memory (`#1286`).
+ * Messaging, in memory (`#1286`, `#1290`).
  *
  * Reproduces what `apps/api` decides: request-first first contact, accept
  * promotes, decline leaves the body undelivered, blocks and the no-citizen-mail
- * preference refuse in words, and rate-limit is injectable for the MCP surface
- * test (storage does not yet rate-limit sends). Database ACL and CHECKs stay in
+ * preference refuse in words, protect (block/unblock/report), and rate-limit is
+ * injectable for the MCP surface test. The real process-wide allowance lives in
+ * `messagingAllowance`; this fake's `rateLimitNextSend` is for asserting the
+ * refusal shape. Database ACL and CHECKs stay in
  * `packages/db/src/storage/messaging.test.ts`.
  */
 export function fakeMessaging(): FakeMessaging {
@@ -119,6 +123,7 @@ export function fakeMessaging(): FakeMessaging {
   const conversations = new Map<string, ConversationRow>()
   const requests: RequestRow[] = []
   const rateLimited = new Map<string, number>()
+  const reports: { id: string; reporterId: string; reportedId: string; reason?: string }[] = []
 
   let seq = 0
   /** Deterministic UUIDs so zod-branded schemas accept them. */
@@ -327,6 +332,16 @@ export function fakeMessaging(): FakeMessaging {
         const row = conversations.get(input.conversationId)!
         // @mirrors packages/db/src/storage/messaging.ts operatorLinkGone
         if (row.linkEnded === true) return refused('operator-link-removed')
+        // @mirrors packages/db/src/storage/messaging.ts replyInConversation block check
+        const other = row.participants.find(
+          (p) => p.party === 'citizen' && p.agentId !== undefined && p.agentId !== agentId,
+        )
+        if (other?.agentId !== undefined) {
+          if (blocks.has(blockKey(other.agentId, agentId))) return refused('blocked')
+          if (blocks.has(blockKey(agentId, other.agentId))) {
+            return refused('sender-blocked-recipient')
+          }
+        }
         const messageId = id()
         row.messages.push({
           id: messageId,
@@ -516,6 +531,57 @@ export function fakeMessaging(): FakeMessaging {
         return { outcome: 'acknowledged', response: { acknowledgedAt } }
       }
       return refused('nothing-to-acknowledge')
+    },
+
+    // @mirrors packages/db/src/storage/messaging.ts blockSender / unblockSender / reportMessageAbuse
+    async protect(agentId, input: MessageProtectInput): Promise<ProtectResponse> {
+      const held = canonical(input.handle)
+      if (held === undefined) return refused('no-such-citizen')
+      const subject = handles.get(held)!
+      if (subject.agentId === agentId) return refused('self')
+
+      if (input.act === 'block') {
+        blocks.add(blockKey(agentId, subject.agentId))
+        for (const request of requests) {
+          if (
+            request.toAgentId === agentId &&
+            request.fromAgentId === subject.agentId &&
+            request.status === 'pending'
+          ) {
+            request.status = 'declined'
+          }
+        }
+        return { outcome: 'blocked', response: { blocked: true } }
+      }
+      if (input.act === 'unblock') {
+        blocks.delete(blockKey(agentId, subject.agentId))
+        return { outcome: 'unblocked', response: { unblocked: true } }
+      }
+
+      if (input.messageId !== undefined) {
+        let found = false
+        for (const row of conversations.values()) {
+          if (!row.participants.some((p) => p.agentId === agentId)) continue
+          if (row.messages.some((m) => m.id === input.messageId)) {
+            found = true
+            break
+          }
+        }
+        if (!found) return refused('not-a-participant')
+      } else if (input.conversationId !== undefined) {
+        if (participantOf(input.conversationId, agentId) === undefined) {
+          return refused('not-a-participant')
+        }
+      }
+
+      const reportId = id()
+      reports.push({
+        id: reportId,
+        reporterId: agentId,
+        reportedId: subject.agentId,
+        reason: input.reason,
+      })
+      return { outcome: 'reported', response: { reported: true, reportId } }
     },
   }
 }

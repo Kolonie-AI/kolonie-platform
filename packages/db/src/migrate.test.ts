@@ -587,7 +587,7 @@ describe('the migrations', () => {
     // A pending request's body lives in `messages` on a conversation the
     // recipient is not yet a participant of; accepting is the insert that
     // makes those rows readable, and until then no query that exists can.
-    expect(afterFirst.tables).toBe('147')
+    expect(afterFirst.tables).toBe('148')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and
@@ -733,7 +733,7 @@ describe('the migrations', () => {
     // system message should be read — `normal` | `elevated` | `critical` — and
     // never a free string a citizen could invent: the CHECK that keeps these
     // fields off non-system rows needs a closed list beside it.
-    expect(afterFirst.enums).toBe('62')
+    expect(afterFirst.enums).toBe('63')
     // Two: the deferred double-entry constraint trigger on `ledger_entries`, and
     // `submissions_one_pass_per_quest` (#175) — one accepted submission per
     // citizen per quest, which is a trigger rather than a partial unique index

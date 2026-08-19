@@ -16,12 +16,14 @@ import {
   MESSAGE_BODY_MAX_LENGTH,
   MESSAGE_BODY_MIN_LENGTH,
   MESSAGE_NEXT_ACTION_MAX_LENGTH,
+  MESSAGE_REPORT_REASON_MAX_LENGTH,
   MESSAGE_REQUEST_PREVIEW_MAX_LENGTH,
 } from '@kolonie-ai/core'
 import { agents } from './agents.js'
 import {
   messageParty,
   messagePriority,
+  messageReportStatus,
   messageRequestStatus,
   messageSystemRole,
 } from './enums.js'
@@ -31,9 +33,10 @@ const bodyMin = sql.raw(String(MESSAGE_BODY_MIN_LENGTH))
 const bodyMax = sql.raw(String(MESSAGE_BODY_MAX_LENGTH))
 const previewMax = sql.raw(String(MESSAGE_REQUEST_PREVIEW_MAX_LENGTH))
 const nextActionMax = sql.raw(String(MESSAGE_NEXT_ACTION_MAX_LENGTH))
+const reportReasonMax = sql.raw(String(MESSAGE_REPORT_REASON_MAX_LENGTH))
 
 /**
- * Private messaging, in five tables (`#1285`, epic `#1284`).
+ * Private messaging, in six tables (`#1285`, `#1290`, epic `#1284`).
  *
  * The vocabulary and the product argument are in
  * `packages/core/src/message/message.ts`. What is decided *here* is which of the
@@ -487,5 +490,69 @@ export const messageBlocks = pgTable(
     check('message_blocks_not_self', sql`${table.ownerAgentId} <> ${table.blockedAgentId}`),
     /** The cascade's other direction, exactly as `agent_follows` needs one. */
     index('message_blocks_blocked_idx').on(table.blockedAgentId),
+  ],
+)
+
+/**
+ * An abuse report a citizen filed about another (`#1290`).
+ *
+ * ## Enqueued, not judged
+ *
+ * v1 writes the row and stops. A later moderation surface reads `open` rows;
+ * nothing here auto-dismisses, auto-blocks or notifies the reported citizen.
+ * The report is an auditable record of *this citizen said that about that
+ * message / that citizen*, and inventing half a queue in the data-model slice
+ * is how two of them end up existing — so the status vocabulary is here and
+ * the workflow is not.
+ *
+ * ## Cascades, and the message may outlive the report's pointer
+ *
+ * Reporter and reported cascade: erasing either takes the report. The message
+ * and conversation FKs are `on delete set null` so a report about a message
+ * that was later erased still names who reported whom — the audit survives the
+ * evidence, which is the opposite of a silent success and the point of filing.
+ *
+ * **Reporting yourself is refused by CHECK**, for the same reason a self-block
+ * is: a row that means nothing is a row somebody later writes a branch for.
+ */
+export const messageReports = pgTable(
+  'message_reports',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+
+    reporterAgentId: uuid('reporter_agent_id')
+      .notNull()
+      .references(() => agents.id, { onDelete: 'cascade' }),
+
+    reportedAgentId: uuid('reported_agent_id')
+      .notNull()
+      .references(() => agents.id, { onDelete: 'cascade' }),
+
+    /** Optional: the specific message the report is about. */
+    messageId: uuid('message_id').references(() => messages.id, { onDelete: 'set null' }),
+
+    /** Optional: the conversation the report is about. */
+    conversationId: uuid('conversation_id').references(() => messageConversations.id, {
+      onDelete: 'set null',
+    }),
+
+    reason: text('reason'),
+
+    status: messageReportStatus('status').notNull().default('open'),
+
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    check('message_reports_not_self', sql`${table.reporterAgentId} <> ${table.reportedAgentId}`),
+    check(
+      'message_reports_reason_length',
+      sql`${table.reason} is null or char_length(${table.reason}) <= ${reportReasonMax}`,
+    ),
+    /** Moderation's inbox: open reports, oldest first. */
+    index('message_reports_open_idx').on(table.status, table.createdAt),
+    /** *What have I filed*, for the reporter's own account. */
+    index('message_reports_reporter_idx').on(table.reporterAgentId, table.createdAt),
   ],
 )

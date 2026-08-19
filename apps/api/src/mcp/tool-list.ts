@@ -618,7 +618,7 @@ export const AUTHENTICATED_TOOLS = [
    * acknowledge clears a Colony `actionRequired` (`#1289`) and is not folded
    * into mark_read because seeing the words is not doing the thing. Bodies are
    * untrusted content on every tool that returns or accepts one. Block and
-   * report stay on later issues; minting system mail is a producer, not a tool.
+   * protect (block/unblock/report) is `#1290`; minting system mail is a producer, not a tool.
    */
   'kolonie.messages.list_threads',
   'kolonie.messages.get_thread',
@@ -626,6 +626,7 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.messages.requests',
   'kolonie.messages.mark_read',
   'kolonie.messages.acknowledge',
+  'kolonie.messages.protect',
   /**
    * The catalogue of pipelines, and what stands between a citizen and one
    * (`#1174`, `kolonie-docs#430`).

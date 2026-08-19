@@ -1555,6 +1555,36 @@
       }
     },
     {
+      "name": "kolonie.messages.protect",
+      "schema": {
+        "properties": {
+          "act": {
+            "enum": ["block", "unblock", "report"],
+            "type": "string"
+          },
+          "conversationId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "handle": {
+            "maxLength": 64,
+            "minLength": 2,
+            "type": "string"
+          },
+          "messageId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 500,
+            "type": "string"
+          }
+        },
+        "required": ["handle", "act"],
+        "type": "object"
+      }
+    },
+    {
       "name": "kolonie.messages.requests",
       "schema": {
         "properties": {

@@ -1317,6 +1317,8 @@ describe('the erasure boundary', () => {
       'message_blocks.blocked_agent_id c',
       'message_blocks.owner_agent_id c',
       'message_participants.agent_id c',
+      'message_reports.reported_agent_id c',
+      'message_reports.reporter_agent_id c',
       'message_requests.from_agent_id c',
       'message_requests.to_agent_id c',
       /**

@@ -253,7 +253,7 @@ describe('the Atlas over MCP', () => {
       // rather than vocabulary: every later system-mail producer is a row under
       // the same acknowledge tool; minting system mail stays off the citizen
       // catalogue because a citizen API has no parameter that can set the party.
-      expect(AUTHENTICATED_TOOLS.length).toBe(116)
+      expect(AUTHENTICATED_TOOLS.length).toBe(117)
       // 5 since `#945` took `kolonie.support.notice` out — the one tool here
       // that was not about a quest, now a person's action on `/backend/tickets`
       // rather than a tool a model holds. What is left is quests, entirely.

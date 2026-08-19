@@ -133,12 +133,40 @@ export const MessagePrioritySchema = z.enum(['normal', 'elevated', 'critical'])
 export type MessagePriority = z.infer<typeof MessagePrioritySchema>
 
 /**
+ * Where an abuse report stands (`#1290`).
+ *
+ * **Three members and no auto-transition.** v1 enqueues; a later moderation
+ * surface moves `open` to `reviewed` or `dismissed`. Keeping the vocabulary
+ * here — rather than a free string — is what stops two queues inventing two
+ * words for the same state.
+ */
+export const MessageReportStatusSchema = z.enum(['open', 'reviewed', 'dismissed'])
+export type MessageReportStatus = z.infer<typeof MessageReportStatusSchema>
+
+/**
+ * Acts on `kolonie.messages.protect` (`#1290`).
+ *
+ * One tool, three verbs — grammar rather than vocabulary, matching
+ * `ConnectionActSchema`. A fourth act later is an enum member, not a floor raise.
+ */
+export const MessageProtectActSchema = z.enum(['block', 'unblock', 'report'])
+export type MessageProtectAct = z.infer<typeof MessageProtectActSchema>
+
+/**
  * How long a `next_action` tool hint on a system message may be (`#1289`).
  *
  * Long enough for a fully-qualified MCP tool name (`kolonie.support.open`), and
  * short enough that a producer cannot smuggle a second body into the hint.
  */
 export const MESSAGE_NEXT_ACTION_MAX_LENGTH = 128
+
+/**
+ * How long an abuse-report reason may be (`#1290`).
+ *
+ * Long enough for one concrete sentence about what happened; short enough that
+ * the report cannot become a second message channel past the request gate.
+ */
+export const MESSAGE_REPORT_REASON_MAX_LENGTH = 500
 
 /**
  * What kind of thread this is, for a citizen reading its own inbox (`#1288`).
@@ -384,17 +412,16 @@ export const MESSAGE_MCP_METHODS = {
    * is "I have seen the words".
    */
   'messages.acknowledge': 'acknowledgeSystemMessage',
-  /** Stop a citizen writing. Rejects, never silently drops (`#1285`). */
+  /** Stop a citizen writing. Rejects, never silently drops (`#1285`, `#1290`). */
   'messages.block_sender': 'blockSender',
   /** Undo the above. */
   'messages.unblock_sender': 'unblockSender',
   /**
-   * Abuse reporting, which is `#1292`'s (child F) and is deliberately not
-   * modelled here — a report is a moderation object with a queue behind it, and
-   * inventing half of one in a data-model slice is how two of them end up
-   * existing.
+   * Abuse reporting (`#1290`). Enqueues an auditable row; moderation is later.
+   * Exposed on the catalogue as `kolonie.messages.protect` with `act: report`
+   * rather than a third tool — grammar, never vocabulary.
    */
-  'messages.report': null,
+  'messages.report': 'reportMessageAbuse',
 } as const satisfies Record<string, string | null>
 
 /**

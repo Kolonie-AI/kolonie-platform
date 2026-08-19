@@ -2171,6 +2171,13 @@
       "when": 1787125177089,
       "tag": "0309_steady_daredevil",
       "breakpoints": true
+    },
+    {
+      "idx": 310,
+      "version": "7",
+      "when": 1787126260212,
+      "tag": "0310_parallel_scalphunter",
+      "breakpoints": true
     }
   ]
 }

@@ -9,13 +9,24 @@ import {
   type HumanId,
   type Message,
   type MessageId,
+  type MessageProtectAct,
   type MessageRefusal,
   type MessageRequest,
   type MessageRequestId,
 } from '@kolonie-ai/core'
+import { createHash } from 'node:crypto'
+import {
+  messageBurstLimiter,
+  messageIdenticalBodyLimiter,
+  messagePerRecipientLimiter,
+  messageRequestCreateLimiter,
+  messageSendLimiter,
+  type RateLimitVerdict,
+  type RateLimiter,
+} from './rate-limit.js'
 
 /**
- * Citizen↔citizen private messaging (`#1286`, epic `#1284`).
+ * Citizen↔citizen private messaging (`#1286`, `#1290`, epic `#1284`).
  *
  * ## Its own port, beside `CitizenConnections` rather than on it
  *
@@ -27,11 +38,12 @@ import {
  *
  * ## What the port has no method for
  *
- * No minting of system mail, no block/unblock, no abuse report — those are
- * producers / `#1290` / `#1292`. A citizen can *acknowledge* a system
- * `actionRequired` (`#1289`) but cannot set the party or the fields that mark
- * one. An absent mint method is the only version of that promise a later route
- * cannot widen without a diff that is visibly about widening it.
+ * No minting of system mail — that is a producer (credential rotation, Doctor).
+ * A citizen can *acknowledge* a system `actionRequired` (`#1289`) but cannot set
+ * the party or the fields that mark one. Block, unblock and report live here as
+ * of `#1290` via {@link protect}. An absent mint method is the only version of
+ * that promise a later route cannot widen without a diff that is visibly about
+ * widening it.
  *
  * The operator's own direction is {@link OperatorMessaging} below, and it is a
  * second port rather than two more methods here for the reason this one is not
@@ -75,6 +87,14 @@ export interface CitizenMessaging {
    * (`#1289`). Not a read cursor — acknowledging is *I have done the thing*.
    */
   acknowledge(agentId: AgentId, messageId: MessageId): Promise<AcknowledgeResponse>
+  /**
+   * Block, unblock or report another citizen (`#1290`).
+   *
+   * One method, three acts — matching `CitizenConnections.act`. Block prevents
+   * further delivery and declines pending inbound requests; report enqueues an
+   * auditable row without judging it.
+   */
+  protect(agentId: AgentId, input: MessageProtectInput): Promise<ProtectResponse>
 }
 
 /**
@@ -158,6 +178,99 @@ export type MarkReadResponse =
 export type AcknowledgeResponse =
   | { readonly outcome: 'acknowledged'; readonly response: { readonly acknowledgedAt: string } }
   | { readonly outcome: 'refused'; readonly error: ApiError }
+
+export type MessageProtectInput = {
+  readonly act: MessageProtectAct
+  readonly handle: string
+  readonly reason?: string
+  readonly messageId?: MessageId
+  readonly conversationId?: ConversationId
+}
+
+export type ProtectResponse =
+  | { readonly outcome: 'blocked'; readonly response: { readonly blocked: true } }
+  | { readonly outcome: 'unblocked'; readonly response: { readonly unblocked: true } }
+  | {
+      readonly outcome: 'reported'
+      readonly response: { readonly reported: true; readonly reportId: string }
+    }
+  | { readonly outcome: 'refused'; readonly error: ApiError }
+
+/**
+ * The shared messaging allowance (`#1290`).
+ *
+ * Built once in `server.ts` and handed to the citizen messaging adapter — the
+ * same object HTTP and MCP would share, on `OutboundAllowance`'s terms. Charges
+ * before storage so a schema-invalid body that the tool already refused never
+ * spends the window (tools validate first; this is the second door).
+ */
+export interface MessagingAllowance {
+  /**
+   * Charge every citizen send path.
+   *
+   * `recipientKey` is the recipient agent id when known, or a conversation id
+   * standing in for the counterparty on a reply. `requestCreate` is true on the
+   * handle path that may mint or append to a pending first-contact request.
+   */
+  charge(input: {
+    readonly senderId: AgentId
+    readonly recipientKey?: string
+    readonly body: string
+    readonly requestCreate: boolean
+  }): RateLimitVerdict
+}
+
+export type MessagingAllowanceOptions = {
+  readonly send?: RateLimiter
+  readonly perRecipient?: RateLimiter
+  readonly burst?: RateLimiter
+  readonly identicalBody?: RateLimiter
+  readonly requestCreate?: RateLimiter
+}
+
+/**
+ * Build the messaging allowance from the five limiters.
+ *
+ * Order: burst → per-sender → per-recipient → identical-body → request-create.
+ * The first refusal wins and is the `retryAfterSeconds` the caller sees; later
+ * limiters are not charged on a refusal so a burst rejection does not also
+ * spend the hourly window.
+ */
+export function messagingAllowance(options: MessagingAllowanceOptions = {}): MessagingAllowance {
+  const send = options.send ?? messageSendLimiter()
+  const perRecipient = options.perRecipient ?? messagePerRecipientLimiter()
+  const burst = options.burst ?? messageBurstLimiter()
+  const identicalBody = options.identicalBody ?? messageIdenticalBodyLimiter()
+  const requestCreate = options.requestCreate ?? messageRequestCreateLimiter()
+
+  return {
+    charge({ senderId, recipientKey, body, requestCreate: isRequestCreate }) {
+      const senderKey = String(senderId)
+
+      const burstVerdict = burst.take(senderKey)
+      if (!burstVerdict.allowed) return burstVerdict
+
+      const sendVerdict = send.take(senderKey)
+      if (!sendVerdict.allowed) return sendVerdict
+
+      if (recipientKey !== undefined) {
+        const pairVerdict = perRecipient.take(`${senderKey}:${recipientKey}`)
+        if (!pairVerdict.allowed) return pairVerdict
+      }
+
+      const bodyHash = createHash('sha256').update(body).digest('hex')
+      const bodyVerdict = identicalBody.take(`${senderKey}:${bodyHash}`)
+      if (!bodyVerdict.allowed) return bodyVerdict
+
+      if (isRequestCreate) {
+        const requestVerdict = requestCreate.take(senderKey)
+        if (!requestVerdict.allowed) return requestVerdict
+      }
+
+      return sendVerdict
+    },
+  }
+}
 
 /**
  * The sentences a citizen reads when a message call does not happen.
@@ -253,9 +366,9 @@ export const messageDestinationError: ApiError = {
 /**
  * Rate limit, shaped for MCP the way HTTP would put it in `Retry-After`.
  *
- * Storage does not yet rate-limit citizen sends (`#1292` / child F); the MCP
- * throttle and any future store limit both answer through this sentence so an
- * agent learns one shape.
+ * Enforced by {@link MessagingAllowance} on every citizen send (`#1290`). HTTP
+ * would also set the `Retry-After` header; MCP has no headers, so the number
+ * lives in `details.retryAfterSeconds` and in this sentence.
  */
 export function messageRateLimited(retryAfterSeconds: number): ApiError {
   return {

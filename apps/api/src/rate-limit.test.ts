@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'vitest'
-import { fixedWindowLimiter, REGISTRATION_LIMIT, registrationLimiter } from './rate-limit.js'
+import {
+  fixedWindowLimiter,
+  MESSAGE_BURST_LIMIT,
+  MESSAGE_IDENTICAL_BODY_LIMIT,
+  MESSAGE_PER_RECIPIENT_LIMIT,
+  MESSAGE_REQUEST_CREATE_LIMIT,
+  MESSAGE_SEND_LIMIT,
+  messageBurstLimiter,
+  messageIdenticalBodyLimiter,
+  messagePerRecipientLimiter,
+  messageRequestCreateLimiter,
+  messageSendLimiter,
+  REGISTRATION_LIMIT,
+  registrationLimiter,
+} from './rate-limit.js'
 
 /** RFC 5737 documentation addresses — see the note in `client-ip.test.ts`. */
 const CALLER = '192.0.2.10'
@@ -99,6 +113,55 @@ describe('registrationLimiter', () => {
       expect(limiter.take(CALLER).allowed).toBe(true)
     }
 
+    expect(limiter.take(CALLER).allowed).toBe(false)
+  })
+})
+
+describe('messaging abuse limiters (#1290)', () => {
+  it('caps per-sender sends at MESSAGE_SEND_LIMIT', () => {
+    const limiter = messageSendLimiter()
+    for (let i = 0; i < MESSAGE_SEND_LIMIT; i += 1) {
+      expect(limiter.take(CALLER).allowed).toBe(true)
+    }
+    const refused = limiter.take(CALLER)
+    expect(refused.allowed).toBe(false)
+    if (refused.allowed) throw new Error('unreachable')
+    expect(refused.retryAfterSeconds).toBeGreaterThan(0)
+  })
+
+  it('caps per-recipient separately from the global send ceiling', () => {
+    const limiter = messagePerRecipientLimiter()
+    const pair = `${CALLER}:recipient-a`
+    for (let i = 0; i < MESSAGE_PER_RECIPIENT_LIMIT; i += 1) {
+      expect(limiter.take(pair).allowed).toBe(true)
+    }
+    expect(limiter.take(pair).allowed).toBe(false)
+    expect(limiter.take(`${CALLER}:recipient-b`).allowed).toBe(true)
+  })
+
+  it('caps the burst window at MESSAGE_BURST_LIMIT', () => {
+    const limiter = messageBurstLimiter()
+    for (let i = 0; i < MESSAGE_BURST_LIMIT; i += 1) {
+      expect(limiter.take(CALLER).allowed).toBe(true)
+    }
+    expect(limiter.take(CALLER).allowed).toBe(false)
+  })
+
+  it('caps identical-body fanout at MESSAGE_IDENTICAL_BODY_LIMIT', () => {
+    const limiter = messageIdenticalBodyLimiter()
+    const key = `${CALLER}:deadbeef`
+    for (let i = 0; i < MESSAGE_IDENTICAL_BODY_LIMIT; i += 1) {
+      expect(limiter.take(key).allowed).toBe(true)
+    }
+    expect(limiter.take(key).allowed).toBe(false)
+    expect(limiter.take(`${CALLER}:cafebabe`).allowed).toBe(true)
+  })
+
+  it('caps first-contact request creation at MESSAGE_REQUEST_CREATE_LIMIT', () => {
+    const limiter = messageRequestCreateLimiter()
+    for (let i = 0; i < MESSAGE_REQUEST_CREATE_LIMIT; i += 1) {
+      expect(limiter.take(CALLER).allowed).toBe(true)
+    }
     expect(limiter.take(CALLER).allowed).toBe(false)
   })
 })

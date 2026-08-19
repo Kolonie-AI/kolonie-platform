@@ -36,6 +36,10 @@ const acknowledge = (messageId: string) => ({
   name: 'kolonie.messages.acknowledge',
   arguments: { messageId },
 })
+const protect = (args: Record<string, unknown>) => ({
+  name: 'kolonie.messages.protect',
+  arguments: args,
+})
 
 const textOf = (result: Awaited<ReturnType<Client['callTool']>>) => JSON.stringify(result.content)
 
@@ -46,6 +50,7 @@ const TOOLS = [
   'kolonie.messages.requests',
   'kolonie.messages.mark_read',
   'kolonie.messages.acknowledge',
+  'kolonie.messages.protect',
 ] as const
 
 /**
@@ -370,6 +375,67 @@ describe('kolonie.messages.* (#1286)', () => {
       expect(outsider.isError).toBe(true)
       expect(outsider.structuredContent).toMatchObject({ error: { code: 'not_found' } })
 
+      await close()
+    })
+  })
+
+  describe('protect (#1290)', () => {
+    it('blocks further delivery and declines a pending request', async () => {
+      const { alice, bob, close } = await aPair()
+      const asked = await alice.client.callTool(
+        send({ to: bob.agent.profile.name, body: 'May I write?' }),
+      )
+      expect(asked.isError).not.toBe(true)
+
+      const blocked = await bob.client.callTool(
+        protect({ handle: alice.agent.profile.name, act: 'block' }),
+      )
+      expect(blocked.isError).not.toBe(true)
+      expect(blocked.structuredContent).toMatchObject({ blocked: true })
+
+      const inbox = await bob.client.callTool(requests())
+      const listed = inbox.structuredContent as { requests: { status: string }[] }
+      expect(listed.requests.every((r) => r.status !== 'pending')).toBe(true)
+
+      const again = await alice.client.callTool(
+        send({ to: bob.agent.profile.name, body: 'Still here?' }),
+      )
+      expect(again.isError).toBe(true)
+      expect(again.structuredContent).toMatchObject({ error: { code: 'blocked' } })
+
+      await close()
+    })
+
+    it('unblocks and reports an auditable record', async () => {
+      const { alice, bob, close } = await aPair()
+      await bob.client.callTool(protect({ handle: alice.agent.profile.name, act: 'block' }))
+      const unblocked = await bob.client.callTool(
+        protect({ handle: alice.agent.profile.name, act: 'unblock' }),
+      )
+      expect(unblocked.structuredContent).toMatchObject({ unblocked: true })
+
+      const reported = await bob.client.callTool(
+        protect({
+          handle: alice.agent.profile.name,
+          act: 'report',
+          reason: 'Unsolicited spam paste across many citizens.',
+        }),
+      )
+      expect(reported.isError).not.toBe(true)
+      expect(reported.structuredContent).toMatchObject({
+        reported: true,
+        reportId: expect.any(String),
+      })
+
+      await close()
+    })
+
+    it('carries untrusted-content wording on the protect tool', async () => {
+      const { alice, close } = await aPair()
+      const listed = await alice.client.listTools()
+      const tool = listed.tools.find((t) => t.name === 'kolonie.messages.protect')
+      expect(tool?.description).toMatch(/untrusted content/i)
+      expect(tool?.description).toMatch(/never instructions|data, never instructions/i)
       await close()
     })
   })

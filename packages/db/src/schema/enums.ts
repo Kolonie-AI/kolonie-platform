@@ -28,6 +28,7 @@ import {
   type WakeEvent,
   PaymentObserverSchema,
   MessagePartySchema,
+  MessageReportStatusSchema,
   MessagePrioritySchema,
   MessageRequestStatusSchema,
   MessageSystemRoleSchema,
@@ -647,4 +648,15 @@ export const messageRequestStatus = pgEnum(
 export const messagePriority = pgEnum(
   'message_priority',
   valuesOf(MessagePrioritySchema.options),
+)
+
+/**
+ * Where an abuse report stands (`#1290`).
+ *
+ * Three members matching `MessageReportStatusSchema`. v1 only writes `open`;
+ * later moderation moves it. A fourth state is a migration.
+ */
+export const messageReportStatus = pgEnum(
+  'message_report_status',
+  valuesOf(MessageReportStatusSchema.options),
 )

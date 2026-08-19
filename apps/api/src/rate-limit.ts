@@ -434,3 +434,117 @@ export function arrivalReportLimiter(now?: () => number): RateLimiter {
     ...(now === undefined ? {} : { now }),
   })
 }
+
+/**
+ * How many citizen messages one sender may place per hour (`#1290`).
+ *
+ * **Sixty, between the reachability loop (60) and the person-facing ticket
+ * ceiling (10).** A DM is another citizen's inbox rather than a person reading
+ * a form, so it can be looser than `TICKET_LIMIT` — and tighter than an
+ * unbounded append on a pending request, which is exactly the hole this closes.
+ *
+ * **Its own allowance rather than sharing support's.** `#236`'s ticket ceiling
+ * exists because both support and operator-request make a *person* read
+ * something; citizen↔citizen protects a different resource, and sharing the
+ * window would let a noisy inbox starve a real ticket (or the reverse).
+ *
+ * Keyed by sender. The same window as everything else here. Not configurable
+ * through the environment: changing it is a commit.
+ */
+export const MESSAGE_SEND_LIMIT = 60
+
+/** Per-sender hourly brake on citizen messaging. See `MESSAGE_SEND_LIMIT`. */
+export function messageSendLimiter(now?: () => number): RateLimiter {
+  return fixedWindowLimiter({
+    limit: MESSAGE_SEND_LIMIT,
+    windowMs: REGISTRATION_WINDOW_MS,
+    ...(now === undefined ? {} : { now }),
+  })
+}
+
+/**
+ * How many messages one sender may place to one recipient per hour (`#1290`).
+ *
+ * **Thirty, half the per-sender ceiling.** A flood aimed at one inbox is the
+ * shape block-and-report cannot catch in time: the recipient has to wake up
+ * first. Cap the pair so a sender that spreads sixty messages across many
+ * citizens is fine and one that dumps them on a single handle is not.
+ *
+ * Keyed `${senderId}:${recipientId}`. Own limiter, shared hour.
+ */
+export const MESSAGE_PER_RECIPIENT_LIMIT = 30
+
+/** Per sender→recipient hourly brake. See `MESSAGE_PER_RECIPIENT_LIMIT`. */
+export function messagePerRecipientLimiter(now?: () => number): RateLimiter {
+  return fixedWindowLimiter({
+    limit: MESSAGE_PER_RECIPIENT_LIMIT,
+    windowMs: REGISTRATION_WINDOW_MS,
+    ...(now === undefined ? {} : { now }),
+  })
+}
+
+/**
+ * How many citizen messages one sender may place per minute (`#1290`).
+ *
+ * **Ten a minute, matching the operator-notes doctrine that a rate limit bounds
+ * speed and a depth cap alone still permits a burst.** Sixty an hour without a
+ * burst brake is one a minute on average — or sixty in the first minute and
+ * silence after. The minute window is what makes `retry-after` useful mid-burst.
+ *
+ * Keyed by sender. Own limiter; the only messaging window that is not an hour.
+ */
+export const MESSAGE_BURST_LIMIT = 10
+
+/** The burst window — a minute, deliberately. See `MESSAGE_BURST_LIMIT`. */
+export const MESSAGE_BURST_WINDOW_MS = 60 * 1000
+
+/** Per-sender burst brake. See `MESSAGE_BURST_LIMIT`. */
+export function messageBurstLimiter(now?: () => number): RateLimiter {
+  return fixedWindowLimiter({
+    limit: MESSAGE_BURST_LIMIT,
+    windowMs: MESSAGE_BURST_WINDOW_MS,
+    ...(now === undefined ? {} : { now }),
+  })
+}
+
+/**
+ * How many times one sender may place the same body per hour (`#1290`).
+ *
+ * **Five identical bodies.** Fanout of one paste across many recipients is the
+ * spam shape that per-recipient limits alone miss when the sender rotates
+ * targets inside the hourly budget. Keyed `${senderId}:${sha256(body)}` so
+ * different prose never collides and the same prose cannot be sprayed.
+ *
+ * Not a content filter and not ML — a deterministic duplicate throttle.
+ */
+export const MESSAGE_IDENTICAL_BODY_LIMIT = 5
+
+/** Identical-body fanout brake. See `MESSAGE_IDENTICAL_BODY_LIMIT`. */
+export function messageIdenticalBodyLimiter(now?: () => number): RateLimiter {
+  return fixedWindowLimiter({
+    limit: MESSAGE_IDENTICAL_BODY_LIMIT,
+    windowMs: REGISTRATION_WINDOW_MS,
+    ...(now === undefined ? {} : { now }),
+  })
+}
+
+/**
+ * How many first-contact requests one sender may open per hour (`#1290`).
+ *
+ * **Twenty.** Creating a request is the expensive side of cold contact: each
+ * one is a decision the recipient has to make. Sends into an existing thread
+ * share the broader `MESSAGE_SEND_LIMIT`; this ceiling is only for the path
+ * that mints a new pending request (or appends to one still pending).
+ *
+ * Keyed by sender. Own allowance, shared hour.
+ */
+export const MESSAGE_REQUEST_CREATE_LIMIT = 20
+
+/** Per-sender brake on first-contact request creation. */
+export function messageRequestCreateLimiter(now?: () => number): RateLimiter {
+  return fixedWindowLimiter({
+    limit: MESSAGE_REQUEST_CREATE_LIMIT,
+    windowMs: REGISTRATION_WINDOW_MS,
+    ...(now === undefined ? {} : { now }),
+  })
+}

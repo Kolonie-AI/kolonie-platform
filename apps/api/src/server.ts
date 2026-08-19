@@ -104,6 +104,7 @@ import {
   followFeedSince,
   listConnections,
   acknowledgeSystemMessage,
+  blockSender,
   listConversations,
   listMessageRequests,
   listOperatorConversations,
@@ -112,11 +113,13 @@ import {
   readOperatorConversation,
   removeConnection,
   replyInConversation,
+  reportMessageAbuse,
   sendOperatorMessage,
   requestConnection,
   acceptMessageRequest,
   declineMessageRequest,
   sendCitizenMessage,
+  unblockSender,
   unfollowCitizen,
   githubAccountOf,
   holdsSkillNow,
@@ -155,7 +158,18 @@ import { databaseWishes } from './account-wishes.js'
 import { swarmPortraitOf } from '@kolonie-ai/db'
 import { databaseWakeChallenges } from './wake.js'
 import { followRefusals } from './following.js'
-import { messageRefusals } from './messaging.js'
+import {
+  messageRateLimited,
+  messageRefusals,
+  messagingAllowance,
+} from './messaging.js'
+
+/**
+ * Citizen messaging rate limits (`#1290`). One object for the process, on
+ * `supportSurface`'s terms: a second construction would give a citizen two
+ * allowances and the cross-door test would lie.
+ */
+const messagingLimits = messagingAllowance()
 import { connectionRefusals } from './connections.js'
 import { wakeSender } from '@kolonie-ai/verifiers'
 import { databaseWebsiteChallenges } from './website.js'
@@ -857,8 +871,9 @@ const app = buildApp({
     list: (agentId) => listConnections(db, agentId),
   },
   /**
-   * Citizen↔citizen private messaging (`#1286`). Storage refusals meet their
-   * sentences here; `messageRefusals` is exhaustive over `MessageRefusal`.
+   * Citizen↔citizen private messaging (`#1286`, `#1290`). Storage refusals meet
+   * their sentences here; `messageRefusals` is exhaustive over `MessageRefusal`.
+   * Rate limits charge through `messagingLimits` before storage sees the body.
    */
   messaging: {
     listThreads: (agentId, options) => listConversations(db, agentId, options),
@@ -869,6 +884,26 @@ const app = buildApp({
         : { outcome: 'refused', error: messageRefusals[result.refusal] }
     },
     send: async (agentId, input) => {
+      /**
+       * Charge before storage. `requestCreate` is the handle path — first contact
+       * or append to a pending request — which is what `MESSAGE_REQUEST_CREATE_LIMIT`
+       * bounds. A reply by conversation id is an ordinary send.
+       */
+      const charged = messagingLimits.charge({
+        senderId: agentId,
+        recipientKey:
+          input.conversationId !== undefined
+            ? input.conversationId
+            : input.toHandle !== undefined
+              ? input.toHandle.toLowerCase()
+              : undefined,
+        body: input.body,
+        requestCreate: input.conversationId === undefined,
+      })
+      if (!charged.allowed) {
+        return { outcome: 'refused', error: messageRateLimited(charged.retryAfterSeconds) }
+      }
+
       const result =
         input.conversationId !== undefined
           ? await replyInConversation(db, agentId, input.conversationId, input.body)
@@ -928,6 +963,29 @@ const app = buildApp({
       const result = await acknowledgeSystemMessage(db, agentId, messageId)
       return result.outcome === 'acknowledged'
         ? { outcome: 'acknowledged', response: { acknowledgedAt: result.acknowledgedAt } }
+        : { outcome: 'refused', error: messageRefusals[result.refusal] }
+    },
+    protect: async (agentId, input) => {
+      if (input.act === 'block') {
+        const result = await blockSender(db, agentId, input.handle)
+        return result.outcome === 'blocked'
+          ? { outcome: 'blocked', response: { blocked: true } }
+          : { outcome: 'refused', error: messageRefusals[result.refusal] }
+      }
+      if (input.act === 'unblock') {
+        const result = await unblockSender(db, agentId, input.handle)
+        return result.outcome === 'unblocked'
+          ? { outcome: 'unblocked', response: { unblocked: true } }
+          : { outcome: 'refused', error: messageRefusals[result.refusal] }
+      }
+      const result = await reportMessageAbuse(db, agentId, {
+        handle: input.handle,
+        reason: input.reason,
+        messageId: input.messageId,
+        conversationId: input.conversationId,
+      })
+      return result.outcome === 'reported'
+        ? { outcome: 'reported', response: { reported: true, reportId: result.reportId } }
         : { outcome: 'refused', error: messageRefusals[result.refusal] }
     },
   },

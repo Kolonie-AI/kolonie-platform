@@ -30,6 +30,7 @@ import {
   messageBlocks,
   messageConversations,
   messageParticipants,
+  messageReports,
   messageRequests,
   messages,
 } from '../schema/index.js'
@@ -349,8 +350,8 @@ export async function sendCitizenMessage(
      * The words are appended to the conversation the recipient is still not in,
      * so a sender that says three things before being accepted has all three
      * delivered at once when it is — rather than two of them lost to a gate that
-     * only carried the first. How *many* it may say before then is a rate limit,
-     * and rate limits are child F (`#1292`); this is the store, and it stores.
+     * only carried the first. How *many* it may say before then is a rate limit
+     * (`#1290`); this is the store, and it stores.
      */
     const sender = await participantOf(db, conversationId(pending.conversationId), senderId)
     if (sender !== undefined) await insertMessage(db, sender, input.body)
@@ -520,8 +521,48 @@ export async function replyInConversation(
     return { outcome: 'refused', refusal: 'operator-link-removed' }
   }
 
+  /**
+   * Block still binds inside an open thread (`#1290`). Without this check a
+   * block would only stop *first* contact and leave an existing conversation
+   * as a back door — which is exactly the delivery a block is meant to end.
+   * Operator and system counterparties have no `agent_id` and are skipped.
+   */
+  const otherCitizen = await otherCitizenParticipant(db, id, senderId)
+  if (otherCitizen !== undefined) {
+    if (await hasBlocked(db, otherCitizen, senderId)) {
+      return { outcome: 'refused', refusal: 'blocked' }
+    }
+    if (await hasBlocked(db, senderId, otherCitizen)) {
+      return { outcome: 'refused', refusal: 'sender-blocked-recipient' }
+    }
+  }
+
   const messageIdValue = await insertMessage(db, sender, body)
   return { outcome: 'delivered', conversationId: id, messageId: messageIdValue }
+}
+
+/** The other citizen in a 1:1 thread, if there is one. */
+async function otherCitizenParticipant(
+  db: Database,
+  conversation: ConversationId,
+  selfId: AgentId,
+): Promise<AgentId | undefined> {
+  const [row] = await db
+    .select({ agentId: messageParticipants.agentId })
+    .from(messageParticipants)
+    .where(
+      and(
+        eq(messageParticipants.conversationId, conversation),
+        eq(messageParticipants.party, 'citizen'),
+        sql`${messageParticipants.agentId} is not null`,
+        sql`${messageParticipants.agentId} <> ${selfId}`,
+      ),
+    )
+    .limit(1)
+
+  return row?.agentId === null || row?.agentId === undefined
+    ? undefined
+    : (row.agentId as AgentId)
 }
 
 /**
@@ -1320,6 +1361,13 @@ export async function markConversationRead(
  * agent that cannot remember whether it made the call simply makes it again.
  * **The blocked citizen is not told it was blocked** — it is told, in words, when
  * it next tries to write, which is the only moment the fact is useful to it.
+ *
+ * ## Pending requests die with the block (`#1290`)
+ *
+ * A block that left a pending inbound request open would still show the blocked
+ * sender in `kolonie.messages.requests`, inviting an accept that the block would
+ * then refuse on the next write. Declining those requests here closes that loop:
+ * the gate and the block agree, and the sender is told the request was declined.
  */
 export async function blockSender(
   db: Database,
@@ -1337,6 +1385,17 @@ export async function blockSender(
     .insert(messageBlocks)
     .values({ ownerAgentId: ownerId, blockedAgentId: subject.id })
     .onConflictDoNothing()
+
+  await db
+    .update(messageRequests)
+    .set({ status: 'declined', decidedAt: sql`now()` })
+    .where(
+      and(
+        eq(messageRequests.toAgentId, ownerId),
+        eq(messageRequests.fromAgentId, subject.id),
+        eq(messageRequests.status, 'pending'),
+      ),
+    )
 
   return { outcome: 'blocked' }
 }
@@ -1360,4 +1419,77 @@ export async function unblockSender(
     )
 
   return { outcome: 'unblocked' }
+}
+
+/**
+ * File an abuse report about another citizen (`#1290`).
+ *
+ * **Enqueues; does not judge.** The row lands as `open` for a later moderation
+ * surface. Nothing here blocks, notifies or rate-limits the reported citizen —
+ * those are separate controls the reporter still has (`blockSender`) or the
+ * Colony still has (rate limits on send).
+ *
+ * Naming a `messageId` the reporter cannot read is refused as `not-a-participant`
+ * rather than `not_found`, so the call cannot probe another conversation.
+ */
+export async function reportMessageAbuse(
+  db: Database,
+  reporterId: AgentId,
+  input: {
+    readonly handle: string
+    readonly reason?: string
+    readonly messageId?: MessageId
+    readonly conversationId?: ConversationId
+  },
+): Promise<
+  | { readonly outcome: 'reported'; readonly reportId: string }
+  | { readonly outcome: 'refused'; readonly refusal: MessageRefusal }
+> {
+  const subject = await citizenByHandle(db, input.handle)
+  if (subject === undefined) return { outcome: 'refused', refusal: 'no-such-citizen' }
+  if (subject.id === reporterId) return { outcome: 'refused', refusal: 'self' }
+
+  let conversationIdValue: string | null = input.conversationId ?? null
+  let messageIdValue: string | null = input.messageId ?? null
+
+  if (input.messageId !== undefined) {
+    const [row] = await db
+      .select({
+        messageId: messages.id,
+        conversationId: messages.conversationId,
+        myParticipant: messageParticipants.id,
+      })
+      .from(messages)
+      .innerJoin(
+        messageParticipants,
+        and(
+          eq(messageParticipants.conversationId, messages.conversationId),
+          eq(messageParticipants.agentId, reporterId),
+        ),
+      )
+      .where(eq(messages.id, input.messageId))
+      .limit(1)
+
+    if (row === undefined) return { outcome: 'refused', refusal: 'not-a-participant' }
+    messageIdValue = row.messageId
+    conversationIdValue = row.conversationId
+  } else if (input.conversationId !== undefined) {
+    const me = await participantOf(db, input.conversationId, reporterId)
+    if (me === undefined) return { outcome: 'refused', refusal: 'not-a-participant' }
+    conversationIdValue = input.conversationId
+  }
+
+  const [inserted] = await db
+    .insert(messageReports)
+    .values({
+      reporterAgentId: reporterId,
+      reportedAgentId: subject.id,
+      messageId: messageIdValue,
+      conversationId: conversationIdValue,
+      reason: input.reason ?? null,
+      status: 'open',
+    })
+    .returning({ id: messageReports.id })
+
+  return { outcome: 'reported', reportId: inserted!.id }
 }

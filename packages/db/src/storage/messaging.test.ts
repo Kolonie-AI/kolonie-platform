@@ -2,7 +2,14 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq, sql } from 'drizzle-orm'
 import { AgentIdSchema, HumanIdSchema, type AgentId, type HumanId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { agents, humanAgents, humans, messageParticipants, messages } from '../schema/index.js'
+import {
+  agents,
+  humanAgents,
+  humans,
+  messageParticipants,
+  messageReports,
+  messages,
+} from '../schema/index.js'
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
 import {
   acceptMessageRequest,
@@ -16,6 +23,7 @@ import {
   readConversation,
   readOperatorConversation,
   replyInConversation,
+  reportMessageAbuse,
   sendCitizenMessage,
   sendOperatorMessage,
   sendSystemMessage,
@@ -298,6 +306,82 @@ describe('private messaging', () => {
         outcome: 'refused',
         refusal: 'blocked',
       })
+    })
+
+    it('declines pending inbound requests and blocks replies by conversation id (#1290)', async () => {
+      const sender = await anAgent('sender')
+      const recipient = await anAgent('recipient')
+      const handle = await handleOf(recipient)
+
+      const opened = await sendCitizenMessage(db, sender, { toHandle: handle, body: 'Knock.' })
+      if (opened.outcome !== 'requested') throw new Error('unreachable')
+
+      await blockSender(db, recipient, await handleOf(sender))
+      const inbox = await listMessageRequests(db, recipient)
+      expect(inbox.every((r) => r.status !== 'pending')).toBe(true)
+
+      // Open a second pair, accept, then block — reply by conversationId must refuse.
+      const other = await anAgent('other')
+      const otherHandle = await handleOf(other)
+      const second = await sendCitizenMessage(db, other, {
+        toHandle: await handleOf(recipient),
+        body: 'Hello.',
+      })
+      if (second.outcome !== 'requested') throw new Error('unreachable')
+      await acceptMessageRequest(db, recipient, second.requestId)
+      await blockSender(db, recipient, otherHandle)
+
+      expect(
+        await replyInConversation(db, other, second.conversationId, 'Still writing?'),
+      ).toEqual({ outcome: 'refused', refusal: 'blocked' })
+    })
+  })
+
+  describe('an abuse report (#1290)', () => {
+    it('creates an open auditable row', async () => {
+      const reporter = await anAgent('reporter')
+      const subject = await anAgent('subject')
+
+      const filed = await reportMessageAbuse(db, reporter, {
+        handle: await handleOf(subject),
+        reason: 'Identical paste to many citizens.',
+      })
+      expect(filed.outcome).toBe('reported')
+      if (filed.outcome !== 'reported') throw new Error('unreachable')
+
+      const [row] = await db
+        .select()
+        .from(messageReports)
+        .where(eq(messageReports.id, filed.reportId))
+      expect(row).toMatchObject({
+        reporterAgentId: reporter,
+        reportedAgentId: subject,
+        status: 'open',
+        reason: 'Identical paste to many citizens.',
+      })
+    })
+
+    it('refuses reporting a message the reporter cannot read', async () => {
+      const alice = await anAgent('alice')
+      const bob = await anAgent('bob')
+      const outsider = await anAgent('outsider')
+
+      const opened = await sendCitizenMessage(db, alice, {
+        toHandle: await handleOf(bob),
+        body: 'Private.',
+      })
+      if (opened.outcome !== 'requested') throw new Error('unreachable')
+      await acceptMessageRequest(db, bob, opened.requestId)
+      const thread = await readConversation(db, bob, opened.conversationId)
+      if (thread.outcome !== 'read') throw new Error('unreachable')
+      const messageId = thread.messages[0]!.id
+
+      expect(
+        await reportMessageAbuse(db, outsider, {
+          handle: await handleOf(alice),
+          messageId,
+        }),
+      ).toEqual({ outcome: 'refused', refusal: 'not-a-participant' })
     })
   })
 

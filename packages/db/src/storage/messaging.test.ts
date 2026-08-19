@@ -12,6 +12,12 @@ import {
 } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
 import {
+  acceptConnection,
+  removeConnection,
+  requestConnection,
+} from './connections.js'
+import { followCitizen } from './following.js'
+import {
   acceptMessageRequest,
   acknowledgeSystemMessage,
   blockSender,
@@ -62,7 +68,7 @@ describe('private messaging', () => {
 
   const anAgent = async (
     name: string,
-    fields: { acceptsCitizenMessages?: boolean } = {},
+    fields: { acceptsCitizenMessages?: boolean; discoverable?: boolean } = {},
   ): Promise<AgentId> => {
     const [row] = await db
       .insert(agents)
@@ -72,6 +78,7 @@ describe('private messaging', () => {
         ...(fields.acceptsCitizenMessages === undefined
           ? {}
           : { acceptsCitizenMessages: fields.acceptsCitizenMessages }),
+        ...(fields.discoverable === undefined ? {} : { discoverable: fields.discoverable }),
       })
       .returning({ id: agents.id })
     if (row === undefined) throw new Error('inserting an agent returned no row')
@@ -967,6 +974,108 @@ describe('private messaging', () => {
    * Compact wakeup counts (`#1287`). Bodies never appear on this path — only
    * thread ids and numbers.
    */
+  /**
+   * `#1294` policy matrix: the Message Request skip lives on an accepted
+   * *connection*, never on a follow. Disconnect ends the agreement and leaves
+   * an existing conversation standing — participants may keep sending.
+   */
+  describe('accepted connection skips the message request', () => {
+    const REASON = 'We already share a walk note and want a channel for the rest.'
+
+    const connectedPair = async () => {
+      const alice = await anAgent('alice', { discoverable: true })
+      const bob = await anAgent('bob', { discoverable: true })
+      expect((await requestConnection(db, alice, await handleOf(bob), REASON)).outcome).toBe(
+        'connection',
+      )
+      expect((await acceptConnection(db, bob, await handleOf(alice))).outcome).toBe('connection')
+      return { alice, bob }
+    }
+
+    it('no edge → request; follow-only → request; connected → direct send', async () => {
+      const stranger = await anAgent('stranger', { discoverable: true })
+      const followed = await anAgent('followed', { discoverable: true })
+      const { alice, bob } = await connectedPair()
+
+      const none = await sendCitizenMessage(db, stranger, {
+        toHandle: await handleOf(followed),
+        body: 'No relationship yet — this must be a request.',
+      })
+      expect(none.outcome).toBe('requested')
+
+      expect((await followCitizen(db, stranger, await handleOf(followed))).outcome).toBe(
+        'following',
+      )
+      // A prior request between the same pair is reused; clear by using a fresh sender.
+      const follower = await anAgent('follower', { discoverable: true })
+      expect((await followCitizen(db, follower, await handleOf(followed))).outcome).toBe(
+        'following',
+      )
+      const followOnly = await sendCitizenMessage(db, follower, {
+        toHandle: await handleOf(followed),
+        body: 'Following is a bookmark, not a trust edge.',
+      })
+      expect(followOnly.outcome).toBe('requested')
+
+      const connected = await sendCitizenMessage(db, alice, {
+        toHandle: await handleOf(bob),
+        body: 'We agreed to connect — no request gate.',
+      })
+      expect(connected.outcome).toBe('delivered')
+      if (connected.outcome !== 'delivered') throw new Error('unreachable')
+
+      // Recipient can read it immediately — they were joined as a participant.
+      const read = await readConversation(db, bob, connected.conversationId)
+      expect(read.outcome).toBe('read')
+      if (read.outcome !== 'read') throw new Error('unreachable')
+      expect(read.messages.some((m) => m.body.includes('no request gate'))).toBe(true)
+
+      // And no pending request was created for the connected pair.
+      expect(await listMessageRequests(db, bob)).toEqual([])
+    })
+
+    it('after disconnect, the existing conversation stays and participants may keep sending', async () => {
+      const { alice, bob } = await connectedPair()
+      const opened = await sendCitizenMessage(db, alice, {
+        toHandle: await handleOf(bob),
+        body: 'First line while connected.',
+      })
+      expect(opened.outcome).toBe('delivered')
+      if (opened.outcome !== 'delivered') throw new Error('unreachable')
+
+      expect((await removeConnection(db, alice, await handleOf(bob))).outcome).toBe('connection')
+
+      const continued = await sendCitizenMessage(db, bob, {
+        toHandle: await handleOf(alice),
+        body: 'Still participants after remove.',
+      })
+      expect(continued.outcome).toBe('delivered')
+      if (continued.outcome !== 'delivered') throw new Error('unreachable')
+      expect(continued.conversationId).toBe(opened.conversationId)
+
+      // A brand-new pair after disconnect would need a request; same pair with a
+      // shared thread does not. Prove a third citizen still hits the gate.
+      const other = await anAgent('other', { discoverable: true })
+      const fresh = await sendCitizenMessage(db, alice, {
+        toHandle: await handleOf(other),
+        body: 'No connection and no shared thread.',
+      })
+      expect(fresh.outcome).toBe('requested')
+    })
+
+    it('unfollow alone never grants a direct send', async () => {
+      const reader = await anAgent('reader', { discoverable: true })
+      const writer = await anAgent('writer', { discoverable: true })
+      expect((await followCitizen(db, reader, await handleOf(writer))).outcome).toBe('following')
+
+      const sent = await sendCitizenMessage(db, reader, {
+        toHandle: await handleOf(writer),
+        body: 'Unfollow is irrelevant — follow never skipped the gate.',
+      })
+      expect(sent.outcome).toBe('requested')
+    })
+  })
+
   describe('messaging wakeup delta', () => {
     it('is zeros with an empty inbox', async () => {
       const citizen = await anAgent('quiet')

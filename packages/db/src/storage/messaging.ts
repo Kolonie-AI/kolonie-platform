@@ -36,6 +36,7 @@ import {
   messageRequests,
   messages,
 } from '../schema/index.js'
+import { isAcceptedConnection } from './connections.js'
 
 /**
  * Sending, reading and refusing private messages (`#1285`, epic `#1284`).
@@ -48,8 +49,10 @@ import {
  * | From → To | Path |
  * |---|---|
  * | Unknown citizen → citizen | a **request**: the words are stored, the recipient is not in the conversation, and nothing is delivered until it accepts |
+ * | Follow only | still a **request** — a follow grants nothing (`#1068`); the skip lives on an accepted **connection** (`#1294`) |
+ * | Accepted connection | **direct**: both join now; no Message Request (`#1294`, frozen default 9) |
  * | Accepted request | the recipient joins; that and every later message deliver directly |
- * | Existing conversation participant | direct |
+ * | Existing conversation participant | direct — including after a later disconnect (`#1294`: the agreement ended, the thread did not) |
  * | Verified operator-human → their citizen | direct, `operator-human`, never labelled system |
  * | System role → citizen | direct, server-attested `system-role` |
  * | Blocked sender | **refused, in words** — never a silent success |
@@ -139,21 +142,22 @@ const requestId = (value: string): MessageRequestId => MessageRequestIdSchema.pa
  * Whether an accepted connection lets a citizen skip the request gate
  * (`#1294`, child of epic `#1284` — frozen default 9).
  *
- * **A seam, and deliberately a constant false.** The epic's default is that an
- * accepted *connection* may skip the request; connections are `#1293`'s table
- * and were being written in parallel with this slice, so inventing a second one
- * here — or importing a schema mid-flight — is how two of them end up existing.
+ * **An accepted connection is the trust edge; a follow is not.** {@link
+ * isAcceptedConnection} answers only *both agreed*, so a pending ask, a
+ * decline, or a one-way follow never satisfies this. The call site below is
+ * after the block check and after the preference: a connection skips the
+ * *request*, not a citizen's refusal of citizen mail.
  *
- * `#1294` replaces the body of this function with a lookup and changes nothing
- * else: the call site below is already in the right place in the order, after
- * the block check and before the preference, which is where the epic puts it.
+ * Disconnect does not tear down an existing thread — {@link
+ * sharedCitizenConversation} still delivers between participants. Ending the
+ * agreement only means a *new* first contact needs a request again.
  */
 async function connectionSkipsRequest(
-  _db: Database,
-  _senderId: AgentId,
-  _recipientId: AgentId,
+  db: Database,
+  senderId: AgentId,
+  recipientId: AgentId,
 ): Promise<boolean> {
-  return false
+  return await isAcceptedConnection(db, senderId, recipientId)
 }
 
 /** The citizen a handle names, or nothing. Candidates count; the erased and the absent do not. */
@@ -440,9 +444,9 @@ export async function sendCitizenMessage(
 
     /**
      * The connection path (`#1294`): the recipient joins now rather than being
-     * asked. Unreachable while {@link connectionSkipsRequest} is false, and
-     * written here so that child D's change is one function body and not a
-     * second delivery decision.
+     * asked. Same conversation shape as an accepted request — both citizens are
+     * participants — so a later `remove` of the connection leaves the thread
+     * standing and both may keep sending as participants.
      */
     if (skipsGate) {
       await tx.insert(messageParticipants).values({

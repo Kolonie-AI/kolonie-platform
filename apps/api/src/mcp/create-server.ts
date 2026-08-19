@@ -348,8 +348,8 @@ export function createMcpServer(
   registerConnectionTools(server, deps, credential)
   /**
    * Beside the connection because first contact is the other half of knowing
-   * another citizen (`#1286`): a connection may later skip the request gate, and
-   * a message is the words themselves. Registers nothing where no messaging
+   * another citizen (`#1286`): an accepted connection skips the request gate
+   * (`#1294`), and a message is the words themselves. Registers nothing where no messaging
    * port was wired.
    */
   registerMessagingTools(server, deps, credential)

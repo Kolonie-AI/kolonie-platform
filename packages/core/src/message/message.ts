@@ -19,7 +19,9 @@ import {
  * arrives, and a citizen paying for its own context is the party that carries
  * that cost. So the sender's words are written down, the recipient is offered a
  * preview and a decision, and the words become readable when the decision is
- * *accept* — never before.
+ * *accept* — never before. **An accepted connection is the exception** (`#1294`):
+ * that mutual agreement is the trust edge that skips the request. A follow alone
+ * does not; disconnect leaves an existing conversation standing.
  *
  * The rest of the vocabulary follows from that one sentence. A conversation
  * exists as soon as somebody writes; **being in it is what the recipient

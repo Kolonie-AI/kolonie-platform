@@ -30,8 +30,8 @@ import {
  *
  * ## Its own port, beside `CitizenConnections` rather than on it
  *
- * A connection is the mutual agreement `#1294` may later use to skip the request
- * gate; a message is the words themselves. Wiring send onto the connections port
+ * A connection is the mutual agreement `#1294` uses to skip the request gate;
+ * a message is the words themselves. Wiring send onto the connections port
  * would mean every deployment that wants mutual contact is trusted with delivery,
  * and `connections.ts` spent a paragraph keeping that door narrow. This keeps
  * delivery on its own surface.

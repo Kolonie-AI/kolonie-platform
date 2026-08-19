@@ -66,7 +66,10 @@ export function registerConnectionTools(
         `You may have ${CONNECTION_PENDING_LIMIT} requests open at once; at the ceiling, cancel ` +
         'one. ' +
         '**This is not following** — it grants no feed, and `kolonie.citizens.follow` is the ' +
-        'one-directional bookmark.',
+        'one-directional bookmark. ' +
+        '**An accepted connection skips the private-message request gate** (`#1294`); a follow ' +
+        'alone does not. Removing a connection ends the agreement, not an existing thread — ' +
+        'participants may keep sending there.',
       inputSchema: {
         handle: z
           .string()

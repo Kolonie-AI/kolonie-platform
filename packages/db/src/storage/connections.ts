@@ -338,7 +338,9 @@ async function clearRequest(
  *
  * It deletes the connection and nothing else. Anything messaging wrote is
  * messaging's (`#1294`): a citizen that ends a connection has ended the
- * agreement, not the record of what was said under it.
+ * agreement, not the record of what was said under it. An existing conversation
+ * stays; participants may keep sending. A *new* first contact without a shared
+ * thread needs a Message Request again.
  */
 export async function removeConnection(
   db: Database,

@@ -82,12 +82,22 @@ function toTicket(row: typeof supportTickets.$inferSelect): SupportTicket {
  *
  * Limited, because a tick that reads ten thousand rows and then makes ten
  * thousand model calls is not a tick.
+ *
+ * **`route = 'colony'`, and this is the load-bearing clause (`#1345`).** A `desk`
+ * ticket is a citizen's own situation — a lost password, an appeal against a
+ * suspension — and the good ending of a `colony` ticket is a public GitHub issue
+ * quoting it in full. Every other protection in this runner is a judgement made
+ * after the ticket has been read; this one means the row is never read, never
+ * shown to a model, never counted in a batch and never named in a log line. It is
+ * also what makes the standing check in `apps/api/src/support.ts` worth having:
+ * `ticketRouteFor` sends a `suspended` or `banned` agent's ticket to `desk`, and
+ * this `where` is the clause that turns that column into a wall.
  */
 export async function openTickets(db: Database, limit: number): Promise<readonly SupportTicket[]> {
   const rows = await db
     .select()
     .from(supportTickets)
-    .where(eq(supportTickets.status, 'open'))
+    .where(and(eq(supportTickets.status, 'open'), eq(supportTickets.route, 'colony')))
     .orderBy(asc(supportTickets.createdAt))
     .limit(limit)
 
@@ -110,6 +120,15 @@ export async function openTickets(db: Database, limit: number): Promise<readonly
  * Bounded rather than complete. The corpus is for similarity, not for audit, and
  * a runner that loads every ticket the Colony has ever received in order to
  * triage one is a runner that stops working at some size nobody chose.
+ *
+ * **`colony` only, on the same rule as the queue (`#1345`).** This is not the
+ * queue, so it is worth saying why it carries the same clause: the corpus is put
+ * verbatim into a model prompt, and the answer to that prompt can become a public
+ * issue. A desk ticket that never enters the queue but is quoted here as
+ * precedent has been read by the model and can be repeated by it, which is the
+ * whole of what `route` was added to prevent. A maintainer's answer to a personal
+ * matter is also the wrong precedent for a defect report — it is about one
+ * citizen, and repeating it to a second is repeating somebody else's business.
  */
 export async function triagedTickets(
   db: Database,
@@ -118,7 +137,7 @@ export async function triagedTickets(
   const rows = await db
     .select()
     .from(supportTickets)
-    .where(ne(supportTickets.status, 'open'))
+    .where(and(ne(supportTickets.status, 'open'), eq(supportTickets.route, 'colony')))
     .orderBy(asc(supportTickets.createdAt))
     .limit(limit)
 
@@ -240,6 +259,19 @@ export interface TriageOutcome {
   readonly resolution?: string | null
   /** The issue this became or was matched to, if any. */
   readonly issueUrl?: string | null
+  /**
+   * Send this ticket to the maintainers' desk instead (`#1345`).
+   *
+   * **The literal is the guarantee.** `'desk'` is the only value this field can
+   * hold — there is no `'colony'` to write and no `SupportTicketRoute` to widen
+   * it to — so the override is one-directional in the type system rather than by
+   * convention. Triage may conclude that a ticket is a citizen's own business;
+   * nothing here can conclude the reverse, and nothing needs to, because a desk
+   * ticket is not in the queue this write compares against.
+   *
+   * Omitted leaves the column alone, which is what every other decision wants.
+   */
+  readonly route?: 'desk'
 }
 
 /**
@@ -263,6 +295,12 @@ export interface TriageOutcome {
  *    nothing to update and says so by returning `undefined`, which the caller can
  *    tell apart from a ticket that does not exist only by having read it a moment
  *    ago. That is the correct amount of information — both mean *do not act*.
+ *  - `route = 'colony'` since `#1345`, and it is a guard rather than idempotency.
+ *    The queue never serves a desk ticket, so a caller holding one got the id
+ *    from somewhere else — and the answer to that is the same as the answer to a
+ *    ticket that does not exist. It also makes the override below terminal: a
+ *    ticket this call routed to the desk cannot be written by a later tick,
+ *    including one holding a stale answer about it.
  *
  * `updatedAt` is set here rather than left to the column default, which only
  * fires on insert. A queue whose rows all claim to have been updated when they
@@ -285,9 +323,16 @@ export async function recordTriage(
       status: outcome.status,
       ...(outcome.resolution !== undefined && { resolution: outcome.resolution }),
       ...(outcome.issueUrl !== undefined && { issueUrl: outcome.issueUrl }),
+      ...(outcome.route !== undefined && { route: outcome.route }),
       updatedAt: new Date().toISOString(),
     })
-    .where(and(eq(supportTickets.id, outcome.ticketId), eq(supportTickets.status, 'open')))
+    .where(
+      and(
+        eq(supportTickets.id, outcome.ticketId),
+        eq(supportTickets.status, 'open'),
+        eq(supportTickets.route, 'colony'),
+      ),
+    )
     .returning()
 
   return row === undefined ? undefined : toTicket(row)
@@ -309,6 +354,14 @@ export async function recordTriage(
  * Oldest first, for the reason `openTickets` gives about the queue: a citizen
  * that has waited longest should not be the one a limit cuts off.
  *
+ * **`route = 'colony'` here too, and it is not redundant (`#1345`).** A desk
+ * ticket carries no `issueUrl`, so `isNotNull` already excludes every one that
+ * exists today — but that is an argument from the current writers rather than
+ * from the schema, and the column permits an acknowledged desk ticket that a
+ * maintainer pointed at an issue by hand. The clause says what this pass is for
+ * instead of relying on a coincidence: triage reconciles the tickets triage
+ * filed.
+ *
  * Bounded, and the bound is the caller's. Unlike the queue this set does not
  * drain on its own — a ticket stays here for as long as its issue stays open,
  * which for a `p2` is months. So it is read with a limit rather than whole, and
@@ -321,7 +374,13 @@ export async function ticketsAwaitingTheirIssue(
   const rows = await db
     .select()
     .from(supportTickets)
-    .where(and(eq(supportTickets.status, 'acknowledged'), isNotNull(supportTickets.issueUrl)))
+    .where(
+      and(
+        eq(supportTickets.status, 'acknowledged'),
+        eq(supportTickets.route, 'colony'),
+        isNotNull(supportTickets.issueUrl),
+      ),
+    )
     .orderBy(asc(supportTickets.createdAt))
     .limit(limit)
 
@@ -385,6 +444,12 @@ export async function resolveFromClosedIssue(
  * questions with two different answers. A loop that ticks happily while the
  * backlog grows is the failure this feature exists to prevent, and it is
  * invisible to a liveness check.
+ *
+ * **`colony` only, because it reports on this runner's queue (`#1345`).** Desk
+ * tickets are drained by a person and not by this loop, so counting them here
+ * would make the runner report a backlog it is not allowed to touch — an alarm
+ * that no amount of correct behaviour can clear. How deep the desk's own queue is
+ * remains a real question, and it belongs to whatever watches the desk.
  */
 export async function queueDepth(
   db: Database,
@@ -392,7 +457,7 @@ export async function queueDepth(
   const rows = await db
     .select({ createdAt: supportTickets.createdAt })
     .from(supportTickets)
-    .where(eq(supportTickets.status, 'open'))
+    .where(and(eq(supportTickets.status, 'open'), eq(supportTickets.route, 'colony')))
     .orderBy(asc(supportTickets.createdAt))
 
   const first = rows[0]

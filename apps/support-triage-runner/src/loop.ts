@@ -34,6 +34,11 @@ export interface TriageStore {
     readonly status: 'acknowledged' | 'resolved' | 'declined'
     readonly resolution?: string | null
     readonly issueUrl?: string | null
+    /**
+     * Move the ticket to the maintainers' desk (`#1345`). One-directional: the
+     * literal is the only value, so no caller here can route a ticket back.
+     */
+    readonly route?: 'desk'
   }): Promise<SupportTicket | undefined>
   /**
    * The circumstances of one ticket, read only when it is about to become an
@@ -248,6 +253,33 @@ export async function triageOne(
       }
     }
 
+    case 'desk': {
+      // **The write is what makes this terminal** (`#1345`). Setting `route` to
+      // `desk` takes the ticket out of every query this runner makes, so the
+      // decision cannot be revisited by a later tick that reads the ticket
+      // differently — including this one, on a retry. `acknowledged` and not
+      // `resolved` because nothing has been answered yet: a person still owes
+      // the citizen a reply, and the desk is where they find that they do.
+      //
+      // No issue, and no model-authored prose. The model decided *where this
+      // goes*; what to say about a citizen's own situation is a maintainer's
+      // sentence to write.
+      await deps.store.record({
+        ticketId: ticket.id,
+        status: 'acknowledged',
+        route: 'desk',
+        resolution:
+          "Read, and passed to the maintainers' desk rather than filed as a report about the " +
+          `Colony. Why: ${decision.why}`,
+      })
+      log.info(`ticket ${ticket.id}: sent to the desk — ${decision.why}`, {
+        event: 'ticket.triaged',
+        ticketId: ticket.id,
+        verdict: 'desk',
+      })
+      return { decision }
+    }
+
     case 'human': {
       await deps.store.record({
         ticketId: ticket.id,
@@ -389,6 +421,15 @@ export interface TickOutcome {
   readonly answered: number
   readonly filed: number
   readonly held: number
+  /**
+   * Tickets read as a citizen's own situation and passed to the desk (`#1345`).
+   *
+   * Counted apart from `held` deliberately. Both leave a person something to
+   * read, but `held` rising is triage failing to decide and is worth an alarm,
+   * while `desked` rising is triage working — and a single number that mixes
+   * them cannot tell a broken model from a week of account trouble.
+   */
+  readonly desked: number
   readonly failed: number
   /** Tickets settled this pass because their issue had been closed (#165). */
   readonly resolved: number
@@ -512,7 +553,16 @@ export async function tick(deps: LoopDependencies, batchSize: number): Promise<T
 
   const queue = await deps.store.queue(batchSize)
 
-  const counts = { seen: 0, known: 0, answered: 0, filed: 0, held: 0, failed: 0, resolved }
+  const counts = {
+    seen: 0,
+    known: 0,
+    answered: 0,
+    filed: 0,
+    held: 0,
+    desked: 0,
+    failed: 0,
+    resolved,
+  }
   if (queue.length === 0) return counts
 
   // **No App means no triage, not triage against nothing.** See `Issues.available`:
@@ -576,6 +626,9 @@ export async function tick(deps: LoopDependencies, batchSize: number): Promise<T
           break
         case 'human':
           counts.held++
+          break
+        case 'desk':
+          counts.desked++
           break
       }
     } catch (error) {
@@ -663,6 +716,7 @@ export function startRunner(deps: LoopDependencies, options: RunnerOptions = {})
             ? 'poll done; no tickets waiting'
             : `triaged ${outcome.seen}: ${outcome.known} already known, ` +
                 `${outcome.answered} answered from precedent, ${outcome.filed} filed, ` +
+                `${outcome.desked} sent to the desk, ` +
                 `${outcome.held} held for a human, ${outcome.failed} left in the queue`,
           {
             event: 'poll.done',
@@ -671,6 +725,7 @@ export function startRunner(deps: LoopDependencies, options: RunnerOptions = {})
             answered: outcome.answered,
             filed: outcome.filed,
             held: outcome.held,
+            desked: outcome.desked,
             failed: outcome.failed,
           },
         )

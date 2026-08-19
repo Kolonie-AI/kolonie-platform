@@ -40,7 +40,10 @@ import {
   messageParticipants,
   messageReports,
   messageRequests,
+  messageTelegramAsks,
   messages,
+  operatorTelegramChats,
+  tasks,
 } from '../schema/index.js'
 import { isAcceptedConnection } from './connections.js'
 import { clearSetAside } from './set-asides.js'
@@ -122,6 +125,17 @@ export type SendResult =
       readonly outcome: 'delivered'
       readonly conversationId: ConversationId
       readonly messageId: MessageId
+      /**
+       * Whether this send *opened* the thread rather than appending to one
+       * (`#1321`).
+       *
+       * Read by the operator notify path and by nothing else: the rule it serves
+       * is `operator_addresses`' own — **one ping per thread, never a reminder** —
+       * and without it the caller cannot tell a citizen's first ask from its
+       * fourth follow-up, which is the difference between telling a person and
+       * pestering them. Absent on every path that is not an operator open.
+       */
+      readonly opened?: boolean
     }
   | {
       readonly outcome: 'requested'
@@ -816,13 +830,204 @@ export async function openOperatorHelpConversation(
     }
   }
 
-  return await openDirectConversation(
+  const opened = await openDirectConversation(
     db,
     agentId,
     { party: 'operator-human', humanId, label: input.label ?? 'your operator' },
     input.body,
     { provenance: { taskId, wishId }, openedBy: 'citizen' },
   )
+
+  // `opened` is what the notify path reads to send one ping and never a second
+  // (`#1321`). Set here rather than inside `openDirectConversation`, which also
+  // serves the operator's own first message and the Colony's — neither of which
+  // pings anybody.
+  return opened.outcome === 'delivered' ? { ...opened, opened: true } : opened
+}
+
+/**
+ * The handle a citizen is known by, for the one line an operator reads before
+ * deciding whether to open the page (`#1321`).
+ *
+ * Here rather than looked up by the caller because the notify path is the only
+ * thing that wants it and the alternative is a second exported reader of
+ * `agents`. `undefined` for a citizen that has since been erased, which the
+ * caller renders as *your agent* rather than as an empty string.
+ */
+export async function citizenHandle(db: Database, agentId: AgentId): Promise<string | undefined> {
+  const [row] = await db
+    .select({ name: agents.name })
+    .from(agents)
+    .where(eq(agents.id, agentId))
+    .limit(1)
+
+  return row?.name
+}
+
+/**
+ * What one operator thread is about, in the words a person would recognise
+ * (`#1321`).
+ *
+ * The same `coalesce(task title, wish provider)` the operator-request mail has
+ * always named, read from the conversation's provenance rather than from an
+ * exchange. `undefined` for a thread about nothing in particular, which is a
+ * real state here and was not one there — the caller supplies its own phrase.
+ *
+ * **A title and never the message.** This is what goes into a mail subject and
+ * into a Telegram line, both of which land on a lock screen; the words the
+ * citizen wrote stay behind the link (epic `#1318`, decision 5).
+ */
+export async function operatorThreadContext(
+  db: Database,
+  conversation: ConversationId,
+): Promise<string | undefined> {
+  const [row] = await db
+    .select({ context: sql<string | null>`coalesce(${tasks.title}, ${accountWishes.provider})` })
+    .from(messageConversations)
+    .leftJoin(tasks, eq(tasks.id, messageConversations.taskId))
+    .leftJoin(accountWishes, eq(accountWishes.id, messageConversations.wishId))
+    .where(eq(messageConversations.id, conversation))
+    .limit(1)
+
+  return row?.context ?? undefined
+}
+
+/**
+ * Remember which Telegram message the Colony sent about which thread (`#1321`).
+ *
+ * `recordTelegramAsk` for conversations, and written under the same rule: only
+ * on a delivered send, because a row here is the claim *this message exists in
+ * that chat*, and one written for a send that failed would make a reply
+ * resolvable to a thread nobody was told about.
+ */
+export async function recordMessageTelegramAsk(
+  db: Database,
+  input: {
+    readonly conversationId: ConversationId
+    readonly chatId: number
+    readonly messageId: number
+  },
+): Promise<void> {
+  await db
+    .insert(messageTelegramAsks)
+    .values({
+      conversationId: input.conversationId,
+      chatId: input.chatId,
+      messageId: input.messageId,
+    })
+    /**
+     * One ping per thread, so a second row is a state that should not exist. If
+     * it ever does — a retry the caller thought had failed — the *latest*
+     * message is the one an operator is looking at and would reply to.
+     */
+    .onConflictDoUpdate({
+      target: messageTelegramAsks.conversationId,
+      set: { chatId: input.chatId, messageId: input.messageId },
+    })
+}
+
+/** What a Telegram reply did. The same three facts `answerOperatorRequestFromChat` answers. */
+export type AnswerFromChatOutcome =
+  | {
+      readonly outcome: 'answered'
+      readonly clearedSetAside: boolean
+      readonly agentId: AgentId
+      readonly conversationId: ConversationId
+      readonly messageId: MessageId
+    }
+  | { readonly outcome: 'unreachable' }
+
+/**
+ * An operator's Telegram reply, written into the thread it answers (`#1321`).
+ *
+ * **Only from a bound chat, and only to a message the Colony sent** — the two
+ * conditions decided in one query, exactly as `answerOperatorRequestFromChat`
+ * decides them. A chat unbound with `/stop`, or rebound to somebody else, must
+ * not be able to write into a thread it once received a message about.
+ *
+ * The person is resolved from the conversation's own `operator-human`
+ * participant and never from the chat: the chat says *which citizen*, and which
+ * human answers for that citizen is a fact the conversation already holds. So
+ * no human id crosses the Telegram boundary, which is the property `#795` set
+ * and this keeps.
+ */
+export async function answerOperatorMessageFromChat(
+  db: Database,
+  input: {
+    readonly chatId: number
+    readonly replyToMessageId: number
+    readonly body: string
+  },
+): Promise<AnswerFromChatOutcome> {
+  const citizen = alias(messageParticipants, 'citizen_side')
+  const operator = alias(messageParticipants, 'operator_side')
+
+  const [target] = await db
+    .select({
+      conversationId: messageTelegramAsks.conversationId,
+      agentId: citizen.agentId,
+      humanId: operator.humanId,
+    })
+    .from(messageTelegramAsks)
+    .innerJoin(
+      citizen,
+      and(
+        eq(citizen.conversationId, messageTelegramAsks.conversationId),
+        eq(citizen.party, 'citizen'),
+      ),
+    )
+    .innerJoin(
+      operator,
+      and(
+        eq(operator.conversationId, messageTelegramAsks.conversationId),
+        eq(operator.party, 'operator-human'),
+      ),
+    )
+    .innerJoin(operatorTelegramChats, eq(operatorTelegramChats.agentId, citizen.agentId))
+    .where(
+      and(
+        eq(messageTelegramAsks.chatId, input.chatId),
+        eq(messageTelegramAsks.messageId, input.replyToMessageId),
+        eq(operatorTelegramChats.chatId, input.chatId),
+      ),
+    )
+    .limit(1)
+
+  if (target === undefined || target.agentId === null || target.humanId === null) {
+    return { outcome: 'unreachable' }
+  }
+
+  const agentId = target.agentId as AgentId
+  const conversation = conversationId(target.conversationId)
+
+  const sent = await sendOperatorMessage(
+    db,
+    target.humanId as HumanId,
+    agentId,
+    input.body,
+    'your operator',
+    undefined,
+    conversation,
+  )
+
+  /**
+   * A refusal here is not a Telegram failure and is reported as *unreachable*
+   * all the same: the operator link was removed, or the body looks like a
+   * credential — and both have already been answered in the chat by the caller,
+   * which refuses a credential-shaped reply before it reaches this function.
+   */
+  if (sent.outcome !== 'delivered') return { outcome: 'unreachable' }
+
+  return {
+    outcome: 'answered',
+    // `sendOperatorMessage` clears the set-aside inside its own transaction; the
+    // boolean is not read back here because the caller's only use for it is the
+    // sentence it writes to the operator, and that sentence does not name a task.
+    clearedSetAside: false,
+    agentId,
+    conversationId: sent.conversationId,
+    messageId: sent.messageId,
+  }
 }
 
 /**

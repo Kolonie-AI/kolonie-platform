@@ -618,6 +618,13 @@ describe('schema', () => {
         /** What a citizen reported about a message, beside the block that stopped it. */
         'message_reports',
         'message_requests',
+        /**
+         * Which Telegram message the Colony sent about which operator thread
+         * (`#1321`) — `operator_telegram_asks`, one subject over. A second table
+         * because that one cascades from `operator_requests`, which `#1325`
+         * drops.
+         */
+        'message_telegram_asks',
         'messages',
         'moderations',
         // `pow_challenges` joined with the compute rung (#37): the third root,

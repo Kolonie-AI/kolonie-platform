@@ -600,7 +600,15 @@ describe('the migrations', () => {
     // be somewhere the predicate can see; `agents.status` says a citizen is
     // suspended and not which rule suspended it, and `citizenship_suspensions`
     // carries an `expires_at` a permanent-until-lifted suspension has no value for.
-    expect(afterFirst.tables).toBe('151')
+    //
+    // **A hundred and fifty-second** (`#1321`, epic `#1318`): `message_telegram_asks`,
+    // `operator_telegram_asks` one subject over. The epic retires exchanges and
+    // puts the words on a conversation, so the mapping a Telegram reply resolves
+    // against has to follow or a bound operator loses the chat. A second table
+    // rather than a nullable column on the first, because that one cascades from
+    // `operator_requests` — a table `#1325` drops — and a foreign key that has to
+    // outlive its own parent is one nobody can reason about.
+    expect(afterFirst.tables).toBe('152')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

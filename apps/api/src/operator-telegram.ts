@@ -1,4 +1,4 @@
-import type { AgentId, Log, OperatorRequestId } from '@kolonie-ai/core'
+import type { AgentId, ConversationId, Log, OperatorRequestId } from '@kolonie-ai/core'
 import {
   credentialFinding,
   credentialRefusalMessage,
@@ -6,16 +6,19 @@ import {
   OPERATOR_MESSAGE_MIN_LENGTH,
 } from '@kolonie-ai/core'
 import {
+  answerOperatorMessageFromChat,
   answerOperatorRequestFromChat,
   citizensBoundToChat,
   issueStartForPageToken,
   issueStartToken,
   markChatUnreachable,
+  recordMessageTelegramAsk,
   recordTelegramAsk,
   redeemStartToken,
   telegramBindingFor,
   telegramBindingForPageToken,
   unbindChat,
+  type AnswerFromChatOutcome,
   type AnswerOperatorRequestOutcome,
   type Database,
   type IssuedStartToken,
@@ -91,6 +94,25 @@ export interface TelegramStore {
     readonly replyToMessageId: number
     readonly body: string
   }): Promise<AnswerOperatorRequestOutcome>
+  /** Which message the Colony sent about which messaging thread (`#1321`). */
+  recordMessageAsk(input: {
+    readonly conversationId: ConversationId
+    readonly chatId: number
+    readonly messageId: number
+  }): Promise<void>
+  /**
+   * The same reply, written into a messaging thread (`#1321`).
+   *
+   * **Tried before {@link answerFromChat}, and the two cannot both match**: a
+   * reply names one message the Colony sent, and that message was recorded
+   * against a thread or against an exchange, never both. Two lookups rather than
+   * one because the mappings live in two tables — `#1325` deletes the second.
+   */
+  answerMessageFromChat(input: {
+    readonly chatId: number
+    readonly replyToMessageId: number
+    readonly body: string
+  }): Promise<AnswerFromChatOutcome>
 }
 
 export function databaseTelegram(db: Database): TelegramStore {
@@ -105,6 +127,8 @@ export function databaseTelegram(db: Database): TelegramStore {
     markUnreachable: (chatId) => markChatUnreachable(db, chatId),
     recordAsk: (input) => recordTelegramAsk(db, input),
     answerFromChat: (input) => answerOperatorRequestFromChat(db, input),
+    recordMessageAsk: (input) => recordMessageTelegramAsk(db, input),
+    answerMessageFromChat: (input) => answerOperatorMessageFromChat(db, input),
   }
 }
 
@@ -325,16 +349,24 @@ export type TelegramUpdateOutcome =
   /**
    * Say this in the chat.
    *
-   * `answered` is present when the update wrote an operator's answer into an
-   * exchange (`#795`) — the caller wakes that citizen, on the same path a reply
-   * typed into the durable page takes. Absent means nothing was written, which is
-   * every other outcome including every refusal.
+   * `answered` is present when the update wrote an operator's answer — into an
+   * exchange (`#795`) or into a messaging thread (`#1321`) — and the caller wakes
+   * that citizen, on the same path a reply typed into the durable page takes.
+   * Absent means nothing was written, which is every other outcome including
+   * every refusal.
+   *
+   * Both shapes carry `agentId`, which is the only field the route reads: what
+   * the answer landed in is the storage layer's business, and a caller that had
+   * to tell them apart would be a caller `#1325` has to edit again.
    */
   | {
       readonly action: 'reply'
       readonly chatId: number
       readonly text: string
-      readonly answered?: Extract<AnswerOperatorRequestOutcome, { outcome: 'answered' }> | undefined
+      readonly answered?:
+        | Extract<AnswerOperatorRequestOutcome, { outcome: 'answered' }>
+        | Extract<AnswerFromChatOutcome, { outcome: 'answered' }>
+        | undefined
     }
 
 const BINDING_ENDED = (names: readonly string[]): string =>
@@ -523,11 +555,29 @@ export async function handleTelegramUpdate(
       }
     }
 
-    const answered = await desk.store.answerFromChat({
+    /**
+     * **Messaging first, the exchange second** (`#1321`, epic `#1318`).
+     *
+     * The two mappings cannot both match — a message the Colony sent was
+     * recorded against a thread or against an exchange, never both — so the
+     * order is not a precedence rule, it is which table is asked first. It is
+     * this way round because messaging is where new asks go; `#1325` deletes
+     * the second lookup with the table behind it.
+     */
+    const inThread = await desk.store.answerMessageFromChat({
       chatId,
       replyToMessageId: replyTo,
       body: text,
     })
+
+    const answered =
+      inThread.outcome === 'answered'
+        ? inThread
+        : await desk.store.answerFromChat({
+            chatId,
+            replyToMessageId: replyTo,
+            body: text,
+          })
 
     if (answered.outcome === 'answered') {
       return {

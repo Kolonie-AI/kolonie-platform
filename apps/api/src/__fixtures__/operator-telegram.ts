@@ -1,5 +1,5 @@
-import { randomBytes } from 'node:crypto'
-import type { AgentId, OperatorRequestId } from '@kolonie-ai/core'
+import { randomBytes, randomUUID } from 'node:crypto'
+import type { AgentId, ConversationId, MessageId, OperatorRequestId } from '@kolonie-ai/core'
 import type { TelegramBinding } from '@kolonie-ai/db'
 import type { TelegramBot, TelegramDesk, TelegramStore } from '../operator-telegram.js'
 import { fakeOperatorPages, type FakeOperatorPages } from './autonomy.js'
@@ -16,9 +16,16 @@ export interface FakeTelegramStore extends TelegramStore {
   readonly bind: (agentId: AgentId, chatId: number) => void
   /** Put an exchange on record as this citizen's, as opening one would. */
   readonly owns: (requestId: OperatorRequestId, agentId: AgentId) => void
+  /** Put a messaging thread on record as this citizen's, as opening one would (`#1321`). */
+  readonly ownsThread: (conversationId: ConversationId, agentId: AgentId) => void
   /** Everything an operator has answered through the chat, in order. */
   readonly answered: () => readonly {
     readonly requestId: OperatorRequestId
+    readonly body: string
+  }[]
+  /** The same, for the answers that landed in a messaging thread (`#1321`). */
+  readonly answeredThreads: () => readonly {
+    readonly conversationId: ConversationId
     readonly body: string
   }[]
   readonly boundChatFor: (agentId: AgentId) => number | undefined
@@ -60,6 +67,10 @@ export function fakeTelegramStore(
   const asks = new Map<string, OperatorRequestId>()
   const owners = new Map<OperatorRequestId, AgentId>()
   const answers: { requestId: OperatorRequestId; body: string }[] = []
+  /** The same pair of maps for messaging threads (`#1321`). */
+  const threadAsks = new Map<string, ConversationId>()
+  const threadOwners = new Map<ConversationId, AgentId>()
+  const threadAnswers: { conversationId: ConversationId; body: string }[] = []
   const nameOf = (agentId: AgentId): string => names.get(agentId) ?? 'the agent'
 
   const at = (): string => new Date().toISOString()
@@ -121,6 +132,32 @@ export function fakeTelegramStore(
     recordAsk: async ({ requestId, chatId, messageId }) => {
       asks.set(`${chatId}:${messageId}`, requestId)
     },
+    recordMessageAsk: async ({ conversationId, chatId, messageId }) => {
+      threadAsks.set(`${chatId}:${messageId}`, conversationId)
+    },
+    /**
+     * The three conditions the real query checks, as `answerFromChat` below
+     * checks them: the message is one the Colony sent, the chat is *still* bound
+     * to that citizen, and the thread has both sides. A fake that skipped the
+     * middle one would let a test pass against a `/stop` that had not ended
+     * anything.
+     */
+    answerMessageFromChat: async ({ chatId, replyToMessageId, body }) => {
+      const conversationId = threadAsks.get(`${chatId}:${replyToMessageId}`)
+      const agentId = conversationId === undefined ? undefined : threadOwners.get(conversationId)
+
+      if (conversationId === undefined || agentId === undefined) return { outcome: 'unreachable' }
+      if (chats.get(agentId)?.chatId !== chatId) return { outcome: 'unreachable' }
+
+      threadAnswers.push({ conversationId, body })
+      return {
+        outcome: 'answered',
+        clearedSetAside: false,
+        agentId,
+        conversationId,
+        messageId: randomUUID() as MessageId,
+      }
+    },
     answerFromChat: async ({ chatId, replyToMessageId, body }) => {
       const requestId = asks.get(`${chatId}:${replyToMessageId}`)
       const agentId = requestId === undefined ? undefined : owners.get(requestId)
@@ -147,7 +184,11 @@ export function fakeTelegramStore(
     owns: (requestId, agentId) => {
       owners.set(requestId, agentId)
     },
+    ownsThread: (conversationId, agentId) => {
+      threadOwners.set(conversationId, agentId)
+    },
     answered: () => answers,
+    answeredThreads: () => threadAnswers,
     named: (agentId, name) => {
       names.set(agentId, name)
     },
@@ -164,10 +205,23 @@ export function fakeTelegramBot(username = 'KolonieDeskBot'): FakeTelegramBot {
     block: () => {
       blocked = true
     },
+    /**
+     * **Telegram names the message it sent, and so does this** (`#1321`).
+     *
+     * It did not until now, which left the notifier's `recordAsk` branch
+     * unreachable from any test that went through the bot: a reply could only
+     * ever be resolved by a test that had written the mapping itself. The real
+     * Bot API returns `message_id` on every delivered send, so a fake that
+     * withholds it is the *less* capable kind of double — the one that hides a
+     * branch rather than the one that lets a wrong thing pass.
+     *
+     * Sequential from 1, per bot, because Telegram's ids are per chat and
+     * ascending; a test that sends twice gets 1 then 2.
+     */
     send: async (message) => {
       if (blocked) return { delivered: false, blocked: true, reason: 'status 403' }
       sent.push({ ...message })
-      return { delivered: true, blocked: false }
+      return { delivered: true, blocked: false, messageId: sent.length }
     },
   }
 }

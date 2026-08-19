@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { randomUUID } from 'node:crypto'
-import type { AgentId, OperatorRequestId } from '@kolonie-ai/core'
+import type { AgentId, ConversationId, OperatorRequestId } from '@kolonie-ai/core'
 import { createLog } from '@kolonie-ai/core'
 import {
   mailingOperatorNotifier,
@@ -16,10 +16,20 @@ const CHAT = 3141
 
 const anAsk = (agentId: AgentId) => ({
   agentId,
-  requestId: randomUUID() as OperatorRequestId,
+  subject: { kind: 'request' as const, requestId: randomUUID() as OperatorRequestId },
   agentName: 'canary',
   context: 'browser-capability',
   link: 'https://console.example.org/operator/page/a-token#exchange-1',
+  address: 'op@example.org',
+})
+
+/** The same ping, about a messaging thread rather than an exchange (`#1321`). */
+const aThread = (agentId: AgentId) => ({
+  agentId,
+  subject: { kind: 'conversation' as const, conversationId: randomUUID() as ConversationId },
+  agentName: 'canary',
+  context: 'browser-capability',
+  link: 'https://console.example.org/operator/page/a-token',
   address: 'op@example.org',
 })
 
@@ -186,6 +196,70 @@ describe('how an operator is reached about one ask (#794)', () => {
         expect(JSON.stringify(fields)).not.toContain('op@example.org')
         expect(JSON.stringify(fields)).not.toContain(String(CHAT))
       })
+    })
+
+    /**
+     * **A thread is the same ping over a different subject** (`#1321`). The
+     * notifier does not care which, and the one thing that has to differ is
+     * where a reply resolves to — recorded against the conversation rather than
+     * against an exchange, so `answerMessageFromChat` can find it.
+     */
+    describe('about a messaging thread', () => {
+      it('records the message against the conversation, not against an exchange', async () => {
+        const { desk, notifier } = wired()
+        const agentId = randomUUID() as AgentId
+        desk.store.bind(agentId, CHAT)
+        const ping = aThread(agentId)
+        desk.store.ownsThread(ping.subject.conversationId, agentId)
+
+        const sent = await notifier.notify(ping)
+        expect(sent).toMatchObject({ delivered: true, transport: 'telegram' })
+
+        const messageId = desk.bot.sent.length
+        const answered = await desk.store.answerMessageFromChat({
+          chatId: CHAT,
+          replyToMessageId: messageId,
+          body: 'Go ahead.',
+        })
+
+        expect(answered).toMatchObject({ outcome: 'answered', agentId })
+        // The exchange mapping was not written, so the old lookup finds nothing.
+        expect(
+          await desk.store.answerFromChat({
+            chatId: CHAT,
+            replyToMessageId: messageId,
+            body: 'Go ahead.',
+          }),
+        ).toEqual({ outcome: 'unreachable' })
+      })
+    })
+  })
+
+  /**
+   * **The frozen default the mail may not break** (epic `#1318`, decision 5):
+   * an unread ping and never the body. A citizen writes to its operator through
+   * an inbox now, so a mail that quoted the message would put those words in a
+   * third party's mail store forever.
+   */
+  describe('what the mail about a thread says', () => {
+    it('names the citizen and the subject, and carries no message text', async () => {
+      const mailer = fakeAutonomyMailer()
+      const agentId = randomUUID() as AgentId
+
+      await mailingOperatorNotifier(mailer).notify(aThread(agentId))
+
+      const [mail] = mailer.sent()
+      expect(mail?.subject).toContain('canary')
+      expect(mail?.text).toContain('browser-capability')
+      expect(mail?.text).toContain('https://console.example.org/operator/page/a-token')
+    })
+
+    it('says nothing about being stuck, which is the exchange mail', async () => {
+      const mailer = fakeAutonomyMailer()
+
+      await mailingOperatorNotifier(mailer).notify(aThread(randomUUID() as AgentId))
+
+      expect(mailer.sent()[0]?.subject).not.toContain('stuck')
     })
   })
 

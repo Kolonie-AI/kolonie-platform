@@ -61,7 +61,10 @@ import { canonicalProvider } from './atlas-renames.js'
 import { suspendForRefusedWalkProse } from './citizenship.js'
 import { insertContributionVerdict } from './contribution-verdicts.js'
 import { currentSessionStartSql } from './sessions.js'
-import { markProviderBriefingStale } from './provider-briefing.js'
+import {
+  markProviderBriefingStale,
+  promoteWalkerAboutToEntryIdentity,
+} from './provider-briefing.js'
 import { providerRecipe, recordMeasuredProvider, writeProviderRecipe } from './provider-recipes.js'
 import { toTimestamp } from './rows.js'
 
@@ -2078,6 +2081,24 @@ async function writeWalkProseVerdict(
       kind: AccountKindSchema.parse(row.kind),
       provider: row.provider,
     })
+
+    /**
+     * **Approved walker about reaches entry identity here** (`#1297`).
+     *
+     * Closing a walk only writes `about` onto a first measured row. Later walks
+     * — the clawtasks-shaped case — left approved prose on the walk while the
+     * entry still rendered content-empty. Promoting on approval fills `about`
+     * and, when it fits the description bound, `description`, without waiting
+     * on synthesis and without inventing a second identity field.
+     */
+    const scrubbedAbout = command.scrubbed.about ?? null
+    if (scrubbedAbout !== null && scrubbedAbout.trim() !== '') {
+      await promoteWalkerAboutToEntryIdentity(db, {
+        kind: AccountKindSchema.parse(row.kind),
+        provider: row.provider,
+        about: scrubbedAbout,
+      })
+    }
 
     return { outcome: 'written', suspended: false }
   }

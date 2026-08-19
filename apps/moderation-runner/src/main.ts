@@ -57,6 +57,7 @@ import {
   providerBriefingCorpus,
   staleProviderBriefings,
   writeProviderBriefing,
+  promoteWalkerAboutToEntryIdentity,
   writeProviderDescription,
   playbookBriefingCorpus,
   playbookBriefingSubject,
@@ -450,6 +451,7 @@ const providerBriefings: ProviderBriefingStore = {
   corpus: (where) => providerBriefingCorpus(db, where),
   write: (input) => writeProviderBriefing(db, input),
   describe: (input) => writeProviderDescription(db, input),
+  promoteIdentity: (input) => promoteWalkerAboutToEntryIdentity(db, input),
 }
 
 /**

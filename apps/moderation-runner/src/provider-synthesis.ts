@@ -1,6 +1,7 @@
 import {
   BRIEFING_CLAIM_MAX_LENGTH,
   BriefingSectionSchema,
+  descriptionFromWalkerAbout,
   PROVIDER_DESCRIPTION_MAX_LENGTH,
   type AgentPlatform,
   type BriefingSection,
@@ -143,9 +144,9 @@ export interface ProviderDescriptionOutcome {
 }
 
 /**
- * Write the one sentence saying what a provider is (`#1120`).
+ * Write the one sentence saying what a provider is (`#1120`, `#1297`).
  *
- * **It reads the whole corpus and not the `about` column** (`#1120`, 6). The
+ * **It reads the whole corpus and not only the `about` column** (`#1120`, 6). The
  * seventh walk question exists because a walker is the best-placed writer of that
  * sentence, but a provider whose walkers all skipped it still gets a description:
  * a corpus of walks describing a signup, a confirmation mail and a dashboard says
@@ -153,10 +154,12 @@ export interface ProviderDescriptionOutcome {
  * prefer an answer to that question where one is in front of it, which is what
  * *strongest source* means — not *only source*.
  *
- * **`null` means nothing to write, and the caller leaves the column alone.** An
- * empty corpus, an unsourced sentence, a blank one and an overlong one all come
- * back as `null`, and none of them is a reason to delete a description an earlier
- * pass wrote from evidence that has not gone anywhere.
+ * **When the model returns nothing, an approved walker about still fills the
+ * gap** (`#1297`). Over-length abouts are dropped rather than truncated, same as
+ * a model sentence past the bound. The caller leaves the column alone only when
+ * both paths yield nothing — an empty corpus, unsourced/blank/overlong model
+ * output with no fitting about — and none of those is a reason to delete a
+ * description an earlier pass wrote from evidence that has not gone anywhere.
  */
 export async function describeProvider(
   input: {
@@ -169,6 +172,9 @@ export async function describeProvider(
     return { description: null, proposed: 0, unsourced: 0, blank: 0, overlong: 0 }
   }
 
+  const fromAbout = (): string | null =>
+    descriptionFromWalkerAbout(input.corpus.map((walk) => walk.about))
+
   const written = await model.compose({
     system: PROVIDER_DESCRIPTION_PROMPT,
     user: walkPrompt(input.provider, input.corpus),
@@ -180,7 +186,7 @@ export async function describeProvider(
   const ids = new Set(input.corpus.map((walk) => walk.id))
   const [first] = written
   if (first === undefined) {
-    return { description: null, proposed: 0, unsourced: 0, blank: 0, overlong: 0 }
+    return { description: fromAbout(), proposed: 0, unsourced: 0, blank: 0, overlong: 0 }
   }
 
   /**
@@ -192,11 +198,11 @@ export async function describeProvider(
   const counted = { proposed: written.length, unsourced: 0, blank: 0, overlong: 0 }
 
   if (!first.sources.some((id) => ids.has(id))) {
-    return { ...counted, description: null, unsourced: 1 }
+    return { ...counted, description: fromAbout(), unsourced: 1 }
   }
 
   const text = first.text.trim()
-  if (text === '') return { ...counted, description: null, blank: 1 }
+  if (text === '') return { ...counted, description: fromAbout(), blank: 1 }
 
   /**
    * Checked here as well as asked for in the schema, on `synthesiseProvider`'s
@@ -204,7 +210,7 @@ export async function describeProvider(
    * enforcing it must not quietly widen what reaches a page.
    */
   if (text.length > PROVIDER_DESCRIPTION_MAX_LENGTH) {
-    return { ...counted, description: null, overlong: 1 }
+    return { ...counted, description: fromAbout(), overlong: 1 }
   }
 
   return { ...counted, description: text }

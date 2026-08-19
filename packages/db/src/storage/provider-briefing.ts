@@ -6,6 +6,8 @@ import {
   ProviderBriefingSchema,
   RECENT_WALKS_IN_CONTEXT,
   ServedProviderBriefingClaimSchema,
+  descriptionFromWalkerAbout,
+  firstWalkerAbout,
   now as currentTime,
   figureKey,
   isCurrentProviderClaim,
@@ -60,6 +62,12 @@ export interface ProviderBriefingSource {
    * readable at all, and the briefing is what a reader gets instead of them.
    */
   readonly content: string
+  /**
+   * The scrubbed answer to “what is this provider?”, when the walker gave one
+   * (`#1297`). Carried beside `content` so description synthesis can fall back
+   * to it without parsing the Q&A page.
+   */
+  readonly about: string | null
   readonly platform: AgentPlatform
   /** When the walk finished. The claim's `lastSupportedAt` is the newest of these. */
   readonly finishedAt: string
@@ -102,6 +110,7 @@ export async function providerBriefingCorpus(
     id: walk.walkId,
     outcome: walk.outcome,
     content: walkProseText(walk.prose),
+    about: walk.prose.about ?? null,
     platform: walk.platform,
     finishedAt: walk.finishedAt,
   }))
@@ -368,6 +377,61 @@ async function oldestCurrentWalk(db: Database, where: ProviderKey): Promise<stri
     .limit(1)
 
   return row?.finishedAt == null ? null : toTimestamp(row.finishedAt)
+}
+
+/**
+ * Wire an approved walker `about` onto the entry's identity columns (`#1297`).
+ *
+ * **Fills gaps only.** An existing curator `about` and a synthesised
+ * `description` win; this closes the aggregation gap where walks already carry
+ * about and the measured entry still reads as content-empty on public/MCP
+ * surfaces.
+ *
+ * **Description is dropped when over-length, never truncated** (`#1120`). The
+ * about column still receives the sentence up to its own bound.
+ *
+ * Returns which columns this call actually wrote.
+ */
+export async function promoteWalkerAboutToEntryIdentity(
+  db: Database | Transaction,
+  input: {
+    readonly kind: AccountKind
+    readonly provider: string
+    readonly about: string
+  },
+): Promise<{ readonly about: boolean; readonly description: boolean }> {
+  const about = firstWalkerAbout([input.about])
+  if (about === null) return { about: false, description: false }
+
+  const provider = await canonicalProvider(db, input.provider)
+  const [row] = await db
+    .select({
+      about: providerRecipes.about,
+      description: providerRecipes.description,
+    })
+    .from(providerRecipes)
+    .where(and(eq(providerRecipes.kind, input.kind), eq(providerRecipes.provider, provider)))
+    .limit(1)
+
+  if (row === undefined) return { about: false, description: false }
+
+  const fillAbout = row.about === null || row.about.trim() === ''
+  const fillDescription =
+    (row.description === null || row.description.trim() === '') &&
+    descriptionFromWalkerAbout([about]) !== null
+  const description = fillDescription ? descriptionFromWalkerAbout([about]) : null
+
+  if (!fillAbout && description === null) return { about: false, description: false }
+
+  await db
+    .update(providerRecipes)
+    .set({
+      ...(fillAbout ? { about } : {}),
+      ...(description !== null ? { description } : {}),
+    })
+    .where(and(eq(providerRecipes.kind, input.kind), eq(providerRecipes.provider, provider)))
+
+  return { about: fillAbout, description: description !== null }
 }
 
 /**

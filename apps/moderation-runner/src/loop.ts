@@ -1644,6 +1644,14 @@ export interface ProviderBriefingStore {
    * provider with walks but no Atlas entry gets nothing, which is not a failure.
    */
   describe(input: ProviderKey & { readonly description: string }): Promise<boolean>
+  /**
+   * Fill entry `about` / `description` from an approved walker about when those
+   * columns are still empty (`#1297`). Gap-fill only; never overwrites synthesis
+   * or a curator paragraph.
+   */
+  promoteIdentity(
+    input: ProviderKey & { readonly about: string },
+  ): Promise<{ readonly about: boolean; readonly description: boolean }>
 }
 
 /**
@@ -2327,6 +2335,19 @@ async function describeProviderNow(
   const provider = `${where.kind}/${where.provider}`
 
   try {
+    /**
+     * **Promote approved about onto the entry before synthesis** (`#1297`).
+     * Historical measured rows often have about only on walks; this is the
+     * aggregation pass that makes identity visible without waiting on a model
+     * sentence. Over-length abouts still reach the about column and are dropped
+     * from description.
+     */
+    for (const walk of corpus) {
+      const about = walk.about?.trim() ?? ''
+      if (about.length === 0) continue
+      await store.promoteIdentity({ ...where, about })
+    }
+
     const { description, proposed, unsourced, blank, overlong } = await describeProvider(
       { provider: where, corpus },
       model,

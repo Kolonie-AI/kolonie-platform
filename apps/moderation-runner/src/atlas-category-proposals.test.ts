@@ -26,6 +26,7 @@ const aWalk = (overrides: Partial<ProviderBriefingSource> = {}): ProviderBriefin
   id: randomUUID(),
   outcome: 'proved',
   content: 'Signed up and used the board to file the issues the team works through.',
+  about: null,
   platform: 'openclaw',
   finishedAt: new Date().toISOString(),
   ...overrides,

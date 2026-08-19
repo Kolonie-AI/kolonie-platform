@@ -15,6 +15,7 @@ import {
   ProviderRecipeSchema,
   RecipeOperatorNeedSchema,
   RecipeStatusSchema,
+  descriptionFromWalkerAbout,
   isStale,
   operatorStepCount,
   type ProviderRecipe,
@@ -540,9 +541,17 @@ export function atlasEntries(
        * The lead row's sentence, or any row's — see `AtlasEntrySchema`. `find`
        * can return `undefined` where every row is null, which is the same
        * answer as null and is normalised to it here rather than at each reader.
+       *
+       * **Walker `about` fills the gap when description is still null** (`#1297`).
+       * Measured entries often carry an approved about before synthesis has
+       * written a description; preferring that sentence keeps the public page
+       * from reading as content-empty identity.
        */
       description:
-        lead.description ?? rows.map((row) => row.description).find((one) => one !== null) ?? null,
+        lead.description ??
+        rows.map((row) => row.description).find((one) => one !== null) ??
+        descriptionFromWalkerAbout(rows.map((row) => row.about)) ??
+        null,
       operatorNeed: need.need,
       operatorNeedIsGuess: need.isGuess,
       recipes: measured,

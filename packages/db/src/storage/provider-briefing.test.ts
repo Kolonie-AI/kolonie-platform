@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import {
   AccountKindSchema,
   CURRENT_PROVIDER_CLAIM_WALKS,
+  PROVIDER_DESCRIPTION_MAX_LENGTH,
   figureKey,
   type AgentId,
   type ProviderBriefingClaim,
@@ -22,6 +23,7 @@ import {
   readProviderBriefing,
   readProviderDescription,
   staleProviderBriefings,
+  promoteWalkerAboutToEntryIdentity,
   writeProviderBriefing,
   writeProviderDescription,
 } from './provider-briefing.js'
@@ -497,6 +499,53 @@ describe('the briefing the Colony writes about a provider', () => {
 
       expect(await writeProviderDescription(db, { ...where, description: null })).toBe(true)
       expect(await readProviderDescription(db, where)).toBeNull()
+    })
+
+    /**
+     * Gap-fill from an approved walker about onto entry identity (`#1297`).
+     * Approval and synthesis both call this; the store owns the fill rule.
+     */
+    describe('promoting walker about onto entry identity', () => {
+      it('fills null about and description from a fitting about', async () => {
+        await anEntry()
+
+        await expect(
+          promoteWalkerAboutToEntryIdentity(db, { ...where, about: sentence }),
+        ).resolves.toEqual({ about: true, description: true })
+
+        const entry = await providerRecipe(db, where.kind, where.provider)
+        expect(entry?.about).toBe(sentence)
+        expect(entry?.description).toBe(sentence)
+      })
+
+      it('writes about alone when the sentence is over the description bound', async () => {
+        await anEntry()
+        const overlong = 'a'.repeat(PROVIDER_DESCRIPTION_MAX_LENGTH + 1)
+
+        await expect(
+          promoteWalkerAboutToEntryIdentity(db, { ...where, about: overlong }),
+        ).resolves.toEqual({ about: true, description: false })
+
+        const entry = await providerRecipe(db, where.kind, where.provider)
+        expect(entry?.about).toBe(overlong)
+        expect(entry?.description).toBeNull()
+      })
+
+      it('does not overwrite an existing about or description', async () => {
+        await anEntry({ about: 'Already curated.' })
+        await writeProviderDescription(db, { ...where, description: sentence })
+
+        await expect(
+          promoteWalkerAboutToEntryIdentity(db, {
+            ...where,
+            about: 'A later walker sentence that must not win.',
+          }),
+        ).resolves.toEqual({ about: false, description: false })
+
+        const entry = await providerRecipe(db, where.kind, where.provider)
+        expect(entry?.about).toBe('Already curated.')
+        expect(entry?.description).toBe(sentence)
+      })
     })
   })
 })

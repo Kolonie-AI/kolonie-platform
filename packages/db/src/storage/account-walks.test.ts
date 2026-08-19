@@ -1477,6 +1477,40 @@ describe('the record of one agent obtaining one account', () => {
         expect(again?.walk.id).toBe(walkId)
         expect(again?.walk.about).toBeNull()
       })
+
+      /**
+       * **The clawtasks-shaped aggregation gap** (`#1297`). A measured entry can
+       * already exist with null identity; a later report puts about on the walk
+       * only. Closing the walk does not re-run the writes branch, so approval is
+       * what finally promotes the sentence onto `about` / `description`.
+       */
+      it('promotes an approved about onto a measured entry that still has no identity', async () => {
+        await writeProviderRecipe(db, {
+          kind: where.kind,
+          provider: where.provider,
+          title: 'Somewhere',
+          category: 'mailbox',
+          status: 'measured',
+          steps: [],
+        })
+
+        const walkId = await walkInProgress(db, agentId, where)
+        await finishWalk(db, walkId, { outcome: 'proved' })
+        expect((await providerRecipe(db, where.kind, where.provider))?.about).toBeNull()
+        expect((await providerRecipe(db, where.kind, where.provider))?.description).toBeNull()
+
+        await reportFinishedWalk(db, agentId, walkId, { about: ABOUT })
+        await recordWalkProseModeration(db, {
+          walkId,
+          judged: { about: ABOUT },
+          decision: 'approved',
+          scrubbed: { about: ABOUT },
+        })
+
+        const entry = await providerRecipe(db, where.kind, where.provider)
+        expect(entry?.about).toBe(ABOUT)
+        expect(entry?.description).toBe(ABOUT)
+      })
     })
 
     describe('repairing an approval left without a scrub', () => {

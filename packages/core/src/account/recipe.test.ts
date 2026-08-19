@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { AccountCapabilitySchema } from './account.js'
 import {
+  PROVIDER_DESCRIPTION_MAX_LENGTH,
   RECIPE_MAX_STEPS,
   RecipeStatusSchema,
   RecipeStepSchema,
   SignupCodeSchema,
   WriteProviderRecipeSchema,
+  descriptionFromWalkerAbout,
+  firstWalkerAbout,
   operatorStepCount,
   recipeWall,
   recipeStatusAllowsSteps,
@@ -13,6 +16,37 @@ import {
   recipeStatusIsPublic,
   recipeWalkSteps,
 } from './recipe.js'
+
+/**
+ * Walker about → entry description (`#1297`). The clawtasks-shaped case is an
+ * approved about on the walks and a null identity on the entry until this picks
+ * a sentence that fits.
+ */
+describe('description from walker about (#1297)', () => {
+  const ABOUT = 'A disposable mailbox service with a web inbox and no signup.'
+
+  it('prefers the first non-empty about that fits the description bound', () => {
+    expect(descriptionFromWalkerAbout([null, '  ', ABOUT, 'later'])).toBe(ABOUT)
+  })
+
+  it('drops an over-length about rather than truncating it', () => {
+    const overlong = 'a'.repeat(PROVIDER_DESCRIPTION_MAX_LENGTH + 1)
+    expect(descriptionFromWalkerAbout([overlong])).toBeNull()
+    expect(descriptionFromWalkerAbout([overlong, ABOUT])).toBe(ABOUT)
+    expect(descriptionFromWalkerAbout([ABOUT])).toHaveLength(ABOUT.length)
+  })
+
+  it('accepts an about exactly at the bound', () => {
+    const exact = 'a'.repeat(PROVIDER_DESCRIPTION_MAX_LENGTH)
+    expect(descriptionFromWalkerAbout([exact])).toBe(exact)
+  })
+
+  it('still returns a long about for the about column itself', () => {
+    const overlong = 'a'.repeat(PROVIDER_DESCRIPTION_MAX_LENGTH + 1)
+    expect(firstWalkerAbout([null, overlong])).toBe(overlong)
+    expect(firstWalkerAbout([])).toBeNull()
+  })
+})
 
 /**
  * The states an entry can be in, and the properties no surface can infer from

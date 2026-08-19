@@ -559,6 +559,49 @@ export const RECIPE_ABOUT_MAX_LENGTH = 800
  */
 export const PROVIDER_DESCRIPTION_MAX_LENGTH = 300
 
+/**
+ * Turn approved walker `about` answers into the entry identity sentence (`#1297`).
+ *
+ * **Pipeline:** walk.`about` → (moderation) → entry.`about`, and — when the
+ * sentence fits — entry.`description`. Surfaces prefer that identity over
+ * generic “what an account is for” boilerplate until a richer briefing exists.
+ *
+ * **Over-length candidates are dropped, never truncated** (`#1120`). An about
+ * longer than {@link PROVIDER_DESCRIPTION_MAX_LENGTH} may still live on the
+ * `about` column (bound by {@link RECIPE_ABOUT_MAX_LENGTH}); it must not become
+ * a half-sentence `description`.
+ *
+ * Newest-first callers should pass abouts in preference order; the first that
+ * fits wins.
+ */
+export function descriptionFromWalkerAbout(
+  abouts: readonly (string | null | undefined)[],
+): string | null {
+  for (const raw of abouts) {
+    const text = raw?.trim() ?? ''
+    if (text.length === 0) continue
+    if (text.length > PROVIDER_DESCRIPTION_MAX_LENGTH) continue
+    return text
+  }
+  return null
+}
+
+/**
+ * First non-empty walker/curator `about`, unbound by the description ceiling
+ * (`#1297`). Used where the about column itself is what should fill, not the
+ * short identity sentence.
+ */
+export function firstWalkerAbout(
+  abouts: readonly (string | null | undefined)[],
+): string | null {
+  for (const raw of abouts) {
+    const text = raw?.trim() ?? ''
+    if (text.length === 0) continue
+    return text
+  }
+  return null
+}
+
 /** How long one runtime's difference may be. Two sentences, like a step. */
 export const RECIPE_RUNTIME_NOTE_MAX_LENGTH = 300
 

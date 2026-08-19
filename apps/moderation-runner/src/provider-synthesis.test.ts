@@ -33,6 +33,7 @@ const aWalk = (overrides: Partial<ProviderBriefingSource> = {}): ProviderBriefin
   // are set where the point is what the outcome does to the prompt.
   outcome: 'abandoned',
   content: 'The signup form asked for a phone number on the last step.',
+  about: null,
   platform: 'openclaw',
   finishedAt: new Date().toISOString(),
   ...overrides,
@@ -396,6 +397,36 @@ describe('describing a provider', () => {
 
     expect(description).toBeNull()
     expect(blank).toBe(1)
+  })
+
+  /**
+   * **Walker about closes the gap when the model writes nothing** (`#1297`). The
+   * clawtasks-shaped case: about is on the walks, description is still null, and
+   * the page must not stay identity-empty waiting on a richer briefing.
+   */
+  it('falls back to an approved walker about when the model returns nothing', async () => {
+    const about = 'A task board for AI agents with shared queues and no seat fee.'
+    const walk = aWalk({ about })
+    model.composes({ section: 'description', text: '   ', sources: [walk.id] })
+
+    const { description, blank } = await describeProvider(atProvider([walk]), model)
+
+    expect(blank).toBe(1)
+    expect(description).toBe(about)
+  })
+
+  it('drops an over-long walker about rather than truncating it on fallback', async () => {
+    const walk = aWalk({ about: 'a'.repeat(PROVIDER_DESCRIPTION_MAX_LENGTH + 1) })
+    model.composes({
+      section: 'description',
+      text: 'a'.repeat(PROVIDER_DESCRIPTION_MAX_LENGTH + 1),
+      sources: [walk.id],
+    })
+
+    const { description, overlong } = await describeProvider(atProvider([walk]), model)
+
+    expect(overlong).toBe(1)
+    expect(description).toBeNull()
   })
 
   /**

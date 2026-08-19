@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import {
   AccountKindSchema,
+  earnFacetsOf,
   RECENT_WALKS_IN_CONTEXT,
   REFUSAL_UNSTATED,
   WALL_KIND_MEANINGS,
@@ -45,7 +46,12 @@ import {
   walkRefusalTallies,
   walksToAskAbout,
 } from './account-walks.js'
-import { dressProviderRecipe, providerRecipe, writeProviderRecipe } from './provider-recipes.js'
+import {
+  dressProviderRecipe,
+  providerRecipe,
+  writeProviderRecipe,
+  writeRecipeEarnFacets,
+} from './provider-recipes.js'
 import { providerBriefingCorpus, staleProviderBriefings } from './provider-briefing.js'
 import { registerAgent, updateAgentProfile } from './agents.js'
 import { renameProvider } from './atlas-renames.js'
@@ -370,6 +376,66 @@ describe('the record of one agent obtaining one account', () => {
       expect(await providerRecipe(db, nowhere.kind, nowhere.provider)).toBeUndefined()
       /** And nothing was stamped as proposed, because nothing was. */
       expect((await accountWalk(db, walkId))?.id).toBe(walkId)
+    })
+
+    /**
+     * **The earn facet the kind already carries** (`#1331`), written where there
+     * is a row to hang it off.
+     *
+     * **None of the five earn kinds reaches a shelf**, so the branch above
+     * returns before writing anything and this walk creates no entry of its own —
+     * which is deliberate (`#1326` decision 5 refuses a `bounty-board` *shelf*,
+     * because the earn axis already holds that meaning) and is why every earn
+     * provider in the catalogue on 2026-08-19 was a synthesised row. The row that
+     * exists here is one a curator wrote, which is the case this write is for:
+     * a walk closing on a pair somebody has already catalogued.
+     *
+     * The synthesised half is `measuredOnlyRecipes`, asserted in
+     * `packages/core/src/account/atlas-provenance.test.ts` — the two paths are
+     * one mapping so they cannot disagree about what a `gig-marketplace` is.
+     */
+    it('writes the earn facet its kind is one of by definition', async () => {
+      const gig = {
+        kind: AccountKindSchema.parse('gig-marketplace'),
+        provider: 'gigs.example',
+      }
+      await writeProviderRecipe(db, {
+        ...gig,
+        title: 'A gig marketplace somebody catalogued',
+        status: 'unwritten',
+        category: 'commerce-marketplace',
+        steps: [],
+      })
+
+      const walkId = await walkInProgress(db, agentId, gig)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+
+      await finishWalk(db, walkId, { outcome: 'proved' })
+
+      const entry = await providerRecipe(db, gig.kind, gig.provider)
+      expect(earnFacetsOf(entry?.facets ?? [])).toEqual(['gig-marketplace'])
+      /** The shelf a curator chose is untouched: a facet takes nothing away. */
+      expect(entry?.category).toBe('commerce-marketplace')
+    })
+
+    /**
+     * **A walk cannot withdraw a facet a moderator set**, which is why the write
+     * is a union: this entry is a mailbox that pays a referral, and walking it
+     * says nothing about the referral either way.
+     */
+    it('leaves an entry alone when its kind is not an earn rail', async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+      await finishWalk(db, walkId, { outcome: 'proved' })
+
+      await writeRecipeEarnFacets(db, where.kind, where.provider, ['affiliate-referral'])
+
+      const again = await walkInProgress(db, otherAgentId, where)
+      await recordWalkStep(db, again, { actor: 'agent' })
+      await finishWalk(db, again, { outcome: 'proved' })
+
+      const entry = await providerRecipe(db, where.kind, where.provider)
+      expect(earnFacetsOf(entry?.facets ?? [])).toEqual(['affiliate-referral'])
     })
 
     /**

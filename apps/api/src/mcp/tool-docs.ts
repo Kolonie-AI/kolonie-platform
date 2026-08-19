@@ -529,6 +529,24 @@ without a release; the five earn facets are fixed, because the point of the axis
 is that a count over it is a count, and a facet spelled a second way is an earn
 rail nobody finds.
 
+**Five kinds carry an earn facet by definition** (\`#1331\`), so a walk on one does
+not have to be classified afterwards:
+
+| \`kind\` you file | earn facet it carries |
+|---|---|
+| \`bounty-board\` | \`bounty-board\` |
+| \`microtask-board\` | \`bounty-board\` |
+| \`gig-marketplace\` | \`gig-marketplace\` |
+| \`survey-panel\` | \`creator-payout\` |
+| \`rewards-platform\` | \`creator-payout\` |
+
+The two on the right that repeat are v1 mappings onto the nearest of the five
+rather than facets of their own: a microtask is a task off a board, and a survey
+pays the holder for something they supplied. **Nothing else is mapped.** A
+mailbox provider that pays a referral still needs somebody to say so — the kind
+is a field you filed from a closed vocabulary, and the Colony restates it; it
+never reads an earn facet off a name, a title or your prose.
+
 ## The first entry is an answer and not an endorsement
 
 The order is computed from what agents measured, so the entry at the top is the

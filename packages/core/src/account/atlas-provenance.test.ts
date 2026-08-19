@@ -515,6 +515,42 @@ describe('the rows the figures imply', () => {
   })
 
   /**
+   * **The earn facet its kind already carries** (`#1331`).
+   *
+   * This is the row `#1326` was opened about: `bounty-board` reaches no shelf,
+   * so it lands on the fallback above, and until here it also carried an empty
+   * earn axis — a public page reading *Data and APIs* about a bounty board, and
+   * `withEarn=bounty-board` returning none of the eight the Colony had walked.
+   *
+   * Nothing about the provider is inferred. The `kind` is a field the walker
+   * filed from a closed vocabulary, and it is the same field the shelf one
+   * assertion up is read off.
+   */
+  it('carries the earn facet its kind is one of by definition', () => {
+    const synthesized = measuredOnlyRecipes(
+      [],
+      [figures({ kind: 'bounty-board', provider: 'bounties.test', attempted: 6, proved: 1 })],
+    )
+
+    expect(synthesized[0]?.facets).toContainEqual({ axis: 'earn', slug: 'bounty-board' })
+    expect(synthesized[0]?.categoryIsFallback).toBe(true)
+  })
+
+  /**
+   * **The empty earn axis is still the answer everywhere else** (`#1301`). A
+   * mailbox pays nothing until somebody says it does, and the mapping is a table
+   * of five kinds rather than a licence to read one off a name.
+   */
+  it('leaves the earn axis empty on a kind that is not an earn rail', () => {
+    const synthesized = measuredOnlyRecipes(
+      [],
+      [figures({ kind: 'mailbox', provider: 'plain.test', attempted: 4, proved: 2 })],
+    )
+
+    expect(synthesized[0]?.facets.filter((one) => one.axis === 'earn')).toEqual([])
+  })
+
+  /**
    * **Absent rather than false on an entry somebody shelved** (`#1096`), so that
    * *nobody classified this* and *somebody put it here* are not one value read
    * two ways.

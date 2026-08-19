@@ -21,6 +21,7 @@ import {
   atlasCanonicalKind,
   atlasCategoryForKind,
   colonyRefusal,
+  earnFacetsForKind,
   publishWalls,
   RecipeActorSchema,
   RecipeDirectionSchema,
@@ -67,7 +68,12 @@ import {
   markProviderBriefingStale,
   promoteWalkerAboutToEntryIdentity,
 } from './provider-briefing.js'
-import { providerRecipe, recordMeasuredProvider, writeProviderRecipe } from './provider-recipes.js'
+import {
+  addRecipeEarnFacets,
+  providerRecipe,
+  recordMeasuredProvider,
+  writeProviderRecipe,
+} from './provider-recipes.js'
 import { toTimestamp } from './rows.js'
 
 /**
@@ -1287,6 +1293,26 @@ export async function finishWalk(
         ...curationFromEntry(entry),
         ...conditionsFromWalk(walk.recipe, entry),
       })
+    }
+
+    /**
+     * **The earn facet the kind already carries, written where the row exists**
+     * (`#1331`).
+     *
+     * **After both branches rather than inside one**, because the fact does not
+     * depend on how the walk ended: `bounty-board` is a bounty board whether the
+     * walker got in, was refused, or was already looking at an entry the Colony
+     * publishes. What it does depend on is a row being here to hang it off —
+     * `addRecipeEarnFacets` answers false where there is none, which is the
+     * ordinary case for a kind that reaches no shelf, and those rows get the same
+     * facet from `measuredOnlyRecipes` at read time instead.
+     *
+     * **The union and not the replacement**, so a walk cannot withdraw a facet a
+     * moderator set: see `addRecipeEarnFacets` for the shape of that mistake.
+     */
+    const earn = earnFacetsForKind(walk.kind)
+    if (earn.length > 0) {
+      await addRecipeEarnFacets(tx, walk.kind, walk.provider, earn)
     }
 
     /**

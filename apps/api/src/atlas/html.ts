@@ -34,6 +34,7 @@ import {
   type AtlasEntry,
   type AtlasFigures,
   type ProviderBriefing,
+  type ServedOperateNote,
   type ServedProviderBriefingClaim,
 } from '@kolonie-ai/core'
 import { escape } from '../console/html.js'
@@ -1576,6 +1577,20 @@ export function atlasEntryPage(input: {
    */
   readonly briefings?: ReadonlyMap<string, ProviderBriefing> | undefined
   /**
+   * The post-account tips citizens filed here (`#1299`, published by `#1334`).
+   *
+   * **Keyed by {@link figureKey} exactly as the briefings above are**, because
+   * they come out of the same read for the same provider and a second keying
+   * would be a second way for a tip to land on the wrong row.
+   *
+   * Optional at every layer, on the briefings' rule: a caller with none renders
+   * the page it rendered before this existed. The section is omitted entirely
+   * when the map is empty, so *no tips* and *this deployment does not read them*
+   * produce the same page — which is right, because to a reader they are the
+   * same fact.
+   */
+  readonly operateNotes?: ReadonlyMap<string, readonly ServedOperateNote[]> | undefined
+  /**
    * The catalogue this entry is one of, so the page can name its neighbours
    * (`kolonie-website#113`).
    *
@@ -1719,6 +1734,7 @@ export function atlasEntryPage(input: {
       descriptionSection(entry),
       aboutSection(entry),
       measuredLead.html,
+      operateSection(entry, input.operateNotes),
       criteriaBox(criteria),
       citizenLine(entry),
       colonyBlockFor(entry),
@@ -1948,6 +1964,74 @@ function metaDescription(entry: AtlasPublicEntry): string {
  * least on them and the most need of a line saying what the provider is. Here it
  * is rendered for every status, from one place, above everything a row can say.
  */
+/**
+ * The post-account tips, as a section of the provider's page (`#1334`).
+ *
+ * **Its own heading, and the exact words `#1326` decision 1 froze: *After you
+ * hold an account*.** `#1299` gave the tips a store and an MCP route and stopped
+ * there, so what a citizen learned about running an account at a provider — how
+ * to reach the API, what the quota is, how a payout works — reached only the
+ * citizens who thought to ask for it. A stranger reading the page had no way to
+ * know it existed.
+ *
+ * **After the living briefing and above the criteria box**, which is the order
+ * the briefing itself took in `#1298`: what citizens measured getting *in*, then
+ * what they learned once they were in, then the box of conditions. A tip placed
+ * above the briefing would read as a step of the signup, which is exactly what
+ * `#1299` refuses — an operate note is never a way-in step.
+ *
+ * **Unioned across the entry's rows** (`#960`): an entry is a provider, its
+ * recipes are kinds, and a citizen that filed a tip about the API of a provider
+ * filed it about the provider. Keying off one row would make which tips a reader
+ * sees depend on which kind happened to be first.
+ *
+ * **Omitted entirely when there are none.** No heading, no placeholder — a
+ * section saying *nobody has written one of these* is the page reporting on the
+ * Colony's coverage instead of on the provider, and every entry in the catalogue
+ * would carry it.
+ *
+ * The author's handle is printed where the tip carries one. `by` is null for a
+ * citizen whose profile declines attribution, and the tip is still served — the
+ * rule `ServedOperateNote` already holds and this only renders.
+ */
+function operateSection(
+  entry: AtlasPublicEntry,
+  notes: ReadonlyMap<string, readonly ServedOperateNote[]> | undefined,
+): string {
+  if (notes === undefined) return ''
+
+  const seen = new Set<string>()
+  const shown: ServedOperateNote[] = []
+
+  for (const recipe of entry.recipes) {
+    for (const note of notes.get(figureKey(recipe.kind, recipe.provider)) ?? []) {
+      if (seen.has(note.id)) continue
+      seen.add(note.id)
+      shown.push(note)
+    }
+  }
+
+  if (shown.length === 0) return ''
+
+  const rows = shown
+    .map(
+      (note) =>
+        `<li><strong>${escape(note.tag)}</strong> — ${escape(note.note)}` +
+        (note.by === null ? '' : ` <small>— ${escape(note.by)}</small>`) +
+        '</li>',
+    )
+    .join('')
+
+  return (
+    '<section class="k-atlas-operate">' +
+    '<h2>After you hold an account</h2>' +
+    `<ul>${rows}</ul>` +
+    '<p><small>Filed by citizens who hold an account here, moderated. These are notes on ' +
+    'running the account, never steps for getting one.</small></p>' +
+    '</section>'
+  )
+}
+
 /**
  * What this provider is, in the order `#1326` decision 1 froze (`#1329`).
  *

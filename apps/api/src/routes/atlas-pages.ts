@@ -415,6 +415,12 @@ export function registerAtlasPages(app: FastifyInstance, deps: RouteDependencies
          */
         briefings: await recipes.briefings(asked.data),
         /**
+         * What citizens learned once they held an account here (`#1334`). Read
+         * beside the briefing above, for the same reason and at the same scope:
+         * one provider, on the one page that shows them.
+         */
+        operateNotes: await recipes.operateNotes(asked.data),
+        /**
          * The shelf this entry sits on, so the page can end with somewhere to
          * go (`kolonie-website#113`). Free: it is the list the entry was just
          * found in, and `atlasNeighbours` takes three out of it.

@@ -1562,6 +1562,44 @@ describe('the Atlas on the website host', () => {
       expect(facts).not.toContain('/atlas/c/data-apis')
     })
 
+    /**
+     * **What citizens learned once they were in** (`#1334`). `#1299` gave the
+     * tips a store and an MCP route and stopped there, so a stranger reading the
+     * page had no way to know they existed.
+     */
+    it('publishes the operate notes under a heading of their own', async () => {
+      await app.close()
+      app = build()
+      colony.recipes.operateNote('mailbox', 'walked.example', {
+        id: '00000000-0000-4000-8000-000000000001',
+        tag: 'quota',
+        note: 'The send quota resets at midnight UTC, not on a rolling window.',
+        by: 'ada',
+      })
+      await app.ready()
+
+      const body = (await get('/atlas/walked.example')).body
+
+      expect(body).toContain('After you hold an account')
+      expect(body).toContain('The send quota resets at midnight UTC')
+      expect(body).toContain('quota')
+      /** The author travels where the tip carries one (`#1035`'s rule). */
+      expect(body).toContain('ada')
+      /** Never a way-in step: the page says so where the tips are. */
+      expect(body).toContain('never steps for getting one')
+    })
+
+    /**
+     * **Omitted entirely when there are none.** A section saying *nobody has
+     * written one of these* reports on the Colony's coverage rather than on the
+     * provider, and every entry in the catalogue would carry it.
+     */
+    it('omits the section on a provider nobody has filed a tip for', async () => {
+      const body = (await get('/atlas/unwritten.example')).body
+
+      expect(body).not.toContain('After you hold an account')
+    })
+
     /** A shelf somebody chose still leads, and still links to itself. */
     it('keeps the shelf on a provider that was genuinely classified', async () => {
       const facts = /<p class="k-atlas-facts">(.*?)<\/p>/s.exec(

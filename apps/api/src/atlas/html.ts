@@ -1,5 +1,7 @@
 import {
   ATLAS_PATH,
+  ATLAS_SEARCH_PATH,
+  ATLAS_QUERY_MAX_LENGTH,
   atlasCapabilityPhrase,
   atlasCategoryPath,
   atlasIsWalked,
@@ -255,6 +257,31 @@ const ATLAS_STANDFIRST =
  * page that answers *which rung proves this*, one screen from the card.
  */
 const ACADEMY_PATH = '/academy/'
+
+/**
+ * A box a reader can type a provider name into (`#1302`).
+ *
+ * **A GET form to a page of its own, and no JavaScript.** Everything under
+ * `/atlas` is server-rendered HTML with no framework — D-062's arrangement — and
+ * a search that needed a script would be the first thing here that stops working
+ * with one turned off. A `form` with `method="get"` is what a browser has done
+ * since before any of this, and it degrades into a URL a reader can bookmark.
+ *
+ * **The results live at {@link ATLAS_SEARCH_PATH} and not at `?q=` here**, for
+ * the reason `#1107` moved `?category=` off this page: a filter at the index's
+ * address is a second address for the index, and a canonical then has to argue
+ * with it.
+ */
+function searchBox(query?: string | undefined): string {
+  return (
+    `<form class="k-atlas-search" method="get" action="${ATLAS_SEARCH_PATH}" role="search">` +
+    '<label for="k-atlas-q">Find a provider</label>' +
+    `<input id="k-atlas-q" type="search" name="q" placeholder="gmx.com, mailbox, bounty" ` +
+    `value="${escape(query ?? '')}" maxlength="${ATLAS_QUERY_MAX_LENGTH}">` +
+    '<button type="submit">Search</button>' +
+    '</form>'
+  )
+}
 
 /**
  * The same thing again, for the reader who has not decided yet
@@ -599,6 +626,13 @@ export function atlasIndexPage(input: {
       atlasRuntimeLine(),
       ATLAS_JOIN_LINE,
       `<p><small>${escape(ATLAS_ORDER_NOTE)}</small></p>`,
+      /**
+       * **Above the shelves and below the lede** (`#1302`). A reader who came
+       * with a provider in mind should not have to work out which shelf it is
+       * on, and a reader who came to browse has already read the two paragraphs
+       * that say what this is.
+       */
+      searchBox(),
       shelfNav(entries, asked, order),
       entries.length === 0
         ? '<p>The catalogue is empty. Nothing has been listed yet, which is not the same as ' +
@@ -609,6 +643,58 @@ export function atlasIndexPage(input: {
           ]
             .filter((one) => one !== '')
             .join('\n'),
+      '</main>',
+    ].join('\n'),
+  })
+}
+
+/**
+ * What a reader typed, answered (`#1302`).
+ *
+ * **`noindex, follow`**, which is the one place the Atlas asks not to be
+ * indexed besides an unwalked entry (`#790`). A query string mints an unbounded
+ * number of addresses all holding rearrangements of pages that are already
+ * indexed individually; `follow` is there because the links out of it are the
+ * entry pages, and those are what should be found.
+ *
+ * **The canonical points at the index and not at this address**, which is the
+ * same sentence said to a crawler that ignores `robots`: this is a view of the
+ * catalogue rather than a part of it.
+ *
+ * **Flat and not grouped by shelf.** A reader who typed a name is looking for
+ * one provider, and grouping four results under three headings would be the
+ * chrome of a browse on the answer to a lookup.
+ */
+export function atlasSearchPage(input: {
+  readonly entries: readonly AtlasEntry[]
+  readonly query: string
+  readonly canonical: string
+  readonly chrome?: SiteChrome | undefined
+}): string {
+  const found = atlasPublicEntries(input.entries)
+  const asked = input.query.trim()
+
+  return atlasPage({
+    title: asked === '' ? 'Search the Atlas' : `${asked} — the Atlas`,
+    description: ATLAS_STANDFIRST,
+    canonical: input.canonical,
+    chrome: input.chrome,
+    robots: 'noindex, follow',
+    body: [
+      '<main>',
+      '<h1>Search the Atlas</h1>',
+      searchBox(asked),
+      asked === ''
+        ? `<p>Type a provider name, or go back to <a href="${ATLAS_PATH}">the catalogue</a>.</p>`
+        : found.length === 0
+          ? `<p>Nothing in the catalogue matches <strong>${escape(asked)}</strong>. That is an ` +
+            'absence and not a refusal — nobody has walked it yet, so nothing is known either ' +
+            `way. <a href="${ATLAS_PATH}">The whole catalogue</a> is one link away.</p>`
+          : [
+              `<p>${found.length} ${found.length === 1 ? 'provider' : 'providers'} ` +
+                `${found.length === 1 ? 'matches' : 'match'} <strong>${escape(asked)}</strong>.</p>`,
+              `<ul class="k-atlas-index">${found.map(indexRow).join('')}</ul>`,
+            ].join('\n'),
       '</main>',
     ].join('\n'),
   })

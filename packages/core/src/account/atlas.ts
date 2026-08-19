@@ -48,6 +48,17 @@ import { stepInstruction } from './walk.js'
 export const ATLAS_PATH = '/atlas'
 
 /**
+ * Where a reader who typed a provider name lands (`#1302`).
+ *
+ * **A page of its own and not `?q=` on the index**, which is the line `#1107`
+ * drew when it moved `?category=` off: a filter living at the index's address is
+ * a second address for the index, and a canonical then has to argue with it. A
+ * result page is honestly a different page, it says `noindex` because there is
+ * an unbounded number of them, and the index keeps one address.
+ */
+export const ATLAS_SEARCH_PATH = '/atlas/search'
+
+/**
  * How long a public Atlas response may be served from a cache.
  *
  * **Five minutes, and the number is chosen against the curation session rather

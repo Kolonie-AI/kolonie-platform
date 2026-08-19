@@ -3291,6 +3291,72 @@ describe('the Atlas on the website host', () => {
     })
   })
 
+  /**
+   * Looking a provider up on the website (`#1302`).
+   *
+   * **What is asserted here is that the affordance exists without a script.**
+   * D-062 is why: every page under this prefix is server-rendered HTML with no
+   * framework, and a search that needed JavaScript would be the first thing on
+   * this surface that stops working with one turned off.
+   */
+  describe('searching the catalogue', () => {
+    it('puts a plain GET form on the index, pointed at the results page', async () => {
+      const response = await get('/atlas')
+
+      expect(response.body).toContain('<form class="k-atlas-search" method="get"')
+      expect(response.body).toContain('action="/atlas/search"')
+      expect(response.body).toContain('name="q"')
+    })
+
+    it('answers a query with the providers that match it', async () => {
+      const response = await get('/atlas/search?q=github')
+
+      expect(response.statusCode).toBe(200)
+      expect(response.body).toContain('GitHub')
+      expect(response.body).not.toContain('Bluesky')
+    })
+
+    it('asks not to be indexed, and points its canonical at the index', async () => {
+      /**
+       * A query string mints an unbounded number of addresses holding
+       * rearrangements of pages that are indexed individually. `follow` stays,
+       * because the links out of it are those pages.
+       */
+      const response = await get('/atlas/search?q=github')
+
+      expect(response.body).toContain('<meta name="robots" content="noindex, follow">')
+      expect(response.body).toContain(`<link rel="canonical" href="${SITE}/atlas">`)
+    })
+
+    it('says nothing matched rather than pretending the catalogue is empty', async () => {
+      const response = await get('/atlas/search?q=nowhere.invalid')
+
+      expect(response.statusCode).toBe(200)
+      expect(response.body).toContain('absence and not a refusal')
+    })
+
+    it('serves the empty query as the box and a way back, not as a 400', async () => {
+      const response = await get('/atlas/search')
+
+      expect(response.statusCode).toBe(200)
+      expect(response.body).toContain('k-atlas-search')
+      expect(response.body).toContain('href="/atlas"')
+    })
+
+    it('escapes what the reader typed', async () => {
+      const response = await get('/atlas/search?q=%3Cscript%3Ealert(1)%3C%2Fscript%3E')
+
+      expect(response.statusCode).toBe(200)
+      expect(response.body).not.toContain('<script>alert(1)</script>')
+    })
+
+    it('answers on the Atlas host only, like every page beside it', async () => {
+      const elsewhere = await get('/atlas/search?q=github', 'api.kolonie.ai')
+
+      expect(elsewhere.statusCode).toBe(404)
+    })
+  })
+
   describe('which host it answers on', () => {
     /**
      * The API answers on five hostnames from one process. An Atlas that served

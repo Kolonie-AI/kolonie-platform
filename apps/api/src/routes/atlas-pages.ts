@@ -1,6 +1,9 @@
 import {
   ATLAS_CACHE_SECONDS,
   ATLAS_PATH,
+  ATLAS_SEARCH_PATH,
+  ATLAS_QUERY_MAX_LENGTH,
+  atlasMatchesQuery,
   atlasCategoryPath,
   atlasPath,
   now,
@@ -15,6 +18,7 @@ import {
   atlasCategoryPage,
   atlasEntryPage,
   atlasIndexPage,
+  atlasSearchPage,
   atlasPageAsked,
   atlasPageCount,
   atlasShelfPath,
@@ -178,6 +182,50 @@ export function registerAtlasPages(app: FastifyInstance, deps: RouteDependencies
       )
     },
   )
+
+  /**
+   * What a reader typed, answered (`#1302`).
+   *
+   * **Registered before `/atlas/:provider`, and it would win anyway.** Fastify
+   * matches a static segment before a parametric one whatever the order, so a
+   * provider called `search` could not swallow this — the same property `/c/`
+   * relies on one route down.
+   *
+   * **The catalogue is filtered here rather than in the renderer**, through the
+   * same predicate the tool and the data route use. Three surfaces onto one
+   * catalogue that disagreed about what a query matches would be `#984`'s
+   * complaint arriving on a fourth axis.
+   */
+  app.get<{ Querystring: { q?: string } }>(ATLAS_SEARCH_PATH, async (request, reply) => {
+    if (wrongHost(request)) return reply.callNotFound()
+
+    /**
+     * **An over-long query is trimmed to the ceiling rather than refused.** A
+     * 400 on a public URL is a page a crawler stops asking for, and a reader
+     * who pasted a paragraph into the box wants an answer about the first
+     * hundred characters of it — which is the same call `?worked=banana` makes
+     * on the index.
+     */
+    const query = (request.query.q ?? '').trim().slice(0, ATLAS_QUERY_MAX_LENGTH)
+
+    const entries = await listEntries()
+
+    return send(
+      reply,
+      atlasSearchPage({
+        entries: query === '' ? [] : entries.filter((entry) => atlasMatchesQuery(entry, query)),
+        query,
+        /**
+         * **The index and not this address.** A result page is a view of the
+         * catalogue rather than a part of it, and the `noindex` the renderer
+         * sets is the same sentence said to a crawler that reads it.
+         */
+        canonical: `${websiteUrl}${ATLAS_PATH}`,
+        chrome: await chromeOf(),
+      }),
+      'text/html; charset=utf-8',
+    )
+  })
 
   /**
    * One shelf, at an address of its own (`#1107`).

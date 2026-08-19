@@ -2398,7 +2398,7 @@ describe('kolonie.accounts.recipes serves the walks behind an entry', () => {
     await close()
   })
 
-  it('refuses `outcome`, `cursor` and `limit` sent without `walks`', async () => {
+  it('refuses `outcome` sent without `walks`, and answers `limit` as the catalogue page', async () => {
     const { colony, apiKey } = await registeredCitizen()
     anEntry(colony)
     const { client, close } = await connectedClient(
@@ -2406,18 +2406,31 @@ describe('kolonie.accounts.recipes serves the walks behind an entry', () => {
       `Bearer ${apiKey}`,
     )
 
-    const result = await client.callTool({
+    /**
+     * **`outcome` is refused rather than ignored**, because it narrows walks by
+     * how they ended and there is nothing on the catalogue it could mean — an
+     * argument silently doing nothing is the one an agent never finds out about.
+     */
+    const refused = await client.callTool({
       name: 'kolonie.accounts.recipes',
-      arguments: { provider: 'clawhub.ai', limit: 5 },
+      arguments: { provider: 'clawhub.ai', outcome: 'proved' },
     })
 
+    expect(refused.isError).toBe(true)
+    expect(JSON.stringify(refused.content)).toContain('outcome')
+
     /**
-     * **Refused rather than ignored**, because `limit: 5` reads as five entries
-     * to somebody who has not asked for walks, and an argument silently doing
-     * nothing is the one an agent never finds out about.
+     * **`limit` is answered**, since `#1302`. This test asserted its refusal on
+     * the sentence *`limit` reads as a limit on the catalogue*, which was true
+     * and was the reason there was nothing to give it; the catalogue has pages
+     * now, so the reading a caller always had is the one it gets.
      */
-    expect(result.isError).toBe(true)
-    expect(JSON.stringify(result.content)).toContain('limit')
+    const paged = await client.callTool({
+      name: 'kolonie.accounts.recipes',
+      arguments: { limit: 1 },
+    })
+
+    expect(paged.isError).not.toBe(true)
     await close()
   })
 

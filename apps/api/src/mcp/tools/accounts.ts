@@ -39,6 +39,9 @@ import {
   WallKindSchema,
   EARN_FACETS,
   EarnFacetSchema,
+  SignupCostSchema,
+  ATLAS_ENTRIES_MAX_PAGE,
+  ATLAS_QUERY_MAX_LENGTH,
   WalkOutcomeSchema,
   bootstrapTemplate,
   bootstrapTemplateAsText,
@@ -161,21 +164,29 @@ function ownAccountsAsText(held: ReadonlyMap<string, readonly HeldAccount[]>): s
 }
 
 /**
- * What is wrong with the way the walks were asked for, if anything (`#1101`).
+ * What is wrong with the way the walks were asked for, if anything (`#1101`,
+ * narrowed by `#1302`).
  *
- * **Both refusals name the reason rather than answering something else.** A page
- * of walks across the whole shelf is evidence about nothing, so `walks` without
- * `provider` is a question with no subject; and `outcome`, `cursor` and `limit`
- * all read as catalogue filters to somebody who has not asked for walks —
- * `limit: 5` looks like five entries — so ignoring them would answer 133 entries
- * to a caller who believes it asked for five of something.
+ * **A page of walks across the whole shelf is evidence about nothing**, so
+ * `walks` without `provider` is a question with no subject and stays refused.
+ *
+ * **`cursor` and `limit` are no longer refused, because they now mean what a
+ * reader thought they meant.** This function used to turn both away with the
+ * sentence *`limit` reads as a limit on the catalogue* — which was true, and the
+ * catalogue could not be paged, so the honest answer was a refusal. `#1302` gave
+ * the catalogue pages, and the two arguments read the walks when `walks: true`
+ * and the catalogue otherwise. There is no ambiguity to resolve: `walks`
+ * requires `provider`, so a walks read is always exactly one entry and paging it
+ * as a catalogue would be paging one row.
+ *
+ * **`outcome` is still refused without them.** It narrows walks by how they
+ * ended and there is nothing on the catalogue it could mean, so a caller sending
+ * it has misread something and ignoring it would hide that.
  */
 function walksArgumentRefusal(input: {
   readonly walks?: boolean | undefined
   readonly provider?: string | undefined
   readonly outcome?: string | undefined
-  readonly cursor?: string | undefined
-  readonly limit?: number | undefined
 }): ApiError | undefined {
   if (input.walks === true && input.provider === undefined) {
     return {
@@ -187,20 +198,15 @@ function walksArgumentRefusal(input: {
     }
   }
 
-  if (input.walks === true) return undefined
-
-  const companions = (['outcome', 'cursor', 'limit'] as const).filter(
-    (name) => input[name] !== undefined,
-  )
-  if (companions.length === 0) return undefined
+  if (input.walks === true || input.outcome === undefined) return undefined
 
   return {
     code: 'validation_failed',
     message:
-      `${companions.join(', ')} ${companions.length === 1 ? 'reads' : 'read'} the walks behind a ` +
-      'provider, and you have not asked for them. Send `walks: true` with a `provider`, or drop ' +
-      `${companions.length === 1 ? 'it' : 'them'} — ${companions.length === 1 ? 'it is' : 'they are'} ` +
-      'refused here rather than ignored, because `limit` reads as a limit on the catalogue.',
+      'outcome narrows the walks behind a provider by how they ended, and you have not asked ' +
+      'for them. Send `walks: true` with a `provider`, or drop it — it is refused here rather ' +
+      'than ignored, because there is nothing on the catalogue it could mean. `cursor` and ' +
+      '`limit` do page the catalogue, so those are not this refusal.',
   }
 }
 
@@ -1449,6 +1455,61 @@ export function registerAccountTools(
             'out to read all of them.',
         ),
         /**
+         * Looking a provider up rather than reading the shelf (`#1302`).
+         *
+         * **The one argument here that is not a vocabulary somebody chose.**
+         * Every other filter narrows by a closed list, which answers *what sort
+         * of thing is this* and cannot answer *do we already know anything about
+         * `gmx.com`* — the question a scout asks before spending an afternoon
+         * walking a provider the Atlas already holds.
+         *
+         * **It filters and never sorts.** A relevance score would be a second
+         * ordering laid over `atlasByOutcome`, and the first entry that outranked
+         * another for repeating a word would undo the one thing `#855` promises
+         * about position: that nobody can buy it.
+         */
+        q: z
+          .string()
+          .max(ATLAS_QUERY_MAX_LENGTH)
+          .optional()
+          .describe('Look a provider up: a substring of its name, title or description.'),
+        /**
+         * What signup costs, filterable at last (`#1302`).
+         *
+         * **Per row, like the walls and the earn facets.** A provider whose
+         * mailbox is free and whose API is paid-only is two answers, and dropping
+         * the provider would hide the row the reader can act on.
+         *
+         * **`unknown` is a value and never a wildcard.** The row nobody has
+         * priced is the one worth walking, and folding it into the free ones
+         * would be the catalogue claiming a measurement it does not have.
+         *
+         * **There is deliberately no `terms` filter beside it.** `#815` is
+         * explicit that the field drives a sentence and nothing else — *no gate,
+         * no hiding, no refusal* — and a filter hides entries. A reader wanting
+         * only `agent-allowed` providers is asking the catalogue to keep the
+         * decision `#815` took away from it.
+         */
+        cost: z
+          .array(SignupCostSchema)
+          .max(SignupCostSchema.options.length)
+          .optional()
+          .describe(
+            'Only rows costing this to sign up. `unknown` is the row nobody priced — a value, ' +
+              'never a wildcard.',
+          ),
+        /**
+         * Which half of `#1297` the reader is on (`#1302`).
+         *
+         * **Both directions, because they are two jobs.** `true` is choosing
+         * between providers; `false` is finding the entries still missing a
+         * sentence, which is where a scout's next hour goes.
+         */
+        hasDescription: z
+          .boolean()
+          .optional()
+          .describe('true for entries that say what the provider is, false for the rest.'),
+        /**
          * `#523`'s question, asked of the catalogue: *what am I not equipped
          * for*. Off unless asked for — a catalogue is also read to find a better
          * provider for something you already hold.
@@ -1604,10 +1665,13 @@ export function registerAccountTools(
          * agents behind this entry actually write*, and it does not exist until
          * an entry is named.
          *
-         * **`outcome`, `cursor` and `limit` are refused without it** rather than
-         * ignored. Each of them reads as a catalogue filter to somebody who has
-         * not asked for walks — `limit: 5` looks like five entries — and an
-         * argument silently doing nothing is worse than one that says so.
+         * **`outcome` is refused without it** rather than ignored: it narrows
+         * walks by how they ended and means nothing on the catalogue, so a
+         * caller sending it has misread something.
+         *
+         * **`cursor` and `limit` are not refused**, since `#1302`. They read as
+         * catalogue paging to somebody who has not asked for walks — `limit: 5`
+         * looks like five entries — and that is now what they are.
          */
         walks: z
           .boolean()
@@ -1623,19 +1687,22 @@ export function registerAccountTools(
         cursor: z
           .string()
           .optional()
-          .describe('The `nextCursor` from your last page of walks. With `walks` only.'),
+          .describe('The `nextCursor` from your last page — of the catalogue, or of the walks.'),
         /**
          * **Clamped by the storage and never refused here** (`#1101`). A caller
          * asking for five hundred is given fifty: the ceiling is a property of
          * the response, and a schema that refused would only make every caller
-         * learn the number by being refused once.
+         * learn the number by being refused once. `#1302` gave the catalogue the
+         * same treatment, so the sentence holds whichever page this is.
          */
         limit: z
           .number()
           .int()
           .optional()
           .describe(
-            `How many walks at once. More than ${PUBLISHED_WALKS_MAX_PAGE} gets ${PUBLISHED_WALKS_MAX_PAGE}. With \`walks\` only.`,
+            `How many at once — entries, or walks when you asked for those. Over ` +
+              `${ATLAS_ENTRIES_MAX_PAGE} entries gets ${ATLAS_ENTRIES_MAX_PAGE}; over ` +
+              `${PUBLISHED_WALKS_MAX_PAGE} walks gets ${PUBLISHED_WALKS_MAX_PAGE}.`,
           ),
       },
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
@@ -1731,6 +1798,19 @@ export function registerAccountTools(
           excludeWalls: input.excludeWalls,
           withEarn: input.withEarn,
           excludeEarn: input.excludeEarn,
+          /**
+           * The four that make the catalogue readable at scale, and the page
+           * (`#1302`).
+           *
+           * **`limit` and `cursor` go to the catalogue only when the walks did
+           * not ask for them.** A walks read names one provider, so paging the
+           * catalogue there would be paging a single row — and the walks page
+           * below is where those two belong in that case.
+           */
+          q: input.q,
+          cost: input.cost,
+          hasDescription: input.hasDescription,
+          ...(input.walks === true ? {} : { limit: input.limit, cursor: input.cursor }),
         },
         deps.recipes,
         deps.drops !== undefined,
@@ -1914,6 +1994,22 @@ export function registerAccountTools(
        * down: a reader that meets the rows first has already taken the top one as
        * the answer by the time an explanation at the bottom arrives.
        */
+      /**
+       * That this is a page and where the next one starts (`#1302`).
+       *
+       * **Said in the text and not only in `structuredContent`**, because a
+       * reader that only reads the prose would otherwise take fifty entries for
+       * the whole catalogue — which is the same mistake `nothingMeasured`
+       * exists to stop one field over, and a worse one: it looks like an answer.
+       */
+      const morePages =
+        result.response.nextCursor === null
+          ? ''
+          : `\n\n---\n\n**${result.response.entries.length} of ${result.response.total} entries.** ` +
+            `Ask again with \`cursor: "${result.response.nextCursor}"\` for the next page, or ` +
+            'narrow with `q`, `category`, `cost`, `terms` or the wall filters — the catalogue ' +
+            'is a shelf to search rather than one to read through.'
+
       const howItIsOrdered =
         'Every read recomputes the order from what agents measured, in this order: an entry ' +
         'somebody has walked comes above every entry nobody has; then the share of agents that ' +
@@ -1965,6 +2061,7 @@ export function registerAccountTools(
                    * built from, and a reader that met them first would be
                    * reading raw testimony before the summary of it.
                    */
+                  morePages +
                   (walks === undefined ? '' : `\n\n---\n\n${publishedWalksAsText(walks)}`),
           },
         ],

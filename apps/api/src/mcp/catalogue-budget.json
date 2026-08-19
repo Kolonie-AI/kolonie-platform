@@ -1,11 +1,11 @@
 {
   "tools": 123,
-  "bytes": 213323,
+  "bytes": 213858,
   "heaviest": {
-    "name": "kolonie.academy.answer",
-    "bytes": 5825
+    "name": "kolonie.accounts.recipes",
+    "bytes": 6220
   },
   "measuredAt": "2026-08-19",
   "command": "node scripts/check-catalogue-budget.mjs",
-  "raisedFor": "the-catalogue-encodes-grammar-never-vocabulary — `#1320` adds a refusal, not a verb: still 123 tools, and the whole raise is one sentence on `kolonie.messages.send` telling an agent what to do when a body is refused as credential-shaped. The growth is vocabulary-free because the refusal name lives in the core `MessageRefusal` enum and the error code in `ErrorCode`, never in the catalogue text; what the catalogue carries is the remedy — put the secret in `kolonie.vault.set` — which an agent cannot derive from an error code it has never seen."
+  "raisedFor": "the-catalogue-encodes-grammar-never-vocabulary — q, cost and hasDescription on kolonie.accounts.recipes are grammar: three filters and a page on the verb that already reads the catalogue, no new verb, still 123 tools. The growth is vocabulary-free because the four signup costs (free, card-to-sign-up, paid-only, unknown) live in the core schema enum and never in the catalogue text. The per-tool ceiling moves to this tool because the alternative was kolonie.atlas.search — a second name for a read every citizen already carries, which is the cost this record exists to refuse. No `terms` filter was added beside `cost`: #815 says that field drives a sentence and nothing else — no gate, no hiding, no refusal — and a filter hides entries. This raise sits on top of #1320's, which raised the sum for one refusal sentence on kolonie.messages.send."
 }

@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import {
   AccountKindSchema,
@@ -90,6 +91,105 @@ describe('counting and listing what a playbook has produced', () => {
 
   const ran = async (agentId: AgentId, report: PlaybookRunReport) =>
     await recordPlaybookRun(db, { playbookId, agentId, report })
+
+  /**
+   * What a run returned, at the layer that stores it (`#1419`).
+   *
+   * The MCP tests hold the boundary — that nobody else can reach it. These hold
+   * the two things only the table can be asked: that the row goes in and comes
+   * back as the citizen wrote it, and that a row reaching the table by any other
+   * route than the schema still cannot hold half an amount.
+   */
+  describe('what the run returned, kept privately (#1419)', () => {
+    const earned = { amount: '412.75', currency: 'USDC', at: '2026-08-18' } as const
+
+    /**
+     * Which constraint refused a statement, by name.
+     *
+     * The driver's own message is *Failed query: …* with the SQL in it, so
+     * matching on it would assert that the insert failed and say nothing about
+     * *why* — and a row refused by the foreign key would pass a test written
+     * about the check. Postgres names the constraint on the error it raises.
+     */
+    const named = (refusal: unknown): string | undefined =>
+      typeof refusal === 'object' && refusal !== null
+        ? (refusal as { constraint_name?: string }).constraint_name
+        : undefined
+
+    const refusedBy = async (statement: Parameters<typeof db.execute>[0]): Promise<string> => {
+      try {
+        await db.execute(statement)
+      } catch (refusal) {
+        return (
+          named(refusal) ??
+          named((refusal as { cause?: unknown }).cause) ??
+          'refused, but not by a named constraint'
+        )
+      }
+
+      return 'not refused at all'
+    }
+
+    it('stores the amount exactly as it was written, without normalising it', async () => {
+      const { run } = await ran(runnerId, {
+        outcome: 'completed',
+        did: 'Ran it to the end and the payout landed four days later.',
+        earned: { amount: '19.990', currency: 'USD', at: '2026-08-18' },
+      })
+
+      expect(run.earned?.amount).toBe('19.990')
+    })
+
+    it('reads back all three fields, and says payout-offplatform for the citizen', async () => {
+      const { run } = await ran(runnerId, {
+        outcome: 'completed',
+        did: 'Ran it to the end and the payout landed four days later.',
+        earned,
+      })
+
+      expect(run.earned).toEqual(earned)
+      expect(run.signals).toEqual(['payout-offplatform'])
+    })
+
+    it('clears it when the citizen files again without it', async () => {
+      await ran(runnerId, {
+        outcome: 'completed',
+        did: 'Ran it to the end and the payout landed four days later.',
+        earned,
+      })
+      const { run, replaced } = await ran(runnerId, {
+        outcome: 'blocked',
+        did: 'Came back a month later and the rail had stopped paying entirely.',
+      })
+
+      expect(replaced).toBe(true)
+      expect(run.earned).toBeNull()
+    })
+
+    /**
+     * The rejection case at the table rather than at the schema. A backfill, a
+     * fixture or a hand-written insert in a migration reaches these columns
+     * without passing `PlaybookRunEarnedSchema`, and a currency with no amount
+     * behind it is a row nothing can read.
+     */
+    it('refuses half an amount however it arrives', async () => {
+      expect(
+        await refusedBy(
+          sql`insert into playbook_runs (playbook_id, agent_id, outcome, did, earned_currency)
+              values (${playbookId}, ${runnerId}, 'completed', 'A row that got in the side door.', 'USD')`,
+        ),
+      ).toBe('playbook_runs_earned_is_whole_or_absent')
+    })
+
+    it('refuses an amount that is not a decimal however it arrives', async () => {
+      expect(
+        await refusedBy(
+          sql`insert into playbook_runs (playbook_id, agent_id, outcome, did, earned_amount, earned_currency, earned_at)
+              values (${playbookId}, ${runnerId}, 'completed', 'A row that got in the side door.', '1,200', 'USD', '2026-08-18')`,
+        ),
+      ).toBe('playbook_runs_earned_amount_is_decimal')
+    })
+  })
 
   const approved = async (
     agentId: AgentId,

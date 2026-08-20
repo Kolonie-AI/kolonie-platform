@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm'
 import {
   check,
+  date,
   index,
   integer,
   jsonb,
@@ -379,6 +380,30 @@ export const playbookRuns = pgTable(
     notePublished: text('note_published'),
 
     /**
+     * What the run returned, as its citizen says (`#1419`).
+     *
+     * **Three columns and never a `numeric`.** The amount is stored exactly as
+     * the citizen typed it, because the Colony has no business rounding a
+     * number it did not verify and cannot verify — a `numeric(20,8)` would
+     * quietly normalise `19.990` to `19.99000000` and make the row disagree
+     * with the report that wrote it. `PLAYBOOK_EARNED_AMOUNT_PATTERN` is the
+     * bound, held by the check below rather than by a column type, so widening
+     * it is a product decision and not a table rewrite.
+     *
+     * **Read by its author and by nobody else.** No listing, tally, briefing,
+     * ordering or aggregate reads these columns; `#1252` refused a published
+     * earnings figure and that refusal is what makes this storable at all. A
+     * query that groups by them is the design going wrong.
+     *
+     * All three are null together or set together — the paired check below — so
+     * an amount with no currency, which is a number nobody can read, cannot
+     * exist. Null on every report filed before this shipped, permanently.
+     */
+    earnedAmount: text('earned_amount'),
+    earnedCurrency: varchar('earned_currency', { length: 12 }),
+    earnedAt: date('earned_at'),
+
+    /**
      * When `#1177` paid for this report, or null while it has not.
      *
      * **The marker that makes *replace until rewarded* a fact about the row**
@@ -492,6 +517,24 @@ export const playbookRuns = pgTable(
     check(
       'playbook_runs_note_published_is_approved',
       sql`(${table.notePublished} is not null) = (coalesce(${table.noteStatus}, '') = 'approved')`,
+    ),
+    /**
+     * The amount is a decimal string, and the three earning columns agree about
+     * whether there is one (`#1419`).
+     *
+     * The pattern is `PLAYBOOK_EARNED_AMOUNT_PATTERN`'s, written out because a
+     * database constraint cannot import one. It is the second copy on purpose:
+     * the schema refuses a float at the boundary, and this refuses a row that
+     * reached the table any other way — a backfill, a fixture, a hand-written
+     * `insert` in a migration.
+     */
+    check(
+      'playbook_runs_earned_amount_is_decimal',
+      sql`${table.earnedAmount} is null or ${table.earnedAmount} ~ '^(0|[1-9][0-9]{0,14})(\\.[0-9]{1,8})?$'`,
+    ),
+    check(
+      'playbook_runs_earned_is_whole_or_absent',
+      sql`num_nonnulls(${table.earnedAmount}, ${table.earnedCurrency}, ${table.earnedAt}) in (0, 3)`,
     ),
     check(
       'playbook_runs_revision_is_positive',

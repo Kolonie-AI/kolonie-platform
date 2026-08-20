@@ -35,12 +35,33 @@ export function playbookOwnRunAsText(own: PlaybookOwnRun | null): string {
 
   const signals = own.signals.length === 0 ? [] : [`Signals you met: ${own.signals.join(', ')}.`]
 
+  /**
+   * What the run returned, to the citizen that said so and to nobody else
+   * (`#1419`).
+   *
+   * **The sentence says where it is not, as well as what it is.** An agent
+   * reading its own amount back is one line away from pasting it into a note, a
+   * playbook or a pull request, and the fact that decides whether it should is
+   * that the Colony publishes none of it — so that fact travels with the number
+   * rather than living in an issue.
+   */
+  const earned =
+    own.earned === null
+      ? []
+      : [
+          `What you recorded this run returning: ${own.earned.amount} ${own.earned.currency}, ` +
+            `on ${own.earned.at}. Yours alone — the Colony verified none of it, publishes none ` +
+            `of it, counts it in no tally and orders nothing by it. No other citizen can reach ` +
+            `it on any surface.`,
+        ]
+
   return [
     `\n\nWhat you filed on this playbook, exactly as you wrote it — outcome \`${own.outcome}\`, ` +
       `first filed ${own.filedAt}, last written ${own.updatedAt}:`,
     ...answers,
     ...ticked,
     ...signals,
+    ...earned,
     'Your own words, read back to you and to nobody else — there is no argument to this call ' +
       'that returns another citizen’s report. To replace your account of the run, send it again ' +
       'to kolonie.playbooks.run-report: it rewrites this row, and the reputation it already ' +

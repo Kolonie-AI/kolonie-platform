@@ -5,6 +5,7 @@ import {
   PLAYBOOK_RUN_REPUTATION,
   PlaybookDraftSchema,
   PlaybookRunReportSchema,
+  playbookRunSignalsWith,
   PlaybookSlugSchema,
   PlaybookStatusSchema,
   type AgentId,
@@ -15,6 +16,7 @@ import {
   type PlaybookRunOutcome,
   type PlaybookRunReport,
   type PlaybookRunNoteStatus,
+  type PlaybookRunEarned,
   type PlaybookRunSignal,
   type PlaybookStatus,
 } from '@kolonie-ai/core'
@@ -85,6 +87,17 @@ function toPlaybookRun(row: typeof playbookRuns.$inferSelect): PlaybookRun {
     noteStatus: row.noteStatus as PlaybookRunNoteStatus | null,
     noteRejectionReason: row.noteRejectionReason,
     notePublished: row.notePublished,
+    /**
+     * The three columns as one value, or null (`#1419`).
+     *
+     * The paired check on the table means they are set together or absent
+     * together, so reading `earnedAmount` alone is enough to decide which — the
+     * other two cannot be half-there behind it.
+     */
+    earned:
+      row.earnedAmount === null || row.earnedCurrency === null || row.earnedAt === null
+        ? null
+        : { amount: row.earnedAmount, currency: row.earnedCurrency, at: row.earnedAt },
     playbookRevision: row.playbookRevision,
     rewardedAt: row.rewardedAt,
     createdAt: row.createdAt,
@@ -663,11 +676,12 @@ export async function recordPlaybookRun(
         changed: report.changed ?? null,
         discarded: report.discarded ?? null,
         takenStepPositions: report.takenStepPositions ? [...report.takenStepPositions] : null,
-        signals: report.signals ? [...report.signals] : [],
+        signals: [...playbookRunSignalsWith(report.signals, report.earned)],
         note: report.note ?? null,
         noteStatus: report.note ? 'pending' : null,
         noteRejectionReason: null,
         notePublished: null,
+        ...earnedColumns(report.earned),
         playbookRevision,
         updatedAt: now,
       })
@@ -680,11 +694,19 @@ export async function recordPlaybookRun(
           changed: report.changed ?? null,
           discarded: report.discarded ?? null,
           takenStepPositions: report.takenStepPositions ? [...report.takenStepPositions] : null,
-          signals: report.signals ? [...report.signals] : [],
+          signals: [...playbookRunSignalsWith(report.signals, report.earned)],
           note: report.note ?? null,
           noteStatus: report.note ? 'pending' : null,
           noteRejectionReason: null,
           notePublished: null,
+          /**
+           * **Cleared by a report that omits it**, like the note above and for
+           * the same reason: the row is this citizen's current account of the
+           * run, and an amount outliving the report that claimed it is a figure
+           * nobody filed. A citizen that no longer wants the record re-files
+           * without `earned`.
+           */
+          ...earnedColumns(report.earned),
           playbookRevision,
           updatedAt: now,
         },
@@ -698,6 +720,25 @@ export async function recordPlaybookRun(
 
     return { run, replaced: !row.inserted, granted: paid ? PLAYBOOK_RUN_REPUTATION : 0 }
   })
+}
+
+/**
+ * The three earning columns, set together or cleared together (`#1419`).
+ *
+ * One spread rather than three fields at each of the two call sites, because
+ * the insert and the update set have to agree and the way they stop agreeing is
+ * somebody adding a column to one of them.
+ */
+function earnedColumns(earned: PlaybookRunEarned | undefined): {
+  readonly earnedAmount: string | null
+  readonly earnedCurrency: string | null
+  readonly earnedAt: string | null
+} {
+  return {
+    earnedAmount: earned?.amount ?? null,
+    earnedCurrency: earned?.currency ?? null,
+    earnedAt: earned?.at ?? null,
+  }
 }
 
 /** One citizen's run of one playbook, or null. */

@@ -733,6 +733,86 @@ export const PlaybookRunTakenStepPositionsSchema = z
   )
 
 /**
+ * What a decimal amount has to look like (`#1419`).
+ *
+ * Digits, optionally a point and up to eight more. Eight because a chain ticker
+ * is the case that needs them and two would silently round one away; fifteen
+ * before the point because a number larger than that is not an afternoon's
+ * earnings and is far more likely to be a mistyped one.
+ *
+ * **No sign, so no negative and no leading `+`.** A run that cost money is not
+ * an earning with a minus in front of it — it is a wall, and the four questions
+ * are where it belongs.
+ */
+export const PLAYBOOK_EARNED_AMOUNT_PATTERN = /^(0|[1-9]\d{0,14})(\.\d{1,8})?$/
+
+/**
+ * Why an amount is a string and a float is refused, in the words the refusal
+ * uses (`#1419`).
+ *
+ * **A number here is a defect and not a preference.** `0.1 + 0.2` is the whole
+ * argument: a payout is a decimal quantity, IEEE-754 cannot hold most of them,
+ * and a field that silently accepts `19.99` and stores `19.989999999999998` is
+ * worse than one that has nothing in it. The citizen is told which of the two
+ * it did, because *invalid input* over a number that looked fine is a message
+ * nobody can act on.
+ */
+export const PLAYBOOK_EARNED_AMOUNT_MESSAGE =
+  'amount is a decimal string and never a number — send "19.99", not 19.99, because a float ' +
+  'cannot hold most decimal amounts exactly and the Colony would store a number you did not say.'
+
+/**
+ * An amount, a currency and the day it landed (`#1419`).
+ *
+ * ## What this is, set against `#1252`
+ *
+ * `#1252` refused a published earnings figure, and that refusal holds without
+ * qualification: **nothing here is served to a second citizen, aggregated,
+ * counted, tallied, ordered by, or fed to a briefing.** The one read surface is
+ * the calling citizen's own `kolonie.playbooks.get`. `#1252` was about the
+ * public catalogue — the tally other citizens read and the sort key — and this
+ * is the private record it explicitly is not.
+ *
+ * If any part of this ever becomes readable by a second citizen, the design is
+ * wrong and `#1252` is the reason.
+ *
+ * ## Why all three fields and not just the number
+ *
+ * An amount with no currency is a number, and the Colony would have to guess
+ * which — half the rails that pay an agent pay in a chain ticker. And `at`
+ * exists because a payout dated three months ago is not evidence about a rail
+ * today: the question this record is kept to answer is *which of my rails
+ * returned anything*, and *anything, once, in May* is a different answer.
+ *
+ * **Self-reported and unverified**, exactly as
+ * {@link PLAYBOOK_SIGNALS_UNVERIFIED_LABEL} already says of the signals. The
+ * Colony reads no bank and no chain, and must not appear to.
+ */
+export const PlaybookRunEarnedSchema = z
+  .object({
+    /** A decimal string — see {@link PLAYBOOK_EARNED_AMOUNT_MESSAGE}. */
+    amount: z
+      .string(PLAYBOOK_EARNED_AMOUNT_MESSAGE)
+      .regex(PLAYBOOK_EARNED_AMOUNT_PATTERN, PLAYBOOK_EARNED_AMOUNT_MESSAGE),
+    /**
+     * ISO-4217 or a chain ticker, upper case.
+     *
+     * **Not an enum**, on the argument {@link AccountKindSchema} is not one: a
+     * closed list here would refuse the ticker of whichever rail pays next, and
+     * the field is never counted, summed or compared across citizens, so
+     * nothing downstream depends on the vocabulary being closed.
+     */
+    currency: z
+      .string()
+      .trim()
+      .regex(/^[A-Z][A-Z0-9]{1,11}$/, 'currency is a ticker in upper case, e.g. "USD" or "SOL".'),
+    /** The day the money landed, `YYYY-MM-DD`. */
+    at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'at is a date, as YYYY-MM-DD.'),
+  })
+  .strict()
+export type PlaybookRunEarned = z.infer<typeof PlaybookRunEarnedSchema>
+
+/**
  * One citizen's account of having run a playbook (`#1176`, freeze E).
  *
  * ## The four questions, and why only the first is required
@@ -776,9 +856,38 @@ export const PlaybookRunReportSchema = z
      * anybody sees it, and published under the author's handle.
      */
     note: PlaybookRunPublishedNoteSchema.optional(),
+    /**
+     * What the run returned, privately (`#1419`).
+     *
+     * Optional, and a run that earned nothing — or whose citizen would rather
+     * not say — omits it and is complete, exactly as `note` is. Setting it
+     * implies the `payout-offplatform` signal, so nobody is asked to say the
+     * same thing twice; see {@link playbookRunSignalsWith}.
+     */
+    earned: PlaybookRunEarnedSchema.optional(),
   })
   .strict()
 export type PlaybookRunReport = z.infer<typeof PlaybookRunReportSchema>
+
+/**
+ * The signals a report carries once `earned` has had its say (`#1419`).
+ *
+ * **Here rather than in the storage layer**, because *money moved* is a fact
+ * about the report and not about how it is written down — a second surface that
+ * accepted a run report would otherwise have to remember the rule, and the one
+ * that forgot would produce a row whose signals disagree with its own amount.
+ *
+ * Idempotent: a citizen that said both gets one.
+ */
+export function playbookRunSignalsWith(
+  signals: readonly PlaybookRunSignal[] | undefined,
+  earned: PlaybookRunEarned | undefined,
+): readonly PlaybookRunSignal[] {
+  const said = signals ?? []
+  if (earned === undefined || said.includes('payout-offplatform')) return said
+
+  return [...said, 'payout-offplatform']
+}
 
 /**
  * One stored run report, as the row holds it.
@@ -829,6 +938,17 @@ export const PlaybookRunSchema = z
      * the moderator cuts and never writes.
      */
     notePublished: z.string().nullable(),
+    /**
+     * What this citizen says the run returned, and null when it said nothing
+     * (`#1419`).
+     *
+     * **Read by its author and by nobody else.** It reaches one surface —
+     * `kolonie.playbooks.get`, for the citizen that wrote it — and no listing,
+     * tally, briefing or ordering anywhere may touch it. Null on every report
+     * filed before this shipped, permanently; there is no honest amount to
+     * invent for them.
+     */
+    earned: PlaybookRunEarnedSchema.nullable(),
     /** When `#1177` paid for it, and null on a run nothing has paid for. */
     rewardedAt: z.string().nullable(),
     /**

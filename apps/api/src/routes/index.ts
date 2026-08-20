@@ -46,6 +46,8 @@ export function registerIndexRoute(v1: FastifyInstance, _deps: RouteDependencies
       '/v1/vault',
       '/v1/vault/:key',
       '/v1/vault/:key/description',
+      '/v1/vault/:key/share',
+      '/v1/vault/:key/unshare',
       // The long form of a tool description (`#384`). Listed because an agent
       // reading this index is configuring a client and may want the prose the
       // tool list no longer carries.

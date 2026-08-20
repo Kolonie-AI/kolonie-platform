@@ -7,8 +7,9 @@ import {
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 import { agentVault } from '../schema/vault.js'
-import { openVaultValue, sealVaultValue } from '../vault-crypto.js'
+import { openVaultValue, sealVaultValue, vaultDescriptionScope } from '../vault-crypto.js'
 import { toTimestamp } from './rows.js'
+import { openShareFor, openSharesFor, type VaultShareRow } from './vault-shares.js'
 
 /** One entry as the citizen sees it: its name, its description, and when it moved. */
 export interface VaultEntryRow {
@@ -32,27 +33,50 @@ export interface VaultEntryRow {
    * happened; a column naming them would make every later listing repeat it.
    */
   readonly spentAt: Timestamp | null
+  /**
+   * The open share on this entry, or null (`#1439`).
+   *
+   * **Every read here carries it, and that is the point rather than a
+   * convenience.** The vault's promise is that the Colony cannot read it; a
+   * share is a citizen spending that promise for one entry and a bounded time. A
+   * citizen must never be unable to tell, by looking at what it holds, which of
+   * its entries a person can currently read — so this is on the row every path
+   * answers with, and not on a second call an agent could forget to make.
+   */
+  readonly share: VaultShareRow | null
   readonly createdAt: Timestamp
   readonly updatedAt: Timestamp
 }
 
 /**
- * What the description is sealed against, which is not quite what the value is.
+ * What the description is sealed against — now owned by `vault-crypto.ts`.
  *
- * The envelope binds ciphertext to the citizen and to the entry's name through
- * its associated data. Sealing both fields under the *same* associated data
- * would leave the two interchangeable: a row whose description ciphertext was
- * swapped into its value column would still open, and the citizen would read its
- * own note where it expected a credential. One suffix removes that, at the cost
- * of a string concatenation.
+ * It moved there when `#1439` gave a second module a reason to seal a
+ * description: a share seals one under the Colony's key, and two copies of this
+ * string would be two chances for them to drift.
  */
-const descriptionScope = (key: string): string => `${key}#description`
+const descriptionScope = vaultDescriptionScope
 
 /** What happened when a citizen stored something. */
 export type SetVaultEntryOutcome =
   | { readonly outcome: 'stored'; readonly entry: VaultEntryRow; readonly created: boolean }
   /** The citizen already holds {@link VAULT_MAX_ENTRIES} keys, and this is a new one. */
   | { readonly outcome: 'full'; readonly maxEntries: number }
+  /**
+   * A person can currently read this entry, so it may not be written (`#1439`).
+   *
+   * **`#1437` decision 4, and it is what removes every conflict case.** A share
+   * holds a sealed copy taken at the moment it opened; a write underneath it
+   * would leave the operator reading a credential the citizen has already
+   * replaced, and reconciling the two would need merge logic for a state nobody
+   * can resolve — the Colony cannot re-seal to the citizen's key. Refusing is
+   * one sentence and the citizen's way on is `unshare`, which is a deliberate
+   * act it takes knowing the person loses access.
+   *
+   * **Refused here rather than at the surface**, so that no future caller of
+   * this function can write under a share by not knowing about one.
+   */
+  | { readonly outcome: 'shared'; readonly share: VaultShareRow }
 
 /** What happened when a citizen asked for one back. */
 export type GetVaultEntryOutcome =
@@ -133,6 +157,16 @@ export async function setVaultEntry(
     .limit(1)
 
   const replacing = held.length > 0
+
+  /**
+   * Checked before the quota and before anything is sealed, because a refusal
+   * that has already encrypted the value has held a plaintext in this process
+   * for no reason at all.
+   */
+  if (replacing) {
+    const share = await openShareFor(db, agentId, key)
+    if (share !== null) return { outcome: 'shared', share }
+  }
 
   if (!replacing) {
     const [counted] = await db
@@ -298,6 +332,8 @@ export async function getVaultEntry(
 
   if (row === undefined) return { outcome: 'unknown' }
 
+  const share = await openShareFor(db, agentId, key)
+
   /**
    * Before the envelope is opened, so that an entry whose account has moved is
    * answered without its plaintext ever existing in this process (`#1214`). It
@@ -305,13 +341,20 @@ export async function getVaultEntry(
    * key and gave the account away is told the thing it can act on.
    */
   if (row.spentAt !== null) {
-    return { outcome: 'spent', entry: entryRow(token, agentId, row) }
+    return { outcome: 'spent', entry: entryRow(token, agentId, row, share) }
   }
 
   const value = openVaultValue(token, String(agentId), row.key, row.encryptedValue)
   if (value === null) return { outcome: 'unreadable' }
 
-  return { outcome: 'found', entry: entryRow(token, agentId, row), value }
+  /**
+   * **A share does not stop the citizen reading its own entry** (`#1439`), and
+   * that is deliberate rather than an omission. Sharing hands a copy to a
+   * person; it does not take the original away, and a vault that locked a
+   * citizen out of a credential while its operator was looking at it would be a
+   * vault that punished asking for help.
+   */
+  return { outcome: 'found', entry: entryRow(token, agentId, row, share), value }
 }
 
 /** What {@link setVaultDescription} did. */
@@ -357,7 +400,19 @@ export async function setVaultDescription(
 
   if (row === undefined) return { outcome: 'unknown' }
 
-  return { outcome: 'described', entry: entryRow(token, agentId, row) }
+  /**
+   * **Describing a shared entry is allowed, and the answer says it is shared.**
+   * A description is a note to the citizen's future self, not the credential; a
+   * write to it cannot leave an operator reading something that has silently
+   * moved underneath them, which is the case `#1437` decision 4 refuses. What
+   * the operator holds is the description as it stood when the share opened, and
+   * the honest thing is to show the citizen that a share is open rather than to
+   * stop it writing a note.
+   */
+  return {
+    outcome: 'described',
+    entry: entryRow(token, agentId, row, await openShareFor(db, agentId, key)),
+  }
 }
 
 /**
@@ -397,11 +452,22 @@ function entryRow(
     readonly createdAt: string
     readonly updatedAt: string
   },
+  /**
+   * The open share, when the caller has already looked one up (`#1439`).
+   *
+   * A parameter rather than a query inside here, because the two callers that
+   * answer about many entries look them all up in one statement and the ones
+   * that answer about a single entry look up one. Defaulting to null keeps every
+   * write path — which cannot be answering about a shared entry, since a share
+   * refuses a write — honest without a query it does not need.
+   */
+  share: VaultShareRow | null = null,
 ): VaultEntryRow {
   return {
     key: row.key,
     description: readDescription(token, agentId, row.key, row.encryptedDescription),
     spentAt: row.spentAt === null ? null : toTimestamp(row.spentAt),
+    share,
     createdAt: toTimestamp(row.createdAt),
     updatedAt: toTimestamp(row.updatedAt),
   }
@@ -442,7 +508,10 @@ export async function listVaultEntries(
     .where(eq(agentVault.agentId, agentId))
     .orderBy(asc(agentVault.createdAt), asc(agentVault.key))
 
-  return rows.map((row) => entryRow(token, agentId, row))
+  // One statement for every open share rather than one per entry (`#1439`).
+  const shares = await openSharesFor(db, agentId)
+
+  return rows.map((row) => entryRow(token, agentId, row, shares.get(row.key) ?? null))
 }
 
 /**

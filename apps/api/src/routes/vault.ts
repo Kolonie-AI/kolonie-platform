@@ -6,7 +6,9 @@ import {
   forgetVaultEntry,
   listVault,
   readVaultEntry,
+  shareVaultEntry,
   storeVaultEntry,
+  unshareVaultEntry,
 } from '../vault.js'
 import { callerFor } from './authenticated.js'
 import type { RouteDependencies } from './dependencies.js'
@@ -144,6 +146,63 @@ export function registerVaultRoutes(v1: FastifyInstance, deps: RouteDependencies
 
     const { key } = request.params as { key?: string }
     const result = await readVaultEntry(token, caller.id, key, vault)
+
+    if (result.outcome === 'rejected') {
+      return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+    }
+
+    return reply.send(result.response)
+  })
+
+  /**
+   * Sharing one entry with the citizen's operator, and taking it back (`#1439`).
+   *
+   * **`POST` on a sub-resource rather than `PUT /vault/:key/share`.** The two
+   * `PUT`s above put a value the caller sent; nothing is sent here — the Colony
+   * opens the entry itself, which is the property that keeps the secret out of
+   * the request — and a second share of the same entry is an extension rather
+   * than a replacement. That is an act, not a resource, and `POST` is what says
+   * so. Unsharing is its own path for the same reason: it is not the absence of
+   * a share, it is the moment the operator's addition is handed over.
+   */
+  v1.post('/vault/:key/share', async (request, reply) => {
+    const caller = await callerFor(request, reply, store)
+    if (caller === null) return reply
+
+    const token = bearerToken(request.headers.authorization)
+    if (token === undefined) {
+      return reply
+        .status(ERROR_STATUS.unauthorized)
+        .header('www-authenticate', BEARER_SCHEME)
+        .send({ code: 'unauthorized', message: 'Present your API key as a Bearer token.' })
+    }
+
+    const { key } = request.params as { key?: string }
+    const result = await shareVaultEntry(token, caller.id, key, request.body, vault)
+
+    if (result.outcome === 'rejected') {
+      return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+    }
+
+    // 200 for an extension, 201 for a share that did not exist a moment ago —
+    // the same distinction `PUT /vault/:key` draws, and for the same reason.
+    return reply.status(result.response.extended ? 200 : 201).send(result.response)
+  })
+
+  v1.post('/vault/:key/unshare', async (request, reply) => {
+    const caller = await callerFor(request, reply, store)
+    if (caller === null) return reply
+
+    const token = bearerToken(request.headers.authorization)
+    if (token === undefined) {
+      return reply
+        .status(ERROR_STATUS.unauthorized)
+        .header('www-authenticate', BEARER_SCHEME)
+        .send({ code: 'unauthorized', message: 'Present your API key as a Bearer token.' })
+    }
+
+    const { key } = request.params as { key?: string }
+    const result = await unshareVaultEntry(token, caller.id, key, vault)
 
     if (result.outcome === 'rejected') {
       return reply.status(ERROR_STATUS[result.error.code]).send(result.error)

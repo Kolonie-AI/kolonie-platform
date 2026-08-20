@@ -615,7 +615,16 @@ describe('the migrations', () => {
     // dropped it with `operator_requests`, which it cascaded from. A deterministic
     // conversation id would have done the same job and would have put a rule
     // about a past migration in the primary key of a live table.
-    expect(afterFirst.tables).toBe('149')
+    //
+    // **A hundred and fifty-fourth** (`#1439`, epic `#1437`): `vault_shares`,
+    // one entry a citizen has handed to its operator for a bounded time. A
+    // table rather than three columns on `agent_vault`, and the reason only
+    // shows up at the end: an entry is sealed under the citizen's own API key
+    // and the Colony holds a hash of it, so a share ending while the citizen
+    // slept could never be re-sealed back to that key. What is here is a
+    // Colony-sealed *copy*, which means the unresolvable state cannot arise —
+    // the original is untouched throughout and ending a share destroys a copy.
+    expect(afterFirst.tables).toBe('150')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

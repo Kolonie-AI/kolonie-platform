@@ -587,6 +587,17 @@ export function startRunner(deps: LoopDependencies, options: RunnerOptions = {})
               destroyed: slots,
             })
 
+          // And the channel that replaces the three above them (`#1439`). Same
+          // tick, same rule: a secret the Colony is carrying on a citizen's
+          // behalf is destroyed when the window it was given runs out, whether
+          // or not anybody came for it.
+          const shares = await deps.queue.destroyExpiredVaultShares()
+          if (shares > 0)
+            log.info(`destroyed ${shares} expired vault share(s)`, {
+              event: 'vault.shares.expired.destroyed',
+              destroyed: shares,
+            })
+
           // Same tick, same reason as the line above: nobody is present to do
           // it, and a count that stays at zero is how a broken pruner hides.
           const pruned = await deps.queue.pruneContacts()

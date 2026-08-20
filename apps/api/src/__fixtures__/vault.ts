@@ -1,5 +1,17 @@
-import { VAULT_MAX_ENTRIES, type AgentId } from '@kolonie-ai/core'
-import type { GetVaultEntryOutcome, SetVaultEntryOutcome, VaultEntryRow } from '@kolonie-ai/db'
+import {
+  VAULT_MAX_ENTRIES,
+  VAULT_SHARE_DEFAULT_DAYS,
+  VAULT_SHARE_MAX_DAYS,
+  type AgentId,
+} from '@kolonie-ai/core'
+import type {
+  GetVaultEntryOutcome,
+  SetVaultEntryOutcome,
+  ShareVaultEntryOutcome,
+  UnshareVaultEntryOutcome,
+  VaultEntryRow,
+  VaultShareRow,
+} from '@kolonie-ai/db'
 import type { VaultDependencies, VaultStore } from '../vault.js'
 
 /**
@@ -43,6 +55,21 @@ export interface FakeVault extends VaultStore {
    * calls it, and `apps/api` is on the hook for what the outcome turns into.
    */
   readonly spend: (agentId: AgentId, key: string) => void
+  /**
+   * Whether this citizen has a person linked (`#1439`).
+   *
+   * True by default, because almost every test is about what sharing does
+   * rather than about the one refusal that comes before it — and the refusal is
+   * a single assertion that flips this.
+   */
+  readonly setOperator: (linked: boolean) => void
+  /**
+   * Write what the operator left, as `#1440` will from the far end.
+   *
+   * Here so that `apps/api` can assert the one thing it is on the hook for: the
+   * addition is handed over exactly once, by `unshare`, and never by a read.
+   */
+  readonly operatorWrites: (agentId: AgentId, key: string, addition: string) => void
 }
 
 interface Held {
@@ -62,9 +89,36 @@ interface Held {
   updatedAt: string
 }
 
+interface Shared {
+  readonly purpose: string
+  readonly sharedAt: string
+  readonly expiresAt: string
+  addition: string | null
+}
+
 export function fakeVault(): FakeVault {
   const held = new Map<string, Held>()
+  const shares = new Map<string, Shared>()
+  let linked = true
   const at = (agentId: AgentId | string, key: string) => `${String(agentId)}\0${key}`
+
+  /**
+   * The share as a reader sees it, or null once its window has passed.
+   *
+   * Expiry is read here rather than swept, which is the real store's rule: a
+   * share past its window answers as no share whether or not anything ran.
+   */
+  const shareOf = (agentId: AgentId | string, key: string): VaultShareRow | null => {
+    const open = shares.get(at(agentId, key))
+    if (open === undefined || Date.parse(open.expiresAt) <= Date.now()) return null
+
+    return {
+      purpose: open.purpose,
+      sharedAt: open.sharedAt as VaultShareRow['sharedAt'],
+      expiresAt: open.expiresAt as VaultShareRow['expiresAt'],
+      operatorWrote: open.addition !== null,
+    }
+  }
 
   const keysOf = (agentId: AgentId) =>
     [...held.keys()].filter((composite) => composite.startsWith(`${String(agentId)}\0`))
@@ -72,6 +126,11 @@ export function fakeVault(): FakeVault {
   const store: VaultStore = {
     set: async (token, agentId, key, value, description): Promise<SetVaultEntryOutcome> => {
       const existing = held.get(at(agentId, key))
+
+      // `#1437` decision 4: refused while a person can read it, so that the
+      // copy they hold cannot silently stop being what the entry says.
+      const open = shareOf(agentId, key)
+      if (existing !== undefined && open !== null) return { outcome: 'shared', share: open }
 
       // The quota gates new names only — an agent must always be able to
       // rewrite something it already holds. Same rule as the real store.
@@ -101,6 +160,7 @@ export function fakeVault(): FakeVault {
           key,
           description: description ?? existing?.description ?? null,
           spentAt: null,
+          share: null,
           createdAt,
           updatedAt: now,
         },
@@ -122,6 +182,7 @@ export function fakeVault(): FakeVault {
           key,
           description: entry.token === token ? description : null,
           spentAt: entry.spentAt,
+          share: shareOf(agentId, key),
           createdAt: entry.createdAt,
           updatedAt: entry.updatedAt,
         },
@@ -136,6 +197,7 @@ export function fakeVault(): FakeVault {
         key,
         description: entry.description,
         spentAt: entry.spentAt,
+        share: shareOf(agentId, key),
         createdAt: entry.createdAt,
         updatedAt: entry.updatedAt,
       }
@@ -159,6 +221,7 @@ export function fakeVault(): FakeVault {
             // store answers an entry it cannot open.
             description: entry?.token === token ? (entry?.description ?? null) : null,
             spentAt: entry?.spentAt ?? null,
+            share: shareOf(agentId, key),
             createdAt: entry?.createdAt ?? '',
             updatedAt: entry?.updatedAt ?? '',
           }
@@ -166,6 +229,48 @@ export function fakeVault(): FakeVault {
         .sort((left, right) => left.createdAt.localeCompare(right.createdAt)),
 
     delete: async (agentId, key): Promise<boolean> => held.delete(at(agentId, key)),
+
+    share: async ({ token, agentId, key, purpose, days }): Promise<ShareVaultEntryOutcome> => {
+      const entry = held.get(at(agentId, key))
+      if (entry === undefined) return { outcome: 'unknown' }
+      if (entry.spentAt !== null) return { outcome: 'spent' }
+      // The rule the real store enforces with the cipher: nothing can be copied
+      // out of an entry this token cannot open.
+      if (entry.token !== token) return { outcome: 'unreadable' }
+
+      const open = shareOf(agentId, key)
+      const now = new Date().toISOString()
+      const window = Math.min(days ?? VAULT_SHARE_DEFAULT_DAYS, VAULT_SHARE_MAX_DAYS)
+      const expiresAt = new Date(Date.now() + window * 86_400_000).toISOString()
+
+      const existing = shares.get(at(agentId, key))
+      shares.set(at(agentId, key), {
+        purpose,
+        // Extending keeps the first stamp: it means *when a person first got
+        // this*, which is what a citizen weighing a take-back wants.
+        sharedAt: open === null ? now : (existing?.sharedAt ?? now),
+        expiresAt,
+        addition: open === null ? null : (existing?.addition ?? null),
+      })
+
+      return {
+        outcome: 'shared',
+        share: shareOf(agentId, key) as VaultShareRow,
+        extended: open !== null,
+      }
+    },
+
+    unshare: async (agentId, key): Promise<UnshareVaultEntryOutcome> => {
+      const open = shares.get(at(agentId, key))
+      if (open === undefined) return { outcome: 'not-shared' }
+
+      shares.delete(at(agentId, key))
+      // Handed over once, and an expired share still gives it up: the window
+      // governs what the person may read, and what they left is the citizen's.
+      return { outcome: 'unshared', operatorAddition: open.addition }
+    },
+
+    hasOperator: async () => linked,
   }
 
   return {
@@ -190,6 +295,13 @@ export function fakeVault(): FakeVault {
       }
 
       return { resealed, unreadable }
+    },
+    setOperator: (value) => {
+      linked = value
+    },
+    operatorWrites: (agentId, key, addition) => {
+      const open = shares.get(at(agentId, key))
+      if (open !== undefined) open.addition = addition
     },
     spend: (agentId, key) => {
       const entry = held.get(at(agentId, key))

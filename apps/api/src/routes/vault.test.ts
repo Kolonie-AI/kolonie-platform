@@ -45,7 +45,7 @@ import { fakeAccounts } from '../__fixtures__/accounts.js'
 import { fakeAccountOffers } from '../__fixtures__/account-offers.js'
 import { fakeConsole } from '../__fixtures__/console.js'
 import { fakeVault, type FakeVault } from '../__fixtures__/vault.js'
-import { VAULT_FULL, VAULT_SEALED_WITH_ANOTHER_KEY, VAULT_SPENT } from '../vault.js'
+import { VAULT_FULL, VAULT_SEALED_WITH_ANOTHER_KEY, VAULT_SHARED, VAULT_SPENT } from '../vault.js'
 import { fakeErasureDesk } from '../__fixtures__/erasure.js'
 import { erasure } from '../erasure.js'
 import { noObstruction } from '../__fixtures__/obstruction.js'
@@ -502,5 +502,154 @@ describe('the description on a vault entry', () => {
 
   it('answers 404 for an entry that does not exist', async () => {
     expect((await describeEntry('never-written', { description: 'x' })).statusCode).toBe(404)
+  })
+})
+
+/**
+ * Sharing one entry with the citizen's operator (`#1439`, epic `#1437`).
+ *
+ * What `apps/api` is on the hook for here is the shape of the exchange, not the
+ * sealing: that the value never appears in the request, that the refusals reach
+ * the caller as the right status codes, and that the share is visible on every
+ * read of the vault afterwards. Whether the copy is really sealed under the
+ * Colony's key is `packages/db`'s to prove, and `vault-shares.test.ts` does.
+ */
+describe('sharing an entry with an operator', () => {
+  const share = (key: string, body: unknown, credential = apiKey) =>
+    app.inject({
+      method: 'POST',
+      url: `/v1/vault/${key}/share`,
+      headers: { authorization: `Bearer ${credential}`, 'content-type': 'application/json' },
+      payload: JSON.stringify(body),
+    })
+
+  const unshare = (key: string, credential = apiKey) =>
+    app.inject({
+      method: 'POST',
+      url: `/v1/vault/${key}/unshare`,
+      headers: { authorization: `Bearer ${credential}` },
+    })
+
+  it('takes the key and never the value', async () => {
+    await put('github', { value: 'hunter2' })
+
+    const shared = await share('github', { purpose: 'put a card on it' })
+
+    expect(shared.statusCode).toBe(201)
+    // Not in the request, and not in the answer either: the Colony read the
+    // entry itself, which is the whole reason the secret is not in this hop.
+    expect(shared.body).not.toContain('hunter2')
+    expect(shared.json()).toMatchObject({
+      extended: false,
+      entry: { key: 'github', share: { purpose: 'put a card on it' } },
+    })
+  })
+
+  it('refuses a body carrying a value at all', async () => {
+    await put('github', { value: 'hunter2' })
+
+    // `.strict()` on the request schema: a citizen that thought it had to send
+    // the secret is told it does not, rather than having it silently ignored.
+    const refused = await share('github', { purpose: 'a card', value: 'hunter2' })
+
+    expect(refused.statusCode).toBe(422)
+  })
+
+  it('shows the share on every read of the vault', async () => {
+    await put('github', { value: 'hunter2' })
+    await put('mailbox', { value: 'hunter3' })
+    await share('github', { purpose: 'put a card on it' })
+
+    const read = await get('github')
+    expect(read.json().entry.share).toMatchObject({ purpose: 'put a card on it' })
+
+    const listed = await list()
+    const entries = listed.json().entries as { key: string; share: unknown }[]
+
+    expect(entries.find((entry) => entry.key === 'github')?.share).not.toBeNull()
+    expect(entries.find((entry) => entry.key === 'mailbox')?.share).toBeNull()
+    // Still no values in a listing, share or no share.
+    expect(listed.body).not.toContain('hunter2')
+  })
+
+  it('extends rather than opening a second share, and says which it did', async () => {
+    await put('github', { value: 'hunter2' })
+
+    const first = await share('github', { purpose: 'a card', days: 3 })
+    const again = await share('github', { purpose: 'a card and the billing address' })
+
+    expect(first.statusCode).toBe(201)
+    expect(again.statusCode).toBe(200)
+    expect(again.json()).toMatchObject({
+      extended: true,
+      entry: { share: { purpose: 'a card and the billing address' } },
+    })
+  })
+
+  it('refuses a window longer than the maximum', async () => {
+    await put('github', { value: 'hunter2' })
+
+    expect((await share('github', { purpose: 'a card', days: 31 })).statusCode).toBe(422)
+  })
+
+  it('refuses a write while the entry is shared, and names the way on', async () => {
+    await put('github', { value: 'hunter2' })
+    await share('github', { purpose: 'put a card on it' })
+
+    const refused = await put('github', { value: 'hunter4' })
+
+    expect(refused.statusCode).toBe(ERROR_STATUS.conflict)
+    expect(refused.json().details.reason).toBe(VAULT_SHARED)
+    expect(refused.json().message).toContain('kolonie.vault.unshare')
+
+    // And the entry is what it was: a refusal that had already written would be
+    // the conflict this refusal exists to remove.
+    expect((await get('github')).json().value).toBe('hunter2')
+  })
+
+  it('hands the operator’s addition back once, and lets the write through again', async () => {
+    await put('github', { value: 'hunter2' })
+    await share('github', { purpose: 'put a card on it' })
+    vault.operatorWrites(agentId, 'github', 'billing PIN 4417')
+
+    // A read must not carry it: the listing says only *they wrote something*.
+    expect((await get('github')).body).not.toContain('4417')
+    expect((await list()).json().entries[0].share.operatorWrote).toBe(true)
+
+    const taken = await unshare('github')
+
+    expect(taken.statusCode).toBe(200)
+    expect(taken.json()).toMatchObject({
+      key: 'github',
+      operatorAddition: 'billing PIN 4417',
+      entry: { share: null },
+    })
+
+    expect((await unshare('github')).statusCode).toBe(404)
+    expect((await put('github', { value: 'hunter4' })).statusCode).toBe(200)
+  })
+
+  it('refuses a citizen with nobody linked, and names kolonie.operator.link', async () => {
+    await put('github', { value: 'hunter2' })
+    vault.setOperator(false)
+
+    const refused = await share('github', { purpose: 'put a card on it' })
+
+    // `#918`'s lesson, one channel along: *nobody has looked yet* and *nobody
+    // could ever look* are the same silence from here, and only one is fixable.
+    expect(refused.statusCode).toBe(422)
+    expect(refused.json().message).toContain('kolonie.operator.link')
+  })
+
+  it('refuses an entry that is not there, and one whose account moved', async () => {
+    expect((await share('never-written', { purpose: 'x' })).statusCode).toBe(404)
+
+    await put('github', { value: 'hunter2' })
+    vault.spend(agentId, 'github')
+
+    const spent = await share('github', { purpose: 'put a card on it' })
+
+    expect(spent.statusCode).toBe(ERROR_STATUS.conflict)
+    expect(spent.json().details.reason).toBe(VAULT_SPENT)
   })
 })

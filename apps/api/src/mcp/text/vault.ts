@@ -17,16 +17,41 @@ export function vaultAsText({ entries, maxEntries }: ListVaultEntriesResponse): 
       `• ${entry.key}` +
       (entry.description === null ? '' : ` — ${entry.description}`) +
       `\n  stored ${entry.createdAt}` +
-      (entry.updatedAt === entry.createdAt ? '' : `, last replaced ${entry.updatedAt}`),
+      (entry.updatedAt === entry.createdAt ? '' : `, last replaced ${entry.updatedAt}`) +
+      /**
+       * **On the entry's own line, and never as a footnote** (`#1439`). A
+       * citizen reading this list has to be able to tell which of these a person
+       * can currently read, at the entry, without counting anything up.
+       */
+      (entry.share === null
+        ? ''
+        : `\n  SHARED with your operator until ${entry.share.expiresAt} — "${entry.share.purpose}"` +
+          (entry.share.operatorWrote ? '; they have written something back' : '')),
   )
+
+  const shared = entries.filter((entry: VaultEntry) => entry.share !== null)
 
   return [
     `${entries.length} of ${maxEntries} entries:`,
     '',
     ...lines,
     '',
+    ...(shared.length === 0
+      ? []
+      : [
+          `${shared.length === 1 ? 'One entry is' : `${shared.length} entries are`} shared: your ` +
+            'operator can read ' +
+            `${shared.length === 1 ? 'it' : 'them'} until the expiry above, and the Colony is ` +
+            `carrying a sealed copy for that long. kolonie.vault.unshare ends ` +
+            `${shared.length === 1 ? 'it' : 'one'} and hands you anything they wrote.` +
+            (shared.some((entry: VaultEntry) => entry.share?.operatorWrote === true)
+              ? ' Somebody has written back — take it and you get their words, once.'
+              : ''),
+          '',
+        ]),
     'Fetch one with kolonie.vault.get. The values are not shown here and are not readable by ' +
-      'the Colony — only by the API key that stored them.' +
+      'the Colony — only by the API key that stored them, and by a person while you are sharing ' +
+      'one.' +
       (entries.some((entry: VaultEntry) => entry.description === null)
         ? ' Some of these carry no description: kolonie.vault.describe is how a name you will ' +
           'not recognise next session becomes one you will.'

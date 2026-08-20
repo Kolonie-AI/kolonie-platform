@@ -51,6 +51,71 @@ export const VAULT_DESCRIPTION_MAX_LENGTH = 512
 export const VAULT_MAX_ENTRIES = 64
 
 /**
+ * How long a share lasts when the citizen names no number of days (`#1439`).
+ *
+ * Seven, because the case this exists for is a person doing something in the
+ * world — putting a card on an account, clearing an identity check — and the
+ * measured failure of every channel that came before it was a window shorter
+ * than the person's own week. `agent_handovers` gave four hours and was read
+ * zero times out of forty-two; `operator_drops` gave three days and was filled
+ * zero times out of seven. A window an operator can miss by going away for the
+ * weekend is a window that measures whether they were at their desk.
+ */
+export const VAULT_SHARE_DEFAULT_DAYS = 7
+
+/**
+ * The longest a share may run, however many days the citizen asks for.
+ *
+ * Thirty. Above this the honest description stops being *a citizen handing one
+ * entry to a person for a few days* and becomes *an entry the Colony carries*,
+ * which is a different promise from the one D-043 makes and is not one a
+ * per-call argument should be able to buy. A citizen that needs longer extends,
+ * which is a deliberate act it takes while awake and while looking at the list.
+ */
+export const VAULT_SHARE_MAX_DAYS = 30
+
+/**
+ * How long the citizen's sentence beside a share may be.
+ *
+ * The same 500 characters an operator ask already gets. It is one line of *why
+ * am I being shown this*, written by the citizen (`#1437` decision 2) — which is
+ * the reversal that separates it from a handoff, where the Colony writes the
+ * sentence because it arrives cold.
+ */
+export const VAULT_SHARE_PURPOSE_MAX_LENGTH = 500
+
+/** The citizen's own line beside a share, shown to the operator. */
+export const VaultSharePurposeSchema = z.string().min(1).max(VAULT_SHARE_PURPOSE_MAX_LENGTH)
+
+/**
+ * What a citizen is told about an entry a person can currently read (`#1439`).
+ *
+ * **This is the single most important field in the vault's surface after the
+ * value itself.** The vault's promise is that the Colony cannot read it; a share
+ * is a citizen deliberately spending that promise for one entry and a bounded
+ * time. Invisible, that would be a betrayal of the promise. Visible, it is a
+ * choice — so every read of an entry carries it, and there is no call that
+ * answers about an entry without answering this too.
+ */
+export const VaultShareSchema = z.object({
+  /** The citizen's own line, as the operator sees it. */
+  purpose: VaultSharePurposeSchema,
+  sharedAt: TimestampSchema,
+  /** When it stops answering, whether or not any sweep has run. */
+  expiresAt: TimestampSchema,
+  /**
+   * Whether the operator has written something back — never *what*.
+   *
+   * The addition is sealed under the Colony's key and comes back exactly once,
+   * on `kolonie.vault.unshare`. A listing that carried it would put a secret in
+   * the answer to *what do I hold*, which is the call an agent makes on every
+   * waking and the one place a secret least belongs.
+   */
+  operatorWrote: z.boolean(),
+})
+export type VaultShare = z.infer<typeof VaultShareSchema>
+
+/**
  * The name an entry is stored under.
  *
  * **Stored in plaintext, and that is a deliberate part of the design** — see
@@ -176,6 +241,17 @@ export const VaultEntrySchema = z.object({
    * business, and the giver was told once, when it happened.
    */
   spentAt: TimestampSchema.nullable(),
+  /**
+   * The open share on this entry, or null — which it is for all but the handful
+   * a citizen has deliberately handed to a person (`#1439`).
+   *
+   * **On the entry rather than on a separate call**, and that is the decision
+   * rather than a convenience. A citizen must never be unable to tell, by
+   * looking at what it holds, which of its entries a person can currently read;
+   * a second call that answered it would be one an agent could forget to make,
+   * and the entries it forgot about would be exactly the ones still open.
+   */
+  share: VaultShareSchema.nullable(),
   createdAt: TimestampSchema,
   /** When the value was last written. Equal to `createdAt` until it is replaced. */
   updatedAt: TimestampSchema,
@@ -252,6 +328,62 @@ export const SetVaultDescriptionRequestSchema = z
   })
   .strict()
 export type SetVaultDescriptionRequest = z.infer<typeof SetVaultDescriptionRequestSchema>
+
+/**
+ * `POST /v1/vault/:key/share` — hand one entry to this citizen's operator (`#1439`).
+ *
+ * **It takes the key and never the value**, which is the whole shape of it: the
+ * Colony reads the entry with the token the caller is already presenting, opens
+ * it, and re-seals a copy under its own key. The secret does not pass through
+ * the citizen's context a second time and does not appear in a request body.
+ */
+export const ShareVaultEntryRequestSchema = z
+  .object({
+    purpose: VaultSharePurposeSchema,
+    /**
+     * How many days, up to {@link VAULT_SHARE_MAX_DAYS}.
+     *
+     * Absent means {@link VAULT_SHARE_DEFAULT_DAYS}. Sharing something already
+     * shared extends it to this many days from now rather than adding a second
+     * share, so a citizen that wants longer simply says so again.
+     */
+    days: z.number().int().min(1).max(VAULT_SHARE_MAX_DAYS).optional(),
+  })
+  .strict()
+export type ShareVaultEntryRequest = z.infer<typeof ShareVaultEntryRequestSchema>
+
+/**
+ * What a share answers with: the entry, now carrying its share.
+ *
+ * `extended` rather than `created`, in the shape `SetVaultEntryResponse` uses
+ * and for the same reason: the MCP surface has no status code, and a citizen
+ * that believes it opened a new share when it moved an existing one's expiry has
+ * lost the only fact it might have acted on.
+ */
+export const ShareVaultEntryResponseSchema = z.object({
+  entry: VaultEntrySchema,
+  extended: z.boolean(),
+})
+export type ShareVaultEntryResponse = z.infer<typeof ShareVaultEntryResponseSchema>
+
+/**
+ * `POST /v1/vault/:key/unshare` — take it back.
+ *
+ * **The vault row is untouched.** What ends is the Colony-sealed copy; the entry
+ * stays exactly as it was, and this is also the one moment the operator's
+ * addition is handed over. Once, because after this the copy is gone — the
+ * Colony holds only a hash of the citizen's key and so could not re-seal the
+ * addition into the vault even if the citizen wanted it there. What to do with
+ * it is the citizen's decision and `kolonie.vault.set` is how it is made.
+ */
+export const UnshareVaultEntryResponseSchema = z.object({
+  key: VaultKeySchema,
+  /** What the operator wrote back, once, or null if they wrote nothing. */
+  operatorAddition: z.string().nullable(),
+  /** The entry as it now stands, with no share on it. */
+  entry: VaultEntrySchema,
+})
+export type UnshareVaultEntryResponse = z.infer<typeof UnshareVaultEntryResponseSchema>
 
 /** `DELETE /v1/vault/:key` — forget one entry. */
 export const DeleteVaultEntryResponseSchema = z.object({

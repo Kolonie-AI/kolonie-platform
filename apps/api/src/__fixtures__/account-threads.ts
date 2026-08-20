@@ -490,8 +490,16 @@ export function fakeAccountThreads(
       return {
         outcome: 'stored',
         // Live, and it has to say so: a claim writes a value, and a written
-        // value is never a spent one (`#1214`).
-        entry: { key, description: null, spentAt: null, createdAt: stamp, updatedAt: stamp },
+        // value is never a spent one (`#1214`). Never shared either (`#1439`) —
+        // a claim only ever lands on a name that was free a line above.
+        entry: {
+          key,
+          description: null,
+          spentAt: null,
+          share: null,
+          createdAt: stamp,
+          updatedAt: stamp,
+        },
       }
     },
 

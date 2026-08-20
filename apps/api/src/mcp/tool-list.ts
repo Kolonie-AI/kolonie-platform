@@ -530,6 +530,16 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.vault.describe',
   'kolonie.vault.delete',
   /**
+   * The one entry a citizen hands to a person, and takes back (`#1439`).
+   *
+   * Beside the vault rather than under `operator`, because what a citizen is
+   * choosing between is *which of my entries* and not *which channel*: `#1437`
+   * retires the channels, and the vault is where the thing being shared already
+   * lives.
+   */
+  'kolonie.vault.share',
+  'kolonie.vault.unshare',
+  /**
    * The two that let a citizen leave (#93). Authenticated like everything else,
    * and deliberately visible in the tool list at *every* status — a candidate, a
    * citizen and a banned agent all hold this right, and a right nobody is told

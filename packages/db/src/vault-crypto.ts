@@ -95,6 +95,25 @@ function associatedData(agentId: string, key: string): Buffer {
 }
 
 /**
+ * What a description is sealed against, which is not quite what the value is.
+ *
+ * The envelope binds ciphertext to the citizen and to the entry's name through
+ * its associated data. Sealing both fields under the *same* associated data
+ * would leave the two interchangeable: a row whose description ciphertext was
+ * swapped into its value column would still open, and the citizen would read its
+ * own note where it expected a credential. One suffix removes that, at the cost
+ * of a string concatenation.
+ *
+ * **It lives here rather than in `storage/vault.ts` because two modules seal a
+ * description now** (`#1439`): the vault itself, under the citizen's key, and a
+ * share, under the Colony's. Two copies of this string would be two chances for
+ * them to drift, and a drift here is a description that opens as nothing.
+ */
+export function vaultDescriptionScope(key: string): string {
+  return `${key}#description`
+}
+
+/**
  * Encrypt one value for one citizen, under the key it is presenting right now.
  *
  * The returned string is what goes in `agent_vault.encrypted_value`, and it is

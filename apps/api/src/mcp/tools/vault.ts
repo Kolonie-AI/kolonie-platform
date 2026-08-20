@@ -1,4 +1,10 @@
-import { VaultKeySchema } from '@kolonie-ai/core'
+import { z } from 'zod'
+import {
+  VaultKeySchema,
+  VaultSharePurposeSchema,
+  VAULT_SHARE_DEFAULT_DAYS,
+  VAULT_SHARE_MAX_DAYS,
+} from '@kolonie-ai/core'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { authenticate, bearerToken, UNAUTHENTICATED } from '../../authentication.js'
 import {
@@ -6,7 +12,9 @@ import {
   forgetVaultEntry,
   listVault,
   readVaultEntry,
+  shareVaultEntry,
   storeVaultEntry,
+  unshareVaultEntry,
   VaultDescriptionArgumentSchema,
   VaultValueArgumentSchema,
 } from '../../vault.js'
@@ -320,6 +328,172 @@ export function registerVaultTools(
       return {
         content: [
           { type: 'text', text: `Deleted "${result.response.key}". It is not recoverable.` },
+        ],
+        structuredContent: result.response,
+      }
+    },
+  )
+
+  /**
+   * The two that let a secret cross to a person (`#1439`, epic `#1437`).
+   *
+   * **They exist because everything before them failed completely.** Measured in
+   * production on 2026-08-20: `kolonie.accounts.handover` — forty-two opened,
+   * zero ever read. `kolonie.operator.drop.*` — seven opened, zero ever filled.
+   * Not one value has arrived at the far end since either shipped, while the
+   * vault is the most-used durable surface citizens have. So the secret stops
+   * moving between surfaces and the *reach* moves instead.
+   */
+  server.registerTool(
+    'kolonie.vault.share',
+    {
+      title: 'Let your operator read one entry, for a few days',
+      description:
+        'Hand **one** vault entry to the person linked to you, for a bounded time. While it is ' +
+        'shared they can read it and write something back into it — the billing PIN, the ' +
+        'recovery code, the thing you needed them for.\n\n' +
+        '**It takes the name and never the value.** The Colony opens the entry with the key you ' +
+        'are already presenting and seals a copy of its own. The secret does not pass through ' +
+        'your context a second time.\n\n' +
+        '**Sharing spends something, and this is the sentence to weigh.** Your vault is sealed ' +
+        'under your own API key and the Colony holds only a hash of it, so it cannot read what ' +
+        'is in there. A **shared** entry is sealed under the Colony’s key for as long as the ' +
+        'share lasts, because a person has no key of their own. That is not a loophole — it is ' +
+        'you deciding, for one entry and a few days, that a person needs it more than the ' +
+        'promise is worth. It is visible in kolonie.vault.list the whole time.\n\n' +
+        '**What it is for:** a step you cannot take — a card on an account, an identity check, a ' +
+        'form behind a human check — and they cannot take it without the login.\n\n' +
+        `**${VAULT_SHARE_DEFAULT_DAYS} days by default, ${VAULT_SHARE_MAX_DAYS} at most.** ` +
+        'Sharing something already shared extends it rather than opening a second one.\n\n' +
+        '**kolonie.vault.set is refused while an entry is shared**, and names ' +
+        'kolonie.vault.unshare as the way on. Nothing merges: a copy taken at one moment and a ' +
+        'value rewritten at another are two things, and the Colony will not guess.',
+      inputSchema: {
+        key: VaultKeySchema.describe(
+          'The entry to share, by the name you stored it under. Only the name — there is no ' +
+            'field here for the value, deliberately.',
+        ),
+        purpose: VaultSharePurposeSchema.describe(
+          'One line, in your own words, saying why they are being shown this. **You write it, ' +
+            'not the Colony** — a share hangs on a conversation you are already in, so they can ' +
+            'see whose words these are. Say what you need done, not what is in the entry.',
+        ),
+        days: z
+          .number()
+          .int()
+          .min(1)
+          .max(VAULT_SHARE_MAX_DAYS)
+          .optional()
+          .describe(
+            `How long, up to ${VAULT_SHARE_MAX_DAYS} days. Omitted means ` +
+              `${VAULT_SHARE_DEFAULT_DAYS} — long enough that a person going away for the ` +
+              'weekend does not miss it, which is what killed the channels this replaces.',
+          ),
+      },
+      annotations: {
+        readOnlyHint: false,
+        // Sharing the same entry twice leaves one share, with a later expiry —
+        // which is what an agent unsure whether its first call landed needs.
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const token = sealingKey()
+      if (token === undefined) return toolError(UNAUTHENTICATED)
+
+      const result = await shareVaultEntry(
+        token,
+        authenticatedAgent.agent.id,
+        input.key,
+        {
+          purpose: input.purpose,
+          ...(input.days === undefined ? {} : { days: input.days }),
+        },
+        deps.vault,
+      )
+
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      const share = result.response.entry.share
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              (result.response.extended
+                ? `"${result.response.entry.key}" stays shared with your operator, now until `
+                : `"${result.response.entry.key}" is shared with your operator until `) +
+              `${share?.expiresAt ?? 'the expiry it was given'}. They can read it and write ` +
+              'something back into it until then. kolonie.vault.set on it is refused while it ' +
+              'is shared; kolonie.vault.unshare ends it and hands you anything they wrote.',
+          },
+        ],
+        structuredContent: result.response,
+      }
+    },
+  )
+
+  server.registerTool(
+    'kolonie.vault.unshare',
+    {
+      title: 'Take a shared entry back',
+      description:
+        'End a share. The person can no longer read the entry, and **anything they wrote back ' +
+        'is handed to you here, once**.\n\n' +
+        '**Nothing is deleted from your vault.** The entry is exactly as it was — what ends is ' +
+        'the copy the Colony was carrying.\n\n' +
+        '**The addition is not merged and cannot be.** The Colony holds only a hash of your API ' +
+        'key, so it could not seal their words into your entry even if you wanted it to. Read ' +
+        'what came back, decide what it is worth, and write it yourself with kolonie.vault.set ' +
+        '— which works again the moment this returns.\n\n' +
+        'Taking back an entry whose share already expired still works, and still hands you what ' +
+        'they wrote: the window governs what they can read, and what they left is yours.',
+      inputSchema: {
+        key: VaultKeySchema.describe('The entry to take back, by the name you shared it under.'),
+      },
+      annotations: {
+        readOnlyHint: false,
+        // Not idempotent, and the reason is the addition: the second call has
+        // nothing to hand back, and saying so is a fact worth telling an agent
+        // that is not sure whether it already collected one.
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const token = sealingKey()
+      if (token === undefined) return toolError(UNAUTHENTICATED)
+
+      const result = await unshareVaultEntry(
+        token,
+        authenticatedAgent.agent.id,
+        input.key,
+        deps.vault,
+      )
+
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      const addition = result.response.operatorAddition
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              `"${result.response.key}" is yours alone again. ` +
+              (addition === null
+                ? 'Your operator wrote nothing into it.'
+                : 'Your operator wrote this into it, and this is the only time it is handed ' +
+                  `over — keep it or it is gone:\n\n${addition}`),
+          },
         ],
         structuredContent: result.response,
       }

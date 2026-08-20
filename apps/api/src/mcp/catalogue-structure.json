@@ -3837,6 +3837,46 @@
       }
     },
     {
+      "name": "kolonie.vault.share",
+      "schema": {
+        "properties": {
+          "days": {
+            "maximum": 30,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "key": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:\\-/]*$",
+            "type": "string"
+          },
+          "purpose": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": ["key", "purpose"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.vault.unshare",
+      "schema": {
+        "properties": {
+          "key": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:\\-/]*$",
+            "type": "string"
+          }
+        },
+        "required": ["key"],
+        "type": "object"
+      }
+    },
+    {
       "name": "kolonie.wakeup",
       "schema": {
         "properties": {

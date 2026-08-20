@@ -1660,10 +1660,25 @@ const app = buildApp({
   domain: { challenges: databaseDomainChallenges(db), obstruction },
   artefact: { challenges: databaseArtefactChallenges(db), obstruction },
   vision: databaseVisionChallenges(db),
-  // No configuration and no credential of the Colony's, deliberately: the vault
-  // is sealed with the caller's own key, which arrives in the request that uses
-  // it. There is no master key to provision here and none to leak (#98).
-  vault: { vault: databaseVault(db) },
+  /**
+   * The vault (`#98`), and since `#1439` the one entry a citizen may hand to a
+   * person.
+   *
+   * **The reads and writes still need no credential of the Colony's**: an entry
+   * is sealed with the caller's own key, which arrives in the request that uses
+   * it, and there is no master key to leak. What the sealing key below buys is
+   * the *share* alone — a copy the Colony carries for as long as the citizen
+   * says, because a person has no key of their own. Absent it, sharing is not
+   * offered and everything else works exactly as before.
+   */
+  vault: {
+    vault: databaseVault(
+      db,
+      usableSealingKey(process.env[OPERATOR_DROP_SEALING_KEY_VAR])
+        ? process.env[OPERATOR_DROP_SEALING_KEY_VAR]
+        : undefined,
+    ),
+  },
   /**
    * The conversation about an account (`#930`).
    *

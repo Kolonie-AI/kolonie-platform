@@ -9,6 +9,7 @@ import {
   destroyExpiredHandovers,
   destroyExpiredDrops,
   destroyExpiredSlots,
+  destroyExpiredVaultShares,
   recordVerdict,
   releaseSubmission,
   reportFailedRerun,
@@ -151,6 +152,20 @@ export interface SubmissionQueue {
    */
   destroyExpiredSlots(): Promise<number>
   /**
+   * Destroy the copy behind every vault share whose window has passed (`#1439`).
+   *
+   * The fourth, added with the channel rather than after it, for the reason the
+   * three above spell out. `kolonie.vault.share` says the copy is gone on the
+   * timer whether or not anybody read it, and a sweep is the only thing that can
+   * make that sentence true — the citizen who shared it may not wake for a week.
+   *
+   * **Nothing reads through this.** An expired share already answers as no share
+   * on its own timestamp, so a late sweep costs storage rather than access,
+   * which is the property `destroyExpiredDrops` had to argue for and this one
+   * inherits.
+   */
+  destroyExpiredVaultShares(): Promise<number>
+  /**
    * Delete contact history past its retention bound (#141).
    *
    * On this sweep because it is the same kind of housekeeping as the two above
@@ -180,6 +195,7 @@ export function databaseQueue(db: Database): SubmissionQueue {
     destroyExpiredHandovers: () => destroyExpiredHandovers(db),
     destroyExpiredDrops: () => destroyExpiredDrops(db),
     destroyExpiredSlots: () => destroyExpiredSlots(db),
+    destroyExpiredVaultShares: () => destroyExpiredVaultShares(db),
     pruneContacts: () => pruneContactHistory(db),
   }
 }

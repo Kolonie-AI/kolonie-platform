@@ -459,6 +459,19 @@ export interface PlaybookNoteLoopDependencies {
    * not throw into this tick — the note is already published.
    */
   readonly rewriteBriefing?: (playbookId: string) => Promise<void>
+  /**
+   * The bound the published text is cut to (`#1422`).
+   *
+   * Absent is the run note's 400. The journal pass passes
+   * `PLAYBOOK_JOURNAL_MAX_LENGTH`, which is the only thing about it that differs
+   * from a note: same red line, same confidentiality scrub, same quality
+   * judgement, same *nothing survived* refusal.
+   */
+  readonly bound?: number | undefined
+  /**
+   * The quality bar to judge against (`#1422`). Absent is the run note's.
+   */
+  readonly qualityPrompt?: string | undefined
 }
 
 /** What one note's pass came to. */
@@ -502,16 +515,28 @@ const SENTENCE_END = /[.!?](?=\s|$)/g
  * the reader to ask what was taken out, and the answer is either confidential or
  * nothing.
  */
-export function shortenToBound(text: string): string | undefined {
+export function shortenToBound(
+  text: string,
+  /**
+   * Which bound to cut to (`#1422`).
+   *
+   * **A parameter with the note's bound as its default**, rather than a second
+   * copy of this function. The journal entry beside the note is five times as
+   * long on purpose, and everything else here — the sentence boundary, the
+   * survival test, the no-ellipsis rule — is the same argument at either size.
+   * Two copies is how one of them gets a fix and the other keeps the bug.
+   */
+  bound: number = PLAYBOOK_RUN_PUBLISHED_NOTE_MAX_LENGTH,
+): string | undefined {
   const survives = (kept: string) =>
     kept.split(REDACTION).join(' ').trim().length >= GUIDANCE_CONTENT_MIN_LENGTH
 
   const trimmed = text.trim()
-  if (trimmed.length <= PLAYBOOK_RUN_PUBLISHED_NOTE_MAX_LENGTH) {
+  if (trimmed.length <= bound) {
     return survives(trimmed) ? trimmed : undefined
   }
 
-  const window = trimmed.slice(0, PLAYBOOK_RUN_PUBLISHED_NOTE_MAX_LENGTH)
+  const window = trimmed.slice(0, bound)
 
   let sentence = -1
   for (const match of window.matchAll(SENTENCE_END)) sentence = match.index + 1
@@ -573,10 +598,10 @@ export async function judgePlaybookNote(
       ...new Set(spans.map((span) => span.text).filter((text) => entry.note.includes(text))),
     ]
 
-    const published = shortenToBound(redact(entry.note, present))
+    const published = shortenToBound(redact(entry.note, present), deps.bound)
     if (published === undefined) return await refuse(NOTHING_SURVIVED_THE_SCRUB, 'useless')
 
-    const quality = await judgePlaybookNoteQuality(entry, published, model)
+    const quality = await judgePlaybookNoteQuality(entry, published, model, deps.qualityPrompt)
     if (quality.kind === 'useless') return await refuse(quality.reason, 'useless')
     if (quality.kind === 'abusive') {
       return await refuse(abusiveModerationNote(quality.reason), 'abusive')

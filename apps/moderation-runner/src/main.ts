@@ -28,6 +28,7 @@ import {
   unmoderatedQuestReports,
   recordQuestReportModeration,
   pendingPlaybookModerations,
+  pendingPlaybookJournalEntries,
   pendingPlaybookNotes,
   pendingOperateNotes,
   recordOperateNoteVerdict,
@@ -48,6 +49,7 @@ import {
   recordModeration,
   recordProviderChange,
   recordPlaybookModeration,
+  recordPlaybookJournalVerdict,
   recordPlaybookNoteVerdict,
   recordPlaybookStepProposalVerdict,
   recordQuestModeration,
@@ -87,6 +89,7 @@ import {
   type ProviderBriefingStore,
   type ModerationStore,
 } from './loop.js'
+import { PLAYBOOK_JOURNAL_QUALITY_PROMPT } from './quality.js'
 import type {
   PlaybookBlockedModerationStore,
   PlaybookModerationStore,
@@ -112,6 +115,7 @@ import {
   gatewayOnlyFetch,
   gatewayRoutedFetch,
   now,
+  PLAYBOOK_JOURNAL_MAX_LENGTH,
   questAuditPolicy,
   type TaskId,
 } from '@kolonie-ai/core'
@@ -329,6 +333,56 @@ const playbookStore: PlaybookModerationStore = {
 const playbookNoteStore: PlaybookNoteModerationStore = {
   pending: (limit) => pendingPlaybookNotes(db, limit),
   record: (input) => recordPlaybookNoteVerdict(db, input),
+}
+
+/**
+ * The journal queue (`#1422`), adapted onto the note store's shape.
+ *
+ * **An adapter rather than a second judging pipeline.** A journal entry is
+ * judged exactly as a note is — same red line, same confidentiality scrub, same
+ * *nothing survived* refusal — and the two things that differ are passed as
+ * dependencies rather than forked into a copy: the bound the published text is
+ * cut to, and the quality bar, which refuses a stated amount because `#1252`
+ * publishes no earnings figure.
+ *
+ * `runId` carries the entry id, which is what the note pipeline threads through
+ * to `record` untouched. It is the one seam in the adapter and it is worth the
+ * saving: a second copy of `judgePlaybookNote` is how one of them gets a red-line
+ * fix and the other does not.
+ */
+const playbookJournalStore: PlaybookNoteModerationStore = {
+  pending: async (limit) =>
+    (await pendingPlaybookJournalEntries(db, limit)).map((entry) => ({
+      runId: entry.entryId,
+      playbookId: entry.playbookId,
+      playbookTitle: entry.playbookTitle,
+      playbookSummary: entry.playbookSummary,
+      // The bar reads the outcome of the run a note was about; a journal entry
+      // is not tied to one report, so it is judged on its own words.
+      outcome: 'completed' as const,
+      note: entry.entry,
+    })),
+  /**
+   * The input is a discriminated union, so the two arms are unpacked rather
+   * than spread: `published` exists only on the approval and `reason` only on
+   * the refusal, and reaching for either on the union is how a refusal ends up
+   * carrying an empty `published`.
+   */
+  record: async (input) =>
+    input.decision === 'approved'
+      ? await recordPlaybookJournalVerdict(db, {
+          entryId: input.runId,
+          judged: input.judged,
+          decision: 'approved',
+          published: input.published,
+        })
+      : await recordPlaybookJournalVerdict(db, {
+          entryId: input.runId,
+          judged: input.judged,
+          decision: 'rejected',
+          reason: input.reason,
+          ...(input.refusal === undefined ? {} : { refusal: input.refusal }),
+        }),
 }
 
 const operateNoteStore: OperateNoteModerationStore = {
@@ -794,6 +848,14 @@ const questRunner = startQuestRunner(
       store: playbookNoteStore,
       model: questModel,
       log,
+      rewriteBriefing: rewritePlaybookBriefing,
+    },
+    playbookJournal: {
+      store: playbookJournalStore,
+      model: questModel,
+      log,
+      bound: PLAYBOOK_JOURNAL_MAX_LENGTH,
+      qualityPrompt: PLAYBOOK_JOURNAL_QUALITY_PROMPT,
       rewriteBriefing: rewritePlaybookBriefing,
     },
     playbookProposals: { store: playbookProposalStore, model: questModel, log },

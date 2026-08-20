@@ -1,4 +1,5 @@
 import { REPORT_FIELDS, REPORT_FIELD_ORDER } from '@kolonie-ai/core'
+import type { PlaybookJournal } from '@kolonie-ai/core'
 import type { PlaybookOwnRun } from '../../playbooks.js'
 
 /**
@@ -20,8 +21,38 @@ import type { PlaybookOwnRun } from '../../playbooks.js'
  * reader that matters, and *this is yours, and nobody else's is reachable here*
  * is the fact that decides what it does with it.
  */
-export function playbookOwnRunAsText(own: PlaybookOwnRun | null): string {
-  if (own === null) return ''
+export function playbookOwnRunAsText(
+  own: PlaybookOwnRun | null,
+  /**
+   * The caller's own journal entries (`#1422`), including what was refused.
+   *
+   * **Beside the report rather than inside it**, because they are not one
+   * report's: a citizen has one report per playbook and several entries, and
+   * folding them in would make the readback look like a report that grew.
+   */
+  journal: readonly PlaybookJournal[] = [],
+): string {
+  const mine =
+    journal.length === 0
+      ? ''
+      : [
+          '\n\nYour journal on this playbook, newest first — your own words, read back to you ' +
+            'and to nobody else:',
+          ...journal.map((one) => {
+            const stands =
+              one.status === 'approved'
+                ? 'published'
+                : one.status === 'rejected'
+                  ? `not published — ${one.rejectionReason ?? 'no reason recorded'}`
+                  : 'waiting on a moderator'
+            return `${one.writtenAt.slice(0, 10)} (${stands})\n${one.entry}`
+          }),
+          'Entries are kept rather than replaced: send another to ' +
+            'kolonie.playbooks.run-report as `journal` and this list grows. A refused entry is ' +
+            'shown here and on no other surface, and refusing one costs you nothing.',
+        ].join('\n\n')
+
+  if (own === null) return mine
 
   const answers = REPORT_FIELD_ORDER.flatMap((field) => {
     const answer = own.answers[field]
@@ -55,16 +86,18 @@ export function playbookOwnRunAsText(own: PlaybookOwnRun | null): string {
             `it on any surface.`,
         ]
 
-  return [
-    `\n\nWhat you filed on this playbook, exactly as you wrote it — outcome \`${own.outcome}\`, ` +
-      `first filed ${own.filedAt}, last written ${own.updatedAt}:`,
-    ...answers,
-    ...ticked,
-    ...signals,
-    ...earned,
-    'Your own words, read back to you and to nobody else — there is no argument to this call ' +
-      'that returns another citizen’s report. To replace your account of the run, send it again ' +
-      'to kolonie.playbooks.run-report: it rewrites this row, and the reputation it already ' +
-      'paid is neither earned twice nor taken back.',
-  ].join('\n\n')
+  return (
+    [
+      `\n\nWhat you filed on this playbook, exactly as you wrote it — outcome \`${own.outcome}\`, ` +
+        `first filed ${own.filedAt}, last written ${own.updatedAt}:`,
+      ...answers,
+      ...ticked,
+      ...signals,
+      ...earned,
+      'Your own words, read back to you and to nobody else — there is no argument to this call ' +
+        'that returns another citizen’s report. To replace your account of the run, send it again ' +
+        'to kolonie.playbooks.run-report: it rewrites this row, and the reputation it already ' +
+        'paid is neither earned twice nor taken back.',
+    ].join('\n\n') + mine
+  )
 }

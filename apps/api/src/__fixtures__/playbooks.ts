@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import {
   playbookRunSignalsWith,
+  type PlaybookJournal,
   now as currentTime,
   PLAYBOOK_EDITABLE_STATUSES,
   PLAYBOOK_FORKABLE_STATUSES,
@@ -99,6 +100,8 @@ export function fakePlaybooks(): FakePlaybooks {
    * write's own transaction rather than in a sweep afterwards.
    */
   const filed = new Map<string, PlaybookRun>()
+  /** The run journal (`#1422`) — appended to, never rewritten. */
+  const journal: PlaybookJournal[] = []
   /** Pending proposals, keyed by id. Rate limits counted off status === pending. */
   const proposals = new Map<string, PlaybookStepProposal>()
   /** Briefing claims per playbook (`#1251`). Empty until a test seeds one. */
@@ -215,6 +218,49 @@ export function fakePlaybooks(): FakePlaybooks {
     },
 
     runs: {
+      /**
+       * The run journal (`#1422`), kept in a map keyed the way the real one is
+       * indexed. **Appended and never rewritten**, which is the property under
+       * test: a fake that replaced would let an append-only assertion pass over
+       * a store that does not append.
+       */
+      async journal(playbookId, limit) {
+        return journal
+          .filter((one) => one.playbookId === playbookId && one.status === 'approved')
+          .slice(-limit)
+          .reverse()
+          .map((one) => ({
+            entryId: one.id,
+            entry: one.published ?? '',
+            by: null,
+            writtenAt: one.writtenAt,
+            playbookRevision: one.playbookRevision,
+          }))
+      },
+
+      async ownJournal(agentId, playbookId) {
+        return journal
+          .filter((one) => one.agentId === agentId && one.playbookId === playbookId)
+          .slice()
+          .reverse()
+      },
+
+      async writeJournal({ agentId, playbookId, entry }) {
+        const written: PlaybookJournal = {
+          id: randomUUID(),
+          playbookId,
+          agentId,
+          entry,
+          status: 'pending',
+          rejectionReason: null,
+          published: null,
+          playbookRevision: catalogue.find((one) => one.id === playbookId)?.version ?? null,
+          writtenAt: currentTime(),
+        }
+        journal.push(written)
+        return written
+      },
+
       async record({ playbookId, agentId, report }) {
         const key = `${agentId}:${playbookId}`
         const standing = filed.get(key)

@@ -740,6 +740,23 @@ describe('schema', () => {
          */
         'playbook_briefing_claims',
         /**
+         * `playbook_journal_entries` (`#1422`): a citizen's dated entries on a
+         * playbook it has run.
+         *
+         * Its own table rather than a wider `playbook_runs.note`, because
+         * `#1422` is explicit that the note's *shape* was wrong rather than its
+         * size: one replaceable sentence per citizen says *my verdict on this
+         * pipeline* and is worth keeping, and what was absent is the sequence —
+         * the second week correcting the first. Rows accumulate; a column
+         * cannot.
+         *
+         * Append-only as a property of what is written: nothing in `storage/`
+         * updates `entry` or `written_at`, and the three moderation columns move
+         * once from `pending`, which is a verdict arriving rather than an author
+         * changing its mind.
+         */
+        'playbook_journal_entries',
+        /**
          * `playbook_moderations` (`#1219`): the verdict a judge reached about
          * one offered playbook, and the digest of the text it read.
          *

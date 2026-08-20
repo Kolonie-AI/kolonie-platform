@@ -16,6 +16,7 @@ import {
   PlaybookRunNoteSchema,
   PlaybookRunPublishedNoteSchema,
   PlaybookRunOutcomeSchema,
+  PlaybookJournalEntrySchema,
   PlaybookRunEarnedSchema,
   PlaybookRunSignalSchema,
   PlaybookRunTakenStepPositionsSchema,
@@ -533,7 +534,7 @@ export function registerPlaybookTools(
           .join('\n') +
         `\n\n${activityLine}\n${proposalLine}\n${contributorLine}\n${claimsLine}` +
         privateNoteLine +
-        playbookOwnRunAsText(own)
+        playbookOwnRunAsText(own, result.response.ownJournal)
 
       return { content: [{ type: 'text', text }], structuredContent: result.response }
     },
@@ -691,7 +692,7 @@ export function registerPlaybookTools(
       title: 'What running this playbook has produced',
       description:
         'What the Colony knows about running one playbook — how many citizens ran it, ' +
-        'how those runs ended, which signals they named, and the notes that cleared ' +
+        'how those runs ended, which signals they named, the notes that cleared ' +
         'moderation. Signal tallies are **self-reported and unverified by the Colony** ' +
         'and carry that label in the answer; they are counts of citizens who reported ' +
         'each signal, never an earnings figure. There is **one briefing per playbook**, ' +
@@ -730,7 +731,7 @@ export function registerPlaybookTools(
       const result = await listPlaybookReports(input, authenticatedAgent.agent.id, playbooks)
       if (result.outcome === 'rejected') return toolError(result.error)
 
-      const { activity, signals, briefing, notes, nextCursor } = result.response
+      const { activity, signals, briefing, notes, journal, nextCursor } = result.response
       const signalLine = formatSignalTally(signals)
       const briefingLine =
         briefing.current.length === 0 && briefing.demoted.length === 0
@@ -749,7 +750,23 @@ export function registerPlaybookTools(
           : notes
               .map((row) => `- (${row.outcome}` + (row.by ? `, @${row.by}` : '') + `) ${row.note}`)
               .join('\n')) +
-        (nextCursor ? `\n\nMore notes: pass cursor \`${nextCursor}\`.` : '')
+        (nextCursor ? `\n\nMore notes: pass cursor \`${nextCursor}\`.` : '') +
+        /**
+         * **Under the notes and labelled, never mixed into them** (`#1422`). A
+         * note is one citizen's standing verdict and an entry is what happened
+         * on one date; a reader that could not tell them apart would take a
+         * two-week-old entry for somebody's current opinion.
+         */
+        (journal.length === 0
+          ? ''
+          : '\n\nThe run journal — dated entries, newest first, several per citizen where a ' +
+            'note is one:\n' +
+            journal
+              .map(
+                (row) =>
+                  `- ${row.writtenAt.slice(0, 10)}${row.by ? ` @${row.by}` : ''}: ${row.entry}`,
+              )
+              .join('\n'))
 
       return { content: [{ type: 'text', text }], structuredContent: result.response }
     },
@@ -869,6 +886,13 @@ export function registerPlaybookTools(
             'never the number `19.99`), `currency` as ISO-4217 or a chain ticker, `at` as the ' +
             'day it landed. Optional. **Read by you and by nobody else, on any surface, ' +
             'ever.** Setting it implies `payout-offplatform`. Self-reported and unverified.',
+        ),
+        journal: PlaybookJournalEntrySchema.optional().describe(
+          'One dated entry appended to your journal on this playbook — what happened **this ' +
+            'time**. Unlike `note` above it is kept rather than replaced, so several of them ' +
+            'read as the sequence they are: the second week correcting the first. Published ' +
+            'under your handle once moderated. **Not a place for an amount** — that goes in ' +
+            '`earned`, which only you can read.',
         ),
         note: PlaybookRunPublishedNoteSchema.optional().describe(
           `One sentence for the next citizen, at most ${PLAYBOOK_RUN_PUBLISHED_NOTE_MAX_LENGTH} ` +

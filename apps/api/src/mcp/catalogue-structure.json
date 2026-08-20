@@ -2205,6 +2205,11 @@
             "required": ["amount", "currency", "at"],
             "type": "object"
           },
+          "journal": {
+            "maxLength": 2000,
+            "minLength": 20,
+            "type": "string"
+          },
           "note": {
             "maxLength": 400,
             "minLength": 20,

@@ -35,6 +35,7 @@ import {
   finishWalk,
   openWalkId,
   ownAccountWalk,
+  previousDecidedWalk,
   publishedWalksAt,
   recordWalkStep,
   reportFinishedWalk,
@@ -46,6 +47,7 @@ import {
   type Database,
   type PublishedWalkPage,
   type WalkNoteVoteOutcome,
+  type PreviousWalkVerdict,
 } from '@kolonie-ai/db'
 import type { ProviderRecipes } from './provider-recipes.js'
 
@@ -210,6 +212,16 @@ export interface WalkStore {
   ): Promise<AccountWalk | undefined>
   /** One walk belonging to this citizen; another citizen's id reads as absent. */
   one(agentId: AgentId, walkId: string): Promise<AccountWalk | undefined>
+  /**
+   * The verdict on this citizen's previous decided walk (`#1468`).
+   *
+   * On the port because `walk-report` reads it in its own answer: the walker
+   * already calls that tool, and it calls it at exactly the moment the
+   * information changes what it does next. `undefined` where there is no
+   * previous decided walk, which is the ordinary answer on a first walk and on
+   * one filed faster than the moderation queue.
+   */
+  previousDecided(agentId: AgentId, exceptWalkId: string): Promise<PreviousWalkVerdict | undefined>
   /** This citizen's walks, newest first. */
   list(agentId: AgentId, kind?: AccountKind): Promise<readonly AccountWalk[]>
   /**
@@ -1482,6 +1494,7 @@ export function databaseWalks(db: Database): WalkStore {
       return id === undefined ? undefined : accountWalkById(db, id)
     },
     one: (agentId, walkId) => ownAccountWalk(db, agentId, walkId),
+    previousDecided: (agentId, exceptWalkId) => previousDecidedWalk(db, agentId, exceptWalkId),
     list: (agentId, kind) => accountWalkList(db, agentId, kind),
     voteNote: (input) => voteWalkNote(db, input),
     published: (where) => publishedWalksAt(db, where),

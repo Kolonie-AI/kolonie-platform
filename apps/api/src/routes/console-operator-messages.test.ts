@@ -465,3 +465,100 @@ describe('the inbox (#1448)', () => {
     expect(posted.statusCode).toBe(404)
   })
 })
+
+/**
+ * Archive, mute and the view switch, over the console (`#1449`).
+ *
+ * The interaction rules — that a new message un-archives, that archiving does
+ * not mark read, that neither reaches an agent — are asserted against real
+ * PostgreSQL in `packages/db/src/storage/inbox.test.ts`. What is under test here
+ * is the door: that the acts exist, that the list narrows, and that a thread
+ * belonging to somebody else cannot be archived through it.
+ */
+describe('what a person has done with a thread (#1449)', () => {
+  const inbox = async (cookie: string, view?: string) =>
+    await app.inject({
+      method: 'GET',
+      url: view === undefined ? '/inbox' : `/inbox?view=${view}`,
+      headers: { host: CONSOLE_HOST, accept: 'application/json', cookie },
+    })
+
+  const act = async (cookie: string, conversationId: string, what: string) =>
+    await app.inject({
+      method: 'POST',
+      url: `/inbox/${conversationId}/state`,
+      headers: { host: CONSOLE_HOST, accept: 'application/json', cookie },
+      payload: { act: what },
+    })
+
+  const threadsOf = (response: { json: () => unknown }) =>
+    (response.json() as { threads: { conversationId: string; archived: boolean }[] }).threads
+
+  it('archives out of the open list and back again', async () => {
+    const cookie = await signedInCookie()
+    const human = await operates(agentId)
+    const thread = messages.thread(human, String(agentId))
+
+    expect((await act(cookie, thread, 'archive')).statusCode).toBe(200)
+    expect(threadsOf(await inbox(cookie))).toHaveLength(0)
+    expect(threadsOf(await inbox(cookie, 'archived'))).toHaveLength(1)
+    expect(threadsOf(await inbox(cookie, 'all'))).toHaveLength(1)
+
+    await act(cookie, thread, 'unarchive')
+    expect(threadsOf(await inbox(cookie))).toHaveLength(1)
+  })
+
+  it('brings an archived thread back when the agent writes', async () => {
+    const cookie = await signedInCookie()
+    const human = await operates(agentId)
+    const thread = messages.thread(human, String(agentId))
+    await act(cookie, thread, 'archive')
+
+    messages.agentWrites(human, String(agentId), 'One more thing.')
+
+    // Archive means *I am done with this*, and somebody writing again is the
+    // event that makes it untrue.
+    expect(threadsOf(await inbox(cookie))).toHaveLength(1)
+  })
+
+  it('leaves a muted thread in the list', async () => {
+    const cookie = await signedInCookie()
+    const human = await operates(agentId)
+    const thread = messages.thread(human, String(agentId))
+
+    expect((await act(cookie, thread, 'mute')).statusCode).toBe(200)
+
+    const rows = ((await inbox(cookie)).json() as { threads: { muted: boolean }[] }).threads
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.muted).toBe(true)
+  })
+
+  it('offers the switch on the page', async () => {
+    const cookie = await signedInCookie()
+    await operates(agentId)
+
+    const rendered = await app.inject({
+      method: 'GET',
+      url: '/inbox',
+      headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
+    })
+
+    expect(rendered.body).toContain('/inbox?view=archived')
+    expect(rendered.body).toContain('/inbox?view=all')
+  })
+
+  it('does not archive a thread of an agent this person does not operate', async () => {
+    const cookie = await signedInCookie()
+    await operates(agentId)
+    const theirs = messages.thread('11111111-1111-4111-8111-111111111111', String(agentId))
+
+    const refused = await app.inject({
+      method: 'POST',
+      url: `/inbox/${theirs}/state`,
+      headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
+      payload: { act: 'archive' },
+    })
+
+    expect(refused.statusCode).toBe(404)
+  })
+})

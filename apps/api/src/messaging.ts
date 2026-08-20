@@ -19,7 +19,16 @@ import {
   type TaskId,
   type WishId,
 } from '@kolonie-ai/core'
-import type { InboxRow } from '@kolonie-ai/db'
+import type { InboxRow, InboxStateOutcome, InboxView } from '@kolonie-ai/db'
+
+/**
+ * Re-exported so a console route need not reach past this port into storage.
+ *
+ * The seam every surface here has: `apps/api` depends on this file and not on
+ * `@kolonie-ai/db`, and a route importing the type from the store would be the
+ * first crack in that.
+ */
+export type { InboxRow, InboxView } from '@kolonie-ai/db'
 import { createHash } from 'node:crypto'
 import {
   messageBurstLimiter,
@@ -163,7 +172,33 @@ export interface OperatorMessaging {
    *
    * `undefined` on a deployment with no inbox reader, like everything else here.
    */
-  inbox?(humanId: HumanId, options?: { readonly agentId?: AgentId }): Promise<readonly InboxRow[]>
+  inbox?(
+    humanId: HumanId,
+    options?: { readonly agentId?: AgentId; readonly view?: InboxView },
+  ): Promise<readonly InboxRow[]>
+  /**
+   * Say this person is, or is no longer, finished with a thread (`#1449`).
+   *
+   * **Not deleting.** The thread stays and a message from anybody else clears
+   * it, in the same insert that writes the message — which is what makes
+   * archiving safe to use liberally: nothing is lost by being wrong about it.
+   */
+  archive?(
+    humanId: HumanId,
+    conversationId: ConversationId,
+    archived: boolean,
+  ): Promise<InboxStateOutcome>
+  /**
+   * Silence it for this person, until a date or indefinitely (`#1449`).
+   *
+   * A muted thread stays in the list and still shows unread: mute is about
+   * being *told*, which is `#1451`'s notifier and nothing else. `null` un-mutes.
+   */
+  mute?(
+    humanId: HumanId,
+    conversationId: ConversationId,
+    until: string | null,
+  ): Promise<InboxStateOutcome>
   /**
    * Move this person's read cursor to the newest message of one thread.
    *

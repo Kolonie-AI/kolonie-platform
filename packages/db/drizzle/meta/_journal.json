@@ -2332,6 +2332,13 @@
       "when": 1787259051042,
       "tag": "0332_the_bandwidth_shelf_is_marked",
       "breakpoints": true
+    },
+    {
+      "idx": 333,
+      "version": "7",
+      "when": 1787270628290,
+      "tag": "0333_a_person_is_finished_with_a_thread",
+      "breakpoints": true
     }
   ]
 }

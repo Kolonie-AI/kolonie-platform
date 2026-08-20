@@ -310,6 +310,39 @@ export const messageParticipants = pgTable(
     lastReadMessageId: uuid('last_read_message_id').references((): AnyPgColumn => messages.id, {
       onDelete: 'set null',
     }),
+
+    /**
+     * When this party said it was finished with the thread (`#1449`).
+     *
+     * ## Three states and three columns, which `#1447` froze
+     *
+     * **Unread** is `last_read_message_id` — *somebody wrote and I have not
+     * looked*. **Muted** is `muted_until` above — *keep it in my list, stop
+     * telling me about it*. **Archived** is this — *take it out of my list*.
+     * Folding archive into mute would mean a person who silenced a chatty
+     * thread also lost it from their list, which is two different intentions
+     * wearing one column.
+     *
+     * ## Per participant, not per conversation
+     *
+     * The agent and the person are separate rows here, and one being finished
+     * says nothing about the other. A conversation-level column would let a
+     * person's tidying reach into what their agent is still working on.
+     *
+     * ## Archiving is not deleting, and a new message undoes it
+     *
+     * The thread stays and its messages stay; a message from another party
+     * clears this, in the same insert that writes the message. That is what
+     * makes archiving safe to use liberally — nothing is lost by being wrong
+     * about it — and it is why this is a timestamp on a participant rather than
+     * a delete of anything.
+     *
+     * **The other party is never told.** Archiving and muting are facts about
+     * one person's attention rather than about the conversation, and an agent
+     * that learned it had been muted would reasonably open a second thread —
+     * which is exactly what muting was for.
+     */
+    doneAt: timestamp('done_at', { withTimezone: true, mode: 'string' }),
   },
   (table) => [
     /**

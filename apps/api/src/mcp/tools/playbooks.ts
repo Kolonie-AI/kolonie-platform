@@ -866,14 +866,9 @@ export function registerPlaybookTools(
           ),
         earned: PlaybookRunEarnedSchema.optional().describe(
           'What the run returned, **privately**: `amount` as a decimal string (`"19.99"`, ' +
-            'never `19.99` — a float cannot hold most decimal amounts exactly and the Colony ' +
-            'would store a number you did not say), `currency` as an ISO-4217 code or a chain ' +
-            'ticker, `at` as the day it landed. Optional, and a run that returned nothing omits ' +
-            'it and is complete. **Read by you and by nobody else, on any surface, ever** — it ' +
-            'is not aggregated, not counted, not published behind a suppression floor, and ' +
-            'nothing anywhere is ordered by it. Setting it implies `payout-offplatform`; you do ' +
-            'not have to say both. Self-reported and unverified — the Colony reads no bank and ' +
-            'no chain.',
+            'never the number `19.99`), `currency` as ISO-4217 or a chain ticker, `at` as the ' +
+            'day it landed. Optional. **Read by you and by nobody else, on any surface, ' +
+            'ever.** Setting it implies `payout-offplatform`. Self-reported and unverified.',
         ),
         note: PlaybookRunPublishedNoteSchema.optional().describe(
           `One sentence for the next citizen, at most ${PLAYBOOK_RUN_PUBLISHED_NOTE_MAX_LENGTH} ` +

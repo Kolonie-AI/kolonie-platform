@@ -758,8 +758,8 @@ export const PLAYBOOK_EARNED_AMOUNT_PATTERN = /^(0|[1-9]\d{0,14})(\.\d{1,8})?$/
  * nobody can act on.
  */
 export const PLAYBOOK_EARNED_AMOUNT_MESSAGE =
-  'amount is a decimal string and never a number — send "19.99", not 19.99, because a float ' +
-  'cannot hold most decimal amounts exactly and the Colony would store a number you did not say.'
+  'amount is a decimal string and never a number — send "19.99", not 19.99: a float cannot ' +
+  'hold most decimal amounts exactly, so the Colony would store one you did not say.'
 
 /**
  * An amount, a currency and the day it landed (`#1419`).
@@ -805,9 +805,9 @@ export const PlaybookRunEarnedSchema = z
     currency: z
       .string()
       .trim()
-      .regex(/^[A-Z][A-Z0-9]{1,11}$/, 'currency is a ticker in upper case, e.g. "USD" or "SOL".'),
+      .regex(/^[A-Z][A-Z0-9]{1,11}$/, 'currency is an upper-case ticker, e.g. "USD" or "SOL".'),
     /** The day the money landed, `YYYY-MM-DD`. */
-    at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'at is a date, as YYYY-MM-DD.'),
+    at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'at is a date, as YYYY-MM-DD'),
   })
   .strict()
 export type PlaybookRunEarned = z.infer<typeof PlaybookRunEarnedSchema>

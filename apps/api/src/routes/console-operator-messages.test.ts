@@ -107,12 +107,44 @@ const post = async (cookie: string, id: AgentId, body: Record<string, unknown>) 
     payload: body,
   })
 
+/**
+ * The per-agent page, which is the inbox narrowed to one agent since `#1453`.
+ *
+ * The JSON branch answers with the inbox's own shape — `threads`, ordered by
+ * activity — rather than the concatenated page `operatorThreadPage` built. The
+ * messages of one thread are read where they are now read, through
+ * {@link readThread}.
+ */
 const get = async (cookie: string, id: AgentId) =>
   await app.inject({
     method: 'GET',
     url: `/agents/${id}/messages`,
     headers: { host: CONSOLE_HOST, accept: 'application/json', cookie },
   })
+
+/** The threads on that page, in the shape the inbox answers with. */
+const threadsOf = async (cookie: string, id: AgentId) =>
+  ((await get(cookie, id)).json() as { threads: { conversationId: string }[] }).threads
+
+/** One thread's messages, from the surface that reads a conversation. */
+const readThread = async (cookie: string, conversationId: string) =>
+  (
+    (
+      await app.inject({
+        method: 'GET',
+        url: `/inbox/${conversationId}`,
+        headers: { host: CONSOLE_HOST, accept: 'application/json', cookie },
+      })
+    ).json() as { messages: { body: string; answerKind?: string; sender: { party: string } }[] }
+  ).messages
+
+/** The newest message of the only thread this agent has. */
+const latestTo = async (cookie: string, id: AgentId) => {
+  const threads = await threadsOf(cookie, id)
+  if (threads[0] === undefined) return undefined
+  const messages = await readThread(cookie, threads[0].conversationId)
+  return messages.at(-1)
+}
 
 describe('an operator writing to their citizen (#1288)', () => {
   it('sends, and reads it back labelled as the person rather than the Colony', async () => {
@@ -125,14 +157,11 @@ describe('an operator writing to their citizen (#1288)', () => {
 
     const page = await get(cookie, agentId)
     expect(page.statusCode).toBe(200)
-    const read = page.json() as {
-      threads: { kind: string }[]
-      messages: { body: string; sender: { party: string } }[]
-    }
-    expect(read.threads).toHaveLength(1)
-    expect(read.threads[0]?.kind).toBe('operator-human')
-    expect(read.messages[0]?.body).toBe('The account is @ariadne.')
-    expect(read.messages[0]?.sender.party).toBe('operator-human')
+    expect(await threadsOf(cookie, agentId)).toHaveLength(1)
+
+    const latest = await latestTo(cookie, agentId)
+    expect(latest?.body).toBe('The account is @ariadne.')
+    expect(latest?.sender.party).toBe('operator-human')
   })
 
   it('keeps one thread for the person, however many times they write', async () => {
@@ -145,9 +174,7 @@ describe('an operator writing to their citizen (#1288)', () => {
     expect(second.json()).toMatchObject({
       conversationId: (first.json() as { conversationId: string }).conversationId,
     })
-    expect((await get(cookie, agentId)).json()).toMatchObject({
-      threads: [expect.anything()],
-    })
+    expect(await threadsOf(cookie, agentId)).toHaveLength(1)
   })
 
   /**
@@ -232,7 +259,8 @@ describe('an operator writing to their citizen (#1288)', () => {
 
     const page = await get(cookie, id)
     expect(page.statusCode).toBe(200)
-    expect(page.json()).toMatchObject({ threads: [], conversations: [], messages: [] })
+    // An empty page and not a 404 (`#1305`), through the inbox's own shape.
+    expect(page.json()).toMatchObject({ threads: [] })
   })
 })
 
@@ -256,11 +284,9 @@ describe('the declaration, and the thread it answers (#1319)', () => {
     const sent = await post(cookie, agentId, { kind })
     expect(sent.statusCode).toBe(200)
 
-    const read = (await get(cookie, agentId)).json() as {
-      messages: { body: string; answerKind?: string }[]
-    }
-    expect(read.messages[0]?.answerKind).toBe(kind)
-    expect(read.messages[0]?.body).toBe(OPERATOR_ANSWER_BODIES[kind])
+    const latest = await latestTo(cookie, agentId)
+    expect(latest?.answerKind).toBe(kind)
+    expect(latest?.body).toBe(OPERATOR_ANSWER_BODIES[kind])
   })
 
   /**
@@ -273,8 +299,7 @@ describe('the declaration, and the thread it answers (#1319)', () => {
 
     await post(cookie, agentId, { kind: 'permission', body: 'I already made the account.' })
 
-    const read = (await get(cookie, agentId)).json() as { messages: { body: string }[] }
-    expect(read.messages[0]?.body).toBe(OPERATOR_ANSWER_BODIES.permission)
+    expect((await latestTo(cookie, agentId))?.body).toBe(OPERATOR_ANSWER_BODIES.permission)
   })
 
   it('refuses a kind it cannot read, and sends nothing', async () => {
@@ -284,7 +309,8 @@ describe('the declaration, and the thread it answers (#1319)', () => {
     const refused = await post(cookie, agentId, { kind: 'allow', body: 'Go on then.' })
 
     expect(refused.statusCode).toBe(422)
-    expect((refused.json() as { messages: unknown[] }).messages).toHaveLength(0)
+    // Nothing was sent: the agent has no thread at all.
+    expect(await threadsOf(cookie, agentId)).toHaveLength(0)
   })
 
   it('lands the answer in the thread it names rather than the first one', async () => {
@@ -296,11 +322,8 @@ describe('the declaration, and the thread it answers (#1319)', () => {
     const sent = await post(cookie, agentId, { kind: 'completion', conversationId: second })
 
     expect(sent.json()).toMatchObject({ conversationId: second })
-    const read = (await get(cookie, agentId)).json() as {
-      conversations: { id: string; messages: unknown[] }[]
-    }
-    expect(read.conversations.find((one) => one.id === first)?.messages).toHaveLength(0)
-    expect(read.conversations.find((one) => one.id === second)?.messages).toHaveLength(1)
+    expect(await readThread(cookie, first)).toHaveLength(0)
+    expect(await readThread(cookie, second)).toHaveLength(1)
   })
 
   it('refuses a conversation that is not this person’s, exactly as it refuses nonsense', async () => {
@@ -323,20 +346,28 @@ describe('the declaration, and the thread it answers (#1319)', () => {
   })
 
   /** One form per thread, so there is no answer that cannot say what it answers. */
-  it('renders a control set per thread, labelled for the person pressing it', async () => {
+  /**
+   * **The controls moved with the thread view** (`#1453`). They used to be one
+   * set per thread on a page that concatenated all of them; now a thread is
+   * opened and answered on its own page, so there is one set on the thread
+   * being answered rather than a form for every conversation at once.
+   *
+   * The property that mattered — *a declaration always names the thread it
+   * belongs to* — is asserted by the test above this, which is where it should
+   * have been all along: it is about the message, not about the markup.
+   */
+  it('renders the three controls, labelled for the person pressing it', async () => {
     const cookie = await signedInCookie()
     const humanId = await operates(agentId)
-    messages.thread(humanId, agentId)
-    messages.thread(humanId, agentId)
+    const thread = messages.thread(humanId, agentId)
 
     const page = await app.inject({
       method: 'GET',
-      url: `/agents/${agentId}/messages`,
+      url: `/inbox/${thread}`,
       headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
     })
 
     expect(page.statusCode).toBe(200)
-    expect(page.body.split('name="conversationId"')).toHaveLength(3)
     for (const kind of KINDS) {
       expect(page.body).toContain(`value="${kind}"`)
       expect(page.body).toContain(OPERATOR_ANSWER_LABELS[kind])
@@ -778,5 +809,103 @@ describe('narrowing the inbox (#1450)', () => {
     // that survived reading but not acting would be the worse half.
     expect(rendered.body).toMatch(/href="\/inbox\?[^"]*q=njalla[^"]*"/)
     expect(rendered.body).toMatch(/name="back" value="\/inbox\?[^"]*q=njalla/)
+  })
+})
+
+/**
+ * The queue becomes a count, and the per-agent page becomes a filter (`#1453`).
+ *
+ * `waitingForOperator` asked *has the operator written in this thread* and
+ * answered *no* exactly once per thread ever, which hid 46 of 52 conversations
+ * in production — sixteen of them while genuinely waiting. The argument it took
+ * with it, that a work queue should be ordered by what each item costs to clear
+ * rather than by age, is kept in
+ * `kolonie-docs/state/decisions/the-queue-becomes-a-count.md`.
+ */
+describe('the dashboard after the queue (#1453)', () => {
+  const dashboard = async (cookie: string, accept = 'application/json') =>
+    await app.inject({ method: 'GET', url: '/', headers: { host: CONSOLE_HOST, accept, cookie } })
+
+  it('counts the unread and links to the inbox', async () => {
+    const cookie = await signedInCookie()
+    const human = await operates(agentId)
+    const one = messages.thread(human, String(agentId))
+    const two = messages.thread(human, String(agentId))
+    messages.agentWrites(human, String(agentId), 'May I?', one)
+    messages.agentWrites(human, String(agentId), 'And may I?', two)
+
+    expect((await dashboard(cookie)).json()).toMatchObject({ unreadThreads: 2 })
+
+    const rendered = await dashboard(cookie, 'text/html')
+    expect(rendered.body).toContain('/inbox?unread=1')
+    expect(rendered.body).toContain('2 unread conversations')
+    // The queue's own vocabulary is gone from the page entirely.
+    expect(rendered.body).not.toContain('Shortest first')
+  })
+
+  it('shows no section at all when nothing is unread', async () => {
+    const cookie = await signedInCookie()
+    const human = await operates(agentId)
+    const thread = messages.thread(human, String(agentId))
+    messages.agentWrites(human, String(agentId), 'May I?', thread)
+
+    await app.inject({
+      method: 'GET',
+      url: `/inbox/${thread}`,
+      headers: { host: CONSOLE_HOST, accept: 'application/json', cookie },
+    })
+
+    // A heading over an empty count teaches a person that this page usually has
+    // nothing on it — the same rule the queue had.
+    expect((await dashboard(cookie)).json()).toMatchObject({ unreadThreads: 0 })
+    expect((await dashboard(cookie, 'text/html')).body).not.toContain('Waiting on you')
+  })
+
+  it('never counts a thread of an agent this person does not operate', async () => {
+    const cookie = await signedInCookie()
+    await operates(agentId)
+    const theirs = messages.thread('11111111-1111-4111-8111-111111111111', String(strangersAgentId))
+    messages.agentWrites(
+      '11111111-1111-4111-8111-111111111111',
+      String(strangersAgentId),
+      'Hm?',
+      theirs,
+    )
+
+    expect((await dashboard(cookie)).json()).toMatchObject({ unreadThreads: 0 })
+  })
+
+  it('sends the per-agent page into the inbox, narrowed to that agent', async () => {
+    const cookie = await signedInCookie()
+    await operates(agentId)
+
+    const sent = await app.inject({
+      method: 'GET',
+      url: `/agents/${agentId}/messages`,
+      headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
+    })
+
+    // The route stays (`#1447` frozen decision 6) so the agent's own navigation
+    // keeps its meaning; the second renderer that used to be behind it goes.
+    expect(sent.statusCode).toBe(303)
+    expect(sent.headers['location']).toBe(`/inbox?agent=${agentId}`)
+  })
+
+  it('narrows to the agent in the path, whatever the query string says', async () => {
+    const cookie = await signedInCookie()
+    const human = await operates(agentId)
+    const mine = messages.thread(human, String(agentId))
+    messages.agentWrites(human, String(agentId), 'From the one you asked for.', mine)
+
+    const listed = await app.inject({
+      method: 'GET',
+      url: `/agents/${agentId}/messages?agent=${strangersAgentId}`,
+      headers: { host: CONSOLE_HOST, accept: 'application/json', cookie },
+    })
+
+    // One link contradicting itself. The path is the one the person clicked.
+    expect((listed.json() as { threads: { conversationId: string }[] }).threads).toEqual([
+      expect.objectContaining({ conversationId: mine }),
+    ])
   })
 })

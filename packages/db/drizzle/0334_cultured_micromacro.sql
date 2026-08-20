@@ -1,0 +1,1 @@
+ALTER TABLE "message_participants" ADD COLUMN "done_at" timestamp with time zone;

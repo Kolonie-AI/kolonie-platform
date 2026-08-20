@@ -1270,9 +1270,13 @@ export function inboxPage(input: {
     readonly mine: boolean
     readonly unread: boolean
     readonly unreadCount: number
+    readonly archived: boolean
+    readonly muted: boolean
   }[]
   /** Set when the list is narrowed to one agent (`#1447` frozen decision 6). */
   readonly onlyAgent?: string | undefined
+  /** Which slice is being shown (`#1449`). Open is what an inbox means. */
+  readonly view: 'open' | 'archived' | 'all'
 }): string {
   const unread = input.threads.filter((thread) => thread.unread).length
 
@@ -1300,7 +1304,29 @@ export function inboxPage(input: {
           escape(preview(thread.preview)),
       '</td>',
       `<td>${thread.at === null ? '—' : escape(relative(thread.at))}</td>`,
-      `<td>${thread.unread ? `${String(thread.unreadCount)} unread` : ''}</td>`,
+      `<td>${thread.unread ? `${String(thread.unreadCount)} unread` : ''}` +
+        (thread.muted ? ' <span class="muted">muted</span>' : '') +
+        '</td>',
+      /**
+       * **Two buttons and two columns** (`#1449`). Archive takes it out of the
+       * list; mute leaves it there and stops the notifier. A person who
+       * silenced a chatty thread and then could not find it would have been
+       * given one control for two intentions.
+       */
+      '<td>',
+      stateForm(
+        thread.conversationId,
+        thread.archived ? 'unarchive' : 'archive',
+        thread.archived ? 'Put back' : 'Archive',
+        input.view,
+      ),
+      stateForm(
+        thread.conversationId,
+        thread.muted ? 'unmute' : 'mute',
+        thread.muted ? 'Unmute' : 'Mute',
+        input.view,
+      ),
+      '</td>',
       '</tr>',
     ].join(''),
   )
@@ -1311,10 +1337,26 @@ export function inboxPage(input: {
       ? '<p>Every conversation between you and the agents you operate, newest first.</p>'
       : `<p>Conversations with ${escape(input.onlyAgent)}, newest first. ` +
         '<a href="/inbox">Every agent</a>.</p>',
+    /**
+     * **A switch and not folders** (`#1449`). A folder is a place a thread is
+     * *in*, which would make archiving a move and finding it again a second
+     * one; this is one predicate over one column.
+     */
+    '<p class="views">' +
+      (['open', 'archived', 'all'] as const)
+        .map((slice) =>
+          slice === input.view
+            ? `<strong>${VIEW_NAMES[slice]}</strong>`
+            : `<a href="/inbox?view=${slice}">${VIEW_NAMES[slice]}</a>`,
+        )
+        .join(' · ') +
+      '</p>',
     ...(input.threads.length === 0
       ? [
-          '<p>Nothing here yet. Your agents write to you when they need something only a ' +
-            'person can do — a decision, an account, a step behind a human check.</p>',
+          input.view === 'archived'
+            ? '<p>Nothing archived.</p>'
+            : '<p>Nothing here yet. Your agents write to you when they need something only a ' +
+              'person can do — a decision, an account, a step behind a human check.</p>',
         ]
       : [
           unread === 0
@@ -1328,6 +1370,44 @@ export function inboxPage(input: {
   ].join('\n')
 
   return page({ title: 'Your inbox', body, signedIn: true, nav: input.nav })
+}
+
+/**
+ * What each slice of the inbox is called on the switch (`#1449`).
+ *
+ * **Not `VIEW_LABELS`**, which is what it was called until
+ * `scripts/github-issue-labels.test.ts` read it as a set of GitHub issue
+ * labels. That check finds every `const …_LABELS` in a file that mentions
+ * GitHub, and this file mentions it because a person signs in with it. The
+ * heuristic is deliberately conservative and is right to be — an invented
+ * label is dropped silently by the API — so the name moved rather than the
+ * check.
+ */
+const VIEW_NAMES = { open: 'Open', archived: 'Archived', all: 'All' } as const
+
+/**
+ * One state change, as a form rather than a link.
+ *
+ * **A `POST` because it writes**, which is the same reason every other state
+ * change on this console is a form: a prefetching browser or a crawler
+ * following a link would archive somebody's threads for them.
+ *
+ * `back` carries the view being looked at, so archiving from *Archived* returns
+ * there rather than dropping the person into *Open* to find their place again.
+ */
+function stateForm(
+  conversationId: string,
+  act: string,
+  label: string,
+  view: 'open' | 'archived' | 'all',
+): string {
+  return (
+    `<form method="post" action="/inbox/${escape(conversationId)}/state">` +
+    `<input type="hidden" name="act" value="${escape(act)}">` +
+    `<input type="hidden" name="back" value="${escape(`/inbox?view=${view}`)}">` +
+    `<button type="submit">${escape(label)}</button>` +
+    '</form>'
+  )
 }
 
 /**

@@ -1813,12 +1813,7 @@
     {
       "name": "kolonie.operator.notes",
       "schema": {
-        "properties": {
-          "includeDelivered": {
-            "default": false,
-            "type": "boolean"
-          }
-        },
+        "properties": {},
         "type": "object"
       }
     },

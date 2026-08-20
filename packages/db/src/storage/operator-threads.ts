@@ -487,6 +487,45 @@ export async function answerOperatorThreadFromPage(
 }
 
 /**
+ * A person writing to their citizen unasked, from the durable page (`#1454`).
+ *
+ * ## What this replaces
+ *
+ * `operator_notes` — three rows in the whole life of that channel, and one-way
+ * by construction, so a citizen that wanted to say *understood, but the account
+ * is at a different provider* had to open a **request** to answer a sentence.
+ *
+ * ## Why it is a separate function from {@link answerOperatorThreadFromPage}
+ *
+ * That one names a thread and checks the person is in it. This one names none,
+ * because there is none yet: `sendOperatorMessage` finds this person's plain
+ * thread with the agent or opens one — which is exactly what `#1452` built for
+ * the inbox, arriving here through a different door.
+ *
+ * **The page is still the whole authorisation.** `pageSubject` resolves a live
+ * token to one person and one agent, so a revoked page reaches nothing, and the
+ * send re-checks the operator relationship on its own account.
+ */
+export async function writeOperatorMessageFromPage(
+  db: Database,
+  input: { readonly token: string; readonly body: string },
+): Promise<PageAnswerOutcome> {
+  const subject = await pageSubject(db, input.token)
+  if (subject === undefined) return { outcome: 'unreachable' }
+
+  const sent = await sendOperatorMessage(
+    db,
+    subject.humanId as HumanId,
+    subject.agentId,
+    input.body,
+  )
+
+  return sent.outcome === 'delivered'
+    ? { outcome: 'answered', agentId: subject.agentId, threadId: sent.conversationId }
+    : { outcome: 'unreachable' }
+}
+
+/**
  * Whether this citizen is waiting on its operator (`#1325`).
  *
  * Replaces `hasOpenOperatorRequest`, and the difference is what *open* means

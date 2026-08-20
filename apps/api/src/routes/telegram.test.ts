@@ -9,7 +9,7 @@ import {
   fakeAutonomyStore,
   fakeOperatorPages,
 } from '../__fixtures__/autonomy.js'
-import { fakeOperatorNotes } from '../__fixtures__/operator-notes.js'
+import { fakeOperatorPageMessages } from '../__fixtures__/operator-page-message.js'
 import { fakeOperatorThreads } from '../__fixtures__/operator-threads.js'
 import { fakeStore } from '../__fixtures__/store.js'
 import { fakeTelegramDesk } from '../__fixtures__/operator-telegram.js'
@@ -49,7 +49,7 @@ describe('the Telegram webhook (#793)', () => {
         formBaseUrl: 'https://console.example.org',
       },
       operatorThreads: fakeOperatorThreads({ pages }),
-      operatorNotes: fakeOperatorNotes({ pages }),
+      operatorPageMessages: fakeOperatorPageMessages({ pages }),
       ...(withDesk ? { telegram: desk } : {}),
     })
 

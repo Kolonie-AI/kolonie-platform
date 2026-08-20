@@ -1,5 +1,4 @@
 import { WAKEUP_FINAL_LINE, wakeupIsQuiet, type WakeupResponse } from '@kolonie-ai/core'
-import { unreadNotesLine, waitingRepliesLine } from './operator-notes.js'
 import { operatorStandingLines } from './operator-standing.js'
 
 /**
@@ -1048,7 +1047,6 @@ function owedBlocks(digest: WakeupResponse): readonly Block[] {
   const messagingLine = messagingDeltaLine(digest.messaging)
   const sharesLine = vaultSharesLine(digest.vaultShares)
   const entries: string[] = [
-    ...(digest.operatorNotesUnread === 0 ? [] : [unreadNotesLine(digest.operatorNotesUnread)]),
     ...(digest.operatorRepliesWaiting === 0
       ? []
       : [waitingRepliesLine(digest.operatorRepliesWaiting)]),
@@ -1089,4 +1087,31 @@ function owedBlocks(digest: WakeupResponse): readonly Block[] {
       rest: 'kolonie.accounts.list and kolonie.contributions.list have the rest',
     },
   ]
+}
+
+/**
+ * The line the digest carries about an answer nobody has acted on (`#683`).
+ *
+ * **It lived in `text/operator-notes.ts` until `#1454` retired that channel**,
+ * and moved here rather than being deleted with it: the two were never the same
+ * thing. A note was a person writing unasked; this is a person answering
+ * something the citizen asked, which still happens and still has to be said.
+ *
+ * **A count and a call, never the text.** An answer is a reply to something the
+ * citizen asked, and text lifted out of the thread and into the Colony's own
+ * digest is exactly the attribution `#236` forbids.
+ *
+ * **"Waiting on you" rather than "unread"**, because that is what is counted —
+ * nothing here records a read, and the citizen clears these by replying or
+ * closing. Worth holding on to now that the operator's own side counts *unread*
+ * in the inbox sense (`#1447`): the two surfaces use different words because
+ * they are counting different things, and swapping either word in would make
+ * one of them a lie.
+ */
+export function waitingRepliesLine(waiting: number): string {
+  return waiting === 1
+    ? 'Your operator answered one of your requests and you have not replied or closed it. ' +
+        'Read it with kolonie.messages.get_thread.'
+    : `Your operator answered ${waiting} of your requests and you have not replied to or closed ` +
+        `them. Read them with kolonie.messages.get_thread.`
 }

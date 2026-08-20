@@ -1601,7 +1601,17 @@ describe('whether a waking has a piece of work in it', () => {
   })
 
   it('is true when an operator wrote or answered', async () => {
-    source.answersUnreadNotes(1)
+    // `#1454` retired the note count; an operator writing unasked opens a
+    // thread now, so the same fact arrives through `messaging`.
+    source.answersWaitingReplies(1)
+
+    const result = await wakeup(agentId, {}, source, noContributions)
+
+    expect(result.response.actionableNow).toBe(true)
+  })
+
+  it('is true when an operator wrote into a thread nobody has read', async () => {
+    source.answersMessaging({ unreadThreads: 1, pendingRequests: 0, highPriority: 0 })
 
     const result = await wakeup(agentId, {}, source, noContributions)
 

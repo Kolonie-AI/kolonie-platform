@@ -156,7 +156,7 @@ import {
   operatorAnsweredPage,
   operatorNoteSentPage,
 } from '../autonomy-page.js'
-import { writeOperatorNote } from '../operator-notes.js'
+import { writeOperatorMessage } from '../operator-page-message.js'
 import { answerOperatorThread, isWaitingOnTheOperator } from '../operator-threads.js'
 import { markWishWanted, putOnWishList, selectBundle } from '../account-wishes.js'
 import type { SealedSecret, WishCatalogueEntry } from '../console/agent-accounts.js'
@@ -5217,9 +5217,9 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         await deps.operatorThreads.store.forPageToken(door.token),
       )
 
-      const written = await writeOperatorNote(
+      const written = await writeOperatorMessage(
         { token: door.token, body: submitted['body'] },
-        deps.operatorNotes,
+        deps.operatorPageMessages,
       )
 
       if (written.outcome === 'written') {
@@ -5228,17 +5228,17 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
 
       if (written.outcome === 'unreachable') return consoleNotFound(reply, request)
 
+      // No full-inbox branch since `#1454`: a message goes into a thread, where
+      // unread is a cursor rather than a queue, so there is nothing to fill.
       const noteError =
-        written.outcome === 'inbox-full'
-          ? undefined
-          : written.outcome === 'rate-limited'
-            ? `You have sent your agent a lot in the last hour. Try again in ` +
-              `${Math.ceil(written.retryAfterSeconds / 60)} minutes — nothing you already sent ` +
-              `is affected.`
-            : written.error.message
+        written.outcome === 'rate-limited'
+          ? `You have sent your agent a lot in the last hour. Try again in ` +
+            `${Math.ceil(written.retryAfterSeconds / 60)} minutes — nothing you already sent ` +
+            `is affected.`
+          : written.error.message
 
       return html(
-        reply.status(written.outcome === 'inbox-full' ? 409 : 422),
+        reply.status(422),
         await operatorPageBody(
           deps,
           door.token,

@@ -49,7 +49,7 @@ import type { SolanaDependencies } from '../solana.js'
 import type { TaskSubmissions } from '../submissions.js'
 import type { Support } from '../support.js'
 import type { OperatorThreadDependencies } from '../operator-threads.js'
-import type { OperatorNoteDependencies } from '../operator-notes.js'
+import type { OperatorPageMessageDependencies } from '../operator-page-message.js'
 import type { PermissionReportDependencies } from '../permission-reports.js'
 import type { CredentialRotation } from '../rotation.js'
 import type { TaskCatalogue } from '../tasks.js'
@@ -428,7 +428,7 @@ export interface McpDependencies {
    * would make it easy to pass the same limiter to each, which is the mistake the
    * split exists to prevent.
    */
-  readonly operatorNotes: OperatorNoteDependencies
+  readonly operatorPageMessages: OperatorPageMessageDependencies
   /**
    * Blocked by permission rather than by ability, and the case it can take to its
    * operator (#147).

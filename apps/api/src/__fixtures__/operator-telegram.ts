@@ -44,7 +44,7 @@ export interface FakeTelegramStore extends TelegramStore {
 export function fakeTelegramStore(
   /**
    * The durable pages, shared rather than duplicated — the same argument
-   * `fakeOperatorNoteStore` makes. The page token is what the button resolves
+   * `fakeOperatorPageMessageStore` makes. The page token is what the button resolves
    * through in production, so an independent token map here would let a test mint
    * a deep link through a page the revoke path had never heard of.
    */

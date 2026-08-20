@@ -8,7 +8,7 @@ import {
   fakeAutonomyStore,
   fakeOperatorPages,
 } from '../__fixtures__/autonomy.js'
-import { fakeOperatorNotes } from '../__fixtures__/operator-notes.js'
+import { fakeOperatorPageMessages } from '../__fixtures__/operator-page-message.js'
 import { fakeOperatorThreads } from '../__fixtures__/operator-threads.js'
 import { fakeStore } from '../__fixtures__/store.js'
 import { OPERATOR_ANSWER_BODIES, type AgentId } from '@kolonie-ai/core'
@@ -18,7 +18,7 @@ describe('the operator’s form', () => {
   let store: ReturnType<typeof fakeAutonomyStore>
   let pages: ReturnType<typeof fakeOperatorPages>
   let requests: ReturnType<typeof fakeOperatorThreads>
-  let notes: ReturnType<typeof fakeOperatorNotes>
+  let notes: ReturnType<typeof fakeOperatorPageMessages>
   let agentId: AgentId
 
   beforeEach(async () => {
@@ -35,7 +35,7 @@ describe('the operator’s form', () => {
     // And so does the unsolicited direction (#239), for the same reason: a note
     // is resolved through the page token, so a third page store here would let
     // this file write notes through a link the revoke path had never heard of.
-    notes = fakeOperatorNotes({ pages })
+    notes = fakeOperatorPageMessages({ pages })
     app = buildApp({
       ...fakeColony(),
       store: agents,
@@ -46,7 +46,7 @@ describe('the operator’s form', () => {
         formBaseUrl: 'https://console.example.org',
       },
       operatorThreads: requests,
-      operatorNotes: notes,
+      operatorPageMessages: notes,
     })
     await app.ready()
     agentId = agents.issue().agent.id
@@ -1291,7 +1291,7 @@ describe('the operator’s form', () => {
       expect(response.body).toContain('Sent')
       expect(response.body).toContain('the next time it wakes up')
 
-      expect(await notes.store.countUnread(agentId)).toBe(1)
+      expect(notes.store.allFor(agentId)).toHaveLength(1)
     })
 
     /**
@@ -1397,7 +1397,7 @@ describe('the operator’s form', () => {
       })
 
       expect(response.statusCode).toBe(200)
-      expect(await notes.store.countUnread(agentId)).toBe(1)
+      expect(notes.store.allFor(agentId)).toHaveLength(1)
 
       // And the thread is untouched — still unanswered.
       expect(
@@ -1415,7 +1415,7 @@ describe('the operator’s form', () => {
       // no account to return through must not be handed an error page.
       expect(response.body).toContain('name="intent" value="note"')
       expect(response.body).toContain('between 4 and 2000 characters')
-      expect(await notes.store.countUnread(agentId)).toBe(0)
+      expect(notes.store.allFor(agentId)).toHaveLength(0)
     })
 
     it('refuses a credential, in this direction as in the other', async () => {
@@ -1428,20 +1428,31 @@ describe('the operator’s form', () => {
 
       expect(response.statusCode).toBe(422)
       expect(response.body).toContain('kolonie.vault.set')
-      expect(await notes.store.countUnread(agentId)).toBe(0)
+      expect(notes.store.allFor(agentId)).toHaveLength(0)
     })
 
-    it('shows the wall instead of the box once the citizen is not reading', async () => {
+    /**
+     * **There is no wall any more** (`#1454`).
+     *
+     * A note sat in a pile the citizen had to drain, so the box disappeared at
+     * `MAX_UNREAD_OPERATOR_NOTES` and a write past it answered `409`. The words
+     * go into a thread now, where unread is a cursor rather than a queue: there
+     * is nothing to fill, so the box is always there and the only ceiling left
+     * is the rate limit, which bounds speed rather than depth.
+     */
+    it('keeps the box open however much is already waiting', async () => {
       const token = await aPage()
-      notes.store.fill(agentId)
+      // Under `OPERATOR_NOTE_LIMIT`, so the only ceiling that could fire here is
+      // the one this test says has gone.
+      for (let n = 0; n < 8; n += 1) await aNote(token, `Something to read, number ${n + 1}.`)
 
       const shown = await get(`/operator/page/${token}`)
-      expect(shown.body).not.toContain('name="intent" value="note"')
-      expect(shown.body).toContain('has not read yet')
+      expect(shown.body).toContain('name="intent" value="note"')
+      expect(shown.body).not.toContain('has not read yet')
 
-      const refused = await aNote(token, 'One more thing before you wake up.')
-      expect(refused.statusCode).toBe(409)
-      expect(refused.body).toContain('has not read yet')
+      const again = await aNote(token, 'One more thing before you wake up.')
+      expect(again.statusCode).toBe(200)
+      expect(notes.store.allFor(agentId)).toHaveLength(9)
     })
 
     /**
@@ -1468,7 +1479,7 @@ describe('the operator’s form', () => {
         await post(`/operator/page/${token}`, { intent, body: 'Take that back please.' })
       }
 
-      expect(await notes.store.countUnread(agentId)).toBe(1)
+      expect(notes.store.allFor(agentId)).toHaveLength(1)
     })
 
     it('answers a revoked page as though it never existed', async () => {

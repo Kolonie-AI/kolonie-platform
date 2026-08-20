@@ -478,19 +478,19 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.support.open',
   'kolonie.support.read',
   /**
-   * The other direction: what the operator said without being asked (#239).
+   * Retired, and named for one release (`#1454`, epic `#1447`).
    *
-   * **One, against the inbox's several, and the asymmetry is the design.** A citizen
-   * needs to open, read, add to and mark read a thread it started. It needs exactly one
-   * thing from a note: to be handed what is waiting. There is no reply tool because a
-   * note is not a thread, and no delete tool because there is nothing a citizen would
-   * gain by removing a row it is the only reader of — `#927` made the read stop
-   * destroying them and added no way to destroy them on purpose, which is the same
-   * answer arrived at from the other side.
+   * **Three rows, ever** — in the whole life of the channel, measured on
+   * 2026-08-20. The asymmetry that used to be argued for here, *one tool
+   * against the inbox's several because a note is not a thread*, was the defect
+   * rather than the design: a citizen that wanted to say *understood, but the
+   * account is at a different provider* had to open a **request** to answer a
+   * sentence, spending the one slot it needed for a real block.
    *
-   * It does **not** share the exchange's outbound allowance. That ceiling stops a
-   * citizen making a person read too much; this direction is bounded to stop a person
-   * filling a citizen's context, which is the opposite party and the opposite budget.
+   * A person now opens a thread from `/inbox` without being asked (`#1452`),
+   * which is what a note was, and the citizen answers it. Citizens hold skills
+   * and memories naming this tool, so it answers with what replaced it rather
+   * than with an unknown-tool error. It leaves the list with the refusal.
    */
   'kolonie.operator.notes',
   /**

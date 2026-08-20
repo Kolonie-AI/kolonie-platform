@@ -11,6 +11,7 @@ import {
 } from '../autonomy-page.js'
 import { writeOperatorNote } from '../operator-notes.js'
 import { operatorPageBody } from '../operator-page-body.js'
+import { shareAdditionError } from '../operator-shares.js'
 import { answerOperatorThread, isWaitingOnTheOperator } from '../operator-threads.js'
 import { deepLinkFor } from '../operator-telegram.js'
 import { CONSOLE_HEADERS } from '../console/html.js'
@@ -224,8 +225,24 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
       facts: OperatorPageView['facts']
       declaredRhythmHours: OperatorPageView['declaredRhythmHours']
     },
-    errors: { readonly answerError?: string; readonly noteError?: string } = {},
-  ): Promise<string> => operatorPageBody(deps, token, `/operator/page/${token}`, view, errors)
+    errors: {
+      readonly answerError?: string
+      readonly noteError?: string
+      readonly shareError?: string
+    } = {},
+  ): Promise<string> =>
+    operatorPageBody(deps, token, `/operator/page/${token}`, view, {
+      ...errors,
+      /**
+       * The share's forms post to this same route (`#1440`).
+       *
+       * **On the durable page and not only in the console**, which is `#1437`
+       * frozen decision 1 in one line: the link that was refused a secret is now
+       * the one that carries it, because the refusal is what nothing ever got
+       * past.
+       */
+      ...(deps.operatorShares === undefined ? {} : { shareAction: `/operator/page/${token}` }),
+    })
 
   app.get('/operator/page/:token', async (request, reply) => {
     const { token } = request.params as { token?: string }
@@ -275,6 +292,68 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
     }
 
     const submitted = (request.body ?? {}) as Record<string, unknown>
+
+    /**
+     * The operator writes into a shared entry, or hands it back (`#1440`).
+     *
+     * **`act` rather than a fourth `intent`**, because the two buttons are one
+     * form: it is the same share and the same authorisation, and the difference
+     * is only which of two things the person pressed. Guessing from whether the
+     * box was filled would make *hand it back* mean *save an empty value* the
+     * first time somebody clicked the wrong button.
+     *
+     * The token is what says whose citizen this is, on both branches — the store
+     * resolves it together with the share id, so a valid token cannot be aimed
+     * at another citizen's share.
+     */
+    if (submitted['act'] === 'write' || submitted['act'] === 'hand-back') {
+      const shares = deps.operatorShares
+      const shareId = typeof submitted['shareId'] === 'string' ? submitted['shareId'] : ''
+
+      if (shares === undefined || shareId === '') {
+        return reply
+          .headers(CONSOLE_HEADERS)
+          .type('text/html')
+          .send(
+            await pageFor(token as string, view, {
+              shareError: 'That share is not one this page can reach any more.',
+            }),
+          )
+      }
+
+      if (submitted['act'] === 'hand-back') {
+        await shares.handBack({ pageToken: token as string }, shareId)
+        return reply
+          .headers(CONSOLE_HEADERS)
+          .type('text/html')
+          .send(await pageFor(token as string, view))
+      }
+
+      const addition = typeof submitted['addition'] === 'string' ? submitted['addition'] : ''
+      const refusal = shareAdditionError(addition)
+
+      if (refusal !== undefined) {
+        return reply
+          .headers(CONSOLE_HEADERS)
+          .type('text/html')
+          .send(await pageFor(token as string, view, { shareError: refusal }))
+      }
+
+      const written = await shares.write({ pageToken: token as string }, shareId, addition.trim())
+
+      return reply
+        .headers(CONSOLE_HEADERS)
+        .type('text/html')
+        .send(
+          await pageFor(
+            token as string,
+            view,
+            written.outcome === 'closed'
+              ? { shareError: 'That share ended before this was saved. Nothing was written.' }
+              : {},
+          ),
+        )
+    }
 
     /**
      * The operator asks for a Telegram link (`#793`).

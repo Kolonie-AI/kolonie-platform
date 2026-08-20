@@ -5,6 +5,7 @@ import type { TicketDesk } from '../support-desk.js'
 import type { WalkRefusalDesk } from '../walk-refusals.js'
 import type { OpenSource } from '../open.js'
 import type { HandoverStore } from '../handovers.js'
+import type { OperatorShareStore } from '../operator-shares.js'
 import type { AgentId, ApiError, Log, RhythmBounds, SkillReleases } from '@kolonie-ai/core'
 import type { OpenProspects } from '@kolonie-ai/db'
 import type { CitizenSearch } from '../citizen-search.js'
@@ -354,6 +355,14 @@ export interface RouteDependencies {
   readonly drops: DropDependencies['drops']
   /** The agent → operator secret channel (`#592`). Absent with no sealing key. */
   readonly handovers?: HandoverStore | undefined
+  /**
+   * The operator's half of a shared vault entry (`#1440`, epic `#1437`).
+   *
+   * **Absent with no sealing key**, like the two channels above it — a share is
+   * a Colony-sealed copy, and a deployment that cannot seal cannot carry one.
+   * The rest of the operator page works either way.
+   */
+  readonly operatorShares?: OperatorShareStore | undefined
   /**
    * An account handed from one citizen to another (`#1125`).
    *

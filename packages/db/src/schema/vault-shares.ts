@@ -1,5 +1,14 @@
 import { sql } from 'drizzle-orm'
-import { index, pgTable, text, timestamp, uniqueIndex, uuid, varchar } from 'drizzle-orm/pg-core'
+import {
+  index,
+  integer,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+  varchar,
+} from 'drizzle-orm/pg-core'
 import { VAULT_KEY_MAX_LENGTH } from '@kolonie-ai/core'
 import { agents } from './agents.js'
 
@@ -116,6 +125,35 @@ export const vaultShares = pgTable(
 
     /** When the citizen took it back, or the operator handed it back early. */
     takenBackAt: timestamp('taken_back_at', { withTimezone: true, mode: 'string' }),
+
+    /**
+     * Which side ended it (`#1440`), or null while it is open.
+     *
+     * **The citizen has to be able to tell.** An operator handing a share back
+     * early is saying *I am done with this*, and a citizen that read only
+     * `taken_back_at` would see its own take-back and theirs as the same event —
+     * which is the difference between *the job is finished* and *I closed it
+     * myself last week*.
+     */
+    takenBackBy: text('taken_back_by'),
+
+    /**
+     * How many times a person has opened the value (`#1440`).
+     *
+     * **The number whose absence made the old channels impossible to debug.**
+     * `agent_handovers.reads` existed and nothing ever surfaced it, so nobody
+     * noticed forty-two unread until somebody went looking in production. A
+     * count the citizen can read is what turns *nobody has answered yet* and
+     * *nobody ever opened it* into two different facts.
+     *
+     * Counted on the read of the **value**, not on the page render: an operator
+     * scrolling past a share has not read it, and a number that said otherwise
+     * would be worse than none.
+     */
+    reads: integer('reads').notNull().default(0),
+
+    /** When the last of those reads was. Null until somebody opens it. */
+    lastReadAt: timestamp('last_read_at', { withTimezone: true, mode: 'string' }),
   },
   (table) => [
     /**

@@ -926,6 +926,31 @@ export const WakeupMessagingDeltaSchema = z.object({
 export type WakeupMessagingDelta = z.infer<typeof WakeupMessagingDeltaSchema>
 
 /**
+ * What has moved on this citizen's shared vault entries (`#1440`).
+ *
+ * Four counts and no text. `open` is how many a person can currently read, and
+ * it is the denominator the other three are read against: two open, one read,
+ * nothing written is a different situation from two open and neither touched.
+ */
+export const WakeupVaultSharesDeltaSchema = z.object({
+  /** Shares a person can read right now. */
+  open: z.number().int().min(0),
+  /** Of those, how many somebody has actually opened. */
+  read: z.number().int().min(0),
+  /** Of those, how many carry something the operator wrote back. */
+  written: z.number().int().min(0),
+  /**
+   * How many the **operator** ended, waiting to be collected.
+   *
+   * These are no longer open, so they are not in `open`. A citizen with one of
+   * these has a person saying *I am finished*, and `kolonie.vault.unshare` is
+   * what collects whatever they left.
+   */
+  handedBack: z.number().int().min(0),
+})
+export type WakeupVaultSharesDelta = z.infer<typeof WakeupVaultSharesDeltaSchema>
+
+/**
  * Which messaging call clears the delta, if any (`#1287`).
  *
  * Pending requests first (they are invisible to `list_threads`), then a
@@ -1347,6 +1372,32 @@ export const WakeupResponseSchema = z.object({
     unreadThreads: 0,
     pendingRequests: 0,
     highPriority: 0,
+  }),
+  /**
+   * What has moved on the vault entries this citizen is sharing (`#1440`).
+   *
+   * ## Why this is on the waking read at all
+   *
+   * A share is the one thing a citizen sets in motion and then sleeps through.
+   * The channels it replaces had exactly this hole: `agent_handovers.reads`
+   * existed, nothing ever surfaced it, and *nobody has answered yet* was
+   * indistinguishable from *nobody ever opened it* — for forty-two handovers
+   * over the whole life of the channel. A citizen that has to call three tools
+   * to find out whether a person looked will not call them.
+   *
+   * **Counts and never a value.** What the operator wrote comes back once, on
+   * `kolonie.vault.unshare`, and a digest that carried it would put a secret in
+   * the answer to *what happened while I was away*.
+   *
+   * **Not windowed by `since`**, for the reason the messaging delta is not: a
+   * share somebody read a week ago and the citizen never came back for is still
+   * an open obligation rather than news.
+   */
+  vaultShares: WakeupVaultSharesDeltaSchema.default({
+    open: 0,
+    read: 0,
+    written: 0,
+    handedBack: 0,
   }),
   /**
    * The shape of the tool catalogue this build serves (`#1392`).

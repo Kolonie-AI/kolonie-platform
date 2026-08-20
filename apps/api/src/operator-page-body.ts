@@ -46,6 +46,17 @@ export async function operatorPageBody(
   errors: {
     readonly answerError?: string
     readonly noteError?: string
+    /** What to say if an operator's addition was just refused (`#1440`). */
+    readonly shareError?: string
+    /**
+     * Where a share's write and hand-back forms post (`#1440`).
+     *
+     * **Both doors get one**, unlike `fillDrops` above — that flag exists
+     * because a drop's value may only be posted from a console, and `#1437`
+     * frozen decision 1 deliberately does not carry that rule across. What
+     * differs between the doors is the path, exactly as `action` does.
+     */
+    readonly shareAction?: string
     /** The authenticated console may use its existing drop-id route; the bearer page may not. */
     readonly fillDrops?: boolean
     /**
@@ -61,9 +72,17 @@ export async function operatorPageBody(
     readonly as?: 'page' | 'section' | undefined
   } = {},
 ): Promise<string> {
-  const [threads, drops, room, telegram] = await Promise.all([
+  const [threads, drops, shares, room, telegram] = await Promise.all([
     deps.operatorThreads.store.forPageToken(token),
     deps.drops?.forPageToken(token) ?? Promise.resolve([]),
+    /**
+     * The entries this agent is sharing (`#1440`).
+     *
+     * Resolved by the page's own token like everything else here, and empty when
+     * the deployment has no sealing key — a page offering a channel this Colony
+     * cannot carry would be worse than one that never mentions it.
+     */
+    deps.operatorShares?.forPageToken(token) ?? Promise.resolve([]),
     deps.operatorNotes.store.roomForToken(token),
     /**
      * How the Colony reaches this operator (`#793`).
@@ -105,7 +124,7 @@ export async function operatorPageBody(
      * order is what `#587`'s anchor depends on and re-sorting it here would be a
      * second answer to *which question is first*.
      */
-    threads: threads.map((thread) => ({
+    threads: threads.map((thread: (typeof threads)[number]) => ({
       threadId: String(thread.threadId),
       context: thread.context,
       openedAt: thread.openedAt,
@@ -115,6 +134,9 @@ export async function operatorPageBody(
       closed: thread.closed,
     })),
     drops,
+    shares,
+    ...(errors.shareAction === undefined ? {} : { shareAction: errors.shareAction }),
+    ...(errors.shareError === undefined ? {} : { shareError: errors.shareError }),
     ...(deps.telegram === undefined
       ? {}
       : {

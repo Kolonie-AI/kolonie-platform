@@ -26,6 +26,18 @@ export function vaultAsText({ entries, maxEntries }: ListVaultEntriesResponse): 
       (entry.share === null
         ? ''
         : `\n  SHARED with your operator until ${entry.share.expiresAt} — "${entry.share.purpose}"` +
+          /**
+           * **Read or not read, on the same line as the share** (`#1440`).
+           *
+           * The number whose absence made the channels this replaces impossible
+           * to debug. *Nobody has answered yet* and *nobody ever opened it* look
+           * identical from here, and only one of them is worth waiting through —
+           * so the zero is said in words rather than left as a count to notice.
+           */
+          (entry.share.reads === 0
+            ? '; nobody has opened it yet'
+            : `; opened ${entry.share.reads === 1 ? 'once' : `${entry.share.reads} times`}` +
+              (entry.share.lastReadAt === null ? '' : `, last ${entry.share.lastReadAt}`)) +
           (entry.share.operatorWrote ? '; they have written something back' : '')),
   )
 

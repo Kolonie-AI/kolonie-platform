@@ -70,6 +70,8 @@ export interface FakeVault extends VaultStore {
    * addition is handed over exactly once, by `unshare`, and never by a read.
    */
   readonly operatorWrites: (agentId: AgentId, key: string, addition: string) => void
+  /** Count that a person opened it, as `#1440`'s operator surfaces do. */
+  readonly operatorReads: (agentId: AgentId, key: string) => void
   /** Say the citizen is a participant of this thread, so a share may attach (`#1441`). */
   readonly canAttachTo: (conversationId: string) => void
 }
@@ -96,6 +98,9 @@ interface Shared {
   readonly sharedAt: string
   readonly expiresAt: string
   addition: string | null
+  /** What `#1440` counts on the operator's side. Moved by `operatorReads`. */
+  reads: number
+  handedBackByOperator: boolean
 }
 
 export function fakeVault(): FakeVault {
@@ -120,6 +125,10 @@ export function fakeVault(): FakeVault {
       sharedAt: open.sharedAt as VaultShareRow['sharedAt'],
       expiresAt: open.expiresAt as VaultShareRow['expiresAt'],
       operatorWrote: open.addition !== null,
+      // Counted by the operator surfaces, which this fake does not stand in for
+      // (`#1440`) — `packages/db` asserts the counting against a real row.
+      reads: open.reads,
+      lastReadAt: null,
     }
   }
 
@@ -254,6 +263,8 @@ export function fakeVault(): FakeVault {
         sharedAt: open === null ? now : (existing?.sharedAt ?? now),
         expiresAt,
         addition: open === null ? null : (existing?.addition ?? null),
+        reads: open === null ? 0 : (existing?.reads ?? 0),
+        handedBackByOperator: open === null ? false : (existing?.handedBackByOperator ?? false),
       })
 
       return {
@@ -284,7 +295,12 @@ export function fakeVault(): FakeVault {
       shares.delete(at(agentId, key))
       // Handed over once, and an expired share still gives it up: the window
       // governs what the person may read, and what they left is the citizen's.
-      return { outcome: 'unshared', operatorAddition: open.addition }
+      return {
+        outcome: 'unshared',
+        operatorAddition: open.addition,
+        reads: open.reads,
+        handedBackByOperator: open.handedBackByOperator,
+      }
     },
 
     hasOperator: async () => linked,
@@ -322,6 +338,10 @@ export function fakeVault(): FakeVault {
     operatorWrites: (agentId, key, addition) => {
       const open = shares.get(at(agentId, key))
       if (open !== undefined) open.addition = addition
+    },
+    operatorReads: (agentId, key) => {
+      const open = shares.get(at(agentId, key))
+      if (open !== undefined) open.reads += 1
     },
     spend: (agentId, key) => {
       const entry = held.get(at(agentId, key))

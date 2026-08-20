@@ -179,6 +179,28 @@ export interface OperatorPageDrop {
 }
 
 /**
+ * One vault entry a citizen has shared with this operator (`#1440`).
+ *
+ * **The value is on it, and that is the reversal.** Drops and handovers held to
+ * *a secret only in a signed-in console, never through the mailed link*; `#1437`
+ * frozen decision 1 overturns that deliberately, because the rule is the most
+ * likely reason nothing ever arrived — 42 handovers opened and 0 read, 7 drops
+ * opened and 0 filled. The cost is real and the page states it once.
+ */
+export interface OperatorPageShare {
+  readonly id: string
+  /** The entry's name, which is what the citizen calls it and will call it back. */
+  readonly vaultKey: string
+  /** The citizen's own sentence about why this person is being shown it. */
+  readonly purpose: string
+  readonly expiresAt: string
+  readonly value: string
+  readonly description: string | null
+  /** Whether they have already written something into it. */
+  readonly wrote: boolean
+}
+
+/**
  * The fragment one thread lives at (`#593`, pointed at by `#587`).
  *
  * **The thread id and not an index.** A position changes the moment another
@@ -661,6 +683,18 @@ export function operatorDurablePage(input: {
   readonly threads?: readonly OperatorThread[] | undefined
   /** Every actionable sealed box for this page's agent. */
   readonly drops?: readonly OperatorPageDrop[] | undefined
+  /**
+   * Every entry this page's agent is currently sharing (`#1440`).
+   *
+   * **Rendered identically on both doors.** The durable link and the signed-in
+   * console show the same thing and neither is a lesser view — which is the
+   * whole of frozen decision 1, and the opposite of how `drops` above works.
+   */
+  readonly shares?: readonly OperatorPageShare[] | undefined
+  /** Where a share's forms post. Absent renders it read-only. */
+  readonly shareAction?: string | undefined
+  /** What to say if an addition was just refused — an empty box, or too long. */
+  readonly shareError?: string | undefined
   /** Whether this deployment can open a sealed box for a future secret handoff. */
   readonly secretHandoff: boolean
   /** Only a signed-in console page may post a secret to the existing drop-id path. */
@@ -1179,7 +1213,76 @@ export function operatorDurablePage(input: {
     ],
   }))
 
-  const openActions = [...openQuestions, ...openDrops]
+  /**
+   * The entries the citizen is sharing right now (`#1440`).
+   *
+   * ## Why the value is on the page at all
+   *
+   * Because the rule that kept it off one has a measured record: 42 handovers
+   * opened and **0** ever read, 7 drops opened and **0** ever filled. Not one
+   * value has reached a person since either channel shipped. `#1437` frozen
+   * decision 1 reverses it knowingly, and the sentence below is the cost being
+   * stated rather than hidden.
+   *
+   * ## The risk sentence, once and near the share
+   *
+   * The durable link does not expire. An operator who forwards it, or leaves it
+   * open on a shared machine, has handed over the ability to read whatever is
+   * shared **while it is shared**. Said once, beside the first share, rather
+   * than in a footer nobody reads or on every element where it becomes noise.
+   */
+  const openShares = (input.shares ?? []).map((share, index) => ({
+    openedAt: share.expiresAt,
+    tie: `share-${share.id}`,
+    body: [
+      `<section id="share-${escape(share.id)}">`,
+      `<h2>${name} has shared a credential with you</h2>`,
+      `<p class="operator-ask"><strong>${name} says:</strong> ${escape(share.purpose)}</p>`,
+      `<p>Entry <code>${escape(share.vaultKey)}</code>` +
+        (share.description === null ? '' : ` — ${escape(share.description)}`) +
+        `. The share ends on ${escape(share.expiresAt)}.</p>`,
+      /**
+       * **`<pre>` and not an input.** It is not something to edit, and a value
+       * in a text field is a value a browser offers to remember.
+       */
+      `<pre class="shared-value">${escape(share.value)}</pre>`,
+      ...(index === 0
+        ? [
+            '<p class="note">This page’s link does not expire. Anyone you forward it to, or ',
+            'anyone using a browser you left it open in, can read this for as long as it is ',
+            'shared. It is not a password and it cannot be changed — your agent can revoke the ',
+            'link entirely, and this share ends on its own date whatever happens.</p>',
+          ]
+        : []),
+      ...(input.shareAction === undefined
+        ? [
+            '<p class="note">Sign in to the operator console to write something back into this ',
+            'entry or to hand it back early.</p>',
+          ]
+        : [
+            ...(input.shareError === undefined
+              ? []
+              : [`<p class="error">${escape(input.shareError)}</p>`]),
+            `<form method="post" action="${escape(input.shareAction)}">`,
+            `<input type="hidden" name="shareId" value="${escape(share.id)}">`,
+            '<label>Write something back into this entry — a billing PIN, a recovery code, a ' +
+              'note. Your agent collects it when it takes the entry back.',
+            '<input type="password" name="addition" maxlength="4096" autocomplete="off">',
+            '</label>',
+            `<button type="submit" name="act" value="write">${
+              share.wrote ? 'Replace what you wrote' : 'Save it for them'
+            }</button>`,
+            '<button type="submit" name="act" value="hand-back">Hand it back now</button>',
+            '</form>',
+            ...(share.wrote
+              ? ['<p class="note">You have already written something into this one.</p>']
+              : []),
+          ]),
+      '</section>',
+    ],
+  }))
+
+  const openActions = [...openQuestions, ...openDrops, ...openShares]
     .sort((a, b) => a.openedAt.localeCompare(b.openedAt) || a.tie.localeCompare(b.tie))
     .flatMap((item) => item.body)
 

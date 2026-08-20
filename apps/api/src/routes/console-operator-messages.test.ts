@@ -562,3 +562,87 @@ describe('what a person has done with a thread (#1449)', () => {
     expect(refused.statusCode).toBe(404)
   })
 })
+
+/**
+ * A person starting a thread from the inbox (`#1452`).
+ *
+ * **The store already opened threads**, which is the issue's first acceptance
+ * criterion and is asserted in `packages/db/src/storage/inbox.test.ts` — that a
+ * send with no `conversationId` opens one, that a second lands in the same
+ * plain thread, and that an account narrows it. What is under test here is the
+ * surface: that the form exists, that the refusals are the existing ones, and
+ * that an agent this person does not operate is refused.
+ */
+describe('a person starting a thread (#1452)', () => {
+  const compose = async (cookie: string, payload: Record<string, unknown>) =>
+    await app.inject({
+      method: 'POST',
+      url: '/inbox/compose',
+      headers: { host: CONSOLE_HOST, accept: 'application/json', cookie },
+      payload,
+    })
+
+  it('offers the form on the inbox', async () => {
+    const cookie = await signedInCookie()
+    await operates(agentId)
+
+    const rendered = await app.inject({
+      method: 'GET',
+      url: '/inbox',
+      headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
+    })
+
+    expect(rendered.body).toContain('action="/inbox/compose"')
+    // No subject line: a thread's subject is what it is about, and those are
+    // chosen rather than typed.
+    expect(rendered.body).not.toContain('name="subject"')
+  })
+
+  it('opens a thread nobody asked for', async () => {
+    const cookie = await signedInCookie()
+    await operates(agentId)
+
+    const sent = await compose(cookie, { agentId, body: 'The account is @ariadne.' })
+
+    expect(sent.statusCode).toBe(200)
+    expect(sent.json()).toMatchObject({ outcome: 'delivered' })
+
+    const listed = await app.inject({
+      method: 'GET',
+      url: '/inbox',
+      headers: { host: CONSOLE_HOST, accept: 'application/json', cookie },
+    })
+    expect((listed.json() as { threads: unknown[] }).threads).toHaveLength(1)
+  })
+
+  it('refuses a credential-shaped body with the existing wording', async () => {
+    const cookie = await signedInCookie()
+    await operates(agentId)
+
+    const refused = await compose(cookie, {
+      agentId,
+      body: 'the password is hunter2 and the token is ghp_0123456789abcdefghij',
+    })
+
+    expect(refused.statusCode).toBe(422)
+  })
+
+  it('refuses an empty body', async () => {
+    const cookie = await signedInCookie()
+    await operates(agentId)
+
+    expect((await compose(cookie, { agentId, body: '   ' })).statusCode).toBe(422)
+  })
+
+  it('refuses an agent this person does not operate', async () => {
+    const cookie = await signedInCookie()
+    await operates(agentId)
+
+    const refused = await compose(cookie, {
+      agentId: strangersAgentId,
+      body: 'Not mine to write to.',
+    })
+
+    expect(refused.statusCode).toBe(403)
+  })
+})

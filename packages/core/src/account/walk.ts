@@ -371,6 +371,84 @@ export const WALK_REFUSAL_REASON_UNSTATED =
  * column's own constraint requires, and that is the one remaining way a row gets
  * one.
  */
+/**
+ * Which red line a refused walk crossed, as a closed vocabulary (`#1467`).
+ *
+ * ## The count that suspends is a count of *these*, not of refusals
+ *
+ * On 2026-08-20 `assay` was suspended one minute after its fifth consecutive
+ * refused walk, and every one of the fourteen it filed that day was refused for
+ * the same thing: the route told the reader to install the provider's client.
+ * They were bandwidth-selling providers, where the client *is* the product, so no
+ * truthful walk on that shelf could have avoided it. `#1339` wrote the backstop
+ * for *"a walker told five times running that its words cross a red line"* — five
+ * things. What it caught was one thing, five times.
+ *
+ * So {@link WALK_PROSE_CONSECUTIVE} counts distinct lines, and a line is what
+ * this names.
+ *
+ * ## Why a class and not a similarity threshold
+ *
+ * `#1467` offered both and this is the one measured. Trigram similarity —
+ * `#1104`'s instrument, already in the database — separates these poorly, because
+ * two refusals of the same line share almost no words:
+ *
+ * | pair | `similarity` |
+ * |---|---|
+ * | *instructs the reader to install the client* / *directs the next citizen to install and run provider software* | 0.281 |
+ * | *instructs the reader to install the client* / *sets out a copyable Docker command* | 0.281 |
+ * | *directs the next citizen to install…* / *sets out a copyable Docker command* | 0.180 |
+ * | *instructs the reader to install the client* / *contains an API key in the words themselves* | 0.114 |
+ * | *instructs the reader…* / *advises buying accounts from a third party* | 0.086 |
+ *
+ * Same line lands at 0.18–0.28 and different lines at 0.09–0.11. There is a gap,
+ * and a threshold in it would sit near 0.15 — which is not a statement about
+ * meaning, it is two English sentences about signups scoring what two English
+ * sentences about signups score. A number that low would group a genuine second
+ * offence with the first as readily as it groups a paraphrase.
+ *
+ * **The class costs nothing extra to obtain**, which is the other half of the
+ * argument. The moderator already picks one of a closed set — `classify` takes
+ * `choices` and the transport refuses an answer outside them — and the red-line
+ * prompt already asks it to *name which line in one sentence*. Widening `clear |
+ * crossed` to name the line records a decision that was already being made, with
+ * no second call, no threshold and nothing to tune.
+ *
+ * ## These five are the prompt's five
+ *
+ * They are the bullets of `WALK_RED_LINE_PROMPT`, which are `RED-LINES.md`'s as
+ * that stage applies them. **A sixth is an argument rather than an addition** —
+ * it means a red line moved — which is what an enum is for and why this is not
+ * free text.
+ */
+export const WALK_REFUSAL_LINES = [
+  /** Instructs the reader to run code, install a package, or follow a link it cannot inspect. */
+  'runnable-instruction',
+  /** Asks the reader to reveal, send or paste a key, password or token. */
+  'credential-requested',
+  /** Carries a credential in the words themselves, whoever it belongs to. */
+  'credential-present',
+  /** Advises buying or stealing accounts, or offers accounts to third parties. */
+  'account-trade',
+  /** Tries to instruct whatever is reading the page about how to treat it. */
+  'prompt-injection',
+] as const
+
+export type WalkRefusalLine = (typeof WALK_REFUSAL_LINES)[number]
+
+export const WalkRefusalLineSchema = z.enum(WALK_REFUSAL_LINES)
+
+/**
+ * The answer that means the page is clear, alongside {@link WALK_REFUSAL_LINES}
+ * in the moderator's `choices`.
+ *
+ * Spelled here rather than in the runner so that the enum the transport enforces
+ * and the enum the column stores are assembled from one list. A `decision` that
+ * is not this is a refusal, and it **is** the line — there is no second field to
+ * disagree with it.
+ */
+export const WALK_PROSE_CLEAR = 'clear'
+
 export function walkRefusalReason(reason: string): string {
   const collapsed = reason.replace(/\s+/gu, ' ').trim()
   return collapsed === ''

@@ -716,12 +716,13 @@ const walkProseStore: WalkProseModerationStore = {
       scrubbed,
     })
   },
-  refuse: async ({ walk, reason }) => {
+  refuse: async ({ walk, reason, line }) => {
     const { suspended } = await recordWalkProseModeration(db, {
       walkId: walk.walkId,
       judged: walk.prose,
       decision: 'rejected',
       reason,
+      line,
     })
 
     return { suspended }
@@ -740,6 +741,7 @@ const walkProseStore: WalkProseModerationStore = {
             judged: walk.prose,
             decision: 'rejected' as const,
             reason: decision.reason,
+            line: decision.line,
           }
     const result = await recordApprovedWalkProseRescrub(db, command, decision.markProviderStale)
 

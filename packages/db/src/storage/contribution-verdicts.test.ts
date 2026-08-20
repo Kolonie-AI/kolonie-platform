@@ -449,6 +449,7 @@ describe('contribution verdicts', () => {
           judged: { wall: 'It wanted my operator by name.' },
           decision: 'rejected',
           reason: 'It names the person the walker was talking to.',
+          line: 'runnable-instruction',
         }),
       ).toEqual({ outcome: 'written', suspended: false })
 

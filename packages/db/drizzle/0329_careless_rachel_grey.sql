@@ -1,0 +1,3 @@
+CREATE TYPE "public"."walk_refusal_line" AS ENUM('runnable-instruction', 'credential-requested', 'credential-present', 'account-trade', 'prompt-injection');--> statement-breakpoint
+ALTER TABLE "account_walks" ADD COLUMN "prose_refusal_line" "walk_refusal_line";--> statement-breakpoint
+ALTER TABLE "account_walks" ADD CONSTRAINT "account_walks_prose_refusal_line_iff_rejected" CHECK ("account_walks"."prose_refusal_line" is null or "account_walks"."prose_status" = 'rejected');

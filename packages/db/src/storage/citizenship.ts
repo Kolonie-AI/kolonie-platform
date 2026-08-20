@@ -272,9 +272,28 @@ export async function suspendForRefusedWalkProse(
   /** The newest lift, or the beginning of time for a citizen never suspended. */
   const floor = sql`coalesce((select max(${walkProseLifts.liftedAt}) from ${walkProseLifts} where ${walkProseLifts.agentId} = ${command.agentId}), '-infinity'::timestamptz)`
 
-  /** The decided walks the rule may look at, newest first, at most a window's worth. */
+  /**
+   * The decided walks the rule may look at, newest first, at most a window's
+   * worth — each carrying what its refusal was *about* (`#1467`).
+   *
+   * **`wall` is the identity a refusal is counted under, and it is a ladder.**
+   * `prose_refusal_line` first: the closed vocabulary the moderator answers from,
+   * so two differently-worded refusals of one line are one wall. Then the
+   * sentence, for refusals decided before that column existed — which groups the
+   * verbatim repeats and nothing cleverer, and is honest about what those rows
+   * can support. Then the walk's own id, so a refusal with neither is its own
+   * wall rather than silently merging with every other unexplained one.
+   *
+   * **Raw string equality is deliberately not the comparison**, and the ladder's
+   * first rung is why. `#1467` weighed the alternative — `#1104`'s trigram
+   * similarity, already in this database — and measured it: two refusals of one
+   * line score 0.18–0.28 and two refusals of *different* lines score 0.09–0.11.
+   * A threshold in that gap sits near 0.15, which is not a statement about
+   * meaning. The class is exact and costs nothing to obtain.
+   */
   const recent = sql`(
     select w.prose_status as status,
+           coalesce(w.prose_refusal_line::text, w.prose_refusal_reason, w.id::text) as wall,
            row_number() over (order by w.finished_at desc, w.id desc) as position
       from ${accountWalks} w
      where w.agent_id = ${command.agentId}
@@ -290,14 +309,36 @@ export async function suspendForRefusedWalkProse(
    *
    * The rate is written into the statement rather than bound: a bound JavaScript
    * number arrives as a `bigint` parameter and `0.5` is not one.
+   *
+   * ## The backstop counts walls, and the rate counts refusals (`#1467`)
+   *
+   * They measure two different things and only one of them was wrong. The rate
+   * asks *how much of this citizen's recent work is being refused*, and eight
+   * refusals of one line still means eight reports the Colony cannot publish —
+   * that is a real figure and it is unchanged here.
+   *
+   * The backstop asks something narrower and stated in `#1339`'s own words: *a
+   * walker told five times running that its words cross a red line*. Five
+   * things. On 2026-08-20 it caught one thing five times — `assay` working the
+   * bandwidth-selling shelf, where the client **is** the product, so no truthful
+   * walk could omit *install the client* and every honest walk on that shelf was
+   * refused by construction. A walker cannot correct a run it is not being told
+   * anything new about, and suspending it for persistence is punishing it for
+   * the Colony not having decided the shelf (`#1469`).
+   *
+   * So the run has to be five refusals **and** five distinct walls before it
+   * suspends. `count(distinct)` over the ladder above, not over the sentences.
    */
   const overTheLine = sql`(
     select (count(*) >= ${WALK_PROSE_MIN_DECIDED}
             and count(*) filter (where recent.status = 'rejected')::numeric
                 >= count(*) * ${sql.raw(String(WALK_PROSE_REFUSAL_RATE))}::numeric)
-        or count(*) filter (
-             where recent.status = 'rejected' and recent.position <= ${WALK_PROSE_CONSECUTIVE}
-           ) >= ${WALK_PROSE_CONSECUTIVE}
+        or (count(*) filter (
+              where recent.status = 'rejected' and recent.position <= ${WALK_PROSE_CONSECUTIVE}
+            ) >= ${WALK_PROSE_CONSECUTIVE}
+            and count(distinct recent.wall) filter (
+              where recent.status = 'rejected' and recent.position <= ${WALK_PROSE_CONSECUTIVE}
+            ) >= ${WALK_PROSE_CONSECUTIVE})
       from ${recent} recent
   )`
 

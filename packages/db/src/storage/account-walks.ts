@@ -53,6 +53,7 @@ import {
   type SignupCost,
   type WalkOutcome,
   type WalkProse,
+  type WalkRefusalLine,
   type WalkVerdict,
   type WalkedRecipe,
 } from '@kolonie-ai/core'
@@ -1966,7 +1967,14 @@ export async function requeueRefusedWalkProse(
 
   const rows = await db
     .update(accountWalks)
-    .set({ proseStatus: 'pending', proseRefusalReason: null })
+    /**
+     * **The line comes off with the reason** (`#1467`). A walk going back to
+     * `pending` is one nothing has judged yet, and both columns are constrained
+     * to a refusal — the second constraint is what caught this the first time it
+     * was written without the line, which is the argument for it being a
+     * constraint rather than a convention.
+     */
+    .set({ proseStatus: 'pending', proseRefusalReason: null, proseRefusalLine: null })
     .where(
       and(
         stale,
@@ -2013,7 +2021,20 @@ type WalkProseModerationDecision =
    * still be empty — it is model output — and `walkRefusalReason` answers
    * `null` for that; what cannot happen is a write path that forgot to carry it.
    */
-  | { readonly decision: 'rejected'; readonly reason: string }
+  | {
+      readonly decision: 'rejected'
+      readonly reason: string
+      /**
+       * Which red line, as `#1467`'s closed vocabulary.
+       *
+       * Required on the same terms as the sentence beside it and for a sharper
+       * reason: this is what the consecutive backstop counts, and a refusal that
+       * reached the row without one is a refusal the rule has to treat as its own
+       * distinct wall. Making it a type error is what keeps that case to the rows
+       * written before the column existed.
+       */
+      readonly line: WalkRefusalLine
+    }
 
 type WalkProseModerationCommand = {
   readonly walkId: string
@@ -2030,6 +2051,13 @@ const moderatedWalkProseValue = (command: WalkProseModerationCommand): WalkProse
  */
 const refusalReasonValue = (command: WalkProseModerationCommand): string | null =>
   command.decision === 'rejected' ? walkRefusalReason(command.reason) : null
+
+/**
+ * The line as the row keeps it: a member on a refusal, `null` on anything else
+ * (`#1467`). The constraint beside the reason's says the same thing.
+ */
+const refusalLineValue = (command: WalkProseModerationCommand): WalkRefusalLine | null =>
+  command.decision === 'rejected' ? command.line : null
 
 /**
  * Write what the scrub produced, or refuse the words.
@@ -2138,6 +2166,13 @@ async function writeWalkProseVerdict(
        * maintainer could answer *why* only from a log that had already rotated.
        */
       proseRefusalReason: refusalReasonValue(command),
+      /**
+       * **And which line it was** (`#1467`). The sentence above is written for
+       * the walker; this is what `suspendForRefusedWalkProse` counts, because a
+       * `count(distinct …)` over the sentence counts wordings and the moderator
+       * writes a fresh one every time.
+       */
+      proseRefusalLine: refusalLineValue(command),
       /**
        * **Both verdicts are stamped, and the caller cannot forget to** (`#1108`,
        * 1). It is written here rather than passed in because *judged by this
@@ -2283,6 +2318,13 @@ export async function recordApprovedWalkProseRescrub(
         scrubbedProse: moderatedWalkProseValue(command),
         /** A second reading refuses with a reason like the first (`#1340`). */
         proseRefusalReason: refusalReasonValue(command),
+        /**
+         * **And which line it was** (`#1467`). The sentence above is written for
+         * the walker; this is what `suspendForRefusedWalkProse` counts, because a
+         * `count(distinct …)` over the sentence counts wordings and the moderator
+         * writes a fresh one every time.
+         */
+        proseRefusalLine: refusalLineValue(command),
         /** A second reading is a reading: it is stamped like the first (`#1108`). */
         proseScrubberVersion: WALK_PROSE_SCRUBBER_VERSION,
       })

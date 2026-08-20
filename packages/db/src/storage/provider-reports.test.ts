@@ -167,6 +167,7 @@ describe('providers that produced no account', () => {
         judged: pending.prose,
         decision: 'rejected',
         reason: 'It names the person the walker was talking to.',
+        line: 'runnable-instruction',
       })
 
       const [tally] = await providerReportTallies(db)

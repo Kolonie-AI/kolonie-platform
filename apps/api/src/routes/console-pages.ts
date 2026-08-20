@@ -4868,7 +4868,46 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     const asked = (request.query as { view?: string }).view
     const view: InboxView = asked === 'archived' || asked === 'all' ? asked : 'open'
 
-    const threads = desk?.inbox === undefined ? [] : await desk.inbox(signedIn.human.id, { view })
+    /**
+     * The filters, as query parameters (`#1450`).
+     *
+     * **So that a filtered inbox is a link somebody can keep.** State held in a
+     * session would make *everything about the mailbox* a place a person has to
+     * navigate back to rather than something they can bookmark or paste.
+     *
+     * **Ignored rather than refused when malformed.** An `agent` that is not a
+     * uuid is somebody's mangled link, and an inbox that answers 400 to one is
+     * worse than an inbox that answers with the unfiltered list.
+     */
+    const query = request.query as {
+      readonly agent?: string
+      readonly account?: string
+      readonly unread?: string
+      readonly sent?: string
+      readonly q?: string
+    }
+    /**
+     * A uuid, or nothing. The store interpolates these into `::uuid` casts, so
+     * anything that is not one would be a database error rather than an empty
+     * list — and an empty list is the honest answer to *threads about a thing
+     * that does not exist*.
+     */
+    const uuid = (value: string | undefined): string | undefined =>
+      typeof value === 'string' && AgentIdSchema.safeParse(value).success ? value : undefined
+
+    const agent = uuid(query.agent)
+    const account = uuid(query.account)
+
+    const filters = {
+      ...(agent === undefined ? {} : { agentId: AgentIdSchema.parse(agent) }),
+      ...(account === undefined ? {} : { accountId: account }),
+      ...(query.unread === undefined ? {} : { unreadOnly: true }),
+      ...(query.sent === undefined ? {} : { writtenByMe: true }),
+      ...(typeof query.q === 'string' && query.q.trim() !== '' ? { search: query.q } : {}),
+    }
+
+    const threads =
+      desk?.inbox === undefined ? [] : await desk.inbox(signedIn.human.id, { view, ...filters })
 
     const rows = threads.map((thread) => ({
       conversationId: String(thread.conversationId),
@@ -4885,15 +4924,17 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       muted: thread.mutedUntil !== null,
     }))
 
-    if (!wantsHtml(request)) return reply.status(200).send({ view, threads: rows })
+    if (!wantsHtml(request)) return reply.status(200).send({ view, filters, threads: rows })
 
     /**
-     * The agents this person operates, for the compose form (`#1452`).
+     * The agents this person operates, for the compose form (`#1452`) and for
+     * the agent filter (`#1450`) — one read, because they are the same list.
      *
      * Read on the HTML branch only: a caller asking for JSON wants the list,
-     * and the picker is furniture for the page.
+     * and the pickers are furniture for the page.
      */
     const operated = await deps.humans.store.operated(signedIn.human.id)
+    const accounts = await composeAccounts(operated)
 
     return html(
       reply,
@@ -4902,7 +4943,14 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         threads: rows,
         view,
         agents: operated.map((agent) => ({ id: String(agent.id), name: agent.name })),
-        accounts: await composeAccounts(operated),
+        accounts,
+        filters: {
+          ...(filters.agentId === undefined ? {} : { agentId: String(filters.agentId) }),
+          ...(filters.accountId === undefined ? {} : { accountId: filters.accountId }),
+          unreadOnly: filters.unreadOnly === true,
+          writtenByMe: filters.writtenByMe === true,
+          search: typeof query.q === 'string' ? query.q : '',
+        },
         bodyMaxLength: MESSAGE_BODY_MAX_LENGTH,
         ...(typeof (request.query as { error?: string }).error === 'string'
           ? { composeError: (request.query as { error: string }).error }

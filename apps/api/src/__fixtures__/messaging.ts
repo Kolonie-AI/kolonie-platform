@@ -689,7 +689,17 @@ export interface FakeOperatorMessaging extends OperatorMessaging {
    */
   readonly thread: (humanId: string, agentId: string) => string
   /** The agent writing into it, which un-archives it for the person (`#1449`). */
-  readonly agentWrites: (humanId: string, agentId: string, body: string) => void
+  /**
+   * A message from the agent's side. `conversationId` names which thread when
+   * this person has more than one with that agent (`#1450`) — without it, the
+   * first, which is what every caller before filters existed wanted.
+   */
+  readonly agentWrites: (
+    humanId: string,
+    agentId: string,
+    body: string,
+    conversationId?: string,
+  ) => void
 }
 
 /**
@@ -715,6 +725,8 @@ export function fakeOperatorMessaging(): FakeOperatorMessaging {
     humanId: string
     agentId: string
     createdAt: string
+    /** What the thread is about, for the account filter (`#1450`, `#1452`). */
+    accountId?: string
     messages: Message[]
   }[] = []
 
@@ -765,8 +777,13 @@ export function fakeOperatorMessaging(): FakeOperatorMessaging {
      * it; here it is one helper, because what the surface is on the hook for is
      * that the list reflects it rather than where the clearing happens.
      */
-    agentWrites(humanId, agentId, body) {
-      const thread = threads.find((one) => one.humanId === humanId && one.agentId === agentId)
+    agentWrites(humanId, agentId, body, conversationId) {
+      const thread = threads.find(
+        (one) =>
+          one.humanId === humanId &&
+          one.agentId === agentId &&
+          (conversationId === undefined || one.id === conversationId),
+      )
       if (thread === undefined) throw new Error('no such thread')
       thread.messages.push({
         id: id() as Message['id'],
@@ -802,43 +819,75 @@ export function fakeOperatorMessaging(): FakeOperatorMessaging {
      */
     async inbox(humanId, options) {
       const view = options?.view ?? 'open'
-      return threads
-        .filter((thread) => thread.humanId === humanId)
-        .filter((thread) => options?.agentId === undefined || thread.agentId === options.agentId)
-        .filter((thread) =>
-          view === 'all'
-            ? true
-            : view === 'archived'
-              ? archived.has(thread.id)
-              : !archived.has(thread.id),
-        )
-        .map((thread) => {
-          const latest = thread.messages.at(-1)
-          const unread = thread.messages.filter(
-            (message) => message.sender.party !== 'operator-human' && !read.has(thread.id),
-          ).length
+      return (
+        threads
+          .filter((thread) => thread.humanId === humanId)
+          .filter((thread) => options?.agentId === undefined || thread.agentId === options.agentId)
+          .filter((thread) =>
+            view === 'all'
+              ? true
+              : view === 'archived'
+                ? archived.has(thread.id)
+                : !archived.has(thread.id),
+          )
+          /**
+           * The filters (`#1450`), modelled rather than reproduced. The SQL is
+           * asserted against real PostgreSQL in
+           * `packages/db/src/storage/inbox.test.ts` — including that no filter
+           * reaches a thread this person is not in. What a route test can show
+           * is that the query string arrives as the right options, so the fake
+           * only has to be *distinguishable* under each one.
+           */
+          .filter(
+            (thread) => options?.accountId === undefined || thread.accountId === options.accountId,
+          )
+          .filter(
+            (thread) =>
+              options?.writtenByMe !== true ||
+              thread.messages.some((message) => message.sender.party === 'operator-human'),
+          )
+          .filter(
+            (thread) =>
+              options?.unreadOnly !== true ||
+              (!read.has(thread.id) &&
+                thread.messages.some((message) => message.sender.party !== 'operator-human')),
+          )
+          .filter((thread) => {
+            if (options?.search === undefined || options.search.trim() === '') return true
+            const needle = options.search.trim().toLowerCase()
+            return (
+              thread.agentId.toLowerCase().includes(needle) ||
+              thread.messages.some((message) => message.body.toLowerCase().includes(needle))
+            )
+          })
+          .map((thread) => {
+            const latest = thread.messages.at(-1)
+            const unread = thread.messages.filter(
+              (message) => message.sender.party !== 'operator-human' && !read.has(thread.id),
+            ).length
 
-          return {
-            conversationId: thread.id as ConversationId,
-            agentId: thread.agentId,
-            agentName: thread.agentId,
-            about: null,
-            latest:
-              latest === undefined
-                ? null
-                : {
-                    body: latest.body,
-                    at: latest.createdAt,
-                    senderLabel: latest.sender.label,
-                    mine: latest.sender.party === 'operator-human',
-                  },
-            unread: unread > 0,
-            unreadCount: unread,
-            archived: archived.has(thread.id),
-            mutedUntil: muted.get(thread.id) ?? null,
-          }
-        })
-        .sort((left, right) => (right.latest?.at ?? '').localeCompare(left.latest?.at ?? ''))
+            return {
+              conversationId: thread.id as ConversationId,
+              agentId: thread.agentId,
+              agentName: thread.agentId,
+              about: null,
+              latest:
+                latest === undefined
+                  ? null
+                  : {
+                      body: latest.body,
+                      at: latest.createdAt,
+                      senderLabel: latest.sender.label,
+                      mine: latest.sender.party === 'operator-human',
+                    },
+              unread: unread > 0,
+              unreadCount: unread,
+              archived: archived.has(thread.id),
+              mutedUntil: muted.get(thread.id) ?? null,
+            }
+          })
+          .sort((left, right) => (right.latest?.at ?? '').localeCompare(left.latest?.at ?? ''))
+      )
     },
 
     async archive(humanId, conversationId, isArchived) {
@@ -908,8 +957,20 @@ export function fakeOperatorMessaging(): FakeOperatorMessaging {
       if (input.conversationId !== undefined && named === undefined) {
         return { outcome: 'refused', error: messageRefusals['not-a-participant'] }
       }
+      /**
+       * A thread about an account is kept apart from the plain one (`#1452`),
+       * which is what makes the account filter distinguishable (`#1450`).
+       * Provenance is decided when a thread opens, so naming a conversation
+       * wins over naming an account.
+       */
       const existing =
-        named ?? threads.find((thread) => thread.humanId === humanId && thread.agentId === agentId)
+        named ??
+        threads.find(
+          (thread) =>
+            thread.humanId === humanId &&
+            thread.agentId === agentId &&
+            thread.accountId === input.accountId,
+        )
       const thread =
         existing ??
         (() => {
@@ -918,6 +979,7 @@ export function fakeOperatorMessaging(): FakeOperatorMessaging {
             humanId,
             agentId,
             createdAt: now(),
+            ...(input.accountId === undefined ? {} : { accountId: input.accountId }),
             messages: [] as Message[],
           }
           threads.push(opened)

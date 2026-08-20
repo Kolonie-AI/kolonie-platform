@@ -646,3 +646,137 @@ describe('a person starting a thread (#1452)', () => {
     expect(refused.statusCode).toBe(403)
   })
 })
+
+/**
+ * Filters and search, as query parameters (`#1450`).
+ *
+ * **The SQL is asserted against real PostgreSQL** in
+ * `packages/db/src/storage/inbox.test.ts`, including the one that matters — that
+ * no filter and no search reaches a thread this person is not in. What is under
+ * test here is the other half: that the query string becomes those options, that
+ * a filtered inbox is a link somebody can keep, and that acting on a thread
+ * lands back in the list they were looking at.
+ */
+
+/**
+ * Filters and search, as query parameters (`#1450`).
+ *
+ * **The SQL is asserted against real PostgreSQL** in
+ * `packages/db/src/storage/inbox.test.ts`, including the one that matters — that
+ * no filter and no search reaches a thread this person is not in. What is under
+ * test here is the other half: that the query string becomes those options, that
+ * a filtered inbox is a link somebody can keep, and that acting on a thread
+ * lands back in the list they were looking at.
+ */
+describe('narrowing the inbox (#1450)', () => {
+  const listed = async (cookie: string, query = '') =>
+    await app.inject({
+      method: 'GET',
+      url: `/inbox${query}`,
+      headers: { host: CONSOLE_HOST, accept: 'application/json', cookie },
+    })
+
+  const ids = (answered: { json: () => unknown }): string[] =>
+    (answered.json() as { threads: { conversationId: string }[] }).threads.map(
+      (thread) => thread.conversationId,
+    )
+
+  it('narrows to what this person has written in, and to what is unread', async () => {
+    const cookie = await signedInCookie()
+    const human = await operates(agentId)
+    const answered = messages.thread(human, String(agentId))
+    const waiting = messages.thread(human, String(agentId))
+    messages.agentWrites(human, String(agentId), 'May I open a mailbox?', answered)
+    messages.agentWrites(human, String(agentId), 'And this one?', waiting)
+
+    await app.inject({
+      method: 'POST',
+      url: `/inbox/${answered}`,
+      headers: { host: CONSOLE_HOST, accept: 'application/json', cookie },
+      payload: { body: 'Yes, go ahead.' },
+    })
+    // Opening is what marks read (`#1448`) — replying does not, and the two
+    // being separate acts is why they are separate filters.
+    await app.inject({
+      method: 'GET',
+      url: `/inbox/${answered}`,
+      headers: { host: CONSOLE_HOST, accept: 'application/json', cookie },
+    })
+
+    expect(ids(await listed(cookie, '?sent=1'))).toEqual([answered])
+    expect(ids(await listed(cookie, '?unread=1'))).toEqual([waiting])
+  })
+
+  it('searches the body of every message, not only the latest', async () => {
+    const cookie = await signedInCookie()
+    const human = await operates(agentId)
+    const wanted = messages.thread(human, String(agentId))
+    const other = messages.thread(human, String(agentId))
+    messages.agentWrites(human, String(agentId), 'The registrar is njalla.', wanted)
+    messages.agentWrites(human, String(agentId), 'Noted, thank you.', wanted)
+    messages.agentWrites(human, String(agentId), 'Nothing to do with that.', other)
+
+    expect(ids(await listed(cookie, '?q=njalla'))).toEqual([wanted])
+  })
+
+  it('combines a search with a filter rather than replacing it', async () => {
+    const cookie = await signedInCookie()
+    const human = await operates(agentId)
+    const thread = messages.thread(human, String(agentId))
+    messages.agentWrites(human, String(agentId), 'The registrar is njalla.', thread)
+
+    // Unread and matching: both predicates hold.
+    expect(ids(await listed(cookie, '?q=njalla&unread=1'))).toEqual([thread])
+    // Matching and not written in: one holds, the other does not, and the
+    // answer is empty rather than one of them winning.
+    expect(ids(await listed(cookie, '?q=njalla&sent=1'))).toEqual([])
+  })
+
+  it('reports what it narrowed by, so the page can reflect it back', async () => {
+    const cookie = await signedInCookie()
+    await operates(agentId)
+
+    const narrowed = (await listed(cookie, `?agent=${agentId}&unread=1&q=njalla`)).json() as {
+      filters: Record<string, unknown>
+    }
+
+    expect(narrowed.filters).toMatchObject({
+      agentId: String(agentId),
+      unreadOnly: true,
+      search: 'njalla',
+    })
+  })
+
+  it('ignores a malformed filter rather than refusing the page', async () => {
+    const cookie = await signedInCookie()
+    const human = await operates(agentId)
+    const thread = messages.thread(human, String(agentId))
+    messages.agentWrites(human, String(agentId), 'Still here.', thread)
+
+    // Somebody's mangled link. An inbox that answers 400 to one is worse than
+    // an inbox that answers with the unfiltered list.
+    const answered = await listed(cookie, '?agent=not-a-uuid')
+
+    expect(answered.statusCode).toBe(200)
+    expect(ids(answered)).toEqual([thread])
+  })
+
+  it('keeps the filters in the view switch and in the buttons', async () => {
+    const cookie = await signedInCookie()
+    const human = await operates(agentId)
+    const thread = messages.thread(human, String(agentId))
+    messages.agentWrites(human, String(agentId), 'The registrar is njalla.', thread)
+
+    const rendered = await app.inject({
+      method: 'GET',
+      url: '/inbox?q=njalla',
+      headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
+    })
+
+    // A filtered inbox is a link somebody can keep — including the link that
+    // switches the view, and including where archiving returns to. A filter
+    // that survived reading but not acting would be the worse half.
+    expect(rendered.body).toMatch(/href="\/inbox\?[^"]*q=njalla[^"]*"/)
+    expect(rendered.body).toMatch(/name="back" value="\/inbox\?[^"]*q=njalla/)
+  })
+})

@@ -141,13 +141,22 @@ const linksIn = (html: string, origin: string): string[] => {
   return [...found]
 }
 
-/** Every `action` a form on the page posts to, by the same rule. */
+/**
+ * Every `action` a form on the page **posts** to, by the same rule.
+ *
+ * **`method="get"` forms are skipped** (`#1450`). A GET form's action is a link
+ * — the inbox's filter bar submits to `/inbox`, which is the page it is on —
+ * and the crawl above already reaches links. Posting to one asks for a route
+ * nobody claimed exists and reports a working page as broken.
+ */
 const formActionsIn = (html: string, origin: string): string[] => {
   const found = new Set<string>()
-  for (const match of html.matchAll(/action="([^"]+)"/g)) {
-    const raw = match[1]
-    if (raw === undefined) continue
-    const value = raw.replaceAll('&amp;', '&')
+  for (const match of html.matchAll(/<form\b([^>]*)>/g)) {
+    const attributes = match[1] ?? ''
+    if (/method="get"/i.test(attributes)) continue
+    const action = /action="([^"]+)"/.exec(attributes)?.[1]
+    if (action === undefined) continue
+    const value = action.replaceAll('&amp;', '&')
     if (value.startsWith('/')) found.add(value)
     else if (value.startsWith(`${origin}/`)) found.add(value.slice(origin.length))
   }

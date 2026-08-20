@@ -1291,8 +1291,44 @@ export function inboxPage(input: {
   /** What to say if a compose was just refused — a credential, or an empty box. */
   readonly composeError?: string | undefined
   readonly bodyMaxLength?: number | undefined
+  /**
+   * What the list is currently narrowed by (`#1450`).
+   *
+   * **Reflected back into the controls**, so a person who arrived by a
+   * bookmarked link sees which filters are on rather than a bar that looks
+   * empty over a list that is not.
+   */
+  readonly filters?:
+    | {
+        readonly agentId?: string | undefined
+        readonly accountId?: string | undefined
+        readonly unreadOnly: boolean
+        readonly writtenByMe: boolean
+        readonly search: string
+      }
+    | undefined
 }): string {
   const unread = input.threads.filter((thread) => thread.unread).length
+
+  /**
+   * The filters, as a query string, so the view switch and every state form
+   * keep them (`#1450`). Archiving a thread out of a filtered list must land
+   * back in the same filtered list — otherwise the filter is a thing that
+   * survives reading and not acting.
+   */
+  const kept = (extra: Record<string, string> = {}): string => {
+    const filters = input.filters
+    const carried = new URLSearchParams({
+      ...(filters?.agentId === undefined ? {} : { agent: filters.agentId }),
+      ...(filters?.accountId === undefined ? {} : { account: filters.accountId }),
+      ...(filters?.unreadOnly === true ? { unread: '1' } : {}),
+      ...(filters?.writtenByMe === true ? { sent: '1' } : {}),
+      ...(filters?.search === undefined || filters.search === '' ? {} : { q: filters.search }),
+      ...extra,
+    })
+    const rendered = carried.toString()
+    return rendered === '' ? '' : `?${rendered}`
+  }
 
   const rows = input.threads.map((thread) =>
     [
@@ -1333,12 +1369,14 @@ export function inboxPage(input: {
         thread.archived ? 'unarchive' : 'archive',
         thread.archived ? 'Put back' : 'Archive',
         input.view,
+        kept({ view: input.view }),
       ),
       stateForm(
         thread.conversationId,
         thread.muted ? 'unmute' : 'mute',
         thread.muted ? 'Unmute' : 'Mute',
         input.view,
+        kept({ view: input.view }),
       ),
       '</td>',
       '</tr>',
@@ -1361,10 +1399,14 @@ export function inboxPage(input: {
         .map((slice) =>
           slice === input.view
             ? `<strong>${VIEW_NAMES[slice]}</strong>`
-            : `<a href="/inbox?view=${slice}">${VIEW_NAMES[slice]}</a>`,
+            : // The filters survive the switch (`#1450`): somebody looking at
+              // everything about one account who wants the archived ones has
+              // not changed their mind about the account.
+              `<a href="/inbox${escape(kept({ view: slice }))}">${VIEW_NAMES[slice]}</a>`,
         )
         .join(' · ') +
       '</p>',
+    filterBar(input),
     ...(input.threads.length === 0
       ? [
           input.view === 'archived'
@@ -1390,7 +1432,7 @@ export function inboxPage(input: {
 /**
  * What each slice of the inbox is called on the switch (`#1449`).
  *
- * **Not `VIEW_LABELS`**, which is what it was called until
+ * **Not `VIEW_NAMES`**, which is what it was called until
  * `scripts/github-issue-labels.test.ts` read it as a set of GitHub issue
  * labels. That check finds every `const …_LABELS` in a file that mentions
  * GitHub, and this file mentions it because a person signs in with it. The
@@ -1399,6 +1441,95 @@ export function inboxPage(input: {
  * check.
  */
 const VIEW_NAMES = { open: 'Open', archived: 'Archived', all: 'All' } as const
+
+/**
+ * Search and the four filters (`#1450`).
+ *
+ * **A `GET` form, so the result is a link.** Everything here lands in the query
+ * string, which is what makes *everything about the mailbox* something a person
+ * can bookmark, paste to somebody, or come back to next week. A `POST` and a
+ * server-held selection would have made it a place to navigate to.
+ *
+ * **Four checkboxes and two menus, not a query language.** No saved searches, no
+ * rules engine: the four things worth narrowing by are the ones `#1447` named,
+ * and they combine because they are four `and`s over one list.
+ */
+function filterBar(input: {
+  readonly view: 'open' | 'archived' | 'all'
+  readonly agents?: readonly { readonly id: string; readonly name: string }[] | undefined
+  readonly accounts?:
+    readonly { readonly id: string; readonly agentId: string; readonly label: string }[] | undefined
+  readonly filters?:
+    | {
+        readonly agentId?: string | undefined
+        readonly accountId?: string | undefined
+        readonly unreadOnly: boolean
+        readonly writtenByMe: boolean
+        readonly search: string
+      }
+    | undefined
+}): string {
+  const filters = input.filters
+  if (filters === undefined) return ''
+
+  const agents = input.agents ?? []
+  const accounts = input.accounts ?? []
+  const narrowed =
+    filters.agentId !== undefined ||
+    filters.accountId !== undefined ||
+    filters.unreadOnly ||
+    filters.writtenByMe ||
+    filters.search !== ''
+
+  const option = (value: string, label: string, chosen: boolean): string =>
+    `<option value="${escape(value)}"${chosen ? ' selected' : ''}>${escape(label)}</option>`
+
+  return [
+    '<form class="filters" method="get" action="/inbox">',
+    // The view is not a filter, but it has to survive one being applied.
+    `<input type="hidden" name="view" value="${escape(input.view)}">`,
+    '<label for="inbox-q">Search</label>',
+    `<input id="inbox-q" type="search" name="q" value="${escape(filters.search)}" ` +
+      'placeholder="A word in a message, an agent, an account">',
+    ...(agents.length < 2
+      ? []
+      : [
+          '<label for="inbox-agent">Agent</label>',
+          '<select id="inbox-agent" name="agent">',
+          option('', 'Every agent', filters.agentId === undefined),
+          ...agents.map((agent) => option(agent.id, agent.name, agent.id === filters.agentId)),
+          '</select>',
+        ]),
+    ...(accounts.length === 0
+      ? []
+      : [
+          '<label for="inbox-account">About</label>',
+          '<select id="inbox-account" name="account">',
+          option('', 'Anything', filters.accountId === undefined),
+          ...accounts.map((account) =>
+            option(account.id, account.label, account.id === filters.accountId),
+          ),
+          '</select>',
+        ]),
+    `<label><input type="checkbox" name="unread" value="1"${
+      filters.unreadOnly ? ' checked' : ''
+    }> Unread only</label>`,
+    /**
+     * *Sent*, as a filter (`#1447` frozen decision 3). A sent-folder is an
+     * artefact of mail having no threads — here every message already sits in
+     * the conversation it belongs to, so *did I ever answer that* is a
+     * predicate over this list and the person stays where they were reading.
+     */
+    `<label><input type="checkbox" name="sent" value="1"${
+      filters.writtenByMe ? ' checked' : ''
+    }> I have written in it</label>`,
+    '<button type="submit">Narrow</button>',
+    // Only when there is something to clear, so the bar does not offer a
+    // control that would do nothing.
+    narrowed ? `<a href="/inbox?view=${escape(input.view)}">Clear</a>` : '',
+    '</form>',
+  ].join('')
+}
 
 /**
  * Starting a thread nobody asked for (`#1452`).
@@ -1493,11 +1624,16 @@ function stateForm(
   act: string,
   label: string,
   view: 'open' | 'archived' | 'all',
+  /**
+   * The query string to return to, filters and all (`#1450`). Defaults to the
+   * view alone, which is what it was before there were filters to keep.
+   */
+  back = `?view=${view}`,
 ): string {
   return (
     `<form method="post" action="/inbox/${escape(conversationId)}/state">` +
     `<input type="hidden" name="act" value="${escape(act)}">` +
-    `<input type="hidden" name="back" value="${escape(`/inbox?view=${view}`)}">` +
+    `<input type="hidden" name="back" value="${escape(`/inbox${back}`)}">` +
     `<button type="submit">${escape(label)}</button>` +
     '</form>'
   )

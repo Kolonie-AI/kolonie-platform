@@ -763,12 +763,71 @@ describe('a commit that moved the ceiling', () => {
   })
 })
 
+/**
+ * The pull request's own words, read exactly where `check-catalogue-floor.mjs`
+ * reads them (`#1483`).
+ *
+ * The two names are that script's, not a second convention: `…_FILE` for a body
+ * on disk, `…_TEXT` for one small enough to be an environment variable. Unset in
+ * an ordinary local run, and then a raise is unjustified — which is the honest
+ * answer, because a raise nobody has written a sentence for is a raise nobody
+ * has written a sentence for.
+ */
+const pullRequestText = (): string => {
+  const path = process.env['CATALOGUE_FLOOR_PR_TEXT_FILE']
+  if (path !== undefined && path !== '') return readFileSync(path, 'utf8')
+  return process.env['CATALOGUE_FLOOR_PR_TEXT'] ?? ''
+}
+
 describe('the catalogue this build serves', () => {
+  /**
+   * Weighed against the floor **the way the branch gate weighs it** (`#1483`).
+   *
+   * ## What this used to do, and why it was wrong after `#1465`
+   *
+   * It called `budgetVerdict(measured, budget)`, which fails on *any* growth —
+   * no tolerance and no justification read. That was the right comparison while
+   * a branch authored the floor. `#1465` took the number off branches: `main`
+   * measures the surface after a merge and commits the figure, and AGENTS.md §4
+   * now tells authors in as many words that **the floor is not theirs to edit**.
+   *
+   * This assertion did not get that message, so `npm run check` went red on a
+   * branch for doing exactly what the documentation told it to. Measured on
+   * `#1434`, adding two optional fields and no tool:
+   *
+   *     The catalogue grew past its budget: 121 tools and 217582 bytes
+   *     against a floor of 121 and 217025
+   *
+   * The available workaround was to raise the floor on the branch after all —
+   * which puts back the collision `#1465` removed, and is green on the branch
+   * while being wrong on `main`. So the fix was reachable by ignoring the
+   * documentation and unreachable by following it.
+   *
+   * ## Why `branchBudgetVerdict` and not "report growth, fail only on a shrink"
+   *
+   * The second shape `#1483` weighs would let the local suite stop biting on
+   * growth entirely and lean on the `MCP surface` workflow. That workflow is
+   * indeed the gate, and this would then be a second, *looser* copy of it —
+   * where the bug was a second, *stricter* copy. One rule in three places is the
+   * property worth having, not a rule per place.
+   *
+   * So the same call the branch gate makes: the byte tolerance, and the
+   * pull request's own words read from the variables that script already reads.
+   *
+   * **The floor is the merge base here.** Since `#1465` nothing but `main` writes
+   * `catalogue-budget.json`, so the committed figure *is* what this branch
+   * started from — which is exactly what `branchBudgetVerdict` wants and why it
+   * can be handed the floor without inventing a second measurement.
+   */
   it('is within its committed budget, in both the sum and the worst tool', async () => {
     const tools = await servedCatalogue()
     const measured = measureCatalogue(tools)
     const heaviest = heaviestTool(tools, WARM_SET)
-    const verdict = budgetVerdict(measured, budget)
+    const verdict = branchBudgetVerdict(
+      measured,
+      { tools: budget.tools, bytes: budget.bytes },
+      pullRequestText(),
+    )
 
     if (REPORT_PATH !== undefined && REPORT_PATH !== '') {
       // Written before the assertion on purpose: `--write` needs the figure most
@@ -789,6 +848,85 @@ describe('the catalogue this build serves', () => {
     expect(heaviest, 'every published tool is exempt from the ceiling').toBeDefined()
     const ceiling = ceilingVerdict(heaviest as { name: string; bytes: number }, budget)
     expect(ceiling.within, ceiling.message).toBe(true)
+  })
+
+  /**
+   * The three cases `#1483` is about, pinned against the floor as committed.
+   *
+   * This is a unit assertion rather than another pass over the served catalogue:
+   * what regressed was *which comparison* the suite makes, and that is a property
+   * of the call, not of the measurement. Building a catalogue three more times to
+   * observe it would be three more minutes to learn the same thing.
+   *
+   * The middle row is the one that was broken. `#1434` grew the surface by 557
+   * bytes with no new tool, the branch gate passed it, AGENTS.md §4 said the
+   * floor was not the author's to edit, and `npm run check` failed anyway.
+   */
+  it.each([
+    {
+      what: 'growth inside the tolerance, unjustified',
+      bytes: 400,
+      tools: 0,
+      text: '',
+      within: true,
+    },
+    { what: 'the #1434 shape: 557 B, no tool', bytes: 557, tools: 0, text: '', within: true },
+    {
+      what: 'growth past the tolerance, unjustified',
+      bytes: 4_000,
+      tools: 0,
+      text: '',
+      within: false,
+    },
+    {
+      what: 'growth past the tolerance, justified in the pull request',
+      bytes: 4_000,
+      tools: 0,
+      text: `This names ${GRAMMAR_RECORD} and the growth is vocabulary-free.`,
+      within: true,
+    },
+    { what: 'a new tool, unjustified', bytes: 0, tools: 1, text: '', within: false },
+    {
+      what: 'a new tool, justified in the pull request',
+      bytes: 0,
+      tools: 1,
+      text: `This names ${GRAMMAR_RECORD} and the tool is vocabulary-free.`,
+      within: true,
+    },
+    {
+      what: 'a shrink, which main records rather than the branch',
+      bytes: -2_000,
+      tools: -1,
+      text: '',
+      within: true,
+    },
+  ])('weighs $what the way the branch gate does', ({ bytes, tools, text, within }) => {
+    const verdict = branchBudgetVerdict(
+      { tools: budget.tools + tools, bytes: budget.bytes + bytes },
+      { tools: budget.tools, bytes: budget.bytes },
+      text,
+    )
+
+    expect(verdict.within, verdict.message).toBe(within)
+  })
+
+  /**
+   * The regression itself, stated as the thing it is: **the old call would fail
+   * every one of the rows above that grows at all.**
+   *
+   * `budgetVerdict` is still the right comparison for `main`, which is why it is
+   * still exported and still tested further up. What it is not is the comparison
+   * a branch should be judged by, and this says so in one line so that anybody
+   * putting it back here sees what they are putting back.
+   */
+  it('is not the comparison main makes, and that is the point (#1483)', () => {
+    const grownWithinTolerance = { tools: budget.tools, bytes: budget.bytes + 557 }
+
+    expect(budgetVerdict(grownWithinTolerance, budget).within).toBe(false)
+    expect(
+      branchBudgetVerdict(grownWithinTolerance, { tools: budget.tools, bytes: budget.bytes }, '')
+        .within,
+    ).toBe(true)
   })
 
   /**

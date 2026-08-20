@@ -99,8 +99,9 @@ export const operatorDrops = pgTable(
      * operator above the field.
      *
      * **Words and never a value.** This column is written by the citizen and read
-     * by a person, which is the same trust boundary `operator_requests` already
-     * carries; it is rendered escaped and it is never mailed.
+     * by a person, which is the same trust boundary `operator_requests` carried
+     * before `#1325` retired it and a conversation inherited; it is rendered
+     * escaped and it is never mailed.
      */
     prompt: text('prompt').notNull(),
 

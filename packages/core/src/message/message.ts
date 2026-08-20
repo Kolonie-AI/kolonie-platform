@@ -92,8 +92,9 @@ import {
  * the Colony already has an `operator` that is a *relationship* — the epic's
  * table calls the trust level `operator` and the party a human — and a citizen
  * reading a label has to be able to tell a person from a process. The same
- * argument `operator_request_author` makes one channel over: an operator's words
- * reach a citizen labelled as the operator's, never as Colony prose.
+ * argument `operator_request_author` made in the channel this replaced — the enum
+ * outlived the exchange and keeps its name deliberately (`#1325`): an operator's
+ * words reach a citizen labelled as the operator's, never as Colony prose.
  */
 export const MessagePartySchema = z.enum([
   /** Another citizen. The request gate applies, and only to this member. */

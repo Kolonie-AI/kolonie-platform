@@ -2022,11 +2022,15 @@ function whereTheCodeGoes(signupCode: ProviderRecipe['signupCode'] | undefined):
  * ## Nothing new is built, and both existing channels are used
  *
  * `operator_requests` and `operator_drops` were built for `#236` and `#410`. What
- * did not exist is a briefing being able to point at one. **Which of the two is
+ * did not exist is a briefing being able to point at one. **Which channel is
  * decided by the recipe and not by the agent** (`#529`): a step marked `secret`
- * opens a sealed drop, everything else opens a request. Nothing goes through a
- * chat, and the agent does not get to choose the channel for a value it has not
+ * opens the sealed one, everything else opens the words one. Nothing goes through
+ * a chat, and the agent does not get to choose the channel for a value it has not
  * seen yet.
+ *
+ * The words channel is no longer `operator_requests` — `#1325` retired that table
+ * and a conversation carries the words now — but the rule above is about the
+ * recipe deciding, not about which table it decided into, so it is unchanged.
  *
  * ## The wording is the Colony's
  *

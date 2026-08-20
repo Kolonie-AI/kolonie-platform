@@ -33,10 +33,12 @@ import type { WakeSender } from '@kolonie-ai/verifiers'
  * ## The secret refusal is the reason this module exists rather than a route
  * calling storage
  *
- * `operator_requests` and `operator_drops` divide the world: **words go through
- * a request, a secret goes through a drop, and nothing goes through a chat.**
- * Both free boxes refuse a credential outright, and that refusal is what keeps
- * the drop meaning *a secret*.
+ * `operator_requests` and `operator_drops` divided the world when this was
+ * written: **words went through a request, a secret through a drop, and nothing
+ * through a chat.** `operator_requests` was retired in `#1325` and the words half
+ * is now a conversation (`kolonie.messages.*`), but the line the two channels drew
+ * survived the table: both free boxes refuse a credential outright, and that
+ * refusal is what keeps the sealed channel meaning *a secret*.
  *
  * This is a third free box on the same trust boundary, written by both parties,
  * and it holds to the same rule through the same guard. A third box that

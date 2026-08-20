@@ -6,10 +6,11 @@ import { fakeWishList } from './__fixtures__/account-wishes.js'
 /**
  * The shared list's surface (#527).
  *
- * **The refusal is what this file is for.** `#527` says outright *"No secrets in
+ * **The refusal is what this file is for.** `#527` said outright *"No secrets in
  * it. It is words, on the terms `operator_requests` already sets — both free-text
  * boxes refuse secrets outright, and that refusal is what keeps `operator_drops`
- * meaning *a secret*."* This is the test that sentence asked for.
+ * meaning *a secret*."* `operator_requests` was retired in `#1325`; the rule it
+ * set outlived it, and this is the test that sentence asked for.
  */
 describe('putting something on the shared account list', () => {
   const agentId = '11111111-1111-4111-8111-111111111111' as AgentId

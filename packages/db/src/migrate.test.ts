@@ -605,14 +605,14 @@ describe('the migrations', () => {
     // `operator_telegram_asks` one subject over. The epic retires exchanges and
     // puts the words on a conversation, so the mapping a Telegram reply resolves
     // against has to follow or a bound operator loses the chat. A second table
-    // rather than a nullable column on the first, because that one cascades from
-    // `operator_requests` — a table `#1325` drops — and a foreign key that has to
+    // rather than a nullable column on the first, because that one cascaded from
+    // `operator_requests` — a table `#1325` dropped — and a foreign key that has to
     // outlive its own parent is one nobody can reason about.
     //
     // **A hundred and fifty-third, and it has an end date** (`#1324`, epic
     // `#1318`): `operator_request_conversations`, which exchange became which
-    // thread. It exists so the data move is safe to run twice, and `#1325` drops
-    // it with `operator_requests`, which it cascades from. A deterministic
+    // thread. It existed so the data move was safe to run twice, and `#1325`
+    // dropped it with `operator_requests`, which it cascaded from. A deterministic
     // conversation id would have done the same job and would have put a rule
     // about a past migration in the primary key of a live table.
     expect(afterFirst.tables).toBe('149')

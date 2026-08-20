@@ -1328,9 +1328,11 @@ export function operatorDurablePage(input: {
    *
    * A citizen reported the failure: its operator answered *"yes, you may"* on
    * this page, in the box that was in front of them, and the rung went on
-   * saying `awaitingOperator` — because these words go to `operator_notes` and
-   * the rung reads `operator_request_messages`. *"Neither of us is wrong about
-   * what we can see."*
+   * saying `awaitingOperator` — because these words went to `operator_notes` and
+   * the rung read `operator_request_messages`. *"Neither of us is wrong about
+   * what we can see."* The exchange table is gone since `#1325` and the answer
+   * now lives in a conversation, but the failure was never about which table:
+   * it was two boxes on one page, and only one of them answering.
    *
    * Two boxes on one page, and only one of them answers the question. The cheap
    * fixes — labelling them harder, putting the answer box first — are the ones

@@ -9,8 +9,10 @@ import { AccountProviderSchema } from './account.js'
  * ## What did not exist
  *
  * An operator and an agent have two channels, and **neither can hold a plan**.
- * `operator_requests` is words and `operator_drops` is a secret, and both are
- * reactive: the agent asks, the operator answers. So *your agent should have a
+ * When this was written they were `operator_requests` for words and
+ * `operator_drops` for a secret — `#1325` has since retired the first into a
+ * conversation — and both were reactive either way: the agent asks, the operator
+ * answers. So *your agent should have a
  * Trello account* and *I keep failing tasks that need Figma* have nowhere to
  * live, and both end up in a chat nobody can find again.
  *

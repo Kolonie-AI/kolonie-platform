@@ -621,8 +621,8 @@ describe('schema', () => {
         /**
          * Which Telegram message the Colony sent about which operator thread
          * (`#1321`) — `operator_telegram_asks`, one subject over. A second table
-         * because that one cascades from `operator_requests`, which `#1325`
-         * drops.
+         * because that one cascaded from `operator_requests`, which `#1325`
+         * dropped.
          */
         'message_telegram_asks',
         'messages',
@@ -671,10 +671,13 @@ describe('schema', () => {
          */
         'operator_pages',
         /**
-         * Which exchange became which thread (`#1324`, epic `#1318`) — a
-         * transient table with an end date, dropped by `#1325` together with
-         * `operator_requests`, which it cascades from. It exists so the data
-         * move is safe to run twice.
+         * Which exchange became which thread (`#1324`, epic `#1318`) —
+         * `operator_request_conversations`, a transient table with an end date.
+         * **It is not in this list any more**: `#1325` dropped it together with
+         * `operator_requests`, which it cascaded from. It existed so the data
+         * move was safe to run twice, and the note is kept because a reader
+         * counting this list against an older migration will otherwise go
+         * looking for it.
          */
         /**
          * The operator's Telegram chat, and the one-time deep link that bound it

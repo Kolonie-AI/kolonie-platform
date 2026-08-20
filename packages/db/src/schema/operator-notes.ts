@@ -9,10 +9,12 @@ const bodyMax = sql.raw(String(OPERATOR_MESSAGE_MAX_LENGTH))
 /**
  * One thing an operator said to its citizen without being asked (#239).
  *
- * ## Why this is a second table and not a nullable column on `operator_requests`
+ * ## Why this was a second table and not a nullable column on `operator_requests`
  *
- * An exchange has exactly one task or wanted-wish provenance, expects an answer,
- * and is closed by the citizen. A note is about nothing in particular, arrives
+ * An exchange had exactly one task or wanted-wish provenance, expected an answer,
+ * and was closed by the citizen — `#1325` has since retired that table into a
+ * conversation, which kept those properties and this table's separation from
+ * them. A note is about nothing in particular, arrives
  * whenever the operator has something to say, and is finished when it is read.
  * Sharing a table would still mix those lifecycles and create rows that look like
  * requests without carrying anything the citizen asked.
@@ -28,7 +30,7 @@ const bodyMax = sql.raw(String(OPERATOR_MESSAGE_MAX_LENGTH))
  * ## No update path, and no delete path for the operator
  *
  * `read_at` is the one column that is ever written after insert, and only by the
- * citizen reading. `operator_request_messages` states the rule this inherits: a
+ * citizen reading. `operator_request_messages` stated the rule this inherited: a
  * sent message may already have been acted on, and an operator who could delete
  * *"go ahead and publish"* after the citizen published would be rewriting the
  * record of somebody else's decision.
@@ -57,7 +59,8 @@ export const operatorNotes = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
 
     /**
-     * `cascade`, for `operator_requests`' reason exactly: this is text a person
+     * `cascade`, for `operator_requests`' reason exactly — the retired exchange's,
+     * which its successor still holds to: this is text a person
      * sent *to that citizen*, and with the citizen gone it is addressed to nobody.
      * `erasure.md` §4 rules out precisely that kind of leftover about a person who
      * never joined anything.

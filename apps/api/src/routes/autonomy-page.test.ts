@@ -1442,8 +1442,8 @@ describe('the operator’s form', () => {
     })
 
     /**
-     * `#239` inherits the append-only rule from `operator_request_messages`, and
-     * inherits its reason: a sent message may already have been acted on, so an
+     * `#239` inherited the append-only rule from `operator_request_messages`, and
+     * inherited its reason: a sent message may already have been acted on, so an
      * operator who could delete *"go ahead and publish"* after the citizen
      * published would be rewriting the record of somebody else's decision.
      *

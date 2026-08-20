@@ -12,8 +12,10 @@ import { isWaitingOnTheOperator } from './operator-threads.js'
  *
  * **Neither of them was wrong about what they could see.** The page carries two
  * boxes: one answers the open exchange and one sends an unsolicited note. The
- * words went into the second, `operator_notes` took them, and the rung reads
- * `operator_request_messages`.
+ * words went into the second, `operator_notes` took them, and the rung read
+ * `operator_request_messages`. That table is gone since `#1325` — the exchange is
+ * a conversation now — and the repair below is about the page, not the table, so
+ * it stands unchanged.
  *
  * ## What was fixed, and what deliberately was not
  *

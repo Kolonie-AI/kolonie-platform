@@ -343,3 +343,125 @@ describe('the declaration, and the thread it answers (#1319)', () => {
     }
   })
 })
+
+/**
+ * The inbox, over the console (`#1448`, epic `#1447`).
+ *
+ * **These assert the door rather than the model.** Ordering by activity, the
+ * latest message, and unread from the cursor are asserted against real
+ * PostgreSQL in `packages/db/src/storage/inbox.test.ts`. What is under test here
+ * is what the epic is actually about: that a top-level route exists at all, that
+ * it spans agents, that opening a thread writes the cursor, and that a thread
+ * belonging to somebody else's agent is not reachable through it.
+ */
+describe('the inbox (#1448)', () => {
+  const inbox = async (cookie: string) =>
+    await app.inject({
+      method: 'GET',
+      url: '/inbox',
+      headers: { host: CONSOLE_HOST, accept: 'application/json', cookie },
+    })
+
+  const openThread = async (cookie: string, conversationId: string, accept = 'application/json') =>
+    await app.inject({
+      method: 'GET',
+      url: `/inbox/${conversationId}`,
+      headers: { host: CONSOLE_HOST, accept, cookie },
+    })
+
+  it('spans every agent the person operates', async () => {
+    const cookie = await signedInCookie()
+    const human = await operates(agentId)
+    await operates(strangersAgentId)
+    messages.thread(human, String(agentId))
+    messages.thread(human, String(strangersAgentId))
+
+    const listed = await inbox(cookie)
+
+    expect(listed.statusCode).toBe(200)
+    expect((listed.json() as { threads: unknown[] }).threads).toHaveLength(2)
+  })
+
+  it('is a top-level page a signed-in person can reach', async () => {
+    const cookie = await signedInCookie()
+    await operates(agentId)
+
+    const rendered = await app.inject({
+      method: 'GET',
+      url: '/inbox',
+      headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
+    })
+
+    expect(rendered.statusCode).toBe(200)
+    expect(rendered.body).toContain('Your inbox')
+  })
+
+  it('opens a thread, and opening it is what marks it read', async () => {
+    const cookie = await signedInCookie()
+    const human = await operates(agentId)
+    const thread = messages.thread(human, String(agentId))
+
+    await post(cookie, agentId, { body: 'Something to read.', conversationId: thread })
+
+    const opened = await openThread(cookie, thread)
+    expect(opened.statusCode).toBe(200)
+    expect((opened.json() as { messages: unknown[] }).messages).toHaveLength(1)
+
+    // The write the console never made. Before it, `unread` did not exist for a
+    // person at all — only *never answered*.
+    const after = await inbox(cookie)
+    const rows = (after.json() as { threads: { unread: boolean }[] }).threads
+    expect(rows.every((row) => !row.unread)).toBe(true)
+  })
+
+  it('replies in place, through the existing rules', async () => {
+    const cookie = await signedInCookie()
+    const human = await operates(agentId)
+    const thread = messages.thread(human, String(agentId))
+
+    const sent = await app.inject({
+      method: 'POST',
+      url: `/inbox/${thread}`,
+      headers: { host: CONSOLE_HOST, accept: 'application/json', cookie },
+      payload: { body: 'The account is @ariadne.' },
+    })
+
+    expect(sent.statusCode).toBe(200)
+    expect(sent.json()).toMatchObject({ outcome: 'delivered' })
+  })
+
+  it('refuses a credential-shaped reply, exactly as the older door does', async () => {
+    const cookie = await signedInCookie()
+    const human = await operates(agentId)
+    const thread = messages.thread(human, String(agentId))
+
+    const refused = await app.inject({
+      method: 'POST',
+      url: `/inbox/${thread}`,
+      headers: { host: CONSOLE_HOST, accept: 'application/json', cookie },
+      payload: { body: 'the password is hunter2 and the token is ghp_0123456789abcdefghij' },
+    })
+
+    expect(refused.statusCode).toBe(422)
+  })
+
+  it('does not reach a thread of an agent this person does not operate', async () => {
+    const cookie = await signedInCookie()
+    await operates(agentId)
+
+    // A thread belonging to somebody else entirely: no participant row, so the
+    // store answers exactly as it does for an id that names nothing.
+    const theirs = messages.thread('11111111-1111-4111-8111-111111111111', String(agentId))
+
+    const opened = await openThread(cookie, theirs, 'text/html')
+    expect(opened.statusCode).toBe(404)
+
+    const posted = await app.inject({
+      method: 'POST',
+      url: `/inbox/${theirs}`,
+      headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
+      payload: { body: 'Not mine to write in.' },
+    })
+    expect(posted.statusCode).toBe(404)
+  })
+})

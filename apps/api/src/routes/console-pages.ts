@@ -67,6 +67,8 @@ import {
   notFoundPage,
   accountDeletedPage,
   accountPage,
+  inboxPage,
+  inboxThreadPage,
   dashboardPage,
   handoverPage,
   sessionsPage,
@@ -4706,6 +4708,223 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     return reply
       .status(303)
       .header('location', `/agents/${String(operated.agentId)}/messages?said=sent`)
+      .send()
+  })
+
+  /**
+   * The thread view, shared by the read and by every refusal of a write.
+   *
+   * **The read cursor moves here and nowhere else** (`#1448`). Rendering the
+   * thread *is* reading it, so the write belongs at the moment the words reach
+   * the person rather than behind a second gesture nobody would make.
+   */
+  const inboxThread = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    signedIn: { readonly human: { readonly id: HumanId; readonly roles: readonly string[] } },
+    outcome: {
+      readonly error?: string
+      readonly status?: number
+      readonly sent?: boolean
+    } = {},
+  ): Promise<FastifyReply> => {
+    const desk = deps.operatorMessaging
+    if (desk === undefined) return consoleNotFound(reply, request)
+
+    const parsed = ConversationIdSchema.safeParse(
+      (request.params as { conversationId?: string }).conversationId,
+    )
+    if (!parsed.success) return consoleNotFound(reply, request)
+
+    const row = (await desk.inbox?.(signedIn.human.id, {}))?.find(
+      (candidate) => String(candidate.conversationId) === String(parsed.data),
+    )
+    if (row === undefined) return consoleNotFound(reply, request)
+
+    const read = await desk.getThread(signedIn.human.id, parsed.data)
+    if (read.outcome !== 'read') return consoleNotFound(reply, request)
+
+    await desk.markRead?.(signedIn.human.id, parsed.data)
+
+    const status = outcome.status ?? 200
+
+    if (!wantsHtml(request)) {
+      return reply.status(status).send({
+        conversationId: String(parsed.data),
+        agentId: row.agentId,
+        agentName: row.agentName,
+        messages: read.response.messages,
+        ...(outcome.error === undefined ? {} : { error: outcome.error }),
+      })
+    }
+
+    /**
+     * Whether there is a box under it. A thread whose operator link has been
+     * removed stays readable and stops accepting words — the relationship
+     * ending does not un-say what was said in it.
+     */
+    const writable = await deps.humans.store.operates(signedIn.human.id, row.agentId as AgentId)
+
+    return html(
+      reply.status(status),
+      inboxThreadPage({
+        nav: navFor(request, signedIn.human.roles),
+        conversationId: String(parsed.data),
+        agentId: row.agentId,
+        agentName: row.agentName,
+        about: row.about?.label ?? null,
+        messages: read.response.messages.map((message) => ({
+          senderLabel: message.sender.label,
+          party: message.sender.party,
+          body: message.body,
+          createdAt: message.createdAt,
+        })),
+        declarations: OperatorAnswerKindSchema.options.map((kind) => ({
+          kind,
+          label: OPERATOR_ANSWER_LABELS[kind],
+        })),
+        bodyMaxLength: MESSAGE_BODY_MAX_LENGTH,
+        writable,
+        ...(outcome.error === undefined ? {} : { error: outcome.error }),
+        ...(outcome.sent === true ? { sent: true } : {}),
+      }),
+    )
+  }
+
+  /**
+   * The inbox (`#1448`, epic `#1447`).
+   *
+   * ## Why it is here and not under `/agents/:agentId/`
+   *
+   * That nesting **is** the defect. A person operating three agents had three
+   * message pages and no view across them, and the dashboard's queue showed
+   * only threads *never answered* — so replying once removed a thread from it
+   * for ever. Measured 2026-08-20: 52 conversations, 243 messages, sixteen
+   * threads waiting on a person and appearing nowhere.
+   *
+   * **Participation is the whole authorisation**, exactly as on every other
+   * messaging surface: the listing starts from this person's own participant
+   * rows, so there is no shape of input that reaches another person's thread —
+   * nor any of their agents' conversations with other citizens or with the
+   * Colony, which `#1447` frozen decision 2 rules out as surveillance.
+   */
+  app.get('/inbox', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const signedIn = await person(request)
+    if (signedIn === null) return signInRequired(request, reply)
+
+    const desk = deps.operatorMessaging
+    const threads = desk?.inbox === undefined ? [] : await desk.inbox(signedIn.human.id, {})
+
+    const rows = threads.map((thread) => ({
+      conversationId: String(thread.conversationId),
+      agentId: thread.agentId,
+      agentName: thread.agentName,
+      about: thread.about?.label ?? null,
+      preview: thread.latest?.body ?? null,
+      at: thread.latest?.at ?? null,
+      senderLabel: thread.latest?.senderLabel ?? null,
+      mine: thread.latest?.mine ?? false,
+      unread: thread.unread,
+      unreadCount: thread.unreadCount,
+    }))
+
+    if (!wantsHtml(request)) return reply.status(200).send({ threads: rows })
+
+    return html(reply, inboxPage({ nav: navFor(request, signedIn.human.roles), threads: rows }))
+  })
+
+  /**
+   * One thread, and **opening it is what marks it read**.
+   *
+   * That write is the single thing the console never did: the column existed,
+   * the agents' side wrote it through `kolonie.messages.mark_read`, and nothing
+   * here ever did — so a person had no notion of unread at all.
+   *
+   * **A thread of an agent this person does not operate is not reachable**, and
+   * it is the store that refuses rather than this route: `getThread` starts from
+   * a participant row, so an id belonging to somebody else answers exactly as an
+   * id that names nothing.
+   */
+  app.get('/inbox/:conversationId', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const signedIn = await person(request)
+    if (signedIn === null) return signInRequired(request, reply)
+
+    const { said } = request.query as { said?: string }
+    return inboxThread(request, reply, signedIn, { sent: said === 'sent' })
+  })
+
+  /**
+   * The reply.
+   *
+   * **The existing handler's rules, unchanged**: the credential check runs here
+   * for `#236`'s reason — a person writing to their agent has usually just made
+   * it an account, and the answer is where a password most likely arrives — the
+   * body bounds are the same, and a declaration still carries no body of its own
+   * (`#1093`).
+   */
+  app.post('/inbox/:conversationId', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const signedIn = await person(request)
+    if (signedIn === null) return signInRequired(request, reply)
+
+    const desk = deps.operatorMessaging
+    if (desk === undefined) return consoleNotFound(reply, request)
+
+    const thread = ConversationIdSchema.safeParse(
+      (request.params as { conversationId?: string }).conversationId,
+    )
+    if (!thread.success) return consoleNotFound(reply, request)
+
+    const found = (await desk.inbox?.(signedIn.human.id, {}))?.find(
+      (row) => String(row.conversationId) === String(thread.data),
+    )
+    if (found === undefined) return consoleNotFound(reply, request)
+
+    const { body, kind } = (request.body ?? {}) as { body?: unknown; kind?: unknown }
+    const written = typeof body === 'string' ? body.trim() : ''
+    const declared = OperatorAnswerKindSchema.safeParse(kind)
+
+    const refuse = (message: string) =>
+      inboxThread(request, reply, signedIn, {
+        error: message,
+        status: ERROR_STATUS.validation_failed,
+      })
+
+    if (kind !== undefined && !declared.success) return refuse(messageDeclarationError.message)
+
+    if (!declared.success) {
+      if (written.length < MESSAGE_BODY_MIN_LENGTH || written.length > MESSAGE_BODY_MAX_LENGTH) {
+        return refuse(messageBodyError.message)
+      }
+
+      const finding = credentialFinding(written)
+      if (finding !== null) return refuse(credentialRefusalMessage(finding))
+    }
+
+    const result = await desk.send(signedIn.human.id, found.agentId as AgentId, {
+      ...(declared.success ? { answerKind: declared.data } : { body: written }),
+      conversationId: thread.data,
+    })
+
+    if (result.outcome === 'refused') {
+      return inboxThread(request, reply, signedIn, {
+        error: result.error.message,
+        status: ERROR_STATUS[result.error.code],
+      })
+    }
+
+    if (!wantsHtml(request)) {
+      return reply.status(200).send({ outcome: result.outcome, ...result.response })
+    }
+
+    return reply
+      .status(303)
+      .header('location', `/inbox/${String(thread.data)}?said=sent`)
       .send()
   })
 

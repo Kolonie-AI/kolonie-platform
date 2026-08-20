@@ -19,6 +19,7 @@ import {
   type TaskId,
   type WishId,
 } from '@kolonie-ai/core'
+import type { InboxRow } from '@kolonie-ai/db'
 import { createHash } from 'node:crypto'
 import {
   messageBurstLimiter,
@@ -150,6 +151,31 @@ export interface OperatorMessaging {
    * human, and a person holds a participant row only in their own.
    */
   listThreads(humanId: HumanId, agentId?: AgentId): Promise<readonly Conversation[]>
+  /**
+   * The inbox: every thread across every agent, newest **activity** first
+   * (`#1448`, epic `#1447`).
+   *
+   * Beside `listThreads` rather than replacing it: that one answers *which
+   * conversations exist*, in the shape the agents' side uses, and this one
+   * answers *what does a person open next*. They differ in the ordering, in the
+   * agent's name being on the row, and in the latest message rather than the
+   * first — three differences that would each be a flag on the other.
+   *
+   * `undefined` on a deployment with no inbox reader, like everything else here.
+   */
+  inbox?(humanId: HumanId, options?: { readonly agentId?: AgentId }): Promise<readonly InboxRow[]>
+  /**
+   * Move this person's read cursor to the newest message of one thread.
+   *
+   * **The write the console never made.** Measured 2026-08-20, the column was
+   * null for all 52 operator participants — so *unread* did not exist for a
+   * person, only *never answered*, which is why sixteen threads were waiting
+   * unannounced.
+   */
+  markRead?(
+    humanId: HumanId,
+    conversationId: ConversationId,
+  ): Promise<{ readonly outcome: 'marked' } | { readonly outcome: 'not-a-participant' }>
   /** One of them, refused to anybody who is not in it. */
   getThread(humanId: HumanId, conversationId: ConversationId): Promise<ThreadResponse>
   /**

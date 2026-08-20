@@ -33,9 +33,7 @@ import {
   type Agent,
   type AgentId,
   type ApiError,
-  type ConversationId,
   type HumanId,
-  type Message,
   type Log,
   type QuestTier,
   type Task,
@@ -61,7 +59,6 @@ import {
 } from '../console.js'
 import {
   CONSOLE_HEADERS,
-  escape,
   errorPage,
   keyMintedPage,
   keyPage,
@@ -453,19 +450,22 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       const maintains = signedIn.human.roles.includes('maintainer')
 
       /**
-       * **The queue** (`#530`): every waiting request and drop across every
-       * agent this person operates, in one list.
+       * **How many conversations are unread** (`#1453`), where the queue was.
        *
-       * One query rather than one per agent, which is where this differs from
-       * the standing hints above. Those are per-agent by nature — each is the
-       * sentence *that* agent will be told — while this is the inversion the
-       * issue is about: twelve conversations become one queue, so it is one
-       * question to the database and not twelve.
+       * `waitingForOperator` asked *is there a message from an operator in this
+       * thread* and answered *no* exactly once per thread ever, which hid 46 of
+       * 52 conversations in production — sixteen of them while genuinely
+       * waiting. Repairing it would have meant a second definition of *waiting*
+       * beside the read cursor, and two definitions disagree within a week.
        *
-       * Already ordered by what each item costs to clear. The renderer does not
-       * sort.
+       * **The same read the inbox does**, narrowed to unread and counted. A
+       * dashboard number that disagreed with the page it links to would be
+       * worse than no number, and one query cannot disagree with itself.
        */
-      const queue = await deps.humans.store.waitingOnThem(signedIn.human.id)
+      const unreadThreads =
+        deps.operatorMessaging?.inbox === undefined
+          ? 0
+          : (await deps.operatorMessaging.inbox(signedIn.human.id, { unreadOnly: true })).length
 
       /**
        * What just happened to a drop, carried across the redirect (`#570`).
@@ -478,10 +478,11 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       /**
        * The secrets sitting in an account conversation (`#931`).
        *
-       * Its own read and not part of `waitingOnThem`: that query answers *what
-       * is stopping an agent*, and half of these are the other direction — a
-       * value the agent left for the person, which stops nothing. An empty list
-       * on a Colony with no sealing key, and no section on the page.
+       * Its own read and not folded into the count above: that one answers
+       * *how much is unread*, and half of these are the other direction — a
+       * value the agent left for the person, which stops nothing and is not a
+       * message. An empty list on a Colony with no sealing key, and no section
+       * on the page.
        */
       const slots = (await deps.accountThreads?.waitingFor(signedIn.human.id)) ?? []
 
@@ -496,7 +497,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
               nav: navFor(request, signedIn.human.roles),
               zone: zoneFrom(request.headers),
               agents,
-              waiting: queue,
+              unreadThreads,
               slots,
               code,
               maintains,
@@ -506,7 +507,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         : reply.send({
             signedIn: true,
             agents,
-            waiting: queue,
+            unreadThreads,
             slots,
             ...(maintains && { maintains: true }),
           })
@@ -4483,158 +4484,39 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
    * to — which is what a session is for.
    */
   /**
-   * One answer form, per thread (`#1093`, `#1319`).
+   * The per-agent messages page (`#1453`, `#1447` frozen decision 6).
    *
-   * **The three declarations post the kind alone**, with no body of their own:
-   * the sentence each sends is written in `OPERATOR_ANSWER_BODIES`, so a button
-   * labelled *I have done it* cannot be made to carry words saying otherwise.
-   * The textarea is the fourth control and declares nothing — free text is what
-   * an operator writes when none of the three is what they mean.
+   * **The route stays and its builder goes.** `operatorThreadPage` concatenated
+   * every thread onto one page with a reply form each — which was the only way
+   * to see a conversation before `/inbox` existed, and is now a second renderer
+   * of the same data that can drift from the first. This redirects into the
+   * inbox narrowed to this agent, which is the same page with one filter on.
    *
-   * The hidden `conversationId` is what makes an answer land in the thread it
-   * answers. Without it a reply about one task would be filed against whichever
-   * thread the port happened to return first, which is the defect provenance
-   * exists to prevent.
+   * **A redirect rather than a render**, so the address bar says what is being
+   * looked at. Somebody who arrived here from the agent's own navigation and
+   * then wants a second agent is one control away rather than one back button.
    */
-  const answerForm = (
-    agentId: AgentId,
-    name: string,
-    conversationId: ConversationId | undefined,
-    index: number,
-  ): string => {
-    const field = `body-${String(index)}`
-    return (
-      `<form method="post" action="${escape(`/agents/${String(agentId)}/messages`)}">` +
-      (conversationId === undefined
-        ? ''
-        : `<input type="hidden" name="conversationId" value="${escape(String(conversationId))}">`) +
-      `<label for="${escape(field)}">Write to ${escape(name)}</label>` +
-      `<textarea id="${escape(field)}" name="body" maxlength="${String(
-        MESSAGE_BODY_MAX_LENGTH,
-      )}"></textarea>` +
-      '<button type="submit">Send</button>' +
-      OperatorAnswerKindSchema.options
-        .map(
-          (kind) =>
-            `<button type="submit" name="kind" value="${escape(kind)}">` +
-            `${escape(OPERATOR_ANSWER_LABELS[kind])}</button>`,
-        )
-        .join('') +
-      '</form>'
-    )
-  }
-
-  const operatorThreadPage = async (
-    request: FastifyRequest,
-    reply: FastifyReply,
-    operated: {
-      readonly humanId: HumanId
-      readonly agentId: AgentId
-      readonly roles: readonly string[]
-    },
-    outcome: { readonly error?: string; readonly status?: number; readonly said?: boolean } = {},
-  ): Promise<FastifyReply> => {
-    /**
-     * **No desk is an empty page and not a 404** (`#1305`).
-     *
-     * The entry is in `AGENT_PAGES` now, so every agent page links here — and a
-     * navigation entry that answers 404 is what `console-links.test.ts` exists
-     * to catch. A deployment with no port has nothing to show and nowhere to
-     * send an answer, which is *nothing said yet* with no form under it rather
-     * than *this page does not exist*.
-     */
-    const desk = deps.operatorMessaging
-
-    /**
-     * Every thread, not the newest one (`#1319`).
-     *
-     * A citizen asking for help about a task opens a thread about that task, and
-     * a second task opens a second thread — so *the first one* stopped being a
-     * complete view of what a person has been asked the moment provenance
-     * existed. Each is rendered with its own form, which is also what makes an
-     * answer land in the thread it answers: a form without a `conversationId`
-     * would put every reply into whichever thread the port found first.
-     */
-    const threads =
-      desk === undefined ? [] : await desk.listThreads(operated.humanId, operated.agentId)
-    const conversations: {
-      readonly id: ConversationId
-      readonly messages: readonly Message[]
-    }[] = []
-    for (const thread of threads) {
-      if (desk === undefined) break
-      const read = await desk.getThread(operated.humanId, thread.id)
-      conversations.push({
-        id: thread.id,
-        messages: read.outcome === 'read' ? read.response.messages : [],
-      })
-    }
-    const messages = conversations[0]?.messages ?? []
-    const status = outcome.status ?? 200
-
-    if (!wantsHtml(request)) {
-      return reply.status(status).send({
-        agentId: String(operated.agentId),
-        threads,
-        conversations,
-        messages,
-        ...(outcome.error === undefined ? {} : { error: outcome.error }),
-      })
-    }
-
-    const held = await deps.autonomy.pages.factsOf(operated.agentId)
-    if (held === null) return consoleNotFound(reply, request)
-
-    const lines = [
-      desk === undefined
-        ? '<p class="note">This deployment has no messages desk wired, so there is nothing to ' +
-          'read here and nowhere to write. The page stays where it is: the agent has one, and ' +
-          'it is empty rather than missing.</p>'
-        : '<p class="note">Your agent reads this as words from you — labelled as its operator ' +
-          'and never as the Colony. It is not a permission: nothing said here widens what your ' +
-          'agent may do.</p>',
-      ...(outcome.said === true ? ['<p>Sent.</p>'] : []),
-      ...(outcome.error === undefined ? [] : [`<p class="error">${escape(outcome.error)}</p>`]),
-      ...(conversations.length === 0
-        ? [
-            '<p>Nothing said yet.</p>',
-            ...(desk === undefined ? [] : [answerForm(operated.agentId, held.name, undefined, 0)]),
-          ]
-        : conversations.flatMap((conversation, index) => [
-            conversation.messages.length === 0
-              ? '<p>Nothing said yet.</p>'
-              : `<ul>${conversation.messages
-                  .map(
-                    (message) =>
-                      `<li><strong>${escape(message.sender.label)}</strong> ` +
-                      `<span>${escape(relative(message.createdAt))}</span><br>` +
-                      `${escape(message.body)}</li>`,
-                  )
-                  .join('')}</ul>`,
-            answerForm(operated.agentId, held.name, conversation.id, index),
-          ])),
-    ]
-
-    return html(
-      reply.status(status),
-      agentSectionPage({
-        nav: navFor(request, operated.roles, await agentNavFor(operated)),
-        agentId: String(operated.agentId),
-        name: held.name,
-        title: 'Messages',
-        lines,
-      }),
-    )
-  }
-
   app.get('/agents/:agentId/messages', async (request, reply) => {
     if (!(await guard(request, reply))) return reply
 
     const operated = await operatedAgent(request, reply)
     if (operated === null) return reply
 
-    const { said } = request.query as { said?: string }
-    return operatorThreadPage(request, reply, operated, { said: said === 'sent' })
+    if (!wantsHtml(request)) {
+      return renderInbox(
+        request,
+        reply,
+        { human: { id: operated.humanId, roles: operated.roles } },
+        {
+          onlyAgent: operated.agentId,
+        },
+      )
+    }
+
+    return reply
+      .status(303)
+      .header('location', `/inbox?agent=${String(operated.agentId)}`)
+      .send()
   })
 
   /**
@@ -4645,6 +4527,11 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
    * made it an account, and the answer is where a password most likely actually
    * arrives. A refusal costs them nothing — nothing is sent and the form comes
    * back with what tripped it.
+   *
+   * **Kept when `operatorThreadPage` went** (`#1453`): the inbox's own reply
+   * posts through this handler, so this is the one write path and not a second
+   * one left behind. What changed is where a refusal is drawn — the inbox
+   * narrowed to this agent, rather than the page that no longer exists.
    */
   app.post('/agents/:agentId/messages', async (request, reply) => {
     if (!(await guard(request, reply))) return reply
@@ -4664,17 +4551,23 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     const declared = OperatorAnswerKindSchema.safeParse(kind)
     const thread = ConversationIdSchema.safeParse(conversationId)
 
-    if (kind !== undefined && !declared.success) {
-      return operatorThreadPage(request, reply, operated, {
-        error: messageDeclarationError.message,
-        status: ERROR_STATUS.validation_failed,
-      })
-    }
+    /**
+     * **The status is the refusal's own**, not a blanket 422. A removed
+     * operator link is a `403` and a deployment with no messaging is a `404`,
+     * and flattening those to *your input was wrong* would tell a person to
+     * edit a message that was fine.
+     */
+    const refuse = (message: string, status = ERROR_STATUS.validation_failed) =>
+      renderInbox(
+        request,
+        reply,
+        { human: { id: operated.humanId, roles: operated.roles } },
+        { onlyAgent: operated.agentId, composeError: message, status },
+      )
+
+    if (kind !== undefined && !declared.success) return refuse(messageDeclarationError.message)
     if (conversationId !== undefined && conversationId !== '' && !thread.success) {
-      return operatorThreadPage(request, reply, operated, {
-        error: messageDeclarationError.message,
-        status: ERROR_STATUS.validation_failed,
-      })
+      return refuse(messageDeclarationError.message)
     }
 
     /**
@@ -4687,19 +4580,11 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
      */
     if (!declared.success) {
       if (written.length < MESSAGE_BODY_MIN_LENGTH || written.length > MESSAGE_BODY_MAX_LENGTH) {
-        return operatorThreadPage(request, reply, operated, {
-          error: messageBodyError.message,
-          status: ERROR_STATUS.validation_failed,
-        })
+        return refuse(messageBodyError.message)
       }
 
       const finding = credentialFinding(written)
-      if (finding !== null) {
-        return operatorThreadPage(request, reply, operated, {
-          error: credentialRefusalMessage(finding),
-          status: ERROR_STATUS.validation_failed,
-        })
-      }
+      if (finding !== null) return refuse(credentialRefusalMessage(finding))
     }
 
     const result = await desk.send(operated.humanId, operated.agentId, {
@@ -4707,10 +4592,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       ...(thread.success ? { conversationId: thread.data } : {}),
     })
     if (result.outcome === 'refused') {
-      return operatorThreadPage(request, reply, operated, {
-        error: result.error.message,
-        status: ERROR_STATUS[result.error.code],
-      })
+      return refuse(result.error.message, ERROR_STATUS[result.error.code])
     }
 
     if (!wantsHtml(request)) {
@@ -4719,7 +4601,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
 
     return reply
       .status(303)
-      .header('location', `/agents/${String(operated.agentId)}/messages?said=sent`)
+      .header('location', `/inbox/${String(result.response.conversationId)}?said=sent`)
       .send()
   })
 
@@ -4853,12 +4735,30 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
    * nor any of their agents' conversations with other citizens or with the
    * Colony, which `#1447` frozen decision 2 rules out as surveillance.
    */
-  app.get('/inbox', async (request, reply) => {
-    if (!(await guard(request, reply))) return reply
-
-    const signedIn = await person(request)
-    if (signedIn === null) return signInRequired(request, reply)
-
+  /**
+   * The inbox, rendered (`#1448`, filters `#1450`, per agent `#1453`).
+   *
+   * **One renderer, three doors.** `/inbox`, `/agents/:agentId/messages` and
+   * every refusal from the compose form come through here. Three renderers
+   * would be three chances for the count on one to disagree with the list on
+   * another, and the ACL is stated once rather than three times.
+   *
+   * **A refusal renders rather than redirects**, so the wording never goes into
+   * a URL. `#570` states the rule on the dashboard — *a code from a closed set
+   * and never a sentence in the URL* — and it applies here for the same reason:
+   * a link somebody was sent must not be able to put words on this page in the
+   * Colony's voice.
+   */
+  const renderInbox = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    signedIn: { readonly human: { readonly id: HumanId; readonly roles: readonly string[] } },
+    options: {
+      readonly onlyAgent?: AgentId | undefined
+      readonly composeError?: string | undefined
+      readonly status?: number | undefined
+    } = {},
+  ): Promise<FastifyReply> => {
     const desk = deps.operatorMessaging
 
     /**
@@ -4895,7 +4795,10 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     const uuid = (value: string | undefined): string | undefined =>
       typeof value === 'string' && AgentIdSchema.safeParse(value).success ? value : undefined
 
-    const agent = uuid(query.agent)
+    // The path wins over the query string: `/agents/<id>/messages?agent=<other>`
+    // is one link contradicting itself, and the one in the path is the one the
+    // person clicked.
+    const agent = options.onlyAgent === undefined ? uuid(query.agent) : String(options.onlyAgent)
     const account = uuid(query.account)
 
     const filters = {
@@ -4924,7 +4827,14 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       muted: thread.mutedUntil !== null,
     }))
 
-    if (!wantsHtml(request)) return reply.status(200).send({ view, filters, threads: rows })
+    if (!wantsHtml(request)) {
+      return reply.status(options.status ?? 200).send({
+        view,
+        filters,
+        threads: rows,
+        ...(options.composeError === undefined ? {} : { error: options.composeError }),
+      })
+    }
 
     /**
      * The agents this person operates, for the compose form (`#1452`) and for
@@ -4935,15 +4845,19 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
      */
     const operated = await deps.humans.store.operated(signedIn.human.id)
     const accounts = await composeAccounts(operated)
+    const named = operated.find((held) => String(held.id) === agent)
 
     return html(
-      reply,
+      options.status === undefined ? reply : reply.status(options.status),
       inboxPage({
         nav: navFor(request, signedIn.human.roles),
         threads: rows,
         view,
-        agents: operated.map((agent) => ({ id: String(agent.id), name: agent.name })),
+        agents: operated.map((held) => ({ id: String(held.id), name: held.name })),
         accounts,
+        ...(options.onlyAgent !== undefined && named !== undefined
+          ? { onlyAgent: named.name }
+          : {}),
         filters: {
           ...(filters.agentId === undefined ? {} : { agentId: String(filters.agentId) }),
           ...(filters.accountId === undefined ? {} : { accountId: filters.accountId }),
@@ -4952,11 +4866,18 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
           search: typeof query.q === 'string' ? query.q : '',
         },
         bodyMaxLength: MESSAGE_BODY_MAX_LENGTH,
-        ...(typeof (request.query as { error?: string }).error === 'string'
-          ? { composeError: (request.query as { error: string }).error }
-          : {}),
+        ...(options.composeError === undefined ? {} : { composeError: options.composeError }),
       }),
     )
+  }
+
+  app.get('/inbox', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const signedIn = await person(request)
+    if (signedIn === null) return signInRequired(request, reply)
+
+    return renderInbox(request, reply, signedIn)
   })
 
   /**
@@ -4995,13 +4916,17 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     const to = AgentIdSchema.safeParse(agentId)
     if (!to.success) return consoleNotFound(reply, request)
 
+    /**
+     * **Rendered, not redirected** (`#1453`). This used to redirect with the
+     * message in the query string, which put words on the page in the Colony's
+     * voice for anybody who could hand somebody a link — the thing `#570`
+     * refuses on the dashboard in as many words.
+     */
     const refuse = (message: string) =>
-      wantsHtml(request)
-        ? reply
-            .status(303)
-            .header('location', `/inbox?error=${encodeURIComponent(message)}`)
-            .send()
-        : reply.status(ERROR_STATUS.validation_failed).send({ error: message })
+      renderInbox(request, reply, signedIn, {
+        composeError: message,
+        status: ERROR_STATUS.validation_failed,
+      })
 
     if (written.length < MESSAGE_BODY_MIN_LENGTH || written.length > MESSAGE_BODY_MAX_LENGTH) {
       return refuse(messageBodyError.message)

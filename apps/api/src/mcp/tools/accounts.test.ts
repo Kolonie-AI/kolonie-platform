@@ -745,6 +745,8 @@ describe('kolonie.accounts.handoff known values (#594 wall 3)', () => {
     })
     await colony.wishes.store.want(agent.id, 'github.com')
     colony.operatorRequestStore.giveWish(agent.id, 'github.com', added.wish.id)
+    colony.messaging.citizen(agent.profile.name, { agentId: agent.id })
+    colony.messaging.operatorLink(agent.profile.name)
     const { client, close } = await connectedClient(
       { ...colony, accounts: fakeAccounts(register) },
       `Bearer ${apiKey}`,
@@ -754,15 +756,63 @@ describe('kolonie.accounts.handoff known values (#594 wall 3)', () => {
       name: 'kolonie.accounts.handoff',
       arguments: { kind: 'github', provider: 'github.com', step: 2 },
     })
-    const [request] = await colony.operatorRequestStore.list(agent.id)
+
+    /**
+     * **The ask is a message in the operator thread now** (`#1322`), and the
+     * wish is the thread's provenance rather than a column on an exchange. What
+     * is asserted is unchanged in substance: the Colony's own filled-in sentence,
+     * about this wish, and nothing the agent wrote.
+     */
+    const threads = await colony.messaging.listThreads(agent.id, { kind: 'operator-human' })
+    const thread = threads[0]
+    const read =
+      thread === undefined ? undefined : await colony.messaging.getThread(agent.id, thread.id)
 
     expect(result.isError).not.toBe(true)
     expect(JSON.stringify(result.content)).toContain('from your declared social account')
     expect(JSON.stringify(result.content)).toContain('from your proved mailbox account')
-    expect(request?.messages[0]?.body).toBe('Create it as colette, using proved@example.org.')
-    expect(request?.taskId).toBeNull()
-    expect(request?.wishId).toBe(added.wish.id)
-    expect(request?.context).toBe('github.com')
+    expect(threads).toHaveLength(1)
+    expect(read?.outcome).toBe('read')
+    expect(read?.outcome === 'read' ? read.response.messages[0]?.body : undefined).toBe(
+      'Create it as colette, using proved@example.org.',
+    )
+    // The exchange channel is not what the handoff opens any more.
+    expect(await colony.operatorRequestStore.list(agent.id)).toHaveLength(0)
+    expect(
+      JSON.parse(JSON.stringify(result.structuredContent ?? {})) as { channel?: string },
+    ).toMatchObject({ channel: 'messages' })
+    await close()
+  })
+
+  /**
+   * The rejection case `#1322`'s definition of done asks for: no operator
+   * linked, and the same class of refusal the exchange path made.
+   */
+  it('refuses when nobody answers for the citizen, and says nothing was sent', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    colony.recipes.write({
+      kind: 'github',
+      provider: 'github.com',
+      status: 'joinable',
+      steps: [{ actor: 'operator', instruction: 'Create the account.', ask: 'Please create it.' }],
+    })
+    const added = await colony.wishes.store.add({
+      agentId: agent.id,
+      provider: 'github.com',
+      author: 'citizen',
+    })
+    await colony.wishes.store.want(agent.id, 'github.com')
+    colony.operatorRequestStore.giveWish(agent.id, 'github.com', added.wish.id)
+    colony.operatorRequestStore.givePage(agent.id)
+    colony.messaging.citizen(agent.profile.name, { agentId: agent.id })
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.handoff',
+      arguments: { kind: 'github', provider: 'github.com', step: 1 },
+    })
+
+    expect(result.isError).toBe(true)
     await close()
   })
 })
@@ -2137,6 +2187,13 @@ describe('a second walk waits on the first one’s report', () => {
       colony.operatorRequestStore.giveWish(agent.id, provider, added.wish.id)
     }
     colony.operatorRequestStore.givePage(agent.id)
+    /**
+     * The handoff's words channel is messaging now (`#1322`), so the citizen
+     * needs somebody answering for it there — the page above is what an operator
+     * *reads*, and this is the link the send is refused without.
+     */
+    colony.messaging.citizen(agent.profile.name, { agentId: agent.id })
+    colony.messaging.operatorLink(agent.profile.name)
 
     const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
 

@@ -143,9 +143,9 @@ export function operatorNotesAsText(
 export function waitingRepliesLine(waiting: number): string {
   return waiting === 1
     ? 'Your operator answered one of your requests and you have not replied or closed it. ' +
-        'Read it with kolonie.operator.request.read.'
+        'Read it with kolonie.messages.get_thread.'
     : `Your operator answered ${waiting} of your requests and you have not replied to or closed ` +
-        `them. Read them with kolonie.operator.request.read.`
+        `them. Read them with kolonie.messages.get_thread.`
 }
 
 export function unreadNotesLine(unread: number): string {

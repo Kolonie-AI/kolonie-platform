@@ -141,7 +141,7 @@ function wayOut(facts: EscalationFacts, entries: readonly WakeupOpenEntry[]): Wa
     return derived([
       {
         what: 'ask the person who answers for you for the one thing you cannot do yourself',
-        call: 'kolonie.operator.request.open',
+        call: 'kolonie.messages.send',
         why: `${repetitionWhy(facts.repeats)}, and you have a person to ask and nothing open with them`,
         gets:
           'an answer from somebody who can act outside the Colony. It costs you nothing — no ' +

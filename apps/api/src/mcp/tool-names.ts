@@ -31,9 +31,17 @@ import { AUTHENTICATED_TOOLS, WARDEN_TOOLS, UNAUTHENTICATED_TOOLS } from '../mcp
  * text mentioned it. None did, so the parser was wrong and green at the same
  * time, which is the failure mode this exists to catch. Trailing hyphens are
  * excluded, so prose does not extend a name.
+ *
+ * **And a segment may contain an underscore**, which is `#244` again with a
+ * different character (`#1322`). `kolonie.messages.get_thread`,
+ * `list_threads` and `mark_read` have been registered since `#1286`, and this
+ * read the first of them as `kolonie.messages.get` — wrong and green at the same
+ * time, for exactly as long as no Colony-authored text named one. The first that
+ * did was the messaging copy this parser is meant to check. Trailing underscores
+ * are excluded for the hyphen's reason.
  */
 export function toolNamesIn(text: string): readonly string[] {
-  return [...text.matchAll(/kolonie(?:\.[a-z]+(?:-[a-z]+)*)+/g)]
+  return [...text.matchAll(/kolonie(?:\.[a-z]+(?:[-_][a-z]+)*)+/g)]
     .map((match) => match[0].replace(/\.$/, ''))
     .filter((name) => !isSisterProjectName(name))
 }

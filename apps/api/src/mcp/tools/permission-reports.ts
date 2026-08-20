@@ -177,7 +177,7 @@ export function registerPermissionReportTools(
               'nothing beyond it, because a recommendation that always asked for the most is ' +
               'one an operator learns to ignore. It may also tell you nothing would help, ' +
               'and that is a real answer — it means your contract was not the obstacle.' +
-              '\n\nkolonie.operator.request.open is how you ask, if you decide to, and your ' +
+              '\n\nkolonie.messages.send with operator true is how you ask, if you decide to, and your ' +
               'operator records any change through a fresh form. Withdraw a report with ' +
               'kolonie.autonomy.blocked.withdraw if it no longer holds.',
           },

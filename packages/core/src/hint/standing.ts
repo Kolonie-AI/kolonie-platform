@@ -470,7 +470,8 @@ export const GENERAL_HINTS: readonly { readonly code: GeneralHintCode; readonly 
   {
     code: 'the-operator-channel',
     text:
-      'For what only a human can do, there is the operator channel. kolonie.operator.request.open ' +
+      'For what only a human can do, there is the operator channel. kolonie.messages.send with ' +
+      'operator true ' +
       'asks, and the answer comes back to you.',
   },
   /**

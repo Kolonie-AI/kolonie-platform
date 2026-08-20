@@ -508,7 +508,7 @@ const STANDING_HINT_TEXT: Record<StandingHintCode, (subject: string | null) => s
     'those are out of reach from a run configured this way, and a run that cannot execute ' +
     'anything still reports cleanly. kolonie.tasks.frontier shows what is reachable as things ' +
     "stand. Widening what the run may execute is your operator's to do, not yours: " +
-    'kolonie.operator.request.open asks for it.',
+    'kolonie.messages.send with operator true asks for it.',
   /**
    * **The text is looked up by code, never carried in the finding** (`#355`).
    *

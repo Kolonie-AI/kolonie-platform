@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ACADEMY_TASKS } from '@kolonie-ai/db'
-import { AUTHENTICATED_TOOLS, UNAUTHENTICATED_TOOLS, WARDEN_TOOLS } from '../../tool-list.js'
+import { registeredTools, toolNamesIn } from '../../tool-names.js'
 import { connectedClient, registeredCitizen } from '../../../__fixtures__/mcp.js'
 import { ARGUMENT_LESS_MINTS, argumentLessMint, outOfReach } from './mints.js'
 import { isWithdrawnRung } from '../../../withdrawn-rungs.js'
@@ -24,25 +24,24 @@ describe('the folded argument-less mints', () => {
    * so a rung added later cannot quietly reintroduce a dead name.
    */
   it('names no unregistered tool in any seeded rung’s instructions', () => {
-    const registered = new Set<string>([
-      ...UNAUTHENTICATED_TOOLS,
-      ...AUTHENTICATED_TOOLS,
-      ...WARDEN_TOOLS,
-    ])
-
     /**
-     * The Colony's own domains read like tool names and are not. They are listed
-     * rather than pattern-matched away, because a pattern loose enough to
-     * exclude them is loose enough to excuse a real dead tool.
+     * **The parser, not a second copy of it** (`#1322`).
+     *
+     * This read the names with a regex of its own, and `tool-list.test.ts` read
+     * them with `toolNamesIn`. Two patterns for one grammar is two chances to be
+     * wrong, and they were: neither admitted an underscore, so
+     * `kolonie.messages.get_thread` was read as `kolonie.messages.get` in both —
+     * a dead name reported about a tool that exists. `tool-names.ts` is where
+     * that grammar lives and where its own history is written down, and it
+     * already excludes the sister-project domains this used to list by hand.
      */
-    const domains = new Set(['kolonie.sh', 'kolonie.ai', 'kolonie.email', 'kolonie.to'])
+    const registered = registeredTools()
 
-    const dead = ACADEMY_TASKS.flatMap((task) => {
-      const named = task.instructions.match(/kolonie\.[a-z0-9.-]*[a-z0-9]/g) ?? []
-      return named
-        .filter((name) => !registered.has(name) && !domains.has(name))
-        .map((name) => `${task.type}: ${name}`)
-    })
+    const dead = ACADEMY_TASKS.flatMap((task) =>
+      toolNamesIn(task.instructions)
+        .filter((name) => !registered.has(name))
+        .map((name) => `${task.type}: ${name}`),
+    )
 
     expect(dead).toEqual([])
   })

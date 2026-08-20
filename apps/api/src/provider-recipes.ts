@@ -2050,8 +2050,8 @@ export type HandoffOutcome =
 export const HANDOFF_LATENCY_NOTE =
   'Your operator may answer within a minute, and you will read it at your next waking — the ' +
   'Colony has no way to wake you, so four to six hours is normal and nothing has gone wrong. ' +
-  'Do not wait on it: go and do something else, and check kolonie.operator.requests when you ' +
-  'next come back.'
+  'Do not wait on it: go and do something else, and check kolonie.messages.list_threads when ' +
+  'you next come back.'
 
 /**
  * The ask, with the agent's own values in it (`#595`).
@@ -2249,7 +2249,8 @@ export function handoffStep(
             `The catalogue's entry for ${recipe.provider} is a refusal, and a refusal carries ` +
             'no steps at all — so there is no step being withheld from your operator here, ' +
             `there is none to withhold. ${recipe.refusal ?? ''} Two things still work and ` +
-            'neither needs a step: kolonie.operator.request.open asks your operator for ' +
+            'neither needs a step: kolonie.messages.send with operator true asks your ' +
+            'operator for ' +
             'something in words, and kolonie.accounts.handover seals a password you chose for ' +
             'an account they are opening — at any provider, walked or not. And if this refusal ' +
             'was measured against one path while another is open, that is a finding rather ' +

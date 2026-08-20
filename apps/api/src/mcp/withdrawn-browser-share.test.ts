@@ -84,8 +84,11 @@ describe('the browser share, withdrawn', () => {
      */
     const names = tools.map((tool) => tool.name)
     for (const surviving of [
-      'kolonie.operator.request.open',
-      'kolonie.operator.request.reply',
+      // The words channel is `kolonie.messages.*` since `#1325` retired the
+      // exchange. What this case is about is unchanged: the share took no
+      // dependency off either channel, and both are still here.
+      'kolonie.messages.send',
+      'kolonie.messages.get_thread',
       'kolonie.operator.drop.open',
       'kolonie.operator.drop.read',
     ]) {

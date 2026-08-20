@@ -141,14 +141,14 @@ function tile(value: number, label: string): string {
 }
 
 /**
- * One exchange between a citizen and its operator, as this page renders it.
+ * One thread between a citizen and its operator, as this page renders it.
  *
  * **Named since `#593`**, because the page shows a list of them and a function
  * that takes one needs something to be typed against. Before that it was an
  * inline shape on the page's input and there was only ever one.
  */
-export interface OperatorExchange {
-  readonly requestId: string
+export interface OperatorThread {
+  readonly threadId: string
   /** The task title or wanted provider that explains why this was asked. */
   readonly context: string
   readonly openedAt: string
@@ -158,15 +158,14 @@ export interface OperatorExchange {
     readonly writtenAt: string
   }[]
   /**
-   * Whether the exchange is finished, in which case it is shown **without a
-   * box** (`#359`).
+   * Whether the thread has become read-only, in which case it is shown
+   * **without a box**.
    *
-   * A citizen may answer a question its operator asked in the notes channel by
-   * replying into an exchange that is already closed — which costs it neither
-   * one of its bounded open-request places nor another mail. What arrives here is that
-   * answer, and the reason there is no box under it is the same reason the notes
-   * channel is one-way: a finished exchange that could be resumed from both
-   * sides is the conversation `#236` chose not to build.
+   * `#359` put this here for a finished exchange the citizen had answered into
+   * afterwards. A thread is never finished, so what it means since `#1325` is
+   * the one state that does stop words: the operator link has been removed. The
+   * thread stays readable on both sides — ending the relationship does not
+   * un-say what was said in it — and neither side may add to it.
    */
   readonly closed?: boolean | undefined
 }
@@ -180,15 +179,15 @@ export interface OperatorPageDrop {
 }
 
 /**
- * The fragment one exchange lives at (`#593`, pointed at by `#587`).
+ * The fragment one thread lives at (`#593`, pointed at by `#587`).
  *
- * **The request id and not an index.** A position changes the moment another
+ * **The thread id and not an index.** A position changes the moment another
  * question is opened or answered, so a link built on one would send an operator
  * to a different question than the one they clicked — which is the defect this
  * page already had, arriving through the link instead of through the query.
  */
-export function exchangeAnchor(requestId: string): string {
-  return `question-${requestId}`
+export function threadAnchor(threadId: string): string {
+  return `question-${threadId}`
 }
 
 /** The form itself. `token` is in the action, so nothing has to carry it in a field. */
@@ -646,18 +645,20 @@ export function operatorDurablePage(input: {
    * and carries no form at all.
    *
    * **A list since `#593`, and the rule it replaces was never enforced here.**
-   * The page showed one exchange because the query said `limit(1)`, and the
+   * The page showed one thread because the query said `limit(1)`, and the
    * sentence about never confronting an operator with a queue was written over
    * the top of that. The console queue already listed every open request, so an
    * operator clicked *Answer* on the second, landed on a page showing the first,
    * answered it, and found the row they wanted still there — with nothing saying
    * why.
    *
-   * What protects the operator is the bounded simultaneous-open ceiling, enforced
-   * where a request is opened. Hiding requests here was never protection, only
-   * disagreement with the queue that sent the operator to this page.
+   * **And there is no ceiling behind it any more** (`#1325`, epic `#1318`
+   * decision 11). The paragraph this replaces said an operator was protected by
+   * the bounded simultaneous-open limit; that limit was a property of the
+   * exchange row and died with it. A citizen with four problems has four
+   * threads, which is what a person reading them wants anyway.
    */
-  readonly exchanges?: readonly OperatorExchange[] | undefined
+  readonly threads?: readonly OperatorThread[] | undefined
   /** Every actionable sealed box for this page's agent. */
   readonly drops?: readonly OperatorPageDrop[] | undefined
   /** Whether this deployment can open a sealed box for a future secret handoff. */
@@ -1107,7 +1108,7 @@ export function operatorDurablePage(input: {
   /**
    * The open question and the box to answer it (`#236`).
    *
-   * **The exchange is shown in full, with who said what on every line.** An
+   * **The thread is shown in full, with who said what on every line.** An
    * operator answering a question needs to see its own previous answer — an
    * append-only record whose earlier entries were hidden would invite the same
    * correction twice.
@@ -1118,7 +1119,7 @@ export function operatorDurablePage(input: {
    *
    * **Three and not two** (`#1093`). *Allow* used to stand for both *you may go
    * ahead* and *I have done it*, and a citizen that had asked for a machine
-   * account could not tell which it had been told — while the exchange counted as
+   * account could not tell which it had been told — while the thread counted as
    * answered either way, so it stopped waiting. The two are separate controls now,
    * and what a person pressed is recorded on the message rather than guessed at
    * from the words.
@@ -1128,20 +1129,20 @@ export function operatorDurablePage(input: {
   const openQuestions =
     answerAction === undefined
       ? []
-      : (input.exchanges ?? [])
-          .filter((exchange) => exchange.closed !== true)
-          .map((exchange) => ({
-            openedAt: exchange.openedAt,
-            tie: `question-${exchange.requestId}`,
+      : (input.threads ?? [])
+          .filter((thread) => thread.closed !== true)
+          .map((thread) => ({
+            openedAt: thread.openedAt,
+            tie: `question-${thread.threadId}`,
             body: [
               /**
-               * **Each exchange is its own section with its own anchor** (`#593`),
+               * **Each thread is its own section with its own anchor** (`#593`),
                * so `#587`'s *Answer* link has something stable to point at and an
                * operator who answers the second of three lands back where they were
                * rather than at the top of a long page.
                */
-              `<section id="${escape(exchangeAnchor(exchange.requestId))}">`,
-              ...exchangeBlock(exchange, name, {
+              `<section id="${escape(threadAnchor(thread.threadId))}">`,
+              ...threadBlock(thread, name, {
                 action: answerAction,
                 ...(input.answerError === undefined ? {} : { answerError: input.answerError }),
               }),
@@ -1185,39 +1186,39 @@ export function operatorDurablePage(input: {
   const closedExchanges =
     answerAction === undefined
       ? []
-      : (input.exchanges ?? [])
-          .filter((exchange) => exchange.closed === true)
-          .flatMap((exchange) => exchangeBlock(exchange, name, { action: answerAction }))
+      : (input.threads ?? [])
+          .filter((thread) => thread.closed === true)
+          .flatMap((thread) => threadBlock(thread, name, { action: answerAction }))
 
   /**
-   * One exchange: what was said, and the box to answer it (`#236`).
+   * One thread: what was said, and the box to answer it (`#236`).
    *
    * Lifted out of the page body by `#593` because there are now several of them.
    * Nothing about what it renders changed.
    */
-  function exchangeBlock(
-    exchange: OperatorExchange,
+  function threadBlock(
+    thread: OperatorThread,
     who: string,
     context: { readonly action: string; readonly answerError?: string | undefined },
   ): readonly string[] {
-    return exchange.closed === true
+    return thread.closed === true
       ? [
           /**
-           * A finished exchange the citizen wrote into afterwards (`#359`).
+           * A thread nobody may write into any more (`#359`, `#1325`).
            *
-           * **Shown, and shown without a box.** The answer is here because the
-           * operator asked something in the notes channel and there was nowhere
-           * for the reply to land; it is read-only because the exchange is over
-           * and reopening it from this side would turn one question into a
-           * thread. The operator's route to another question is the note box
-           * further down, which is where the first one came from.
+           * **Shown, and shown without a box.** `#359` reached this state
+           * through a closed exchange; since `#1325` it is a thread whose
+           * operator link has been removed. Both are the same thing to the
+           * person reading: the words stay, and there is nowhere to put a
+           * reply. The route to saying something else is the note box further
+           * down.
            */
-          `<h2>${who} answered you</h2>`,
-          `<p>About “${escape(exchange.context)}”, in an exchange that is`,
+          `<h2>${who} wrote to you</h2>`,
+          `<p>About “${escape(thread.context)}”, in a conversation that is`,
           'now finished. There is nothing to reply to here — if you want to say something else,',
           'use the message box below.</p>',
           '<table>',
-          ...exchange.messages.map(
+          ...thread.messages.map(
             (message) =>
               `<tr><th>${message.author === 'operator' ? 'You wrote' : `${who} wrote`}</th>` +
               `<td>${escape(message.body)}</td></tr>`,
@@ -1226,21 +1227,21 @@ export function operatorDurablePage(input: {
         ]
       : [
           `<h2>${who} has asked you something</h2>`,
-          `<p>About “${escape(exchange.context)}”.</p>`,
+          `<p>About “${escape(thread.context)}”.</p>`,
           context.answerError === undefined
             ? ''
             : `<p class="note"><strong>${escape(context.answerError)}</strong></p>`,
           '<ul class="operator-asks">',
           '<li>',
           `<p class="operator-ask"><strong>${who} asks:</strong> ${escape(
-            [...exchange.messages].reverse().find((message) => message.author === 'citizen')
-              ?.body ?? '',
+            [...thread.messages].reverse().find((message) => message.author === 'citizen')?.body ??
+              '',
           )}</p>`,
           '<div class="operator-answer-controls">',
           ...OPERATOR_ANSWER_CONTROLS.flatMap(({ kind, label }) => [
             `<form method="post" action="${escape(context.action)}">`,
             '<input type="hidden" name="intent" value="answer">',
-            `<input type="hidden" name="requestId" value="${escape(exchange.requestId)}">`,
+            `<input type="hidden" name="threadId" value="${escape(thread.threadId)}">`,
             /**
              * **The control posts what it means, never the words** (`#1093`). The
              * sentence is written once, in core, and resolved server-side — so a
@@ -1254,10 +1255,10 @@ export function operatorDurablePage(input: {
           `<form class="operator-answer-explanation" method="post" action="${escape(context.action)}">`,
           /**
            * Which of the page's two boxes this is (`#239`). Named rather than
-           * inferred from `requestId`, because both page forms carry words.
+           * inferred from `threadId`, because both page forms carry words.
            */
           '<input type="hidden" name="intent" value="answer">',
-          `<input type="hidden" name="requestId" value="${escape(exchange.requestId)}">`,
+          `<input type="hidden" name="threadId" value="${escape(thread.threadId)}">`,
           '<label>Explain instead (optional)',
           `<textarea name="body" rows="3" maxlength="${OPERATOR_MESSAGE_MAX_LENGTH}" required></textarea>`,
           '</label>',
@@ -1268,7 +1269,7 @@ export function operatorDurablePage(input: {
           '</ul>',
           ...collapsed('Conversation so far', [
             '<table>',
-            ...exchange.messages.map(
+            ...thread.messages.map(
               (message) =>
                 `<tr><th>${message.author === 'operator' ? 'You wrote' : `${who} wrote`}</th>` +
                 `<td>${escape(message.body)}</td></tr>`,
@@ -1344,16 +1345,15 @@ export function operatorDurablePage(input: {
   /**
    * **Any open question the operator has not written into yet** (`#593`).
    *
-   * `some` rather than the one exchange this used to read, and the choice is the
+   * `some` rather than the one thread this used to read, and the choice is the
    * conservative one: with two questions waiting, the note box says *use the box
    * above* until both have been answered. Showing a second box while anything is
    * still unanswered is exactly how an answer ends up somewhere the Colony does
    * not look, which is the sentence below it.
    */
-  const waitingOnAnAnswer = (input.exchanges ?? []).some(
-    (exchange) =>
-      exchange.closed !== true &&
-      !exchange.messages.some((message) => message.author === 'operator'),
+  const waitingOnAnAnswer = (input.threads ?? []).some(
+    (thread) =>
+      thread.closed !== true && !thread.messages.some((message) => message.author === 'operator'),
   )
 
   const note =

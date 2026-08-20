@@ -49,7 +49,7 @@ export function registerTelegramRoutes(v1: FastifyInstance, deps: RouteDependenc
        * Nothing about this line may reach the operator's screen.
        */
       if (outcome.answered !== undefined) {
-        await deps.operatorRequests.wake?.wake(outcome.answered.agentId, 'operator-answer')
+        await deps.operatorThreads.wake?.wake(outcome.answered.agentId, 'operator-answer')
       }
 
       const sent = await desk.bot.send({ chatId: outcome.chatId, text: outcome.text })

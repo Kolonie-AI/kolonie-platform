@@ -57,7 +57,7 @@ import type { SolanaDependencies } from './solana.js'
 import type { TaskSubmissions } from './submissions.js'
 import type { Support } from './support.js'
 import type { OperatorNoteDependencies } from './operator-notes.js'
-import type { OperatorRequestDependencies } from './operator-requests.js'
+import type { OperatorThreadDependencies } from './operator-threads.js'
 import type { PermissionReportDependencies } from './permission-reports.js'
 import type { CredentialRotation } from './rotation.js'
 import type { PaymentDependencies } from './payments.js'
@@ -334,20 +334,20 @@ export interface AppDependencies {
    */
   readonly support: Support
   /**
-   * The operator channel (#236): a citizen asks its operator for something it
-   * cannot do itself, and reads the answer.
+   * The operator channel (#236) as the durable page reaches it: the operator
+   * reads what its citizen asked and answers, on the thread the citizen opened.
    *
-   * Its own dependencies rather than a method on `autonomy`, because it holds a
-   * different thing: the contract is a form that is filled in once, and this is an
-   * exchange that stays open. It does share the support desk's outbound allowance,
-   * which is wired in `server.ts` and is the reason both are surfaces rather than
-   * desks.
+   * **Its own dependencies rather than a method on `messaging`** (`#1325`). The
+   * citizen's side of this channel is `kolonie.messages.*` and needs a
+   * credential; this side is a bearer link held by a person with no account, and
+   * one dependency covering both would put the page's reads next to a surface
+   * that resolves callers by agent id.
    */
-  readonly operatorRequests: OperatorRequestDependencies
+  readonly operatorThreads: OperatorThreadDependencies
   /**
    * What the operator says unasked, and the ceilings on it (#239).
    *
-   * Separate from `operatorRequests` although a reader sees one channel, because
+   * Separate from `operatorThreads` although a reader sees one channel, because
    * the two share no state and deliberately no ceiling — see the note on
    * `OperatorNoteDependencies.limiter`.
    */

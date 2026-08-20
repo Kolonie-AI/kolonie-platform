@@ -11,7 +11,7 @@ import {
   fakeAutonomyStore,
   fakeOperatorPages,
 } from '../__fixtures__/autonomy.js'
-import { fakeOperatorRequests } from '../__fixtures__/operator-requests.js'
+import { fakeOperatorThreads } from '../__fixtures__/operator-threads.js'
 import { fakeOperatorNotes } from '../__fixtures__/operator-notes.js'
 import { SESSION_COOKIE } from './console.js'
 import { OAUTH_STATE_COOKIE } from '../humans/humans.js'
@@ -38,13 +38,13 @@ const CONSOLE_HOST = 'console.example'
 let app: FastifyInstance
 let humans: FakeHumanStore
 let pages: ReturnType<typeof fakeOperatorPages>
-let requests: ReturnType<typeof fakeOperatorRequests>
+let requests: ReturnType<typeof fakeOperatorThreads>
 let agentId: AgentId
 
 beforeEach(async () => {
   humans = fakeHumanStore()
   pages = fakeOperatorPages()
-  requests = fakeOperatorRequests({ pages })
+  requests = fakeOperatorThreads({ pages })
   const agents = fakeStore()
 
   app = buildApp({
@@ -58,7 +58,7 @@ beforeEach(async () => {
       mailer: fakeAutonomyMailer(),
       formBaseUrl: CONSOLE_URL,
     },
-    operatorRequests: requests,
+    operatorThreads: requests,
     operatorNotes: fakeOperatorNotes({ pages }),
   })
   await app.ready()
@@ -99,23 +99,18 @@ const link = async (id: AgentId): Promise<void> => {
 }
 
 /** A live page and an open question, which is the state that produced the link. */
-const anOpenQuestion = async (): Promise<{ token: string; requestId: string }> => {
+const anOpenQuestion = (): { token: string; requestId: string } => {
   const token = pages.issueNow(agentId, 'operator@example.org')
-  const opened = await requests.store.open({
-    agentId,
-    taskId: requests.store.giveTask(),
-    body: 'I cannot make this account without you.',
-  })
-  if (opened.outcome !== 'opened') throw new Error(`open refused: ${opened.outcome}`)
+  const threadId = requests.store.giveThread(agentId)
 
-  return { token, requestId: opened.request.id }
+  return { token, requestId: String(threadId) }
 }
 
 describe('what the console renders about an operator page', () => {
   it('links Answer at the console’s own door, carrying no token', async () => {
     const cookie = await signedInCookie()
     await link(agentId)
-    const { token, requestId } = await anOpenQuestion()
+    const { token, requestId } = anOpenQuestion()
 
     /**
      * The row exactly as `operatorQueue` builds it, `answerAt` included — so
@@ -155,7 +150,7 @@ describe('what the console renders about an operator page', () => {
   it('renders the token nowhere on any page a session reaches', async () => {
     const cookie = await signedInCookie()
     await link(agentId)
-    const { token } = await anOpenQuestion()
+    const { token } = anOpenQuestion()
 
     for (const url of ['/', `/agents/${agentId}`, `/agents/${agentId}/operator`]) {
       const response = await app.inject({
@@ -194,7 +189,7 @@ describe('what the console renders about an operator page', () => {
    * the token *is* how the operator is known.
    */
   it('still serves the mailed door on its token', async () => {
-    const { token } = await anOpenQuestion()
+    const { token } = anOpenQuestion()
 
     const response = await app.inject({
       method: 'GET',
@@ -213,7 +208,7 @@ describe('what the console renders about an operator page', () => {
   it('puts the question above the standing blocks on both doors', async () => {
     const cookie = await signedInCookie()
     await link(agentId)
-    const { token } = await anOpenQuestion()
+    const { token } = anOpenQuestion()
 
     const mailed = await app.inject({
       method: 'GET',

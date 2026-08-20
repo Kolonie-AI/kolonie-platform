@@ -27,3 +27,9 @@ schemas/
 # on every run and read as evidence rather than as source, so reformatting them
 # by hand only guarantees a diff the next measurement undoes.
 docs/measurements
+
+# An agent's own scratch worktrees. A checkout of this repository *inside* this
+# repository is a second copy of every source file, so `format:check` walks it
+# and fails on whatever formatting that commit had — which is a finding about a
+# tree nobody is editing.
+.claude

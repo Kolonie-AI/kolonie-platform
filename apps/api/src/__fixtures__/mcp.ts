@@ -54,7 +54,7 @@ import { fakeStore } from './store.js'
 import { fakeSubmissions } from './submissions.js'
 import { fakeSupportDesk } from './support.js'
 import { fakeOperatorNotes } from './operator-notes.js'
-import { fakeOperatorRequests } from './operator-requests.js'
+import { fakeOperatorThreads } from './operator-threads.js'
 import { fakePermissionReports } from './permission-reports.js'
 import { fakeRotation } from './rotation.js'
 import { fakeVault } from './vault.js'
@@ -137,7 +137,7 @@ export const anonymousClient = (registry: AgentRegistry = fakeRegistry()) =>
     support: support({ desk: fakeSupportDesk() }),
     // The operator channel (#236). This tier has no credential, so nothing here
     // is reachable — it is present because `McpDependencies` is total.
-    operatorRequests: fakeOperatorRequests(),
+    operatorThreads: fakeOperatorThreads(),
     operatorNotes: fakeOperatorNotes(),
     // Blocked by permission rather than by ability (#147), unexercised here.
     permissionReports: fakePermissionReports(),

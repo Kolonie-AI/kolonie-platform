@@ -1,4 +1,4 @@
-import type { AgentId, ConversationId, Log, OperatorRequestId } from '@kolonie-ai/core'
+import type { AgentId, ConversationId, Log } from '@kolonie-ai/core'
 import type { OperatorMailer } from './email.js'
 import type { TelegramDesk } from './operator-telegram.js'
 
@@ -38,13 +38,13 @@ export type NotifiedTransport = 'telegram' | 'email'
  * sends is what a reply will name, and without the pair there is nothing for
  * `reply_to_message` to resolve to.
  *
- * **Two kinds while the epic runs both channels** (`#1318`). An exchange is the
- * old surface and a conversation is the one replacing it; the notifier does not
- * care which, and neither does the mail. `#1325` deletes the first member.
+ * **One kind since `#1325`.** It carried an exchange member while the epic ran
+ * both channels; the notifier never cared which, and neither did the mail.
  */
-export type NotificationSubject =
-  | { readonly kind: 'request'; readonly requestId: OperatorRequestId }
-  | { readonly kind: 'conversation'; readonly conversationId: ConversationId }
+export type NotificationSubject = {
+  readonly kind: 'conversation'
+  readonly conversationId: ConversationId
+}
 
 export interface OperatorNotification {
   readonly agentId: AgentId
@@ -52,7 +52,7 @@ export interface OperatorNotification {
   readonly agentName: string
   /** What the ask is about — the same context line the page shows. */
   readonly context: string
-  /** The durable page, anchored at this exchange. Always carried. */
+  /** The durable page, anchored at this thread. Always carried. */
   readonly link: string
   /** Where mail goes. Resolved by the caller, because it resolves the page too. */
   readonly address: string
@@ -102,15 +102,10 @@ export function telegramNotificationText(input: {
 export function mailingOperatorNotifier(mailer: OperatorMailer): OperatorNotifier {
   return {
     notify: async (notification) => {
-      const isThread = notification.subject.kind === 'conversation'
       const delivery = await mailer.send({
         to: notification.address,
-        subject: isThread
-          ? `${notification.agentName} has written to you`
-          : `${notification.agentName} is stuck and has asked you something`,
-        text: isThread
-          ? operatorMessageNotificationText(notification)
-          : operatorRequestNotificationText(notification),
+        subject: `${notification.agentName} has written to you`,
+        text: operatorMessageNotificationText(notification),
       })
 
       return {
@@ -171,24 +166,16 @@ export function telegramOrMailingOperatorNotifier(deps: {
          *
          * **Only on a delivered send, and only when Telegram named the message.**
          * A row written for a send that failed would make a reply resolvable to
-         * an exchange nobody was told about; a send with no id back is delivered
+         * a thread nobody was told about; a send with no id back is delivered
          * all the same, and the operator answers on the page — which the message
          * always carries.
          */
         if (sent.messageId !== undefined) {
-          if (notification.subject.kind === 'conversation') {
-            await deps.telegram.store.recordMessageAsk({
-              conversationId: notification.subject.conversationId,
-              chatId: binding.chatId,
-              messageId: sent.messageId,
-            })
-          } else {
-            await deps.telegram.store.recordAsk({
-              requestId: notification.subject.requestId,
-              chatId: binding.chatId,
-              messageId: sent.messageId,
-            })
-          }
+          await deps.telegram.store.recordMessageAsk({
+            conversationId: notification.subject.conversationId,
+            chatId: binding.chatId,
+            messageId: sent.messageId,
+          })
         }
 
         return { delivered: true, transport: 'telegram' }
@@ -235,50 +222,12 @@ export function operatorNotifierFor(deps: {
 }
 
 /**
- * The mail.
+ * The mail (`#1321`, epic `#1318` decision 5).
  *
  * **No new link, and this is the requirement rather than an economy.** The
- * operator already holds a durable page; minting a fresh single-use link per
- * request would put a new credential in an inbox every time an agent needed
- * something, for no gain over the one they have and one more thing that can leak.
- *
- * **Nothing of the citizen's own addresses appears in it**, and the task is named
- * by title rather than by id: what a person needs to answer is *which thing* and
- * *what is wanted*, and the ask itself is on the page rather than in the mail —
- * so a mail sitting in an inbox forever carries as little as possible.
- */
-export function operatorRequestNotificationText(input: {
-  readonly agentName: string
-  readonly context: string
-  readonly link: string
-}): string {
-  return [
-    `Your agent ${input.agentName} has run into something it cannot do without you, while`,
-    `working on "${input.context}". It has written you a short note explaining what it needs.`,
-    '',
-    'It is on the page you already have for it — the same page as before, no new account and',
-    'nothing to sign up for:',
-    '',
-    `    ${input.link}`,
-    '',
-    'You can answer there in your own words, and add to your answer later if you got something',
-    'wrong. This is the only mail the Colony will send about it: there is no reminder and no',
-    'follow-up, whatever you decide.',
-    '',
-    'What you write reaches your agent as *your* words, and it is advisory — your agent weighs',
-    'it against what you already told the Colony it may do. Answering cannot give it new',
-    'permissions, and neither can anybody else who somehow got hold of this link.',
-    '',
-    'Ignoring this is a real answer. Your agent carries on and can withdraw the question; the',
-    'Colony does not score any of this, and no other citizen sees it.',
-    '',
-    'One thing to know: never put a password, key or code in your answer. The Colony refuses',
-    'those on purpose. If your agent needs a credential, it will tell you where to put it.',
-  ].join('\n')
-}
-
-/**
- * The mail for a messaging thread (`#1321`, epic `#1318` decision 5).
+ * operator already holds a durable page; minting a fresh single-use link per ask
+ * would put a new credential in an inbox every time an agent needed something,
+ * for no gain over the one they have and one more thing that can leak.
  *
  * **An unread ping and never the body.** That is the frozen default, and it is
  * the one thing this text may not do: a citizen writes to its operator through
@@ -287,8 +236,9 @@ export function operatorRequestNotificationText(input: {
  * act is *somebody wrote to you* and *here is where to read it* — the rest is
  * behind the link they already hold.
  *
- * The rules underneath it are the request mail's, unchanged, because they were
- * never about the exchange object: the answer is advisory, it grants no
+ * The rules underneath it long predate messaging and were never about the
+ * exchange object: nothing of the citizen's own addresses appears, the task is
+ * named by title rather than by id, the answer is advisory, it grants no
  * permission, ignoring it is a real answer, and a credential does not go in it.
  */
 export function operatorMessageNotificationText(input: {

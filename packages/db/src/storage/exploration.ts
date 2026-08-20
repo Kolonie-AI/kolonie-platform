@@ -8,7 +8,7 @@ import { agents } from '../schema/agents.js'
 import { taskBriefings } from '../schema/guidance.js'
 import { tasks } from '../schema/tasks.js'
 import { attemptableBy } from './tasks.js'
-import { hasOpenOperatorRequest } from './operator-requests.js'
+import { hasOpenOperatorThread } from './operator-threads.js'
 import { openProspects } from './prospects.js'
 
 /**
@@ -217,7 +217,7 @@ export async function escalationFactsFor(
   const prospects = await openProspects(db, agentId)
 
   const [operatorRequestOpen, unwalked, obstacle, roles, retested] = await Promise.all([
-    hasOpenOperatorRequest(db, agentId),
+    hasOpenOperatorThread(db, agentId),
     unwalkedAtlasEntry(db, prospects.accountKinds),
     obstacleAhead(db, agentId),
     db.select({ roles: agents.roles }).from(agents).where(eq(agents.id, agentId)).limit(1),
@@ -228,7 +228,7 @@ export async function escalationFactsFor(
     /**
      * **The console link, not the public vouch (`#1012`).** This fact gates one
      * entry — *ask the person who answers for you* — and the call behind it,
-     * `kolonie.operator.request.open`, answers `no-operator` unless a console
+     * `kolonie.messages.send` with `operator: true`, refuses unless a console
      * relationship exists. It read `prospects.hasOperator` until `#1012`, which
      * is a post on X: a citizen whose operator had posted for it and never
      * linked was offered a call that could only refuse, and a citizen properly

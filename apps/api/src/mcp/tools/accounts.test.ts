@@ -737,14 +737,13 @@ describe('kolonie.accounts.handoff known values (#594 wall 3)', () => {
         },
       ],
     })
-    colony.operatorRequestStore.givePage(agent.id)
-    const added = await colony.wishes.store.add({
+    colony.operatorThreadStore.givePage(agent.id)
+    await colony.wishes.store.add({
       agentId: agent.id,
       provider: 'github.com',
       author: 'citizen',
     })
     await colony.wishes.store.want(agent.id, 'github.com')
-    colony.operatorRequestStore.giveWish(agent.id, 'github.com', added.wish.id)
     colony.messaging.citizen(agent.profile.name, { agentId: agent.id })
     colony.messaging.operatorLink(agent.profile.name)
     const { client, close } = await connectedClient(
@@ -776,8 +775,6 @@ describe('kolonie.accounts.handoff known values (#594 wall 3)', () => {
     expect(read?.outcome === 'read' ? read.response.messages[0]?.body : undefined).toBe(
       'Create it as colette, using proved@example.org.',
     )
-    // The exchange channel is not what the handoff opens any more.
-    expect(await colony.operatorRequestStore.list(agent.id)).toHaveLength(0)
     expect(
       JSON.parse(JSON.stringify(result.structuredContent ?? {})) as { channel?: string },
     ).toMatchObject({ channel: 'messages' })
@@ -796,14 +793,13 @@ describe('kolonie.accounts.handoff known values (#594 wall 3)', () => {
       status: 'joinable',
       steps: [{ actor: 'operator', instruction: 'Create the account.', ask: 'Please create it.' }],
     })
-    const added = await colony.wishes.store.add({
+    await colony.wishes.store.add({
       agentId: agent.id,
       provider: 'github.com',
       author: 'citizen',
     })
     await colony.wishes.store.want(agent.id, 'github.com')
-    colony.operatorRequestStore.giveWish(agent.id, 'github.com', added.wish.id)
-    colony.operatorRequestStore.givePage(agent.id)
+    colony.operatorThreadStore.givePage(agent.id)
     colony.messaging.citizen(agent.profile.name, { agentId: agent.id })
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
 
@@ -2178,15 +2174,14 @@ describe('a second walk waits on the first one’s report', () => {
           { actor: 'operator', instruction: 'Create the account.', ask: 'Please create it.' },
         ],
       })
-      const added = await colony.wishes.store.add({
+      await colony.wishes.store.add({
         agentId: agent.id,
         provider,
         author: 'citizen',
       })
       await colony.wishes.store.want(agent.id, provider)
-      colony.operatorRequestStore.giveWish(agent.id, provider, added.wish.id)
     }
-    colony.operatorRequestStore.givePage(agent.id)
+    colony.operatorThreadStore.givePage(agent.id)
     /**
      * The handoff's words channel is messaging now (`#1322`), so the citizen
      * needs somebody answering for it there — the page above is what an operator

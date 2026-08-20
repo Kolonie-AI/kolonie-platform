@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto'
-import type { AgentId, ConversationId, MessageId, OperatorRequestId } from '@kolonie-ai/core'
+import type { AgentId, ConversationId, MessageId } from '@kolonie-ai/core'
 import type { TelegramBinding } from '@kolonie-ai/db'
 import type { TelegramBot, TelegramDesk, TelegramStore } from '../operator-telegram.js'
 import { fakeOperatorPages, type FakeOperatorPages } from './autonomy.js'
@@ -14,16 +14,9 @@ export interface FakeTelegramBot extends TelegramBot {
 export interface FakeTelegramStore extends TelegramStore {
   /** Bind without pressing anything, for a test that starts from bound. */
   readonly bind: (agentId: AgentId, chatId: number) => void
-  /** Put an exchange on record as this citizen's, as opening one would. */
-  readonly owns: (requestId: OperatorRequestId, agentId: AgentId) => void
   /** Put a messaging thread on record as this citizen's, as opening one would (`#1321`). */
   readonly ownsThread: (conversationId: ConversationId, agentId: AgentId) => void
   /** Everything an operator has answered through the chat, in order. */
-  readonly answered: () => readonly {
-    readonly requestId: OperatorRequestId
-    readonly body: string
-  }[]
-  /** The same, for the answers that landed in a messaging thread (`#1321`). */
   readonly answeredThreads: () => readonly {
     readonly conversationId: ConversationId
     readonly body: string
@@ -64,9 +57,6 @@ export function fakeTelegramStore(
   const starts = new Map<string, { agentId: AgentId; spent: boolean; expired: boolean }>()
   const names = new Map<AgentId, string>()
   /** `chatId:messageId` -> the exchange the Colony sent that message about. */
-  const asks = new Map<string, OperatorRequestId>()
-  const owners = new Map<OperatorRequestId, AgentId>()
-  const answers: { requestId: OperatorRequestId; body: string }[] = []
   /** The same pair of maps for messaging threads (`#1321`). */
   const threadAsks = new Map<string, ConversationId>()
   const threadOwners = new Map<ConversationId, AgentId>()
@@ -129,18 +119,14 @@ export function fakeTelegramStore(
       for (const [agentId] of going) chats.delete(agentId)
       return going.map(([agentId]) => nameOf(agentId))
     },
-    recordAsk: async ({ requestId, chatId, messageId }) => {
-      asks.set(`${chatId}:${messageId}`, requestId)
-    },
     recordMessageAsk: async ({ conversationId, chatId, messageId }) => {
       threadAsks.set(`${chatId}:${messageId}`, conversationId)
     },
     /**
-     * The three conditions the real query checks, as `answerFromChat` below
-     * checks them: the message is one the Colony sent, the chat is *still* bound
-     * to that citizen, and the thread has both sides. A fake that skipped the
-     * middle one would let a test pass against a `/stop` that had not ended
-     * anything.
+     * The three conditions the real query checks: the message is one the Colony
+     * sent, the chat is *still* bound to that citizen, and the thread has both
+     * sides. A fake that skipped the middle one would let a test pass against a
+     * `/stop` that had not ended anything.
      */
     answerMessageFromChat: async ({ chatId, replyToMessageId, body }) => {
       const conversationId = threadAsks.get(`${chatId}:${replyToMessageId}`)
@@ -158,20 +144,6 @@ export function fakeTelegramStore(
         messageId: randomUUID() as MessageId,
       }
     },
-    answerFromChat: async ({ chatId, replyToMessageId, body }) => {
-      const requestId = asks.get(`${chatId}:${replyToMessageId}`)
-      const agentId = requestId === undefined ? undefined : owners.get(requestId)
-
-      // The three conditions the real query checks in one go: the message is one
-      // the Colony sent, the chat is *still* bound to that citizen, and the
-      // exchange is open. A fake that skipped the middle one would let a test
-      // pass against a `/stop` that had not actually ended anything.
-      if (requestId === undefined || agentId === undefined) return { outcome: 'unreachable' }
-      if (chats.get(agentId)?.chatId !== chatId) return { outcome: 'unreachable' }
-
-      answers.push({ requestId, body })
-      return { outcome: 'answered', clearedSetAside: false, agentId }
-    },
     markUnreachable: async (chatId) => {
       for (const row of chats.values()) {
         if (row.chatId === chatId && row.unreachableAt === null) row.unreachableAt = at()
@@ -181,13 +153,9 @@ export function fakeTelegramStore(
       chats.set(agentId, { chatId, boundAt: at(), unreachableAt: null })
     },
     boundChatFor: (agentId) => chats.get(agentId)?.chatId,
-    owns: (requestId, agentId) => {
-      owners.set(requestId, agentId)
-    },
     ownsThread: (conversationId, agentId) => {
       threadOwners.set(conversationId, agentId)
     },
-    answered: () => answers,
     answeredThreads: () => threadAnswers,
     named: (agentId, name) => {
       names.set(agentId, name)
@@ -208,7 +176,7 @@ export function fakeTelegramBot(username = 'KolonieDeskBot'): FakeTelegramBot {
     /**
      * **Telegram names the message it sent, and so does this** (`#1321`).
      *
-     * It did not until now, which left the notifier's `recordAsk` branch
+     * It did not until now, which left the notifier's recording branch
      * unreachable from any test that went through the bot: a reply could only
      * ever be resolved by a test that had written the mapping itself. The real
      * Bot API returns `message_id` on every delivered send, so a fake that

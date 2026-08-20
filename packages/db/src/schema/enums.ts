@@ -42,7 +42,7 @@ import {
   LedgerEntryTypeSchema,
   ModerationStatusSchema,
   OperatorAnswerKindSchema,
-  OperatorRequestAuthorSchema,
+  OperatorAuthorSchema,
   PermissionBlockSchema,
   RegistrationPathSchema,
   ReportOutcomeSchema,
@@ -387,7 +387,7 @@ export const autonomyDefaultRule = pgEnum(
 )
 
 /**
- * Who wrote one message in an operator exchange (#236).
+ * Which of the two parties said a thing (#236).
  *
  * **Two values, and the Colony is not one of them** — which is the invariant this
  * column exists to hold. `#236` requires that operator text reaches the citizen
@@ -395,10 +395,17 @@ export const autonomyDefaultRule = pgEnum(
  * two is authoritative about the Colony. Storing the author rather than inferring
  * it from position means the attribution cannot be lost by a reordering, and a
  * third value cannot be added without this comment being read.
+ *
+ * **The type is still called `operator_request_author` in PostgreSQL, and that
+ * is deliberate** (`#1325`). `operator_requests` is gone; `account_wishes.author`
+ * is not, and it has read this vocabulary since `#527` precisely so there would
+ * not be two enums with identical members. Renaming a type nothing is wrong
+ * about would be a migration bought with a word, so the binding is renamed and
+ * the type is left where it is.
  */
-export const operatorRequestAuthor = pgEnum(
+export const operatorAuthor = pgEnum(
   'operator_request_author',
-  valuesOf(OperatorRequestAuthorSchema.options),
+  valuesOf(OperatorAuthorSchema.options),
 )
 
 /**

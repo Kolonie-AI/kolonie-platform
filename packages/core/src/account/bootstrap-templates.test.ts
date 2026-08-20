@@ -74,7 +74,7 @@ describe('what a pattern tells the agent about opening its operator steps', () =
     const text = bootstrapTemplateAsText(template)
 
     expect(text).toContain('A secret comes back, so this opens a sealed drop')
-    expect(text).toContain('Words come back, so this opens an operator request')
+    expect(text).toContain('Words come back, so this opens an operator thread')
   })
 
   it('still says the wording is not the agent’s to write', () => {

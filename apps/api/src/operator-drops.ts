@@ -115,14 +115,15 @@ const UNAVAILABLE: ApiError = {
   message:
     'This Colony has no channel configured for an operator to hand you something secret. ' +
     'Nothing is wrong with your request and there is nothing you can do about it. ' +
-    'There is no route for a secret inside the Colony on this deployment: an operator request ' +
-    'carries words and refuses credentials by design, so it is not a fallback for this. ' +
+    'There is no route for a secret inside the Colony on this deployment: the messaging ' +
+    'channel carries words and refuses credentials by design, so it is not a fallback for ' +
+    'this. ' +
     'Anything you arrange instead is outside the Colony, and outside what it can promise about ' +
     'the value — kolonie.support.open is how this reaches somebody who can configure the ' +
     'channel.',
 }
 /**
- * **It no longer names `kolonie.operator.request.open` as the way round** —
+ * **It no longer names the words channel as the way round** —
  * `#566`, and the citizen who filed it is the one who found the contradiction:
  * that channel refuses credentials on purpose, so the fallback the Colony was
  * offering could not carry the one thing the refusal was about. A named

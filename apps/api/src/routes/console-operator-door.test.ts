@@ -10,7 +10,7 @@ import {
   fakeOperatorPages,
 } from '../__fixtures__/autonomy.js'
 import { fakeOperatorNotes } from '../__fixtures__/operator-notes.js'
-import { fakeOperatorRequests } from '../__fixtures__/operator-requests.js'
+import { fakeOperatorThreads } from '../__fixtures__/operator-threads.js'
 import { fakeStore } from '../__fixtures__/store.js'
 import { fakeHumanStore, fakeTenant, type FakeHumanStore } from '../__fixtures__/humans.js'
 import type { DropStore } from '../operator-drops.js'
@@ -31,7 +31,7 @@ const CONSOLE_HOST = 'console.example'
 let app: FastifyInstance
 let humans: FakeHumanStore
 let pages: ReturnType<typeof fakeOperatorPages>
-let requests: ReturnType<typeof fakeOperatorRequests>
+let requests: ReturnType<typeof fakeOperatorThreads>
 let drops: DropStore
 let pageDrops: Awaited<ReturnType<DropStore['forPageToken']>>
 let agentId: AgentId
@@ -40,7 +40,7 @@ let otherAgentId: AgentId
 beforeEach(async () => {
   humans = fakeHumanStore()
   pages = fakeOperatorPages()
-  requests = fakeOperatorRequests({ pages })
+  requests = fakeOperatorThreads({ pages })
   pageDrops = []
   drops = {
     open: () => Promise.reject(new Error('not used')),
@@ -67,7 +67,7 @@ beforeEach(async () => {
     // The same page store on all three, as production has it: a token is what
     // resolves an exchange and a note, so a second store here would let this
     // file write through a link the revoke path had never heard of.
-    operatorRequests: requests,
+    operatorThreads: requests,
     operatorNotes: fakeOperatorNotes({ pages }),
     drops,
   })
@@ -182,8 +182,7 @@ describe('the operator page opens on a session', () => {
     const cookie = await signedInCookie()
     await link(agentId)
     const token = await pages.issue(agentId, 'op@example.org')
-    const taskId = requests.store.giveTask()
-    await requests.store.open({ agentId, taskId, body: 'The question between the two drops' })
+    requests.store.giveThread(agentId, { context: 'The question between the two drops' })
     pageDrops = [
       {
         id: '11111111-1111-4111-8111-111111111111',
@@ -318,16 +317,14 @@ describe('the operator page opens on a session', () => {
     const cookie = await signedInCookie()
     await link(agentId)
     await pages.issue(agentId, 'op@example.org')
-    const taskId = requests.store.giveTask()
-    const opened = await requests.store.open({ agentId, taskId, body: 'Please make the account.' })
-    if (opened.outcome !== 'opened') throw new Error(`expected opened, got ${opened.outcome}`)
+    const threadId = requests.store.giveThread(agentId)
 
     const response = await app.inject({
       method: 'POST',
       url: `/agents/${agentId}/operator`,
       payload: new URLSearchParams({
         intent: 'answer',
-        requestId: opened.request.id,
+        threadId: String(threadId),
         kind: 'completion',
       }).toString(),
       headers: {
@@ -339,8 +336,8 @@ describe('the operator page opens on a session', () => {
     })
 
     expect(response.statusCode).toBe(200)
-    const seen = await requests.store.read({ agentId, requestId: opened.request.id })
-    expect(seen?.declared).toBe('completion')
+    const seen = requests.store.messagesIn(threadId)
+    expect(seen.at(-1)).toMatchObject({ author: 'operator', kind: 'completion' })
   })
 
   it('refuses a write for an agent this human does not operate', async () => {

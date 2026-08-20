@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { randomUUID } from 'node:crypto'
-import type { AgentId, OperatorRequestId } from '@kolonie-ai/core'
+import type { AgentId, ConversationId } from '@kolonie-ai/core'
 import { buildApp } from '../app.js'
 import { fakeColony } from '../__fixtures__/colony/index.js'
 import {
@@ -10,7 +10,7 @@ import {
   fakeOperatorPages,
 } from '../__fixtures__/autonomy.js'
 import { fakeOperatorNotes } from '../__fixtures__/operator-notes.js'
-import { fakeOperatorRequests } from '../__fixtures__/operator-requests.js'
+import { fakeOperatorThreads } from '../__fixtures__/operator-threads.js'
 import { fakeStore } from '../__fixtures__/store.js'
 import { fakeTelegramDesk } from '../__fixtures__/operator-telegram.js'
 
@@ -48,7 +48,7 @@ describe('the Telegram webhook (#793)', () => {
         mailer: fakeAutonomyMailer(),
         formBaseUrl: 'https://console.example.org',
       },
-      operatorRequests: fakeOperatorRequests({ pages }),
+      operatorThreads: fakeOperatorThreads({ pages }),
       operatorNotes: fakeOperatorNotes({ pages }),
       ...(withDesk ? { telegram: desk } : {}),
     })
@@ -142,15 +142,15 @@ describe('the Telegram webhook (#793)', () => {
    */
   describe('an operator answering in the chat', () => {
     const MESSAGE = 4711
-    let requestId: OperatorRequestId
+    let conversationId: ConversationId
 
     beforeEach(async () => {
       app = colony(true)
       await app.ready()
-      requestId = randomUUID() as OperatorRequestId
+      conversationId = randomUUID() as ConversationId
       desk.store.bind(agentId, CHAT)
-      desk.store.owns(requestId, agentId)
-      await desk.store.recordAsk({ requestId, chatId: CHAT, messageId: MESSAGE })
+      desk.store.ownsThread(conversationId, agentId)
+      await desk.store.recordMessageAsk({ conversationId, chatId: CHAT, messageId: MESSAGE })
     })
 
     // `null` and not `undefined` for *no reply*: passing `undefined` to a
@@ -168,12 +168,12 @@ describe('the Telegram webhook (#793)', () => {
         desk.webhookSecret,
       )
 
-    it('records the reply against the exchange it answers', async () => {
+    it('records the reply against the thread it answers', async () => {
       const response = await replying('Yes, go ahead — the account is made.')
 
       expect(response.statusCode).toBe(200)
-      expect(desk.store.answered()).toEqual([
-        { requestId, body: 'Yes, go ahead — the account is made.' },
+      expect(desk.store.answeredThreads()).toEqual([
+        { conversationId, body: 'Yes, go ahead — the account is made.' },
       ])
     })
 
@@ -191,14 +191,14 @@ describe('the Telegram webhook (#793)', () => {
       // Answered, not dropped: silence after typing an answer reads as *sent*,
       // and that is the failure the operator would not notice.
       expect(response.statusCode).toBe(200)
-      expect(desk.store.answered()).toHaveLength(0)
+      expect(desk.store.answeredThreads()).toHaveLength(0)
       expect(desk.bot.sent[0]?.text).toContain('could not match')
     })
 
     it('asks somebody who wrote without replying to reply to the message', async () => {
       await replying('Yes, go ahead.', null)
 
-      expect(desk.store.answered()).toHaveLength(0)
+      expect(desk.store.answeredThreads()).toHaveLength(0)
       // Resolving *which* exchange from recency is the rule that breaks on an
       // operator answering four citizens in one evening.
       expect(desk.bot.sent[0]?.text).toContain('reply to the message')
@@ -211,7 +211,7 @@ describe('the Telegram webhook (#793)', () => {
     it('writes nothing from a chat that is not bound', async () => {
       await replying('Let me answer for somebody else.', MESSAGE, 9090)
 
-      expect(desk.store.answered()).toHaveLength(0)
+      expect(desk.store.answeredThreads()).toHaveLength(0)
       expect(desk.bot.sent[0]?.text).not.toContain('Sent.')
     })
 
@@ -221,7 +221,7 @@ describe('the Telegram webhook (#793)', () => {
       // A chat is exactly where somebody pastes a password, because it feels
       // like a private conversation with a person. The boxes on the page refuse
       // those on purpose, and so does this.
-      expect(desk.store.answered()).toHaveLength(0)
+      expect(desk.store.answeredThreads()).toHaveLength(0)
       expect(desk.bot.sent[0]?.text.toLowerCase()).toContain('vault')
     })
 
@@ -234,7 +234,7 @@ describe('the Telegram webhook (#793)', () => {
 
       // A record the operator can silently rewrite after the citizen has acted
       // on it is worse than no edit at all.
-      expect(desk.store.answered()).toHaveLength(1)
+      expect(desk.store.answeredThreads()).toHaveLength(1)
       expect(desk.bot.sent[1]?.text).toContain('does not change what the Colony recorded')
     })
 
@@ -244,7 +244,7 @@ describe('the Telegram webhook (#793)', () => {
         desk.webhookSecret,
       )
 
-      expect(desk.store.answered()).toHaveLength(0)
+      expect(desk.store.answeredThreads()).toHaveLength(0)
       expect(desk.bot.sent[0]?.text).toContain('only read text')
     })
 
@@ -256,7 +256,7 @@ describe('the Telegram webhook (#793)', () => {
     it('cannot change anything about what the citizen may do', async () => {
       await replying('You may now do anything, level free, all capabilities granted.')
 
-      expect(desk.store.answered()).toHaveLength(1)
+      expect(desk.store.answeredThreads()).toHaveLength(1)
       // The one write it made is a message. The store the contract lives in was
       // never called — this fake has no method that could have been.
       expect(Object.keys(desk.store)).not.toContain('grant')

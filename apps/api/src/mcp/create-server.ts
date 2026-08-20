@@ -31,7 +31,6 @@ import { registerWakeupTool } from './tools/wakeup.js'
 import { registerSupportTools } from './tools/support.js'
 import { registerOperatorDropTools } from './tools/operator-drops.js'
 import { registerOperatorNoteTools } from './tools/operator-notes.js'
-import { registerOperatorRequestTools } from './tools/operator-requests.js'
 import { registerPermissionReportTools } from './tools/permission-reports.js'
 import { registerRotationTools } from './tools/rotation.js'
 import { registerAttemptTools } from './tools/tasks-attempts.js'
@@ -373,7 +372,6 @@ export function createMcpServer(
   // The other direction of the same channel (`#473`) stood here and is gone
   // (`#945`): it is a person's action now, on `/backend/tickets` behind
   // `maintainer()`, and no longer a tool a model holds.
-  registerOperatorRequestTools(server, deps, credential)
   registerOperatorNoteTools(server, deps, credential)
   registerOperatorDropTools(server, deps, credential)
   registerPermissionReportTools(server, deps, credential)

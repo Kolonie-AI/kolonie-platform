@@ -1,8 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { webServerPermissionRequest, type AgentId } from '@kolonie-ai/core'
-import { fakeOperatorRequests } from './__fixtures__/operator-requests.js'
-import { fakeWebServer, fakeWebServerChallenges } from './__fixtures__/web-server.js'
+import {
+  fakeAskOperator,
+  fakeWebServer,
+  fakeWebServerChallenges,
+} from './__fixtures__/web-server.js'
 import { openWebServerChallenge } from './web-server.js'
 
 /**
@@ -62,12 +65,9 @@ describe('the web-server rung’s operator question', () => {
     })
 
     it('names the direct controls rendered for the operator', async () => {
-      const operatorRequests = fakeOperatorRequests()
-      const taskId = operatorRequests.store.giveTask('web-server-verify')
-      const challenges = fakeWebServerChallenges(taskId)
+      const challenges = fakeWebServerChallenges()
       const agentId = anAgent()
-      operatorRequests.store.givePage(agentId)
-      const deps = fakeWebServer({ challenges, operatorRequests })
+      const deps = fakeWebServer({ challenges, askOperator: fakeAskOperator() })
 
       const result = await mint(
         agentId,

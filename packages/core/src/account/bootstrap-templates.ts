@@ -324,7 +324,7 @@ export function bootstrapTemplateAsText(template: BootstrapTemplate): string {
         const channel =
           step.secret === true
             ? 'A secret comes back, so this opens a sealed drop'
-            : 'Words come back, so this opens an operator request'
+            : 'Words come back, so this opens an operator thread'
 
         return (
           `${index + 1}. **Your operator, not you.** ${step.instruction ?? ''}\n` +

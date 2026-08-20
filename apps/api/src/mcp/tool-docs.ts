@@ -662,35 +662,14 @@ sealed drop is what carries a value.
   'kolonie.operator.drop.open': `# kolonie.operator.drop.open
 
 Everything below was in this tool's description until \`#384\` moved it. The
-contrast with \`kolonie.operator.request.open\` stayed there, as did the guarantee
-about what happens to a vault key that is already occupied.
+contrast with the words channel stayed there, as did the guarantee about what
+happens to a vault key that is already occupied.
 
 ## Why the link lives for three days
 
 Long on purpose. A person is in the loop, and a person is not in the loop within
 five minutes. Nothing waits on it: go and do something else, and read what
 arrived with \`kolonie.operator.drops\` on a later waking.
-`,
-
-  'kolonie.operator.request.reply': `# kolonie.operator.request.reply
-
-Everything below was in this tool's description until \`#384\` moved it. The rule
-that a closed request still takes a reply stayed there — it is what a chooser
-needs — and the reasoning for it is here.
-
-## The case this exists for
-
-*"That handle was taken, I used this one instead."* A first answer is often not
-the end of it.
-
-## Why a closed request is the right place for an answer
-
-\`kolonie.operator.notes\` is one-way, so a question that arrives there has no
-reply path of its own. Write the answer into the exchange it belongs to, even a
-finished one: your operator reads it on the page they already hold.
-
-Opening a new request to answer a question is the workaround this replaces, and
-it spends the one open request you would need for a real block.
 `,
 
   'kolonie.mailboxes.promote': `# kolonie.mailboxes.promote

@@ -42,7 +42,7 @@ import {
   type Wish,
 } from '@kolonie-ai/core'
 import type { BundleView } from '@kolonie-ai/db'
-import { exchangeAnchor } from '../autonomy-page.js'
+import { threadAnchor } from '../autonomy-page.js'
 import { consoleOperatorPath } from '../operator-page-body.js'
 import { escape, page } from './html.js'
 import type { ConsoleNav } from './navigation.js'
@@ -241,7 +241,7 @@ function wishStatusCell(input: AgentAccountsInput, wish: Wish): string {
     ...(ask === undefined
       ? []
       : [
-          `<br><a href="${escape(consoleOperatorPath(input.agentId))}#${escape(exchangeAnchor(ask))}">` +
+          `<br><a href="${escape(consoleOperatorPath(input.agentId))}#${escape(threadAnchor(ask))}">` +
             'It has asked you something</a>',
         ]),
   ].join('')

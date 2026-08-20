@@ -1,4 +1,4 @@
-import type { AgentId, ConversationId, Log, OperatorRequestId } from '@kolonie-ai/core'
+import type { AgentId, ConversationId, Log } from '@kolonie-ai/core'
 import {
   credentialFinding,
   credentialRefusalMessage,
@@ -7,19 +7,16 @@ import {
 } from '@kolonie-ai/core'
 import {
   answerOperatorMessageFromChat,
-  answerOperatorRequestFromChat,
   citizensBoundToChat,
   issueStartForPageToken,
   issueStartToken,
   markChatUnreachable,
   recordMessageTelegramAsk,
-  recordTelegramAsk,
   redeemStartToken,
   telegramBindingFor,
   telegramBindingForPageToken,
   unbindChat,
   type AnswerFromChatOutcome,
-  type AnswerOperatorRequestOutcome,
   type Database,
   type IssuedStartToken,
   type RedeemStartOutcome,
@@ -77,23 +74,6 @@ export interface TelegramStore {
   unbind(chatId: number): Promise<readonly string[]>
   /** Written when a send is refused (`#794`); the column is created here. */
   markUnreachable(chatId: number): Promise<void>
-  /** Which message the Colony sent about which ask (`#795`). */
-  recordAsk(input: {
-    readonly requestId: OperatorRequestId
-    readonly chatId: number
-    readonly messageId: number
-  }): Promise<void>
-  /**
-   * An operator's reply, written where a page reply is written (`#795`).
-   *
-   * Resolved from the message that was replied to and from the chat it came in,
-   * both of which the Colony wrote itself. No agent id crosses this boundary.
-   */
-  answerFromChat(input: {
-    readonly chatId: number
-    readonly replyToMessageId: number
-    readonly body: string
-  }): Promise<AnswerOperatorRequestOutcome>
   /** Which message the Colony sent about which messaging thread (`#1321`). */
   recordMessageAsk(input: {
     readonly conversationId: ConversationId
@@ -101,12 +81,10 @@ export interface TelegramStore {
     readonly messageId: number
   }): Promise<void>
   /**
-   * The same reply, written into a messaging thread (`#1321`).
+   * An operator's reply, written into the thread it answers (`#1321`).
    *
-   * **Tried before {@link answerFromChat}, and the two cannot both match**: a
-   * reply names one message the Colony sent, and that message was recorded
-   * against a thread or against an exchange, never both. Two lookups rather than
-   * one because the mappings live in two tables — `#1325` deletes the second.
+   * Resolved from the message that was replied to and from the chat it came in,
+   * both of which the Colony wrote itself. No agent id crosses this boundary.
    */
   answerMessageFromChat(input: {
     readonly chatId: number
@@ -125,8 +103,6 @@ export function databaseTelegram(db: Database): TelegramStore {
     citizensFor: (chatId) => citizensBoundToChat(db, chatId),
     unbind: (chatId) => unbindChat(db, chatId),
     markUnreachable: (chatId) => markChatUnreachable(db, chatId),
-    recordAsk: (input) => recordTelegramAsk(db, input),
-    answerFromChat: (input) => answerOperatorRequestFromChat(db, input),
     recordMessageAsk: (input) => recordMessageTelegramAsk(db, input),
     answerMessageFromChat: (input) => answerOperatorMessageFromChat(db, input),
   }
@@ -363,10 +339,7 @@ export type TelegramUpdateOutcome =
       readonly action: 'reply'
       readonly chatId: number
       readonly text: string
-      readonly answered?:
-        | Extract<AnswerOperatorRequestOutcome, { outcome: 'answered' }>
-        | Extract<AnswerFromChatOutcome, { outcome: 'answered' }>
-        | undefined
+      readonly answered?: Extract<AnswerFromChatOutcome, { outcome: 'answered' }> | undefined
     }
 
 const BINDING_ENDED = (names: readonly string[]): string =>
@@ -506,7 +479,7 @@ export async function handleTelegramUpdate(
    * An answer to one of the Colony's messages (`#795`).
    *
    * **Only from a bound chat, and only to a message the Colony sent.** Both are
-   * decided by `answerFromChat` in one query — the row that maps the message to
+   * decided by `answerMessageFromChat` in one query — the row that maps the message to
    * an exchange, *and* the binding still standing — because a chat that was
    * unbound with `/stop`, or rebound to somebody else, must not be able to write
    * into an exchange it once received a message about.
@@ -558,26 +531,15 @@ export async function handleTelegramUpdate(
     /**
      * **Messaging first, the exchange second** (`#1321`, epic `#1318`).
      *
-     * The two mappings cannot both match — a message the Colony sent was
-     * recorded against a thread or against an exchange, never both — so the
-     * order is not a precedence rule, it is which table is asked first. It is
-     * this way round because messaging is where new asks go; `#1325` deletes
-     * the second lookup with the table behind it.
+     * One mapping since `#1325`: `message_telegram_asks` is the only table a
+     * sent message is recorded in, so a reply resolves in one lookup or in
+     * none.
      */
-    const inThread = await desk.store.answerMessageFromChat({
+    const answered = await desk.store.answerMessageFromChat({
       chatId,
       replyToMessageId: replyTo,
       body: text,
     })
-
-    const answered =
-      inThread.outcome === 'answered'
-        ? inThread
-        : await desk.store.answerFromChat({
-            chatId,
-            replyToMessageId: replyTo,
-            body: text,
-          })
 
     if (answered.outcome === 'answered') {
       return {

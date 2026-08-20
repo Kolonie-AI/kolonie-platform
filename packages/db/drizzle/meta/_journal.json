@@ -2255,6 +2255,13 @@
       "when": 1787185446158,
       "tag": "0321_exchanges_become_threads",
       "breakpoints": true
+    },
+    {
+      "idx": 322,
+      "version": "7",
+      "when": 1787210596993,
+      "tag": "0322_the_exchange_is_retired",
+      "breakpoints": true
     }
   ]
 }

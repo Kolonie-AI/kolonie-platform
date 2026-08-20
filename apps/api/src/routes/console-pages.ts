@@ -156,7 +156,7 @@ import {
   operatorNoteSentPage,
 } from '../autonomy-page.js'
 import { writeOperatorNote } from '../operator-notes.js'
-import { answerOperatorRequest, isWaitingOnTheOperator } from '../operator-requests.js'
+import { answerOperatorThread, isWaitingOnTheOperator } from '../operator-threads.js'
 import { markWishWanted, putOnWishList, selectBundle } from '../account-wishes.js'
 import type { WishCatalogueEntry } from '../console/agent-accounts.js'
 import {
@@ -3489,24 +3489,21 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     /**
      * Which of these wishes has a question waiting on this person (`#1027`).
      *
-     * **The join the schema already carries.** `operator_requests.wish_id` has
-     * been there since the channel was built, mutually exclusive with `task_id`
-     * by a check constraint — so a request bound to a wish is a fact the
-     * database holds and nothing on this page read. An operator working through
-     * the wish list learned about it on a different page, or not at all.
+     * **The join the schema already carries.** `message_conversations.wish_id`
+     * is mutually exclusive with `task_id` by a check constraint — so a thread
+     * bound to a wish is a fact the database holds and nothing on this page
+     * read. An operator working through the wish list learned about it on a
+     * different page, or not at all.
      *
-     * **Open ones only, and keyed by the provider the row is.** A closed
-     * exchange is history and the row is asking what is outstanding; the wish
-     * list in hand is what turns a wish id back into a provider, so no second
-     * read is needed for it.
+     * **Unanswered ones only, and keyed by the provider the row is.** A thread
+     * the operator has replied in is not outstanding; the wish list in hand is
+     * what turns a wish id back into a provider, so no second read is needed.
      */
-    const openAsks = (await deps.operatorRequests.store.list(operated.agentId)).filter(
-      (item) => item.closedAt === null && item.wishId !== null,
-    )
+    const openAsks = await deps.operatorThreads.store.wishesWaiting(operated.agentId)
     const asks = Object.fromEntries(
       openAsks.flatMap((item) => {
-        const wish = wishes.find((candidate) => candidate.id === item.wishId)
-        return wish === undefined ? [] : [[wish.provider, item.id] as const]
+        const wish = wishes.find((candidate) => String(candidate.id) === item.wishId)
+        return wish === undefined ? [] : [[wish.provider, String(item.threadId)] as const]
       }),
     )
 
@@ -4859,7 +4856,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
        * instead of at their agent's sixth blocked run.
        */
       const stillWaiting = isWaitingOnTheOperator(
-        await deps.operatorRequests.store.exchangesForToken(door.token),
+        await deps.operatorThreads.store.forPageToken(door.token),
       )
 
       const written = await writeOperatorNote(
@@ -4894,17 +4891,17 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       )
     }
 
-    const result = await answerOperatorRequest(
+    const result = await answerOperatorThread(
       {
         token: door.token,
         /** The second door renders the identical form, so it forwards `kind` too (`#1093`). */
         body: {
-          requestId: submitted['requestId'],
+          threadId: submitted['threadId'],
           body: submitted['body'],
           kind: submitted['kind'],
         },
       },
-      deps.operatorRequests,
+      deps.operatorThreads,
     )
 
     if (result.outcome === 'answered') {

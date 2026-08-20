@@ -44,7 +44,7 @@ interface Row {
 export function fakeOperatorNoteStore(
   /**
    * The durable pages, shared rather than duplicated — same argument as
-   * `fakeOperatorRequestStore`. In production a note is resolved through
+   * `fakeOperatorThreadStore`. In production a note is resolved through
    * `operator_pages` by token, so an independent token map here would let a test
    * write through a page the revoke path had never heard of, and would hide the
    * one thing worth checking: that revoking the page closes this channel too.

@@ -36,7 +36,7 @@ import { fakeStore } from '../__fixtures__/store.js'
 import { fakeSubmissions } from '../__fixtures__/submissions.js'
 import { fakeSupportDesk } from '../__fixtures__/support.js'
 import { fakeOperatorNotes } from '../__fixtures__/operator-notes.js'
-import { fakeOperatorRequests } from '../__fixtures__/operator-requests.js'
+import { fakeOperatorThreads } from '../__fixtures__/operator-threads.js'
 import { fakePermissionReports } from '../__fixtures__/permission-reports.js'
 import { fakeRotation } from '../__fixtures__/rotation.js'
 import { fakeVault } from '../__fixtures__/vault.js'
@@ -116,7 +116,7 @@ describe('the MCP surface over HTTP', () => {
       guidance: fakeGuidance(),
       support: support({ desk: fakeSupportDesk() }),
       // The operator channel (#236), which this test does not exercise.
-      operatorRequests: fakeOperatorRequests(),
+      operatorThreads: fakeOperatorThreads(),
       operatorNotes: fakeOperatorNotes(),
       // Blocked by permission rather than by ability (#147), unexercised here.
       permissionReports: fakePermissionReports(),
@@ -176,7 +176,7 @@ describe('the MCP surface over HTTP', () => {
       guidance: fakeGuidance(),
       support: support({ desk: fakeSupportDesk() }),
       // The operator channel (#236), which this test does not exercise.
-      operatorRequests: fakeOperatorRequests(),
+      operatorThreads: fakeOperatorThreads(),
       operatorNotes: fakeOperatorNotes(),
       // Blocked by permission rather than by ability (#147), unexercised here.
       permissionReports: fakePermissionReports(),
@@ -243,7 +243,7 @@ describe('the MCP surface over HTTP', () => {
       guidance: fakeGuidance(),
       support: support({ desk: fakeSupportDesk() }),
       // The operator channel (#236), which this test does not exercise.
-      operatorRequests: fakeOperatorRequests(),
+      operatorThreads: fakeOperatorThreads(),
       operatorNotes: fakeOperatorNotes(),
       // Blocked by permission rather than by ability (#147), unexercised here.
       permissionReports: fakePermissionReports(),
@@ -303,7 +303,7 @@ describe('the MCP surface over HTTP', () => {
       guidance: fakeGuidance(),
       support: support({ desk: fakeSupportDesk() }),
       // The operator channel (#236), which this test does not exercise.
-      operatorRequests: fakeOperatorRequests(),
+      operatorThreads: fakeOperatorThreads(),
       operatorNotes: fakeOperatorNotes(),
       // Blocked by permission rather than by ability (#147), unexercised here.
       permissionReports: fakePermissionReports(),
@@ -363,7 +363,7 @@ describe('the MCP surface over HTTP', () => {
       guidance: fakeGuidance(),
       support: support({ desk: fakeSupportDesk() }),
       // The operator channel (#236), which this test does not exercise.
-      operatorRequests: fakeOperatorRequests(),
+      operatorThreads: fakeOperatorThreads(),
       operatorNotes: fakeOperatorNotes(),
       // Blocked by permission rather than by ability (#147), unexercised here.
       permissionReports: fakePermissionReports(),
@@ -432,7 +432,7 @@ describe('the MCP surface over HTTP', () => {
       guidance: fakeGuidance(),
       support: support({ desk: fakeSupportDesk() }),
       // The operator channel (#236), which this test does not exercise.
-      operatorRequests: fakeOperatorRequests(),
+      operatorThreads: fakeOperatorThreads(),
       operatorNotes: fakeOperatorNotes(),
       // Blocked by permission rather than by ability (#147), unexercised here.
       permissionReports: fakePermissionReports(),
@@ -683,7 +683,7 @@ describe('the MCP surface over HTTP', () => {
       guidance: fakeGuidance(),
       support: support({ desk: fakeSupportDesk() }),
       // The operator channel (#236), which this test does not exercise.
-      operatorRequests: fakeOperatorRequests(),
+      operatorThreads: fakeOperatorThreads(),
       operatorNotes: fakeOperatorNotes(),
       // Blocked by permission rather than by ability (#147), unexercised here.
       permissionReports: fakePermissionReports(),

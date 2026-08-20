@@ -1,19 +1,13 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { AgentId, HumanId, TaskId, WishId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import {
-  agents,
-  accountWishes,
-  humanAgents,
-  humans,
-  operatorRequests,
-  operatorRequestMessages,
-} from '../schema/index.js'
+import { agents, accountWishes, humanAgents, humans } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { seedAcademyTasks } from '../academy-tasks/index.js'
 import { taskIdForType } from './challenge-tasks.js'
 import { openDrop } from './operator-drops.js'
 import { waitingForOperator } from './operator-queue.js'
+import { openOperatorHelpConversation, sendOperatorMessage } from './messaging.js'
 
 const target = databaseTestTarget()
 
@@ -21,17 +15,18 @@ const target = databaseTestTarget()
  * One queue across every agent a person operates (#530).
  *
  * **What this file is really checking is the *waiting* rule**, which is the only
- * part a fake could get wrong without anybody noticing: an exchange the operator
- * has already replied to is still open and is not waiting on them, and a drop
- * that has been filled, has expired or has run out of attempts is not either.
- * Everything else about the page is layout.
+ * part a fake could get wrong without anybody noticing: a thread the operator
+ * has already replied to is not waiting on them, and a drop that has been
+ * filled, has expired or has run out of attempts is not either. Everything else
+ * about the page is layout.
  */
 describe('the operator queue', () => {
   let db: Database
   let humanId: HumanId
   /**
-   * Any real task, because `operator_requests.task_id` is not nullable — `#236`
-   * requires a request to belong to a task and never to float.
+   * Any real task. A conversation may name none — `#1319` deliberately permits a
+   * thread about nothing in particular — but the queue's own `about` column
+   * reads the title, so the cases here give it one.
    */
   let taskId: TaskId
 
@@ -63,17 +58,14 @@ describe('the operator queue', () => {
     return row.id as HumanId
   }
 
-  /** An exchange with one message from the agent and no reply. */
-  const aQuestion = async (agentId: AgentId, ask: string): Promise<void> => {
-    const [request] = await db
-      .insert(operatorRequests)
-      .values({ agentId, taskId })
-      .returning({ id: operatorRequests.id })
-    if (request === undefined) throw new Error('inserting a request returned no row')
-
-    await db
-      .insert(operatorRequestMessages)
-      .values({ requestId: request.id, author: 'citizen', body: ask })
+  /** A thread with one message from the agent and no reply. */
+  const aQuestion = async (agentId: AgentId, ask: string): Promise<string> => {
+    const opened = await openOperatorHelpConversation(db, agentId, {
+      body: ask,
+      provenance: { taskId },
+    })
+    if (opened.outcome !== 'delivered') throw new Error(`open refused: ${opened.outcome}`)
+    return opened.conversationId
   }
 
   const aWishQuestion = async (
@@ -86,14 +78,13 @@ describe('the operator queue', () => {
       .values({ agentId, provider, author: 'citizen', wantedAt: new Date().toISOString() })
       .returning({ id: accountWishes.id })
     if (wish === undefined) throw new Error('inserting a wish returned no row')
-    const [request] = await db
-      .insert(operatorRequests)
-      .values({ agentId, wishId: wish.id })
-      .returning({ id: operatorRequests.id })
-    if (request === undefined) throw new Error('inserting a request returned no row')
-    await db
-      .insert(operatorRequestMessages)
-      .values({ requestId: request.id, author: 'citizen', body: ask })
+
+    const opened = await openOperatorHelpConversation(db, agentId, {
+      body: ask,
+      provenance: { wishId: wish.id as WishId },
+    })
+    if (opened.outcome !== 'delivered') throw new Error(`open refused: ${opened.outcome}`)
+
     return wish.id as WishId
   }
 
@@ -155,53 +146,33 @@ describe('the operator queue', () => {
    * third arm to select, and no table for one to select from.
    */
 
-  it('drops an exchange the operator has already replied to', async () => {
+  it('drops a thread the operator has already replied to', async () => {
     const agentId = await anAgent('one', humanId)
-
-    const [request] = await db
-      .insert(operatorRequests)
-      .values({ agentId, taskId })
-      .returning({ id: operatorRequests.id })
-    if (request === undefined) throw new Error('inserting a request returned no row')
-
-    await db
-      .insert(operatorRequestMessages)
-      .values({ requestId: request.id, author: 'citizen', body: 'May I?' })
+    await aQuestion(agentId, 'May I?')
 
     expect(await waitingForOperator(db, humanId)).toHaveLength(1)
 
-    await db
-      .insert(operatorRequestMessages)
-      .values({ requestId: request.id, author: 'operator', body: 'Yes.' })
+    const answered = await sendOperatorMessage(db, humanId, agentId, 'Yes.')
+    expect(answered.outcome).toBe('delivered')
 
-    // Still open — the citizen may not have read it yet — and no longer waiting
-    // on the person. A queue that showed answered exchanges never empties.
+    // The citizen may not have read it yet, and it is no longer waiting on the
+    // person. A queue that showed answered threads never empties.
     expect(await waitingForOperator(db, humanId)).toHaveLength(0)
   })
 
   it('shows the first message and not the latest', async () => {
     const agentId = await anAgent('one', humanId)
 
-    const [request] = await db
-      .insert(operatorRequests)
-      .values({ agentId, taskId })
-      .returning({ id: operatorRequests.id })
-    if (request === undefined) throw new Error('inserting a request returned no row')
+    // Two calls rather than one, so the two rows genuinely differ in
+    // `created_at` — written together they would share a transaction timestamp
+    // and *first* would stop meaning anything. The second lands in the same
+    // thread because the provenance matches (`#1319`).
+    await aQuestion(agentId, 'May I open an account at this provider?')
+    await aQuestion(agentId, 'Still waiting, no hurry.')
 
-    // Two statements rather than one, so the two rows genuinely differ in
-    // `written_at` — inserted together they would share a transaction timestamp
-    // and *first* would stop meaning anything.
-    await db.insert(operatorRequestMessages).values({
-      requestId: request.id,
-      author: 'citizen',
-      body: 'May I open an account at this provider?',
-    })
-    await db
-      .insert(operatorRequestMessages)
-      .values({ requestId: request.id, author: 'citizen', body: 'Still waiting, no hurry.' })
-
-    const [item] = await waitingForOperator(db, humanId)
-    expect(item?.ask).toBe('May I open an account at this provider?')
+    const waiting = await waitingForOperator(db, humanId)
+    expect(waiting).toHaveLength(1)
+    expect(waiting[0]?.ask).toBe('May I open an account at this provider?')
   })
 
   it('shows nothing belonging to somebody else’s agent', async () => {

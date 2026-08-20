@@ -360,12 +360,13 @@ export const AUTHENTICATED_TOOLS = [
    */
   'kolonie.accounts.recipes',
   /**
-   * The handoff a recipe names, opened as a real exchange (`#517`).
+   * The handoff a recipe names, opened as a real operator thread (`#517`,
+   * `#1322`).
    *
    * Beside the recipes read rather than among the operator tools, because what it
-   * is *for* is walking a recipe: `kolonie.operator.request.open` is still how an
-   * agent asks a question of its own, and this is how a briefing's structured step
-   * gets asked in the Colony's words instead of the agent's.
+   * is *for* is walking a recipe: `kolonie.messages.send` with `operator: true`
+   * is how an agent asks a question of its own, and this is how a briefing's
+   * structured step gets asked in the Colony's words instead of the agent's.
    */
   'kolonie.accounts.handoff',
   /**
@@ -477,22 +478,10 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.support.open',
   'kolonie.support.read',
   /**
-   * The operator channel (#236) — asking the human who answers for you for
-   * something only a person can do, and reading the answer.
-   *
-   * Four, and the pairing with the two above is not a coincidence: they share one
-   * outbound allowance, because both turn a citizen's writing into something that
-   * lands in front of a person.
-   */
-  'kolonie.operator.request.open',
-  'kolonie.operator.request.read',
-  'kolonie.operator.request.reply',
-  'kolonie.operator.request.close',
-  /**
    * The other direction: what the operator said without being asked (#239).
    *
-   * **One, against the exchange's four, and the asymmetry is the design.** A citizen
-   * needs to open, read, add to and close an exchange it started. It needs exactly one
+   * **One, against the inbox's several, and the asymmetry is the design.** A citizen
+   * needs to open, read, add to and mark read a thread it started. It needs exactly one
    * thing from a note: to be handed what is waiting. There is no reply tool because a
    * note is not a thread, and no delete tool because there is nothing a citizen would
    * gain by removing a row it is the only reader of — `#927` made the read stop

@@ -30,7 +30,7 @@ import { consoleNavigation, type ConsoleNav } from './navigation.js'
 import { CONSOLE_MAST } from './mark.js'
 import { CONSOLE_STYLE } from './theme.js'
 import { absolute, relative } from './time.js'
-import { exchangeAnchor } from '../autonomy-page.js'
+import { threadAnchor } from '../autonomy-page.js'
 import { consoleOperatorPath } from '../operator-page-body.js'
 
 /**
@@ -48,7 +48,7 @@ import { consoleOperatorPath } from '../operator-page-body.js'
  * `operatorPageBody`, and posts to the console's own path — and the queue has
  * `agentId` in the same row, so this costs no extra query.
  *
- * **The fragment is what `#593` made possible.** Each exchange is its own
+ * **The fragment is what `#593` made possible.** Each thread is its own
  * section with its own anchor, so this lands on the question the operator
  * clicked rather than at the top of a page whose first three blocks are about
  * identity.
@@ -56,7 +56,7 @@ import { consoleOperatorPath } from '../operator-page-body.js'
 function consoleAnswerLink(item: WaitingItem): string {
   const door = consoleOperatorPath(item.agentId)
 
-  return item.requestId === null ? door : `${door}#${exchangeAnchor(item.requestId)}`
+  return item.requestId === null ? door : `${door}#${threadAnchor(item.requestId)}`
 }
 
 export { escape } from './escape.js'

@@ -1,5 +1,5 @@
 {
-  "measuredAt": "2026-08-19",
+  "measuredAt": "2026-08-20",
   "command": "npm run catalogue-structure",
   "tools": [
     {
@@ -1869,71 +1869,6 @@
       "name": "kolonie.operator.pages",
       "schema": {
         "properties": {},
-        "type": "object"
-      }
-    },
-    {
-      "name": "kolonie.operator.request.close",
-      "schema": {
-        "properties": {
-          "requestId": {
-            "format": "uuid",
-            "type": "string"
-          }
-        },
-        "required": ["requestId"],
-        "type": "object"
-      }
-    },
-    {
-      "name": "kolonie.operator.request.open",
-      "schema": {
-        "properties": {
-          "body": {
-            "maxLength": 2000,
-            "minLength": 4,
-            "type": "string"
-          },
-          "taskId": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "wishId": {
-            "format": "uuid",
-            "type": "string"
-          }
-        },
-        "required": ["body"],
-        "type": "object"
-      }
-    },
-    {
-      "name": "kolonie.operator.request.read",
-      "schema": {
-        "properties": {
-          "requestId": {
-            "format": "uuid",
-            "type": "string"
-          }
-        },
-        "type": "object"
-      }
-    },
-    {
-      "name": "kolonie.operator.request.reply",
-      "schema": {
-        "properties": {
-          "body": {
-            "maxLength": 2000,
-            "minLength": 4,
-            "type": "string"
-          },
-          "requestId": {
-            "format": "uuid",
-            "type": "string"
-          }
-        },
-        "required": ["requestId", "body"],
         "type": "object"
       }
     },

@@ -61,8 +61,8 @@ export async function operatorPageBody(
     readonly as?: 'page' | 'section' | undefined
   } = {},
 ): Promise<string> {
-  const [exchanges, drops, room, telegram] = await Promise.all([
-    deps.operatorRequests.store.exchangesForToken(token),
+  const [threads, drops, room, telegram] = await Promise.all([
+    deps.operatorThreads.store.forPageToken(token),
     deps.drops?.forPageToken(token) ?? Promise.resolve([]),
     deps.operatorNotes.store.roomForToken(token),
     /**
@@ -99,22 +99,20 @@ export async function operatorPageBody(
       ? { inboxFull: inboxFullMessage(room.unread) }
       : {}),
     /**
-     * Every exchange, not the one the query happened to pick (`#593`).
+     * Every thread, not the one the query happened to pick (`#593`).
      *
-     * Passed through in the order storage gave — open oldest-first, then a
-     * closed one the citizen answered into since — because that order is what
-     * `#587`'s anchor depends on and re-sorting it here would be a second answer
-     * to *which question is first*.
+     * Passed through in the order storage gave — oldest first — because that
+     * order is what `#587`'s anchor depends on and re-sorting it here would be a
+     * second answer to *which question is first*.
      */
-    exchanges: exchanges.map((exchange) => ({
-      requestId: String(exchange.requestId),
-      context: exchange.context,
-      openedAt: exchange.openedAt,
-      messages: exchange.messages,
-      // Whether the page renders a box under it (`#359`). A closed exchange is
-      // here because the citizen answered a question the operator asked in the
-      // notes channel, and it is read-only.
-      closed: exchange.closed,
+    threads: threads.map((thread) => ({
+      threadId: String(thread.threadId),
+      context: thread.context,
+      openedAt: thread.openedAt,
+      messages: thread.messages,
+      // Whether the page renders a box under it. True once the operator link is
+      // gone: the words stay readable and nobody may add to them.
+      closed: thread.closed,
     })),
     drops,
     ...(deps.telegram === undefined

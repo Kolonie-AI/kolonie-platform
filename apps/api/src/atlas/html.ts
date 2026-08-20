@@ -56,7 +56,7 @@ import {
   type AtlasPublicRecipe,
 } from './public-projection.js'
 import { atlasEntryWorked } from './worked.js'
-import { atlasNeighbours } from './related.js'
+import { atlasNeighbourRule, atlasNeighbours } from './related.js'
 import { ATLAS_PARTLY, atlasEntryVerdict, atlasRecipeVerdict } from './verdict.js'
 import { ATLAS_REFUSING, atlasEntryTitle, lowerFirst, providerName } from './title.js'
 import { atlasStatusSubline } from './lead.js'
@@ -1979,7 +1979,11 @@ export function atlasEntryPage(input: {
        * follows, and a page that offered the neighbours before it had finished
        * describing this one would be a shelf with an entry in the middle of it.
        */
-      nextStepsSection(entry, atlasNeighbours(input.entry, input.catalogue ?? [])),
+      nextStepsSection(
+        entry,
+        atlasNeighbours(input.entry, input.catalogue ?? []),
+        atlasNeighbourRule(input.entry),
+      ),
       NOT_A_PROMISE,
       '</main>',
     ].join('\n'),
@@ -3373,7 +3377,11 @@ function membershipSection(entry: AtlasPublicEntry): string {
  * last block would be the module shouting the same paragraph at a reader who has
  * just scrolled past it. What this module owes them is the way out.
  */
-function nextStepsSection(entry: AtlasPublicEntry, related: readonly AtlasEntry[]): string {
+function nextStepsSection(
+  entry: AtlasPublicEntry,
+  related: readonly AtlasEntry[],
+  rule: string,
+): string {
   const shelf =
     `<li><a href="${escape(atlasShelfPath(entry.category))}">Every ` +
     `${escape(atlasShelfTitle(entry.category).toLowerCase())} provider the Colony has walked` +
@@ -3422,10 +3430,14 @@ function nextStepsSection(entry: AtlasPublicEntry, related: readonly AtlasEntry[
          * page must never carry *got through* where a measurement was withheld
          * for being below the floor, and a note printed on every entry page would
          * put those words on exactly those pages.
+         *
+         * **The sentence is {@link atlasNeighbourRule}'s and not this file's**
+         * (`#1403` decision 4). It said *the same shelf* on every page until the
+         * scoring stopped using the shelf, and a caption describing a rule the
+         * module no longer applies is worse than none: a reader who checks it
+         * against three names cannot tell which of the two is wrong.
          */
-        `<p><small>The ${neighbours.length === 1 ? 'neighbour' : 'neighbours'} above ` +
-        `${neighbours.length === 1 ? 'is' : 'are'} the same shelf in the same order as the ` +
-        `shelf itself: measured outcome, never who paid.</small></p>`,
+        `<p><small>${escape(rule)}</small></p>`,
     '</nav>',
   ]
     .filter((part) => part !== '')

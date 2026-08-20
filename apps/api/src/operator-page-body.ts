@@ -132,6 +132,11 @@ export async function operatorPageBody(
       // Whether the page renders a box under it. True once the operator link is
       // gone: the words stay readable and nobody may add to them.
       closed: thread.closed,
+      // The account, the shares and their sequence, rendered **inside** the
+      // thread (`#1442`) rather than in a section of their own further down.
+      accountIdentifier: thread.accountIdentifier,
+      shares: thread.shares,
+      shareEvents: thread.shareEvents,
     })),
     drops,
     shares,

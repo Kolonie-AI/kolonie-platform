@@ -168,6 +168,52 @@ export interface OperatorThread {
    * un-say what was said in it — and neither side may add to it.
    */
   readonly closed?: boolean | undefined
+  /**
+   * The account this thread is about, by identifier (`#1442`).
+   *
+   * Null for a thread about a task, a wish or nothing in particular.
+   */
+  readonly accountIdentifier?: string | null | undefined
+  /**
+   * The entries shared onto this thread, rendered **inside** it (`#1442`).
+   *
+   * **This is what the epic is judged on.** After `#1439`–`#1441` the account,
+   * the shares and the words are three things a person has to assemble; here
+   * they are one view. The reason drops failed is that the secret and the reason
+   * for it lived in different places, and a page that put them in two sections
+   * would have rebuilt that failure with better plumbing.
+   */
+  readonly shares?: readonly OperatorPageShare[] | undefined
+  /**
+   * What has happened to those shares, in order (`#1442`).
+   *
+   * **Rendered as a sequence, not as messages.** A share is state on the
+   * conversation with one lifecycle; making it a chat entry would make it
+   * something that can be sent, quoted and forwarded, which is exactly what
+   * `#1442` says to avoid. These come from the share's own timestamps and are
+   * stored nowhere.
+   */
+  readonly shareEvents?:
+    | readonly {
+        readonly vaultKey: string
+        readonly kind: 'shared' | 'read' | 'written' | 'handed-back'
+        readonly at: string
+      }[]
+    | undefined
+}
+
+/**
+ * What each share event is called, on the page (`#1442`).
+ *
+ * A closed list rather than composed prose, and it is the Colony's own words:
+ * the whole point of rendering a lifecycle rather than a message is that no
+ * agent could have written any of these.
+ */
+const SHARE_EVENT_WORDS: Record<'shared' | 'read' | 'written' | 'handed-back', string> = {
+  shared: 'shared with you',
+  read: 'opened',
+  written: 'you wrote something into it',
+  'handed-back': 'handed back',
 }
 
 /** An unfilled operator drop, shown without a value or bearer link. */
@@ -1231,22 +1277,28 @@ export function operatorDurablePage(input: {
    * shared **while it is shared**. Said once, beside the first share, rather
    * than in a footer nobody reads or on every element where it becomes noise.
    */
-  const openShares = (input.shares ?? []).map((share, index) => ({
-    openedAt: share.expiresAt,
-    tie: `share-${share.id}`,
-    body: [
-      `<section id="share-${escape(share.id)}">`,
-      `<h2>${name} has shared a credential with you</h2>`,
-      `<p class="operator-ask"><strong>${name} says:</strong> ${escape(share.purpose)}</p>`,
+  /**
+   * One share, rendered wherever it belongs (`#1440`, `#1442`).
+   *
+   * **Lifted out so a thread and the page can render the identical thing.**
+   * `#1442` puts a share inside the conversation that explains it; a share the
+   * citizen attached to no thread still has to appear somewhere, and two
+   * renderings of a credential box would be two places for the risk sentence to
+   * drift out of one of them.
+   */
+  function shareBlock(
+    share: OperatorPageShare,
+    who: string,
+    options: { readonly withRisk: boolean },
+  ): readonly string[] {
+    return [
+      `<section id="share-${escape(share.id)}" class="shared-entry">`,
+      `<p class="operator-ask"><strong>${who} says:</strong> ${escape(share.purpose)}</p>`,
       `<p>Entry <code>${escape(share.vaultKey)}</code>` +
         (share.description === null ? '' : ` — ${escape(share.description)}`) +
         `. The share ends on ${escape(share.expiresAt)}.</p>`,
-      /**
-       * **`<pre>` and not an input.** It is not something to edit, and a value
-       * in a text field is a value a browser offers to remember.
-       */
       `<pre class="shared-value">${escape(share.value)}</pre>`,
-      ...(index === 0
+      ...(options.withRisk
         ? [
             '<p class="note">This page’s link does not expire. Anyone you forward it to, or ',
             'anyone using a browser you left it open in, can read this for as long as it is ',
@@ -1279,8 +1331,31 @@ export function operatorDurablePage(input: {
               : []),
           ]),
       '</section>',
-    ],
-  }))
+    ]
+  }
+
+  /**
+   * The shares that hang on no thread (`#1442`).
+   *
+   * Everything attached to a conversation is rendered **inside** it, so this is
+   * what is left: an entry the citizen shared without writing about it. It is
+   * a real case — a citizen may share first and explain afterwards — and
+   * dropping it from the page would hide a credential a person can read.
+   */
+  const attachedIds = new Set(
+    (input.threads ?? []).flatMap((thread) => (thread.shares ?? []).map((share) => share.id)),
+  )
+
+  const openShares = (input.shares ?? [])
+    .filter((share) => !attachedIds.has(share.id))
+    .map((share, index) => ({
+      openedAt: share.expiresAt,
+      tie: `share-${share.id}`,
+      body: [
+        `<h2>${name} has shared a credential with you</h2>`,
+        ...shareBlock(share, name, { withRisk: index === 0 && (input.threads ?? []).length === 0 }),
+      ],
+    }))
 
   const openActions = [...openQuestions, ...openDrops, ...openShares]
     .sort((a, b) => a.openedAt.localeCompare(b.openedAt) || a.tie.localeCompare(b.tie))
@@ -1330,7 +1405,16 @@ export function operatorDurablePage(input: {
         ]
       : [
           `<h2>${who} has asked you something</h2>`,
-          `<p>About “${escape(thread.context)}”.</p>`,
+          thread.accountIdentifier == null
+            ? `<p>About “${escape(thread.context)}”.</p>`
+            : /**
+               * **The account named as an account** (`#1442`), rather than as a
+               * phrase that happens to be its identifier. A person about to open
+               * a provider's billing page needs to know *which* login this is
+               * about, and the whole failure `#1441` fixed was that they could
+               * not tell.
+               */
+              `<p>About the account <strong>${escape(thread.accountIdentifier)}</strong>.</p>`,
           context.answerError === undefined
             ? ''
             : `<p class="note"><strong>${escape(context.answerError)}</strong></p>`,
@@ -1370,6 +1454,27 @@ export function operatorDurablePage(input: {
           '</div>',
           '</li>',
           '</ul>',
+          /**
+           * **Inside the thread, above the conversation** (`#1442`). The reason
+           * drops failed is that the secret and the reason for it lived in
+           * different places; a share rendered in its own section further down
+           * the page would be that failure rebuilt with better plumbing.
+           */
+          ...(thread.shares ?? []).flatMap((share, index) =>
+            shareBlock(share, who, { withRisk: index === 0 }),
+          ),
+          ...((thread.shareEvents ?? []).length === 0
+            ? []
+            : [
+                '<p class="note">What has happened to what was shared here:</p>',
+                '<ul class="share-events">',
+                ...(thread.shareEvents ?? []).map(
+                  (event) =>
+                    `<li><code>${escape(event.vaultKey)}</code> — ` +
+                    `${escape(SHARE_EVENT_WORDS[event.kind])} on ${escape(event.at)}</li>`,
+                ),
+                '</ul>',
+              ]),
           ...collapsed('Conversation so far', [
             '<table>',
             ...thread.messages.map(

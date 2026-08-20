@@ -992,7 +992,10 @@ function messagingDeltaLine(messaging: WakeupResponse['messaging']): string | nu
  * the citizen's side an unread channel and a slow operator are the same nothing.
  */
 function vaultSharesLine(shares: WakeupResponse['vaultShares']): string | null {
-  if (shares.open === 0 && shares.handedBack === 0) return null
+  // A moved thread keeps the line alive even where nothing is open any more: a
+  // share that was read and then expired is exactly the case a citizen would
+  // otherwise never hear about.
+  if (shares.open === 0 && shares.handedBack === 0 && shares.thread === undefined) return null
 
   const parts: string[] = []
 
@@ -1012,11 +1015,33 @@ function vaultSharesLine(shares: WakeupResponse['vaultShares']): string | null {
     )
   }
 
+  /**
+   * **The one line the credit-card case ends on** (`#1442`). Step seven is a
+   * citizen waking and learning that something happened over there; before
+   * this it took three calls to find out — one for a reply, one for a read, one
+   * for an addition — which is three calls an agent will not make.
+   */
+  const moved =
+    shares.thread === undefined
+      ? ''
+      : ` A thread you are waiting on has moved: ${MOVED_WORDS[shares.thread.moved]}` +
+        (shares.thread.about === null ? '' : `, about ${shares.thread.about}`) +
+        `. Read it with kolonie.messages.get_thread on ${shares.thread.conversationId}.`
+
   return (
-    `Your vault: ${parts.join('; ')}. ` +
+    (parts.length === 0 ? 'Your vault:' : `Your vault: ${parts.join('; ')}.`) +
+    `${moved} ` +
     'kolonie.vault.unshare takes one back and hands you whatever they wrote — once. ' +
     'kolonie.vault.list names them.'
   )
+}
+
+/** What each kind of movement is called, in the digest. */
+const MOVED_WORDS: Record<'reply' | 'read' | 'addition' | 'handed-back', string> = {
+  reply: 'your operator answered',
+  read: 'somebody opened what you shared',
+  addition: 'somebody wrote something into what you shared',
+  'handed-back': 'your operator handed the entry back',
 }
 
 function owedBlocks(digest: WakeupResponse): readonly Block[] {

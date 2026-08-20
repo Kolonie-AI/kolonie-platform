@@ -101,6 +101,12 @@ export function fakeOperatorThreadStore(
           openedAt: thread.openedAt,
           messages: thread.messages.map((message) => ({ ...message })),
           closed: unlinked.has(thread.agentId),
+          // The fake carries no account and no shares (`#1442`): both are joins
+          // the database makes, and a fixture that invented one would let a page
+          // test pass against an assembly nothing produces.
+          accountIdentifier: null,
+          shares: [],
+          shareEvents: [],
         })),
       )
     },

@@ -1415,7 +1415,21 @@ const app = buildApp({
    */
   operatorThreads: {
     store: {
-      forPageToken: (token) => operatorThreadsForPageToken(db, token),
+      /**
+       * The thread, with what is shared onto it (`#1442`).
+       *
+       * The sealing key is passed so the page can render the credential inside
+       * the conversation that explains it — which is the whole of `#1442`. A
+       * Colony without one still gets its threads; it simply gets the words.
+       */
+      forPageToken: (token) =>
+        operatorThreadsForPageToken(
+          db,
+          token,
+          usableSealingKey(process.env[OPERATOR_DROP_SEALING_KEY_VAR])
+            ? process.env[OPERATOR_DROP_SEALING_KEY_VAR]
+            : undefined,
+        ),
       wishesWaiting: (agentId) => wishThreadsWaitingOn(db, agentId),
       answerOnPage: (input) => answerOperatorThreadFromPage(db, input),
     },

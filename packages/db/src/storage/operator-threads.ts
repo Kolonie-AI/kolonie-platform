@@ -12,14 +12,18 @@ import type { Database } from '../client.js'
 import { sendOperatorMessage } from './messaging.js'
 import {
   accountWishes,
+  accounts,
   humanAgents,
   humanIdentities,
+  messageConversationShares,
   messageConversations,
   messageParticipants,
   messages,
   operatorPages,
   tasks,
+  vaultShares,
 } from '../schema/index.js'
+import { openVaultValue, vaultDescriptionScope } from '../vault-crypto.js'
 
 /**
  * The four questions the Colony asks about a citizen's operator thread
@@ -108,6 +112,54 @@ export interface OperatorThreadForPage {
    * `replyInConversation` gives the citizen's side (`operator-link-removed`).
    */
   readonly closed: boolean
+  /**
+   * The account this thread is about, by identifier (`#1442`).
+   *
+   * Null for a thread about a task, a wish, or nothing. `context` above already
+   * carries the identifier as text, and this is the *fact* rather than the
+   * phrase: the page renders the shares under an account rather than under a
+   * sentence, and a renderer branching on prose is one that breaks the day the
+   * prose is reworded.
+   */
+  readonly accountIdentifier: string | null
+  /**
+   * The entries shared onto this thread, with their values (`#1442`).
+   *
+   * **The assembly is the whole of `#1442`.** After `#1439`–`#1441` a person can
+   * read a share, and a thread can name an account, and the two are separate
+   * things on separate parts of the page — which is precisely the shape that
+   * made drops fail: *the secret and the reason for it lived in different
+   * places*. Here they are one object.
+   */
+  readonly shares: readonly OperatorThreadShare[]
+  /**
+   * What has happened to those shares, in order (`#1442`).
+   *
+   * **Derived from the share's own timestamps, not written as messages.** A
+   * share is state on the conversation with one lifecycle, and turning it into
+   * chat entries would make it something that can be sent, quoted and forwarded
+   * — which `#1442` names as the thing to get right. The events are read out of
+   * `vault_shares` on every render and stored nowhere.
+   */
+  readonly shareEvents: readonly OperatorThreadShareEvent[]
+}
+
+/** One shared entry, as the person reading the thread sees it. */
+export interface OperatorThreadShare {
+  readonly id: string
+  readonly vaultKey: string
+  readonly purpose: string
+  readonly expiresAt: string
+  readonly value: string
+  readonly description: string | null
+  readonly wrote: boolean
+}
+
+/** One thing that happened to a share, placed in the thread by when it happened. */
+export interface OperatorThreadShareEvent {
+  readonly vaultKey: string
+  readonly kind: 'shared' | 'read' | 'written' | 'handed-back'
+  readonly at: string
 }
 
 /**
@@ -185,6 +237,15 @@ async function pageSubject(
 export async function operatorThreadsForPageToken(
   db: Database,
   token: string,
+  /**
+   * The Colony's sealing key, where this deployment has one (`#1442`).
+   *
+   * **Optional, so a Colony without one still renders its threads.** Without it
+   * the words are all there is, which is exactly what the page was before
+   * `#1437` — and a thread that failed to render because a share could not be
+   * opened would take the conversation down with the credential.
+   */
+  sealingKey?: string,
 ): Promise<readonly OperatorThreadForPage[]> {
   const subject = await pageSubject(db, token)
   if (subject === undefined) return []
@@ -193,7 +254,10 @@ export async function operatorThreadsForPageToken(
     .select({
       id: messageConversations.id,
       createdAt: messageConversations.createdAt,
-      context: sql<string | null>`coalesce(${tasks.title}, ${accountWishes.provider})`,
+      context: sql<
+        string | null
+      >`coalesce(${tasks.title}, ${accountWishes.provider}, ${accounts.identifier})`,
+      accountIdentifier: accounts.identifier,
       live: sql<boolean>`${operatorSide.id} is not null`,
     })
     .from(messageConversations)
@@ -213,6 +277,7 @@ export async function operatorThreadsForPageToken(
     )
     .leftJoin(tasks, eq(tasks.id, messageConversations.taskId))
     .leftJoin(accountWishes, eq(accountWishes.id, messageConversations.wishId))
+    .leftJoin(accounts, eq(accounts.id, messageConversations.accountId))
     .orderBy(asc(messageConversations.createdAt), asc(messageConversations.id))
 
   const stillLinked = await db
@@ -225,6 +290,11 @@ export async function operatorThreadsForPageToken(
 
   const threads: OperatorThreadForPage[] = []
   for (const row of rows) {
+    const attached =
+      sealingKey === undefined
+        ? { shares: [], events: [] }
+        : await sharesOnThread(db, row.id, sealingKey)
+
     threads.push({
       threadId: asConversationId(row.id),
       // `#1321`'s own phrase for a thread about nothing in particular. An
@@ -234,6 +304,9 @@ export async function operatorThreadsForPageToken(
       openedAt: row.createdAt,
       messages: await messagesOfThread(db, row.id),
       closed,
+      accountIdentifier: row.accountIdentifier,
+      shares: attached.shares,
+      shareEvents: attached.events,
     })
   }
 
@@ -544,4 +617,105 @@ export async function countWaitingOperatorReplies(db: Database, agentId: AgentId
     )
 
   return rows.length
+}
+
+/**
+ * The shares hanging on one thread, opened, and what has happened to them.
+ *
+ * ## Why the events are derived rather than written
+ *
+ * `#1442` is explicit: **a share is not a message.** It must not be something
+ * that can be sent, quoted or forwarded — it is state on the conversation, with
+ * one lifecycle, visible to both parties. So there is no events table and no
+ * system message: the four things that can happen to a share are four columns
+ * on `vault_shares`, and this reads them into an order at render time. Nothing
+ * can quote what was never written down as a message.
+ *
+ * **A taken-back share keeps its events and loses its value.** The sequence is
+ * what makes the thread readable afterwards — *shared on Monday, opened
+ * Tuesday, written into, handed back* — and it is exactly the account a person
+ * returning to a finished thread wants. The value is gone either way, because
+ * `unshare` and the sweep both clear it.
+ */
+async function sharesOnThread(
+  db: Database,
+  conversationId: string,
+  sealingKey: string,
+): Promise<{
+  readonly shares: readonly OperatorThreadShare[]
+  readonly events: readonly OperatorThreadShareEvent[]
+}> {
+  const rows = await db
+    .select({
+      id: vaultShares.id,
+      agentId: vaultShares.agentId,
+      vaultKey: vaultShares.vaultKey,
+      purpose: vaultShares.purpose,
+      sharedAt: vaultShares.sharedAt,
+      expiresAt: vaultShares.expiresAt,
+      sealedValue: vaultShares.sealedValue,
+      sealedDescription: vaultShares.sealedDescription,
+      operatorAddition: vaultShares.operatorAddition,
+      additionWrittenAt: vaultShares.additionWrittenAt,
+      lastReadAt: vaultShares.lastReadAt,
+      takenBackAt: vaultShares.takenBackAt,
+    })
+    .from(messageConversationShares)
+    .innerJoin(vaultShares, eq(vaultShares.id, messageConversationShares.shareId))
+    .where(eq(messageConversationShares.conversationId, conversationId))
+    .orderBy(asc(vaultShares.sharedAt), asc(vaultShares.id))
+
+  const shares: OperatorThreadShare[] = []
+  const events: OperatorThreadShareEvent[] = []
+
+  for (const row of rows) {
+    events.push({ vaultKey: row.vaultKey, kind: 'shared', at: row.sharedAt })
+    if (row.lastReadAt !== null) {
+      events.push({ vaultKey: row.vaultKey, kind: 'read', at: row.lastReadAt })
+    }
+    if (row.additionWrittenAt !== null) {
+      events.push({ vaultKey: row.vaultKey, kind: 'written', at: row.additionWrittenAt })
+    }
+    if (row.takenBackAt !== null) {
+      events.push({ vaultKey: row.vaultKey, kind: 'handed-back', at: row.takenBackAt })
+    }
+
+    /**
+     * **A closed share is an event and not a box.** It has no value to render —
+     * `unshare` and the sweep both clear it — and a box with nothing in it
+     * beside a sentence about a credential is worse than the sequence alone.
+     */
+    if (row.takenBackAt !== null || row.sealedValue === null) continue
+    if (Date.parse(row.expiresAt) <= Date.now()) continue
+
+    const value = openVaultValue(
+      sealingKey,
+      row.agentId,
+      `vault-share:${row.vaultKey}`,
+      row.sealedValue,
+    )
+    if (value === null) continue
+
+    shares.push({
+      id: row.id,
+      vaultKey: row.vaultKey,
+      purpose: row.purpose,
+      expiresAt: row.expiresAt,
+      value,
+      description:
+        row.sealedDescription === null
+          ? null
+          : openVaultValue(
+              sealingKey,
+              row.agentId,
+              vaultDescriptionScope(`vault-share:${row.vaultKey}`),
+              row.sealedDescription,
+            ),
+      wrote: row.operatorAddition !== null,
+    })
+  }
+
+  events.sort((left, right) => left.at.localeCompare(right.at))
+
+  return { shares, events }
 }

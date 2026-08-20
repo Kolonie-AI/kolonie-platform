@@ -28,6 +28,7 @@ import {
   countWaitingOperatorReplies,
   escalationFactsFor,
   messagingWakeupDelta,
+  movedThreadFor,
   vaultSharesWakeupDelta,
   walksToAskAbout,
   previousSessionStart,
@@ -297,7 +298,13 @@ export function databaseWakeup(db: Database, rechecks?: RecheckDependencies): Wa
     waitingOperatorReplies: (agentId) => countWaitingOperatorReplies(db, agentId),
     contributionQualityWarning: (agentId, now) => quality.warningFor(agentId, now),
     messagingDelta: (agentId) => messagingWakeupDelta(db, agentId),
-    vaultSharesDelta: (agentId) => vaultSharesWakeupDelta(db, agentId),
+    vaultSharesDelta: async (agentId) => {
+      const [counts, moved] = await Promise.all([
+        vaultSharesWakeupDelta(db, agentId),
+        movedThreadFor(db, agentId),
+      ])
+      return { ...counts, ...(moved === undefined ? {} : { thread: moved }) }
+    },
     suspension: async (agentId) => {
       const { suspended, row } = await suspensionStandingOf(db, agentId)
       if (!suspended) return null

@@ -154,6 +154,17 @@ export const vaultShares = pgTable(
 
     /** When the last of those reads was. Null until somebody opens it. */
     lastReadAt: timestamp('last_read_at', { withTimezone: true, mode: 'string' }),
+
+    /**
+     * When the operator last wrote into it (`#1442`).
+     *
+     * **A timestamp and not merely a flag**, because the thread renders the
+     * share's life as a sequence — shared, read, written to, handed back — and a
+     * sequence needs each event to know where it goes. `operator_addition is not
+     * null` answers *did they*, which is enough for a listing and not enough for
+     * an order.
+     */
+    additionWrittenAt: timestamp('addition_written_at', { withTimezone: true, mode: 'string' }),
   },
   (table) => [
     /**

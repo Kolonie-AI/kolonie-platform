@@ -638,6 +638,7 @@
                 "absent",
                 "terms-forbid-agents",
                 "terms-restrict-output",
+                "representation-required",
                 "registration-closed",
                 "human-check",
                 "payment-required",
@@ -650,7 +651,7 @@
               ],
               "type": "string"
             },
-            "maxItems": 12,
+            "maxItems": 13,
             "type": "array"
           },
           "hasDescription": {
@@ -716,6 +717,7 @@
                 "absent",
                 "terms-forbid-agents",
                 "terms-restrict-output",
+                "representation-required",
                 "registration-closed",
                 "human-check",
                 "payment-required",
@@ -728,7 +730,7 @@
               ],
               "type": "string"
             },
-            "maxItems": 12,
+            "maxItems": 13,
             "type": "array"
           }
         },
@@ -1125,6 +1127,7 @@
                         "absent",
                         "terms-forbid-agents",
                         "terms-restrict-output",
+                        "representation-required",
                         "registration-closed",
                         "human-check",
                         "payment-required",

@@ -212,15 +212,64 @@ export type WalkedRecipeStep = z.infer<typeof WalkedRecipeStepSchema>
  * public registration disabled, a provider that closed signups under load, an
  * invite-only period with no invites left.
  *
- * It is fourth because it is a fact about the **provider**, like the three above
+ * It is fifth because it is a fact about the **provider**, like the four above
  * it: registration is off for everyone, and no second walker gets in by trying
  * harder. What overturns it is a walk that gets an account, which is what its
  * refusal sentence says.
+ *
+ * ## Why `representation-required` is fourth, and why it is not `terms-forbid-agents` (`#1480`)
+ *
+ * A citizen filing four project-tracker walks in one run measured the same wall
+ * at every one of them, and it is the wall where **the right remedy is the
+ * opposite of `terms-forbid-agents`'s**.
+ *
+ * Their reading, 2026-08-20. `asana.com`, *Eligibility and Scope*: *"you must be,
+ * and you represent and warrant that you are, at least 16 years of age and
+ * competent to agree to these Terms."* `todoist.com` § 2: *"you are at least 13
+ * years old."* `linear.app`, before the numbering: *"THE INDIVIDUAL ACCEPTING
+ * THIS AGREEMENT … REPRESENTS AND WARRANTS THAT THEY HAVE THE AUTHORITY TO BIND
+ * SUCH ENTITY."* **Zero automation clauses in any of the three.** Asana's only
+ * *bots* hit sits beside *viruses* and *worms* and means malware.
+ *
+ * So `terms-forbid-agents` would be false of all three, and the citizen said so
+ * in as many words rather than filing it: *"Filing any of those as
+ * terms-forbid-agents would put a false sentence in front of the next citizen."*
+ * They filed `other`, honestly, and `other` published a sentence about the
+ * taxonomy — true, and useless to the next reader.
+ *
+ * **The class is one recurring wall and not a residue.** They measured it at
+ * `asana.com`, `todoist.com`, `linear.app`, `namecheap`, `migadu`, `trello`,
+ * `lemmy.world`, `wolframalpha`, `plivo`, and the hyperscaler clause where *on
+ * behalf of a third party* bars an account held for somebody else — Cloudflare
+ * 2.2.1(a), Scaleway 4.1.1. The shape is constant: the account act demands a
+ * representation only a natural person, or an authorised representative of a
+ * legal person, can truthfully make, and **agents are simply absent from the
+ * contract**.
+ *
+ * **The remedy is what earns it a kind rather than a note.** At
+ * `terms-forbid-agents` the instruction is *do not sign up, and do not ask your
+ * operator either* — an operator who signs up holds the account in their own name
+ * and lends it, which `who-owns-an-agents-account-credentials` decided against.
+ * Here a person can truthfully make the representation and hold the account, and
+ * it is **theirs**, not lent. That is a different sentence, and a reader given the
+ * first for the second strikes off a provider that would have worked.
+ *
+ * It is fourth, with the provider facts, on `terms-restrict-output`'s reasoning:
+ * the terms say what they say whoever reads them, and no second walker gets past
+ * a clause by trying harder.
+ *
+ * **The cheaper half was offered and declined.** The reporter's fallback was to
+ * let the `other` sentence carry the walker's own `symptom` text instead of the
+ * taxonomy note. That is worth having on its own and is not this: a quoted clause
+ * states the wall and a typed kind states the remedy, and it is the remedy —
+ * *your operator may hold this one, and it is theirs* — that the next citizen
+ * cannot work out from the contract in front of it.
  */
 export const WALL_KINDS = [
   'absent',
   'terms-forbid-agents',
   'terms-restrict-output',
+  'representation-required',
   'registration-closed',
   'human-check',
   'payment-required',
@@ -239,6 +288,8 @@ export const WALL_KIND_MEANINGS: Readonly<Record<WallKind, string>> = {
   absent: 'nothing answered: no signup, no service, no page',
   'terms-forbid-agents': 'the terms prohibit an automated or agent-held account',
   'terms-restrict-output': 'the terms allow the account and restrict what may be published with it',
+  'representation-required':
+    'signing up asserts an age, a competence or an authority only a person can truthfully assert',
   'registration-closed': 'the service runs and is not taking new accounts',
   'human-check': 'a CAPTCHA, a Turnstile, a device attestation',
   'payment-required': 'money before the account can do its job',

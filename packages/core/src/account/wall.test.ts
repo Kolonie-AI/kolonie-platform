@@ -7,6 +7,7 @@ import {
   REFUSAL_UNSTATED,
   TERMS_FORBID_AGENTS_REFUSAL,
   REGISTRATION_CLOSED_REFUSAL,
+  REPRESENTATION_REQUIRED_REFUSAL,
   TERMS_RESTRICT_OUTPUT_REFUSAL,
   wallsForbidWalking,
   wallsMatch,
@@ -529,5 +530,86 @@ describe('an entry that runs and takes no new accounts (#1478)', () => {
    */
   it('changes nothing about a wall already filed as absent', () => {
     expect(colonyRefusal([{ kind: 'absent' }])).toBe(NOTHING_ANSWERED_REFUSAL)
+  })
+})
+
+/**
+ * The wall `#1480` was opened about: the contract wants a person, and says
+ * nothing about agents.
+ *
+ * A citizen filing four project-tracker walks in one run read the terms of three
+ * of them on 2026-08-20 and found **zero automation clauses** — an age at
+ * `asana.com` and `todoist.com`, an authority to bind a legal entity at
+ * `linear.app`, and agents absent from all three. They declined to file
+ * `terms-forbid-agents` because *"it would put a false sentence in front of the
+ * next citizen"*, filed `other`, and `other` published a sentence about the
+ * taxonomy.
+ *
+ * So the assertions are about the two claims that make this its own kind: the
+ * terms do **not** forbid the account, and an operator **can** hold this one —
+ * which is the exact opposite of what `terms-forbid-agents` tells a reader to do.
+ */
+describe('an entry whose terms want a representation only a person can make (#1480)', () => {
+  it('says the terms do not forbid the account', () => {
+    const refusal = colonyRefusal([{ kind: 'representation-required' }])
+
+    expect(refusal).toBe(REPRESENTATION_REQUIRED_REFUSAL)
+    expect(refusal).toContain('do not mention agents at all')
+    expect(refusal).toContain('do not forbid an agent-held account')
+  })
+
+  /**
+   * **The remedy, and the reason a quoted clause could not have carried it.** The
+   * contract in front of the reader says who may sign; it does not say that the
+   * person who may is theirs to ask, or that the account they get is their own
+   * rather than lent.
+   */
+  it('says the operator may hold this one, unlike a provider that forbids the account', () => {
+    expect(REPRESENTATION_REQUIRED_REFUSAL).toContain('your operator can hold')
+    expect(REPRESENTATION_REQUIRED_REFUSAL).toContain('the account is theirs')
+    // And says none of what the forbidding sentence says.
+    expect(REPRESENTATION_REQUIRED_REFUSAL).not.toContain('do not ask your operator')
+    expect(REPRESENTATION_REQUIRED_REFUSAL).not.toContain('holds the account in their own name')
+  })
+
+  /**
+   * **The red line survives the remedy.** This is the one wall where a reader
+   * might take *a person could truthfully sign this* as *sign it*, so the
+   * sentence names the line rather than leaving the reader to remember it.
+   */
+  it('does not read as permission for the agent to make the assertion', () => {
+    expect(REPRESENTATION_REQUIRED_REFUSAL).toContain(
+      'a representation you are not the one to make',
+    )
+    expect(REPRESENTATION_REQUIRED_REFUSAL).toContain('claiming to be human')
+  })
+
+  /** Whole answer only when it is the whole finding, like every wall in the provider group. */
+  it('falls back into the list where something else was met as well', () => {
+    const refusal = colonyRefusal([
+      { kind: 'representation-required' },
+      { kind: 'payment-required' },
+    ])
+
+    expect(refusal).not.toBe(REPRESENTATION_REQUIRED_REFUSAL)
+    expect(refusal).toContain(WALL_KIND_MEANINGS['representation-required'])
+    expect(refusal).toContain(WALL_KIND_MEANINGS['payment-required'])
+  })
+
+  /**
+   * **This contradiction is the one that ends with a person on a contract.** A
+   * walk reporting both has said an operator may hold the account and that an
+   * operator may not, and the half that must survive being wrong is the one that
+   * keeps an operator off a contract whose terms forbid it.
+   */
+  it('loses to terms that forbid the account outright', () => {
+    expect(
+      colonyRefusal([{ kind: 'representation-required' }, { kind: 'terms-forbid-agents' }]),
+    ).toBe(TERMS_FORBID_AGENTS_REFUSAL)
+  })
+
+  /** No backfill (`#1062`): an `other` filed before this kind existed stays `other`. */
+  it('changes nothing about a wall already filed as other', () => {
+    expect(colonyRefusal([{ kind: 'other' }])).toBe(REFUSAL_OTHER)
   })
 })

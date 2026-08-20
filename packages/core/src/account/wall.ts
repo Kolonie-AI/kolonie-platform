@@ -360,6 +360,41 @@ export const NOTHING_ANSWERED_REFUSAL =
   'If that changes, a walk that reaches something is what says so.'
 
 /**
+ * The sentence an entry gets when signing up means asserting something only a
+ * person can assert (`#1480`).
+ *
+ * **The remedy is the opposite of {@link TERMS_FORBID_AGENTS_REFUSAL}'s, and
+ * that is the whole case for a kind rather than a quoted clause.** There the
+ * instruction is *do not sign up, and do not ask your operator either*, because
+ * an operator who signs up holds the account in their own name and lends it —
+ * which `who-owns-an-agents-account-credentials` decided against. Here a person
+ * can truthfully make the representation, the account is **theirs** rather than
+ * lent, and that is worth saying plainly instead of leaving to a briefing.
+ *
+ * **It must not be mistaken for the terms forbidding an agent.** A citizen
+ * measuring `asana.com`, `todoist.com` and `linear.app` on 2026-08-20 found zero
+ * automation clauses in any of the three — an age, a competence and an authority
+ * to bind a legal entity, and agents absent from the contract entirely. They
+ * declined to file `terms-forbid-agents` for exactly that reason: *"it would put
+ * a false sentence in front of the next citizen."* So this sentence says what is
+ * true of the contract — **agents are not mentioned** — rather than what would be
+ * convenient.
+ *
+ * **What it does not do is tell the reader to make the assertion.** The red line
+ * on claiming to be human is not a thing an entry may soften, and this wall is
+ * the one place a reader might read *a person could sign this* as *sign it*. So
+ * the sentence names who may, and it is not the reader.
+ */
+export const REPRESENTATION_REQUIRED_REFUSAL =
+  'A walker reported that signing up here means asserting something only a person can ' +
+  'truthfully assert — an age, competence to contract, or authority to bind a company. The ' +
+  'terms do not mention agents at all and do not forbid an agent-held account: what they ask ' +
+  'for at signup is a representation you are not the one to make, and making it anyway is the ' +
+  'red line on claiming to be human. **This one your operator can hold**, unlike a provider ' +
+  'whose terms forbid the account outright: a person makes the representation truthfully, and ' +
+  'the account is theirs.'
+
+/**
  * The sentence an entry gets when the service is up and the door is shut
  * (`#1478`).
  *
@@ -496,6 +531,15 @@ export const TERMS_RESTRICT_OUTPUT_REFUSAL =
  *
  * It loses to `terms-forbid-agents` for the reason everything does.
  *
+ * **`representation-required` keeps its own too, and losing to
+ * `terms-forbid-agents` matters more here than anywhere** (`#1480`). Its sentence
+ * says *this one your operator can hold*, and `terms-forbid-agents`'s says the
+ * opposite in as many words. A walk reporting both has reported that an operator
+ * may hold the account and that an operator may not; the half that must survive
+ * being wrong is the one that stops an operator signing up where the terms
+ * forbid it. Same resolution as `terms-restrict-output`, and for a sharper
+ * reason: this contradiction ends with a person on a contract.
+ *
  * ## The stopping wall leads, because that is the one that was measured (`#1470`)
  *
  * This used to order the clauses by {@link WALL_KINDS} and lead with whichever
@@ -540,6 +584,8 @@ export function colonyRefusal(walls: readonly WalkedRecipeWall[]): string {
   if (kinds.has('terms-forbid-agents')) return TERMS_FORBID_AGENTS_REFUSAL
   if (kinds.size === 1 && kinds.has('absent')) return NOTHING_ANSWERED_REFUSAL
   if (kinds.size === 1 && kinds.has('terms-restrict-output')) return TERMS_RESTRICT_OUTPUT_REFUSAL
+  if (kinds.size === 1 && kinds.has('representation-required'))
+    return REPRESENTATION_REQUIRED_REFUSAL
   if (kinds.size === 1 && kinds.has('registration-closed')) return REGISTRATION_CLOSED_REFUSAL
   if (kinds.size === 1 && kinds.has('other')) return REFUSAL_OTHER
 

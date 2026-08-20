@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { AtlasPublicEntry } from './public-projection.js'
-import { ATLAS_CHIPS_SHOWN, atlasChipsShown, atlasHeaderChips } from './chips.js'
+import {
+  ATLAS_CHIPS_SHOWN,
+  atlasChipsShown,
+  atlasEarnRank,
+  atlasHeaderChips,
+  atlasProvedChip,
+} from './chips.js'
 
 /**
  * The header of a multi-facet earn provider (`#1404`).
@@ -182,5 +188,117 @@ describe('what a provider header says about itself', () => {
       expect(rest.length).toBeGreaterThan(0)
       expect([...shown, ...rest]).toEqual(many)
     })
+  })
+})
+
+/**
+ * Whether anybody holds an account here (`#1408`).
+ *
+ * The issue asks for `N proved holds`. `proved` is a count and
+ * `ATLAS_FIGURE_FLOOR` zeroes counts below five, so on a Colony of 33 citizens
+ * that chip would read `no proved hold yet` on providers a citizen
+ * demonstrably holds — which is `#1167`, measured on `telegram.org` with a live
+ * session open at the time the page was read. `anyProved` is the boolean that
+ * survives the floor, because it is not a count.
+ */
+const withFigures = (
+  over: Partial<AtlasPublicEntry> & {
+    readonly figures?: { proved?: number; anyProved?: boolean; attempted?: number }
+  } = {},
+): AtlasPublicEntry => {
+  const { figures, ...rest } = over
+
+  return entry({
+    recipes: [
+      {
+        kind: 'mailbox',
+        status: 'measured',
+        walls: [],
+        category: 'mailboxes',
+        figures: { proved: 0, anyProved: false, attempted: 0, ...figures },
+      },
+    ] as unknown as AtlasPublicEntry['recipes'],
+    ...rest,
+  })
+}
+
+describe('whether anybody actually holds an account here', () => {
+  it('names the number where the floor let the number through', () => {
+    expect(atlasProvedChip(withFigures({ figures: { proved: 7, anyProved: true } }))?.text).toBe(
+      '7 proved holds',
+    )
+  })
+
+  it('says one where the number was suppressed but the boolean survived', () => {
+    expect(atlasProvedChip(withFigures({ figures: { proved: 0, anyProved: true } }))?.text).toBe(
+      'a citizen holds one here',
+    )
+  })
+
+  it('says so calmly where a walked provider is held by nobody', () => {
+    const found = atlasProvedChip(withFigures())
+
+    expect(found?.text).toBe('no proved hold yet')
+    expect(found?.className).toBe('k-atlas-unproved')
+  })
+
+  /**
+   * Decision 1 says the unheld chip is for measured entries. On one nobody has
+   * walked it would be the page reporting the Colony's own coverage as a fact
+   * about the provider — the distinction `#1105` decision 2 is emphatic about.
+   */
+  it('says nothing at all about a provider nobody has walked', () => {
+    expect(
+      atlasProvedChip(
+        withFigures({
+          recipes: [
+            { kind: 'mailbox', status: 'unwritten', walls: [], category: 'mailboxes' },
+          ] as unknown as AtlasPublicEntry['recipes'],
+        }),
+      ),
+    ).toBeNull()
+  })
+
+  it('puts the chip on the header without being asked for it', () => {
+    const found = atlasHeaderChips(withFigures({ figures: { proved: 2, anyProved: true } }))
+
+    expect(found.map((one) => one.text)).toContain('2 proved holds')
+  })
+})
+
+/** Decision 2's order: held, then a route, then a measurement, then silence. */
+describe('how an earn search orders what it found', () => {
+  const at = (over: Parameters<typeof withFigures>[0]) => atlasEarnRank(withFigures(over))
+
+  it('puts what somebody holds above everything else', () => {
+    expect(at({ figures: { proved: 3, anyProved: true } })).toBe(0)
+    expect(at({ figures: { proved: 0, anyProved: true } })).toBe(0)
+  })
+
+  it('ranks a written route above a bare measurement, and both above silence', () => {
+    const status = (one: string) =>
+      atlasEarnRank(
+        entry({
+          recipes: [
+            { kind: 'mailbox', status: one, walls: [], category: 'mailboxes', figures: {} },
+          ] as unknown as AtlasPublicEntry['recipes'],
+        }),
+      )
+
+    expect(status('joinable')).toBeLessThan(status('measured'))
+    expect(status('measured')).toBeLessThan(status('refused'))
+    expect(status('refused')).toBeLessThan(status('unwritten'))
+  })
+
+  /**
+   * The floor governs publication and not ranking, and the two are different
+   * acts: printing `3` says something about three citizens, putting a row above
+   * another says only *this is the better bet*. Neither number leaves the
+   * process.
+   */
+  it('ranks a suppressed hold as a hold, though the page will not print it', () => {
+    expect(at({ figures: { proved: 0, anyProved: true } })).toBeLessThan(
+      at({ figures: { proved: 0, anyProved: false } }),
+    )
   })
 })

@@ -548,6 +548,23 @@ p.k-paid {
 }
 
 /*
+ * Whether anybody holds an account here (\`#1408\`).
+ *
+ * **Two classes and one shape.** The held case is the usefulness signal a
+ * reader is scanning for and takes the accent; the unheld case is most of the
+ * catalogue and is deliberately calm — \`#1408\` decision 3 asks that zero not
+ * look like an error, and a chip that shouted would be shouting on nearly every
+ * page.
+ */
+.k-atlas-proved {
+  color: var(--k-accent);
+}
+
+.k-atlas-unproved {
+  color: var(--k-text-faint);
+}
+
+/*
  * The chips past the sixth (\`#1404\` decision 4). Quieter than the line it
  * follows, because it is the overflow and not a second header — and it takes
  * the margin the line above it gives up, so a header with a disclosure and one

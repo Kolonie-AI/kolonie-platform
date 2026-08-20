@@ -99,6 +99,12 @@ export type AtlasChip = {
  */
 export function atlasHeaderChips(
   entry: AtlasPublicEntry,
+  /**
+   * An override for the proved chip, for a caller that has computed one.
+   * Omitted, {@link atlasProvedChip} answers — so the ordering and the signal
+   * stay in one module and a test can still pin the position without building a
+   * figures fixture.
+   */
   extra: { readonly proved?: AtlasChip | undefined } = {},
 ): readonly AtlasChip[] {
   const earn = atlasEarnFacets(entry)
@@ -114,7 +120,7 @@ export function atlasHeaderChips(
      */
     atlasIsDualUse(entry) ? chip('worth holding, and pays', 'k-atlas-dual') : null,
     kindChip(entry),
-    extra.proved ?? null,
+    extra.proved ?? atlasProvedChip(entry),
     atlasShelfIsClaim(entry) ? chip(entry.category, null, entry.category) : shelfClauseChip(entry),
     operatorChip(entry),
   ]
@@ -187,4 +193,89 @@ const chip = (
 /** Lowercases the first character and leaves every other one alone. */
 function lowerFirst(text: string): string {
   return text.charAt(0).toLowerCase() + text.slice(1)
+}
+
+/**
+ * Whether anybody actually holds an account here, as a chip (`#1408`).
+ *
+ * ## Why this is a boolean where the issue asked for a number
+ *
+ * `#1408` decision 1 asks for **`N proved holds`**, and on almost every entry
+ * the Colony cannot say that. `proved` is a **count**, and `ATLAS_FIGURE_FLOOR`
+ * zeroes counts below five — `#909` on `kolonie-docs#352` settled why: *a
+ * citizen got into mail.tm* names nobody, and *three citizens did* is a number
+ * about three citizens. With 33 citizens, the Colony has almost no entry whose
+ * proved count clears the floor, so a chip printing the count would read
+ * `no proved hold yet` on providers a citizen demonstrably holds.
+ *
+ * That is not a hypothetical: `#1167` was filed about exactly it, measured on
+ * `telegram.org` with a live session held at the time the page was read, and it
+ * added {@link AtlasFigures.anyProved} — a boolean that survives the floor
+ * *because* it is not a count.
+ *
+ * So this reads the number where the number exists and the boolean otherwise.
+ * Decision 3 says *counts only, never which citizens*; a boolean is strictly
+ * more private than a count, so honouring the floor honours that decision
+ * harder rather than dodging it.
+ *
+ * ## The three states, and why the third is calm
+ *
+ * A measured entry nobody holds says so plainly. `#1408` decision 3 asks that
+ * zero not look like an error, and the reason it matters is that most of the
+ * catalogue is in this state: a chip that shouted would be shouting on every
+ * page. An entry nobody has walked gets **no chip at all** — it has not been
+ * measured, and *no proved hold yet* over it would be the page reporting the
+ * Colony's own coverage as a fact about the provider.
+ */
+export function atlasProvedChip(entry: AtlasPublicEntry): AtlasChip | null {
+  const measured = entry.recipes.some((recipe) => recipe.status !== 'unwritten')
+  if (!measured) return null
+
+  const figures = entry.recipes.flatMap((recipe) => (recipe.figures ? [recipe.figures] : []))
+  const held = figures.reduce((sum, one) => sum + (one.proved ?? 0), 0)
+  const any = figures.some((one) => one.anyProved === true)
+
+  if (held > 0) {
+    return chip(`${held} proved hold${held === 1 ? '' : 's'}`, 'k-atlas-proved')
+  }
+  if (any) return chip('a citizen holds one here', 'k-atlas-proved')
+
+  return chip('no proved hold yet', 'k-atlas-unproved')
+}
+
+/**
+ * How an entry sorts on an earn search (`#1408` decision 2).
+ *
+ * **Lower is earlier**, and the rungs are the frozen order: something held,
+ * then a written route, then a briefing, then a measurement, then silence.
+ *
+ * ## Sorting on a figure the page will not print
+ *
+ * The floor governs **publication** and not ranking, and the two are different
+ * acts: printing `3` says something about three citizens, while putting an entry
+ * above another one says only *this is the better bet*, which is what
+ * `atlasRank` has always answered from the same numbers. So the sort reads the
+ * count where it survives and falls back to `anyProved` where it does not, and
+ * neither number leaves the process.
+ *
+ * ## Why this is not a second opinion about what comes first
+ *
+ * `atlasByOutcome` still orders the catalogue, and this reorders **one filtered
+ * view that a reader explicitly asked for** — *which of these ways to earn is
+ * worth my afternoon*. Ties fall straight through to the catalogue's order, so
+ * where two entries are equally good bets the answer is still `atlasByOutcome`'s
+ * and there is no field here anybody could pay to move.
+ */
+export function atlasEarnRank(entry: AtlasPublicEntry): number {
+  const figures = entry.recipes.flatMap((recipe) => (recipe.figures ? [recipe.figures] : []))
+  const held =
+    figures.reduce((sum, one) => sum + (one.proved ?? 0), 0) > 0 ||
+    figures.some((one) => one.anyProved === true)
+
+  if (held) return 0
+  if (entry.recipes.some((recipe) => recipe.status === 'joinable')) return 1
+  if (entry.recipes.some((recipe) => recipe.status === 'measured')) return 2
+  if (entry.recipes.some((recipe) => recipe.status !== 'unwritten')) return 3
+
+  return 4
 }

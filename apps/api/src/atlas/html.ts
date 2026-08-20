@@ -61,7 +61,13 @@ import { ATLAS_PARTLY, atlasEntryVerdict, atlasRecipeVerdict } from './verdict.j
 import { ATLAS_REFUSING, atlasEntryTitle, lowerFirst, providerName } from './title.js'
 import { atlasStatusSubline } from './lead.js'
 import { atlasIcon } from './icons.js'
-import { atlasChipsShown, atlasHeaderChips, type AtlasChip } from './chips.js'
+import {
+  atlasChipsShown,
+  atlasEarnRank,
+  atlasHeaderChips,
+  atlasProvedChip,
+  type AtlasChip,
+} from './chips.js'
 import { atlasEarnFacets, atlasEarnPhrase, atlasEarnPhrasePlural } from './taxonomy.js'
 import { atlasRuntimeLine } from './runtimes.js'
 import { CONSOLE_MAST } from '../console/mark.js'
@@ -767,11 +773,28 @@ export function atlasSearchPage(input: {
    * partitions, so two reads of one query agree.
    */
   const found = atlasPublicEntries(input.entries)
+  /**
+   * **And within the earning half, what somebody actually holds comes first**
+   * (`#1408` decision 2). A reader who filtered for a way to earn is asking
+   * *which of these is worth my afternoon*, and `atlasByOutcome` cannot answer
+   * it — it orders the whole catalogue on evidence of getting in, which on this
+   * shelf is nearly uniform. The rungs are held, then a written route, then a
+   * measurement, then silence.
+   *
+   * **Stable within each rung**, so ties fall straight through to
+   * `atlasByOutcome` and two reads of one query agree. There is no field here
+   * anybody could pay to move: the ordering is computed from the register on
+   * every read.
+   */
   const shown =
     earn === undefined
       ? found
       : [
-          ...found.filter((entry) => atlasEarnFacets(entry).length > 0),
+          ...found
+            .filter((entry) => atlasEarnFacets(entry).length > 0)
+            .map((entry, order) => ({ entry, order }))
+            .sort((a, b) => atlasEarnRank(a.entry) - atlasEarnRank(b.entry) || a.order - b.order)
+            .map((one) => one.entry),
           ...found.filter((entry) => atlasEarnFacets(entry).length === 0),
         ]
 
@@ -1425,7 +1448,7 @@ function indexRow(entry: AtlasPublicEntry): string {
     (entry.description === null
       ? ''
       : `<br><small class="k-atlas-said">${escape(entry.description)}</small>`) +
-    `<br><small>${escape(kindsShown(entry))}${rowEarn(entry)}${escape(indexFigure(entry))} — ` +
+    `<br><small>${escape(kindsShown(entry))}${rowEarn(entry)}${rowProved(entry)}${escape(indexFigure(entry))} — ` +
     /**
      * **A chip and not the tail of a sentence** (`#1164`). It is the one fact
      * on the row that decides whether a reader has to volunteer an afternoon,
@@ -1438,6 +1461,27 @@ function indexRow(entry: AtlasPublicEntry): string {
     rowDirection(entry) +
     '</small></li>'
   )
+}
+
+/**
+ * Whether anybody holds an account here, on the row (`#1408`).
+ *
+ * **The provider header's chip, on the card**, for `rowEarn`'s reason one line
+ * below: a reader moves between a shelf and a page constantly, and a fact that
+ * wears one shape in one place and another in the other is a fact they have to
+ * re-learn at every hop.
+ *
+ * **`indexFigure` beside it is not a duplicate.** That one is a rate — *40% of
+ * five got through* — and is silent wherever the floor took the counts, which
+ * is most of the catalogue. This is the fact that survives the floor, and on a
+ * row where both print they answer different questions: how a walk tends to go,
+ * and whether anybody ended up with the account.
+ */
+function rowProved(entry: AtlasPublicEntry): string {
+  const found = atlasProvedChip(entry)
+  if (found === null) return ''
+
+  return ` <span class="${found.className}">${escape(found.text)}</span>`
 }
 
 /**

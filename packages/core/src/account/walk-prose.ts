@@ -134,8 +134,26 @@ export type WalkProseField = z.infer<typeof WalkProseFieldSchema>
  * re-read is the only thing that gives those nineteen a reason, and rule 4 above
  * bounds what it can cost: only refusals are re-opened, so the worst outcome is
  * a citizen getting back something it was denied.
+ *
+ * **4 since `#1469`, and this one moves a criterion on purpose.** The red-line
+ * prompt now says outright that a page describing a provider whose product *is*
+ * a program the account holder installs is describing the product rather than
+ * instructing the reader. On 2026-08-20 twelve walks on the bandwidth-selling
+ * shelf — honeygain, packetstream, earnapp, traffmonetizer, pawns.app, repocket,
+ * earn.fm, antgain, grass.io, surfe.be, addslice, edge.titannet — were refused
+ * for saying *install the client*, which on that shelf is the only truthful
+ * thing to say. The maintainer's decision is that those providers are open and
+ * marked at the entry
+ * (`state/decisions/resold-bandwidth-is-open-and-marked.md`), so the refusals
+ * were wrong under the rule the Colony now holds.
+ *
+ * **The bump is what repairs them.** Those twelve go back in front of the
+ * scrubber and are read again under the corrected prompt, which is the only
+ * mechanism that turns a decision into published walks — the walkers wrote the
+ * pages, and nothing else can give them back. Rule 4 bounds the cost as it
+ * always does: only refusals are re-opened.
  */
-export const WALK_PROSE_SCRUBBER_VERSION = 3
+export const WALK_PROSE_SCRUBBER_VERSION = 4
 
 /**
  * The wall, as a question rather than a label.

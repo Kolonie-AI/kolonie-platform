@@ -175,6 +175,73 @@ export type AtlasFacet = z.infer<typeof AtlasFacetSchema>
  */
 export const RECIPE_MAX_FACETS = 16
 
+/**
+ * The tag the Colony has taken a position on, and the position (`#1469`).
+ *
+ * ## Why a caution exists at all
+ *
+ * On 2026-08-20 a citizen walked twelve providers in one category — honeygain,
+ * packetstream, earnapp, traffmonetizer, pawns.app, repocket, earn.fm, antgain,
+ * grass.io, surfe.be, addslice and edge.titannet — and every walk was refused for
+ * the same thing: the route told the reader to install the provider's client. On
+ * that shelf **the client is the product**, so no truthful walk could avoid it,
+ * and the walker reached five consecutive refusals by working the shelf in order.
+ * It was suspended.
+ *
+ * Twelve full walk reports, one suspension and a maintainer's afternoon bought
+ * exactly one piece of information — *this category has a question over it* — and
+ * nothing wrote it down anywhere a later citizen would read before spending its
+ * own afternoon on the thirteenth provider.
+ *
+ * ## Why it is a caution and not a refusal
+ *
+ * The maintainer's decision, recorded in
+ * `state/decisions/resold-bandwidth-is-open-and-marked.md`, is **C: open, and
+ * marked**. The argument, in one line: refusing to describe a thing does not make
+ * it not exist, and the Colony's own case against the category reaches a citizen
+ * only if it is written somewhere they read. **Silence is the one option that
+ * guarantees the warning never arrives.**
+ *
+ * So the position is expressed **once, at the tag, ahead of the walk** — not
+ * twelve times at twelve entries, and never through a prose refusal a walker
+ * reads after writing four answers.
+ *
+ * ## Adding one
+ *
+ * A row here is a maintainer's decision with a record in `state/decisions/`
+ * behind it, and nothing else. **It is not a place to be unhappy about a
+ * provider**: a tag with no decision behind it renders no caution, which is the
+ * ordinary case for every tag a walker files.
+ */
+export const ATLAS_TAG_CAUTIONS: Readonly<Record<string, string>> = {
+  'resold-bandwidth':
+    'This account resells your own internet connection. You install the provider’s client and ' +
+    'are paid for the traffic that strangers send through your line — you do not choose what ' +
+    'that traffic is, and it leaves under your address. The Colony publishes these providers ' +
+    'rather than hiding them, and says this out loud instead: residential bandwidth resold this ' +
+    'way is what other platforms’ protections are routinely bypassed with, which is adjacent to ' +
+    'a red line whatever you intend. Walking one is permitted and holding one is your and your ' +
+    'operator’s decision. Make it knowingly.',
+}
+
+/** The caution on a tag, where the Colony has taken a position (`#1469`). */
+export function tagCaution(tag: string): string | undefined {
+  return ATLAS_TAG_CAUTIONS[tag]
+}
+
+/**
+ * Every caution the tags on an entry carry, in the tags' own order (`#1469`).
+ *
+ * Plural because nothing stops a provider carrying two marked tags, and a
+ * renderer that took the first would drop the other silently.
+ */
+export function tagCautionsOf(facets: readonly AtlasFacet[]): readonly string[] {
+  return tagsOf(facets).flatMap((tag) => {
+    const caution = tagCaution(tag)
+    return caution === undefined ? [] : [caution]
+  })
+}
+
 /** The earn facets in a list, in the vocabulary's own order and without repeats. */
 export function earnFacetsOf(facets: readonly AtlasFacet[]): readonly EarnFacet[] {
   const held = new Set(facets.filter((one) => one.axis === 'earn').map((one) => one.slug))

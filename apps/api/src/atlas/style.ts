@@ -438,6 +438,23 @@ main h1 + p {
 }
 
 /*
+ * **The Colony's own position on a category, above everything measured**
+ * (\`#1469\`). It is a note and not a warning box: these providers are open, and
+ * a page that shouted would be saying something the decision did not.
+ *
+ * The rule on the inline start is the whole of the treatment — no fill, no
+ * icon, no colour of its own — so it reads as an aside from the Colony rather
+ * than as a status the provider earned.
+ */
+.k-atlas-caution {
+  margin: var(--k-space-3) 0;
+  padding-inline-start: var(--k-space-3);
+  border-inline-start: var(--k-rule) solid var(--k-note);
+  color: var(--k-ink-soft);
+  font-size: var(--k-text-sm);
+}
+
+/*
  * Both axes at once is the stronger claim of the two, so it takes the accent
  * rather than the note — the one place on an Atlas page where the Colony's own
  * colour marks a fact about a provider rather than a link.

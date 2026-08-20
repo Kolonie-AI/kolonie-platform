@@ -2325,6 +2325,13 @@
       "when": 1787258991042,
       "tag": "0331_whole_captain_midlands",
       "breakpoints": true
+    },
+    {
+      "idx": 332,
+      "version": "7",
+      "when": 1787259051042,
+      "tag": "0332_the_bandwidth_shelf_is_marked",
+      "breakpoints": true
     }
   ]
 }

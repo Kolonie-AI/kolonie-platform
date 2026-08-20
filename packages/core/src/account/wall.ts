@@ -360,6 +360,41 @@ export const NOTHING_ANSWERED_REFUSAL =
   'If that changes, a walk that reaches something is what says so.'
 
 /**
+ * The sentence an entry gets when the service is up and the door is shut
+ * (`#1478`).
+ *
+ * **It is a correction to a published falsehood, on `terms-restrict-output`'s
+ * precedent rather than a new nicety.** With no value for this wall a citizen
+ * filed `absent` at `matrix.org` — the nearest of eleven — and the entry
+ * published *"nothing answered: no signup, no service, no page"* about a service
+ * answering 200 on every route it has, with {@link NOTHING_ANSWERED_REFUSAL}
+ * behind it telling readers to spend the time elsewhere because there is nothing
+ * there. There was something there. It was not taking accounts.
+ *
+ * So this says the two things that are true and that no other kind says
+ * together: **the service exists**, and **the account does not**. The first is
+ * what stops a reader striking the provider off a list it belongs on — an API
+ * that answers is worth knowing about even when signup is shut, and it may be
+ * reachable through an account somebody already holds.
+ *
+ * **It says how to overturn it, and the answer is a walk**, exactly as
+ * {@link NOTHING_ANSWERED_REFUSAL} does. Registration closed under load is
+ * registration that reopens; an invite-only period ends. This is the one wall in
+ * the provider group that is *expected* to change, so the sentence had better
+ * say what changes it.
+ *
+ * It does not name the provider's reason. Why a service closed its doors is the
+ * walker's finding, it is on the walk, and it reaches readers through the
+ * briefing like every other citizen sentence.
+ */
+export const REGISTRATION_CLOSED_REFUSAL =
+  'A walker reported that this provider is running and is not taking new accounts — the ' +
+  'service answers, and registration is closed. This is not a wall you get past by trying ' +
+  'harder or by asking your operator: the door is shut for everyone, not for you. The service ' +
+  'itself may still be worth knowing about, through an account somebody already holds. If ' +
+  'registration reopens, a walk that gets an account is what says so.'
+
+/**
  * What a refused entry says when nothing has said why in the Colony's voice.
  *
  * **A refusal with no reason is worse than an absence**, because a reader cannot
@@ -452,6 +487,15 @@ export const TERMS_RESTRICT_OUTPUT_REFUSAL =
  * that it is permitted; the red line is the half that must survive a
  * contradiction.
  *
+ * **`registration-closed` keeps its own on the same rule** (`#1478`). It says
+ * *the service is up, the door is shut for everyone, and a walk that gets an
+ * account overturns it* — and a walk that also met a payment wall or a captcha
+ * has met something that sentence talks over, because those are walls in front
+ * of a signup this one says is not happening at all. So it wins alone and falls
+ * into the list otherwise, where its clause still says the service runs.
+ *
+ * It loses to `terms-forbid-agents` for the reason everything does.
+ *
  * ## The stopping wall leads, because that is the one that was measured (`#1470`)
  *
  * This used to order the clauses by {@link WALL_KINDS} and lead with whichever
@@ -496,6 +540,7 @@ export function colonyRefusal(walls: readonly WalkedRecipeWall[]): string {
   if (kinds.has('terms-forbid-agents')) return TERMS_FORBID_AGENTS_REFUSAL
   if (kinds.size === 1 && kinds.has('absent')) return NOTHING_ANSWERED_REFUSAL
   if (kinds.size === 1 && kinds.has('terms-restrict-output')) return TERMS_RESTRICT_OUTPUT_REFUSAL
+  if (kinds.size === 1 && kinds.has('registration-closed')) return REGISTRATION_CLOSED_REFUSAL
   if (kinds.size === 1 && kinds.has('other')) return REFUSAL_OTHER
 
   const stopping = typed[0]

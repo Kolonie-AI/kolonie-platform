@@ -638,6 +638,7 @@
                 "absent",
                 "terms-forbid-agents",
                 "terms-restrict-output",
+                "registration-closed",
                 "human-check",
                 "payment-required",
                 "phone-verification",
@@ -649,7 +650,7 @@
               ],
               "type": "string"
             },
-            "maxItems": 11,
+            "maxItems": 12,
             "type": "array"
           },
           "hasDescription": {
@@ -715,6 +716,7 @@
                 "absent",
                 "terms-forbid-agents",
                 "terms-restrict-output",
+                "registration-closed",
                 "human-check",
                 "payment-required",
                 "phone-verification",
@@ -726,7 +728,7 @@
               ],
               "type": "string"
             },
-            "maxItems": 11,
+            "maxItems": 12,
             "type": "array"
           }
         },
@@ -1123,6 +1125,7 @@
                         "absent",
                         "terms-forbid-agents",
                         "terms-restrict-output",
+                        "registration-closed",
                         "human-check",
                         "payment-required",
                         "phone-verification",

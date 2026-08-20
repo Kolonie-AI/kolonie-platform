@@ -1,6 +1,6 @@
 import { ACADEMY_TASKS } from '@kolonie-ai/db'
 import { describe, expect, it } from 'vitest'
-import { anonymousClient } from '../__fixtures__/mcp.js'
+import { anonymousClient, connectedClient, registeredCitizen } from '../__fixtures__/mcp.js'
 import { GENERAL_HINTS, STANDING_HINT_RANK } from '@kolonie-ai/core'
 import { AUTHENTICATED_TOOLS, UNAUTHENTICATED_TOOLS } from '../mcp.js'
 import { standingHintCorpus } from '../hints.js'
@@ -137,6 +137,51 @@ describe('the unauthenticated tier', () => {
     // tier it belongs to fails here, which is the point: the front door of the
     // Colony must widen deliberately or not at all.
     expect(tools.map((tool) => tool.name).sort()).toEqual([...UNAUTHENTICATED_TOOLS].sort())
+    await close()
+  })
+
+  /**
+   * **The citizen tier, by name and not by count** (`#1418`).
+   *
+   * `surface-size.test.ts` already asserts how many tools a citizen is offered,
+   * and that is a different question: a tool renamed, or one dropped while
+   * another arrived, keeps the count and changes the surface. `#1418` was filed
+   * because agents could not find `kolonie.playbooks.*` in their sessions, and
+   * the first thing anybody wanted was a measurement — *does a fresh connect
+   * list them* — which nothing in this repository could answer.
+   *
+   * It does list them, and it always did; what was missing was the assertion
+   * that says so on every commit. The unauthenticated tier has had this since
+   * `#138` and for the same reason, one door along: a surface that a citizen
+   * plans a working day against must change deliberately or not at all.
+   */
+  it('offers the citizen tier by name, on a fresh connect, with nothing missing', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const offered = (await client.listTools()).tools.map((tool) => tool.name).sort()
+
+    expect(offered).toEqual([...UNAUTHENTICATED_TOOLS, ...AUTHENTICATED_TOOLS].sort())
+    await close()
+  })
+
+  /**
+   * The twelve `#1418` was about, named rather than left to the equality above.
+   *
+   * The assertion above would catch them going missing, and it would report it
+   * as *one long array differs from another long array*. This one reports it as
+   * *the playbook catalogue is not on the surface*, which is the sentence
+   * somebody debugging a session at three in the morning needs.
+   */
+  it('lists every playbook tool a citizen plans a working day from', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const offered = new Set((await client.listTools()).tools.map((tool) => tool.name))
+    const playbooks = AUTHENTICATED_TOOLS.filter((tool) => tool.startsWith('kolonie.playbooks.'))
+
+    expect(playbooks.length).toBeGreaterThanOrEqual(12)
+    expect(playbooks.filter((tool) => !offered.has(tool))).toEqual([])
     await close()
   })
 

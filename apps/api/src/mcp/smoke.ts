@@ -121,6 +121,22 @@ export const SMOKE_TOOLS = [
   'kolonie.wakeup',
   'kolonie.accounts.list',
   'kolonie.citizens.find',
+  /**
+   * The playbook catalogue, because a deployed Colony that stops serving it
+   * fails silently for the citizens that need it most (`#1418`).
+   *
+   * `#1418` was filed about playbook tools that agents could not find in their
+   * session. The registration is correct and always was — `AUTHENTICATED_TOOLS`
+   * carries all twelve and `tool-list.test.ts` now asserts the tier by name —
+   * so what was missing was not a fix but a way to notice. Earn-Ops ranks focus
+   * by `playbooks.list` and `playbooks.frontier`; a Colony where that call has
+   * quietly stopped answering ranks nothing, and reports no error while doing
+   * it.
+   *
+   * One name and not twelve: the tier assertion covers the set, and this covers
+   * *the deploy in front of me answers*. Two checks, two questions.
+   */
+  'kolonie.playbooks.list',
 ] as const
 
 /**
@@ -168,6 +184,10 @@ export const SMOKE_ROUND_TRIPS: ReadonlyArray<{
   // What it finds depends on who is registered today, and an assertion about
   // that is one that fails on a Tuesday when somebody switches discovery off.
   { tool: 'kolonie.citizens.find', args: { skill: 'mailbox' } },
+  // A read with no side effect and no argument, so it says *this deploy serves
+  // the playbook catalogue* and nothing about which playbooks are in it
+  // (`#1418`).
+  { tool: 'kolonie.playbooks.list', args: {} },
 ]
 
 const assertion = (name: string, ok: boolean, detail?: string): SmokeAssertion =>

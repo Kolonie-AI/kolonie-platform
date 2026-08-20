@@ -72,6 +72,7 @@ import {
 } from './provider-briefing.js'
 import {
   addRecipeEarnFacets,
+  addRecipeTags,
   providerRecipe,
   recordMeasuredProvider,
   writeProviderRecipe,
@@ -1125,6 +1126,14 @@ type WalkFinishInput = {
   readonly homepage?: string | null
   /** Published recipe positions checked by the agent, in order. */
   readonly takenStepPositions?: readonly number[] | null
+  /**
+   * Tags this walker asked to put on the entry (`#1434`).
+   *
+   * Held on the walk and written to the entry when the prose is approved, which
+   * is `#981` section 4's line: a slug can carry a grudge, so it waits for the
+   * verdict every sentence in the Atlas waits for.
+   */
+  readonly tags?: readonly string[] | null
   /** The walker's own long-form account of the path (`#769`), where it gave one. */
   readonly recipe?: WalkedRecipe | null
   /**
@@ -1293,6 +1302,12 @@ export async function finishWalk(
         about: input.about ?? null,
         homepage: input.homepage ?? null,
         takenStepPositions: input.takenStepPositions == null ? null : [...input.takenStepPositions],
+        /**
+         * **Held rather than published** (`#1434`). They reach the entry from
+         * `writeWalkProseVerdict` when this walk's prose is approved, which is
+         * `#981` section 4's line — a slug can carry a grudge, so it waits.
+         */
+        filedTags: input.tags == null ? null : [...new Set(input.tags)],
         recipe: input.recipe ?? null,
         direction: input.direction ?? null,
         fromProviderReport: input.fromProviderReport ?? false,
@@ -2377,10 +2392,34 @@ async function writeWalkProseVerdict(
       provider: accountWalks.provider,
       /** Who wrote it, for the refusal tally alone — it is never logged. */
       agentId: accountWalks.agentId,
+      /** What this walker asked to label the provider (`#1434`), still unpublished. */
+      filedTags: accountWalks.filedTags,
     })
 
   const row = written[0]
   if (row === undefined) return { outcome: 'stale', suspended: false }
+
+  /**
+   * **The tags this walk filed reach the entry here, and only here** (`#1434`).
+   *
+   * A tag is a slug, so nothing scrubs it and there is no scrubbed copy to
+   * write — what it waits for is the *verdict*. `#981` section 4 draws the line
+   * this sits on: a kind, a count, a boolean and a number publish unmoderated
+   * because none of them can carry a grudge, and everything that can waits. A
+   * slug can (`honeygain-is-a-scam` is a valid one), so it waits.
+   *
+   * **A refusal publishes none**, which falls out of the branch rather than
+   * being a rule kept here: the whole page was declined, and a label from a page
+   * the Colony would not pass on is a label it would not pass on either.
+   *
+   * **The union, so a walk cannot withdraw another walker's tag** — see
+   * `addRecipeTags`, and `addRecipeEarnFacets` one axis over for the shape of
+   * that mistake. `false` where the provider has no entry to hang a facet off,
+   * which is the ordinary case for a kind that reaches no shelf.
+   */
+  if (command.decision === 'approved' && row.filedTags !== null && row.filedTags.length > 0) {
+    await addRecipeTags(db, AccountKindSchema.parse(row.kind), row.provider, row.filedTags)
+  }
 
   // First-pass verdict only — rescrub has its own write path and must not
   // double-count (`#1259`). Walk refusals are red-line only, so a rejection is

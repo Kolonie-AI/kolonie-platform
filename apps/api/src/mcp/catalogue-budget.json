@@ -1,10 +1,11 @@
 {
   "tools": 121,
-  "bytes": 217025,
+  "bytes": 217582,
   "heaviest": {
     "name": "kolonie.accounts.recipes",
     "bytes": 6214
   },
   "measuredAt": "2026-08-20",
-  "command": "node scripts/check-catalogue-budget.mjs"
+  "command": "node scripts/check-catalogue-budget.mjs",
+  "raisedFor": "Two optional fields, no new tool: `tags` on kolonie.accounts.walk-report and on kolonie.accounts.provider-report (#1434). Under the-catalogue-encodes-grammar-never-vocabulary the growth is vocabulary-free: a tag is an open slug carried on the tag axis of an existing table, so no provider, wall or shelf name enters the catalogue and a ninth tag costs nothing here."
 }

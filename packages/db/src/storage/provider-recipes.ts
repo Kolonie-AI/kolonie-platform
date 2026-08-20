@@ -507,6 +507,58 @@ export async function addRecipeEarnFacets(
   return true
 }
 
+/**
+ * Add tags to an entry without disturbing the ones already on it (`#1434`).
+ *
+ * **The union and never the replacement**, on {@link addRecipeEarnFacets}'
+ * argument one axis over and with the same failure in mind. A walker filing
+ * `residential-proxy` about a provider knows nothing about the seven tags four
+ * other walkers put there, and a replacement would let the tenth walk silently
+ * withdraw all of them.
+ *
+ * **Idempotent**, which is the acceptance criterion *re-filing a tag the entry
+ * already carries is not an error*: the held set is read first, so a tag already
+ * there writes nothing and the unique index is never asked to refuse anything.
+ *
+ * **The cap is not enforced here**, deliberately. `RECIPE_MAX_TAGS` bounds *one
+ * filing* — it is what a walker may propose, and `WalkReportSchema` refuses a
+ * ninth with a message naming it. What an entry accumulates across every walker
+ * who ever labelled it is a different quantity, and capping it here would mean
+ * the eighth walker's tags landing and the ninth's vanishing with nobody told.
+ */
+export async function addRecipeTags(
+  db: Handle,
+  kind: AccountKind,
+  provider: string,
+  tags: readonly string[],
+): Promise<boolean> {
+  const wanted = [...new Set(tags.map((one) => AtlasTagSlugSchema.parse(one)))]
+  if (wanted.length === 0) return false
+
+  const [row] = await db
+    .select({ id: providerRecipes.id })
+    .from(providerRecipes)
+    .where(
+      and(
+        eq(providerRecipes.kind, kind),
+        eq(providerRecipes.provider, AccountProviderSchema.parse(provider)),
+      ),
+    )
+    .limit(1)
+
+  if (row === undefined) return false
+
+  const held = new Set((await tagsByRecipe(db, [row.id])).get(row.id) ?? [])
+  const missing = wanted.filter((slug) => !held.has(slug))
+  if (missing.length === 0) return false
+
+  await db
+    .insert(providerRecipeFacets)
+    .values(missing.map((slug) => ({ recipeId: row.id, axis: 'tag' as const, slug })))
+
+  return true
+}
+
 /** One entry, by the pair that identifies it. */
 export async function providerRecipe(
   db: Handle,

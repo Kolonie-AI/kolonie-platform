@@ -5,6 +5,8 @@ import {
   RecipeDirectionSchema,
   SubmittedWalkedRecipeSchema,
   directionAnswers,
+  AtlasTagSlugSchema,
+  RECIPE_MAX_TAGS,
   WalkOutcomeSchema,
   WalkTakenStepPositionsSchema,
   RECIPE_REFUSAL_MAX_LENGTH,
@@ -124,6 +126,14 @@ export interface WalkStore {
       /** Canonical https homepage (`#1296`), where the walk said. */
       readonly homepage?: string | null
       readonly takenStepPositions?: readonly number[] | null
+      /**
+       * Free-form tags for the provider's entry (`#1434`).
+       *
+       * On the port for the reason `recipe` and `direction` are: the tool has
+       * been passing it since it existed, and a port that does not say so is one
+       * a fake can satisfy while dropping the field.
+       */
+      readonly tags?: readonly string[] | null
       /**
        * **The walker's own account, declared on the port at last** (`#982`).
        *
@@ -1134,6 +1144,24 @@ export const WalkReportSchema = z
      * row** (`#1296`), together with `homepage`.
      */
     about: WalkNoteSchema.optional(),
+    /**
+     * Free-form tags to put on this provider's entry (`#1434`, `#1406`
+     * decision 3).
+     *
+     * **Held, not published on filing.** A tag is public text under nobody's
+     * handle. A slug cannot carry a credential, so there is nothing to scrub —
+     * but it can carry a grudge, and `#981` section 4 already draws that line:
+     * counts and kinds publish unmoderated, and anything that could carry one
+     * waits for the verdict every other sentence in the Atlas waits for. So a
+     * filed tag rides on the walk and reaches the entry when that walk's prose is
+     * approved. A refused walk publishes no tag, exactly as it publishes no
+     * prose.
+     *
+     * Capped at `RECIPE_MAX_TAGS`, and each one checked against
+     * `AtlasTagSlugSchema` — so *what a tag looks like* is refused here rather
+     * than at the table.
+     */
+    tags: z.array(AtlasTagSlugSchema).max(RECIPE_MAX_TAGS).optional(),
     /**
      * Canonical https homepage URL (`#1296`).
      *

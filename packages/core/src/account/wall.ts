@@ -452,28 +452,106 @@ export const TERMS_RESTRICT_OUTPUT_REFUSAL =
  * that it is permitted; the red line is the half that must survive a
  * contradiction.
  *
- * Ordered by {@link WALL_KINDS} rather than by the order the walker listed them,
- * so two walks that hit the same walls produce the same sentence.
+ * ## The stopping wall leads, because that is the one that was measured (`#1470`)
+ *
+ * This used to order the clauses by {@link WALL_KINDS} and lead with whichever
+ * came first in that list, which is a rank the Colony invented and not a fact
+ * about the walk. A citizen measured what that costs: at `slack.com` they filed
+ * `other` first — an explicit age assertion in the user terms, which is what
+ * stopped them — and `human-check` second, a score-based reCAPTCHA that they
+ * had established asks nothing and stopped nothing. The entry read
+ * *"What stopped it: a CAPTCHA, a Turnstile, a device attestation."* **The
+ * second wall displaced the first, and then `#1298`'s rule dropped the first
+ * entirely** — so the page told every later reader the opposite of what had been
+ * measured, and said so under the name of the walker who measured it.
+ *
+ * **So the first wall in the walker's own list leads the sentence.** The order
+ * is already carried and no field had to be invented for it; a walker that lists
+ * what stopped it first is a walker being read the way it wrote. Whatever else
+ * it met follows, ordered by {@link WALL_KINDS} so that the tail of two walks
+ * that met the same things reads the same way.
+ *
+ * **`other` is never dropped when it is the stopping wall.** `#1298` is right
+ * that *none of the above* is not a criterion a reader can act on, and it stays
+ * dropped from the tail. But dropping the wall the walk actually stopped at
+ * publishes the walk's second finding as its first, which is the defect above.
+ * Where the stop is `other`, the sentence says so and sends the reader to the
+ * briefing, which is where the walker's own words about it land.
+ *
+ * **A `human-check` that poses no question does not read as a CAPTCHA**
+ * (`#1470`). `posesHumanityQuestion: false` has been on the wall since `#981`
+ * and {@link wallVerdictAsText} has rendered it since; this sentence ignored it,
+ * so a walker that went to the trouble of establishing that a score-based check
+ * asks nothing had *a CAPTCHA, a Turnstile, a device attestation* published in
+ * its name anyway. A check that never poses the question is not the wall a
+ * reader is thinking of when they read the word captcha, and the two are worth
+ * separating precisely because one of them is a red line and the other is not.
  */
 export function colonyRefusal(walls: readonly WalkedRecipeWall[]): string {
-  const kinds = new Set(walls.flatMap((wall) => (wall.kind === undefined ? [] : [wall.kind])))
+  const typed = walls.filter(
+    (wall): wall is WalkedRecipeWall & { kind: WallKind } => wall.kind !== undefined,
+  )
+  const kinds = new Set(typed.map((wall) => wall.kind))
+
   if (kinds.has('terms-forbid-agents')) return TERMS_FORBID_AGENTS_REFUSAL
   if (kinds.size === 1 && kinds.has('absent')) return NOTHING_ANSWERED_REFUSAL
   if (kinds.size === 1 && kinds.has('terms-restrict-output')) return TERMS_RESTRICT_OUTPUT_REFUSAL
   if (kinds.size === 1 && kinds.has('other')) return REFUSAL_OTHER
 
+  const stopping = typed[0]
+  if (stopping === undefined) return REFUSAL_UNSTATED
+
   /**
-   * Drop `other` from the list when anything typed sits beside it (`#1298`).
-   * *None of the above* is not a criterion; the briefing carries what the walker
-   * actually wrote, and the typed kinds are what a reader can act on here.
+   * The tail: everything else the walk met, by {@link WALL_KINDS} so it is
+   * stable, and without the stopping wall repeated in it. `other` is dropped
+   * here and only here (`#1298`).
    */
-  const named = WALL_KINDS.filter((kind) => kinds.has(kind) && kind !== 'other').map(
-    (kind) => WALL_KIND_MEANINGS[kind],
-  )
-  if (named.length === 0) return kinds.has('other') ? REFUSAL_OTHER : REFUSAL_UNSTATED
+  const firstOfKind = new Map<WallKind, WalkedRecipeWall & { kind: WallKind }>()
+  for (const wall of typed) if (!firstOfKind.has(wall.kind)) firstOfKind.set(wall.kind, wall)
+
+  const rest = WALL_KINDS.filter(
+    (kind) => kinds.has(kind) && kind !== stopping.kind && kind !== 'other',
+  ).map((kind) => {
+    /**
+     * The wall and not the bare kind, so the tail reads the fields beside it
+     * exactly as the lead does. A `human-check` that poses no question is not a
+     * captcha wherever it appears in the sentence, and rendering it as one in
+     * the tail would have been the same defect one clause further along.
+     */
+    const wall = firstOfKind.get(kind)
+    return wall === undefined ? WALL_KIND_MEANINGS[kind] : wallMeaning(wall)
+  })
+
+  const alsoMet = rest.length === 0 ? '' : ` It also met: ${rest.join('; ')}.`
+
+  if (stopping.kind === 'other') {
+    return (
+      'A walk closed here without the account, and what stopped it does not fit the typed kinds ' +
+      `the Colony publishes on this page.${alsoMet} ` +
+      'What the walker wrote about it reaches this entry’s briefing once it has been read.'
+    )
+  }
 
   return (
-    `A walk closed here without the account. What stopped it: ${named.join('; ')}. ` +
+    `A walk closed here without the account. What stopped it: ${wallMeaning(stopping)}.${alsoMet} ` +
     'What the walker wrote about it reaches this entry’s briefing once it has been read.'
   )
+}
+
+/**
+ * What one wall means, in the Colony's words, reading the fields beside its kind
+ * (`#1470`).
+ *
+ * Only `human-check` reads a second field today, and it is the one a walker can
+ * establish from the delivered page: a score-based check that poses no question
+ * is not the *"prove you are human"* box the plain meaning describes, and
+ * publishing it as one contradicts the measurement. `RED-LINES.md` separates the
+ * two in as many words — *a challenge that never asks whether you are human
+ * receives no false answer* — so the Atlas should not collapse them.
+ */
+function wallMeaning(wall: WalkedRecipeWall & { kind: WallKind }): string {
+  if (wall.kind === 'human-check' && wall.posesHumanityQuestion === false) {
+    return 'an automated check that never asks whether you are human — a score, not a question'
+  }
+  return WALL_KIND_MEANINGS[wall.kind]
 }

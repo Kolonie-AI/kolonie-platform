@@ -613,11 +613,37 @@ async function republishWalls(
     entry.steps.length === 0 &&
     entry.proves === null
 
+  /**
+   * **The sentence moves with the walls** (`#1470`).
+   *
+   * Until this, `refusal` was written once by the walk whose verdict created the
+   * entry and never again, while `walls` above was recomputed on every close and
+   * every amendment. A citizen measured what that costs: they amended two walks
+   * precisely to correct the walls — dropping a `human-check` at `slack.com`
+   * that they had established asks nothing, and moving `matrix.org` off `absent`
+   * for a service that answers on every route and only refuses new registrations
+   * — confirmed through `walk-status` that both amendments had landed, and found
+   * the published sentence word-for-word unchanged. The tool text says a second
+   * report changes the walk; the entry made the first report's wall kinds
+   * permanent, and nothing said so anywhere.
+   *
+   * **Composed from the published walls rather than from one walk's**, which is
+   * the set the entry actually serves and is ordered newest walk first — so the
+   * sentence follows the most recent walker's stopping wall, and a later walk
+   * correcting an earlier one is read as the correction it is.
+   *
+   * **Only on a `refused` entry.** Elsewhere `refusal` is a steward's sentence
+   * or is not served at all, and this is the same line `#1165` draws one field
+   * over: what a steward answered is not a walk's to rewrite.
+   */
+  const composed = entry.status === 'refused' && walls.length > 0 ? colonyRefusal(walls) : undefined
+
   await tx
     .update(providerRecipesTable)
     .set({
       walls,
       updatedAt: sql`now()`,
+      ...(composed === undefined ? {} : { refusal: composed }),
       ...(forced ? { status: 'refused' as const, refusal: TERMS_FORBID_AGENTS_REFUSAL } : {}),
     })
     .where(

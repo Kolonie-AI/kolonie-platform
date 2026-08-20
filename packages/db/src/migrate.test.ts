@@ -2,13 +2,40 @@ import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { sql } from 'drizzle-orm'
+import { is, sql } from 'drizzle-orm'
+import { isPgEnum, PgTable } from 'drizzle-orm/pg-core'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import { createDatabase, type Database } from './client.js'
 import { readJournal } from './migrations.js'
+import * as schema from './schema/index.js'
 import { databaseTestTarget, MIGRATIONS_FOLDER, resetDatabase } from './testing.js'
 
 const target = databaseTestTarget()
+
+/**
+ * How many tables and enums the schema declares, counted rather than typed
+ * (`#1465`).
+ *
+ * **Both numbers used to be written out by hand**, and that made this file
+ * collide with itself: two branches adding a table both wrote `153`, both were
+ * right until one of them landed, and every rebase in between resolved a
+ * conflict that was never about either change. `#951` made the same argument
+ * about `CHANGELOG.md` and reached the same answer — the fix is not a better
+ * merge, it is for the shared number to stop being authored.
+ *
+ * Deriving it also makes the assertion say more than it did. `152` asserted
+ * that the migrations build a hundred and fifty-two tables, and nothing at all
+ * about whether those are the hundred and fifty-two the schema declares. This
+ * asserts that the two agree, so a table added to `schema/index.js` with no
+ * migration behind it fails here rather than at whatever query first misses it.
+ *
+ * `schema/schema.test.ts` still names every table, so *which* tables is checked
+ * and not only how many. The triggers below stay a hand-written number: they
+ * live in the migration SQL and there is nothing in the barrel to count.
+ */
+const declared = Object.values(schema)
+const DECLARED_TABLES = declared.filter((value) => is(value, PgTable)).length
+const DECLARED_ENUMS = declared.filter((value) => isPgEnum(value)).length
 
 /**
  * The two properties a migration has to have before it is allowed near a live
@@ -642,7 +669,15 @@ describe('the migrations', () => {
     // verdict is worth keeping, and a longer replaceable field still cannot hold
     // the sequence — the second week correcting the first. Rows accumulate; a
     // column cannot.
-    expect(afterFirst.tables).toBe('152')
+    //
+    // **Nothing is added to the list above.** It is the record of how the schema
+    // reached its present shape and it stays readable, but a table that arrives
+    // after `#1465` documents itself in `schema/schema.test.ts`, beside its own
+    // name in the alphabetical list — which is where every table here is already
+    // described a second time. Two branches adding two tables write two
+    // paragraphs at two different letters and never meet; two branches appending
+    // to this block always did.
+    expect(afterFirst.tables).toBe(String(DECLARED_TABLES))
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and
@@ -796,7 +831,10 @@ describe('the migrations', () => {
     // and nothing publishes. Two members and no third: a route a citizen could
     // invent is one the override could not constrain, and the override is the
     // whole point of the column.
-    expect(afterFirst.enums).toBe('64')
+    // Counted from the barrel for the same reason the tables are, and the enums
+    // needed it just as badly: `#1344` and `#1439` were open in the same week and
+    // an enum is one line further down the same file.
+    expect(afterFirst.enums).toBe(String(DECLARED_ENUMS))
     // Two: the deferred double-entry constraint trigger on `ledger_entries`, and
     // `submissions_one_pass_per_quest` (#175) — one accepted submission per
     // citizen per quest, which is a trigger rather than a partial unique index

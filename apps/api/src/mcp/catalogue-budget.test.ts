@@ -15,6 +15,7 @@ import {
   floorMove,
   GRAMMAR_RECORD,
   heaviestTool,
+  mainFloorRatchet,
   raiseIsJustified,
   type CatalogueBudget,
 } from './catalogue-budget.js'
@@ -339,6 +340,122 @@ describe('a pull request against its merge base', () => {
       expect(verdict.within).toBe(true)
       expect(verdict.direction).toBe('under')
     })
+  })
+})
+
+/**
+ * `#1465`: the floor stopped being a number anybody types.
+ *
+ * Every branch that grew the surface used to edit the same integer, so two of
+ * them conflicted by construction and the resolution — `main`'s value plus this
+ * branch's delta — is one git cannot compute. What made that dangerous rather
+ * than tedious is that getting it wrong is *green on the branch*: the branch
+ * gate weighs head against merge base and never reads the file at all.
+ */
+describe('what main does with a measurement (#1465)', () => {
+  const floor: CatalogueBudget = {
+    tools: 121,
+    bytes: 217_025,
+    heaviest: { name: 'kolonie.accounts.recipes', bytes: 6214 },
+    measuredAt: '2026-08-20',
+    command: 'node scripts/check-catalogue-budget.mjs',
+  }
+
+  const justified =
+    'Let a walker file tags on walk-report\n\n' +
+    `A new verb, so the floor rises. Under ${GRAMMAR_RECORD} the growth is ` +
+    'vocabulary-free: it names no provider, kind or wall.'
+  const unjustified = 'Let a walker file tags on walk-report\n\nFloor bumped.'
+
+  it('writes a raise the landing commit justifies, with the figure it measured', () => {
+    const verdict = mainFloorRatchet(
+      { tools: floor.tools + 1, bytes: floor.bytes + 1493 },
+      floor,
+      justified,
+    )
+
+    expect(verdict.outcome).toBe('raised')
+    expect(verdict.totals).toEqual({ tools: floor.tools + 1, bytes: floor.bytes + 1493 })
+    expect(verdict.message).toContain(String(floor.bytes + 1493))
+  })
+
+  /**
+   * The sentence is recorded where a later reader can find it, which is the
+   * `#1317` repair: the floor's own file says why it stands where it does,
+   * rather than only a commit somewhere behind it.
+   */
+  it('records the justification on the raise it writes', () => {
+    const verdict = mainFloorRatchet(
+      { tools: floor.tools, bytes: floor.bytes + 40 },
+      floor,
+      justified,
+    )
+
+    expect(verdict.raisedFor).toContain(GRAMMAR_RECORD)
+    expect(verdict.raisedFor).toContain('vocabulary-free')
+  })
+
+  /** A raise still costs a sentence. Automatic is not the same as free. */
+  it('refuses a raise the landing commit does not justify, and writes nothing', () => {
+    const verdict = mainFloorRatchet(
+      { tools: floor.tools + 1, bytes: floor.bytes + 1493 },
+      floor,
+      unjustified,
+    )
+
+    expect(verdict.outcome).toBe('refused')
+    expect(verdict.totals).toBeUndefined()
+    expect(verdict.message).toContain(GRAMMAR_RECORD)
+  })
+
+  /** A push with no message to read is the same refusal, not a silent pass. */
+  it('refuses a raise with no landing message at all', () => {
+    const verdict = mainFloorRatchet({ tools: floor.tools, bytes: floor.bytes + 1 }, floor)
+
+    expect(verdict.outcome).toBe('refused')
+    expect(verdict.totals).toBeUndefined()
+  })
+
+  /** A saving is bookkeeping and has cost nothing since `#1118`. */
+  it('lowers without asking for a sentence', () => {
+    const verdict = mainFloorRatchet(
+      { tools: floor.tools - 1, bytes: floor.bytes - 900 },
+      floor,
+      unjustified,
+    )
+
+    expect(verdict.outcome).toBe('lowered')
+    expect(verdict.totals).toEqual({ tools: floor.tools - 1, bytes: floor.bytes - 900 })
+    expect(verdict.raisedFor).toBeUndefined()
+  })
+
+  it('writes nothing when the measurement is exactly the floor', () => {
+    const verdict = mainFloorRatchet({ tools: floor.tools, bytes: floor.bytes }, floor, justified)
+
+    expect(verdict.outcome).toBe('at')
+    expect(verdict.totals).toBeUndefined()
+  })
+
+  /**
+   * The property the whole change turns on. Under a squash queue the pull
+   * request's title and body *become* the landing commit message, so the text
+   * the branch gate accepted is the text this reads — and a branch that went
+   * green cannot redden `main`, which is `#1379`.
+   */
+  it('accepts on main exactly what the branch gate accepted', () => {
+    const branch = branchBudgetVerdict(
+      { tools: floor.tools + 1, bytes: floor.bytes + 1493 },
+      { tools: floor.tools, bytes: floor.bytes },
+      justified,
+    )
+    const main = mainFloorRatchet(
+      { tools: floor.tools + 1, bytes: floor.bytes + 1493 },
+      floor,
+      justified,
+    )
+
+    expect(branch.within).toBe(true)
+    expect(main.outcome).toBe('raised')
   })
 })
 

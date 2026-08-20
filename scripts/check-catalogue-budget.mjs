@@ -136,10 +136,10 @@ if (grew) {
       `against a floor of ${budget.tools} and ${budget.bytes} (measured ${budget.measuredAt}).\n` +
       'If this is a new rung, it belongs in a `kind` enum and costs zero tools — see\n' +
       '  kolonie-docs/state/decisions/the-catalogue-encodes-grammar-never-vocabulary.md\n' +
-      'If it is a genuinely new verb, edit apps/api/src/mcp/catalogue-budget.json by hand and say\n' +
-      'in the commit message which record you are applying and what the new tools are\n' +
-      'vocabulary-free for — scripts/check-catalogue-floor.mjs reads that message and\n' +
-      'refuses a raise without it. Nothing here will do it for you.',
+      'If it is a genuinely new verb, say so in the pull request: name that record in the\n' +
+      'title or body and say what the new tools are vocabulary-free for. The floor itself is\n' +
+      'not yours to edit — main measures it and commits it when the branch lands, and refuses\n' +
+      'to write a raise whose message says nothing (issue 1465). Nothing here will do it for you.',
   )
 }
 
@@ -153,7 +153,9 @@ if (ceilingOver) {
       'the ceiling by hand in apps/api/src/mcp/catalogue-budget.json, in a commit naming the\n' +
       'record, naming this tool, and saying why it is worth more than every other tool in the\n' +
       'Colony. scripts/check-catalogue-floor.mjs reads that message and refuses a raise\n' +
-      'without it. Nothing here will do it for you.',
+      'without it. The two sums moved to main in issue 1465 and this figure did not: a\n' +
+      'ceiling is an exception for one named tool, which is a sentence rather than a\n' +
+      'measurement. Nothing here will do it for you.',
   )
 }
 

@@ -1,6 +1,6 @@
 {
-  "id": "67de392a-fd08-4dca-a098-10d6f253c7e1",
-  "prevId": "31106406-e1aa-4530-bd7a-0edc1c42b6f8",
+  "id": "e2cbd0df-fcf5-4e5d-949d-fa770a5a276b",
+  "prevId": "ac9e5097-0e39-46f1-b012-a9da10b2de34",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -15866,6 +15866,12 @@
           "name": "prose_refusal_line",
           "type": "walk_refusal_line",
           "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "filed_tags": {
+          "name": "filed_tags",
+          "type": "text[]",
           "primaryKey": false,
           "notNull": false
         },

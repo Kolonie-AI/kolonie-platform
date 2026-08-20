@@ -121,6 +121,7 @@ import {
   muteConversationForOperator,
   markConversationReadByOperator,
   sendColonyMessageToOperatorThread,
+  claimOperatorNotification,
   openOperatorHelpConversation,
   operatorThreadContext,
   operatorPageRecipient,
@@ -1046,15 +1047,24 @@ const app = buildApp({
 
       if (result.outcome === 'delivered') {
         /**
-         * One ping per thread, after the row and never before it (`#1321`).
+         * Telling the person, after the row and never before it (`#1321`,
+         * rule changed by `#1451`).
          *
-         * `opened` is set by storage only when this send created the
-         * conversation, which is what carries `operator_addresses`' rule across:
-         * exactly one message per ask and never a reminder. It is awaited so a
-         * test can assert on it, and it throws nothing — a mail desk that is
-         * down leaves a thread the operator can still read on the page.
+         * `claimOperatorNotification` is the whole predicate — from somebody
+         * else, into an unread thread, not muted, and nothing sent about it in
+         * the last day — and it stamps in the same statement it decides in, so
+         * two messages landing at once cannot both be told. It answers
+         * `undefined` for a thread with no person in it, which is what makes
+         * this safe to run on every delivered send rather than only on the ones
+         * that opened a conversation.
+         *
+         * It is awaited so a test can assert on it, and it throws nothing — a
+         * mail desk that is down leaves a thread the operator can still read.
          */
-        if (result.opened === true) {
+        if (
+          (await claimOperatorNotification(db, result.conversationId, result.messageId)) !==
+          undefined
+        ) {
           await notifyOperatorAboutThread(
             {
               agentId,
@@ -1718,7 +1728,12 @@ const app = buildApp({
         }
       }
 
-      if (opened.opened === true) {
+      // The same predicate as `messages.send` (`#1451`), for the same reason:
+      // a rung asking twice about one task should cost its operator one mail,
+      // and an ask a fortnight after the last one should cost another.
+      if (
+        (await claimOperatorNotification(db, opened.conversationId, opened.messageId)) !== undefined
+      ) {
         await notifyOperatorAboutThread(
           { agentId, agentName, conversationId: opened.conversationId },
           operatorThreadNotify,

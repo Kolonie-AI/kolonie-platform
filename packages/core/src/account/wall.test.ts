@@ -323,6 +323,100 @@ describe('an entry where nothing answered at all', () => {
 })
 
 /**
+ * `#1470`, filed by a citizen from two measured walks.
+ *
+ * At `slack.com` they listed `other` first — an explicit age assertion in the
+ * user terms, which is what stopped them — and `human-check` second, a
+ * score-based reCAPTCHA established from the delivered page as posing no
+ * question and stopping nothing. The entry published *"What stopped it: a
+ * CAPTCHA, a Turnstile, a device attestation."* Two separate defects produced
+ * that one sentence, and both are here.
+ */
+describe('the wall the walker said stopped it (#1470)', () => {
+  it('leads with the first wall the walker listed, not the first the Colony ranks', () => {
+    const refusal = colonyRefusal([{ kind: 'payment-required' }, { kind: 'human-check' }])
+
+    expect(refusal).toContain(`What stopped it: ${WALL_KIND_MEANINGS['payment-required']}`)
+    expect(refusal).toContain(WALL_KIND_MEANINGS['human-check'])
+    /** And the other way round, from the same two kinds. */
+    expect(colonyRefusal([{ kind: 'human-check' }, { kind: 'payment-required' }])).toContain(
+      `What stopped it: ${WALL_KIND_MEANINGS['human-check']}`,
+    )
+  })
+
+  /**
+   * The `slack.com` case exactly. `#1298` drops `other` from a list because
+   * *none of the above* is not a criterion — but dropping the wall the walk
+   * stopped at publishes the walk's second finding as its first, which is how
+   * this page came to claim the opposite of what was measured.
+   */
+  it('does not drop other when other is what stopped the walk', () => {
+    const refusal = colonyRefusal([
+      { kind: 'other' },
+      { kind: 'human-check', posesHumanityQuestion: false },
+    ])
+
+    expect(refusal).toContain('does not fit the typed kinds')
+    expect(refusal).toContain('briefing')
+    /** The reader is not told a captcha stopped it, because none did. */
+    expect(refusal).not.toContain(WALL_KIND_MEANINGS['human-check'])
+  })
+
+  /** And it stays dropped from the tail, where `#1298`'s argument still holds. */
+  it('still drops other from what else was met', () => {
+    const refusal = colonyRefusal([{ kind: 'payment-required' }, { kind: 'other' }])
+
+    expect(refusal).toContain(`What stopped it: ${WALL_KIND_MEANINGS['payment-required']}`)
+    expect(refusal).not.toContain('none of the above')
+    expect(refusal).not.toContain('It also met')
+  })
+
+  /**
+   * The second defect. `posesHumanityQuestion` has been on the wall since `#981`
+   * and `wallVerdictAsText` has read it since; this sentence did not, so a
+   * walker that established a score-based check asks nothing had *a CAPTCHA, a
+   * Turnstile, a device attestation* published in its name anyway.
+   *
+   * `RED-LINES.md` separates the two in as many words — a challenge that never
+   * asks whether you are human receives no false answer — so the Atlas should
+   * not collapse them.
+   */
+  it('does not call a check that asks nothing a captcha', () => {
+    const refusal = colonyRefusal([{ kind: 'human-check', posesHumanityQuestion: false }])
+
+    expect(refusal).toContain('never asks whether you are human')
+    expect(refusal).not.toContain('CAPTCHA')
+    expect(refusal).not.toContain('Turnstile')
+  })
+
+  /** A check that does pose the question keeps the plain meaning. */
+  it('keeps the captcha wording where the check really asks', () => {
+    for (const wall of [
+      { kind: 'human-check' as const, posesHumanityQuestion: true },
+      { kind: 'human-check' as const },
+    ]) {
+      expect(colonyRefusal([wall])).toContain(WALL_KIND_MEANINGS['human-check'])
+    }
+  })
+
+  /** The tail is ordered by the Colony's list, so two walks read alike after the stop. */
+  it('orders what else was met the same way for two walks that met the same things', () => {
+    const one = colonyRefusal([
+      { kind: 'invite-only' },
+      { kind: 'payment-required' },
+      { kind: 'phone-verification' },
+    ])
+    const other = colonyRefusal([
+      { kind: 'invite-only' },
+      { kind: 'phone-verification' },
+      { kind: 'payment-required' },
+    ])
+
+    expect(one).toBe(other)
+  })
+})
+
+/**
  * An entry whose terms allow the account and restrict the output (`#1123`).
  *
  * The measured case is Codeberg: a walker read the terms, counted zero mentions

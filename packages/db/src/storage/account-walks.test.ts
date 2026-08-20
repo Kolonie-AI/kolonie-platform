@@ -3,7 +3,9 @@ import { randomUUID } from 'node:crypto'
 import {
   AccountKindSchema,
   earnFacetsOf,
+  NOTHING_ANSWERED_REFUSAL,
   RECENT_WALKS_IN_CONTEXT,
+  REFUSAL_OTHER,
   REFUSAL_UNSTATED,
   WALL_KIND_MEANINGS,
   WALK_DUPLICATE_SIMILARITY,
@@ -1215,6 +1217,61 @@ describe('the record of one agent obtaining one account', () => {
       ).toBe(true)
       expect(await rewardPublishedWalks(db)).toEqual([])
       expect(await reputationOfAgent(db, agentId)).toBe(paid)
+    })
+
+    /**
+     * `#1470`. A citizen amended two walks precisely to correct their walls —
+     * dropping a `human-check` at `slack.com` they had established asks nothing,
+     * and moving `matrix.org` off `absent` for a service that answers on every
+     * route and only refuses new registrations — confirmed through `walk-status`
+     * that both amendments had landed, and found the published sentence
+     * word-for-word unchanged. `walls` was recomputed on every amendment;
+     * `refusal` was written once and never again, so the first report's wall
+     * kinds were permanent and nothing said so anywhere.
+     */
+    it('rewrites the entry’s sentence when an amendment changes the walls', async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+      await finishWalk(db, walkId, {
+        outcome: 'refused',
+        wall: 'Nothing answered on any route I tried.',
+        recipe: { ...RECIPE, walls: [{ kind: 'absent' }] },
+      })
+
+      const before = await providerRecipe(db, where.kind, where.provider)
+      expect(before?.refusal).toBe(NOTHING_ANSWERED_REFUSAL)
+
+      await amendWalkedRoute(db, agentId, where, {
+        ...RECIPE,
+        walls: [{ kind: 'other', symptom: 'The service runs and refuses new registrations.' }],
+      })
+
+      const after = await providerRecipe(db, where.kind, where.provider)
+      expect(after?.refusal).not.toBe(NOTHING_ANSWERED_REFUSAL)
+      expect(after?.refusal).toBe(REFUSAL_OTHER)
+    })
+
+    /**
+     * And it follows the stopping wall, not the Colony's rank order — the
+     * `slack.com` half of the same report.
+     */
+    it('leads the rewritten sentence with the wall the amendment put first', async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+      await finishWalk(db, walkId, {
+        outcome: 'refused',
+        wall: 'It wanted a card.',
+        recipe: { ...RECIPE, walls: [{ kind: 'payment-required' }] },
+      })
+
+      await amendWalkedRoute(db, agentId, where, {
+        ...RECIPE,
+        walls: [{ kind: 'invite-only' }, { kind: 'payment-required' }],
+      })
+
+      const after = await providerRecipe(db, where.kind, where.provider)
+      expect(after?.refusal).toContain(`What stopped it: ${WALL_KIND_MEANINGS['invite-only']}`)
+      expect(after?.refusal).toContain(WALL_KIND_MEANINGS['payment-required'])
     })
 
     /** A citizen that measured nothing here has nothing to amend. */

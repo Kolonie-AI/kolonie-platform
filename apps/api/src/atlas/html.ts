@@ -2684,7 +2684,21 @@ function refusalText(recipe: AtlasPublicRecipe): string {
     recipe.walls.length > 0 &&
     (stored === null || stored === '' || stored === REFUSAL_UNSTATED)
   ) {
-    return colonyRefusal(recipe.walls.map((wall) => ({ kind: wall.kind })))
+    /**
+     * The whole wall and not only its kind (`#1470`): `posesHumanityQuestion`
+     * changes the sentence now, and a projection that dropped it here would
+     * print *a CAPTCHA* for a check the walker established asks nothing. The
+     * order is the published order, which is the walker's, so the wall that
+     * stopped the walk still leads.
+     */
+    return colonyRefusal(
+      recipe.walls.map((wall) => ({
+        kind: wall.kind,
+        ...(wall.posesHumanityQuestion === undefined
+          ? {}
+          : { posesHumanityQuestion: wall.posesHumanityQuestion }),
+      })),
+    )
   }
 
   return stored === null || stored === '' ? REFUSAL_UNSTATED : stored

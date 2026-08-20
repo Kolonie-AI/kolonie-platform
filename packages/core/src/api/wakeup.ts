@@ -947,6 +947,28 @@ export const WakeupVaultSharesDeltaSchema = z.object({
    * what collects whatever they left.
    */
   handedBack: z.number().int().min(0),
+  /**
+   * A thread the citizen is waiting on that has moved (`#1442`).
+   *
+   * **One id and one word, and never more than one thread.** The credit-card
+   * case ends with the citizen waking up and finding out that *something
+   * happened over there* — and before this it had to call three tools to learn
+   * it: `list_threads` for a reply, `vault.list` for a read, and `unshare` for
+   * an addition. This is that one line.
+   *
+   * `moved` says which of the three is the newest: a `reply` is the operator's
+   * words, a `read` is somebody having opened what was shared, an `addition` is
+   * something written into it. Absent when nothing has moved, which is almost
+   * every waking.
+   */
+  thread: z
+    .object({
+      conversationId: z.string(),
+      moved: z.enum(['reply', 'read', 'addition', 'handed-back']),
+      /** What the thread is about, in a word the citizen will recognise. */
+      about: z.string().nullable(),
+    })
+    .optional(),
 })
 export type WakeupVaultSharesDelta = z.infer<typeof WakeupVaultSharesDeltaSchema>
 

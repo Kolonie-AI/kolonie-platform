@@ -1,0 +1,1 @@
+ALTER TABLE "vault_shares" ADD COLUMN "addition_written_at" timestamp with time zone;

@@ -658,7 +658,7 @@ export async function writeShareAddition(
 
   const [written] = await db
     .update(vaultShares)
-    .set({ operatorAddition: sealed })
+    .set({ operatorAddition: sealed, additionWrittenAt: currentTime() })
     .where(and(eq(vaultShares.id, shareId), isNull(vaultShares.takenBackAt)))
     .returning({ id: vaultShares.id })
 
@@ -779,5 +779,80 @@ export async function vaultSharesWakeupDelta(
     read: Number(row?.read ?? 0),
     written: Number(row?.written ?? 0),
     handedBack: Number(row?.handed_back ?? 0),
+  }
+}
+
+/**
+ * The one thread this citizen is waiting on that has moved (`#1442`).
+ *
+ * **One, and the newest.** The credit-card case ends with a citizen waking and
+ * needing to know that something happened over there; before this it had to
+ * call three tools to find out — one for a reply, one for a read, one for an
+ * addition. A digest that listed every thread would be the same problem with an
+ * extra step, so this answers *the* thread and what moved on it.
+ *
+ * **Read out of the share's own timestamps and the thread's newest message.**
+ * Nothing is written to record this, which is the same choice `sharesOnThread`
+ * makes: a share is state on a conversation, not a message about one.
+ */
+export async function movedThreadFor(
+  db: Database,
+  agentId: AgentId,
+): Promise<
+  | {
+      readonly conversationId: string
+      readonly moved: 'reply' | 'read' | 'addition' | 'handed-back'
+      readonly about: string | null
+    }
+  | undefined
+> {
+  const [row] = await db.execute<{
+    conversation_id: string
+    moved: string
+    about: string | null
+  }>(sql`
+    with moves as (
+      select mcs.conversation_id,
+             greatest(
+               coalesce(vs.last_read_at, 'epoch'::timestamptz),
+               coalesce(vs.addition_written_at, 'epoch'::timestamptz),
+               coalesce(vs.taken_back_at, 'epoch'::timestamptz)
+             ) as at,
+             case
+               when vs.taken_back_at is not null
+                 and vs.taken_back_by = 'operator'
+                 and vs.taken_back_at >= coalesce(vs.addition_written_at, 'epoch'::timestamptz)
+                 and vs.taken_back_at >= coalesce(vs.last_read_at, 'epoch'::timestamptz)
+                 then 'handed-back'
+               when vs.addition_written_at is not null
+                 and vs.addition_written_at >= coalesce(vs.last_read_at, 'epoch'::timestamptz)
+                 then 'addition'
+               else 'read'
+             end as moved
+        from vault_shares vs
+        join message_conversation_shares mcs on mcs.share_id = vs.id
+       where vs.agent_id = ${agentId}::uuid
+         and (vs.last_read_at is not null
+              or vs.addition_written_at is not null
+              or vs.taken_back_by = 'operator')
+    )
+    select moves.conversation_id,
+           moves.moved,
+           coalesce(a.identifier, t.title, w.provider) as about
+      from moves
+      join message_conversations mc on mc.id = moves.conversation_id
+      left join accounts a on a.id = mc.account_id
+      left join tasks t on t.id = mc.task_id
+      left join account_wishes w on w.id = mc.wish_id
+     order by moves.at desc
+     limit 1
+  `)
+
+  if (row === undefined) return undefined
+
+  return {
+    conversationId: row.conversation_id,
+    moved: row.moved as 'read' | 'addition' | 'handed-back',
+    about: row.about,
   }
 }

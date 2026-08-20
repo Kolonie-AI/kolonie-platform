@@ -1548,9 +1548,16 @@ export function figuresAsText(figures: AtlasFigures): string {
     figures.medianHoursToProof === null
       ? ''
       : `Half were proved within ${figures.medianHoursToProof} hours.`,
+    /**
+     * The usefulness figure, counting the same citizens the page counts
+     * (`#1417`). One spelling for both surfaces, on `atlasStopPhrase`'s rule:
+     * two wordings of one measurement is how a reader ends up told two
+     * different things about it.
+     */
     figures.stillHeld === null
       ? ''
-      : `${figures.stillHeld} of ${figures.heldLongEnoughToAsk} still held it after 30 days.`,
+      : `${figures.stillHeld} of ${figures.heldLongEnoughToAsk} still held it after 30 days ` +
+        `— of the citizens who got in and are open to work here.`,
   ].filter((line) => line !== '')
 
   return `**Measured:** ${lines.join(' ')}`

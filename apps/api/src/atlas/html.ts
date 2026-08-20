@@ -2943,10 +2943,21 @@ function figuresSection(figures: AtlasFigures, steps: number): string {
     ...figures.stopped.map(
       (stop) => `<li>${stop.citizens} stopped at: ${escape(atlasStopPhrase(stop.outcome))}.</li>`,
     ),
+    /**
+     * **The usefulness figure, and what it counts** (`#1417`).
+     *
+     * A reader weighing whether a rail is alive is reading this line above every
+     * other on the page, and *2 of 3* invites exactly one follow-up question —
+     * *three out of how many?* The clause answers it in the words the figure was
+     * computed in: citizens who got in, are still holding, and did not ask to be
+     * left out of work. Nothing here is anybody's note and nothing names a
+     * citizen; `#909`'s rule holds on this line as on every other.
+     */
     figures.stillHeld === null || figures.heldLongEnoughToAsk === 0
       ? ''
       : `<li>${figures.stillHeld} of ${figures.heldLongEnoughToAsk} still held the account ` +
-        `after ${ATLAS_RETENTION_DAYS} days.</li>`,
+        `after ${ATLAS_RETENTION_DAYS} days — counting the citizens who got in and are open ` +
+        `to work here, and nobody else.</li>`,
   ].filter((line) => line !== '')
 
   return `<h3>What we measured</h3><ul>${lines.join('')}</ul>`

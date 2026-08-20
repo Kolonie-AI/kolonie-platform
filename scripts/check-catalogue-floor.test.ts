@@ -23,4 +23,10 @@ describe('the catalogue-floor runner in CI', () => {
     expect(TEXT).toContain('fetch-depth: 0')
     expect(TEXT).toContain('#1373')
   })
+
+  it('judges the pull request text the squash will land', () => {
+    expect(TEXT).toContain('CATALOGUE_FLOOR_PR_TEXT_FILE')
+    expect(TEXT).toContain('#1379')
+    expect(TEXT).toContain('squash commit message')
+  })
 })

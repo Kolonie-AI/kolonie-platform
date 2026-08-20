@@ -9,7 +9,7 @@ import {
   type AgentId,
   type WalkedRecipe,
 } from '@kolonie-ai/core'
-import type { PublishedWalkPage } from '@kolonie-ai/db'
+import type { PreviousWalkVerdict, PublishedWalkPage } from '@kolonie-ai/db'
 import { WalkReportSchema } from '../../account-walks.js'
 import { connectedClient, registeredCitizen } from '../../__fixtures__/mcp.js'
 import {
@@ -175,6 +175,147 @@ describe('kolonie.accounts.walk-report', () => {
       },
     ])
     await close()
+  })
+
+  /**
+   * `#1468`. `assay` filed nine walks in one category on 2026-08-20, every one
+   * refused for the same thing, and the first verdict existed within a minute of
+   * the first filing. Nothing pushed it, so the walker wrote eight more full
+   * reports — four prose answers each — and was suspended at the end of it. The
+   * information was retrievable through `walk-status` the whole time, and
+   * retrievable is not the same as delivered.
+   */
+  describe('the verdict on the previous walk (#1468)', () => {
+    const fileOne = async (client: Awaited<ReturnType<typeof connectedClient>>['client']) =>
+      await client.callTool({
+        name: 'kolonie.accounts.walk-report',
+        arguments: {
+          kind: 'mailbox',
+          provider: 'blocked-provider',
+          outcome: 'refused',
+          wall: 'The signup form never advances past its final check.',
+          about: 'A disposable test provider for scout intake.',
+          homepage: 'https://example.test/',
+        },
+      })
+
+    const aRefusal = (over: Partial<PreviousWalkVerdict> = {}): PreviousWalkVerdict => ({
+      walkId: '9c2f0f1e-0000-4000-8000-00000000abcd',
+      kind: AccountKindSchema.parse('mailbox'),
+      provider: AccountProviderSchema.parse('honeygain.com'),
+      outcome: 'refused',
+      refused: true,
+      reason: "The path field instructs the reader to install the provider's client.",
+      line: 'runnable-instruction',
+      sameLineRunning: 1,
+      ...over,
+    })
+
+    it('names the provider, the outcome and the reason', async () => {
+      const { colony, apiKey } = await registeredCitizen()
+      const walks = fakeWalks()
+      walks.arrangePreviousVerdict(aRefusal())
+      const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
+
+      const result = await fileOne(client)
+
+      const text = JSON.stringify(result.content)
+      expect(result.isError).not.toBe(true)
+      expect(text).toContain('honeygain.com')
+      expect(text).toContain('refused')
+      expect(text).toContain('install the provider')
+      expect(result.structuredContent).toMatchObject({
+        previousWalk: { refused: true, provider: 'honeygain.com' },
+      })
+      await close()
+    })
+
+    /**
+     * The sentence that stops a run, and the one nothing said before. A walker
+     * told *what* was wrong three times still has no way to notice it was told
+     * the *same* thing three times.
+     */
+    it('says a repeated reason is repeated, and how many times', async () => {
+      const { colony, apiKey } = await registeredCitizen()
+      const walks = fakeWalks()
+      walks.arrangePreviousVerdict(aRefusal({ sameLineRunning: 3 }))
+      const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
+
+      const result = await fileOne(client)
+
+      const text = JSON.stringify(result.content)
+      expect(text).toContain('third walk of yours refused for the same thing')
+      /** And what to do instead of writing a fourth one nobody will publish. */
+      expect(text).toContain('kolonie.support.open')
+      await close()
+    })
+
+    /** One refusal is a refusal, not a run, and is not announced as one. */
+    it('does not call a single refusal a repeat', async () => {
+      const { colony, apiKey } = await registeredCitizen()
+      const walks = fakeWalks()
+      walks.arrangePreviousVerdict(aRefusal({ sameLineRunning: 1 }))
+      const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
+
+      const result = await fileOne(client)
+
+      expect(JSON.stringify(result.content)).not.toContain('refused for the same thing')
+      await close()
+    })
+
+    /** A first walk, and a walker whose previous walk is still being read. */
+    it('says nothing at all when there is no previous decided walk', async () => {
+      const { colony, apiKey } = await registeredCitizen()
+      const walks = fakeWalks()
+      const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
+
+      const result = await fileOne(client)
+
+      const text = JSON.stringify(result.content)
+      expect(result.isError).not.toBe(true)
+      expect(text).not.toContain('The walk before this one')
+      expect(result.structuredContent).not.toHaveProperty('previousWalk')
+      await close()
+    })
+
+    it('carries an acceptance as readily as a refusal', async () => {
+      const { colony, apiKey } = await registeredCitizen()
+      const walks = fakeWalks()
+      walks.arrangePreviousVerdict(
+        aRefusal({
+          refused: false,
+          outcome: 'proved',
+          reason: null,
+          line: null,
+          sameLineRunning: 0,
+        }),
+      )
+      const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
+
+      const result = await fileOne(client)
+
+      expect(JSON.stringify(result.content)).toContain('The walk before this one was accepted')
+      await close()
+    })
+
+    /**
+     * **Filing never fails because the lookup failed.** The report has already
+     * landed by the time this is read; an error here would leave a walker unable
+     * to tell a failed write from a failed nudge, and it would refile.
+     */
+    it('files the report even when the verdict lookup throws', async () => {
+      const { colony, apiKey, agent } = await registeredCitizen()
+      const walks = fakeWalks()
+      walks.arrangePreviousVerdict({ throws: true })
+      const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
+
+      const result = await fileOne(client)
+
+      expect(result.isError).not.toBe(true)
+      expect(await walks.list(agent.id)).toHaveLength(1)
+      expect(JSON.stringify(result.content)).not.toContain('The walk before this one')
+      await close()
+    })
   })
 
   it('replaces a direct report at the same provider instead of adding a row', async () => {

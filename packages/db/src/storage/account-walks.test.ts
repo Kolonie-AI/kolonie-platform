@@ -25,6 +25,7 @@ import { sql } from 'drizzle-orm'
 import {
   accountWalk,
   approvedWalkProseWithoutScrub,
+  previousDecidedWalk,
   markPublishedDuplicateWalks,
   amendWalkedRoute,
   reportFinishedWalk,
@@ -4088,6 +4089,102 @@ describe('suspending a walker for what it kept writing', () => {
 
     expect(reversal).toEqual({ outcome: 'written', suspended: true })
     expect((await agentRow(by)).status).toBe('suspended')
+  })
+
+  /**
+   * `#1468`: the other end of the same event. `#1467` stops the punishment; this
+   * is what stops the walker walking into it nine times, and it lives in the
+   * answer to `walk-report` rather than in a tool the walker would have to think
+   * to call.
+   */
+  describe('the verdict on the previous walk (#1468)', () => {
+    it('answers nothing at all for a walker with one walk', async () => {
+      const by = await register()
+      const only = await finished(by)
+      await judge(only, 'approved')
+
+      expect(await previousDecidedWalk(db, by, only)).toBeUndefined()
+    })
+
+    /**
+     * **Nothing waits.** A previous walk still in the queue is not a verdict, and
+     * answering *"still being read"* would be a sentence nobody can act on.
+     */
+    it('answers nothing while the previous walk is still pending', async () => {
+      const by = await register()
+      await finished(by)
+      const just = await finished(by)
+
+      expect(await previousDecidedWalk(db, by, just)).toBeUndefined()
+    })
+
+    it('names the provider, the outcome and the reason of a refusal', async () => {
+      const by = await register()
+      const before = await finished(by)
+      await judge(before, 'rejected', {
+        line: WALK_REFUSAL_LINES[0],
+        reason: 'The route tells the reader to install the client.',
+      })
+      const just = await finished(by)
+
+      const previous = await previousDecidedWalk(db, by, just)
+
+      expect(previous).toMatchObject({
+        walkId: before,
+        refused: true,
+        reason: 'The route tells the reader to install the client.',
+        line: WALK_REFUSAL_LINES[0],
+        sameLineRunning: 1,
+      })
+      expect(previous?.provider).toBeTypeOf('string')
+    })
+
+    /** The count `#1468` turns on: how far back the same wall reaches. */
+    it('counts how many refusals in a row share the line', async () => {
+      const by = await register()
+      await judgeOneWall(by, 3)
+      const just = await finished(by)
+
+      expect((await previousDecidedWalk(db, by, just))?.sameLineRunning).toBe(3)
+    })
+
+    /** A different line breaks the run, and the count starts again at one. */
+    it('stops counting at the first refusal of another line', async () => {
+      const by = await register()
+      await judgeOneWall(by, 3)
+      const other = await finished(by)
+      await judge(other, 'rejected', {
+        line: WALK_REFUSAL_LINES[1],
+        reason: 'It asks the reader to paste an API key.',
+      })
+      const just = await finished(by)
+
+      expect((await previousDecidedWalk(db, by, just))?.sameLineRunning).toBe(1)
+    })
+
+    /** An approval between two refusals of one line breaks the run too. */
+    it('stops counting at an approval', async () => {
+      const by = await register()
+      await judgeOneWall(by, 2)
+      const between = await finished(by)
+      await judge(between, 'approved')
+      const just = await finished(by)
+
+      const previous = await previousDecidedWalk(db, by, just)
+
+      expect(previous).toMatchObject({ walkId: between, refused: false, sameLineRunning: 0 })
+    })
+
+    /** One walker's run is its own, exactly as the suspension rule's is. */
+    it('never reads another walker into the run', async () => {
+      const by = await register()
+      const bystander = await register()
+      await judgeOneWall(bystander, 4)
+      await judgeOneWall(by, 2)
+      const just = await finished(by)
+
+      expect((await previousDecidedWalk(db, by, just))?.sameLineRunning).toBe(2)
+    })
   })
 
   describe('the tally a maintainer reads', () => {

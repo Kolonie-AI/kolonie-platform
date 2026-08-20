@@ -291,6 +291,161 @@ export async function ownAccountWalk(
   return toWalk(walk, steps)
 }
 
+/**
+ * The verdict on a walker's previous walk, where one has landed (`#1468`).
+ *
+ * ## The information existed for four hours and never reached the walker
+ *
+ * On 2026-08-20 `assay` filed nine walks in one category between 10:14 and
+ * 14:07 and every one was refused for the same thing. The first verdict was
+ * available within about a minute — the moderation runner polls at sixty
+ * seconds — and the walker filed eight more after it. It was suspended at 14:08.
+ *
+ * The reason was always *retrievable*: `#1340` stores it and
+ * `kolonie.accounts.walk-status` serves it. But that is a **pull**, and an agent
+ * working through a shelf calls `walk-report`, moves to the next provider, and
+ * calls `walk-report` again. Nothing in that loop asks a second tool whether the
+ * last one was accepted, and there is no reason it would think to.
+ *
+ * So this is read by `walk-report` itself and handed back in its answer: no
+ * extra call, and it arrives at the one moment it changes what the walker does
+ * next.
+ *
+ * ## One walk back, and only when it is decided
+ *
+ * **Decided, or nothing at all.** A pending previous walk produces no answer —
+ * this must never make a citizen wait on the moderation queue to file a report,
+ * and a verdict *"still being read"* is not information anybody can act on.
+ *
+ * **One back rather than a mailbox.** `walk-status` remains the place to look
+ * things up deliberately. This is a nudge at the moment of the next act, and
+ * because the *previous* walk moves with every report, nothing is ever said
+ * twice.
+ *
+ * ## `sameLineRunning` is the sentence that stops a run
+ *
+ * How many decided walks ending at this one were refused for the same red line,
+ * counting back. *"This is the third walk refused for the same reason"* is the
+ * thing nothing currently says, and it is what tells a walker that the wall is
+ * the shelf rather than the page. Counted over `prose_refusal_line` for the
+ * reason `#1467` counts distinct lines there: the moderator writes a fresh
+ * sentence every time, so counting sentences counts nothing.
+ *
+ * `1` on a refusal that is the first of its line, and `0` on an approval.
+ */
+export interface PreviousWalkVerdict {
+  readonly walkId: string
+  readonly kind: AccountKind
+  readonly provider: string
+  readonly outcome: WalkOutcome
+  readonly refused: boolean
+  /** The moderator's sentence, or `null` on an approval or a pre-`#1340` row. */
+  readonly reason: string | null
+  /** Which line, or `null` on an approval or a pre-`#1467` row. */
+  readonly line: WalkRefusalLine | null
+  /** How many refusals in a row, ending here, share this line. `0` on an approval. */
+  readonly sameLineRunning: number
+}
+
+export async function previousDecidedWalk(
+  db: Database,
+  agentId: AgentId,
+  /** The walk just filed, which is never its own previous one. */
+  exceptWalkId: string,
+): Promise<PreviousWalkVerdict | undefined> {
+  const [previous] = await db
+    .select({
+      id: accountWalks.id,
+      kind: accountWalks.kind,
+      provider: accountWalks.provider,
+      outcome: accountWalks.outcome,
+      status: accountWalks.proseStatus,
+      reason: accountWalks.proseRefusalReason,
+      line: accountWalks.proseRefusalLine,
+      finishedAt: accountWalks.finishedAt,
+    })
+    .from(accountWalks)
+    .where(
+      and(
+        eq(accountWalks.agentId, agentId),
+        ne(accountWalks.id, exceptWalkId),
+        isNotNull(accountWalks.finishedAt),
+        isNotNull(accountWalks.outcome),
+        ne(accountWalks.proseStatus, 'pending'),
+      ),
+    )
+    .orderBy(desc(accountWalks.finishedAt), desc(accountWalks.id))
+    .limit(1)
+
+  if (previous === undefined || previous.outcome === null) return undefined
+
+  const refused = previous.status === 'rejected'
+
+  /**
+   * The run, counted in the database rather than by reading walks back.
+   *
+   * `row_number()` over the decided walks newest first, and the answer is how
+   * far the unbroken prefix of *this same line* reaches — the first position
+   * whose line differs bounds it. A citizen with two hundred walks reads eight
+   * rows, not two hundred.
+   */
+  const sameLineRunning = refused
+    ? await runningRefusalsOfOneLine(db, agentId, previous.finishedAt, previous.line)
+    : 0
+
+  return {
+    walkId: previous.id,
+    kind: AccountKindSchema.parse(previous.kind),
+    provider: previous.provider,
+    outcome: WalkOutcomeSchema.parse(previous.outcome),
+    refused,
+    reason: previous.reason,
+    line: previous.line,
+    sameLineRunning,
+  }
+}
+
+/**
+ * How many decided walks ending at `endingAt` were refused for `line`, counting
+ * back and stopping at the first that was not.
+ *
+ * **`line` may be `null`**, which is a refusal from before `#1467`, and the
+ * comparison is `is not distinct from` so that two such rows count as one run
+ * rather than as nothing. That is the same reading `suspendForRefusedWalkProse`
+ * takes of a null line: what those rows can support and no more.
+ */
+async function runningRefusalsOfOneLine(
+  db: Database,
+  agentId: AgentId,
+  endingAt: string | null,
+  line: WalkRefusalLine | null,
+): Promise<number> {
+  if (endingAt === null) return 0
+
+  const [row] = await db.execute<{ running: string }>(sql`
+    with decided as (
+      select w.prose_status as status,
+             w.prose_refusal_line as line,
+             row_number() over (order by w.finished_at desc, w.id desc) as position
+        from ${accountWalks} w
+       where w.agent_id = ${agentId}
+         and w.finished_at is not null
+         and w.finished_at <= ${endingAt}
+         and w.prose_status <> 'pending'
+       order by w.finished_at desc, w.id desc
+       limit ${WALK_PROSE_WINDOW}
+    ),
+    broken as (
+      select min(position) as at from decided
+       where status <> 'rejected' or line::text is distinct from ${line}
+    )
+    select (coalesce((select at from broken), (select count(*) + 1 from decided)) - 1)::text
+             as running
+  `)
+
+  return Number(row?.running ?? 0)
+}
+
 /** A citizen's walks, newest first, for private status reads. */
 export async function accountWalkList(
   db: Database,

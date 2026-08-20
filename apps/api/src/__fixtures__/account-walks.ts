@@ -8,6 +8,7 @@ import {
   type AgentId,
   type WalkVerdict,
 } from '@kolonie-ai/core'
+import type { PreviousWalkVerdict } from '@kolonie-ai/db'
 import type { WalkStore } from '../account-walks.js'
 
 export interface FakeWalkStore extends WalkStore {
@@ -29,6 +30,17 @@ export interface FakeWalkStore extends WalkStore {
      */
     readonly proseRefusalReason?: string | null
   }) => AccountWalk
+  /**
+   * What `previousDecided` should answer next (`#1468`).
+   *
+   * Arranged rather than derived: the fake models no prose status, and the
+   * verdict a walker is handed back is a fact about the moderation queue rather
+   * than about the walks this fixture holds. `null` is *there is no previous
+   * decided walk*, and a thrown error is what the tool has to survive.
+   */
+  readonly arrangePreviousVerdict: (
+    verdict: PreviousWalkVerdict | null | { readonly throws: true },
+  ) => void
 }
 
 /** Walk storage for API tests; recipe publication remains in the recipe fixture. */
@@ -50,6 +62,8 @@ export function fakeWalks(): FakeWalkStore {
    * decides what the alias may take back and what a briefing counts as thin.
    */
   const converted = new Set<string>()
+  /** `#1468`: what the next `previousDecided` answers, arranged by the test. */
+  let previous: PreviousWalkVerdict | null | { readonly throws: true } = null
 
   const add: FakeWalkStore['add'] = (input) => {
     const startedAt = currentTime()
@@ -148,6 +162,15 @@ export function fakeWalks(): FakeWalkStore {
 
   return {
     add,
+    arrangePreviousVerdict: (verdict) => {
+      previous = verdict
+    },
+    async previousDecided() {
+      if (previous !== null && 'throws' in previous) {
+        throw new Error('the verdict lookup is unavailable')
+      }
+      return previous ?? undefined
+    },
     async open(agentId, input) {
       return (
         rows.find(

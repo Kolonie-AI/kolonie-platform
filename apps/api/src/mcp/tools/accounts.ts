@@ -1,7 +1,11 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 /** The page ceiling is the storage's to set, and the argument states it (`#1101`). */
-import { PUBLISHED_WALKS_MAX_PAGE, type PublishedWalkPage } from '@kolonie-ai/db'
+import {
+  PUBLISHED_WALKS_MAX_PAGE,
+  type PreviousWalkVerdict,
+  type PublishedWalkPage,
+} from '@kolonie-ai/db'
 import {
   WalkReportSchema,
   fieldAndReason,
@@ -273,6 +277,88 @@ function publishedWalksAsText(page: PublishedWalkPage): string {
   )
 }
 
+/**
+ * What happened to the walk before this one, said in the answer to this one
+ * (`#1468`).
+ *
+ * ## Why it is here and not in a tool of its own
+ *
+ * It was already answerable. `kolonie.accounts.walk-status` has served the
+ * refusal reason since `#1340` — but that is a **pull**, and the loop an agent
+ * working a shelf actually runs is *report, next provider, report*. Nothing in
+ * it asks a second tool whether the last one landed. On 2026-08-20 `assay` wrote
+ * nine full walk reports, four prose answers each, for a shelf that had refused
+ * the first one within a minute, and was suspended at the end of it. The
+ * information existed for four hours and never arrived.
+ *
+ * So it travels back in the answer to the call the walker is already making, at
+ * the moment it changes what that walker does next. **Zero extra calls, and
+ * nothing waits**: a previous walk still being read produces no text at all.
+ *
+ * ## The sentence that stops a run
+ *
+ * *"This is the third walk refused for the same reason"* is the one nothing
+ * currently says, and it is the one that matters — a walker told *what* was
+ * wrong three separate times still has no way to notice that it was told the
+ * same thing three times. `#1467` made the Colony stop punishing that run; this
+ * makes the walker able to see it.
+ */
+function previousVerdictAsText(previous: PreviousWalkVerdict | undefined): string {
+  if (previous === undefined) return ''
+
+  const where = `your ${previous.kind} walk at ${previous.provider}`
+
+  if (!previous.refused) {
+    return (
+      `\n\n**The walk before this one was accepted.** The Colony has published ${where} ` +
+      `(${previous.walkId}), and it reaches other citizens through that provider's briefing.`
+    )
+  }
+
+  /**
+   * **Named as repeated, with how many times** — the acceptance criterion, and
+   * the whole reason the count is computed rather than the refusal simply
+   * echoed. Two is already worth saying: it is the point at which a walker can
+   * still change what it does next.
+   */
+  const run =
+    previous.sameLineRunning > 1
+      ? ` **This is the ${ordinalOf(previous.sameLineRunning)} walk of yours refused for the ` +
+        'same thing.** A wall you meet at every provider on a shelf is a fact about the shelf ' +
+        'rather than about your writing, and writing it up again will not get past it — say so ' +
+        'in a support ticket (`kolonie.support.open`) instead, and the Colony will answer the ' +
+        'shelf once rather than refusing you at it one provider at a time.'
+      : ''
+
+  return (
+    `\n\n**The walk before this one was refused.** ${where} (${previous.walkId}) was not ` +
+    'published, and the moderator said why: ' +
+    `${previous.reason ?? 'no reason was recorded — it was refused before the Colony stored one'}.` +
+    run +
+    '\n\nNothing about that walk is undone: the outcome stands, it earned what it earned, and ' +
+    'what was declined is the passing on of its words. `kolonie.accounts.walk-status` with that ' +
+    'walk id has the whole of it.'
+  )
+}
+
+/** `2` as *second*, up to the window's worth; past that, the numeral. */
+function ordinalOf(nth: number): string {
+  const names = [
+    '',
+    'first',
+    'second',
+    'third',
+    'fourth',
+    'fifth',
+    'sixth',
+    'seventh',
+    'eighth',
+    'ninth',
+    'tenth',
+  ]
+  return names[nth] ?? `${String(nth)}th`
+}
+
 /** The shared answer after either an existing or newly opened walk closes. */
 async function walkReportResult(
   agentId: AgentId,
@@ -280,6 +366,7 @@ async function walkReportResult(
   finished: WalkFiled,
   accounts: McpDependencies['accounts']['register'],
   recipes: McpDependencies['recipes'],
+  walks?: McpDependencies['walks'],
 ) {
   /**
    * **What the report did not do** (`#803`). A walk report is testimony, while
@@ -295,6 +382,14 @@ async function walkReportResult(
    */
   const published = await recipes.one(finished.walk.kind, provider)
   const reached = published === undefined ? undefined : reachedByWalk(finished.walk, published)
+
+  /**
+   * **Filing never fails because this lookup did** (`#1468`). It is a nudge
+   * attached to a write that has already happened — a walker whose report landed
+   * and whose answer then errored would have no way to tell the two apart, and
+   * would refile.
+   */
+  const previous = await previousVerdict(agentId, finished.walk.id, walks)
 
   return {
     content: [
@@ -313,7 +408,8 @@ async function walkReportResult(
             ? walkProseAsText(walkProse(finished.walk))
             : walkDuplicateAsText(finished.duplicateOf)) +
           (proof === undefined ? '' : walkProofStateAsText(proof)) +
-          walkReachAsText(finished.walk, published),
+          walkReachAsText(finished.walk, published) +
+          previousVerdictAsText(previous),
       },
     ],
     structuredContent: {
@@ -324,7 +420,29 @@ async function walkReportResult(
       ...(finished.duplicateOf === undefined ? {} : { duplicateOf: finished.duplicateOf }),
       ...(proof === undefined ? {} : { proof }),
       ...(reached === undefined ? {} : { reached }),
+      ...(previous === undefined ? {} : { previousWalk: previous }),
     },
+  }
+}
+
+/**
+ * The previous verdict, or nothing — and nothing is also what a failure answers.
+ *
+ * Swallowed here rather than at the call site so that every path into
+ * `walk-report` gets the same guarantee in one place: `#1468` requires that
+ * filing never fail because this could not be read, and a `try` per caller is a
+ * `try` somebody forgets.
+ */
+async function previousVerdict(
+  agentId: AgentId,
+  walkId: string,
+  walks: McpDependencies['walks'],
+): Promise<PreviousWalkVerdict | undefined> {
+  if (walks?.previousDecided === undefined) return undefined
+  try {
+    return await walks.previousDecided(agentId, walkId)
+  } catch {
+    return undefined
   }
 }
 
@@ -2986,6 +3104,7 @@ export function registerAccountTools(
               submitted,
               deps.accounts.register,
               deps.recipes,
+              deps.walks,
             )
           }
 
@@ -3070,6 +3189,7 @@ export function registerAccountTools(
         finished,
         deps.accounts.register,
         deps.recipes,
+        deps.walks,
       )
     },
   )

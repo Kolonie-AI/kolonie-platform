@@ -81,16 +81,38 @@ export function atlasEarnFacets(entry: AtlasPublicEntry): readonly EarnFacet[] {
  * An unlisted value falls through to its own slug rather than to silence, on the
  * same rule the phrase maps in `atlas.ts` follow.
  */
-const EARN_PHRASES: Readonly<Record<EarnFacet, string>> = {
-  'affiliate-referral': 'pays a referral',
-  'bounty-board': 'pays for finished tasks',
-  'gig-marketplace': 'pays for commissioned work',
-  'creator-payout': 'pays for an audience',
-  'grant-quest': 'pays for accepted proposals',
+const EARN_PREDICATES: Readonly<Record<EarnFacet, string>> = {
+  'affiliate-referral': 'a referral',
+  'bounty-board': 'for finished tasks',
+  'gig-marketplace': 'for commissioned work',
+  'creator-payout': 'for an audience',
+  'grant-quest': 'for accepted proposals',
 }
 
+/**
+ * **The predicate is stored and the verb is added** (`#1396`).
+ *
+ * The map held whole phrases — `pays for finished tasks` — which is right beside
+ * one provider and wrong under a plural heading: the browse page shipped
+ * *Providers that pays for finished tasks*. Storing the second form as well
+ * would put *finished tasks* in two places, and two places drift the first time
+ * a facet is reworded.
+ *
+ * So the part that does not change is what is stored, and each caller says which
+ * subject it has. An unlisted facet still falls through to its own slug rather
+ * than to silence, on the rule the phrase maps in `atlas.ts` follow.
+ */
 export function atlasEarnPhrase(facet: EarnFacet): string {
-  return EARN_PHRASES[facet] ?? facet
+  const predicate = EARN_PREDICATES[facet]
+
+  return predicate === undefined ? facet : `pays ${predicate}`
+}
+
+/** The same claim about several providers: *providers that **pay** a referral*. */
+export function atlasEarnPhrasePlural(facet: EarnFacet): string {
+  const predicate = EARN_PREDICATES[facet]
+
+  return predicate === undefined ? facet : `pay ${predicate}`
 }
 
 /**

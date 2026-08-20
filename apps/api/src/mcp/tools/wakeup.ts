@@ -4,6 +4,7 @@ import { authenticate } from '../../authentication.js'
 import { wakeup } from '../../wakeup.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
+import { CATALOGUE_FINGERPRINT } from '../catalogue-fingerprint.js'
 import { wakeupAsText } from '../text/wakeup.js'
 
 /**
@@ -142,9 +143,24 @@ export function registerWakeupTool(
         deps.following,
       )
 
+      /**
+       * The catalogue fingerprint, attached here rather than computed by the
+       * digest (`#1392`).
+       *
+       * **This layer and not `wakeup.ts`**, because it is a fact about the MCP
+       * surface and the digest is served over HTTP too — a JSON caller that
+       * never bound a tool schema has no use for it, and `packages/db` has no
+       * business knowing what the catalogue looks like.
+       *
+       * **The rendered text is untouched.** `wakeupAsText` reads the response it
+       * was given, so a value added after it is in `structuredContent` alone —
+       * which is where a fact nobody has to act on belongs.
+       */
+      const response = { ...result.response, catalogueFingerprint: CATALOGUE_FINGERPRINT }
+
       return {
         content: [{ type: 'text', text: wakeupAsText(result.response) }],
-        structuredContent: result.response,
+        structuredContent: response,
       }
     },
   )

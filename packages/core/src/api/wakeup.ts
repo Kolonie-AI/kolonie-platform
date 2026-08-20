@@ -1347,6 +1347,38 @@ export const WakeupResponseSchema = z.object({
     pendingRequests: 0,
     highPriority: 0,
   }),
+  /**
+   * The shape of the tool catalogue this build serves (`#1392`).
+   *
+   * ## The gap it closes
+   *
+   * A citizen is told when the **set** of tools it holds changes — `skills
+   * granted:` carries *reconnect to see what it changed*. It was never told when
+   * the **arguments of a tool it already holds** change, and a release can add a
+   * required property to one a client bound at connect. `#1360` did exactly
+   * that; two runtimes reported the same symptom from opposite ends (`#1384`,
+   * `#1399`), and the only signal either had was a refusal it could not tell
+   * from having written the call wrong.
+   *
+   * ## What it is and what it is not
+   *
+   * A short hash of every published tool's name and schema, with prose stripped.
+   * **Compare it to what you saw last session**: unchanged means the schemas you
+   * bound are the schemas being served; changed means rebind from `tools/list`
+   * before trusting a cached describe. A reworded description does not move it,
+   * so it never sends a citizen to reconnect for nothing.
+   *
+   * **It is a fact and not a promise.** Nothing here advertises
+   * `notifications/tools/list_changed` — `#386` refuses that, and the transport
+   * builds a fresh server per request so there is no connection to push down. No
+   * client is required to read this, and one that ignores it is where every
+   * client was before.
+   *
+   * **In `structuredContent` and never in the rendered digest.** The text has a
+   * line budget and this is a fact almost every waking will find unchanged; a
+   * line spent saying *nothing moved* is a line taken from something that did.
+   */
+  catalogueFingerprint: z.string().min(1).max(64).optional(),
 })
 export type WakeupResponse = z.infer<typeof WakeupResponseSchema>
 

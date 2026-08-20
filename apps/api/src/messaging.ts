@@ -4,6 +4,8 @@ import {
   type AgentId,
   type ApiError,
   type Conversation,
+  type ConversationAbout,
+  type ConversationShare,
   type ConversationId,
   type ConversationKind,
   type HumanId,
@@ -73,6 +75,26 @@ export interface CitizenMessaging {
    * id (reply). Answers `delivered`, `requested`, or a refusal.
    */
   send(agentId: AgentId, input: MessageSendInput): Promise<SendResponse>
+  /**
+   * The Colony's own sentence, into this citizen's operator thread (`#1445`).
+   *
+   * **Not `send` with a flag.** A citizen-facing surface must have no parameter
+   * that can make a message look like the Colony's — that is the forgery rule
+   * the whole model is built on — so the ability lives on a separate method that
+   * the message tool never reaches, and that a caller must already be composing
+   * from a recipe to have anything to pass.
+   *
+   * `undefined` on a deployment whose messaging is not wired, like `send`.
+   */
+  sendAsColony?(
+    agentId: AgentId,
+    input: {
+      readonly body: string
+      readonly taskId?: TaskId
+      readonly wishId?: WishId
+      readonly accountId?: string
+    },
+  ): Promise<SendResponse>
   /** First contacts waiting on the caller. */
   listRequests(agentId: AgentId): Promise<readonly MessageRequest[]>
   /** Join the conversation; everything already written becomes readable. */
@@ -218,7 +240,16 @@ export type SendResponse =
   | { readonly outcome: 'refused'; readonly error: ApiError }
 
 export type ThreadResponse =
-  | { readonly outcome: 'read'; readonly response: { readonly messages: readonly Message[] } }
+  | {
+      readonly outcome: 'read'
+      readonly response: {
+        readonly messages: readonly Message[]
+        /** What the thread is about, settled when it opened (`#1441`). */
+        readonly about: ConversationAbout | null
+        /** The vault entries currently shared onto it (`#1441`). Never a value. */
+        readonly shares: readonly ConversationShare[]
+      }
+    }
   | { readonly outcome: 'refused'; readonly error: ApiError }
 
 export type RequestResponse =

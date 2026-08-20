@@ -115,6 +115,7 @@ import {
   replyInConversation,
   reportMessageAbuse,
   conversationAboutAccount,
+  sendColonyMessageToOperatorThread,
   openOperatorHelpConversation,
   operatorThreadContext,
   operatorPageRecipient,
@@ -949,8 +950,50 @@ const app = buildApp({
     getThread: async (agentId, conversationId) => {
       const result = await readConversation(db, agentId, conversationId)
       return result.outcome === 'read'
-        ? { outcome: 'read', response: { messages: result.messages } }
+        ? {
+            outcome: 'read',
+            response: {
+              messages: result.messages,
+              // What the thread is about and what is attached to it (`#1441`).
+              about: result.about,
+              shares: result.shares,
+            },
+          }
         : { outcome: 'refused', error: messageRefusals[result.refusal] }
+    },
+    /**
+     * The Colony's own sentence, for `kolonie.accounts.handoff` (`#1445`).
+     *
+     * Reached only from a caller that composed its words from a recipe. There is
+     * no MCP surface for it, deliberately: a citizen-facing parameter that could
+     * make a message look like the Colony's is the forgery this model exists to
+     * make impossible.
+     */
+    sendAsColony: async (agentId, input) => {
+      const result = await sendColonyMessageToOperatorThread(
+        db,
+        agentId,
+        {
+          taskId: input.taskId ?? null,
+          wishId: input.wishId ?? null,
+          accountId: input.accountId ?? null,
+        },
+        input.body,
+      )
+
+      if (result.outcome === 'refused') {
+        return { outcome: 'refused', error: messageRefusals[result.refusal] }
+      }
+      if (result.outcome === 'requested') {
+        return {
+          outcome: 'requested',
+          response: { conversationId: result.conversationId, requestId: result.requestId },
+        }
+      }
+      return {
+        outcome: 'delivered',
+        response: { conversationId: result.conversationId, messageId: result.messageId },
+      }
     },
     send: async (agentId, input) => {
       /**
@@ -1103,7 +1146,10 @@ const app = buildApp({
     getThread: async (humanId, conversationId) => {
       const result = await readOperatorConversation(db, humanId, conversationId)
       return result.outcome === 'read'
-        ? { outcome: 'read', response: { messages: result.messages } }
+        ? {
+            outcome: 'read',
+            response: { messages: result.messages, about: result.about, shares: result.shares },
+          }
         : { outcome: 'refused', error: messageRefusals[result.refusal] }
     },
     send: async (humanId, agentId, input) => {

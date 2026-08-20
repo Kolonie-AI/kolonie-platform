@@ -1240,7 +1240,7 @@ async function openDirectConversation(
     readonly provenance?: ConversationProvenance
     readonly answerKind?: OperatorAnswerKind
     /** Whose words the first message is. `sender` unless the citizen opened it (`#1319`). */
-    readonly openedBy?: 'sender' | 'citizen'
+    readonly openedBy?: 'sender' | 'citizen' | 'colony'
   } = {},
 ): Promise<SendResult> {
   return await db.transaction(async (tx) => {
@@ -1284,8 +1284,40 @@ async function openDirectConversation(
       .returning({ id: messageParticipants.id })
     if (participant === undefined) throw new Error('inserting a participant returned no row')
 
+    /**
+     * **A third opener, since `#1445`.** A handoff opens an *operator* thread —
+     * the person is the counterparty and must be in it — but the first sentence
+     * is the Colony's, composed from a recipe. So the participants are the
+     * operator's open and the author is a `system-role` row added beside them,
+     * which is what makes *no agent wrote this* something the reader can see
+     * rather than something they are told.
+     */
+    const colonyAuthor =
+      extra.openedBy !== 'colony'
+        ? undefined
+        : await (async () => {
+            const [row] = await tx
+              .insert(messageParticipants)
+              .values({
+                conversationId: conversation.id,
+                party: 'system-role',
+                systemRole: 'academy',
+                label: 'the Colony',
+              })
+              .returning({ id: messageParticipants.id })
+            if (row === undefined) throw new Error('inserting a Colony participant returned no row')
+            return {
+              id: row.id,
+              conversationId: conversation.id,
+              party: 'system-role' as const,
+              label: 'the Colony',
+              systemRole: 'academy' as const,
+            }
+          })()
+
     const author =
-      extra.openedBy === 'citizen'
+      colonyAuthor ??
+      (extra.openedBy === 'citizen'
         ? {
             id: citizenParticipant.id,
             conversationId: conversation.id,
@@ -1299,7 +1331,7 @@ async function openDirectConversation(
             party: sender.party,
             label: sender.label,
             systemRole: sender.systemRole ?? null,
-          }
+          })
 
     const id = await insertMessage(tx, author, text, extra.system, extra.answerKind)
 
@@ -2274,5 +2306,147 @@ export async function messagingWakeupDelta(
     pendingRequests,
     highPriority,
     ...(sampleThreadIds.length === 0 ? {} : { sampleThreadIds }),
+  }
+}
+
+/**
+ * The Colony's own sentence, into the citizen's operator thread (`#1445`).
+ *
+ * ## Why this exists rather than the citizen's send path
+ *
+ * `kolonie.accounts.handoff` composes its ask from a recipe and never from the
+ * agent — `packages/core/src/operator/handover.ts` states it as constraint 4:
+ * *"An agent that could compose the message arriving beside its secret is a
+ * different and worse thing."* That is a prompt-injection boundary, and a person
+ * reading a handoff is reading text no agent could have authored.
+ *
+ * **`#1437` frozen decision 2 does not reach this.** A citizen may write the
+ * sentence beside a *share*, because a share hangs on a thread the citizen is
+ * visibly writing in. A handoff has no such thread: it arrives cold, from a
+ * recipe step, about a provider the operator may never have heard of. So the
+ * Colony keeps writing it — and, since `#1445`, the message is attributed to the
+ * Colony rather than delivered as the citizen's, which is what lets the operator
+ * see the property rather than be told about it.
+ *
+ * ## It joins the operator's thread rather than opening a Colony one
+ *
+ * `sendSystemMessage` opens a thread between the Colony and the citizen, which
+ * the operator is not in and cannot read. This writes into the thread the
+ * *operator* is in, as a `system-role` participant added to it — so the ask, the
+ * citizen's own words about the same account, and the operator's answer are one
+ * conversation. That is the whole of `#1445`: a handoff and the conversation
+ * about the same account stop being two places.
+ */
+export async function sendColonyMessageToOperatorThread(
+  db: Database,
+  agentId: AgentId,
+  provenance: ConversationProvenance,
+  body: string,
+): Promise<SendResult> {
+  const [link] = await db
+    .select({ humanId: humanAgents.humanId })
+    .from(humanAgents)
+    .where(eq(humanAgents.agentId, agentId))
+    .limit(1)
+
+  if (link === undefined) return { outcome: 'refused', refusal: 'not-the-operator' }
+
+  const humanId = link.humanId as HumanId
+  const taskId = provenance.taskId ?? null
+  const wishId = provenance.wishId ?? null
+  const accountId = provenance.accountId ?? null
+
+  const existing = await pairedConversation(db, agentId, {
+    humanId,
+    provenance: { taskId, wishId, accountId },
+  })
+
+  /**
+   * A second handoff about the same account reuses the thread, which is
+   * `#1445`'s own acceptance criterion and falls out of the provenance match
+   * rather than being arranged: *the same subject* finds the thread that already
+   * holds the answer.
+   */
+  if (existing !== undefined) {
+    const colonySide = await colonyParticipant(db, conversationId(existing.conversationId))
+    const id = await insertMessage(db, colonySide, body)
+    return {
+      outcome: 'delivered',
+      conversationId: conversationId(existing.conversationId),
+      messageId: id,
+    }
+  }
+
+  const opened = await openDirectConversation(
+    db,
+    agentId,
+    { party: 'operator-human', humanId, label: 'your operator' },
+    body,
+    { provenance: { taskId, wishId, accountId }, openedBy: 'colony' },
+  )
+
+  return opened.outcome === 'delivered' ? { ...opened, opened: true } : opened
+}
+
+/**
+ * The Colony's participant row on one conversation, made if it is not there.
+ *
+ * **`academy` is the role**, because a handoff is a step of an onboarding recipe
+ * and `MessageSystemRoleSchema` has no closer member. It is a claim of authority
+ * — every role here writes past a block — and this one is the Colony saying a
+ * sentence it composed itself, which is exactly the authority in question.
+ */
+async function colonyParticipant(db: Database | Transaction, conversation: ConversationId) {
+  const [existing] = await db
+    .select({
+      id: messageParticipants.id,
+      conversationId: messageParticipants.conversationId,
+      party: messageParticipants.party,
+      label: messageParticipants.label,
+      systemRole: messageParticipants.systemRole,
+    })
+    .from(messageParticipants)
+    .where(
+      and(
+        eq(messageParticipants.conversationId, conversation),
+        eq(messageParticipants.party, 'system-role'),
+      ),
+    )
+    .limit(1)
+
+  if (existing !== undefined) {
+    return {
+      id: existing.id,
+      conversationId: existing.conversationId,
+      party: existing.party,
+      label: existing.label,
+      systemRole: existing.systemRole,
+    }
+  }
+
+  const [made] = await db
+    .insert(messageParticipants)
+    .values({
+      conversationId: conversation,
+      party: 'system-role',
+      systemRole: 'academy',
+      label: 'the Colony',
+    })
+    .returning({
+      id: messageParticipants.id,
+      conversationId: messageParticipants.conversationId,
+      party: messageParticipants.party,
+      label: messageParticipants.label,
+      systemRole: messageParticipants.systemRole,
+    })
+
+  if (made === undefined) throw new Error('inserting a Colony participant returned no row')
+
+  return {
+    id: made.id,
+    conversationId: made.conversationId,
+    party: made.party,
+    label: made.label,
+    systemRole: made.systemRole,
   }
 }

@@ -91,7 +91,18 @@ const asConversationId = (value: string): ConversationId => ConversationIdSchema
 
 /** One message in an operator thread, in the shape the durable page already renders. */
 export interface OperatorThreadMessage {
-  readonly author: 'citizen' | 'operator'
+  /**
+   * Who wrote it — three, not two, since `#1445`.
+   *
+   * **`colony` used to be folded into `citizen`**, and that was defensible while
+   * the only Colony messages in an operator thread were notices *about* the
+   * citizen. `kolonie.accounts.handoff` changes it: the ask a person reads is
+   * composed by the Colony from a recipe and **no agent could have authored it**,
+   * which is the anti-injection property `packages/core/src/operator/handover.ts`
+   * states as constraint 4. A person can only rely on that if they can see it,
+   * so the third value exists and the page renders it differently.
+   */
+  readonly author: 'citizen' | 'operator' | 'colony'
   readonly body: string
   readonly kind: OperatorAnswerKind | null
   readonly writtenAt: string
@@ -330,14 +341,24 @@ async function messagesOfThread(
     .orderBy(asc(messages.createdAt), asc(messages.id))
 
   /**
-   * **`system-role` is folded into the citizen's column and not dropped.** The
-   * Colony writes into an operator thread when it has something to say about the
-   * citizen, and an operator reading the page has to see it; what it must never
-   * be is *attributed to the operator*, which is the whole of `#236`'s rule that
-   * a citizen can always tell its operator's words from the Colony's.
+   * **Three authors, since `#1445`.** `system-role` was folded into the
+   * citizen's column, which was safe while every Colony message in an operator
+   * thread was a notice *about* the citizen — nothing turned on the reader
+   * telling them apart. A handoff does: its sentence is the Colony's, composed
+   * from a recipe, and *no agent could have written it* is the whole reason a
+   * person can act on it (`#592` constraint 4). A property nobody can see is
+   * not a property, so it gets its own column and its own words on the page.
+   *
+   * What is unchanged is the rule underneath: neither is ever attributed to the
+   * **operator**, which is `#236`'s side of the same distinction.
    */
   return rows.map((row) => ({
-    author: row.party === 'operator-human' ? ('operator' as const) : ('citizen' as const),
+    author:
+      row.party === 'operator-human'
+        ? ('operator' as const)
+        : row.party === 'system-role'
+          ? ('colony' as const)
+          : ('citizen' as const),
     body: row.body,
     kind: row.kind,
     writtenAt: row.createdAt,

@@ -13,12 +13,27 @@ import type { OperatorNotification, OperatorNotifier } from './operator-notifier
  * than a step in sending. Keeping it here is what stops a later edit to
  * `messaging.send` from mailing an operator about a citizen DM.
  *
- * ## One ping per thread, and never on a reply
+ * ## At most once a day, and never into a thread they are reading
  *
- * `operator_addresses`' rule, carried across unchanged: exactly one message per
- * ask and never a reminder. The caller passes `opened`, which storage sets only
- * when the send created the conversation — so a citizen that writes four times
- * into the thread it opened this morning costs its operator one mail.
+ * Until `#1451` this carried `operator_addresses`' rule unchanged — *one ping
+ * per thread, and never on a reply* — which the caller expressed by passing
+ * `opened`, set by storage only when the send created the conversation. It
+ * protected against a real thing, an agent costing a person five mails in an
+ * afternoon, and it did so by never telling them anything after the first
+ * message. Measured in production on 2026-08-20: **sixteen threads had an agent
+ * message newer than the operator's last reply and nobody had been told about
+ * any of them.**
+ *
+ * The predicate is now `claimOperatorNotification` in the store, which decides
+ * and stamps in one statement: from somebody else, into an unread thread, not
+ * muted, and nothing sent about it in the last day. The flood case is unchanged
+ * — four messages into a thread opened this morning is still one mail — and the
+ * silent case is fixed.
+ *
+ * **The decision is not made here**, and that is deliberate: unread is a cursor,
+ * mute is a column, and both are read under the same lock that writes the
+ * stamp. A predicate split between the store and this file would be one that
+ * two concurrent sends could both pass.
  *
  * ## A failure here never fails the send
  *
@@ -78,14 +93,23 @@ export async function notifyOperatorAboutThread(
 
   const context = (await deps.context(input.conversationId)) ?? UNNAMED_THREAD_CONTEXT
 
+  const base = deps.pageBaseUrl.replace(/\/+$/, '')
+
   const notification: OperatorNotification = {
     agentId: input.agentId,
     subject: { kind: 'conversation', conversationId: input.conversationId },
     agentName: input.agentName,
     context,
-    // The page the operator already holds, and no new link (`#236`). The thread
-    // is on it; anchoring at a conversation is the console's business.
-    link: `${deps.pageBaseUrl.replace(/\/+$/, '')}/operator/page/${recipient.pageToken}`,
+    /**
+     * The inbox (`#1451`), and the durable page beside it.
+     *
+     * **Still no new link** (`#236`): both of these are surfaces the person
+     * already has. What changed is which one leads — the inbox shows every
+     * agent at once, which is what somebody with three of them wants — and the
+     * page is carried second because it is the one that needs no account.
+     */
+    link: `${base}/inbox`,
+    pageLink: `${base}/operator/page/${recipient.pageToken}`,
     address: recipient.operatorAddress,
   }
 

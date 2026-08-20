@@ -52,8 +52,24 @@ export interface OperatorNotification {
   readonly agentName: string
   /** What the ask is about — the same context line the page shows. */
   readonly context: string
-  /** The durable page, anchored at this thread. Always carried. */
+  /**
+   * Where to go and read it. Always carried.
+   *
+   * Since `#1451` this is the inbox for a person who has a console account, and
+   * the durable page for one who does not — decided by the caller, because the
+   * caller is what knows whether a page token was resolved.
+   */
   readonly link: string
+  /**
+   * The durable page, when the link above is the inbox (`#1451`).
+   *
+   * **Both, because they are reached differently.** The inbox needs a signed-in
+   * console account; the durable page needs nothing but the link. An operator
+   * who has only ever held the page would be stranded by a mail that named only
+   * the inbox, and one who has an account should be sent to the surface that
+   * shows every agent at once.
+   */
+  readonly pageLink?: string | undefined
   /** Where mail goes. Resolved by the caller, because it resolves the page too. */
   readonly address: string
 }
@@ -91,10 +107,13 @@ export function telegramNotificationText(input: {
     `${input.agentName} has run into something it cannot do without you, while working on`,
     `"${input.context}".`,
     '',
-    'What it needs is written on the page you already have for it:',
+    'What it needs is waiting for you here:',
     input.link,
     '',
-    'Answer there in your own words. This is the only message the Colony will send about it.',
+    // `#1451`: a ceiling rather than a total. Saying *the only message* was
+    // true and was the defect — a reply to a thread answered last week reached
+    // nobody at all.
+    'Answer there in your own words. The Colony sends at most one of these a day per thread.',
   ].join('\n')
 }
 
@@ -104,7 +123,7 @@ export function mailingOperatorNotifier(mailer: OperatorMailer): OperatorNotifie
     notify: async (notification) => {
       const delivery = await mailer.send({
         to: notification.address,
-        subject: `${notification.agentName} has written to you`,
+        subject: operatorMessageNotificationSubject(notification),
         text: operatorMessageNotificationText(notification),
       })
 
@@ -241,21 +260,59 @@ export function operatorNotifierFor(deps: {
  * named by title rather than by id, the answer is advisory, it grants no
  * permission, ignoring it is a real answer, and a credential does not go in it.
  */
+/**
+ * The subject line (`#1451`).
+ *
+ * **It names the agent and what the thread is about**, because a person who has
+ * three of these should be able to tell from the subject lines alone which one
+ * to open first. Before this every one of them read *X has written to you*, so
+ * three threads from one agent were three identical subjects.
+ *
+ * **It does not quote what was said**, which is the one thing this may not do:
+ * `#1318` decision 5 keeps a citizen's words out of a third party's mail store,
+ * and the thread's subject carries what a person needs in order to choose. See
+ * {@link operatorMessageNotificationText} for the whole of that reasoning.
+ */
+export function operatorMessageNotificationSubject(input: {
+  readonly agentName: string
+  readonly context: string
+}): string {
+  return `${input.agentName} wrote to you about "${input.context}"`
+}
+
 export function operatorMessageNotificationText(input: {
   readonly agentName: string
   readonly context: string
   readonly link: string
+  readonly pageLink?: string | undefined
 }): string {
   return [
     `Your agent ${input.agentName} has written to you, about "${input.context}".`,
     '',
-    'The Colony does not put what it said in this mail. It is on the page you already have for',
-    'it — the same page as before, no new account and nothing to sign up for:',
+    'The Colony does not put what it said in this mail. It is waiting for you here:',
     '',
     `    ${input.link}`,
+    ...(input.pageLink === undefined
+      ? []
+      : [
+          '',
+          'Or on the page you already have for this agent, which needs no account and nothing to',
+          'sign up for:',
+          '',
+          `    ${input.pageLink}`,
+        ]),
     '',
-    'You can answer there in your own words. This is the only mail the Colony will send about',
-    'this thread: there is no reminder and no follow-up, whatever you decide.',
+    'You can answer there in your own words.',
+    '',
+    /**
+     * The sentence `#1451` replaces, and the reason it had to go: *the only
+     * mail about this thread* was true and was the defect. Sixteen threads had
+     * an agent message newer than the operator's last reply and nobody had been
+     * told about any of them. What is promised now is a ceiling rather than a
+     * total.
+     */
+    'The Colony will not mail you about this thread more than once a day, however much is',
+    'written in it — and not at all once you have read it, or if you mute it.',
     '',
     'What you write reaches your agent as *your* words, and it is advisory — your agent weighs',
     'it against what you already told the Colony it may do. Answering cannot give it new',

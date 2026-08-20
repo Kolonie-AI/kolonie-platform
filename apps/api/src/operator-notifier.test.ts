@@ -4,6 +4,8 @@ import type { AgentId, ConversationId } from '@kolonie-ai/core'
 import { createLog } from '@kolonie-ai/core'
 import {
   mailingOperatorNotifier,
+  operatorMessageNotificationSubject,
+  operatorMessageNotificationText,
   operatorNotifierFor,
   telegramNotificationText,
   telegramOrMailingOperatorNotifier,
@@ -335,8 +337,80 @@ describe('how an operator is reached about one ask (#794)', () => {
       expect(text).not.toMatch(/^I /m)
     })
 
-    it('says there will be no second message, as the mail does', () => {
-      expect(text).toContain('only message the Colony will send about it')
+    it('promises a ceiling rather than a total, as the mail does (#1451)', () => {
+      /**
+       * It used to say *the only message the Colony will send about it*, which
+       * was true and was the defect: sixteen threads had an agent message newer
+       * than the operator's last reply and nobody had been told. What is
+       * promised now is *at most one a day per thread*.
+       */
+      expect(text).toContain('at most one of these a day per thread')
+      expect(text).not.toContain('only message the Colony will send')
     })
+  })
+})
+
+/**
+ * What the mail says, after `#1451` changed the rule behind it.
+ *
+ * The issue asks for a mail that names *the agent, the thread and one line of
+ * what was said*. **The first two are here and the third deliberately is not**,
+ * and that is a conflict between two decisions rather than an omission:
+ * `#1318` decision 5 keeps a citizen's words out of a third party's mail store
+ * for ever, and quoting a line of every message would undo it on every send.
+ * What the issue wanted the line *for* — *a person who gets three of these
+ * should be able to tell from the subject lines alone which to open first* — is
+ * what the subject line now does, by naming the thread instead of the words.
+ */
+describe('what the mail says (#1451)', () => {
+  const notification = {
+    agentName: 'canary',
+    context: 'a mailbox at mail.example',
+    link: 'https://console.example.org/inbox',
+    pageLink: 'https://console.example.org/operator/page/a-token',
+  }
+
+  it('tells three apart by their subject lines', () => {
+    const one = operatorMessageNotificationSubject(notification)
+    const two = operatorMessageNotificationSubject({ ...notification, context: 'the domain' })
+    const three = operatorMessageNotificationSubject({ ...notification, agentName: 'ariadne' })
+
+    expect(one).toContain('canary')
+    expect(one).toContain('a mailbox at mail.example')
+    expect(new Set([one, two, three]).size).toBe(3)
+  })
+
+  it('does not quote what the citizen said', () => {
+    const text = operatorMessageNotificationText(notification)
+
+    // The one thing this text may not do (`#1318` decision 5). There is no
+    // parameter to put a message body in, which is a stronger statement than
+    // not using one.
+    expect(text).not.toContain('what it said in this mail. It is on')
+    expect(text).toContain('does not put what it said in this mail')
+  })
+
+  it('leads with the inbox and carries the page for somebody with no account', () => {
+    const text = operatorMessageNotificationText(notification)
+
+    expect(text.indexOf('/inbox')).toBeLessThan(text.indexOf('/operator/page/a-token'))
+    expect(text).toContain('needs no account')
+  })
+
+  it('names only the inbox when there is no page to name', () => {
+    const text = operatorMessageNotificationText({ ...notification, pageLink: undefined })
+
+    expect(text).toContain('/inbox')
+    expect(text).not.toContain('/operator/page/')
+    // And no dangling sentence introducing a link that is not there.
+    expect(text).not.toContain('needs no account')
+  })
+
+  it('promises a ceiling rather than a total', () => {
+    const text = operatorMessageNotificationText(notification)
+
+    expect(text).toContain('not mail you about this thread more than once a day')
+    expect(text).toContain('once you have read it, or if you mute it')
+    expect(text).not.toContain('there is no reminder and no follow-up')
   })
 })

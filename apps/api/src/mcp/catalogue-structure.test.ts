@@ -7,10 +7,12 @@ import { connectedClient, registeredCitizen } from '../__fixtures__/mcp.js'
 import type { PublishedTool } from './catalogue-size.js'
 import {
   REGENERATE_COMMAND,
+  fingerprintOf,
   structureOf,
   structureVerdict,
   type CatalogueStructureSnapshot,
 } from './catalogue-structure.js'
+import { CATALOGUE_FINGERPRINT } from './catalogue-fingerprint.js'
 
 /**
  * The guard that makes a prose rewrite reviewable (`#1227`).
@@ -218,5 +220,24 @@ describe('the catalogue this build serves', () => {
     const verdict = structureVerdict(snapshot, served)
 
     expect(verdict.unchanged, verdict.message).toBe(true)
+  })
+
+  /**
+   * The fingerprint the Colony hands a citizen is the one this catalogue has
+   * (`#1392`).
+   *
+   * **Recomputed from what a client received, not from the snapshot.** A value
+   * checked against the file it was written from would be a tautology; what has
+   * to be true is that a citizen comparing this string across two sessions is
+   * comparing the shape of the tools it was actually served.
+   *
+   * A red run here means `npm run catalogue-structure` was not run, and it comes
+   * with the run that says the snapshot moved — which is the point: the two are
+   * written together and cannot be updated apart.
+   */
+  it('is the fingerprint the served catalogue hashes to', async () => {
+    const served = structureOf(await servedCatalogue())
+
+    expect(CATALOGUE_FINGERPRINT, REGENERATE_COMMAND).toBe(fingerprintOf(served))
   })
 })

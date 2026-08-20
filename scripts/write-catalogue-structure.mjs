@@ -36,11 +36,13 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath, URL } from 'node:url'
+import { createHash } from 'node:crypto'
 import { format, resolveConfig } from 'prettier'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const API = path.join(ROOT, 'apps', 'api')
 const SNAPSHOT = path.join(API, 'src', 'mcp', 'catalogue-structure.json')
+const FINGERPRINT = path.join(API, 'src', 'mcp', 'catalogue-fingerprint.ts')
 const TEST = 'src/mcp/catalogue-structure.test.ts'
 const COMMAND = 'npm run catalogue-structure'
 
@@ -80,6 +82,18 @@ if (shape(committed) === shape(served)) {
   process.exit(0)
 }
 
+/**
+ * The fingerprint moves with the snapshot and is written in the same breath
+ * (`#1392`).
+ *
+ * **Here rather than computed at runtime**, because the value has to be the one
+ * this build serves and the served catalogue can only be read through the api
+ * fixtures, which are kept out of `dist`. Writing it beside the snapshot means
+ * the two cannot disagree — and `catalogue-structure.test.ts` recomputes it from
+ * what a client received, so a hand-edit of either is a red run.
+ */
+const fingerprint = createHash('sha256').update(shape(served)).digest('hex').slice(0, 12)
+
 // Written through Prettier rather than through `JSON.stringify` alone: the file
 // is 80 kB and `format:check` covers it, so a snapshot this script formats its
 // own way is one that fails the gate in the same commit that regenerated it.
@@ -95,8 +109,19 @@ writeFileSync(
   'utf8',
 )
 
+const fingerprintSource = readFileSync(FINGERPRINT, 'utf8')
+writeFileSync(
+  FINGERPRINT,
+  fingerprintSource.replace(
+    /export const CATALOGUE_FINGERPRINT = '[0-9a-f]*'/,
+    `export const CATALOGUE_FINGERPRINT = '${fingerprint}'`,
+  ),
+  'utf8',
+)
+
 console.log(
-  `The snapshot now describes ${served.tools.length} tools. ` +
-    'Commit apps/api/src/mcp/catalogue-structure.json — its diff is the structural change, and every ' +
-    'line of it is one a reviewer should be able to account for.',
+  `The snapshot now describes ${served.tools.length} tools, fingerprint ${fingerprint}. ` +
+    'Commit apps/api/src/mcp/catalogue-structure.json and catalogue-fingerprint.ts — the ' +
+    'snapshot diff is the structural change, and every line of it is one a reviewer should be ' +
+    'able to account for.',
 )

@@ -288,7 +288,21 @@ const ACADEMY_PATH = '/academy/'
  * address is a second address for the index, and a canonical then has to argue
  * with it.
  */
-function searchBox(query?: string | undefined, earn?: EarnFacet | undefined): string {
+function searchBox(
+  query?: string | undefined,
+  earn?: EarnFacet | undefined,
+  /**
+   * The tag being filtered on, carried as a hidden field (`#1406` decision 4).
+   *
+   * **Hidden and not a second control.** A tag vocabulary is open, so it has no
+   * list to put in a `select` and a free-text box beside `q` would be a second
+   * search box whose difference from the first nobody could guess. What a reader
+   * does with a tag is click a chip; what this field buys is that refining the
+   * result with a name or a way of earning does not silently drop the tag they
+   * arrived on.
+   */
+  tag?: string | undefined,
+): string {
   /**
    * **A `select` and not checkboxes** (`#1365`). Atlas pages carry no script, so
    * every control here has to survive a plain `GET` submit — which a multi-select
@@ -317,6 +331,7 @@ function searchBox(query?: string | undefined, earn?: EarnFacet | undefined): st
     `value="${escape(query ?? '')}" maxlength="${ATLAS_QUERY_MAX_LENGTH}">` +
     '<label for="k-atlas-earn">that pays</label>' +
     `<select id="k-atlas-earn" name="earn">${options}</select>` +
+    (tag === undefined ? '' : `<input type="hidden" name="tag" value="${escape(tag)}">`) +
     '<button type="submit">Search</button>' +
     '</form>'
   )
@@ -758,9 +773,12 @@ export function atlasSearchPage(input: {
   readonly chrome?: SiteChrome | undefined
   /** Which way of earning the reader asked for, if any (`#1365`). */
   readonly earn?: EarnFacet | undefined
+  /** Which tag the reader asked for, if any (`#1406` decision 4). */
+  readonly tag?: string | undefined
 }): string {
   const asked = input.query.trim()
   const earn = input.earn
+  const tag = input.tag
 
   /**
    * **Earn-carrying entries first, and only where the reader asked for earn**
@@ -798,7 +816,7 @@ export function atlasSearchPage(input: {
           ...found.filter((entry) => atlasEarnFacets(entry).length === 0),
         ]
 
-  const nothingAsked = asked === '' && earn === undefined
+  const nothingAsked = asked === '' && earn === undefined && tag === undefined
 
   /**
    * **The count is a sentence in both cases, rather than a stem and a variable**
@@ -808,25 +826,70 @@ export function atlasSearchPage(input: {
    * facet did not *match* anything; they asked which providers pay that way, and
    * the answer is that sentence.
    */
+  /**
+   * What the empty page says the reader asked for.
+   *
+   * **Assembled from whichever filters are on, rather than branching on the
+   * query alone.** It branched on `asked === ''` and reached for the earn
+   * phrase in the other half, which was true while those were the only two
+   * filters and stopped being true the moment `#1406` added a third: a
+   * tag-only search that found nothing read *Nothing in the catalogue undefined
+   * yet*, because `atlasEarnPhrasePlural` was handed no facet and returned it
+   * back. A sentence built from what is actually set cannot acquire that shape
+   * when a fourth filter arrives.
+   */
+  const nothingMatched = (() => {
+    const clauses = [
+      asked === '' ? '' : `matches <strong>${escape(asked)}</strong>`,
+      tag === undefined ? '' : `is tagged ${escape(tag)}`,
+      earn === undefined ? '' : atlasEarnPhrasePlural(earn),
+    ].filter((clause) => clause !== '')
+
+    return clauses.length === 0 ? 'matches that' : `${clauses.join(' and ')} yet`
+  })()
+
   const counted = (n: number): string => {
     const providers = `${n} ${n === 1 ? 'provider' : 'providers'}`
+    /**
+     * **The tag is named in the sentence, not only in the box** (`#1406`). A
+     * reader who arrived by clicking a chip has a filter on that nothing on the
+     * page would otherwise state, and *5 providers.* over a filtered list is the
+     * page hiding what it did.
+     */
+    const tagged = tag === undefined ? '' : ` tagged ${escape(tag)}`
     const pay =
       earn === undefined ? '' : n === 1 ? atlasEarnPhrase(earn) : atlasEarnPhrasePlural(earn)
 
-    if (asked === '') return `${providers} ${pay}.`
+    if (asked === '') return `${providers}${tagged}${pay === '' ? '' : ` ${pay}`}.`
     if (earn === undefined) {
-      return `${providers} ${n === 1 ? 'matches' : 'match'} <strong>${escape(asked)}</strong>.`
+      return (
+        `${providers}${tagged} ${n === 1 ? 'matches' : 'match'} ` +
+        `<strong>${escape(asked)}</strong>.`
+      )
     }
 
-    return `${providers} ${n === 1 ? 'matches' : 'match'} <strong>${escape(asked)}</strong> and ${pay}.`
+    return (
+      `${providers}${tagged} ${n === 1 ? 'matches' : 'match'} ` +
+      `<strong>${escape(asked)}</strong> and ${pay}.`
+    )
   }
 
   return atlasPage({
+    /**
+     * **The title is built from what is set, exactly as {@link nothingMatched}
+     * is, and for the same reason.** It branched on the query and reached for
+     * the earn phrase in the other half, so a tag-only search shipped
+     * `<title>Providers that undefined — the Atlas</title>` the moment `#1406`
+     * added a third filter. The reader's own words come first where they typed
+     * any, because that is what a result list shows them.
+     */
     title: nothingAsked
       ? 'Search the Atlas'
-      : asked === ''
-        ? `Providers that ${atlasEarnPhrasePlural(earn as EarnFacet)} — the Atlas`
-        : `${asked} — the Atlas`,
+      : asked !== ''
+        ? `${asked} — the Atlas`
+        : earn !== undefined
+          ? `Providers that ${atlasEarnPhrasePlural(earn)} — the Atlas`
+          : `Providers tagged ${tag} — the Atlas`,
     description: ATLAS_STANDFIRST,
     canonical: input.canonical,
     chrome: input.chrome,
@@ -834,18 +897,13 @@ export function atlasSearchPage(input: {
     body: [
       '<main>',
       '<h1>Search the Atlas</h1>',
-      searchBox(asked, earn),
+      searchBox(asked, earn, tag),
       nothingAsked
         ? `<p>Type a provider name, choose a way of earning, or go back to ` +
           `<a href="${ATLAS_PATH}">the catalogue</a>.</p>`
         : shown.length === 0
-          ? `<p>Nothing in the catalogue ${
-              asked === ''
-                ? `${atlasEarnPhrasePlural(earn as EarnFacet)} yet`
-                : `matches <strong>${escape(asked)}</strong>${
-                    earn === undefined ? '' : ` and ${atlasEarnPhrasePlural(earn)}`
-                  }`
-            }. That is an absence and not a refusal — nobody has walked it ` +
+          ? `<p>Nothing in the catalogue ${nothingMatched}. That is an absence and not a ` +
+            `refusal — nobody has walked it ` +
             `yet, so nothing is known either way. <a href="${ATLAS_PATH}">The whole ` +
             'catalogue</a> is one link away.</p>'
           : [
@@ -2307,6 +2365,16 @@ function taxonomyLine(entry: AtlasPublicEntry): string {
     const body = `${mark}${escape(one.text)}`
 
     if (one.shelf !== null) return `<a href="${escape(atlasShelfPath(one.shelf))}">${body}</a>`
+    /**
+     * **A tag chip is a link into the search that filters on it** (`#1406`
+     * decision 4). The vocabulary is open, so there is no shelf page to send a
+     * reader to and no list to browse — the search *is* the browse, and a chip
+     * that only sat there would be a label whose whole use a reader had to guess.
+     */
+    if (one.tag !== null) {
+      const href = `${ATLAS_SEARCH_PATH}?tag=${encodeURIComponent(one.tag)}`
+      return `<a class="${one.className ?? ''}" href="${escape(href)}">${body}</a>`
+    }
 
     return one.className === null ? body : `<span class="${one.className}">${body}</span>`
   }

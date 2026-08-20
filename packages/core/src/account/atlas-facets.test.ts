@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
   AtlasFacetSchema,
+  AtlasTagSlugSchema,
   EARN_FACETS,
+  RECIPE_MAX_FACETS,
+  RECIPE_MAX_TAGS,
+  tagsOf,
   EarnFacetSchema,
   earnFacetsMatch,
   earnFacetsOf,
@@ -129,5 +133,79 @@ describe('filtering on the earn axis', () => {
   it('says nothing about the shelf', () => {
     expect(earnFacetsMatch(board, { withEarn: ['bounty-board'] })).toBe(true)
     expect(utilityFacetsOf(board)).toEqual(['data-apis'])
+  })
+})
+
+/**
+ * Free-form tags, the third axis (`#1406`).
+ *
+ * The axis column was written to hold one — *a third axis is a value and a
+ * check, rather than a fourth table with the same three columns in it* — so
+ * what is asserted here is the vocabulary rule and the additivity, which is the
+ * whole of what `#1406` decides.
+ */
+describe('the free-form tags beside them', () => {
+  it('accepts a lowercase kebab-case slug', () => {
+    for (const tag of ['ai-agents', 'crypto', 'bug-bounty', 'web3'])
+      expect(AtlasTagSlugSchema.parse(tag)).toBe(tag)
+  })
+
+  /**
+   * Decision 2 leaves the vocabulary open and takes the kinds' slug rules. A
+   * label that is a sentence is one nobody can render as a chip, and a label
+   * that differs from its neighbour only in case is two labels a reader reads
+   * as one.
+   */
+  it('refuses anything a chip could not carry', () => {
+    for (const bad of [
+      'Bug Bounty',
+      'bug bounty',
+      'bug_bounty',
+      '-leading',
+      'trailing-',
+      'a',
+      'x'.repeat(33),
+      'ai--agents',
+    ]) {
+      expect(AtlasTagSlugSchema.safeParse(bad).success, `${bad} was accepted`).toBe(false)
+    }
+  })
+
+  it('reads them back alphabetically and without repeats', () => {
+    const facets = [
+      { axis: 'tag', slug: 'web3' },
+      { axis: 'earn', slug: 'bounty-board' },
+      { axis: 'tag', slug: 'ai-agents' },
+      { axis: 'tag', slug: 'web3' },
+    ] as const
+
+    expect(tagsOf(facets)).toEqual(['ai-agents', 'web3'])
+  })
+
+  /**
+   * Decision 1: additive. A tag decides no shelf and no earn facet, so adding
+   * one must not change what either axis answers.
+   */
+  it('adds a tag beside the two axes and changes neither', () => {
+    const withTags = facetsFrom(['mailboxes'], ['affiliate-referral'], ['ai-agents', 'privacy'])
+
+    expect(utilityFacetsOf(withTags)).toEqual(['mailboxes'])
+    expect(earnFacetsOf(withTags)).toEqual(['affiliate-referral'])
+    expect(tagsOf(withTags)).toEqual(['ai-agents', 'privacy'])
+    expect(isDualUse(withTags)).toBe(true)
+  })
+
+  it('is empty on an entry nobody has tagged, which is every entry today', () => {
+    expect(tagsOf(facetsFrom(['mailboxes'], []))).toEqual([])
+  })
+
+  /**
+   * Decision 3 caps a filing at eight. The cap is on what a walker may propose
+   * in one filing rather than on the column, so it lives beside the vocabulary
+   * as a number both the write path and a tool description can read.
+   */
+  it('names the cap a filing is held to', () => {
+    expect(RECIPE_MAX_TAGS).toBe(8)
+    expect(RECIPE_MAX_TAGS).toBeLessThan(RECIPE_MAX_FACETS)
   })
 })

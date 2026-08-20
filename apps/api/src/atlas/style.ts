@@ -565,6 +565,15 @@ p.k-paid {
 }
 
 /*
+ * A free-form tag (\`#1406\`). Quieter than the earn chip beside it, because a
+ * tag is a label rather than a classification -- and a link, because the search
+ * that filters on it is the only browse an open vocabulary can have.
+ */
+.k-atlas-tag {
+  color: var(--k-text-muted);
+}
+
+/*
  * The chips past the sixth (\`#1404\` decision 4). Quieter than the line it
  * follows, because it is the overflow and not a second header — and it takes
  * the margin the line above it gives up, so a header with a disclosure and one

@@ -6,6 +6,8 @@ import {
   atlasMatchesQuery,
   earnFacetsMatch,
   EarnFacetSchema,
+  AtlasTagSlugSchema,
+  tagsOf,
   atlasCategoryPath,
   atlasPath,
   now,
@@ -200,7 +202,7 @@ export function registerAtlasPages(app: FastifyInstance, deps: RouteDependencies
    * catalogue that disagreed about what a query matches would be `#984`'s
    * complaint arriving on a fourth axis.
    */
-  app.get<{ Querystring: { q?: string; earn?: string } }>(
+  app.get<{ Querystring: { q?: string; earn?: string; tag?: string } }>(
     ATLAS_SEARCH_PATH,
     async (request, reply) => {
       if (wrongHost(request)) return reply.callNotFound()
@@ -225,6 +227,17 @@ export function registerAtlasPages(app: FastifyInstance, deps: RouteDependencies
       const asked = EarnFacetSchema.safeParse(request.query.earn)
       const earn = asked.success ? asked.data : undefined
 
+      /**
+       * Which tag was asked for, if the value could be one (`#1406` decision 4).
+       *
+       * **An unparseable tag is no filter**, on the rule directly above. A tag
+       * nobody has used is a different case and is answered by the page: it
+       * filters to nothing and says so, because *no provider carries this label*
+       * is a true answer and a 404 would be a claim that the label is invalid.
+       */
+      const askedTag = AtlasTagSlugSchema.safeParse(request.query.tag)
+      const tag = askedTag.success ? askedTag.data : undefined
+
       const entries = await listEntries()
 
       /**
@@ -233,13 +246,20 @@ export function registerAtlasPages(app: FastifyInstance, deps: RouteDependencies
        * forgets that an empty filter matches everything they cannot disagree.
        */
       const matching =
-        query === '' && earn === undefined
+        query === '' && earn === undefined && tag === undefined
           ? []
           : entries
               .filter((entry) => query === '' || atlasMatchesQuery(entry, query))
               .filter((entry) =>
                 earn === undefined ? true : earnFacetsMatch(entry.facets, { withEarn: [earn] }),
               )
+              /**
+               * **A whole tag and never a substring** (`#1406`). `?tag=mail`
+               * matching `mail-forwarding` would make the filter a second, worse
+               * search box — `q` is the one that matches loosely, and a reader
+               * who clicked a chip asked for that label.
+               */
+              .filter((entry) => tag === undefined || tagsOf(entry.facets ?? []).includes(tag))
 
       return send(
         reply,
@@ -247,6 +267,7 @@ export function registerAtlasPages(app: FastifyInstance, deps: RouteDependencies
           entries: matching,
           query,
           ...(earn === undefined ? {} : { earn }),
+          ...(tag === undefined ? {} : { tag }),
           /**
            * **The index and not this address.** A result page is a view of the
            * catalogue rather than a part of it, and the `noindex` the renderer

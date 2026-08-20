@@ -43,6 +43,7 @@ import {
   type ReferralArrangement,
   WalkedRecipeSchema,
   type WalkedRecipe,
+  AtlasTagSlugSchema,
   EarnFacetSchema,
   facetsFrom,
   type EarnFacet,
@@ -94,6 +95,15 @@ export function toRecipe(
    * inventing one would be the inference `#1301` refuses.
    */
   earn?: readonly EarnFacet[],
+  /**
+   * The free-form tags on this entry, from the same table (`#1406`).
+   *
+   * **Optional and absent means none**, exactly as `earn` above — and for the
+   * same reason it does not fall back to a column: a tag is a label somebody
+   * put there, and inventing one from the shelf would be the inference `#1301`
+   * refuses arriving on a third axis.
+   */
+  tags?: readonly string[],
 ): ProviderRecipe {
   const steps = (row.steps ?? []).map((step: RecipeStep) => RecipeStepSchema.parse(step))
 
@@ -158,6 +168,7 @@ export function toRecipe(
       ...facetsFrom(
         (shelves ?? [row.category]).map((one) => AtlasCategorySlugSchema.parse(one)),
         (earn ?? []).map((one) => EarnFacetSchema.parse(one)),
+        (tags ?? []).map((one) => AtlasTagSlugSchema.parse(one)),
       ),
     ],
     operatorNeed: need.need,
@@ -276,9 +287,13 @@ export async function providerRecipeList(
 
   const ids = rows.map((row) => row.id)
   /** One query each for the two axes, for the reason stated on `shelvesByRecipe`. */
-  const [shelves, earn] = await Promise.all([shelvesByRecipe(db, ids), earnByRecipe(db, ids)])
+  const [shelves, earn, tags] = await Promise.all([
+    shelvesByRecipe(db, ids),
+    earnByRecipe(db, ids),
+    tagsByRecipe(db, ids),
+  ])
 
-  return rows.map((row) => toRecipe(row, shelves.get(row.id), earn.get(row.id)))
+  return rows.map((row) => toRecipe(row, shelves.get(row.id), earn.get(row.id), tags.get(row.id)))
 }
 
 /**
@@ -354,6 +369,40 @@ async function earnByRecipe(
     const held = byRecipe.get(row.recipeId)
     if (held === undefined) byRecipe.set(row.recipeId, [slug])
     else held.push(slug)
+  }
+
+  return byRecipe
+}
+
+/**
+ * The free-form tags on a set of entries (`#1406`).
+ *
+ * `earnByRecipe` one axis along, and deliberately a second function rather than
+ * a parameter on that one: the two axes have different vocabularies, parse
+ * differently and fail differently, and a shared reader would have to branch on
+ * the axis at every step of itself.
+ *
+ * **An entry with no rows is absent and reads as no tags**, which is the state
+ * every entry is in the day this ships and is the honest one.
+ */
+async function tagsByRecipe(
+  db: Handle,
+  ids: readonly string[],
+): Promise<ReadonlyMap<string, readonly string[]>> {
+  if (ids.length === 0) return new Map()
+
+  const rows = await db
+    .select({ recipeId: providerRecipeFacets.recipeId, slug: providerRecipeFacets.slug })
+    .from(providerRecipeFacets)
+    .where(
+      and(inArray(providerRecipeFacets.recipeId, [...ids]), eq(providerRecipeFacets.axis, 'tag')),
+    )
+
+  const byRecipe = new Map<string, string[]>()
+  for (const row of rows) {
+    const held = byRecipe.get(row.recipeId)
+    if (held === undefined) byRecipe.set(row.recipeId, [row.slug])
+    else held.push(row.slug)
   }
 
   return byRecipe
@@ -479,12 +528,13 @@ export async function providerRecipe(
 
   if (row === undefined) return undefined
 
-  const [shelves, earn] = await Promise.all([
+  const [shelves, earn, tags] = await Promise.all([
     shelvesByRecipe(db, [row.id]),
     earnByRecipe(db, [row.id]),
+    tagsByRecipe(db, [row.id]),
   ])
 
-  return toRecipe(row, shelves.get(row.id), earn.get(row.id))
+  return toRecipe(row, shelves.get(row.id), earn.get(row.id), tags.get(row.id))
 }
 
 /**

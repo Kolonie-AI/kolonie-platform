@@ -1,5 +1,5 @@
 import type { AtlasEntry, AtlasFacet } from '@kolonie-ai/core'
-import { ATLAS_FALLBACK_CATEGORY, earnFacetsOf } from '@kolonie-ai/core'
+import { ATLAS_FALLBACK_CATEGORY, earnFacetsOf, tagsOf } from '@kolonie-ai/core'
 
 /**
  * How many neighbours a provider page carries (`kolonie-website#113`).
@@ -149,17 +149,19 @@ export function atlasNeighbourRule(entry: AtlasEntry): string {
 }
 
 /**
- * The entry's free-form tags, which do not exist yet (`#1406`).
+ * The entry's free-form tags (`#1403`'s hook, filled by `#1406`).
  *
- * **A reader rather than a field access**, so that the day `#1406` lands the
- * scoring above needs one line changed here and nothing changed in the ordering,
- * the qualification rule or the tests that pin them. Decision 1 of `#1403` puts
- * tags between the earn facet and the kind, and that position is already built.
+ * **A reader rather than a field access**, which is what made this one line to
+ * change: `#1403` put tags between the earn facet and the kind and shipped the
+ * position empty, and landing the axis changed neither the ordering, the
+ * qualification rule nor a test that pins them.
+ *
+ * A tag is a shared signal here and never a qualifier on its own for an earn
+ * entry — see the rule in {@link atlasNeighbours}. Two providers sharing
+ * `crypto` and nothing else are not neighbours.
  */
 function atlasEntryTags(entry: AtlasEntry): readonly string[] {
-  const tags = (entry as { readonly tags?: readonly string[] }).tags
-
-  return tags ?? []
+  return tagsOf(facetsOf(entry))
 }
 
 /**

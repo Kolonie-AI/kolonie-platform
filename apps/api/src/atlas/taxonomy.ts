@@ -1,4 +1,10 @@
-import { ATLAS_FALLBACK_CATEGORY, earnFacetsOf, isDualUse, type EarnFacet } from '@kolonie-ai/core'
+import {
+  ATLAS_FALLBACK_CATEGORY,
+  earnFacetsOf,
+  isDualUse,
+  tagsOf,
+  type EarnFacet,
+} from '@kolonie-ai/core'
 import type { AtlasPublicEntry } from './public-projection.js'
 
 /**
@@ -129,6 +135,22 @@ export function atlasShelfClause(entry: AtlasPublicEntry): string | undefined {
   if (atlasEarnFacets(entry).length > 0) return undefined
 
   return 'no shelf fits it yet'
+}
+
+/**
+ * The free-form tags on an entry, alphabetical and without repeats (`#1406`).
+ *
+ * **Additive and never a classification** (decision 1). A tag decides no shelf,
+ * no earn facet and no neighbour ranking of its own — it is a label a walker put
+ * on a provider, and the surfaces read it as one more thing the entry says about
+ * itself rather than as a thing it *is*.
+ *
+ * **A missing facet list reads as no tags**, exactly as {@link atlasEarnFacets}
+ * treats an absent one and for the same reason: `atlasPublicEntry` always writes
+ * the field and the rows built by hand in this directory's tests do not.
+ */
+export function atlasTags(entry: AtlasPublicEntry): readonly string[] {
+  return tagsOf(entry.facets ?? [])
 }
 
 /**

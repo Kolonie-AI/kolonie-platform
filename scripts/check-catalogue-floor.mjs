@@ -218,7 +218,26 @@ const ceilingRaised =
   ceilingAfter !== undefined &&
   (ceilingAfter.bytes > ceilingBefore.bytes || ceilingAfter.name !== ceilingBefore.name)
 
-if (prText.trim() !== '' && (raised || ceilingRaised)) {
+/**
+ * Whether the raise this run found has already landed on the default branch.
+ *
+ * **The half `#1379` left out, and it made every pull request after a raise
+ * red.** The check judges *the last commit that touched the floor file*, which
+ * on a merge-group branch is whatever `main` carries — so from the moment a
+ * justified raise merged, every unrelated pull request behind it was judged
+ * against that raise, with its own title and body, which of course said nothing
+ * about it. Measured 2026-08-20: `#1419`'s raise landed with the words in three
+ * places, and the next two pull requests in the queue went red on it and stayed
+ * red through four merge-group attempts each.
+ *
+ * A raise that is already an ancestor of `origin/main` was judged when it
+ * landed, by the message that actually landed it. Judging it again against a
+ * pull request that did not make it is not a second opinion — it is a question
+ * asked of the wrong author.
+ */
+const alreadyLanded = git('merge-base', '--is-ancestor', sha, 'origin/main') !== undefined
+
+if (prText.trim() !== '' && (raised || ceilingRaised) && !alreadyLanded) {
   const prFloor = floorChangeVerdict(beforeTotals, afterTotals, prText)
   const prCeiling =
     ceilingBefore !== undefined && ceilingAfter !== undefined
@@ -232,8 +251,7 @@ if (prText.trim() !== '' && (raised || ceilingRaised)) {
   }
   if (!prFloor.allowed || prCeiling?.allowed === false) process.exit(1)
 } else if (raised || ceilingRaised) {
-  const onDefault = git('merge-base', '--is-ancestor', sha, 'origin/main') !== undefined
-  if (!onDefault) {
+  if (!alreadyLanded) {
     console.log(
       'This raise is justified on the branch commit. A squash merge will judge the pull ' +
         'request title and body instead — they must name ' +

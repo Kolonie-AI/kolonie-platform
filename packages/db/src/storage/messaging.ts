@@ -772,6 +772,18 @@ export async function sendOperatorMessage(
   label = 'your operator',
   answerKind?: OperatorAnswerKind,
   conversation?: ConversationId,
+  /**
+   * The account this thread is about, when a person opens one (`#1452`).
+   *
+   * **Only meaningful on an open**, and ignored when `conversation` names a
+   * thread that already exists — provenance is settled in the insert that
+   * creates a conversation and nowhere else (`#1319`), so a person cannot
+   * retitle a thread by replying into it.
+   *
+   * A person saying *I have put a card on the GitHub account* should be able to
+   * say which account, for the same reason the agent can (`#1441`).
+   */
+  accountId?: string,
 ): Promise<SendResult> {
   const text = body ?? (answerKind === undefined ? null : OPERATOR_ANSWER_BODIES[answerKind])
   if (text === null) throw new Error('an operator message needs a body or an answer kind')
@@ -788,9 +800,25 @@ export async function sendOperatorMessage(
 
   if (link === undefined) return { outcome: 'refused', refusal: 'not-the-operator' }
 
+  /**
+   * **The person's plain thread, or the one about this account** (`#1452`).
+   *
+   * With no provenance this matches on the person alone, which is the
+   * pre-`#1319` behaviour and the right one: a person writing to their citizen
+   * is usually not writing *about* anything in particular, and a second such
+   * message belongs in the thread that already holds the first. Naming an
+   * account narrows it the same way a citizen's own ask does — so *the same
+   * account again* lands in the thread that already holds the answer.
+   */
   const existing =
     conversation === undefined
-      ? await pairedConversation(db, toAgentId, { humanId })
+      ? await pairedConversation(
+          db,
+          toAgentId,
+          accountId === undefined
+            ? { humanId }
+            : { humanId, provenance: { taskId: null, wishId: null, accountId } },
+        )
       : await pairedConversation(db, toAgentId, { humanId, conversationId: conversation })
 
   if (existing === undefined && conversation !== undefined) {
@@ -814,7 +842,10 @@ export async function sendOperatorMessage(
     toAgentId,
     { party: 'operator-human', humanId, label },
     text,
-    { answerKind },
+    {
+      answerKind,
+      ...(accountId === undefined ? {} : { provenance: { taskId: null, wishId: null, accountId } }),
+    },
   )
 }
 

@@ -26,6 +26,7 @@ import {
   platformFeePercentFromEnv,
   reportAudience,
   whyNotPublishable,
+  AgentIdSchema,
   ConversationIdSchema,
   OPERATOR_ANSWER_LABELS,
   OperatorAnswerKindSchema,
@@ -4803,6 +4804,39 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
   }
 
   /**
+   * The accounts a new thread may name, across this person's agents (`#1452`).
+   *
+   * **Proved and in use only.** A thread about an account the citizen merely
+   * wrote down is a thread about a claim; the picker offers what the Colony has
+   * verified, and a person who wants to talk about anything else writes about
+   * nothing in particular, which is a supported state.
+   *
+   * Empty where no register is wired, which renders as no picker rather than as
+   * an empty one.
+   */
+  const composeAccounts = async (
+    operated: readonly { readonly id: AgentId; readonly name: string }[],
+  ): Promise<
+    readonly { readonly id: string; readonly agentId: string; readonly label: string }[]
+  > => {
+    const found: { id: string; agentId: string; label: string }[] = []
+
+    for (const agent of operated) {
+      const held = await deps.accounts.register.list(agent.id)
+      for (const account of held) {
+        if (!account.proved || account.status !== 'in-use') continue
+        found.push({
+          id: account.id,
+          agentId: String(agent.id),
+          label: `${agent.name} — ${account.identifier}`,
+        })
+      }
+    }
+
+    return found
+  }
+
+  /**
    * The inbox (`#1448`, epic `#1447`).
    *
    * ## Why it is here and not under `/agents/:agentId/`
@@ -4853,10 +4887,106 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
 
     if (!wantsHtml(request)) return reply.status(200).send({ view, threads: rows })
 
+    /**
+     * The agents this person operates, for the compose form (`#1452`).
+     *
+     * Read on the HTML branch only: a caller asking for JSON wants the list,
+     * and the picker is furniture for the page.
+     */
+    const operated = await deps.humans.store.operated(signedIn.human.id)
+
     return html(
       reply,
-      inboxPage({ nav: navFor(request, signedIn.human.roles), threads: rows, view }),
+      inboxPage({
+        nav: navFor(request, signedIn.human.roles),
+        threads: rows,
+        view,
+        agents: operated.map((agent) => ({ id: String(agent.id), name: agent.name })),
+        accounts: await composeAccounts(operated),
+        bodyMaxLength: MESSAGE_BODY_MAX_LENGTH,
+        ...(typeof (request.query as { error?: string }).error === 'string'
+          ? { composeError: (request.query as { error: string }).error }
+          : {}),
+      }),
     )
+  })
+
+  /**
+   * The person starts a thread (`#1452`).
+   *
+   * ## The handler this reuses already opened threads
+   *
+   * `sendOperatorMessage` with no `conversationId` matches this person's plain
+   * thread and, finding none, opens one — that behaviour predates this issue
+   * and is what the issue asks to be established rather than rebuilt. So what
+   * is new here is the surface and the account provenance, not a second path.
+   *
+   * **Only their own agents.** `sendOperatorMessage` refuses with
+   * `not-the-operator` when `human_agents` has no row, so the authorisation is
+   * the store's and this route adds none of its own.
+   *
+   * **No subject is typed.** A thread's subject is what it is *about*, and
+   * those are chosen. A thread about nothing in particular is an ordinary
+   * state.
+   */
+  app.post('/inbox/compose', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const signedIn = await person(request)
+    if (signedIn === null) return signInRequired(request, reply)
+
+    const desk = deps.operatorMessaging
+    if (desk === undefined) return consoleNotFound(reply, request)
+
+    const { agentId, body, accountId } = (request.body ?? {}) as {
+      agentId?: unknown
+      body?: unknown
+      accountId?: unknown
+    }
+    const written = typeof body === 'string' ? body.trim() : ''
+    const to = AgentIdSchema.safeParse(agentId)
+    if (!to.success) return consoleNotFound(reply, request)
+
+    const refuse = (message: string) =>
+      wantsHtml(request)
+        ? reply
+            .status(303)
+            .header('location', `/inbox?error=${encodeURIComponent(message)}`)
+            .send()
+        : reply.status(ERROR_STATUS.validation_failed).send({ error: message })
+
+    if (written.length < MESSAGE_BODY_MIN_LENGTH || written.length > MESSAGE_BODY_MAX_LENGTH) {
+      return refuse(messageBodyError.message)
+    }
+
+    /**
+     * **`#236`'s reason, unchanged**: a person writing to their agent has often
+     * just made it an account, and this is where a password most likely
+     * actually arrives. A refusal costs them nothing.
+     */
+    const finding = credentialFinding(written)
+    if (finding !== null) return refuse(credentialRefusalMessage(finding))
+
+    const result = await desk.send(signedIn.human.id, to.data, {
+      body: written,
+      ...(typeof accountId === 'string' && accountId !== '' ? { accountId } : {}),
+    })
+
+    if (result.outcome === 'refused') {
+      if (!wantsHtml(request)) {
+        return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+      }
+      return consoleNotFound(reply, request)
+    }
+
+    if (!wantsHtml(request)) {
+      return reply.status(200).send({ outcome: result.outcome, ...result.response })
+    }
+
+    return reply
+      .status(303)
+      .header('location', `/inbox/${String(result.response.conversationId)}?said=sent`)
+      .send()
   })
 
   /**

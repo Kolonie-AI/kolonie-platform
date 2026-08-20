@@ -244,6 +244,14 @@ export interface OperatorMessaging {
        * a set-aside clears.
        */
       readonly conversationId?: ConversationId
+      /**
+       * The account a **newly opened** thread is about (`#1452`, `#1441`).
+       *
+       * Ignored when `conversationId` names an existing one: provenance is
+       * settled in the insert that creates a conversation and nowhere else, so
+       * a person cannot retitle a thread by replying into it.
+       */
+      readonly accountId?: string
     },
   ): Promise<SendResponse>
 }

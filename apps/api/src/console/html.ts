@@ -1277,6 +1277,20 @@ export function inboxPage(input: {
   readonly onlyAgent?: string | undefined
   /** Which slice is being shown (`#1449`). Open is what an inbox means. */
   readonly view: 'open' | 'archived' | 'all'
+  /**
+   * The agents this person operates, for starting a thread (`#1452`).
+   *
+   * **A picker and no subject line.** A thread's subject is what it is *about*
+   * — a task, a wish, an account — and those are chosen rather than typed. A
+   * thread about nothing in particular is an ordinary state and renders as one.
+   */
+  readonly agents?: readonly { readonly id: string; readonly name: string }[] | undefined
+  /** The accounts a new thread may name, by agent (`#1452`, `#1441`). */
+  readonly accounts?:
+    readonly { readonly id: string; readonly agentId: string; readonly label: string }[] | undefined
+  /** What to say if a compose was just refused — a credential, or an empty box. */
+  readonly composeError?: string | undefined
+  readonly bodyMaxLength?: number | undefined
 }): string {
   const unread = input.threads.filter((thread) => thread.unread).length
 
@@ -1367,6 +1381,7 @@ export function inboxPage(input: {
           `<tbody>${rows.join('')}</tbody>`,
           '</table>',
         ]),
+    composeBlock(input),
   ].join('\n')
 
   return page({ title: 'Your inbox', body, signedIn: true, nav: input.nav })
@@ -1384,6 +1399,84 @@ export function inboxPage(input: {
  * check.
  */
 const VIEW_NAMES = { open: 'Open', archived: 'Archived', all: 'All' } as const
+
+/**
+ * Starting a thread nobody asked for (`#1452`).
+ *
+ * ## Why it sits under the list rather than on a page of its own
+ *
+ * Every other way a person writes to an agent begins with a thread that already
+ * exists — the agent asked, and the person answers. This is the one that does
+ * not, and the reason it is a box at the foot of the inbox rather than a *New
+ * message* page is that a person who has just read six threads and wants to say
+ * a seventh thing should not have to navigate to say it.
+ *
+ * **No subject field.** A thread's subject is what it is *about*: a task, a
+ * wish, an account. Those are chosen from what exists, and a thread about
+ * nothing in particular is an ordinary state rather than a missing value. A
+ * typed subject would be a fourth kind of provenance that nothing else in the
+ * Colony could read.
+ *
+ * **Nothing renders when this person operates no agents.** There is no agent to
+ * pick, so the form would be a control with an empty menu.
+ */
+function composeBlock(input: {
+  readonly agents?: readonly { readonly id: string; readonly name: string }[] | undefined
+  readonly accounts?:
+    readonly { readonly id: string; readonly agentId: string; readonly label: string }[] | undefined
+  readonly composeError?: string | undefined
+  readonly bodyMaxLength?: number | undefined
+}): string {
+  const agents = input.agents ?? []
+  if (agents.length === 0) return ''
+
+  const accounts = input.accounts ?? []
+
+  return [
+    '<section class="compose">',
+    '<h2>Write to one of your agents</h2>',
+    input.composeError === undefined ? '' : `<p class="error">${escape(input.composeError)}</p>`,
+    '<form method="post" action="/inbox/compose">',
+    '<label for="compose-agent">Agent</label>',
+    '<select id="compose-agent" name="agentId">',
+    agents
+      .map((agent) => `<option value="${escape(agent.id)}">${escape(agent.name)}</option>`)
+      .join(''),
+    '</select>',
+    /**
+     * **Optional, and the empty option is named.** An unlabelled blank in a
+     * menu reads as *not chosen yet*; this one is a choice a person makes.
+     */
+    ...(accounts.length === 0
+      ? []
+      : [
+          '<label for="compose-account">About</label>',
+          '<select id="compose-account" name="accountId">',
+          '<option value="">Nothing in particular</option>',
+          accounts
+            .map(
+              (account) =>
+                `<option value="${escape(account.id)}">${escape(account.label)}</option>`,
+            )
+            .join(''),
+          '</select>',
+        ]),
+    '<label for="compose-body">Message</label>',
+    `<textarea id="compose-body" name="body" rows="4"${
+      input.bodyMaxLength === undefined ? '' : ` maxlength="${String(input.bodyMaxLength)}"`
+    } required></textarea>`,
+    /**
+     * The same sentence the reply carries, for `#236`'s reason: a person who
+     * has been asked for a credential answers where they were asked, and the
+     * refusal that follows is easier to read having been warned.
+     */
+    '<p class="note">Never put a password, a token or a recovery code in a message. ' +
+      'Your agent asks for those in a way that keeps them out of the conversation.</p>',
+    '<button type="submit">Send</button>',
+    '</form>',
+    '</section>',
+  ].join('')
+}
 
 /**
  * One state change, as a form rather than a link.

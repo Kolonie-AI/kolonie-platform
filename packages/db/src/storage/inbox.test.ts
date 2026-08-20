@@ -329,3 +329,153 @@ describe('what a person has done with a thread', () => {
     ).toEqual({ outcome: 'not-a-participant' })
   })
 })
+
+/**
+ * A person opening a thread of their own (`#1452`, epic `#1447`).
+ *
+ * **The behaviour predates the issue, and establishing that is the first
+ * acceptance criterion.** `sendOperatorMessage` with no `conversationId` matches
+ * this person's plain thread and, finding none, opens one. So what `#1452` adds
+ * is the surface and the account provenance rather than a second path beside a
+ * working one.
+ *
+ * It matters because retiring `kolonie.operator.notes` (`#1454`) removes the
+ * only channel where a person writes **without having been asked first** —
+ * three rows in its whole life, and a real capability the inbox has to carry
+ * before the tool goes.
+ */
+describe('a person starting a thread', () => {
+  let db: Database
+  let humanId: HumanId
+  let agentId: AgentId
+  let seeded = 0
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db.$client.end()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+    const [person] = await db.insert(humans).values({}).returning({ id: humans.id })
+    humanId = HumanIdSchema.parse(person!.id)
+
+    const [row] = await db
+      .insert(agents)
+      .values({ name: `keeper-${++seeded}`, platform: 'openclaw' })
+      .returning({ id: agents.id })
+    agentId = AgentIdSchema.parse(row!.id)
+    await db.insert(humanAgents).values({ agentId, humanId })
+  })
+
+  it('opens one when none exists, with nobody having asked', async () => {
+    const sent = await sendOperatorMessage(db, humanId, agentId, 'The account is @ariadne.')
+
+    expect(sent.outcome).toBe('delivered')
+
+    const [row] = await inboxFor(db, humanId)
+    expect(row?.latest?.body).toBe('The account is @ariadne.')
+    expect(row?.latest?.mine).toBe(true)
+    expect(row?.about).toBeNull()
+  })
+
+  it('lands a second one in the same plain thread', async () => {
+    const first = await sendOperatorMessage(db, humanId, agentId, 'One.')
+    const again = await sendOperatorMessage(db, humanId, agentId, 'Two.')
+
+    if (first.outcome !== 'delivered' || again.outcome !== 'delivered') throw new Error('refused')
+
+    // A person writing about nothing in particular twice is continuing a
+    // conversation, not starting a second one.
+    expect(again.conversationId).toBe(first.conversationId)
+  })
+
+  it('opens one about an account, and finds it again by the same account', async () => {
+    const [account] = await db
+      .insert(accounts)
+      .values({ agentId, kind: 'github', identifier: 'octocat' })
+      .returning({ id: accounts.id })
+
+    const opened = await sendOperatorMessage(
+      db,
+      humanId,
+      agentId,
+      'I have put a card on this one.',
+      undefined,
+      undefined,
+      undefined,
+      account!.id,
+    )
+    if (opened.outcome !== 'delivered') throw new Error(opened.outcome)
+
+    const [row] = await inboxFor(db, humanId)
+    expect(row?.about).toEqual({ kind: 'account', id: account!.id, label: 'octocat' })
+
+    const again = await sendOperatorMessage(
+      db,
+      humanId,
+      agentId,
+      'And the billing address is updated.',
+      undefined,
+      undefined,
+      undefined,
+      account!.id,
+    )
+    if (again.outcome !== 'delivered') throw new Error(again.outcome)
+    expect(again.conversationId).toBe(opened.conversationId)
+  })
+
+  it('keeps a thread about an account apart from the plain one', async () => {
+    const [account] = await db
+      .insert(accounts)
+      .values({ agentId, kind: 'github', identifier: 'octocat' })
+      .returning({ id: accounts.id })
+
+    const plain = await sendOperatorMessage(db, humanId, agentId, 'Nothing in particular.')
+    const about = await sendOperatorMessage(
+      db,
+      humanId,
+      agentId,
+      'About the account.',
+      undefined,
+      undefined,
+      undefined,
+      account!.id,
+    )
+
+    if (plain.outcome !== 'delivered' || about.outcome !== 'delivered') throw new Error('refused')
+    expect(about.conversationId).not.toBe(plain.conversationId)
+  })
+
+  it('refuses an agent this person does not operate', async () => {
+    const [stranger] = await db
+      .insert(agents)
+      .values({ name: `stranger-${++seeded}`, platform: 'openclaw' })
+      .returning({ id: agents.id })
+
+    expect(
+      await sendOperatorMessage(
+        db,
+        humanId,
+        AgentIdSchema.parse(stranger!.id),
+        'Not mine to write to.',
+      ),
+    ).toMatchObject({ outcome: 'refused', refusal: 'not-the-operator' })
+  })
+
+  it('refuses a credential-shaped body before anything is written', async () => {
+    const refused = await sendOperatorMessage(
+      db,
+      humanId,
+      agentId,
+      'the password is hunter2 and the token is ghp_0123456789abcdefghij',
+    )
+
+    expect(refused).toMatchObject({ outcome: 'refused', refusal: 'credential-shaped-body' })
+    // No conversation, no message, nothing to clean up.
+    expect(await inboxFor(db, humanId)).toEqual([])
+  })
+})

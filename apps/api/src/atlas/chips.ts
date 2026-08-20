@@ -6,6 +6,7 @@ import {
   atlasIsDualUse,
   atlasShelfClause,
   atlasShelfIsClaim,
+  atlasTags,
 } from './taxonomy.js'
 
 /**
@@ -54,6 +55,14 @@ export type AtlasChip = {
    * lives. The renderer holds one and this holds the other.
    */
   readonly shelf: AtlasCategorySlug | null
+  /**
+   * The tag this chip links to on Atlas search, or null (`#1406`).
+   *
+   * A slug for {@link AtlasChip.shelf}'s reason — the renderer owns the address
+   * and this owns the label — and a second field rather than a shared one so a
+   * chip cannot claim to be both.
+   */
+  readonly tag: string | null
 }
 
 /**
@@ -122,6 +131,15 @@ export function atlasHeaderChips(
     kindChip(entry),
     extra.proved ?? atlasProvedChip(entry),
     atlasShelfIsClaim(entry) ? chip(entry.category, null, entry.category) : shelfClauseChip(entry),
+    /**
+     * **Tags sit beside the shelf and never instead of it** (`#1406` decision
+     * 1). They are additive labels rather than a classification, so they come
+     * after the two axes that classify and before the condition that closes the
+     * line — and they are the chips most likely to fall past
+     * {@link ATLAS_CHIPS_SHOWN} into the disclosure, which is the right thing
+     * for the least load-bearing fact on the header to do.
+     */
+    ...atlasTags(entry).map((tag) => chip(tag, 'k-atlas-tag', null, tag)),
     operatorChip(entry),
   ]
 
@@ -188,7 +206,8 @@ const chip = (
   text: string,
   className: string | null,
   shelf: AtlasCategorySlug | null = null,
-): AtlasChip => ({ text, className, shelf })
+  tag: string | null = null,
+): AtlasChip => ({ text, className, shelf, tag })
 
 /** Lowercases the first character and leaves every other one alone. */
 function lowerFirst(text: string): string {

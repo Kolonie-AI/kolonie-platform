@@ -149,7 +149,7 @@ describe('what a provider header says about itself', () => {
             { kind: 'mailbox', status: 'measured', walls: [], category: 'mailboxes' },
           ] as unknown as AtlasPublicEntry['recipes'],
         }),
-        { proved: { text: '3 proved holds', className: 'k-atlas-proved', shelf: null } },
+        { proved: { text: '3 proved holds', className: 'k-atlas-proved', shelf: null, tag: null } },
       ),
     )
 
@@ -300,5 +300,49 @@ describe('how an earn search orders what it found', () => {
     expect(at({ figures: { proved: 0, anyProved: true } })).toBeLessThan(
       at({ figures: { proved: 0, anyProved: false } }),
     )
+  })
+})
+
+/** Free-form tags on the header (`#1406`). */
+describe('the free-form tags on a header', () => {
+  const tagged = (...tags: readonly string[]) =>
+    entry({
+      facets: [
+        { axis: 'earn', slug: 'bounty-board' },
+        ...tags.map((slug) => ({ axis: 'tag', slug })),
+      ] as unknown as AtlasPublicEntry['facets'],
+    })
+
+  it('shows them beside the shelf and never instead of it', () => {
+    const found = atlasHeaderChips(tagged('ai-agents'))
+    const names = found.map((one) => one.text)
+
+    expect(names).toContain('ai-agents')
+    // Additive: the earn facet it sits beside is untouched.
+    expect(names.some((one) => one.includes('finished task'))).toBe(true)
+  })
+
+  it('links each one into the search that filters on it', () => {
+    expect(atlasHeaderChips(tagged('crypto')).find((one) => one.text === 'crypto')?.tag).toBe(
+      'crypto',
+    )
+  })
+
+  /**
+   * A tag is the least load-bearing fact on the line, so it is the right thing
+   * to fall past the six into the disclosure rather than pushing out the earn
+   * facet a reader filtered for.
+   */
+  it('falls behind the disclosure before the facts that classify do', () => {
+    const many = atlasHeaderChips(tagged('a-one', 'b-two', 'c-three', 'd-four', 'e-five', 'f-six'))
+    const { shown, rest } = atlasChipsShown(many)
+
+    expect(shown.some((one) => one.text.includes('finished task'))).toBe(true)
+    expect(rest.length).toBeGreaterThan(0)
+    expect(rest.every((one) => one.tag !== null)).toBe(true)
+  })
+
+  it('says nothing at all on the entries nobody has tagged, which is all of them today', () => {
+    expect(atlasHeaderChips(entry()).every((one) => one.tag === null)).toBe(true)
   })
 })

@@ -118,6 +118,37 @@ export type EarnFacet = z.infer<typeof EarnFacetSchema>
 export const EARN_FACETS: readonly EarnFacet[] = EarnFacetSchema.options
 
 /**
+ * A free-form tag, as a slug (`#1406`).
+ *
+ * **Open, and the kinds' rules rather than the earn axis's** (decision 2). The
+ * earn vocabulary is closed because the Colony counts it and publishes the
+ * counts, so a plural nobody notices splits a tally in two. Nothing counts a
+ * tag: it is a label a walker put on a provider, so the vocabulary is a
+ * lowercase kebab-case slug and the moderation that curates it later is a pass
+ * over rows rather than a release.
+ *
+ * The length bound is what stops a sentence arriving as a chip.
+ */
+export const AtlasTagSlugSchema = z
+  .string()
+  .trim()
+  .min(2)
+  .max(32)
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'a tag is a lowercase kebab-case slug')
+export type AtlasTag = z.infer<typeof AtlasTagSlugSchema>
+
+/**
+ * How many tags one filing may propose (`#1406` decision 3).
+ *
+ * The decision leaves the number to the implementer and caps it at eight. Eight
+ * is what a provider genuinely has to say about itself before the list stops
+ * being labels and starts being prose — and a bound at all is what keeps a
+ * header from becoming a tag cloud, which is what `ATLAS_CHIPS_SHOWN` would then
+ * have to hide behind a disclosure anyway.
+ */
+export const RECIPE_MAX_TAGS = 8
+
+/**
  * One facet: which axis, and which value on it.
  *
  * **A discriminated union, so the axis decides the vocabulary.** A utility facet
@@ -130,6 +161,7 @@ export const EARN_FACETS: readonly EarnFacet[] = EarnFacetSchema.options
 export const AtlasFacetSchema = z.discriminatedUnion('axis', [
   z.object({ axis: z.literal('utility'), slug: AtlasFacetSlugSchema }),
   z.object({ axis: z.literal('earn'), slug: EarnFacetSchema }),
+  z.object({ axis: z.literal('tag'), slug: AtlasTagSlugSchema }),
 ])
 export type AtlasFacet = z.infer<typeof AtlasFacetSchema>
 
@@ -147,6 +179,19 @@ export const RECIPE_MAX_FACETS = 16
 export function earnFacetsOf(facets: readonly AtlasFacet[]): readonly EarnFacet[] {
   const held = new Set(facets.filter((one) => one.axis === 'earn').map((one) => one.slug))
   return EARN_FACETS.filter((slug) => held.has(slug))
+}
+
+/**
+ * The tags in a list, alphabetical and without repeats (`#1406`).
+ *
+ * **Sorted rather than in filing order**, unlike {@link earnFacetsOf} which
+ * follows the vocabulary's own order. There is no vocabulary here to follow, so
+ * the choice is between *the order somebody happened to file them* and one a
+ * reader can predict — and a chip row that reshuffles when a second walker adds
+ * a tag is one a returning reader has to re-scan.
+ */
+export function tagsOf(facets: readonly AtlasFacet[]): readonly string[] {
+  return [...new Set(facets.filter((one) => one.axis === 'tag').map((one) => one.slug))].sort()
 }
 
 /** The utility facets in a list — the shelves, read as facets. */
@@ -181,6 +226,8 @@ export function facetsFrom(
   shelves: readonly string[],
   /** The earn facets, from `provider_recipe_facets`. */
   earn: readonly EarnFacet[],
+  /** The free-form tags, from the same table on the `tag` axis (`#1406`). */
+  tags: readonly string[] = [],
 ): readonly AtlasFacet[] {
   const utility = [...new Set(shelves)].sort()
   const held = new Set(earn)
@@ -191,6 +238,12 @@ export function facetsFrom(
       axis: 'earn' as const,
       slug,
     })),
+    /**
+     * **Last, and additive** (`#1406` decision 1). A tag never replaces a shelf
+     * or an earn facet and never decides either; it is a label beside them, so
+     * it goes where a reader meets it after the two axes that classify.
+     */
+    ...[...new Set(tags)].sort().map((slug) => ({ axis: 'tag' as const, slug })),
   ]
 }
 

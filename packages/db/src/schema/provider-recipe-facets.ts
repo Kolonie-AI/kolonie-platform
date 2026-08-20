@@ -64,7 +64,22 @@ export const providerRecipeFacets = pgTable(
      * table's own note: `utility` lives in `provider_recipe_categories`, and its
      * absence here is what keeps that fact in one place.
      */
-    check('provider_recipe_facets_axis_is_known', sql`${table.axis} in ('earn')`),
+    check('provider_recipe_facets_axis_is_known', sql`${table.axis} in ('earn', 'tag')`),
+
+    /**
+     * A tag is a lowercase kebab-case slug (`#1406` decision 2).
+     *
+     * **Checked here and not left to the schema**, because the two axes in this
+     * table are governed differently and only one of them has a closed
+     * vocabulary a constraint could enumerate. `earn`'s five are checked by the
+     * application; a tag's shape is all there is to check, and a row that
+     * reached the table by a backfill or a hand-written migration would
+     * otherwise render as a chip nobody could have typed.
+     */
+    check(
+      'provider_recipe_facets_tag_is_a_slug',
+      sql`${table.axis} <> 'tag' or ${table.slug} ~ '^[a-z0-9]+(-[a-z0-9]+)*$'`,
+    ),
 
     /**
      * The vocabulary, per axis. Closed like a wall kind and unlike a shelf — a

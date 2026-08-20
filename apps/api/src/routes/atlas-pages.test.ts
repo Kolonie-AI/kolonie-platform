@@ -3768,6 +3768,72 @@ describe('the Atlas on the website host', () => {
         expect(body).not.toContain('match that pay')
       })
 
+      /**
+       * Free-form tags (`#1406` decision 4). The tag vocabulary is open, so the
+       * search *is* the browse — there is no shelf page to send a reader to, and
+       * a chip that only sat there would be a label whose use a reader had to
+       * guess.
+       */
+      describe('browsing by a free-form tag', () => {
+        const tagged = (provider: string, ...tags: readonly string[]) => ({
+          kind: 'api',
+          provider,
+          status: 'measured' as const,
+          facets: tags.map((slug) => ({ axis: 'tag' as const, slug })),
+        })
+
+        it('lists every provider carrying the tag, and no others', async () => {
+          await earning((one) => {
+            one.recipes.write(tagged('tagged.example', 'ai-agents'))
+            one.recipes.write(tagged('untagged.example'))
+          })
+
+          const body = (await get('/atlas/search?tag=ai-agents')).body
+
+          expect(body).toContain('tagged.example')
+          expect(body).not.toContain('untagged.example')
+        })
+
+        /**
+         * A whole tag and never a substring: `?tag=ai` matching `ai-agents`
+         * would make this a second, worse search box, and `q` is the one that
+         * matches loosely.
+         */
+        it('matches the whole tag and never part of one', async () => {
+          await earning((one) => one.recipes.write(tagged('tagged.example', 'ai-agents')))
+
+          expect((await get('/atlas/search?tag=ai')).body).not.toContain('tagged.example')
+        })
+
+        it('says so plainly when no provider carries the tag', async () => {
+          await earning((one) => one.recipes.write(tagged('tagged.example', 'ai-agents')))
+
+          const body = (await get('/atlas/search?tag=nobody-uses-this')).body
+
+          expect(body).toContain('Nothing in the catalogue')
+          expect(body).not.toContain('tagged.example')
+        })
+
+        /**
+         * A stale or malformed value is no filter rather than an error, which is
+         * the same call `?worked=banana` and an over-long `q` both make: a 400 on
+         * a public URL is a page a crawler stops asking for.
+         */
+        it('treats a value that could not be a tag as no filter at all', async () => {
+          await earning((one) => one.recipes.write(tagged('tagged.example', 'ai-agents')))
+
+          expect((await get('/atlas/search?tag=Not%20A%20Tag')).statusCode).toBe(200)
+        })
+
+        it('carries the tag through a refinement rather than dropping it', async () => {
+          await earning((one) => one.recipes.write(tagged('tagged.example', 'ai-agents')))
+
+          expect((await get('/atlas/search?tag=ai-agents')).body).toContain(
+            'name="tag" value="ai-agents"',
+          )
+        })
+      })
+
       it('joins the two halves where the reader asked for both', async () => {
         await earning((one) => one.recipes.measure(payer('boards.example')))
 

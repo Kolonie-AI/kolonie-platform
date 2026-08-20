@@ -3,6 +3,7 @@ import {
   ATLAS_SEEDED_CATEGORIES,
   earnFacetsOf,
   facetsFrom,
+  tagsOf,
   figureKey,
   noFigures,
   operatorNeed,
@@ -509,6 +510,9 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
           ...facetsFrom(
             entry.categories ?? [entry.category ?? 'code-hosting'],
             earnFacetsOf(entry.facets ?? []),
+            // Tags, on the same terms as the earn axis: whatever the test set
+            // and nothing derived (`#1406`).
+            tagsOf(entry.facets ?? []),
           ),
         ],
         operatorNeed: need.need,

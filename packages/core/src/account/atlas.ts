@@ -9,7 +9,7 @@ import {
   type AtlasFigures,
 } from './atlas-figures.js'
 import { atlasCanonicalKind, atlasCategoryForKind } from './atlas-proposal.js'
-import { AtlasFacetSchema, earnFacetsOf, facetsFrom } from './atlas-facets.js'
+import { AtlasFacetSchema, earnFacetsOf, facetsFrom, tagsOf } from './atlas-facets.js'
 import { earnFacetsForKind } from './atlas-earn-kinds.js'
 import type { Log } from '../log/log.js'
 import {
@@ -601,6 +601,10 @@ export function atlasEntries(
             .flatMap((row) => row.facets.filter((one) => one.axis === 'utility'))
             .map((one) => one.slug),
           rows.flatMap((row) => earnFacetsOf(row.facets)),
+          // The union of the rows' tags, for the reason directly above: a tag is
+          // a claim about the provider, and a reader should not have to scroll
+          // to the right row to meet it (`#1406`).
+          rows.flatMap((row) => tagsOf(row.facets)),
         ),
       ],
       recipes: measured,

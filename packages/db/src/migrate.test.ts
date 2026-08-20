@@ -634,7 +634,15 @@ describe('the migrations', () => {
     // thread stays about the same account. `account_id` on the conversation is
     // the same migration and is the third subject, folded into the existing
     // exclusivity check.
-    expect(afterFirst.tables).toBe('151')
+    //
+    // **A hundred and fifty-sixth** (`#1422`): `playbook_journal_entries`, a
+    // citizen's dated entries on a playbook it has run. `playbook_runs.note` is
+    // one sentence per citizen × playbook, replaced in place, and `#1422` is
+    // explicit that its *shape* is wrong rather than its size: one replaceable
+    // verdict is worth keeping, and a longer replaceable field still cannot hold
+    // the sequence — the second week correcting the first. Rows accumulate; a
+    // column cannot.
+    expect(afterFirst.tables).toBe('152')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

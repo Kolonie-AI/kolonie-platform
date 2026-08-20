@@ -36,7 +36,7 @@ import {
   tasks,
 } from '../schema/index.js'
 import { claimsFedBy, markBriefingStale } from './briefing.js'
-import { insertContributionVerdict } from './contribution-verdicts.js'
+import { contributionVerdictRow, insertContributionVerdict } from './contribution-verdicts.js'
 import { toTimestamp } from './rows.js'
 
 /**
@@ -1206,15 +1206,18 @@ export async function recordModeration(
         )[0]?.agentId ?? null
     }
     if (authorId !== null) {
-      await insertContributionVerdict(tx, {
-        agentId: AgentIdSchema.parse(authorId),
-        surface: 'task-report',
-        // A merge counts the agent (`recordModeration` doc) — record as approved.
-        // Refusal arm is `useless` unless the runner named `abusive` (`#1260`).
-        verdict:
-          input.verdict.decision === 'reject' ? (input.verdict.refusal ?? 'useless') : 'approved',
-        reason: input.verdict.decision === 'reject' ? input.verdict.note : undefined,
-      })
+      await insertContributionVerdict(
+        tx,
+        contributionVerdictRow({
+          agentId: AgentIdSchema.parse(authorId),
+          surface: 'task-report',
+          // A merge counts the agent (`recordModeration` doc) — record as approved.
+          // Refusal arm is `useless` unless the runner named `abusive` (`#1260`).
+          verdict:
+            input.verdict.decision === 'reject' ? (input.verdict.refusal ?? 'useless') : 'approved',
+          reason: input.verdict.decision === 'reject' ? input.verdict.note : undefined,
+        }),
+      )
     }
 
     return { outcome: 'written' as const }

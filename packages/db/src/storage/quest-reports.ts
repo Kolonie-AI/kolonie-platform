@@ -12,7 +12,7 @@ import {
 import type { Database, Transaction } from '../client.js'
 import { agents, questAnswers, questReports, taskAttempts, tasks } from '../schema/index.js'
 import type { BriefingSource } from './briefing.js'
-import { insertContributionVerdict } from './contribution-verdicts.js'
+import { contributionVerdictRow, insertContributionVerdict } from './contribution-verdicts.js'
 import { toTimestamp } from './rows.js'
 
 /**
@@ -423,15 +423,18 @@ export async function recordQuestReportModeration(
   const row = updated[0]
   if (row === undefined) return
 
-  await insertContributionVerdict(db, {
-    agentId: AgentIdSchema.parse(row.agentId),
-    surface: 'quest-report',
-    // Quest-report refusals are red-line only today — always the abusive arm
-    // (`#1260`). An optional override keeps the writer honest if a later path
-    // refuses for a softer reason.
-    verdict: command.decision === 'approved' ? 'approved' : (command.refusal ?? 'abusive'),
-    reason: command.decision === 'rejected' ? command.reason : undefined,
-  })
+  await insertContributionVerdict(
+    db,
+    contributionVerdictRow({
+      agentId: AgentIdSchema.parse(row.agentId),
+      surface: 'quest-report',
+      // Quest-report refusals are red-line only today — always the abusive arm
+      // (`#1260`). An optional override keeps the writer honest if a later path
+      // refuses for a softer reason.
+      verdict: command.decision === 'approved' ? 'approved' : (command.refusal ?? 'abusive'),
+      reason: command.decision === 'rejected' ? command.reason : undefined,
+    }),
+  )
 }
 
 /**

@@ -13,7 +13,7 @@ import {
 import type { Database, Transaction } from '../client.js'
 import { playbookStepProposals } from '../schema/playbook-step-proposals.js'
 import { playbooks } from '../schema/playbooks.js'
-import { insertContributionVerdict } from './contribution-verdicts.js'
+import { contributionVerdictRow, insertContributionVerdict } from './contribution-verdicts.js'
 
 /** A pool or an open transaction — counters run inside the insert's write. */
 type Db = Database | Transaction
@@ -479,12 +479,15 @@ export async function recordPlaybookStepProposalVerdict(
           updatedAt: now,
         })
         .where(eq(playbookStepProposals.id, input.proposalId))
-      await insertContributionVerdict(tx, {
-        agentId: AgentIdSchema.parse(row.agentId),
-        surface: 'step-proposal',
-        verdict: input.refusal ?? 'useless',
-        reason,
-      })
+      await insertContributionVerdict(
+        tx,
+        contributionVerdictRow({
+          agentId: AgentIdSchema.parse(row.agentId),
+          surface: 'step-proposal',
+          verdict: input.refusal ?? 'useless',
+          reason,
+        }),
+      )
       return { outcome: 'written' as const, superseded: 0 }
     }
 
@@ -509,11 +512,14 @@ export async function recordPlaybookStepProposalVerdict(
       input.proposalId,
     )
 
-    await insertContributionVerdict(tx, {
-      agentId: AgentIdSchema.parse(row.agentId),
-      surface: 'step-proposal',
-      verdict: 'approved',
-    })
+    await insertContributionVerdict(
+      tx,
+      contributionVerdictRow({
+        agentId: AgentIdSchema.parse(row.agentId),
+        surface: 'step-proposal',
+        verdict: 'approved',
+      }),
+    )
 
     return { outcome: 'written' as const, superseded }
   })

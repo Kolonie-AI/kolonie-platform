@@ -2,7 +2,7 @@ import { and, asc, eq, isNotNull } from 'drizzle-orm'
 import { AgentIdSchema, type PlaybookRunOutcome } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { playbookRuns, playbooks } from '../schema/playbooks.js'
-import { insertContributionVerdict } from './contribution-verdicts.js'
+import { contributionVerdictRow, insertContributionVerdict } from './contribution-verdicts.js'
 
 /**
  * The run-note queue, from the database's side (`#1246`).
@@ -147,12 +147,15 @@ export async function recordPlaybookNoteVerdict(
       )
       .where(eq(playbookRuns.id, input.runId))
 
-    await insertContributionVerdict(tx, {
-      agentId: AgentIdSchema.parse(row.agentId),
-      surface: 'playbook-note',
-      verdict: input.decision === 'approved' ? 'approved' : (input.refusal ?? 'useless'),
-      reason: refusalReason,
-    })
+    await insertContributionVerdict(
+      tx,
+      contributionVerdictRow({
+        agentId: AgentIdSchema.parse(row.agentId),
+        surface: 'playbook-note',
+        verdict: input.decision === 'approved' ? 'approved' : (input.refusal ?? 'useless'),
+        reason: refusalReason,
+      }),
+    )
 
     return { outcome: 'written' as const }
   })

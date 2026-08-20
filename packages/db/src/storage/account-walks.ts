@@ -63,7 +63,7 @@ import { providerRecipes as providerRecipesTable } from '../schema/provider-reci
 import { walkProseLifts } from '../schema/walk-prose-lifts.js'
 import { canonicalProvider } from './atlas-renames.js'
 import { suspendForRefusedWalkProse } from './citizenship.js'
-import { insertContributionVerdict } from './contribution-verdicts.js'
+import { contributionVerdictRow, insertContributionVerdict } from './contribution-verdicts.js'
 import { currentSessionStartSql } from './sessions.js'
 import {
   markProviderBriefingStale,
@@ -2169,19 +2169,25 @@ async function writeWalkProseVerdict(
   // First-pass verdict only — rescrub has its own write path and must not
   // double-count (`#1259`). Walk refusals are red-line only, so a rejection is
   // the abusive arm with no second model call (`#1260`).
-  await insertContributionVerdict(db, {
-    agentId: AgentIdSchema.parse(row.agentId),
-    surface: 'walk-report',
-    verdict: command.decision === 'approved' ? 'approved' : 'abusive',
-    /**
-     * **The ledger gets the sentence too** (`#1340`). The row above is what the
-     * two readers ask — both of their questions are about a walk, and this table
-     * carries no walk — but a moderation ledger whose one reasonless surface was
-     * the walk stage would be a gap in the record for no reason at all. Null on
-     * an approval, which is what the column's own constraint requires.
-     */
-    reason: refusalReasonValue(command) ?? undefined,
-  })
+  await insertContributionVerdict(
+    db,
+    contributionVerdictRow({
+      agentId: AgentIdSchema.parse(row.agentId),
+      surface: 'walk-report',
+      verdict: command.decision === 'approved' ? 'approved' : 'abusive',
+      /**
+       * **The ledger gets the sentence too** (`#1340`). The row above is what
+       * the two readers ask — both of their questions are about a walk, and
+       * this table carries no walk — but a moderation ledger whose one
+       * reasonless surface was the walk stage would be a gap in the record for
+       * no reason at all. Null on an approval, which is what the column's own
+       * constraint requires; never null on a refusal since `#1398`, because
+       * `walkRefusalReason` answers with a category where the model answered
+       * with nothing.
+       */
+      reason: refusalReasonValue(command) ?? undefined,
+    }),
+  )
 
   /**
    * **The provider's briefing is marked stale here, and not by the caller**

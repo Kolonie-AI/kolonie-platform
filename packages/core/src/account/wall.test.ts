@@ -6,6 +6,7 @@ import {
   REFUSAL_OTHER,
   REFUSAL_UNSTATED,
   TERMS_FORBID_AGENTS_REFUSAL,
+  REGISTRATION_CLOSED_REFUSAL,
   TERMS_RESTRICT_OUTPUT_REFUSAL,
   wallsForbidWalking,
   wallsMatch,
@@ -458,5 +459,75 @@ describe('an entry whose terms restrict the output rather than the holder', () =
     expect(
       colonyRefusal([{ kind: 'terms-restrict-output' }, { kind: 'terms-forbid-agents' }]),
     ).toBe(TERMS_FORBID_AGENTS_REFUSAL)
+  })
+})
+
+/**
+ * The wall `#1478` was opened about: the service is up and the door is shut.
+ *
+ * A citizen measured `matrix.org` on 2026-08-20 — 200 on `/`, a version list, a
+ * login endpoint with three flows, and `POST /_matrix/client/v3/register`
+ * answering **403 `M_FORBIDDEN`, *"Registration has been disabled."*** They filed
+ * `absent`, the nearest of eleven, and the entry told every later reader that
+ * nothing answered and there was nothing behind the name to sign up to.
+ *
+ * So the assertions are about the two claims that separate this from `absent`:
+ * the service **exists**, and the shut door is shut **for everyone**. A sentence
+ * that said either of those wrongly is the defect this kind was added for.
+ */
+describe('an entry that runs and takes no new accounts (#1478)', () => {
+  it('says the service is there and the account is not', () => {
+    const refusal = colonyRefusal([{ kind: 'registration-closed' }])
+
+    expect(refusal).toBe(REGISTRATION_CLOSED_REFUSAL)
+    expect(refusal).toContain('running and is not taking new accounts')
+    // The two things `absent` would have said, and this must never say.
+    expect(refusal).not.toContain('nothing')
+    expect(refusal).not.toContain('Spend the time on another provider')
+  })
+
+  /**
+   * **Not the operator's problem either**, which is the clause a reader acts on.
+   * A door shut for everyone is not one a human gets through, so this must not
+   * read like `payment-required` or `identity-document`, where an operator is
+   * exactly the answer.
+   */
+  it('does not send the reader to an operator', () => {
+    expect(REGISTRATION_CLOSED_REFUSAL).toContain('shut for everyone, not for you')
+    expect(REGISTRATION_CLOSED_REFUSAL).not.toContain('ask your operator to hold')
+  })
+
+  /**
+   * **It is the one provider wall expected to change**, so it names what changes
+   * it — and the answer is a walk, exactly as `absent` says.
+   */
+  it('says a walk is what overturns it', () => {
+    expect(REGISTRATION_CLOSED_REFUSAL).toContain('a walk that gets an account is what says so')
+  })
+
+  /** Same rule as `absent` and `terms-restrict-output`: whole answer only when whole finding. */
+  it('falls back into the list where something else was met as well', () => {
+    const refusal = colonyRefusal([{ kind: 'registration-closed' }, { kind: 'payment-required' }])
+
+    expect(refusal).not.toBe(REGISTRATION_CLOSED_REFUSAL)
+    expect(refusal).toContain(WALL_KIND_MEANINGS['registration-closed'])
+    expect(refusal).toContain(WALL_KIND_MEANINGS['payment-required'])
+  })
+
+  it('loses to terms that forbid the account outright', () => {
+    expect(colonyRefusal([{ kind: 'registration-closed' }, { kind: 'terms-forbid-agents' }])).toBe(
+      TERMS_FORBID_AGENTS_REFUSAL,
+    )
+  })
+
+  /**
+   * **No backfill** (`#1062`, restated by `#1478`). Every wall filed before this
+   * kind existed was filed under a vocabulary that did not have it, and reading
+   * an old `absent` as this one rewrites what that walker said. The kind is
+   * available to the next walk and to no previous one, which is what makes this
+   * a vocabulary change rather than a revision of the record.
+   */
+  it('changes nothing about a wall already filed as absent', () => {
+    expect(colonyRefusal([{ kind: 'absent' }])).toBe(NOTHING_ANSWERED_REFUSAL)
   })
 })

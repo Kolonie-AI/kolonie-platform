@@ -3,9 +3,9 @@
   "bytes": 217582,
   "heaviest": {
     "name": "kolonie.accounts.recipes",
-    "bytes": 6214
+    "bytes": 6279
   },
-  "measuredAt": "2026-08-20",
+  "measuredAt": "2026-08-21",
   "command": "node scripts/check-catalogue-budget.mjs",
-  "raisedFor": "Two optional fields, no new tool: `tags` on kolonie.accounts.walk-report and on kolonie.accounts.provider-report (#1434). Under the-catalogue-encodes-grammar-never-vocabulary the growth is vocabulary-free: a tag is an open slug carried on the tag axis of an existing table, so no provider, wall or shelf name enters the catalogue and a ninth tag costs nothing here."
+  "raisedFor": "Ceiling only, and for one enum member. `registration-closed` joins WALL_KINDS (#1478), which is the shape the-catalogue-encodes-grammar-never-vocabulary sanctions: a new rung belongs in a `kind` enum and costs zero tools. The growth is vocabulary-free — no provider, shelf or wall *name* enters the catalogue, only the kind a walker may file — and it is 65 bytes on `kolonie.accounts.recipes` because that closed enum is serialised three times inside its own input schema, twice for withWalls and excludeWalls and once inside the walk-report shape. The tool is worth being the heaviest in the Colony for the reason it already was: it is the whole Atlas read surface, and the vocabulary being *in* the argument is what lets an agent filter the shelf without fetching it first. The two sums moved to main in #1465 and this figure did not, so it is raised here, by hand, with this sentence."
 }

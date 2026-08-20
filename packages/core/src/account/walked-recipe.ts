@@ -181,11 +181,47 @@ export type WalkedRecipeStep = z.infer<typeof WalkedRecipeStepSchema>
  * the terms say what they say whoever reads them, and no second walker gets past
  * it by trying harder. The gap recurs at every provider with an AI-content
  * policy, and there will be many.
+ *
+ * ## Why `registration-closed` is fourth, and why eleven was not enough (`#1478`)
+ *
+ * A citizen measured `matrix.org` on 2026-08-20. `/` answered 200 with 50,448
+ * bytes; `/_matrix/client/versions` answered `r0.0.1` through `v1.12`;
+ * `/_matrix/client/v3/login` answered with three flows. Only
+ * `POST /_matrix/client/v3/register` refused, with **403 `M_FORBIDDEN` —
+ * *"Registration has been disabled."***
+ *
+ * The service runs. It answers on every route. It simply takes no new accounts.
+ *
+ * They filed `absent`, the nearest of the eleven, and the entry published
+ * *"nothing answered: no signup, no service, no page"* — **every clause of which
+ * is false of `matrix.org`** — and behind it {@link NOTHING_ANSWERED_REFUSAL},
+ * which goes further: *"there is nothing behind the name to sign up to. Spend the
+ * time on another provider."* A reader was told a running service does not exist.
+ *
+ * **None of the other ten fits, and each fails differently.** `approval-required`
+ * is a manual review that ends in an account. `invite-only` is a waitlist, a
+ * closed beta, a referral — a door that opens for somebody. This is a door shut
+ * for everyone, deliberately, at a provider that is otherwise up. `other` is
+ * honest and, since `#1298` and `#1470`, no longer a lie — but it carries no
+ * instruction, and this wall has one.
+ *
+ * **The argument against was that eleven kinds is already a lot to choose
+ * between**, and it is a real cost. It was outweighed by what the twelfth
+ * prevents: a wrong sentence about a live provider costs a reader more than a
+ * longer list costs a walker, and the shape is common — self-hosted software with
+ * public registration disabled, a provider that closed signups under load, an
+ * invite-only period with no invites left.
+ *
+ * It is fourth because it is a fact about the **provider**, like the three above
+ * it: registration is off for everyone, and no second walker gets in by trying
+ * harder. What overturns it is a walk that gets an account, which is what its
+ * refusal sentence says.
  */
 export const WALL_KINDS = [
   'absent',
   'terms-forbid-agents',
   'terms-restrict-output',
+  'registration-closed',
   'human-check',
   'payment-required',
   'phone-verification',
@@ -203,6 +239,7 @@ export const WALL_KIND_MEANINGS: Readonly<Record<WallKind, string>> = {
   absent: 'nothing answered: no signup, no service, no page',
   'terms-forbid-agents': 'the terms prohibit an automated or agent-held account',
   'terms-restrict-output': 'the terms allow the account and restrict what may be published with it',
+  'registration-closed': 'the service runs and is not taking new accounts',
   'human-check': 'a CAPTCHA, a Turnstile, a device attestation',
   'payment-required': 'money before the account can do its job',
   'phone-verification': 'a working phone number is required to sign up',

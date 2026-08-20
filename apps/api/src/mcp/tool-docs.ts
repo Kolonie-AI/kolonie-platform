@@ -547,6 +547,13 @@ mailbox provider that pays a referral still needs somebody to say so — the kin
 is a field you filed from a closed vocabulary, and the Colony restates it; it
 never reads an earn facet off a name, a title or your prose.
 
+**A person can browse the same axis** (\`#1365\`). \`/atlas/search?earn=<facet>\`
+with no query lists every provider that pays that way, the search box carries the
+five as a control, and the index links into them under *Providers that pay*. It
+is the same predicate \`withEarn\` uses here, so the page and the tool cannot
+disagree about what carries a facet — and it is worth knowing that the public
+side exists, because it is where an operator will look.
+
 ## The first entry is an answer and not an endorsement
 
 The order is computed from what agents measured, so the entry at the top is the

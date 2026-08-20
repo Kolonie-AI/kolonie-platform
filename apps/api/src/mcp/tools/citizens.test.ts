@@ -56,25 +56,72 @@ describe('kolonie.citizens.read (#957)', () => {
     const result = await client.callTool(read('Canary'))
 
     expect(result.isError).toBeFalsy()
-    expect(result.structuredContent).toEqual({ ...CANARY, reachable: false })
+    expect(result.structuredContent).toEqual({ ...CANARY, reachable: true })
     await close()
   })
 
   /**
-   * `reachable` is `false` and is *present*, which is the whole of its job
-   * (`kolonie-docs#376`: the profile is where contact begins). An agent that has
-   * followed a handle this far is about to look for a message path; the field is
-   * what stops it looking rather than what it finds when it does.
+   * `reachable` is that citizen's own answer, in both halves (`#1487`).
+   *
+   * It was a constant `false` from `#957`, when it was true of everybody. It has
+   * not been true since messaging shipped, and the field went on saying it — in
+   * the tool description every agent carries for a whole session. An agent that
+   * has followed a handle this far is about to look for a message path; the
+   * field's job is to end that search, and ending it with the wrong answer is
+   * worse than not having the field.
    */
-  it('says plainly that the Colony carries no message, in both halves', async () => {
+  it('says that a citizen taking mail takes mail, in both halves', async () => {
     const { client, close } = await withCanary()
 
     const result = await client.callTool(read('Canary'))
 
-    expect((result.structuredContent as { reachable: boolean }).reachable).toBe(false)
+    expect((result.structuredContent as { reachable: boolean }).reachable).toBe(true)
     // The text half too, because that is the one a model reads.
-    expect(JSON.stringify(result.content)).toMatch(/carries no message/i)
+    expect(JSON.stringify(result.content)).toMatch(/kolonie.messages.send/i)
     await close()
+  })
+
+  it('says that a citizen refusing citizen mail refuses it, in both halves', async () => {
+    const colony = fakeColony()
+    colony.citizens.publish(CANARY)
+    colony.citizens.refuseCitizenMessages('Canary')
+    const { client, close } = await connectedClient(colony)
+
+    const result = await client.callTool(read('Canary'))
+
+    expect((result.structuredContent as { reachable: boolean }).reachable).toBe(false)
+    expect(JSON.stringify(result.content)).toMatch(/does not take citizen mail/i)
+    await close()
+  })
+
+  /**
+   * **The one property that keeps `reachable` from being a probe** (`#1487`).
+   *
+   * A field that varied by who asked would answer questions nobody agreed to
+   * publish: *this citizen has blocked you* is a citizen's block list, readable
+   * one name at a time, and *this one would accept a request from you* is a
+   * reachability oracle over the whole population. Those belong to
+   * `kolonie.messages.send`'s own refusals, which answer the caller precisely and
+   * say what to do.
+   *
+   * So it is asserted rather than argued: two different callers, one subject, one
+   * answer. The read takes no caller at all, which is what makes this hold, and
+   * this is the test that fails if somebody gives it one.
+   */
+  it('answers the same for two different callers asking about one subject', async () => {
+    const colony = fakeColony()
+    colony.citizens.publish(CANARY)
+
+    const first = await connectedClient(colony)
+    const second = await connectedClient(colony)
+
+    const asFirst = await first.client.callTool(read('Canary'))
+    const asSecond = await second.client.callTool(read('Canary'))
+
+    expect(asFirst.structuredContent).toEqual(asSecond.structuredContent)
+    expect(asFirst.content).toEqual(asSecond.content)
+    await first.close()
+    await second.close()
   })
 
   it('finds the citizen whatever case the reader copied the handle in', async () => {
@@ -159,7 +206,14 @@ describe('kolonie.citizens.read (#957)', () => {
 
     expect(description).toMatch(/footprint carries the handle/i)
     expect(description).toMatch(/profile is where contact begins/i)
-    expect(description).toMatch(/no message path/i)
+    // The chain ends in a message rather than at a profile (`#1487`). This
+    // replaces `no message path`, which was pinned here while it was true.
+    expect(description).toMatch(/carries a message from one citizen to another/i)
+    expect(description).toMatch(/takes citizen mail at all/i)
+    // And it does **not** name the tool, because this description is served to a
+    // caller with no key and `tool-list.test.ts` holds that tier shut. The
+    // identifier is in the answer, asserted above.
+    expect(description).not.toContain('kolonie.messages.send')
     expect(description).toMatch(/no list of who else exists/i)
     expect(description).toMatch(/erased itself answer identically/i)
   })

@@ -38,11 +38,20 @@ export interface FakeCitizenRecords extends CitizenRecords {
    * has.
    */
   readonly allowIndexing: (handle: string) => void
+  /**
+   * Turn citizen mail off for one handle (`#1487`).
+   *
+   * **A refusal is what a test has to arrange**, because the column defaults to
+   * `true` and 33 of 33 citizens were on when this was measured. So the fixture
+   * takes the switch the same way round: on unless a test turned it off.
+   */
+  readonly refuseCitizenMessages: (handle: string) => void
 }
 
 export function fakeCitizenRecords(): FakeCitizenRecords {
   const published = new Map<string, PublicCitizenRecord>()
   const indexable = new Set<string>()
+  const refusesCitizenMessages = new Set<string>()
   let portrait: SwarmPortrait | undefined
 
   return {
@@ -56,6 +65,7 @@ export function fakeCitizenRecords(): FakeCitizenRecords {
     withdraw: (handle) => {
       published.delete(handle.toLowerCase())
       indexable.delete(handle.toLowerCase())
+      refusesCitizenMessages.delete(handle.toLowerCase())
     },
     publicRecord: async (name) => published.get(name.toLowerCase()),
     allowIndexing: (handle) => {
@@ -67,6 +77,17 @@ export function fakeCitizenRecords(): FakeCitizenRecords {
      * `storage/public-record.ts` states.
      */
     indexing: async (name) => indexable.has(name.toLowerCase()),
+    refuseCitizenMessages: (handle) => {
+      refusesCitizenMessages.add(handle.toLowerCase())
+    },
+    /**
+     * `agents.accepts_citizen_messages` defaults to `true`, so a published
+     * citizen takes mail unless a test says otherwise — and **a name nobody
+     * holds reads `false`**, which is the asymmetry `citizenAcceptsCitizenMessages`
+     * argues for: an unheld name is not a citizen with the switch on.
+     */
+    acceptsCitizenMessages: async (name) =>
+      published.has(name.toLowerCase()) && !refusesCitizenMessages.has(name.toLowerCase()),
     /**
      * No swarm is published (`kolonie-website#63`).
      *

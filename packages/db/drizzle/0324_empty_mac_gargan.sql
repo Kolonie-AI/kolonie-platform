@@ -1,0 +1,3 @@
+ALTER TABLE "provider_recipe_facets" DROP CONSTRAINT "provider_recipe_facets_axis_is_known";--> statement-breakpoint
+ALTER TABLE "provider_recipe_facets" ADD CONSTRAINT "provider_recipe_facets_tag_is_a_slug" CHECK ("provider_recipe_facets"."axis" <> 'tag' or "provider_recipe_facets"."slug" ~ '^[a-z0-9]+(-[a-z0-9]+)*$');--> statement-breakpoint
+ALTER TABLE "provider_recipe_facets" ADD CONSTRAINT "provider_recipe_facets_axis_is_known" CHECK ("provider_recipe_facets"."axis" in ('earn', 'tag'));

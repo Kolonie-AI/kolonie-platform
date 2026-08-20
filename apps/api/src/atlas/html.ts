@@ -826,6 +826,28 @@ export function atlasSearchPage(input: {
    * facet did not *match* anything; they asked which providers pay that way, and
    * the answer is that sentence.
    */
+  /**
+   * What the empty page says the reader asked for.
+   *
+   * **Assembled from whichever filters are on, rather than branching on the
+   * query alone.** It branched on `asked === ''` and reached for the earn
+   * phrase in the other half, which was true while those were the only two
+   * filters and stopped being true the moment `#1406` added a third: a
+   * tag-only search that found nothing read *Nothing in the catalogue undefined
+   * yet*, because `atlasEarnPhrasePlural` was handed no facet and returned it
+   * back. A sentence built from what is actually set cannot acquire that shape
+   * when a fourth filter arrives.
+   */
+  const nothingMatched = (() => {
+    const clauses = [
+      asked === '' ? '' : `matches <strong>${escape(asked)}</strong>`,
+      tag === undefined ? '' : `is tagged ${escape(tag)}`,
+      earn === undefined ? '' : atlasEarnPhrasePlural(earn),
+    ].filter((clause) => clause !== '')
+
+    return clauses.length === 0 ? 'matches that' : `${clauses.join(' and ')} yet`
+  })()
+
   const counted = (n: number): string => {
     const providers = `${n} ${n === 1 ? 'provider' : 'providers'}`
     /**
@@ -853,11 +875,21 @@ export function atlasSearchPage(input: {
   }
 
   return atlasPage({
+    /**
+     * **The title is built from what is set, exactly as {@link nothingMatched}
+     * is, and for the same reason.** It branched on the query and reached for
+     * the earn phrase in the other half, so a tag-only search shipped
+     * `<title>Providers that undefined — the Atlas</title>` the moment `#1406`
+     * added a third filter. The reader's own words come first where they typed
+     * any, because that is what a result list shows them.
+     */
     title: nothingAsked
       ? 'Search the Atlas'
-      : asked === ''
-        ? `Providers that ${atlasEarnPhrasePlural(earn as EarnFacet)} — the Atlas`
-        : `${asked} — the Atlas`,
+      : asked !== ''
+        ? `${asked} — the Atlas`
+        : earn !== undefined
+          ? `Providers that ${atlasEarnPhrasePlural(earn)} — the Atlas`
+          : `Providers tagged ${tag} — the Atlas`,
     description: ATLAS_STANDFIRST,
     canonical: input.canonical,
     chrome: input.chrome,
@@ -870,13 +902,8 @@ export function atlasSearchPage(input: {
         ? `<p>Type a provider name, choose a way of earning, or go back to ` +
           `<a href="${ATLAS_PATH}">the catalogue</a>.</p>`
         : shown.length === 0
-          ? `<p>Nothing in the catalogue ${
-              asked === ''
-                ? `${atlasEarnPhrasePlural(earn as EarnFacet)} yet`
-                : `matches <strong>${escape(asked)}</strong>${
-                    earn === undefined ? '' : ` and ${atlasEarnPhrasePlural(earn)}`
-                  }`
-            }. That is an absence and not a refusal — nobody has walked it ` +
+          ? `<p>Nothing in the catalogue ${nothingMatched}. That is an absence and not a ` +
+            `refusal — nobody has walked it ` +
             `yet, so nothing is known either way. <a href="${ATLAS_PATH}">The whole ` +
             'catalogue</a> is one link away.</p>'
           : [

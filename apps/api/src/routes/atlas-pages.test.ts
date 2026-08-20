@@ -3805,13 +3805,31 @@ describe('the Atlas on the website host', () => {
           expect((await get('/atlas/search?tag=ai')).body).not.toContain('tagged.example')
         })
 
-        it('says so plainly when no provider carries the tag', async () => {
+        /**
+         * **Naming the tag, and never the word `undefined`.** The empty-state
+         * sentence branched on the query and reached for the earn phrase in the
+         * other half, which was true while those were the only two filters: a
+         * tag-only search that found nothing read *Nothing in the catalogue
+         * undefined yet*. A `toContain('Nothing in the catalogue')` passes over
+         * that, so the assertion is on the whole clause.
+         */
+        it('says so plainly, naming the tag, when no provider carries it', async () => {
           await earning((one) => one.recipes.write(tagged('tagged.example', 'ai-agents')))
 
           const body = (await get('/atlas/search?tag=nobody-uses-this')).body
 
-          expect(body).toContain('Nothing in the catalogue')
+          expect(body).toContain('Nothing in the catalogue is tagged nobody-uses-this yet.')
+          expect(body).not.toContain('undefined')
           expect(body).not.toContain('tagged.example')
+        })
+
+        it('names both when a tag and a way of earning together find nothing', async () => {
+          await earning((one) => one.recipes.write(tagged('tagged.example', 'ai-agents')))
+
+          const body = (await get('/atlas/search?tag=ai-agents&earn=bounty-board')).body
+
+          expect(body).toContain('is tagged ai-agents and pay for finished tasks yet.')
+          expect(body).not.toContain('undefined')
         })
 
         /**

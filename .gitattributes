@@ -1,0 +1,113 @@
+# How git resolves the files this repository collides on, so that a person does
+# not (`#1496`).
+#
+# Measured on `main` over the thirty days to 2026-08-20: 395 changes to
+# `packages/core/CHANGELOG.md`, 324 to the migration journal, 118 to a schema
+# barrel of 122 lines. **Size is not what makes a file collide** — the barrel is
+# the clearest case in the table. Every feature that adds a table appends one
+# line to the same list, and two features in flight append at the same place.
+#
+# Until this file existed git was told nothing about any of them and resolved
+# every one by hand.
+#
+# ## Three built-in drivers, and `ours` is not one of them
+#
+# `#1496` proposed `merge=ours` for the produced changelog and `merge=union` for
+# the lists, under a rule this file keeps: every driver must be built in. A driver
+# named in `merge.<name>.driver` lives in a local `git config`, which is not
+# committed — so it would work for whoever set it up and silently not for
+# everybody else, including CI.
+#
+# **`ours` does not survive that rule.** git 2.53 ships exactly three built-in
+# low-level merge drivers — `text`, `binary` and `union` — and `ours` is not among
+# them. Measured 2026-08-21 with `packages/core/CHANGELOG.md merge=ours`
+# committed: `git check-attr merge` reported `ours`, and a merge of two branches
+# that had each added an entry still conflicted. The attribute was set and no
+# driver answered to it.
+#
+# So the changelog gets `union` as well — for a different reason than the lists
+# do, and the difference is written beside it.
+#
+# ## Where `union` is wrong
+#
+# `union` takes both sides of a conflicting hunk and keeps them. **It never
+# fails.** On a registry of unrelated entries that is exactly right; on anything
+# where order carries meaning, or where the two sides could produce a duplicate,
+# it produces a file that compiles and is wrong.
+#
+# So nothing gets `union` without something downstream that would catch that, and
+# `scripts/check-union-merge-guards.mjs` enforces the condition rather than
+# trusting it: every path marked `union` must name its guard in that script, and
+# a path that does not fails the check.
+
+# ---------------------------------------------------------------------------
+# The produced file: never conflict, and regenerate
+# ---------------------------------------------------------------------------
+
+# Produced by `scripts/build-changelog.mjs` from the files in
+# `packages/core/changes/`. A derived file has no business being merged
+# textually: either side is as good as the other, because the next step is to
+# rebuild it.
+#
+# **`union` here is not the argument the lists below make.** There the union
+# result is *right*. Here it is only *never a conflict*, and what makes it safe is
+# `check:changelog` — `build-changelog.mjs --check` runs inside `npm run check`
+# and fails when the file is not what the script would write. A wrong resolution
+# cannot reach `main`; it can only cost one `node scripts/build-changelog.mjs`.
+# Set against what a conflict costs today — markers in a 6000-line generated file
+# that somebody reads — that is the trade this file is for.
+#
+# In practice it is not even wrong. Measured 2026-08-21 on two pairs of branches,
+# including the worst case `#1496` names — both sides introducing a section
+# heading that did not exist before — the union merge was clean *and*
+# byte-identical to what the script writes. The headings are produced
+# deterministically, so they arrive as identical context rather than as competing
+# hunks.
+packages/core/CHANGELOG.md merge=union
+
+# ---------------------------------------------------------------------------
+# Append-only registries: keep both sides, because both sides are right
+# ---------------------------------------------------------------------------
+
+# 122 lines, 118 changes in thirty days — a pure list of `export * from` and
+# nothing else. Two branches adding two tables add two lines at the same place
+# and mean each other no harm.
+#
+# Guard: the duplicate scan in `scripts/check-union-merge-guards.mjs`. A
+# duplicated export here is caught by nothing else — measured 2026-08-21, `tsc -b`
+# and `check:counts` are both green with the same module exported twice — which is
+# why that script exists rather than the guard being assumed.
+packages/db/src/schema/index.ts merge=union
+
+# Three `as const` arrays of tool names, one entry per line. Same shape and the
+# same argument.
+#
+# Guard: `apps/api/src/mcp/tool-list.test.ts` diffs this list against what
+# `tools/list` actually serves, so a duplicate goes red on the diff of the two —
+# verified 2026-08-21 by duplicating `kolonie.me` and watching it fail. The
+# duplicate scan covers it a second time, on the file itself.
+apps/api/src/mcp/tool-list.ts merge=union
+
+# ---------------------------------------------------------------------------
+# Deliberately left alone, and why — so nobody adds one later without the
+# argument
+# ---------------------------------------------------------------------------
+#
+# `packages/db/drizzle/meta/_journal.json` — 324 changes in thirty days, second
+# only to the changelog, and it gets **no driver**. Order carries meaning: the
+# entries are numbered, and `union` would keep two of them claiming the same
+# `idx`. AGENTS.md §4 already names this one an accepted cost with a resolution
+# that fails loudly — take `main`'s side whole and regenerate, with
+# `check:migrations` as the thing that bites. A driver that resolved it silently
+# would trade a loud failure for a quiet one, which is the wrong direction.
+#
+# `packages/db/src/migrate.test.ts` and `packages/db/src/schema/schema.test.ts` —
+# 153 and 136 changes, and both look like the barrel from a distance. They get no
+# driver because **`.gitattributes` has no sub-file granularity**: the lists inside
+# them are append-only, the files around those lists are not, and a whole test file
+# given `union` would quietly keep both sides of an edited assertion. `#1496` asked
+# whether the lists could be isolated. By a path, they cannot.
+#
+# `apps/api/src/mcp/catalogue-budget.json` — 108 changes, and it stopped colliding
+# for a better reason than a driver: since `#1465` no branch writes it at all.
+# `main` measures the surface after a merge and commits the figure itself.

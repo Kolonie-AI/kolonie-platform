@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { noFigures, type AtlasEntry } from '@kolonie-ai/core'
 import { atlasEntryPage, atlasIndexPage } from './html.js'
-import { atlasCriteria, ATLAS_NOT_KNOWN, ATLAS_WALL_SEE_MEASURED } from './criteria.js'
+import {
+  atlasCriteria,
+  ATLAS_NOT_KNOWN,
+  ATLAS_OTHER_WALLS_QUESTION,
+  ATLAS_WALL_SEE_MEASURED,
+} from './criteria.js'
 import { atlasPublicEntry } from './public-projection.js'
 
 const SITE = 'https://kolonie.example'
@@ -279,6 +284,86 @@ describe('the provider page as the guide a search finds', () => {
 
     expect(asked).toContain(ATLAS_WALL_SEE_MEASURED)
     expect(asked).not.toContain('Not reported by anybody who walked it.')
+  })
+
+  /**
+   * `#1402`, measured on `opentask.ai` 2026-08-20: the sentence `#1298` gives a
+   * wall row with nothing in it appeared **seven** times down one box, because
+   * seven wall questions each had nothing in them. The finding is one finding.
+   */
+  it('says what the unmapped walls are once, not once per question', () => {
+    const asked = box(
+      page({
+        recipes: [
+          recipe({
+            status: 'refused',
+            walls: [
+              { kind: 'other', direction: null, reportedBy: 6 },
+            ] as unknown as AtlasEntry['recipes'][number]['walls'],
+          }),
+        ] as AtlasEntry['recipes'],
+      }),
+    )
+
+    expect(asked.split(ATLAS_WALL_SEE_MEASURED)).toHaveLength(2)
+  })
+
+  /**
+   * Decision 2: a question with no evidence is omitted rather than answered with
+   * filler. The seven wall questions are the ones with nothing behind them here,
+   * and one note stands where they were — so the reader is told the finding and
+   * is not asked to scan seven rows to learn it.
+   */
+  it('omits the wall questions it has no evidence for, and asks one in their place', () => {
+    const asked = box(
+      page({
+        recipes: [
+          recipe({
+            status: 'refused',
+            walls: [
+              { kind: 'other', direction: null, reportedBy: 6 },
+            ] as unknown as AtlasEntry['recipes'][number]['walls'],
+          }),
+        ] as AtlasEntry['recipes'],
+      }),
+    )
+
+    expect(asked).toContain(ATLAS_OTHER_WALLS_QUESTION)
+    for (const question of [
+      'Is there a human check to get past?',
+      'Does it want money before the account works?',
+      'Does it need a phone number?',
+      'Does it need an identity document?',
+      'Is it invite-only?',
+      'Does a person have to approve the account?',
+      'Do the terms restrict what you may publish with it?',
+    ]) {
+      expect(asked).not.toContain(question)
+    }
+  })
+
+  /**
+   * Decision 4: the FAQ defers to the briefing and does not replace it. The
+   * questions the box drops are dropped from the `FAQPage` with them — `#1105`
+   * decision 7 ties the markup to the criteria, and a crawler handed seven
+   * identical answers is the same defect one layer down.
+   */
+  it('drops the same empty questions from the FAQPage a reader never sees', () => {
+    const html = page({
+      recipes: [
+        recipe({
+          status: 'refused',
+          walls: [
+            { kind: 'other', direction: null, reportedBy: 6 },
+          ] as unknown as AtlasEntry['recipes'][number]['walls'],
+        }),
+      ] as AtlasEntry['recipes'],
+    })
+    const questions = (faq(html)?.['mainEntity'] ?? []) as readonly { name: string }[]
+    const filler = questions.filter((one) => one.name === ATLAS_OTHER_WALLS_QUESTION)
+
+    expect(filler).toHaveLength(1)
+    expect(questions.map((one) => one.name)).not.toContain('Does it need a phone number?')
   })
 
   it('still says not-reported for FAQ kinds when a typed FAQ wall was hit', () => {

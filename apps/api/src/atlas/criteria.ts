@@ -64,9 +64,27 @@ export const ATLAS_NOT_REPORTED = 'Not reported by anybody who walked it.'
  * **Not the same as {@link ATLAS_NOT_REPORTED}.** `other`, free-text walls, and
  * briefing wall claims are findings — saying *not reported* over them emptied
  * the FAQ on pages like `agentmessage.io` while the corpus named a waitlist.
+ *
+ * **It is one note about the block and no longer an answer on each row**
+ * (`#1402`). `#1298` gave it to every wall question whose kind nobody had hit,
+ * which on an entry where *no* FAQ kind was hit is all seven of them: measured
+ * on `opentask.ai` 2026-08-20, the same sentence seven times down a box a reader
+ * scans in five seconds. Seven copies of one finding is not seven findings, and
+ * the wording moved with the row — *this question* had a referent when the
+ * sentence sat under a question and has none now that it stands for the block.
  */
 export const ATLAS_WALL_SEE_MEASURED =
-  'Walkers reported walls that do not fit this question — see what citizens measured.'
+  'Walkers reported walls these questions do not cover — see what citizens measured.'
+
+/**
+ * The question the one note answers (`#1402` decision 1).
+ *
+ * It is a real question and not a heading, because {@link atlasCriteria}'s rows
+ * are rendered twice — into the `<dl>` a reader scans and into the `FAQPage` a
+ * crawler parses — and a `Question` whose text is a label is markup that lies
+ * about the page.
+ */
+export const ATLAS_OTHER_WALLS_QUESTION = 'Are there other walls to get past?'
 
 /** One line of the criteria box: a question a reader typed, and the answer. */
 export type AtlasCriterion = {
@@ -192,11 +210,41 @@ export function atlasCriteria(
    * print {@link ATLAS_NOT_REPORTED} and claim an absence that is not true. Point at
    * the measured corpus instead — but only when no FAQ kind was hit, so a real
    * `payment-required` answer is not rewritten on neighbouring rows.
+   *
+   * What *pointing at it* renders is `#1402`'s and not `#1298`'s: one note in
+   * place of the seven empty rows, rather than the same sentence on each.
    */
   const faqKinds = new Set(WALL_QUESTIONS.map(([kind]) => kind))
   const faqHit = walls.some((wall) => faqKinds.has(wall.kind))
   const nonFaqHit = walls.some((wall) => !faqKinds.has(wall.kind))
   const pointAtMeasured = measured && !faqHit && (nonFaqHit || options.untypedWallFindings === true)
+
+  /**
+   * The seven wall rows, or the one note that replaces the empty ones (`#1402`).
+   *
+   * **Only the case `pointAtMeasured` describes collapses**, which is the case
+   * `#1402` measured: nobody hit a FAQ kind, so every one of the seven rows is
+   * empty and every one of them would carry the same sentence. There is nothing
+   * to keep, so the questions are omitted — decision 2, *a question with no
+   * evidence is omitted rather than answered with filler* — and one note stands
+   * for the block, which is decision 1.
+   *
+   * **The mixed case is deliberately left alone.** Where a FAQ kind *was* hit
+   * beside an `other`, `#1298` decided the remaining rows keep
+   * {@link ATLAS_NOT_REPORTED}: walkers who typed one wall are trusted to have
+   * typed the rest, so the absence is a measurement rather than a gap. Decision 3
+   * of `#1402` says mapped walls keep concrete answers, and rewriting their
+   * neighbours would be re-deciding `#1298` on the way past.
+   */
+  const wallRows: readonly AtlasCriterion[] = pointAtMeasured
+    ? [{ question: ATLAS_OTHER_WALLS_QUESTION, answer: ATLAS_WALL_SEE_MEASURED }]
+    : WALL_QUESTIONS.map(([kind, question]) => ({
+        question,
+        answer: wallAnswer(
+          walls.find((wall) => wall.kind === kind),
+          measured,
+        ),
+      }))
 
   return [
     /**
@@ -216,14 +264,7 @@ export function atlasCriteria(
           entry.recipes.find((recipe) => recipe.cost !== 'unknown')?.cost ?? 'unknown',
         ) ?? ATLAS_NOT_KNOWN,
     },
-    ...WALL_QUESTIONS.map(([kind, question]) => ({
-      question,
-      answer: wallAnswer(
-        walls.find((wall) => wall.kind === kind),
-        measured,
-        pointAtMeasured,
-      ),
-    })),
+    ...wallRows,
     {
       question: 'Do the terms allow an account held by an agent?',
       answer:
@@ -253,12 +294,9 @@ export function atlasCriteria(
 function wallAnswer(
   wall: AtlasPublicEntry['recipes'][number]['walls'][number] | undefined,
   measured: boolean,
-  pointAtMeasured: boolean,
 ): string {
   if (wall === undefined) {
-    if (!measured) return ATLAS_NOT_KNOWN
-    if (pointAtMeasured) return ATLAS_WALL_SEE_MEASURED
-    return ATLAS_NOT_REPORTED
+    return measured ? ATLAS_NOT_REPORTED : ATLAS_NOT_KNOWN
   }
 
   const scope = directionScope(wall.direction ?? null)

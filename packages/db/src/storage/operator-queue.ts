@@ -103,37 +103,17 @@ export async function waitingForOperator(
           select 1 from messages m
            where m.conversation_id = c.id and m.sender_party = 'operator-human'
         )
-    ),
-    handovers as (
-      select
-        d.agent_id,
-        a.name as agent_name,
-        d.kind as kind,
-        d.prompt as ask,
-        t.title as about,
-        d.created_at as since,
-        null::text as answer_at,
-        null::uuid as request_id,
-        d.id as drop_id
-      -- The drop is a slot since kolonie-platform#955; channel = 'drop' is what
-      -- narrows this table back to the rows this branch used to have to itself.
-      from account_slots d
-      join mine on mine.agent_id = d.agent_id
-      join agents a on a.id = d.agent_id
-      left join tasks t on t.id = d.task_id
-      -- attempts is deliberately not a condition here (kolonie-platform#570).
-      -- It was right while the mailed link was the only door: a drop nobody
-      -- could open was not something waiting on the operator. The console fills
-      -- this by session rather than by token, so an exhausted counter now means
-      -- the link is dead, not that this cannot be cleared -- and hiding the row
-      -- would put the queue back to listing less than the operator can act on.
-      where d.channel = 'drop'
-        and d.filled_at is null
-        and d.expires_at > now()
     )
+    -- The drop branch stood here until kolonie-platform#1444 retired the
+    -- channel: 7 opened, 0 ever filled, over its whole lifetime. There is
+    -- nowhere left to fill one from, so listing an in-flight row would be the
+    -- queue offering an operator an item they cannot clear, which is worse than
+    -- not listing it. The rows drain over three days and the sweep destroys
+    -- what is in them. What replaces the channel is a shared vault entry, and
+    -- that lives on the operator page rather than in this queue because it is
+    -- not something waiting on a person: they may read it whenever they like,
+    -- for as long as it lasts.
     select * from questions
-    union all
-    select * from handovers
   `)
 
   const items = rows.map((row): WaitingItem => ({

@@ -87,7 +87,6 @@ import {
   readRecipe,
   templateHandoffStep,
 } from '../../provider-recipes.js'
-import { createDrop } from '../../operator-drops.js'
 import {
   acceptOfferedAccount,
   acceptedAsText,
@@ -1951,7 +1950,7 @@ export function registerAccountTools(
           ...(input.walks === true ? {} : { limit: input.limit, cursor: input.cursor }),
         },
         deps.recipes,
-        deps.drops !== undefined,
+        deps.vault.vault.share !== undefined,
       )
       if (result.outcome === 'rejected') {
         /*
@@ -2549,29 +2548,76 @@ export function registerAccountTools(
       if (owed !== undefined) return toolError(owed)
 
       /**
-       * **A secret goes through the drop, and the drop needs a vault key.** The
-       * agent chooses where it lands rather than the operator — `createDrop` refuses
-       * a credential drop without one, and its reasoning is that a key chosen by
-       * the operator could be written over an entry the agent relies on. Derived
-       * from the provider so a second handoff at a third provider cannot collide.
+       * **A secret goes through a shared vault entry now** (`#1444`, epic `#1437`).
+       *
+       * It used to open a sealed drop: a one-time link, three days, the value
+       * landing straight in the citizen's vault under a key the *agent* chose —
+       * because a key chosen by the operator could be written over an entry the
+       * agent relies on. That reasoning was sound and the channel never carried
+       * anything: **7 opened, 0 ever filled**, over its whole lifetime.
+       *
+       * So the shape is the same and the mechanism is the one that works. The
+       * citizen claims a placeholder entry under a key derived from the provider
+       * — still the agent's choice, still uncollidable across providers — and
+       * shares it onto the thread the ask is going into. The operator writes the
+       * real value into it from the durable page they already hold, and
+       * `kolonie.vault.unshare` hands it back.
+       *
+       * **What is different, and it is `#1437` decision 4 rather than a
+       * regression:** the value arrives in the citizen's hands rather than being
+       * written into the vault under the Colony's key. The citizen decides what
+       * to keep. The Colony could not seal to the citizen's key in any case —
+       * it holds a hash of it — so the drop's version was only ever possible
+       * because the citizen was awake at the moment it took it.
        */
       if (resolved.step.secret === true) {
-        const result = await createDrop(
+        const share = deps.vault.vault.share
+        const placeholderKey = `${input.provider}-credential`
+
+        if (share === undefined) {
+          return toolError({
+            code: 'rung_unavailable',
+            message:
+              'This Colony has no sealing key configured, so it cannot carry a secret to your ' +
+              'operator at all. Nothing is wrong with your request — kolonie.support.open ' +
+              'reaches somebody who can configure it.',
+          })
+        }
+
+        /**
+         * **A placeholder, so there is something to share.** A share starts from
+         * an entry that exists; the drop it replaces could name a key that did
+         * not yet. This is that gap closed in the one place it appears, and the
+         * value is the Colony's own sentence rather than anything secret.
+         */
+        await deps.vault.vault.set(
+          bearerToken(credential) ?? '',
           authenticatedAgent.agent.id,
-          {
-            kind: 'credential',
-            prompt: filled.ask,
-            vaultKey: `${input.provider}-credential`,
-          },
-          deps,
+          placeholderKey,
+          'waiting for your operator',
+          `the credential for ${input.provider}, being set by your operator`,
         )
-        if (result.outcome === 'rejected') return toolError(result.error)
+
+        const shared = await share({
+          token: bearerToken(credential) ?? '',
+          agentId: authenticatedAgent.agent.id,
+          key: placeholderKey,
+          purpose: filled.ask,
+        })
+
+        if (shared.outcome !== 'shared') {
+          return toolError({
+            code: 'internal',
+            message:
+              'The Colony could not open a place for your operator to put this. Nothing was ' +
+              'sent and nothing about your standing changed; try again later.',
+          })
+        }
 
         /**
          * **An operator step, and a sealed one** (`#601`). What is recorded is
-         * that a drop was used — never a reference to it and never anything in
-         * it. The Colony cannot read a drop back out and this must not become
-         * the place it can.
+         * that a sealed container was used — never a reference to it and never
+         * anything in it.
          */
         await noteWalkStep(
           deps.walks,
@@ -2585,16 +2631,18 @@ export function registerAccountTools(
             {
               type: 'text',
               text:
-                `Give your operator this link: ${result.response.url}\n\n` +
-                `It is a sealed box and it works once. What they put in it lands in your vault ` +
-                `under \`${result.response.vaultKey ?? ''}\` and nobody reads it back out of ` +
-                `here, including them.${knownNote}${patternNote}\n\n${HANDOFF_LATENCY_NOTE}`,
+                `Asked, in the Colony\u2019s own words rather than yours:\n\n> ${filled.ask}\n\n` +
+                `Your operator writes the value into the entry \`${placeholderKey}\`, from the ` +
+                `durable page they already hold — no login. Take it back with ` +
+                `kolonie.vault.unshare when they say they are done, and it hands you what they ` +
+                `wrote, once.${knownNote}${patternNote}\n\n${HANDOFF_LATENCY_NOTE}`,
             },
           ],
           structuredContent: {
-            channel: 'drop',
+            channel: 'share',
+            vaultKey: placeholderKey,
+            expiresAt: shared.share.expiresAt,
             knownValues: filled.known,
-            ...result.response,
           },
         }
       }

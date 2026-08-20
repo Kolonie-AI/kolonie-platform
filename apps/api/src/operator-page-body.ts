@@ -72,9 +72,8 @@ export async function operatorPageBody(
     readonly as?: 'page' | 'section' | undefined
   } = {},
 ): Promise<string> {
-  const [threads, drops, shares, room, telegram] = await Promise.all([
+  const [threads, shares, room, telegram] = await Promise.all([
     deps.operatorThreads.store.forPageToken(token),
-    deps.drops?.forPageToken(token) ?? Promise.resolve([]),
     /**
      * The entries this agent is sharing (`#1440`).
      *
@@ -138,7 +137,6 @@ export async function operatorPageBody(
       shares: thread.shares,
       shareEvents: thread.shareEvents,
     })),
-    drops,
     shares,
     ...(errors.shareAction === undefined ? {} : { shareAction: errors.shareAction }),
     ...(errors.shareError === undefined ? {} : { shareError: errors.shareError }),
@@ -150,7 +148,14 @@ export async function operatorPageBody(
             unreachable: telegram?.unreachableAt != null,
           },
         }),
-    secretHandoff: deps.drops !== undefined,
+    /**
+     * Whether this Colony can carry a secret to this person at all (`#1444`).
+     *
+     * It used to mean *a sealed box can be opened*; the box is retired, and what
+     * it means now is *an entry can be shared*. Same key, same condition, and
+     * the page's sentence changed with it.
+     */
+    secretHandoff: deps.operatorShares !== undefined,
     fillDrops: errors.fillDrops === true,
   })
 }

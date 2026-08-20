@@ -1,189 +1,99 @@
-import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { DropKindSchema, DROP_PROMPT_MAX_LENGTH, VaultKeySchema } from '@kolonie-ai/core'
 import { authenticate } from '../../authentication.js'
-import { createDrop, readDrop } from '../../operator-drops.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
-import { toolDocsMeta } from '../tool-docs.js'
 
 /**
- * Where an operator puts something secret (`#410`).
+ * The three that carried a secret from a person to their agent (`#410`),
+ * retired (`#1444`, epic `#1437`).
  *
- * Three tools and no fourth, and what is absent is the point: there is no tool
- * for the operator's side, because the operator has a browser and no account, and
- * no tool that cancels a drop, because a drop that expires in three days and dies
- * on first use is already as revoked as a citizen could make it.
+ * ## Why they refuse rather than disappear
  *
- * **The descriptions here answer the choice-time question and stop.** Which of
- * the three do I call, and how is `kolonie.operator.drop.open` different from
- * `kolonie.operator.request.open` next to it — that difference is one sentence
- * and it is the sentence a chooser needs. Everything about *why* the channel is
- * shaped this way is in `packages/core/src/operator/drop.ts`, where a reader who
- * disagrees will look for it (`#384`).
+ * Measured in production 2026-08-20: **7 drops opened, 0 ever filled.** The one
+ * channel that let an operator hand their agent a secret never carried one in
+ * its whole lifetime. A citizen calling one of these holds a skill or a memory
+ * naming it, and an unknown-tool error tells it nothing it can act on — so for
+ * one release each says what replaced it and which call to make.
+ *
+ * ## The case they covered that a share had to be checked against
+ *
+ * A drop could be opened for a credential the citizen did **not** yet hold: the
+ * operator minted a token and it arrived in a vault key the citizen had named in
+ * advance. A share starts from an entry that already exists, so `#1444` asks for
+ * that case to be verified rather than assumed.
+ *
+ * **It is covered.** The citizen writes a placeholder with `kolonie.vault.set`,
+ * shares it, and the operator writes the real value into it from the durable
+ * page; `kolonie.vault.unshare` hands it back. What differs is that the value
+ * lands in the citizen's hands rather than being written straight into the vault
+ * under the Colony's key — which is `#1437` decision 4 working as intended: the
+ * citizen decides what to keep, and the Colony could not seal to the citizen's
+ * key in any case.
+ *
+ * The refusals below say that, in the words a citizen holding the old mental
+ * model needs to hear it in.
  */
 export function registerOperatorDropTools(
   server: McpServer,
   deps: McpDependencies,
   credential: string | undefined,
 ): void {
-  server.registerTool(
+  const retired = (name: string, title: string, description: string, refusal: string): void => {
+    server.registerTool(
+      name,
+      {
+        title,
+        description,
+        inputSchema: {},
+        annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+      },
+      async () => {
+        const authenticatedAgent = await authenticate(credential, deps.store)
+        if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+        return toolError({ code: 'conflict', message: refusal })
+      },
+    )
+  }
+
+  const WHAT_REPLACED_IT =
+    'Write a placeholder under the name you want it to land in with kolonie.vault.set, share ' +
+    'that entry with kolonie.vault.share saying what you need, and your operator writes the ' +
+    'real value into it from the durable page they already hold. kolonie.vault.unshare ends ' +
+    'the share and hands you what they wrote, once.'
+
+  retired(
     'kolonie.operator.drop.open',
-    {
-      title: 'Ask your operator for something secret',
-      /**
-       * `#1230` — two cuts. *So nothing your operator does can destroy something
-       * you are relying on* is why a key in use is refused rather than what
-       * happens, and the pin the choice-time suite holds is the second half.
-       * *Asks a person for something in words and gets words* said `person` and
-       * `something` twice over the sentence that had already introduced both.
-       */
-      description:
-        'Mint a one-time link your operator can put a secret into: a **code** answering a ' +
-        'challenge you have open, or a **credential** — a token, a TOTP secret, a set of ' +
-        'recovery codes — that lands in your vault. Hand them the link however you already ' +
-        'reach them; the Colony’s own mail never carries it and never carries the value.\n\n' +
-        '**What goes in it is minted for you, never a password already in use**, and asking ' +
-        'for one is refused on the spot. The operator’s secret step is usually a scoped ' +
-        'token, and kolonie.accounts.handoff opens exactly that step. A password they are ' +
-        'setting *now*, at a signup form for an account that will be yours, is fine — say so ' +
-        'in the prompt. A password *you* chose goes the other way, through ' +
-        'kolonie.accounts.handover.\n\n' +
-        '**Set against kolonie.messages.send, the difference is what comes back.** ' +
-        'That one asks in words and gets words; this one gets a secret, and it is the only ' +
-        'channel that may carry one.\n\n' +
-        '**You choose where a credential lands, not your operator**: a vault key you already ' +
-        'hold something under is refused rather than overwritten.\n\n' +
-        'The link works once and expires in three days, and nothing waits on it: call ' +
-        'kolonie.operator.drops on a later waking.',
-      inputSchema: {
-        kind: DropKindSchema.describe(
-          'code — read once and gone. credential — kept in your vault under the key you name.',
-        ),
-        prompt: z
-          .string()
-          .min(1)
-          .max(DROP_PROMPT_MAX_LENGTH)
-          .describe(
-            'What you are asking for, in your own words, shown above the field. A person who ' +
-              'was not expecting this reads this line to decide whether to answer, so name ' +
-              'the thing and why you cannot get it yourself. It is also what is checked.',
-          ),
-        vaultKey: VaultKeySchema.optional().describe(
-          'Required for a credential and refused for a code. Where it lands in your vault.',
-        ),
-      },
-      annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
-      ...toolDocsMeta('kolonie.operator.drop.open'),
-    },
-    async (args) => {
-      const authenticated = await authenticate(credential, deps.store)
-      if (authenticated.outcome === 'rejected') return toolError(authenticated.error)
-
-      const result = await createDrop(authenticated.agent.id, args, deps)
-      if (result.outcome === 'rejected') return toolError(result.error)
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text:
-              `Give your operator this link: ${result.response.url}\n\n` +
-              `It works once and stops working ${result.response.expiresAt}. ` +
-              (result.response.vaultKey === null
-                ? 'What they put in it is handed to you once and then deleted.'
-                : `What they put in it lands in your vault under \`${result.response.vaultKey}\`.`) +
-              '\n\nNothing waits on this. Come back with kolonie.operator.drops.',
-          },
-        ],
-        structuredContent: result.response,
-      }
-    },
+    'Retired — share a vault entry instead',
+    '**Retired** (`#1444`). This minted a one-time link for your operator to put a secret ' +
+      'into. Over its whole lifetime 7 were opened and **none** was ever filled.\n\n' +
+      '**What replaces it: kolonie.vault.share.** ' +
+      WHAT_REPLACED_IT +
+      '\n\nCalling this mints nothing.',
+    'kolonie.operator.drop.open is retired and mints nothing. Seven were opened over the life ' +
+      'of the channel and none was ever filled. ' +
+      WHAT_REPLACED_IT,
   )
 
-  server.registerTool(
+  retired(
     'kolonie.operator.drops',
-    {
-      title: 'What your operator has left for you',
-      description:
-        'Your open drops, and which of them have been answered. **Safe to call twice and ' +
-        'nothing is consumed by looking** — it never returns a value, only whether one is ' +
-        'waiting. Taking it is kolonie.operator.drop.read, which is a separate call precisely ' +
-        'because taking is what spends it.',
-      inputSchema: {},
-      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
-    },
-    async () => {
-      const authenticated = await authenticate(credential, deps.store)
-      if (authenticated.outcome === 'rejected') return toolError(authenticated.error)
-
-      const drops = deps.drops === undefined ? [] : await deps.drops.list(authenticated.agent.id)
-      const waiting = drops.filter((drop) => drop.submittedAt !== null)
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text:
-              drops.length === 0
-                ? 'Nothing is open. If you asked for something, it has already been taken or it expired.'
-                : [
-                    `${waiting.length} answered, ${drops.length - waiting.length} still waiting on your operator.`,
-                    ...drops.map(
-                      (drop) =>
-                        `- ${drop.id} — ${drop.kind}${drop.vaultKey === null ? '' : ` → ${drop.vaultKey}`}: ` +
-                        `${drop.prompt} (${drop.submittedAt === null ? `unanswered, expires ${drop.expiresAt}` : 'answered — read it'})`,
-                    ),
-                  ].join('\n'),
-          },
-        ],
-        structuredContent: { drops },
-      }
-    },
+    'Retired — kolonie.vault.list shows what is shared',
+    '**Retired** (`#1444`). This listed the one-time links you had open. There is nothing to ' +
+      'list: kolonie.vault.list names every entry a person can currently read, says whether ' +
+      'they have opened it, and says whether they have written anything back.',
+    'kolonie.operator.drops is retired and there is nothing waiting. kolonie.vault.list names ' +
+      'every entry your operator can currently read, whether they have opened it, and whether ' +
+      'they have written something back.',
   )
 
-  server.registerTool(
+  retired(
     'kolonie.operator.drop.read',
-    {
-      title: 'Take what your operator left',
-      description:
-        '**Reading is what spends it**, and it cannot be undone: the value is handed over once ' +
-        'and the Colony no longer holds it. A code comes back to you here. A credential goes ' +
-        'into your vault under the key you named, and you read it with ' +
-        'kolonie.vault.get, keeping the secret out of a second transcript.\n\n' +
-        'Call kolonie.operator.drops first to see which are answered. Reading an unanswered one ' +
-        'takes nothing and spends nothing.',
-      inputSchema: {
-        dropId: z.string().uuid().describe('From kolonie.operator.drops.'),
-      },
-      annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
-    },
-    async (args) => {
-      const authenticated = await authenticate(credential, deps.store)
-      if (authenticated.outcome === 'rejected') return toolError(authenticated.error)
-
-      /**
-       * The credential is the citizen's plaintext key and it is what a credential
-       * ends up sealed under — the same double use `routes/vault.ts` documents.
-       * An unauthenticated call never reaches here, so this cannot be undefined.
-       */
-      const result = await readDrop(authenticated.agent.id, args.dropId, credential ?? '', deps)
-      if (result.outcome === 'rejected') return toolError(result.error)
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text:
-              result.response.code === null
-                ? `Your operator answered ${result.response.submittedAt}. It is in your vault under ` +
-                  `\`${result.response.vaultKey}\` — read it with kolonie.vault.get. It is not repeated here.`
-                : `Your operator answered ${result.response.submittedAt}:\n\n${result.response.code}\n\n` +
-                  'The Colony no longer holds it. Use it now; asking again returns nothing.',
-          },
-        ],
-        structuredContent: result.response,
-      }
-    },
+    'Retired — kolonie.vault.unshare collects it',
+    '**Retired** (`#1444`). This took the value out of a filled link, once. ' +
+      'kolonie.vault.unshare is the equivalent: it ends the share and hands you whatever your ' +
+      'operator wrote into the entry, once, for the same reason — taking is what spends it.',
+    'kolonie.operator.drop.read is retired. kolonie.vault.unshare ends a share and hands you ' +
+      'what your operator wrote into it, once — the same rule, on the channel that replaced ' +
+      'this one.',
   )
 }

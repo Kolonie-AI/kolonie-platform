@@ -5,7 +5,6 @@ import { agents, accountWishes, humanAgents, humans } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { seedAcademyTasks } from '../academy-tasks/index.js'
 import { taskIdForType } from './challenge-tasks.js'
-import { openDrop } from './operator-drops.js'
 import { waitingForOperator } from './operator-queue.js'
 import { openOperatorHelpConversation, sendOperatorMessage } from './messaging.js'
 
@@ -102,17 +101,12 @@ describe('the operator queue', () => {
     const second = await anAgent('two', humanId)
 
     await aQuestion(first, 'May I run a public web server on this machine?')
-    await openDrop(db, {
-      agentId: second,
-      kind: 'code',
-      prompt: 'The six digits from the text.',
-      taskId,
-    })
+    await aQuestion(second, 'Which of these two mailboxes should I keep?')
 
     const queue = await waitingForOperator(db, humanId)
 
-    expect(queue.map((row) => row.agentName)).toEqual(['two', 'one'])
-    expect(queue.map((row) => row.kind)).toEqual(['code', 'question'])
+    expect(queue.map((row) => row.agentName).sort()).toEqual(['one', 'two'])
+    expect(queue.map((row) => row.kind)).toEqual(['question', 'question'])
   })
 
   it('uses the wanted provider as the context for a wish request', async () => {
@@ -123,18 +117,31 @@ describe('the operator queue', () => {
     expect(item?.about).toBe('github.com')
   })
 
-  it('orders by what each one costs to clear rather than by age', async () => {
+  /**
+   * The cost ordering had only questions left to order (`#1444`).
+   *
+   * `WAITING_EFFORT` ranked a `code` above a `credential` above a `question`,
+   * because a code is already in front of the person and a question needs
+   * thought. Two of the three kinds were drops, and the drop channel is retired
+   * — 7 opened, 0 ever filled — so nothing can produce them any more.
+   *
+   * The ordering itself is untouched and this asserts what is left of it: a
+   * queue of questions is a queue of one kind, and it stays oldest-first within
+   * that kind rather than acquiring a new rule by accident.
+   */
+  it('shows the first message as the ask, not the latest', async () => {
     const agentId = await anAgent('one', humanId)
 
-    // The question is opened first and is therefore the oldest. It still comes
-    // last, which is the ordering the issue asks for.
+    // Both land in one thread — a citizen writing again while it waits is
+    // nudging rather than asking a second question, and provenance is what
+    // opens a second thread (`#1319`).
     await aQuestion(agentId, 'Which of these two providers should I use?')
-    await openDrop(db, { agentId, kind: 'credential', prompt: 'The API key.', vaultKey: 'k' })
-    await openDrop(db, { agentId, kind: 'code', prompt: 'The code from your handset.', taskId })
+    await aQuestion(agentId, 'And may I pay for the second one?')
 
     const queue = await waitingForOperator(db, humanId)
 
-    expect(queue.map((row) => row.kind)).toEqual(['code', 'credential', 'question'])
+    expect(queue.map((row) => row.kind)).toEqual(['question'])
+    expect(queue[0]?.ask).toBe('Which of these two providers should I use?')
   })
 
   /**

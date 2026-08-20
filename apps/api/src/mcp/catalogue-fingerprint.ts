@@ -25,4 +25,4 @@
  * here advertises `notifications/tools/list_changed`, nothing holds a session,
  * and no client is required to read this.
  */
-export const CATALOGUE_FINGERPRINT = '512ba9e34a8e'
+export const CATALOGUE_FINGERPRINT = 'b4dc56b5e0ae'

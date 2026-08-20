@@ -2450,3 +2450,198 @@ async function colonyParticipant(db: Database | Transaction, conversation: Conve
     systemRole: made.systemRole,
   }
 }
+
+/**
+ * One row of a person's inbox (`#1448`, epic `#1447`).
+ *
+ * **Across every agent they operate**, which is the defect the epic is about:
+ * every operator surface was `/agents/:agentId/…`, so a person with three
+ * agents had three message pages and no view of what was waiting.
+ */
+export interface InboxRow {
+  readonly conversationId: ConversationId
+  readonly agentId: string
+  /** The agent's handle, because a person reading this holds names and not ids. */
+  readonly agentName: string
+  /** What the thread is about, or null for one about nothing in particular. */
+  readonly about: ConversationAbout | null
+  /**
+   * The **latest** message, not the first.
+   *
+   * The waiting queue shows the first deliberately — *the second message is
+   * usually a nudge rather than the question* — which is right for a queue of
+   * unanswered asks and wrong for an inbox: a thread that moved three times
+   * would render its opening line from two weeks ago.
+   */
+  readonly latest: {
+    readonly body: string
+    readonly at: string
+    readonly senderLabel: string
+    readonly mine: boolean
+  } | null
+  /**
+   * Whether anything from anybody else is newer than this person's cursor.
+   *
+   * **From `last_read_message_id` and from nothing else.** The agents' side
+   * already uses that column through `kolonie.messages.mark_read`, and two
+   * definitions of read would disagree within a week.
+   */
+  readonly unread: boolean
+  /** How many of the messages are unread, for the one number a list wants. */
+  readonly unreadCount: number
+}
+
+/**
+ * Every thread this person is a participant of, newest activity first.
+ *
+ * **Activity, not creation.** An inbox ordered by when a thread opened puts a
+ * conversation that moved this morning below one that has been quiet for a
+ * fortnight, which is the ordering of an archive rather than of an inbox.
+ *
+ * **Participation is the whole ACL, exactly as everywhere else in this file**
+ * (`#1447` frozen decision 2). It starts from this person's own participant
+ * rows, so there is no shape of input that reaches another person's thread, nor
+ * any of their agents' conversations with other citizens or with the Colony —
+ * reading those would be surveillance and would break what `kolonie.messages`
+ * promises the other party.
+ */
+export async function inboxFor(
+  db: Database,
+  humanId: HumanId,
+  options: { readonly agentId?: AgentId; readonly limit?: number } = {},
+): Promise<readonly InboxRow[]> {
+  const rows = await db.execute<{
+    conversation_id: string
+    agent_id: string
+    agent_name: string
+    latest_body: string | null
+    latest_at: string | null
+    latest_label: string | null
+    latest_mine: boolean | null
+    unread_count: string
+  }>(sql`
+    with mine as (
+      select p.id as participant_id,
+             p.conversation_id,
+             p.last_read_message_id
+        from message_participants p
+       where p.human_id = ${humanId}::uuid
+    ),
+    -- The agent side of each of those threads. An operator thread has exactly
+    -- one citizen in it, and the join is what puts a name on the row.
+    theirs as (
+      select mine.conversation_id, p.agent_id, a.name as agent_name
+        from mine
+        join message_participants p
+          on p.conversation_id = mine.conversation_id and p.agent_id is not null
+        join agents a on a.id = p.agent_id
+    ),
+    cursor_at as (
+      select mine.conversation_id, m.created_at
+        from mine
+        left join messages m on m.id = mine.last_read_message_id
+    ),
+    latest as (
+      select distinct on (m.conversation_id)
+             m.conversation_id, m.body, m.created_at, m.sender_label, m.sender_participant_id
+        from messages m
+        join mine on mine.conversation_id = m.conversation_id
+       order by m.conversation_id, m.created_at desc, m.id desc
+    ),
+    unread as (
+      select m.conversation_id, count(*)::text as unread_count
+        from messages m
+        join mine on mine.conversation_id = m.conversation_id
+        left join cursor_at on cursor_at.conversation_id = m.conversation_id
+       where m.sender_participant_id <> mine.participant_id
+         and (cursor_at.created_at is null or m.created_at > cursor_at.created_at)
+       group by m.conversation_id
+    )
+    select theirs.conversation_id,
+           theirs.agent_id,
+           theirs.agent_name,
+           latest.body as latest_body,
+           latest.created_at as latest_at,
+           latest.sender_label as latest_label,
+           (latest.sender_participant_id = mine.participant_id) as latest_mine,
+           coalesce(unread.unread_count, '0') as unread_count
+      from theirs
+      join mine on mine.conversation_id = theirs.conversation_id
+      left join latest on latest.conversation_id = theirs.conversation_id
+      left join unread on unread.conversation_id = theirs.conversation_id
+     where ${options.agentId === undefined ? sql`true` : sql`theirs.agent_id = ${options.agentId}::uuid`}
+     order by coalesce(latest.created_at, 'epoch'::timestamptz) desc, theirs.conversation_id
+     limit ${options.limit ?? CONVERSATION_LIST_LIMIT}
+  `)
+
+  const subjects = await conversationSubjects(
+    db,
+    rows.map((row) => row.conversation_id),
+  )
+
+  return rows.map((row) => ({
+    conversationId: conversationId(row.conversation_id),
+    agentId: row.agent_id,
+    agentName: row.agent_name,
+    about: subjects.get(row.conversation_id) ?? null,
+    latest:
+      row.latest_at === null
+        ? null
+        : {
+            body: row.latest_body ?? '',
+            at: row.latest_at,
+            senderLabel: row.latest_label ?? '',
+            mine: row.latest_mine === true,
+          },
+    unread: Number(row.unread_count) > 0,
+    unreadCount: Number(row.unread_count),
+  }))
+}
+
+/**
+ * Move this person's read cursor to the newest message of one thread (`#1448`).
+ *
+ * **The single missing write that makes the whole surface possible.** Measured
+ * 2026-08-20, `message_participants.last_read_message_id` was null for all 52
+ * operator participants: the column existed, the agents' side wrote it through
+ * `kolonie.messages.mark_read`, and nothing in the console ever did — so a
+ * person had no notion of *unread* at all, only of *never answered*.
+ *
+ * The agent's own `markConversationRead` is the same act one participant column
+ * over. Two functions rather than one because the two are found by different
+ * keys, and a single function taking *either* an agent or a human is a function
+ * whose authorisation a reader has to work out from which argument is set.
+ */
+export async function markConversationReadByOperator(
+  db: Database,
+  humanId: HumanId,
+  id: ConversationId,
+): Promise<{ readonly outcome: 'marked' } | { readonly outcome: 'not-a-participant' }> {
+  const [me] = await db
+    .select({ id: messageParticipants.id })
+    .from(messageParticipants)
+    .where(
+      and(eq(messageParticipants.conversationId, id), eq(messageParticipants.humanId, humanId)),
+    )
+    .limit(1)
+
+  if (me === undefined) return { outcome: 'not-a-participant' }
+
+  const [newest] = await db
+    .select({ id: messages.id })
+    .from(messages)
+    .where(eq(messages.conversationId, id))
+    .orderBy(desc(messages.createdAt), desc(messages.id))
+    .limit(1)
+
+  // A thread nobody has written in has no cursor to move, and that is `marked`
+  // rather than a refusal: the person has read everything there is.
+  if (newest === undefined) return { outcome: 'marked' }
+
+  await db
+    .update(messageParticipants)
+    .set({ lastReadMessageId: newest.id })
+    .where(eq(messageParticipants.id, me.id))
+
+  return { outcome: 'marked' }
+}

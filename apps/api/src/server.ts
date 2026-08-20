@@ -116,6 +116,8 @@ import {
   replyInConversation,
   reportMessageAbuse,
   conversationAboutAccount,
+  inboxFor,
+  markConversationReadByOperator,
   sendColonyMessageToOperatorThread,
   openOperatorHelpConversation,
   operatorThreadContext,
@@ -1144,6 +1146,15 @@ const app = buildApp({
    */
   operatorMessaging: {
     listThreads: (humanId, agentId) => listOperatorConversations(db, humanId, agentId),
+    /**
+     * The inbox (`#1448`): every thread across every agent, newest activity
+     * first, with the agent's name and the latest message on the row.
+     */
+    inbox: (humanId, options) =>
+      inboxFor(db, humanId, options?.agentId === undefined ? {} : { agentId: options.agentId }),
+    /** The write the console never made — see `markConversationReadByOperator`. */
+    markRead: (humanId, conversationId) =>
+      markConversationReadByOperator(db, humanId, conversationId),
     getThread: async (humanId, conversationId) => {
       const result = await readOperatorConversation(db, humanId, conversationId)
       return result.outcome === 'read'

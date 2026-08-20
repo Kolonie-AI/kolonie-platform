@@ -703,6 +703,8 @@ export interface FakeOperatorMessaging extends OperatorMessaging {
  */
 export function fakeOperatorMessaging(): FakeOperatorMessaging {
   const links = new Set<string>()
+  /** Which threads this person has opened, standing in for the read cursor. */
+  const read = new Set<string>()
   const threads: {
     id: string
     humanId: string
@@ -756,6 +758,54 @@ export function fakeOperatorMessaging(): FakeOperatorMessaging {
         .filter((thread) => thread.humanId === humanId)
         .filter((thread) => agentId === undefined || thread.agentId === agentId)
         .map(asConversation)
+    },
+
+    /**
+     * The inbox (`#1448`), in the terms this fake works in.
+     *
+     * **Ordered by activity and carrying the latest message**, because those are
+     * the two things the route renders and the two the old listing got wrong.
+     * The unread arithmetic is the real store's — asserted in
+     * `packages/db/src/storage/inbox.test.ts` against a real cursor — so this
+     * one models it as *anything the person did not write*, which is the same
+     * rule with the cursor left to the database.
+     */
+    async inbox(humanId, options) {
+      return threads
+        .filter((thread) => thread.humanId === humanId)
+        .filter((thread) => options?.agentId === undefined || thread.agentId === options.agentId)
+        .map((thread) => {
+          const latest = thread.messages.at(-1)
+          const unread = thread.messages.filter(
+            (message) => message.sender.party !== 'operator-human' && !read.has(thread.id),
+          ).length
+
+          return {
+            conversationId: thread.id as ConversationId,
+            agentId: thread.agentId,
+            agentName: thread.agentId,
+            about: null,
+            latest:
+              latest === undefined
+                ? null
+                : {
+                    body: latest.body,
+                    at: latest.createdAt,
+                    senderLabel: latest.sender.label,
+                    mine: latest.sender.party === 'operator-human',
+                  },
+            unread: unread > 0,
+            unreadCount: unread,
+          }
+        })
+        .sort((left, right) => (right.latest?.at ?? '').localeCompare(left.latest?.at ?? ''))
+    },
+
+    async markRead(humanId, conversationId) {
+      const thread = threads.find((one) => one.id === conversationId && one.humanId === humanId)
+      if (thread === undefined) return { outcome: 'not-a-participant' as const }
+      read.add(thread.id)
+      return { outcome: 'marked' as const }
     },
 
     async getThread(humanId, conversationId): Promise<ThreadResponse> {

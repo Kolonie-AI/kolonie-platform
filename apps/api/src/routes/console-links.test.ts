@@ -161,7 +161,7 @@ const formActionsIn = (html: string, origin: string): string[] => {
  * rather than the set of pages under test. `/` is the one the navigation is on
  * and is the reason the defect was reachable at all.
  */
-const DOORS = ['/', '/quests', '/sessions', '/account'] as const
+const DOORS = ['/', '/inbox', '/quests', '/sessions', '/account'] as const
 
 /**
  * A crawl of the signed-in console, breadth-first from {@link DOORS}.

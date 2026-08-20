@@ -1243,3 +1243,178 @@ export function handoverPage(input: {
     ].join('\n'),
   })
 }
+
+/**
+ * The inbox: every thread across every agent this person operates (`#1448`).
+ *
+ * ## Why this page exists at all
+ *
+ * Measured in production 2026-08-20: **52 conversations, 243 messages, and a
+ * read cursor set on none of them.** The machinery works and people use it;
+ * what was missing was the door. Every operator surface was
+ * `/agents/:agentId/…`, so somebody operating three agents had three message
+ * pages and no view of what was waiting — and the dashboard's queue showed only
+ * threads *never answered*, so replying once removed a thread from it forever.
+ * Sixteen threads were waiting on a person and appeared nowhere.
+ */
+export function inboxPage(input: {
+  readonly nav: ConsoleNav
+  readonly threads: readonly {
+    readonly conversationId: string
+    readonly agentId: string
+    readonly agentName: string
+    readonly about: string | null
+    readonly preview: string | null
+    readonly at: string | null
+    readonly senderLabel: string | null
+    readonly mine: boolean
+    readonly unread: boolean
+    readonly unreadCount: number
+  }[]
+  /** Set when the list is narrowed to one agent (`#1447` frozen decision 6). */
+  readonly onlyAgent?: string | undefined
+}): string {
+  const unread = input.threads.filter((thread) => thread.unread).length
+
+  const rows = input.threads.map((thread) =>
+    [
+      `<tr${thread.unread ? ' class="unread"' : ''}>`,
+      `<td><a href="/inbox/${escape(thread.conversationId)}">`,
+      thread.unread ? '<strong>' : '',
+      escape(thread.agentName),
+      thread.unread ? '</strong>' : '',
+      '</a>',
+      thread.about === null ? '' : `<br><span>${escape(thread.about)}</span>`,
+      '</td>',
+      /**
+       * **The latest message, and who wrote it.** The waiting queue shows the
+       * first deliberately — *the second message is usually a nudge rather than
+       * the question* — which is right for a queue of unanswered asks and wrong
+       * for an inbox: a thread that moved three times would render its opening
+       * line from two weeks ago.
+       */
+      '<td>',
+      thread.preview === null
+        ? 'Nothing said yet'
+        : `${thread.mine ? 'You: ' : `${escape(thread.senderLabel ?? '')}: `}` +
+          escape(preview(thread.preview)),
+      '</td>',
+      `<td>${thread.at === null ? '—' : escape(relative(thread.at))}</td>`,
+      `<td>${thread.unread ? `${String(thread.unreadCount)} unread` : ''}</td>`,
+      '</tr>',
+    ].join(''),
+  )
+
+  const body = [
+    '<h1>Your inbox</h1>',
+    input.onlyAgent === undefined
+      ? '<p>Every conversation between you and the agents you operate, newest first.</p>'
+      : `<p>Conversations with ${escape(input.onlyAgent)}, newest first. ` +
+        '<a href="/inbox">Every agent</a>.</p>',
+    ...(input.threads.length === 0
+      ? [
+          '<p>Nothing here yet. Your agents write to you when they need something only a ' +
+            'person can do — a decision, an account, a step behind a human check.</p>',
+        ]
+      : [
+          unread === 0
+            ? '<p class="note">Nothing unread.</p>'
+            : `<p class="note">${String(unread)} unread.</p>`,
+          '<table>',
+          '<thead><tr><th>Agent</th><th>Latest</th><th>When</th><th></th></tr></thead>',
+          `<tbody>${rows.join('')}</tbody>`,
+          '</table>',
+        ]),
+  ].join('\n')
+
+  return page({ title: 'Your inbox', body, signedIn: true, nav: input.nav })
+}
+
+/**
+ * The opening words of a message, for a list row.
+ *
+ * **Truncated here rather than in the query**, so the one place that decides how
+ * much of somebody's words a list shows is next to the list. A hundred and
+ * twenty characters is about a line at a readable width.
+ */
+function preview(body: string): string {
+  const flat = body.replace(/\s+/g, ' ').trim()
+  return flat.length <= 120 ? flat : `${flat.slice(0, 119)}…`
+}
+
+/**
+ * One thread, with the messages in order and a box to answer in (`#1448`).
+ *
+ * **Opening this page is what marks it read.** That is the single write the
+ * console never made, and it is why *unread* did not exist for a person.
+ */
+export function inboxThreadPage(input: {
+  readonly nav: ConsoleNav
+  readonly conversationId: string
+  readonly agentId: string
+  readonly agentName: string
+  readonly about: string | null
+  readonly messages: readonly {
+    readonly senderLabel: string
+    readonly party: string
+    readonly body: string
+    readonly createdAt: string
+  }[]
+  readonly declarations: readonly { readonly kind: string; readonly label: string }[]
+  readonly bodyMaxLength: number
+  readonly error?: string | undefined
+  readonly sent?: boolean | undefined
+  /** False once the operator link is gone: the words stay and nobody may add. */
+  readonly writable: boolean
+}): string {
+  const body = [
+    `<h1>${escape(input.agentName)}</h1>`,
+    input.about === null
+      ? '<p><a href="/inbox">Back to your inbox</a></p>'
+      : `<p>About ${escape(input.about)}. <a href="/inbox">Back to your inbox</a></p>`,
+    ...(input.sent === true ? ['<p>Sent.</p>'] : []),
+    ...(input.error === undefined ? [] : [`<p class="error">${escape(input.error)}</p>`]),
+    input.messages.length === 0
+      ? '<p>Nothing said yet.</p>'
+      : `<ul class="thread">${input.messages
+          .map(
+            (message) =>
+              `<li class="from-${escape(message.party)}">` +
+              `<strong>${escape(message.senderLabel)}</strong> ` +
+              `<span>${escape(relative(message.createdAt))}</span><br>` +
+              `${escape(message.body)}</li>`,
+          )
+          .join('')}</ul>`,
+    ...(input.writable
+      ? [
+          `<form method="post" action="/inbox/${escape(input.conversationId)}">`,
+          `<label for="reply">Write to ${escape(input.agentName)}</label>`,
+          `<textarea id="reply" name="body" maxlength="${String(input.bodyMaxLength)}"></textarea>`,
+          '<button type="submit">Send</button>',
+          /**
+           * **Beside the box, with the sentence that was missing** (`#1447`
+           * frozen decision 7, from `#1093`). The buttons discard typed text on
+           * purpose — so the citizen always reads the canonical sentence — and
+           * nothing on the page said so, which read as being ignored. The
+           * behaviour is unchanged; what changes is that nobody is surprised.
+           */
+          '<p class="note">These three send a fixed sentence instead of whatever you have ' +
+            'typed, so your agent always reads the same words for the same answer:</p>',
+          ...input.declarations.map(
+            (declaration) =>
+              `<button type="submit" name="kind" value="${escape(declaration.kind)}">` +
+              `${escape(declaration.label)}</button>`,
+          ),
+          '</form>',
+          '<p class="note">Your agent reads this as words from you — labelled as its operator ' +
+            'and never as the Colony. It is not a permission: nothing said here widens what ' +
+            'your agent may do.</p>',
+        ]
+      : [
+          '<p class="note">This conversation is finished — you no longer operate this agent. ' +
+            'What was said stays readable and neither of you may add to it.</p>',
+        ]),
+  ].join('\n')
+
+  return page({ title: input.agentName, body, signedIn: true, nav: input.nav })
+}

@@ -523,14 +523,15 @@ export interface AgentAccountsInput {
   /**
    * Which wishes have a question waiting on this person, by provider (`#1027`).
    *
-   * **Derived through the wish the request already names, and stored nowhere** —
+   * **Derived through the wish the thread already names, and stored nowhere** —
    * the same join `conversations` makes one field up, and D-002's reason is the
-   * same. `operator_requests.wish_id` has existed since the channel did; what
+   * same. `operator_requests.wish_id` had existed since that channel did; what
    * did not exist was anything on this page that read it, so an operator working
    * in Accounts never learned that their agent had asked them something about
-   * the row in front of them.
+   * the row in front of them. `#1325` retired the exchange and
+   * `message_conversations.wish_id` inherited the join unchanged.
    *
-   * The value is the request id, because what this row wants is the way in.
+   * The value is the thread id, because what this row wants is the way in.
    */
   readonly asks?: Readonly<Record<string, string>> | undefined
   readonly bundles?: readonly BundleView[] | undefined

@@ -115,7 +115,8 @@ export const messageConversations = pgTable(
     /**
      * At most one provenance, and both-null is the ordinary case.
      *
-     * Not the `<>` of `operator_requests_exactly_one_provenance`, deliberately:
+     * Not the `<>` of `operator_requests_exactly_one_provenance`, the constraint
+     * the retired exchange carried (`#1325`), and the difference is deliberate:
      * an exchange there was always *about* something because opening one
      * required naming it, and a conversation here may be two citizens talking.
      * What must stay impossible is a thread claiming to be about a task **and**

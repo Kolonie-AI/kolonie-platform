@@ -6,10 +6,12 @@ import { OPERATOR_MESSAGE_MAX_LENGTH, OPERATOR_MESSAGE_MIN_LENGTH } from './page
 /**
  * An operator says something to its citizen without being asked (#239).
  *
- * ## Why this is not an `operator_request` with a nullable task
+ * ## Why this was not an `operator_request` with a nullable task
  *
  * `#236` built the citizen's direction: an exchange, about one task, one open at
- * a time, closed by the citizen. Every one of those four properties is wrong for
+ * a time, closed by the citizen. `#1325` has since retired that table into a
+ * conversation, and the choice below is why a note never joined it in the first
+ * place. Every one of those four properties is wrong for
  * a note. *"The account is made, the handle is @x"* belongs to no task, expects no
  * answer, has no reason to be the only one outstanding, and is finished the moment
  * it is read.
@@ -39,9 +41,10 @@ import { OPERATOR_MESSAGE_MAX_LENGTH, OPERATOR_MESSAGE_MIN_LENGTH } from './page
  * ## Read and unread, and nothing else
  *
  * There is no editing, no deletion by the operator, no reactions and no threads.
- * `operator_request_messages` states the rule and says `#239` inherits it: a sent
+ * `operator_request_messages` stated the rule and said `#239` inherits it: a sent
  * message may already have been acted on, so rewriting it would be rewriting the
- * record of a decision somebody else made.
+ * record of a decision somebody else made. That table went with `#1325`; the rule
+ * did not, and this table is where it is now enforced.
  *
  * **Reading marks; it does not consume** (`#927`). This said *read once* and
  * meant it: the row survived, but nothing could ask for a row that had been

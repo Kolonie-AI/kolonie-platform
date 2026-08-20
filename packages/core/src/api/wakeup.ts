@@ -1251,8 +1251,9 @@ export const WakeupResponseSchema = z.object({
    * own if the digest carried them unlabelled.
    *
    * **Waiting rather than unread, and the difference is not pedantry.** Nothing
-   * records that a citizen read a reply — `operator_request_messages` has no read
-   * marker and gets none here, because a marker written by the digest would mean
+   * records that a citizen read a reply — `operator_request_messages` had no read
+   * marker and got none here, and its successor carries none either, because a
+   * marker written by the digest would mean
    * a citizen that glanced at a count had "read" a message it never fetched. What
    * this counts is an obligation the citizen itself clears: reply on the exchange
    * or close it, both of which are deliberate acts, and the count drops.

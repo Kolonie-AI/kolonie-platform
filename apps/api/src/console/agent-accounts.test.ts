@@ -506,9 +506,10 @@ describe('what your agent has sealed for you', () => {
   })
 
   /**
-   * `operator_requests.wish_id` has existed since the channel did and nothing on
+   * `operator_requests.wish_id` had existed since that channel did and nothing on
    * this page read it, so an operator in Accounts never learned their agent had
-   * asked them about the row in front of them.
+   * asked them about the row in front of them. `#1325` retired the exchange and
+   * `message_conversations.wish_id` carries the join now.
    */
   it('points a wish row at the question waiting on it', () => {
     const html = aPage({

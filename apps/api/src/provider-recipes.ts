@@ -48,6 +48,7 @@ import {
   type AtlasPage,
   earnFacetsMatch,
   earnFacetsOf,
+  tagCautionsOf,
   utilityFacetsOf,
   EarnFacetSchema,
   EARN_FACETS,
@@ -1335,6 +1336,7 @@ export function atlasEntryAsText(
     )
   }
 
+  parts.push(tagCautionAsText(entry))
   parts.push(earnFacetsAsText(entry))
 
   /**
@@ -1407,6 +1409,31 @@ export function atlasEntryAsText(
  * the reader `#1301` exists for: the account is worth holding *and* it is a way
  * to earn, and until now the catalogue could only say one of the two.
  */
+/**
+ * The Colony's own position on a tag this entry carries, ahead of the walk
+ * (`#1469`).
+ *
+ * **Printed above everything except what the entry *is*.** The whole cost of the
+ * 2026-08-20 event was twelve full walk reports written for a shelf the Colony
+ * had a view about and had written down nowhere — so this has to arrive before a
+ * reader has decided to spend an afternoon, which means above the figures, above
+ * the walks and above the briefing.
+ *
+ * **Once, at the tag.** The caution is a property of the category rather than of
+ * any one provider, and twelve copies of it is twelve places for it to go stale.
+ * `ATLAS_TAG_CAUTIONS` is the one place, and a decision record in
+ * `state/decisions/` stands behind each row of it.
+ *
+ * **It never refuses anything.** A marked entry is an entry a citizen may walk,
+ * hold and earn through — what changed is that they are told what it is first.
+ */
+function tagCautionAsText(entry: AtlasEntry): string {
+  const cautions = tagCautionsOf(entry.facets)
+  if (cautions.length === 0) return ''
+
+  return cautions.map((caution) => `**Before you walk this:** ${caution}`).join('\n\n')
+}
+
 function earnFacetsAsText(entry: AtlasEntry): string {
   const earn = earnFacetsOf(entry.facets)
   if (earn.length === 0) return ''

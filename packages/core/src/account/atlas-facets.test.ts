@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   AtlasFacetSchema,
+  ATLAS_TAG_CAUTIONS,
   AtlasTagSlugSchema,
+  tagCaution,
+  tagCautionsOf,
   EARN_FACETS,
   RECIPE_MAX_FACETS,
   RECIPE_MAX_TAGS,
@@ -207,5 +210,52 @@ describe('the free-form tags beside them', () => {
   it('names the cap a filing is held to', () => {
     expect(RECIPE_MAX_TAGS).toBe(8)
     expect(RECIPE_MAX_TAGS).toBeLessThan(RECIPE_MAX_FACETS)
+  })
+})
+
+/**
+ * `#1469`. The Colony took a position on one category and the position has to
+ * reach a citizen **before** it spends an afternoon on the thirteenth provider —
+ * which is the entire cost of the 2026-08-20 event, twelve full walk reports for
+ * a shelf that already had a question over it and had it written down nowhere.
+ */
+describe('the caution on a marked tag', () => {
+  it('marks resold bandwidth, and says what the account actually does', () => {
+    const caution = tagCaution('resold-bandwidth')
+
+    expect(caution).toBeDefined()
+    expect(caution).toContain('resells your own internet connection')
+    /** The red-line reading behind position A, said out loud rather than acted on. */
+    expect(caution).toContain('bypassed')
+    /** And it is a caution and not a refusal: the decision is the reader's. */
+    expect(caution).toContain('permitted')
+  })
+
+  /** Every other tag is a label a walker filed, and carries nothing. */
+  it('says nothing about a tag the Colony has taken no position on', () => {
+    expect(tagCaution('ai-agents')).toBeUndefined()
+    expect(tagCaution('privacy')).toBeUndefined()
+  })
+
+  it('reads the cautions off an entry’s facets, and only the marked ones', () => {
+    const facets = facetsFrom(['mailboxes'], [], ['ai-agents', 'resold-bandwidth'])
+
+    expect(tagCautionsOf(facets)).toHaveLength(1)
+    expect(tagCautionsOf(facets)[0]).toContain('resells your own internet connection')
+  })
+
+  it('reads nothing off an entry with no tags', () => {
+    expect(tagCautionsOf(facetsFrom(['mailboxes'], []))).toEqual([])
+  })
+
+  /**
+   * A row here is a maintainer's decision with a record behind it. Asserting the
+   * slug is a tag keeps the two vocabularies from drifting — a caution keyed on
+   * something no walker could file is a caution nothing renders.
+   */
+  it('keys every caution on a slug a tag could actually be', () => {
+    for (const tag of Object.keys(ATLAS_TAG_CAUTIONS)) {
+      expect(AtlasTagSlugSchema.safeParse(tag).success, tag).toBe(true)
+    }
   })
 })

@@ -26,6 +26,7 @@ import {
   kindHasDirection,
   playbookPath,
   colonyRefusal,
+  tagCautionsOf,
   postProofRouteNote,
   providerBriefingAgeHours,
   providerClaimsIn,
@@ -2024,6 +2025,7 @@ export function atlasEntryPage(input: {
        * conditions about a thing the reader had not been told the nature of.
        */
       taxonomyLine(entry),
+      cautionSection(entry),
       measuredLead.html,
       operateSection(entry, input.operateNotes),
       criteriaBox(criteria, measuredLead.html !== ''),
@@ -2344,6 +2346,33 @@ function operateSection(
  * The link stays where the shelf is real: entry to shelf and shelf to entry is
  * what makes a map out of a list (`kolonie-website#97`).
  */
+/**
+ * The Colony's own position on a tag this entry carries (`#1469`).
+ *
+ * **Directly under the chips, and above everything measured.** The chip says
+ * `resold-bandwidth` and a reader who does not already know what that means
+ * learns nothing from it; this is the sentence the chip stands for, and it has
+ * to arrive before the figures, the walks and the briefing — the entire cost of
+ * the 2026-08-20 event was twelve walk reports written by somebody who would
+ * have read this and decided differently.
+ *
+ * **A note and not a refusal.** These providers are open, which is decision C in
+ * `state/decisions/resold-bandwidth-is-open-and-marked.md`. The page tells a
+ * reader what the account does and leaves the decision where it belongs.
+ */
+function cautionSection(entry: AtlasPublicEntry): string {
+  const cautions = tagCautionsOf(entry.facets ?? [])
+  if (cautions.length === 0) return ''
+
+  return cautions
+    .map(
+      (caution) =>
+        `<div class="k-atlas-caution" role="note"><strong>Before you walk this:</strong> ` +
+        `${escape(caution)}</div>`,
+    )
+    .join('')
+}
+
 function taxonomyLine(entry: AtlasPublicEntry): string {
   const { shown, rest } = atlasChipsShown(atlasHeaderChips(entry))
 

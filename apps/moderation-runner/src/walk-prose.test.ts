@@ -776,8 +776,16 @@ const scrubberInputs = () =>
  * Colony holds would buy a `prose_refusal_line` on rows nobody is counting — the
  * backstop reads a twenty-walk window, which fills with classified rows within
  * days of the deploy.
+ *
+ * **Moved by `#1469`, and the version moved with it.** The prompt now says that a
+ * page describing a provider whose product *is* a program the account holder
+ * installs is describing the product rather than instructing the reader. That is
+ * a criterion and not a label: pages refused under the old wording are clear
+ * under this one, which is exactly what the twelve bandwidth-shelf refusals of
+ * 2026-08-20 were. So `WALK_PROSE_SCRUBBER_VERSION` goes to 4 and those refusals
+ * are read again — the bump is the repair rather than a consequence of it.
  */
-const SCRUBBER_INPUTS_DIGEST = 'd9c079d314797506d03c97b9f2732851626714be6b53c7bc39598a5ab8087ea3'
+const SCRUBBER_INPUTS_DIGEST = 'cddc81b4af31348477683245c88e31fe7ea837425b72cca0b1acac922a98c9b9'
 
 /**
  * **What stops the version being forgotten is this test and not a mechanism**
@@ -803,6 +811,6 @@ describe('pinning the scrubber version to the scrubber', () => {
 
   /** The version the digest above belongs to, so the pair is read together. */
   it('is the version the runner and the storage both stamp with', () => {
-    expect(WALK_PROSE_SCRUBBER_VERSION).toBe(3)
+    expect(WALK_PROSE_SCRUBBER_VERSION).toBe(4)
   })
 })

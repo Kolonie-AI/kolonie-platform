@@ -123,6 +123,10 @@ const GUARDS = {
     kind: 'regenerated',
     why: 'check:changelog runs build-changelog.mjs --check inside npm run check',
   },
+  'docs/decisions.md': {
+    kind: 'regenerated',
+    why: 'check:decisions runs build-decisions-index.mjs --check inside npm run check',
+  },
 }
 
 /** One item of a list, or null for a line that is not one. */

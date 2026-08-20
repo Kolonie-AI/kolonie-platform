@@ -170,7 +170,8 @@ write down the alternative you rejected and what it would have cost.
 3. Create `src/<domain>/<concept>.test.ts` next to it.
 4. Export it from `src/<domain>/index.ts`.
 5. If the directory is new, export it from `src/index.ts` too.
-6. Update `docs/decisions.md` if you resolved an ambiguity in kolonie-docs.
+6. Write `docs/decisions/D-0NN-<slug>.md` if you resolved an ambiguity in kolonie-docs,
+   and run `npm run build:decisions`.
 
 ### Add a new error code
 
@@ -275,7 +276,7 @@ because it propagates into four repos and a database schema.
 
 - **The docs contradict each other.** This happens — kolonie-docs was written
   before the code. Resolve it explicitly, write the decision and the rejected
-  alternative into `docs/decisions.md`, and flag it in the PR. See the
+  alternative into a new `docs/decisions/` record, and flag it in the PR. See the
   citizenship-status vs. role split for a worked example.
 - **The docs are silent.** Ask in the issue rather than inventing. If you must
   proceed, pick the option that is easiest to change later and say so.

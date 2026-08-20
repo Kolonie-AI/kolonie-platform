@@ -22,7 +22,7 @@ git log --since=2026-07-13 --until=2026-08-04 --name-only --pretty=format: \
 |      77 | `packages/db/src/academy-tasks.ts`       | one array literal holds all 31 rungs                      |
 |      75 | `apps/api/src/mcp.ts`                    | **fixed** — became `apps/api/src/mcp/`                    |
 |      74 | `apps/api/src/app.ts`                    | **fixed** — became `apps/api/src/routes/`                 |
-|      71 | `docs/decisions.md`                      | append-only, and read from the end — see below            |
+|      71 | `docs/decisions.md`                      | **fixed** — became `docs/decisions/`, one record one file |
 |      67 | `apps/api/src/mcp.test.ts`               | a test file — see below                                   |
 |      58 | `packages/db/src/academy-tasks.test.ts`  | a test file — see below                                   |
 |      56 | `packages/core/CHANGELOG.md`             | **judged and kept** — one hot line, cheap merge — below   |
@@ -39,7 +39,16 @@ contention and says nothing about length.
 **Not everything here is a problem.** Four of the ten are the shape the rule
 deliberately excludes: `docs/decisions.md`, `CHANGELOG.md` and the two test files
 are chronicles. A conflict in one of those is a text conflict git raises and
-anybody can resolve. What the rule is about is the append point in the _middle_
+anybody can resolve.
+
+**Two of those four have since been fixed anyway, and the reason is worth the
+line** (`#951`, `#1497`). _A conflict anybody can resolve_ was true and it was
+not the whole cost: `CHANGELOG.md` went on to 1745 lines and `docs/decisions.md`
+to **9497**, growing +9582 in its last thirty days, and every branch in flight
+collided at the same append point whatever else it touched. A conflict that is
+cheap to resolve and certain to happen is still a toll on every change. Both are
+one file per record now, and the file that remains at each path is produced from
+the directory with a `--check` gate so the two cannot drift. What the rule is about is the append point in the _middle_
 of something — an array, a sorted barrel, a registry — where two edits land near
 each other and the merge is either painful or, worse, clean and wrong.
 

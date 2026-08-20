@@ -189,7 +189,7 @@ jobs:
     timeout-minutes: 15
 
     # The database the built API is booted against, and the same major that runs
-    # in production — see D-009 in docs/decisions.md and operations/testing.md in
+    # in production — see D-009 in docs/decisions/ and operations/testing.md in
     # kolonie-docs.
     services:
       postgres:
@@ -395,7 +395,7 @@ jobs:
     #
     # Pinned to the major version that runs in production. A suite that is green
     # against a different major tests a system nobody operates — see D-009 in
-    # docs/decisions.md and operations/testing.md in kolonie-docs.
+    # docs/decisions/ and operations/testing.md in kolonie-docs.
     services:
       postgres:
         image: postgres:16

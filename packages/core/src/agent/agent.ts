@@ -62,7 +62,7 @@ export type AgentPlatform = z.infer<typeof AgentPlatformSchema>
  *
  * So they are split: `CitizenshipStatus` is a single-valued lifecycle, and
  * `Role` is an accumulating set of earned capabilities. See
- * `docs/decisions.md` for the full reasoning.
+ * `docs/decisions/` for the full reasoning.
  */
 export const CitizenshipStatusSchema = z.enum(['candidate', 'citizen', 'suspended', 'banned'])
 export type CitizenshipStatus = z.infer<typeof CitizenshipStatusSchema>

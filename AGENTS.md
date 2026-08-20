@@ -23,7 +23,8 @@ apps/verifier-runner/       async verification            → kolonie-verifier-r
 
 `packages/db` depends on `packages/core`, never the reverse: persistence knows
 about the domain model, the domain model knows nothing about the database. See
-`docs/decisions.md` D-008 for why the schema is not in core.
+`docs/decisions/D-008-persistence-lives-in-packages-db-not-in-packages-core.md` for why
+the schema is not in core.
 
 Read `MANIFEST.md`, `ARCHITECTURE.md` and `onboarding/academy.md` in
 [kolonie-docs](https://github.com/Kolonie-AI/kolonie-docs) for the domain this
@@ -519,8 +520,35 @@ A verifier deployed late must never fail submissions that were correct.
       the assembled file is resolved by regenerating it, never by taking a
       side** — `--ours` drops the other branch's entry
       ([`changes/README.md`](packages/core/changes/README.md), `#951`)
+- [ ] A file in `docs/decisions/` if you resolved an ambiguity or made a
+      structural choice that is not obvious from the code, and
+      `npm run build:decisions` run — **not an edit to `docs/decisions.md`**,
+      which is produced from that directory (`#1497`). See below for where a new
+      record goes
 - [ ] Breaking changes labelled in the PR, with affected workspaces named
 - [ ] No secrets, hosts or IPs anywhere in the diff
+
+### Where a decision record is written
+
+**One record is one file: `docs/decisions/D-0NN-<slug>.md`.** Take the next free
+number, open the file with `## D-0NN — Title`, put `**Date:** YYYY-MM-DD` on the
+line after it, and run `npm run build:decisions`.
+
+**Do not edit `docs/decisions.md`.** It is an index over that directory, produced
+by `scripts/build-decisions-index.mjs`, and `check:decisions` fails when the two
+have drifted.
+
+**Numbers are never reassigned.** `D-114` stays `D-114` forever, because things
+cite it — `ci.yml` cites D-009, this file cites D-008, and a dozen source
+comments cite others. Two branches taking the same next number is a conflict the
+index will show you, and the fix is to renumber **yours**, not the one that
+landed.
+
+Until 2026-08-21 every record lived in one file, which reached **9497 lines** on
++9582/−85 in thirty days. It was never edited, only appended to, at the bottom —
+so two agents recording two unrelated decisions collided there by construction.
+That is the shape §3's contention rule is about, and it is the third file in this
+organisation to be cured the same way.
 
 ## 8. The check command
 

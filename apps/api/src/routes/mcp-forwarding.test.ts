@@ -10,7 +10,9 @@ import { describe, expect, it } from 'vitest'
  * citizen so — which means a field the route literal simply forgets compiles,
  * type-checks and passes the whole suite, and is then indistinguishable at
  * runtime from a deployment that was never configured for it. `drops`,
- * `handovers` and `dropBaseUrl` were forgotten for as long as they existed: the
+ * `handovers` and `dropBaseUrl` were forgotten for as long as they existed —
+ * all three are retired now (`#1443`, `#1444`) and `operatorShares` is the field
+ * this guards in their place. The failure was the same either way: the
  * sealing key was set, the HTTP door carried secrets, and every MCP tool
  * reported no sealed channel to every citizen that asked for one.
  *
@@ -54,6 +56,6 @@ describe('what the MCP route forwards', () => {
    */
   it('is comparing two lists that were actually found', () => {
     expect(fieldsOf('mcp/dependencies.ts', 'McpDependencies').length).toBeGreaterThan(40)
-    expect(fieldsOf('routes/dependencies.ts', 'RouteDependencies')).toContain('drops')
+    expect(fieldsOf('routes/dependencies.ts', 'RouteDependencies')).toContain('operatorShares')
   })
 })

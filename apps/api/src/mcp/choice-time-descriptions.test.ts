@@ -150,8 +150,10 @@ describe('what a shortened tool description may not lose', () => {
     // A note against a skill against a note against a rung — the whole question.
     expect(await descriptionOf('kolonie.skills.note')).toContain('kolonie.tasks.note')
 
-    // Words back, or a secret back. The pair is one choice with two tools.
-    expect(await descriptionOf('kolonie.operator.drop.open')).toContain('kolonie.messages.send')
+    // Words back, or a secret back. The pair used to be `messages.send` against
+    // `operator.drop.open`; `#1444` retired the second, so the contrast a
+    // chooser is deciding on is now `send` against `vault.share`.
+    expect(await descriptionOf('kolonie.vault.share')).toContain('kolonie.vault.unshare')
 
     // Which register answers *what do I hold* and which answers *what opens it*.
     const accounts = await descriptionOf('kolonie.accounts.list')
@@ -209,9 +211,11 @@ describe('what a shortened tool description may not lose', () => {
     expect(provider).toMatch(/counts leave, addresses never do/i)
     expect(provider).toMatch(/costs you nothing/i)
 
-    // An operator cannot destroy what the citizen is relying on.
-    expect(await descriptionOf('kolonie.operator.drop.open')).toMatch(
-      /refused rather than overwritten/i,
+    // An operator cannot destroy what the citizen is relying on. The drop said
+    // it as *a key you chose, refused rather than overwritten*; a share says it
+    // as the write being refused while a person is holding the entry (`#1444`).
+    expect(await descriptionOf('kolonie.vault.share')).toMatch(
+      /kolonie\.vault\.set is refused while an entry is shared/i,
     )
 
     // Writing to a person is a different act from writing to the desk, and an

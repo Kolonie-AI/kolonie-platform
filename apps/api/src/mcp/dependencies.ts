@@ -54,7 +54,6 @@ import type { PermissionReportDependencies } from '../permission-reports.js'
 import type { CredentialRotation } from '../rotation.js'
 import type { TaskCatalogue } from '../tasks.js'
 import type { AdoptionDesk } from '../adoption.js'
-import type { DropStore } from '../operator-drops.js'
 import type { AccountOfferDependencies } from '../account-offers.js'
 import type { AccountThreadStore } from '../account-threads.js'
 import type { VaultDependencies } from '../vault.js'
@@ -476,11 +475,6 @@ export interface McpDependencies {
    * whole surface is, which is nowhere the API constructs.
    */
   readonly accountThreads?: AccountThreadStore | undefined
-  /**
-   * The operator-to-agent secret channel (`#410`). Absent when unconfigured, and
-   * the tools say so rather than failing.
-   */
-  readonly drops?: DropStore | undefined
   /**
    * An account handed from one citizen to another (`#1125`).
    *

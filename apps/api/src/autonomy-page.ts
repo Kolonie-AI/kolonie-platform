@@ -960,22 +960,31 @@ export function operatorDurablePage(input: {
      * same sentence the briefings carry, so an agent and its operator have been told
      * the same thing.
      */
+    /**
+     * **The sealed box is gone and the sentence it needed is not** (`#1444`).
+     *
+     * The words half is unchanged: the ordinary box refuses anything that looks
+     * like a password, on purpose. What changed is where a secret does go. A
+     * page that only said *do not send one this way* and named nowhere else
+     * would be telling a person to solve it themselves, which is exactly the
+     * outcome the whole epic exists to avoid.
+     */
     ...(input.secretHandoff
       ? [
-          '<p class="channel-rule">There are two ways to answer here and the difference matters. The',
-          'ordinary box is for <strong>words</strong>, and it refuses anything that looks like a',
-          'password or a token on purpose. When this agent needs something that must stay secret it',
-          'will send you a <strong>sealed box</strong> instead, which carries the value straight into',
-          'its vault — nobody can read it back out afterwards, including you and including the',
-          'Colony. <strong>Please do not send a secret any other way.</strong> Not by message, not by',
-          'mail, not in a chat: those are the places it stays readable, and the sealed box exists so',
-          'that you never have to.</p>',
+          '<p class="channel-rule">The box on this page is for <strong>words</strong>, and it',
+          'refuses anything that looks like a password or a token on purpose. When this agent',
+          'needs a credential to reach you, it <strong>shares one of its stored entries</strong>',
+          'with you instead — it appears on this page, you can read it and write something back',
+          'into it, and the share ends on its own date.',
+          '<strong>Please do not send a secret any other way.</strong>',
+          'Not by message, not by mail, not in a chat: those are the places it stays readable.</p>',
         ]
       : [
-          '<p class="channel-rule">The box on this page is for <strong>words</strong>, and it refuses',
-          'anything that looks like a password or a token on purpose. This Colony has no channel',
-          'configured for secrets, so this agent cannot send you a sealed box here. If it needs a',
-          'secret, you and the agent will have to agree on something outside the Colony.</p>',
+          '<p class="channel-rule">The box on this page is for <strong>words</strong>, and it',
+          'refuses anything that looks like a password or a token on purpose. This Colony has no',
+          'key configured for secrets, so this agent cannot share a stored credential with you',
+          'here. If it needs one, you and the agent will have to agree on something outside the',
+          'Colony.</p>',
         ]),
 
     /**

@@ -919,64 +919,17 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
   })
 
   /**
-   * Fill a drop from the queue, as the person the agent asked (`#570`).
+   * `POST /drops/:dropId` is gone (`#1444`).
    *
-   * ## Why this exists on the console at all
+   * It let a signed-in operator fill a sealed box from the queue rather than
+   * hunting a three-day-old mail — a real repair when `#570` made it, and it did
+   * not change the outcome: over the whole lifetime of the channel **7 drops
+   * were opened and none was ever filled**, from either door. What replaces it
+   * is a shared vault entry, which the operator writes into from the durable
+   * page they already hold.
    *
-   * `#530` built a queue that lists everything waiting on one person and could
-   * act on one of the two kinds it lists. A question links to the operator page;
-   * **a drop was named and went nowhere** — the cell said *use the link that was
-   * mailed to you*, which sends somebody to their inbox for a three-day-old
-   * mail. That is the item an operator does later or not at all, and `code`
-   * ranks first in `WAITING_EFFORT` precisely because the value is already in
-   * front of them. The queue was batching the questions and scattering the
-   * codes.
-   *
-   * ## The trust boundary, decided
-   *
-   * **A signed-in operator is more strongly authenticated than a bearer link in
-   * a mail**, and `human_agents` already answers *is this your agent*. That is
-   * the authorisation and nothing weaker; the mailed link's own guards —
-   * single-use, attempt-limited — protect a token, and this path presents none.
-   * What that means for `attempts` and for the link's continued validity is
-   * written on `fillDropAsOperator`, in the present tense, beside the sealing it
-   * shares.
-   *
-   * **No drop is created here** (`#410`), the value is never shown back, and
-   * nothing new seals anything: this reaches the same sealing `submitDrop` does.
+   * The slot's route below is **not** the same thing and stays.
    */
-  app.post('/drops/:dropId', async (request, reply) => {
-    if (!(await guard(request, reply))) return reply
-
-    const signedIn = await person(request)
-    if (signedIn === null) return signInRequired(request, reply)
-
-    const { dropId } = request.params as { dropId: string }
-    const { value } = (request.body ?? {}) as { value?: unknown }
-
-    /**
-     * **`closed` when the channel is not configured**, which is the same answer
-     * a stranger's drop id gets. A console that said *this Colony has no sealing
-     * key* would be telling a signed-in person about the deployment rather than
-     * about their own queue — and the queue cannot list a drop on a Colony that
-     * could not have created one.
-     */
-    const result =
-      deps.drops === undefined || typeof value !== 'string' || value === ''
-        ? ({ outcome: 'closed' } as const)
-        : await deps.drops.fillAsOperator(dropId, signedIn.human.id, value)
-
-    if (!wantsHtml(request)) {
-      return result.outcome === 'accepted'
-        ? reply.status(200).send({ filled: true })
-        : reply.status(ERROR_STATUS.conflict).send({
-            code: 'conflict',
-            message: FILL_NOTICE[result.outcome] ?? FILL_NOTICE['closed'],
-          })
-    }
-
-    return reply.status(303).header('location', `/?filled=${result.outcome}`).send()
-  })
 
   /**
    * `POST /handovers/:handoverId` is gone (`#1443`).

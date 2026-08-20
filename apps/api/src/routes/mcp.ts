@@ -77,9 +77,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
     vision,
     vault,
     accountThreads,
-    drops,
     accountOffers,
-    dropBaseUrl,
     accounts,
     rhythm,
     skillReleases,
@@ -308,11 +306,9 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
            * things or they are not the same Colony.
            */
           accountThreads,
-          ...(drops === undefined ? {} : { drops }),
           // Unconditional, because the field is (`#1125`). A spread here would
           // be exactly the omission the paragraph above is a monument to.
           accountOffers,
-          dropBaseUrl,
           accounts,
           rhythm,
           skillReleases,

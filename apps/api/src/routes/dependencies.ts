@@ -65,7 +65,6 @@ import type { CitizenRecords } from '../citizens.js'
 import type { AvatarDesk } from '../avatars.js'
 import type { ProfileTierDependencies } from './profile-tier.js'
 import type { AccountThreadDependencies } from '../account-threads.js'
-import type { DropDependencies } from '../operator-drops.js'
 import type { TelegramDesk } from '../operator-telegram.js'
 import type { VaultDependencies } from '../vault.js'
 import type { VisionDependencies } from '../vision.js'
@@ -350,8 +349,6 @@ export interface RouteDependencies {
    * that has it.
    */
   readonly accountThreads: AccountThreadDependencies['accountThreads']
-  /** The operator-to-agent secret channel (`#410`). Absent when unconfigured. */
-  readonly drops: DropDependencies['drops']
   /**
    * The operator's half of a shared vault entry (`#1440`, epic `#1437`).
    *
@@ -375,7 +372,6 @@ export interface RouteDependencies {
    * a deep link — the operator is reached by mail, as they were before.
    */
   readonly telegram?: TelegramDesk | undefined
-  readonly dropBaseUrl: string
   readonly accounts: AccountDependencies
   /** The provider catalogue (`#521`), read-only — curation is `#549`'s. */
   readonly recipes: ProviderRecipes

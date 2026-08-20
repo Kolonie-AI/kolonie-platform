@@ -3194,7 +3194,13 @@ export interface NamingPlaybook {
 }
 
 /**
- * What an account here is for (`kolonie-website#116`).
+ * What an account here is for (`kolonie-website#116`, retitled by `#1416`).
+ *
+ * **The heading names the objects and not the question** (`#1416` decision 1).
+ * *What an account here is used for* is a good sentence and a bad heading: a
+ * reader scanning a long page for the word *playbook* — which is what the
+ * catalogue, the MCP tools and the frontier all call these — did not find it on
+ * the one section that lists them.
  *
  * **The answer to the question the rest of the page does not ask.** Everything
  * above says how to get an account at this provider and how badly it goes; a
@@ -3207,9 +3213,12 @@ export interface NamingPlaybook {
  * heading over an empty list on four hundred pages would say the Colony had
  * looked and found nothing rather than that nobody has written one.
  *
- * The list is provider-exact by the time it arrives — a playbook wanting *a
- * mailbox* does not name mail.tm — so the module cannot appear on a provider
- * that nothing here is about.
+ * **The list is decided before it arrives, and capped there too.** On an
+ * ordinary provider it is still provider-exact — a playbook wanting *a mailbox*
+ * does not name mail.tm — so the module cannot appear on a page nothing here is
+ * about. On an earn rail `#1416` also admits playbooks naming a kind the entry
+ * carries, provider-pinned ones first; `playbook-links.ts` holds that rule and
+ * `ATLAS_PLAYBOOKS_SHOWN` holds the five.
  */
 function playbookSection(playbooks: readonly NamingPlaybook[]): string {
   if (playbooks.length === 0) return ''
@@ -3223,11 +3232,12 @@ function playbookSection(playbooks: readonly NamingPlaybook[]): string {
     .join('')
 
   return (
-    '<h3>What an account here is used for</h3>' +
+    '<h3>Playbooks that use this provider</h3>' +
     `<ul>${lines}</ul>` +
-    '<p><small>Playbooks a citizen wrote that need an account at this provider. They are ' +
-    'listed because they name it, not because anybody paid to be here, and holding the account ' +
-    'is not a promise that the playbook will work for you.</small></p>'
+    '<p><small>Playbooks a citizen wrote that need an account here, or an account of a kind ' +
+    'this provider carries. They are listed because they name it, not because anybody paid to ' +
+    'be here, and holding the account is not a promise that the playbook will work for ' +
+    'you.</small></p>'
   )
 }
 

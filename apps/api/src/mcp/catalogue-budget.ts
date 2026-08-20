@@ -197,6 +197,106 @@ export function budgetVerdict(measured: CatalogueTotals, budget: CatalogueBudget
 }
 
 /**
+ * What `main` should do about a measurement, floor in hand (`#1465`).
+ *
+ * ## The number stopped being authored on a branch
+ *
+ * Until `#1465` a branch that grew the surface edited
+ * `apps/api/src/mcp/catalogue-budget.json` itself, and that made the file
+ * collide with every other branch doing the same. The resolution was never *pick
+ * a side*: it is `main`'s value plus this branch's delta, which git cannot
+ * compute — so a careless rebase landed a floor **below** what the branch
+ * actually served, green on the branch and red on `main` for everybody. `#1422`
+ * lost three rebases to it in one afternoon and `#1456` reddened `main`.
+ *
+ * The floor was always a *measurement*, and a measurement is the one kind of
+ * number nobody should be typing. So `main` writes it, in the run that measured
+ * it, in both directions — {@link branchBudgetVerdict} already judges the branch
+ * against its merge base and never reads this file, so nothing on a branch has
+ * any reason to touch it.
+ *
+ * ## What a branch still owes, and it is the half only a person can supply
+ *
+ * **The sentence.** A raise is a decision and still costs one: this refuses to
+ * write a raise whose landing message does not satisfy {@link raiseIsJustified}.
+ * That is the same test {@link branchBudgetVerdict} runs against the pull
+ * request's title and body, and under a squash queue those are the same text —
+ * which is exactly why the two can now agree. A branch that went green on its
+ * own gate lands green here, and `#1379`'s failure — justified on the branch,
+ * refused on `main` because the squash rewrote the message — has nothing left to
+ * bite.
+ *
+ * **A lowering costs nothing**, as it has since `#1118`. A saving is bookkeeping
+ * and demanding a sentence for one is how savings go unrecorded.
+ *
+ * ## What this deliberately does not do
+ *
+ * It does not judge whether the justification is *true*, any more than
+ * {@link raiseIsJustified} does. It stops the floor moving in silence, which is
+ * the only thing a mechanism can stop here.
+ */
+export type MainRatchetOutcome = 'raised' | 'lowered' | 'at' | 'refused'
+
+/** What `main` should write, and what to say about it. */
+export interface MainRatchetVerdict {
+  readonly outcome: MainRatchetOutcome
+  /** The sums to commit. Present on a move, absent otherwise. */
+  readonly totals?: CatalogueTotals
+  /**
+   * The justification to record in `raisedFor`, on a raise. Absent on a
+   * lowering, which knows nothing about why the previous floor stood where it
+   * did (`#1317`).
+   */
+  readonly raisedFor?: string
+  readonly message: string
+}
+
+export function mainFloorRatchet(
+  measured: CatalogueTotals,
+  budget: CatalogueBudget,
+  landingMessage?: string,
+): MainRatchetVerdict {
+  const verdict = budgetVerdict(measured, budget)
+
+  if (verdict.direction === 'under') {
+    return {
+      outcome: 'lowered',
+      totals: { tools: measured.tools, bytes: measured.bytes },
+      message:
+        `The floor has come down to ${measured.tools} tools and ${measured.bytes} bytes, ` +
+        'committed to main below. Nothing to do.',
+    }
+  }
+
+  if (verdict.direction === 'at') return { outcome: 'at', message: verdict.message }
+
+  if (landingMessage !== undefined && raiseIsJustified(landingMessage)) {
+    return {
+      outcome: 'raised',
+      totals: { tools: measured.tools, bytes: measured.bytes },
+      raisedFor: landingMessage.trim(),
+      message:
+        `The floor has gone up to ${measured.tools} tools and ${measured.bytes} bytes ` +
+        `(+${verdict.tools} tools, +${verdict.bytes} bytes), committed to main below. ` +
+        `The commit that landed names ${GRAMMAR_RECORD} and says what the growth is ` +
+        'vocabulary-free for, which is what a raise costs; the figure itself is measured ' +
+        'and was not typed by anybody.',
+    }
+  }
+
+  return {
+    outcome: 'refused',
+    message:
+      `The catalogue grew past its floor by ${verdict.tools} tools and ${verdict.bytes} bytes ` +
+      `(${measured.tools} tools, ${measured.bytes} bytes against ${budget.tools} and ` +
+      `${budget.bytes}), and the commit that landed does not say why. ` +
+      `A raise is written here automatically, but only for a message naming ${GRAMMAR_RECORD} ` +
+      'and saying what the growth is vocabulary-free for. Nothing is committed, and the floor ' +
+      'stands where it was.',
+  }
+}
+
+/**
  * Compare a pull-request head against its merge base (`#1266`).
  *
  * **Tools stay at zero.** One added tool fails unless the branch justifies it.
@@ -252,8 +352,8 @@ export function branchBudgetVerdict(
           `The catalogue grew by ${tools} tool${tools === 1 ? '' : 's'} and ${bytes} bytes ` +
           `against its merge base (${base.tools} tools, ${base.bytes} bytes), and this ` +
           `branch says why: it names ${GRAMMAR_RECORD} and what the growth is vocabulary-free for. ` +
-          'Raise `apps/api/src/mcp/catalogue-budget.json` in the same branch, or the merge ' +
-          'to main fails against the floor instead.',
+          'Nothing on this branch writes the floor: main measures it and commits it ' +
+          'when this lands (`#1465`).',
       }
     }
 
@@ -267,8 +367,8 @@ export function branchBudgetVerdict(
         `against its merge base (${base.tools} tools, ${base.bytes} bytes). ` +
         `If the growth is a new rung, it belongs in a \`kind\` enum and costs zero tools — see ${GRAMMAR_RECORD}. ` +
         'If it is a genuinely new verb, say so in this pull request: name that record in the ' +
-        'title or body and say what the new tools are vocabulary-free for, and raise ' +
-        '`apps/api/src/mcp/catalogue-budget.json` in the same branch.',
+        'title or body and say what the new tools are vocabulary-free for. The floor itself ' +
+        'is not yours to edit — main measures it and commits it when this lands (`#1465`).',
     }
   }
 
@@ -284,8 +384,8 @@ export function branchBudgetVerdict(
           `(${base.tools} tools, ${base.bytes} bytes), past the tolerance of ` +
           `${CATALOGUE_BYTE_TOLERANCE} bytes, and this branch says why: it names ` +
           `${GRAMMAR_RECORD} and what the growth is vocabulary-free for. Tools are unchanged. ` +
-          'Raise `apps/api/src/mcp/catalogue-budget.json` in the same branch, or the merge ' +
-          'to main fails against the floor instead.',
+          'Nothing on this branch writes the floor: main measures it and commits it ' +
+          'when this lands (`#1465`).',
       }
     }
 
@@ -299,8 +399,9 @@ export function branchBudgetVerdict(
         `(${base.tools} tools, ${base.bytes} bytes), past the tolerance of ` +
         `${CATALOGUE_BYTE_TOLERANCE} bytes. Tools are unchanged. ` +
         'Cut the prose, or say why in this pull request: name ' +
-        `${GRAMMAR_RECORD} in the title or body, say what the growth is vocabulary-free for, ` +
-        'and raise `apps/api/src/mcp/catalogue-budget.json` in the same branch.',
+        `${GRAMMAR_RECORD} in the title or body and say what the growth is vocabulary-free for. ` +
+        'The floor itself is not yours to edit — main measures it and commits it when this ' +
+        'lands (`#1465`).',
     }
   }
 

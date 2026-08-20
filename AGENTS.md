@@ -339,6 +339,56 @@ branch the ruleset refuses, because the rule is evaluated on the real receive an
 a dry run never gets that far. Anybody checking whether a push would land with it
 learns nothing and concludes the opposite.
 
+### What still collides on every rebase, and what stopped
+
+`#951` moved `CHANGELOG.md` to one file per entry because two changes in flight
+at once conflicted there **by construction** — whatever else they touched and
+however unrelated they were. `#1465` found three more files with that property.
+`#1422` was rebased three times in one afternoon and not one of the conflicts was
+about the change: every one was two branches incrementing a number.
+
+**Two of the three are fixed and need nothing from you.**
+
+- **The catalogue floor** (`apps/api/src/mcp/catalogue-budget.json`). No branch
+  writes it any more. `main` measures the surface after a merge and commits the
+  figure itself — up as well as down. A raise still costs a sentence, and the
+  sentence is the pull request's title and body, which the branch gate
+  (`branchBudgetVerdict`) and the ratchet on `main` (`mainFloorRatchet`) both
+  read. Name
+  `the-catalogue-encodes-grammar-never-vocabulary` and say what the growth is
+  **vocabulary-free** for, in the pull request, and there is nothing to edit.
+  This was the dangerous one: a wrongly resolved floor was green on the branch
+  and red on `main` for everybody, which is `#1379` and `#1456`.
+- **The table and enum counts** in `packages/db/src/migrate.test.ts`. Both are
+  counted from the schema barrel now, so adding a table edits nothing there.
+  **Do not append to the ordinal block above the assertion.** It is the record of
+  how the schema got here and it stays readable, but a new table documents itself
+  in `packages/db/src/schema/schema.test.ts`, beside its own name in the
+  alphabetical list — which is where every table in that block is already
+  described a second time. Two branches adding two tables write two paragraphs at
+  two different letters and never meet.
+
+**One is an accepted cost, and this is the resolution.** The migration number in
+`packages/db/drizzle/` is the filename, and drizzle owns the numbering: two
+branches both generate `0325_*` and the journal records both. Nothing cheap fixes
+that, so the rule is to know it. On a conflict, take `main`'s side whole and
+regenerate:
+
+```bash
+git checkout origin/main -- packages/db/drizzle/meta/_journal.json packages/db/drizzle/meta
+rm packages/db/drizzle/NNNN_your_migration.sql
+npm run generate -w @kolonie-ai/db
+```
+
+It fails loudly if you get it wrong — `check:migrations` is the check — which is
+why it is the one of the three left standing.
+
+**Two more ratchet on a new table** and both want a line with a _why_:
+`packages/db/src/schema/schema.test.ts` (the alphabetical name list) and
+`packages/db/src/schema/erasure.test.ts` (every foreign key onto `agents` with
+its delete rule). Neither collides the way the three above did — a name lands at
+its own letter.
+
 There is one bypass, `OrganizationAdmin`, added 2026-08-20 so that a wedged queue
 is something a person can still get past. It is `pull_request` mode on purpose:
 it lets an admin merge a pull request without waiting for the queue, and it does

@@ -252,9 +252,15 @@ jobs:
             PR_TEXT="$(git log -1 --pretty=%B)"
             export PR_TEXT
           fi
+          # On a push to main the squash has already happened, and its message is
+          # the pull request's title and body — the same text the branch gate read.
+          # This is what lets main write a justified raise itself rather than
+          # asking a branch to type the number (issue 1465).
+          LANDING_MESSAGE="$(git log -1 --pretty=%B)"
+          export LANDING_MESSAGE
           node -e '
             const {
-              budgetVerdict,
+              mainFloorRatchet,
               branchBudgetVerdict,
             } = await import("./apps/api/dist/mcp/catalogue-budget.js")
             const { readFile, writeFile, appendFile } = await import("node:fs/promises")
@@ -304,28 +310,42 @@ jobs:
               )
             } else {
               const budget = JSON.parse(await readFile(BUDGET, "utf8"))
-              verdict = budgetVerdict({ tools: citizen.tools, bytes: citizen.bytes }, budget)
+              // The message of the commit that landed is the squash of the pull
+              // request that earned it, so the sentence this reads is the one
+              // `branchBudgetVerdict` already accepted on the branch (issue 1465).
+              const landing = process.env.LANDING_MESSAGE
+              const ratchet = mainFloorRatchet(
+                { tools: citizen.tools, bytes: citizen.bytes },
+                budget,
+                landing,
+              )
+              verdict = { within: ratchet.outcome !== "refused", message: ratchet.message }
 
-              if (verdict.direction === "under") {
+              if (ratchet.totals !== undefined) {
                 // Keep the per-tool ceiling the measurement did not recompute —
                 // this step only ratchets the two sums. The suite-driven
                 // `check-catalogue-budget.mjs` is what rewrites `heaviest`.
+                //
+                // `raisedFor` is written on a raise and dropped by a lowering
+                // (issue 1317): it says why the floor stands where it does, and a
+                // measurement that came down knows nothing about the figure before it.
                 await writeFile(
                   BUDGET,
                   `${JSON.stringify({
-                    tools: citizen.tools,
-                    bytes: citizen.bytes,
+                    tools: ratchet.totals.tools,
+                    bytes: ratchet.totals.bytes,
                     heaviest: budget.heaviest,
                     measuredAt: new Date().toISOString().slice(0, 10),
                     command: "node scripts/check-catalogue-budget.mjs",
+                    ...(ratchet.raisedFor === undefined ? {} : { raisedFor: ratchet.raisedFor }),
                   }, null, 2)}\n`,
                   "utf8",
                 )
-                await say(
-                  `The floor has come down to ${citizen.tools} tools and ${citizen.bytes} bytes, ` +
-                    "committed to main below. Nothing to do.",
+                await appendFile(
+                  process.env.GITHUB_OUTPUT,
+                  `moved=${ratchet.outcome}\n`,
+                  "utf8",
                 )
-                await appendFile(process.env.GITHUB_OUTPUT, "lowered=true\n", "utf8")
               }
             }
 
@@ -359,8 +379,10 @@ jobs:
       # writing it on a branch was how concurrent workers collided on the same
       # file and how a later merge retro-failed open ones. The fork carve-out
       # went with that branch case.
-      - name: Commit the lower floor to main
-        if: steps.floor.outputs.lowered == 'true' && github.event_name == 'push'
+      - name: Commit the floor main measured
+        if: steps.floor.outputs.moved != '' && github.event_name == 'push'
+        env:
+          MOVED: ${{ steps.floor.outputs.moved }}
         run: |
           git config user.name 'kolonie-surface[bot]'
           git config user.email 'kolonie-surface@users.noreply.github.com'
@@ -372,7 +394,20 @@ jobs:
             echo "the floor is already committed at this figure"
             exit 0
           fi
-          git commit \
-            -m 'The catalogue floor comes down to what this branch measured' \
-            -m 'Written by the MCP surface workflow, which can only ever lower it — raising it takes a commit somebody wrote. See issue 1118.'
+          # A raise quotes the message that earned it, and that is load-bearing
+          # rather than courteous: `check:catalogue-floor` judges the *last commit
+          # to touch this file*, so a raise commit whose own message says nothing
+          # would refuse itself on the next run, with no honest edit available to
+          # clear it — the `#1317` trap. Quoting the landing message means the
+          # sentence a person wrote is the sentence that check reads.
+          if [ "${MOVED}" = "raised" ]; then
+            git commit \
+              -m 'The catalogue floor goes up to what main measured' \
+              -m "Written by the MCP surface workflow. The figure is measured and was typed by nobody; the raise is justified by the commit that landed, quoted below. See issue 1465." \
+              -m "$(git log -1 --pretty=%B HEAD)"
+          else
+            git commit \
+              -m 'The catalogue floor comes down to what this branch measured' \
+              -m 'Written by the MCP surface workflow. A lowering costs no sentence — a saving is bookkeeping. See issue 1118.'
+          fi
           git push origin "HEAD:${{ github.ref_name }}"

@@ -353,6 +353,26 @@ export const accountWalks = pgTable(
     proseRefusalLine: walkRefusalLine('prose_refusal_line'),
 
     /**
+     * Tags this walker asked to put on the provider's entry (`#1434`).
+     *
+     * **Held here until the walk's prose is approved**, then written to
+     * `provider_recipe_facets` on the `tag` axis. A tag is a slug and cannot
+     * carry a credential, so nothing scrubs it — but it can carry a grudge, and
+     * `#981` section 4 draws exactly that line: counts and kinds publish
+     * unmoderated, and anything that could carry one waits for the verdict every
+     * other sentence in the Atlas waits for. `#1032` is the same argument
+     * arriving once already, when the walker's `wall` reached a public entry in
+     * the request that wrote it.
+     *
+     * **On the walk and not straight onto the entry**, which is what makes the
+     * hold expressible at all: the entry has no notion of an unpublished facet,
+     * and a second table for pending ones would be a queue nobody drains.
+     *
+     * Null on every walk that filed none, which is nearly all of them.
+     */
+    filedTags: text('filed_tags').array(),
+
+    /**
      * The published walk this one repeats, where it repeats one (`#1104`).
      *
      * **Stored and answered, never refused.** A citizen that walked a provider

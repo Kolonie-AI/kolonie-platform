@@ -7,6 +7,7 @@ import {
   RECENT_WALKS_IN_CONTEXT,
   REFUSAL_OTHER,
   REFUSAL_UNSTATED,
+  tagsOf,
   WALL_KIND_MEANINGS,
   WALK_DUPLICATE_SIMILARITY,
   WALK_PROSE_CONSECUTIVE,
@@ -1091,6 +1092,143 @@ describe('the record of one agent obtaining one account', () => {
    * after it. What did not widen is the entry: the price and the terms are only
    * written where a walk wrote the row.
    */
+  /**
+   * `#1434`. `#1406` decision 3 said a walker may propose tags, and shipped the
+   * schema, the read path, the chips and the `?tag=` search; the **write path**
+   * did not, so nothing could put a tag on an entry except a hand-written
+   * `insert`.
+   *
+   * The moderation question that split it off is answered on the issue and built
+   * here: **held**. A slug cannot carry a credential, so there is nothing to
+   * scrub — but it can carry a grudge (`honeygain-is-a-scam` is a valid slug),
+   * and `#981` section 4 puts everything that can on the far side of the verdict.
+   * So a filed tag rides on the walk and reaches the entry when the walk's prose
+   * is approved.
+   */
+  describe('the tags a walker files (#1434)', () => {
+    const tagsOnEntry = async () =>
+      tagsOf((await providerRecipe(db, where.kind, where.provider))?.facets ?? [])
+
+    /**
+     * **Each walker writes its own page**, and that is not decoration. Two walks
+     * at one provider with the same words are a repeat under `#1104`'s trigram
+     * check, and a repeat is closed `approved` with nothing scrubbed and never
+     * reaches a verdict — so its tags would never publish either. That is the
+     * right behaviour (nothing read them) and it is not what these tests are
+     * about, so the prose differs per walker.
+     */
+    const PAGES = [
+      {
+        did: 'Opened the signup page, gave a handle and a password, and confirmed from the inbox.',
+      },
+      {
+        did:
+          'Went in through the OAuth button instead — no form, no password, and the profile ' +
+          'was already filled in when it came back.',
+      },
+    ] as const
+
+    /** Distinct enough to clear the duplicate check by a mile, not by a hair. */
+    const proseOf = (nth: number) => PAGES[nth - 1] ?? PAGES[0]!
+
+    const walkWithTags = async (by: AgentId, nth: number, tags?: readonly string[]) => {
+      const walkId = await walkInProgress(db, by, where)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+      await finishWalk(db, walkId, {
+        outcome: 'proved',
+        ...proseOf(nth),
+        ...(tags === undefined ? {} : { tags }),
+      })
+      return walkId
+    }
+
+    const approve = async (walkId: string, nth: number) => {
+      const judged = await recordWalkProseModeration(db, {
+        walkId,
+        judged: proseOf(nth),
+        decision: 'approved',
+        scrubbed: proseOf(nth),
+      })
+      if (judged.outcome !== 'written') throw new Error('the moderation went stale in a fixture')
+    }
+
+    /** Filed and not yet published: the whole of what *held* means. */
+    it('writes nothing to the entry until the walk’s prose is approved', async () => {
+      const walkId = await walkWithTags(agentId, 1, ['residential-proxy', 'pays-in-crypto'])
+
+      expect(await tagsOnEntry()).toEqual([])
+
+      await approve(walkId, 1)
+
+      expect(await tagsOnEntry()).toEqual(['pays-in-crypto', 'residential-proxy'])
+    })
+
+    /**
+     * A refused walk publishes none, and that falls out of the branch rather
+     * than being a rule kept anywhere: the whole page was declined, and a label
+     * from a page the Colony would not pass on is one it would not pass on
+     * either.
+     */
+    it('publishes no tag from a walk whose words were refused', async () => {
+      const walkId = await walkWithTags(agentId, 1, ['residential-proxy'])
+
+      const judged = await recordWalkProseModeration(db, {
+        walkId,
+        judged: proseOf(1),
+        decision: 'rejected',
+        reason: 'It sets out a copyable command line.',
+        line: 'runnable-instruction',
+      })
+      if (judged.outcome !== 'written') throw new Error('the moderation went stale in a fixture')
+
+      expect(await tagsOnEntry()).toEqual([])
+    })
+
+    /** Re-filing a tag the entry already carries is not an error (`#1434`). */
+    it('is idempotent, and adds only what is missing', async () => {
+      await approve(await walkWithTags(agentId, 1, ['residential-proxy']), 1)
+
+      const second = await registerAgent(db, {
+        name: 'tagging-walker',
+        platform: 'openclaw',
+        operator: null,
+      })
+      if (second.outcome !== 'registered') throw new Error('could not register the second walker')
+      await approve(
+        await walkWithTags(second.agent.id, 2, ['residential-proxy', 'pays-in-crypto']),
+        2,
+      )
+
+      expect(await tagsOnEntry()).toEqual(['pays-in-crypto', 'residential-proxy'])
+    })
+
+    /**
+     * **The union and never the replacement.** A walker knows nothing about the
+     * tags other walkers put there, and a replacement would let the tenth walk
+     * silently withdraw all of them.
+     */
+    it('never withdraws a tag another walk put there', async () => {
+      await approve(await walkWithTags(agentId, 1, ['residential-proxy']), 1)
+
+      const second = await registerAgent(db, {
+        name: 'other-tagger',
+        platform: 'openclaw',
+        operator: null,
+      })
+      if (second.outcome !== 'registered') throw new Error('could not register the second walker')
+      await approve(await walkWithTags(second.agent.id, 2, ['pays-in-crypto']), 2)
+
+      expect(await tagsOnEntry()).toContain('residential-proxy')
+    })
+
+    /** A walk that filed none writes none, which is nearly every walk. */
+    it('writes nothing for a walk that filed no tags', async () => {
+      await approve(await walkWithTags(agentId, 1), 1)
+
+      expect(await tagsOnEntry()).toEqual([])
+    })
+  })
+
   describe('amending the account this citizen walked', () => {
     const RECIPE = {
       steps: [{ title: 'Open the signup page', detail: 'It is OAuth-only.' }],

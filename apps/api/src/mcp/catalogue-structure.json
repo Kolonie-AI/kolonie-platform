@@ -560,6 +560,16 @@
             "maxLength": 300,
             "minLength": 1,
             "type": "string"
+          },
+          "tags": {
+            "items": {
+              "maxLength": 32,
+              "minLength": 2,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "type": "string"
+            },
+            "maxItems": 8,
+            "type": "array"
           }
         },
         "required": ["kind", "provider", "outcome"],
@@ -1154,6 +1164,12 @@
               }
             },
             "type": "object"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "takenStepPositions": {
             "items": {

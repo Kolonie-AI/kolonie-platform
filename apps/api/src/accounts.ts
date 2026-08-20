@@ -1306,6 +1306,14 @@ export async function reportProvider(
     // Absent means *no scope* for `#976`'s reason: a direction left over from a
     // previous verdict would say this one was measured a way nobody said it was.
     direction: parsed.data.direction ?? null,
+    /**
+     * **The same field and the same hold as `walk-report`** (`#1434`). This tool
+     * is an alias that opens and closes a walk, so the tags ride on that walk and
+     * reach the entry when its prose is approved. No second path and no second
+     * rule — which is the whole reason the field is on
+     * `ProviderReportRequestSchema` rather than being handled here.
+     */
+    ...(parsed.data.tags === undefined ? {} : { tags: parsed.data.tags }),
     fromProviderReport: true,
   })
 

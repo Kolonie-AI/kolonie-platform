@@ -1,0 +1,1 @@
+ALTER TABLE "account_walks" ADD COLUMN "filed_tags" text[];

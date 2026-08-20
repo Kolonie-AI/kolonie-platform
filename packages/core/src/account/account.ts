@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { TimestampSchema } from '../common/time.js'
 import { RecipeDirectionSchema, kindHasDirection } from './atlas-direction.js'
+import { AtlasTagSlugSchema, RECIPE_MAX_TAGS } from './atlas-facets.js'
 
 /**
  * What kind of instrument an account is.
@@ -752,6 +753,19 @@ export const ProviderReportRequestSchema = z
      * ignored, because ignoring it would tell a citizen its words were kept.
      */
     reason: z.string().trim().min(1).max(PROVIDER_REASON_MAX_LENGTH).optional(),
+    /**
+     * Free-form tags for this provider's entry (`#1434`, `#1406` decision 3).
+     *
+     * **The same field `walk-report` takes and on the same terms**, because this
+     * tool is an alias that opens and closes a walk: the tags ride on that walk
+     * and reach the entry when its prose is approved. There is no second path
+     * and no second rule.
+     *
+     * **Goes with the outcome when the outcome is withdrawn**, exactly as
+     * `reason` does one field up: `null` removes the row and there is nothing
+     * left for a label to be about.
+     */
+    tags: z.array(AtlasTagSlugSchema).max(RECIPE_MAX_TAGS).optional(),
     /**
      * Which capability you were after, where the kind has two (`#976`).
      *

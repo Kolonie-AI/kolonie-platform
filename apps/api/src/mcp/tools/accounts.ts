@@ -1298,6 +1298,10 @@ export function registerAccountTools(
          * is the price of the alternative being a shelf that closes a provider
          * for readers it was never measured against.
          */
+        tags: ProviderReportRequestSchema.shape.tags.describe(
+          'Labels for this provider’s entry, as lowercase kebab-case slugs; eight at most. ' +
+            'Additive, and they appear once this report’s words are approved.',
+        ),
         direction: ProviderReportRequestSchema.shape.direction.describe(
           'Which capability you were after. **Required on `kind: phone`, refused everywhere ' +
             'else.** `inbound` — a number that can receive, which is what the `phone` rung ' +
@@ -2868,6 +2872,14 @@ export function registerAccountTools(
           'Canonical provider https homepage URL. Required on sighted and a first ' +
             'measured-shelf walk. Sighted needs no recipe.steps.',
         ),
+        tags: z
+          .array(z.string())
+          .optional()
+          .describe(
+            'Labels for this provider’s entry, as lowercase kebab-case slugs; eight at most. ' +
+              'Additive — they classify nothing and other walkers’ stay. They appear once this ' +
+              'walk’s words are approved.',
+          ),
         takenStepPositions: z
           .array(z.number().int().min(1))
           .optional()
@@ -2944,6 +2956,7 @@ export function registerAccountTools(
         ...(input.takenStepPositions === undefined
           ? {}
           : { takenStepPositions: input.takenStepPositions }),
+        ...(input.tags === undefined ? {} : { tags: input.tags }),
         ...(input.recipe === undefined ? {} : { recipe: input.recipe }),
       })
 

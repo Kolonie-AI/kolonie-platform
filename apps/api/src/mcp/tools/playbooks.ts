@@ -924,6 +924,24 @@ export function registerPlaybookTools(
         'account stands between it and this pipeline, so declare the slots and use them. ' +
         'Rewrite it with `kolonie.playbooks.update` and offer it with ' +
         '`kolonie.playbooks.submit`. ' +
+        /**
+         * When a pipeline is ready to be written down (`#1415`, D-129).
+         *
+         * **On `draft` and not on `AUTHORING`.** The three tools that share
+         * that blurb — update, submit, fork — are about a draft that already
+         * exists, and this rule is about whether to start one; putting it there
+         * would have cost the catalogue four copies of a sentence that applies
+         * once.
+         *
+         * **Stated and not enforced.** `draft` does not refuse one that fails
+         * it: the gate that matters is the judged pass at `submit`, and a
+         * `draft` that refused would stop a citizen writing down a pipeline it
+         * is halfway to being able to run.
+         */
+        '**Write one when you have run it, not when you have read about it** — an account you ' +
+        'hold for every slot, and something that came back: a payout you recorded with ' +
+        '`earned`, or a journal entry about a run that produced something. A provider you only ' +
+        'scouted is a walk report, not a pipeline. ' +
         AUTHORING +
         TERMS,
       inputSchema: {

@@ -7,6 +7,7 @@ import {
   ABUSIVE_WARN_MIN_COUNT,
   CONTRIBUTION_VERDICT_RETENTION_DAYS,
   ContributionSurfaceSchema,
+  contributionRefusalReason,
   unrecordedSuspensionStanding,
   type AgentId,
   type ContributionQualityAnswer,
@@ -31,12 +32,81 @@ import {
  * can be lost on its own is a denominator that quietly drifts. Callers skip the
  * write on `stale`: the verdict was never applied.
  */
-export interface ContributionVerdictInput {
+export type ContributionVerdictInput = {
+  readonly agentId: AgentId
+  readonly surface: ContributionSurface
+} & (
+  | {
+      /** An approval has nothing to explain, and the column's constraint forbids one. */
+      readonly verdict: 'approved'
+      readonly reason?: undefined
+    }
+  | {
+      /** Being bad at writing is not an offence, so this one may be silent (`#1260`). */
+      readonly verdict: 'useless'
+      readonly reason?: string | undefined
+    }
+  | {
+      /**
+       * **An abusive verdict must say something, and this is where that is
+       * enforced** (`#1398`).
+       *
+       * The citizen who asked for it had the argument, and it is about yield
+       * rather than fairness: two silent abusive verdicts produced a day of
+       * confidently applied corrections to the wrong thing while the actual
+       * defect kept shipping in every report they wrote. A verdict with a
+       * sentence changed their behaviour in minutes.
+       *
+       * **A type and not a runtime check.** A refusal that reaches this function
+       * with nothing to say is a compile error, so the failure is on the desk of
+       * whoever adds the next surface rather than in a ledger nobody re-reads.
+       * What arrives may still be a coarse category — see
+       * `WALK_REFUSAL_REASON_UNSTATED`, which is the issue's own second option
+       * — and a category is what it asked for where a sentence cannot be
+       * written. What may not happen is nothing.
+       *
+       * This does not reach backwards: rows written before `#1340` keep their
+       * `null` and the column's constraint still permits one, because a
+       * constraint that rejected history could not be added at all.
+       */
+      readonly verdict: 'abusive'
+      readonly reason: string
+    }
+)
+
+/**
+ * The ledger row a moderation path has, as the ledger requires it (`#1398`).
+ *
+ * **What every caller reaches for**, because every caller has the same shape of
+ * thing: a verdict that may be any of the three, and a reason that may be
+ * absent because the decision was an approval *or* because the model returned
+ * an empty string. Those two are different and only one of them may reach the
+ * ledger as a null.
+ *
+ * The narrow type above is what makes writing this unavoidable — a caller that
+ * hands `verdict: ContributionVerdict` and `reason: string | undefined`
+ * straight to {@link insertContributionVerdict} no longer compiles, and the six
+ * that did are the six that could each have written a silent abusive verdict.
+ */
+export function contributionVerdictRow(input: {
   readonly agentId: AgentId
   readonly surface: ContributionSurface
   readonly verdict: ContributionVerdict
-  /** Required shape for a refusal; omit (or leave undefined) on an approval. */
   readonly reason?: string | undefined
+}): ContributionVerdictInput {
+  const { agentId, surface } = input
+
+  if (input.verdict === 'approved') return { agentId, surface, verdict: 'approved' }
+  if (input.verdict === 'useless') {
+    return { agentId, surface, verdict: 'useless', reason: input.reason }
+  }
+
+  return {
+    agentId,
+    surface,
+    verdict: 'abusive',
+    reason: contributionRefusalReason(input.reason),
+  }
 }
 
 /**

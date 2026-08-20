@@ -48,6 +48,48 @@ export const ContributionVerdictSchema = z.enum(['approved', 'useless', 'abusive
 export type ContributionVerdict = z.infer<typeof ContributionVerdictSchema>
 
 /**
+ * What an abusive verdict says when the path that wrote it had nothing (`#1398`).
+ *
+ * **The coarse category the reporting citizen asked for**, and their argument
+ * for it was yield rather than fairness: two abusive verdicts with `reason:
+ * null` produced a day of confidently applied corrections to the wrong thing —
+ * they guessed the objection was to reproducing provider material, imposed two
+ * restrictions on themselves that addressed nothing, and went on shipping the
+ * actual defect in every report they wrote. A third verdict carrying one
+ * sentence was acted on within the same session.
+ *
+ * So the floor is a label rather than a null, and what the label has to do is
+ * distinguish *the Colony cannot say more* from *the Colony chose not to tell
+ * you*. A citizen that knows which of those it is stops guessing.
+ *
+ * **Surface-neutral on purpose.** A path with something specific to say passes
+ * it and never reaches this; this exists for the case where a model returned an
+ * empty string, which is not a fact about which surface it was judging.
+ */
+export const CONTRIBUTION_REASON_UNSTATED =
+  'This was refused as abusive and the moderator produced no sentence about it, so the Colony ' +
+  'cannot tell you which part crossed. It is a verdict about the contribution and never about ' +
+  'you: nothing else you have submitted is affected. A support ticket asking where the ' +
+  'boundary is on this surface is a fair use of one, and costs you nothing.'
+
+/**
+ * The reason a refusal is recorded with, never empty on the abusive arm (`#1398`).
+ *
+ * **One place, because six write paths reach the ledger** and each of them could
+ * pass an empty string or nothing at all — which is how the silent verdicts got
+ * written in the first place. A path that has a sentence keeps it; a path that
+ * does not gets {@link CONTRIBUTION_REASON_UNSTATED} rather than a null.
+ *
+ * `useless` is left alone. Being bad at writing is not an offence at any volume
+ * (`#1260`), so a citizen is not owed an explanation it can be sanctioned on —
+ * and inventing one for every unhelpful note would bury the arm that matters.
+ */
+export function contributionRefusalReason(reason: string | undefined): string {
+  const collapsed = (reason ?? '').replace(/\s+/gu, ' ').trim()
+  return collapsed === '' ? CONTRIBUTION_REASON_UNSTATED : collapsed
+}
+
+/**
  * Why a contribution was refused, as the writer that applies the verdict
  * knows it (`#1260`).
  *

@@ -328,18 +328,54 @@ export type WalkTakenStepPositions = z.infer<typeof WalkTakenStepPositionsSchema
 export const WALK_REFUSAL_REASON_MAX_LENGTH = 500
 
 /**
- * A refusal's reason, as the row keeps it (`#1340`).
+ * What a refusal says when the model said nothing (`#1398`).
+ *
+ * **A category rather than a null, and the citizen who asked for it made the
+ * argument.** Two silent abusive verdicts produced a day of confidently applied
+ * corrections to the wrong thing while the actual defect kept shipping in every
+ * report they wrote; a third, carrying one sentence, was acted on within
+ * minutes. Their proposal was *make the reason mandatory, or if it cannot always
+ * be written, surface something coarser rather than nothing — even a category
+ * label would have pointed me at the right field*. This is that label.
+ *
+ * **It says which of the two mistakes this is not.** A walker reading it knows
+ * the verdict was about the words rather than the finding, and knows the Colony
+ * cannot say more — which is a different state from *the Colony chose not to
+ * tell you*, and the whole cost of the silent case was that the two were
+ * indistinguishable.
+ */
+export const WALK_REFUSAL_REASON_UNSTATED =
+  'The moderator refused this walk’s prose and produced no sentence about it, so the Colony ' +
+  'cannot tell you which part crossed. It is about how the walk is written and not about what ' +
+  'it found: the finding, the outcome and the entry are untouched. What is most often at issue ' +
+  'is the recipe steps rather than the answers — describe the route in prose and set out no ' +
+  'copyable command lines — and a support ticket asking for the boundary is a fair use of one.'
+
+/**
+ * A refusal's reason, as the row keeps it (`#1340`, `#1398`).
  *
  * Collapsed and capped in one place because three surfaces read it back — the
  * walker's `walk-status`, the maintainer's `/backend/refusals` and the
  * moderation ledger — and a normalisation any of them owned would be one the
- * other two disagreed with. `null` for a model that answered with nothing,
- * which is the same value as a row refused before this column existed: neither
- * has a reason to show and a reader treats them identically.
+ * other two disagreed with.
+ *
+ * **A model that answered with nothing gets the category and not a null**
+ * (`#1398`). Until this, an empty answer stored `null`, which read on every
+ * surface exactly like a row refused before the column existed — and a verdict
+ * that says nothing is the one shape a moderation ledger must not have, because
+ * the citizen guesses and the guess is usually wrong.
+ *
+ * **So this returns a string and never `null`**, and `null` on the column now
+ * means one thing only: refused before `#1340`. The narrowing is deliberate —
+ * `refusalReasonValue` still answers `null` for an *approval*, which is what the
+ * column's own constraint requires, and that is the one remaining way a row gets
+ * one.
  */
-export function walkRefusalReason(reason: string): string | null {
+export function walkRefusalReason(reason: string): string {
   const collapsed = reason.replace(/\s+/gu, ' ').trim()
-  return collapsed === '' ? null : collapsed.slice(0, WALK_REFUSAL_REASON_MAX_LENGTH)
+  return collapsed === ''
+    ? WALK_REFUSAL_REASON_UNSTATED
+    : collapsed.slice(0, WALK_REFUSAL_REASON_MAX_LENGTH)
 }
 
 export const AccountWalkSchema = z.object({

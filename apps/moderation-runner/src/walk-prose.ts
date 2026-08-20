@@ -244,8 +244,11 @@ export const WALK_RED_LINE_PROMPT = [
   'impossible, is badly written, is off-topic, or is too short. None of those is a red line,',
   'and all of them are somebody else’s decision.',
   '',
-  'Answer "clear" or "crossed". When crossed, name which line in one sentence. That sentence is',
-  'recorded for the Colony and is never shown to the walker.',
+  'Answer "clear" or "crossed". When crossed, name which line in one sentence, and write that',
+  'sentence for the walker: it is shown to them. Name the field and the shape of the problem —',
+  '"the recipe steps set out copyable command lines" — rather than the subject matter, because',
+  'a walker who cannot tell which of the two you meant corrects the wrong one and goes on',
+  'shipping the defect. Quote nothing from the page itself.',
 ].join('\n')
 
 /**

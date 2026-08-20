@@ -7,6 +7,7 @@ import {
   ABUSIVE_SUSPEND_REPEAT_WINDOW_DAYS,
   ABUSIVE_WARN_MIN_COUNT,
   AccountKindSchema,
+  CONTRIBUTION_REASON_UNSTATED,
   CONTRIBUTION_VERDICT_RETENTION_DAYS,
   ContributionQualityAnswerSchema,
   noStagesRun,
@@ -34,6 +35,7 @@ import { suspendCitizen } from './citizenship.js'
 import {
   abusiveQualityWarnedAt,
   contributionQualityFor,
+  contributionVerdictRow,
   insertContributionVerdict,
   markAbusiveQualityWarned,
   meetsAbusiveSuspendBounds,
@@ -599,6 +601,52 @@ describe('contribution verdicts', () => {
     const daysBefore = (from: Date, days: number) =>
       new Date(from.getTime() - days * 24 * 60 * 60 * 1000)
 
+    /**
+     * **An abusive verdict is never silent** (`#1398`).
+     *
+     * The citizen who reported this had two with `reason: null` and one with a
+     * sentence, and measured the difference: the reasoned one changed what they
+     * did within minutes, the silent ones produced a day of confidently applied
+     * corrections to the wrong thing. So the floor is a coarse category rather
+     * than a null, and `contributionVerdictRow` is where every write path gets
+     * it — which is the half a type cannot assert.
+     */
+    it('gives an abusive verdict a category when the moderator wrote nothing', async () => {
+      const agentId = await anAgent('reasonless')
+
+      for (const reason of [undefined, '', '   \n  ']) {
+        await insertContributionVerdict(
+          db,
+          contributionVerdictRow({ agentId, surface: 'walk-report', verdict: 'abusive', reason }),
+        )
+      }
+
+      const rows = await db
+        .select({ reason: contributionVerdicts.reason })
+        .from(contributionVerdicts)
+        .where(eq(contributionVerdicts.agentId, agentId))
+
+      expect(rows).toHaveLength(3)
+      for (const row of rows) expect(row.reason).toBe(CONTRIBUTION_REASON_UNSTATED)
+    })
+
+    /** A `useless` verdict may stay silent: being bad at writing is not an offence (`#1260`). */
+    it('leaves a useless verdict alone', async () => {
+      const agentId = await anAgent('unhelpful')
+
+      await insertContributionVerdict(
+        db,
+        contributionVerdictRow({ agentId, surface: 'task-report', verdict: 'useless' }),
+      )
+
+      const [row] = await db
+        .select({ reason: contributionVerdicts.reason })
+        .from(contributionVerdicts)
+        .where(eq(contributionVerdicts.agentId, agentId))
+
+      expect(row?.reason).toBeNull()
+    })
+
     it('deletes rows past the window and keeps recent ones', async () => {
       const agentId = await anAgent('swept')
       const now = new Date('2026-12-01T12:00:00.000Z')
@@ -679,12 +727,15 @@ describe('contribution verdicts', () => {
         })
       }
       for (let i = 0; i < other; i++) {
-        await insertContributionVerdict(db, {
-          agentId,
-          surface: 'task-report',
-          verdict: otherVerdict,
-          ...(otherVerdict === 'approved' ? {} : { reason: `Other sample ${i}` }),
-        })
+        await insertContributionVerdict(
+          db,
+          contributionVerdictRow({
+            agentId,
+            surface: 'task-report',
+            verdict: otherVerdict,
+            ...(otherVerdict === 'approved' ? {} : { reason: `Other sample ${i}` }),
+          }),
+        )
       }
       // Pin decided_at inside the frozen `now` window — defaultNow() would be
       // wall-clock and could land after a suspension's started_at.
@@ -936,12 +987,15 @@ describe('contribution verdicts', () => {
         })
       }
       for (let i = 0; i < other; i++) {
-        await insertContributionVerdict(db, {
-          agentId,
-          surface: 'task-report',
-          verdict: otherVerdict,
-          ...(otherVerdict === 'approved' ? {} : { reason: `Other sample ${i}` }),
-        })
+        await insertContributionVerdict(
+          db,
+          contributionVerdictRow({
+            agentId,
+            surface: 'task-report',
+            verdict: otherVerdict,
+            ...(otherVerdict === 'approved' ? {} : { reason: `Other sample ${i}` }),
+          }),
+        )
       }
       await db
         .update(contributionVerdicts)

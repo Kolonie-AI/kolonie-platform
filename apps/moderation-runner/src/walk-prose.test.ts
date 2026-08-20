@@ -731,6 +731,14 @@ const scrubberInputs = () =>
  * **Only refusals are re-read.** An approval is never re-opened by this, so the
  * bump cannot un-publish anything a citizen already relies on.
  *
+ * **Moved to 3 by `#1398`, and the version moved with it.** The last line of
+ * `WALK_RED_LINE_PROMPT` told the model its sentence was *never shown to the
+ * walker* — false since `#1340` made it exactly that — so it had been writing
+ * for the wrong audience. It now writes for the walker and names the field
+ * rather than the subject matter. No criterion moved, and the bump is the point
+ * rather than a consequence: nineteen abusive verdicts stand with `reason:
+ * null`, and a re-read is the only thing that gives them one.
+ *
  * **Moved by `#1120` without the version moving, deliberately.** The seventh prose
  * field `about` was appended to `WALK_PROSE_FIELDS`, which is one of the inputs
  * digested here, so this had to be recomputed. It cannot change a verdict already
@@ -740,7 +748,7 @@ const scrubberInputs = () =>
  * refusal the Colony holds back in front of the model to be told the same thing
  * twice, at cost.
  */
-const SCRUBBER_INPUTS_DIGEST = 'f6e4cda82e85c076e772ecc7c6b918bf4fd126b4dbbf6c8eb046a0f60da76612'
+const SCRUBBER_INPUTS_DIGEST = 'fa5a1a6b87c5b6ae59a890dc3f77b999942b9fa57d6eda925e81870ef92628b1'
 
 /**
  * **What stops the version being forgotten is this test and not a mechanism**
@@ -766,6 +774,6 @@ describe('pinning the scrubber version to the scrubber', () => {
 
   /** The version the digest above belongs to, so the pair is read together. */
   it('is the version the runner and the storage both stamp with', () => {
-    expect(WALK_PROSE_SCRUBBER_VERSION).toBe(2)
+    expect(WALK_PROSE_SCRUBBER_VERSION).toBe(3)
   })
 })

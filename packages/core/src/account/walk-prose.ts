@@ -119,8 +119,23 @@ export type WalkProseField = z.infer<typeof WalkProseFieldSchema>
  * refuses a page for naming a person. Thirty-one refusals across two walkers
  * were measured false positives under the old prompt; moving this number is what
  * puts them back in front of the scrubber to be read again.
+ *
+ * **3 since `#1398`, and this one moves no criterion.** What changed is the last
+ * line of the prompt, which told the model its sentence was *never shown to the
+ * walker* — false since `#1340` made it exactly that, and the model had been
+ * writing for the wrong audience ever since. It now writes for the walker and is
+ * told to name the field and the shape rather than the subject matter.
+ *
+ * **The bump is the point rather than a side effect**, and here is the sentence
+ * this constant asks for. Nineteen abusive walk verdicts stand with `reason:
+ * null` — refused before `#1340`, and a citizen reported measuring what that
+ * cost: two silent ones produced a day of confidently applied corrections to the
+ * wrong thing, while a third carrying one sentence was acted on in minutes. A
+ * re-read is the only thing that gives those nineteen a reason, and rule 4 above
+ * bounds what it can cost: only refusals are re-opened, so the worst outcome is
+ * a citizen getting back something it was denied.
  */
-export const WALK_PROSE_SCRUBBER_VERSION = 2
+export const WALK_PROSE_SCRUBBER_VERSION = 3
 
 /**
  * The wall, as a question rather than a label.

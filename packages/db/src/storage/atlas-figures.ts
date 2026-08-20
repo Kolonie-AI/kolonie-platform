@@ -151,7 +151,7 @@ export async function atlasFigures(
     walk_abandoned: boolean
   }>(sql`
     with held as (
-      select kind, provider, agent_id, proved, proved_at, created_at, status
+      select kind, provider, agent_id, proved, proved_at, created_at, status, for_work
         from accounts
        where provider is not null
     ),
@@ -239,13 +239,30 @@ export async function atlasFigures(
           where w.kind = p.kind and w.provider = p.provider
             and w.outcome = 'refused' and ${walkAnswers}
        ) refusals) as refused,
+      -- A citizen that took an account out of work matching is out of the
+      -- usefulness figure too (#1417 decision 2). for_work = false is the switch
+      -- accounts.set offers for exactly this -- do not match me to work naming
+      -- this kind -- and a citizen that threw it and then found itself counted,
+      -- on a public page, as evidence that the rail is alive would have been
+      -- answered on one surface and ignored on the next.
+      --
+      -- Both halves of the ratio, or the ratio lies. Excluding a citizen from
+      -- the numerator and leaving it in the denominator would publish 2 of 4
+      -- where the honest answer is 2 of 3, and read as two citizens having
+      -- dropped the account.
+      --
+      -- proved and attempted above are untouched, deliberately. Those are
+      -- history -- how many citizens got in -- and history does not shrink
+      -- because somebody later changed a preference. This one is about now.
       (select count(distinct agent_id)::text from held h
         where h.kind = p.kind and h.provider = p.provider and h.proved
           and h.proved_at < now() - (${retention} * interval '1 day')
+          and h.for_work
           and h.status = 'in-use') as still_held,
       (select count(distinct agent_id)::text from held h
         where h.kind = p.kind and h.provider = p.provider and h.proved
-          and h.proved_at < now() - (${retention} * interval '1 day')) as held_long_enough,
+          and h.proved_at < now() - (${retention} * interval '1 day')
+          and h.for_work) as held_long_enough,
       (select coalesce(jsonb_agg(jsonb_build_object('outcome', s.outcome, 'citizens', s.citizens)
                                  order by s.outcome), '[]'::jsonb)
          from (select stop.outcome as outcome, count(distinct stop.agent_id) as citizens

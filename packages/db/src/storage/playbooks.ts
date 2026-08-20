@@ -860,3 +860,46 @@ export async function playbooksNamingProvider(
     .orderBy(desc(playbooks.createdAt), asc(playbooks.slug))
     .limit(limit)
 }
+
+/**
+ * The open playbooks that need an account of one of these kinds (`#1416`).
+ *
+ * **The narrowing the function above refuses, allowed on one shelf only.** That
+ * one is provider-exact because *a playbook needing a mailbox* on every mailbox
+ * entry in the Atlas is the module spam `kolonie-website#116` forbids and
+ * `growth/README.md` calls doorway content — one module, four hundred pages,
+ * saying nothing about any of them.
+ *
+ * **An earn rail is the case where the same match is specific.** A reader on a
+ * bounty board asking *what is an account here for* is asking a question the
+ * catalogue can answer generically and usefully: the pipeline that runs a bounty
+ * board runs this one. The caller decides — see `#1416` — and passes kinds only
+ * for an entry that carries an earn facet, so the doorway case never reaches
+ * here.
+ *
+ * **Provider-pinned rows are the caller's to prefer**, and this returns both:
+ * filtering them out in SQL would mean a playbook pinned to *this* provider and
+ * also naming its kind could be dropped by whichever query ran second.
+ */
+export async function playbooksNamingKinds(
+  db: Database,
+  kinds: readonly string[],
+  limit = 10,
+): Promise<readonly PlaybookLink[]> {
+  if (kinds.length === 0) return []
+
+  return await db
+    .select({ slug: playbooks.slug, title: playbooks.title, summary: playbooks.summary })
+    .from(playbooks)
+    .where(
+      and(
+        eq(playbooks.status, 'open'),
+        sql`exists (
+          select 1 from jsonb_array_elements(${playbooks.requiredAccounts}) as slot
+           where slot->>'kind' = any(${kinds})
+        )`,
+      ),
+    )
+    .orderBy(desc(playbooks.createdAt), asc(playbooks.slug))
+    .limit(limit)
+}

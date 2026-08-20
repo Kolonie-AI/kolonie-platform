@@ -281,6 +281,21 @@ export const AtlasFiguresSchema = z.object({
    * accounts and over two hundred are different claims, and a figure meant to
    * make the others trustworthy cannot be the one that hides its own base.
    * `held` is null while nothing is old enough to ask about.
+   *
+   * **This is the Colony's aggregate usefulness figure** (`#1417`), and it is
+   * the whole of it: how many citizens who got in are still holding. It is a
+   * count and the floor governs it like every other count, so it is null on a
+   * small entry rather than served as a zero.
+   *
+   * **Three things it does not carry, each refused for its own reason.** Never a
+   * handle — `#909`'s rule, and the reason `anyProved` above is a boolean.
+   * Never a word of anybody's `accounts.note`: that is a private work diary
+   * (`#1411` decision 1) and no aggregate of it is published, summarised or
+   * counted. And never a citizen that set `for_work = false`, which is the
+   * switch `accounts.set` offers for *do not match me to work naming this kind*
+   * — counted here it would have been answered on one surface and ignored on
+   * the next. Retired and lost accounts leave by the same door: the numerator
+   * asks for `in-use`.
    */
   stillHeld: z.int().min(0).nullable(),
   heldLongEnoughToAsk: z.int().min(0),

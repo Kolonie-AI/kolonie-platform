@@ -47,6 +47,8 @@ describe('the measured figures behind an Atlas entry', () => {
     readonly provedDaysAgo?: number
     readonly hoursToProve?: number
     readonly status?: 'in-use' | 'retired' | 'lost'
+    /** `accounts.set` `forWork: false` — out of work matching (`#1417`). */
+    readonly forWork?: boolean
   }) => {
     const agentId = await citizen(input.name)
     const proved = input.proved ?? true
@@ -54,13 +56,13 @@ describe('the measured figures behind an Atlas entry', () => {
     const hours = input.hoursToProve ?? 1
 
     await db.execute(sql`
-      insert into accounts (agent_id, kind, identifier, provider, proved, proved_at, created_at, status)
+      insert into accounts (agent_id, kind, identifier, provider, proved, proved_at, created_at, status, for_work)
       values (
         ${agentId}, ${kind}, ${`${input.name}@example.test`}, ${input.provider}, ${proved},
         ${proved ? sql`now() - (${sql.raw(String(daysAgo))} * interval '1 day')` : sql`null`},
         now() - (${sql.raw(String(daysAgo))} * interval '1 day')
           - (${sql.raw(String(hours))} * interval '1 hour'),
-        ${input.status ?? 'in-use'}
+        ${input.status ?? 'in-use'}, ${input.forWork ?? true}
       )
     `)
   }
@@ -225,6 +227,95 @@ describe('the measured figures behind an Atlas entry', () => {
 
       expect(figures?.heldLongEnoughToAsk).toBe(4)
       expect(figures?.stillHeld).toBe(3)
+    })
+
+    /**
+     * `#1417` decision 2. `for_work = false` is the switch `accounts.set`
+     * offers for *do not match me to work naming this kind*, and a citizen that
+     * threw it and then found itself counted on a public page as evidence that
+     * the rail is alive would have been answered on one surface and ignored on
+     * the next.
+     */
+    it('leaves out a citizen that took the account out of work matching', async () => {
+      // Five citizens, because ATLAS_FIGURE_FLOOR nulls a count below it and a
+      // suppressed figure would pass this test without measuring anything.
+      for (let i = 0; i < 4; i++)
+        await holds({
+          name: `working-${i}`,
+          provider: 'optedout.test',
+          provedDaysAgo: ATLAS_RETENTION_DAYS + 5,
+        })
+      await holds({
+        name: 'not-for-work',
+        provider: 'optedout.test',
+        provedDaysAgo: ATLAS_RETENTION_DAYS + 5,
+        forWork: false,
+      })
+
+      const figures = await only('optedout.test')
+
+      expect(figures?.stillHeld).toBe(4)
+      expect(figures?.heldLongEnoughToAsk).toBe(4)
+    })
+
+    /**
+     * Both halves or the ratio lies: a citizen out of the numerator and left in
+     * the denominator publishes *3 of 4*, which reads as one citizen having
+     * dropped the account.
+     */
+    it('takes it out of the base as well, so the ratio still means what it says', async () => {
+      for (let i = 0; i < 2; i++)
+        await holds({
+          name: `kept-${i}`,
+          provider: 'ratio.test',
+          provedDaysAgo: ATLAS_RETENTION_DAYS + 5,
+        })
+      for (let i = 0; i < 2; i++)
+        await holds({
+          name: `kept-but-private-${i}`,
+          provider: 'ratio.test',
+          provedDaysAgo: ATLAS_RETENTION_DAYS + 5,
+          forWork: false,
+        })
+      await holds({
+        name: 'dropped-and-private',
+        provider: 'ratio.test',
+        provedDaysAgo: ATLAS_RETENTION_DAYS + 5,
+        forWork: false,
+        status: 'lost',
+      })
+
+      const figures = await only('ratio.test')
+
+      // Two of two, and never two of five: the three who opted out are in
+      // neither half, so the ratio still says what it looks like it says.
+      expect(figures?.stillHeld).toBe(2)
+      expect(figures?.heldLongEnoughToAsk).toBe(2)
+    })
+
+    /**
+     * The history is not a preference. `proved` answers *how many citizens got
+     * in*, which happened, and does not shrink because somebody later changed
+     * a setting.
+     */
+    it('still counts the citizen as having proved the account', async () => {
+      for (let i = 0; i < 4; i++)
+        await holds({
+          name: `proved-${i}`,
+          provider: 'history.test',
+          provedDaysAgo: ATLAS_RETENTION_DAYS + 5,
+        })
+      await holds({
+        name: 'proved-then-private',
+        provider: 'history.test',
+        provedDaysAgo: ATLAS_RETENTION_DAYS + 5,
+        forWork: false,
+      })
+
+      const figures = await only('history.test')
+
+      expect(figures?.proved).toBe(5)
+      expect(figures?.stillHeld).toBe(4)
     })
 
     it('says nothing rather than zero while nothing is old enough', async () => {

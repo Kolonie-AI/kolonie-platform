@@ -2393,7 +2393,7 @@ describe('the Atlas on the website host', () => {
    */
   describe('what an account here is used for', () => {
     /** The module itself, so an assertion about it cannot pass on the rest of the page. */
-    const HEADING = 'What an account here is used for'
+    const HEADING = 'Playbooks that use this provider'
 
     /**
      * A reader over a fixed table, provider-exact — which is the rule the
@@ -2404,7 +2404,7 @@ describe('the Atlas on the website host', () => {
     const playbooksNaming = (
       by: Readonly<Record<string, readonly { slug: string; title: string; summary: string }[]>>,
     ): AtlasPlaybookReader => ({
-      naming: async (provider) => by[provider] ?? [],
+      naming: async ({ provider }) => by[provider] ?? [],
     })
 
     const withPlaybooks = async (reader: AtlasPlaybookReader) => {

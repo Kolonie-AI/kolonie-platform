@@ -26,6 +26,8 @@ import {
   atlasShelfPath,
   atlasShelfRows,
 } from '../atlas/html.js'
+import { atlasEarnFacets } from '../atlas/taxonomy.js'
+import { atlasPublicEntry } from '../atlas/public-projection.js'
 import { siteChromeFrom } from '../atlas/site-chrome.js'
 import { atlasSitemap } from '../atlas/sitemap.js'
 import { atlasCatalogue } from '../provider-recipes.js'
@@ -433,12 +435,26 @@ export function registerAtlasPages(app: FastifyInstance, deps: RouteDependencies
          */
         quests: await atlasQuests?.naming(asked.data),
         /**
-         * What an account here is used for (`kolonie-website#116`). Read here
-         * for the same reason as the quests above: no other Atlas surface names
-         * a playbook, and a per-provider question asked while walking the whole
-         * catalogue is four hundred queries for one page's paragraph.
+         * What an account here is used for (`kolonie-website#116`, `#1416`).
+         * Read here for the same reason as the quests above: no other Atlas
+         * surface names a playbook, and a per-provider question asked while
+         * walking the whole catalogue is four hundred queries for one page's
+         * paragraph.
+         *
+         * **The kinds go only where they are specific** — `#1416` decision 2.
+         * On an earn rail, a playbook naming this entry's kind is about the
+         * pipeline a reader came for; on an ordinary provider it is *a playbook
+         * that needs a mailbox* on every mailbox page, which is the doorway
+         * content `kolonie-website#116` made this reader provider-exact to
+         * avoid. So the earn facet decides, here, once.
          */
-        playbooks: await atlasPlaybooks?.naming(asked.data),
+        playbooks: await atlasPlaybooks?.naming({
+          provider: asked.data,
+          kinds:
+            atlasEarnFacets(atlasPublicEntry(entry)).length === 0
+              ? []
+              : [...new Set(entry.recipes.map((recipe) => recipe.kind))],
+        }),
         /**
          * What the Colony wrote up from this provider's walks (`#831`). Read
          * here for the reason directly above: the index and the catalogue

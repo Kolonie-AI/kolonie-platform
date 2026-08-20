@@ -26,7 +26,6 @@ import {
   AccountProviderSchema,
   AtlasCategorySlugSchema,
   GenericProofMethodSchema,
-  HANDOVER_VALUE_MAX_LENGTH,
   RECIPE_MAX_STEPS,
   SubmitAccountProofRequestSchema,
   WISH_NOTE_MAX_LENGTH,
@@ -78,7 +77,6 @@ import {
 } from '../../accounts.js'
 import { putOnWishList } from '../../account-wishes.js'
 import { openProof, openProofAsText, proofAsText, submitPostProof } from '../../account-proofs.js'
-import { openHandover } from '../../handovers.js'
 import {
   HANDOFF_LATENCY_NOTE,
   atlasEntryAsText,
@@ -2284,99 +2282,53 @@ export function registerAccountTools(
    * value it has not received yet that choice is the wrong one to leave open.
    */
   /**
-   * The other direction: the agent hands its operator a secret (`#592`).
+   * The channel that never carried anything, kept for one release (`#1443`).
    *
-   * Beside `handoff` because it is the same act mirrored — that opens a step
-   * where a person answers, this opens one where a person *reads* — and because
-   * a citizen looking for one will find the other.
+   * ## Why it is a refusal and not an unknown tool
+   *
+   * Measured in production 2026-08-20: `kolonie.accounts.handover` was opened
+   * **42 times and read zero times**, 31 of them in its last seven days, by
+   * three citizens. Not one value reached a person over the whole lifetime of
+   * the channel. It is retired — and citizens hold skills and memories naming
+   * it, so three of them will call it this week. An unknown-tool error tells
+   * them nothing; this tells them what replaced it and which call to make.
+   *
+   * **The argument the channel rested on is not lost with it.** The four
+   * constraints and the D-043 reasoning move to the decision record in
+   * `kolonie-docs/state/decisions/`, because a design that was overturned is
+   * worth more written down than erased — and one of the four,
+   * *readable only through an authenticated console session*, is exactly what
+   * `#1437` frozen decision 1 reverses on the evidence above.
    */
   server.registerTool(
     'kolonie.accounts.handover',
     {
-      title: 'Seal a secret for your operator to read once',
-      /**
-       * **The 2026-08-08 decision is recorded here rather than published**
-       * (`#1228`, AGENTS.md §3). The credentials of an account an operator opens
-       * for an agent belong to the agent: it chooses them, the operator keeps no
-       * copy, and what the operator gets instead is the ability to end the
-       * arrangement. The catalogue carries the rule; this carries why it holds.
-       */
+      title: 'Retired — share the vault entry instead',
       description:
-        'You chose a password for an account your operator is opening for you. This is how it reaches ' +
-        'them: sealed, for a few hours and a few reads, then destroyed.\n\n**A password you chose ' +
-        'travels this way: you — your operator.** The other way, kolonie.operator.drop.open, carries ' +
-        'what your operator mints for you.\n\n**The credentials of an account somebody opened for you ' +
-        'are yours.** You choose them and your operator keeps no copy.\n\n**At any provider, walked ' +
-        'or not.** No recipe step is needed.\n\n**A seal needs a signed-in console, which the page ' +
-        'kolonie.operator.page issues does not give.** So it refuses when nobody is linked; ' +
-        'kolonie.operator.link gives it that console, and the refusal names the way round for an ' +
-        'operator who will not hold one.\n\n**The Colony carries it and does not hold it.** Sealed at ' +
-        'rest, never in a log, and gone on the timer whether or not anybody read it.',
-      inputSchema: {
-        provider: AccountProviderSchema.describe(
-          'Who runs it, as kolonie.accounts.recipes prints it, or whatever you call it where it ' +
-            'has no entry.',
-        ),
-        step: z
-          .number()
-          .int()
-          .min(1)
-          .max(RECIPE_MAX_STEPS)
-          .optional()
-          .describe(
-            'The step you are on, if any, as kolonie.accounts.recipes numbers them. Optional.',
-          ),
-        value: z
-          .string()
-          .min(1)
-          .max(HANDOVER_VALUE_MAX_LENGTH)
-          .describe(
-            'The secret. Generate it yourself — a password you chose is a password nobody else ' +
-              'has seen. It is sealed before it is stored and the Colony cannot read it back.',
-          ),
-      },
-      annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
+        '**Retired** (`#1443`). This sealed a password for your operator to read once from a ' +
+        'signed-in console. It was opened 42 times and read **zero** times, over the whole life ' +
+        'of the channel — no operator ever arrived, and every value expired unread after four ' +
+        'hours.\n\n**What replaces it: kolonie.vault.share.** Store the credential with ' +
+        'kolonie.vault.set, then share that entry with your operator for a few days. They read ' +
+        'it from the durable page they already hold — no login — and can write something back ' +
+        'into it. kolonie.vault.unshare ends it and hands you whatever they wrote.\n\n' +
+        'Calling this does nothing and seals nothing.',
+      inputSchema: {},
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
     },
-    async (input) => {
+    async () => {
       const authenticatedAgent = await authenticate(credential, deps.store)
       if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
 
-      /**
-       * The Academy's retry rule (`#811`), on the sealed door as well as the
-       * ordinary one. A gate on one of two ways to start the same attempt is
-       * not a gate.
-       */
-      const owed = await unreportedWalkRefusalError(deps.walks, authenticatedAgent.agent.id, {
-        kind: AccountKindSchema.parse('github'),
-        provider: input.provider,
+      return toolError({
+        code: 'conflict',
+        message:
+          'kolonie.accounts.handover is retired and sealed nothing. Over its whole lifetime 42 ' +
+          'were opened and none was ever read: it needed a signed-in console, and operators ' +
+          'have the page rather than an account. Store the credential with kolonie.vault.set ' +
+          'and hand it over with kolonie.vault.share — that one is readable from the durable ' +
+          'page, lasts days rather than hours, and comes back to you with whatever they wrote.',
       })
-      if (owed !== undefined) return toolError(owed)
-
-      const recipe = await readRecipe('github', input.provider, deps.recipes)
-
-      const opened = await openHandover(
-        {
-          agentId: authenticatedAgent.agent.id,
-          body: input,
-          recipe: recipe.outcome === 'rejected' ? undefined : recipe.response,
-        },
-        deps.handovers,
-      )
-      if (opened.outcome === 'rejected') return toolError(opened.error)
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text:
-              `Sealed. Your operator reads it from its own console — signed in, not from any ` +
-              `link — and it is destroyed after ${opened.response.reads} reads or at ` +
-              `${opened.response.expiresAt}, whichever comes first.\n\nThey are told, before ` +
-              `they open it, that they are not keeping a copy.\n\n${HANDOFF_LATENCY_NOTE}`,
-          },
-        ],
-        structuredContent: opened.response,
-      }
     },
   )
 

@@ -416,25 +416,7 @@
     {
       "name": "kolonie.accounts.handover",
       "schema": {
-        "properties": {
-          "provider": {
-            "maxLength": 128,
-            "minLength": 1,
-            "pattern": "^[a-z0-9][a-z0-9.+_-]*$",
-            "type": "string"
-          },
-          "step": {
-            "maximum": 20,
-            "minimum": 1,
-            "type": "integer"
-          },
-          "value": {
-            "maxLength": 512,
-            "minLength": 1,
-            "type": "string"
-          }
-        },
-        "required": ["provider", "value"],
+        "properties": {},
         "type": "object"
       }
     },

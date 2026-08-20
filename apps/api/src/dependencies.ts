@@ -66,7 +66,6 @@ import type { TreasurySweepDependencies } from './treasury.js'
 import type { QuestDesk } from './quests.js'
 import type { TaskCatalogue } from './tasks.js'
 import type { AccountOfferDependencies } from './account-offers.js'
-import type { HandoverStore } from './handovers.js'
 import type { OperatorShareStore } from './operator-shares.js'
 import type { AccountThreadStore } from './account-threads.js'
 import type { DropStore } from './operator-drops.js'
@@ -410,14 +409,6 @@ export interface AppDependencies {
    * that was never given the key starts and says so to the citizen that asks.
    */
   readonly drops?: DropStore | undefined
-  /**
-   * The agent → operator secret channel (`#592`).
-   *
-   * Absent on a deployment with no sealing key, following `drops` above exactly:
-   * a Colony that was never given one starts normally and tells a citizen it
-   * cannot carry a secret, rather than failing at the moment one is handed over.
-   */
-  readonly handovers?: HandoverStore | undefined
   /**
    * The operator's half of a shared vault entry (`#1440`, epic `#1437`).
    *

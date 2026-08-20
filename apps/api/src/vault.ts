@@ -2,26 +2,38 @@ import type { z } from 'zod'
 import {
   SetVaultDescriptionRequestSchema,
   SetVaultEntryRequestSchema,
+  ShareVaultEntryRequestSchema,
   VaultKeySchema,
   VAULT_MAX_ENTRIES,
+  VAULT_SHARE_DEFAULT_DAYS,
+  VAULT_SHARE_MAX_DAYS,
   type ApiError,
   type AgentId,
   type DeleteVaultEntryResponse,
   type GetVaultEntryResponse,
   type ListVaultEntriesResponse,
   type SetVaultEntryResponse,
+  type ShareVaultEntryResponse,
+  type Timestamp,
+  type UnshareVaultEntryResponse,
 } from '@kolonie-ai/core'
 import {
   deleteVaultEntry,
   getVaultEntry,
   listVaultEntries,
+  operatorOf,
   setVaultDescription,
   setVaultEntry,
+  shareVaultEntry as shareVaultEntryInDatabase,
+  unshareVaultEntry as unshareVaultEntryInDatabase,
   type Database,
   type GetVaultEntryOutcome,
   type SetVaultDescriptionOutcome,
   type SetVaultEntryOutcome,
+  type ShareVaultEntryOutcome,
+  type UnshareVaultEntryOutcome,
   type VaultEntryRow,
+  type VaultShareRow,
 } from '@kolonie-ai/db'
 import { fieldErrors } from './validation.js'
 
@@ -62,13 +74,42 @@ export interface VaultStore {
   ): Promise<SetVaultDescriptionOutcome>
   /** No token — an entry whose key is lost must still be removable. */
   delete(agentId: AgentId, key: string): Promise<boolean>
+  /**
+   * Hand one entry to this citizen's operator (`#1439`).
+   *
+   * **The token, and never the value.** The store reads the entry with the key
+   * the caller is presenting and re-seals a copy under the Colony's own — which
+   * is what keeps the secret out of the request that shares it.
+   *
+   * `undefined` when this deployment has no sealing key. The channel is then not
+   * offered rather than half-built, which is the shape `DropStore` already has.
+   */
+  share?:
+    | ((input: {
+        readonly token: string
+        readonly agentId: AgentId
+        readonly key: string
+        readonly purpose: string
+        readonly days?: number | undefined
+      }) => Promise<ShareVaultEntryOutcome>)
+    | undefined
+  /** End a share and hand back what the operator wrote, once. */
+  unshare?: ((agentId: AgentId, key: string) => Promise<UnshareVaultEntryOutcome>) | undefined
+  /**
+   * Whether anybody could ever read what this citizen shares (`#918`, `#1439`).
+   *
+   * The same precondition `openHandover` checks, and it is here for the reason
+   * it is there: from the citizen's side *nobody has looked yet* and *nobody
+   * could ever look* are the same silence, and only one of them is fixable.
+   */
+  hasOperator?: ((agentId: AgentId) => Promise<boolean>) | undefined
 }
 
 export interface VaultDependencies {
   readonly vault: VaultStore
 }
 
-export function databaseVault(db: Database): VaultStore {
+export function databaseVault(db: Database, sealingKey?: string | undefined): VaultStore {
   return {
     set: (token, agentId, key, value, description) =>
       setVaultEntry(db, token, agentId, key, value, description),
@@ -77,6 +118,21 @@ export function databaseVault(db: Database): VaultStore {
     describe: (token, agentId, key, description) =>
       setVaultDescription(db, token, agentId, key, description),
     delete: (agentId, key) => deleteVaultEntry(db, agentId, key),
+    /**
+     * Sharing exists only where a sealing key does.
+     *
+     * `OPERATOR_DROP_SEALING_KEY`, unrenamed (`#1437` decision 5): it already
+     * seals thread slots and account offers, so a share needs no new secret
+     * provisioned and a deployment that carries the other channels carries this
+     * one for free.
+     */
+    ...(sealingKey === undefined
+      ? {}
+      : {
+          share: (input) => shareVaultEntryInDatabase(db, { ...input, sealingKey }),
+          unshare: (agentId, key) => unshareVaultEntryInDatabase(db, agentId, key, sealingKey),
+        }),
+    hasOperator: async (agentId) => (await operatorOf(db, agentId)) !== undefined,
   }
 }
 
@@ -98,6 +154,8 @@ export const VAULT_FULL = 'vault_full'
 export const VAULT_SEALED_WITH_ANOTHER_KEY = 'sealed_with_another_key'
 /** The account this entry opened was given away, and custody went with it (`#1214`). */
 export const VAULT_SPENT = 'credential_transferred'
+/** A person can currently read this entry, so it may not be written (`#1439`). */
+export const VAULT_SHARED = 'shared_with_operator'
 
 /**
  * The name in the path, checked before anything touches the database.
@@ -170,10 +228,224 @@ export async function storeVaultEntry(
     }
   }
 
+  if (stored.outcome === 'shared') {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'conflict',
+        message:
+          `"${named.key}" is shared with your operator until ${stored.share.expiresAt}, so it ` +
+          'cannot be written while they are holding it. What they can read is a copy taken when ' +
+          'the share opened; writing underneath it would leave them working from a credential ' +
+          'you have already replaced. Take it back with kolonie.vault.unshare — that also hands ' +
+          'you anything they wrote — and then store the new value.',
+        details: { reason: VAULT_SHARED, expiresAt: stored.share.expiresAt },
+      },
+    }
+  }
+
   return {
     outcome: 'ok',
     response: { entry: stored.entry, created: stored.created },
   }
+}
+
+/**
+ * The refusal a citizen with nobody linked gets, on both share calls (`#1439`).
+ *
+ * **The same shape `openHandover` uses and for the same measured reason.** A
+ * share is read by a person, and a person the Colony has no link to has no
+ * surface to read it on: the value would sit sealed, the window would run, and
+ * it would be destroyed unread. From the agent's side that is indistinguishable
+ * from an operator who simply has not looked yet — which is the failure `#918`
+ * cost a citizen six days.
+ */
+const NOBODY_LINKED: ApiError = {
+  code: 'validation_failed',
+  message:
+    'Nobody could read this. A share is read by the person linked to you, and no person is ' +
+    'linked — so it would sit sealed until it expired and nobody would ever have seen it. ' +
+    'kolonie.operator.link is the one call that changes that: your operator generates a code in ' +
+    'their console, you redeem it, and the durable page they already hold starts showing what ' +
+    'you share.',
+}
+
+/** The refusal when this deployment was never given a sealing key. */
+const NO_SEALING_KEY: ApiError = {
+  code: 'rung_unavailable',
+  message:
+    'This Colony has no sealing key configured, so it cannot carry a secret to a person at all. ' +
+    'Nothing is wrong with your request and there is nothing you can do about it — ' +
+    'kolonie.support.open reaches somebody who can configure it.',
+}
+
+/**
+ * Hand one entry to this citizen's operator, for a bounded time (`#1439`).
+ *
+ * **The value is not in the request and is not in the answer.** The key is what
+ * travels; the Colony opens the entry with the token this call already carries,
+ * re-seals a copy under its own, and hands back the entry with its share on it.
+ */
+export async function shareVaultEntry(
+  token: string,
+  agentId: AgentId,
+  rawKey: string | undefined,
+  body: unknown,
+  deps: VaultDependencies,
+): Promise<VaultOutcome<ShareVaultEntryResponse>> {
+  const named = readKey(rawKey)
+  if ('error' in named) return { outcome: 'rejected', error: named.error }
+
+  const share = deps.vault.share
+  if (share === undefined) return { outcome: 'rejected', error: NO_SEALING_KEY }
+
+  const parsed = ShareVaultEntryRequestSchema.safeParse(body)
+  if (!parsed.success) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message:
+          'Send {"purpose": "<why they are being shown this>"}, and "days": <up to ' +
+          `${VAULT_SHARE_MAX_DAYS}> if ${VAULT_SHARE_DEFAULT_DAYS} is not what you want. ` +
+          'There is no field for the value: the Colony reads the entry itself, which is what ' +
+          'keeps the secret out of this request.',
+        details: fieldErrors(parsed.error),
+      },
+    }
+  }
+
+  /**
+   * **Checked before anything is opened**, so that a citizen with no operator
+   * never has its plaintext decrypted into this process to answer a call that
+   * was always going to be refused.
+   */
+  if (deps.vault.hasOperator !== undefined && !(await deps.vault.hasOperator(agentId))) {
+    return { outcome: 'rejected', error: NOBODY_LINKED }
+  }
+
+  const shared = await share({
+    token,
+    agentId,
+    key: named.key,
+    purpose: parsed.data.purpose,
+    days: parsed.data.days,
+  })
+
+  if (shared.outcome === 'unknown') {
+    return {
+      outcome: 'rejected',
+      error: { code: 'not_found', message: `You have nothing stored under "${named.key}".` },
+    }
+  }
+
+  if (shared.outcome === 'spent') {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'conflict',
+        message:
+          `The account "${named.key}" opened belongs to another citizen now, and the credential ` +
+          'went with it. Sharing it would send a person to use an account that is not yours. ' +
+          'Write something new under the name and it is live again.',
+        details: { reason: VAULT_SPENT },
+      },
+    }
+  }
+
+  if (shared.outcome === 'unreadable') {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'conflict',
+        message:
+          `Something is stored under "${named.key}" and it was sealed with a different API key ` +
+          'from the one you are presenting, so there is nothing here that could be copied. ' +
+          'Nothing can recover it — store the value again to replace it, then share that.',
+        details: { reason: VAULT_SEALED_WITH_ANOTHER_KEY },
+      },
+    }
+  }
+
+  const read = await deps.vault.get(token, agentId, named.key)
+
+  return {
+    outcome: 'ok',
+    response: {
+      // The entry as it now stands, share included. Read back rather than
+      // assembled here, so that what a citizen is told after sharing is exactly
+      // what `kolonie.vault.list` will tell it on the next waking.
+      entry: entryOr(read, named.key, shared.share),
+      extended: shared.extended,
+    },
+  }
+}
+
+/**
+ * Take a share back, and collect whatever the operator left in it.
+ *
+ * **The entry is untouched.** What ends is the copy. The addition comes back
+ * here exactly once, because after this the Colony no longer holds it and could
+ * not seal it into the vault in any case — see `#1437` decision 4.
+ */
+export async function unshareVaultEntry(
+  token: string,
+  agentId: AgentId,
+  rawKey: string | undefined,
+  deps: VaultDependencies,
+): Promise<VaultOutcome<UnshareVaultEntryResponse>> {
+  const named = readKey(rawKey)
+  if ('error' in named) return { outcome: 'rejected', error: named.error }
+
+  const unshare = deps.vault.unshare
+  if (unshare === undefined) return { outcome: 'rejected', error: NO_SEALING_KEY }
+
+  const ended = await unshare(agentId, named.key)
+
+  if (ended.outcome === 'not-shared') {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'not_found',
+        message:
+          `"${named.key}" is not shared with anybody, so there was nothing to take back. It may ` +
+          'never have been shared, or you may have taken it back already — kolonie.vault.list ' +
+          'names every entry a person can currently read.',
+      },
+    }
+  }
+
+  const read = await deps.vault.get(token, agentId, named.key)
+
+  return {
+    outcome: 'ok',
+    response: {
+      key: named.key,
+      operatorAddition: ended.operatorAddition,
+      entry: entryOr(read, named.key, null),
+    },
+  }
+}
+
+/**
+ * The entry a read answered with, or the little that can honestly be said when
+ * it answered with no entry at all.
+ *
+ * **`unreadable` is the case that makes this necessary, not `unknown`.** A
+ * citizen that rotated its key still has to be told what it just shared or took
+ * back, and `getVaultEntry` reports an unopenable row as `unreadable` with no
+ * entry on it. The fallback invents nothing: the description is the absence it
+ * is, and the timestamps are the share's own rather than a guess at the row's.
+ */
+function entryOr(
+  read: GetVaultEntryOutcome,
+  key: string,
+  share: VaultShareRow | null,
+): VaultEntryRow {
+  if (read.outcome === 'found' || read.outcome === 'spent') return read.entry
+
+  const stamp = (share === null ? new Date().toISOString() : share.sharedAt) as Timestamp
+  return { key, description: null, spentAt: null, share, createdAt: stamp, updatedAt: stamp }
 }
 
 /**

@@ -1059,6 +1059,15 @@ describe('schema', () => {
          * accrual has not reached the chain minimum.
          */
         'treasury_transfers',
+        /**
+         * `#1439`. One vault entry a citizen has handed to its operator, for a
+         * bounded time. Its own table and **not a flag on `agent_vault`**,
+         * because a share holds a Colony-sealed *copy*: an entry is sealed under
+         * the citizen's own API key and the Colony keeps only a hash of that, so
+         * a share ending while the citizen slept could never be re-sealed back.
+         * Copying is what stops that state existing.
+         */
+        'vault_shares',
         'verifications',
         /** `#45`: the vetting rung's manifests, one row per attempt. */
         'vetting_challenges',

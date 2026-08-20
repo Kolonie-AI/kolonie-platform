@@ -1541,6 +1541,15 @@ describe('the erasure boundary', () => {
       'throttles.agent_id c',
       /** `#206`. Cascades: `erasure.md` §2 lists what a citizen proved among what goes. */
       'totp_secrets.agent_id c',
+      /**
+       * `#1439`. Cascades, for `agent_vault`'s reason exactly and one step
+       * harder: this is a copy of a citizen's secret sealed under the *Colony's*
+       * key, so unlike the vault row it is ciphertext the Colony could read. One
+       * of those outliving the citizen it belonged to is the leftover
+       * `erasure.md` §4 rules out, and the only one here that nobody would
+       * discover by looking.
+       */
+      'vault_shares.agent_id c',
       /** `#45`. Cascades, like every other challenge table. */
       'vetting_challenges.agent_id c',
       'vision_challenges.agent_id c',

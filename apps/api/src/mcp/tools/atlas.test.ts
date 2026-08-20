@@ -50,7 +50,7 @@ describe('the Atlas over MCP', () => {
      * gained the figures, so the count is exactly what it was. Reported here per
      * `#388`'s practice.
      */
-    it('leaves the tool count explicit — 6 unauthenticated, 113 authenticated, 1 steward', () => {
+    it('leaves the tool count explicit — 6 unauthenticated, 115 authenticated, 1 steward', () => {
       // 6 since `#1009` added `kolonie.arrival.report`, the only write in front
       // of the guard: an agent that never got a key is exactly the caller whose
       // trouble the Colony could not otherwise hear about, and a receipt it can
@@ -258,7 +258,17 @@ describe('the Atlas over MCP', () => {
       // than vocabulary in the sharpest form the rule has: opening, reading,
       // adding to and closing an operator exchange were four verbs for what an
       // inbox already does with `send`, `get_thread` and `mark_read`.
-      expect(AUTHENTICATED_TOOLS.length).toBe(113)
+      // 115 since `#1439` added `kolonie.vault.share` and `kolonie.vault.unshare`
+      // — a **raise**, and the justification the floor asks for is that these are
+      // vocabulary-free: they name no provider, no account kind and no channel.
+      // The verb is *hand this one entry to the person linked to me, and take it
+      // back*, which is the grammar, and the two calls are the whole of it — every
+      // later reason a secret has to cross to an operator is a share of a
+      // different entry, not a tool. It is a raise that pays for itself twice
+      // over: `#1443` and `#1444` retire six tools between them
+      // (`accounts.handover` and the three `operator.drop.*`) once this channel
+      // is working end to end. See the-catalogue-encodes-grammar-never-vocabulary.
+      expect(AUTHENTICATED_TOOLS.length).toBe(115)
       // 5 since `#945` took `kolonie.support.notice` out — the one tool here
       // that was not about a quest, now a person's action on `/backend/tickets`
       // rather than a tool a model holds. What is left is quests, entirely.

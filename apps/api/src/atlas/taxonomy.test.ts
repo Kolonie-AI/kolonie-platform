@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { ATLAS_FALLBACK_CATEGORY, noFigures } from '@kolonie-ai/core'
+import { ATLAS_FALLBACK_CATEGORY, EARN_FACETS, noFigures } from '@kolonie-ai/core'
 import {
   atlasEarnFacets,
   atlasEarnPhrase,
+  atlasEarnPhrasePlural,
   atlasIsDualUse,
   atlasShelfClause,
   atlasShelfIsClaim,
@@ -113,6 +114,24 @@ describe('whether an Atlas shelf is a claim or the default', () => {
   it('says what an earn facet means, rather than printing its slug', () => {
     expect(atlasEarnPhrase('creator-payout')).toBe('pays for an audience')
     expect(atlasEarnPhrase('grant-quest')).toBe('pays for accepted proposals')
+  })
+
+  /**
+   * **One provider pays; several pay** (`#1396`). The map held whole phrases and
+   * the browse page put them after a plural subject, so it shipped *Providers
+   * that pays for finished tasks*. Asserted over all five so a sixth cannot be
+   * added in one form only.
+   */
+  it('agrees with its subject, in both numbers, for every facet', () => {
+    for (const facet of EARN_FACETS) {
+      const one = atlasEarnPhrase(facet)
+      const many = atlasEarnPhrasePlural(facet)
+
+      expect(one.startsWith('pays ')).toBe(true)
+      expect(many.startsWith('pay ')).toBe(true)
+      /** The wording lives once: the two differ by exactly the verb. */
+      expect(one.slice('pays '.length)).toBe(many.slice('pay '.length))
+    }
   })
 
   /**

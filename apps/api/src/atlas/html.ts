@@ -64,6 +64,7 @@ import { atlasIcon } from './icons.js'
 import {
   atlasEarnFacets,
   atlasEarnPhrase,
+  atlasEarnPhrasePlural,
   atlasIsDualUse,
   atlasShelfClause,
   atlasShelfIsClaim,
@@ -780,14 +781,34 @@ export function atlasSearchPage(input: {
           ...found.filter((entry) => atlasEarnFacets(entry).length === 0),
         ]
 
-  const paying = earn === undefined ? '' : ` that ${atlasEarnPhrase(earn)}`
   const nothingAsked = asked === '' && earn === undefined
+
+  /**
+   * **The count is a sentence in both cases, rather than a stem and a variable**
+   * (`#1396`). Appending *that pays …* to *N providers match* produced
+   * *5 providers match that pays for finished tasks* — two fragments joined by
+   * whichever branch had filled the variable. A reader who asked only for a
+   * facet did not *match* anything; they asked which providers pay that way, and
+   * the answer is that sentence.
+   */
+  const counted = (n: number): string => {
+    const providers = `${n} ${n === 1 ? 'provider' : 'providers'}`
+    const pay =
+      earn === undefined ? '' : n === 1 ? atlasEarnPhrase(earn) : atlasEarnPhrasePlural(earn)
+
+    if (asked === '') return `${providers} ${pay}.`
+    if (earn === undefined) {
+      return `${providers} ${n === 1 ? 'matches' : 'match'} <strong>${escape(asked)}</strong>.`
+    }
+
+    return `${providers} ${n === 1 ? 'matches' : 'match'} <strong>${escape(asked)}</strong> and ${pay}.`
+  }
 
   return atlasPage({
     title: nothingAsked
       ? 'Search the Atlas'
       : asked === ''
-        ? `Providers that ${atlasEarnPhrase(earn as EarnFacet)} — the Atlas`
+        ? `Providers that ${atlasEarnPhrasePlural(earn as EarnFacet)} — the Atlas`
         : `${asked} — the Atlas`,
     description: ATLAS_STANDFIRST,
     canonical: input.canonical,
@@ -801,16 +822,17 @@ export function atlasSearchPage(input: {
         ? `<p>Type a provider name, choose a way of earning, or go back to ` +
           `<a href="${ATLAS_PATH}">the catalogue</a>.</p>`
         : shown.length === 0
-          ? `<p>Nothing in the catalogue matches${
-              asked === '' ? '' : ` <strong>${escape(asked)}</strong>`
-            }${escape(paying)}. That is an absence and not a refusal — nobody has walked it ` +
+          ? `<p>Nothing in the catalogue ${
+              asked === ''
+                ? `${atlasEarnPhrasePlural(earn as EarnFacet)} yet`
+                : `matches <strong>${escape(asked)}</strong>${
+                    earn === undefined ? '' : ` and ${atlasEarnPhrasePlural(earn)}`
+                  }`
+            }. That is an absence and not a refusal — nobody has walked it ` +
             `yet, so nothing is known either way. <a href="${ATLAS_PATH}">The whole ` +
             'catalogue</a> is one link away.</p>'
           : [
-              `<p>${shown.length} ${shown.length === 1 ? 'provider' : 'providers'} ` +
-                `${shown.length === 1 ? 'matches' : 'match'}${
-                  asked === '' ? '' : ` <strong>${escape(asked)}</strong>`
-                }${escape(paying)}.</p>`,
+              `<p>${counted(shown.length)}</p>`,
               `<ul class="k-atlas-index">${shown.map(indexRow).join('')}</ul>`,
             ].join('\n'),
       '</main>',

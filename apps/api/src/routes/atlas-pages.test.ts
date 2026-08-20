@@ -3747,6 +3747,35 @@ describe('the Atlas on the website host', () => {
         expect(body).toContain('pays for finished tasks')
       })
 
+      /**
+       * **The sentences, because that is where `#1396` showed.** The phrase map
+       * is right beside one provider and was being put after a plural subject:
+       * the page shipped *Providers that pays for finished tasks*, and the count
+       * read *5 providers match that pays for finished tasks* — two fragments
+       * joined by a variable.
+       */
+      it('writes a sentence for the browse, in the title and in the count', async () => {
+        await earning((one) => {
+          one.recipes.measure(payer('boards.example'))
+          one.recipes.measure(payer('other-boards.example'))
+        })
+
+        const body = (await get('/atlas/search?earn=bounty-board')).body
+
+        expect(body).toContain('Providers that pay for finished tasks')
+        expect(body).toContain('2 providers pay for finished tasks.')
+        expect(body).not.toContain('that pays for finished tasks')
+        expect(body).not.toContain('match that pay')
+      })
+
+      it('joins the two halves where the reader asked for both', async () => {
+        await earning((one) => one.recipes.measure(payer('boards.example')))
+
+        const body = (await get('/atlas/search?q=boards&earn=bounty-board')).body
+
+        expect(body).toContain('and pays for finished tasks.')
+      })
+
       it('narrows a text query by the facet as well', async () => {
         await earning((one) => {
           one.recipes.measure(payer('boards.example'))

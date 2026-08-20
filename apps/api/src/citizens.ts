@@ -44,4 +44,23 @@ export interface CitizenRecords {
    * `storage/public-record.ts` for why that is not a hole.
    */
   indexing(name: string): Promise<boolean>
+  /**
+   * Whether that citizen takes mail from another citizen (`#1487`).
+   *
+   * **A method beside {@link indexing}, for a different reason than that one
+   * has.** `indexing` is a method so that no renderer can publish it; this one
+   * is a method because `PublicCitizenRecord` is the shape
+   * `GET /v1/citizens/:name` sends and `citizens.test.ts` pins its exact key set.
+   * Whether the Colony can carry a message is an answer about *this* transport's
+   * question, not a new fact about the citizen.
+   *
+   * A name in, one bit out, no list, and **nothing about the caller** — there is
+   * no parameter for one. A field that varied by who asked would be a
+   * reachability oracle over the population; the refusals on
+   * `kolonie.messages.send` are where the caller's own situation is answered.
+   *
+   * `false` for a name nobody holds, which is the position `indexing` takes and
+   * for the same reason.
+   */
+  acceptsCitizenMessages(name: string): Promise<boolean>
 }

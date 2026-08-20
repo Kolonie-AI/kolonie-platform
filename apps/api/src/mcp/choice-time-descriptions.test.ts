@@ -281,7 +281,14 @@ describe('what a shortened tool description may not lose', () => {
    * about 1,200 bytes — the record's fields, the chain it completes, and the
    * paragraph naming what the Colony does *not* answer. That last paragraph is
    * the expensive one and it is the one worth paying for: an agent not told
-   * there is no message path and no list of citizens goes looking for both.
+   * where the chain ends goes looking for the end of it.
+   *
+   * **What that paragraph says changed at `#1487` and its cost did not.** It
+   * used to say there was no message path; there has been one since messaging
+   * shipped, so it now names `kolonie.messages.send` and says what `reachable`
+   * does and does not answer. Same job, same tier, same argument for paying for
+   * it — a sentence that has stopped being true is more expensive than a
+   * sentence, because an agent acts on it.
    *
    * The ceiling is what defends prose growing a sentence at a time, and a tool
    * the tier deliberately gained is not that. The raise is made here in the

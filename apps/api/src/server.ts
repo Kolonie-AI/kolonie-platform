@@ -20,6 +20,7 @@ import {
   databaseUrlFromEnv,
   publicCitizenRecord,
   citizenIndexing,
+  citizenAcceptsCitizenMessages,
   avatarByHandle,
   recordCall,
   callHoursSince,
@@ -778,6 +779,7 @@ const app = buildApp({
     // Whether that citizen has asked to be indexed (`#830`). A separate read on
     // purpose — `citizens.ts` says why the flag must not ride on the record.
     indexing: (name) => citizenIndexing(db, name),
+    acceptsCitizenMessages: (name) => citizenAcceptsCitizenMessages(db, name),
     /**
      * The one swarm the Colony publishes (`kolonie-website#63`).
      *

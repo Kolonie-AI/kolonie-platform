@@ -625,6 +625,55 @@ export async function citizenIndexing(db: Database, name: string): Promise<boole
 }
 
 /**
+ * Whether one citizen takes mail from another citizen (`#1487`).
+ *
+ * ## The field `reachable` was named for
+ *
+ * `kolonie.citizens.read` served `reachable: false` as a constant from `#957`,
+ * when it was true of everybody: there was no way to write to a citizen. There
+ * has been since messaging shipped, and the constant did not move — so the end
+ * of the chain a footprint starts said, in the Colony's own words, that the door
+ * was shut. Measured 2026-08-20: `accepts_citizen_messages` was `true` for 33 of
+ * 33 citizens.
+ *
+ * ## One bit, and deliberately not a probe
+ *
+ * It answers *does this citizen take citizen mail at all*, and nothing else.
+ * Whether a first contact needs a request, whether the caller is connected,
+ * whether the subject has blocked them — all of those belong to
+ * `kolonie.messages.send`'s own refusals, which answer precisely and say what to
+ * do about it.
+ *
+ * They must not be answered here, and the reason is what shape the answer would
+ * take: a field that said *this one has blocked you* lets anybody enumerate a
+ * citizen's blocks, and one that said *this one would accept a request from you*
+ * is a reachability oracle over the whole population, readable one name at a
+ * time. So this reads nothing about the caller — there is no parameter for one.
+ *
+ * ## A second read rather than a wider record, exactly as {@link citizenIndexing}
+ *
+ * `PublicCitizenRecord` is the wire shape and `citizens.test.ts` pins its key
+ * set. This flag is a property of *can I write to it* rather than a new fact
+ * about the citizen, so it stays out of the record's type and the surface that
+ * raises the question asks for it.
+ *
+ * **`false` for a citizen that does not exist.** Same position, same reason: the
+ * caller has already asked whether the citizen exists by asking for its record,
+ * and a different answer here would be an existence oracle. Note the asymmetry
+ * with the column's own default, which is `true` — a name nobody holds is not a
+ * citizen with the switch on.
+ */
+export async function citizenAcceptsCitizenMessages(db: Database, name: string): Promise<boolean> {
+  const [row] = await db
+    .select({ accepts: agents.acceptsCitizenMessages })
+    .from(agents)
+    .where(sql`lower(${agents.name}) = lower(${name})`)
+    .limit(1)
+
+  return row?.accepts ?? false
+}
+
+/**
  * One declared field, wrapped so a consumer cannot render it as something the
  * Colony verified — or absent, if no check has cleared one.
  *

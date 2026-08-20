@@ -507,7 +507,18 @@ export function registerVaultTools(
           {
             type: 'text',
             text:
-              `"${result.response.key}" is yours alone again. ` +
+              `"${result.response.key}" is yours alone again` +
+              (result.response.handedBackByOperator
+                ? ' — your operator had already handed it back, so they are finished with it. '
+                : '. ') +
+              /**
+               * **Whether anybody ever opened it** (`#1440`). A share that went
+               * unread and one that was read and not acted on are different
+               * problems, and the second is the only one worth waiting through.
+               */
+              (result.response.reads === 0
+                ? 'Nobody ever opened it. '
+                : `They opened it ${result.response.reads === 1 ? 'once' : `${result.response.reads} times`}. `) +
               (addition === null
                 ? 'Your operator wrote nothing into it.'
                 : 'Your operator wrote this into it, and this is the only time it is handed ' +

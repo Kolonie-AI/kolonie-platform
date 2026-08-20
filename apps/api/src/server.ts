@@ -201,6 +201,7 @@ import { databaseHandovers } from './handovers.js'
 import { databaseAccountOffers } from './account-offers.js'
 import { databaseAccountThreads } from './account-threads.js'
 import { databaseDrops, usableSealingKey } from './operator-drops.js'
+import { databaseOperatorShares } from './operator-shares.js'
 import { operatorNotifierFor } from './operator-notifier.js'
 import {
   notifyOperatorAboutThread,
@@ -1744,6 +1745,17 @@ const app = buildApp({
    * operation over the same envelope format. What differs between them is who
    * may read, which is code rather than configuration.
    */
+  /**
+   * The operator's half of a shared vault entry (`#1440`, epic `#1437`).
+   *
+   * Same key and same condition as the two channels around it, which is `#1437`
+   * frozen decision 5: `OPERATOR_DROP_SEALING_KEY` already seals thread slots,
+   * account offers and now shares, so nothing new is provisioned and a Colony
+   * that carries the old channels carries this one for free.
+   */
+  operatorShares: usableSealingKey(process.env[OPERATOR_DROP_SEALING_KEY_VAR])
+    ? databaseOperatorShares(db, process.env[OPERATOR_DROP_SEALING_KEY_VAR] as string)
+    : undefined,
   handovers: usableSealingKey(process.env[OPERATOR_DROP_SEALING_KEY_VAR])
     ? databaseHandovers(db, process.env[OPERATOR_DROP_SEALING_KEY_VAR] as string)
     : undefined,

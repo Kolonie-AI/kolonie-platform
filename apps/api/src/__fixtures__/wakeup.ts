@@ -57,6 +57,9 @@ type Changes = Omit<
   | 'contributionQualityWarning'
   // Its own call on the source (`#1287`): unread and pending are obligations.
   | 'messaging'
+  // Likewise (`#1440`): a share somebody has not opened is an obligation the
+  // citizen set in motion, not news that arrived while it slept.
+  | 'vaultShares'
 >
 
 /** A citizen at the very start: nothing held, nothing earned (`#344`). */

@@ -148,6 +148,7 @@ import { clientIp } from '../client-ip.js'
 import { routeKeyOf } from '../call-rollup.js'
 import { cookieValue, sessionCookie } from './authenticated.js'
 import { consoleOperatorPath, operatorPageBody } from '../operator-page-body.js'
+import { shareAdditionError } from '../operator-shares.js'
 import { COLONY_QUEST_LIMIT, DIAGNOSES_PAGE, type OperatorPageView } from '@kolonie-ai/db'
 import {
   autonomyFormPage,
@@ -2776,7 +2777,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
   const operatorDoor = async (
     request: FastifyRequest,
     reply: FastifyReply,
-  ): Promise<{ token: string; view: OperatorPageView } | null> => {
+  ): Promise<{ token: string; view: OperatorPageView; humanId: HumanId } | null> => {
     const signedIn = await person(request)
     if (signedIn === null) {
       consoleNotFound(reply, request)
@@ -2803,7 +2804,15 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       return null
     }
 
-    return { token, view }
+    /**
+     * The person, carried out with the token (`#1440`).
+     *
+     * A share written from the console is authorised by `human_agents` and not
+     * by the page token — the token exists here because the *page* is rendered
+     * through the same body, and reusing it as an authorisation would give the
+     * console door a rule it did not earn.
+     */
+    return { token, view, humanId: signedIn.human.id }
   }
 
   /**
@@ -4819,6 +4828,15 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       reply,
       await operatorPageBody(deps, door.token, consoleOperatorPath(agentId), door.view, {
         fillDrops: true,
+        /**
+         * The share's forms post to the console's own path (`#1440`).
+         *
+         * **The same section either door**, unlike `fillDrops` beside it: a drop
+         * may only be filled from a console and a share may be read and written
+         * from both, which is `#1437` frozen decision 1 and the difference that
+         * makes this channel the one that might work.
+         */
+        ...(deps.operatorShares === undefined ? {} : { shareAction: consoleOperatorPath(agentId) }),
       }),
     )
   })
@@ -4845,6 +4863,49 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     const { agentId } = request.params as { agentId: string }
     const action = consoleOperatorPath(agentId)
     const submitted = (request.body ?? {}) as Record<string, unknown>
+
+    /**
+     * A shared entry, written into or handed back (`#1440`).
+     *
+     * The same branch the durable page carries, reached through the same store
+     * with the person's `human_agents` row in place of a token — which is what
+     * `#428` means by *a second door to one page*: the rows, the rules and the
+     * refusals are one, and only the authorisation differs.
+     */
+    if (submitted['act'] === 'write' || submitted['act'] === 'hand-back') {
+      const shares = deps.operatorShares
+      const shareId = typeof submitted['shareId'] === 'string' ? submitted['shareId'] : ''
+      const shareBody = async (shareError?: string) =>
+        html(
+          reply,
+          await operatorPageBody(deps, door.token, action, door.view, {
+            fillDrops: true,
+            ...(shares === undefined ? {} : { shareAction: action }),
+            ...(shareError === undefined ? {} : { shareError }),
+          }),
+        )
+
+      if (shares === undefined || shareId === '') {
+        return await shareBody('That share is not one this page can reach any more.')
+      }
+
+      if (submitted['act'] === 'hand-back') {
+        await shares.handBack({ humanId: door.humanId }, shareId)
+        return await shareBody()
+      }
+
+      const addition = typeof submitted['addition'] === 'string' ? submitted['addition'] : ''
+      const refusal = shareAdditionError(addition)
+      if (refusal !== undefined) return await shareBody(refusal)
+
+      const written = await shares.write({ humanId: door.humanId }, shareId, addition.trim())
+
+      return await shareBody(
+        written.outcome === 'closed'
+          ? 'That share ended before this was saved. Nothing was written.'
+          : undefined,
+      )
+    }
 
     if (submitted['intent'] === 'note') {
       /**

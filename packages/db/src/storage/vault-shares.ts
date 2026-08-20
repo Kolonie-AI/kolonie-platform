@@ -1,12 +1,15 @@
-import { and, asc, eq, isNotNull, isNull, lte, sql } from 'drizzle-orm'
+import { and, asc, eq, isNotNull, isNull, lte, or, sql } from 'drizzle-orm'
 import {
   now as currentTime,
   VAULT_SHARE_DEFAULT_DAYS,
   VAULT_SHARE_MAX_DAYS,
   type AgentId,
+  type HumanId,
   type Timestamp,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
+import { humanAgents } from '../schema/human-links.js'
+import { operatorPages } from '../schema/operator-pages.js'
 import { agentVault } from '../schema/vault.js'
 import { vaultShares } from '../schema/vault-shares.js'
 import { openVaultValue, sealVaultValue, vaultDescriptionScope } from '../vault-crypto.js'
@@ -55,6 +58,17 @@ export interface VaultShareRow {
   readonly expiresAt: Timestamp
   /** Whether the operator has written back. Never *what* — see the core schema. */
   readonly operatorWrote: boolean
+  /**
+   * How many times a person has opened the value (`#1440`).
+   *
+   * **Zero is the answer that matters.** It is what tells a citizen its operator
+   * has not looked yet, as against having looked and not acted — two states that
+   * were indistinguishable on every channel before this, and the reason nobody
+   * noticed forty-two unread handovers for as long as they did.
+   */
+  readonly reads: number
+  /** When the last of those reads was, or null. */
+  readonly lastReadAt: Timestamp | null
 }
 
 /** What happened when a citizen tried to share something. */
@@ -204,6 +218,8 @@ export async function shareVaultEntry(
       sharedAt: vaultShares.sharedAt,
       expiresAt: vaultShares.expiresAt,
       operatorAddition: vaultShares.operatorAddition,
+      reads: vaultShares.reads,
+      lastReadAt: vaultShares.lastReadAt,
     })
 
   if (stored === undefined) throw new Error('vault_shares upsert returned no row')
@@ -211,12 +227,7 @@ export async function shareVaultEntry(
   return {
     outcome: 'shared',
     shareId: stored.id,
-    share: {
-      purpose: stored.purpose,
-      sharedAt: toTimestamp(stored.sharedAt),
-      expiresAt: toTimestamp(stored.expiresAt),
-      operatorWrote: stored.operatorAddition !== null,
-    },
+    share: shareRow(stored),
     extended: alreadyOpen,
   }
 }
@@ -227,6 +238,17 @@ export type UnshareVaultEntryOutcome =
       readonly outcome: 'unshared'
       /** What the operator wrote, handed over once. Null if they wrote nothing. */
       readonly operatorAddition: string | null
+      /** How many times a person opened it while it was shared (`#1440`). */
+      readonly reads: number
+      /**
+       * Whether the operator had already handed it back (`#1440`).
+       *
+       * *The person finished with this* and *I closed it myself* are different
+       * facts, and a citizen reading only that the share is over cannot tell
+       * them apart. `unshare` on a share they already ended still succeeds — it
+       * is how the addition is collected — and says so.
+       */
+      readonly handedBackByOperator: boolean
     }
   /** There was no open share under that name — expired, never opened, or already ended. */
   | { readonly outcome: 'not-shared' }
@@ -255,17 +277,32 @@ export async function unshareVaultEntry(
   key: string,
   sealingKey: string,
 ): Promise<UnshareVaultEntryOutcome> {
+  /**
+   * **The operator's own take-back is not an obstacle here.** A share they ended
+   * still holds what they wrote, and the citizen has to be able to collect it —
+   * so this matches on `taken_back_by` being theirs as readily as on the share
+   * being open, and only a share the *citizen* already ended answers nothing.
+   */
   const [ended] = await db
     .update(vaultShares)
-    .set({ takenBackAt: currentTime(), sealedValue: null, sealedDescription: null })
+    .set({
+      takenBackAt: currentTime(),
+      takenBackBy: sql`coalesce(${vaultShares.takenBackBy}, 'citizen')`,
+      sealedValue: null,
+      sealedDescription: null,
+    })
     .where(
       and(
         eq(vaultShares.agentId, agentId),
         eq(vaultShares.vaultKey, key),
-        isNull(vaultShares.takenBackAt),
+        or(isNull(vaultShares.takenBackAt), eq(vaultShares.takenBackBy, 'operator')),
       ),
     )
-    .returning({ operatorAddition: vaultShares.operatorAddition })
+    .returning({
+      operatorAddition: vaultShares.operatorAddition,
+      reads: vaultShares.reads,
+      takenBackBy: vaultShares.takenBackBy,
+    })
 
   if (ended === undefined) return { outcome: 'not-shared' }
 
@@ -280,7 +317,12 @@ export async function unshareVaultEntry(
       ? null
       : openVaultValue(sealingKey, String(agentId), additionScope(key), ended.operatorAddition)
 
-  return { outcome: 'unshared', operatorAddition: addition }
+  return {
+    outcome: 'unshared',
+    operatorAddition: addition,
+    reads: ended.reads,
+    handedBackByOperator: ended.takenBackBy === 'operator',
+  }
 }
 
 /**
@@ -301,6 +343,8 @@ export async function openShareFor(
       sharedAt: vaultShares.sharedAt,
       expiresAt: vaultShares.expiresAt,
       operatorAddition: vaultShares.operatorAddition,
+      reads: vaultShares.reads,
+      lastReadAt: vaultShares.lastReadAt,
     })
     .from(vaultShares)
     .where(
@@ -335,6 +379,8 @@ export async function openSharesFor(
       sharedAt: vaultShares.sharedAt,
       expiresAt: vaultShares.expiresAt,
       operatorAddition: vaultShares.operatorAddition,
+      reads: vaultShares.reads,
+      lastReadAt: vaultShares.lastReadAt,
     })
     .from(vaultShares)
     .where(
@@ -382,11 +428,356 @@ function shareRow(row: {
   readonly sharedAt: string
   readonly expiresAt: string
   readonly operatorAddition: string | null
+  readonly reads?: number
+  readonly lastReadAt?: string | null
 }): VaultShareRow {
   return {
     purpose: row.purpose,
     sharedAt: toTimestamp(row.sharedAt),
     expiresAt: toTimestamp(row.expiresAt),
     operatorWrote: row.operatorAddition !== null,
+    reads: row.reads ?? 0,
+    lastReadAt: row.lastReadAt == null ? null : toTimestamp(row.lastReadAt),
+  }
+}
+
+/**
+ * What an operator sees of one shared entry, and can act on (`#1440`).
+ *
+ * **The value is in it.** `#1437` frozen decision 1 reverses the rule that
+ * governed drops and handovers — *a secret only in a signed-in console, never
+ * through the mailed link* — deliberately, because that rule is the most likely
+ * reason nothing ever arrived: 42 handovers opened and 0 read, 7 drops opened
+ * and 0 filled. The cost is stated rather than hidden, on the page, once.
+ */
+export interface SharedEntryForOperator {
+  readonly id: string
+  /** The entry's name — what the citizen calls it, and what they will call it back. */
+  readonly vaultKey: string
+  /** The citizen's own sentence about why they are being shown this. */
+  readonly purpose: string
+  readonly expiresAt: Timestamp
+  /** The secret itself, opened here and nowhere else on this path. */
+  readonly value: string
+  readonly description: string | null
+  /** Whether they have already written something into it. */
+  readonly wrote: boolean
+}
+
+/**
+ * Every entry currently shared with the person holding this durable page.
+ *
+ * **The token resolves the agent and is never returned**, exactly as
+ * `openDropsForPageToken` does it. A revoked page reaches nothing: the join
+ * requires `revoked_at is null`, so `kolonie.operator.page.revoke` closes this
+ * door in the same instant it closes the rest of the page.
+ *
+ * **A value the Colony cannot open is left out rather than rendered empty.** A
+ * deployment whose sealing key has changed is the Colony's own fault, and a
+ * blank box beside a citizen's sentence would send a person to ask their agent
+ * about something the agent did nothing wrong in.
+ */
+export async function sharesForPageToken(
+  db: Database,
+  token: string,
+  sealingKey: string,
+): Promise<readonly SharedEntryForOperator[]> {
+  const rows = await db
+    .select({
+      id: vaultShares.id,
+      agentId: vaultShares.agentId,
+      vaultKey: vaultShares.vaultKey,
+      purpose: vaultShares.purpose,
+      expiresAt: vaultShares.expiresAt,
+      sealedValue: vaultShares.sealedValue,
+      sealedDescription: vaultShares.sealedDescription,
+      operatorAddition: vaultShares.operatorAddition,
+    })
+    .from(operatorPages)
+    .innerJoin(vaultShares, eq(vaultShares.agentId, operatorPages.agentId))
+    .where(
+      and(
+        eq(operatorPages.token, token),
+        isNull(operatorPages.revokedAt),
+        isNull(vaultShares.takenBackAt),
+        isNotNull(vaultShares.sealedValue),
+        sql`${vaultShares.expiresAt} > now()`,
+      ),
+    )
+    .orderBy(asc(vaultShares.sharedAt), asc(vaultShares.id))
+
+  return openRows(rows, sealingKey)
+}
+
+/**
+ * The same, for a signed-in operator over `human_agents` (`#1440`).
+ *
+ * **A second door onto one thing, and not a second rule.** The console is the
+ * same person, more strongly authenticated; what differs is only how the rows
+ * are found. `agentId` narrows to one citizen for a console page that is already
+ * about one agent — a convenience, not a permission, because a person who does
+ * not operate that citizen has no `human_agents` row either way.
+ */
+export async function sharesForOperator(
+  db: Database,
+  humanId: HumanId,
+  sealingKey: string,
+  agentId?: AgentId,
+): Promise<readonly SharedEntryForOperator[]> {
+  const rows = await db
+    .select({
+      id: vaultShares.id,
+      agentId: vaultShares.agentId,
+      vaultKey: vaultShares.vaultKey,
+      purpose: vaultShares.purpose,
+      expiresAt: vaultShares.expiresAt,
+      sealedValue: vaultShares.sealedValue,
+      sealedDescription: vaultShares.sealedDescription,
+      operatorAddition: vaultShares.operatorAddition,
+    })
+    .from(humanAgents)
+    .innerJoin(vaultShares, eq(vaultShares.agentId, humanAgents.agentId))
+    .where(
+      and(
+        eq(humanAgents.humanId, humanId),
+        agentId === undefined ? undefined : eq(vaultShares.agentId, agentId),
+        isNull(vaultShares.takenBackAt),
+        isNotNull(vaultShares.sealedValue),
+        sql`${vaultShares.expiresAt} > now()`,
+      ),
+    )
+    .orderBy(asc(vaultShares.sharedAt), asc(vaultShares.id))
+
+  return openRows(rows, sealingKey)
+}
+
+function openRows(
+  rows: readonly {
+    readonly id: string
+    readonly agentId: string
+    readonly vaultKey: string
+    readonly purpose: string
+    readonly expiresAt: string
+    readonly sealedValue: string | null
+    readonly sealedDescription: string | null
+    readonly operatorAddition: string | null
+  }[],
+  sealingKey: string,
+): readonly SharedEntryForOperator[] {
+  const opened: SharedEntryForOperator[] = []
+
+  for (const row of rows) {
+    if (row.sealedValue === null) continue
+    const value = openVaultValue(sealingKey, row.agentId, shareScope(row.vaultKey), row.sealedValue)
+    if (value === null) continue
+
+    opened.push({
+      id: row.id,
+      vaultKey: row.vaultKey,
+      purpose: row.purpose,
+      expiresAt: toTimestamp(row.expiresAt),
+      value,
+      description:
+        row.sealedDescription === null
+          ? null
+          : openVaultValue(
+              sealingKey,
+              row.agentId,
+              vaultDescriptionScope(shareScope(row.vaultKey)),
+              row.sealedDescription,
+            ),
+      wrote: row.operatorAddition !== null,
+    })
+  }
+
+  return opened
+}
+
+/**
+ * Count that a person actually opened one (`#1440`).
+ *
+ * **Called where the value is disclosed and nowhere else.** An operator whose
+ * page happened to render a share has not read it, and a counter that said
+ * otherwise would be the same kind of lie `agent_handovers.reads` told by being
+ * counted and never shown.
+ *
+ * Answers whether it counted, so a caller can tell a live share from one that
+ * ended between the render and the click.
+ */
+export async function recordShareRead(db: Database, shareId: string): Promise<boolean> {
+  const counted = await db
+    .update(vaultShares)
+    .set({ reads: sql`${vaultShares.reads} + 1`, lastReadAt: currentTime() })
+    .where(
+      and(
+        eq(vaultShares.id, shareId),
+        isNull(vaultShares.takenBackAt),
+        sql`${vaultShares.expiresAt} > now()`,
+      ),
+    )
+    .returning({ id: vaultShares.id })
+
+  return counted.length > 0
+}
+
+/** What happened when an operator wrote into a share, or handed it back. */
+export type OperatorShareOutcome =
+  | { readonly outcome: 'written' }
+  | { readonly outcome: 'handed-back' }
+  /**
+   * Expired, already taken back, or not this person's to touch.
+   *
+   * **One outcome for all of them**, which is the refusal `viewDrop` makes and
+   * for the same reason: telling them apart would let somebody holding a guessed
+   * id learn that it names a real share belonging to somebody else's agent.
+   */
+  | { readonly outcome: 'closed' }
+
+/**
+ * Write the operator's addition into a share they can currently reach (`#1440`).
+ *
+ * **Sealed before it reaches the database**, under the Colony's key and the
+ * share's own scope, so a ciphertext lifted onto another row opens as nothing.
+ * It is handed to the citizen exactly once, by `unshare`, and never merged.
+ *
+ * **A second write replaces the first.** An operator that mistyped a billing PIN
+ * has one way to correct it and it is the box in front of them; a channel where
+ * the first answer wins would leave them with no way at all.
+ */
+export async function writeShareAddition(
+  db: Database,
+  reach: { readonly pageToken?: string; readonly humanId?: HumanId },
+  shareId: string,
+  value: string,
+  sealingKey: string,
+): Promise<OperatorShareOutcome> {
+  const found = await reachableShare(db, reach, shareId)
+  if (found === undefined) return { outcome: 'closed' }
+
+  const sealed = sealVaultValue(sealingKey, found.agentId, additionScope(found.vaultKey), value)
+
+  const [written] = await db
+    .update(vaultShares)
+    .set({ operatorAddition: sealed })
+    .where(and(eq(vaultShares.id, shareId), isNull(vaultShares.takenBackAt)))
+    .returning({ id: vaultShares.id })
+
+  return written === undefined ? { outcome: 'closed' } : { outcome: 'written' }
+}
+
+/**
+ * End a share from the operator's side (`#1440`).
+ *
+ * **Their half of the same act the citizen's `unshare` is.** What differs is
+ * `taken_back_by`, so the citizen can tell *the person finished with this* from
+ * *I closed it myself* — and the addition survives, because what they wrote is
+ * the citizen's whether or not they also handed the entry back.
+ */
+export async function handBackShare(
+  db: Database,
+  reach: { readonly pageToken?: string; readonly humanId?: HumanId },
+  shareId: string,
+): Promise<OperatorShareOutcome> {
+  const found = await reachableShare(db, reach, shareId)
+  if (found === undefined) return { outcome: 'closed' }
+
+  const [ended] = await db
+    .update(vaultShares)
+    .set({
+      takenBackAt: currentTime(),
+      takenBackBy: 'operator',
+      sealedValue: null,
+      sealedDescription: null,
+    })
+    .where(and(eq(vaultShares.id, shareId), isNull(vaultShares.takenBackAt)))
+    .returning({ id: vaultShares.id })
+
+  return ended === undefined ? { outcome: 'closed' } : { outcome: 'handed-back' }
+}
+
+/**
+ * The one authorisation both operator writes go through.
+ *
+ * Either door — a live durable page token, or a `human_agents` row — and never
+ * a bare id. Written once rather than twice so the two doors cannot drift into
+ * having different rules, which is what `sealIntoDrop` is for one channel over.
+ */
+async function reachableShare(
+  db: Database,
+  reach: { readonly pageToken?: string; readonly humanId?: HumanId },
+  shareId: string,
+): Promise<{ readonly agentId: string; readonly vaultKey: string } | undefined> {
+  const live = and(
+    eq(vaultShares.id, shareId),
+    isNull(vaultShares.takenBackAt),
+    sql`${vaultShares.expiresAt} > now()`,
+  )
+
+  if (reach.pageToken !== undefined) {
+    const [row] = await db
+      .select({ agentId: vaultShares.agentId, vaultKey: vaultShares.vaultKey })
+      .from(operatorPages)
+      .innerJoin(vaultShares, eq(vaultShares.agentId, operatorPages.agentId))
+      .where(and(eq(operatorPages.token, reach.pageToken), isNull(operatorPages.revokedAt), live))
+      .limit(1)
+    return row
+  }
+
+  if (reach.humanId !== undefined) {
+    const [row] = await db
+      .select({ agentId: vaultShares.agentId, vaultKey: vaultShares.vaultKey })
+      .from(humanAgents)
+      .innerJoin(vaultShares, eq(vaultShares.agentId, humanAgents.agentId))
+      .where(and(eq(humanAgents.humanId, reach.humanId), live))
+      .limit(1)
+    return row
+  }
+
+  return undefined
+}
+
+/**
+ * What has moved on this citizen's shares, as four counts (`#1440`).
+ *
+ * **One statement, no text, no value.** It is read on every waking, so it must
+ * be cheap; and it is a digest, so it must never carry what the operator wrote —
+ * that comes back once, on `unshare`, and a count is the honest form of it here.
+ *
+ * `handedBack` counts shares the **operator** ended and the citizen has not
+ * collected. Those are not open, so they are not in `open`: a person saying *I
+ * am finished* is a different fact from a person who can still read something.
+ */
+export async function vaultSharesWakeupDelta(
+  db: Database,
+  agentId: AgentId,
+): Promise<{
+  readonly open: number
+  readonly read: number
+  readonly written: number
+  readonly handedBack: number
+}> {
+  const [row] = await db.execute<{
+    open: string
+    read: string
+    written: string
+    handed_back: string
+  }>(sql`
+    select
+      count(*) filter (where taken_back_at is null and expires_at > now())::text as open,
+      count(*) filter (where taken_back_at is null and expires_at > now() and reads > 0)::text
+        as read,
+      count(*) filter (
+        where taken_back_at is null and expires_at > now() and operator_addition is not null
+      )::text as written,
+      count(*) filter (where taken_back_by = 'operator')::text as handed_back
+    from vault_shares
+    where agent_id = ${agentId}::uuid
+  `)
+
+  return {
+    open: Number(row?.open ?? 0),
+    read: Number(row?.read ?? 0),
+    written: Number(row?.written ?? 0),
+    handedBack: Number(row?.handed_back ?? 0),
   }
 }

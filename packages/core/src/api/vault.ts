@@ -112,6 +112,22 @@ export const VaultShareSchema = z.object({
    * waking and the one place a secret least belongs.
    */
   operatorWrote: z.boolean(),
+  /**
+   * How many times a person has opened the value (`#1440`).
+   *
+   * **Zero is the reading that matters**, and it is the number whose absence
+   * made the channels this replaces impossible to debug: `agent_handovers.reads`
+   * existed, nothing ever showed it, and nobody noticed forty-two unread until
+   * somebody looked in production. *Nobody has answered yet* and *nobody ever
+   * opened it* are different problems and only one of them is worth waiting
+   * through.
+   *
+   * Counted when the value is disclosed, not when the page renders: an operator
+   * scrolling past a share has not read it.
+   */
+  reads: z.number().int().min(0),
+  /** When the last of those reads was, or null. */
+  lastReadAt: TimestampSchema.nullable(),
 })
 export type VaultShare = z.infer<typeof VaultShareSchema>
 
@@ -401,6 +417,15 @@ export const UnshareVaultEntryResponseSchema = z.object({
   key: VaultKeySchema,
   /** What the operator wrote back, once, or null if they wrote nothing. */
   operatorAddition: z.string().nullable(),
+  /** How many times a person opened it while it was shared (`#1440`). */
+  reads: z.number().int().min(0),
+  /**
+   * Whether the operator had already handed it back (`#1440`).
+   *
+   * *They finished with this* and *I closed it myself* are different facts, and
+   * a citizen told only that the share is over cannot tell them apart.
+   */
+  handedBackByOperator: z.boolean(),
   /** The entry as it now stands, with no share on it. */
   entry: VaultEntrySchema,
 })

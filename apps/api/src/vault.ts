@@ -464,6 +464,8 @@ export async function unshareVaultEntry(
     response: {
       key: named.key,
       operatorAddition: ended.operatorAddition,
+      reads: ended.reads,
+      handedBackByOperator: ended.handedBackByOperator,
       entry: entryOr(read, named.key, null),
     },
   }

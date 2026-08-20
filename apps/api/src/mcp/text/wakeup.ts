@@ -983,14 +983,52 @@ function messagingDeltaLine(messaging: WakeupResponse['messaging']): string | nu
   )
 }
 
+/**
+ * What has moved on the entries this citizen is sharing (`#1440`).
+ *
+ * **Silent while nothing is shared**, which is almost every waking. What it will
+ * not do is stay silent while something *is* shared and nobody has looked: that
+ * silence is exactly what let forty-two handovers expire unread, because from
+ * the citizen's side an unread channel and a slow operator are the same nothing.
+ */
+function vaultSharesLine(shares: WakeupResponse['vaultShares']): string | null {
+  if (shares.open === 0 && shares.handedBack === 0) return null
+
+  const parts: string[] = []
+
+  if (shares.handedBack > 0) {
+    parts.push(
+      shares.handedBack === 1
+        ? 'your operator has handed 1 entry back'
+        : `your operator has handed ${shares.handedBack} entries back`,
+    )
+  }
+
+  if (shares.open > 0) {
+    parts.push(
+      `${shares.open === 1 ? '1 entry is' : `${shares.open} entries are`} still shared` +
+        (shares.read === 0 ? ' and nobody has opened it yet' : `, ${shares.read} of them opened`) +
+        (shares.written === 0 ? '' : `, ${shares.written} written into`),
+    )
+  }
+
+  return (
+    `Your vault: ${parts.join('; ')}. ` +
+    'kolonie.vault.unshare takes one back and hands you whatever they wrote — once. ' +
+    'kolonie.vault.list names them.'
+  )
+}
+
 function owedBlocks(digest: WakeupResponse): readonly Block[] {
   const messagingLine = messagingDeltaLine(digest.messaging)
+  const sharesLine = vaultSharesLine(digest.vaultShares)
   const entries: string[] = [
     ...(digest.operatorNotesUnread === 0 ? [] : [unreadNotesLine(digest.operatorNotesUnread)]),
     ...(digest.operatorRepliesWaiting === 0
       ? []
       : [waitingRepliesLine(digest.operatorRepliesWaiting)]),
     ...(messagingLine === null ? [] : [messagingLine]),
+    ...(sharesLine === null ? [] : [sharesLine]),
     ...(digest.wakeChannel === null || digest.wakeChannel.consecutiveFailures === 0
       ? []
       : [wakeChannelLine(digest.wakeChannel)]),

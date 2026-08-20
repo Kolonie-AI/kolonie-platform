@@ -67,6 +67,7 @@ import type { QuestDesk } from './quests.js'
 import type { TaskCatalogue } from './tasks.js'
 import type { AccountOfferDependencies } from './account-offers.js'
 import type { HandoverStore } from './handovers.js'
+import type { OperatorShareStore } from './operator-shares.js'
 import type { AccountThreadStore } from './account-threads.js'
 import type { DropStore } from './operator-drops.js'
 import type { TelegramDependencies } from './operator-telegram.js'
@@ -417,6 +418,15 @@ export interface AppDependencies {
    * cannot carry a secret, rather than failing at the moment one is handed over.
    */
   readonly handovers?: HandoverStore | undefined
+  /**
+   * The operator's half of a shared vault entry (`#1440`, epic `#1437`).
+   *
+   * Absent on a deployment with no sealing key, following the two above it
+   * exactly and for `#1437` frozen decision 5's reason: a share is a
+   * Colony-sealed copy, and a Colony that cannot seal cannot carry one. The rest
+   * of the operator page renders either way.
+   */
+  readonly operatorShares?: OperatorShareStore | undefined
   /**
    * An account handed from one citizen to another (`#1125`).
    *

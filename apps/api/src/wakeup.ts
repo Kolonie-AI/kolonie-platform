@@ -9,6 +9,7 @@ import {
   WAKEUP_FINAL_LINE,
   type AgentId,
   type WakeupMessagingDelta,
+  type WakeupVaultSharesDelta,
   type WakeupOpen,
   type Task,
   type WakeupResponse,
@@ -27,6 +28,7 @@ import {
   countWaitingOperatorReplies,
   escalationFactsFor,
   messagingWakeupDelta,
+  vaultSharesWakeupDelta,
   walksToAskAbout,
   previousSessionStart,
   recordWakeupAnswer,
@@ -146,6 +148,13 @@ export interface WakeupSource {
    * **Bodies never travel on this path.** Counts and sample ids only.
    */
   messagingDelta?(agentId: AgentId): Promise<WakeupMessagingDelta>
+  /**
+   * What has moved on this citizen's shared vault entries (`#1440`).
+   *
+   * Optional like `messagingDelta` beside it, and for the same reason: a
+   * deployment without the store answers zeros rather than failing the waking.
+   */
+  vaultSharesDelta?(agentId: AgentId): Promise<WakeupVaultSharesDelta>
 
   /**
    * Why this citizen is suspended, when it is (`#1291`).
@@ -254,6 +263,7 @@ export interface WakeupSource {
       // Read by `messagingDelta` on the source (`#1287`), not by `changes`.
       // Unread and pending are obligations rather than news inside a window.
       | 'messaging'
+      | 'vaultShares'
     >
   >
 }
@@ -287,6 +297,7 @@ export function databaseWakeup(db: Database, rechecks?: RecheckDependencies): Wa
     waitingOperatorReplies: (agentId) => countWaitingOperatorReplies(db, agentId),
     contributionQualityWarning: (agentId, now) => quality.warningFor(agentId, now),
     messagingDelta: (agentId) => messagingWakeupDelta(db, agentId),
+    vaultSharesDelta: (agentId) => vaultSharesWakeupDelta(db, agentId),
     suspension: async (agentId) => {
       const { suspended, row } = await suspensionStandingOf(db, agentId)
       if (!suspended) return null
@@ -650,6 +661,7 @@ export async function wakeup(
     open,
     startableAdded,
     messagingCounts,
+    vaultShares,
     suspension,
   ] = await Promise.all([
     source.changes(agentId, since),
@@ -665,6 +677,8 @@ export async function wakeup(
       : openingsFor(agentId, openings.skills, openings.source, available),
     startableSince(agentId, since, openings?.source),
     source.messagingDelta?.(agentId) ?? Promise.resolve(emptyMessaging),
+    source.vaultSharesDelta?.(agentId) ??
+      Promise.resolve({ open: 0, read: 0, written: 0, handedBack: 0 }),
     source.suspension?.(agentId) ?? Promise.resolve(null),
   ])
 
@@ -914,6 +928,14 @@ export async function wakeup(
        * stay on `kolonie.messages.*`, so a waking never embeds private words.
        */
       messaging,
+      /**
+       * What has moved on the entries this citizen is sharing (`#1440`).
+       *
+       * Counts and no value, for the reason `messaging` above carries no
+       * bodies. What the operator wrote comes back once, on
+       * `kolonie.vault.unshare`.
+       */
+      vaultShares,
       wakeChannel,
       // A standing and not an event, exactly as the channel above it is
       // (`#1291`). `null` for everybody not suspended.

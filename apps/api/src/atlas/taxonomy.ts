@@ -1,4 +1,4 @@
-import { ATLAS_FALLBACK_CATEGORY, earnFacetsOf, type EarnFacet } from '@kolonie-ai/core'
+import { ATLAS_FALLBACK_CATEGORY, earnFacetsOf, isDualUse, type EarnFacet } from '@kolonie-ai/core'
 import type { AtlasPublicEntry } from './public-projection.js'
 
 /**
@@ -118,6 +118,32 @@ export function atlasShelfClause(entry: AtlasPublicEntry): string | undefined {
  */
 export function atlasShelfIsClaim(entry: AtlasPublicEntry): boolean {
   return !atlasShelfIsFallback(entry)
+}
+
+/**
+ * Whether this entry is dual use *as a page may say it* (`#1388`).
+ *
+ * **`isDualUse` is right and is not what a renderer wants.** It answers a
+ * question about a facet list — *does this carry both axes* — which is what
+ * `#1301` defined and what a caller holding a list can ask. A renderer holds the
+ * **entry**, and can therefore ask the question the list cannot: whether the
+ * utility axis said anything, or whether the only thing on it is a shelf nobody
+ * chose.
+ *
+ * Measured on `clawlancer.ai`, 2026-08-20, the day after `#1332` shipped the
+ * chip: a bounty board whose kind reaches no shelf, sitting on the
+ * `data-apis` fallback, wearing *worth holding, and pays*. `#1329` had demoted
+ * that shelf out of the header two clauses earlier precisely because it is a
+ * default and not a classification; the chip put it back in stronger words.
+ *
+ * So dual use on a page is *both axes said something*, and a fallback shelf said
+ * nothing. What is left is a provider that pays, which the earn chip beside it
+ * already states — one true claim instead of one true and one invented.
+ */
+export function atlasIsDualUse(entry: AtlasPublicEntry): boolean {
+  if (atlasShelfIsFallback(entry)) return false
+
+  return isDualUse(entry.facets ?? [])
 }
 
 /** The slug the fallback uses, re-exported so a renderer need not import core for it. */

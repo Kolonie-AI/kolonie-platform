@@ -183,7 +183,156 @@ const theWardens: DataMigrationCase = {
   },
 }
 
-const DATA_MIGRATIONS: readonly DataMigrationCase[] = [theWardens]
+/**
+ * **`0321`, the exchanges that become threads** (`#1324`, epic `#1318`).
+ *
+ * `#1325` drops `operator_requests` and `operator_request_messages`. This is
+ * what makes that a pure drop rather than a loss of human context, and on an
+ * empty database every statement in it matches nothing — which is exactly the
+ * hole this file exists for.
+ *
+ * The seed is three exchanges and answers four questions: that an open one moves
+ * whole, that a closed one moves too (rule 4's *migrate all*), that an
+ * `answer_kind` survives onto the operator's side, and that an exchange whose
+ * citizen has **no linked human** is left alone rather than given an invented
+ * participant.
+ */
+const theExchanges: DataMigrationCase = {
+  migration: '0321_exchanges_become_threads',
+  after: '0320_a_ping_about_a_thread',
+  moves: 'every operator exchange into a messaging thread',
+
+  async seed(db) {
+    const agent = async (name: string) => {
+      const [row] = await db.execute<{ id: string }>(
+        sql`insert into agents (name, platform) values (${name}, 'openclaw') returning id`,
+      )
+      return row!.id
+    }
+    const human = async (operates: string | null) => {
+      const [row] = await db.execute<{ id: string }>(
+        sql`insert into humans default values returning id`,
+      )
+      if (operates !== null) {
+        await db.execute(
+          sql`insert into human_agents (agent_id, human_id) values (${operates}, ${row!.id})`,
+        )
+      }
+      return row!.id
+    }
+    // `operator_requests_exactly_one_provenance` — an exchange was always
+    // *about* something, so every fixture row names a task. That provenance is
+    // also what the migration carries onto the conversation.
+    const [task] = await db.execute<{ id: string }>(
+      sql`insert into tasks (type, title, description, instructions, status,
+                             reward_reputation, timeout_hours, recommended_order)
+          values (${aName('exchange-case')}, 'Hold a GitHub account',
+                  'What this task is.', 'What the agent must do.', 'active', 1, 24, 0)
+          returning id`,
+    )
+    const exchange = async (agentId: string, closed: boolean) => {
+      const [row] = await db.execute<{ id: string }>(
+        sql`insert into operator_requests (agent_id, task_id, closed_at)
+            values (${agentId}, ${task!.id}, ${closed ? sql`now()` : sql`null`})
+            returning id`,
+      )
+      return row!.id
+    }
+    const said = async (
+      requestId: string,
+      author: 'citizen' | 'operator',
+      body: string,
+      kind: string | null,
+    ) => {
+      await db.execute(
+        sql`insert into operator_request_messages (request_id, author, body, answer_kind)
+            values (${requestId}, ${author}::operator_request_author, ${body},
+                    ${kind === null ? sql`null` : sql`${kind}::operator_answer_kind`})`,
+      )
+    }
+
+    const withOperator = await agent(aName('exchange-case-linked'))
+    await human(withOperator)
+    const orphan = await agent(aName('exchange-case-orphan'))
+    // A person exists but answers for nobody, so the orphan's exchange has no
+    // participant to give the operator side.
+    await human(null)
+
+    const open = await exchange(withOperator, false)
+    await said(open, 'citizen', 'Could you open the account?', null)
+    await said(open, 'operator', 'You may go ahead.', 'permission')
+
+    const closed = await exchange(withOperator, true)
+    await said(closed, 'citizen', 'The old one, long finished.', null)
+
+    const unlinked = await exchange(orphan, false)
+    await said(unlinked, 'citizen', 'Nobody answers for me.', null)
+
+    return { open, closed, unlinked, withOperator, orphan, task: task!.id }
+  },
+
+  async check(db, seeded) {
+    const threadOf = async (requestId: string) => {
+      const [row] = await db.execute<{ conversation_id: string }>(
+        sql`select conversation_id from operator_request_conversations
+             where request_id = ${requestId}`,
+      )
+      return row?.conversation_id
+    }
+
+    const open = await threadOf(seeded['open']!)
+    const closed = await threadOf(seeded['closed']!)
+    expect(open).toBeDefined()
+    // Rule 4's preferred (a): the closed ones move too, so slice G is a pure drop.
+    expect(closed).toBeDefined()
+
+    // **The skip, and it is the point of the case.** A thread needs an
+    // `operator-human` participant, which needs a `human_id`; an exchange needs
+    // only an operator page. There is no honest row to invent for one whose
+    // citizen has no link, so it stays where it is and `#1325` decides its fate
+    // with the count in front of whoever decides.
+    expect(await threadOf(seeded['unlinked']!)).toBeUndefined()
+
+    // The exchange's provenance is the thread's, which is what makes asking
+    // again about the same task land where the answer already is.
+    const [provenance] = await db.execute<{ task_id: string | null }>(
+      sql`select task_id from message_conversations where id = ${open!}`,
+    )
+    expect(provenance!.task_id).toBe(seeded['task']!)
+
+    const parties = await db.execute<{ party: string; label: string }>(
+      sql`select party::text as party, label from message_participants
+           where conversation_id = ${open!} order by party`,
+    )
+    expect(parties.map((row) => row.party)).toEqual(['citizen', 'operator-human'])
+    expect(parties.find((row) => row.party === 'operator-human')?.label).toBe('your operator')
+
+    const said = await db.execute<{
+      body: string
+      sender_party: string
+      answer_kind: string | null
+    }>(
+      sql`select body, sender_party::text as sender_party, answer_kind::text as answer_kind
+            from messages where conversation_id = ${open!} order by created_at`,
+    )
+    expect(said.map((row) => `${row.sender_party}: ${row.body}`)).toEqual([
+      'citizen: Could you open the account?',
+      'operator-human: You may go ahead.',
+    ])
+    // The declaration survives, on the only party `messages_answer_kind_party`
+    // permits it on.
+    expect(said[1]?.answer_kind).toBe('permission')
+
+    // Nothing was written for the citizen nobody answers for.
+    const [orphaned] = await db.execute<{ count: string }>(
+      sql`select count(*)::text as count from message_participants
+           where agent_id = ${seeded['orphan']!}`,
+    )
+    expect(orphaned!.count).toBe('0')
+  },
+}
+
+const DATA_MIGRATIONS: readonly DataMigrationCase[] = [theWardens, theExchanges]
 
 /**
  * **A migration that moves data, run against a database that has some**

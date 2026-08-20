@@ -670,6 +670,13 @@ describe('schema', () => {
          * outlives the answer and is what the operator comes back to.
          */
         'operator_pages',
+        /**
+         * Which exchange became which thread (`#1324`, epic `#1318`) — a
+         * transient table with an end date, dropped by `#1325` together with
+         * `operator_requests`, which it cascades from. It exists so the data
+         * move is safe to run twice.
+         */
+        'operator_request_conversations',
         'operator_request_messages',
         'operator_requests',
         /**

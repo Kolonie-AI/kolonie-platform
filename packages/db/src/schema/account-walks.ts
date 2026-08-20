@@ -27,7 +27,7 @@ import {
   type WalkedRecipe,
 } from '@kolonie-ai/core'
 import { agents } from './agents.js'
-import { moderationStatus } from './enums.js'
+import { moderationStatus, walkRefusalLine } from './enums.js'
 
 /**
  * The vocabularies, taken from `core` so the tables cannot disagree with it —
@@ -331,6 +331,28 @@ export const accountWalks = pgTable(
     proseRefusalReason: text('prose_refusal_reason'),
 
     /**
+     * Which red line that refusal was about (`#1467`).
+     *
+     * **The sentence beside it is the walker's answer; this is the Colony's.**
+     * `prose_refusal_reason` is written for the citizen to read and says what
+     * went wrong in this page; a `count(distinct …)` over it counts wordings, and
+     * the moderator writes a fresh sentence every time. On 2026-08-20 that
+     * suspended `assay` for hitting one wall five times — fourteen refusals in a
+     * day, every one of them the bandwidth shelf's *the client is the product*.
+     *
+     * So the backstop counts distinct values of **this** column, and the walker
+     * feedback names it. It costs no second model call: the red-line stage
+     * already answers from a closed `choices` set, and this is that answer.
+     *
+     * **Null on every refusal decided before this column existed**, exactly as
+     * the reason above is null before `#1340`, and nothing backfills it — a class
+     * assigned now would be the Colony claiming to have judged something it never
+     * looked at. `suspendForRefusedWalkProse` falls back to the sentence for those
+     * rows, which groups the verbatim repeats and no more.
+     */
+    proseRefusalLine: walkRefusalLine('prose_refusal_line'),
+
+    /**
      * The published walk this one repeats, where it repeats one (`#1104`).
      *
      * **Stored and answered, never refused.** A citizen that walked a provider
@@ -586,6 +608,18 @@ export const accountWalks = pgTable(
       sql`${table.proseRefusalReason} is null
           or (${table.proseStatus} = 'rejected'
               and length(${table.proseRefusalReason}) <= ${sql.raw(String(WALK_REFUSAL_REASON_MAX_LENGTH))})`,
+    ),
+
+    /**
+     * A line belongs to a refusal too, for the reason the reason does (`#1467`).
+     *
+     * Separate from the check above rather than folded into it: they are two
+     * facts, they became true in two different issues, and a single check would
+     * report the wrong one of them when it fired.
+     */
+    check(
+      'account_walks_prose_refusal_line_iff_rejected',
+      sql`${table.proseRefusalLine} is null or ${table.proseStatus} = 'rejected'`,
     ),
 
     /**

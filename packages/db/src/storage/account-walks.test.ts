@@ -12,10 +12,12 @@ import {
   WALK_PROSE_SCRUBBER_VERSION,
   WALK_PROSE_WINDOW,
   WALK_PUBLISHED_REPUTATION,
+  WALK_REFUSAL_LINES,
   WALK_REFUSAL_REASON_MAX_LENGTH,
   type AccountKind,
   type AgentId,
   type WalkOutcome,
+  type WalkRefusalLine,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
@@ -1452,6 +1454,7 @@ describe('the record of one agent obtaining one account', () => {
         judged: { wall: 'It wanted my operator by name.' },
         decision: 'rejected',
         reason: 'It names a person the walker was talking to.',
+        line: 'runnable-instruction',
       })
 
       expect(await moderatedWalkProse(db, where)).toHaveLength(0)
@@ -1473,6 +1476,7 @@ describe('the record of one agent obtaining one account', () => {
         judged: { wall: 'It wanted my operator by name.' },
         decision: 'rejected',
         reason: 'It names the person the walker was emailing.',
+        line: 'runnable-instruction',
       })
 
       expect((await accountWalk(db, walkId))?.proseRefusalReason).toBe(
@@ -1508,6 +1512,7 @@ describe('the record of one agent obtaining one account', () => {
         judged: { wall: 'A phone check.' },
         decision: 'rejected',
         reason: `It   names\n\na person. ${'x'.repeat(WALK_REFUSAL_REASON_MAX_LENGTH)}`,
+        line: 'runnable-instruction',
       })
 
       const kept = (await accountWalk(db, walkId))?.proseRefusalReason
@@ -1711,6 +1716,7 @@ describe('the record of one agent obtaining one account', () => {
           judged: { did: 'Already rejected.' },
           decision: 'rejected',
           reason: 'It names a person the walker was talking to.',
+          line: 'runnable-instruction',
         })
 
         const published = await walkInProgress(db, otherAgentId, {
@@ -1774,6 +1780,7 @@ describe('the record of one agent obtaining one account', () => {
             judged: { did: PROSE },
             decision: 'rejected',
             reason: 'It names a person the walker was talking to.',
+            line: 'runnable-instruction',
           },
           true,
         )
@@ -2072,6 +2079,7 @@ describe('the record of one agent obtaining one account', () => {
         judged: { wall: 'It wanted my operator by name.' },
         decision: 'rejected',
         reason: 'It names a person the walker was talking to.',
+        line: 'runnable-instruction',
       })
 
       expect(await rewardPublishedWalks(db)).toEqual([])
@@ -3424,7 +3432,13 @@ describe('putting a refusal back in front of a scrubber that has changed', () =>
       db,
       decision === 'approved'
         ? { walkId, judged: PROSE, decision, scrubbed: PROSE }
-        : { walkId, judged: PROSE, decision, reason: REFUSAL_REASON },
+        : {
+            walkId,
+            judged: PROSE,
+            decision,
+            reason: REFUSAL_REASON,
+            line: 'runnable-instruction' as const,
+          },
     )
     if (verdict.outcome !== 'written') throw new Error('the moderation did not land')
   }
@@ -3662,12 +3676,30 @@ describe('suspending a walker for what it kept writing', () => {
   /** What the judge said, so the tally can be asserted to carry it (`#1340`). */
   const REFUSAL_REASON = 'It names the person the walker was emailing.'
 
-  const judge = (walkId: string, decision: 'approved' | 'rejected') =>
+  const judge = (
+    walkId: string,
+    decision: 'approved' | 'rejected',
+    /**
+     * Which line, and which sentence (`#1467`).
+     *
+     * Defaulted rather than required at every call, because most of these tests
+     * are about the *rate* and do not care which wall was hit. The runs that
+     * reach the backstop pass distinct lines deliberately — see `judgePattern`,
+     * which is where the default stops being a default.
+     */
+    refusal: { readonly line?: WalkRefusalLine; readonly reason?: string } = {},
+  ) =>
     recordWalkProseModeration(
       db,
       decision === 'approved'
         ? { walkId, judged: PROSE, decision, scrubbed: PROSE }
-        : { walkId, judged: PROSE, decision, reason: REFUSAL_REASON },
+        : {
+            walkId,
+            judged: PROSE,
+            decision,
+            reason: refusal.reason ?? REFUSAL_REASON,
+            line: refusal.line ?? WALK_REFUSAL_LINES[0],
+          },
     )
 
   /**
@@ -3678,10 +3710,58 @@ describe('suspending a walker for what it kept writing', () => {
    * one has not said the earlier ones were quiet. That is why this hands back
    * every answer rather than the final status.
    */
+  /**
+   * How many refusals each walker has been handed, so the line cycle below
+   * continues across calls. A counter local to one `judgePattern` would restart
+   * at the first line on the second call, and a test that judges four and then
+   * one would be handing out four distinct walls rather than five.
+   */
+  const refusalsPerWalker = new Map<AgentId, number>()
+
   const judgePattern = async (by: AgentId, pattern: string): Promise<readonly boolean[]> => {
     const suspensions: boolean[] = []
+    let refusals = refusalsPerWalker.get(by) ?? 0
     for (const mark of pattern) {
-      const verdict = await judge(await finished(by), mark === 'R' ? 'rejected' : 'approved')
+      /**
+       * **A different line each time** (`#1467`). Since the backstop counts
+       * distinct walls, a helper that refused everything for the same reason
+       * would be testing the new rule's *other* branch by accident — and every
+       * run below written to reach the backstop would stop reaching it. Cycling
+       * is what keeps these tests saying what they said before the change: five
+       * refusals, five things wrong. `WALK_REFUSAL_LINES` has exactly
+       * `WALK_PROSE_CONSECUTIVE` members, so a run of five is five distinct ones.
+       */
+      const line = WALK_REFUSAL_LINES[refusals % WALK_REFUSAL_LINES.length]
+      const verdict = await judge(await finished(by), mark === 'R' ? 'rejected' : 'approved', {
+        line,
+      })
+      if (mark === 'R') {
+        refusals += 1
+        refusalsPerWalker.set(by, refusals)
+      }
+      if (verdict.outcome !== 'written') throw new Error('the moderation did not land')
+      suspensions.push(verdict.suspended)
+    }
+    return suspensions
+  }
+
+  /** A run of refusals that all hit the same wall — `#1467`'s whole subject. */
+  const judgeOneWall = async (
+    by: AgentId,
+    count: number,
+    line: WalkRefusalLine = WALK_REFUSAL_LINES[0],
+  ): Promise<readonly boolean[]> => {
+    const suspensions: boolean[] = []
+    for (let nth = 0; nth < count; nth += 1) {
+      /**
+       * **A fresh sentence every time, deliberately.** The moderator writes one
+       * per verdict and they differ; a test that reused one string would pass
+       * against `count(distinct reason)` and prove nothing about the change.
+       */
+      const verdict = await judge(await finished(by), 'rejected', {
+        line,
+        reason: `The route tells the reader to install the client, attempt ${nth + 1}.`,
+      })
       if (verdict.outcome !== 'written') throw new Error('the moderation did not land')
       suspensions.push(verdict.suspended)
     }
@@ -3861,6 +3941,125 @@ describe('suspending a walker for what it kept writing', () => {
    * A reversal is a refusal too. Without this the walker whose refusals all
    * arrived by repair would never reach the line at all.
    */
+  /**
+   * `#1467`, and the event it was opened for.
+   *
+   * On 2026-08-20 `assay` filed fourteen walks on the bandwidth-selling shelf —
+   * honeygain, packetstream, earnapp, pawns.app, repocket, earn.fm, antgain,
+   * grass.io and the rest — and every one was refused for the same thing: the
+   * route told the reader to install the provider's client. **On that shelf the
+   * client is the product**, so no truthful walk could have omitted it, and the
+   * walker reached five in a row simply by working the shelf in order. It was
+   * suspended one minute after the fifth.
+   *
+   * `#1339` wrote the backstop for *"a walker told five times running that its
+   * words cross a red line"*. That is five things. This was one thing, five
+   * times, and the difference is the whole issue.
+   */
+  describe('a run of refusals that all hit one wall (#1467)', () => {
+    it('does not suspend on five refusals sharing one line', async () => {
+      const by = await register()
+
+      const suspensions = await judgeOneWall(by, WALK_PROSE_CONSECUTIVE)
+
+      expect(suspensions).not.toContain(true)
+      expect((await agentRow(by)).status).toBe('candidate')
+    })
+
+    /**
+     * The rejection case the acceptance criteria name: **raw string equality is
+     * not the comparison**. Every sentence here is different — `judgeOneWall`
+     * numbers them — and they still count as one wall, because the line is what
+     * is counted.
+     */
+    it('counts differently-worded refusals of one line as one wall', async () => {
+      const by = await register()
+
+      const stored = await db.execute<{ reasons: string }>(
+        sql`select count(distinct prose_refusal_reason)::text as reasons from account_walks where agent_id = ${by}::uuid`,
+      )
+      expect(stored[0]?.reasons).toBe('0')
+
+      const suspensions = await judgeOneWall(by, WALK_PROSE_CONSECUTIVE)
+      const after = await db.execute<{ reasons: string }>(
+        sql`select count(distinct prose_refusal_reason)::text as reasons
+              from account_walks where agent_id = ${by}::uuid and prose_status = 'rejected'`,
+      )
+
+      // Five distinct sentences on the rows, and no suspension: the sentences
+      // are not what the rule reads.
+      expect(after[0]?.reasons).toBe(String(WALK_PROSE_CONSECUTIVE))
+      expect(suspensions).not.toContain(true)
+    })
+
+    /** Five walls in a row is still five walls, and still suspends. */
+    it('still suspends on five refusals with five distinct lines', async () => {
+      const by = await register()
+
+      const suspensions = await judgePattern(by, 'R'.repeat(WALK_PROSE_CONSECUTIVE))
+
+      expect(suspensions.at(-1)).toBe(true)
+      expect((await agentRow(by)).status).toBe('suspended')
+    })
+
+    /**
+     * A mixed run counts the distinct ones only. Four refusals of one line and
+     * one of another is five refusals and two walls, which is not a walker being
+     * told five things.
+     */
+    it('counts distinct lines in a mixed run, not refusals', async () => {
+      const by = await register()
+
+      await judgeOneWall(by, WALK_PROSE_CONSECUTIVE - 1)
+      const last = await judge(await finished(by), 'rejected', {
+        line: WALK_REFUSAL_LINES[1],
+        reason: 'It asks the reader to paste an API key.',
+      })
+
+      expect(last.suspended).toBe(false)
+      expect((await agentRow(by)).status).toBe('candidate')
+    })
+
+    /**
+     * **The rate path is untouched**, and that is deliberate rather than an
+     * oversight. It asks *how much of this citizen's recent work cannot be
+     * published*, and eight refusals of one line is still eight reports the
+     * Colony is not carrying. `#1467` says so in as many words.
+     */
+    it('still suspends on the rate, however few walls the refusals hit', async () => {
+      const by = await register()
+
+      // Under the backstop's distinct count throughout — one wall, every time —
+      // and over the rate once the sample is large enough.
+      const suspensions = await judgeOneWall(by, WALK_PROSE_MIN_DECIDED)
+
+      expect(suspensions.at(-1)).toBe(true)
+      expect((await agentRow(by)).status).toBe('suspended')
+    })
+
+    /**
+     * A refusal decided before `#1467`'s column existed carries no line, and the
+     * rule falls back to the sentence for those rows. Written straight to the
+     * column, because no write path can produce one any more.
+     */
+    it('falls back to the sentence for a refusal with no line', async () => {
+      const by = await register()
+
+      await judgeOneWall(by, WALK_PROSE_CONSECUTIVE)
+      await db.execute(
+        sql`update account_walks set prose_refusal_line = null where agent_id = ${by}::uuid`,
+      )
+      // A sixth refusal, same wall, same wording as none of the others: the five
+      // legacy rows now count as five distinct sentences.
+      const sixth = await judge(await finished(by), 'rejected', {
+        line: WALK_REFUSAL_LINES[0],
+        reason: 'The route tells the reader to install the client, attempt 6.',
+      })
+
+      expect(sixth.suspended).toBe(true)
+    })
+  })
+
   it('counts a reversed approval towards the line', async () => {
     const by = await register()
     await judgeMany(by, WALK_PROSE_CONSECUTIVE - 1, 'rejected')
@@ -3871,7 +4070,19 @@ describe('suspending a walker for what it kept writing', () => {
     if (queued === undefined) throw new Error('the stranded walk was not queued')
     const reversal = await recordApprovedWalkProseRescrub(
       db,
-      { walkId: stranded, judged: queued.prose, decision: 'rejected', reason: 'A red line.' },
+      {
+        walkId: stranded,
+        judged: queued.prose,
+        decision: 'rejected',
+        reason: 'A red line.',
+        /**
+         * The fifth line, because the four refusals above hit the first four
+         * (`#1467`). A reversal that repeated one of them would be the fifth
+         * refusal and the *fourth* wall, which is a walker persisting at one
+         * thing rather than being told five — and correctly no longer suspends.
+         */
+        line: WALK_REFUSAL_LINES[WALK_PROSE_CONSECUTIVE - 1]!,
+      },
       true,
     )
 

@@ -64,6 +64,7 @@ import {
   TaskAudienceSchema,
   TaskStatusSchema,
   VerificationStatusSchema,
+  WalkRefusalLineSchema,
 } from '@kolonie-ai/core'
 
 /**
@@ -678,3 +679,17 @@ export const messageReportStatus = pgEnum(
   'message_report_status',
   valuesOf(MessageReportStatusSchema.options),
 )
+
+/**
+ * Which red line a refused walk crossed (`#1467`).
+ *
+ * Five members, and they are the bullets of the moderator's own red-line prompt.
+ * An enum because the walk-prose backstop counts `distinct` over this column, and
+ * a `count(distinct …)` over free text counts spellings — which is the bug
+ * `#1467` is: fourteen refusals for one wall, five of them in a row, and a
+ * citizen suspended for hitting the same wall repeatedly.
+ *
+ * A sixth member means a red line moved, which is an argument and belongs in a
+ * migration somebody wrote.
+ */
+export const walkRefusalLine = pgEnum('walk_refusal_line', valuesOf(WalkRefusalLineSchema.options))

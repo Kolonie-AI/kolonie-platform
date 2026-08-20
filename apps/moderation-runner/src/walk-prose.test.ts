@@ -3,9 +3,11 @@ import { describe, expect, it } from 'vitest'
 import {
   AccountKindSchema,
   ConfidentialSpanKindSchema,
+  WALK_PROSE_CLEAR,
   WALK_PROSE_FIELDS,
   WALK_PROSE_QUESTIONS,
   WALK_PROSE_SCRUBBER_VERSION,
+  WALK_REFUSAL_LINES,
   walkProseText,
   type WalkProse,
 } from '@kolonie-ai/core'
@@ -69,7 +71,7 @@ const aStaleRefusal = (): RequeuedWalkProse => ({
  */
 const answering = (
   over: {
-    readonly redLine?: 'clear' | 'crossed'
+    readonly redLine?: string
     readonly spans?: readonly string[]
   } = {},
 ) => {
@@ -212,7 +214,7 @@ describe('the Colony scrubbing what a walker wrote', () => {
   })
 
   it('refuses a page that crosses a red line, without paying for the marking', async () => {
-    const { model, asked } = answering({ redLine: 'crossed' })
+    const { model, asked } = answering({ redLine: 'runnable-instruction' })
     const { store, written, refused } = recording()
 
     const judgement = await moderateWalkProse(aWalk(), { store, model })
@@ -298,7 +300,7 @@ describe('the Colony scrubbing what a walker wrote', () => {
   })
 
   it('reverses an approval when the second reading finds a crossed line', async () => {
-    const { model } = answering({ redLine: 'crossed' })
+    const { model } = answering({ redLine: 'runnable-instruction' })
     const { store, rescrubbed } = recording([], [aWalk()])
 
     const outcome = await walkProseTick({ store, model }, 10)
@@ -318,6 +320,8 @@ describe('the Colony scrubbing what a walker wrote', () => {
         decision: 'rejected',
         /** A second reading refuses with a reason like the first (`#1340`). */
         reason: 'It names a person.',
+        /** And names the line like the first (`#1467`). */
+        line: 'runnable-instruction',
         markProviderStale: true,
       },
     ])
@@ -329,7 +333,7 @@ describe('the Colony scrubbing what a walker wrote', () => {
    * rather than a second query the runner runs.
    */
   it('counts the refusals that took a walker over the threshold', async () => {
-    const { model } = answering({ redLine: 'crossed' })
+    const { model } = answering({ redLine: 'runnable-instruction' })
     const { store } = recording([aWalk()], [], [], [], true)
 
     const outcome = await walkProseTick({ store, model }, 10)
@@ -340,7 +344,7 @@ describe('the Colony scrubbing what a walker wrote', () => {
 
   /** A reversal is a refusal too, so the walker it belongs to reaches the same threshold. */
   it('counts a suspension a reversed approval reached', async () => {
-    const { model } = answering({ redLine: 'crossed' })
+    const { model } = answering({ redLine: 'runnable-instruction' })
     const { store } = recording([], [aWalk()], [], [], true)
 
     const outcome = await walkProseTick({ store, model }, 10)
@@ -540,8 +544,21 @@ describe('the red line the walk stage asks about', () => {
   it('keeps the lines that were never the problem', () => {
     expect(WALK_RED_LINE_PROMPT).toContain('run code, install a package')
     expect(WALK_RED_LINE_PROMPT).toContain('reveal, send or paste')
-    expect(WALK_RED_LINE_PROMPT).toContain('contains a credential in the words themselves')
-    expect(WALK_RED_LINE_PROMPT).toContain('instructions about how to treat this page')
+    expect(WALK_RED_LINE_PROMPT).toContain('contains a credential in the words')
+    expect(WALK_RED_LINE_PROMPT).toContain('instructions about how to treat')
+  })
+
+  /**
+   * `#1467`: each line now carries the name the model answers with, and the
+   * names are `WALK_REFUSAL_LINES`. A prompt that described a line without
+   * naming it would be a line the model could never select, and the column would
+   * quietly never hold that value.
+   */
+  it('names every line the column can hold, beside the line itself', () => {
+    for (const line of WALK_REFUSAL_LINES) {
+      expect(WALK_RED_LINE_PROMPT).toContain(`"${line}"`)
+    }
+    expect(WALK_RED_LINE_CHOICES).toEqual([WALK_PROSE_CLEAR, ...WALK_REFUSAL_LINES])
   })
 
   it('asks for exactly the answers the choices allow', () => {
@@ -577,7 +594,7 @@ describe('the red line the walk stage asks about', () => {
   )
 
   it.each(WALK_RED_LINE_CROSSED)('refuses $name and writes nothing', async ({ prose }) => {
-    const { model } = answering({ redLine: 'crossed' })
+    const { model } = answering({ redLine: 'runnable-instruction' })
     const { store, written, refused } = recording()
 
     const judgement = await moderateWalkProse(aWalk(prose), { store, model })
@@ -747,8 +764,20 @@ const scrubberInputs = () =>
  * arrive at exactly the same page. Bumping the version would have put every
  * refusal the Colony holds back in front of the model to be told the same thing
  * twice, at cost.
+ *
+ * **Moved by `#1467` without the version moving, on the same reasoning.** The
+ * red-line prompt and its `choices` both changed: `crossed` became the name of
+ * the line crossed, so the answer is finer. **The clear/crossed boundary is
+ * untouched** — the same five bullets, the same clauses about the Colony's own
+ * account routes and about personal data, and nothing added to or removed from
+ * what makes a page crossed. A page judged clear is still clear and a page
+ * judged crossed is still crossed; only the label on the second is now recorded.
+ * So no verdict already reached could move, and re-reading every refusal the
+ * Colony holds would buy a `prose_refusal_line` on rows nobody is counting — the
+ * backstop reads a twenty-walk window, which fills with classified rows within
+ * days of the deploy.
  */
-const SCRUBBER_INPUTS_DIGEST = 'fa5a1a6b87c5b6ae59a890dc3f77b999942b9fa57d6eda925e81870ef92628b1'
+const SCRUBBER_INPUTS_DIGEST = 'd9c079d314797506d03c97b9f2732851626714be6b53c7bc39598a5ab8087ea3'
 
 /**
  * **What stops the version being forgotten is this test and not a mechanism**

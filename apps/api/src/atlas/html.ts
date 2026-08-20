@@ -61,14 +61,8 @@ import { ATLAS_PARTLY, atlasEntryVerdict, atlasRecipeVerdict } from './verdict.j
 import { ATLAS_REFUSING, atlasEntryTitle, lowerFirst, providerName } from './title.js'
 import { atlasStatusSubline } from './lead.js'
 import { atlasIcon } from './icons.js'
-import {
-  atlasEarnFacets,
-  atlasEarnPhrase,
-  atlasEarnPhrasePlural,
-  atlasIsDualUse,
-  atlasShelfClause,
-  atlasShelfIsClaim,
-} from './taxonomy.js'
+import { atlasChipsShown, atlasHeaderChips, type AtlasChip } from './chips.js'
+import { atlasEarnFacets, atlasEarnPhrase, atlasEarnPhrasePlural } from './taxonomy.js'
 import { atlasRuntimeLine } from './runtimes.js'
 import { CONSOLE_MAST } from '../console/mark.js'
 import { CHROME_STYLE, CONSOLE_STYLE } from '../console/theme.js'
@@ -2249,35 +2243,46 @@ function operateSection(
  * what makes a map out of a list (`kolonie-website#97`).
  */
 function taxonomyLine(entry: AtlasPublicEntry): string {
-  const earn = atlasEarnFacets(entry)
+  const { shown, rest } = atlasChipsShown(atlasHeaderChips(entry))
 
-  const clauses = [
-    escape(kindsShown(entry)),
-    /**
-     * **A chip with a mark on it, and never the mark alone** (`#1332`,
-     * `#1326` decision 7). The icon is decoration beside a phrase that already
-     * says the thing, which is why `atlasIcon` emits `aria-hidden` and takes no
-     * label: a reader who cannot see it loses nothing.
-     */
-    ...earn.map(
-      (facet) =>
-        `<span class="k-atlas-earn">${atlasIcon('earn')}${escape(atlasEarnPhrase(facet))}</span>`,
-    ),
-    /**
-     * **Both axes at once is its own claim** (`#1301`). A mailbox that pays a
-     * referral is the case the facet system exists for, and a reader scanning
-     * for it should not have to notice that two unrelated chips are present.
-     */
-    atlasIsDualUse(entry)
-      ? `<span class="k-atlas-dual">${atlasIcon('dual-use')}worth holding, and pays</span>`
-      : '',
-    atlasShelfIsClaim(entry)
-      ? `<a href="${escape(atlasShelfPath(entry.category))}">${escape(entry.category)}</a>`
-      : (atlasShelfClause(entry) ?? ''),
-    escape(operatorLine(entry, atlasIsWalked(entry))),
-  ].filter((clause) => clause !== '')
+  if (shown.length === 0) return ''
 
-  return `<p class="k-atlas-facts">${clauses.join(' — ')}</p>`
+  /**
+   * **A chip with a mark on it, and never the mark alone** (`#1332`, `#1326`
+   * decision 7). The icon is decoration beside a phrase that already says the
+   * thing, which is why `atlasIcon` emits `aria-hidden` and takes no label: a
+   * reader who cannot see it loses nothing.
+   */
+  const render = (one: AtlasChip): string => {
+    const mark =
+      one.className === 'k-atlas-earn'
+        ? atlasIcon('earn')
+        : one.className === 'k-atlas-dual'
+          ? atlasIcon('dual-use')
+          : ''
+    const body = `${mark}${escape(one.text)}`
+
+    if (one.shelf !== null) return `<a href="${escape(atlasShelfPath(one.shelf))}">${body}</a>`
+
+    return one.className === null ? body : `<span class="${one.className}">${body}</span>`
+  }
+
+  const line = `<p class="k-atlas-facts">${shown.map(render).join(' — ')}</p>`
+
+  /**
+   * **The overflow is a disclosure and not a truncation** (`#1404` decision 4).
+   * A genuinely many-facetted provider is the case the facet system exists for,
+   * so nothing it says may be dropped; what the cap buys is that a reader
+   * scanning the header is reading six labels rather than skipping nine. `rest`
+   * is empty on nearly every entry, and an empty `rest` emits nothing.
+   */
+  if (rest.length === 0) return line
+
+  return (
+    line +
+    `<details class="k-atlas-facts-rest"><summary>${rest.length} more</summary>` +
+    `<p class="k-atlas-facts">${rest.map(render).join(' — ')}</p></details>`
+  )
 }
 
 /**

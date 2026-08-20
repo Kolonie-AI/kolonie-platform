@@ -548,6 +548,27 @@ p.k-paid {
 }
 
 /*
+ * The chips past the sixth (\`#1404\` decision 4). Quieter than the line it
+ * follows, because it is the overflow and not a second header — and it takes
+ * the margin the line above it gives up, so a header with a disclosure and one
+ * without occupy the same space until the disclosure is opened.
+ */
+.k-atlas-facts-rest {
+  margin: calc(var(--k-space-4) * -1) 0 var(--k-space-6);
+  color: var(--k-text-faint);
+  font-family: var(--k-font-mono);
+  font-size: var(--k-text-sm);
+}
+
+.k-atlas-facts-rest summary {
+  cursor: pointer;
+}
+
+.k-atlas-facts-rest .k-atlas-facts {
+  margin: var(--k-space-3) 0 0;
+}
+
+/*
  * When it was last walked (\`#525\`, surfaced by \`kolonie-website#97\`). Quiet,
  * and under the recipe rather than over it: it qualifies what is above it.
  */

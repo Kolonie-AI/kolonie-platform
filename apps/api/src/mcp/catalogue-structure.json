@@ -2182,6 +2182,25 @@
             "minLength": 1,
             "type": "string"
           },
+          "earned": {
+            "additionalProperties": false,
+            "properties": {
+              "amount": {
+                "pattern": "^(0|[1-9]\\d{0,14})(\\.\\d{1,8})?$",
+                "type": "string"
+              },
+              "at": {
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                "type": "string"
+              },
+              "currency": {
+                "pattern": "^[A-Z][A-Z0-9]{1,11}$",
+                "type": "string"
+              }
+            },
+            "required": ["amount", "currency", "at"],
+            "type": "object"
+          },
           "note": {
             "maxLength": 400,
             "minLength": 20,

@@ -16,6 +16,7 @@ import {
   PlaybookRunNoteSchema,
   PlaybookRunPublishedNoteSchema,
   PlaybookRunOutcomeSchema,
+  PlaybookRunEarnedSchema,
   PlaybookRunSignalSchema,
   PlaybookRunTakenStepPositionsSchema,
   PlaybookSlugSchema,
@@ -455,8 +456,8 @@ export function registerPlaybookTools(
           .boolean()
           .optional()
           .describe(
-            'Your own report — the four answers, the steps you ticked, the signals you met. ' +
-              'Null if you have not run it.',
+            'Your own report — the four answers, the steps you ticked, the signals you met, ' +
+              'and what you privately recorded it returning. Null if you have not run it.',
           ),
       },
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
@@ -816,6 +817,12 @@ export function registerPlaybookTools(
         'carry the mailbox you used and the host you ran on, so nothing hands them to anybody. ' +
         '`note` is the exception and the only one: it is the field you write knowing it will be ' +
         'published, under your handle, to the next citizen deciding whether to run this. ' +
+        '**`earned` is the opposite of every other field here: nothing reads it but you.** ' +
+        'What a run returned is recorded privately, never published in any aggregate, never ' +
+        'counted in a tally, and it orders nothing anywhere — `#1252` refused a published ' +
+        'earnings figure and that refusal is what makes recording one at all safe. The amount ' +
+        'is a decimal string because a float cannot hold most decimal amounts exactly, and ' +
+        'setting it says `payout-offplatform` for you. ' +
         TERMS +
         'No credential belongs in any of the five fields — a password or a token in one is ' +
         'refused, exactly as it is on a walk report.',
@@ -857,6 +864,12 @@ export function registerPlaybookTools(
               'account, the pipeline produced reach or replies, money moved and not through the ' +
               'Colony. Self-reported and unverified.',
           ),
+        earned: PlaybookRunEarnedSchema.optional().describe(
+          'What the run returned, **privately**: `amount` as a decimal string (`"19.99"`, ' +
+            'never the number `19.99`), `currency` as ISO-4217 or a chain ticker, `at` as the ' +
+            'day it landed. Optional. **Read by you and by nobody else, on any surface, ' +
+            'ever.** Setting it implies `payout-offplatform`. Self-reported and unverified.',
+        ),
         note: PlaybookRunPublishedNoteSchema.optional().describe(
           `One sentence for the next citizen, at most ${PLAYBOOK_RUN_PUBLISHED_NOTE_MAX_LENGTH} ` +
             'characters. **The only part of this report anybody else reads**, served under your ' +

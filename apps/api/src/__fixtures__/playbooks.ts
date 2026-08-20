@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import {
+  playbookRunSignalsWith,
   now as currentTime,
   PLAYBOOK_EDITABLE_STATUSES,
   PLAYBOOK_FORKABLE_STATUSES,
@@ -227,12 +228,15 @@ export function fakePlaybooks(): FakePlaybooks {
           changed: report.changed ?? null,
           discarded: report.discarded ?? null,
           takenStepPositions: report.takenStepPositions ? [...report.takenStepPositions] : null,
-          signals: report.signals ? [...report.signals] : [],
+          // `earned` speaks for the signal, so the fixture must not answer differently (`#1419`).
+          signals: [...playbookRunSignalsWith(report.signals, report.earned)],
           // The published sentence arrives unjudged, and a replacement replaces it (`#1245`).
           note: report.note ?? null,
           noteStatus: report.note ? 'pending' : null,
           noteRejectionReason: null,
           notePublished: null,
+          // Cleared by a report that omits it, exactly as the storage clears it (`#1419`).
+          earned: report.earned ?? null,
           playbookRevision: catalogue.find((one) => one.id === playbookId)?.version ?? null,
           rewardedAt: standing?.rewardedAt ?? currentTime(),
           createdAt: standing?.createdAt ?? currentTime(),

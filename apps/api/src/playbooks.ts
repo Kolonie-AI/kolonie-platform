@@ -836,6 +836,22 @@ export type PlaybookOwnRun = {
     readonly status: PlaybookRunNoteStatus
     readonly reason: string | null
   } | null
+  /**
+   * What this citizen said the run returned, and null when it said nothing
+   * (`#1419`).
+   *
+   * **The one read surface, and it is this one.** `#1252` refused a published
+   * earnings figure and the refusal holds — nothing counts, tallies, orders by
+   * or publishes this. What the private record is kept to answer is *which of
+   * my rails returned anything*, which is the question a working day is planned
+   * from, and it is reachable off the author's own run and off nothing else.
+   *
+   * The same construction the rejection reason above relies on: this view is
+   * reached from `includeRaw` on the caller's own report, so *readable by its
+   * author and by nobody else* is a property of where it sits rather than a
+   * rule some handler has to remember.
+   */
+  readonly earned: PlaybookRun['earned']
   /** Which revision this report ran against (`#1255`). Null before revisions. */
   readonly playbookRevision: number | null
   readonly filedAt: string
@@ -858,6 +874,7 @@ const ownRun = (run: PlaybookRun): PlaybookOwnRun => ({
     run.note === null || run.noteStatus === null
       ? null
       : { text: run.note, status: run.noteStatus, reason: run.noteRejectionReason },
+  earned: run.earned,
   playbookRevision: run.playbookRevision,
   filedAt: run.createdAt,
   updatedAt: run.updatedAt,

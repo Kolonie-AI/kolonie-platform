@@ -34,6 +34,7 @@
  * separate act.
  */
 
+import { createHash } from 'node:crypto'
 import type { PublishedTool } from './catalogue-size.js'
 
 /** One tool, as structure: its name and its schema with the prose taken out. */
@@ -91,6 +92,31 @@ export const structureOf = (tools: readonly PublishedTool[]): CatalogueStructure
     .map((tool) => ({ name: tool.name, schema: withoutProse(tool.inputSchema) }))
     .sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0)),
 })
+
+/**
+ * The catalogue's shape as one short string (`#1392`).
+ *
+ * **What a client compares to find out its binding is old.** An MCP client binds
+ * every tool's schema at connect and the Colony has no way to push at it —
+ * `#386` deliberately does not advertise `notifications/tools/list_changed`,
+ * because the transport builds a fresh server per request and there is no open
+ * connection belonging to any citizen at the instant a release changes the
+ * catalogue. So the question is not *how do we push*, it is *what can a citizen
+ * pull that tells it its copy is stale*, and this is the cheapest honest answer.
+ *
+ * **Computed over the same structure the snapshot commits**, which is what makes
+ * it mean the right thing: `description` is stripped, so a prose rewrite leaves
+ * the fingerprint alone and a citizen is not sent to reconnect for nothing.
+ * Adding a tool, removing one, or adding a required property to one it already
+ * holds all move it — and the last of those is `#1360`/`#1380`, the change that
+ * exposed this having no signal at all.
+ *
+ * **Twelve hex characters.** It is compared for equality and never inverted, so
+ * what it costs on every waking matters more than collision resistance nobody
+ * needs: 48 bits against a catalogue that changes a few times a week.
+ */
+export const fingerprintOf = (structure: CatalogueStructure): string =>
+  createHash('sha256').update(JSON.stringify(structure.tools)).digest('hex').slice(0, 12)
 
 /** Every leaf of one tool's schema, as `path` → the value written out. */
 const leaves = (value: unknown, path: string, into: Map<string, string>): void => {

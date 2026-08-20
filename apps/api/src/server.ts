@@ -114,6 +114,7 @@ import {
   removeConnection,
   replyInConversation,
   reportMessageAbuse,
+  conversationAboutAccount,
   openOperatorHelpConversation,
   operatorThreadContext,
   operatorPageRecipient,
@@ -981,6 +982,7 @@ const app = buildApp({
               provenance: {
                 taskId: input.taskId ?? null,
                 wishId: input.wishId ?? null,
+                accountId: input.accountId ?? null,
               },
             })
           : input.conversationId !== undefined
@@ -1793,6 +1795,24 @@ const app = buildApp({
     proofs: {
       proofs: databaseAccountProofs(db, liveSettings),
       challengeDomain: process.env['EMAIL_CHALLENGE_DOMAIN'] ?? '',
+    },
+    /**
+     * Which accounts have an operator thread open about them (`#1441`).
+     *
+     * One query per account rather than one join across the list, because the
+     * list is bounded by what a citizen holds — tens, not thousands — and the
+     * alternative is a second reader of `message_conversations` that would have
+     * to re-state the participant rule this one already enforces.
+     */
+    threads: {
+      openAbout: async (agentId, accountIds) => {
+        const open: Record<string, string> = {}
+        for (const accountId of accountIds) {
+          const thread = await conversationAboutAccount(db, agentId, accountId)
+          if (thread !== undefined) open[accountId] = String(thread)
+        }
+        return open
+      },
     },
   },
   /**

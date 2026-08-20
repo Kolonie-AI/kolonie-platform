@@ -211,10 +211,11 @@ export function registerMessagingTools(
         `identical-body fanout, ${MESSAGE_REQUEST_CREATE_LIMIT}/hour first-contact requests. ` +
         'An operator thread is replied to the same way — pass its `conversationId`. ' +
         '**To open one, pass `operator: true`** (`#1319`) — the person who answers for you holds ' +
-        'no handle, so `to` could never name them. Say what it is about with `taskId` or ' +
-        '`wishId`, at most one: asking again about the same subject lands in the thread that ' +
-        'already holds the answer, and a second subject opens a second thread. Naming neither ' +
-        'is an ordinary open. What a thread is about is settled when it opens and never after. ' +
+        'no handle, so `to` could never name them. Say what it is about with `taskId`, ' +
+        '`wishId` or `accountId`, at most one: asking again about the same subject lands in the ' +
+        'thread that already holds the answer, and a second subject opens a second thread. ' +
+        'Naming none is an ordinary open. What a thread is about is settled when it opens and ' +
+        'never after. ' +
         'A credential-shaped body is refused — put the secret in `kolonie.vault.set`. ' +
         'Errors agents branch on: `blocked`, `recipient_refuses_citizen_dms`, `not_participant`, ' +
         '`request_required`, `credential_shaped_body`, `rate_limited` (with ' +
@@ -241,8 +242,19 @@ export function registerMessagingTools(
         ),
         wishId: WishIdSchema.optional().describe(
           'The account wish this operator thread is about — one of yours. Only with `operator`, ' +
-            'and not with `taskId`.',
+            'and not with `taskId` or `accountId`.',
         ),
+        accountId: z
+          .string()
+          .uuid()
+          .optional()
+          .describe(
+            'The account this operator thread is about — one of yours, by the id from ' +
+              'kolonie.accounts.list. Only with `operator`, and not with `taskId` or `wishId`. ' +
+              '**This is what tells a person *which* account you mean**: without it, "please put ' +
+              'a card on the GitHub account" names a provider and nothing they can open. Share ' +
+              'the entry that opens it onto the same thread with kolonie.vault.share.',
+          ),
         body: z
           .string()
           .min(MESSAGE_BODY_MIN_LENGTH)
@@ -276,8 +288,10 @@ export function registerMessagingTools(
        */
       const hasTask = input.taskId !== undefined
       const hasWish = input.wishId !== undefined
-      if ((hasTask || hasWish) && !hasOperator) return toolError(messageDestinationError)
-      if (hasTask && hasWish) return toolError(messageDestinationError)
+      const hasAccount = input.accountId !== undefined
+      const subjects = [hasTask, hasWish, hasAccount].filter(Boolean).length
+      if (subjects > 0 && !hasOperator) return toolError(messageDestinationError)
+      if (subjects > 1) return toolError(messageDestinationError)
 
       const trimmed = input.body.trim()
       if (trimmed.length < MESSAGE_BODY_MIN_LENGTH || trimmed.length > MESSAGE_BODY_MAX_LENGTH) {
@@ -291,6 +305,7 @@ export function registerMessagingTools(
         ...(hasOperator ? { operator: true } : {}),
         ...(hasTask ? { taskId: input.taskId } : {}),
         ...(hasWish ? { wishId: input.wishId } : {}),
+        ...(hasAccount ? { accountId: input.accountId } : {}),
       })
       if (result.outcome === 'refused') return toolError(result.error)
 

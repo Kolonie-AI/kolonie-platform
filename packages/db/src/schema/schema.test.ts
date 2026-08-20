@@ -613,6 +613,18 @@ describe('schema', () => {
          * which is a column on `agents`.
          */
         'message_blocks',
+        /**
+         * `#1441`. Which vault entries are currently shared onto which thread.
+         *
+         * **A join and not a fourth provenance column** (`#1437` decision 7):
+         * an account is what a thread is *about* and a shared entry is what is
+         * *attached* to it. Several may hang on one conversation — the account's
+         * own credential and the mailbox that recovers it — they come and go
+         * while the thread stays, and the thread is about the account either
+         * way. It carries no secret and no expiry: `vault_shares` owns both, and
+         * these rows say only *this share is being talked about here*.
+         */
+        'message_conversation_shares',
         'message_conversations',
         'message_participants',
         /** What a citizen reported about a message, beside the block that stopped it. */

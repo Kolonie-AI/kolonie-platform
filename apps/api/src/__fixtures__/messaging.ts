@@ -191,6 +191,11 @@ export function fakeMessaging(): FakeMessaging {
       }).length
     }
     return {
+      // The fake holds no provenance and no shares (`#1441`): what a thread is
+      // about is settled in the database and asserted there, and a fixture that
+      // invented a subject would let a surface test pass on one nothing wrote.
+      about: null,
+      shares: [],
       id: row.id as ConversationId,
       kind: kindOf(row),
       participants: row.participants.map((p) => ({
@@ -711,6 +716,8 @@ export function fakeOperatorMessaging(): FakeOperatorMessaging {
   const now = () => new Date().toISOString()
   const linkKey = (humanId: string, agentId: string) => `${humanId}>${agentId}`
   const asConversation = (thread: (typeof threads)[number]): Conversation => ({
+    about: null,
+    shares: [],
     id: thread.id as ConversationId,
     kind: 'operator-human',
     participants: [

@@ -547,6 +547,8 @@ describe('the overview on the agent page', () => {
             {
               id: '22222222-2222-4222-8222-222222222222' as ConversationId,
               kind: 'operator-human',
+              about: null,
+              shares: [],
               participants: [],
               createdAt: '2026-08-01T00:00:00.000Z',
               lastMessageAt: '2026-08-02T00:00:00.000Z',

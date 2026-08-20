@@ -59,7 +59,19 @@ export interface VaultShareRow {
 
 /** What happened when a citizen tried to share something. */
 export type ShareVaultEntryOutcome =
-  | { readonly outcome: 'shared'; readonly share: VaultShareRow; readonly extended: boolean }
+  | {
+      readonly outcome: 'shared'
+      readonly share: VaultShareRow
+      readonly extended: boolean
+      /**
+       * The row's id, so a caller can attach it to a conversation (`#1441`).
+       *
+       * Returned rather than looked up again by the attach path: the two would
+       * be one statement apart, and a citizen that shared and re-shared in the
+       * same second could attach the row it did not just write.
+       */
+      readonly shareId: string
+    }
   /** Nothing is stored under that name. */
   | { readonly outcome: 'unknown' }
   /**
@@ -187,6 +199,7 @@ export async function shareVaultEntry(
       set: { purpose: input.purpose, sealedValue, sealedDescription, expiresAt },
     })
     .returning({
+      id: vaultShares.id,
       purpose: vaultShares.purpose,
       sharedAt: vaultShares.sharedAt,
       expiresAt: vaultShares.expiresAt,
@@ -197,6 +210,7 @@ export async function shareVaultEntry(
 
   return {
     outcome: 'shared',
+    shareId: stored.id,
     share: {
       purpose: stored.purpose,
       sharedAt: toTimestamp(stored.sharedAt),

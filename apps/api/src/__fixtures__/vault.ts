@@ -70,6 +70,8 @@ export interface FakeVault extends VaultStore {
    * addition is handed over exactly once, by `unshare`, and never by a read.
    */
   readonly operatorWrites: (agentId: AgentId, key: string, addition: string) => void
+  /** Say the citizen is a participant of this thread, so a share may attach (`#1441`). */
+  readonly canAttachTo: (conversationId: string) => void
 }
 
 interface Held {
@@ -99,6 +101,7 @@ interface Shared {
 export function fakeVault(): FakeVault {
   const held = new Map<string, Held>()
   const shares = new Map<string, Shared>()
+  const attachable = new Set<string>()
   let linked = true
   const at = (agentId: AgentId | string, key: string) => `${String(agentId)}\0${key}`
 
@@ -255,10 +258,24 @@ export function fakeVault(): FakeVault {
 
       return {
         outcome: 'shared',
+        // Stable per entry, which is enough for what this fake is asked: the
+        // attach path only ever needs an id it can hand back to `attach`.
+        shareId: `share-${at(agentId, key)}`,
         share: shareOf(agentId, key) as VaultShareRow,
         extended: open !== null,
       }
     },
+
+    /**
+     * Attaching a share to a thread (`#1441`).
+     *
+     * The fake holds no conversations, so what it reproduces is the one rule
+     * `apps/api` is on the hook for: a thread the citizen is not in is refused,
+     * and the share stands either way. `attachable` is what a test sets to say
+     * which side of that it wants.
+     */
+    attach: async (_agentId, conversationId) =>
+      attachable.has(conversationId) ? 'attached' : 'not-a-participant',
 
     unshare: async (agentId, key): Promise<UnshareVaultEntryOutcome> => {
       const open = shares.get(at(agentId, key))
@@ -298,6 +315,9 @@ export function fakeVault(): FakeVault {
     },
     setOperator: (value) => {
       linked = value
+    },
+    canAttachTo: (conversationId) => {
+      attachable.add(conversationId)
     },
     operatorWrites: (agentId, key, addition) => {
       const open = shares.get(at(agentId, key))

@@ -1703,6 +1703,10 @@
       "name": "kolonie.messages.send",
       "schema": {
         "properties": {
+          "accountId": {
+            "format": "uuid",
+            "type": "string"
+          },
           "body": {
             "maxLength": 2000,
             "minLength": 1,
@@ -3840,6 +3844,10 @@
       "name": "kolonie.vault.share",
       "schema": {
         "properties": {
+          "conversationId": {
+            "format": "uuid",
+            "type": "string"
+          },
           "days": {
             "maximum": 30,
             "minimum": 1,

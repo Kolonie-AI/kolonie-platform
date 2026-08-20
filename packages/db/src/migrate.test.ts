@@ -624,7 +624,17 @@ describe('the migrations', () => {
     // slept could never be re-sealed back to that key. What is here is a
     // Colony-sealed *copy*, which means the unresolvable state cannot arise —
     // the original is untouched throughout and ending a share destroys a copy.
-    expect(afterFirst.tables).toBe('150')
+    //
+    // **A hundred and fifty-fifth** (`#1441`, epic `#1437`):
+    // `message_conversation_shares`, which vault entries are shared onto which
+    // thread. A join rather than a fourth provenance column on
+    // `message_conversations`, and the distinction is the design: an account is
+    // what a thread is *about* — one, settled when it opens — and a shared entry
+    // is what is *attached* to it, of which several may come and go while the
+    // thread stays about the same account. `account_id` on the conversation is
+    // the same migration and is the third subject, folded into the existing
+    // exclusivity check.
+    expect(afterFirst.tables).toBe('151')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

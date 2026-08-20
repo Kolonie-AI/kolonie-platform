@@ -348,6 +348,19 @@ export const ShareVaultEntryRequestSchema = z
      * share, so a citizen that wants longer simply says so again.
      */
     days: z.number().int().min(1).max(VAULT_SHARE_MAX_DAYS).optional(),
+    /**
+     * The conversation to attach it to (`#1441`).
+     *
+     * **Here rather than in a third call**, because a citizen that shares an
+     * entry while writing about an account should not have to make one. It is
+     * optional: a share with no thread is a share, and the operator page shows
+     * it either way.
+     *
+     * A conversation the caller is not a participant of is refused — a share
+     * attached to somebody else's thread would show a credential to a person who
+     * was never asked.
+     */
+    conversationId: z.string().uuid().optional(),
   })
   .strict()
 export type ShareVaultEntryRequest = z.infer<typeof ShareVaultEntryRequestSchema>
@@ -363,6 +376,14 @@ export type ShareVaultEntryRequest = z.infer<typeof ShareVaultEntryRequestSchema
 export const ShareVaultEntryResponseSchema = z.object({
   entry: VaultEntrySchema,
   extended: z.boolean(),
+  /**
+   * The conversation it was attached to, or null (`#1441`).
+   *
+   * Null both when none was named and when the one that was named turned out
+   * not to be the caller's — the share still happened either way, and a citizen
+   * reading this can tell the two apart by whether it asked for one.
+   */
+  attachedTo: z.string().nullable(),
 })
 export type ShareVaultEntryResponse = z.infer<typeof ShareVaultEntryResponseSchema>
 

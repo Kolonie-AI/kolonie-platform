@@ -12,8 +12,10 @@ import {
   MessageRequestIdSchema,
   type AgentId,
   type Conversation,
+  type ConversationAbout,
   type ConversationId,
   type ConversationKind,
+  type ConversationShare,
   type ConversationParticipantId,
   type HumanId,
   type Message,
@@ -33,9 +35,11 @@ import {
 import type { Database, Transaction } from '../client.js'
 import {
   accountWishes,
+  accounts,
   agents,
   humanAgents,
   messageBlocks,
+  messageConversationShares,
   messageConversations,
   messageParticipants,
   messageReports,
@@ -44,6 +48,7 @@ import {
   messages,
   operatorTelegramChats,
   tasks,
+  vaultShares,
 } from '../schema/index.js'
 import { isAcceptedConnection } from './connections.js'
 import { clearSetAside } from './set-asides.js'
@@ -145,7 +150,20 @@ export type SendResult =
   | { readonly outcome: 'refused'; readonly refusal: MessageRefusal }
 
 export type ReadResult =
-  | { readonly outcome: 'read'; readonly messages: readonly Message[] }
+  | {
+      readonly outcome: 'read'
+      readonly messages: readonly Message[]
+      /**
+       * What the thread is about, and what is shared onto it (`#1441`).
+       *
+       * **On the read as well as on the listing**, because the operator page
+       * renders one thread and an agent's `get_thread` reads one: a subject that
+       * appeared only in a list would be a subject nobody sees at the moment
+       * they are acting on it, which is exactly the failure `#1441` is about.
+       */
+      readonly about: ConversationAbout | null
+      readonly shares: readonly ConversationShare[]
+    }
   | { readonly outcome: 'refused'; readonly refusal: MessageRefusal }
 
 export type RequestDecision =
@@ -267,6 +285,15 @@ export type SystemMessageFields = {
 export type ConversationProvenance = {
   readonly taskId?: TaskId | null
   readonly wishId?: WishId | null
+  /**
+   * The account this thread is about (`#1441`, epic `#1437`).
+   *
+   * The third of the three, and mutually exclusive with them by the same check.
+   * A shared vault entry is **not** here: several may hang on one thread and
+   * they come and go while it stays, so they are attachments — see
+   * `message_conversation_shares`.
+   */
+  readonly accountId?: string | null
 }
 
 /**
@@ -804,6 +831,7 @@ export async function openOperatorHelpConversation(
   const humanId = link.humanId as HumanId
   const taskId = input.provenance?.taskId ?? null
   const wishId = input.provenance?.wishId ?? null
+  const accountId = input.provenance?.accountId ?? null
 
   if (wishId !== null) {
     const [wish] = await db
@@ -814,9 +842,24 @@ export async function openOperatorHelpConversation(
     if (wish === undefined) return { outcome: 'refused', refusal: 'not-a-participant' }
   }
 
+  /**
+   * The same ownership check the wish gets, for the same reason (`#1441`): a
+   * citizen naming an account row that is not its own would otherwise open a
+   * thread whose subject is somebody else's, and the operator reading it would
+   * be shown an account their agent does not hold.
+   */
+  if (accountId !== null) {
+    const [account] = await db
+      .select({ id: accounts.id })
+      .from(accounts)
+      .where(and(eq(accounts.id, accountId), eq(accounts.agentId, agentId)))
+      .limit(1)
+    if (account === undefined) return { outcome: 'refused', refusal: 'not-a-participant' }
+  }
+
   const existing = await pairedConversation(db, agentId, {
     humanId,
-    provenance: { taskId, wishId },
+    provenance: { taskId, wishId, accountId },
   })
 
   if (existing !== undefined) {
@@ -835,7 +878,7 @@ export async function openOperatorHelpConversation(
     agentId,
     { party: 'operator-human', humanId, label: input.label ?? 'your operator' },
     input.body,
-    { provenance: { taskId, wishId }, openedBy: 'citizen' },
+    { provenance: { taskId, wishId, accountId }, openedBy: 'citizen' },
   )
 
   // `opened` is what the notify path reads to send one ping and never a second
@@ -1113,7 +1156,11 @@ async function pairedConversation(
     readonly humanId?: HumanId
     readonly systemRole?: MessageSystemRole
     readonly conversationId?: ConversationId
-    readonly provenance?: { readonly taskId: TaskId | null; readonly wishId: WishId | null }
+    readonly provenance?: {
+      readonly taskId: TaskId | null
+      readonly wishId: WishId | null
+      readonly accountId: string | null
+    }
   },
 ) {
   const citizen = alias(messageParticipants, 'citizen_side')
@@ -1151,6 +1198,9 @@ async function pairedConversation(
               provenance.wishId === null
                 ? isNull(messageConversations.wishId)
                 : eq(messageConversations.wishId, provenance.wishId),
+              provenance.accountId === null
+                ? isNull(messageConversations.accountId)
+                : eq(messageConversations.accountId, provenance.accountId),
             ),
       ),
     )
@@ -1199,6 +1249,7 @@ async function openDirectConversation(
       .values({
         taskId: extra.provenance?.taskId ?? null,
         wishId: extra.provenance?.wishId ?? null,
+        accountId: extra.provenance?.accountId ?? null,
       })
       .returning({ id: messageConversations.id })
     if (conversation === undefined) throw new Error('inserting a conversation returned no row')
@@ -1532,6 +1583,10 @@ async function conversationsFor(
   const lastById = new Map(latest.map((row) => [row.conversationId, row.lastMessageAt]))
   const unreadById = new Map(unreadRows.map((row) => [row.conversationId, row.unread]))
 
+  // Two statements for the whole page rather than two per thread (`#1441`).
+  const aboutById = await conversationSubjects(db, ids)
+  const sharesById = await conversationShares(db, ids)
+
   return mine.map((row) => {
     const lastMessageAt = lastById.get(row.conversationId)
     const participants = parties.filter((party) => party.conversationId === row.conversationId)
@@ -1542,8 +1597,182 @@ async function conversationsFor(
       createdAt: row.createdAt,
       ...(lastMessageAt == null ? {} : { lastMessageAt }),
       unread: unreadById.get(row.conversationId) ?? 0,
+      about: aboutById.get(row.conversationId) ?? null,
+      shares: sharesById.get(row.conversationId) ?? [],
     }
   })
+}
+
+/**
+ * What each of these threads is about, in one statement (`#1441`).
+ *
+ * **Three left joins and one `coalesce` per field**, rather than three queries
+ * or a branch per row: the provenance columns are mutually exclusive by
+ * `message_conversations_provenance`, so at most one side of each coalesce can
+ * be non-null and the database is the thing that guarantees it.
+ *
+ * The label is what a person would recognise — a task's title, a wish's
+ * provider, an account's identifier — because the operator reading this has
+ * never seen a uuid and should not have to start.
+ */
+async function conversationSubjects(
+  db: Database,
+  ids: readonly string[],
+): Promise<ReadonlyMap<string, ConversationAbout>> {
+  if (ids.length === 0) return new Map()
+
+  const rows = await db
+    .select({
+      conversationId: messageConversations.id,
+      taskId: messageConversations.taskId,
+      taskTitle: tasks.title,
+      wishId: messageConversations.wishId,
+      wishProvider: accountWishes.provider,
+      accountId: messageConversations.accountId,
+      accountIdentifier: accounts.identifier,
+    })
+    .from(messageConversations)
+    .leftJoin(tasks, eq(tasks.id, messageConversations.taskId))
+    .leftJoin(accountWishes, eq(accountWishes.id, messageConversations.wishId))
+    .leftJoin(accounts, eq(accounts.id, messageConversations.accountId))
+    .where(inArray(messageConversations.id, [...ids]))
+
+  const subjects = new Map<string, ConversationAbout>()
+
+  for (const row of rows) {
+    if (row.taskId !== null) {
+      subjects.set(row.conversationId, {
+        kind: 'task',
+        id: row.taskId,
+        label: row.taskTitle ?? row.taskId,
+      })
+    } else if (row.wishId !== null) {
+      subjects.set(row.conversationId, {
+        kind: 'wish',
+        id: row.wishId,
+        label: row.wishProvider ?? row.wishId,
+      })
+    } else if (row.accountId !== null) {
+      subjects.set(row.conversationId, {
+        kind: 'account',
+        id: row.accountId,
+        label: row.accountIdentifier ?? row.accountId,
+      })
+    }
+  }
+
+  return subjects
+}
+
+/**
+ * The vault entries currently shared onto each of these threads (`#1441`).
+ *
+ * **Joined on the share still being open**, so a take-back or an expiry detaches
+ * it without anything deleting a row. That is why there is no detach call:
+ * ending the share is the only way an attachment goes, and one way is what stops
+ * a thread and a page disagreeing about who can read what.
+ *
+ * **No value comes out of here**, in either direction. `sealed_value` is not in
+ * the select at all, which is a stronger statement than not returning it.
+ */
+async function conversationShares(
+  db: Database,
+  ids: readonly string[],
+): Promise<ReadonlyMap<string, ConversationShare[]>> {
+  if (ids.length === 0) return new Map()
+
+  const rows = await db
+    .select({
+      conversationId: messageConversationShares.conversationId,
+      vaultKey: vaultShares.vaultKey,
+      purpose: vaultShares.purpose,
+      expiresAt: vaultShares.expiresAt,
+      operatorAddition: vaultShares.operatorAddition,
+    })
+    .from(messageConversationShares)
+    .innerJoin(vaultShares, eq(vaultShares.id, messageConversationShares.shareId))
+    .where(
+      and(
+        inArray(messageConversationShares.conversationId, [...ids]),
+        isNull(vaultShares.takenBackAt),
+        sql`${vaultShares.expiresAt} > now()`,
+      ),
+    )
+    .orderBy(asc(messageConversationShares.attachedAt))
+
+  const attached = new Map<string, ConversationShare[]>()
+
+  for (const row of rows) {
+    const list = attached.get(row.conversationId) ?? []
+    list.push({
+      vaultKey: row.vaultKey,
+      purpose: row.purpose,
+      expiresAt: row.expiresAt,
+      operatorWrote: row.operatorAddition !== null,
+    })
+    attached.set(row.conversationId, list)
+  }
+
+  return attached
+}
+
+/**
+ * Attach an open share to a thread the citizen is in (`#1441`).
+ *
+ * **Refuses a conversation the caller is not a participant of**, which is the
+ * only authorisation here and is the same one every other write in this file
+ * makes: a share attached to somebody else's thread would show a credential to
+ * a person who was never asked.
+ *
+ * Idempotent through the primary key rather than through a read — attaching the
+ * same share twice is the same attachment, and two wakings racing must not
+ * produce a 500.
+ */
+export async function attachShareToConversation(
+  db: Database,
+  agentId: AgentId,
+  conversation: ConversationId,
+  shareId: string,
+): Promise<'attached' | 'not-a-participant'> {
+  const me = await participantOf(db, conversation, agentId)
+  if (me === undefined) return 'not-a-participant'
+
+  await db
+    .insert(messageConversationShares)
+    .values({ conversationId: conversation, shareId })
+    .onConflictDoNothing()
+
+  return 'attached'
+}
+
+/**
+ * The open operator thread about one account, if there is one (`#1441`).
+ *
+ * **The join read from the account's side.** A citizen waking mid-episode has
+ * the account and needs the thread; without this it would have to list every
+ * thread and look for the one whose subject matched, which is the kind of work
+ * an agent does once and then stops doing.
+ */
+export async function conversationAboutAccount(
+  db: Database,
+  agentId: AgentId,
+  accountId: string,
+): Promise<ConversationId | undefined> {
+  const [row] = await db
+    .select({ id: messageConversations.id })
+    .from(messageConversations)
+    .innerJoin(
+      messageParticipants,
+      and(
+        eq(messageParticipants.conversationId, messageConversations.id),
+        eq(messageParticipants.agentId, agentId),
+      ),
+    )
+    .where(eq(messageConversations.accountId, accountId))
+    .orderBy(desc(messageConversations.createdAt))
+    .limit(1)
+
+  return row === undefined ? undefined : conversationId(row.id)
 }
 
 /**
@@ -1668,6 +1897,9 @@ export async function readConversation(
  * it is not exported and there is nowhere to reach it from.
  */
 async function conversationBodies(db: Database, id: ConversationId): Promise<ReadResult> {
+  const about = (await conversationSubjects(db, [id])).get(id) ?? null
+  const shares = (await conversationShares(db, [id])).get(id) ?? []
+
   const rows = await db
     .select({
       id: messages.id,
@@ -1691,6 +1923,8 @@ async function conversationBodies(db: Database, id: ConversationId): Promise<Rea
 
   return {
     outcome: 'read',
+    about,
+    shares,
     messages: rows.map((row) => {
       const base: Message = {
         id: messageId(row.id),

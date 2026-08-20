@@ -359,6 +359,24 @@ about the change: every one was two branches incrementing a number.
   **vocabulary-free** for, in the pull request, and there is nothing to edit.
   This was the dangerous one: a wrongly resolved floor was green on the branch
   and red on `main` for everybody, which is `#1379` and `#1456`.
+
+  **What a red catalogue run locally means** (`#1483`). `npm run check` weighs the
+  surface the same way the branch gate does — the 1024-byte tolerance, and your
+  pull request's own words read from `CATALOGUE_FLOOR_PR_TEXT_FILE` or
+  `CATALOGUE_FLOOR_PR_TEXT`. So a red run says _this growth needs a sentence_,
+  never _raise the floor_. Write the sentence in the pull request. If you want to
+  see the verdict before there is a pull request to read, put the text in the
+  variable for one run:
+
+  ```bash
+  CATALOGUE_FLOOR_PR_TEXT="$(git log -1 --format='%B')" npm run check
+  ```
+
+  Until `#1483` that assertion compared against the floor with no tolerance and
+  read no justification, so it failed a branch for doing exactly what the
+  paragraph above tells you to do, and the only way past it was to edit the floor
+  after all.
+
 - **The table and enum counts** in `packages/db/src/migrate.test.ts`. Both are
   counted from the schema barrel now, so adding a table edits nothing there.
   **Do not append to the ordinal block above the assertion.** It is the record of

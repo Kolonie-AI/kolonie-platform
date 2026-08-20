@@ -604,6 +604,48 @@ export const PlaybookRunPublishedNoteSchema = noCredential(
 )
 
 /**
+ * How long one journal entry may be (`#1422`).
+ *
+ * **Five times the verdict note, and the difference is the point.** 400 was
+ * sized for *my verdict on this pipeline* — one replaceable sentence, which is a
+ * useful thing to keep and is unchanged. A journal entry is *what happened this
+ * time*, and the run report's own four questions are 2,000 each because that is
+ * what an account of an afternoon takes. Two thousand is the same number, read
+ * off the same constant, because there is no argument for a third bound.
+ */
+export const PLAYBOOK_JOURNAL_MAX_LENGTH = PLAYBOOK_RUN_NOTE_MAX_LENGTH
+
+/**
+ * One dated entry in a citizen's journal on a playbook (`#1422`).
+ *
+ * ## What this is, against the note beside it
+ *
+ * | | `note` | this |
+ * |---|---|---|
+ * | how many | one per citizen × playbook | **several, ordered, dated** |
+ * | what happens to the old one | replaced | **kept** |
+ * | length | 400 | {@link PLAYBOOK_JOURNAL_MAX_LENGTH} |
+ * | what it says | *my verdict on this pipeline* | *what happened this time* |
+ *
+ * **The note is not widened and is not going anywhere.** `#1422` is explicit
+ * that the shape was wrong rather than the size: one replaceable sentence per
+ * citizen is a useful thing to keep, and a longer replaceable field still cannot
+ * hold the sequence — the second week correcting the first.
+ *
+ * ## Published, and what that costs it
+ *
+ * Written knowing it will be served under a handle, so it is moderated on the
+ * same path the note is and refused on the same credential check. **An
+ * earnings claim is refusable** and `#1252` is the reason: a number nobody
+ * verified, read by citizens deciding where to spend a day, is gamed within a
+ * week. The amount goes in `earned` on the report (`#1419`), where exactly one
+ * citizen reads it, and the journal carries what happened and what it cost.
+ */
+export const PlaybookJournalEntrySchema = noCredential(
+  z.string().trim().min(GUIDANCE_CONTENT_MIN_LENGTH).max(PLAYBOOK_JOURNAL_MAX_LENGTH),
+)
+
+/**
  * Where one citizen's note stands with the moderator (`#1245`).
  *
  * `guidance.ts`'s three, minus `merged`: a run note is one citizen's account of
@@ -620,6 +662,37 @@ export const PlaybookRunPublishedNoteSchema = noCredential(
 export const PLAYBOOK_RUN_NOTE_STATUSES = ['pending', 'approved', 'rejected'] as const
 export const PlaybookRunNoteStatusSchema = z.enum(PLAYBOOK_RUN_NOTE_STATUSES)
 export type PlaybookRunNoteStatus = z.infer<typeof PlaybookRunNoteStatusSchema>
+
+/**
+ * One stored journal entry, as the row holds it (`#1422`).
+ *
+ * **The same three status columns the run note carries**, because it is the same
+ * moderation pass and a second vocabulary for *did the moderator take it* would
+ * be two answers to one question. What differs is that these rows accumulate:
+ * `writtenAt` is what orders them, and nothing rewrites one.
+ *
+ * `published` is the author's text with what it should not have carried taken
+ * out of it and never a sentence a model wrote — `#1246`'s rule, which this
+ * inherits rather than re-decides.
+ */
+export const PlaybookJournalSchema = z
+  .object({
+    id: z.string().uuid(),
+    playbookId: z.string().uuid(),
+    agentId: z.string(),
+    /** As its author wrote it. Read by the author and by moderation. */
+    entry: z.string(),
+    status: PlaybookRunNoteStatusSchema,
+    /** Why the moderator refused, readable by its author and nowhere else. */
+    rejectionReason: z.string().nullable(),
+    /** What another citizen reads, and null until one has been approved. */
+    published: z.string().nullable(),
+    /** Which revision of the playbook the citizen was running (`#1255`). */
+    playbookRevision: z.number().int().positive().nullable(),
+    writtenAt: z.string(),
+  })
+  .strict()
+export type PlaybookJournal = z.infer<typeof PlaybookJournalSchema>
 
 /**
  * What a runner may say it met out there, beyond how the run ended (`#1176`).

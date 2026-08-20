@@ -200,6 +200,20 @@ export interface LoopDependencies {
    */
   readonly playbookNotes?: PlaybookNoteLoopDependencies
   /**
+   * The run journal (`#1422`), which is the note pass over a second queue.
+   *
+   * **Separate dependencies rather than a flag**, because it is a separate queue
+   * with a separate bar: an entry has room to breathe where a note does not, and
+   * an entry that states an amount is refused where a note that does the same is
+   * an ordinary note about a payout. The judging pipeline itself is shared —
+   * same red line, same scrub, same *nothing survived* refusal — and sharing it
+   * is what keeps the two verdicts from drifting apart.
+   *
+   * Optional like the rest: an unwired runner leaves entries `pending`, which
+   * costs their author nothing and publishes nothing.
+   */
+  readonly playbookJournal?: PlaybookNoteLoopDependencies
+  /**
    * Judging proposed changes to a published playbook's steps (`#1254`).
    *
    * Separate from {@link playbookNotes} because it is a separate queue with a
@@ -1074,6 +1088,42 @@ async function moderatePlaybookNotes(
  * Failure is swallowed for the same reason playbook notes are: a tip nobody
  * judged costs its author nothing and never becomes a recipe step.
  */
+/**
+ * One pass over journal entries waiting on a verdict (`#1422`).
+ *
+ * Failure is swallowed for the note pass's reason, with the same consequence: an
+ * entry nobody judged costs its author nothing and reaches no other citizen.
+ */
+async function moderatePlaybookJournal(
+  deps: LoopDependencies,
+  batchSize: number,
+  log: Log,
+): Promise<void> {
+  const { playbookJournal } = deps
+  if (playbookJournal === undefined) return
+
+  try {
+    const outcome = await playbookNoteTick({ log, ...playbookJournal }, batchSize)
+    if (outcome.judged > 0) {
+      log.info(
+        `playbook journal: ${outcome.judged} judged, ${outcome.approved} published, ` +
+          `${outcome.rejected} returned, ${outcome.failed} deferred`,
+        {
+          event: 'playbook-journal.pass.done',
+          judged: outcome.judged,
+          approved: outcome.approved,
+          rejected: outcome.rejected,
+          failed: outcome.failed,
+        },
+      )
+    }
+  } catch (error) {
+    log.error('the playbook journal moderation pass failed', error, {
+      event: 'playbook-journal.pass.failed',
+    })
+  }
+}
+
 async function moderateOperateNotes(
   deps: LoopDependencies,
   batchSize: number,
@@ -1590,6 +1640,7 @@ export function startQuestRunner(deps: LoopDependencies, options: RunnerOptions 
         await moderateQuests(deps, batchSize, log)
         await moderatePlaybooks(deps, batchSize, log)
         await moderatePlaybookNotes(deps, batchSize, log)
+        await moderatePlaybookJournal(deps, batchSize, log)
         await moderateOperateNotes(deps, batchSize, log)
         await moderatePlaybookProposals(deps, batchSize, log)
         await moderatePlaybookRevisions(deps, batchSize, log)

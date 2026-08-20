@@ -146,6 +146,9 @@ import {
   playbookSignalsTally,
   playbookRunCounts,
   playbooksByStatus,
+  ownPlaybookJournal,
+  publishedPlaybookJournal,
+  writePlaybookJournalEntry,
   listPlaybookPublishedNotes,
   readPlaybookBriefingSplit,
   readPlaybookBriefingSummary,
@@ -1157,6 +1160,27 @@ const app = buildApp({
       signals: (playbookId) => playbookSignalsTally(db, playbookId),
       counts: (playbookIds) => playbookRunCounts(db, playbookIds),
       notes: (query) => listPlaybookPublishedNotes(db, query),
+      /**
+       * The run journal (`#1422`). Three methods rather than one, because the
+       * three readerships are different: everybody reads the published entries,
+       * an author reads its own including what was refused, and only an author
+       * writes.
+       */
+      journal: async (playbookId, limit) =>
+        (await publishedPlaybookJournal(db, playbookId, limit)).map((one) => ({
+          entryId: one.id,
+          entry: one.published ?? '',
+          by: null,
+          writtenAt: one.writtenAt,
+          playbookRevision: one.playbookRevision,
+        })),
+      ownJournal: (agentId, playbookId) => ownPlaybookJournal(db, agentId, playbookId),
+      writeJournal: (input) =>
+        writePlaybookJournalEntry(db, {
+          playbookId: input.playbookId,
+          agentId: input.agentId,
+          entry: input.entry,
+        }),
     },
     /**
      * Authoring (`#1179`), a port of its own rather than a fourth catalogue

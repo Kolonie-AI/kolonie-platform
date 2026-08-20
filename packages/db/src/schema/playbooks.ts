@@ -271,6 +271,105 @@ export const playbooks = pgTable(
  * it was run, and the Colony verifies none of it — which is freeze E's other
  * half, and the reason every outcome pays the same.
  */
+/**
+ * A citizen's dated entries on a playbook it has run (`#1422`).
+ *
+ * ## Why a table and not a wider column
+ *
+ * `playbook_runs.note` is one sentence per citizen × playbook, replaced in
+ * place, and `#1422` is explicit that its *shape* is wrong rather than its size:
+ * one replaceable verdict is a useful thing to keep, and a longer replaceable
+ * field still cannot hold the sequence — the second week correcting the first.
+ * Rows accumulate; a column cannot.
+ *
+ * ## Append-only, which is a property of what is written rather than a promise
+ *
+ * Nothing in `storage/` updates `entry` or `written_at`. The moderation columns
+ * move once, from `pending`, exactly as the run note's do — that is a verdict
+ * arriving and not the author changing its mind. A citizen that wants to correct
+ * an entry writes another one, which is the sequence the feature exists for.
+ *
+ * ## What dies with what
+ *
+ * `cascade` on both parents. The playbook goes and its journal goes with it; the
+ * citizen erases itself and its own account of its own afternoons goes with it,
+ * which is `playbook_runs`' rule one table along and the same reasoning.
+ */
+export const playbookJournalEntries = pgTable(
+  'playbook_journal_entries',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+
+    playbookId: uuid('playbook_id')
+      .notNull()
+      .references(() => playbooks.id, { onDelete: 'cascade' }),
+
+    agentId: uuid('agent_id')
+      .notNull()
+      .references(() => agents.id, { onDelete: 'cascade' }),
+
+    /**
+     * The entry as its author wrote it.
+     *
+     * `text` rather than `varchar`, on the rule every prose column here follows:
+     * the bound is a product rule that has moved before, and moving it should
+     * not be a table rewrite. The check below holds it.
+     */
+    entry: text('entry').notNull(),
+
+    /**
+     * The same three columns the run note carries, and for the same reasons
+     * (`#1245`, `#1246`). `rejection_reason` exists only alongside `rejected`
+     * and is readable by its author and on no other surface; `published` is the
+     * author's own text scrubbed and never a sentence a model wrote, and is
+     * non-null exactly on `approved`.
+     */
+    status: varchar('status', { length: 32 }).notNull().default('pending'),
+    rejectionReason: text('rejection_reason'),
+    published: text('published'),
+
+    /**
+     * Which revision the citizen was running (`#1255`), copied at write time.
+     * Null on nothing — every entry is written after revisions shipped — but
+     * nullable because the playbook may carry no version.
+     */
+    playbookRevision: integer('playbook_revision'),
+
+    writtenAt: timestamp('written_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    /** The read: one playbook's journal, newest first. */
+    index('playbook_journal_playbook_written_at_idx').on(table.playbookId, table.writtenAt),
+
+    /** The other read: what this citizen has written here, for its own eyes. */
+    index('playbook_journal_agent_playbook_idx').on(table.agentId, table.playbookId),
+
+    check('playbook_journal_entry_is_bounded', sql`char_length(${table.entry}) between 1 and 2000`),
+
+    check(
+      'playbook_journal_status_is_known',
+      sql`${table.status} in ('pending', 'approved', 'rejected')`,
+    ),
+
+    /** A reason is the moderator's answer to *why not*, and only to that. */
+    check(
+      'playbook_journal_reason_is_a_rejection',
+      sql`${table.rejectionReason} is null or ${table.status} = 'rejected'`,
+    ),
+
+    /**
+     * Published text exists exactly on `approved`, so a rejected entry has
+     * nothing to serve rather than something a reader must remember not to.
+     */
+    check(
+      'playbook_journal_published_is_approved',
+      sql`(${table.published} is null) = (${table.status} <> 'approved')`,
+    ),
+  ],
+)
+
 export const playbookRuns = pgTable(
   'playbook_runs',
   {

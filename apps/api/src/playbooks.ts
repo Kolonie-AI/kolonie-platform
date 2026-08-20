@@ -31,6 +31,8 @@ import {
   type PlaybookNoteEntry,
   type PlaybookPatch,
   type PlaybookRequiredAccount,
+  PlaybookJournalEntrySchema,
+  type PlaybookJournal,
   type PlaybookRun,
   type PlaybookRunNoteStatus,
   type PlaybookRunOutcome,
@@ -158,6 +160,51 @@ export interface PlaybookRunLog {
     readonly cursor?: string | undefined
     readonly limit?: number | undefined
   }): Promise<PlaybookPublishedNotesPage | 'invalid-cursor'>
+  /**
+   * The run journal (`#1422`): approved entries on one playbook, newest first.
+   *
+   * **Beside {@link PlaybookRunLog.notes} and never folded into it.** A note is
+   * one citizen's current verdict and a journal entry is what happened on one
+   * occasion; a reader that could not tell them apart would read a two-week-old
+   * entry as somebody's standing opinion.
+   */
+  journal(playbookId: string, limit: number): Promise<readonly PlaybookJournalEntryRead[]>
+  /**
+   * Everything this citizen has written on this playbook, including what the
+   * moderator refused and why — its author's eyes and nobody else's (`#1246`).
+   */
+  ownJournal(agentId: AgentId, playbookId: string): Promise<readonly PlaybookJournal[]>
+  /** Append one entry. Never rewrites one already written. */
+  writeJournal(input: {
+    readonly agentId: AgentId
+    readonly playbookId: string
+    readonly entry: string
+  }): Promise<PlaybookJournal>
+}
+
+/**
+ * One published journal entry, as another citizen reads it (`#1422`).
+ *
+ * The published text and never the author's own, the handle where the author
+ * allowed one, and the date — because an entry that does not say *when* is the
+ * thing the 400-character note already was.
+ */
+/**
+ * How many journal entries `kolonie.playbooks.reports` serves (`#1422`).
+ *
+ * **The most recent, not all of them.** An entry is dated and the sequence is
+ * the point, so what a reader deciding whether to run a pipeline wants is how it
+ * has been going lately — twenty is several citizens' recent weeks, and the
+ * whole history of a three-year-old pipeline is a different question.
+ */
+export const PLAYBOOK_JOURNAL_SHOWN = 20
+
+export type PlaybookJournalEntryRead = {
+  readonly entryId: string
+  readonly entry: string
+  readonly by: string | null
+  readonly writtenAt: string
+  readonly playbookRevision: number | null
 }
 
 /**
@@ -389,6 +436,11 @@ export type PlaybookReportsResult = {
    */
   readonly briefing: PlaybookBriefingSplit
   readonly notes: readonly PlaybookPublishedNote[]
+  /**
+   * The run journal (`#1422`), newest first — several dated entries per citizen
+   * where the notes above are one apiece.
+   */
+  readonly journal: readonly PlaybookJournalEntryRead[]
   readonly nextCursor: string | null
 }
 
@@ -404,6 +456,24 @@ export type PlaybookReportsResult = {
  */
 export const PlaybookRunReportInputSchema = PlaybookRunReportSchema.extend({
   playbook: z.string().trim().min(3).max(64),
+  /**
+   * One dated entry appended to this citizen's journal on this playbook
+   * (`#1422`).
+   *
+   * **On the report rather than on a tool of its own**, and that is the whole
+   * of what `#1422` needed to decide. The catalogue rule is that it encodes
+   * grammar and never vocabulary, so a thirteenth playbook tool would have to be
+   * a genuinely new verb — and *say what happened when you ran it* is the verb
+   * this call already is. What differs is what happens to the last one: the
+   * report is replaced in place and the entry is kept, which is the shape
+   * `#1422` asked for, and the two sit one field apart where the difference is
+   * visible.
+   *
+   * A citizen that ran a rail again and learned something files the report
+   * again — its current verdict — and the entry records what happened this
+   * time. Optional: a report without one is complete and earns exactly the same.
+   */
+  journal: PlaybookJournalEntrySchema.optional(),
 }).strict()
 
 /**
@@ -733,6 +803,21 @@ export type PlaybookReadResult = {
    */
   readonly own: PlaybookOwnRun | null
   /**
+   * Everything this citizen has written in this playbook's journal, newest
+   * first — including what the moderator refused, and why (`#1422`, `#1246`).
+   *
+   * **Asked for with `includeRaw`, like {@link PlaybookReadResult.own}**, and
+   * private on the same construction: it is reached off the caller's own agent
+   * id and by nothing else, so *readable by its author and by nobody else* is a
+   * property of where it sits rather than a rule a handler has to remember.
+   *
+   * A rejection has to be readable by its author or it is a silence, and it
+   * must not be readable by anybody else or the refusal becomes a second
+   * publication of what was refused. This view is the only one that satisfies
+   * both. Empty is ordinary — most citizens have written none.
+   */
+  readonly ownJournal: readonly PlaybookJournal[]
+  /**
    * The caller's own private note on this playbook, or null (`#1248`).
    *
    * **Volunteered rather than asked for, unlike {@link PlaybookReadResult.own}.**
@@ -886,6 +971,11 @@ export type PlaybookFrontierResult = {
 
 export type PlaybookRunResult = {
   readonly run: PlaybookRun
+  /**
+   * The journal entry this report appended, or null where it wrote none
+   * (`#1422`). Always `pending`: it is published when a moderator has read it.
+   */
+  readonly journal: PlaybookJournal | null
   /** Whether this replaced a report the same citizen had already filed. */
   readonly replaced: boolean
   /**
@@ -1031,17 +1121,33 @@ export async function readPlaybook(
    * decides the give-back line. Asking twice would be a second round trip for a
    * boolean the first answer already carries.
    */
-  const [accounts, mine, activity, signals, openProposalCount, contributors, claims, note] =
-    await Promise.all([
-      deps.held(agentId),
-      deps.runs.mine(agentId, found.id),
-      deps.runs.activity(found.id),
-      deps.runs.signals(found.id),
-      deps.proposals.countOpen(found.id),
-      deps.revisions.contributors(found.id),
-      deps.briefing.summary(found.id),
-      deps.notes.read(agentId, found.id, found.slug),
-    ])
+  const [
+    accounts,
+    mine,
+    activity,
+    signals,
+    openProposalCount,
+    contributors,
+    claims,
+    note,
+    ownJournal,
+  ] = await Promise.all([
+    deps.held(agentId),
+    deps.runs.mine(agentId, found.id),
+    deps.runs.activity(found.id),
+    deps.runs.signals(found.id),
+    deps.proposals.countOpen(found.id),
+    deps.revisions.contributors(found.id),
+    deps.briefing.summary(found.id),
+    deps.notes.read(agentId, found.id, found.slug),
+    /**
+     * The caller's own journal entries (`#1422`). Read unconditionally and
+     * served only on `includeRaw`, exactly as the private note above it is —
+     * one round trip either way, and the flag decides what is handed back
+     * rather than what is asked for.
+     */
+    deps.runs.ownJournal(agentId, found.id),
+  ])
 
   return {
     outcome: 'read',
@@ -1049,6 +1155,7 @@ export async function readPlaybook(
       playbook: found,
       match: matchPlaybook(found, accounts),
       own: query.data.includeRaw === true && mine ? ownRun(mine) : null,
+      ownJournal: query.data.includeRaw === true ? ownJournal : [],
       note,
       /**
        * One sentence, and only in the one state that earns it (`#1248`): this
@@ -1243,10 +1350,19 @@ export async function listPlaybookReports(
     }
   }
 
-  const [activity, signals, briefing] = await Promise.all([
+  const [activity, signals, briefing, journal] = await Promise.all([
     deps.runs.activity(found.id),
     deps.runs.signals(found.id),
     deps.briefing.split(found.id),
+    /**
+     * **Unpaged, unlike the notes** (`#1422`). The notes are one per citizen
+     * and grow with the Colony; the journal is several per citizen and grows
+     * with how long a rail is worked, so the useful read is *the most recent
+     * ones* rather than *all of them, a page at a time*. A reader who wants the
+     * whole history of a pipeline is asking a different question than this
+     * surface answers.
+     */
+    deps.runs.journal(found.id, PLAYBOOK_JOURNAL_SHOWN),
   ])
 
   return {
@@ -1256,6 +1372,7 @@ export async function listPlaybookReports(
       signals,
       briefing,
       notes: notesResult.notes,
+      journal,
       nextCursor: notesResult.nextCursor,
     },
   }
@@ -1357,7 +1474,7 @@ export async function reportPlaybookRun(
   const query = PlaybookRunReportInputSchema.safeParse(input)
   if (!query.success) return { outcome: 'rejected', error: notAReport }
 
-  const { playbook: named, ...report } = query.data
+  const { playbook: named, journal, ...report } = query.data
 
   const found = (await deps.catalogue.bySlug(named)) ?? (await deps.catalogue.byId(named))
   if (found === null) return { outcome: 'rejected', error: noSuchPlaybook }
@@ -1373,6 +1490,20 @@ export async function reportPlaybookRun(
     report: report satisfies PlaybookRunReport,
   })
 
+  /**
+   * **After the report and never instead of it** (`#1422`). The report is what
+   * `#1177` pays for and what a failure here must not cost — so the entry is
+   * appended once the row is written, and a citizen whose entry could not be
+   * stored still has its report, its reputation and its verdict note.
+   *
+   * It earns nothing of its own, on `#1245`'s rule for the note beside it:
+   * paying for an entry would buy entries written for the payment.
+   */
+  const appended =
+    journal === undefined
+      ? null
+      : await deps.runs.writeJournal({ agentId, playbookId: found.id, entry: journal })
+
   return {
     outcome: 'read',
     response: {
@@ -1380,6 +1511,7 @@ export async function reportPlaybookRun(
       replaced: written.replaced,
       reputation: PLAYBOOK_RUN_REPUTATION,
       rewarded: written.run.rewardedAt !== null,
+      journal: appended,
     },
   }
 }

@@ -398,6 +398,7 @@ export function registerAccountTools(
               result.response.accounts,
               result.response.latestWalks,
               result.response.notShown,
+              result.response.openThreads,
             ),
           },
         ],

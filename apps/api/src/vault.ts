@@ -2,6 +2,7 @@ import type { z } from 'zod'
 import {
   SetVaultDescriptionRequestSchema,
   SetVaultEntryRequestSchema,
+  ConversationIdSchema,
   ShareVaultEntryRequestSchema,
   VaultKeySchema,
   VAULT_MAX_ENTRIES,
@@ -18,6 +19,7 @@ import {
   type UnshareVaultEntryResponse,
 } from '@kolonie-ai/core'
 import {
+  attachShareToConversation,
   deleteVaultEntry,
   getVaultEntry,
   listVaultEntries,
@@ -93,6 +95,21 @@ export interface VaultStore {
         readonly days?: number | undefined
       }) => Promise<ShareVaultEntryOutcome>)
     | undefined
+  /**
+   * Attach an open share to a thread the citizen is in (`#1441`).
+   *
+   * Separate from `share` rather than folded into it, because a share with no
+   * thread is an ordinary share and the two failures are different: sharing can
+   * fail on the entry, attaching can fail on the conversation, and a citizen
+   * told *refused* wants to know which.
+   */
+  attach?:
+    | ((
+        agentId: AgentId,
+        conversationId: string,
+        shareId: string,
+      ) => Promise<'attached' | 'not-a-participant'>)
+    | undefined
   /** End a share and hand back what the operator wrote, once. */
   unshare?: ((agentId: AgentId, key: string) => Promise<UnshareVaultEntryOutcome>) | undefined
   /**
@@ -131,6 +148,13 @@ export function databaseVault(db: Database, sealingKey?: string | undefined): Va
       : {
           share: (input) => shareVaultEntryInDatabase(db, { ...input, sealingKey }),
           unshare: (agentId, key) => unshareVaultEntryInDatabase(db, agentId, key, sealingKey),
+          attach: (agentId, conversation, shareId) =>
+            attachShareToConversation(
+              db,
+              agentId,
+              ConversationIdSchema.parse(conversation),
+              shareId,
+            ),
         }),
     hasOperator: async (agentId) => (await operatorOf(db, agentId)) !== undefined,
   }
@@ -367,6 +391,23 @@ export async function shareVaultEntry(
     }
   }
 
+  /**
+   * Attached after the share exists, and a refusal here does not undo it
+   * (`#1441`).
+   *
+   * The share is the thing that was asked for; the thread is where it is being
+   * talked about. A citizen that named a conversation it is not in has made one
+   * mistake, and taking the share away as well would make it two — the entry is
+   * shared, the answer says which thread it did *not* land on, and
+   * `kolonie.vault.unshare` is one call away if that was not what was wanted.
+   */
+  let attachedTo: string | null = null
+
+  if (parsed.data.conversationId !== undefined && deps.vault.attach !== undefined) {
+    const attached = await deps.vault.attach(agentId, parsed.data.conversationId, shared.shareId)
+    if (attached === 'attached') attachedTo = parsed.data.conversationId
+  }
+
   const read = await deps.vault.get(token, agentId, named.key)
 
   return {
@@ -377,6 +418,7 @@ export async function shareVaultEntry(
       // what `kolonie.vault.list` will tell it on the next waking.
       entry: entryOr(read, named.key, shared.share),
       extended: shared.extended,
+      attachedTo,
     },
   }
 }

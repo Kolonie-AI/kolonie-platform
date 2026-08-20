@@ -21,6 +21,7 @@ import {
   MESSAGE_REQUEST_PREVIEW_MAX_LENGTH,
 } from '@kolonie-ai/core'
 import { accountWishes } from './account-wishes.js'
+import { accounts } from './accounts.js'
 import { agents } from './agents.js'
 import {
   messageParty,
@@ -32,6 +33,7 @@ import {
 } from './enums.js'
 import { humans } from './humans.js'
 import { tasks } from './tasks.js'
+import { vaultShares } from './vault-shares.js'
 
 const bodyMin = sql.raw(String(MESSAGE_BODY_MIN_LENGTH))
 const bodyMax = sql.raw(String(MESSAGE_BODY_MAX_LENGTH))
@@ -107,27 +109,107 @@ export const messageConversations = pgTable(
     /** The wanted account wish, on the threads that came from one (`#594`). */
     wishId: uuid('wish_id').references(() => accountWishes.id, { onDelete: 'cascade' }),
 
+    /**
+     * The account this thread is about (`#1441`, epic `#1437`).
+     *
+     * **A third provenance and not a fourth kind of thing.** A citizen writing
+     * *"please put a card on the GitHub account"* is asking about one account,
+     * and before this the operator had no way to tell **which** — the words named
+     * a provider and the Colony's own register named a row, and nothing joined
+     * them. It is a subject in exactly the sense a task and a wish are: the
+     * thread is about it for its whole length, and a citizen needing its operator
+     * for a second account opens a second thread (`#1318` decision 12).
+     *
+     * **A shared vault entry is deliberately *not* here** (`#1437` decision 7).
+     * Several may hang on one conversation — the account's own credential and the
+     * mailbox that recovers it — they come and go while the thread stays, and the
+     * thread is still about the account either way. That is an attachment, and
+     * `message_conversation_shares` is where it lives. This column would have
+     * been the wrong answer to a question nobody asked.
+     *
+     * `cascade`, like the two above it: an account that is gone cannot be what a
+     * thread is about.
+     */
+    accountId: uuid('account_id').references(() => accounts.id, { onDelete: 'cascade' }),
+
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),
   },
   (table) => [
     /**
-     * At most one provenance, and both-null is the ordinary case.
+     * At most one provenance, and all-null is the ordinary case.
      *
      * Not the `<>` of `operator_requests_exactly_one_provenance`, the constraint
      * the retired exchange carried (`#1325`), and the difference is deliberate:
      * an exchange there was always *about* something because opening one
      * required naming it, and a conversation here may be two citizens talking.
-     * What must stay impossible is a thread claiming to be about a task **and**
-     * a wish, which is a thread that answers *why was this person asked* twice.
+     * What must stay impossible is a thread claiming to be about two of them at
+     * once, which is a thread that answers *why was this person asked* twice.
+     *
+     * **Counted rather than written as three pairwise clauses** since `#1441`
+     * added the third: `a is null or b is null` twice over is four clauses for
+     * three columns and six for four, and the shape that grows is the one that
+     * gets a case wrong the first time somebody adds to it.
      */
     check(
       'message_conversations_provenance',
-      sql`${table.taskId} is null or ${table.wishId} is null`,
+      sql`(${table.taskId} is not null)::int + (${table.wishId} is not null)::int
+          + (${table.accountId} is not null)::int <= 1`,
     ),
     /** *What is this operator being asked about* — read per task, when it is read. */
     index('message_conversations_task_idx').on(table.taskId),
+    /**
+     * *Is there a thread open about this account* — read from the account's own
+     * side (`#1441`). A citizen waking mid-episode has to be able to find the
+     * thread **from** the account, not only the account from the thread.
+     */
+    index('message_conversations_account_idx').on(table.accountId),
+  ],
+)
+
+/**
+ * A vault entry currently shared onto one conversation (`#1441`, epic `#1437`).
+ *
+ * **An attachment rather than a subject**, which is `#1437` decision 7 and the
+ * whole reason this is a table and not a fourth column above. A thread about an
+ * account may carry the account's own credential and the mailbox that recovers
+ * it; both come and go while the thread stays; and the thread is about the
+ * account throughout. Several-to-one is the shape, so a join is the shape.
+ *
+ * **It carries no secret and no expiry of its own.** The share owns both, in
+ * `vault_shares`, and the one thing this row says is *this share is being talked
+ * about here*. Detaching therefore happens by the share ending — there is no
+ * detach call, because two ways to stop an operator seeing something is one way
+ * too many.
+ */
+export const messageConversationShares = pgTable(
+  'message_conversation_shares',
+  {
+    conversationId: uuid('conversation_id')
+      .notNull()
+      .references(() => messageConversations.id, { onDelete: 'cascade' }),
+
+    /**
+     * Cascade, so ending the share takes the attachment with it in the one case
+     * the row is deleted outright — an erasure. An ordinary take-back leaves the
+     * `vault_shares` row and stamps `taken_back_at`, and the reads here join on
+     * that being null, so a taken-back share stops being attached without
+     * anything having to delete anything.
+     */
+    shareId: uuid('share_id')
+      .notNull()
+      .references(() => vaultShares.id, { onDelete: 'cascade' }),
+
+    attachedAt: timestamp('attached_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    /** One row per share per thread. Attaching twice is the same attachment. */
+    primaryKey({ columns: [table.conversationId, table.shareId] }),
+    /** *What is attached to this thread* — the read the operator's view makes. */
+    index('message_conversation_shares_conversation_idx').on(table.conversationId),
   ],
 )
 

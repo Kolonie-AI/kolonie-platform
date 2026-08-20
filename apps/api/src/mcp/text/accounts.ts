@@ -15,6 +15,15 @@ export function accountsAsText(
   accounts: readonly Account[],
   latestWalks: readonly WalkStatus[] = [],
   notShown = 0,
+  /**
+   * Which accounts have an operator thread open about them (`#1441`).
+   *
+   * Printed on the account's own line rather than as a list at the end, for the
+   * reason a share is printed on a vault entry's: a citizen waking mid-episode
+   * is looking at the account, and a fact it has to assemble from two places is
+   * a fact it will assemble wrongly.
+   */
+  openThreads: Readonly<Record<string, string>> = {},
 ): string {
   /**
    * **What the default view left out, said in the answer that left it out**
@@ -152,6 +161,10 @@ export function accountsAsText(
            * exactly that reason.
            */
           `  • ${account.identifier} — ${marks.join('; ')}\n    id: ${account.id}` +
+          (openThreads[account.id] === undefined
+            ? ''
+            : `\n    an operator thread is open about this account: ${openThreads[account.id]}` +
+              ` — read it with kolonie.messages.get_thread`) +
           (account.note === null ? '' : `\n    note: ${account.note}`)
         )
       }),

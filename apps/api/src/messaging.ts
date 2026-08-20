@@ -192,6 +192,15 @@ export type MessageSendInput = {
    */
   readonly taskId?: TaskId
   readonly wishId?: WishId
+  /**
+   * The account this operator thread is about (`#1441`).
+   *
+   * The third subject, and the one that made the other two worth rendering: a
+   * citizen asking for something to be done to an account had no way to say
+   * which, so the operator read words about *the GitHub account* and had to
+   * guess. Mutually exclusive with the two above, by the same check.
+   */
+  readonly accountId?: string
 }
 
 export type SendResponse =
@@ -419,8 +428,8 @@ export const messageDestinationError: ApiError = {
     'Say who to write to with `to` (a handle), `conversationId` (a thread you are in) or ' +
     '`operator: true` (the person who answers for you), exactly one of the three. First ' +
     'contact by handle creates a request rather than an inbox message when you are strangers. ' +
-    '`taskId` and `wishId` say what an operator thread is about, at most one of the two, and ' +
-    'belong only to an `operator: true` open.',
+    '`taskId`, `wishId` and `accountId` say what an operator thread is about, at most one of ' +
+    'the three, and belong only to an `operator: true` open.',
 }
 
 /**

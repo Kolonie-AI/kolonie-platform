@@ -389,6 +389,16 @@ export function registerVaultTools(
               `${VAULT_SHARE_DEFAULT_DAYS} — long enough that a person going away for the ` +
               'weekend does not miss it, which is what killed the channels this replaces.',
           ),
+        conversationId: z
+          .string()
+          .uuid()
+          .optional()
+          .describe(
+            'The operator thread to attach it to, if you are writing in one. **This is what ' +
+              'puts the credential beside the reason for it** — a secret and the sentence ' +
+              'explaining it living in different places is why the old channels went unread. ' +
+              'A thread you are not in is refused, and the share still happens.',
+          ),
       },
       annotations: {
         readOnlyHint: false,
@@ -412,6 +422,7 @@ export function registerVaultTools(
         {
           purpose: input.purpose,
           ...(input.days === undefined ? {} : { days: input.days }),
+          ...(input.conversationId === undefined ? {} : { conversationId: input.conversationId }),
         },
         deps.vault,
       )
@@ -430,7 +441,15 @@ export function registerVaultTools(
                 : `"${result.response.entry.key}" is shared with your operator until `) +
               `${share?.expiresAt ?? 'the expiry it was given'}. They can read it and write ` +
               'something back into it until then. kolonie.vault.set on it is refused while it ' +
-              'is shared; kolonie.vault.unshare ends it and hands you anything they wrote.',
+              'is shared; kolonie.vault.unshare ends it and hands you anything they wrote.' +
+              (input.conversationId === undefined
+                ? ''
+                : result.response.attachedTo === null
+                  ? ' It is **not** on the thread you named — you are not a participant of that ' +
+                    'conversation. The share stands; attach it by sharing again from a thread ' +
+                    'you are in.'
+                  : ' It is on the thread you named, so they see the account, the entry and the ' +
+                    'reason in one place.'),
           },
         ],
         structuredContent: result.response,

@@ -339,11 +339,56 @@ export const MessageSchema = z.object({
 export type Message = z.infer<typeof MessageSchema>
 
 /**
+ * What one thread is about, in words a person would recognise (`#1441`).
+ *
+ * **The subject was always in the database and never in the answer.** A thread
+ * has carried a task or a wish since `#1319`; nothing rendered it, so an
+ * operator opening one read words about *the GitHub account* with no way to
+ * tell which row that was. `#1441` adds the account as a third subject and this
+ * as the one shape all three come back in.
+ *
+ * `label` is the recognisable half — a task's title, a wish's provider, an
+ * account's identifier — and `id` is the addressable half, so a reader that
+ * wants the thing itself need not search for it by name.
+ */
+export const ConversationAboutSchema = z.object({
+  kind: z.enum(['task', 'wish', 'account']),
+  id: z.string(),
+  label: z.string(),
+})
+export type ConversationAbout = z.infer<typeof ConversationAboutSchema>
+
+/**
+ * One vault entry currently shared onto a thread (`#1441`, epic `#1437`).
+ *
+ * **An attachment and not a subject** (`#1437` decision 7): several may hang on
+ * one conversation, they come and go while the thread stays, and the thread is
+ * about its account either way.
+ *
+ * **It carries no value, on either side.** A citizen reads its own secret with
+ * `kolonie.vault.get`; the operator reads the shared copy on their own page.
+ * A thread listing that carried one would put a credential in the answer to
+ * *what am I talking about*, which is not a call anybody makes on purpose.
+ */
+export const ConversationShareSchema = z.object({
+  /** The entry's name, which is what both parties already call it. */
+  vaultKey: z.string(),
+  /** The citizen's own line beside it. */
+  purpose: z.string(),
+  expiresAt: z.string(),
+  /** Whether the operator has written back. Never *what* — that is `unshare`. */
+  operatorWrote: z.boolean(),
+})
+export type ConversationShare = z.infer<typeof ConversationShareSchema>
+
+/**
  * One conversation, as a participant reads it.
  *
- * There is no title, no subject and no owner. A conversation is *who is in it*
- * plus *what was said*, and every one of those three would be a field somebody
- * later has to decide who may edit.
+ * There is no title and no owner, and both would be a field somebody later has
+ * to decide who may edit. What it does carry since `#1441` is what it is
+ * **about** — settled when it was opened and never afterwards — and what is
+ * currently **attached** to it, which is state on the share rather than on the
+ * thread. Neither is editable and neither is prose.
  */
 export const ConversationSchema = z.object({
   id: ConversationIdSchema,
@@ -369,6 +414,21 @@ export const ConversationSchema = z.object({
   lastMessageAt: z.string().optional(),
   /** How many messages the reader has not read. Delivery state, never a receipt for the sender. */
   unread: z.number().int().min(0),
+  /**
+   * What it is about, settled when it was opened (`#1319`, `#1441`).
+   *
+   * Null for a thread about nothing in particular, which is the ordinary case
+   * for two citizens talking and a real state for an operator thread too.
+   */
+  about: ConversationAboutSchema.nullable(),
+  /**
+   * The vault entries currently shared onto it (`#1441`).
+   *
+   * Empty for almost every thread. A share that expires or is taken back leaves
+   * this by itself — the attachment is a join onto an open share, so there is no
+   * detach call and no second way to stop a person seeing something.
+   */
+  shares: z.array(ConversationShareSchema),
 })
 export type Conversation = z.infer<typeof ConversationSchema>
 

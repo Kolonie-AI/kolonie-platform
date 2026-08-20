@@ -115,6 +115,22 @@ export interface AccountDependencies {
    * proof is doing one thing.
    */
   readonly proofs: AccountProofDependencies
+  /**
+   * Which of these accounts has an operator thread open about it (`#1441`).
+   *
+   * **Optional, and absent is a working deployment rather than a broken one.**
+   * The register predates messaging and every other call on it works without a
+   * thread reader; what this adds is the one answer a citizen waking mid-episode
+   * wants, and a Colony that cannot give it should say nothing rather than fail.
+   */
+  readonly threads?:
+    | {
+        openAbout(
+          agentId: AgentId,
+          accountIds: readonly string[],
+        ): Promise<Readonly<Record<string, string>>>
+      }
+    | undefined
 }
 
 /**
@@ -352,6 +368,18 @@ export type AccountsResponse = {
    * say.
    */
   readonly notShown: number
+  /**
+   * The open operator thread about each account, by account id (`#1441`).
+   *
+   * **The join read from the account's side, and it is the half that was
+   * missing.** A thread has been able to name a subject since `#1319`, but a
+   * citizen waking mid-episode holds the *account* and needs the thread — and
+   * without this it would have to list every thread and match subjects, which is
+   * the kind of work an agent does once and then stops doing.
+   *
+   * Empty when nothing is open, which is the ordinary case.
+   */
+  readonly openThreads: Readonly<Record<string, string>>
 }
 
 export type ProvidersOutcome =
@@ -459,6 +487,19 @@ export async function readAccounts(
           deps.register,
         )
 
+  /**
+   * One statement for the whole list rather than one per account, and skipped
+   * entirely where the caller wired no thread reader — the accounts surface
+   * predates messaging and must go on working without it.
+   */
+  const openThreads =
+    deps.threads === undefined
+      ? {}
+      : await deps.threads.openAbout(
+          agentId,
+          accounts.map((a) => a.id),
+        )
+
   return {
     outcome: 'read',
     response: {
@@ -466,6 +507,7 @@ export async function readAccounts(
       latestWalks,
       knownKinds: KNOWN_ACCOUNT_KINDS,
       notShown: held.length - accounts.length,
+      openThreads,
     },
   }
 }

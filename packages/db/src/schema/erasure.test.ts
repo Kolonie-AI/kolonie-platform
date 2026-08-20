@@ -1377,6 +1377,13 @@ describe('the erasure boundary', () => {
        */
       'payout_obligations.agent_id n',
       'permission_reports.agent_id c',
+      /**
+       * `#1422`. Cascades, on `playbook_runs`' terms one table over: an entry is
+       * this citizen's own account of its own afternoon, and erasure means
+       * erasure. What survives is the aggregate a listing has already counted,
+       * which names nobody.
+       */
+      'playbook_journal_entries.agent_id c',
       /** `#1248`. Cascades, on `task_notes`' terms: written to nobody but its author. */
       'playbook_notes.agent_id c',
       /**

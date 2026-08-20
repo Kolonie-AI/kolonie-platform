@@ -3710,6 +3710,103 @@ describe('the Atlas on the website host', () => {
       expect(response.body).not.toContain('<script>alert(1)</script>')
     })
 
+    /**
+     * **A browse, which is the thing the catalogue could not do** (`#1365`).
+     * `#1342` shipped a lookup by name, and a reader who does not know the name
+     * had nothing to type — so an agent asking *where can I earn today* had to
+     * read the whole shelf list. An empty `q` with a facet is the answer.
+     */
+    describe('browsing by how a provider pays', () => {
+      const earning = async (write: (colony: FakeColony) => void) => {
+        await app.close()
+        app = build()
+        write(colony)
+        await app.ready()
+      }
+
+      const payer = (provider: string) => ({
+        ...noFigures('bounty-board', provider),
+        attempted: 2,
+        evidenced: true,
+      })
+
+      it('lists every provider that pays that way, with no query at all', async () => {
+        await earning((one) => {
+          one.recipes.measure(payer('boards.example'))
+          one.recipes.measure({
+            ...noFigures('mailbox', 'plain.example'),
+            attempted: 2,
+            evidenced: true,
+          })
+        })
+
+        const body = (await get('/atlas/search?earn=bounty-board')).body
+
+        expect(body).toContain('boards.example')
+        expect(body).not.toContain('plain.example')
+        expect(body).toContain('pays for finished tasks')
+      })
+
+      it('narrows a text query by the facet as well', async () => {
+        await earning((one) => {
+          one.recipes.measure(payer('boards.example'))
+          one.recipes.measure({
+            ...noFigures('mailbox', 'boards-mail.example'),
+            attempted: 2,
+            evidenced: true,
+          })
+        })
+
+        const body = (await get('/atlas/search?q=boards&earn=bounty-board')).body
+
+        expect(body).toContain('boards.example')
+        expect(body).not.toContain('boards-mail.example')
+      })
+
+      /**
+       * **An unknown facet is no filter rather than an error**, the same call
+       * `?worked=banana` and the over-long query both make: a 400 on a public URL
+       * is a page a crawler stops asking for.
+       */
+      it('treats a facet nobody has heard of as no filter', async () => {
+        const response = await get('/atlas/search?q=github&earn=not-a-facet')
+
+        expect(response.statusCode).toBe(200)
+        expect(response.body).toContain('github')
+      })
+
+      it('offers the five ways to earn in the box, and no script to work them', async () => {
+        const body = (await get('/atlas/search')).body
+
+        expect(body).toContain('name="earn"')
+        expect(body).toContain('pays for finished tasks')
+        expect(body).toContain('pays for an audience')
+        expect(body).not.toMatch(/<script(?![^>]*application\/ld\+json)/)
+      })
+
+      /**
+       * **A second browse dimension on the index** (`#1365`). The shelves are the
+       * only one it had, and for an earn-seeking reader that is the wrong one:
+       * the providers that pay are spread across every shelf, and the ones whose
+       * kind reaches no shelf sit under the `data-apis` fallback.
+       */
+      it('offers a way in from the index that is not a shelf', async () => {
+        await earning((one) => one.recipes.measure(payer('boards.example')))
+
+        const body = (await get('/atlas')).body
+
+        expect(body).toContain('k-atlas-earn-nav')
+        expect(body).toContain('/atlas/search?earn=bounty-board')
+      })
+
+      /** And it is absent where nothing pays, rather than an empty heading. */
+      it('says nothing on a catalogue where nobody has filed an earn facet', async () => {
+        const body = (await get('/atlas')).body
+
+        expect(body).not.toContain('k-atlas-earn-nav')
+      })
+    })
+
     it('answers on the Atlas host only, like every page beside it', async () => {
       const elsewhere = await get('/atlas/search?q=github', 'api.kolonie.ai')
 

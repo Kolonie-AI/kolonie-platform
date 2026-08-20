@@ -6,6 +6,8 @@ import {
   atlasCategoryPath,
   atlasIsWalked,
   atlasKindPhrase,
+  EARN_FACETS,
+  type EarnFacet,
   atlasShelfHasEvidence,
   atlasShelfTitle,
   atlasConditionsSentences,
@@ -285,12 +287,35 @@ const ACADEMY_PATH = '/academy/'
  * address is a second address for the index, and a canonical then has to argue
  * with it.
  */
-function searchBox(query?: string | undefined): string {
+function searchBox(query?: string | undefined, earn?: EarnFacet | undefined): string {
+  /**
+   * **A `select` and not checkboxes** (`#1365`). Atlas pages carry no script, so
+   * every control here has to survive a plain `GET` submit — which a multi-select
+   * does not do usefully without one. One facet at a time answers the question an
+   * earn-seeking reader actually has (*where can I earn today, this way*), and
+   * `withEarn` on the tool remains the way to ask for several.
+   *
+   * **The empty option is the browse.** Submitting with no `q` and a facet chosen
+   * lists every provider that pays that way, which is the thing the catalogue
+   * could not do before: `#1342` shipped a lookup by name, and a reader who does
+   * not know the name had nothing to type.
+   */
+  const options = [
+    `<option value=""${earn === undefined ? ' selected' : ''}>any way of earning</option>`,
+    ...EARN_FACETS.map(
+      (facet) =>
+        `<option value="${escape(facet)}"${facet === earn ? ' selected' : ''}>` +
+        `${escape(atlasEarnPhrase(facet))}</option>`,
+    ),
+  ].join('')
+
   return (
     `<form class="k-atlas-search" method="get" action="${ATLAS_SEARCH_PATH}" role="search">` +
     '<label for="k-atlas-q">Find a provider</label>' +
     `<input id="k-atlas-q" type="search" name="q" placeholder="gmx.com, mailbox, bounty" ` +
     `value="${escape(query ?? '')}" maxlength="${ATLAS_QUERY_MAX_LENGTH}">` +
+    '<label for="k-atlas-earn">that pays</label>' +
+    `<select id="k-atlas-earn" name="earn">${options}</select>` +
     '<button type="submit">Search</button>' +
     '</form>'
   )
@@ -646,6 +671,7 @@ export function atlasIndexPage(input: {
        * that say what this is.
        */
       searchBox(),
+      earnNav(entries),
       shelfNav(entries, asked, order),
       entries.length === 0
         ? '<p>The catalogue is empty. Nothing has been listed yet, which is not the same as ' +
@@ -659,6 +685,52 @@ export function atlasIndexPage(input: {
       '</main>',
     ].join('\n'),
   })
+}
+
+/**
+ * A way into the catalogue that is not a shelf (`#1365`).
+ *
+ * **The shelves are the only browse dimension the index has**, and for an
+ * earn-seeking reader that is the wrong one: the providers that pay are spread
+ * across every shelf, and the ones whose kind reaches no shelf are filed under
+ * the `data-apis` fallback — which `#1329` demoted on the provider page for
+ * saying nothing, and which the index still groups them by because an entry has
+ * to be somewhere.
+ *
+ * So this is the second dimension: five links, one per way of earning, into the
+ * browse `#1365` added to the search page. **Only the facets something actually
+ * carries**, with the count, so a reader is never sent to an empty page — and
+ * the block disappears entirely on a catalogue where nobody has filed one, which
+ * is the state it was in until `#1331`.
+ *
+ * **Not a filter on this page**, on `#1107` decision 3's rule: a filter living
+ * at the index's address is a second address for the index, and the canonical
+ * then has to argue with it. The results are a page of their own and say
+ * `noindex`, exactly as the text search does.
+ */
+function earnNav(entries: readonly AtlasPublicEntry[]): string {
+  const counts = new Map<EarnFacet, number>()
+
+  for (const entry of entries) {
+    for (const facet of atlasEarnFacets(entry)) {
+      counts.set(facet, (counts.get(facet) ?? 0) + 1)
+    }
+  }
+
+  const links = EARN_FACETS.filter((facet) => (counts.get(facet) ?? 0) > 0).map(
+    (facet) =>
+      `<li><a href="${escape(`${ATLAS_SEARCH_PATH}?earn=${facet}`)}">` +
+      `${escape(atlasEarnPhrase(facet))}</a> <small>${counts.get(facet)}</small></li>`,
+  )
+
+  if (links.length === 0) return ''
+
+  return (
+    '<nav class="k-atlas-earn-nav" aria-label="Providers that pay">' +
+    '<h2>Providers that pay</h2>' +
+    `<ul>${links.join('')}</ul>` +
+    '</nav>'
+  )
 }
 
 /**
@@ -683,12 +755,40 @@ export function atlasSearchPage(input: {
   readonly query: string
   readonly canonical: string
   readonly chrome?: SiteChrome | undefined
+  /** Which way of earning the reader asked for, if any (`#1365`). */
+  readonly earn?: EarnFacet | undefined
 }): string {
-  const found = atlasPublicEntries(input.entries)
   const asked = input.query.trim()
+  const earn = input.earn
+
+  /**
+   * **Earn-carrying entries first, and only where the reader asked for earn**
+   * (`#1365`, from `#1336`'s freeze). A reader who typed *bounty* and got a
+   * mixture wants the ones that pay above the ones that merely match the string;
+   * a reader who typed a provider name asked no such question, and reordering
+   * their results would be the page answering something nobody asked.
+   *
+   * Stable within each half: `atlasByOutcome` already ordered them and this only
+   * partitions, so two reads of one query agree.
+   */
+  const found = atlasPublicEntries(input.entries)
+  const shown =
+    earn === undefined
+      ? found
+      : [
+          ...found.filter((entry) => atlasEarnFacets(entry).length > 0),
+          ...found.filter((entry) => atlasEarnFacets(entry).length === 0),
+        ]
+
+  const paying = earn === undefined ? '' : ` that ${atlasEarnPhrase(earn)}`
+  const nothingAsked = asked === '' && earn === undefined
 
   return atlasPage({
-    title: asked === '' ? 'Search the Atlas' : `${asked} — the Atlas`,
+    title: nothingAsked
+      ? 'Search the Atlas'
+      : asked === ''
+        ? `Providers that ${atlasEarnPhrase(earn as EarnFacet)} — the Atlas`
+        : `${asked} — the Atlas`,
     description: ATLAS_STANDFIRST,
     canonical: input.canonical,
     chrome: input.chrome,
@@ -696,17 +796,22 @@ export function atlasSearchPage(input: {
     body: [
       '<main>',
       '<h1>Search the Atlas</h1>',
-      searchBox(asked),
-      asked === ''
-        ? `<p>Type a provider name, or go back to <a href="${ATLAS_PATH}">the catalogue</a>.</p>`
-        : found.length === 0
-          ? `<p>Nothing in the catalogue matches <strong>${escape(asked)}</strong>. That is an ` +
-            'absence and not a refusal — nobody has walked it yet, so nothing is known either ' +
-            `way. <a href="${ATLAS_PATH}">The whole catalogue</a> is one link away.</p>`
+      searchBox(asked, earn),
+      nothingAsked
+        ? `<p>Type a provider name, choose a way of earning, or go back to ` +
+          `<a href="${ATLAS_PATH}">the catalogue</a>.</p>`
+        : shown.length === 0
+          ? `<p>Nothing in the catalogue matches${
+              asked === '' ? '' : ` <strong>${escape(asked)}</strong>`
+            }${escape(paying)}. That is an absence and not a refusal — nobody has walked it ` +
+            `yet, so nothing is known either way. <a href="${ATLAS_PATH}">The whole ` +
+            'catalogue</a> is one link away.</p>'
           : [
-              `<p>${found.length} ${found.length === 1 ? 'provider' : 'providers'} ` +
-                `${found.length === 1 ? 'matches' : 'match'} <strong>${escape(asked)}</strong>.</p>`,
-              `<ul class="k-atlas-index">${found.map(indexRow).join('')}</ul>`,
+              `<p>${shown.length} ${shown.length === 1 ? 'provider' : 'providers'} ` +
+                `${shown.length === 1 ? 'matches' : 'match'}${
+                  asked === '' ? '' : ` <strong>${escape(asked)}</strong>`
+                }${escape(paying)}.</p>`,
+              `<ul class="k-atlas-index">${shown.map(indexRow).join('')}</ul>`,
             ].join('\n'),
       '</main>',
     ].join('\n'),

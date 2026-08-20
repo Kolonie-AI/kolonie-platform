@@ -4,6 +4,8 @@ import {
   ATLAS_SEARCH_PATH,
   ATLAS_QUERY_MAX_LENGTH,
   atlasMatchesQuery,
+  earnFacetsMatch,
+  EarnFacetSchema,
   atlasCategoryPath,
   atlasPath,
   now,
@@ -196,36 +198,65 @@ export function registerAtlasPages(app: FastifyInstance, deps: RouteDependencies
    * catalogue that disagreed about what a query matches would be `#984`'s
    * complaint arriving on a fourth axis.
    */
-  app.get<{ Querystring: { q?: string } }>(ATLAS_SEARCH_PATH, async (request, reply) => {
-    if (wrongHost(request)) return reply.callNotFound()
+  app.get<{ Querystring: { q?: string; earn?: string } }>(
+    ATLAS_SEARCH_PATH,
+    async (request, reply) => {
+      if (wrongHost(request)) return reply.callNotFound()
 
-    /**
-     * **An over-long query is trimmed to the ceiling rather than refused.** A
-     * 400 on a public URL is a page a crawler stops asking for, and a reader
-     * who pasted a paragraph into the box wants an answer about the first
-     * hundred characters of it — which is the same call `?worked=banana` makes
-     * on the index.
-     */
-    const query = (request.query.q ?? '').trim().slice(0, ATLAS_QUERY_MAX_LENGTH)
+      /**
+       * **An over-long query is trimmed to the ceiling rather than refused.** A
+       * 400 on a public URL is a page a crawler stops asking for, and a reader
+       * who pasted a paragraph into the box wants an answer about the first
+       * hundred characters of it — which is the same call `?worked=banana` makes
+       * on the index.
+       */
+      const query = (request.query.q ?? '').trim().slice(0, ATLAS_QUERY_MAX_LENGTH)
 
-    const entries = await listEntries()
+      /**
+       * Which way of earning was asked for, if the value is one (`#1365`).
+       *
+       * **An unknown value is no filter rather than an error**, which is the same
+       * call `?worked=banana` and the over-long query above both make: a 400 on a
+       * public URL is a page a crawler stops asking for, and a reader following a
+       * stale link wants the page.
+       */
+      const asked = EarnFacetSchema.safeParse(request.query.earn)
+      const earn = asked.success ? asked.data : undefined
 
-    return send(
-      reply,
-      atlasSearchPage({
-        entries: query === '' ? [] : entries.filter((entry) => atlasMatchesQuery(entry, query)),
-        query,
-        /**
-         * **The index and not this address.** A result page is a view of the
-         * catalogue rather than a part of it, and the `noindex` the renderer
-         * sets is the same sentence said to a crawler that reads it.
-         */
-        canonical: `${websiteUrl}${ATLAS_PATH}`,
-        chrome: await chromeOf(),
-      }),
-      'text/html; charset=utf-8',
-    )
-  })
+      const entries = await listEntries()
+
+      /**
+       * **`earnFacetsMatch` and not a fourth implementation** (`#1301`). The tool,
+       * the data route and this page ask one predicate, so the day one of them
+       * forgets that an empty filter matches everything they cannot disagree.
+       */
+      const matching =
+        query === '' && earn === undefined
+          ? []
+          : entries
+              .filter((entry) => query === '' || atlasMatchesQuery(entry, query))
+              .filter((entry) =>
+                earn === undefined ? true : earnFacetsMatch(entry.facets, { withEarn: [earn] }),
+              )
+
+      return send(
+        reply,
+        atlasSearchPage({
+          entries: matching,
+          query,
+          ...(earn === undefined ? {} : { earn }),
+          /**
+           * **The index and not this address.** A result page is a view of the
+           * catalogue rather than a part of it, and the `noindex` the renderer
+           * sets is the same sentence said to a crawler that reads it.
+           */
+          canonical: `${websiteUrl}${ATLAS_PATH}`,
+          chrome: await chromeOf(),
+        }),
+        'text/html; charset=utf-8',
+      )
+    },
+  )
 
   /**
    * One shelf, at an address of its own (`#1107`).

@@ -1,19 +1,12 @@
 import type { OperatorNote } from '@kolonie-ai/core'
-import { OPERATOR_ADVISORY_NOTE, OPERATOR_LABEL } from './operator-requests.js'
+import { OPERATOR_ADVISORY_NOTE, OPERATOR_LABEL } from './operator-voice.js'
 
 /**
  * How an unsolicited note is rendered for the citizen reading it (#239).
  *
- * **The labels are imported and not redeclared, and that is the point of this
- * file existing rather than the strings being inlined.** `#236` set the rule —
- * operator text reaches the citizen labelled as the operator's, *"not as Colony
- * prose, not merged into a tool's own text"* — and `#239` extends it to text the
- * operator sent unasked. Two copies of `OPERATOR_LABEL` would be two places for
- * the rule to drift, and the first surface to drift is the one nobody re-read.
- *
- * A citizen that cannot tell its operator's words from the Colony's has no
- * standing to refuse an instruction that would cross a red line. Asserted by a
- * test on every surface these appear on, not by this paragraph.
+ * **The labels are imported and not redeclared**, from `text/operator-voice.ts`,
+ * which says why at length. `#239` extends `#236`'s attribution rule to text the
+ * operator sent unasked, and it is the same rule rather than a second one.
  */
 
 /**

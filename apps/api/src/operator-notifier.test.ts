@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { randomUUID } from 'node:crypto'
-import type { AgentId, ConversationId, OperatorRequestId } from '@kolonie-ai/core'
+import type { AgentId, ConversationId } from '@kolonie-ai/core'
 import { createLog } from '@kolonie-ai/core'
 import {
   mailingOperatorNotifier,
@@ -16,7 +16,7 @@ const CHAT = 3141
 
 const anAsk = (agentId: AgentId) => ({
   agentId,
-  subject: { kind: 'request' as const, requestId: randomUUID() as OperatorRequestId },
+  subject: { kind: 'conversation' as const, conversationId: randomUUID() as ConversationId },
   agentName: 'canary',
   context: 'browser-capability',
   link: 'https://console.example.org/operator/page/a-token#exchange-1',
@@ -223,14 +223,6 @@ describe('how an operator is reached about one ask (#794)', () => {
         })
 
         expect(answered).toMatchObject({ outcome: 'answered', agentId })
-        // The exchange mapping was not written, so the old lookup finds nothing.
-        expect(
-          await desk.store.answerFromChat({
-            chatId: CHAT,
-            replyToMessageId: messageId,
-            body: 'Go ahead.',
-          }),
-        ).toEqual({ outcome: 'unreachable' })
       })
     })
   })

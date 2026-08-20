@@ -676,9 +676,6 @@ describe('schema', () => {
          * `operator_requests`, which it cascades from. It exists so the data
          * move is safe to run twice.
          */
-        'operator_request_conversations',
-        'operator_request_messages',
-        'operator_requests',
         /**
          * The operator's Telegram chat, and the one-time deep link that bound it
          * (`#793`). Two tables rather than one because they have opposite
@@ -698,7 +695,6 @@ describe('schema', () => {
          * because two rows answering *which exchange is this* would put the
          * choice back where the reply was supposed to take it from.
          */
-        'operator_telegram_asks',
         'operator_telegram_chats',
         'operator_telegram_starts',
         /**

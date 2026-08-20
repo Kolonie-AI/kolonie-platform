@@ -12,6 +12,10 @@ export default tseslint.config(
       'packages/db/src/storage/index.ts',
       // Written and removed within one test, and not in git (#1190).
       'packages/db/vitest.*-probe.config.ts',
+      // An agent's own scratch worktrees. A checkout of this repository *inside*
+      // this repository is a second copy of every source file, so linting it
+      // doubles the run and reports findings against a commit nobody is editing.
+      '**/.claude/**',
     ],
   },
   js.configs.recommended,

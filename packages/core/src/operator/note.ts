@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { OperatorNoteIdSchema } from '../common/ids.js'
 import { TimestampSchema } from '../common/time.js'
-import { OPERATOR_MESSAGE_MAX_LENGTH, OPERATOR_MESSAGE_MIN_LENGTH } from './request.js'
+import { OPERATOR_MESSAGE_MAX_LENGTH, OPERATOR_MESSAGE_MIN_LENGTH } from './page.js'
 
 /**
  * An operator says something to its citizen without being asked (#239).

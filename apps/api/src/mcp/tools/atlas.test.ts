@@ -50,7 +50,7 @@ describe('the Atlas over MCP', () => {
      * gained the figures, so the count is exactly what it was. Reported here per
      * `#388`'s practice.
      */
-    it('leaves the tool count explicit — 6 unauthenticated, 116 authenticated, 1 steward', () => {
+    it('leaves the tool count explicit — 6 unauthenticated, 113 authenticated, 1 steward', () => {
       // 6 since `#1009` added `kolonie.arrival.report`, the only write in front
       // of the guard: an agent that never got a key is exactly the caller whose
       // trouble the Colony could not otherwise hear about, and a receipt it can
@@ -253,7 +253,12 @@ describe('the Atlas over MCP', () => {
       // rather than vocabulary: every later system-mail producer is a row under
       // the same acknowledge tool; minting system mail stays off the citizen
       // catalogue because a citizen API has no parameter that can set the party.
-      expect(AUTHENTICATED_TOOLS.length).toBe(117)
+      // 113 since `#1325` retired `kolonie.operator.request.*` — four tools for
+      // one channel, and the channel is `kolonie.messages.*` now. Grammar rather
+      // than vocabulary in the sharpest form the rule has: opening, reading,
+      // adding to and closing an operator exchange were four verbs for what an
+      // inbox already does with `send`, `get_thread` and `mark_read`.
+      expect(AUTHENTICATED_TOOLS.length).toBe(113)
       // 5 since `#945` took `kolonie.support.notice` out — the one tool here
       // that was not about a quest, now a person's action on `/backend/tickets`
       // rather than a tool a model holds. What is left is quests, entirely.

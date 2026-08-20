@@ -223,13 +223,36 @@ export function fakeWebServerChallenges(
 
 export function fakeWebServer(options?: {
   readonly challenges?: FakeWebServerChallenges
-  readonly operatorRequests?: WebServerDependencies['operatorRequests']
+  readonly askOperator?: WebServerDependencies['askOperator']
 }): WebServerDependencies & { readonly challenges: FakeWebServerChallenges } {
   return {
     challenges: options?.challenges ?? fakeWebServerChallenges(),
-    ...(options?.operatorRequests === undefined
-      ? {}
-      : { operatorRequests: options.operatorRequests }),
+    ...(options?.askOperator === undefined ? {} : { askOperator: options.askOperator }),
     obstruction: noObstruction,
   }
+}
+
+/**
+ * An operator channel that always puts the question (`#1325`).
+ *
+ * **A recorder rather than a stub returning `true`.** The rung's whole contract
+ * with this dependency is *was it asked* against *what would change that*, and a
+ * test that could not see the body would be asserting the first half only —
+ * which is how `#567` shipped, with four refusals answering *asked*.
+ */
+export function fakeAskOperator(): NonNullable<WebServerDependencies['askOperator']> & {
+  readonly asked: () => readonly { readonly taskId: string; readonly body: string }[]
+} {
+  const asked: { taskId: string; body: string }[] = []
+  const ask = (input: {
+    readonly taskId: string
+    readonly body: string
+  }): Promise<{ readonly asked: true }> => {
+    asked.push({ taskId: String(input.taskId), body: input.body })
+    return Promise.resolve({ asked: true as const })
+  }
+
+  return Object.assign(ask, { asked: () => asked }) as NonNullable<
+    WebServerDependencies['askOperator']
+  > & { readonly asked: () => readonly { readonly taskId: string; readonly body: string }[] }
 }

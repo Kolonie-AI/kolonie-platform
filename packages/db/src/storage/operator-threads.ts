@@ -1,0 +1,547 @@
+import { and, asc, desc, eq, isNull, or, sql } from 'drizzle-orm'
+import { alias } from 'drizzle-orm/pg-core'
+import {
+  ConversationIdSchema,
+  type AgentId,
+  type ConversationId,
+  type HumanId,
+  type OperatorAnswerKind,
+  type TaskId,
+} from '@kolonie-ai/core'
+import type { Database } from '../client.js'
+import { sendOperatorMessage } from './messaging.js'
+import {
+  accountWishes,
+  humanAgents,
+  humanIdentities,
+  messageConversations,
+  messageParticipants,
+  messages,
+  operatorPages,
+  tasks,
+} from '../schema/index.js'
+
+/**
+ * The four questions the Colony asks about a citizen's operator thread
+ * (`#1325`, epic `#1318`).
+ *
+ * **What `storage/operator-requests.ts` answered, asked of `messages` instead.**
+ * Retiring the exchange did not retire the questions: a rung whose consequences
+ * land on somebody else's machine still has to know whether a person came back,
+ * and the wake-up still has to know whether anything is outstanding. Each one
+ * below names the function it replaces, because the semantics are deliberately
+ * *not* identical everywhere and the differences are the interesting part.
+ *
+ * **Its own file rather than four more exports on `messaging.ts`.** `AGENTS.md`
+ * §3: independent work gets independent files, and `messaging.ts` is already the
+ * most contended file in this package. Nothing here writes, so there is no
+ * transaction to share with the sending path either.
+ *
+ * **Reads, never verdicts.** The rule `operatorAnsweredAbout` set survives the
+ * move word for word: the Colony records that a person was asked and replied,
+ * and reads no meaning out of what they wrote. Judging whether a sentence means
+ * yes is a thing it would get wrong, and getting it wrong in the permissive
+ * direction would mean the Colony deciding an operator had consented.
+ */
+
+/** The operator's side of a thread, so a message can be attributed without a join per row. */
+const operatorSide = alias(messageParticipants, 'operator_side')
+
+/** Where an answer may be written, and to whom the notification goes. */
+export interface OperatorPageRecipient {
+  readonly operatorAddress: string
+  /** The token the operator already holds. Never minted per ask (`#236`). */
+  readonly pageToken: string
+}
+
+/**
+ * Where a notification for this citizen should go.
+ *
+ * **It returns the token the operator already holds.** `#236` refuses to mint a
+ * fresh link per ask: a new credential in an inbox every time an agent needs
+ * something buys nothing over the one the operator has, and costs one more thing
+ * that can leak. `issueOperatorPage` is idempotent, so the caller that wants a
+ * page created if none exists asks for it there and then comes here.
+ *
+ * `undefined` when the citizen has no live page — which is also the answer when
+ * it had one and revoked it, because `#236` requires a revoked link to make an
+ * open ask *unreachable rather than answerable by anyone holding the old URL*.
+ */
+export async function operatorPageRecipient(
+  db: Database,
+  agentId: AgentId,
+): Promise<OperatorPageRecipient | undefined> {
+  const [row] = await db
+    .select({ operatorAddress: operatorPages.operatorAddress, token: operatorPages.token })
+    .from(operatorPages)
+    .where(and(eq(operatorPages.agentId, agentId), isNull(operatorPages.revokedAt)))
+    .orderBy(desc(operatorPages.issuedAt))
+    .limit(1)
+
+  if (row === undefined) return undefined
+
+  return { operatorAddress: row.operatorAddress, pageToken: row.token }
+}
+
+const asConversationId = (value: string): ConversationId => ConversationIdSchema.parse(value)
+
+/** One message in an operator thread, in the shape the durable page already renders. */
+export interface OperatorThreadMessage {
+  readonly author: 'citizen' | 'operator'
+  readonly body: string
+  readonly kind: OperatorAnswerKind | null
+  readonly writtenAt: string
+}
+
+/** One operator thread, as the person holding the page reads it. */
+export interface OperatorThreadForPage {
+  readonly threadId: ConversationId
+  /** The task title or the wish provider — what this thread is about, in a person's words. */
+  readonly context: string
+  readonly openedAt: string
+  readonly messages: readonly OperatorThreadMessage[]
+  /**
+   * Whether the page renders a box under it.
+   *
+   * True when the operator link has been removed: the thread stays readable and
+   * stops accepting words, which is the same read-only state
+   * `replyInConversation` gives the citizen's side (`operator-link-removed`).
+   */
+  readonly closed: boolean
+}
+
+/**
+ * Who the durable page speaks as (`#1325`).
+ *
+ * **The token names the citizen; this names the person.** A page is issued to an
+ * address rather than to an account, so the operator side of a thread has to be
+ * resolved rather than carried — and it is resolved from rows the citizen's own
+ * console relationship created, never from anything the caller sent.
+ *
+ * Two ways, in order, and no third. **The address the page was issued to**, when
+ * a linked human holds it — the exact case, so a page issued to one of two
+ * operators reaches that one's thread. Then **the only link there is**, when the
+ * citizen has exactly one operator and the address did not match: an address
+ * that was typed before the console account existed is the ordinary reason, and
+ * with one candidate there is nothing to get wrong.
+ *
+ * `undefined` where neither holds — several operators and no address match — and
+ * the page then shows notes and drops and no threads. Guessing between two
+ * people would be showing one of them somebody else's conversation.
+ */
+async function pageSubject(
+  db: Database,
+  token: string,
+): Promise<{ readonly agentId: AgentId; readonly humanId: string } | undefined> {
+  const [page] = await db
+    .select({ agentId: operatorPages.agentId, address: operatorPages.operatorAddress })
+    .from(operatorPages)
+    .where(and(eq(operatorPages.token, token), isNull(operatorPages.revokedAt)))
+    .limit(1)
+
+  if (page === undefined) return undefined
+
+  /**
+   * The address is on the identity rather than on the person, and a person may
+   * have several — one per provider they signed in with. Any of them matching is
+   * a match: the citizen was given a page for an address its operator uses, and
+   * which provider returned it says nothing about who they are.
+   */
+  const links = await db
+    .selectDistinct({ humanId: humanAgents.humanId, email: humanIdentities.email })
+    .from(humanAgents)
+    .leftJoin(humanIdentities, eq(humanIdentities.humanId, humanAgents.humanId))
+    .where(eq(humanAgents.agentId, page.agentId))
+
+  const wanted = page.address.trim().toLowerCase()
+  const byAddress = links.find((link) => (link.email ?? '').trim().toLowerCase() === wanted)
+  const people = new Set(links.map((link) => link.humanId))
+  const only = people.size === 1 ? links[0] : undefined
+  const chosen = byAddress ?? only
+
+  return chosen === undefined
+    ? undefined
+    : { agentId: page.agentId as AgentId, humanId: chosen.humanId }
+}
+
+/**
+ * The threads the durable page shows (`#1325`).
+ *
+ * Replaces `exchangesForToken`, and the ordering rule survives intact: oldest
+ * first, with the id breaking a tie, because `#587`'s anchor depends on a stable
+ * order and re-sorting anywhere else would be a second answer to *which question
+ * is first*.
+ *
+ * **What does not survive is the *one closed one, at the end* rule** (`#359`).
+ * That existed because an exchange could be closed while the citizen went on
+ * writing into it, so an answer arriving afterwards had nowhere to appear. A
+ * thread is never closed, so every thread is simply listed and the case is gone
+ * rather than handled.
+ *
+ * **The token is the only input**, so the page cannot be pointed at another
+ * citizen's thread, and a revoked token resolves to nothing — the same filter
+ * `openOperatorPage` applies, kept here rather than trusted to the caller.
+ */
+export async function operatorThreadsForPageToken(
+  db: Database,
+  token: string,
+): Promise<readonly OperatorThreadForPage[]> {
+  const subject = await pageSubject(db, token)
+  if (subject === undefined) return []
+
+  const rows = await db
+    .select({
+      id: messageConversations.id,
+      createdAt: messageConversations.createdAt,
+      context: sql<string | null>`coalesce(${tasks.title}, ${accountWishes.provider})`,
+      live: sql<boolean>`${operatorSide.id} is not null`,
+    })
+    .from(messageConversations)
+    .innerJoin(
+      messageParticipants,
+      and(
+        eq(messageParticipants.conversationId, messageConversations.id),
+        eq(messageParticipants.agentId, subject.agentId),
+      ),
+    )
+    .innerJoin(
+      operatorSide,
+      and(
+        eq(operatorSide.conversationId, messageConversations.id),
+        eq(operatorSide.humanId, subject.humanId),
+      ),
+    )
+    .leftJoin(tasks, eq(tasks.id, messageConversations.taskId))
+    .leftJoin(accountWishes, eq(accountWishes.id, messageConversations.wishId))
+    .orderBy(asc(messageConversations.createdAt), asc(messageConversations.id))
+
+  const stillLinked = await db
+    .select({ agentId: humanAgents.agentId })
+    .from(humanAgents)
+    .where(and(eq(humanAgents.agentId, subject.agentId), eq(humanAgents.humanId, subject.humanId)))
+    .limit(1)
+
+  const closed = stillLinked.length === 0
+
+  const threads: OperatorThreadForPage[] = []
+  for (const row of rows) {
+    threads.push({
+      threadId: asConversationId(row.id),
+      // `#1321`'s own phrase for a thread about nothing in particular. An
+      // exchange always had a subject; a thread need not, and inventing one
+      // would put a task title on a conversation that is not about it.
+      context: row.context ?? 'something it did not name',
+      openedAt: row.createdAt,
+      messages: await messagesOfThread(db, row.id),
+      closed,
+    })
+  }
+
+  return threads
+}
+
+/** The words in one thread, oldest first, attributed by the party that wrote them. */
+async function messagesOfThread(
+  db: Database,
+  conversation: string,
+): Promise<readonly OperatorThreadMessage[]> {
+  const rows = await db
+    .select({
+      party: messages.senderParty,
+      body: messages.body,
+      kind: messages.answerKind,
+      createdAt: messages.createdAt,
+    })
+    .from(messages)
+    .where(eq(messages.conversationId, conversation))
+    .orderBy(asc(messages.createdAt), asc(messages.id))
+
+  /**
+   * **`system-role` is folded into the citizen's column and not dropped.** The
+   * Colony writes into an operator thread when it has something to say about the
+   * citizen, and an operator reading the page has to see it; what it must never
+   * be is *attributed to the operator*, which is the whole of `#236`'s rule that
+   * a citizen can always tell its operator's words from the Colony's.
+   */
+  return rows.map((row) => ({
+    author: row.party === 'operator-human' ? ('operator' as const) : ('citizen' as const),
+    body: row.body,
+    kind: row.kind,
+    writtenAt: row.createdAt,
+  }))
+}
+
+/**
+ * Which wishes have a question waiting on this person (`#1027`, `#1325`).
+ *
+ * **The join the schema already carries.** `message_conversations.wish_id` is
+ * `operator_requests.wish_id`'s successor, mutually exclusive with `task_id` by
+ * a check constraint — so a thread bound to a wish is a fact the database holds,
+ * and the console's wish list is what turns the id back into a provider.
+ *
+ * **Waiting, not merely existing.** A thread the operator has answered is not
+ * outstanding, which is the same condition the operator queue applies.
+ */
+export async function wishThreadsWaitingOn(
+  db: Database,
+  agentId: AgentId,
+): Promise<readonly { readonly wishId: string; readonly threadId: ConversationId }[]> {
+  const rows = await db
+    .select({ id: messageConversations.id, wishId: messageConversations.wishId })
+    .from(messageConversations)
+    .innerJoin(
+      messageParticipants,
+      and(
+        eq(messageParticipants.conversationId, messageConversations.id),
+        eq(messageParticipants.agentId, agentId),
+      ),
+    )
+    .where(
+      and(
+        sql`${messageConversations.wishId} is not null`,
+        sql`not exists (
+          select 1 from ${messages}
+          where ${messages.conversationId} = ${messageConversations.id}
+            and ${messages.senderParty} = 'operator-human'
+        )`,
+      ),
+    )
+
+  return rows.flatMap((row) =>
+    row.wishId === null ? [] : [{ wishId: row.wishId, threadId: asConversationId(row.id) }],
+  )
+}
+
+/** Where the page's write can land, and why it did not. */
+export type PageAnswerOutcome =
+  | {
+      readonly outcome: 'answered'
+      readonly agentId: AgentId
+      readonly threadId: ConversationId
+    }
+  /**
+   * One answer for every cause: the page was revoked, the token names no live
+   * page, the citizen has several operators and none of them matched the
+   * address, the id is not a thread this person is in, or the operator link has
+   * since been removed. A page that distinguished them would be a probe.
+   */
+  | { readonly outcome: 'unreachable' }
+
+/**
+ * The operator answers into one thread, through the page it holds (`#1325`).
+ *
+ * **The token and the thread id are resolved together**, and that is the
+ * property the page rests on. `answerOperatorRequest` resolved them in one query
+ * so that a valid token could not be aimed at another citizen's exchange; the
+ * same has to be true here, so a thread the page's own subject is not in is
+ * `unreachable` rather than trusted because the form said so.
+ *
+ * **`sendOperatorMessage` does the writing**, so the page takes exactly the path
+ * the console and the chat desk take: the same credential guard, the same
+ * `answer_kind`, and the same clearing of a `needs-operator` set-aside (`#234`,
+ * `#1319`). Nothing about answering from a bearer link is special except how the
+ * person was identified.
+ */
+export async function answerOperatorThreadFromPage(
+  db: Database,
+  input: {
+    readonly token: string
+    readonly threadId: unknown
+    readonly body: string
+    readonly kind?: OperatorAnswerKind | undefined
+  },
+): Promise<PageAnswerOutcome> {
+  if (typeof input.threadId !== 'string') return { outcome: 'unreachable' }
+
+  const subject = await pageSubject(db, input.token)
+  if (subject === undefined) return { outcome: 'unreachable' }
+
+  const [mine] = await db
+    .select({ id: messageParticipants.id })
+    .from(messageParticipants)
+    .where(
+      and(
+        eq(messageParticipants.conversationId, input.threadId),
+        eq(messageParticipants.humanId, subject.humanId),
+      ),
+    )
+    .limit(1)
+
+  if (mine === undefined) return { outcome: 'unreachable' }
+
+  const thread = asConversationId(input.threadId)
+  const sent = await sendOperatorMessage(
+    db,
+    subject.humanId as HumanId,
+    subject.agentId,
+    // `null` where a control was pressed, so `sendOperatorMessage` resolves the
+    // sentence from `OPERATOR_ANSWER_BODIES` itself and there is one place the
+    // two halves of an answer can be made to agree.
+    input.kind === undefined ? input.body : null,
+    'your operator',
+    input.kind,
+    thread,
+  )
+
+  // Every storage refusal is `unreachable` here, including the one the page
+  // cannot produce (`credential-shaped-body`): the API layer checks that before
+  // it gets this far, so a refusal arriving here means the relationship ended
+  // between the page loading and the press.
+  return sent.outcome === 'delivered'
+    ? { outcome: 'answered', agentId: subject.agentId, threadId: thread }
+    : { outcome: 'unreachable' }
+}
+
+/**
+ * Whether this citizen is waiting on its operator (`#1325`).
+ *
+ * Replaces `hasOpenOperatorRequest`, and the difference is what *open* means
+ * once there is no exchange to close. An exchange was a row with a `closed_at`;
+ * a thread is never finished, so the honest reading of the same question is
+ * **the last word in an operator thread is the citizen's** — it asked and
+ * nobody has answered since.
+ *
+ * That also fixes the thing the old shape got wrong for free: a citizen whose
+ * operator had replied but who had not tidied up still counted as waiting, and
+ * the digest went on offering it *ask your operator* as though it had.
+ *
+ * A boolean rather than the row, for the reason it always was: the caller wants
+ * to know whether to say *you asked and it is still open*, and handing it the
+ * text would put an operator's words on a surface nobody reviewed for them.
+ */
+export async function hasOpenOperatorThread(db: Database, agentId: AgentId): Promise<boolean> {
+  const [row] = await db
+    .select({ id: messageConversations.id })
+    .from(messageConversations)
+    .innerJoin(
+      messageParticipants,
+      and(
+        eq(messageParticipants.conversationId, messageConversations.id),
+        eq(messageParticipants.agentId, agentId),
+      ),
+    )
+    .innerJoin(
+      operatorSide,
+      and(
+        eq(operatorSide.conversationId, messageConversations.id),
+        eq(operatorSide.party, 'operator-human'),
+      ),
+    )
+    .where(
+      sql`(
+        select ${messages.senderParty}
+        from ${messages}
+        where ${messages.conversationId} = ${messageConversations.id}
+        order by ${messages.createdAt} desc, ${messages.id} desc
+        limit 1
+      ) = 'citizen'`,
+    )
+    .limit(1)
+
+  return row !== undefined
+}
+
+/**
+ * Whether a person came back to this citizen about this task (`#1325`).
+ *
+ * Replaces `operatorAnsweredAbout`, unchanged in meaning: the thread is found by
+ * the task it is about — which is what conversation provenance carries and what
+ * made retiring the exchange possible at all — and the answer is whether the
+ * operator has written into it.
+ *
+ * **Answered, not approved**, and closed history counts: a citizen that asked,
+ * was answered and moved on has been answered.
+ */
+export async function operatorAnsweredAboutTask(
+  db: Database,
+  agentId: AgentId,
+  taskId: TaskId,
+): Promise<boolean> {
+  const [row] = await db
+    .select({ id: messages.id })
+    .from(messageConversations)
+    .innerJoin(
+      messageParticipants,
+      and(
+        eq(messageParticipants.conversationId, messageConversations.id),
+        eq(messageParticipants.agentId, agentId),
+      ),
+    )
+    .innerJoin(messages, eq(messages.conversationId, messageConversations.id))
+    .where(and(eq(messageConversations.taskId, taskId), eq(messages.senderParty, 'operator-human')))
+    .limit(1)
+
+  return row !== undefined
+}
+
+/**
+ * Whether this citizen has already put this question to its operator (`#1325`).
+ *
+ * Replaces `operatorAskedAbout`. The exchange version excluded closed rows, so
+ * that a citizen which had asked, been answered and closed could ask again; a
+ * thread has no closed state, so what stands in for it is
+ * {@link operatorAnsweredAboutTask} — the caller checks *answered* first and
+ * only reaches this when nobody has replied. Asking twice into the same thread
+ * is the thing this exists to prevent, and it still prevents it.
+ */
+export async function operatorAskedAboutTask(
+  db: Database,
+  agentId: AgentId,
+  taskId: TaskId,
+): Promise<boolean> {
+  const [row] = await db
+    .select({ id: messageConversations.id })
+    .from(messageConversations)
+    .innerJoin(
+      messageParticipants,
+      and(
+        eq(messageParticipants.conversationId, messageConversations.id),
+        eq(messageParticipants.agentId, agentId),
+      ),
+    )
+    .where(eq(messageConversations.taskId, taskId))
+    .limit(1)
+
+  return row !== undefined
+}
+
+/**
+ * How many operator threads hold something the citizen has not read (`#1325`).
+ *
+ * Replaces `countWaitingOperatorReplies`, and this is the one place the move is
+ * an upgrade rather than a translation. That function's own comment said the
+ * question it asked — *is the last word the operator's* — was the honest one
+ * **because there was no read marker on an exchange message**. There is one on a
+ * message: `message_participants.last_read_message_id`, the same cursor
+ * `listConversations` and the wake-up delta use.
+ *
+ * So the digest now counts what a person would call unread, the citizen's own
+ * messages never count toward it, and `kolonie.messages.mark_read` is what
+ * clears it — one deliberate act, as closing an exchange was.
+ *
+ * **A count and never the text.** An operator's words reach the citizen through
+ * the thread, labelled as their own.
+ */
+export async function countWaitingOperatorReplies(db: Database, agentId: AgentId): Promise<number> {
+  const cursor = alias(messages, 'operator_read_cursor')
+
+  const rows = await db
+    .selectDistinct({ conversationId: messages.conversationId })
+    .from(messages)
+    .innerJoin(
+      messageParticipants,
+      and(
+        eq(messageParticipants.conversationId, messages.conversationId),
+        eq(messageParticipants.agentId, agentId),
+      ),
+    )
+    .leftJoin(cursor, eq(cursor.id, messageParticipants.lastReadMessageId))
+    .where(
+      and(
+        eq(messages.senderParty, 'operator-human'),
+        or(isNull(cursor.id), sql`${messages.createdAt} > ${cursor.createdAt}`),
+      ),
+    )
+
+  return rows.length
+}

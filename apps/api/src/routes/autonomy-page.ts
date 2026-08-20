@@ -11,7 +11,7 @@ import {
 } from '../autonomy-page.js'
 import { writeOperatorNote } from '../operator-notes.js'
 import { operatorPageBody } from '../operator-page-body.js'
-import { answerOperatorRequest, isWaitingOnTheOperator } from '../operator-requests.js'
+import { answerOperatorThread, isWaitingOnTheOperator } from '../operator-threads.js'
 import { deepLinkFor } from '../operator-telegram.js'
 import { CONSOLE_HEADERS } from '../console/html.js'
 import type { RouteDependencies } from './dependencies.js'
@@ -200,7 +200,7 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
    * **`GET` shows, `POST` answers one open question, and there is no third thing.**
    * `#146`'s argument — a leaked link is an embarrassment rather than a compromise —
    * used to rest on there being nothing behind the link to *do*. It now rests on
-   * what the write can reach: words on one exchange the citizen itself opened,
+   * what the write can reach: words on one thread the citizen itself opened,
    * never a permission. See the comment on `operatorDurablePage` and D-081.
    *
    * A revoked, unknown or never-issued token answers identically on both methods,
@@ -258,7 +258,7 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
    * different single-use token and a form the operator fills in again. D-081.
    *
    * **The token is the only thing that says whose citizen this is** on both
-   * branches. `answerOperatorRequest` resolves the token and the request id
+   * branches. `answerOperatorThread` resolves the token and the thread id
    * together; `writeOperatorNote` takes no id at all. A valid token cannot be
    * aimed at another citizen either way.
    *
@@ -333,7 +333,7 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
        * instead of at their agent's sixth blocked run.
        */
       const stillWaiting = isWaitingOnTheOperator(
-        await deps.operatorRequests.store.exchangesForToken(token as string),
+        await deps.operatorThreads.store.forPageToken(token as string),
       )
 
       const written = await writeOperatorNote(
@@ -389,7 +389,7 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
         .send(await pageFor(token as string, view, { noteError }))
     }
 
-    const result = await answerOperatorRequest(
+    const result = await answerOperatorThread(
       {
         token: token as string,
         /**
@@ -400,12 +400,12 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
          * is the same rule as `intent` above, for the same reason.
          */
         body: {
-          requestId: submitted['requestId'],
+          threadId: submitted['threadId'],
           body: submitted['body'],
           kind: submitted['kind'],
         },
       },
-      deps.operatorRequests,
+      deps.operatorThreads,
     )
 
     if (result.outcome === 'answered') {
@@ -417,7 +417,8 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
 
     /**
      * `unreachable` becomes the closed page and not a refusal, deliberately: the
-     * exchange being gone means the citizen closed it or took the page away, and
+     * thread being out of reach means the citizen took the page away or the
+     * operator link ended, and
      * *"this is no longer open"* is both true and the whole of what the operator
      * needs to know.
      */

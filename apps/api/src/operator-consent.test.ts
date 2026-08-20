@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isWaitingOnTheOperator } from './operator-requests.js'
+import { isWaitingOnTheOperator } from './operator-threads.js'
 
 /**
  * Prose on the operator page reaching the Colony's own question (#564).

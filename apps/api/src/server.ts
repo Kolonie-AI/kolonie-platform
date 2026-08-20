@@ -56,7 +56,6 @@ import { databaseGuidance } from './guidance.js'
 import { arrivalReports, databaseArrivalDesk } from './arrival-reports.js'
 import { databaseSupportDesk, support } from './support.js'
 import { databaseOperatorNoteStore } from './operator-notes.js'
-import { databaseOperatorRequestStore } from './operator-requests.js'
 import { databasePermissionReportStore } from './permission-reports.js'
 import { databaseCredentialRotation } from './rotation.js'
 import { databaseErasureDesk, erasure } from './erasure.js'
@@ -117,7 +116,10 @@ import {
   reportMessageAbuse,
   openOperatorHelpConversation,
   operatorThreadContext,
-  operatorRequestRecipient,
+  operatorPageRecipient,
+  operatorThreadsForPageToken,
+  wishThreadsWaitingOn,
+  answerOperatorThreadFromPage,
   citizenHandle,
   sendOperatorMessage,
   requestConnection,
@@ -162,7 +164,7 @@ import {
   deskTickets,
   promoteToColony,
 } from '@kolonie-ai/db'
-import { databaseWebServerChallenges } from './web-server.js'
+import { askRefusal, databaseWebServerChallenges } from './web-server.js'
 import { databaseWalks } from './account-walks.js'
 import { databaseWishes } from './account-wishes.js'
 import { swarmPortraitOf } from '@kolonie-ai/db'
@@ -685,8 +687,7 @@ const operatorTelegram = ((): TelegramDesk | undefined => {
 /**
  * Telling a person their citizen has opened a thread (`#1321`, epic `#1318`).
  *
- * **The same notifier the exchange path takes**, resolved once here for the
- * reason `operatorNotifierFor` gives: Telegram where the operator bound it, mail
+ * **Resolved once here**, for the reason `operatorNotifierFor` gives: Telegram where the operator bound it, mail
  * everywhere else, and the choice made at wiring time rather than at send time.
  * The recipient read is `operatorRequestRecipient` too — the page an operator
  * holds is one page, whichever surface asked them to open it.
@@ -703,7 +704,7 @@ const operatorThreadNotify: OperatorThreadNotifyDependencies = {
       }),
   ...(process.env['CONSOLE_URL'] ? { pageBaseUrl: process.env['CONSOLE_URL'] } : {}),
   log,
-  recipient: (agentId) => operatorRequestRecipient(db, agentId),
+  recipient: (agentId) => operatorPageRecipient(db, agentId),
   context: (conversationId) => operatorThreadContext(db, conversationId),
 }
 
@@ -1362,11 +1363,9 @@ const app = buildApp({
   /**
    * The operator's own direction (#239).
    *
-   * **Its own limiter, built here and shared with nothing.** `operatorRequests`
-   * takes `supportSurface` because a citizen's writing to a person and its writing
-   * to the desk are one budget; this ceiling protects the citizen instead, and
-   * handing it `supportSurface` would let an operator spend its citizen's ability
-   * to ask for help by talking to it.
+   * **Its own limiter, built here and shared with nothing.** This ceiling
+   * protects the citizen: handing it the support surface's allowance would let
+   * an operator spend its citizen's ability to ask for help by talking to it.
    */
   operatorNotes: {
     store: databaseOperatorNoteStore(db),
@@ -1374,39 +1373,30 @@ const app = buildApp({
     /**
      * The wake channel on the second of its three operator events (`#580`).
      *
-     * The same sender the request path takes, deliberately: the ceiling is per
+     * The same sender the thread path takes, deliberately: the ceiling is per
      * agent across every event together, and two senders would be two ceilings.
      */
     wake: liveWake,
   },
-  operatorRequests: {
-    store: databaseOperatorRequestStore(db, liveSettings),
-    allowance: supportSurface,
-    /**
-     * How the operator is reached (`#794`), chosen once here.
-     *
-     * Telegram where the operator bound it and mail everywhere else — and mail is
-     * still what the Colony sends today, because a deployment with no bot gets
-     * the mail implementation and nothing else is constructed. Operator-facing
-     * either way: the mailer carries the console's sender rather than the
-     * Academy's (`#474`).
-     */
-    ...(mail.operatorMailer === undefined
-      ? {}
-      : {
-          notifier: operatorNotifierFor({
-            mailer: mail.operatorMailer,
-            telegram: operatorTelegram,
-            log,
-          }),
-        }),
-    ...(process.env['CONSOLE_URL'] ? { pageBaseUrl: process.env['CONSOLE_URL'] } : {}),
+  /**
+   * The operator's side of the channel, on the durable page (`#1325`).
+   *
+   * **No notifier and no allowance here.** Both belong to the *asking* half,
+   * which is `kolonie.messages.send` and is wired on `messaging` above: this
+   * dependency is read and answered by a person who is already looking at the
+   * page, so there is nobody to notify and no citizen budget to charge.
+   */
+  operatorThreads: {
+    store: {
+      forPageToken: (token) => operatorThreadsForPageToken(db, token),
+      wishesWaiting: (agentId) => wishThreadsWaitingOn(db, agentId),
+      answerOnPage: (input) => answerOperatorThreadFromPage(db, input),
+    },
     /**
      * The wake channel, on the one path it was built for (`#518`).
      *
-     * **This wiring and not the one on the `web-server` rung below.** That one
-     * only ever *opens* a request; the answer — which is the event — lands
-     * here, wherever it was asked from.
+     * The operator's answer is the event: a person replies in one minute, and
+     * without this the agent reads it at its next rhythm hours later.
      */
     wake: liveWake,
   },
@@ -1585,15 +1575,47 @@ const app = buildApp({
    */
   webServer: {
     challenges: databaseWebServerChallenges(db),
-    operatorRequests: {
-      store: databaseOperatorRequestStore(db, liveSettings),
-      allowance: supportSurface,
-      // The web-server rung's own operator channel — a second wiring of the same
-      // module, and the one a grep for `mailer.send` does not find because it
-      // sends nothing itself. It reaches an operator, so it takes the bound
-      // mailer too (`#474`).
-      ...(mail.operatorMailer === undefined ? {} : { mailer: mail.operatorMailer }),
-      ...(process.env['CONSOLE_URL'] ? { pageBaseUrl: process.env['CONSOLE_URL'] } : {}),
+    /**
+     * The rung's question, put through the citizen's own operator thread
+     * (`#1325`).
+     *
+     * **The same path `kolonie.messages.send` takes**, notify included, so the
+     * operator is pinged once and a reply in the chat lands in the thread it
+     * answers. It was a second wiring of the exchange module until the retire —
+     * the one a grep for `mailer.send` did not find, because it sent nothing
+     * itself.
+     *
+     * **Provenance is the rung's own task**, which is what makes the answer
+     * findable: `operatorAnsweredAboutTask` looks for a message in the thread
+     * about this task, and nothing else would match it.
+     */
+    askOperator: async ({ agentId, agentName, taskId, body }) => {
+      const opened = await openOperatorHelpConversation(db, agentId, {
+        body,
+        provenance: { taskId },
+      })
+
+      if (opened.outcome !== 'delivered') {
+        /**
+         * `requested` cannot happen on this path — a first-contact request is
+         * the citizen↔citizen gate and an operator thread never goes through it
+         * — so it is folded into the general sentence rather than given words
+         * that would claim to know why.
+         */
+        return {
+          asked: false,
+          reason: askRefusal(opened.outcome === 'refused' ? opened.refusal : 'unexpected'),
+        }
+      }
+
+      if (opened.opened === true) {
+        await notifyOperatorAboutThread(
+          { agentId, agentName, conversationId: opened.conversationId },
+          operatorThreadNotify,
+        )
+      }
+
+      return { asked: true }
     },
     obstruction,
   },

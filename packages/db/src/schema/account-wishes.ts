@@ -2,7 +2,7 @@ import { sql } from 'drizzle-orm'
 import { check, index, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 import { ACCOUNT_PROVIDER_MAX_LENGTH, WISH_NOTE_MAX_LENGTH } from '@kolonie-ai/core'
 import { agents } from './agents.js'
-import { operatorRequestAuthor } from './enums.js'
+import { operatorAuthor } from './enums.js'
 
 const noteMax = sql.raw(String(WISH_NOTE_MAX_LENGTH))
 const providerMax = sql.raw(String(ACCOUNT_PROVIDER_MAX_LENGTH))
@@ -53,7 +53,7 @@ export const accountWishes = pgTable(
     provider: text('provider').notNull(),
 
     /** Which side first put it on the list. */
-    author: operatorRequestAuthor('author').notNull(),
+    author: operatorAuthor('author').notNull(),
 
     /**
      * What the agent was doing when it found the need, in its own words.

@@ -272,26 +272,34 @@ const theExchanges: DataMigrationCase = {
   },
 
   async check(db, seeded) {
-    const threadOf = async (requestId: string) => {
+    /**
+     * **Found by what was said in it, not by the mapping table** (`#1325`).
+     *
+     * `operator_request_conversations` was `0321`'s own idempotence key and
+     * `0322` drops it with the table it cascades from — so by the time the whole
+     * folder has run there is nothing left to join through. What survives is the
+     * words, which is what the migration was for, so the check asks the question
+     * a person would: *is this sentence in a thread now*.
+     */
+    const threadSaying = async (body: string) => {
       const [row] = await db.execute<{ conversation_id: string }>(
-        sql`select conversation_id from operator_request_conversations
-             where request_id = ${requestId}`,
+        sql`select conversation_id from messages where body = ${body}`,
       )
       return row?.conversation_id
     }
 
-    const open = await threadOf(seeded['open']!)
-    const closed = await threadOf(seeded['closed']!)
+    const open = await threadSaying('Could you open the account?')
+    const closed = await threadSaying('The old one, long finished.')
     expect(open).toBeDefined()
     // Rule 4's preferred (a): the closed ones move too, so slice G is a pure drop.
     expect(closed).toBeDefined()
 
     // **The skip, and it is the point of the case.** A thread needs an
-    // `operator-human` participant, which needs a `human_id`; an exchange needs
-    // only an operator page. There is no honest row to invent for one whose
-    // citizen has no link, so it stays where it is and `#1325` decides its fate
-    // with the count in front of whoever decides.
-    expect(await threadOf(seeded['unlinked']!)).toBeUndefined()
+    // `operator-human` participant, which needs a `human_id`; an exchange needed
+    // only an operator page. There was no honest row to invent for one whose
+    // citizen has no link, so it did not move — and `#1325` measured production
+    // before dropping the table: nothing was left behind there.
+    expect(await threadSaying('Nobody answers for me.')).toBeUndefined()
 
     // The exchange's provenance is the thread's, which is what makes asking
     // again about the same task land where the answer already is.

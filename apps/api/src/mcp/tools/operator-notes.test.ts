@@ -3,7 +3,7 @@ import { MAX_UNREAD_OPERATOR_NOTES, ReadOperatorNotesResponseSchema } from '@kol
 import { describe, expect, it } from 'vitest'
 import { FAKE_CALLER_IP, fakeColony, type FakeColony } from '../../__fixtures__/colony/index.js'
 import { connectedClient } from '../../__fixtures__/mcp.js'
-import { OPERATOR_ADVISORY_NOTE, OPERATOR_LABEL } from '../text/operator-requests.js'
+import { OPERATOR_ADVISORY_NOTE, OPERATOR_LABEL } from '../text/operator-voice.js'
 import { DELIVERED_NOTES_PREAMBLE, NO_NOTES, NOTES_PREAMBLE } from '../text/operator-notes.js'
 import { writeOperatorNote } from '../../operator-notes.js'
 import { OPERATOR_NOTE_LIMIT } from '../../rate-limit.js'
@@ -28,7 +28,7 @@ describe('kolonie.operator.notes', () => {
     if (registered.outcome !== 'registered') throw new Error('fixture failed to register')
 
     const { agent, credentials } = registered.response
-    const pageToken = colony.operatorRequestStore.givePage(agent.id)
+    const pageToken = colony.operatorThreadStore.givePage(agent.id)
 
     return { colony, agent, apiKey: credentials.apiKey, pageToken }
   }
@@ -371,7 +371,7 @@ describe('kolonie.operator.notes', () => {
       )
       expect(before.outcome).toBe('written')
 
-      colony.operatorRequestStore.revokePage(agent.id)
+      colony.operatorThreadStore.revokePage(agent.id)
 
       const after = await writeOperatorNote(
         { token: pageToken, body: 'Something said after it was taken away.' },

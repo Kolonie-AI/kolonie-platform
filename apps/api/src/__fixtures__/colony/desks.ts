@@ -22,12 +22,8 @@ import { fakeAccounts } from '../accounts.js'
 import { fakeSupportDesk, type FakeSupportDesk } from '../support.js'
 import type { OperatorNoteDependencies } from '../../operator-notes.js'
 import { fakeOperatorNotes, type FakeOperatorNoteStore } from '../operator-notes.js'
-import {
-  fakeOperatorRequests,
-  type FakeOperatorMailer,
-  type FakeOperatorRequestStore,
-} from '../operator-requests.js'
-import type { OperatorRequestDependencies } from '../../operator-requests.js'
+import { fakeOperatorThreads, type FakeOperatorThreadStore } from '../operator-threads.js'
+import type { OperatorThreadDependencies } from '../../operator-threads.js'
 import type { PermissionReportDependencies } from '../../permission-reports.js'
 import { fakeErasureDesk, type FakeErasureDesk } from '../erasure.js'
 
@@ -78,29 +74,19 @@ export interface FakeDesks {
   readonly operatorClaim: OperatorClaimDependencies
   readonly autonomy: AutonomyDependencies
   /**
-   * The operator channel (#236), and the store behind it.
+   * The operator channel (#236) as the durable page reads it, and the store
+   * behind it.
    *
-   * Both, for the reason `support` gives: the surface is what the tools are wired
-   * to, and the store is how a test gives a citizen a page, a task, or a
+   * Both, for the reason `support` gives: the surface is what the routes are
+   * wired to, and the store is how a test gives a citizen a page, a thread, or a
    * `needs-operator` shelving to be cleared.
    *
-   * **Its allowance is the same `support` surface above**, not a second limiter —
-   * which is what `#236` requires and what `server.ts` wires. A test that exhausts
-   * the ticket allowance therefore sees a request refused, and that is a property
-   * of the fixture rather than a thing each test has to arrange.
+   * **No allowance and no mailer since `#1325`.** Both belonged to the asking
+   * half, which is `kolonie.messages.send`: what a citizen spends is charged
+   * there, and what an operator is sent is the messaging notify's business.
    */
-  readonly operatorRequests: OperatorRequestDependencies & {
-    /**
-     * The recording mailer behind the default notifier (`#794`).
-     *
-     * Exposed because the transport moved behind a port and the assertions did
-     * not: what a test checks is still *what the operator was sent*, and the
-     * default notifier is the mail one — which is what every deployment without a
-     * Telegram bot runs.
-     */
-    readonly mailer: FakeOperatorMailer
-  }
-  readonly operatorRequestStore: FakeOperatorRequestStore
+  readonly operatorThreads: OperatorThreadDependencies
+  readonly operatorThreadStore: FakeOperatorThreadStore
   /** The unsolicited direction (#239), over the same page store. */
   readonly operatorNotes: OperatorNoteDependencies & { readonly store: FakeOperatorNoteStore }
   readonly operatorNoteStore: FakeOperatorNoteStore
@@ -134,29 +120,29 @@ export function fakeDesks(): FakeDesks {
    * One page store, read by both the autonomy module and the operator channel —
    * which is what production does, where both resolve a token through
    * `operator_pages`. Two independent stores here would let a test answer through
-   * a page the request path had never heard of.
+   * a page the thread path had never heard of.
    */
   const pages = fakeOperatorPages()
   const autonomyStore = fakeAutonomyStore()
   const permissionReports = fakePermissionReports(autonomyStore)
-  const operatorRequests = fakeOperatorRequests({ allowance: support, pages })
+  const operatorThreads = fakeOperatorThreads({ pages })
   /**
    * The same page store again (#239). A note is resolved through `operator_pages`
    * by token exactly as an answer is, so a third independent token map here would
    * let a test write a note through a page the revoke path had never heard of.
    *
    * **Its own limiter, not `support`.** Production wires it that way for the
-   * reason the dependency split exists: the exchange's ceiling is the citizen's
-   * budget for making a person read something, and this one is the page's budget
-   * for making a citizen read something.
+   * reason the dependency split exists: the citizen's own budget for making a
+   * person read something is charged on `kolonie.messages.send`, and this one is
+   * the page's budget for making a citizen read something.
    */
   const operatorNotes = fakeOperatorNotes({ pages })
 
   return {
     support,
     desk,
-    operatorRequests,
-    operatorRequestStore: operatorRequests.store,
+    operatorThreads,
+    operatorThreadStore: operatorThreads.store,
     operatorNotes,
     operatorNoteStore: operatorNotes.store,
     permissionReports,

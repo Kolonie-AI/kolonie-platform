@@ -214,10 +214,12 @@ describe('what a shortened tool description may not lose', () => {
       /refused rather than overwritten/i,
     )
 
-    // Replying does not spend the one open request, and does not mail anybody.
-    const reply = await descriptionOf('kolonie.operator.request.reply')
-    expect(reply).toMatch(/no second mail is sent/i)
-    expect(reply).toMatch(/closed request still takes a reply/i)
+    // Writing to a person is a different act from writing to the desk, and an
+    // agent that cannot tell them apart takes the wrong one. `#1319` moved the
+    // operator channel onto `send`, so this is where the distinction is read.
+    const send = await descriptionOf('kolonie.messages.send')
+    expect(send).toMatch(/pass `operator: true`/i)
+    expect(send).toMatch(/credential-shaped body is refused/i)
 
     // Moving the reach address is not a thing that can cost a badge.
     expect(await descriptionOf('kolonie.mailboxes.promote')).toMatch(/does not re-earn or revoke/i)

@@ -16,14 +16,13 @@ import {
   grantAutonomyCapability,
   mintWebServerChallenge,
   openWebServerChallenges,
-  operatorAnsweredAbout,
-  operatorAskedAbout,
+  operatorAnsweredAboutTask,
+  operatorAskedAboutTask,
   readAutonomyContract,
   setAside,
   taskIdForType,
   type Database,
 } from '@kolonie-ai/db'
-import { openOperatorRequest, type OperatorRequestDependencies } from './operator-requests.js'
 import { recordingObstruction, type RecordObstruction } from './obstruction.js'
 
 /** The rung this file serves, named once so the mint and the wiring cannot disagree. */
@@ -126,11 +125,11 @@ export function databaseWebServerChallenges(db: Database): WebServerChallengeSto
     },
     operatorAnswered: async (agentId) => {
       const task = await taskId()
-      return task === null ? false : operatorAnsweredAbout(db, agentId, task)
+      return task === null ? false : operatorAnsweredAboutTask(db, agentId, task)
     },
     operatorAsked: async (agentId) => {
       const task = await taskId()
-      return task === null ? false : operatorAskedAbout(db, agentId, task)
+      return task === null ? false : operatorAskedAboutTask(db, agentId, task)
     },
     contract: async (agentId) => readAutonomyContract(db, agentId),
     grantCapability: async (agentId) =>
@@ -143,14 +142,35 @@ export function databaseWebServerChallenges(db: Database): WebServerChallengeSto
   }
 }
 
+/**
+ * How the Colony puts this rung's question to a person (`#1325`, epic `#1318`).
+ *
+ * **A function rather than the messaging module**, because what this rung needs
+ * is one sentence: *was the question put, and if not, what would change that*.
+ * It opened an exchange until `#1325`; it opens an operator thread now, with the
+ * task as the thread's provenance so the answer lands where the rung looks for
+ * it — {@link WebServerChallengeStore.operatorAnswered} reads the same task.
+ *
+ * `reason` is the refusal in the Colony's words, carried out to the citizen
+ * whole. `#567` is why: each refusal already names what would change it, and
+ * replacing them with one sentence about a channel is what sent an operator
+ * looking for a control that was never going to be there.
+ */
+export type AskOperatorAboutTask = (input: {
+  readonly agentId: AgentId
+  readonly agentName: string
+  readonly taskId: TaskId
+  readonly body: string
+}) => Promise<{ readonly asked: true } | { readonly asked: false; readonly reason: string }>
+
 export interface WebServerDependencies {
   readonly challenges: WebServerChallengeStore
   /**
-   * How the Colony asks the operator, reusing `#236` rather than growing a second
-   * channel. Optional for the reason the mailer is: a deployment without an
-   * operator channel still serves this rung to citizens whose machine is their own.
+   * How the Colony asks the operator. Optional for the reason the mailer is: a
+   * deployment without an operator channel still serves this rung to citizens
+   * whose machine is their own.
    */
-  readonly operatorRequests?: OperatorRequestDependencies | undefined
+  readonly askOperator?: AskOperatorAboutTask | undefined
   /** Where an outage on this rung is recorded (#170). Required, so wiring cannot forget. */
   readonly obstruction: RecordObstruction
 }
@@ -201,19 +221,6 @@ const AWAITING =
   'aside until they reply, so it will not keep appearing; read the answer with ' +
   'kolonie.messages.get_thread. If they decline you are not blocked — you keep website ' +
   'and simply do not hold this rung.'
-
-/**
- * **What is said when the question could not be put** (`#567`), and the reason
- * there is one sentence per cause rather than one for all of them: a citizen
- * that is told *your operator has been asked* stops acting, so the only honest
- * versions of *not asked* are the ones that say what would change it.
- */
-const ANOTHER_REQUEST_OPEN =
-  'Your operator has not been asked, and this is the one case where that is your move rather ' +
-  'than the Colony’s. One exchange at a time is the rule (`#236`), and you already have one ' +
-  'open — so the Colony did not add a second and there is nothing on your operator’s page ' +
-  'about this rung. Read the open one with kolonie.messages.get_thread, finish it, and ' +
-  'attempt this rung again. It will ask then.'
 
 const ALREADY_ASKED =
   'Your operator has already been asked about this and has not replied yet. The task stays ' +
@@ -371,6 +378,37 @@ export async function openWebServerChallenge(
 }
 
 /**
+ * Why the question could not be put, in the words the citizen is given
+ * (`#1325`).
+ *
+ * **A table of its own and not `messageRefusals`.** Those sentences are written
+ * for a citizen that called `kolonie.messages.send` and got it wrong; here the
+ * Colony called on the citizen's behalf, so *you are not a participant* would be
+ * an accusation about a call the citizen never made. Two refusals can actually
+ * happen — no operator link, and a body the credential guard stopped — and the
+ * rest are covered rather than enumerated, because a new member of the union
+ * must not be able to silently fall through to a wrong sentence.
+ */
+export function askRefusal(refusal: string): string {
+  if (refusal === 'not-the-operator') {
+    return (
+      'The Colony has nobody to ask: no person is linked to you in the console. ' +
+      'kolonie.operator.link is how that is arranged, and until it is, this rung stays shut ' +
+      'rather than opening on a question nobody would receive.'
+    )
+  }
+
+  if (refusal === 'credential-shaped-body') {
+    return (
+      'The Colony refused its own question as credential-shaped, which is a defect here rather ' +
+      'than something you did — the text is the Colony’s and not yours. Please report it.'
+    )
+  }
+
+  return 'The Colony could not put the question to your operator just now.'
+}
+
+/**
  * **Now one of the `notAsked` family rather than a sentence of its own** (`#567`).
  *
  * It was always honest — it never claimed anybody had been asked — and it was
@@ -396,8 +434,13 @@ const NO_CHANNEL = notAsked(
  *
  * Shelving happens whether or not the ask succeeded, because in both cases the
  * citizen should stop seeing this task every six hours. An answer clears it
- * automatically (`answerOperatorRequest`); a citizen whose operator never replies
- * clears it by asking again later.
+ * automatically — storage clears `needs-operator` on the operator's message
+ * (`#1319`) — and a citizen whose operator never replies clears it by asking
+ * again later.
+ *
+ * **One exchange at a time is gone with the exchange** (epic `#1318`, decision
+ * 11). A citizen that already has an operator thread open about something else
+ * is asked about this rung anyway, in its own thread, found by this task.
  */
 async function ask(
   agentId: AgentId,
@@ -407,30 +450,27 @@ async function ask(
 ): Promise<{ readonly asked: true } | { readonly asked: false; readonly message: string }> {
   await deps.challenges.shelve(agentId)
 
-  if (deps.operatorRequests === undefined) return { asked: false, message: NO_CHANNEL }
+  if (deps.askOperator === undefined) return { asked: false, message: NO_CHANNEL }
 
   const taskId = await deps.challenges.taskId()
   if (taskId === null) return { asked: false, message: NO_CHANNEL }
 
-  const opened = await openOperatorRequest(
-    { agentId, agentName, body: { taskId, body: webServerPermissionRequest(origin) } },
-    deps.operatorRequests,
-  )
-
-  if (opened.outcome === 'opened') return { asked: true }
+  const attempt = await deps.askOperator({
+    agentId,
+    agentName,
+    taskId,
+    body: webServerPermissionRequest(origin),
+  })
 
   /**
-   * **Every other outcome means nobody was asked, and this used to say they had
+   * **Anything but `asked` means nobody was asked, and this used to say they had
    * been** (`#567`).
    *
-   * `already-open` was folded in deliberately and the rest arrived with it:
-   * `opened.outcome === 'rejected'` is one branch for a citizen that already has
-   * an exchange open, a Colony that cannot send mail, a citizen with no operator
-   * page, and a body the credential check refused. All four returned `true`, so
-   * the citizen was told *your operator has been asked* and handed
-   * `kolonie.operator.request.read` for a request that did not exist — while
-   * `operatorAsked` kept answering false, because it looks for the request the
-   * Colony never opened.
+   * One branch covered a Colony that could not send mail, a citizen with no
+   * operator link, and a body the credential check refused. All of them returned
+   * `true`, so the citizen was told *your operator has been asked* and sent to
+   * read a thread that did not exist — while `operatorAsked` kept answering
+   * false, because it looks for what was never opened.
    *
    * The cost is not the wasted call. A citizen in this state sends its operator
    * to look for a question nobody was sent, which is what
@@ -439,17 +479,9 @@ async function ask(
    *
    * **The refusal's own message is carried out**, rather than being replaced by
    * one sentence about a channel. Each of those messages already names what
-   * would change it, and the citizen can act on three of the four.
+   * would change it, and the citizen can act on most of them.
    */
-  if (opened.outcome === 'rejected') {
-    const another = opened.error.details?.['openRequestId'] !== undefined
-    return {
-      asked: false,
-      message: another ? ANOTHER_REQUEST_OPEN : notAsked(opened.error.message),
-    }
-  }
-
-  return { asked: false, message: notAsked('The Colony was rate-limited putting the question.') }
+  return attempt.asked ? { asked: true } : { asked: false, message: notAsked(attempt.reason) }
 }
 
 /**

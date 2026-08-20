@@ -9,7 +9,7 @@ import {
   fakeOperatorPages,
 } from '../__fixtures__/autonomy.js'
 import { fakeOperatorNotes } from '../__fixtures__/operator-notes.js'
-import { fakeOperatorRequests } from '../__fixtures__/operator-requests.js'
+import { fakeOperatorThreads } from '../__fixtures__/operator-threads.js'
 import { fakeStore } from '../__fixtures__/store.js'
 import { OPERATOR_ANSWER_BODIES, type AgentId } from '@kolonie-ai/core'
 
@@ -17,7 +17,7 @@ describe('the operator’s form', () => {
   let app: FastifyInstance
   let store: ReturnType<typeof fakeAutonomyStore>
   let pages: ReturnType<typeof fakeOperatorPages>
-  let requests: ReturnType<typeof fakeOperatorRequests>
+  let requests: ReturnType<typeof fakeOperatorThreads>
   let notes: ReturnType<typeof fakeOperatorNotes>
   let agentId: AgentId
 
@@ -31,7 +31,7 @@ describe('the operator’s form', () => {
      * `operator_pages`. Overriding `autonomy.pages` without this would leave the
      * request path answering about pages it had never heard of.
      */
-    requests = fakeOperatorRequests({ pages })
+    requests = fakeOperatorThreads({ pages })
     // And so does the unsolicited direction (#239), for the same reason: a note
     // is resolved through the page token, so a third page store here would let
     // this file write notes through a link the revoke path had never heard of.
@@ -45,7 +45,7 @@ describe('the operator’s form', () => {
         mailer: fakeAutonomyMailer(),
         formBaseUrl: 'https://console.example.org',
       },
-      operatorRequests: requests,
+      operatorThreads: requests,
       operatorNotes: notes,
     })
     await app.ready()
@@ -621,16 +621,16 @@ describe('the operator’s form', () => {
     })
 
     /**
-     * The write this page accepts is one message on one open exchange, and nothing
-     * else. A `POST` with no request open reaches no exchange and is refused — so
-     * the write cannot be used as a way to make something happen on a page whose
-     * citizen has asked for nothing.
+     * The write this page accepts is one message in one thread the citizen
+     * opened, and nothing else. A `POST` naming a thread that does not exist
+     * reaches nothing and is refused — so the write cannot be used as a way to
+     * make something happen on a page whose citizen has asked for nothing.
      */
     it('refuses a write when the citizen has nothing open', async () => {
       const token = await aPage()
 
       const response = await post(`/operator/page/${token}`, {
-        requestId: randomUUID(),
+        threadId: randomUUID(),
         body: 'Answering a question nobody asked.',
       })
 
@@ -957,32 +957,26 @@ describe('the operator’s form', () => {
    * The one write this page accepts (#236).
    *
    * These are the assertions behind the amended safety argument: the link carries
-   * words, it cannot carry permissions, and everything it does reach belongs to an
-   * exchange the citizen itself opened.
+   * words, it cannot carry permissions, and everything it does reach belongs to a
+   * thread the citizen itself opened.
    */
-  describe('answering a request on it (#236)', () => {
-    const anAsk = async () => {
+  describe('answering a question on it (#236)', () => {
+    const anAsk = () => {
       const token = requests.store.givePage(agentId, 'op@example.org')
-      const taskId = requests.store.giveTask('github-account')
-      const opened = await requests.store.open({
-        agentId,
-        taskId,
-        body: 'I cannot make a GitHub account without you.',
-      })
-      if (opened.outcome !== 'opened') throw new Error(`expected opened, got ${opened.outcome}`)
+      const threadId = requests.store.giveThread(agentId, { context: 'github-account' })
 
-      return { token, taskId, requestId: opened.request.id }
+      return { token, requestId: String(threadId), threadId }
     }
 
     it('shows the open question first, with direct answers and an optional explanation', async () => {
-      const { token, requestId } = await anAsk()
+      const { token, requestId } = anAsk()
 
       const response = await get(`/operator/page/${token}`)
 
       expect(response.statusCode).toBe(200)
       expect(response.body).toContain('has asked you something')
       expect(response.body).toContain('github-account')
-      expect(response.body).toContain('I cannot make a GitHub account without you.')
+      expect(response.body).toContain('Could you help me with this?')
       expect(response.body).toContain(`value="${requestId}"`)
       expect(response.body).toContain('<textarea')
       /**
@@ -1008,19 +1002,19 @@ describe('the operator’s form', () => {
     it.each(['permission', 'completion', 'refusal'] as const)(
       'records a one-click %s answer, in the Colony’s own words, and confirms it',
       async (kind) => {
-        const { token, requestId } = await anAsk()
+        const { token, requestId, threadId } = anAsk()
 
         const response = await post(`/operator/page/${token}`, {
           intent: 'answer',
-          requestId,
+          threadId: requestId,
           kind,
         })
 
         expect(response.statusCode).toBe(200)
         expect(response.body).toContain('Sent')
-        const [exchange] = await requests.store.exchangesForToken(token)
-        expect(exchange?.messages[1]?.body).toBe(OPERATOR_ANSWER_BODIES[kind])
-        expect(exchange?.messages[1]?.kind).toBe(kind)
+        const seen = requests.store.messagesIn(threadId)
+        expect(seen[1]?.body).toBe(OPERATOR_ANSWER_BODIES[kind])
+        expect(seen[1]?.kind).toBe(kind)
       },
     )
 
@@ -1031,16 +1025,21 @@ describe('the operator’s form', () => {
      * exchange counted as answered either way, so it stopped waiting.
      */
     it('tells permission from completion, and lets a later press correct an earlier one', async () => {
-      const { token, requestId } = await anAsk()
+      const { token, requestId, threadId } = anAsk()
 
-      await post(`/operator/page/${token}`, { intent: 'answer', requestId, kind: 'permission' })
-      let seen = await requests.store.read({ agentId, requestId })
-      expect(seen?.declared).toBe('permission')
+      await post(`/operator/page/${token}`, {
+        intent: 'answer',
+        threadId: requestId,
+        kind: 'permission',
+      })
+      expect(requests.store.messagesIn(threadId).at(-1)?.kind).toBe('permission')
 
-      await post(`/operator/page/${token}`, { intent: 'answer', requestId, kind: 'completion' })
-      seen = await requests.store.read({ agentId, requestId })
-      expect(seen?.declared).toBe('completion')
-      expect(seen?.messages.map((message) => message.kind)).toEqual([
+      await post(`/operator/page/${token}`, {
+        intent: 'answer',
+        threadId: requestId,
+        kind: 'completion',
+      })
+      expect(requests.store.messagesIn(threadId).map((message) => message.kind)).toEqual([
         null,
         'permission',
         'completion',
@@ -1049,28 +1048,29 @@ describe('the operator’s form', () => {
 
     /** A typed answer declares nothing, and the Colony does not read one out of it. */
     it('declares nothing for an answer the operator typed', async () => {
-      const { token, requestId } = await anAsk()
+      const { token, requestId, threadId } = anAsk()
 
-      await post(`/operator/page/${token}`, { requestId, body: 'Done — the handle is @canary-ai.' })
+      await post(`/operator/page/${token}`, {
+        threadId: requestId,
+        body: 'Done — the handle is @canary-ai.',
+      })
 
-      const seen = await requests.store.read({ agentId, requestId })
-      expect(seen?.answered).toBe(true)
-      expect(seen?.declared).toBeNull()
+      const seen = requests.store.messagesIn(threadId)
+      expect(seen.at(-1)).toMatchObject({ author: 'operator', kind: null })
     })
 
     /** The control and the box are alternatives, never a pair. */
     it('refuses a submission carrying both a pressed control and typed words', async () => {
-      const { token, requestId } = await anAsk()
+      const { token, requestId, threadId } = anAsk()
 
       const response = await post(`/operator/page/${token}`, {
         intent: 'answer',
-        requestId,
+        threadId: requestId,
         kind: 'permission',
         body: 'and here are some words as well',
       })
 
-      const seen = await requests.store.read({ agentId, requestId })
-      expect(seen?.answered).toBe(false)
+      expect(requests.store.messagesIn(threadId)).toHaveLength(1)
       expect(response.statusCode).toBe(422)
     })
 
@@ -1080,7 +1080,7 @@ describe('the operator’s form', () => {
      * an account is holding a password.
      */
     it('says what the answer is worth, what it must not contain, and that it can be corrected', async () => {
-      const { token } = await anAsk()
+      const { token } = anAsk()
 
       const body = (await get(`/operator/page/${token}`)).body
 
@@ -1090,64 +1090,59 @@ describe('the operator’s form', () => {
     })
 
     it('records the answer and thanks the operator', async () => {
-      const { token, requestId } = await anAsk()
+      const { token, requestId, threadId } = anAsk()
 
       const response = await post(`/operator/page/${token}`, {
-        requestId,
+        threadId: requestId,
         body: 'Done — the handle is @canary-ai.',
       })
 
       expect(response.statusCode).toBe(200)
       expect(response.body).toContain('Sent')
 
-      const [exchange] = await requests.store.exchangesForToken(token)
-      expect(exchange?.messages.map((message) => message.author)).toEqual(['citizen', 'operator'])
-      expect(exchange?.messages[1]?.body).toBe('Done — the handle is @canary-ai.')
+      const seen = requests.store.messagesIn(threadId)
+      expect(seen.map((message) => message.author)).toEqual(['citizen', 'operator'])
+      expect(seen[1]?.body).toBe('Done — the handle is @canary-ai.')
     })
 
     /** `#236`: answers append, and a later one may correct an earlier one. */
     it('appends a correction rather than replacing the first answer', async () => {
-      const { token, requestId } = await anAsk()
+      const { token, requestId, threadId } = anAsk()
 
-      await post(`/operator/page/${token}`, { requestId, body: 'The handle is @canary.' })
-      await post(`/operator/page/${token}`, { requestId, body: 'Sorry — @canary-ai in fact.' })
+      await post(`/operator/page/${token}`, { threadId: requestId, body: 'The handle is @canary.' })
+      await post(`/operator/page/${token}`, {
+        threadId: requestId,
+        body: 'Sorry — @canary-ai in fact.',
+      })
 
-      const [exchange] = await requests.store.exchangesForToken(token)
-      expect(exchange?.messages.map((message) => message.body)).toEqual([
-        'I cannot make a GitHub account without you.',
+      expect(requests.store.messagesIn(threadId).map((message) => message.body)).toEqual([
+        'Could you help me with this?',
         'The handle is @canary.',
         'Sorry — @canary-ai in fact.',
       ])
     })
 
     /**
-     * **The answer to a question the operator asked, shown without a box
-     * (`#359`).**
+     * **A thread nobody may write into, shown without a box** (`#359`, `#1325`).
      *
-     * `kolonie.operator.notes` is one-way, so a citizen answers by replying into
-     * one of its own exchanges — a closed one included. This page is where the
-     * person who asked is already looking, so it is where the answer has to
-     * appear; and it appears read-only, because a finished exchange that could be
-     * resumed from both sides is the conversation `#236` chose not to build. The
-     * operator's route to another question is the note box, which is where the
-     * first one came from.
+     * `#359` reached this state through a closed exchange. Since the retire the
+     * one state that stops words is the operator link ending (`#1288`): the
+     * conversation stays readable on both sides — ending the relationship does
+     * not un-say what was said in it — and neither side may add to it. The
+     * operator's route to saying something else is the note box, which is where
+     * the first question came from.
      */
-    it('shows a closed exchange the citizen answered into, and offers no box for it', async () => {
-      const { token, requestId } = await anAsk()
-      await requests.store.close({ agentId, requestId })
-      await requests.store.reply({
-        agentId,
-        requestId,
-        body: 'Yes — I read your note, and here is the answer.',
-      })
+    it('shows a thread whose link has ended, and offers no box for it', async () => {
+      const { token } = anAsk()
+      requests.store.unlink(agentId)
 
       const response = await get(`/operator/page/${token}`)
 
       expect(response.statusCode).toBe(200)
-      expect(response.body).toContain('answered you')
-      expect(response.body).toContain('I read your note, and here is the answer.')
-      // No answer form for a finished exchange. The note box further down is a
-      // different form, and it is still there — hence the specific field.
+      expect(response.body).toContain('wrote to you')
+      expect(response.body).toContain('Could you help me with this?')
+      // No answer form for a finished conversation. The note box further down is
+      // a different form, and it is still there — hence the specific field.
       expect(response.body).not.toContain('value="answer"')
     })
 
@@ -1156,10 +1151,10 @@ describe('the operator’s form', () => {
      * created an account is one paste away from putting a password in a database.
      */
     it('refuses an answer carrying a credential, and returns the page with the reason', async () => {
-      const { token, requestId } = await anAsk()
+      const { token, requestId, threadId } = anAsk()
 
       const response = await post(`/operator/page/${token}`, {
-        requestId,
+        threadId: requestId,
         body: 'All set. password: hunter2secret — do not lose it.',
       })
 
@@ -1169,14 +1164,13 @@ describe('the operator’s form', () => {
       // the secret rather than started again from a dead end.
       expect(response.body).toContain('<textarea')
 
-      const [exchange] = await requests.store.exchangesForToken(token)
-      expect(exchange?.messages).toHaveLength(1)
+      expect(requests.store.messagesIn(threadId)).toHaveLength(1)
     })
 
     it('refuses an empty answer and returns the page rather than an error', async () => {
-      const { token, requestId } = await anAsk()
+      const { token, requestId } = anAsk()
 
-      const response = await post(`/operator/page/${token}`, { requestId, body: '' })
+      const response = await post(`/operator/page/${token}`, { threadId: requestId, body: '' })
 
       expect(response.statusCode).toBe(422)
       expect(response.body).toContain('<textarea')
@@ -1187,10 +1181,13 @@ describe('the operator’s form', () => {
      * answerable by anyone holding the old URL."*
      */
     it('is unreachable once the citizen has revoked the page', async () => {
-      const { token, requestId } = await anAsk()
+      const { token, requestId } = anAsk()
       await pages.revoke(agentId, 'op@example.org')
 
-      const response = await post(`/operator/page/${token}`, { requestId, body: 'Here you go.' })
+      const response = await post(`/operator/page/${token}`, {
+        threadId: requestId,
+        body: 'Here you go.',
+      })
 
       expect(response.statusCode).toBe(404)
     })
@@ -1200,7 +1197,7 @@ describe('the operator’s form', () => {
      * amended safety argument rests on: a leaked link buys words, and nothing else.
      */
     it('changes no permission — not the contract, not the challenge allowance', async () => {
-      const { token, requestId } = await anAsk()
+      const { token, requestId } = anAsk()
       pages.contractFor(agentId, {
         level: 'accompanied',
         challengesAllowed: false,
@@ -1231,35 +1228,32 @@ describe('the operator’s form', () => {
     })
 
     it('cannot be aimed at another citizen’s exchange with a valid token', async () => {
-      const { token } = await anAsk()
+      const { token, threadId } = anAsk()
 
-      const strangersRequest = randomUUID()
+      const strangersThread = randomUUID()
       const response = await post(`/operator/page/${token}`, {
-        requestId: strangersRequest,
+        threadId: strangersThread,
         body: 'Not mine to answer.',
       })
 
       expect(response.statusCode).toBe(404)
-      const [exchange] = await requests.store.exchangesForToken(token)
-      expect(exchange?.messages).toHaveLength(1)
+      expect(requests.store.messagesIn(threadId)).toHaveLength(1)
     })
 
     /**
-     * The one at a time rule, seen from the operator's side: opening this page is a
-     * favour, and a queue would make it a job.
+     * The note box outlives the answer box, which is the half `#239` is about: a
+     * conversation nobody may add to is not a closed channel, and revoking the
+     * page is still the only thing that is.
      */
-    it('drops the answer box once the citizen has closed the request', async () => {
-      const { token, requestId } = await anAsk()
-      await requests.store.close({ agentId, requestId })
+    it('drops the answer box once the link has ended, and keeps the note box', async () => {
+      const { token } = anAsk()
+      requests.store.unlink(agentId)
 
       const response = await get(`/operator/page/${token}`)
 
       expect(response.statusCode).toBe(200)
       expect(response.body).not.toContain('has asked you something')
       expect(response.body).not.toContain('name="intent" value="answer"')
-
-      // The note box stays (#239). A closed question is not a closed channel —
-      // that is what revoking the page is for, and it is the only thing that is.
       expect(response.body).toContain('name="intent" value="note"')
     })
   })
@@ -1275,17 +1269,11 @@ describe('the operator’s form', () => {
   describe('telling the citizen something unasked (#239)', () => {
     const aPage = async (): Promise<string> => pages.issue(agentId, 'op@example.org')
 
-    const anAsk = async () => {
+    const anAsk = () => {
       const token = requests.store.givePage(agentId, 'op@example.org')
-      const taskId = requests.store.giveTask('github-account')
-      const opened = await requests.store.open({
-        agentId,
-        taskId,
-        body: 'I cannot make a GitHub account without you.',
-      })
-      if (opened.outcome !== 'opened') throw new Error(`expected opened, got ${opened.outcome}`)
+      const threadId = requests.store.giveThread(agentId, { context: 'github-account' })
 
-      return { token, requestId: opened.request.id }
+      return { token, requestId: String(threadId), threadId }
     }
 
     const aNote = (token: string, body: string) =>
@@ -1363,7 +1351,7 @@ describe('the operator’s form', () => {
        */
       it('says it under the answer box, which is the only box while a question waits', async () => {
         pages.rhythmFor(agentId, 6)
-        const { token } = await anAsk()
+        const { token } = anAsk()
 
         const body = (await get(`/operator/page/${token}`)).body
 
@@ -1393,24 +1381,25 @@ describe('the operator’s form', () => {
     })
 
     it('is told apart from an answer by the form, not by the shape of the body', async () => {
-      const { token, requestId } = await anAsk()
+      const { token, requestId, threadId } = anAsk()
 
-      // A body carrying a requestId, submitted from the note box. It must land as
+      // A body carrying a threadId, submitted from the note box. It must land as
       // a note: guessing from the presence of the field is how an answer ends up
       // stored as the wrong thing on a page whose safety argument is that what it
       // reaches is precisely known.
       const response = await post(`/operator/page/${token}`, {
         intent: 'note',
-        requestId,
+        threadId: requestId,
         body: 'Something unrelated to the question you asked.',
       })
 
       expect(response.statusCode).toBe(200)
       expect(await notes.store.countUnread(agentId)).toBe(1)
 
-      // And the exchange is untouched — still open, still unanswered.
-      const [exchange] = await requests.store.exchangesForToken(token)
-      expect(exchange?.messages.some((message) => message.author === 'operator')).toBe(false)
+      // And the thread is untouched — still unanswered.
+      expect(
+        requests.store.messagesIn(threadId).some((message) => message.author === 'operator'),
+      ).toBe(false)
     })
 
     it('gives the page back with the message on the box, rather than a dead end', async () => {

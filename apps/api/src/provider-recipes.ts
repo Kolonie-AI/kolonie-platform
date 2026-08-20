@@ -1707,7 +1707,7 @@ export function recipeAsText(recipe: ProviderRecipe, secretHandoff: boolean): st
           `${index + 1}. **This step cannot be walked here, and that is not your doing.** ` +
           `${stepInstruction(step)}\n` +
           '   This Colony has no sealed channel configured, so there is nowhere for a secret to ' +
-          'arrive. Do not ask your operator for this value yet: an operator request carries ' +
+          'arrive. Do not ask your operator for this value yet: the messaging channel carries ' +
           'words and refuses credentials by design, so there is no route for it inside the ' +
           'Colony at all.\n' +
           '   Anything you arrange instead is outside the Colony and outside what it can ' +

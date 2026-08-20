@@ -311,15 +311,6 @@ export const SETTINGS: readonly SettingDefinition[] = [
     schema: atLeastOne,
   },
   {
-    name: 'OPERATOR_REQUEST_OPEN_MAX',
-    group: 'threshold',
-    describes:
-      'How many word requests one citizen may have open with its operator at once. Unset means ' +
-      'eight: enough to equip several accounts in one sitting, while keeping the page a short ' +
-      'list a person can realistically clear rather than a batch workload.',
-    schema: atLeastOne,
-  },
-  {
     name: 'SMS_MAX_PER_CITIZEN_PER_DAY',
     group: 'threshold',
     describes:

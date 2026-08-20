@@ -21,10 +21,18 @@ import type { Database } from '../client.js'
  *
  * ## What counts as waiting
  *
- * **A request with no operator message yet.** An exchange the person has already
- * replied to is not waiting on them, even though it is still open — the citizen
- * may still be reading it, and a queue that showed answered exchanges would be a
- * queue that never empties.
+ * **A thread with no operator message yet.** One the person has already replied
+ * to is not waiting on them — the citizen may still be reading it, and a queue
+ * that showed answered threads would be a queue that never empties.
+ *
+ * **The exchange's `closed_at` had no successor and needed none** (`#1325`). A
+ * thread cannot be closed, and the condition that did the work was never the
+ * closing: it was *has the operator written*. That one carries over unchanged,
+ * so the queue behaves exactly as it did while reading a table that is gone.
+ *
+ * **This person's own threads, joined through their participant row.** The
+ * citizen may have more than one operator, and a queue built from `mine` alone
+ * would put a colleague's conversation on somebody else's page.
  *
  * **A drop that is unfilled, unexpired and has attempts left.** Exactly
  * `viewDrop`'s three conditions, because an item this page offers and that page
@@ -60,7 +68,7 @@ export async function waitingForOperator(
     ),
     questions as (
       select
-        r.agent_id,
+        mp.agent_id,
         a.name as agent_name,
         'question' as kind,
         /**
@@ -71,26 +79,29 @@ export async function waitingForOperator(
          * being asked.
          */
         (select m.body
-           from operator_request_messages m
-          where m.request_id = r.id
-          order by m.written_at asc
+           from messages m
+          where m.conversation_id = c.id
+          order by m.created_at asc, m.id asc
           limit 1) as ask,
         coalesce(t.title, w.provider) as about,
-        r.opened_at as since,
+        c.created_at as since,
         p.token as answer_at,
-        r.id as request_id,
+        c.id as request_id,
         null::uuid as drop_id
-      from operator_requests r
-      join mine on mine.agent_id = r.agent_id
-      join agents a on a.id = r.agent_id
-      left join tasks t on t.id = r.task_id
-      left join account_wishes w on w.id = r.wish_id
+      from message_conversations c
+      join message_participants mp
+        on mp.conversation_id = c.id and mp.agent_id is not null
+      join mine on mine.agent_id = mp.agent_id
+      join message_participants op
+        on op.conversation_id = c.id and op.human_id = ${humanId}
+      join agents a on a.id = mp.agent_id
+      left join tasks t on t.id = c.task_id
+      left join account_wishes w on w.id = c.wish_id
       left join operator_pages p
-        on p.agent_id = r.agent_id and p.revoked_at is null
-      where r.closed_at is null
-        and not exists (
-          select 1 from operator_request_messages m
-           where m.request_id = r.id and m.author = 'operator'
+        on p.agent_id = mp.agent_id and p.revoked_at is null
+      where not exists (
+          select 1 from messages m
+           where m.conversation_id = c.id and m.sender_party = 'operator-human'
         )
     ),
     handovers as (
@@ -133,18 +144,18 @@ export async function waitingForOperator(
     about: row.about,
     since: row.since,
     /**
-     * A request is answered on the page the operator already holds. A drop is
+     * A question is answered on the page the operator already holds. A drop is
      * not linked at all — see `WaitingItemSchema.answerAt` for why the Colony
      * cannot produce that link and should not learn to.
      */
     answerAt: row.answer_at === null ? null : `/operator/page/${row.answer_at}`,
     /**
-     * Which exchange this row is, so the console can link to its anchor
+     * Which thread this row is, so the console can link to its anchor
      * (`#587`, `#593`).
      *
      * **An id and not a link**, exactly as `dropId` beside it is: it authorises
      * nothing, and the console's own session is what proves the reader may
-     * answer. `null` on a drop, which is not an exchange.
+     * answer. `null` on a drop, which is not a thread.
      */
     requestId: row.request_id,
     /**

@@ -12,7 +12,7 @@ import {
   fakeAutonomyStore,
   fakeOperatorPages,
 } from '../__fixtures__/autonomy.js'
-import { fakeOperatorRequests } from '../__fixtures__/operator-requests.js'
+import { fakeOperatorThreads } from '../__fixtures__/operator-threads.js'
 import { fakeOperatorNotes } from '../__fixtures__/operator-notes.js'
 import { SESSION_COOKIE } from './console.js'
 import { OAUTH_STATE_COOKIE } from '../humans/humans.js'
@@ -60,7 +60,7 @@ beforeEach(async () => {
     // The same page store on all three, as production has it: a token resolves
     // an exchange and a note, so a second store here would let this file write
     // through a link the revoke path had never heard of.
-    operatorRequests: fakeOperatorRequests({ pages }),
+    operatorThreads: fakeOperatorThreads({ pages }),
     operatorNotes: fakeOperatorNotes({ pages }),
   })
   await app.ready()

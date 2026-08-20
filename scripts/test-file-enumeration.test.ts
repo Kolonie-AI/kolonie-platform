@@ -30,8 +30,16 @@ const ROOT = path.join(import.meta.dirname, '..')
 
 const VITEST = path.join(ROOT, 'node_modules/vitest/vitest.mjs')
 
-/** Directories that never hold a test file this repository owns. */
-const NOT_OURS = new Set(['node_modules', 'dist', 'coverage', 'drizzle'])
+/**
+ * Directories that never hold a test file this repository owns.
+ *
+ * **`.claude` is a checkout of this repository inside this repository**, which
+ * an agent's own worktree tooling puts there. Every source file in it is a
+ * second copy, so a walk that descends into it enumerates each test twice and
+ * this case fails with a diff about a commit nobody is editing. `.prettierignore`
+ * and `eslint.config.js` skip it for the same reason.
+ */
+const NOT_OURS = new Set(['node_modules', 'dist', 'coverage', 'drizzle', '.claude'])
 
 /** The nested workspaces, which the root workspace does not run. */
 const NESTED = new Set(['apps', 'packages'])

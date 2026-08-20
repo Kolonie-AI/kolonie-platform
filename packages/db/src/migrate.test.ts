@@ -615,7 +615,7 @@ describe('the migrations', () => {
     // it with `operator_requests`, which it cascades from. A deterministic
     // conversation id would have done the same job and would have put a rule
     // about a past migration in the primary key of a live table.
-    expect(afterFirst.tables).toBe('153')
+    expect(afterFirst.tables).toBe('149')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

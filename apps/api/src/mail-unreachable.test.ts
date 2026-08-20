@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { randomUUID } from 'node:crypto'
-import type { AgentId, OperatorRequestId } from '@kolonie-ai/core'
+import type { AgentId, ConversationId } from '@kolonie-ai/core'
 import { cloudflareMailer, operatorMailerFrom } from './email.js'
 import { mailingOperatorNotifier } from './operator-notifier.js'
 import { recordingLog } from './__fixtures__/console.js'
@@ -172,8 +172,8 @@ describe('a mail desk that cannot be reached', () => {
   /**
    * The path the issue was filed from, end to end: transport, the operator
    * mailer bound to a sender, and the notifier the operator request calls.
-   * **`delivered: false` here is what makes `openOperatorRequest`'s prepared
-   * answer run at all** — the branch was written, tested and unreachable.
+   * **`delivered: false` here is what makes the notify path's prepared answer
+   * run at all** — the branch was written, tested and unreachable.
    */
   it('reaches the operator notifier as an undelivered message', async () => {
     const { mailer } = mailerThatCannotConnect(networkFailure('EAI_AGAIN'))
@@ -181,10 +181,10 @@ describe('a mail desk that cannot be reached', () => {
 
     const notified = await notifier.notify({
       agentId: randomUUID() as AgentId,
-      subject: { kind: 'request', requestId: randomUUID() as OperatorRequestId },
+      subject: { kind: 'conversation', conversationId: randomUUID() as ConversationId },
       agentName: 'canary',
       context: 'browser-capability',
-      link: 'https://console.example.invalid/operator/page/a-token#exchange-1',
+      link: 'https://console.example.invalid/operator/page/a-token#question-1',
       address: 'op@example.invalid',
     })
 

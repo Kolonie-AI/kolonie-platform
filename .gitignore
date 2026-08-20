@@ -25,3 +25,10 @@ packages/db/vitest.*-probe.config.ts
 # is an append point two agents collide in, and a file nobody commits cannot be
 # merged at all.
 packages/db/src/storage/index.ts
+
+# An agent's own scratch worktrees. Claude Code puts a checkout of this
+# repository under .claude/worktrees/, which git otherwise offers to add as an
+# embedded repository and every tree walk descends into as a second copy of
+# every source file. .prettierignore, eslint.config.js and
+# scripts/test-file-enumeration.test.ts skip it for the same reason.
+.claude/

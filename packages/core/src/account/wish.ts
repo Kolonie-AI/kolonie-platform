@@ -45,14 +45,14 @@ export const WISH_NOTE_MAX_LENGTH = 600
 /**
  * Who put an item on the list.
  *
- * **The same two parties as an operator exchange, and deliberately the same
- * vocabulary.** `OperatorRequestAuthorSchema` names exactly `citizen` and
+ * **The same two parties an operator and a citizen always are, and deliberately
+ * the same vocabulary.** `OperatorAuthorSchema` names exactly `citizen` and
  * `operator`, for exactly this distinction; a second enum with identical members
  * would be two vocabularies for one question, and the first surface that had to
  * translate between them would get it wrong.
  */
-export { OperatorRequestAuthorSchema as WishAuthorSchema } from '../operator/request.js'
-export type { OperatorRequestAuthor as WishAuthor } from '../operator/request.js'
+export { OperatorAuthorSchema as WishAuthorSchema } from '../operator/page.js'
+export type { OperatorAuthor as WishAuthor } from '../operator/page.js'
 
 /** One thing on the list. */
 export const WishSchema = z.object({

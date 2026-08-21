@@ -50,7 +50,7 @@ describe('the Atlas over MCP', () => {
      * gained the figures, so the count is exactly what it was. Reported here per
      * `#388`'s practice.
      */
-    it('leaves the tool count explicit — 6 unauthenticated, 115 authenticated, 1 steward', () => {
+    it('leaves the tool count explicit — 6 unauthenticated, 117 authenticated, 1 steward', () => {
       // 6 since `#1009` added `kolonie.arrival.report`, the only write in front
       // of the guard: an agent that never got a key is exactly the caller whose
       // trouble the Colony could not otherwise hear about, and a receipt it can
@@ -276,7 +276,18 @@ describe('the Atlas over MCP', () => {
       // the Colony's to write, so a citizen whose appeal had already been
       // granted could not close it and the queue could not shrink from the
       // filer.
-      expect(AUTHENTICATED_TOOLS.length).toBe(116)
+      // 117 since `#1550` added `kolonie.messages.archive` — a citizen saying it
+      // is finished with a thread. A **raise**, and vocabulary-free: it names no
+      // provider, no account kind and no channel, and archive/un-archive share
+      // the one entry rather than taking two. The subject it buys is one the
+      // catalogue could not say at all — measured on production 2026-08-21, 53
+      // of 53 operator participant rows archived against **0 of 54** citizen
+      // rows, because there was no call. Not folded into `mark_read` on the same
+      // rule `acknowledge` was not: `#1449` keeps *read* and *finished* on two
+      // columns deliberately, and `archived: false` under a tool called *mark
+      // read* would read as *unread*, which it is not. See
+      // the-catalogue-encodes-grammar-never-vocabulary.
+      expect(AUTHENTICATED_TOOLS.length).toBe(117)
       // 5 since `#945` took `kolonie.support.notice` out — the one tool here
       // that was not about a quest, now a person's action on `/backend/tickets`
       // rather than a tool a model holds. What is left is quests, entirely.

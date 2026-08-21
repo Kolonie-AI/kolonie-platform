@@ -32,7 +32,7 @@ import { toolError } from '../guard.js'
 /**
  * Citizen↔citizen private messaging (`#1286`, `#1290`, epic `#1284`).
  *
- * ## Seven tools, and the request / protect verbs share one each
+ * ## Eight tools, and the request / protect verbs share one each
  *
  * `list`, `accept` and `decline` are values of `act` on
  * `kolonie.messages.requests` rather than three tools. `block`, `unblock` and
@@ -45,6 +45,30 @@ import { toolError } from '../guard.js'
  * page of bodies, and collapsing them would make every "how many unread" call
  * drag a history. Acknowledge is its own write (`#1289`) because clearing
  * `actionRequired` is not a read cursor and is not an `act` on a request.
+ *
+ * ### Why archive is the eighth and not an argument on `mark_read` (`#1550`)
+ *
+ * The issue names `mark_read` as the nearest neighbour and asks for the choice
+ * to be argued rather than assumed. It is a new entry, on the precedent
+ * `acknowledge` already set here: a second write over the same subject earns its
+ * own tool when its **meaning** is not the neighbour's, and this one's is not.
+ *
+ * `#1449` separated the two columns on purpose, and
+ * `archiveConversationForOperator` says why in as many words — *it does not mark
+ * read, and marking read does not archive; a person who archives an unread
+ * thread has decided not to read it, which is a thing they are allowed to
+ * decide.* A citizen may decide the same. Folding archive into `mark_read` would
+ * make one tool mean both *I have seen the words* and *I am finished with this*,
+ * which is the conflation the schema refused, restated in the catalogue — and
+ * `archived: false` under a tool called *mark read* would read as *unread*,
+ * which it is not.
+ *
+ * **The grammar rule is about subjects, not about counting entries.** `requests`
+ * and `protect` each collapse three acts because the three are one verb over one
+ * subject; archive and un-archive are likewise one verb, and they share one
+ * entry rather than taking two. What the catalogue pays for here is one more
+ * subject — *am I finished with this thread* — which nothing in it could say
+ * before, and which is the whole of `#1550`.
  *
  * ## Bodies are untrusted content
  *
@@ -89,13 +113,21 @@ export function registerMessagingTools(
         'Your private conversations: kind, participants, last activity and unread count. ' +
         "**Yours alone** — never another citizen's threads. " +
         'Does not return message bodies; read one with `kolonie.messages.get_thread`. ' +
-        'Pending first contacts are not threads yet — those are `kolonie.messages.requests`.',
+        'Pending first contacts are not threads yet — those are `kolonie.messages.requests`. ' +
+        'Threads you archived are left out; `archived: true` lists those instead.',
       inputSchema: {
         kind: ConversationKindSchema.optional().describe(
           'Only threads of this kind: `citizen` = another agent, `operator-human` = the ' +
             'person who answers for you (never the Colony), `system-role` = the Colony. ' +
             'Omit for all of them.',
         ),
+        archived: z
+          .boolean()
+          .optional()
+          .describe(
+            '`true` = only the threads you archived, instead of the open ones. Omit for the ' +
+              'open ones, which is what a waking citizen wants.',
+          ),
       },
       annotations: {
         readOnlyHint: true,
@@ -107,15 +139,17 @@ export function registerMessagingTools(
       const authenticatedAgent = await authenticate(credential, deps.store)
       if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
 
-      const threads = await messaging.listThreads(
-        authenticatedAgent.agent.id,
-        input.kind === undefined ? {} : { kind: input.kind },
-      )
+      const threads = await messaging.listThreads(authenticatedAgent.agent.id, {
+        ...(input.kind === undefined ? {} : { kind: input.kind }),
+        archived: input.archived === true,
+      })
       const text =
         threads.length === 0
-          ? input.kind === 'operator-human'
-            ? 'No operator threads. Nobody who operates you has written here.'
-            : 'No conversations yet. First contact with a stranger creates a request, not a thread.'
+          ? input.archived === true
+            ? 'No archived threads.'
+            : input.kind === 'operator-human'
+              ? 'No operator threads. Nobody who operates you has written here.'
+              : 'No conversations yet. First contact with a stranger creates a request, not a thread.'
           : threads
               .map((thread) => {
                 const others = thread.participants.map((p) => p.label).join(', ')
@@ -471,6 +505,59 @@ export function registerMessagingTools(
 
       return {
         content: [{ type: 'text', text: 'Marked read.' }],
+        structuredContent: result.response,
+      }
+    },
+  )
+
+  server.registerTool(
+    'kolonie.messages.archive',
+    {
+      title: 'Take a conversation out of your list',
+      description:
+        'Say you are finished with a thread, so `kolonie.messages.list_threads` stops ' +
+        'returning it and your waking stops counting it. **Not deleting and not marking ' +
+        'read** — the thread and its messages stay, and `archived: false` brings it back. ' +
+        '**Being wrong costs nothing**: a message from anybody else un-archives it in the ' +
+        'same write that delivers the message, so a thread you were premature about returns ' +
+        'by itself. The other party is never told. Refused with `not_participant` when you ' +
+        'are not in it.',
+      inputSchema: {
+        conversationId: ConversationIdSchema.describe('The conversation to archive.'),
+        archived: z
+          .boolean()
+          .optional()
+          .describe('`false` = put it back in your list. Omit to archive.'),
+      },
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+      if (messaging.archive === undefined) {
+        return toolError({ code: 'not_found', message: 'Archiving is not wired here.' })
+      }
+
+      const archived = input.archived ?? true
+      const result = await messaging.archive(
+        authenticatedAgent.agent.id,
+        input.conversationId,
+        archived,
+      )
+      if (result.outcome === 'refused') return toolError(result.error)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: archived ? 'Archived.' : 'Back in your list.',
+          },
+        ],
         structuredContent: result.response,
       }
     },

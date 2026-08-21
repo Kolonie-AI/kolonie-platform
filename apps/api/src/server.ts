@@ -105,6 +105,7 @@ import {
   followFeedSince,
   listConnections,
   acknowledgeSystemMessage,
+  archiveConversationForCitizen,
   blockSender,
   listConversations,
   listMessageRequests,
@@ -1114,6 +1115,12 @@ const app = buildApp({
         return { outcome: 'accepted', response: { conversationId: result.conversationId } }
       }
       return { outcome: 'refused', error: messageRefusals[result.refusal] }
+    },
+    archive: async (agentId, conversationId, archived) => {
+      const result = await archiveConversationForCitizen(db, agentId, conversationId, archived)
+      return result.outcome === 'set'
+        ? { outcome: 'set', response: { archived } }
+        : { outcome: 'refused', error: messageRefusals['not-a-participant'] }
     },
     markRead: async (agentId, conversationId, upTo) => {
       const result = await markConversationRead(db, agentId, conversationId, upTo)

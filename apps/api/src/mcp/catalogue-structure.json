@@ -1616,6 +1616,22 @@
       }
     },
     {
+      "name": "kolonie.messages.archive",
+      "schema": {
+        "properties": {
+          "archived": {
+            "type": "boolean"
+          },
+          "conversationId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": ["conversationId"],
+        "type": "object"
+      }
+    },
+    {
       "name": "kolonie.messages.get_thread",
       "schema": {
         "properties": {
@@ -1632,6 +1648,9 @@
       "name": "kolonie.messages.list_threads",
       "schema": {
         "properties": {
+          "archived": {
+            "type": "boolean"
+          },
           "kind": {
             "enum": ["citizen", "operator-human", "system-role"],
             "type": "string"

@@ -629,11 +629,14 @@ export const AUTHENTICATED_TOOLS = [
   /**
    * Citizen↔citizen private messaging (`#1286`, epic `#1284`).
    *
-   * **Six tools.** List and get stay separate so a listing never drags bodies;
+   * **Seven tools.** List and get stay separate so a listing never drags bodies;
    * send is its own write; requests collapse list/accept/decline into one `act`
    * on the catalogue grammar rule; mark_read moves only the caller's cursor;
    * acknowledge clears a Colony `actionRequired` (`#1289`) and is not folded
-   * into mark_read because seeing the words is not doing the thing. Bodies are
+   * into mark_read because seeing the words is not doing the thing; archive
+   * (`#1550`) is not folded into it either, and for the same reason one level
+   * along — `#1449` keeps *read* and *finished* on two columns deliberately, and
+   * a citizen that archives an unread thread has decided not to read it. Bodies are
    * untrusted content on every tool that returns or accepts one. Block and
    * protect (block/unblock/report) is `#1290`; minting system mail is a producer, not a tool.
    */
@@ -642,6 +645,7 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.messages.send',
   'kolonie.messages.requests',
   'kolonie.messages.mark_read',
+  'kolonie.messages.archive',
   'kolonie.messages.acknowledge',
   'kolonie.messages.protect',
   /**

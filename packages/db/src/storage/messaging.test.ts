@@ -24,11 +24,13 @@ import {
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
 import { acceptConnection, removeConnection, requestConnection } from './connections.js'
 import { followCitizen } from './following.js'
+import { countWaitingOperatorReplies } from './operator-threads.js'
 import { listSetAsides, setAside } from './set-asides.js'
 import {
   acceptMessageRequest,
   acknowledgeSystemMessage,
   answerOperatorMessageFromChat,
+  archiveConversationForCitizen,
   blockSender,
   declineMessageRequest,
   listConversations,
@@ -1416,6 +1418,162 @@ describe('private messaging', () => {
           ),
         )
       expect(plain).toHaveLength(1)
+    })
+
+    /**
+     * **A citizen may archive** (`#1550`). Measured on production 2026-08-21:
+     * `message_participants` held 53 operator rows, **all 53 archived**, against
+     * 54 citizen rows, **none of them** — not because citizens did not want to,
+     * but because there was no call. `list_threads` is what a waking citizen
+     * reads to find out what is waiting, and every finished conversation it had
+     * ever had was still in the answer.
+     */
+    it('takes an archived thread out of the citizen listing and gives it back on request', async () => {
+      const citizen = await anAgent('citizen')
+      const operator = await aPerson(citizen)
+
+      const task = await aTask('github-account')
+      const kept = await openOperatorHelpConversation(db, citizen, { body: 'Still going.' })
+      const done = await openOperatorHelpConversation(db, citizen, {
+        body: 'This one is finished.',
+        provenance: { taskId: task as never, wishId: null },
+      })
+      if (kept.outcome !== 'delivered' || done.outcome !== 'delivered') {
+        throw new Error('unreachable')
+      }
+      await sendOperatorMessage(
+        db,
+        operator,
+        citizen,
+        'Made it.',
+        'op',
+        undefined,
+        done.conversationId,
+      )
+
+      expect(await listConversations(db, citizen)).toHaveLength(2)
+
+      expect(await archiveConversationForCitizen(db, citizen, done.conversationId, true)).toEqual({
+        outcome: 'set',
+      })
+
+      const open = await listConversations(db, citizen)
+      expect(open.map((thread) => thread.id)).toEqual([kept.conversationId])
+
+      const archived = await listConversations(db, citizen, { archived: true })
+      expect(archived.map((thread) => thread.id)).toEqual([done.conversationId])
+
+      await archiveConversationForCitizen(db, citizen, done.conversationId, false)
+      expect(await listConversations(db, citizen)).toHaveLength(2)
+    })
+
+    /**
+     * **Being wrong costs nothing**, which is the whole reason a citizen that
+     * remembers nothing between sessions may archive liberally. The clearing is
+     * in {@link insertMessage}, so it covers every send path there is.
+     */
+    it('un-archives a citizen’s row when somebody else writes into the thread', async () => {
+      const citizen = await anAgent('citizen')
+      const operator = await aPerson(citizen)
+
+      const thread = await openOperatorHelpConversation(db, citizen, { body: 'Could you?' })
+      if (thread.outcome !== 'delivered') throw new Error('unreachable')
+      await archiveConversationForCitizen(db, citizen, thread.conversationId, true)
+      expect(await listConversations(db, citizen)).toHaveLength(0)
+
+      await sendOperatorMessage(
+        db,
+        operator,
+        citizen,
+        'Done.',
+        'op',
+        undefined,
+        thread.conversationId,
+      )
+
+      expect((await listConversations(db, citizen)).map((row) => row.id)).toEqual([
+        thread.conversationId,
+      ])
+    })
+
+    /**
+     * **The citizen writing does not un-archive its own row.** `insertMessage`
+     * leaves the sender alone on purpose — somebody who archived a thread and
+     * then wrote one more line into it has not changed their mind about being
+     * finished. Stated here because the citizen's side is new and the rule was
+     * written for the person's.
+     */
+    it('leaves the sender’s own row archived when the sender writes', async () => {
+      const citizen = await anAgent('citizen')
+      await aPerson(citizen)
+
+      const thread = await openOperatorHelpConversation(db, citizen, { body: 'One.' })
+      if (thread.outcome !== 'delivered') throw new Error('unreachable')
+      await archiveConversationForCitizen(db, citizen, thread.conversationId, true)
+
+      await openOperatorHelpConversation(db, citizen, { body: 'And two.' })
+
+      expect(await listConversations(db, citizen)).toHaveLength(0)
+    })
+
+    /** Invisible to the other party — the guarantee the operator's side has. */
+    it('does not archive the thread for anybody else', async () => {
+      const citizen = await anAgent('citizen')
+      const operator = await aPerson(citizen)
+
+      const thread = await openOperatorHelpConversation(db, citizen, { body: 'Could you?' })
+      if (thread.outcome !== 'delivered') throw new Error('unreachable')
+      await archiveConversationForCitizen(db, citizen, thread.conversationId, true)
+
+      const [theirs] = await db
+        .select({ doneAt: messageParticipants.doneAt })
+        .from(messageParticipants)
+        .where(
+          and(
+            eq(messageParticipants.conversationId, thread.conversationId),
+            eq(messageParticipants.humanId, operator),
+          ),
+        )
+      expect(theirs?.doneAt).toBeNull()
+    })
+
+    /** `#1550`'s acceptance criterion about the digest, on both counters. */
+    it('keeps an archived thread off the waking', async () => {
+      const citizen = await anAgent('citizen')
+      const operator = await aPerson(citizen)
+
+      const thread = await openOperatorHelpConversation(db, citizen, { body: 'Could you?' })
+      if (thread.outcome !== 'delivered') throw new Error('unreachable')
+      await sendOperatorMessage(
+        db,
+        operator,
+        citizen,
+        'Done.',
+        'op',
+        undefined,
+        thread.conversationId,
+      )
+
+      expect((await messagingWakeupDelta(db, citizen)).unreadThreads).toBe(1)
+      expect(await countWaitingOperatorReplies(db, citizen)).toBe(1)
+
+      await archiveConversationForCitizen(db, citizen, thread.conversationId, true)
+
+      expect((await messagingWakeupDelta(db, citizen)).unreadThreads).toBe(0)
+      expect(await countWaitingOperatorReplies(db, citizen)).toBe(0)
+    })
+
+    it('refuses a thread the citizen is not in', async () => {
+      const citizen = await anAgent('citizen')
+      const stranger = await anAgent('stranger')
+      await aPerson(citizen)
+
+      const thread = await openOperatorHelpConversation(db, citizen, { body: 'Mine.' })
+      if (thread.outcome !== 'delivered') throw new Error('unreachable')
+
+      expect(
+        await archiveConversationForCitizen(db, stranger, thread.conversationId, true),
+      ).toEqual({ outcome: 'not-a-participant' })
     })
 
     it('refuses a wish that belongs to somebody else', async () => {

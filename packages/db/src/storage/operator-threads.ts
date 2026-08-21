@@ -673,6 +673,16 @@ export async function countWaitingOperatorReplies(db: Database, agentId: AgentId
       and(
         eq(messages.senderParty, 'operator-human'),
         or(isNull(cursor.id), sql`${messages.createdAt} > ${cursor.createdAt}`),
+        /**
+         * **Archived by this citizen means off its waking** (`#1550`), the same
+         * rule `messagingWakeupDelta` follows and for the same reason.
+         *
+         * It has to be the same rule rather than merely a similar one:
+         * `#1552` establishes that this count is a *subset* of that one — same
+         * cursor, one sender party of three — and a subset that dropped a
+         * condition its superset kept would stop being one.
+         */
+        isNull(messageParticipants.doneAt),
       ),
     )
 

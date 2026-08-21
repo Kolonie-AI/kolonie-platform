@@ -14,6 +14,7 @@ import {
   messageRateLimited,
   messageRefusals,
   type AcknowledgeResponse,
+  type ArchiveResponse,
   type CitizenMessaging,
   type MarkReadResponse,
   type MessageProtectInput,
@@ -86,6 +87,8 @@ type Participant = {
   label: string
   systemRole?: 'doctor' | 'support' | 'academy' | 'security'
   lastReadMessageId?: string
+  /** `#1550`: *I am finished with this*, per participant, on `done_at`. */
+  doneAt?: string
 }
 
 type ConversationRow = {
@@ -301,10 +304,24 @@ export function fakeMessaging(): FakeMessaging {
     },
 
     async listThreads(agentId, options = {}) {
+      const wantArchived = options.archived === true
       return [...conversations.values()]
         .filter((row) => row.participants.some((p) => p.agentId === agentId))
         .filter((row) => options.kind === undefined || kindOf(row) === options.kind)
+        .filter((row) => {
+          const me = row.participants.find((p) => p.agentId === agentId)
+          return (me?.doneAt !== undefined) === wantArchived
+        })
         .map((row) => asConversation(row, agentId))
+    },
+
+    // @mirrors packages/db/src/storage/messaging.ts archiveConversationForCitizen
+    async archive(agentId, conversationId, archived): Promise<ArchiveResponse> {
+      const me = participantOf(conversationId, agentId)
+      if (me === undefined) return refused('not-a-participant')
+      if (archived) me.doneAt = new Date().toISOString()
+      else delete me.doneAt
+      return { outcome: 'set', response: { archived } }
     },
 
     async getThread(agentId, conversationId): Promise<ThreadResponse> {

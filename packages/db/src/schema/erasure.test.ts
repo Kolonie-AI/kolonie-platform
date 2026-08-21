@@ -1094,14 +1094,6 @@ describe('the erasure boundary', () => {
        */
       'agent_follows.followed_id c',
       'agent_follows.follower_id c',
-      /**
-       * `#592`. Cascades, like every other record of something the citizen did:
-       * `erasure.md` §2 puts what a citizen attempted among what does not
-       * survive erasure. An outstanding handover dies with the citizen and its
-       * operator is not told — the page answers as though it never existed,
-       * which is what it answers for every other closed state.
-       */
-      'agent_handovers.agent_id c',
       // #139. Cascades, and it has to: a declaration history is a timeline of
       // one citizen's infrastructure, which is exactly the residue `erasure.md`
       // §4 rules out. Nothing about it is anonymous — every row names the agent
@@ -1330,13 +1322,12 @@ describe('the erasure boundary', () => {
        * rules out, about a person who never joined anything.
        */
       /**
-       * `#410`. Cascades: an outstanding drop dies with the citizen and the link
-       * answers as if it never existed, which is what it already answers for
-       * every other closed state. No operator is told, and that is correct —
-       * telling them would be the Colony announcing an erasure to somebody who
-       * is not a citizen.
+       * `agent_handovers.agent_id` (`#592`) and `operator_drops.agent_id`
+       * (`#410`) both stood here and both cascaded. Neither is in this list any
+       * more: `#1443` and `#1444` retired the two channels and `#1472` dropped
+       * the tables. What replaced them is `account_slots` and `vault_shares`,
+       * which cascade for the same reason and are asserted further down.
        */
-      'operator_drops.agent_id c',
       'operator_notes.agent_id c',
       'operator_pages.agent_id c',
       /**

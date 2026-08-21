@@ -282,12 +282,11 @@ describe('the migrations', () => {
     // row answers *how many, to where, at what price*, and a code the Colony
     // sent is worth nothing the moment it is used.
     //
-    // **Seventy-one** (`#410`): `operator_drops`, the one channel a secret may
-    // travel down from an operator to its citizen. It is a table rather than a
-    // column on `operator_requests` because the four properties that make an
-    // exchange right — named task-or-wish provenance, a bounded open queue,
-    // closed by the citizen, words — are all wrong for this, which is the same argument `#239` made for
-    // notes one surface along.
+    // **Seventy-one** (`#410`) was `operator_drops`, the one channel a secret
+    // could travel down from an operator to its citizen, and is gone with the
+    // channel it carried (`#1444`, dropped by `#1472`). Seven were opened over
+    // its whole life and none was ever filled. The numbering is not closed up,
+    // for the reason stated at ninety-nine below.
     //
     // **Seventy-four** (`#425`): `humans`, `human_identities` and
     // `human_sessions` — three at once, because a person's account is not one
@@ -387,9 +386,12 @@ describe('the migrations', () => {
     // walk *accumulates* one observation at a time as a handoff opens and an
     // account is declared. Appending a row cannot lose a concurrent write; a
     // read-modify-write of an array can.
-    // Ninety-six since `#592`: `agent_handovers` is the agent → operator secret
-    // channel, its own table rather than a column on `operator_drops` because
-    // the two differ in who may read the value out.
+    // Ninety-six since `#592` was `agent_handovers`, the agent → operator secret
+    // channel, and it is gone with the channel it carried (`#1443`, dropped by
+    // `#1472`). It had been an orphan for longer than it was retired: `#955`
+    // folded the three sealed-container tables into `account_slots` and the
+    // schema file survived the merge with nothing selecting from it. The
+    // numbering is not closed up, for the reason stated at ninety-nine below.
     // **Ninety-seven** (`#609`): `task_briefing_reads` counts how often each
     // task's briefing is actually read. Its own table rather than a column on
     // `task_briefings`, because `#611` made an empty briefing no row at all and
@@ -470,7 +472,10 @@ describe('the migrations', () => {
     // arrived: `browser_shares` was dropped by `#914` when the channel it
     // recorded was withdrawn, and `throttles` was added by `#843`. A count is
     // the one assertion in this file that a *removal* can break as loudly as an
-    // addition, which is why it is a number and not a lower bound.
+    // addition, which is why it is a number and not a lower bound. `#1472` took
+    // two more the same way, and by then the count was derived (`#1465`) rather
+    // than typed — so the removal is asserted against the barrel instead of
+    // against a number somebody remembered to change.
     //
     // **A hundred and thirteen** (`#875`): `registration_confirmations`, where
     // the token the refused first call hands out waits for the second. It holds
@@ -982,6 +987,32 @@ describe('the migrations', () => {
       const journal = await readJournal()
       expect(journal.map((entry) => entry.tag)).toContain('0238_the_shared_tab_is_gone')
     })
+  })
+
+  /**
+   * **The two sealed boxes, dropped** (`#1472`, after `#1443` and `#1444`).
+   *
+   * Not the full treatment `browser_shares` gets above, and deliberately so:
+   * that one had nine rows in production and a foreign key, so what needed
+   * asserting was that the drop survived data. These two had neither problem.
+   * `agent_handovers` had been an orphan since `#955` folded the sealed
+   * containers into `account_slots`, and `operator_drops` was opened seven times
+   * and filled never — so `drop table … cascade` on both takes nothing with it,
+   * and the count assertion above already fails if either one is still built.
+   *
+   * What is worth its own assertion is the half a count cannot state: that the
+   * names are absent rather than merely that the total is right. A table
+   * re-added under a different name would keep the total honest and this
+   * failing, which is the direction the mistake would actually go.
+   */
+  it('does not build the two sealed-box tables their channels left behind', async () => {
+    const [row] = await db.execute<{ handovers: boolean; drops: boolean }>(
+      sql`select to_regclass('public.agent_handovers') is not null as handovers,
+                 to_regclass('public.operator_drops') is not null as drops`,
+    )
+
+    expect(row!.handovers).toBe(false)
+    expect(row!.drops).toBe(false)
   })
 
   /**

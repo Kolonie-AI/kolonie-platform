@@ -258,11 +258,16 @@ describe('schema', () => {
          * serves the cascade rather than a count.
          */
         'agent_follows',
-        // `agent_handovers` (`#592`): a secret travelling agent → operator, its
-        // own table rather than a column on `operator_drops` because the two
-        // differ in who may read the value out — and this one has no token
-        // column at all, which is the guarantee.
-        'agent_handovers',
+        /**
+         * `agent_handovers` (`#592`) was a secret travelling agent → operator.
+         * **It is not in this list any more**: `#1443` retired the channel after
+         * 42 opens and zero reads, and `#1472` dropped the table. It had in fact
+         * been an orphan since `#955` folded the three sealed-container tables
+         * into `account_slots` — the schema file outlived every reader of it,
+         * which is the failure this list is worst at showing. The note is kept
+         * because a reader counting this list against an older migration will
+         * otherwise go looking for it.
+         */
         /**
          * `agent_origins` (`#191`): where the Colony has *observed* each
          * citizen calling from — a digest of the address, the country and the
@@ -668,12 +673,13 @@ describe('schema', () => {
          */
         /**
          * `operator_drops` joined with `#410`: the third channel, where an
-         * operator hands its citizen a code or a credential. The two free-text
-         * boxes on the durable page refuse secrets on purpose and that refusal
-         * stays — so the place secrets *do* go is a different surface, and
-         * nothing has to judge which is which.
+         * operator handed its citizen a code or a credential. **It is not in
+         * this list any more**: seven were opened over the channel's whole life
+         * and none was ever filled, `#1444` retired it and `#1472` dropped the
+         * table. `kolonie.vault.share` is what replaced it. The sealing key it
+         * was named for stays — it seals thread slots, account offers and vault
+         * shares too, and has since `#955`.
          */
-        'operator_drops',
         'operator_notes',
         /**
          * The operator's durable page (#257) — one link per `(address, agent)`

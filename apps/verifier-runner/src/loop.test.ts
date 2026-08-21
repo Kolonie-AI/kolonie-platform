@@ -229,14 +229,6 @@ class FakeQueue implements SubmissionQueue {
     return 0
   }
 
-  /** Counted for the same reason as `abandonedSweeps` above (`#592`). */
-  handoverSweeps = 0
-
-  async destroyExpiredHandovers(): Promise<number> {
-    this.handoverSweeps++
-    return 0
-  }
-
   /** Counted for the same reason as `abandonedSweeps` above (`#955`). */
   dropSweeps = 0
 
@@ -426,7 +418,6 @@ describe('startRunner', () => {
     await runner.stop()
 
     expect(queue.abandonedSweeps).toBeGreaterThan(0)
-    expect(queue.handoverSweeps).toBeGreaterThan(0)
     expect(queue.dropSweeps).toBeGreaterThan(0)
     expect(queue.slotSweeps).toBeGreaterThan(0)
     expect(queue.vaultShareSweeps).toBeGreaterThan(0)

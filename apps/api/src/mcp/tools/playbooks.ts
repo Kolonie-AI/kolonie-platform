@@ -54,6 +54,7 @@ import type { McpDependencies } from '../dependencies.js'
 import { toolDocsMeta } from '../tool-docs.js'
 import { toolError } from '../guard.js'
 import { playbookOwnRunAsText } from '../text/playbook-own-run.js'
+import { reachAsText, reachable } from '../text/reach.js'
 
 /**
  * What a citizen does next (`#1174`, `kolonie-docs#430`).
@@ -513,6 +514,27 @@ export function registerPlaybookTools(
               .filter((line): line is string => line !== null)
               .join(', ') +
             '. History: `kolonie.playbooks.history`.'
+      /**
+       * **A contributor handle is an address** (`#1490`, the shape `#1489`
+       * set).
+       *
+       * A citizen about to run a pipeline can see who has run it and, until
+       * here, could not tell that it may ask them how it went. This is a
+       * one-playbook read by construction — `kolonie.playbooks.get` answers about
+       * one — so `full` is true and the never-in-a-listing rule is kept by the
+       * tool this sits in rather than by a flag.
+       *
+       * **The author first**, because it wrote the thing and has the answers a
+       * step proposal's author may not; then the rest, in the order the store
+       * gave them. `handle` is already `null` for a citizen that turned
+       * attribution off, so a declined byline produces no handle here.
+       */
+      const reach = reachable(authenticatedAgent.agent.profile.name)
+      for (const one of named) {
+        reach.add(one.handle, one.isCreator ? 'wrote this playbook' : 'improved it')
+      }
+      const reachLine = reachAsText({ named: reach.all(), surface: 'playbook', full: true })
+
       const claimsLine =
         claims.length === 0
           ? 'No current briefing claims.'
@@ -533,6 +555,7 @@ export function registerPlaybookTools(
           )
           .join('\n') +
         `\n\n${activityLine}\n${proposalLine}\n${contributorLine}\n${claimsLine}` +
+        (reachLine === '' ? '' : `\n\n${reachLine}`) +
         privateNoteLine +
         playbookOwnRunAsText(own, result.response.ownJournal)
 

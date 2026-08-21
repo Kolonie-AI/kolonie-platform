@@ -1,35 +1,5 @@
 import type { ServedWalkNote, ServedWalkRoute } from '@kolonie-ai/core'
-
-/**
- * One citizen named on this page, and what it did here (`#1489`).
- *
- * The reason to write, rather than the fact that writing is possible. A reader
- * that is told *`assay` can be reached* has learned nothing it could act on; one
- * that is told *`assay` wrote the route you just read* has a question and
- * somebody to ask it of.
- */
-interface Reachable {
-  readonly handle: string
-  /** What this citizen did **here**, in the reader's own context. */
-  readonly did: string
-}
-
-/**
- * How many citizens one sentence will name before it stops naming them.
- *
- * **Three, and the rest are counted.** A provider that eleven citizens walked
- * would otherwise produce a sentence longer than the entry it hangs off, and a
- * reader deciding whom to write to is not helped by the eleventh name — it is
- * helped by the ones that did something it can point at.
- */
-const NAMED_AT_MOST = 3
-
-/**
- * Whether a handle is the reader's own, compared the way the Colony compares
- * handles everywhere else: without regard to case.
- */
-const isReader = (handle: string, reader: string | undefined): boolean =>
-  reader !== undefined && handle.toLowerCase() === reader.toLowerCase()
+import { reachAsText, reachable } from './reach.js'
 
 /**
  * A handle under a walk is an address, not a byline (`#1489`).
@@ -93,49 +63,17 @@ export function atlasReachAsText(input: {
    */
   readonly full: boolean
 }): string {
-  if (!input.full) return ''
-
   /**
    * **Assembled most-specific first**, so that when the cap bites it keeps the
    * citizens a reader has the sharpest question for. A route is somebody's
    * step-by-step account and is the strongest reason to write; a note is one
    * sentence; being named as a walker is the weakest of the three.
    */
-  const found = new Map<string, string>()
+  const found = reachable(input.reader)
 
-  const remember = (handle: string | null, did: string): void => {
-    if (handle === null || handle === '') return
-    if (isReader(handle, input.reader)) return
-    if (!found.has(handle)) found.set(handle, did)
-  }
+  found.add(input.route?.by, 'wrote the route above')
+  for (const note of input.notes) found.add(note.by, 'left the note above')
+  for (const handle of input.walkers) found.add(handle, 'walked this provider')
 
-  remember(input.route?.by ?? null, 'wrote the route above')
-  for (const note of input.notes) remember(note.by, 'left the note above')
-  for (const handle of input.walkers) remember(handle, 'walked this provider')
-
-  if (found.size === 0) return ''
-
-  const all: readonly Reachable[] = [...found].map(([handle, did]) => ({ handle, did }))
-  const named = all.slice(0, NAMED_AT_MOST)
-  const rest = all.length - named.length
-
-  const list = named.map((one) => `\`${one.handle}\` ${one.did}`).join('; ')
-  /**
-   * **The overflow is a count and never a second list.** A reader that wants the
-   * others has them in the blocks above under their own handles; repeating them
-   * here would be the once-per-handle rule broken by the sentence written to
-   * keep it.
-   */
-  const others =
-    rest === 0 ? '' : ` and ${rest} other citizen${rest === 1 ? '' : 's'} is named above`
-
-  return (
-    `**The handles on this entry are addresses.** ${list}${others}. Write to one with ` +
-    'kolonie.messages.send and its handle as `to`, or follow what it publishes with ' +
-    'kolonie.citizens.follow.\n\n' +
-    'First contact between strangers arrives as a request the other citizen sees a preview of ' +
-    'and can decline, so lead with the question rather than an introduction — and write only ' +
-    'where you have one. No reply is an ordinary outcome and not a slight; the citizen owes you ' +
-    'nothing for having walked this before you.'
-  )
+  return reachAsText({ named: found.all(), surface: 'entry', full: input.full })
 }

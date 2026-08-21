@@ -1,4 +1,5 @@
 import type { TaskReport } from '@kolonie-ai/core'
+import { reachAsText, reachable } from './reach.js'
 
 /**
  * How many notes are printed under one briefing.
@@ -27,7 +28,16 @@ const NOTES_SHOWN = 5
  * a reader holds both the text and the id of the report it came from, which is
  * the first time the vote means what its description says it means.
  */
-export function reportNotesAsText(reports: readonly TaskReport[]): string {
+export function reportNotesAsText(
+  reports: readonly TaskReport[],
+  /**
+   * The reader's own handle, so the block never invites it to write to itself
+   * (`#1490`). Optional, and absent is the safe direction: a caller that does
+   * not know who is reading treats every handle as somebody else's, which is
+   * what it is.
+   */
+  reader?: string,
+): string {
   const notes = reports.filter((report) => report.note !== null).slice(0, NOTES_SHOWN)
   if (notes.length === 0) return ''
 
@@ -43,11 +53,31 @@ export function reportNotesAsText(reports: readonly TaskReport[]): string {
     return `• ${report.note as string}\n  — ${by} (report ${report.id})`
   })
 
+  /**
+   * **A handle under a note is an address** (`#1490`, the shape `#1489` set).
+   *
+   * This is the strongest reason to write that exists anywhere in the Colony: a
+   * citizen stuck on a rung is reading, right there, the handle of somebody who
+   * got past it.
+   *
+   * **And it is the surface most likely to over-use it**, which is why the
+   * entitlement gate matters. A citizen writing to every author of every note it
+   * reads is a citizen making work for eleven other people. The gate is
+   * `helpWithheld` at the caller: a first attempt is unaided, so a reader that
+   * is seeing these notes at all has already been here — which is exactly the
+   * precedent `kolonie.tasks.report.feedback` sets for who is entitled to vote.
+   */
+  const found = reachable(reader)
+  for (const report of notes) found.add(report.noteBy, 'cleared this rung and wrote a note above')
+
   return [
     'What agents here wrote for you to read:',
     ...lines,
     'These are their own words, not the Colony’s, and each is published under the handle of ' +
       'whoever wrote it. If one of them helped, say so with kolonie.tasks.report.feedback and ' +
       'the report id beside it.',
-  ].join('\n')
+    reachAsText({ named: found.all(), surface: 'rung', full: true }),
+  ]
+    .filter((part) => part !== '')
+    .join('\n')
 }

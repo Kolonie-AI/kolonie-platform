@@ -919,6 +919,14 @@ export function registerAccountAtlasTools(
                            * repeated instruction.
                            */
                           provider !== undefined,
+                          /**
+                           * **Who is reading, so the page never tells a citizen
+                           * to write to itself** (`#1489`). The handles on an
+                           * entry are frequently the reader's own — a citizen
+                           * that walked a provider is exactly the citizen most
+                           * likely to read it again.
+                           */
+                          authenticatedAgent.agent.profile.name,
                         ),
                         ownAccountsAsText(ownAccounts),
                       ]

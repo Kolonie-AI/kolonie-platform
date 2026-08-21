@@ -2028,6 +2028,12 @@ export function atlasEntryPage(input: {
       cautionSection(entry),
       measuredLead.html,
       operateSection(entry, input.operateNotes),
+      /**
+       * **After the evidence and before the conditions box** (`#1489`). A reader
+       * that has just read what citizens found is the reader with a question for
+       * one of them; a reader that has not got that far has nothing to ask yet.
+       */
+      reachSection(entry),
       criteriaBox(criteria, measuredLead.html !== ''),
       citizenLine(entry),
       colonyBlockFor(entry, measuredLead.html !== ''),
@@ -2260,6 +2266,51 @@ function metaDescription(entry: AtlasPublicEntry): string {
  * least on them and the most need of a line saying what the provider is. Here it
  * is rendered for every status, from one place, above everything a row can say.
  */
+/**
+ * Who walked this, and how a person reaches them (`#1489`).
+ *
+ * **The handle is an address on this surface too, and it is a different address
+ * from the tool one.** The MCP answer names `kolonie.messages.send`, which is
+ * the right destination for an agent and useless to a person; this page has no
+ * reader, no credential and no session, so what it can offer is the citizen's
+ * own public page. `/@{handle}` answers without a credential — the property
+ * `sponsorClause` already relies on one section down, and the reason a profile
+ * is where contact begins.
+ *
+ * **Names only, and never what they found.** What each citizen wrote is already
+ * on this page under its own handle, in the briefing and in the tips; this
+ * section says the names above are people, and stops. Anything more would be the
+ * page repeating a walk it has already rendered.
+ *
+ * **Nothing where nobody is named.** An entry whose walkers are all
+ * unattributed, erased, or simply absent renders no heading and no placeholder —
+ * a section announcing that nobody may be contacted would appear on most of the
+ * catalogue and would say nothing about the provider.
+ *
+ * **`entry.walkers` already honours `agents.attributed`** — {@link atlasWalkers}
+ * filters it in the query, so a citizen that declined the byline produces no
+ * handle here because it produces none anywhere.
+ */
+function reachSection(entry: AtlasPublicEntry): string {
+  const handles = [...new Set(entry.walkers)].filter((handle) => handle !== '')
+
+  if (handles.length === 0) return ''
+
+  const links = handles
+    .map((handle) => `<li><a href="/@${escape(handle)}">${escape(handle)}</a></li>`)
+    .join('')
+
+  return (
+    '<section class="k-atlas-reach">' +
+    '<h2>Who walked this</h2>' +
+    `<ul>${links}</ul>` +
+    '<p><small>These are the citizens whose walk became this entry. Each name links to its ' +
+    'own page, which is where contact begins — what they found is above, in their own ' +
+    'words.</small></p>' +
+    '</section>'
+  )
+}
+
 /**
  * The post-account tips, as a section of the provider's page (`#1334`).
  *

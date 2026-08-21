@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { connectedClient, registeredCitizen } from '../__fixtures__/mcp.js'
 import {
   branchBudgetVerdict,
+  catalogueBudgetBinds,
   budgetVerdict,
   CATALOGUE_BYTE_TOLERANCE,
   floorChangeVerdict,
@@ -555,16 +556,88 @@ describe('a commit that moved the floor', () => {
  * reads them (`#1483`).
  *
  * The two names are that script's, not a second convention: `…_FILE` for a body
- * on disk, `…_TEXT` for one small enough to be an environment variable. Unset in
- * an ordinary local run, and then a raise is unjustified — which is the honest
- * answer, because a raise nobody has written a sentence for is a raise nobody
- * has written a sentence for.
+ * on disk, `…_TEXT` for one small enough to be an environment variable.
+ *
+ * **`undefined` where neither is set, and not `''`** (`#1567`). A raise is
+ * unjustified either way, which is the honest answer; what differs is the
+ * sentence the refusal prints. `''` is *there is a pull request and it says
+ * nothing*; `undefined` is *this run has no pull request at all*, and telling an
+ * ordinary local `npm run check` to write something in its pull request names a
+ * thing the caller has none of.
  */
-const pullRequestText = (): string => {
+const pullRequestText = (): string | undefined => {
   const path = process.env['CATALOGUE_FLOOR_PR_TEXT_FILE']
   if (path !== undefined && path !== '') return readFileSync(path, 'utf8')
-  return process.env['CATALOGUE_FLOOR_PR_TEXT'] ?? ''
+  const inline = process.env['CATALOGUE_FLOOR_PR_TEXT']
+  return inline === undefined || inline === '' ? undefined : inline
 }
+
+/**
+ * **Where the budget check binds, and where it only reports** (`#1567`).
+ *
+ * This is the merge-group path, which had no test of its own — the reason the
+ * eviction was possible at all. Driven as a pure function rather than through a
+ * queued build, because what is under test is the decision and not the runner.
+ */
+describe('whether a run may be failed for the catalogue figure', () => {
+  it('binds on a pull request, where an author is present and can act', () => {
+    expect(catalogueBudgetBinds('pull_request')).toBe(true)
+  })
+
+  it('binds on a push to main and on a local run with no event at all', () => {
+    expect(catalogueBudgetBinds('push')).toBe(true)
+    expect(catalogueBudgetBinds(undefined)).toBe(true)
+  })
+
+  /**
+   * The whole of it. `#1561` touched nothing under `apps/api/src/mcp/` and was
+   * evicted four times for two tools other pull requests had already merged.
+   */
+  it('does not bind in a merge group, where the figure is not this entry’s', () => {
+    expect(catalogueBudgetBinds('merge_group')).toBe(false)
+  })
+})
+
+/**
+ * **A refusal must not name a place the caller has none of** (`#1567`).
+ *
+ * `undefined` is *no pull request was readable from this run*; `''` is *there is
+ * one and it says nothing*. The second is the case the sentence was written for.
+ */
+describe('what a refusal tells the caller to do', () => {
+  const grew = { tools: 122, bytes: 1_000 }
+  const floor = { tools: 121, bytes: 1_000 }
+
+  it('says “in this pull request” when there is one to write in', () => {
+    const verdict = branchBudgetVerdict(grew, floor, '')
+
+    expect(verdict.within).toBe(false)
+    expect(verdict.message).toContain('say so in this pull request')
+  })
+
+  it('names the variable instead when this run has no pull request', () => {
+    const verdict = branchBudgetVerdict(grew, floor)
+
+    expect(verdict.within).toBe(false)
+    expect(verdict.message).not.toContain('in this pull request')
+    expect(verdict.message).toContain('CATALOGUE_FLOOR_PR_TEXT')
+  })
+
+  /** The same, one branch along: past the byte tolerance with no tool added. */
+  it('does the same for a byte raise', () => {
+    const fat = { tools: 121, bytes: 9_000 }
+
+    expect(branchBudgetVerdict(fat, floor, '').message).toContain('say so in this pull request')
+    expect(branchBudgetVerdict(fat, floor).message).toContain('CATALOGUE_FLOOR_PR_TEXT')
+  })
+
+  /** And a justified raise still passes, whichever way the text arrived. */
+  it('still lets a justified raise through', () => {
+    const justified = `${GRAMMAR_RECORD} — vocabulary-free, one verb.`
+
+    expect(branchBudgetVerdict(grew, floor, justified).within).toBe(true)
+  })
+})
 
 describe('the catalogue this build serves', () => {
   /**
@@ -627,6 +700,24 @@ describe('the catalogue this build serves', () => {
     }
 
     expect(verdict.message).toBeTruthy()
+
+    /**
+     * **A merge group is measured and reported, never failed** (`#1567`).
+     *
+     * There the served catalogue is `main` plus every entry ahead of this one, so
+     * the difference against any committed figure is what several changes added
+     * together — a number about which no verdict about *this* entry can be drawn.
+     * `#1561` was evicted four times in ninety minutes for two tools it did not
+     * add, and there was no action available to whoever was holding it.
+     *
+     * The figure still prints, so a queued build that moved the surface is still
+     * legible in its log. What stops is failing for it.
+     */
+    if (!catalogueBudgetBinds(process.env['GITHUB_EVENT_NAME'])) {
+      console.log(`merge group, reporting only: ${verdict.message}`)
+      return
+    }
+
     expect(verdict.within, verdict.message).toBe(true)
   })
 

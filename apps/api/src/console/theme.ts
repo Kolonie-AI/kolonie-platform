@@ -347,6 +347,42 @@ ${declarations(LOCAL_TOKENS)}
     cursor: pointer;
   }
 
+  /* The inbox thread (#1427). Three parties in one list, and the rule underneath
+     the whole channel is that a reader can tell the Colony's words from a
+     person's at a glance (#236, #1289).
+
+     The word is in the markup and only coloured here, the same rule
+     .console-nav__empty follows: a reader with no stylesheet, or one who does
+     not perceive the hue, still reads Agent, You or Colony. What the colour buys
+     is the glance.
+
+     The three hues are the semantic tokens rather than three new ones, and each
+     is the one that already means this elsewhere in the console: note for the
+     Colony speaking, accent for the reader's own words, and the neutral ramp for
+     the agent — which is the party a person reads most and the one that should
+     not shout. */
+  .thread { list-style: none; margin: 0 0 var(--k-space-6); padding: 0; }
+  .thread li {
+    padding: var(--k-space-3);
+    margin-bottom: var(--k-space-2);
+    background: var(--k-surface);
+    border-left: var(--k-space-1) solid var(--k-hairline-strong);
+  }
+  .thread li.from-operator-human { border-left-color: var(--k-accent); }
+  .thread li.from-system-role { border-left-color: var(--k-note); }
+  .party {
+    display: inline-block;
+    padding: 0 var(--k-space-2);
+    border-radius: var(--k-radius);
+    background: var(--k-surface-raised);
+    color: var(--k-text-muted);
+    font-size: var(--k-text-sm);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .party--operator-human { background: var(--k-accent-dim); color: var(--k-accent-strong); }
+  .party--system-role { background: var(--k-note-dim); color: var(--k-note-high); }
+
   /* A link that starts a redirect, dressed as the button it is doing the job of
      (#425). It is an anchor and not a form so that a GET hands the browser to
      the provider — which is what leaves form-action 'self' and the absence of

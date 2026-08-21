@@ -909,3 +909,155 @@ describe('the dashboard after the queue (#1453)', () => {
     ])
   })
 })
+
+/**
+ * Telling the three parties apart at a glance (`#1427`).
+ *
+ * **The rule underneath the whole channel** is that a reader can tell the
+ * Colony's words from a person's without reading them (`#236`), and `#1289` made
+ * it load-bearing here by putting `system-role` messages in the same inbox as an
+ * operator's own. The console rendered `class="from-<party>"` and nothing else —
+ * the fact reached CSS and stopped there, so a reader with no stylesheet, or one
+ * who does not perceive the hue, read three parties identically.
+ *
+ * The durable operator page has said this in words since `#1445` — *You wrote*,
+ * *The Colony wrote*, *<agent> wrote*. These assert the console now does too.
+ */
+describe('who wrote it, as a mark (#1427)', () => {
+  const threadHtml = async (cookie: string, conversationId: string): Promise<string> =>
+    (
+      await app.inject({
+        method: 'GET',
+        url: `/inbox/${conversationId}`,
+        headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
+      })
+    ).body
+
+  it('marks all three parties in the markup, not only in a class', async () => {
+    const cookie = await signedInCookie()
+    const human = await operates(agentId)
+    const conversation = messages.thread(human, String(agentId))
+    messages.colonyWrites(human, String(agentId), 'Open a mailbox for this agent.', conversation)
+    messages.agentWrites(human, String(agentId), 'Thank you — that is what I needed.', conversation)
+    await app.inject({
+      method: 'POST',
+      url: `/inbox/${conversation}`,
+      headers: { host: CONSOLE_HOST, accept: 'application/json', cookie },
+      payload: { body: 'Done, the address is in your vault.' },
+    })
+
+    const html = await threadHtml(cookie, conversation)
+
+    // The words, which is the half a stylesheet cannot take away.
+    expect(html).toContain('>Colony</span>')
+    expect(html).toContain('>Agent</span>')
+    expect(html).toContain('>You</span>')
+    // And the hook the stylesheet colours, which was all there was before.
+    expect(html).toContain('class="party party--system-role"')
+    expect(html).toContain('class="party party--citizen"')
+    expect(html).toContain('class="party party--operator-human"')
+  })
+
+  /**
+   * **A mark is not a second name for the sender.** `senderLabel` answers *who*
+   * and the mark answers *what kind of party*, and a page that dropped one for
+   * the other would have made the change a rename.
+   */
+  it('keeps the sender label beside the mark', async () => {
+    const cookie = await signedInCookie()
+    const human = await operates(agentId)
+    const conversation = messages.thread(human, String(agentId))
+    messages.colonyWrites(human, String(agentId), 'Open a mailbox for this agent.', conversation)
+
+    const html = await threadHtml(cookie, conversation)
+
+    expect(html).toContain('>Colony</span> <strong>the Colony</strong>')
+  })
+
+  /**
+   * The three hues, so a stylesheet that stopped carrying one is a failing test
+   * rather than two parties that quietly look the same.
+   */
+  it('gives each party its own rule in the stylesheet', async () => {
+    const cookie = await signedInCookie()
+    const human = await operates(agentId)
+    const conversation = messages.thread(human, String(agentId))
+    messages.agentWrites(human, String(agentId), 'May I open a mailbox?', conversation)
+
+    const html = await threadHtml(cookie, conversation)
+
+    expect(html).toContain('.party--operator-human')
+    expect(html).toContain('.party--system-role')
+    expect(html).toContain('.thread li.from-system-role')
+  })
+})
+
+/**
+ * The two halves of `#1427` that `#1448`–`#1453` had already built, asserted
+ * here so that the issue closes on evidence rather than on a reading of four
+ * other pull requests.
+ *
+ * **The cursor is the citizen's own** — `message_participants.last_read_message_id`,
+ * the column `kolonie.messages.mark_read` writes — so *unread* has one
+ * definition on both sides rather than two that agree today.
+ */
+describe('unread, and what clears it (#1427)', () => {
+  it('shows a thread as unread and says how many, before anybody opens it', async () => {
+    const cookie = await signedInCookie()
+    const human = await operates(agentId)
+    const conversation = messages.thread(human, String(agentId))
+    messages.agentWrites(human, String(agentId), 'May I open a mailbox?', conversation)
+    messages.agentWrites(human, String(agentId), 'Or a domain?', conversation)
+
+    const listed = (
+      (
+        await app.inject({
+          method: 'GET',
+          url: '/inbox',
+          headers: { host: CONSOLE_HOST, accept: 'application/json', cookie },
+        })
+      ).json() as { threads: { unread: boolean; unreadCount: number }[] }
+    ).threads
+
+    expect(listed[0]?.unread).toBe(true)
+    expect(listed[0]?.unreadCount).toBe(2)
+  })
+
+  /**
+   * **Reading is the act that clears it**, rather than a separate button. A
+   * second act is one a person can forget, and an inbox whose unread state has
+   * to be maintained by hand stops being one.
+   */
+  it('clears by being read, and not by being replied to', async () => {
+    const cookie = await signedInCookie()
+    const human = await operates(agentId)
+    const conversation = messages.thread(human, String(agentId))
+    messages.agentWrites(human, String(agentId), 'May I open a mailbox?', conversation)
+
+    const unreadNow = async (): Promise<boolean> =>
+      (
+        (
+          await app.inject({
+            method: 'GET',
+            url: '/inbox',
+            headers: { host: CONSOLE_HOST, accept: 'application/json', cookie },
+          })
+        ).json() as { threads: { unread: boolean }[] }
+      ).threads[0]?.unread === true
+
+    await app.inject({
+      method: 'POST',
+      url: `/inbox/${conversation}`,
+      headers: { host: CONSOLE_HOST, accept: 'application/json', cookie },
+      payload: { body: 'Yes, go ahead and open one.' },
+    })
+    expect(await unreadNow()).toBe(true)
+
+    await app.inject({
+      method: 'GET',
+      url: `/inbox/${conversation}`,
+      headers: { host: CONSOLE_HOST, accept: 'application/json', cookie },
+    })
+    expect(await unreadNow()).toBe(false)
+  })
+})

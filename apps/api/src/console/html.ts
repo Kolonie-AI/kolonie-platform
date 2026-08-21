@@ -1561,6 +1561,43 @@ function preview(body: string): string {
  * **Opening this page is what marks it read.** That is the single write the
  * console never made, and it is why *unread* did not exist for a person.
  */
+/**
+ * The word that marks which party wrote a message (`#1427`).
+ *
+ * **A word in the markup and not only a class**, which is the rule `#797` states
+ * one screen along about the empty-page marker and `#236` states about this
+ * channel: a reader with no stylesheet gets the same fact as a reader with it.
+ * `class="from-…"` was there before this and carried the fact to CSS alone, so a
+ * page with no stylesheet — or a person who does not perceive the colour — read
+ * three parties rendered identically.
+ *
+ * **Not a second name for the sender.** `senderLabel` is who: *your operator*,
+ * *support*, the citizen's own handle. This is *what kind of party*, which is
+ * the distinction `#1289` made load-bearing by putting the Colony's own messages
+ * in the same inbox as a person's. The two are rendered side by side because
+ * they answer different questions, and the mark comes first because it is the
+ * one a reader scanning a thread needs.
+ *
+ * **`operator-human` reads as *you* here and nowhere else.** This page is served
+ * only to the person who is that party — participation is the whole
+ * authorisation — so *operator* would be the console telling somebody about
+ * themselves in the third person. The citizen's own surface calls the same party
+ * *your operator*, correctly, because there it is somebody else.
+ */
+export function partyMark(party: string): string {
+  if (party === 'operator-human') return 'You'
+  if (party === 'system-role') return 'Colony'
+  if (party === 'citizen') return 'Agent'
+  /**
+   * A party this build does not know about still gets a mark rather than an
+   * empty one. `MessagePartySchema` is closed and this cannot happen from the
+   * store; what it protects against is a member added there and forgotten here,
+   * which would otherwise render as a blank badge that looks like a bug in the
+   * page rather than a gap in this function.
+   */
+  return party
+}
+
 export function inboxThreadPage(input: {
   readonly nav: ConsoleNav
   readonly conversationId: string
@@ -1593,6 +1630,8 @@ export function inboxThreadPage(input: {
           .map(
             (message) =>
               `<li class="from-${escape(message.party)}">` +
+              `<span class="party party--${escape(message.party)}">` +
+              `${escape(partyMark(message.party))}</span> ` +
               `<strong>${escape(message.senderLabel)}</strong> ` +
               `<span>${escape(relative(message.createdAt))}</span><br>` +
               `${escape(message.body)}</li>`,

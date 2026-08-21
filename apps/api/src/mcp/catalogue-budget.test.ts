@@ -15,6 +15,7 @@ import {
   mainFloorRatchet,
   raiseIsJustified,
   type CatalogueBudget,
+  type CatalogueTotals,
 } from './catalogue-budget.js'
 import { measureCatalogue, type PublishedTool } from './catalogue-size.js'
 
@@ -371,8 +372,12 @@ describe('what main does with a measurement (#1465)', () => {
    * rather than only a commit somewhere behind it.
    */
   it('records the justification on the raise it writes', () => {
+    // `+ 40` until `#1583`, which is inside the byte tolerance and is now
+    // recorded without a sentence at all — so there would be no `raisedFor` to
+    // look for. A new tool is a raise that genuinely costs one, which is what
+    // this test is about.
     const verdict = mainFloorRatchet(
-      { tools: floor.tools, bytes: floor.bytes + 40 },
+      { tools: floor.tools + 1, bytes: floor.bytes + 40 },
       floor,
       justified,
     )
@@ -396,10 +401,31 @@ describe('what main does with a measurement (#1465)', () => {
 
   /** A push with no message to read is the same refusal, not a silent pass. */
   it('refuses a raise with no landing message at all', () => {
-    const verdict = mainFloorRatchet({ tools: floor.tools, bytes: floor.bytes + 1 }, floor)
+    // The fixture was `bytes + 1` and is now a tool (`#1583`). One byte is
+    // inside the tolerance the *branch* gate already grants, and this function
+    // refusing what that gate permitted is what froze the floor: the growth is
+    // on `main` before this runs, the commit that caused it cannot be reworded,
+    // and no later commit can justify somebody else's raise. So the case this
+    // test is really about — *nothing to read, and a raise that costs a
+    // sentence* — is a tool.
+    const verdict = mainFloorRatchet({ tools: floor.tools + 1, bytes: floor.bytes }, floor)
 
     expect(verdict.outcome).toBe('refused')
     expect(verdict.totals).toBeUndefined()
+  })
+
+  /**
+   * **And the case that was refused and should not have been** (`#1583`).
+   *
+   * Recorded with no message at all, because the branch gate had already let it
+   * land on exactly that basis. Anything else is a floor that cannot follow its
+   * own `main`.
+   */
+  it('records a raise inside the tolerance with no landing message', () => {
+    const verdict = mainFloorRatchet({ tools: floor.tools, bytes: floor.bytes + 742 }, floor)
+
+    expect(verdict.outcome).toBe('raised')
+    expect(verdict.totals).toEqual({ tools: floor.tools, bytes: floor.bytes + 742 })
   })
 
   /** A saving is bookkeeping and has cost nothing since `#1118`. */
@@ -636,6 +662,97 @@ describe('what a refusal tells the caller to do', () => {
     const justified = `${GRAMMAR_RECORD} — vocabulary-free, one verb.`
 
     expect(branchBudgetVerdict(grew, floor, justified).within).toBe(true)
+  })
+})
+
+/**
+ * **The two gates agree about whether a sentence is required** (`#1583`).
+ *
+ * ## The deadlock this is named after
+ *
+ * `#1483` gave the branch gate {@link CATALOGUE_BYTE_TOLERANCE} for bytes, so
+ * the `#1434` shape — 557 bytes and no new tool — could land without anybody
+ * writing a justification for it. `mainFloorRatchet` went on calling
+ * `budgetVerdict`, which has **no tolerance at all**, so `main` refused to record
+ * a figure the gate that admitted it had already decided was fine.
+ *
+ * Measured 2026-08-21: `main` red on `MCP surface` for two consecutive pushes,
+ * on **742 bytes against a tolerance of 1024**, with the branch gate answering
+ * `PASSES` and the ratchet answering `refused` on the same numbers.
+ *
+ * **And there was no move that cleared it.** The growth is already on `main`; the
+ * commit that caused it has landed and its message cannot be edited, and no later
+ * commit can justify a raise somebody else's change caused.
+ *
+ * ## Why this is a property test and not a table of messages
+ *
+ * A test that pinned the two verdict strings would have passed happily through
+ * the whole bug — both functions were saying exactly what they meant. What was
+ * wrong was that they disagreed, and *that* is the thing to assert: over the same
+ * inputs, **the branch gate letting something through unjustified and the ratchet
+ * recording it unjustified are the same answer.**
+ */
+describe('the branch gate and the main ratchet', () => {
+  const floor: CatalogueBudget = {
+    tools: 123,
+    bytes: 217_496,
+    measuredAt: '2026-08-21',
+    command: 'node scripts/check-catalogue-budget.mjs',
+  }
+  const justified = `${GRAMMAR_RECORD} — vocabulary-free: one verb, no vocabulary.`
+
+  /** `raised` and `lowered` and `at` all mean *recorded*; only `refused` does not. */
+  const recorded = (measured: CatalogueTotals, sentence?: string) =>
+    mainFloorRatchet(measured, floor, sentence).outcome !== 'refused'
+
+  const permitted = (measured: CatalogueTotals) => branchBudgetVerdict(measured, floor).within
+
+  const CASES: readonly (readonly [string, CatalogueTotals])[] = [
+    ['the live case — +742 bytes, no tool', { tools: 123, bytes: 218_238 }],
+    ['one byte under the tolerance', { tools: 123, bytes: 217_496 + CATALOGUE_BYTE_TOLERANCE - 1 }],
+    ['exactly the tolerance', { tools: 123, bytes: 217_496 + CATALOGUE_BYTE_TOLERANCE }],
+    ['one byte past it', { tools: 123, bytes: 217_496 + CATALOGUE_BYTE_TOLERANCE + 1 }],
+    ['far past it', { tools: 123, bytes: 219_496 }],
+    ['one tool, no bytes', { tools: 124, bytes: 217_496 }],
+    ['one tool and a shrink', { tools: 124, bytes: 217_000 }],
+    ['exactly at the floor', { tools: 123, bytes: 217_496 }],
+    ['a shrink', { tools: 123, bytes: 217_000 }],
+  ]
+
+  it.each(CASES)(
+    'agree on %s: what the branch let through unjustified, main records unjustified',
+    (_what, measured) => {
+      expect(recorded(measured)).toBe(permitted(measured))
+    },
+  )
+
+  /**
+   * The other direction, so the property above cannot be satisfied by both
+   * refusing everything: a sentence still buys what a sentence is for.
+   */
+  it.each(CASES)('records %s once the landing message says why', (_what, measured) => {
+    expect(recorded(measured, justified)).toBe(true)
+  })
+
+  /** The live numbers, named, because this is the run that was red. */
+  it('records the 742 bytes that had main refusing itself', () => {
+    const verdict = mainFloorRatchet({ tools: 123, bytes: 218_238 }, floor)
+
+    expect(verdict.outcome).toBe('raised')
+    expect(verdict.message).toContain('No sentence was needed')
+    // Recorded without one, so nothing is attributed to a commit that did not
+    // write it — `raisedFor` is what quotes the landing message.
+    expect('raisedFor' in verdict && verdict.raisedFor).toBeFalsy()
+  })
+
+  /**
+   * **A tool raise is untouched**, which is the half that must not loosen:
+   * `tools > 0` is what the record exists to tax.
+   */
+  it('still refuses a new tool that says nothing, whatever the byte figure', () => {
+    expect(mainFloorRatchet({ tools: 124, bytes: 217_000 }, floor).outcome).toBe('refused')
+    expect(mainFloorRatchet({ tools: 124, bytes: 217_496 }, floor).outcome).toBe('refused')
+    expect(mainFloorRatchet({ tools: 124, bytes: 219_496 }, floor).outcome).toBe('refused')
   })
 })
 

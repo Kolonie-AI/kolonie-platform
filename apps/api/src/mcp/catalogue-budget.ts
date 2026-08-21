@@ -288,6 +288,42 @@ export function mainFloorRatchet(
 
   if (verdict.direction === 'at') return { outcome: 'at', message: verdict.message }
 
+  /**
+   * **A raise the branch gate already permitted is recorded here too** (`#1583`).
+   *
+   * This is asked of {@link branchBudgetVerdict} rather than re-derived, so that
+   * *what needs a sentence* is one rule and not two that agree today. It went
+   * wrong exactly the other way: the gate gave bytes
+   * {@link CATALOGUE_BYTE_TOLERANCE} (`#1483`, for the `#1434` shape — 557 bytes
+   * and no new tool) and this function called {@link budgetVerdict}, which has no
+   * tolerance at all, so `main` refused to write down a figure the gate that
+   * admitted it had already decided was fine.
+   *
+   * **That is a deadlock rather than a strict gate**, which is why it had to
+   * change here rather than there. The growth is already on `main`; the commit
+   * that caused it has landed and its message cannot be edited, and no *later*
+   * commit can justify a raise somebody else's change caused — asking the next
+   * author to would be `#1567` one gate along. Measured 2026-08-21: two
+   * consecutive pushes to `main` failed identically on 742 bytes, under a
+   * tolerance of 1024, with no move available that cleared it.
+   *
+   * **A tool raise is untouched.** `tools > 0` fails the branch gate without a
+   * sentence, so it fails here without one too — that is the rule
+   * {@link GRAMMAR_RECORD} exists to enforce and nothing about this loosens it.
+   */
+  if (branchBudgetVerdict(measured, budget).within) {
+    return {
+      outcome: 'raised',
+      totals: { tools: measured.tools, bytes: measured.bytes },
+      message:
+        `The floor has gone up to ${measured.tools} tools and ${measured.bytes} bytes ` +
+        `(+${verdict.tools} tools, +${verdict.bytes} bytes), committed to main below. ` +
+        `No sentence was needed: the growth is within the ${CATALOGUE_BYTE_TOLERANCE}-byte ` +
+        'tolerance and adds no tool, which is what the branch gate had already permitted when ' +
+        'it let this land. The figure is measured and was typed by nobody.',
+    }
+  }
+
   if (landingMessage !== undefined && raiseIsJustified(landingMessage)) {
     return {
       outcome: 'raised',

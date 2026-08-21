@@ -1759,6 +1759,9 @@ export async function submitWalkReport(
             fromProviderReport: false,
             scrubbedProse: null,
             proseStatus: 'approved',
+            /** The refusal described the report this update is replacing (`#1446`). */
+            proseRefusalReason: null,
+            proseRefusalLine: null,
             proposedAt: null,
             /**
              * **The pointer belongs to the words, so replacing them releases it**

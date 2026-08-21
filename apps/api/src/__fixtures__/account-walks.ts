@@ -184,7 +184,7 @@ export function fakeWalks(): FakeWalkStore {
     },
     async record() {},
     finish,
-    // @mirrors packages/db/src/storage/account-walks.ts submitWalkReport 9b197df9
+    // @mirrors packages/db/src/storage/account-walks.ts submitWalkReport 28759d9b
     async submit(agentId, input, report) {
       const open = rows.find(
         (walk) =>
@@ -245,6 +245,8 @@ export function fakeWalks(): FakeWalkStore {
             homepage: null,
             takenStepPositions: null,
             recipe: null,
+            /** The moderation refusal belonged to the report being replaced (`#1446`). */
+            proseRefusalReason: null,
           }
           if (replacement.steps.length === 0) direct.add(replacement.id)
           proposed.delete(replacement.id)

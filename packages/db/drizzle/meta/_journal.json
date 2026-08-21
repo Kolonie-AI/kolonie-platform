@@ -2360,6 +2360,13 @@
       "when": 1787310922782,
       "tag": "0336_the_two_sealed_boxes_are_gone",
       "breakpoints": true
+    },
+    {
+      "idx": 337,
+      "version": "7",
+      "when": 1787311814253,
+      "tag": "0337_the_operator_note_is_a_thread_now",
+      "breakpoints": true
     }
   ]
 }

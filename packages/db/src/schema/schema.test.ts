@@ -667,9 +667,12 @@ describe('schema', () => {
         'operator_claim_challenges',
         'operator_claims',
         /**
-         * What the operator said unasked (#239) — the reverse of the exchange,
-         * and its own table because a note belongs to no task, expects no
-         * answer, and is finished the moment it is read.
+         * What the operator said unasked (#239) — `operator_notes`. **It is not
+         * in this list any more**: three rows in the whole life of the channel,
+         * `#1454` retired it and `#1512` dropped the table. What replaced it is
+         * a thread, which is everything a note was and one thing it could not be
+         * — answerable. The three rows were not migrated, decided in `#1454` and
+         * recorded in `changes/392`.
          */
         /**
          * `operator_drops` joined with `#410`: the third channel, where an
@@ -680,7 +683,6 @@ describe('schema', () => {
          * was named for stays — it seals thread slots, account offers and vault
          * shares too, and has since `#955`.
          */
-        'operator_notes',
         /**
          * The operator's durable page (#257) — one link per `(address, agent)`
          * pair, revocable by the citizen, recording when it was last opened.

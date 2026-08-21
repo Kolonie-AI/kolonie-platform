@@ -268,7 +268,15 @@ describe('the Atlas over MCP', () => {
       // over: `#1443` and `#1444` retire six tools between them
       // (`accounts.handover` and the three `operator.drop.*`) once this channel
       // is working end to end. See the-catalogue-encodes-grammar-never-vocabulary.
-      expect(AUTHENTICATED_TOOLS.length).toBe(115)
+      // 116 since `#1507` added `kolonie.support.withdraw` — a raise, and
+      // vocabulary-free by the same test: the verb is *end a ticket of my own*,
+      // it takes an id and an optional line, and no argument of it is a name
+      // from a set that grows. A fourth kind of ticket or a fifth provider still
+      // costs zero tools here. It exists because the terminal statuses were all
+      // the Colony's to write, so a citizen whose appeal had already been
+      // granted could not close it and the queue could not shrink from the
+      // filer.
+      expect(AUTHENTICATED_TOOLS.length).toBe(116)
       // 5 since `#945` took `kolonie.support.notice` out — the one tool here
       // that was not about a quest, now a person's action on `/backend/tickets`
       // rather than a tool a model holds. What is left is quests, entirely.

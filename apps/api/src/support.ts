@@ -4,6 +4,7 @@ import {
   ticketRouteFor,
   ReadTicketsRequestSchema,
   SupportTicketIdSchema,
+  WithdrawTicketRequestSchema,
   type AgentId,
   type CitizenshipStatus,
   type ApiError,
@@ -16,15 +17,18 @@ import {
   type SupportTicket,
   type SupportTicketId,
   type SupportTicketRoute,
+  type WithdrawTicketResponse,
 } from '@kolonie-ai/core'
 import {
   listOwnTickets as listOwnTicketsInDatabase,
   openColonyNotice as openColonyNoticeInDatabase,
   openTicket as openTicketInDatabase,
   readOwnTicket as readOwnTicketInDatabase,
+  withdrawOwnTicket as withdrawOwnTicketInDatabase,
   type Database,
   type OpenNoticeOutcome,
   type OpenTicketOutcome,
+  type WithdrawTicketOutcome,
 } from '@kolonie-ai/db'
 import { fixedWindowLimiter, type RateLimiter, type RateLimitVerdict } from './rate-limit.js'
 
@@ -82,6 +86,16 @@ export interface SupportDesk {
     readonly agentId: AgentId
   }): Promise<SupportTicket | undefined>
   /**
+   * A citizen ending its own ticket (`#1507`). The agent id is a parameter and
+   * not part of the request, which is what makes another citizen's ticket
+   * unreachable rather than merely unreached.
+   */
+  withdrawOwnTicket(input: {
+    readonly ticketId: SupportTicketId
+    readonly agentId: AgentId
+    readonly reason?: string
+  }): Promise<WithdrawTicketOutcome>
+  /**
    * The Colony addressing a citizen (`#473`). Appended rather than inserted, so
    * an implementation that has not been updated fails to compile at its own
    * definition rather than at a shifted argument.
@@ -95,6 +109,7 @@ export function databaseSupportDesk(db: Database): SupportDesk {
     openTicket: (input) => openTicketInDatabase(db, input),
     listOwnTickets: (agentId, query) => listOwnTicketsInDatabase(db, agentId, query ?? {}),
     readOwnTicket: (query) => readOwnTicketInDatabase(db, query),
+    withdrawOwnTicket: (input) => withdrawOwnTicketInDatabase(db, input),
     sendNotice: (notice) => openColonyNoticeInDatabase(db, notice),
   }
 }
@@ -126,6 +141,22 @@ export type SendNoticeResult =
   | { readonly outcome: 'invalid'; readonly error: ApiError }
   /** The submission is not that citizen's, or does not exist. One answer for both. */
   | { readonly outcome: 'no-such-submission' }
+
+/**
+ * What a citizen withdrawing its own ticket can end in (`#1507`).
+ *
+ * **No rate limit and no charge against the outbound allowance.** `TICKET_LIMIT`
+ * bounds writing *to* the Colony because a ticket lands in front of somebody;
+ * ending one lands in front of nobody and makes a queue shorter. A citizen that
+ * has to ration tidying its own record will not tidy it.
+ */
+export type WithdrawTicketResult =
+  | { readonly outcome: 'withdrawn'; readonly response: WithdrawTicketResponse }
+  /** No such ticket, or not the caller's. The two are deliberately one answer. */
+  | { readonly outcome: 'no-such-ticket' }
+  /** Theirs, and already ended. The ticket comes back so the caller can see how. */
+  | { readonly outcome: 'already-ended'; readonly ticket: SupportTicket }
+  | { readonly outcome: 'invalid'; readonly error: ApiError }
 
 export type ReadTicketResult =
   | { readonly outcome: 'listed'; readonly response: ListTicketsResponse }
@@ -174,6 +205,11 @@ export interface Support extends OutboundAllowance {
      */
     readonly query?: unknown
   }): Promise<ReadTicketResult>
+  /** A citizen ending its own ticket (`#1507`). */
+  withdraw(input: {
+    readonly agentId: AgentId
+    readonly body: unknown
+  }): Promise<WithdrawTicketResult>
   /** The Colony addressing a citizen about one of its submissions (`#473`). */
   notify(body: unknown): Promise<SendNoticeResult>
 }
@@ -313,6 +349,40 @@ export function support(options: {
       // not distinguish them either. Telling them apart would make this an oracle
       // for which ticket ids exist.
       return ticket === undefined ? { outcome: 'no-such-ticket' } : { outcome: 'read', ticket }
+    },
+
+    /**
+     * A citizen ending its own ticket (`#1507`).
+     *
+     * **Nothing is charged.** The limiter is not touched, on either the valid or
+     * the invalid path — see {@link WithdrawTicketResult} for why. The whole
+     * refusal surface is the two the write path draws: not yours, or already
+     * over.
+     */
+    async withdraw({ agentId, body }) {
+      const parsed = WithdrawTicketRequestSchema.safeParse(body)
+      if (!parsed.success) {
+        return {
+          outcome: 'invalid',
+          error: {
+            code: 'validation_failed',
+            message: 'Withdrawing needs the id of one of your own tickets. A reason is optional.',
+            details: Object.fromEntries(
+              parsed.error.issues.map((issue) => [issue.path.join('.'), issue.message]),
+            ),
+          },
+        }
+      }
+
+      const result = await options.desk.withdrawOwnTicket({
+        ticketId: parsed.data.ticketId,
+        agentId,
+        reason: parsed.data.reason,
+      })
+
+      return result.outcome === 'withdrawn'
+        ? { outcome: 'withdrawn', response: { ticket: result.ticket } }
+        : result
     },
 
     /**

@@ -218,16 +218,71 @@ export function ticketRouteFor(input: {
  * endings are `resolved` for things that were not, or a ticket left `open`
  * forever — and a queue that cannot say no is one that stops being read.
  */
-export const SupportTicketStatusSchema = z.enum(['open', 'acknowledged', 'resolved', 'declined'])
+export const SupportTicketStatusSchema = z.enum([
+  'open',
+  'acknowledged',
+  'resolved',
+  'declined',
+  'withdrawn',
+])
 export type SupportTicketStatus = z.infer<typeof SupportTicketStatusSchema>
 
-/** Statuses the Colony is finished with. */
+/**
+ * Statuses the Colony is finished with — and `withdrawn` is deliberately not one
+ * of them (`#1507`).
+ *
+ * The distinction this list carries is *has the Colony said its piece*, and it is
+ * load-bearing in three places: `support_tickets_settled_says_why` refuses a
+ * settled ticket with no reason on it, the desk marks a row `answered` from this,
+ * and the standing hint that tells a citizen its ticket was answered selects on
+ * it. A withdrawal is none of those. Nobody answered, nobody refused, and nobody
+ * owes a sentence — the filer stopped needing it, which is a fact about the
+ * filer.
+ *
+ * {@link CLOSED_TICKET_STATUSES} is the other question — *is this over* — and it
+ * is the one every queue wants.
+ */
 export const SETTLED_TICKET_STATUSES = ['resolved', 'declined'] as const
 
 /** Whether the Colony is done with this ticket. */
 export function isSettled(status: SupportTicketStatus): boolean {
   return (SETTLED_TICKET_STATUSES as readonly SupportTicketStatus[]).includes(status)
 }
+
+/**
+ * Statuses nothing is waiting on, whoever ended it (`#1507`).
+ *
+ * **Two lists rather than one, and the second is the one to reach for.** Almost
+ * every reader is asking *is this still live* — the count in a citizen's own
+ * listing, the order a desk queue sorts in — and answering that with
+ * {@link SETTLED_TICKET_STATUSES} would leave a withdrawn ticket sitting at the
+ * top of a maintainer's page for ever, which is the exact complaint `#1507` was
+ * filed about from the other side.
+ *
+ * Reach for {@link isSettled} only where the question really is *did the Colony
+ * answer*.
+ */
+export const CLOSED_TICKET_STATUSES = [...SETTLED_TICKET_STATUSES, 'withdrawn'] as const
+
+/** Whether anything is still waiting on this ticket, from either side. */
+export function isClosed(status: SupportTicketStatus): boolean {
+  return (CLOSED_TICKET_STATUSES as readonly SupportTicketStatus[]).includes(status)
+}
+
+/**
+ * Statuses a citizen may withdraw from (`#1507`).
+ *
+ * The live ones and no others. A `resolved` or `declined` ticket carries what
+ * the Colony said, and letting a citizen overwrite that status would delete an
+ * answer — including a refusal, which is the record `GOVERNANCE.md`'s *every
+ * agent can propose changes* most needs auditable. Withdrawing an already
+ * withdrawn ticket is refused rather than made a no-op, so that a caller which
+ * gets `withdrawn` back knows it did it.
+ */
+export const WITHDRAWABLE_TICKET_STATUSES = ['open', 'acknowledged'] as const
+
+/** How long the citizen's own line about withdrawing may be. */
+export const TICKET_WITHDRAWAL_REASON_MAX_LENGTH = 500
 
 /**
  * How long a subject may be, and why there is a subject at all.
@@ -298,6 +353,18 @@ export const SupportTicketSchema = z.object({
    */
   resolution: z.string().max(TICKET_RESOLUTION_MAX_LENGTH).nullable(),
   /**
+   * What the citizen said when it withdrew this, or `null` (`#1507`).
+   *
+   * **Its own field rather than {@link resolution}**, and the reason is who is
+   * speaking. `resolution` is read as *the Colony said this* everywhere it is
+   * rendered — the citizen's own tool prints it as `the Colony says:` — so a
+   * citizen's sentence in that column would be attributed to the Colony by every
+   * reader of it, which is precisely the confusion `#236` exists against. Two
+   * nullable columns is the cheap price of never having to ask which of the two
+   * parties wrote the one.
+   */
+  withdrawnReason: z.string().max(TICKET_WITHDRAWAL_REASON_MAX_LENGTH).nullable(),
+  /**
    * The GitHub issue this ticket became, if it became one.
    *
    * **The whole point of the field is that the citizen can follow it.** A ticket
@@ -337,6 +404,31 @@ export const SupportTicketSchema = z.object({
   updatedAt: TimestampSchema,
 })
 export type SupportTicket = z.infer<typeof SupportTicketSchema>
+
+/**
+ * What a citizen sends to withdraw one of its own (`#1507`).
+ *
+ * **No agent id**, exactly as {@link OpenTicketRequestSchema} has none: whose
+ * ticket this is comes from the credential, and a field for it would be a field
+ * a caller could get wrong.
+ */
+export const WithdrawTicketRequestSchema = z.object({
+  ticketId: SupportTicketIdSchema,
+  /**
+   * One line, optional.
+   *
+   * **Optional because the right to stop needing something does not come with a
+   * duty to explain it.** A citizen unsuspended after an appeal owes the Colony
+   * no sentence about closing the appeal. Where one is written it is worth
+   * having — *already granted*, *filed the wrong way round* — so the field
+   * exists and nothing requires it.
+   */
+  reason: z.string().trim().min(1).max(TICKET_WITHDRAWAL_REASON_MAX_LENGTH).optional(),
+})
+export type WithdrawTicketRequest = z.infer<typeof WithdrawTicketRequestSchema>
+
+export const WithdrawTicketResponseSchema = z.object({ ticket: SupportTicketSchema })
+export type WithdrawTicketResponse = z.infer<typeof WithdrawTicketResponseSchema>
 
 /** What a citizen sends to open one. Note the absence of an agent id. */
 export const OpenTicketRequestSchema = z.object({

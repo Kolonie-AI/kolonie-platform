@@ -1,6 +1,6 @@
 import { and, asc, count, eq, inArray, min, sql } from 'drizzle-orm'
 import {
-  SETTLED_TICKET_STATUSES,
+  CLOSED_TICKET_STATUSES,
   isSettled,
   type AgentId,
   type CitizenshipStatus,
@@ -93,15 +93,20 @@ export const DESK_ROWS = 50
  * opened this morning, and the page would stop being a queue.
  *
  * **`acknowledged` counts as unanswered.** It means *I have read this and it
- * will take a while*, which is a promise the desk still owes. Only `resolved`
- * and `declined` are endings, which is exactly what `SETTLED_TICKET_STATUSES`
- * already says — so the ordering asks core rather than listing statuses again.
+ * will take a while*, which is a promise the desk still owes.
+ *
+ * **The ordering asks `CLOSED_TICKET_STATUSES` and the `answered` flag asks
+ * `isSettled`, and the two now differ** (`#1507`). A withdrawn ticket is an
+ * ending — nothing is waiting on it and it belongs below the live ones — but it
+ * was never answered, and a desk that marked it so would be claiming the
+ * maintainer said something they did not. That is the whole reason core carries
+ * two lists.
  */
 export async function deskTickets(
   db: Database,
   limit: number = DESK_ROWS,
 ): Promise<readonly DeskTicketRow[]> {
-  const settled = inArray(supportTickets.status, [...SETTLED_TICKET_STATUSES])
+  const ended = inArray(supportTickets.status, [...CLOSED_TICKET_STATUSES])
 
   const rows = await db
     .select({
@@ -117,7 +122,7 @@ export async function deskTickets(
     .from(supportTickets)
     .innerJoin(agents, eq(agents.id, supportTickets.agentId))
     .where(eq(supportTickets.route, 'desk'))
-    .orderBy(asc(sql`case when ${settled} then 1 else 0 end`), asc(supportTickets.createdAt))
+    .orderBy(asc(sql`case when ${ended} then 1 else 0 end`), asc(supportTickets.createdAt))
     .limit(limit)
 
   return rows.map((row) => ({

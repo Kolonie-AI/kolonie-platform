@@ -6,6 +6,7 @@ import {
   type SupportTicket,
   type SupportTicketId,
 } from '@kolonie-ai/core'
+import { WITHDRAWABLE_TICKET_STATUSES } from '@kolonie-ai/core'
 import type { SupportDesk } from '../support.js'
 
 export interface FakeSupportDesk extends SupportDesk {
@@ -77,6 +78,7 @@ export function fakeSupportDesk(): FakeSupportDesk {
         // real write path follows.
         status: 'open',
         resolution: null,
+        withdrawnReason: null,
         issueUrl: null,
         aboutSubmissionId: about,
         aboutProvider,
@@ -96,6 +98,32 @@ export function fakeSupportDesk(): FakeSupportDesk {
       const ticket = tickets.get(String(ticketId))
       // Both conditions, like the `where` clause. Not `ticket ?? undefined`.
       return ticket !== undefined && ticket.agentId === agentId ? ticket : undefined
+    },
+
+    /**
+     * A citizen ending its own ticket (`#1507`).
+     *
+     * **Both halves of the real `where` are reproduced**, for the reason
+     * `readOwnTicket` reproduces one: a fake that matched on the id alone would
+     * let the API tests pass while the real update reached another citizen's
+     * row, and a fake that ignored the status would let one overwrite an answer.
+     */
+    withdrawOwnTicket: async ({ ticketId, agentId, reason }) => {
+      const ticket = tickets.get(String(ticketId))
+      if (ticket === undefined || ticket.agentId !== agentId) return { outcome: 'no-such-ticket' }
+
+      if (!(WITHDRAWABLE_TICKET_STATUSES as readonly string[]).includes(ticket.status)) {
+        return { outcome: 'already-ended', ticket }
+      }
+
+      const withdrawn: SupportTicket = {
+        ...ticket,
+        status: 'withdrawn',
+        withdrawnReason: reason ?? null,
+        updatedAt: new Date().toISOString(),
+      }
+      tickets.set(String(ticketId), withdrawn)
+      return { outcome: 'withdrawn', ticket: withdrawn }
     },
 
     /**
@@ -125,6 +153,7 @@ export function fakeSupportDesk(): FakeSupportDesk {
         // and nothing is expected back.
         status: 'resolved',
         resolution: null,
+        withdrawnReason: null,
         issueUrl: null,
         // Required on a notice, unlike on a citizen's ticket: the Colony writes
         // to a citizen *about* something it did.

@@ -2374,6 +2374,13 @@
       "when": 1787322525295,
       "tag": "0338_faithful_mach_iv",
       "breakpoints": true
+    },
+    {
+      "idx": 339,
+      "version": "7",
+      "when": 1787327724137,
+      "tag": "0339_a_citizen_may_end_its_own_ticket",
+      "breakpoints": true
     }
   ]
 }

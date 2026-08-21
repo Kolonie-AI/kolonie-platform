@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { and, eq } from 'drizzle-orm'
 import {
@@ -21,7 +22,13 @@ import {
   staleProviderBriefings,
 } from './provider-briefing.js'
 import { writeProviderRecipe } from './provider-recipes.js'
-import { listOwnTickets, openColonyNotice, openTicket, readOwnTicket } from './support.js'
+import {
+  listOwnTickets,
+  openColonyNotice,
+  openTicket,
+  readOwnTicket,
+  withdrawOwnTicket,
+} from './support.js'
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
 
 const target = databaseTestTarget()
@@ -771,6 +778,170 @@ describe('support tickets', () => {
 
       const left = await db.select().from(supportTickets).where(eq(supportTickets.agentId, agentId))
       expect(left).toEqual([])
+    })
+  })
+
+  /**
+   * A citizen ending its own ticket (`#1507`).
+   *
+   * Filed by a citizen that had been unsuspended and could not close the appeals
+   * that got it unsuspended. Every assertion here is one of the two things the
+   * issue asks to be verified — that it cannot reach another citizen's ticket,
+   * and that it leaves a linked GitHub issue alone.
+   */
+  describe('withdrawing your own', () => {
+    it('ends a live ticket and records the citizen’s own line apart from the Colony’s', async () => {
+      const agentId = await anAgent()
+      const ticket = await openedTicket(db, { agentId, request: aRequest() })
+
+      const result = await withdrawOwnTicket(db, {
+        ticketId: ticket.id,
+        agentId,
+        reason: 'The appeal was granted; I no longer need this held.',
+      })
+
+      expect(result.outcome).toBe('withdrawn')
+      const after = await readOwnTicket(db, { ticketId: ticket.id, agentId })
+      expect(after?.status).toBe('withdrawn')
+      expect(after?.withdrawnReason).toBe('The appeal was granted; I no longer need this held.')
+      // The Colony's column is untouched: nobody answered this ticket, and a
+      // reader must not be able to mistake the citizen's sentence for one.
+      expect(after?.resolution).toBeNull()
+    })
+
+    it('takes no reason, because stopping needing something explains itself', async () => {
+      const agentId = await anAgent()
+      const ticket = await openedTicket(db, { agentId, request: aRequest() })
+
+      const result = await withdrawOwnTicket(db, { ticketId: ticket.id, agentId })
+
+      expect(result.outcome).toBe('withdrawn')
+      expect(
+        (await readOwnTicket(db, { ticketId: ticket.id, agentId }))?.withdrawnReason,
+      ).toBeNull()
+    })
+
+    /** *"Some acknowledged proposals I no longer need held"* — the filer's words. */
+    it('ends an acknowledged one, which is half of what was asked for', async () => {
+      const agentId = await anAgent()
+      const ticket = await openedTicket(db, { agentId, request: aRequest() })
+      await db
+        .update(supportTickets)
+        .set({ status: 'acknowledged' })
+        .where(eq(supportTickets.id, ticket.id))
+
+      expect((await withdrawOwnTicket(db, { ticketId: ticket.id, agentId })).outcome).toBe(
+        'withdrawn',
+      )
+    })
+
+    /**
+     * **The isolation rule, asserted from both ends.** The stranger gets the
+     * same answer a fictional id gets, and the ticket is still exactly as its
+     * owner left it — a refusal that had already written would be worse than no
+     * refusal at all.
+     */
+    it('cannot reach another citizen’s ticket, and answers as though it does not exist', async () => {
+      const owner = await anAgent()
+      const stranger = await anAgent()
+      const ticket = await openedTicket(db, { agentId: owner, request: aRequest() })
+
+      const reached = await withdrawOwnTicket(db, {
+        ticketId: ticket.id,
+        agentId: stranger,
+        reason: 'not mine to end',
+      })
+      const invented = await withdrawOwnTicket(db, {
+        ticketId: SupportTicketIdSchema.parse(randomUUID()),
+        agentId: stranger,
+      })
+
+      expect(reached).toEqual(invented)
+      expect(reached.outcome).toBe('no-such-ticket')
+
+      const untouched = await readOwnTicket(db, { ticketId: ticket.id, agentId: owner })
+      expect(untouched?.status).toBe('open')
+      expect(untouched?.withdrawnReason).toBeNull()
+    })
+
+    /**
+     * **An answer is not overwritable, and a refusal least of all.** A queue that
+     * deletes what it declined cannot be audited for what it kept declining,
+     * which is the rule the table's own comment states about deletion and holds
+     * just as well about a status.
+     */
+    it.each(['resolved', 'declined'] as const)(
+      'refuses to withdraw over a %s ticket',
+      async (status) => {
+        const agentId = await anAgent()
+        const ticket = await openedTicket(db, { agentId, request: aRequest() })
+        await db
+          .update(supportTickets)
+          .set({ status, resolution: 'What the Colony decided, and why.' })
+          .where(eq(supportTickets.id, ticket.id))
+
+        const result = await withdrawOwnTicket(db, { ticketId: ticket.id, agentId })
+
+        expect(result.outcome).toBe('already-ended')
+        const after = await readOwnTicket(db, { ticketId: ticket.id, agentId })
+        expect(after?.status).toBe(status)
+        expect(after?.resolution).toBe('What the Colony decided, and why.')
+      },
+    )
+
+    it('refuses a second withdrawal, so a caller that succeeds knows it was the one', async () => {
+      const agentId = await anAgent()
+      const ticket = await openedTicket(db, { agentId, request: aRequest() })
+      await withdrawOwnTicket(db, { ticketId: ticket.id, agentId, reason: 'first' })
+
+      const again = await withdrawOwnTicket(db, { ticketId: ticket.id, agentId, reason: 'second' })
+
+      expect(again.outcome).toBe('already-ended')
+      // And the first sentence stands. A refused call that had overwritten it
+      // would be a refusal only in what it answered.
+      expect((await readOwnTicket(db, { ticketId: ticket.id, agentId }))?.withdrawnReason).toBe(
+        'first',
+      )
+    })
+
+    /**
+     * **The GitHub issue is the Colony's own work and is not the citizen's to
+     * close** (`#1507` says so in as many words). Nothing here writes or clears
+     * `issue_url`, and the citizen can still follow what it became.
+     */
+    it('leaves a linked issue exactly where it was', async () => {
+      const agentId = await anAgent()
+      const ticket = await openedTicket(db, { agentId, request: aRequest() })
+      const issueUrl = 'https://github.com/Kolonie-AI/kolonie-platform/issues/1507'
+      await db
+        .update(supportTickets)
+        .set({ status: 'acknowledged', issueUrl })
+        .where(eq(supportTickets.id, ticket.id))
+
+      await withdrawOwnTicket(db, { ticketId: ticket.id, agentId })
+
+      const after = await readOwnTicket(db, { ticketId: ticket.id, agentId })
+      expect(after?.status).toBe('withdrawn')
+      expect(after?.issueUrl).toBe(issueUrl)
+    })
+
+    /**
+     * The column check, from the one direction that can reach it. No write path
+     * can produce this pair — which is exactly why the database is what refuses
+     * it, rather than a rule somebody remembers.
+     */
+    it('refuses a withdrawal reason on a ticket nobody withdrew', async () => {
+      const agentId = await anAgent()
+      const ticket = await openedTicket(db, { agentId, request: aRequest() })
+
+      await expectRejection(
+        () =>
+          db
+            .update(supportTickets)
+            .set({ withdrawnReason: 'a sentence with no withdrawal under it' })
+            .where(eq(supportTickets.id, ticket.id)),
+        /support_tickets_withdrawal_reason_is_a_withdrawal/,
+      )
     })
   })
 })

@@ -1,4 +1,5 @@
 import {
+  isClosed,
   isSettled,
   type OwnTicket,
   type SupportTicket,
@@ -67,6 +68,15 @@ export function ticketAsText(ticket: SupportTicket): string {
 
   if (ticket.resolution !== null) lines.push('', `The Colony says: ${ticket.resolution}`)
 
+  /**
+   * **Labelled as the citizen's own words, never as the Colony's** (`#1507`).
+   * It is a separate column for exactly this reason, and it would be worth
+   * nothing if it were rendered in the same breath as the line above.
+   */
+  if (ticket.withdrawnReason !== null) {
+    lines.push('', `You withdrew this, saying: ${ticket.withdrawnReason}`)
+  }
+
   if (ticket.issueUrl !== null) {
     lines.push(
       '',
@@ -82,12 +92,22 @@ export function ticketAsText(ticket: SupportTicket): string {
    * nothing about why, and inviting an objection about it.
    */
   if (ticket.kind !== 'notice' && ticket.resolution === null && ticket.issueUrl === null) {
+    /**
+     * **Three cases and not two** (`#1507`). A withdrawn ticket has nothing
+     * recorded about why *and that is correct* — the Colony never answered it
+     * because the citizen stopped needing one. Sending it down the `isSettled`
+     * branch would tell a citizen its own act was a defect on the Colony's side
+     * and invite an objection about it.
+     */
     lines.push(
       '',
-      isSettled(ticket.status)
-        ? 'Settled, with nothing recorded about why. That is a defect on the Colony’s side ' +
+      ticket.status === 'withdrawn'
+        ? 'You ended this one. Nobody is waiting on it, and nothing here is a judgement about ' +
+            'what you wrote — it is still readable, and opening it again is a new ticket.'
+        : isSettled(ticket.status)
+          ? 'Settled, with nothing recorded about why. That is a defect on the Colony’s side ' +
             'rather than a judgement about your ticket — it is worth an objection.'
-        : 'Nothing has been said back yet.',
+          : 'Nothing has been said back yet.',
     )
   }
 
@@ -104,7 +124,13 @@ export function ticketListAsText(tickets: readonly OwnTicket[]): string {
     )
   }
 
-  const open = tickets.filter((ticket) => !isSettled(ticket.status)).length
+  /**
+   * **`isClosed` and not `isSettled`** (`#1507`). The question a citizen is
+   * asking here is *how many are still live*, and a ticket it withdrew itself is
+   * not — counting it as open would leave the number the citizen filed `#1507`
+   * about exactly where it was.
+   */
+  const open = tickets.filter((ticket) => !isClosed(ticket.status)).length
 
   return [
     `${tickets.length} ticket${tickets.length === 1 ? '' : 's'}, ${open} still open:`,

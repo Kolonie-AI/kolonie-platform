@@ -1,5 +1,5 @@
 {
-  "measuredAt": "2026-08-20",
+  "measuredAt": "2026-08-21",
   "command": "npm run catalogue-structure",
   "tools": [
     {
@@ -3404,6 +3404,24 @@
             "type": "string"
           }
         },
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.support.withdraw",
+      "schema": {
+        "properties": {
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "ticketId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": ["ticketId"],
         "type": "object"
       }
     },

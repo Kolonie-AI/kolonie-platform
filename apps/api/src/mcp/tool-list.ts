@@ -478,6 +478,16 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.support.open',
   'kolonie.support.read',
   /**
+   * A citizen ending its own ticket (`#1507`).
+   *
+   * A third tool in this namespace and not a `kind` on either of the two above,
+   * which the catalogue doctrine permits and this is the sentence for: it is a
+   * verb the Colony did not have, and none of its arguments is a name from a set
+   * that grows. A fourth kind of ticket, a fifth provider or a tenth rung still
+   * costs zero tools here.
+   */
+  'kolonie.support.withdraw',
+  /**
    * Retired, and named for one release (`#1454`, epic `#1447`).
    *
    * **Three rows, ever** — in the whole life of the channel, measured on

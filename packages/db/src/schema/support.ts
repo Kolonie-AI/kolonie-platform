@@ -12,6 +12,7 @@ import {
 import {
   SETTLED_TICKET_STATUSES,
   TICKET_BODY_MAX_LENGTH,
+  TICKET_WITHDRAWAL_REASON_MAX_LENGTH,
   TICKET_BODY_MIN_LENGTH,
   TICKET_RESOLUTION_MAX_LENGTH,
   TICKET_SUBJECT_MAX_LENGTH,
@@ -102,6 +103,21 @@ export const supportTickets = pgTable(
 
     /** What the Colony said back. `null` until it has said anything. */
     resolution: varchar('resolution', { length: TICKET_RESOLUTION_MAX_LENGTH }),
+
+    /**
+     * What the citizen said when it withdrew this, or null (`#1507`).
+     *
+     * **A second nullable column rather than reusing `resolution`, and the
+     * reason is attribution.** `resolution` is rendered as *the Colony says* by
+     * every reader of it, including the citizen's own tool. A citizen's sentence
+     * in that column would be read as the Colony's, which is the one confusion
+     * `#236` rules out across the whole channel. The check below keeps it empty
+     * on every other status, so the column can never disagree with the one
+     * beside it about who ended the ticket.
+     */
+    withdrawnReason: varchar('withdrawn_reason', {
+      length: TICKET_WITHDRAWAL_REASON_MAX_LENGTH,
+    }),
 
     /**
      * When the Colony told this citizen its ticket had been settled (`#356`).
@@ -256,6 +272,28 @@ export const supportTickets = pgTable(
       sql`${table.kind}::text = 'notice'
           or ${table.status} not in (${settledStatusList})
           or ${table.resolution} is not null`,
+    ),
+    /**
+     * A withdrawal reason belongs to a withdrawal (`#1507`).
+     *
+     * Without this the pair (`resolved`, `withdrawnReason`) is expressible, and
+     * it is a row that says the Colony answered *and* the citizen took it back —
+     * two endings for one ticket, which no reader can render. The column exists
+     * to say who ended it; a value on any other status would take that away.
+     *
+     * One direction only. A withdrawal with no reason is the ordinary case: the
+     * right to stop needing something does not come with a duty to explain it,
+     * which is why `WithdrawTicketRequestSchema.reason` is optional.
+     */
+    check(
+      'support_tickets_withdrawal_reason_is_a_withdrawal',
+      // `::text`, for the reason the check above gives and with a sharper edge
+      // here: `withdrawn` is added to `support_ticket_status` by *this same
+      // migration*, the runner applies the set in one transaction, and Postgres
+      // refuses to use an enum value in the transaction that created it. Without
+      // the cast this constraint fails on every database that has ever run,
+      // which is a migration that cannot be applied anywhere.
+      sql`${table.withdrawnReason} is null or ${table.status}::text = 'withdrawn'`,
     ),
     /**
      * A ticket promoted to an issue is not still waiting to be looked at.

@@ -411,6 +411,22 @@ about the change: every one was two branches incrementing a number.
   This was the dangerous one: a wrongly resolved floor was green on the branch
   and red on `main` for everybody, which is `#1379` and `#1456`.
 
+  **How the floor reaches `main`, since the queue went on** (`#1566`). It used to
+  be a push from the `MCP surface` workflow, and `main` stopped accepting one —
+  the job failed on ten consecutive merges with nobody watching, the floor went
+  stale, and because it is a **required** check every queued entry then failed on
+  tools it had not added. The figure now arrives as a pull request from
+  `automation/catalogue-floor`, force-updated so ten merges are one pull request,
+  and it merges itself. **Still nothing for you to edit**; what changed is that
+  the floor now lands one queue cycle behind the change that moved it, so a branch
+  opened inside that window can be measured against a number one tool old. The
+  refusal says so and how to tell.
+
+  **A merge group is measured and reported, never failed** (`#1567`). There the
+  served catalogue is `main` plus every entry ahead of you, so the difference is
+  what several changes added together and no verdict about your entry can be drawn
+  from it. The gate is the pull request, where an author is present.
+
   **What a red catalogue run locally means** (`#1483`). `npm run check` weighs the
   surface the same way the branch gate does — the 1024-byte tolerance, and your
   pull request's own words read from `CATALOGUE_FLOOR_PR_TEXT_FILE` or

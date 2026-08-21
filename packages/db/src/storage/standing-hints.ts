@@ -25,6 +25,13 @@ import { openProspects } from './prospects.js'
 import { currentSessionIdSql, previousSessionStartSql } from './sessions.js'
 import { markBadgeTold, untoldBadge } from './badges.js'
 import { markWalkRewardTold, untoldWalkReward } from './account-walks.js'
+import {
+  connectionRequestWaiting,
+  followsNobody,
+  markSocialHintTold,
+  markWalkerHinted,
+  walkerWorthAsking,
+} from './social-hints.js'
 
 /**
  * Which standing hint this citizen is due, if any, and the claiming of it
@@ -67,6 +74,14 @@ interface Standing {
   readonly badge: string | null
   /** The `account_walks` row behind a `walk-published` finding, if any (`#858`). */
   readonly walkReward: string | null
+  /**
+   * The citizen behind a `walker-you-could-ask` finding, if any (`#1488`).
+   *
+   * The **agent id**, which is what the mark is keyed on. The handle travels
+   * separately as the finding's subject, because that is the half a sentence
+   * says and this is the half a row remembers.
+   */
+  readonly walker: string | null
   /** The general sentence behind a `general` finding, if any (`#355`). */
   readonly general: string | null
   /** The `support_tickets` row behind a `ticket-settled` finding, if any (`#356`). */
@@ -891,6 +906,7 @@ async function standing(
       consideration: null,
       badge: null,
       walkReward: null,
+      walker: null,
       general: null,
       ticket: null,
       account: null,
@@ -930,6 +946,9 @@ async function conditions(
     accrualUntold,
     addressUntold,
     walkReward,
+    connectionWaiting,
+    walker,
+    alone,
   ] = await Promise.all([
     unpromptedConsideration(db, agentId, cheap.declaredRhythmHours),
     untoldBadge(db, agentId),
@@ -950,6 +969,16 @@ async function conditions(
     untoldAccrual(db, agentId),
     untoldMissingAddress(db, agentId),
     untoldWalkReward(db, agentId),
+    /**
+     * The three social conditions (`#1488`, epic `#1486`). Read here with
+     * everything else rather than behind a flag: each is one indexed query, and
+     * a citizen with no walks, no follows and no pending request pays three
+     * index probes to be told nothing — which is what the twenty conditions
+     * above already cost it.
+     */
+    connectionRequestWaiting(db as Database, agentId),
+    walkerWorthAsking(db as Database, agentId),
+    followsNobody(db as Database, agentId),
   ])
 
   const general = untoldGeneralHint(cheap.generalHintsTold)
@@ -1096,6 +1125,20 @@ async function conditions(
   if (walkReward !== null) {
     applicable.push({ code: 'walk-published', subject: walkReward.provider })
   }
+  /**
+   * **The subject is the handle and nothing else** (`#1488`). It is a name the
+   * citizen chose and the Colony published — it is under that citizen's own
+   * walks in the Atlas — which puts it inside this channel's rule for the same
+   * reason a provider token is: the Colony parsed it, and then printed it.
+   *
+   * Nothing about that citizen's activity, standing or absence travels, and
+   * there is no field here that one could travel in.
+   */
+  if (walker !== null) applicable.push({ code: 'walker-you-could-ask', subject: walker.handle })
+  /** **No subject.** The handle is one call away and belongs to the tool that owns it. */
+  if (connectionWaiting) applicable.push({ code: 'connection-request-waiting', subject: null })
+  /** **No subject**, and there could not be one: the sentence names nobody. */
+  if (alone) applicable.push({ code: 'following-nobody', subject: null })
   if (general !== null) applicable.push({ code: 'general', subject: general })
 
   return {
@@ -1104,6 +1147,7 @@ async function conditions(
     consideration: considered?.id ?? null,
     badge: badge?.id ?? null,
     walkReward: walkReward?.id ?? null,
+    walker: walker?.agentId ?? null,
     general,
     ticket: seven.ticket?.id ?? null,
     account: untoldKind?.id ?? null,
@@ -1265,6 +1309,27 @@ export async function dueStandingHint(
     if (chosen.code === 'payout-sent') {
       if (!found.payoutUntold) return null
       if (!(await claimPayoutHint(db, agentId))) return null
+    }
+
+    /**
+     * The two social hints that are said once (`#1488`).
+     *
+     * `walker-you-could-ask` is marked **per walker**, so it stays available
+     * about a different citizen; `following-nobody` is marked once and never
+     * comes back. Both take the same claim, and the difference is entirely in
+     * what is passed as the third argument — which is the point of one table
+     * with a nullable column rather than two.
+     *
+     * `connection-request-waiting` is deliberately absent from this list. It
+     * repeats until it is answered, because somebody is waiting on the answer.
+     */
+    if (chosen.code === 'walker-you-could-ask') {
+      if (found.walker === null) return null
+      if (!(await markWalkerHinted(db, agentId, found.walker))) return null
+    }
+
+    if (chosen.code === 'following-nobody') {
+      if (!(await markSocialHintTold(db, agentId, 'following-nobody'))) return null
     }
 
     /** `badge-awarded`'s branch exactly (`#858`) — one row, marked once, or nothing said. */

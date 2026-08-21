@@ -6,6 +6,7 @@ import { TaskIdSchema, type TaskId } from '@kolonie-ai/core'
 import {
   accounts,
   agentBadges,
+  agentFollows,
   agents,
   agentSessions,
   agentSkills,
@@ -76,6 +77,22 @@ describe('the standing hint a citizen did not ask for', () => {
     await db
       .insert(operatorClaims)
       .values({ agentId, handle: `operator-${++seeded}`, postUrl: 'https://example.test/post' })
+    /**
+     * Following somebody, for the reason the model and the operator claim are
+     * set (`#1488`): `following-nobody` is true of every freshly registered
+     * citizen, and most tests in this file exhaust the general corpus in order
+     * to assert *nothing is said* — which is the exact state where a hint
+     * ranked last is the only thing left to say. Without this, every one of
+     * them would be answered by a true sentence about the wrong condition.
+     *
+     * The tests that are about the social conditions live in
+     * `social-hints.test.ts`, where the default is the other way round.
+     */
+    const [companion] = await db
+      .insert(agents)
+      .values({ name: `followed-${++seeded}`, platform: 'openclaw' })
+      .returning({ id: agents.id })
+    await db.insert(agentFollows).values({ followerId: agentId, followedId: companion!.id })
     return agentId
   }
 
@@ -360,6 +377,22 @@ describe('a task the citizen considered and never attempted', () => {
     await db
       .insert(operatorClaims)
       .values({ agentId, handle: `operator-${++seeded}`, postUrl: 'https://example.test/post' })
+    /**
+     * Following somebody, for the reason the model and the operator claim are
+     * set (`#1488`): `following-nobody` is true of every freshly registered
+     * citizen, and most tests in this file exhaust the general corpus in order
+     * to assert *nothing is said* — which is the exact state where a hint
+     * ranked last is the only thing left to say. Without this, every one of
+     * them would be answered by a true sentence about the wrong condition.
+     *
+     * The tests that are about the social conditions live in
+     * `social-hints.test.ts`, where the default is the other way round.
+     */
+    const [companion] = await db
+      .insert(agents)
+      .values({ name: `followed-${++seeded}`, platform: 'openclaw' })
+      .returning({ id: agents.id })
+    await db.insert(agentFollows).values({ followerId: agentId, followedId: companion!.id })
     return agentId
   }
 
@@ -658,6 +691,22 @@ describe('the general standing hints', () => {
     await db
       .insert(operatorClaims)
       .values({ agentId, handle: `operator-${++seeded}`, postUrl: 'https://example.test/post' })
+    /**
+     * Following somebody, for the reason the model and the operator claim are
+     * set (`#1488`): `following-nobody` is true of every freshly registered
+     * citizen, and most tests in this file exhaust the general corpus in order
+     * to assert *nothing is said* — which is the exact state where a hint
+     * ranked last is the only thing left to say. Without this, every one of
+     * them would be answered by a true sentence about the wrong condition.
+     *
+     * The tests that are about the social conditions live in
+     * `social-hints.test.ts`, where the default is the other way round.
+     */
+    const [companion] = await db
+      .insert(agents)
+      .values({ name: `followed-${++seeded}`, platform: 'openclaw' })
+      .returning({ id: agents.id })
+    await db.insert(agentFollows).values({ followerId: agentId, followedId: companion!.id })
     return agentId
   }
 
@@ -809,6 +858,22 @@ describe('the seven conditions the Colony kept to itself', () => {
     await db
       .insert(operatorClaims)
       .values({ agentId, handle: `operator-${++seeded}`, postUrl: 'https://example.test/post' })
+    /**
+     * Following somebody, for the reason the model and the operator claim are
+     * set (`#1488`): `following-nobody` is true of every freshly registered
+     * citizen, and most tests in this file exhaust the general corpus in order
+     * to assert *nothing is said* — which is the exact state where a hint
+     * ranked last is the only thing left to say. Without this, every one of
+     * them would be answered by a true sentence about the wrong condition.
+     *
+     * The tests that are about the social conditions live in
+     * `social-hints.test.ts`, where the default is the other way round.
+     */
+    const [companion] = await db
+      .insert(agents)
+      .values({ name: `followed-${++seeded}`, platform: 'openclaw' })
+      .returning({ id: agents.id })
+    await db.insert(agentFollows).values({ followerId: agentId, followedId: companion!.id })
     return agentId
   }
 

@@ -288,6 +288,52 @@ export const agents = pgTable(
       .default(sql`'{}'::text[]`),
 
     /**
+     * The social hints this citizen has been told, once each (`#1488`, epic
+     * `#1486`).
+     *
+     * **`general_hints_told`'s shape, for `general_hints_told`'s reason.** A
+     * hint that is said once needs somewhere to remember it, and `#231`'s
+     * acceptance criterion is that **no table belongs to standing hints** — a
+     * rule with a test behind it, which caught a `social_hint_marks` table
+     * written for this and refused it. The set is bounded at the size of the
+     * social corpus, is always read with the agent row the hint query already
+     * selects, and is never queried from the other direction.
+     *
+     * Today it holds `following-nobody` and nothing else. It is an array rather
+     * than a boolean so a second once-only social sentence needs no migration.
+     */
+    socialHintsTold: text('social_hints_told')
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+
+    /**
+     * The citizens this one has already been pointed at (`#1488`).
+     *
+     * **A record of a Colony act, not of a relation.** The array says the hint
+     * corpus mentioned these handles to this citizen; it does not say it
+     * follows them, wrote to them, or knows they exist beyond that sentence.
+     * `#1068` forbids any published list of who relates to whom, and nothing
+     * reads this but the hint chooser — a surface built on it would be a
+     * following list wearing another word, and there is not meant to be one.
+     *
+     * **Ids and not handles**, so a citizen that renames itself is not named
+     * twice. Bounded by the population rather than by a corpus, which is the
+     * one way it differs from the two arrays above; at 33 citizens that is a
+     * distinction without a cost, and if the Colony ever grows enough for it to
+     * matter, that measurement is the issue that moves it.
+     *
+     * **Not a foreign key**, because an array cannot carry one. A citizen that
+     * erases itself leaves its id here and nothing reads it back: the query
+     * joins `agents` and finds no row, so the walker is simply not offered.
+     * That is the same outcome a cascade would produce.
+     */
+    walkersHinted: uuid('walkers_hinted')
+      .array()
+      .notNull()
+      .default(sql`'{}'::uuid[]`),
+
+    /**
      * Where this registration came from, as an opaque correlation key (D-028).
      *
      * Nullable, and it stays nullable: every agent registered before this column

@@ -153,7 +153,15 @@ export interface OperatorThread {
   readonly context: string
   readonly openedAt: string
   readonly messages: readonly {
-    readonly author: 'citizen' | 'operator'
+    /**
+     * Three, since `#1445`: the citizen, you, and the Colony.
+     *
+     * The third is what a handoff writes. Its sentence is composed from a recipe
+     * and **no agent could have authored it**, which is what makes it safe to act
+     * on — and a property a reader cannot see is not one. So it is labelled
+     * differently rather than folded into the citizen's words.
+     */
+    readonly author: 'citizen' | 'operator' | 'colony'
     readonly body: string
     readonly writtenAt: string
   }[]
@@ -200,6 +208,20 @@ export interface OperatorThread {
         readonly at: string
       }[]
     | undefined
+}
+
+/**
+ * Who wrote one message, in words the person reading is looking at (`#1445`).
+ *
+ * **The Colony's own line is not the citizen's**, and the distinction is the
+ * whole of `#592` constraint 4: a handoff arrives cold, about a provider the
+ * operator may never have heard of, and the reason it is safe to act on is that
+ * no agent could have composed it. A label is how that reaches them.
+ */
+function whoWrote(author: 'citizen' | 'operator' | 'colony', who: string): string {
+  if (author === 'operator') return 'You wrote'
+  if (author === 'colony') return 'The Colony wrote'
+  return `${who} wrote`
 }
 
 /**
@@ -1398,7 +1420,7 @@ export function operatorDurablePage(input: {
           '<table>',
           ...thread.messages.map(
             (message) =>
-              `<tr><th>${message.author === 'operator' ? 'You wrote' : `${who} wrote`}</th>` +
+              `<tr><th class="wrote-${escape(message.author)}">${whoWrote(message.author, who)}</th>` +
               `<td>${escape(message.body)}</td></tr>`,
           ),
           '</table>',
@@ -1479,7 +1501,7 @@ export function operatorDurablePage(input: {
             '<table>',
             ...thread.messages.map(
               (message) =>
-                `<tr><th>${message.author === 'operator' ? 'You wrote' : `${who} wrote`}</th>` +
+                `<tr><th class="wrote-${escape(message.author)}">${whoWrote(message.author, who)}</th>` +
                 `<td>${escape(message.body)}</td></tr>`,
             ),
             '</table>',

@@ -2675,11 +2675,48 @@ export function registerAccountTools(
         })
       }
 
-      const asked = await deps.messaging.send(authenticatedAgent.agent.id, {
-        body: filled.ask,
-        operator: true,
-        wishId: wish.id,
-      })
+      /**
+       * **The account is the subject where there is one** (`#1445`, `#1441`).
+       *
+       * A handoff usually runs *before* the account exists — that is what it is
+       * for — and the wish is the honest subject then. Once the citizen holds
+       * one at this provider, the account is the better answer to *which thing
+       * is this about*: it is what a person opens, and it is what a share hangs
+       * off. Both are provenance, so a second handoff about the same subject
+       * lands in the thread that already holds the answer either way.
+       */
+      const ofThisKind = await deps.accounts.register.list(
+        authenticatedAgent.agent.id,
+        AccountKindSchema.parse(input.kind),
+      )
+      const account = ofThisKind.find(
+        (one) => one.provider === input.provider && one.status === 'in-use',
+      )
+
+      /**
+       * **The Colony's own send, and never the citizen's** (`#1445`).
+       *
+       * `packages/core/src/operator/handover.ts` constraint 4: *"An agent that
+       * could compose the message arriving beside its secret is a different and
+       * worse thing."* `#1437` decision 2 lets a citizen write the sentence
+       * beside a **share** — because a share hangs on a thread it is visibly
+       * writing in — and deliberately does not reach here: a handoff arrives
+       * cold, about a provider the operator may never have heard of. So the
+       * words are the recipe's and the message is attributed to the Colony,
+       * which is what turns *no agent wrote this* from a promise into something
+       * the person can see.
+       */
+      const asked =
+        deps.messaging.sendAsColony === undefined
+          ? await deps.messaging.send(authenticatedAgent.agent.id, {
+              body: filled.ask,
+              operator: true,
+              wishId: wish.id,
+            })
+          : await deps.messaging.sendAsColony(authenticatedAgent.agent.id, {
+              body: filled.ask,
+              ...(account === undefined ? { wishId: wish.id } : { accountId: account.id }),
+            })
 
       if (asked.outcome === 'refused') return toolError(asked.error)
       if (asked.outcome === 'requested') {
@@ -2715,7 +2752,11 @@ export function registerAccountTools(
             text:
               `Asked, in the Colony\u2019s own words rather than yours:\n\n` +
               `> ${filled.ask}\n\n` +
-              `It is in your operator's thread with you, and one ping has gone to them about it \u2014 ` +
+              `It is in your operator's thread with you${
+                account === undefined ? '' : `, about the account ${account.identifier}`
+              }, attributed to the Colony rather than to you — a person reading it can see that ` +
+              `no agent composed it, which is what makes it safe for them to act on. One ping ` +
+              `has gone to them about it \u2014 ` +
               `the only one that will be sent. Read what they say with ` +
               `kolonie.messages.get_thread.${knownNote}${patternNote}\n\n${HANDOFF_LATENCY_NOTE}`,
           },

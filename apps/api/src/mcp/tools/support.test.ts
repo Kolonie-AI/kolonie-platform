@@ -5,6 +5,7 @@ import {
   OpenTicketResponseSchema,
   SubmissionIdSchema,
   TICKET_BODY_MAX_LENGTH,
+  WithdrawTicketResponseSchema,
 } from '@kolonie-ai/core'
 import { describe, expect, it } from 'vitest'
 import { FAKE_CALLER_IP, fakeColony } from '../../__fixtures__/colony/index.js'
@@ -597,5 +598,154 @@ describe('kolonie.support', () => {
         await close()
       },
     )
+  })
+
+  /**
+   * A citizen ending its own ticket (`#1507`).
+   *
+   * The filer's complaint was that *"the queue cannot shrink from the filer"* —
+   * appeals already granted stayed open for ever because no citizen-facing call
+   * could end one.
+   */
+  describe('withdrawing your own ticket', () => {
+    const anOpenTicket = async (colony: ReturnType<typeof fakeColony>, apiKey: string) => {
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+      const opened = await client.callTool({
+        name: 'kolonie.support.open',
+        arguments: aTicketRequest({ subject: 'I am appealing the suspension on my record' }),
+      })
+      const { ticket } = OpenTicketResponseSchema.parse(opened.structuredContent)
+      return { client, close, ticket }
+    }
+
+    it('ends it, and the citizen’s own line comes back on its own field', async () => {
+      const { colony, apiKey } = await citizenWithADesk()
+      const { client, close, ticket } = await anOpenTicket(colony, apiKey)
+
+      const withdrawn = await client.callTool({
+        name: 'kolonie.support.withdraw',
+        arguments: { ticketId: ticket.id, reason: 'Already granted — nothing to hold.' },
+      })
+
+      expect(withdrawn.isError).toBeFalsy()
+      const answer = WithdrawTicketResponseSchema.parse(withdrawn.structuredContent)
+      expect(answer.ticket.status).toBe('withdrawn')
+      expect(answer.ticket.withdrawnReason).toBe('Already granted — nothing to hold.')
+      // Never the Colony's column. A reader of `resolution` is told the Colony
+      // said it, and here the Colony said nothing.
+      expect(answer.ticket.resolution).toBeNull()
+      await close()
+    })
+
+    /** The number the issue was filed about: *39 tickets, 5 still open*. */
+    it('leaves the still-open count in the citizen’s own listing', async () => {
+      const { colony, apiKey } = await citizenWithADesk()
+      const { client, close, ticket } = await anOpenTicket(colony, apiKey)
+
+      await client.callTool({
+        name: 'kolonie.support.withdraw',
+        arguments: { ticketId: ticket.id },
+      })
+      const listed = await client.callTool({ name: 'kolonie.support.read', arguments: {} })
+
+      const text = (listed.content as readonly { readonly text?: string }[])
+        .map((part) => part.text ?? '')
+        .join('\n')
+      expect(text).toContain('1 ticket, 0 still open')
+      await close()
+    })
+
+    it('cannot reach another citizen’s ticket, and says what a fictional id says', async () => {
+      const first = await citizenWithADesk()
+      const registered = await first.colony.registry.register(
+        { name: `bystander-${randomUUID().slice(0, 8)}`, platform: 'claude' },
+        { ip: FAKE_CALLER_IP },
+      )
+      if (registered.outcome !== 'registered') throw new Error('fixture failed to register')
+
+      const author = await anOpenTicket(first.colony, first.apiKey)
+      await author.close()
+
+      const bystander = await connectedClient(
+        first.colony,
+        `Bearer ${registered.response.credentials.apiKey}`,
+      )
+      const reached = await bystander.client.callTool({
+        name: 'kolonie.support.withdraw',
+        arguments: { ticketId: author.ticket.id },
+      })
+      const invented = await bystander.client.callTool({
+        name: 'kolonie.support.withdraw',
+        arguments: { ticketId: randomUUID() },
+      })
+
+      expect(reached.isError).toBe(true)
+      expect(reached.structuredContent).toEqual(invented.structuredContent)
+      await bystander.close()
+
+      // And the owner's ticket is untouched, which a refusal that had already
+      // written would not be.
+      const owner = await connectedClient(first.colony, `Bearer ${first.apiKey}`)
+      const read = await owner.client.callTool({
+        name: 'kolonie.support.read',
+        arguments: { ticketId: author.ticket.id },
+      })
+      expect(
+        (read.structuredContent as { readonly ticket: { readonly status: string } }).ticket.status,
+      ).toBe('open')
+      await owner.close()
+    })
+
+    it('refuses to withdraw over an answer, and says the objection is free', async () => {
+      const { colony, apiKey } = await citizenWithADesk()
+      const { client, close, ticket } = await anOpenTicket(colony, apiKey)
+      colony.desk.settle(ticket.id, {
+        status: 'declined',
+        resolution: 'The rule is deliberate; here is why.',
+      })
+
+      const refused = await client.callTool({
+        name: 'kolonie.support.withdraw',
+        arguments: { ticketId: ticket.id },
+      })
+
+      expect(refused.isError).toBe(true)
+      const text = (refused.content as readonly { readonly text?: string }[])
+        .map((part) => part.text ?? '')
+        .join('\n')
+      expect(text).toContain('objection')
+      await close()
+    })
+
+    /** `#1507`: *no effect on GitHub issues that already exist from the ticket.* */
+    it('leaves the issue the ticket became, and says so', async () => {
+      const { colony, apiKey } = await citizenWithADesk()
+      const { client, close, ticket } = await anOpenTicket(colony, apiKey)
+      const issueUrl = 'https://github.com/Kolonie-AI/kolonie-platform/issues/1507'
+      colony.desk.settle(ticket.id, { status: 'acknowledged', issueUrl })
+
+      const withdrawn = await client.callTool({
+        name: 'kolonie.support.withdraw',
+        arguments: { ticketId: ticket.id },
+      })
+
+      const answer = WithdrawTicketResponseSchema.parse(withdrawn.structuredContent)
+      expect(answer.ticket.issueUrl).toBe(issueUrl)
+      const text = (withdrawn.content as readonly { readonly text?: string }[])
+        .map((part) => part.text ?? '')
+        .join('\n')
+      expect(text).toContain(issueUrl)
+      await close()
+    })
+
+    it('needs a credential, like everything else on this channel', async () => {
+      const { colony } = await citizenWithADesk()
+      const { client, close } = await connectedClient(colony)
+
+      const { tools } = await client.listTools()
+
+      expect(tools.map((tool) => tool.name)).not.toContain('kolonie.support.withdraw')
+      await close()
+    })
   })
 })

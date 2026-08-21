@@ -49,6 +49,11 @@ function toTicket(row: typeof supportTickets.$inferSelect): SupportTicket {
     body: row.body,
     status: row.status,
     resolution: row.resolution,
+    // The citizen's own sentence about withdrawing, kept apart from the Colony's
+    // (`#1507`). Triage never serves a withdrawn ticket — the queue selects on
+    // `open` and `acknowledged` — so this is here to complete the shape rather
+    // than because this reader has a use for it.
+    withdrawnReason: row.withdrawnReason,
     issueUrl: row.issueUrl,
     // The citizen's own submission, or null (`#852`). Triage reads it to say
     // what the citizen was doing; it does not travel into a public issue.

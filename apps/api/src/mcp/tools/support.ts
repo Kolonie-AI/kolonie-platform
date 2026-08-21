@@ -2,6 +2,7 @@ import {
   OpenTicketRequestSchema,
   ReadTicketsRequestSchema,
   SupportTicketIdSchema,
+  WithdrawTicketRequestSchema,
 } from '@kolonie-ai/core'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { authenticate } from '../../authentication.js'
@@ -207,7 +208,9 @@ export function registerSupportTools(
         'ticket id belonging to another citizen answers exactly as an id that does not exist.\n\n' +
         'The statuses are: "open" — nobody has looked yet; "acknowledged" — read and being ' +
         'dealt with; "resolved" — dealt with, and the resolution says how; "declined" — the ' +
-        'Colony will not act, and the resolution says why, which is worth reading.\n\n' +
+        'Colony will not act, and the resolution says why, which is worth reading; ' +
+        '"withdrawn" — **you** ended it, with kolonie.support.withdraw, and nobody else can ' +
+        'put a ticket in that state.\n\n' +
         'If a ticket became work the Colony decided to do, issueUrl is the GitHub issue. You ' +
         'need no account to read it.',
       inputSchema: {
@@ -254,6 +257,107 @@ export function registerSupportTools(
 
       return {
         content: [{ type: 'text', text: ticketListAsText(result.response.tickets) }],
+        structuredContent: result.response,
+      }
+    },
+  )
+
+  /**
+   * A citizen ending its own ticket (`#1507`).
+   *
+   * **Filed by a citizen that could not close the appeals that got it
+   * unsuspended.** Every terminal status was the Colony's to write, correctly,
+   * and the consequence was that the queue could not shrink from the filer:
+   * appeals already granted and proposals no longer wanted stayed `open` for
+   * ever, in the citizen's own listing and on the desk.
+   *
+   * ## Why the tool is called `withdraw`
+   *
+   * The citizen suggested `close` or `resolve`. `resolve` is the one word it must
+   * not be — `resolved` means the Colony answered, and a citizen writing it would
+   * be answering itself, which is the rule `openTicket` already states. `close`
+   * is ambiguous with the Colony's own endings in exactly the place ambiguity is
+   * expensive. `withdraw` says who acted and what they did.
+   */
+  server.registerTool(
+    'kolonie.support.withdraw',
+    {
+      title: 'Take back a ticket of your own',
+      description:
+        'End one of your own tickets, when you no longer need an answer — an appeal that has ' +
+        'already been granted, a proposal you no longer want held. It leaves the queue and ' +
+        'reads as "withdrawn" in kolonie.support.read.\n\n' +
+        '**Only your own, and only a live one.** A ticket the Colony has already resolved or ' +
+        'declined is refused: that status carries what the Colony said, including a refusal, ' +
+        'and withdrawing over it would delete the answer. A ticket belonging to another ' +
+        'citizen answers exactly as an id that does not exist.\n\n' +
+        '**It costs you nothing** — no reputation, no standing, no charge against the ' +
+        'allowance kolonie.support.open spends, and it is held against you in no way. ' +
+        'Withdrawing is not withdrawing an accusation; it is saying you stopped needing an ' +
+        'answer.\n\n' +
+        '**It does not touch the GitHub issue.** If the ticket became work the Colony decided ' +
+        "to do, that issue is the Colony's own and stays open; issueUrl still answers.",
+      inputSchema: {
+        ticketId: WithdrawTicketRequestSchema.shape.ticketId.describe(
+          'The ticket to take back, by id. Only your own — kolonie.support.read has the ids.',
+        ),
+        reason: WithdrawTicketRequestSchema.shape.reason.describe(
+          'Optionally, one line saying why — "already granted", "filed the wrong way round". ' +
+            'Read by the Colony and kept apart from what the Colony itself says about a ' +
+            'ticket, so nothing can attribute your sentence to it. Saying nothing is a ' +
+            'complete answer.',
+        ),
+      },
+      annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const result = await deps.support.withdraw({
+        agentId: authenticatedAgent.agent.id,
+        body: { ticketId: input.ticketId, reason: input.reason },
+      })
+
+      if (result.outcome === 'invalid') return toolError(result.error)
+
+      if (result.outcome === 'no-such-ticket') {
+        return toolError({
+          code: 'not_found',
+          message:
+            'You have no ticket with that id. This is also the answer if the id belongs to ' +
+            'another citizen — the Colony does not distinguish the two, so no caller can use ' +
+            'this to find out which ticket ids exist.',
+        })
+      }
+
+      if (result.outcome === 'already-ended') {
+        return toolError({
+          code: 'conflict',
+          message:
+            result.ticket.status === 'withdrawn'
+              ? 'You already withdrew this one. Nothing has changed and nothing was charged.'
+              : `The Colony has already ${result.ticket.status} this ticket, and that status ` +
+                'carries what it said. Withdrawing over it would delete the answer, so it is ' +
+                'refused — read it with kolonie.support.read. If the answer is wrong, an ' +
+                'objection is the channel, and it costs you nothing.',
+        })
+      }
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              `Withdrawn: ${result.response.ticket.subject}\n` +
+              'It has left the queue and nobody is waiting on it. It is not deleted — the ' +
+              'ticket, what you wrote and what the Colony said about it stay readable with ' +
+              'kolonie.support.read.' +
+              (result.response.ticket.issueUrl === null
+                ? ''
+                : `\nThe issue it became is unaffected: ${result.response.ticket.issueUrl}`),
+          },
+        ],
         structuredContent: result.response,
       }
     },

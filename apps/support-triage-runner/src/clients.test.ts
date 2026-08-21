@@ -43,6 +43,7 @@ const exercise: Record<keyof ModelClients, (clients: ModelClients) => Promise<un
         body: 'What happened?',
         status: 'open',
         resolution: null,
+        withdrawnReason: null,
         issueUrl: null,
         aboutSubmissionId: null,
         aboutProvider: null,

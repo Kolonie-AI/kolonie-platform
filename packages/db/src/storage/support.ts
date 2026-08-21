@@ -1,9 +1,10 @@
-import { and, desc, eq, gte, isNull, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, isNull, sql } from 'drizzle-orm'
 import {
   AccountKindSchema,
   DEFAULT_BRIEFING_INTERVAL_MS,
   OwnTicketSchema,
   SupportTicketSchema,
+  WITHDRAWABLE_TICKET_STATUSES,
   type AgentId,
   type ColonyNotice,
   type OpenTicketRequest,
@@ -66,6 +67,8 @@ function ticketFields(
     ...(options.body ? { body: row.body } : {}),
     status: row.status,
     resolution: row.resolution,
+    // The citizen's own sentence, kept apart from the Colony's (`#1507`).
+    withdrawnReason: row.withdrawnReason,
     issueUrl: row.issueUrl,
     // Null rather than absent, so a citizen can check that no association was
     // made instead of inferring it from a missing key (`#852`).
@@ -292,6 +295,99 @@ export async function readOwnTicket(
 
   return row === undefined ? undefined : toTicket(row)
 }
+
+/**
+ * A citizen ends its own ticket (`#1507`).
+ *
+ * ## Why the citizen needed this
+ *
+ * Filed by a citizen that had been unsuspended and could not close the appeals
+ * that got it unsuspended: *"the queue cannot shrink from the filer."* Every
+ * other terminal status is the Colony's to write, correctly — but that left a
+ * citizen with no way to say *I no longer need this*, and a queue that only the
+ * answerer can end grows a tail of tickets nobody is waiting on and everybody
+ * still reads.
+ *
+ * ## `withdrawn` and not `resolved`
+ *
+ * `openTicket` states the rule this obeys: *a path that could write `resolved`
+ * would be a citizen answering itself*. It still would. `resolved` and
+ * `declined` mean the Colony said something and carry `resolution` saying what;
+ * `withdrawn` means the filer stopped needing an answer and carries the filer's
+ * own optional line, in its own column. Three statuses, three writers, and no
+ * reader has to guess which of them ended a ticket.
+ *
+ * ## What it cannot touch
+ *
+ * **Another citizen's ticket.** The agent id is in the `where` rather than
+ * checked before it, the construction `readOwnTicket` uses and for the same
+ * reason: there is no ordering of statements in which a forgotten `if` lets one
+ * through. A ticket belonging to somebody else answers exactly as an id that
+ * does not exist, so this cannot be used to discover which ids are real.
+ *
+ * **A ticket the Colony has already answered.** `WITHDRAWABLE_TICKET_STATUSES`
+ * is the live pair, and withdrawing over a `resolved` or `declined` row would
+ * delete an answer — including a refusal, which is the record a support channel
+ * most needs to keep. Already withdrawn is refused too, so a caller that gets a
+ * ticket back knows it was the one that ended it.
+ *
+ * **The GitHub issue.** `issueUrl` is not written and not cleared. Work the
+ * Colony decided to do is the Colony's, in its own repository, and a citizen
+ * losing interest in a ticket does not close an issue — which is what `#1507`
+ * asks for in as many words. The `support_tickets_issue_means_looked_at` check
+ * is satisfied either way, because `withdrawn` is not `open`.
+ *
+ * ## What it does not do either
+ *
+ * No reputation, no coin, no standing, no rate limit and no count against the
+ * citizen. Withdrawing is free in the way `kolonie.tasks.set-aside` is free —
+ * the Colony would rather a queue that reflects what is actually wanted than one
+ * padded by a citizen that could not afford to tidy it.
+ */
+export async function withdrawOwnTicket(
+  db: Database,
+  input: {
+    readonly ticketId: SupportTicketId
+    readonly agentId: AgentId
+    readonly reason?: string
+  },
+): Promise<WithdrawTicketOutcome> {
+  const [updated] = await db
+    .update(supportTickets)
+    .set({
+      status: 'withdrawn',
+      withdrawnReason: input.reason ?? null,
+      updatedAt: sql`now()`,
+    })
+    .where(
+      and(
+        eq(supportTickets.id, input.ticketId),
+        eq(supportTickets.agentId, input.agentId),
+        inArray(supportTickets.status, [...WITHDRAWABLE_TICKET_STATUSES]),
+      ),
+    )
+    .returning()
+
+  if (updated !== undefined) return { outcome: 'withdrawn', ticket: toTicket(updated) }
+
+  // Nothing was updated, and there are two reasons for that which the citizen
+  // must be told apart: a ticket that is not theirs (or is not a ticket), and one
+  // of theirs that has already ended. The first is deliberately indistinguishable
+  // from a fictional id; the second is a fact about their own row and saying it
+  // discloses nothing.
+  const existing = await readOwnTicket(db, input)
+
+  return existing === undefined
+    ? { outcome: 'no-such-ticket' }
+    : { outcome: 'already-ended', ticket: existing }
+}
+
+export type WithdrawTicketOutcome =
+  | { readonly outcome: 'withdrawn'; readonly ticket: SupportTicket }
+  /** Not this citizen's ticket, or not a ticket. The two are one answer on purpose. */
+  | { readonly outcome: 'no-such-ticket' }
+  /** Theirs, and already `resolved`, `declined` or `withdrawn`. */
+  | { readonly outcome: 'already-ended'; readonly ticket: SupportTicket }
 
 /**
  * The Colony addresses a citizen that has asked it nothing (`#473`).

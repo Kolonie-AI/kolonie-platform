@@ -717,6 +717,21 @@ export interface FakeOperatorMessaging extends OperatorMessaging {
     body: string,
     conversationId?: string,
   ) => void
+  /**
+   * The Colony writing into an operator thread (`#1445`).
+   *
+   * **A third party in a thread that has two participants**, which is the shape
+   * the real store builds for a handoff: the person is the counterparty, and the
+   * first sentence is composed from a recipe by a `system-role` author added
+   * beside them. It is here because `#1427` renders all three and a fixture that
+   * could only produce two would let the console mark them identically and pass.
+   */
+  readonly colonyWrites: (
+    humanId: string,
+    agentId: string,
+    body: string,
+    conversationId?: string,
+  ) => void
 }
 
 /**
@@ -809,6 +824,29 @@ export function fakeOperatorMessaging(): FakeOperatorMessaging {
           participantId: `${thread.id}-citizen` as Message['sender']['participantId'],
           party: 'citizen',
           label: agentId,
+        },
+        body,
+        createdAt: now(),
+      })
+      archived.delete(thread.id)
+      read.delete(thread.id)
+    },
+
+    colonyWrites(humanId, agentId, body, conversationId) {
+      const thread = threads.find(
+        (one) =>
+          one.humanId === humanId &&
+          one.agentId === agentId &&
+          (conversationId === undefined || one.id === conversationId),
+      )
+      if (thread === undefined) throw new Error('no such thread')
+      thread.messages.push({
+        id: id() as Message['id'],
+        conversationId: thread.id as ConversationId,
+        sender: {
+          participantId: `${thread.id}-colony` as Message['sender']['participantId'],
+          party: 'system-role',
+          label: 'the Colony',
         },
         body,
         createdAt: now(),

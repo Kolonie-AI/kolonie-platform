@@ -315,6 +315,98 @@ export function mainFloorRatchet(
 }
 
 /**
+ * Whether this run is one whose verdict may **fail** a build (`#1567`).
+ *
+ * ## The eviction this exists to stop
+ *
+ * `#1561` removes a database column. Its diff under `apps/api/src/mcp/` is
+ * empty. It was evicted from the merge queue **four times in ninety minutes**,
+ * every time on `catalogue-budget.test.ts` reporting *the catalogue grew by 2
+ * tools* — two tools added by other pull requests that had already merged. It
+ * could not have caused it and could not have fixed it. It was the thing in the
+ * queue when the figure went stale.
+ *
+ * ## Why a merge group cannot answer the question this check asks
+ *
+ * The check asks *what did this change add to the catalogue*. In a merge group
+ * the served catalogue is `main` **plus every entry ahead of you**, so the
+ * difference against any committed figure is what several changes added
+ * together. No verdict about *this entry* can be drawn from it, whatever the
+ * figure it is compared with.
+ *
+ * **That is the operative reason, and it is not the one `#1567` gives.** The
+ * issue argues that a merge group has no pull request to write a justification
+ * in. That is true of the event *payload* and not of the run:
+ * `.github/actions/catalogue-floor-pr-text` reads the number out of the queue
+ * ref and fetches the title and body over the API (`#1545`), so the text is
+ * there. Fixing the floor job (`#1566`) does not close this either — it narrows
+ * the window to one queue cycle and leaves the trap armed inside it. What is
+ * wrong is the *measurement*, not the justification and not the freshness.
+ *
+ * ## So: position A, and what is given up by it
+ *
+ * The gate belongs on the pull request, where an author is present and where the
+ * comparison is against that branch's own merge base. A merge group only re-runs
+ * what the branch already answered.
+ *
+ * What is given up is the case position B would catch: what a *combination* of
+ * entries serves, which is the only thing a merge group can see. Nobody has
+ * claimed that is what this check is for, and it would need a per-entry base the
+ * queue does not hand out. If somebody wants it, it is a different check with a
+ * different name and it is not required.
+ *
+ * The figure is still **measured and reported** in a merge group. What stops is
+ * failing a build for it.
+ */
+export function catalogueBudgetBinds(eventName: string | undefined): boolean {
+  return eventName !== 'merge_group'
+}
+
+/**
+ * **The other thing it can be, said out loud** (`#1567`).
+ *
+ * A required check must not be able to fail for a reason outside the change
+ * under test, and on a pull request this one still can: the floor is committed by
+ * a job on `main`, and while that job cannot land the figure — or in the one
+ * queue cycle it lags by even when it can (`#1566`) — a branch that added no tool
+ * is measured against a number that predates `main`.
+ *
+ * The check cannot tell the two apart from where it stands: *this branch added a
+ * tool* and *this branch added nothing and the floor is behind* produce the same
+ * arithmetic. So it says which the reader should check and how, rather than
+ * asserting the one it cannot know. That is the whole remedy available without
+ * a per-entry base the queue does not hand out.
+ */
+const NOT_YOURS =
+  'If this branch adds no tool of its own, the floor may simply be behind `main` — compare ' +
+  '`git show origin/main:apps/api/src/mcp/catalogue-budget.json` with what `main` serves. ' +
+  'A floor trailing the surface is `#1566` and is nothing this branch can fix.'
+
+/**
+ * The remedy sentence, which must not ask for a place that is not there
+ * (`#1567`).
+ *
+ * **`undefined` and `''` are different answers and this is where the difference
+ * pays.** `undefined` means *no pull request was readable from this run at all*
+ * — an ordinary local `npm run check`, where a message saying *say so in this
+ * pull request* names a thing the caller has none of and cannot make. `''` means
+ * *there is one and it says nothing*, which is the case the sentence was written
+ * for and where it is exactly right.
+ *
+ * This is the same shape as `#1379`: a verdict reached against text that is
+ * absent at the moment of judging. There it reddened `main`; here it printed a
+ * remedy a reader could not take.
+ */
+function sayWhy(justification: string | undefined): string {
+  return justification === undefined
+    ? `say so where this lands: the pull request title or body must name ${GRAMMAR_RECORD} ` +
+        'and say what the growth is vocabulary-free for. To weigh it before there is a pull ' +
+        'request, put the text in CATALOGUE_FLOOR_PR_TEXT for one run.'
+    : `say so in this pull request: name ${GRAMMAR_RECORD} in the title or body and say what ` +
+        'the growth is vocabulary-free for.'
+}
+
+/**
  * Compare a pull-request head against its merge base (`#1266`).
  *
  * **Tools stay at zero.** One added tool fails unless the branch justifies it.
@@ -384,9 +476,9 @@ export function branchBudgetVerdict(
         `The catalogue grew by ${tools} tool${tools === 1 ? '' : 's'} and ${bytes} bytes ` +
         `against its merge base (${base.tools} tools, ${base.bytes} bytes). ` +
         `If the growth is a new rung, it belongs in a \`kind\` enum and costs zero tools — see ${GRAMMAR_RECORD}. ` +
-        'If it is a genuinely new verb, say so in this pull request: name that record in the ' +
-        'title or body and say what the new tools are vocabulary-free for. The floor itself ' +
-        'is not yours to edit — main measures it and commits it when this lands (`#1465`).',
+        `If it is a genuinely new verb, ${sayWhy(justification)} The floor itself ` +
+        'is not yours to edit — main measures it and commits it when this lands (`#1465`). ' +
+        NOT_YOURS,
     }
   }
 
@@ -416,10 +508,10 @@ export function branchBudgetVerdict(
         `The catalogue grew by ${bytes} bytes against its merge base ` +
         `(${base.tools} tools, ${base.bytes} bytes), past the tolerance of ` +
         `${CATALOGUE_BYTE_TOLERANCE} bytes. Tools are unchanged. ` +
-        'Cut the prose, or say why in this pull request: name ' +
-        `${GRAMMAR_RECORD} in the title or body and say what the growth is vocabulary-free for. ` +
+        `Cut the prose, or ${sayWhy(justification)} ` +
         'The floor itself is not yours to edit — main measures it and commits it when this ' +
-        'lands (`#1465`).',
+        'lands (`#1465`). ' +
+        NOT_YOURS,
     }
   }
 

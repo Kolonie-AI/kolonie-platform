@@ -201,17 +201,6 @@ export interface OperatorMessaging {
     archived: boolean,
   ): Promise<InboxStateOutcome>
   /**
-   * Silence it for this person, until a date or indefinitely (`#1449`).
-   *
-   * A muted thread stays in the list and still shows unread: mute is about
-   * being *told*, which is `#1451`'s notifier and nothing else. `null` un-mutes.
-   */
-  mute?(
-    humanId: HumanId,
-    conversationId: ConversationId,
-    until: string | null,
-  ): Promise<InboxStateOutcome>
-  /**
    * Move this person's read cursor to the newest message of one thread.
    *
    * **The write the console never made.** Measured 2026-08-20, the column was

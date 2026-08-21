@@ -717,9 +717,8 @@ export function fakeOperatorMessaging(): FakeOperatorMessaging {
   const links = new Set<string>()
   /** Which threads this person has opened, standing in for the read cursor. */
   const read = new Set<string>()
-  /** `done_at` and `muted_until`, as sets rather than timestamps (`#1449`). */
+  /** `done_at`, as a set rather than a timestamp (`#1449`). */
   const archived = new Set<string>()
-  const muted = new Map<string, string | null>()
   const threads: {
     id: string
     humanId: string
@@ -883,7 +882,6 @@ export function fakeOperatorMessaging(): FakeOperatorMessaging {
               unread: unread > 0,
               unreadCount: unread,
               archived: archived.has(thread.id),
-              mutedUntil: muted.get(thread.id) ?? null,
             }
           })
           .sort((left, right) => (right.latest?.at ?? '').localeCompare(left.latest?.at ?? ''))
@@ -895,13 +893,6 @@ export function fakeOperatorMessaging(): FakeOperatorMessaging {
       if (thread === undefined) return { outcome: 'not-a-participant' as const }
       if (isArchived) archived.add(thread.id)
       else archived.delete(thread.id)
-      return { outcome: 'set' as const }
-    },
-
-    async mute(humanId, conversationId, until) {
-      const thread = threads.find((one) => one.id === conversationId && one.humanId === humanId)
-      if (thread === undefined) return { outcome: 'not-a-participant' as const }
-      muted.set(thread.id, until)
       return { outcome: 'set' as const }
     },
 

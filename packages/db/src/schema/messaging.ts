@@ -284,14 +284,25 @@ export const messageParticipants = pgTable(
     joinedAt: timestamp('joined_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
 
     /**
-     * Quiet until, or null.
+     * **Read by nothing, and waiting for its drop** (`#1549`).
      *
-     * **Muting is not blocking and the two are different tables on purpose.** A
-     * mute is about a citizen's own attention and is invisible to the sender,
-     * who is still delivered to; a block is a refusal the sender is told about
-     * in plain words. Collapsing them would make *I do not want to be pinged*
-     * indistinguishable from *do not write to me*, and a citizen choosing the
-     * first would silently be doing the second.
+     * Mute was *keep it in my list, stop telling me about it*, frozen as `#1447`
+     * decision 4 and built by `#1449`. The distinction from archive was logically
+     * clean and it was answering a problem this system does not have: mute
+     * presupposes a flood, and `#1451` caps notifications at **one per thread per
+     * person per day**. **In its whole life nobody used it** — 0 of 107
+     * participants, measured 2026-08-21 — so the console carried two buttons
+     * beside every thread of which one had never solved anything.
+     *
+     * The column stays for exactly one deploy. AGENTS.md §3: a migration that
+     * drops waits for the deploy that stopped reading, and `0261` is the worked
+     * example of getting that wrong. **This commit is the deploy that stopped
+     * reading**; the drop is its own migration behind it, and nothing is migrated
+     * because the column is null in all 107 rows.
+     *
+     * **What would bring mute back**: a measurement showing threads a person
+     * wants in their list and does not want to hear about. That is the bar, and
+     * it is deliberately higher than the anecdote this was built on.
      */
     mutedUntil: timestamp('muted_until', { withTimezone: true, mode: 'string' }),
 
@@ -314,14 +325,18 @@ export const messageParticipants = pgTable(
     /**
      * When this party said it was finished with the thread (`#1449`).
      *
-     * ## Three states and three columns, which `#1447` froze
+     * ## Two states and two columns, since `#1549` withdrew the third
      *
      * **Unread** is `last_read_message_id` — *somebody wrote and I have not
-     * looked*. **Muted** is `muted_until` above — *keep it in my list, stop
-     * telling me about it*. **Archived** is this — *take it out of my list*.
-     * Folding archive into mute would mean a person who silenced a chatty
-     * thread also lost it from their list, which is two different intentions
-     * wearing one column.
+     * looked*. **Archived** is this — *take it out of my list*.
+     *
+     * `#1447` froze a third, `muted_until` — *keep it in my list, stop telling
+     * me about it* — and the distinction was logically clean. It was also
+     * answering a problem this system does not have: mute presupposes a flood,
+     * and `#1451` caps notifications at one per thread per person per day. **In
+     * its whole life nobody used it**: 0 of 107 participants, measured
+     * 2026-08-21. What would bring it back is a measurement showing threads a
+     * person wants in their list and does not want to hear about.
      *
      * ## Per participant, not per conversation
      *
@@ -337,10 +352,8 @@ export const messageParticipants = pgTable(
      * about it — and it is why this is a timestamp on a participant rather than
      * a delete of anything.
      *
-     * **The other party is never told.** Archiving and muting are facts about
-     * one person's attention rather than about the conversation, and an agent
-     * that learned it had been muted would reasonably open a second thread —
-     * which is exactly what muting was for.
+     * **The other party is never told.** Archiving is a fact about one party's
+     * attention rather than about the conversation.
      */
     doneAt: timestamp('done_at', { withTimezone: true, mode: 'string' }),
 

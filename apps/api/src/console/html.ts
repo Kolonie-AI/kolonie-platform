@@ -1175,7 +1175,6 @@ export function inboxPage(input: {
     readonly unread: boolean
     readonly unreadCount: number
     readonly archived: boolean
-    readonly muted: boolean
   }[]
   /** Set when the list is narrowed to one agent (`#1447` frozen decision 6). */
   readonly onlyAgent?: string | undefined
@@ -1258,27 +1257,20 @@ export function inboxPage(input: {
           escape(preview(thread.preview)),
       '</td>',
       `<td>${thread.at === null ? '—' : escape(relative(thread.at))}</td>`,
-      `<td>${thread.unread ? `${String(thread.unreadCount)} unread` : ''}` +
-        (thread.muted ? ' <span class="muted">muted</span>' : '') +
-        '</td>',
+      `<td>${thread.unread ? `${String(thread.unreadCount)} unread` : ''}</td>`,
       /**
-       * **Two buttons and two columns** (`#1449`). Archive takes it out of the
-       * list; mute leaves it there and stops the notifier. A person who
-       * silenced a chatty thread and then could not find it would have been
-       * given one control for two intentions.
+       * **One button** (`#1549`). There were two: archive took a thread out of
+       * the list, and mute left it there and stopped the notifier. The
+       * distinction was clean and nobody ever used the second — 0 of 107
+       * participants — because what it guarded against was a flood, and `#1451`
+       * caps notifications at one per thread per person per day. Two controls
+       * where one will do is worse than one.
        */
       '<td>',
       stateForm(
         thread.conversationId,
         thread.archived ? 'unarchive' : 'archive',
         thread.archived ? 'Put back' : 'Archive',
-        input.view,
-        kept({ view: input.view }),
-      ),
-      stateForm(
-        thread.conversationId,
-        thread.muted ? 'unmute' : 'mute',
-        thread.muted ? 'Unmute' : 'Mute',
         input.view,
         kept({ view: input.view }),
       ),

@@ -410,7 +410,7 @@ describe('what the mail says (#1451)', () => {
     const text = operatorMessageNotificationText(notification)
 
     expect(text).toContain('not mail you about this thread more than once a day')
-    expect(text).toContain('once you have read it, or if you mute it')
+    expect(text).toContain('once you have read it')
     expect(text).not.toContain('there is no reminder and no follow-up')
   })
 })

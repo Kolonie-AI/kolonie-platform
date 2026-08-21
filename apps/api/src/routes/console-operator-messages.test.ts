@@ -498,7 +498,8 @@ describe('the inbox (#1448)', () => {
 })
 
 /**
- * Archive, mute and the view switch, over the console (`#1449`).
+ * Archive and the view switch, over the console (`#1449`; mute withdrawn by
+ * `#1549`).
  *
  * The interaction rules — that a new message un-archives, that archiving does
  * not mark read, that neither reaches an agent — are asserted against real
@@ -552,16 +553,19 @@ describe('what a person has done with a thread (#1449)', () => {
     expect(threadsOf(await inbox(cookie))).toHaveLength(1)
   })
 
-  it('leaves a muted thread in the list', async () => {
+  /**
+   * **The door mute used to be behind is closed** (`#1549`). Nobody had ever
+   * used it — 0 of 107 participants — and the route took an `act`, so a removal
+   * that left the branch answering would be a control nothing renders and
+   * anything can still post to.
+   */
+  it('refuses an act that is no longer offered', async () => {
     const cookie = await signedInCookie()
     const human = await operates(agentId)
     const thread = messages.thread(human, String(agentId))
 
-    expect((await act(cookie, thread, 'mute')).statusCode).toBe(200)
-
-    const rows = ((await inbox(cookie)).json() as { threads: { muted: boolean }[] }).threads
-    expect(rows).toHaveLength(1)
-    expect(rows[0]?.muted).toBe(true)
+    expect((await act(cookie, thread, 'mute')).statusCode).toBe(404)
+    expect((await act(cookie, thread, 'unmute')).statusCode).toBe(404)
   })
 
   it('offers the switch on the page', async () => {

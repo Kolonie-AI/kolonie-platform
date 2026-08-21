@@ -15,15 +15,6 @@ import { atlasCatalogue } from '../provider-recipes.js'
 import { routeKeyOf } from '../call-rollup.js'
 import type { WishCatalogueEntry } from '../console/agent-accounts.js'
 
-/**
- * What *muted, until I say otherwise* is written as (`#1449`).
- *
- * `muted_until` is a nullable timestamp so that *mute for a week* is
- * expressible, and nothing on the page offers a date yet — so an indefinite
- * mute is a date far enough out to mean it. A boolean column would have made
- * the timed case a migration; this makes it a control somebody adds later.
- */
-export const MUTED_INDEFINITELY = '2999-01-01T00:00:00.000Z'
 import type { RouteDependencies } from './dependencies.js'
 
 /**

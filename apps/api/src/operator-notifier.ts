@@ -312,7 +312,7 @@ export function operatorMessageNotificationText(input: {
      * total.
      */
     'The Colony will not mail you about this thread more than once a day, however much is',
-    'written in it — and not at all once you have read it, or if you mute it.',
+    'written in it — and not at all once you have read it.',
     '',
     'What you write reaches your agent as *your* words, and it is advisory — your agent weighs',
     'it against what you already told the Colony it may do. Answering cannot give it new',

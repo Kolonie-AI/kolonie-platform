@@ -918,6 +918,17 @@ export type WakeupMessagingNextAction = z.infer<typeof WakeupMessagingNextAction
  * `needs_human_input` column on the model.
  */
 export const WakeupMessagingDeltaSchema = z.object({
+  /**
+   * **Threads holding a message this citizen has not read, of every kind**
+   * (`#1552`) — citizen mail, the Colony's own, and its operator's alike. The
+   * test is *sent by somebody who is not me, and newer than my read cursor*.
+   *
+   * `operatorRepliesWaiting` two lines up in the response counts a **subset** of
+   * these: the ones whose unread messages include one from the person. The two
+   * read the same number for a citizen whose only threads are with its operator,
+   * which is most of them, and that is the coincidence rather than the
+   * definition. Which to branch on is written out on that field.
+   */
   unreadThreads: z.number().int().min(0),
   pendingRequests: z.number().int().min(0),
   highPriority: z.number().int().min(0),
@@ -1290,6 +1301,35 @@ export const WakeupResponseSchema = z.object({
    * An answer that arrived a week ago and was never acted on is still waiting.
    *
    * `0` when there is nothing, and the renderer says nothing at all.
+   *
+   * ## How this differs from {@link WakeupMessagingDeltaSchema}'s `unreadThreads`
+   *
+   * **They are two counters, not one counted twice** (`#1546`… `#1552`), and they
+   * read the same number for most citizens because most citizens have only
+   * operator threads. That coincidence is what made the pair worth writing down.
+   *
+   * | | counts a thread when its unread messages include | |
+   * |---|---|---|
+   * | `operatorRepliesWaiting` | one from **`operator-human`** | *a person owes me an answer* |
+   * | `messaging.unreadThreads` | one from **anybody but me** | *there are words I have not read* |
+   *
+   * Both read the same cursor and the same *newer than it* test, so **this field
+   * is a subset of that one, always** — every operator message is a message from
+   * somebody who is not this citizen. The three ways they come apart, all of them
+   * reachable today:
+   *
+   * - **A citizen↔citizen thread.** `unreadThreads` counts it; nobody owes an
+   *   answer here in the sense this field means.
+   * - **The Colony's own mail.** `sendSystemMessage` writes as `system-role`.
+   * - **The Colony writing into the *operator* thread** (`#1445`) — a handoff and
+   *   the conversation about the same account are one thread, so an operator
+   *   thread can hold an unread message that is not the operator's.
+   *
+   * **Nothing branches on the difference and nothing should have to.** The pair
+   * is kept because it is two questions, and both {@link wakeupIsQuiet} and
+   * {@link wakeupHasUrgentDelta} read both — the containment above is a property
+   * of two storage functions rather than a rule either predicate could rely on,
+   * and a reader that leaned on it would go quiet the day one of them narrowed.
    */
   operatorRepliesWaiting: z.int(),
   /**

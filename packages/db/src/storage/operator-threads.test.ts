@@ -12,6 +12,7 @@ import {
 import type { Database } from '../client.js'
 import {
   accountWishes,
+  accounts,
   agents,
   humanAgents,
   humanIdentities,
@@ -20,7 +21,16 @@ import {
   tasks,
 } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
-import { openOperatorHelpConversation, sendOperatorMessage } from './messaging.js'
+import {
+  acceptMessageRequest,
+  markConversationRead,
+  messagingWakeupDelta,
+  openOperatorHelpConversation,
+  sendCitizenMessage,
+  sendColonyMessageToOperatorThread,
+  sendOperatorMessage,
+  sendSystemMessage,
+} from './messaging.js'
 import {
   answerOperatorThreadFromPage,
   countWaitingOperatorReplies,
@@ -236,6 +246,133 @@ describe('the operator questions, asked of messages', () => {
       await ask(agentId, 'Still stuck.')
 
       expect(await countWaitingOperatorReplies(db, agentId)).toBe(0)
+    })
+  })
+
+  /**
+   * **`operatorRepliesWaiting` and `messaging.unreadThreads` are two counters**
+   * (`#1552`).
+   *
+   * A live `kolonie.wakeup` showed both reading `2`, two lines apart, for a
+   * citizen whose only threads were with its operator. The issue asks which of
+   * two things is true before anything is changed: that one is an older path
+   * computing the same number, or that they genuinely differ. **They genuinely
+   * differ**, and these are the cases that produce it — so both stay, and each
+   * says in its own words what it counts.
+   *
+   * The relation is a containment rather than an equality: both read the same
+   * read cursor and the same *newer than it* test, and `operator-human` is one
+   * sender party among three, so every thread the operator counter finds is one
+   * the messaging counter finds too. Never the other way round.
+   */
+  describe('the two counters a wake-up carries', () => {
+    it('separates when the unread words are another citizen’s', async () => {
+      const agentId = await anAgent('reader')
+      const other = await anAgent('writer')
+      await aPerson(agentId)
+
+      const [handle] = await db
+        .select({ name: agents.name })
+        .from(agents)
+        .where(eq(agents.id, agentId))
+        .limit(1)
+      const opened = await sendCitizenMessage(db, other, {
+        toHandle: handle!.name,
+        body: 'Have you walked this provider?',
+      })
+      if (opened.outcome !== 'requested') throw new Error(opened.outcome)
+      await acceptMessageRequest(db, agentId, opened.requestId)
+
+      expect(await countWaitingOperatorReplies(db, agentId)).toBe(0)
+      expect((await messagingWakeupDelta(db, agentId)).unreadThreads).toBe(1)
+    })
+
+    it('separates when the unread words are the Colony’s', async () => {
+      const agentId = await anAgent()
+      await aPerson(agentId)
+
+      const sent = await sendSystemMessage(db, 'doctor', agentId, 'Rotate your key.')
+      if (sent.outcome !== 'delivered') throw new Error(sent.outcome)
+
+      expect(await countWaitingOperatorReplies(db, agentId)).toBe(0)
+      expect((await messagingWakeupDelta(db, agentId)).unreadThreads).toBe(1)
+    })
+
+    /**
+     * The sharpest of the three, because it is inside an **operator** thread:
+     * `#1445` put the Colony into the thread about an account so that a handoff
+     * and the conversation about it stop being two places. So *an operator
+     * thread has something unread in it* and *a person owes me an answer* are
+     * different facts about the same row.
+     */
+    it('separates inside one operator thread when the Colony wrote last', async () => {
+      const agentId = await anAgent()
+      const humanId = await aPerson(agentId)
+      const [account] = await db
+        .insert(accounts)
+        .values({ agentId, kind: 'github', identifier: 'octocat' })
+        .returning({ id: accounts.id })
+
+      const opened = await sendOperatorMessage(
+        db,
+        humanId,
+        agentId,
+        'I have put a card on this one.',
+        undefined,
+        undefined,
+        undefined,
+        account!.id,
+      )
+      if (opened.outcome !== 'delivered') throw new Error(opened.outcome)
+      await markConversationRead(db, agentId, opened.conversationId)
+
+      expect(await countWaitingOperatorReplies(db, agentId)).toBe(0)
+      expect((await messagingWakeupDelta(db, agentId)).unreadThreads).toBe(0)
+
+      const colony = await sendColonyMessageToOperatorThread(
+        db,
+        agentId,
+        { taskId: null, wishId: null, accountId: account!.id },
+        'The step is open for your operator.',
+      )
+      if (colony.outcome !== 'delivered') throw new Error(colony.outcome)
+
+      // One thread, one unread message, and it is not the person's.
+      expect((await messagingWakeupDelta(db, agentId)).unreadThreads).toBe(1)
+      expect(await countWaitingOperatorReplies(db, agentId)).toBe(0)
+    })
+
+    /**
+     * **The containment, stated rather than left to the three cases above.** It
+     * is what makes the pair safe to carry: a reader that took the smaller number
+     * is never told about something the larger one would have hidden.
+     */
+    it('never counts more operator replies than unread threads', async () => {
+      const agentId = await anAgent('reader')
+      const other = await anAgent('writer')
+      const humanId = await aPerson(agentId)
+
+      await sendSystemMessage(db, 'doctor', agentId, 'Rotate your key.')
+      const [handle] = await db
+        .select({ name: agents.name })
+        .from(agents)
+        .where(eq(agents.id, agentId))
+        .limit(1)
+      const opened = await sendCitizenMessage(db, other, {
+        toHandle: handle!.name,
+        body: 'Hello.',
+      })
+      if (opened.outcome !== 'requested') throw new Error(opened.outcome)
+      await acceptMessageRequest(db, agentId, opened.requestId)
+      await ask(agentId, 'Could you?')
+      await sendOperatorMessage(db, humanId, agentId, 'Done.')
+
+      const waiting = await countWaitingOperatorReplies(db, agentId)
+      const { unreadThreads } = await messagingWakeupDelta(db, agentId)
+
+      expect(waiting).toBe(1)
+      expect(unreadThreads).toBe(3)
+      expect(waiting).toBeLessThanOrEqual(unreadThreads)
     })
   })
 

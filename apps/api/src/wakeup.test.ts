@@ -1105,6 +1105,39 @@ describe('the operator channel and the wake channel, in the digest', () => {
     expect(wakeupAsText(result.response)).not.toContain('kolonie.messages.get_thread')
   })
 
+  /**
+   * **The two counters stay two, and both predicates keep reading both**
+   * (`#1552`).
+   *
+   * A live digest showed `operatorRepliesWaiting: 2` and
+   * `messaging.unreadThreads: 2` two lines apart. They are not the same field:
+   * one counts unread messages **from the person**, the other unread messages
+   * **from anybody but this citizen**, and `operator-threads.test.ts` holds the
+   * three cases that separate them. Storage makes the first a subset of the
+   * second — same cursor, one sender party of three — which is exactly why
+   * neither predicate may lean on it: the containment is a property of two
+   * storage functions, and a predicate that dropped the clause would go quiet the
+   * day one of them narrowed.
+   *
+   * So this pins that no line was removed from either decision, on a digest whose
+   * messaging counts are all zero.
+   */
+  it('is loud and urgent on a waiting reply with nothing else unread', async () => {
+    source.answersWaitingReplies(1)
+
+    const result = await wakeup(agentId, {}, source, noContributions)
+
+    expect(result.response.messaging).toEqual({
+      unreadThreads: 0,
+      pendingRequests: 0,
+      highPriority: 0,
+    })
+    expect(result.response.operatorRepliesWaiting).toBe(1)
+    expect(wakeupIsQuiet(result.response)).toBe(false)
+    expect(wakeupHasUrgentDelta(result.response)).toBe(true)
+    expect(result.response.actionableNow).toBe(true)
+  })
+
   it('reports a channel that stopped answering, with the outcome and the count', async () => {
     source.answersWakeChannel({
       url: 'https://gone.invalid/wake',

@@ -439,9 +439,26 @@ about the change: every one was two branches incrementing a number.
 
 **One is an accepted cost, and this is the resolution.** The migration number in
 `packages/db/drizzle/` is the filename, and drizzle owns the numbering: two
-branches both generate `0325_*` and the journal records both. Nothing cheap fixes
-that, so the rule is to know it. On a conflict, take `main`'s side whole and
-regenerate:
+branches both generate `0325_*` and the journal records both. `#1496` refused a
+merge driver for the journal and the argument still holds — order carries
+meaning, and `union` would keep two entries claiming the same `idx`. So the rule
+is to know it, and **the clearing is one command** (`#1544`):
+
+```bash
+npm run rebase:migrations              # against origin/main
+npm run rebase:migrations -- <ref>     # against something else
+```
+
+It finds your own migration itself, takes the journal and `meta/` from the base,
+removes your `.sql` and its snapshot, regenerates, and says which number you got.
+**It refuses rather than guesses**: none of your own, or more than one, and it
+exits non-zero naming what it found — picking one when it is unsure is the silent
+resolution this whole design refused. It is in no gate, because it rewrites files.
+
+It is 184 of the last 721 commits' worth of nuisance: better than one in four
+touch the journal, measured 2026-08-21.
+
+**The steps it performs, for when the script is the thing that is wrong:**
 
 ```bash
 git checkout origin/main -- packages/db/drizzle/meta/_journal.json packages/db/drizzle/meta
@@ -449,8 +466,19 @@ rm packages/db/drizzle/NNNN_your_migration.sql
 npm run generate -w @kolonie-ai/db
 ```
 
+Two traps in doing it by hand, both of which look like something else. **The
+snapshot goes with the `.sql`**: `drizzle-kit generate` reads the newest snapshot
+as the current state, so one left behind makes it print _No schema changes,
+nothing to migrate_ and write nothing — which reads as _my change is already
+covered_ and is not. And **`git checkout <ref> -- <dir>` leaves what the ref does
+not have**, so the snapshot has to be removed _before_ that checkout rather than
+after: after, you delete the base's copy in exactly the case where the base has
+one, which is the collision case.
+
 It fails loudly if you get it wrong — `check:migrations` is the check — which is
-why it is the one of the three left standing.
+why it is the one of the three left standing. It is not infallible, though: a
+tree holding two migrations that both add the same column passes it, because it
+compares the final schema.
 
 **Two more ratchet on a new table** and both want a line with a _why_:
 `packages/db/src/schema/schema.test.ts` (the alphabetical name list) and

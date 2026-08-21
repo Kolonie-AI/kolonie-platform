@@ -335,7 +335,10 @@ export function fakeMessaging(): FakeMessaging {
           ...(m.acknowledgedAt === undefined ? {} : { acknowledgedAt: m.acknowledgedAt }),
         }
       })
-      return { outcome: 'read', response: { messages } }
+      // The fake carries no subject and no attachments (`#1441`): both are joins
+      // the database makes, and a fixture that invented one would let a surface
+      // test pass against an assembly nothing produces.
+      return { outcome: 'read', response: { messages, about: null, shares: [] } }
     },
 
     // @mirrors packages/db/src/storage/messaging.ts sendCitizenMessage / replyInConversation
@@ -760,7 +763,7 @@ export function fakeOperatorMessaging(): FakeOperatorMessaging {
       if (thread === undefined) {
         return { outcome: 'refused', error: messageRefusals['not-a-participant'] }
       }
-      return { outcome: 'read', response: { messages: thread.messages } }
+      return { outcome: 'read', response: { messages: thread.messages, about: null, shares: [] } }
     },
 
     // @mirrors packages/db/src/storage/messaging.ts sendOperatorMessage

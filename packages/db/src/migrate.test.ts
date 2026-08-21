@@ -215,9 +215,12 @@ describe('the migrations', () => {
     // `injection_challenges` rather than a kind on it — the two are siblings and
     // grading one against the other's row would compile.
     //
-    // **Sixty** (`#239`): `operator_notes`, the operator's own direction. Its own
-    // table and not a nullable `task_id` on `operator_requests` — a note shares
-    // none of an exchange's four defining properties. See D-088.
+    // **Sixty** (`#239`) was `operator_notes`, the operator's own direction, and
+    // is gone with the channel it carried (`#1454`, dropped by `#1512`). Three
+    // rows in its whole life, and what replaced it is a thread — everything a
+    // note was and one thing it could not be, answerable. The numbering is not
+    // closed up, for the reason stated at ninety-nine below. See D-088 for the
+    // argument that gave it its own table.
     //
     // **Sixty-one** (`#199`): `task_notes`, a citizen's own note on one rung.
     // Its own table rather than a column on `task_set_asides` — that row is

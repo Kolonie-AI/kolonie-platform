@@ -77,18 +77,6 @@ export const WishIdSchema = z.uuid().brand<'WishId'>()
 export type WishId = z.infer<typeof WishIdSchema>
 
 /**
- * One thing an operator said to its citizen without being asked (#239).
- *
- * **Nothing takes one of these from a caller either, and for a stronger reason
- * than the exchange id.** The citizen reads its unread notes as a set and never
- * names one; the operator writes with the page token and never names one. The id
- * exists so a row can be pointed at from a test and a log, not because a surface
- * needs it.
- */
-export const OperatorNoteIdSchema = z.uuid().brand<'OperatorNoteId'>()
-export type OperatorNoteId = z.infer<typeof OperatorNoteIdSchema>
-
-/**
  * One citizen saying *I was not allowed to do this, rather than unable* (#147).
  *
  * Its own id although nothing else points at one: the citizen withdraws a report

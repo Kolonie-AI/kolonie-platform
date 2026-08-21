@@ -1316,10 +1316,12 @@ describe('the erasure boundary', () => {
        * them what they recorded for a citizen that is now gone.
        */
       /**
-       * #239. The operator's unsolicited notes. Cascade for the same reason the
-       * exchange does: this is text a person sent *to that citizen*, and with the
-       * citizen gone it is addressed to nobody — the leftover `erasure.md` §4
-       * rules out, about a person who never joined anything.
+       * `operator_notes.agent_id` (`#239`) stood here and cascaded, for the
+       * reason the exchange does: text a person sent *to that citizen*, and with
+       * the citizen gone addressed to nobody. It is not in this list any more —
+       * `#1454` retired the channel and `#1512` dropped the table. The messages
+       * that replaced it cascade too, and are asserted with the rest of the
+       * messaging tables.
        */
       /**
        * `agent_handovers.agent_id` (`#592`) and `operator_drops.agent_id`
@@ -1328,7 +1330,6 @@ describe('the erasure boundary', () => {
        * the tables. What replaced them is `account_slots` and `vault_shares`,
        * which cascade for the same reason and are asserted further down.
        */
-      'operator_notes.agent_id c',
       'operator_pages.agent_id c',
       /**
        * The operator exchange (#236). Cascades: it is the citizen's own ask plus

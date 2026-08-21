@@ -896,7 +896,7 @@ export async function playbooksNamingKinds(
         eq(playbooks.status, 'open'),
         sql`exists (
           select 1 from jsonb_array_elements(${playbooks.requiredAccounts}) as slot
-           where slot->>'kind' = any(${kinds})
+           where ${inArray(sql<string>`slot->>'kind'`, [...kinds])}
         )`,
       ),
     )

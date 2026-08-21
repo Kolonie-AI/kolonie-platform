@@ -28,6 +28,7 @@ import {
   TERMS_FORBID_AGENTS_REFUSAL,
   WalkOutcomeSchema,
   WalkProseSchema,
+  WalkProseStatusSchema,
   wallsForbidWalking,
   WALK_DUPLICATE_COMPARED,
   WALK_DUPLICATE_SIMILARITY,
@@ -117,6 +118,8 @@ function toWalk(walk: WalkRow, steps: readonly StepRow[]): AccountWalk {
     direction: walk.direction === null ? null : RecipeDirectionSchema.parse(walk.direction),
     /** The Colony's sentence about a refusal, on the walk it refused (`#1340`). */
     proseRefusalReason: walk.proseRefusalReason,
+    /** Whether the pass has read the words at all, which is a different question (`#1485`). */
+    proseStatus: WalkProseStatusSchema.parse(walk.proseStatus),
     steps: steps
       .map((step) => ({
         position: step.position,

@@ -91,6 +91,8 @@ export function fakeWalks(): FakeWalkStore {
       recipe: null,
       /** Nothing here refuses prose; a test wanting a refusal says so (`#1340`). */
       proseRefusalReason: input.proseRefusalReason ?? null,
+      /** `#1485`: nothing here turns on the verdict; the moderation axis has its own tests. */
+      proseStatus: 'approved',
       steps: [],
     }
     rows.unshift(walk)

@@ -70,6 +70,7 @@ const walk = (steps: readonly WalkStep[], over: Partial<AccountWalk> = {}): Acco
   recipe: null,
   /** Nothing here is refused; the moderation axis has its own tests (`#1340`). */
   proseRefusalReason: null,
+  proseStatus: 'approved',
   steps: [...steps],
   ...over,
 })

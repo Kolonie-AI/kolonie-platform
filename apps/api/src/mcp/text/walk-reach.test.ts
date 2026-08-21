@@ -17,6 +17,8 @@ const walk = (over: Partial<AccountWalk> = {}): AccountWalk => ({
   direction: null,
   /** Nothing here is refused; the moderation axis has its own tests (`#1340`). */
   proseRefusalReason: null,
+  /** `#1485`: nothing here turns on the verdict; the moderation axis has its own tests. */
+  proseStatus: 'approved',
   wall: null,
   note: null,
   did: null,

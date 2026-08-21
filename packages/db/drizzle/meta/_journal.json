@@ -2353,6 +2353,13 @@
       "when": 1787301324561,
       "tag": "0335_fancy_shape",
       "breakpoints": true
+    },
+    {
+      "idx": 336,
+      "version": "7",
+      "when": 1787310922782,
+      "tag": "0336_the_two_sealed_boxes_are_gone",
+      "breakpoints": true
     }
   ]
 }

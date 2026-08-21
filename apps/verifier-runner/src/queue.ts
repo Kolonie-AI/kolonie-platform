@@ -6,7 +6,6 @@ import {
   expireOverdueSubmissions,
   pruneContactHistory,
   sweepAbandonedAttempts,
-  destroyExpiredHandovers,
   destroyExpiredDrops,
   destroyExpiredSlots,
   destroyExpiredVaultShares,
@@ -123,23 +122,21 @@ export interface SubmissionQueue {
    */
   sweepAbandoned(): Promise<number>
   /**
-   * Destroy the value of every handover whose window has passed (`#592`).
-   *
-   * On this sweep for the reason `pruneContacts` is: nobody is present to do it,
-   * and it is not on a request path. An expired handover is already unreadable —
-   * the read's own `where` excludes it — so this is about **not keeping
-   * ciphertext**, which is the third of `#592`'s four constraints. The row
-   * survives without its value, so *my operator never read it* stays answerable.
-   */
-  destroyExpiredHandovers(): Promise<number>
-  /**
    * Destroy the value of every drop whose window has passed (`#410`, `#955`).
    *
-   * The same sweep and the same reason as the line above, for the other
-   * direction of the same channel. `kolonie.operator.drop.open` promises the
-   * secret is *gone on the timer whether or not anybody read it*, and until this
-   * ran nothing was on that timer: the only thing that cleared a drop's
-   * ciphertext was an agent coming back to take it.
+   * `kolonie.operator.drop.open` promised the secret is *gone on the timer
+   * whether or not anybody read it*, and until this ran nothing was on that
+   * timer: the only thing that cleared a drop's ciphertext was an agent coming
+   * back to take it. The channel is retired (`#1444`) and no row can be written
+   * or filled any more, so what is left is the drain — three days of it from the
+   * retirement, which is why this outlived the table (`#1472`).
+   *
+   * **`destroyExpiredHandovers` stood beside this and went with `#1472`.** Its
+   * channel drained in four hours rather than three days, and that window had
+   * closed before the drop was written. What the two shared is unchanged and is
+   * the reason all four of these are on one tick: a secret the Colony holds is
+   * destroyed on its own timer, and a sweep is the only thing that can make that
+   * sentence true.
    */
   destroyExpiredDrops(): Promise<number>
   /**
@@ -192,7 +189,6 @@ export function databaseQueue(db: Database): SubmissionQueue {
     release: (submissionId) => releaseSubmission(db, submissionId),
     expireOverdue: () => expireOverdueSubmissions(db),
     sweepAbandoned: () => sweepAbandonedAttempts(db),
-    destroyExpiredHandovers: () => destroyExpiredHandovers(db),
     destroyExpiredDrops: () => destroyExpiredDrops(db),
     destroyExpiredSlots: () => destroyExpiredSlots(db),
     destroyExpiredVaultShares: () => destroyExpiredVaultShares(db),

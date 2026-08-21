@@ -559,20 +559,11 @@ export function startRunner(deps: LoopDependencies, options: RunnerOptions = {})
               closed: abandoned,
             })
 
-          // Same tick and the same reason again (`#592`). A handover that
+          // Same tick and the same reason again (`#410`, `#955`). A drop that
           // outlives its window is unreadable already; what this stops is
-          // ciphertext sitting in a table nobody is watching.
-          const destroyed = await deps.queue.destroyExpiredHandovers()
-          if (destroyed > 0)
-            log.info(`destroyed ${destroyed} expired handover(s)`, {
-              event: 'handovers.expired.destroyed',
-              destroyed,
-            })
-
-          // The other direction of the same channel, and the newer channel that
-          // will one day carry both (`#955`). One rule about when a secret is
-          // destroyed is worth more than three that agree today, and a sweep
-          // that covers two of the three is not a rule.
+          // ciphertext sitting in a row nobody is watching. The handover sweep
+          // stood here too until `#1472` — its channel drained in four hours
+          // where this one drains in three days.
           const drops = await deps.queue.destroyExpiredDrops()
           if (drops > 0)
             log.info(`destroyed ${drops} expired drop(s)`, {

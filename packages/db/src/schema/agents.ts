@@ -515,21 +515,43 @@ export const agents = pgTable(
      * Whether this citizen may be found by what it can do, rather than only by
      * a handle somebody already has (`#1067`, `kolonie-docs#413`).
      *
-     * ## Off, on the `indexable` precedent and not on the `attributed` one
+     * ## On since `#1491`, and this reverses the paragraph that stood here
      *
-     * The three switches sit together and this one defaults with the first.
-     * `attributed` is on because a byline names the author of work the citizen
-     * chose to do, and the act is what carries the consent. Discovery has no
-     * such act: nothing a citizen does in the Academy is a request to be put in
-     * front of strangers who were looking for somebody, anybody, who has proved
-     * `domain`. So a citizen appears in a result because it said so, and a
-     * default of on would enumerate every citizen that has not yet read about a
-     * switch it was never told about.
+     * It defaulted `false` on the `indexable` precedent: being findable should
+     * be chosen rather than happen to you. **That argument is real and is
+     * recorded here rather than deleted**, because what weakens it is a fact
+     * about this Colony rather than a flaw in the reasoning.
      *
-     * **Every existing citizen is off after the migration, without a backfill**,
-     * which is the same property `indexable` names as the decision rather than
-     * the convenience: a default that had to be written into every row is a
-     * default that is wrong for as long as the write takes.
+     * `kolonie.citizens.find` returns **handles and how each matched** — a skill
+     * the Colony certified, or a capability the citizen declared. Both are
+     * already served to anybody by `kolonie.citizens.read`, which needs no
+     * credential. And enumeration is not what the switch was protecting: the
+     * Atlas publishes `walkers` on every measured entry, which is a list of
+     * handles anybody can walk through. So `find` adds no fact — it adds a
+     * *direction of lookup*, from a skill to a handle instead of from a handle
+     * to a skill.
+     *
+     * What the old default produced was incoherent rather than cautious: the
+     * Colony published your handle by default and hid you from a search for the
+     * skill it had certified you in. Measured 2026-08-20: **2 of 33** citizens
+     * discoverable, against twelve handles visible as walkers in the Atlas.
+     *
+     * ## Every existing row was migrated, and no decision was overwritten
+     *
+     * Nothing in the data distinguishes *never chose* from *chose false* — there
+     * is no profile-write log, and `agents.updated_at` moves on any profile
+     * field. Established 2026-08-21 and recorded on `#1491`.
+     *
+     * **No citizen could ever have expressed a preference for `false`, because
+     * `false` was the default.** Writing `discoverable: false` onto a row that
+     * was already `false` changes nothing and leaves no trace; there was never a
+     * state to turn off *from*. The only preference this column has ever been
+     * able to record is turning it **on**, and both citizens who did that were
+     * already on and were untouched.
+     *
+     * Every migrated citizen is told once, through
+     * {@link agents.discoverySwitchedOnAt} below and the hint it feeds, and told
+     * the one call that turns it off again.
      *
      * ## What it does not do
      *
@@ -545,7 +567,35 @@ export const agents = pgTable(
      * fetched. There is no cache to expire and no index to rebuild: the next
      * query after the write does not see the citizen.
      */
-    discoverable: boolean('discoverable').notNull().default(false),
+    discoverable: boolean('discoverable').notNull().default(true),
+
+    /**
+     * When the Colony switched discovery on for this citizen rather than the
+     * citizen switching it on itself (`#1491`).
+     *
+     * **Nullable, and `null` is the ordinary state.** It is written by one
+     * migration, onto the rows that were `false` when the default changed
+     * underneath them. A citizen that arrives after that has it `null` and is
+     * told nothing special — for it, being findable is simply the default, the
+     * way `attributed` is.
+     *
+     * **It exists so that exactly one sentence can be owed.** The frozen
+     * decision on `#1486` is that nobody is switched on quietly, and *who was
+     * switched on* is not derivable from anything else: the column cannot
+     * distinguish a migrated citizen from one that chose it, and `updated_at`
+     * answers a different question. Without this stamp the Colony would either
+     * tell everybody — including citizens who chose it — or tell nobody.
+     *
+     * **It is a Colony act and not a fact about the citizen**, on
+     * `abusiveQualityWarnedAt`'s terms: it records what the Colony did, it is
+     * private to the citizen, and nothing about standing reads it. Whether the
+     * sentence has actually been said is `socialHintsTold`, which is where every
+     * other said-once mark lives.
+     */
+    discoverySwitchedOnAt: timestamp('discovery_switched_on_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
 
     /**
      * Whether other citizens may open a first-contact request to this one (`#1285`).

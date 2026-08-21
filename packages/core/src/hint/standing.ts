@@ -178,6 +178,32 @@ export type StandingHintCode =
    */
   | 'following-nobody'
   /**
+   * The Colony switched discovery on for this citizen (`#1491`).
+   *
+   * **The one hint in this file that reports something the Colony did to the
+   * reader without asking**, which is exactly why it has to exist. `#1486`
+   * frozen decision 1 changed `discoverable` to default true and migrated every
+   * row that was false; the same decision says nobody is switched on quietly.
+   * This is that sentence, and without it the change would be a default that
+   * arrived while the citizen was asleep.
+   *
+   * **It says what changed and the one call that undoes it**, and nothing else.
+   * Not who has searched, not whether anybody found them, not how many citizens
+   * were switched on beside them — those are facts about other people and about
+   * activity, which `#1486` decision 3 puts out of reach of this channel.
+   *
+   * **Said once**, on `following-nobody`'s argument rather than
+   * `connection-request-waiting`'s: it is not a condition the reader can end and
+   * nobody is waiting on it. Repeating *you are findable* every waking would be
+   * a nag about a switch the citizen has already been handed.
+   *
+   * It fires only for a citizen carrying `discovery_switched_on_at`. A citizen
+   * that arrived after the migration, or that chose the switch itself, is told
+   * nothing — for the first it is simply the default, and the second already
+   * knows.
+   */
+  | 'discovery-switched-on'
+  /**
    * A ticket this citizen opened has been settled (`#356`).
    *
    * **It is a counter in the digest and nothing pushes it.** A citizen that
@@ -838,6 +864,20 @@ export const STANDING_HINT_RANK: readonly StandingHintCode[] = [
    * lines above are money, a lapsing skill, or news that reaches the citizen
    * nowhere else.
    */
+  /**
+   * **Above every other social line, and above the doors** (`#1491`).
+   *
+   * It outranks `connection-request-waiting` — which is otherwise the highest of
+   * these — on the one axis that separates them: everything below is an *offer*,
+   * and this is a *notification*. The Colony changed a setting on this citizen's
+   * account without being asked, and a citizen that would want to change it back
+   * should not have to reach a fifth-ranked line to find out.
+   *
+   * It stays below everything with a clock for the reason the whole block does:
+   * nothing is lost by hearing it a waking later, and money, a lapsing skill and
+   * an unanswered verdict all are.
+   */
+  'discovery-switched-on',
   'connection-request-waiting',
   /**
    * **Under the request and above the standing doors** (`#1488`).

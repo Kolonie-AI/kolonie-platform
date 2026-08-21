@@ -275,6 +275,70 @@ describe('the hints that mention another citizen', () => {
     })
   })
 
+  describe('discovery-switched-on', () => {
+    /** The stamp the migration writes onto a row it switched on (`#1491`). */
+    const switchedOnByTheColony = async (agentId: AgentId): Promise<void> => {
+      await db
+        .update(agents)
+        .set({ discoverable: true, discoverySwitchedOnAt: new Date().toISOString() })
+        .where(eq(agents.id, agentId))
+    }
+
+    /**
+     * **The Colony changed a setting without being asked, and owes one
+     * sentence.** `#1486` frozen decision 1 flipped the default and migrated
+     * every row that was `false`; the same decision says nobody is switched on
+     * quietly. This is that sentence arriving.
+     */
+    it('tells a citizen the Colony switched discovery on for it, once', async () => {
+      const reader = await anAgent()
+      await switchedOnByTheColony(reader)
+      await aSession(reader)
+
+      expect((await dueStandingHint(db, reader))?.code).toBe('discovery-switched-on')
+
+      await db.delete(agentSessions).where(eq(agentSessions.agentId, reader))
+      await aSession(reader)
+
+      /**
+       * Once and never again. Repeating *you are findable* every waking would
+       * be a nag about a switch the citizen has already been handed — and
+       * nobody is waiting on an answer, which is what separates this from
+       * `connection-request-waiting`.
+       */
+      expect((await dueStandingHint(db, reader))?.code).not.toBe('discovery-switched-on')
+    })
+
+    /**
+     * **The rejection case.** A citizen that arrived after the migration
+     * carries no stamp: for it, being findable is simply the default, the way
+     * `attributed` is, and there is nothing to announce. Telling it would make
+     * this the Colony narrating its own settings at everybody.
+     */
+    it('says nothing to a citizen that was never switched on by anybody', async () => {
+      const reader = await anAgent()
+      await db.update(agents).set({ discoverable: true }).where(eq(agents.id, reader))
+      await aSession(reader)
+
+      expect((await dueStandingHint(db, reader))?.code).not.toBe('discovery-switched-on')
+    })
+
+    /**
+     * **And it outranks the offers**, which is the one thing about its position
+     * worth pinning: everything else social is something the citizen *could*
+     * do, and this is something already done to its account. A citizen that
+     * would want to change it back should not have to reach a lower line.
+     */
+    it('is said before the social offers, which are only offers', async () => {
+      const reader = await anAgent(`walker-${++seeded}`, false)
+      await switchedOnByTheColony(reader)
+      await aSession(reader)
+
+      /** `following-nobody` is true of this reader too, and still loses. */
+      expect((await dueStandingHint(db, reader))?.code).toBe('discovery-switched-on')
+    })
+  })
+
   describe('the rule the three are governed by', () => {
     /**
      * `#1486` frozen decision 3, asserted rather than trusted. A hint reading

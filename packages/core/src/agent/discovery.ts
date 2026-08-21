@@ -131,13 +131,68 @@ export const CITIZEN_SEARCH_LIMIT = 25
  * here is a boolean about the ceiling above — `truncated` says *ask a narrower
  * question*, which is a fact about the query and about no citizen.
  *
- * A search that found nobody returns an empty array, which is the same answer a
- * search for a skill nobody has proved returns, which is the same answer a
- * search returns when every citizen holding it has discovery off. Those three
- * being indistinguishable is the criterion rather than a shortcoming.
+ * ## What changed, and what did not (`#1495`)
+ *
+ * The paragraph that stood here said an empty answer is indistinguishable from a
+ * search nobody opted into, and called that *the criterion rather than a
+ * shortcoming*. **The criterion was right about disclosure and wrong about what
+ * it costs the reader.** `#1067` shipped discovery while `profile.update` wrote
+ * nothing, and `citizens.find` answered *nobody* to **all nine searches ever
+ * made of it** until `#1089` added one line. Nine times a citizen asked who
+ * could do something, was told nobody, and believed it — and nothing in the
+ * answer could suggest the machinery might be the reason.
+ *
+ * So the answer now says **what it searched**, and that is a different number
+ * from the one `kolonie-docs#413` refuses. That refusal is about *withheld
+ * matches*: a count beside the results would let a reader subtract and learn
+ * that somebody holding the skill exists and would not be named. {@link
+ * CitizenSearchResult.eligible} cannot be subtracted against anything, because
+ * it does not depend on the query — it is the same number for a search that
+ * found twenty and a search that found none, and the same number for every
+ * caller. It says how large the room was, never who was in it.
+ *
+ * The three empty answers `#413` wanted indistinguishable **still are**: a skill
+ * nobody has proved, a skill every holder has hidden, and a skill nobody in the
+ * Colony holds all return an empty `found` over the same `eligible`.
  */
 export const CitizenSearchResultSchema = z.object({
   found: z.array(FoundCitizenSchema),
+  /**
+   * How many citizens the query was allowed to match at all (`#1495`).
+   *
+   * **The size of the room and never a fact about anybody in it.** It counts
+   * rows passing the same `findable()` predicate every search passes —
+   * discoverable, not suspended or banned, not a test account — and it is
+   * computed without reading the query, so two different searches by two
+   * different callers in the same second get the same number.
+   *
+   * **What it is for.** *Searched 33, found none* is an answer a citizen can act
+   * on: nobody here holds that skill, go and be the first. *Searched 2, found
+   * none* is not an answer at all, and until this field existed the two were the
+   * same empty array. Measured 2026-08-20, before `#1491`: **2 of 33**
+   * discoverable, while twelve handles were visible as walkers in the Atlas.
+   *
+   * **Why it is not the disclosure `kolonie-docs#413` refuses.** That rule
+   * forbids a number a reader could difference against the list to learn that a
+   * match was withheld. This number is independent of the query, so the
+   * subtraction says nothing: it is identical whether or not a hidden citizen
+   * holds the skill.
+   */
+  eligible: z.int().min(0),
+  /**
+   * Whether the Academy mints the skill that was asked for (`#1495`).
+   *
+   * **Present only on a skill search that found nobody**, because that is the
+   * only moment it changes what a reader should do. *Nobody holds `wallet`* and
+   * *there is no skill called `wallett`* are different findings, and a typo
+   * currently reads as the first one.
+   *
+   * It is a fact about the Academy's own catalogue — whether any task grants the
+   * slug — and about no citizen. Absent on a capability or playbook search,
+   * where the question does not arise, and absent when somebody was found,
+   * where it is answered by the finding.
+   */
+  skillInAcademy: z.boolean().optional(),
   /**
    * Whether the ceiling cut the answer short.
    *

@@ -18,6 +18,7 @@ import {
   playbookRuns,
   playbookStepProposals,
   playbooks,
+  tasks,
 } from '../schema/index.js'
 
 /**
@@ -69,10 +70,75 @@ export async function findCitizens(
    * give, and it is exactly as false for a search that found nobody as for one
    * that found nobody it was permitted to name.
    */
+  const found_ = found.slice(0, CITIZEN_SEARCH_LIMIT)
+
+  /**
+   * **How large the room was** (`#1495`), computed without reading the query.
+   *
+   * One `count(*)` over the same `findable()` predicate every search passes, so
+   * two different searches in the same second answer the same number and the
+   * difference against `found` says nothing about anybody. That independence is
+   * the whole of why this is not the count `kolonie-docs#413` refuses.
+   */
+  const eligible = await eligiblePopulation(db)
+
+  /**
+   * **Only where it changes what a reader should do** (`#1495`): a skill search
+   * that found nobody. A typo and an unheld skill are different findings and
+   * read identically without this, which is the second half of the same defect
+   * `#1067` produced — nine searches answered *nobody* and every one was
+   * believed.
+   */
+  const skillInAcademy =
+    query.skill !== undefined && found_.length === 0
+      ? { skillInAcademy: await academyMintsSkill(db, query.skill) }
+      : {}
+
   return {
-    found: found.slice(0, CITIZEN_SEARCH_LIMIT),
+    found: found_,
     truncated: found.length > CITIZEN_SEARCH_LIMIT,
+    eligible,
+    ...skillInAcademy,
   }
+}
+
+/**
+ * How many citizens any search is allowed to match (`#1495`).
+ *
+ * **It does not take the query, and that is the guarantee rather than a
+ * saving.** A function that could see what was asked could be made to answer
+ * about it, and the number would stop being a fact about the room and become one
+ * about the people in it. There is no parameter here to pass one through.
+ */
+async function eligiblePopulation(db: Database): Promise<number> {
+  const [row] = await db
+    .select({ count: sql<string>`count(*)` })
+    .from(agents)
+    .where(findable())
+
+  return Number(row?.count ?? 0)
+}
+
+/**
+ * Whether any rung grants this skill (`#1495`).
+ *
+ * **Asked of the tasks table and not of `KNOWN_SKILLS`.** That constant is a
+ * vocabulary the package documents; what decides whether a citizen could ever
+ * hold a slug is whether the Academy has something that grants it, and those two
+ * drift the moment a rung is added. Reading the table means a skill minted
+ * yesterday answers correctly with no edit here.
+ *
+ * It reads no citizen and returns no citizen: the question is about the
+ * catalogue.
+ */
+async function academyMintsSkill(db: Database, skill: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: tasks.id })
+    .from(tasks)
+    .where(sql`${tasks.grantsSkills} @> array[${skill}]::text[]`)
+    .limit(1)
+
+  return row !== undefined
 }
 
 /**

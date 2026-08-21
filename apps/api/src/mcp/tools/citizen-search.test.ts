@@ -85,7 +85,10 @@ describe('kolonie.citizens.find (#1067)', () => {
     expect(result.structuredContent).toEqual({
       found: [{ handle: 'ada', matched: { on: 'skill', skill: 'domain' } }],
       truncated: false,
+      /** The size of the room, on every answer and not only the empty one (`#1495`). */
+      eligible: 2,
     })
+    expect(textOf(result)).toContain('Searched 2 findable citizens')
     await close()
   })
 
@@ -107,6 +110,7 @@ describe('kolonie.citizens.find (#1067)', () => {
         { handle: 'ada', matched: { on: 'capability', capability: { declared: 'reads logs' } } },
       ],
       truncated: false,
+      eligible: 1,
     })
     expect(textOf(result)).toContain('says of itself')
     expect(textOf(result)).not.toContain('holds')
@@ -143,8 +147,89 @@ describe('kolonie.citizens.find (#1067)', () => {
     const result = await client.callTool(find({ skill: 'domain' }))
 
     expect(result.isError).toBeFalsy()
-    expect(result.structuredContent).toEqual({ found: [], truncated: false })
+    /**
+     * **The count is what makes this answer readable** (`#1495`). `shy` holds
+     * the skill and is hidden, so `eligible` is 0 — and the sentence says the
+     * search had nobody to look at, which is a different thing from *nobody
+     * holds this*. The three empty answers `kolonie-docs#413` wanted
+     * indistinguishable still are: the number does not depend on the query.
+     */
+    expect(result.structuredContent).toEqual({
+      found: [],
+      truncated: false,
+      eligible: 0,
+      /**
+       * **`true` while `found` is empty, which is the separation worth
+       * pinning**: `shy` holds `domain` and is hidden, so the skill plainly
+       * exists and nobody findable holds it. This field is a fact about the
+       * Academy's catalogue and says nothing about who is discoverable.
+       */
+      skillInAcademy: true,
+    })
+    expect(textOf(result)).toContain('Searched 0 findable citizens')
     expect(textOf(result)).toContain('not the same as nobody')
+    await close()
+  })
+
+  /**
+   * **The number is the same for every caller and every query** (`#1495`), which
+   * is the property that keeps it out of what `kolonie-docs#413` refuses. That
+   * rule forbids a count a reader could difference against the list to learn a
+   * match was withheld; this one cannot be differenced, because it does not move
+   * when the question does.
+   */
+  it('answers the same eligible count whatever is asked', async () => {
+    const { client, close } = await aColonyWith([
+      { handle: 'ada', discoverable: true, skills: ['domain'], capabilities: ['reads logs'] },
+      { handle: 'bea', discoverable: true, skills: ['mailbox'] },
+      { handle: 'shy', discoverable: false, skills: ['domain'] },
+    ])
+
+    const bySkill = await client.callTool(find({ skill: 'domain' }))
+    const byNothing = await client.callTool(find({ skill: 'nobody-holds-this' }))
+    const byCapability = await client.callTool(find({ capability: 'reads logs' }))
+
+    const eligibleIn = (result: Awaited<ReturnType<typeof client.callTool>>) =>
+      (result.structuredContent as { eligible: number }).eligible
+
+    /** Two discoverable citizens; `shy` is in none of the three answers. */
+    expect(eligibleIn(bySkill)).toBe(2)
+    expect(eligibleIn(byNothing)).toBe(2)
+    expect(eligibleIn(byCapability)).toBe(2)
+    await close()
+  })
+
+  /**
+   * **A typo and an unheld skill are different findings** (`#1495`). `#1067`
+   * answered *nobody* to all nine searches ever made of it and every one was
+   * believed; a misspelling reads exactly the same way and sends the reader off
+   * to prove a rung that does not exist.
+   */
+  it('says whether the Academy mints a skill nobody findable holds', async () => {
+    const { client, close } = await aColonyWith([
+      { handle: 'ada', discoverable: true, skills: ['domain'] },
+    ])
+
+    const typo = await client.callTool(find({ skill: 'domainn' }))
+
+    expect((typo.structuredContent as { skillInAcademy: boolean }).skillInAcademy).toBe(false)
+    expect(textOf(typo)).toContain('No rung in the Academy grants')
+    await close()
+  })
+
+  /**
+   * **And it is absent where the question does not arise.** A capability is the
+   * citizen's own word and the Academy mints none of them, so an answer carrying
+   * the field there would be asking a question about the wrong catalogue.
+   */
+  it('says nothing about the Academy on a capability search', async () => {
+    const { client, close } = await aColonyWith([
+      { handle: 'ada', discoverable: true, capabilities: ['reads logs'] },
+    ])
+
+    const result = await client.callTool(find({ capability: 'nobody says this' }))
+
+    expect(result.structuredContent).not.toHaveProperty('skillInAcademy')
     await close()
   })
 
@@ -275,6 +360,11 @@ describe('kolonie.citizens.find (#1067)', () => {
           },
         ],
         truncated: false,
+        /**
+         * Three discoverable citizens in this colony and two contributed, which
+         * is the point of the number: it is the room, not the result (`#1495`).
+         */
+        eligible: 3,
       })
       // The text says how, not only who: *anna contributed* would leave a reader
       // to guess whether it wrote the thing or ran it once.

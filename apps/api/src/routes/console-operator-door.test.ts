@@ -13,7 +13,6 @@ import { fakeOperatorNotes } from '../__fixtures__/operator-notes.js'
 import { fakeOperatorThreads } from '../__fixtures__/operator-threads.js'
 import { fakeStore } from '../__fixtures__/store.js'
 import { fakeHumanStore, fakeTenant, type FakeHumanStore } from '../__fixtures__/humans.js'
-import type { DropStore } from '../operator-drops.js'
 import { SESSION_COOKIE } from './console.js'
 import { OAUTH_STATE_COOKIE } from '../humans/humans.js'
 
@@ -32,8 +31,6 @@ let app: FastifyInstance
 let humans: FakeHumanStore
 let pages: ReturnType<typeof fakeOperatorPages>
 let requests: ReturnType<typeof fakeOperatorThreads>
-let drops: DropStore
-let pageDrops: Awaited<ReturnType<DropStore['forPageToken']>>
 let agentId: AgentId
 let otherAgentId: AgentId
 
@@ -41,16 +38,6 @@ beforeEach(async () => {
   humans = fakeHumanStore()
   pages = fakeOperatorPages()
   requests = fakeOperatorThreads({ pages })
-  pageDrops = []
-  drops = {
-    open: () => Promise.reject(new Error('not used')),
-    view: () => Promise.resolve(null),
-    submit: () => Promise.resolve({ outcome: 'closed' }),
-    list: () => Promise.resolve([]),
-    forPageToken: () => Promise.resolve(pageDrops),
-    take: () => Promise.resolve({ outcome: 'nothing' }),
-    fillAsOperator: () => Promise.resolve({ outcome: 'closed' }),
-  }
   const agents = fakeStore()
 
   app = buildApp({
@@ -69,7 +56,18 @@ beforeEach(async () => {
     // file write through a link the revoke path had never heard of.
     operatorThreads: requests,
     operatorNotes: fakeOperatorNotes({ pages }),
-    drops,
+    /**
+     * A sealing key is configured (`#1444`). The page's sentence about where a
+     * secret goes branches on this, and nothing here shares anything — what is
+     * being asserted is the copy, not the channel.
+     */
+    operatorShares: {
+      forPageToken: () => Promise.resolve([]),
+      forOperator: () => Promise.resolve([]),
+      recordRead: () => Promise.resolve(false),
+      write: () => Promise.resolve({ outcome: 'closed' as const }),
+      handBack: () => Promise.resolve({ outcome: 'closed' as const }),
+    },
   })
   await app.ready()
 
@@ -150,14 +148,21 @@ describe('the operator page opens on a session', () => {
     )
   })
 
-  it('promises a sealed box when the secret channel is configured', async () => {
+  /**
+   * The sentence moved with the channel (`#1444`). A sealed box is not what an
+   * agent sends any more; it shares a stored entry, which the person reads on
+   * this page. What is unchanged, and is the half that matters, is the
+   * instruction not to send a secret any other way — a page that only refused
+   * one and named nowhere else would be telling a person to solve it themselves.
+   */
+  it('names where a secret does go, when a key is configured', async () => {
     const token = await pages.issue(agentId, 'op@example.org')
 
     const response = await app.inject({ method: 'GET', url: `/operator/page/${token}` })
 
-    expect(response.body).toContain('will send you a <strong>sealed box</strong>')
+    expect(response.body).toContain('shares one of its stored entries')
     expect(response.body).toContain('Please do not send a secret any other way')
-    expect(response.body).not.toContain('no channel configured for secrets')
+    expect(response.body).not.toContain('no key configured for secrets')
   })
 
   /**
@@ -178,40 +183,30 @@ describe('the operator page opens on a session', () => {
     expect(response.body).not.toContain(token)
   })
 
-  it('orders questions and sealed boxes by opening, without giving the page token fill authority', async () => {
+  /**
+   * The sealed boxes are gone (`#1444`).
+   *
+   * This asserted that a drop and a question interleaved by opening time, and
+   * that only the signed-in door carried fill authority — a real property, on a
+   * channel that was opened 7 times and filled **zero** times over its whole
+   * lifetime. What replaces it is a shared vault entry, which **both** doors may
+   * read and write: that reversal is `#1437` frozen decision 1 and it is
+   * asserted in `packages/db/src/storage/operator-shares.test.ts`.
+   *
+   * The absence is kept as an assertion, because a form that quietly comes back
+   * is what a removal invites.
+   */
+  it('offers no sealed-box form on either door', async () => {
     const cookie = await signedInCookie()
     await link(agentId)
     const token = await pages.issue(agentId, 'op@example.org')
-    requests.store.giveThread(agentId, { context: 'The question between the two drops' })
-    pageDrops = [
-      {
-        id: '11111111-1111-4111-8111-111111111111',
-        kind: 'credential',
-        prompt: 'The older mailbox password',
-        createdAt: '2000-01-01T00:00:00.000Z' as never,
-      },
-      {
-        id: '22222222-2222-4222-8222-222222222222',
-        kind: 'code',
-        prompt: 'The later verification code',
-        createdAt: '2999-01-01T00:00:00.000Z' as never,
-      },
-    ]
 
     const mailed = await app.inject({ method: 'GET', url: `/operator/page/${token}` })
     const throughSession = await openDoor(cookie, agentId)
 
     for (const body of [mailed.body, throughSession.body]) {
-      expect(body.indexOf('The older mailbox password')).toBeLessThan(
-        body.indexOf('The question between the two drops'),
-      )
-      expect(body.indexOf('The question between the two drops')).toBeLessThan(
-        body.indexOf('The later verification code'),
-      )
+      expect(body).not.toContain('action="/drops/')
     }
-    expect(mailed.body).not.toContain('action="/drops/')
-    expect(throughSession.body).toContain('action="/drops/11111111-1111-4111-8111-111111111111"')
-    expect(throughSession.body).toContain('action="/drops/22222222-2222-4222-8222-222222222222"')
   })
 
   /**

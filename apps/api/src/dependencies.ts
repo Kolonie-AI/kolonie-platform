@@ -68,7 +68,6 @@ import type { TaskCatalogue } from './tasks.js'
 import type { AccountOfferDependencies } from './account-offers.js'
 import type { OperatorShareStore } from './operator-shares.js'
 import type { AccountThreadStore } from './account-threads.js'
-import type { DropStore } from './operator-drops.js'
 import type { TelegramDependencies } from './operator-telegram.js'
 import type { VaultDependencies } from './vault.js'
 import type { VisionDependencies } from './vision.js'
@@ -400,15 +399,6 @@ export interface AppDependencies {
    * that needs a sealing key is refused.
    */
   readonly accountThreads?: AccountThreadStore | undefined
-  /**
-   * The operator-to-agent secret channel (`#410`).
-   *
-   * Optional, and absent means the channel is not offered — `OPERATOR_DROP_SEALING_KEY`
-   * has not been set. Every other surface here is either present or the process
-   * refuses to start; this one is a convenience rather than money, so a Colony
-   * that was never given the key starts and says so to the citizen that asks.
-   */
-  readonly drops?: DropStore | undefined
   /**
    * The operator's half of a shared vault entry (`#1440`, epic `#1437`).
    *

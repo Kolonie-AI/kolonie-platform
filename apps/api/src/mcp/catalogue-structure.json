@@ -1779,37 +1779,14 @@
     {
       "name": "kolonie.operator.drop.open",
       "schema": {
-        "properties": {
-          "kind": {
-            "enum": ["code", "credential"],
-            "type": "string"
-          },
-          "prompt": {
-            "maxLength": 500,
-            "minLength": 1,
-            "type": "string"
-          },
-          "vaultKey": {
-            "maxLength": 128,
-            "minLength": 1,
-            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:\\-/]*$",
-            "type": "string"
-          }
-        },
-        "required": ["kind", "prompt"],
+        "properties": {},
         "type": "object"
       }
     },
     {
       "name": "kolonie.operator.drop.read",
       "schema": {
-        "properties": {
-          "dropId": {
-            "format": "uuid",
-            "type": "string"
-          }
-        },
-        "required": ["dropId"],
+        "properties": {},
         "type": "object"
       }
     },

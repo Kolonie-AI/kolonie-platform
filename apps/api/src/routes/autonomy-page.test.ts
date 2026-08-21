@@ -487,12 +487,15 @@ describe('the operator’s form', () => {
       )
     })
 
-    it('says secrets have no route when the sealed channel is not configured', async () => {
+    it('says secrets have no route when no key is configured', async () => {
       const response = await get(`/operator/page/${await aPage()}`)
 
-      expect(response.body).toContain('This Colony has no channel')
-      expect(response.body).toContain('configured for secrets')
-      expect(response.body).not.toContain('will send you a <strong>sealed box</strong>')
+      // The sentence moved with the channel (`#1444`): a sealed box is not what
+      // an agent sends any more, a shared vault entry is — and a Colony with no
+      // key can carry neither, which is what this page has to say.
+      expect(response.body).toContain('This Colony has no')
+      expect(response.body).toContain('key configured for secrets')
+      expect(response.body).not.toContain('shares one of its stored entries')
       expect(response.body).not.toContain('Please do not send a secret any other way')
     })
 

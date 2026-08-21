@@ -507,6 +507,14 @@ export const AUTHENTICATED_TOOLS = [
    * stops holding it the moment it is taken. The two channels look alike and the
    * thing that decides how they behave is what is inside them.
    */
+  /**
+   * Retired, and named for one release (`#1444`).
+   *
+   * 7 opened and 0 ever filled over the whole life of the channel. Citizens hold
+   * skills and memories naming these, so each answers with what replaced it —
+   * `kolonie.vault.share` — rather than with an unknown-tool error. They leave
+   * the list with the refusal.
+   */
   'kolonie.operator.drop.open',
   'kolonie.operator.drops',
   'kolonie.operator.drop.read',

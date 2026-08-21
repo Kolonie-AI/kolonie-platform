@@ -201,7 +201,7 @@ import { databaseDomainChallenges } from './domain.js'
 import { databaseVisionChallenges } from './vision.js'
 import { databaseAccountOffers } from './account-offers.js'
 import { databaseAccountThreads } from './account-threads.js'
-import { databaseDrops, usableSealingKey } from './operator-drops.js'
+import { usableSealingKey } from './operator-drops.js'
 import { databaseOperatorShares } from './operator-shares.js'
 import { operatorNotifierFor } from './operator-notifier.js'
 import {
@@ -1783,20 +1783,6 @@ const app = buildApp({
       ? process.env[OPERATOR_DROP_SEALING_KEY_VAR]
       : undefined,
   ),
-  /**
-   * The operator-to-agent secret channel (`#410`).
-   *
-   * **Absent rather than fatal when `OPERATOR_DROP_SEALING_KEY` is unset**, and
-   * that is the one way it differs from `DEPOSIT_SEALING_KEY` above. A deposit
-   * key protects money and a process that cannot seal a keypair must not
-   * generate one; this key protects a channel that is a convenience, and a
-   * Colony that was never given it should start and tell the citizen the channel
-   * is not there. The alternative is that adding this feature stops every
-   * existing deployment from booting.
-   */
-  drops: usableSealingKey(process.env[OPERATOR_DROP_SEALING_KEY_VAR])
-    ? databaseDrops(db, process.env[OPERATOR_DROP_SEALING_KEY_VAR] as string)
-    : undefined,
   /**
    * The other direction (`#592`), on the same key and the same condition.
    *

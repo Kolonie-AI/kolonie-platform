@@ -86,10 +86,6 @@ import { registerInterstitialRoutes } from './routes/interstitial.js'
 import { registerPersistenceRoutes } from './routes/persistence.js'
 import { registerSubmissionRoutes } from './routes/submissions.js'
 import { registerGuidanceRoutes } from './routes/guidance.js'
-import {
-  registerOperatorDropPageRoutes,
-  registerOperatorDropRoutes,
-} from './routes/operator-drops.js'
 import { registerVaultRoutes } from './routes/vault.js'
 import { capabilityUnavailable, gateUnavailable, stageUnavailable } from './academy.js'
 import type { AppDependencies } from './dependencies.js'
@@ -185,11 +181,9 @@ export function buildApp({
   vision,
   vault,
   accountThreads,
-  drops,
   operatorShares,
   accountOffers,
   telegram,
-  dropBaseUrl = '',
   accounts,
   recipes,
   renames,
@@ -606,11 +600,9 @@ export function buildApp({
     vision,
     vault,
     accountThreads,
-    drops,
     operatorShares,
     accountOffers,
     ...(telegram === undefined ? {} : { telegram }),
-    dropBaseUrl,
     accounts,
     recipes: providerCatalogue,
     renames: atlasRenames,
@@ -678,7 +670,6 @@ export function buildApp({
   registerAutonomyPageRoutes(app, routes)
   // The one form in the Colony that asks a person for something secret (`#410`).
   // Beside the autonomy form and outside `/v1` for the same reason.
-  registerOperatorDropPageRoutes(app, routes)
   // The badge pictures (`#241`). On the app rather than under `/v1`, because
   // they are an image source in a rendered page and not part of the API.
   registerBadgeRoutes(app)
@@ -761,7 +752,6 @@ export function buildApp({
       registerSubmissionRoutes(v1, routes)
       registerGuidanceRoutes(v1, routes)
       registerVaultRoutes(v1, routes)
-      registerOperatorDropRoutes(v1, routes)
     },
     { prefix: API_BASE_PATH },
   )

@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import { CONSOLE_HEADERS, page, signInPage } from './html.js'
 import { CONSOLE_MARK, CONSOLE_MAST } from './mark.js'
 import { autonomyFormPage } from '../autonomy-page.js'
-import { dropFormPage } from '../operator-drop-page.js'
 
 /**
  * The mark reaches every console page, and it does not cost the CSP (`#498`).
@@ -37,16 +36,10 @@ describe('the mark on a console page', () => {
           action: '/operator/autonomy/a-token',
         }),
     ],
-    [
-      'the operator drop form',
-      () =>
-        dropFormPage({
-          agentName: 'Vireo',
-          kind: 'credential',
-          prompt: 'An API key for the weather service.',
-          token: 'a-token',
-        }),
-    ],
+    // The operator drop form was the third of these until `#1444` retired the
+    // channel — 7 opened, 0 ever filled. What replaces it is the durable
+    // operator page, which is covered by its own tests and is not a
+    // nobody-is-signed-in page.
   ])('reaches %s, which nobody is signed in to read', (_name, render) => {
     const rendered = render()
     expect(rendered).toContain('console-mast')

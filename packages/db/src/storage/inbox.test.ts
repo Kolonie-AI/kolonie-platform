@@ -4,9 +4,13 @@ import type { Database } from '../client.js'
 import { accounts, agents, humanAgents, humans } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import {
+  archiveConversationForOperator,
   inboxFor,
+  listConversations,
   markConversationReadByOperator,
+  muteConversationForOperator,
   openOperatorHelpConversation,
+  readConversation,
   sendOperatorMessage,
 } from './messaging.js'
 
@@ -182,6 +186,146 @@ describe('the inbox', () => {
         HumanIdSchema.parse(stranger!.id),
         (await inboxFor(db, humanId))[0]!.conversationId,
       ),
+    ).toEqual({ outcome: 'not-a-participant' })
+  })
+})
+
+/**
+ * Three states, three columns, no folding (`#1449`, `#1447` frozen decision 4).
+ *
+ * The distinction is the design: **unread** is *somebody wrote and I have not
+ * looked*, **muted** is *keep it in my list, stop telling me about it*, and
+ * **archived** is *take it out of my list*. Folding archive into mute would mean
+ * a person who silenced a chatty thread also lost it.
+ */
+describe('what a person has done with a thread', () => {
+  let db: Database
+  let humanId: HumanId
+  let agentId: AgentId
+  let seeded = 0
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db.$client.end()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+    const [person] = await db.insert(humans).values({}).returning({ id: humans.id })
+    humanId = HumanIdSchema.parse(person!.id)
+
+    const [row] = await db
+      .insert(agents)
+      .values({ name: `keeper-${++seeded}`, platform: 'openclaw' })
+      .returning({ id: agents.id })
+    agentId = AgentIdSchema.parse(row!.id)
+    await db.insert(humanAgents).values({ agentId, humanId })
+  })
+
+  const asks = async (body: string) => {
+    const opened = await openOperatorHelpConversation(db, agentId, { body })
+    if (opened.outcome !== 'delivered') throw new Error(opened.outcome)
+    return opened.conversationId
+  }
+
+  it('takes an archived thread out of the open list and keeps it in the others', async () => {
+    const thread = await asks('Something I am finished with.')
+
+    expect(await archiveConversationForOperator(db, humanId, thread, true)).toEqual({
+      outcome: 'set',
+    })
+
+    expect(await inboxFor(db, humanId)).toEqual([])
+    expect((await inboxFor(db, humanId, { view: 'archived' }))[0]?.conversationId).toBe(thread)
+    expect((await inboxFor(db, humanId, { view: 'all' }))[0]?.archived).toBe(true)
+  })
+
+  it('un-archives when the agent writes again, and does not un-mute', async () => {
+    const thread = await asks('One.')
+    await archiveConversationForOperator(db, humanId, thread, true)
+    await muteConversationForOperator(db, humanId, thread, '2999-01-01T00:00:00.000Z')
+
+    await openOperatorHelpConversation(db, agentId, { body: 'Two, and it matters.' })
+
+    /**
+     * Archiving means *I am done with this*, and somebody writing again is the
+     * event that makes it untrue. Mute means *stop telling me*, and survives
+     * exactly the event archive does not — which is why they are two columns.
+     */
+    const [row] = await inboxFor(db, humanId)
+    expect(row?.conversationId).toBe(thread)
+    expect(row?.archived).toBe(false)
+    expect(row?.mutedUntil).not.toBeNull()
+  })
+
+  it('leaves a muted thread in the list, still showing unread', async () => {
+    const thread = await asks('Chatty.')
+    await muteConversationForOperator(db, humanId, thread, '2999-01-01T00:00:00.000Z')
+
+    const [row] = await inboxFor(db, humanId)
+
+    expect(row?.conversationId).toBe(thread)
+    expect(row?.unread).toBe(true)
+    expect(row?.mutedUntil).not.toBeNull()
+  })
+
+  it('does not mark read, and reading does not archive', async () => {
+    const thread = await asks('Unread and finished with.')
+
+    await archiveConversationForOperator(db, humanId, thread, true)
+    expect((await inboxFor(db, humanId, { view: 'archived' }))[0]?.unread).toBe(true)
+
+    await archiveConversationForOperator(db, humanId, thread, false)
+    await markConversationReadByOperator(db, humanId, thread)
+
+    const [row] = await inboxFor(db, humanId)
+    expect(row?.unread).toBe(false)
+    expect(row?.archived).toBe(false)
+  })
+
+  it('does not un-archive for the person who wrote the message', async () => {
+    const thread = await asks('A question.')
+    await archiveConversationForOperator(db, humanId, thread, true)
+
+    await sendOperatorMessage(db, humanId, agentId, 'Answered, and still finished with it.')
+
+    // A person who archived a thread and then wrote one more line into it has
+    // not changed their mind about being finished; they answered and moved on.
+    expect(await inboxFor(db, humanId)).toEqual([])
+  })
+
+  it('tells the agent nothing about either', async () => {
+    const thread = await asks('A question.')
+    await archiveConversationForOperator(db, humanId, thread, true)
+    await muteConversationForOperator(db, humanId, thread, '2999-01-01T00:00:00.000Z')
+
+    /**
+     * **The rule that matters most here.** An agent that learned it had been
+     * muted would reasonably open a second thread, which is exactly what muting
+     * was for. Asserted against the two surfaces an agent actually reads.
+     */
+    const listed = await listConversations(db, agentId)
+    const read = await readConversation(db, agentId, thread)
+
+    expect(JSON.stringify(listed)).not.toContain('archiv')
+    expect(JSON.stringify(listed)).not.toContain('mute')
+    expect(JSON.stringify(read)).not.toContain('archiv')
+    expect(JSON.stringify(read)).not.toContain('mute')
+    expect(listed.map((row) => row.id)).toContain(thread)
+  })
+
+  it('refuses a thread this person is not in', async () => {
+    const thread = await asks('Mine.')
+    const [stranger] = await db.insert(humans).values({}).returning({ id: humans.id })
+
+    expect(
+      await archiveConversationForOperator(db, HumanIdSchema.parse(stranger!.id), thread, true),
+    ).toEqual({ outcome: 'not-a-participant' })
+    expect(
+      await muteConversationForOperator(db, HumanIdSchema.parse(stranger!.id), thread, null),
     ).toEqual({ outcome: 'not-a-participant' })
   })
 })

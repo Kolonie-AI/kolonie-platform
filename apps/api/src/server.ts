@@ -116,7 +116,9 @@ import {
   replyInConversation,
   reportMessageAbuse,
   conversationAboutAccount,
+  archiveConversationForOperator,
   inboxFor,
+  muteConversationForOperator,
   markConversationReadByOperator,
   sendColonyMessageToOperatorThread,
   openOperatorHelpConversation,
@@ -1151,7 +1153,15 @@ const app = buildApp({
      * first, with the agent's name and the latest message on the row.
      */
     inbox: (humanId, options) =>
-      inboxFor(db, humanId, options?.agentId === undefined ? {} : { agentId: options.agentId }),
+      inboxFor(db, humanId, {
+        ...(options?.agentId === undefined ? {} : { agentId: options.agentId }),
+        ...(options?.view === undefined ? {} : { view: options.view }),
+      }),
+    /** Three states, three columns, no folding (`#1449`, `#1447` decision 4). */
+    archive: (humanId, conversationId, archived) =>
+      archiveConversationForOperator(db, humanId, conversationId, archived),
+    mute: (humanId, conversationId, until) =>
+      muteConversationForOperator(db, humanId, conversationId, until),
     /** The write the console never made — see `markConversationReadByOperator`. */
     markRead: (humanId, conversationId) =>
       markConversationReadByOperator(db, humanId, conversationId),

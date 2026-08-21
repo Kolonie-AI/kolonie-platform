@@ -688,6 +688,8 @@ export interface FakeOperatorMessaging extends OperatorMessaging {
    * name which of them it answers.
    */
   readonly thread: (humanId: string, agentId: string) => string
+  /** The agent writing into it, which un-archives it for the person (`#1449`). */
+  readonly agentWrites: (humanId: string, agentId: string, body: string) => void
 }
 
 /**
@@ -705,6 +707,9 @@ export function fakeOperatorMessaging(): FakeOperatorMessaging {
   const links = new Set<string>()
   /** Which threads this person has opened, standing in for the read cursor. */
   const read = new Set<string>()
+  /** `done_at` and `muted_until`, as sets rather than timestamps (`#1449`). */
+  const archived = new Set<string>()
+  const muted = new Map<string, string | null>()
   const threads: {
     id: string
     humanId: string
@@ -753,6 +758,31 @@ export function fakeOperatorMessaging(): FakeOperatorMessaging {
       return opened.id
     },
 
+    /**
+     * A message from the agent, which **un-archives** it (`#1449`).
+     *
+     * The real store does this inside `insertMessage`, so every send path gets
+     * it; here it is one helper, because what the surface is on the hook for is
+     * that the list reflects it rather than where the clearing happens.
+     */
+    agentWrites(humanId, agentId, body) {
+      const thread = threads.find((one) => one.humanId === humanId && one.agentId === agentId)
+      if (thread === undefined) throw new Error('no such thread')
+      thread.messages.push({
+        id: id() as Message['id'],
+        conversationId: thread.id as ConversationId,
+        sender: {
+          participantId: `${thread.id}-citizen` as Message['sender']['participantId'],
+          party: 'citizen',
+          label: agentId,
+        },
+        body,
+        createdAt: now(),
+      })
+      archived.delete(thread.id)
+      read.delete(thread.id)
+    },
+
     async listThreads(humanId, agentId) {
       return threads
         .filter((thread) => thread.humanId === humanId)
@@ -771,9 +801,17 @@ export function fakeOperatorMessaging(): FakeOperatorMessaging {
      * rule with the cursor left to the database.
      */
     async inbox(humanId, options) {
+      const view = options?.view ?? 'open'
       return threads
         .filter((thread) => thread.humanId === humanId)
         .filter((thread) => options?.agentId === undefined || thread.agentId === options.agentId)
+        .filter((thread) =>
+          view === 'all'
+            ? true
+            : view === 'archived'
+              ? archived.has(thread.id)
+              : !archived.has(thread.id),
+        )
         .map((thread) => {
           const latest = thread.messages.at(-1)
           const unread = thread.messages.filter(
@@ -796,9 +834,26 @@ export function fakeOperatorMessaging(): FakeOperatorMessaging {
                   },
             unread: unread > 0,
             unreadCount: unread,
+            archived: archived.has(thread.id),
+            mutedUntil: muted.get(thread.id) ?? null,
           }
         })
         .sort((left, right) => (right.latest?.at ?? '').localeCompare(left.latest?.at ?? ''))
+    },
+
+    async archive(humanId, conversationId, isArchived) {
+      const thread = threads.find((one) => one.id === conversationId && one.humanId === humanId)
+      if (thread === undefined) return { outcome: 'not-a-participant' as const }
+      if (isArchived) archived.add(thread.id)
+      else archived.delete(thread.id)
+      return { outcome: 'set' as const }
+    },
+
+    async mute(humanId, conversationId, until) {
+      const thread = threads.find((one) => one.id === conversationId && one.humanId === humanId)
+      if (thread === undefined) return { outcome: 'not-a-participant' as const }
+      muted.set(thread.id, until)
+      return { outcome: 'set' as const }
     },
 
     async markRead(humanId, conversationId) {

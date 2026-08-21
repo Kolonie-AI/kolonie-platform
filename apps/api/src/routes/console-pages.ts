@@ -162,6 +162,17 @@ import { writeOperatorNote } from '../operator-notes.js'
 import { answerOperatorThread, isWaitingOnTheOperator } from '../operator-threads.js'
 import { markWishWanted, putOnWishList, selectBundle } from '../account-wishes.js'
 import type { SealedSecret, WishCatalogueEntry } from '../console/agent-accounts.js'
+import type { InboxView } from '../messaging.js'
+
+/**
+ * What *muted, until I say otherwise* is written as (`#1449`).
+ *
+ * `muted_until` is a nullable timestamp so that *mute for a week* is
+ * expressible, and nothing on the page offers a date yet — so an indefinite
+ * mute is a date far enough out to mean it. A boolean column would have made
+ * the timed case a migration; this makes it a control somebody adds later.
+ */
+const MUTED_INDEFINITELY = '2999-01-01T00:00:00.000Z'
 import {
   atlasPickerIndex,
   atlasPickerPath,
@@ -4815,7 +4826,15 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     if (signedIn === null) return signInRequired(request, reply)
 
     const desk = deps.operatorMessaging
-    const threads = desk?.inbox === undefined ? [] : await desk.inbox(signedIn.human.id, {})
+
+    /**
+     * Open by default (`#1449`). An inbox is what is left to deal with, and a
+     * page that opened on *all* would be a log rather than an inbox.
+     */
+    const asked = (request.query as { view?: string }).view
+    const view: InboxView = asked === 'archived' || asked === 'all' ? asked : 'open'
+
+    const threads = desk?.inbox === undefined ? [] : await desk.inbox(signedIn.human.id, { view })
 
     const rows = threads.map((thread) => ({
       conversationId: String(thread.conversationId),
@@ -4828,11 +4847,16 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       mine: thread.latest?.mine ?? false,
       unread: thread.unread,
       unreadCount: thread.unreadCount,
+      archived: thread.archived,
+      muted: thread.mutedUntil !== null,
     }))
 
-    if (!wantsHtml(request)) return reply.status(200).send({ threads: rows })
+    if (!wantsHtml(request)) return reply.status(200).send({ view, threads: rows })
 
-    return html(reply, inboxPage({ nav: navFor(request, signedIn.human.roles), threads: rows }))
+    return html(
+      reply,
+      inboxPage({ nav: navFor(request, signedIn.human.roles), threads: rows, view }),
+    )
   })
 
   /**
@@ -4925,6 +4949,65 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     return reply
       .status(303)
       .header('location', `/inbox/${String(thread.data)}?said=sent`)
+      .send()
+  })
+
+  /**
+   * The three states, as three writes (`#1449`, `#1447` frozen decision 4).
+   *
+   * **One route and an `act`, not three routes.** They are the same gesture on
+   * the same thread from the same list, and a person who pressed the wrong one
+   * has pressed a button rather than found a different page. What they are
+   * *not* is the same column: archive is *take it out of my list*, mute is
+   * *stop telling me about it*, and folding them would mean silencing a chatty
+   * thread also lost it.
+   *
+   * **Neither marks read**, and reading marks neither. Somebody who archives an
+   * unread thread has decided not to read it, which is a thing they are allowed
+   * to decide.
+   */
+  app.post('/inbox/:conversationId/state', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const signedIn = await person(request)
+    if (signedIn === null) return signInRequired(request, reply)
+
+    const desk = deps.operatorMessaging
+    if (desk === undefined) return consoleNotFound(reply, request)
+
+    const parsed = ConversationIdSchema.safeParse(
+      (request.params as { conversationId?: string }).conversationId,
+    )
+    if (!parsed.success) return consoleNotFound(reply, request)
+
+    const { act, back } = (request.body ?? {}) as { act?: unknown; back?: unknown }
+
+    /**
+     * **Muting with no date is indefinite.** `muted_until` is a nullable
+     * timestamp so *mute for a week* is expressible; nothing on this page offers
+     * a date yet, so the far future stands for *until I say otherwise* and the
+     * shape is ready for the control that will.
+     */
+    const outcome =
+      act === 'archive'
+        ? await desk.archive?.(signedIn.human.id, parsed.data, true)
+        : act === 'unarchive'
+          ? await desk.archive?.(signedIn.human.id, parsed.data, false)
+          : act === 'mute'
+            ? await desk.mute?.(signedIn.human.id, parsed.data, MUTED_INDEFINITELY)
+            : act === 'unmute'
+              ? await desk.mute?.(signedIn.human.id, parsed.data, null)
+              : undefined
+
+    if (outcome === undefined || outcome.outcome === 'not-a-participant') {
+      return consoleNotFound(reply, request)
+    }
+
+    if (!wantsHtml(request)) return reply.status(200).send({ act, outcome: outcome.outcome })
+
+    return reply
+      .status(303)
+      .header('location', typeof back === 'string' && back.startsWith('/inbox') ? back : '/inbox')
       .send()
   })
 

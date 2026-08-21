@@ -1,7 +1,8 @@
-import { and, asc, desc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 import {
   MESSAGE_REQUEST_EXPIRY_DAYS,
+  now as currentTime,
   MESSAGE_REQUEST_PREVIEW_MAX_LENGTH,
   OPERATOR_ANSWER_BODIES,
   WAKEUP_MESSAGING_SAMPLE_CAP,
@@ -348,6 +349,35 @@ async function insertMessage(
     .returning({ id: messages.id })
 
   if (row === undefined) throw new Error('inserting a message returned no row')
+
+  /**
+   * **A new message un-archives it, for everybody but the sender** (`#1449`).
+   *
+   * Archiving means *I am done with this*, and somebody writing again is the
+   * event that makes it untrue. Doing it here rather than in each send path is
+   * what makes it one rule: every message in the Colony goes through this
+   * function, so there is no way to write one that leaves a thread archived
+   * under somebody who has just been written to.
+   *
+   * **It does not un-mute.** Mute is *stop telling me about it* and survives
+   * exactly the event archive does not — that is `#1447` frozen decision 4, and
+   * the two columns are why it can be said at all.
+   *
+   * **The sender's own row is left alone.** A person who archived a thread and
+   * then wrote one more line into it has not changed their mind about being
+   * finished; they answered and moved on.
+   */
+  await db
+    .update(messageParticipants)
+    .set({ doneAt: null })
+    .where(
+      and(
+        eq(messageParticipants.conversationId, participant.conversationId),
+        isNotNull(messageParticipants.doneAt),
+        sql`${messageParticipants.id} <> ${participant.id}`,
+      ),
+    )
+
   return messageId(row.id)
 }
 
@@ -2489,7 +2519,32 @@ export interface InboxRow {
   readonly unread: boolean
   /** How many of the messages are unread, for the one number a list wants. */
   readonly unreadCount: number
+  /**
+   * Whether this person has said they are finished with it (`#1449`).
+   *
+   * Three states and three columns, which `#1447` froze: unread is the cursor,
+   * muted is *stop telling me*, and this is *take it out of my list*. A new
+   * message from anybody else clears it.
+   */
+  readonly archived: boolean
+  /**
+   * Until when this person has silenced it, or null.
+   *
+   * **A muted thread still appears and still shows unread.** Mute is about
+   * being told, not about being listed — folding the two would mean silencing a
+   * chatty thread also lost it.
+   */
+  readonly mutedUntil: string | null
 }
+
+/**
+ * Which slice of the inbox to answer (`#1449`).
+ *
+ * **Not folders — the same query with one predicate.** A folder is a place a
+ * thread is *in*, which would make archiving a move and un-archiving a second
+ * move somebody has to find; this is a column and a `where`.
+ */
+export type InboxView = 'open' | 'archived' | 'all'
 
 /**
  * Every thread this person is a participant of, newest activity first.
@@ -2508,7 +2563,12 @@ export interface InboxRow {
 export async function inboxFor(
   db: Database,
   humanId: HumanId,
-  options: { readonly agentId?: AgentId; readonly limit?: number } = {},
+  options: {
+    readonly agentId?: AgentId
+    readonly limit?: number
+    /** Open by default: an inbox is what is left to deal with. */
+    readonly view?: InboxView
+  } = {},
 ): Promise<readonly InboxRow[]> {
   const rows = await db.execute<{
     conversation_id: string
@@ -2519,11 +2579,15 @@ export async function inboxFor(
     latest_label: string | null
     latest_mine: boolean | null
     unread_count: string
+    done_at: string | null
+    muted_until: string | null
   }>(sql`
     with mine as (
       select p.id as participant_id,
              p.conversation_id,
-             p.last_read_message_id
+             p.last_read_message_id,
+             p.done_at,
+             p.muted_until
         from message_participants p
        where p.human_id = ${humanId}::uuid
     ),
@@ -2564,12 +2628,21 @@ export async function inboxFor(
            latest.created_at as latest_at,
            latest.sender_label as latest_label,
            (latest.sender_participant_id = mine.participant_id) as latest_mine,
-           coalesce(unread.unread_count, '0') as unread_count
+           coalesce(unread.unread_count, '0') as unread_count,
+           mine.done_at,
+           mine.muted_until
       from theirs
       join mine on mine.conversation_id = theirs.conversation_id
       left join latest on latest.conversation_id = theirs.conversation_id
       left join unread on unread.conversation_id = theirs.conversation_id
      where ${options.agentId === undefined ? sql`true` : sql`theirs.agent_id = ${options.agentId}::uuid`}
+       and ${
+         (options.view ?? 'open') === 'all'
+           ? sql`true`
+           : (options.view ?? 'open') === 'archived'
+             ? sql`mine.done_at is not null`
+             : sql`mine.done_at is null`
+       }
      order by coalesce(latest.created_at, 'epoch'::timestamptz) desc, theirs.conversation_id
      limit ${options.limit ?? CONVERSATION_LIST_LIMIT}
   `)
@@ -2595,7 +2668,73 @@ export async function inboxFor(
           },
     unread: Number(row.unread_count) > 0,
     unreadCount: Number(row.unread_count),
+    archived: row.done_at !== null,
+    mutedUntil: row.muted_until,
   }))
+}
+
+/** What an archive or a mute did, or why it did nothing. */
+export type InboxStateOutcome =
+  { readonly outcome: 'set' } | { readonly outcome: 'not-a-participant' }
+
+/**
+ * Say this person is, or is no longer, finished with a thread (`#1449`).
+ *
+ * **Archiving is not deleting**, and this is the whole of what it does: one
+ * timestamp on one participant row. The thread stays, its messages stay, and a
+ * message from anybody else clears it in the same insert that writes the
+ * message. That is what makes it safe to use liberally — nothing is lost by
+ * being wrong about it.
+ *
+ * **It does not mark read**, and marking read does not archive. Two acts on two
+ * columns: a person who archives an unread thread has decided not to read it,
+ * which is a thing they are allowed to decide.
+ */
+export async function archiveConversationForOperator(
+  db: Database,
+  humanId: HumanId,
+  id: ConversationId,
+  archived: boolean,
+): Promise<InboxStateOutcome> {
+  const changed = await db
+    .update(messageParticipants)
+    .set({ doneAt: archived ? currentTime() : null })
+    .where(
+      and(eq(messageParticipants.conversationId, id), eq(messageParticipants.humanId, humanId)),
+    )
+    .returning({ id: messageParticipants.id })
+
+  return changed.length === 0 ? { outcome: 'not-a-participant' } : { outcome: 'set' }
+}
+
+/**
+ * Silence a thread for this person, until a date or indefinitely (`#1449`).
+ *
+ * **A muted thread stays in the list and still shows unread.** Mute is about
+ * being *told*, and `#1451`'s notifier is what reads it. Folding it into archive
+ * would mean a person silencing a chatty thread also lost it from their list,
+ * which is two intentions wearing one column.
+ *
+ * **The other party is never told.** An agent that learned it had been muted
+ * would reasonably open a second thread, which is exactly what muting was for.
+ *
+ * `null` un-mutes.
+ */
+export async function muteConversationForOperator(
+  db: Database,
+  humanId: HumanId,
+  id: ConversationId,
+  until: string | null,
+): Promise<InboxStateOutcome> {
+  const changed = await db
+    .update(messageParticipants)
+    .set({ mutedUntil: until })
+    .where(
+      and(eq(messageParticipants.conversationId, id), eq(messageParticipants.humanId, humanId)),
+    )
+    .returning({ id: messageParticipants.id })
+
+  return changed.length === 0 ? { outcome: 'not-a-participant' } : { outcome: 'set' }
 }
 
 /**

@@ -11,7 +11,9 @@ import {
   BOOTSTRAP_TEMPLATES,
   BootstrapTemplateIdSchema,
   RecipeDirectionSchema,
+  PERSON_SHAPED_WALLS,
   WALL_KINDS,
+  WALLS_NO_OPERATOR_CAN_CLEAR,
   WallKindSchema,
   EARN_FACETS,
   EarnFacetSchema,
@@ -449,6 +451,45 @@ export function registerAccountAtlasTools(
               'from clear.',
           ),
         /**
+         * The same two filters, aimed the one way nobody was aiming them
+         * (`#1421`).
+         *
+         * **Grammar and not a new tool.** It sets `withWalls` to
+         * `PERSON_SHAPED_WALLS` and `excludeWalls` to `terms-forbid-agents`, and
+         * every argument of it is a wall kind that already exists — so a wall
+         * added to the taxonomy tomorrow costs zero tools here, which is the
+         * catalogue doctrine's own acceptance test.
+         *
+         * **What it buys is the classification, which is the part a citizen
+         * could not work out.** `withWalls: ['human-check', 'identity-document',
+         * 'approval-required', 'representation-required']` was always
+         * expressible; knowing that those four and no others are the ones a
+         * person can clear *and keep the account after* was not, and getting it
+         * wrong in either direction is expensive. Include
+         * `terms-forbid-agents` and a citizen queues an ask that must never be
+         * made; leave out `representation-required` and it strikes off a
+         * provider that would have worked.
+         *
+         * **It clears nothing.** Nothing here automates, solves or routes around
+         * a human check — the whole point is that the person whose step it is
+         * gets asked once instead of eight times.
+         */
+        needsAPerson: z
+          .boolean()
+          .optional()
+          .describe(
+            'Only providers standing behind a wall a person can clear and then hold the ' +
+              'account: ' +
+              `${PERSON_SHAPED_WALLS.join(', ')}. Providers whose terms forbid an ` +
+              'agent-held account are **excluded** rather than listed — an operator signing ' +
+              'up there would hold the account in their own name and lend it to you, which ' +
+              'is not a way in. Nothing here clears, solves or routes around a check: it is ' +
+              'the shelf you can ask one person about once, instead of discovering the same ' +
+              'wall eight times. `payment-required` and `phone-verification` are ' +
+              'deliberately absent — the Colony has a rung for each, so those are work you ' +
+              'have not tried rather than work you cannot do.',
+          ),
+        /**
          * The other axis of the catalogue (`#1301`).
          *
          * **Additive with `category` rather than competing with it.** A shelf
@@ -656,8 +697,22 @@ export function registerAccountAtlasTools(
           status: input.status,
           minProved: input.minProved,
           direction: input.direction,
-          withWalls: input.withWalls,
-          excludeWalls: input.excludeWalls,
+          /**
+           * **`needsAPerson` widens rather than replaces** (`#1421`). A caller
+           * that asked for both gets the union on `withWalls` and the union on
+           * `excludeWalls`, and `wallsMatch` already settles the collision the
+           * right way: `excludeWalls` wins, so a provider whose terms forbid an
+           * agent account cannot be dragged back onto the list by a `withWalls`
+           * a caller also passed.
+           */
+          withWalls:
+            input.needsAPerson === true
+              ? [...new Set([...(input.withWalls ?? []), ...PERSON_SHAPED_WALLS])]
+              : input.withWalls,
+          excludeWalls:
+            input.needsAPerson === true
+              ? [...new Set([...(input.excludeWalls ?? []), ...WALLS_NO_OPERATOR_CAN_CLEAR])]
+              : input.excludeWalls,
           withEarn: input.withEarn,
           excludeEarn: input.excludeEarn,
           /**

@@ -2032,6 +2032,122 @@ describe('kolonie.accounts.recipes filters on what stopped the walkers', () => {
     expect(JSON.stringify(result.content)).not.toContain('paywalled.example')
     await close()
   })
+
+  /**
+   * The shelf a person can open, in one call (`#1421`).
+   *
+   * Measured 2026-08-20: twenty-one earn providers, **not one walked to an
+   * account**, and the walls clustered on exactly what an agent cannot honestly
+   * clear alone. The filters could always express it; what a citizen could not
+   * work out was *which* wall kinds those are, and getting it wrong in either
+   * direction is expensive.
+   */
+  describe('needsAPerson (#1421)', () => {
+    const shelf = async () => {
+      const { colony, apiKey } = await registeredCitizen()
+      colony.recipes.write({
+        kind: 'trello',
+        provider: 'captcha.example',
+        status: 'joinable',
+        walls: [{ kind: 'human-check', reportedBy: 2, lastReportedAt: null }],
+      })
+      colony.recipes.write({
+        kind: 'trello',
+        provider: 'represents.example',
+        status: 'joinable',
+        walls: [{ kind: 'representation-required', reportedBy: 1, lastReportedAt: null }],
+      })
+      colony.recipes.write({
+        kind: 'trello',
+        provider: 'forbidden.example',
+        status: 'joinable',
+        walls: [{ kind: 'terms-forbid-agents', reportedBy: 4, lastReportedAt: null }],
+      })
+      colony.recipes.write({
+        kind: 'trello',
+        provider: 'paywalled.example',
+        status: 'joinable',
+        walls: [{ kind: 'payment-required', reportedBy: 3, lastReportedAt: null, amountUsd: 9 }],
+      })
+      colony.recipes.write({ kind: 'trello', provider: 'open.example', status: 'joinable' })
+      return { colony, apiKey }
+    }
+
+    const listed = async (args: Record<string, unknown>) => {
+      const { colony, apiKey } = await shelf()
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+      const result = await client.callTool({ name: 'kolonie.accounts.recipes', arguments: args })
+      await close()
+      expect(result.isError).not.toBe(true)
+      return JSON.stringify(result.content)
+    }
+
+    it('lists every provider standing behind a wall a person can clear', async () => {
+      const text = await listed({ needsAPerson: true })
+
+      expect(text).toContain('captcha.example')
+      // `representation-required` is the one a reader would leave out, and
+      // leaving it out strikes off a provider that would have worked: the
+      // person can truthfully make the representation and the account is
+      // theirs rather than lent.
+      expect(text).toContain('represents.example')
+    })
+
+    /**
+     * **`#1421`'s second acceptance criterion, and the one that matters most.**
+     * An operator who signs up where the terms forbid an agent-held account
+     * holds it in their own name and lends it, which is not a way in. That row
+     * stays closed and should be marked so, not queued.
+     */
+    it('excludes a provider whose terms forbid an agent-held account', async () => {
+      const text = await listed({ needsAPerson: true })
+
+      expect(text).not.toContain('forbidden.example')
+    })
+
+    /**
+     * A card and a phone number are rungs the citizen can climb, so a provider
+     * stopped by one is work it has not tried rather than work it cannot do.
+     * Queueing an operator ask for it would spend a person's attention on
+     * something the Academy exists to teach.
+     */
+    it('leaves out a paywall, which is a rung rather than a person', async () => {
+      const text = await listed({ needsAPerson: true })
+
+      expect(text).not.toContain('paywalled.example')
+    })
+
+    it('leaves out a provider nothing has stopped', async () => {
+      const text = await listed({ needsAPerson: true })
+
+      expect(text).not.toContain('open.example')
+    })
+
+    /**
+     * **It widens rather than replaces**, and the exclusion still wins. A caller
+     * that asks for both gets the union, and `wallsMatch` settles the collision
+     * the right way — so a forbidden provider cannot be dragged back onto the
+     * list by a `withWalls` the caller also passed.
+     */
+    it('adds to a withWalls the caller passed, and still refuses the forbidden one', async () => {
+      const text = await listed({
+        needsAPerson: true,
+        withWalls: ['payment-required', 'terms-forbid-agents'],
+      })
+
+      expect(text).toContain('captcha.example')
+      expect(text).toContain('paywalled.example')
+      expect(text).not.toContain('forbidden.example')
+    })
+
+    /** Absent is absent: the shelf is unchanged for every caller that did not ask. */
+    it('changes nothing for a caller that did not ask for it', async () => {
+      const text = await listed({})
+
+      expect(text).toContain('forbidden.example')
+      expect(text).toContain('open.example')
+    })
+  })
 })
 
 /**

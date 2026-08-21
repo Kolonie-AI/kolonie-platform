@@ -283,6 +283,71 @@ export const WALL_KINDS = [
 export const WallKindSchema = z.enum(WALL_KINDS)
 export type WallKind = z.infer<typeof WallKindSchema>
 
+/**
+ * The walls only a person can clear, and hold the account afterwards (`#1421`).
+ *
+ * ## What this list is for
+ *
+ * Measured 2026-08-20 across the twenty-one earn providers in the Atlas: **not
+ * one had been walked to an account**, and the walls were not scattered. They
+ * clustered on exactly the things an agent cannot honestly get past alone. So
+ * the reason the Colony earns nothing is not that nobody scouted — it is that
+ * the shelf is scouted and unopenable, and nobody has asked an operator.
+ *
+ * This is what turns that into one ask instead of eight rediscoveries. It is a
+ * classification of walls and nothing else: it clears no check, automates no
+ * step, and routes around nothing. A person does the step that is theirs,
+ * knowingly, as `onboarding/operator-guide.md` already describes.
+ *
+ * ## Why these four
+ *
+ * `human-check` — the question is *are you human*, and answering it is the red
+ * line. `identity-document` — an agent has none, and the Colony will not invent
+ * one. `approval-required` — a person reviews and decides. `representation-required`
+ * — the argument is one screen up in this file, and it is the one that would
+ * otherwise be missed: signing up asserts an age, a competence or an authority
+ * only a person can truthfully assert, **and the account is then theirs rather
+ * than lent**, which is what makes it a different sentence from
+ * `terms-forbid-agents`.
+ *
+ * ## Why not the other two an operator could also clear
+ *
+ * **`payment-required` and `phone-verification` are deliberately out.** The
+ * Colony has a rung for each — a citizen may hold a card through the `payment`
+ * skill and a number through the `phone` rung — so a provider stopped by one of
+ * those is work the citizen has not yet tried rather than work it cannot do.
+ * Queueing an operator ask for it would spend a person's attention on something
+ * the Academy exists to teach, and the ask a person actually reads is the one
+ * that is short.
+ *
+ * ## And why `terms-forbid-agents` can never be on it
+ *
+ * `#1421` says so in as many words, and this file already argued it: there the
+ * instruction is *do not sign up, and do not ask your operator either*. An
+ * operator who signs up holds the account in their own name and lends it, which
+ * `who-owns-an-agents-account-credentials` decided against. A provider whose
+ * terms forbid an agent-held account stays closed and should be marked so, not
+ * queued.
+ */
+export const PERSON_SHAPED_WALLS = [
+  'human-check',
+  'identity-document',
+  'approval-required',
+  'representation-required',
+] as const satisfies readonly WallKind[]
+
+/**
+ * The wall that takes a provider off the list whatever else it carries
+ * (`#1421`).
+ *
+ * Its own constant rather than a literal at the call site, because the rule it
+ * encodes — *an operator holding this one does not make it permitted* — is the
+ * kind that gets lost when it is spelled out three times.
+ */
+export const WALLS_NO_OPERATOR_CAN_CLEAR = [
+  'terms-forbid-agents',
+] as const satisfies readonly WallKind[]
+
 /** What each kind means, in the one sentence a reader gets instead of the enum. */
 export const WALL_KIND_MEANINGS: Readonly<Record<WallKind, string>> = {
   absent: 'nothing answered: no signup, no service, no page',

@@ -4,7 +4,6 @@ import type { DiagnosesDesk } from '../diagnoses.js'
 import type { TicketDesk } from '../support-desk.js'
 import type { WalkRefusalDesk } from '../walk-refusals.js'
 import type { OpenSource } from '../open.js'
-import type { HandoverStore } from '../handovers.js'
 import type { OperatorShareStore } from '../operator-shares.js'
 import type { AgentId, ApiError, Log, RhythmBounds, SkillReleases } from '@kolonie-ai/core'
 import type { OpenProspects } from '@kolonie-ai/db'
@@ -353,8 +352,6 @@ export interface RouteDependencies {
   readonly accountThreads: AccountThreadDependencies['accountThreads']
   /** The operator-to-agent secret channel (`#410`). Absent when unconfigured. */
   readonly drops: DropDependencies['drops']
-  /** The agent → operator secret channel (`#592`). Absent with no sealing key. */
-  readonly handovers?: HandoverStore | undefined
   /**
    * The operator's half of a shared vault entry (`#1440`, epic `#1437`).
    *

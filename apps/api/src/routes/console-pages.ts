@@ -159,7 +159,7 @@ import {
 import { writeOperatorNote } from '../operator-notes.js'
 import { answerOperatorThread, isWaitingOnTheOperator } from '../operator-threads.js'
 import { markWishWanted, putOnWishList, selectBundle } from '../account-wishes.js'
-import type { WishCatalogueEntry } from '../console/agent-accounts.js'
+import type { SealedSecret, WishCatalogueEntry } from '../console/agent-accounts.js'
 import {
   atlasPickerIndex,
   atlasPickerPath,
@@ -979,75 +979,17 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
   })
 
   /**
-   * Read a secret an agent sealed for its operator (`#592`).
+   * `POST /handovers/:handoverId` is gone (`#1443`).
    *
-   * ## Why this is a POST and why it is on the console at all
+   * It read a secret an agent had sealed for its operator, from a signed-in
+   * console. Over the whole lifetime of that channel it was reached **zero
+   * times** against 42 sealed values — operators hold the durable page rather
+   * than a console account, which is the constraint `#1437` frozen decision 1
+   * reverses. `kolonie.vault.share` replaces it and is read from the page.
    *
-   * **A signed-in session is the only thing that authorises it.** The mailed
-   * operator-page token never expires and is revoked only by the agent, and
-   * `#587` already found it rendered into console HTML. Writing into a sealed
-   * box through a bearer link discloses nothing; reading a password out of one
-   * does. `readHandoverAsOperator` takes a human id and there is no token
-   * parameter to leave out — the join is the authorisation.
-   *
-   * **POST rather than GET, because reading it spends one of three.** A browser
-   * prefetching a link, a crawler following one, or a back button would each
-   * burn a read of a live credential. The same reasoning every other state
-   * change on this console is a form for, with more at stake.
-   *
-   * **The value is in the response body and nowhere else.** Not in the URL, not
-   * in a redirect, not in a log line. The page that shows it says, before the
-   * operator opens it, that it is not keeping a copy.
+   * The slot's route below is **not** the same thing and stays: a slot is filled
+   * by a person and claimed by the agent, which is the other direction.
    */
-  app.post('/handovers/:handoverId', async (request, reply) => {
-    if (!(await guard(request, reply))) return reply
-
-    const signedIn = await person(request)
-    if (signedIn === null) return signInRequired(request, reply)
-
-    const { handoverId } = request.params as { handoverId: string }
-
-    /**
-     * `closed` when the channel is not configured, which is the same answer a
-     * stranger's id gets and the same answer an expired one gets. A console that
-     * distinguished them would be telling whoever asked about the deployment, or
-     * about whether a row ever existed.
-     */
-    const result =
-      deps.handovers === undefined
-        ? ({ outcome: 'closed' } as const)
-        : await deps.handovers.read(handoverId, signedIn.human.id)
-
-    if (result.outcome !== 'read') {
-      const message =
-        'That secret is not readable. It has been read the number of times it allows, its few ' +
-        'hours have passed, or it was never yours — the Colony answers the same way to all ' +
-        'three on purpose. Ask your agent to seal another; it costs it nothing.'
-
-      return wantsHtml(request)
-        ? reply.status(303).header('location', '/?handover=closed').send()
-        : reply.status(ERROR_STATUS.conflict).send({ code: 'conflict', message })
-    }
-
-    return wantsHtml(request)
-      ? html(
-          reply,
-          handoverPage({
-            nav: navFor(request, signedIn.human.roles),
-            provider: result.provider,
-            prompt: result.prompt,
-            value: result.value,
-            readsLeft: result.readsLeft,
-          }),
-        )
-      : reply.send({
-          provider: result.provider,
-          value: result.value,
-          readsLeft: result.readsLeft,
-          notice: handoverNotice(result.readsLeft),
-        })
-  })
-
   /**
    * Fill a secret slot an agent left waiting for its operator (`#931`).
    *
@@ -3481,19 +3423,16 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       }))
 
     /**
-     * What this agent has sealed for this person, and nobody has opened
-     * (`#1027`).
+     * There is nothing sealed for this person to open any more (`#1443`).
      *
-     * **Narrowed in the query and not here.** `waiting` takes the agent because
-     * a listing trimmed by the caller is a listing that arrives whole at a page
-     * which then has to remember to trim it — on a query about credentials. The
-     * human id is still what authorises it; the agent only narrows.
-     *
-     * **Absent when the deployment has no sealing key**, which is the same
-     * absence every other handover surface makes: nothing can have been sealed,
-     * so there is nothing to say.
+     * This listed what the agent had sealed through `kolonie.accounts.handover`.
+     * That channel is retired — 42 sealed, **zero ever read** — and what
+     * replaces it is a shared vault entry, which is read from the durable
+     * operator page rather than from here. The empty array stays so the page
+     * keeps its shape rather than growing a branch for a section that is now
+     * always absent.
      */
-    const sealed = (await deps.handovers?.waiting(operated.humanId, operated.agentId)) ?? []
+    const sealed: readonly SealedSecret[] = []
 
     /**
      * Which of these wishes has a question waiting on this person (`#1027`).

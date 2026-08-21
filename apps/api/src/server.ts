@@ -199,7 +199,6 @@ import { databaseSocialChallenges } from './social.js'
 import { databaseArtefactChallenges } from './artefact.js'
 import { databaseDomainChallenges } from './domain.js'
 import { databaseVisionChallenges } from './vision.js'
-import { databaseHandovers } from './handovers.js'
 import { databaseAccountOffers } from './account-offers.js'
 import { databaseAccountThreads } from './account-threads.js'
 import { databaseDrops, usableSealingKey } from './operator-drops.js'
@@ -1817,9 +1816,6 @@ const app = buildApp({
    */
   operatorShares: usableSealingKey(process.env[OPERATOR_DROP_SEALING_KEY_VAR])
     ? databaseOperatorShares(db, process.env[OPERATOR_DROP_SEALING_KEY_VAR] as string)
-    : undefined,
-  handovers: usableSealingKey(process.env[OPERATOR_DROP_SEALING_KEY_VAR])
-    ? databaseHandovers(db, process.env[OPERATOR_DROP_SEALING_KEY_VAR] as string)
     : undefined,
   /**
    * Citizen to citizen (`#1125`), on the same key again.

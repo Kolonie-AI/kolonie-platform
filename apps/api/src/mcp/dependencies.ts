@@ -56,7 +56,6 @@ import type { TaskCatalogue } from '../tasks.js'
 import type { AdoptionDesk } from '../adoption.js'
 import type { DropStore } from '../operator-drops.js'
 import type { AccountOfferDependencies } from '../account-offers.js'
-import type { HandoverStore } from '../handovers.js'
 import type { AccountThreadStore } from '../account-threads.js'
 import type { VaultDependencies } from '../vault.js'
 import type { VisionDependencies } from '../vision.js'
@@ -482,15 +481,6 @@ export interface McpDependencies {
    * the tools say so rather than failing.
    */
   readonly drops?: DropStore | undefined
-  /**
-   * The agent → operator secret channel (`#592`).
-   *
-   * `undefined` on a deployment with no sealing key, exactly like `drops` above
-   * and for the same reason: a Colony that was never given one starts normally
-   * and tells a citizen it cannot carry a secret, rather than failing at the
-   * moment one is handed over.
-   */
-  readonly handovers?: HandoverStore | undefined
   /**
    * An account handed from one citizen to another (`#1125`).
    *

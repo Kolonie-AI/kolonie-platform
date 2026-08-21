@@ -98,19 +98,53 @@ repository needs a genuinely different toolchain, audience, or blast radius.
   prose. Use `ApiError` and `ERROR_STATUS` from core.
 - **No `any`, no `@ts-ignore`, no disabled lint rules.** `@ts-expect-error` is
   allowed in a test whose point is that something must not typecheck.
-- **Independent work gets independent files.** Where a list, an array or a
-  registry grows one entry per unit of work — a task, a decision, a migration, a
-  change note — each entry is a file and something assembles them. A shared
-  append point is a merge conflict with a delay on it. A directory owns its own
-  `index.ts`, so a split changes the parent barrel by one line and two splits in
-  the same week do not collide. This is not new practice: `mcp.ts` and `app.ts`
-  were both fixed this way. **A file that is appended to and read from the end is
-  a chronicle and is left alone** — test files and changelog-shaped records are
-  the example, and they are on the measured list without being a problem. There
-  is deliberately **no line limit**: size is a readability question, judged case
-  by case, and the worst file on that list is forty lines long. Which files are
-  contended, when it was last measured, and how to re-measure:
+- **A file that is only ever appended to becomes a directory.** If new work adds
+  an entry rather than editing existing ones — a decision record, a changelog
+  entry, a measurement — it is written as its own file under a directory, named
+  so the directory sorts. **Two entries about two different subjects must never
+  be able to conflict.** A directory owns its own `index.ts`, so a split changes
+  the parent barrel by one line and two splits in the same week do not collide;
+  `mcp.ts` and `app.ts` were both fixed this way.
+
+  **The shape is what predicts the conflict: does new work append, or edit?** So
+  there is deliberately **no line limit**, and size is not the test.
+  `packages/db/src/schema/index.ts` is **122 lines with 118 changes in thirty
+  days** and collided constantly, while a 3000-line file nobody appends to
+  collides never.
+
+  **Where an assembled file is genuinely read by somebody**, it is **produced** by
+  a script and checked in, and a `--check` mode runs in `npm run check` so the two
+  cannot drift. [`scripts/build-changelog.mjs`](scripts/build-changelog.mjs) is
+  the worked example — `packages/core/CHANGELOG.md` from
+  `packages/core/changes/`, because consumers read it at a tag (`#672`) — and
+  [`scripts/build-decisions-index.mjs`](scripts/build-decisions-index.mjs) is the
+  second, producing `docs/decisions.md` as an index over `docs/decisions/`
+  (`#1497`). If both the directory and the file are hand-edited, the conflict
+  comes back with an extra step in front of it, and the `--check` is what refuses
+  that.
+
+  **Registries cannot become directories and get a merge driver instead.** A
+  barrel, a tool list, a table of contents is a list _by nature_ — there is
+  nothing to split. Those are named in
+  [`.gitattributes`](.gitattributes) with a built-in driver and a comment saying
+  why (`#1496`), and `check:union-guards` refuses a `merge=union` path that names
+  no guard against a duplicated entry. **Do not try to split
+  `schema/index.ts`**; there is nothing to split, and the driver is the answer.
+
+  **The carve-out that used to be here is gone, and it is why this rule had to be
+  written three times.** It read _a file that is appended to and read from the end
+  is a chronicle and is left alone_, naming changelog-shaped records as the
+  example. Under it, `packages/core/CHANGELOG.md` reached 1745 lines and
+  `docs/decisions.md` reached **9497 on +9582/−85 in thirty days**, and both were
+  split anyway. The rule in `kolonie-docs`
+  [`agents/docs-repo.md`](https://github.com/Kolonie-AI/kolonie-docs/blob/main/agents/docs-repo.md)
+  is the source of this one and carries the sharpening: a chronicle is left alone
+  **only where two entries cannot conflict**. `operations/incidents.md` at
+  +568/−5 qualifies; a file every branch in flight appends to does not.
+
+  Which files are contended, when it was last measured, and how to re-measure:
   [`docs/contention.md`](docs/contention.md).
+
 - **A migration is generated, never renumbered by hand.** `npm run generate` in
   `packages/db` writes the `.sql` file, its snapshot and the journal entry
   together, and stamps the entry from the clock. Resolving a collision by editing

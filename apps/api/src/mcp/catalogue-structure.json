@@ -655,6 +655,9 @@
             "minimum": 0,
             "type": "integer"
           },
+          "needsAPerson": {
+            "type": "boolean"
+          },
           "outcome": {
             "enum": ["proved", "refused", "abandoned", "sighted"],
             "type": "string"

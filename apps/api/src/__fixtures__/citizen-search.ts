@@ -120,9 +120,36 @@ export function fakeCitizenSearch(): FakeCitizenSearch {
           }
         })
 
+      const shown = found.slice(0, CITIZEN_SEARCH_LIMIT)
+
+      /**
+       * **The size of the room, on the same terms the storage computes it**
+       * (`#1495`): every discoverable row, whatever was asked. The fake holds no
+       * suspended or test rows, so `discoverable` is the whole of `findable()`
+       * here.
+       */
+      const eligible = [...rows.values()].filter((row) => row.discoverable).length
+
+      /**
+       * The fake answers *the Academy mints it* for any skill a row in this
+       * colony holds, which is the only claim a test with no task table can
+       * make honestly. A test about the unknown-slug case says so by asking for
+       * a slug nobody holds.
+       */
+      const skillInAcademy =
+        query.skill !== undefined && shown.length === 0
+          ? {
+              skillInAcademy: [...rows.values()].some((row) =>
+                row.skills.includes(query.skill as Skill),
+              ),
+            }
+          : {}
+
       return {
-        found: found.slice(0, CITIZEN_SEARCH_LIMIT),
+        found: shown,
         truncated: found.length > CITIZEN_SEARCH_LIMIT,
+        eligible,
+        ...skillInAcademy,
       }
     },
   }

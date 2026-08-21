@@ -137,6 +137,57 @@ describe('finding a citizen by what it can do', () => {
    * results would fail this test, which is the point of asserting the shape
    * rather than only the array.
    */
+  /**
+   * **How large the room was, from the same predicate the search passes**
+   * (`#1495`). Computed without reading the query, which is why it is not the
+   * count `kolonie-docs#413` refuses.
+   */
+  it('counts the citizens a search was allowed to match, whatever was asked', async () => {
+    const holder = await anAgent(`open-${++seeded}`)
+    await aSkill(holder, DOMAIN)
+    await anAgent(`open-other-${++seeded}`)
+    await anAgent(`hidden-${++seeded}`, { discoverable: false })
+    await anAgent(`suspended-${++seeded}`, { status: 'suspended' })
+    await anAgent(`a-test-account-${++seeded}`, { type: 'test' })
+
+    /** Two discoverable ordinary citizens; the other three are in no answer. */
+    expect((await findCitizens(db, { skill: DOMAIN })).eligible).toBe(2)
+    /** And the same number for a search that matches nobody at all. */
+    expect((await findCitizens(db, { skill: MAILBOX })).eligible).toBe(2)
+    expect((await findCitizens(db, { capability: 'nobody says this' })).eligible).toBe(2)
+  })
+
+  /**
+   * **A typo and an unheld skill are different findings** (`#1495`). Read off
+   * the tasks table rather than `KNOWN_SKILLS`, so a rung added yesterday
+   * answers correctly with no edit in this package.
+   */
+  it('says whether the Academy grants a skill nobody findable holds', async () => {
+    const hidden = await anAgent(`hidden-holder-${++seeded}`, { discoverable: false })
+    await aSkill(hidden, DOMAIN)
+
+    const held = await findCitizens(db, { skill: DOMAIN })
+
+    /**
+     * Empty, and the skill plainly exists — a rung grants it and a citizen has
+     * passed it. The field is about the catalogue and never about who is
+     * discoverable.
+     */
+    expect(held.found).toEqual([])
+    expect(held.skillInAcademy).toBe(true)
+
+    expect((await findCitizens(db, { skill: SkillSchema.parse('domainn') })).skillInAcademy).toBe(
+      false,
+    )
+  })
+
+  /** Absent where the question does not arise: the Academy mints no capability. */
+  it('says nothing about the Academy on a capability search', async () => {
+    expect((await findCitizens(db, { capability: 'nobody says this' })).skillInAcademy).toBe(
+      undefined,
+    )
+  })
+
   it('never names a citizen that did not switch discovery on, and says nothing was omitted', async () => {
     const shy = await anAgent('shy', { discoverable: false })
     const willing = await anAgent('willing')
@@ -146,23 +197,49 @@ describe('finding a citizen by what it can do', () => {
     const result = await findCitizens(db, { skill: MAILBOX })
 
     expect(result.found.map((citizen) => citizen.handle)).toEqual(['willing'])
-    expect(Object.keys(result).sort()).toEqual(['found', 'truncated'])
+    /**
+     * **`eligible` joined the shape in `#1495` and nothing else did.** It counts
+     * the rows the query was allowed to match and is computed without reading
+     * the query, so it cannot be differenced against `found` to learn that a
+     * match was withheld — `shy` holds the skill here and the number is the same
+     * as it would be if `shy` did not exist at all.
+     *
+     * The key set stays asserted exactly, because what `kolonie-docs#413`
+     * forbids is a *field*, and a list is the only thing that notices one
+     * arriving.
+     */
+    expect(Object.keys(result).sort()).toEqual(['eligible', 'found', 'truncated'])
     expect(result.truncated).toBe(false)
   })
 
   /**
    * A search for a skill nobody findable holds is indistinguishable from a
-   * search for a skill nobody holds at all. That indistinguishability is the
-   * guarantee — a caller must not be able to take the difference between two
-   * empty answers and learn that somebody exists who would not be named.
+   * search for a skill nobody holds at all — **in everything derived from
+   * citizens**. That is the guarantee: a caller must not be able to take the
+   * difference between two empty answers and learn that somebody exists who
+   * would not be named.
+   *
+   * **`#1495` narrowed the wording and not the guarantee.** The two answers used
+   * to be identical objects; they now differ on `skillInAcademy`, which reads
+   * the tasks table and no citizen row. Whether the Academy mints a slug is
+   * already public through `kolonie.tasks.list`, and it is the same answer
+   * whether every holder is hidden or there are no holders at all — so it
+   * carries nothing about anybody. What must stay identical is asserted
+   * field by field below rather than by comparing the whole object, because the
+   * whole-object form would have made a catalogue fact look like a citizen one.
    */
   it('answers a search nobody opted into exactly as it answers a search nobody matched', async () => {
     const shy = await anAgent('shy', { discoverable: false })
     await aSkill(shy, MAILBOX)
 
-    expect(await findCitizens(db, { skill: MAILBOX })).toEqual(
-      await findCitizens(db, { skill: DOMAIN }),
-    )
+    const hidden = await findCitizens(db, { skill: MAILBOX })
+    const unheld = await findCitizens(db, { skill: DOMAIN })
+
+    expect(hidden.found).toEqual(unheld.found)
+    expect(hidden.found).toEqual([])
+    expect(hidden.truncated).toBe(unheld.truncated)
+    /** The number is the same, which is the whole of why it may be served. */
+    expect(hidden.eligible).toBe(unheld.eligible)
   })
 
   /** The switch is a predicate in the query, so off is true of the next call. */

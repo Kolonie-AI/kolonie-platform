@@ -107,7 +107,7 @@ export function registerCitizenSearchTool(
       const result = await searchCitizens(input, search)
       if (result.outcome === 'rejected') return toolError(result.error)
 
-      const { found, truncated } = result.response
+      const { found, truncated, eligible, skillInAcademy } = result.response
 
       /**
        * What an empty answer is allowed to say, and it is not *nobody*.
@@ -118,15 +118,42 @@ export function registerCitizenSearchTool(
        * about the Colony something the query was never permitted to establish.
        * So the empty text says what was searched and what it means, which is
        * true whichever of the three reasons produced it.
+       *
+       * **And it now says how large the search was** (`#1495`). *Searched 33,
+       * found none* is something a citizen can act on; *searched 2, found none*
+       * is not an answer at all, and the two were the same sentence until here.
+       * The number is independent of the query, so it discloses nothing about
+       * who holds what — see {@link CitizenSearchResult.eligible}.
        */
       const asked = `\`${input.skill ?? input.playbook ?? input.capability}\``
 
+      /**
+       * **The size of the room, on every answer and not only the empty one.**
+       * A reader that only ever meets it beside a nil result learns to read it
+       * as an apology; printed always, it is what it is — the denominator.
+       */
+      const searched = `Searched ${eligible} findable ${eligible === 1 ? 'citizen' : 'citizens'}`
+
+      /**
+       * **A typo and an unheld skill are different findings** (`#1495`), and
+       * without this the first reads as the second. Only on a skill search that
+       * came back empty, which is the only moment it changes what to do next.
+       */
+      const academy =
+        skillInAcademy === undefined
+          ? ''
+          : skillInAcademy
+            ? ` The Academy does mint ${asked}, so this is a skill nobody findable holds yet — ` +
+              `passing that rung is how you become the answer to this search.`
+            : ` **No rung in the Academy grants ${asked}**, so nobody could hold it under that ` +
+              `name. Check the spelling against what kolonie.me lists.`
+
       const text =
         found.length === 0
-          ? `Nobody findable matched ${asked}. That is not the same as nobody: a citizen that ` +
-            `has not switched discovery on is absent from every search, and this answer cannot ` +
-            `tell you whether there is one.`
-          : `${found.length} ${found.length === 1 ? 'citizen' : 'citizens'} matched ${asked}, ` +
+          ? `${searched}. Nobody matched ${asked}. That is not the same as nobody: a citizen ` +
+            `that has not switched discovery on is absent from every search, and this answer ` +
+            `cannot tell you whether there is one.${academy}`
+          : `${searched}. ${found.length} ${found.length === 1 ? 'citizen' : 'citizens'} matched ${asked}, ` +
             `alphabetically:\n\n` +
             found
               .map((citizen) => {

@@ -8,7 +8,6 @@ import {
   archiveConversationForOperator,
   claimOperatorNotification,
   markConversationReadByOperator,
-  muteConversationForOperator,
   openOperatorHelpConversation,
   sendOperatorMessage,
 } from './messaging.js'
@@ -153,40 +152,17 @@ describe('telling a person something arrived', () => {
     expect(await claimOperatorNotification(db, sent.conversationId, sent.messageId)).toBeUndefined()
   })
 
-  it('says nothing about a muted thread, whatever else holds', async () => {
-    expect(await agentWrites('One.')).toBe(true)
-
-    const [row] = await db
-      .select({ id: messageParticipants.conversationId })
-      .from(messageParticipants)
-      .where(sql`${messageParticipants.humanId} = ${humanId}::uuid`)
-    const thread = row!.id as Parameters<typeof muteConversationForOperator>[2]
-
-    await muteConversationForOperator(db, humanId, thread, '2999-01-01T00:00:00.000Z')
-    await aDayPasses()
-
-    // Unread, quiet period over, from the agent — three of four conditions
-    // hold, and mute overrides them. That is what mute is.
-    expect(await agentWrites('Two.')).toBe(false)
-  })
-
-  it('tells them again once a mute has run out', async () => {
-    expect(await agentWrites('One.')).toBe(true)
-
-    const [row] = await db
-      .select({ id: messageParticipants.conversationId })
-      .from(messageParticipants)
-      .where(sql`${messageParticipants.humanId} = ${humanId}::uuid`)
-    const thread = row!.id as Parameters<typeof muteConversationForOperator>[2]
-
-    // Mute for a week is expressible because `muted_until` is a timestamp
-    // rather than a boolean (`#1449`); this one is a week in the past.
-    await muteConversationForOperator(db, humanId, thread, '2020-01-01T00:00:00.000Z')
-    await aDayPasses()
-
-    expect(await agentWrites('Two.')).toBe(true)
-  })
-
+  /**
+   * **There was a fourth condition and it was mute** (`#1549`). *Not muted,
+   * whatever the other three say* — and it was never once true: 0 of 107
+   * participants had ever muted anything, measured 2026-08-21. The two tests
+   * that stood here asserted it and are gone with it.
+   *
+   * The cap is what answers the case mute was specified for, and it is the
+   * condition above: one mail per thread per person per day. Nothing about
+   * removing the fourth loosens this path, because an unmuted thread is what
+   * every row already was.
+   */
   it('never tells a person about their own words', async () => {
     expect(await agentWrites('May I?')).toBe(true)
 
@@ -226,10 +202,12 @@ describe('telling a person something arrived', () => {
     await aDayPasses()
 
     /**
-     * **Archive is not mute, and this is where the difference shows.** Archived
-     * means *I am done with this*; a new message un-archives it in the same
-     * insert that writes it (`#1449`), so the thread is back in the list and
-     * telling the person is right. Somebody who wants silence mutes.
+     * **Archiving does not buy silence, and it never did.** Archived means *I am
+     * done with this*; a new message un-archives it in the same insert that
+     * writes it (`#1449`), so the thread is back in the list and telling the
+     * person is right. What buys silence is the quiet period above — one mail
+     * per thread per day — which is the cap `#1549` found had made mute
+     * unnecessary all along.
      */
     expect(await agentWrites('Two.')).toBe(true)
   })

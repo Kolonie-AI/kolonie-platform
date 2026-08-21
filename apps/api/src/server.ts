@@ -119,7 +119,6 @@ import {
   conversationAboutAccount,
   archiveConversationForOperator,
   inboxFor,
-  muteConversationForOperator,
   markConversationReadByOperator,
   sendColonyMessageToOperatorThread,
   claimOperatorNotification,
@@ -1052,7 +1051,7 @@ const app = buildApp({
          * rule changed by `#1451`).
          *
          * `claimOperatorNotification` is the whole predicate — from somebody
-         * else, into an unread thread, not muted, and nothing sent about it in
+         * else, into an unread thread, and nothing sent about it in
          * the last day — and it stamps in the same statement it decides in, so
          * two messages landing at once cannot both be told. It answers
          * `undefined` for a thread with no person in it, which is what makes
@@ -1177,8 +1176,6 @@ const app = buildApp({
     /** Three states, three columns, no folding (`#1449`, `#1447` decision 4). */
     archive: (humanId, conversationId, archived) =>
       archiveConversationForOperator(db, humanId, conversationId, archived),
-    mute: (humanId, conversationId, until) =>
-      muteConversationForOperator(db, humanId, conversationId, until),
     /** The write the console never made — see `markConversationReadByOperator`. */
     markRead: (humanId, conversationId) =>
       markConversationReadByOperator(db, humanId, conversationId),

@@ -360,10 +360,6 @@ async function insertMessage(
    * function, so there is no way to write one that leaves a thread archived
    * under somebody who has just been written to.
    *
-   * **It does not un-mute.** Mute is *stop telling me about it* and survives
-   * exactly the event archive does not — that is `#1447` frozen decision 4, and
-   * the two columns are why it can be said at all.
-   *
    * **The sender's own row is left alone.** A person who archived a thread and
    * then wrote one more line into it has not changed their mind about being
    * finished; they answered and moved on.
@@ -2660,19 +2656,11 @@ export interface InboxRow {
   /**
    * Whether this person has said they are finished with it (`#1449`).
    *
-   * Three states and three columns, which `#1447` froze: unread is the cursor,
-   * muted is *stop telling me*, and this is *take it out of my list*. A new
-   * message from anybody else clears it.
+   * Two states and two columns since `#1549` withdrew mute: unread is the
+   * cursor, and this is *take it out of my list*. A new message from anybody
+   * else clears it.
    */
   readonly archived: boolean
-  /**
-   * Until when this person has silenced it, or null.
-   *
-   * **A muted thread still appears and still shows unread.** Mute is about
-   * being told, not about being listed — folding the two would mean silencing a
-   * chatty thread also lost it.
-   */
-  readonly mutedUntil: string | null
 }
 
 /**
@@ -2753,14 +2741,12 @@ export async function inboxFor(
     latest_mine: boolean | null
     unread_count: string
     done_at: string | null
-    muted_until: string | null
   }>(sql`
     with mine as (
       select p.id as participant_id,
              p.conversation_id,
              p.last_read_message_id,
-             p.done_at,
-             p.muted_until
+             p.done_at
         from message_participants p
        where p.human_id = ${humanId}::uuid
     ),
@@ -2830,8 +2816,7 @@ export async function inboxFor(
            latest.sender_label as latest_label,
            (latest.sender_participant_id = mine.participant_id) as latest_mine,
            coalesce(unread.unread_count, '0') as unread_count,
-           mine.done_at,
-           mine.muted_until
+           mine.done_at
       from theirs
       join mine on mine.conversation_id = theirs.conversation_id
       left join latest on latest.conversation_id = theirs.conversation_id
@@ -2892,11 +2877,10 @@ export async function inboxFor(
     unread: Number(row.unread_count) > 0,
     unreadCount: Number(row.unread_count),
     archived: row.done_at !== null,
-    mutedUntil: row.muted_until,
   }))
 }
 
-/** What an archive or a mute did, or why it did nothing. */
+/** What an archive did, or why it did nothing. */
 export type InboxStateOutcome =
   { readonly outcome: 'set' } | { readonly outcome: 'not-a-participant' }
 
@@ -2930,36 +2914,6 @@ export async function archiveConversationForOperator(
   return changed.length === 0 ? { outcome: 'not-a-participant' } : { outcome: 'set' }
 }
 
-/**
- * Silence a thread for this person, until a date or indefinitely (`#1449`).
- *
- * **A muted thread stays in the list and still shows unread.** Mute is about
- * being *told*, and `#1451`'s notifier is what reads it. Folding it into archive
- * would mean a person silencing a chatty thread also lost it from their list,
- * which is two intentions wearing one column.
- *
- * **The other party is never told.** An agent that learned it had been muted
- * would reasonably open a second thread, which is exactly what muting was for.
- *
- * `null` un-mutes.
- */
-export async function muteConversationForOperator(
-  db: Database,
-  humanId: HumanId,
-  id: ConversationId,
-  until: string | null,
-): Promise<InboxStateOutcome> {
-  const changed = await db
-    .update(messageParticipants)
-    .set({ mutedUntil: until })
-    .where(
-      and(eq(messageParticipants.conversationId, id), eq(messageParticipants.humanId, humanId)),
-    )
-    .returning({ id: messageParticipants.id })
-
-  return changed.length === 0 ? { outcome: 'not-a-participant' } : { outcome: 'set' }
-}
-
 /** How long one thread stays quiet after this person has been told about it. */
 export const OPERATOR_NOTIFY_QUIET_HOURS = 24
 
@@ -2981,9 +2935,12 @@ export const OPERATOR_NOTIFY_QUIET_HOURS = 24
  *    and keeps most of its effect.
  * 3. Nothing has gone out about this thread in the last
  *    {@link OPERATOR_NOTIFY_QUIET_HOURS} hours.
- * 4. The thread is **not muted**, whatever the other three say. That is what
- *    mute is (`#1449`) — *keep it in my list, stop telling me about it* — and
- *    it is checked last here only because it is the one that overrides.
+ *
+ * **There were four, and the fourth was mute** (`#1549`): *not muted, whatever
+ * the other three say*. It was never once true — 0 of 107 participants had ever
+ * muted anything — and condition 3 is the cap that answers the case mute was
+ * specified for. Removing it does not loosen this path: an unmuted thread is
+ * what every row already was.
  *
  * What this preserves: an agent writing four times into a thread opened this
  * morning still costs one mail, and an agent nudging the same unread thread
@@ -3016,7 +2973,7 @@ export async function claimOperatorNotification(
     -- The person's own row, and where their cursor is. A thread with no human
     -- participant is a citizen or a Colony thread, and neither pings anybody.
     theirs as (
-      select p.id, p.human_id, p.muted_until, p.notified_at, read.created_at as read_at
+      select p.id, p.human_id, p.notified_at, read.created_at as read_at
         from message_participants p
         left join messages read on read.id = p.last_read_message_id
        where p.conversation_id = ${conversationId}::uuid and p.human_id is not null
@@ -3034,8 +2991,6 @@ export async function claimOperatorNotification(
          theirs.notified_at is null
          or theirs.notified_at < now() - ${sql.raw(`interval '${OPERATOR_NOTIFY_QUIET_HOURS} hours'`)}
        )
-       -- 4. Not muted, which overrides the other three.
-       and (theirs.muted_until is null or theirs.muted_until <= now())
     returning theirs.human_id
   `)
 

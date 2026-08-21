@@ -25,15 +25,14 @@ import type { OperatorNotification, OperatorNotifier } from './operator-notifier
  * any of them.**
  *
  * The predicate is now `claimOperatorNotification` in the store, which decides
- * and stamps in one statement: from somebody else, into an unread thread, not
- * muted, and nothing sent about it in the last day. The flood case is unchanged
+ * and stamps in one statement: from somebody else, into an unread thread, and
+ * nothing sent about it in the last day. The flood case is unchanged
  * — four messages into a thread opened this morning is still one mail — and the
  * silent case is fixed.
  *
- * **The decision is not made here**, and that is deliberate: unread is a cursor,
- * mute is a column, and both are read under the same lock that writes the
- * stamp. A predicate split between the store and this file would be one that
- * two concurrent sends could both pass.
+ * **The decision is not made here**, and that is deliberate: unread is a cursor
+ * read under the same lock that writes the stamp. A predicate split between the
+ * store and this file would be one that two concurrent sends could both pass.
  *
  * ## A failure here never fails the send
  *

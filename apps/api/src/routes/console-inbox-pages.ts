@@ -58,7 +58,6 @@ import type { RouteDependencies } from './dependencies.js'
  * form.
  */
 import { consoleNotFound, html, navFor, wantsHtml } from './console-shared.js'
-import { MUTED_INDEFINITELY } from './console-shared.js'
 
 import type { ConsolePageContext } from './console-page-context.js'
 
@@ -402,7 +401,6 @@ export function registerConsoleInboxPages(
       unread: thread.unread,
       unreadCount: thread.unreadCount,
       archived: thread.archived,
-      muted: thread.mutedUntil !== null,
     }))
 
     if (!wantsHtml(request)) {
@@ -634,18 +632,23 @@ export function registerConsoleInboxPages(
   })
 
   /**
-   * The three states, as three writes (`#1449`, `#1447` frozen decision 4).
+   * Archive and un-archive, as one route and an `act` (`#1449`).
    *
-   * **One route and an `act`, not three routes.** They are the same gesture on
-   * the same thread from the same list, and a person who pressed the wrong one
-   * has pressed a button rather than found a different page. What they are
-   * *not* is the same column: archive is *take it out of my list*, mute is
-   * *stop telling me about it*, and folding them would mean silencing a chatty
-   * thread also lost it.
+   * **One route and an `act`, not two routes.** They are the same gesture on the
+   * same thread from the same list, and a person who pressed the wrong one has
+   * pressed a button rather than found a different page. The shape is kept
+   * rather than collapsed into a single toggle so the page says which way it
+   * meant it, and so a third state — if one is ever measured to be wanted — is a
+   * value here rather than a route.
    *
-   * **Neither marks read**, and reading marks neither. Somebody who archives an
-   * unread thread has decided not to read it, which is a thing they are allowed
-   * to decide.
+   * **There were three, and `#1549` withdrew mute.** Nobody had ever used it: 0
+   * of 107 participants. What it guarded against was a flood, and `#1451` caps
+   * notifications at one per thread per person per day, so there was none to
+   * silence.
+   *
+   * **It does not mark read**, and reading does not archive. Somebody who
+   * archives an unread thread has decided not to read it, which is a thing they
+   * are allowed to decide.
    */
   app.post('/inbox/:conversationId/state', async (request, reply) => {
     if (!(await guard(request, reply))) return reply
@@ -663,22 +666,12 @@ export function registerConsoleInboxPages(
 
     const { act, back } = (request.body ?? {}) as { act?: unknown; back?: unknown }
 
-    /**
-     * **Muting with no date is indefinite.** `muted_until` is a nullable
-     * timestamp so *mute for a week* is expressible; nothing on this page offers
-     * a date yet, so the far future stands for *until I say otherwise* and the
-     * shape is ready for the control that will.
-     */
     const outcome =
       act === 'archive'
         ? await desk.archive?.(signedIn.human.id, parsed.data, true)
         : act === 'unarchive'
           ? await desk.archive?.(signedIn.human.id, parsed.data, false)
-          : act === 'mute'
-            ? await desk.mute?.(signedIn.human.id, parsed.data, MUTED_INDEFINITELY)
-            : act === 'unmute'
-              ? await desk.mute?.(signedIn.human.id, parsed.data, null)
-              : undefined
+          : undefined
 
     if (outcome === undefined || outcome.outcome === 'not-a-participant') {
       return consoleNotFound(reply, request)

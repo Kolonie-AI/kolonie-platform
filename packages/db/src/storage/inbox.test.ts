@@ -8,7 +8,6 @@ import {
   inboxFor,
   listConversations,
   markConversationReadByOperator,
-  muteConversationForOperator,
   openOperatorHelpConversation,
   readConversation,
   sendOperatorMessage,
@@ -191,12 +190,16 @@ describe('the inbox', () => {
 })
 
 /**
- * Three states, three columns, no folding (`#1449`, `#1447` frozen decision 4).
+ * Two states, two columns (`#1449`, narrowed by `#1549`).
  *
- * The distinction is the design: **unread** is *somebody wrote and I have not
- * looked*, **muted** is *keep it in my list, stop telling me about it*, and
- * **archived** is *take it out of my list*. Folding archive into mute would mean
- * a person who silenced a chatty thread also lost it.
+ * **Unread** is *somebody wrote and I have not looked*; **archived** is *take it
+ * out of my list*. There was a third — `muted_until`, *keep it in my list, stop
+ * telling me about it* — and `#1549` withdrew it: **0 of 107 participants had
+ * ever used it**, and what it guarded against was a flood that `#1451`'s cap of
+ * one mail per thread per person per day had already removed.
+ *
+ * Archive is the half that works, and this file is where that is measured: 53 of
+ * 53 operator rows archived within hours of getting it.
  */
 describe('what a person has done with a thread', () => {
   let db: Database
@@ -243,33 +246,23 @@ describe('what a person has done with a thread', () => {
     expect((await inboxFor(db, humanId, { view: 'all' }))[0]?.archived).toBe(true)
   })
 
-  it('un-archives when the agent writes again, and does not un-mute', async () => {
+  /**
+   * **The path `#1549` had to leave untouched**, and the reason it is asserted
+   * on its own rather than as a clause of the mute test it used to share: what
+   * was removed is the third column, and archive is what the person actually
+   * uses.
+   */
+  it('un-archives when the agent writes again', async () => {
     const thread = await asks('One.')
     await archiveConversationForOperator(db, humanId, thread, true)
-    await muteConversationForOperator(db, humanId, thread, '2999-01-01T00:00:00.000Z')
 
     await openOperatorHelpConversation(db, agentId, { body: 'Two, and it matters.' })
 
-    /**
-     * Archiving means *I am done with this*, and somebody writing again is the
-     * event that makes it untrue. Mute means *stop telling me*, and survives
-     * exactly the event archive does not — which is why they are two columns.
-     */
+    // Archiving means *I am done with this*, and somebody writing again is the
+    // event that makes it untrue.
     const [row] = await inboxFor(db, humanId)
     expect(row?.conversationId).toBe(thread)
     expect(row?.archived).toBe(false)
-    expect(row?.mutedUntil).not.toBeNull()
-  })
-
-  it('leaves a muted thread in the list, still showing unread', async () => {
-    const thread = await asks('Chatty.')
-    await muteConversationForOperator(db, humanId, thread, '2999-01-01T00:00:00.000Z')
-
-    const [row] = await inboxFor(db, humanId)
-
-    expect(row?.conversationId).toBe(thread)
-    expect(row?.unread).toBe(true)
-    expect(row?.mutedUntil).not.toBeNull()
   })
 
   it('does not mark read, and reading does not archive', async () => {
@@ -297,23 +290,21 @@ describe('what a person has done with a thread', () => {
     expect(await inboxFor(db, humanId)).toEqual([])
   })
 
-  it('tells the agent nothing about either', async () => {
+  it('tells the agent nothing about it', async () => {
     const thread = await asks('A question.')
     await archiveConversationForOperator(db, humanId, thread, true)
-    await muteConversationForOperator(db, humanId, thread, '2999-01-01T00:00:00.000Z')
 
     /**
-     * **The rule that matters most here.** An agent that learned it had been
-     * muted would reasonably open a second thread, which is exactly what muting
-     * was for. Asserted against the two surfaces an agent actually reads.
+     * **The rule that matters most here.** Archiving is a fact about one party's
+     * attention rather than about the conversation, and an agent shown it would
+     * reasonably read it as *my operator has finished with me*. Asserted against
+     * the two surfaces an agent actually reads.
      */
     const listed = await listConversations(db, agentId)
     const read = await readConversation(db, agentId, thread)
 
     expect(JSON.stringify(listed)).not.toContain('archiv')
-    expect(JSON.stringify(listed)).not.toContain('mute')
     expect(JSON.stringify(read)).not.toContain('archiv')
-    expect(JSON.stringify(read)).not.toContain('mute')
     expect(listed.map((row) => row.id)).toContain(thread)
   })
 
@@ -323,9 +314,6 @@ describe('what a person has done with a thread', () => {
 
     expect(
       await archiveConversationForOperator(db, HumanIdSchema.parse(stranger!.id), thread, true),
-    ).toEqual({ outcome: 'not-a-participant' })
-    expect(
-      await muteConversationForOperator(db, HumanIdSchema.parse(stranger!.id), thread, null),
     ).toEqual({ outcome: 'not-a-participant' })
   })
 })

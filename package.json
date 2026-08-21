@@ -18,6 +18,7 @@
   ],
   "scripts": {
     "barrel": "node packages/db/scripts/generate-storage-barrel.mjs",
+    "rebase:migrations": "node scripts/rebase-migrations.mjs",
     "build": "npm run barrel && tsc -b",
     "clean": "tsc -b --clean && npm run clean --workspaces --if-present",
     "typecheck": "node scripts/run-workspace-script.mjs typecheck",

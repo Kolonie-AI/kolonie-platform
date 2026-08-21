@@ -804,22 +804,33 @@ export async function sendOperatorMessage(
   /**
    * **The person's plain thread, or the one about this account** (`#1452`).
    *
-   * With no provenance this matches on the person alone, which is the
-   * pre-`#1319` behaviour and the right one: a person writing to their citizen
-   * is usually not writing *about* anything in particular, and a second such
-   * message belongs in the thread that already holds the first. Naming an
-   * account narrows it the same way a citizen's own ask does — so *the same
-   * account again* lands in the thread that already holds the answer.
+   * A person writing to their citizen is usually not writing *about* anything in
+   * particular, and a second such message belongs in the thread that already
+   * holds the first. Naming an account narrows it the same way a citizen's own
+   * ask does — so *the same account again* lands in the thread that already
+   * holds the answer.
+   *
+   * **No subject is a subject, and it is matched like one** (`#1546`). This used
+   * to pass no `provenance` at all when no account was named, which is not *the
+   * plain thread*: with the clause absent there is no filter, and the query ends
+   * `orderBy(asc(counterpart.joinedAt)).limit(1)` — so **any** thread matched and
+   * the oldest won. Measured against production on 2026-08-21: an operator asking
+   * *does the new inbox system work?* landed in a thread opened sixteen days
+   * earlier about holding a second factor, and provenance is immutable (`#1319`),
+   * so that thread claims that subject for ever and the citizen reads it that way
+   * too. Eight threads with that agent, none of them plain.
+   *
+   * The citizen's side had this right from the start — {@link
+   * openOperatorHelpConversation} passes all three as `null` when nothing is
+   * named, which filters to threads where all three are `NULL`. Same function,
+   * one argument apart.
    */
   const existing =
     conversation === undefined
-      ? await pairedConversation(
-          db,
-          toAgentId,
-          accountId === undefined
-            ? { humanId }
-            : { humanId, provenance: { taskId: null, wishId: null, accountId } },
-        )
+      ? await pairedConversation(db, toAgentId, {
+          humanId,
+          provenance: { taskId: null, wishId: null, accountId: accountId ?? null },
+        })
       : await pairedConversation(db, toAgentId, { humanId, conversationId: conversation })
 
   if (existing === undefined && conversation !== undefined) {
@@ -1212,10 +1223,17 @@ export async function sendSystemMessage(
  * **Provenance narrows it rather than being read off it** (`#1319`): asked for a
  * subject, this matches the thread about exactly that subject, nulls included,
  * so *the same task again* finds the thread that already holds the answer and
- * *a different task* finds nothing and opens a second one. Asked for no subject
- * at all, it matches on the person alone and keeps the pre-`#1319` behaviour —
- * which is what the operator's own send path wants, because a person writing to
- * their citizen is not writing about anything in particular.
+ * *a different task* finds nothing and opens a second one. **All three null is a
+ * subject like any other** and matches the plain thread, which is what both send
+ * paths ask for when nothing is named.
+ *
+ * **Asked for no subject at all, it filters on nothing**, and every send path now
+ * passes one. That branch survives for the `conversationId` lookup, where the
+ * caller has already named the thread and a provenance clause would be a second,
+ * redundant filter over a single row. It is not a way to say *the plain thread*
+ * — `#1546` is what it cost to read it as one: with the clause absent the query
+ * ends `orderBy(asc(counterpart.joinedAt)).limit(1)`, so the oldest thread of any
+ * subject won, and provenance is immutable once written.
  */
 async function pairedConversation(
   db: Database | Transaction,

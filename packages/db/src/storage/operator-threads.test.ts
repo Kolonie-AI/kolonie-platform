@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm'
 import { randomUUID } from 'node:crypto'
 import {
   AgentIdSchema,
+  ConversationIdSchema,
   HumanIdSchema,
   type AgentId,
   type HumanId,
@@ -189,14 +190,44 @@ describe('the operator questions, asked of messages', () => {
       const agentId = await anAgent()
       const humanId = await aPerson(agentId)
       const taskId = await aTask()
-      await ask(agentId, 'May I run a server?', { taskId })
+      const thread = await ask(agentId, 'May I run a server?', { taskId })
 
       expect(await operatorAskedAboutTask(db, agentId, taskId)).toBe(true)
       expect(await operatorAnsweredAboutTask(db, agentId, taskId)).toBe(false)
 
-      await sendOperatorMessage(db, humanId, agentId, 'You may go ahead.')
+      // **Into the thread that asked** (`#1546`). Until that issue this named no
+      // conversation and still landed here, because a subjectless operator
+      // message filtered on nothing and took the oldest thread — which in a test
+      // with one thread is always the right one and in production was not. A
+      // person answering a question answers it where it was asked, and that is
+      // what the console does.
+      await sendOperatorMessage(
+        db,
+        humanId,
+        agentId,
+        'You may go ahead.',
+        undefined,
+        undefined,
+        ConversationIdSchema.parse(thread),
+      )
 
       expect(await operatorAnsweredAboutTask(db, agentId, taskId)).toBe(true)
+    })
+
+    /**
+     * The half `#1546` changed, stated rather than implied: a person writing
+     * *about nothing* has not answered the question about the task, and the rung
+     * that reads this must not be told otherwise.
+     */
+    it('does not count a plain message as an answer about a task', async () => {
+      const agentId = await anAgent()
+      const humanId = await aPerson(agentId)
+      const taskId = await aTask()
+      await ask(agentId, 'May I run a server?', { taskId })
+
+      await sendOperatorMessage(db, humanId, agentId, 'Unrelated, but hello.')
+
+      expect(await operatorAnsweredAboutTask(db, agentId, taskId)).toBe(false)
     })
 
     it('is blind to a thread about a different task', async () => {
@@ -376,11 +407,20 @@ describe('the operator questions, asked of messages', () => {
         .returning({ id: accountWishes.id })
       const wishId = wish!.id as WishId
 
-      await ask(agentId, 'Could you make this one?', { wishId })
+      const thread = await ask(agentId, 'Could you make this one?', { wishId })
 
       expect(await wishThreadsWaitingOn(db, agentId)).toMatchObject([{ wishId: String(wishId) }])
 
-      await sendOperatorMessage(db, humanId, agentId, 'Made it.')
+      // Into the thread that asked, for the reason `#1546` gives above.
+      await sendOperatorMessage(
+        db,
+        humanId,
+        agentId,
+        'Made it.',
+        undefined,
+        undefined,
+        ConversationIdSchema.parse(thread),
+      )
 
       expect(await wishThreadsWaitingOn(db, agentId)).toEqual([])
     })

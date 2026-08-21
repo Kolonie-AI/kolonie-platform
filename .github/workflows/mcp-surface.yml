@@ -162,12 +162,18 @@ jobs:
     timeout-minutes: 5
 
     permissions:
-      # A lowered floor is committed back to the branch that measured it, and
-      # nothing else is written. Growth is refused rather than recorded, so this
-      # token can only ever make the committed catalogue smaller.
+      # The floor branch, and nothing else. **Never `main`** (`#1566`): the
+      # measured figure now travels as a pull request, so what this token writes
+      # is `automation/catalogue-floor` and a sticky comment.
       contents: write
-      # The sticky comment on a pull request.
+      # The sticky comment, and the floor's own pull request.
       pull-requests: write
+      # **`gh workflow run` on the floor branch, and that is not optional**
+      # (`#1566`). A pull request opened with `GITHUB_TOKEN` creates no workflow
+      # runs — GitHub's own loop guard — so the required check would never report
+      # and the queue would never take it. `workflow_dispatch` is the documented
+      # exception to that guard, and `ci.yml` has had the trigger since `#1171`.
+      actions: write
 
     steps:
       - uses: actions/checkout@v7
@@ -378,11 +384,14 @@ jobs:
       # writing it on a branch was how concurrent workers collided on the same
       # file and how a later merge retro-failed open ones. The fork carve-out
       # went with that branch case.
-      - name: Commit the floor main measured
+      - name: Land the floor main measured
         if: steps.floor.outputs.moved != '' && github.event_name == 'push'
         env:
           MOVED: ${{ steps.floor.outputs.moved }}
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: automation/catalogue-floor
         run: |
+          set -euo pipefail
           git config user.name 'kolonie-surface[bot]'
           git config user.email 'kolonie-surface@users.noreply.github.com'
           git add apps/api/src/mcp/catalogue-budget.json
@@ -399,14 +408,75 @@ jobs:
           # would refuse itself on the next run, with no honest edit available to
           # clear it — the `#1317` trap. Quoting the landing message means the
           # sentence a person wrote is the sentence that check reads.
+          #
+          # **And it has to be in the pull request body too, not only here.** The
+          # queue squashes, so the message that ends up on `main` is the title and
+          # body — the same trap one step along, which is why BODY below repeats it.
+          LANDED="$(git log -1 --pretty=%B HEAD)"
           if [ "${MOVED}" = "raised" ]; then
-            git commit \
-              -m 'The catalogue floor goes up to what main measured' \
-              -m "Written by the MCP surface workflow. The figure is measured and was typed by nobody; the raise is justified by the commit that landed, quoted below. See issue 1465." \
-              -m "$(git log -1 --pretty=%B HEAD)"
+            SUBJECT='The catalogue floor goes up to what main measured'
+            REASON='Written by the MCP surface workflow. The figure is measured and was typed by nobody; the raise is justified by the commit that landed, quoted below. See issue 1465.'
           else
-            git commit \
-              -m 'The catalogue floor comes down to what this branch measured' \
-              -m 'Written by the MCP surface workflow. A lowering costs no sentence — a saving is bookkeeping. See issue 1118.'
+            SUBJECT='The catalogue floor comes down to what main measured'
+            REASON='Written by the MCP surface workflow. A lowering costs no sentence — a saving is bookkeeping. See issue 1118.'
           fi
-          git push origin "HEAD:${{ github.ref_name }}"
+          git commit -m "$SUBJECT" -m "$REASON" -m "$LANDED"
+
+          # **One branch, force-updated: ten merges in a morning are one pull
+          # request, not ten.** The branch carries a figure rather than a history,
+          # so the older commit is worth nothing once a newer measurement exists.
+          #
+          # A branch already in the queue cannot be force-pushed (`GH006`), and
+          # that is the one refusal to survive rather than report: the version
+          # that is queued is about to land, and the run after it re-measures.
+          # Everything else is a failure and says so — this job being unable to
+          # land the figure silently is the whole of `#1566`.
+          if ! git push --force origin "HEAD:${BRANCH}" 2>push.err; then
+            cat push.err
+            if grep -q 'queued for merging' push.err; then
+              echo "::notice::the floor branch is in the queue; the next run re-measures"
+              exit 0
+            fi
+            echo "::error::could not update ${BRANCH} — the floor cannot be landed"
+            exit 1
+          fi
+
+          BODY="$(printf '%s\n\n%s\n\n---\n\nThe message that landed, quoted because `check:catalogue-floor` judges the last commit to touch this file and the queue squashes this body into it:\n\n%s\n' \
+            "$REASON" \
+            'Opened by the MCP surface workflow rather than pushed, because `main` is behind the merge queue (issue 1566). Nothing here is hand-typed: the figure is measured on `main` after a merge.' \
+            "$LANDED")"
+
+          NUMBER="$(gh pr list --head "${BRANCH}" --state open --json number --jq '.[0].number // empty')"
+          if [ -z "$NUMBER" ]; then
+            NUMBER="$(gh pr create --head "${BRANCH}" --base main --title "$SUBJECT" --body "$BODY" \
+              | sed -n 's|.*/pull/\([0-9]*\)$|\1|p')"
+            echo "opened #${NUMBER} for the floor"
+          else
+            # The open one is re-titled and re-bodied rather than left describing
+            # a figure two merges old — the body is what the squash will land.
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/pulls/${NUMBER}" \
+              -f title="$SUBJECT" -f body="$BODY" >/dev/null
+            echo "updated #${NUMBER} for the floor"
+          fi
+
+          if [ -z "$NUMBER" ]; then
+            echo "::error::no pull request number for the floor — the figure is on ${BRANCH} and is not landing"
+            exit 1
+          fi
+
+          # **Nothing else will start CI on this branch.** A pull request opened
+          # with `GITHUB_TOKEN` creates no workflow runs, so without this the
+          # required check never reports and the entry is never takeable by the
+          # queue. `workflow_dispatch` is the exception GitHub documents, and
+          # `#1171` put the trigger on `ci.yml` for exactly this shape of problem.
+          gh workflow run ci.yml --ref "${BRANCH}" || {
+            echo "::error::could not start CI on ${BRANCH}; the floor pull request will not go green by itself"
+            exit 1
+          }
+
+          # A lowering still lands without anybody asking, and so does a raise:
+          # the queue is the reviewer, and the sentence it judges is in the body.
+          gh pr merge "${NUMBER}" --auto || {
+            echo "::error::could not arm auto-merge on #${NUMBER}"
+            exit 1
+          }

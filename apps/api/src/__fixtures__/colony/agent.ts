@@ -455,6 +455,7 @@ export function fakeAgent(deps: {
       walk: null,
       // Nor an account another citizen is holding out to it (`#1126`).
       offered: null,
+      social: { walker: null, connectionWaiting: false },
     }),
     skillNotes: fakeSkillNotes(),
     citizenSearch: fakeCitizenSearch(),

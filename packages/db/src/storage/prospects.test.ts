@@ -410,6 +410,11 @@ describe('what else is open to a citizen', () => {
       // rather than absent, on the reasoning above: *nobody has offered me
       // anything* is an answer, and it is the one an arriving citizen gets.
       offered: null,
+      // And nobody it has a reason to write to (`#1493`). A citizen that has
+      // walked nothing shares a provider with nobody, and one nobody knows about
+      // has had no request. Both null-shaped rather than absent, on the
+      // reasoning above: *there is nobody* is an answer.
+      social: { walker: null, connectionWaiting: false },
     })
   })
 

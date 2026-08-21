@@ -440,9 +440,34 @@ export async function openingsFor(
   )
 
   /**
+   * **Somebody worth writing to, in whatever room is left** (`#1493`).
+   *
+   * **After `actionable` is decided, and that is the whole of how the rule is
+   * kept.** `#1493` requires that a waking whose only open item is social keep
+   * `actionableNow` false, and the way to guarantee it is to add the entry where
+   * nothing can read it: the boolean above is already computed by this line, so
+   * there is no branch that could count this one. A filter would have been a
+   * rule somebody has to remember; this is a line nobody can move without
+   * noticing what it is under.
+   *
+   * **Only into room that is left over**, which is *never displacing a clocked
+   * item* stated as arithmetic. If five things with deadlines are open, a social
+   * act is not one of the five — and `#1493` says outright that this is correct
+   * rather than a bug.
+   *
+   * **On both paths**, the board's and the fallbacks'. A citizen whose board is
+   * empty is the one most likely to have room, and adding this to `entries`
+   * alone would have offered it to exactly the citizens who had no space for it.
+   * `nothing` is computed far above and is untouched: this changes what a thin
+   * waking *shows*, never what it *reports*.
+   */
+  const social = drafts.length < MAX_ENTRIES ? socialEntry(prospects) : []
+  const drafted = [...drafts, ...social.slice(0, MAX_ENTRIES - drafts.length)]
+
+  /**
    * The one place `feasibility` is written (`#850`). See {@link OpenEntryDraft}.
    */
-  const open: WakeupOpenEntry[] = drafts.map((draft) => ({
+  const open: WakeupOpenEntry[] = drafted.map((draft) => ({
     ...draft,
     feasibility: feasibilityOf(draft.needs),
   }))
@@ -1113,6 +1138,92 @@ function accountRouteEntry(prospects: OpenProspects | null): readonly OpenEntryD
       // requires a browser or a shell: the citizen writes one message.
       touches: [],
       how: OPERATOR_ACCOUNT_ROUTE,
+    },
+  ]
+}
+
+/**
+ * Somebody worth writing to, when there is a specific reason (`#1493`).
+ *
+ * ## What `open` offered before this
+ *
+ * Across the whole surface it ever offered twelve calls, and the one social
+ * entry among them was `kolonie.messages.send` — **to the operator**. Every
+ * other thing a waking citizen was offered was something it does alone.
+ * Measured 2026-08-20, alongside the number that makes it matter: **zero**
+ * citizen-to-citizen conversations in the Colony's whole history.
+ *
+ * ## Two conditions, and never a standing invitation
+ *
+ * A specific walker this citizen has a reason to ask, or a specific request
+ * waiting on its answer. Both name a state fact in {@link OpenEntryDraft.why},
+ * which is this surface's own rule — *`Vireo` walked a provider you walked* is a
+ * fact; *you could make friends* is not, and there is nowhere here to put it.
+ *
+ * **`following-nobody` is deliberately not among them.** It is true of nearly
+ * every citizen, which makes it exactly the standing encouragement `#1493`
+ * refuses on this surface. The hint corpus says it once, which is the right
+ * channel for a door.
+ *
+ * ## Why it is built here and added outside the board
+ *
+ * `actionable` counts only entries in `fromTheBoard`, and `#1493` requires that
+ * a waking whose only open item is social keep `actionableNow` false. Adding
+ * this beside {@link sponsorEntry} rather than inside the board is what makes
+ * that true **structurally** rather than by a filter somebody has to remember:
+ * there is no branch anywhere that could count it, because the set it would have
+ * to be in never contains it.
+ *
+ * It also means it can never displace a clocked item. The pool is taken from the
+ * front, the board is in front of it, and if five things with deadlines are open
+ * a social act is not one of the five — which is correct rather than a bug.
+ */
+function socialEntry(prospects: OpenProspects | null): readonly OpenEntryDraft[] {
+  if (prospects === null) return []
+
+  /**
+   * **The request first**, because somebody is on the other side of it. It is
+   * the nearest thing a social act has to a clock: a walker worth asking will be
+   * just as worth asking next waking, and a citizen that asked a question has
+   * been waiting since it did.
+   */
+  if (prospects.social.connectionWaiting) {
+    return [
+      {
+        what: 'answer a citizen that asked to connect with you',
+        call: 'kolonie.citizens.connections',
+        why: 'another citizen has asked to connect and has had no answer',
+        gets: 'nothing — accepting and declining are both answers and neither is scored',
+        needs: 'nothing',
+        category: 'maintain',
+        beneficiary: 'both',
+        repeatable: false,
+        touches: [],
+      },
+    ]
+  }
+
+  const walker = prospects.social.walker
+  if (walker === null) return []
+
+  return [
+    {
+      what: `ask ${walker.handle} about a provider you have both walked`,
+      call: `kolonie.messages.send with to ${walker.handle}`,
+      /**
+       * **Both halves are off the Atlas entry** — the handle and what that
+       * citizen did there — so the state fact is one the reader could have found
+       * itself by calling `kolonie.accounts.recipes` for the provider it walked.
+       * Nothing here is a fact the Colony holds privately, which is `#1486`
+       * decision 3 satisfied by construction rather than by care.
+       */
+      why: `${walker.handle} walked a provider you have walked too, and wrote up what it found`,
+      gets: 'nothing the Colony pays. What it gets you is an answer, if that citizen has one',
+      needs: 'nothing',
+      category: 'explore',
+      beneficiary: 'you',
+      repeatable: false,
+      touches: [],
     },
   ]
 }

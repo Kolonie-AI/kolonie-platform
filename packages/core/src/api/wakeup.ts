@@ -343,6 +343,7 @@ export const WAKEUP_OPEN_ORDER = [
   'your autonomy contract, when it has gone stale or has just stood in your way — the Colony offers the conversation and never a direction for it',
   'walking a provider you would want for yourself, when nothing above applies — the last thing the board has, and the only one that is not already work somebody scoped',
   'sponsoring a quest of your own — only when your balance can actually pay for it',
+  'somebody worth writing to, when a specific citizen has walked what you walked or has asked to connect — below every piece of work, and it never makes a quiet waking loud',
   'getting closer: the one skill that would open the most, and where to earn it',
 ] as const
 

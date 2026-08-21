@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { eq, sql } from 'drizzle-orm'
+import { and, eq, isNull, sql } from 'drizzle-orm'
 import {
   AgentIdSchema,
   HumanIdSchema,
@@ -1315,6 +1315,107 @@ describe('private messaging', () => {
         throw new Error('unreachable')
       }
       expect(about.conversationId).not.toBe(plain.conversationId)
+    })
+
+    /**
+     * **The operator's side matched on the person alone** (`#1546`).
+     *
+     * `sendOperatorMessage` with no account named passed no `provenance` at all,
+     * so the clause was absent, so there was no filter — and the query ends
+     * `orderBy(asc(counterpart.joinedAt)).limit(1)`. Any thread matched and the
+     * oldest won. Measured against production on 2026-08-21: a message about the
+     * inbox landed in a thread opened sixteen days earlier about holding a second
+     * factor, and provenance is immutable, so that is what it is about now.
+     *
+     * This is the case that produced it: the only thread that exists is about
+     * something, and the person names nothing.
+     */
+    it('never lands a subjectless operator message in a thread that has a subject', async () => {
+      const citizen = await anAgent('citizen')
+      const operator = await aPerson(citizen)
+      const task = await aTask('github-account')
+
+      const about = await openOperatorHelpConversation(db, citizen, {
+        body: 'Hold a second factor, and still hold it tomorrow.',
+        provenance: { taskId: task as never, wishId: null },
+      })
+      if (about.outcome !== 'delivered') throw new Error('unreachable')
+
+      const plain = await sendOperatorMessage(db, operator, citizen, 'Does the new inbox work?')
+      if (plain.outcome !== 'delivered') throw new Error('unreachable')
+
+      expect(plain.conversationId).not.toBe(about.conversationId)
+    })
+
+    /**
+     * The other half of the same fix, and the one a regression would break
+     * instead: *the plain thread* has to still be found, not merely avoided.
+     */
+    it('joins the plain thread the citizen opened, when the person names nothing', async () => {
+      const citizen = await anAgent('citizen')
+      const operator = await aPerson(citizen)
+
+      const opened = await openOperatorHelpConversation(db, citizen, { body: 'Are you there?' })
+      if (opened.outcome !== 'delivered') throw new Error('unreachable')
+
+      const answered = await sendOperatorMessage(db, operator, citizen, 'I am, yes.')
+      if (answered.outcome !== 'delivered') throw new Error('unreachable')
+
+      expect(answered.conversationId).toBe(opened.conversationId)
+    })
+
+    /**
+     * **The two sides agree, given the same absence of a subject** — which is
+     * the property `#1546` asks for by name rather than either behaviour alone.
+     * They are one function an argument apart, and the citizen's side was right
+     * from the start; a later editor changing one has to change both or fail
+     * here.
+     */
+    it('has the operator and citizen sides open the same one plain thread', async () => {
+      const citizen = await anAgent('citizen')
+      const operator = await aPerson(citizen)
+      const task = await aTask('github-account')
+
+      // A thread about something, older than either plain message, so a lookup
+      // that filters on nothing would return it to whichever side asked first.
+      const about = await openOperatorHelpConversation(db, citizen, {
+        body: 'This one needs you.',
+        provenance: { taskId: task as never, wishId: null },
+      })
+      const fromPerson = await sendOperatorMessage(db, operator, citizen, 'Nothing in particular.')
+      const fromCitizen = await openOperatorHelpConversation(db, citizen, { body: 'Nor this.' })
+
+      if (
+        about.outcome !== 'delivered' ||
+        fromPerson.outcome !== 'delivered' ||
+        fromCitizen.outcome !== 'delivered'
+      ) {
+        throw new Error('unreachable')
+      }
+
+      expect(fromCitizen.conversationId).toBe(fromPerson.conversationId)
+      expect(fromPerson.conversationId).not.toBe(about.conversationId)
+
+      // And exactly one plain thread exists, rather than two that happen to be
+      // told apart by the assertion above.
+      const plain = await db
+        .select({ id: messageConversations.id })
+        .from(messageConversations)
+        .innerJoin(
+          messageParticipants,
+          and(
+            eq(messageParticipants.conversationId, messageConversations.id),
+            eq(messageParticipants.agentId, citizen),
+          ),
+        )
+        .where(
+          and(
+            isNull(messageConversations.taskId),
+            isNull(messageConversations.wishId),
+            isNull(messageConversations.accountId),
+          ),
+        )
+      expect(plain).toHaveLength(1)
     })
 
     it('refuses a wish that belongs to somebody else', async () => {

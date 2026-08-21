@@ -174,7 +174,19 @@ export interface OperatorMessaging {
    */
   inbox?(
     humanId: HumanId,
-    options?: { readonly agentId?: AgentId; readonly view?: InboxView },
+    options?: {
+      readonly agentId?: AgentId
+      readonly view?: InboxView
+      /**
+       * The filters and the search (`#1450`), combinable because each is one
+       * predicate over this same list. *Sent* is `writtenByMe` and not a
+       * folder: every message already sits in the conversation it belongs to.
+       */
+      readonly accountId?: string
+      readonly unreadOnly?: boolean
+      readonly writtenByMe?: boolean
+      readonly search?: string
+    },
   ): Promise<readonly InboxRow[]>
   /**
    * Say this person is, or is no longer, finished with a thread (`#1449`).

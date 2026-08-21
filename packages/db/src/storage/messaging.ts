@@ -2599,8 +2599,43 @@ export async function inboxFor(
     readonly limit?: number
     /** Open by default: an inbox is what is left to deal with. */
     readonly view?: InboxView
+    /** Only threads with something newer than this person's cursor (`#1450`). */
+    readonly unreadOnly?: boolean
+    /** Only threads about one account (`#1450`, and `#1441` for the subject). */
+    readonly accountId?: string
+    /**
+     * Only threads this person has written in — *sent*, as a filter (`#1450`).
+     *
+     * **Not a folder.** A sent-folder is an artefact of mail having no threads:
+     * when a reply is a new object with no parent, a separate pile is the only
+     * way to find what you wrote. Here every message already sits in the
+     * conversation it belongs to, so *did I ever answer that* is a predicate
+     * over this same list and the person stays where they were reading.
+     */
+    readonly writtenByMe?: boolean
+    /**
+     * A substring to look for, case-insensitively (`#1450`, frozen decision 5).
+     *
+     * **Plain `ILIKE` over message body, agent name and thread subject.** No
+     * full-text index, no ranking, no trigram similarity: the corpus is 243
+     * messages, and when a sequential scan over it is measurably slow *that
+     * measurement* is the issue which adds an index — one that will be better
+     * for having a real query pattern behind it. See the comment on the `hit`
+     * term below for what would justify one.
+     */
+    readonly search?: string
   } = {},
 ): Promise<readonly InboxRow[]> {
+  /**
+   * `%` and `_` are wildcards in `like`, and a person searching for `100%` means
+   * the characters. Escaped here rather than by refusing them, because a search
+   * box that rejects punctuation is a search box people stop using.
+   */
+  const term =
+    options.search === undefined || options.search.trim() === ''
+      ? null
+      : `%${options.search.trim().replace(/([\\%_])/g, '\\$1')}%`
+
   const rows = await db.execute<{
     conversation_id: string
     agent_id: string
@@ -2651,6 +2686,34 @@ export async function inboxFor(
        where m.sender_participant_id <> mine.participant_id
          and (cursor_at.created_at is null or m.created_at > cursor_at.created_at)
        group by m.conversation_id
+    ),
+    -- What each thread is *about*, denormalised to one label so the account
+    -- filter and the subject half of the search are both one predicate. The
+    -- same three columns conversationSubjects reads, in the same precedence.
+    subject as (
+      select c.id as conversation_id,
+             c.account_id,
+             coalesce(t.title, w.provider, ac.identifier) as label
+        from message_conversations c
+        join mine on mine.conversation_id = c.id
+        left join tasks t on t.id = c.task_id
+        left join account_wishes w on w.id = c.wish_id
+        left join accounts ac on ac.id = c.account_id
+    ),
+    -- Threads this person has written at least one message into.
+    wrote as (
+      select distinct m.conversation_id
+        from messages m
+        join mine on mine.participant_id = m.sender_participant_id
+    ),
+    -- Threads with a message body matching the search, over *every* message
+    -- rather than the latest: somebody looking for what was said a fortnight
+    -- ago would otherwise be told it is not there.
+    hit as (
+      select distinct m.conversation_id
+        from messages m
+        join mine on mine.conversation_id = m.conversation_id
+       where ${term === null ? sql`false` : sql`m.body ilike ${term} escape '\\'`}
     )
     select theirs.conversation_id,
            theirs.agent_id,
@@ -2666,6 +2729,9 @@ export async function inboxFor(
       join mine on mine.conversation_id = theirs.conversation_id
       left join latest on latest.conversation_id = theirs.conversation_id
       left join unread on unread.conversation_id = theirs.conversation_id
+      left join subject on subject.conversation_id = theirs.conversation_id
+      left join wrote on wrote.conversation_id = theirs.conversation_id
+      left join hit on hit.conversation_id = theirs.conversation_id
      where ${options.agentId === undefined ? sql`true` : sql`theirs.agent_id = ${options.agentId}::uuid`}
        and ${
          (options.view ?? 'open') === 'all'
@@ -2673,6 +2739,25 @@ export async function inboxFor(
            : (options.view ?? 'open') === 'archived'
              ? sql`mine.done_at is not null`
              : sql`mine.done_at is null`
+       }
+       -- Every filter below is combinable, and each is one and: four
+       -- predicates over the same list rather than four ways of listing.
+       and ${options.unreadOnly === true ? sql`unread.unread_count is not null` : sql`true`}
+       and ${
+         options.accountId === undefined
+           ? sql`true`
+           : sql`subject.account_id = ${options.accountId}::uuid`
+       }
+       and ${options.writtenByMe === true ? sql`wrote.conversation_id is not null` : sql`true`}
+       -- Body, agent name or subject. All three are inside mine, so a search
+       -- cannot reach a thread this person is not in — which is the surveillance
+       -- leak #1447 frozen decision 2 refused, arriving through the back door.
+       and ${
+         term === null
+           ? sql`true`
+           : sql`(hit.conversation_id is not null
+                  or theirs.agent_name ilike ${term} escape '\\'
+                  or subject.label ilike ${term} escape '\\')`
        }
      order by coalesce(latest.created_at, 'epoch'::timestamptz) desc, theirs.conversation_id
      limit ${options.limit ?? CONVERSATION_LIST_LIMIT}

@@ -479,3 +479,212 @@ describe('a person starting a thread', () => {
     expect(await inboxFor(db, humanId)).toEqual([])
   })
 })
+
+/**
+ * Filters and search (`#1450`).
+ *
+ * **Every one of these is a predicate over the list `#1448` already built**, and
+ * that is the point of the issue rather than an implementation detail: *sent*
+ * is not a folder, *about this account* is not a second store, and search is not
+ * an index. A sent-folder is an artefact of mail having no threads — here every
+ * message already sits in the conversation it belongs to.
+ */
+describe('narrowing the inbox', () => {
+  let db: Database
+  let humanId: HumanId
+  let stranger: HumanId
+  let mine: AgentId
+  let other: AgentId
+  let accountId: string
+  let seeded = 0
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db.$client.end()
+  })
+
+  const anAgent = async (name: string, operator: HumanId): Promise<AgentId> => {
+    const [row] = await db
+      .insert(agents)
+      .values({ name: `${name}-${++seeded}`, platform: 'openclaw' })
+      .returning({ id: agents.id })
+    const id = AgentIdSchema.parse(row!.id)
+    await db.insert(humanAgents).values({ agentId: id, humanId: operator })
+    return id
+  }
+
+  const asks = async (agentId: AgentId, body: string, provenance?: { accountId: string }) => {
+    const opened = await openOperatorHelpConversation(db, agentId, {
+      body,
+      ...(provenance === undefined ? {} : { provenance }),
+    })
+    if (opened.outcome !== 'delivered') throw new Error(opened.outcome)
+    return opened.conversationId
+  }
+
+  beforeEach(async () => {
+    await truncateAll(db)
+    const [person] = await db.insert(humans).values({}).returning({ id: humans.id })
+    humanId = HumanIdSchema.parse(person!.id)
+    const [somebodyElse] = await db.insert(humans).values({}).returning({ id: humans.id })
+    stranger = HumanIdSchema.parse(somebodyElse!.id)
+
+    mine = await anAgent('mercator', humanId)
+    other = await anAgent('ariadne', humanId)
+
+    const [account] = await db
+      .insert(accounts)
+      .values({ agentId: mine, kind: 'mailbox', identifier: 'keeper@mail.example' })
+      .returning({ id: accounts.id })
+    accountId = account!.id
+  })
+
+  it('narrows to one agent, and combines that with the view', async () => {
+    await asks(mine, 'A question from mercator.')
+    const theirs = await asks(other, 'A question from ariadne.')
+    await archiveConversationForOperator(db, humanId, theirs, true)
+
+    const one = await inboxFor(db, humanId, { agentId: mine })
+    expect(one.map((row) => row.agentId)).toEqual([mine])
+
+    // Two predicates, not two listings: ariadne's thread is archived, so
+    // narrowing to ariadne on the open view is empty rather than ignoring one
+    // of the two conditions.
+    expect(await inboxFor(db, humanId, { agentId: other })).toHaveLength(0)
+    expect(await inboxFor(db, humanId, { agentId: other, view: 'archived' })).toHaveLength(1)
+  })
+
+  it('narrows to what is unread', async () => {
+    const read = await asks(mine, 'Already dealt with.')
+    await asks(other, 'Still waiting.')
+    await markConversationReadByOperator(db, humanId, read)
+
+    const unread = await inboxFor(db, humanId, { unreadOnly: true })
+
+    expect(unread).toHaveLength(1)
+    expect(unread[0]?.latest?.body).toBe('Still waiting.')
+    // The filter is over the same cursor the badge is, so it cannot disagree
+    // with the number rendered next to it.
+    expect(unread[0]?.unread).toBe(true)
+  })
+
+  it('narrows to one account', async () => {
+    await asks(mine, 'About the mailbox.', { accountId })
+    await asks(mine, 'About nothing in particular.')
+
+    const about = await inboxFor(db, humanId, { accountId })
+
+    expect(about).toHaveLength(1)
+    expect(about[0]?.about).toEqual({
+      kind: 'account',
+      id: accountId,
+      label: 'keeper@mail.example',
+    })
+  })
+
+  it('narrows to threads this person has written in', async () => {
+    const answered = await asks(mine, 'May I?')
+    await asks(other, 'And may I?')
+    const replied = await sendOperatorMessage(
+      db,
+      humanId,
+      mine,
+      'Yes, go ahead.',
+      undefined,
+      undefined,
+      answered,
+    )
+    if (replied.outcome !== 'delivered') throw new Error(replied.outcome)
+
+    const sent = await inboxFor(db, humanId, { writtenByMe: true })
+
+    expect(sent).toHaveLength(1)
+    expect(sent[0]?.conversationId).toBe(answered)
+    // And it is the same rows the unfiltered list returns, which is what makes
+    // it a filter rather than a folder.
+    expect(await inboxFor(db, humanId)).toHaveLength(2)
+  })
+
+  it('searches the body of every message, not only the latest', async () => {
+    const thread = await asks(mine, 'The registrar is njalla.')
+    const later = await sendOperatorMessage(
+      db,
+      humanId,
+      mine,
+      'Noted.',
+      undefined,
+      undefined,
+      thread,
+    )
+    if (later.outcome !== 'delivered') throw new Error(later.outcome)
+    await asks(other, 'Nothing to do with that.')
+
+    const found = await inboxFor(db, humanId, { search: 'njalla' })
+
+    // The match is two messages back. A search over the latest message only
+    // would tell somebody looking for what was said a fortnight ago that it is
+    // not there.
+    expect(found).toHaveLength(1)
+    expect(found[0]?.conversationId).toBe(thread)
+  })
+
+  it('searches the agent’s name and the thread’s subject too', async () => {
+    await asks(mine, 'Something entirely unrelated.', { accountId })
+    await asks(other, 'Also unrelated.')
+
+    expect(await inboxFor(db, humanId, { search: 'mercator' })).toHaveLength(1)
+    // The subject is the account's identifier, which is what makes "everything
+    // about the mailbox" a real view rather than a guess at the wording.
+    expect(await inboxFor(db, humanId, { search: 'mail.example' })).toHaveLength(1)
+  })
+
+  it('matches case-insensitively and treats wildcards as characters', async () => {
+    await asks(mine, 'The quota is 100% used.')
+
+    expect(await inboxFor(db, humanId, { search: 'QUOTA' })).toHaveLength(1)
+    expect(await inboxFor(db, humanId, { search: '100%' })).toHaveLength(1)
+    // Escaped rather than refused: a search box that rejects punctuation is a
+    // search box people stop using. A bare wildcard would have matched anyway,
+    // so the assertion that shows the escaping works is a miss.
+    expect(await inboxFor(db, humanId, { search: '100%!' })).toHaveLength(0)
+    expect(await inboxFor(db, humanId, { search: 'qu_ta' })).toHaveLength(0)
+  })
+
+  it('combines a search with the filters rather than replacing them', async () => {
+    const one = await asks(mine, 'The registrar is njalla.')
+    await asks(other, 'The registrar is njalla here as well.')
+    await markConversationReadByOperator(db, humanId, one)
+
+    const both = await inboxFor(db, humanId, { search: 'njalla', unreadOnly: true })
+
+    expect(both).toHaveLength(1)
+    expect(both[0]?.agentId).toBe(other)
+  })
+
+  it('reaches no thread this person is not in, by any filter or search', async () => {
+    const theirs = await anAgent('somebody-elses', stranger)
+    await asks(theirs, 'The registrar is njalla.')
+
+    // The one assertion this whole describe exists for. Every filter starts
+    // from this person's own participant rows, so there is no shape of input
+    // that reaches another person's thread — the surveillance leak #1447
+    // frozen decision 2 refused, arriving through the back door.
+    for (const options of [
+      {},
+      { search: 'njalla' },
+      { search: 'somebody-elses' },
+      { unreadOnly: true },
+      { writtenByMe: true },
+      { view: 'all' as const },
+      { agentId: theirs },
+    ]) {
+      expect(await inboxFor(db, humanId, options)).toHaveLength(0)
+    }
+
+    // And it is genuinely there to be found, by the person who is in it.
+    expect(await inboxFor(db, stranger, { search: 'njalla' })).toHaveLength(1)
+  })
+})

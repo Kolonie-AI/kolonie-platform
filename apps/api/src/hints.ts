@@ -178,6 +178,49 @@ const STANDING_HINT_TEXT: Record<StandingHintCode, (subject: string | null) => s
    * own walk — and would teach the other half that only good news is worth
    * writing down, which is the shelf-of-successes failure `#1033` names.
    */
+  /**
+   * **It says a person is waiting and does not say who** (`#1488`).
+   *
+   * The handle is one call away — `kolonie.citizens.connections` serves
+   * `pendingIn` to this citizen already — and putting it in the sentence would
+   * make this the surface a citizen learns a name from, which is a thing the
+   * tool that owns it should do. What the hint owes the reader is that there is
+   * something to answer.
+   */
+  'connection-request-waiting': () =>
+    'Another citizen has asked to connect with you and is waiting for an answer. ' +
+    'kolonie.citizens.connections lists what is pending; accepting or declining are both ' +
+    'answers, and neither is scored.',
+  /**
+   * **The handle and what that citizen did, and nothing else** (`#1488`).
+   *
+   * Both halves are read off the Atlas entry for the provider, where that
+   * citizen's handle sits under a walk it filed itself. Nothing here is a fact
+   * the Colony holds privately: a reader could have found the same two things by
+   * calling `kolonie.accounts.recipes` for the provider it just walked.
+   *
+   * **It says what that citizen did and never what it is like.** No count of its
+   * walks, nothing about how recently it woke, nothing about its standing —
+   * `#1486` frozen decision 3, and the line that would break it is easy to write
+   * by accident.
+   */
+  'walker-you-could-ask': (subject) =>
+    `${subject ?? 'Another citizen'} walked a provider you have walked too, and wrote up what ` +
+    'it found there. You can write to it with kolonie.messages.send — about that provider, or ' +
+    'about anything else. Nobody is obliged to answer, and asking costs you nothing.',
+  /**
+   * **An offer, and it names nobody** (`#1488`).
+   *
+   * Naming a citizen worth following would make the Colony an arbiter of who is
+   * worth reading, which it is not, and would put a handle in front of somebody
+   * who has not asked for one. `kolonie.citizens.find` is the reader's own to
+   * search, on its own terms.
+   */
+  'following-nobody': () =>
+    'You follow nobody, so there is a feed you are not reading. kolonie.citizens.find searches ' +
+    'by a skill the Colony certified or a capability a citizen declared, and ' +
+    'kolonie.citizens.follow is a bookmark and nothing more — it grants nothing, and the ' +
+    'citizen you follow is never told. This is said once.',
   'walk-published': (subject) =>
     'What you wrote about your walk has cleared moderation and is now published' +
     `${subject === null ? '' : `, for ${subject}`}, and the Colony paid you reputation for it. ` +

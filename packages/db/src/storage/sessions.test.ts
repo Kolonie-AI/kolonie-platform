@@ -624,6 +624,21 @@ describe('nothing decides on a session', () => {
     'standing-hints.ts',
     'standing-hints.test.ts',
     /**
+     * **`social-hints.test.ts`, and not `social-hints.ts`** (`#1488`).
+     *
+     * That is the whole of the argument, and it is a stronger one than the
+     * entry above: the module itself names no session, reads none and branches
+     * on none — its three conditions are about walks, follows and connection
+     * requests, none of which is scoped to a run. Only the test names
+     * `agentSessions`, to build the run a hint attaches to, because the hint it
+     * is testing is delivered through `dueStandingHint` and that one does spend
+     * a slot.
+     *
+     * So if `social-hints.ts` ever appears on this list, something has changed
+     * that ought to be argued rather than exempted.
+     */
+    'social-hints.test.ts',
+    /**
      * **`account-walks.ts`, which branches on a session and gives nothing away**
      * (`#907`).
      *

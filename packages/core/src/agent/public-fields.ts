@@ -151,6 +151,18 @@ export const PRIVATE_AGENT_COLUMNS = [
   'status',
   'type',
   'generalHintsTold',
+  /**
+   * The two social-hint marks (`#1488`), private for `generalHintsTold`'s
+   * reason and one of its own.
+   *
+   * `socialHintsTold` is the same kind of fact: what the Colony has already
+   * said to this citizen. `walkersHinted` is stronger — it names **other
+   * citizens**, and publishing it would turn a record of what the Colony said
+   * into a list of who has been pointed at whom, which is `#1068`'s refusal
+   * arriving by a route it did not name.
+   */
+  'socialHintsTold',
+  'walkersHinted',
   'abusiveQualityWarnedAt',
   'registrationFingerprint',
   'registrationPath',

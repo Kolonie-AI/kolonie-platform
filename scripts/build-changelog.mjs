@@ -31,17 +31,33 @@
  * |---|---|
  * | `packages/core/changes/NNN-slug.md` | **written.** One entry, as prose, with its section on the first line |
  * | `packages/core/changes/RELEASED.md` | **written**, and only at a release. Every version that has shipped |
- * | `packages/core/CHANGELOG.md` | **produced** by this script, and checked in |
+ * | `packages/core/CHANGELOG.md` | **produced** by this script, and **not tracked** (`#1572`) |
  *
- * If both the directory and the file were hand-edited, the conflict would come
- * back with an extra step in front of it — so `--check` runs in `npm run check`
- * and fails when `CHANGELOG.md` is not what this script would write.
+ * ## Why it stopped being checked in, having been for two months
  *
- * **It stays checked in rather than being built on release.** Consumers of the
- * package read `CHANGELOG.md` at a tag and through GitHub's file view, and a
- * directory is not a changelog to anybody outside this repository. `#672` is
- * explicit that what changes is where an entry is *written*, not where it is
- * *read*.
+ * `#672` kept it tracked because *consumers read `CHANGELOG.md` at a tag*, and
+ * `D-123` reaffirmed that. Measured 2026-08-22: this repository has **zero
+ * tags**, no workflow that publishes, tags or cuts a release, and no package
+ * under the organisation. The reader that sentence protects has never existed.
+ *
+ * What it cost meanwhile is exact: a produced file that every entry touches is a
+ * file every pair of open pull requests conflicts on — **432 commits to it in
+ * thirty days** — and `#1496`'s `merge=union`, which resolves it correctly in a
+ * working tree, **is not applied by GitHub**, so the conflict survives on the one
+ * surface that decides whether a branch can land. Four rebases in one session,
+ * and an armed pull request silently disarmed by each.
+ *
+ * `#271` had already answered this shape for the storage barrel: *a file nobody
+ * commits cannot be merged at all, which is the whole of the fix.*
+ *
+ * **`changes/` is the changelog.** It is on `main`, it is readable, it is the
+ * source, and it is one file per entry — which is what `#951` split it into
+ * precisely so that two unrelated changes would stop meeting. This is that split
+ * finished.
+ *
+ * The file is still produced, by this script, and `packages/core`'s `prepack`
+ * runs it — so a publish, if there is ever one, ships the changelog `#672`
+ * wanted, built from the same entries.
  *
  * ## What this is not
  *
@@ -182,20 +198,21 @@ function main() {
   }
   const built = assemble(entries, released)
 
+  /**
+   * **`--check` asserts that the directory assembles, and nothing about a file
+   * on disk** (`#1572`). It used to compare against the tracked `CHANGELOG.md`,
+   * which is no longer tracked — there is nothing to be out of step with, and
+   * the only way to fail is to write an entry the assembler cannot read.
+   *
+   * That is the whole of what it was ever really asserting: `readEntries` above
+   * is where a missing section marker, an unreadable name or a duplicate number
+   * is refused, and every one of those threw before the comparison was reached.
+   */
   if (process.argv.includes('--check')) {
-    if (readFileSync(CHANGELOG, 'utf8') === built) {
-      console.log(`packages/core/CHANGELOG.md is what ${entries.length} entries assemble to`)
-      return
-    }
-    console.error(
-      'packages/core/CHANGELOG.md is not what packages/core/changes/ assembles to.\n' +
-        '\n' +
-        'It is produced, not written (#672). Put the entry in packages/core/changes/ as its\n' +
-        'own file and run:\n' +
-        '\n' +
-        '    node scripts/build-changelog.mjs\n',
+    console.log(
+      `packages/core/changes/ assembles: ${entries.length} entries, ` +
+        `${built.split('\n').length} lines. Not written — CHANGELOG.md is produced, not tracked (#1572).`,
     )
-    process.exitCode = 1
     return
   }
 

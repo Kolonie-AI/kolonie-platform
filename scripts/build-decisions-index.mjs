@@ -26,7 +26,7 @@
  *
  * | | Source | Artefact |
  * |---|---|---|
- * | `packages/core/CHANGELOG.md` | `changes/` | **produced and checked in** — consumers read it at a tag |
+ * | `packages/core/CHANGELOG.md` | `changes/` | **produced**, and since `#1572` not tracked — the tag that would have read it never existed |
  * | `kolonie-docs/state/decisions/` | the directory | a **register**, not the records |
  *
  * `docs/decisions.md` has no consumer outside this repository, which argues

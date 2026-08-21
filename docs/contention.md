@@ -25,7 +25,7 @@ git log --since=2026-07-13 --until=2026-08-04 --name-only --pretty=format: \
 |      71 | `docs/decisions.md`                      | **fixed** — became `docs/decisions/`, one record one file |
 |      67 | `apps/api/src/mcp.test.ts`               | a test file — see below                                   |
 |      58 | `packages/db/src/academy-tasks.test.ts`  | a test file — see below                                   |
-|      56 | `packages/core/CHANGELOG.md`             | **judged and kept** — one hot line, cheap merge — below   |
+|      56 | `packages/core/CHANGELOG.md`             | **fixed** — split by `#951`, untracked by `#1572` — below |
 |      50 | `apps/api/src/__fixtures__/colony.ts`    | **fixed** — became `__fixtures__/colony/`                 |
 |      49 | `packages/db/src/storage/index.ts`       | **fixed** — generated on every build and no longer in git |
 
@@ -38,7 +38,8 @@ contention and says nothing about length.
 
 **Not everything here is a problem.** Four of the ten are the shape the rule
 deliberately excludes: `docs/decisions.md`, `CHANGELOG.md` and the two test files
-are chronicles. A conflict in one of those is a text conflict git raises and
+are chronicles. (Both of the first two have since been split into a directory,
+and `CHANGELOG.md` is no longer tracked at all — `#951`, `#1497`, `#1572`.) A conflict in one of those is a text conflict git raises and
 anybody can resolve.
 
 **Two of those four have since been fixed anyway, and the reason is worth the
@@ -141,6 +142,32 @@ either gives the assembly step a trigger and removes reason 2, which is the load
 than an annoying one, which would remove reason 1. Re-open #269 against either;
 do not re-derive the question from the row in the table, which is what this
 section exists to prevent.
+
+### What happened after, and which reason turned out to be load-bearing
+
+**Both of the conditions above came true, in the order they were written.**
+
+`#951` (2026-08-15) adopted the changeset directory after all — reason 3's
+five documents were changed, and reason 1 was overtaken by measurement:
+`#668` and `#670` had collided on nothing but two unrelated bullets under one
+heading, which is exactly the _cheap_ conflict this section said was tolerable,
+and it cost a rebase every time. The file stayed produced **and tracked**, so the
+conflict moved from the entry to the artefact and did not go away. `D-123` then
+weighed a merge driver and rejected it by rehearsal.
+
+`#1572` (2026-08-22) untracked the produced file, and the argument is **reason 2,
+read the other way round**. This section observed that `@kolonie-ai/core` has been
+released once, that there are no tags and no release workflow, and concluded that
+nothing would assemble the files. Re-measured 2026-08-22: still **zero tags, no
+release workflow, no package under the organisation**. That is not an argument for
+keeping the pattern out — it is an argument that the _tracked artefact_ has no
+reader, and `#672` and `D-123` had both kept it for one. What it cost meanwhile:
+**432 commits in thirty days**, every one of which conflicts with every other open
+pull request, because `merge=union` resolves it in a working tree and GitHub does
+not apply it.
+
+So `changes/` is the changelog, and the file is produced at `prepack`. `#271`'s
+sentence closes it: _a file nobody commits cannot be merged at all._
 
 Open, one issue each: #264 (`academy-tasks.ts`).
 

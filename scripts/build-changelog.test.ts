@@ -8,6 +8,7 @@
  * summarisation*.
  */
 
+import { execFileSync } from 'node:child_process'
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -139,5 +140,55 @@ describe('assembling', () => {
 
     expect(built.trimEnd().endsWith('Initial domain model.')).toBe(true)
     expect(built.indexOf('## Unreleased')).toBeLessThan(built.indexOf('## 0.1.0'))
+  })
+})
+
+/**
+ * **The produced file is not tracked, and this is the assertion that keeps it
+ * that way** (`#1572`, `D-132`).
+ *
+ * `packages/core/CHANGELOG.md` was produced *and* checked in for two months,
+ * because `#672` and `D-123` kept it for a consumer reading it at a tag.
+ * Measured 2026-08-22: this repository has zero tags, no workflow that publishes
+ * or releases, and no package under the organisation. The reader never existed,
+ * and the file cost 432 commits in thirty days — every one of which conflicts
+ * with every other open pull request, because `merge=union` resolves it in a
+ * working tree and **GitHub does not apply it**.
+ *
+ * Re-adding it is one `git add` away and would not fail anything else: the
+ * assembler still writes it, `prepack` still runs, and nothing downstream reads
+ * the tracked copy. So the property is asserted here rather than assumed.
+ */
+describe('what is tracked', () => {
+  const tracked = (path: string): boolean =>
+    execFileSync('git', ['ls-files', '--', path], {
+      cwd: new URL('..', import.meta.url).pathname,
+      encoding: 'utf8',
+    }).trim() !== ''
+
+  it('does not track the produced changelog', () => {
+    expect(tracked('packages/core/CHANGELOG.md')).toBe(false)
+  })
+
+  /** The entries are the changelog, so losing *those* is the real failure. */
+  it('does track every entry it is assembled from', () => {
+    const entries = execFileSync('git', ['ls-files', '--', 'packages/core/changes/'], {
+      cwd: new URL('..', import.meta.url).pathname,
+      encoding: 'utf8',
+    })
+      .trim()
+      .split('\n')
+      .filter((name) => /\/\d+-.*\.md$/.test(name))
+
+    expect(entries.length).toBeGreaterThan(100)
+  })
+
+  /**
+   * `docs/decisions.md` is the other produced file and is deliberately the other
+   * way round: twenty-odd things link into it by anchor, so it stays tracked and
+   * keeps `merge=union` with `check:decisions` as its guard (`#1497`).
+   */
+  it('still tracks the decisions index, which does have readers', () => {
+    expect(tracked('docs/decisions.md')).toBe(true)
   })
 })

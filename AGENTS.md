@@ -114,14 +114,22 @@ repository needs a genuinely different toolchain, audience, or blast radius.
 
   **Where an assembled file is genuinely read by somebody**, it is **produced** by
   a script and checked in, and a `--check` mode runs in `npm run check` so the two
-  cannot drift. [`scripts/build-changelog.mjs`](scripts/build-changelog.mjs) is
-  the worked example — `packages/core/CHANGELOG.md` from
-  `packages/core/changes/`, because consumers read it at a tag (`#672`) — and
-  [`scripts/build-decisions-index.mjs`](scripts/build-decisions-index.mjs) is the
-  second, producing `docs/decisions.md` as an index over `docs/decisions/`
-  (`#1497`). If both the directory and the file are hand-edited, the conflict
-  comes back with an extra step in front of it, and the `--check` is what refuses
-  that.
+  cannot drift. [`scripts/build-decisions-index.mjs`](scripts/build-decisions-index.mjs)
+  is the worked example, producing `docs/decisions.md` as an index over
+  `docs/decisions/` (`#1497`) — twenty-odd things link into that file by anchor.
+  If both the directory and the file are hand-edited, the conflict comes back with
+  an extra step in front of it, and the `--check` is what refuses that.
+
+  **And where it is not genuinely read, it is not tracked at all** (`#1572`,
+  reversing `D-123`). `packages/core/CHANGELOG.md` was produced _and_ checked in
+  because _consumers read it at a tag_. Measured 2026-08-22: **zero tags, no
+  workflow that publishes or releases, no package under the organisation.** The
+  reader never existed, and the file cost 432 commits in thirty days — every one
+  of which conflicts with every other open pull request, because `merge=union`
+  resolves it in a working tree and **GitHub does not apply it**.
+  `packages/core/changes/` is the changelog; `build-changelog.mjs` still produces
+  the file, and `packages/core`'s `prepack` runs it so a publish would ship one.
+  `#271`'s sentence is the rule: _a file nobody commits cannot be merged at all._
 
   **Registries cannot become directories and get a merge driver instead.** A
   barrel, a tool list, a table of contents is a list _by nature_ — there is

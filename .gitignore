@@ -32,3 +32,12 @@ packages/db/src/storage/index.ts
 # every source file. .prettierignore, eslint.config.js and
 # scripts/test-file-enumeration.test.ts skip it for the same reason.
 .claude/
+
+# Produced by `scripts/build-changelog.mjs` from `packages/core/changes/`, and
+# **not tracked** (`#1572`). A produced file that every entry touches is a file
+# every pair of open pull requests conflicts on — 432 commits to it in thirty
+# days — and `merge=union` resolves that in a working tree and is not applied by
+# GitHub, so the conflict survived where it decides whether a branch can land.
+# `#271` had already answered this shape: a file nobody commits cannot be merged
+# at all. `changes/` is the changelog; `prepack` builds this for a publish.
+packages/core/CHANGELOG.md

@@ -2,8 +2,8 @@
 # not (`#1496`).
 #
 # Measured on `main` over the thirty days to 2026-08-20: 395 changes to
-# `packages/core/CHANGELOG.md`, 324 to the migration journal, 118 to a schema
-# barrel of 122 lines. **Size is not what makes a file collide** — the barrel is
+# `packages/core/CHANGELOG.md` — since untracked by `#1572` — 324 to the
+# migration journal, 118 to a schema barrel of 122 lines. **Size is not what makes a file collide** — the barrel is
 # the clearest case in the table. Every feature that adds a table appends one
 # line to the same list, and two features in flight append at the same place.
 #
@@ -25,8 +25,12 @@
 # that had each added an entry still conflicted. The attribute was set and no
 # driver answered to it.
 #
-# So the changelog gets `union` as well — for a different reason than the lists
-# do, and the difference is written beside it.
+# The changelog used to get `union` as well. **It is no longer tracked at all**
+# (`#1572`): union resolved it correctly in a working tree and GitHub never
+# applied it, so the file went on conflicting on the one surface that decides
+# whether a branch can land. A file nobody commits cannot be merged, which is a
+# better answer than a driver that only works locally. The index below keeps
+# `union` because it is still tracked and still read.
 #
 # ## Where `union` is wrong
 #
@@ -41,29 +45,8 @@
 # a path that does not fails the check.
 
 # ---------------------------------------------------------------------------
-# The produced file: never conflict, and regenerate
+# The produced index: never conflict, and regenerate
 # ---------------------------------------------------------------------------
-
-# Produced by `scripts/build-changelog.mjs` from the files in
-# `packages/core/changes/`. A derived file has no business being merged
-# textually: either side is as good as the other, because the next step is to
-# rebuild it.
-#
-# **`union` here is not the argument the lists below make.** There the union
-# result is *right*. Here it is only *never a conflict*, and what makes it safe is
-# `check:changelog` — `build-changelog.mjs --check` runs inside `npm run check`
-# and fails when the file is not what the script would write. A wrong resolution
-# cannot reach `main`; it can only cost one `node scripts/build-changelog.mjs`.
-# Set against what a conflict costs today — markers in a 6000-line generated file
-# that somebody reads — that is the trade this file is for.
-#
-# In practice it is not even wrong. Measured 2026-08-21 on two pairs of branches,
-# including the worst case `#1496` names — both sides introducing a section
-# heading that did not exist before — the union merge was clean *and*
-# byte-identical to what the script writes. The headings are produced
-# deterministically, so they arrive as identical context rather than as competing
-# hunks.
-packages/core/CHANGELOG.md merge=union
 
 # The index over `docs/decisions/`, produced by `scripts/build-decisions-index.mjs`
 # (`#1497`). One row per record, appended at the bottom — the same shape the 9497-line

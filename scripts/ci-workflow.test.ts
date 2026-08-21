@@ -300,13 +300,49 @@ describe('the catalogue-floor job can read history', () => {
    * text is what stops a justified branch commit with an unjustified body from
    * landing (`#1379`). Making `Report the change` required cannot happen until
    * that workflow itself runs on `merge_group`, or the queue stalls.
+   *
+   * **Both jobs, and that is the whole of `#1545`.** `check:catalogue-floor`
+   * reads the text in `build`; `catalogue-budget.test.ts` reads it in `test`,
+   * since `#1504` made the local run weigh a raise the way the branch gate
+   * does. `$GITHUB_ENV` does not cross a job boundary, so a step in one of them
+   * exports nothing to the other — and for a day every pull request that added
+   * a tool was refused for saying nothing, whatever its body said. The
+   * assertion is on both because one of them passing is what the defect looked
+   * like.
    */
-  it('hands the squash text to the floor check on pull_request and merge_group', () => {
-    const block = jobs().get('build') ?? ''
+  it('hands the squash text to both jobs that weigh a raise', () => {
+    for (const job of ['build', 'test']) {
+      expect(jobs().get(job) ?? '', job).toContain(
+        'uses: ./.github/actions/catalogue-floor-pr-text',
+      )
+    }
+  })
 
-    expect(block).toContain('CATALOGUE_FLOOR_PR_TEXT_FILE')
-    expect(block).toContain(
+  /**
+   * One definition, and the guard is on it.
+   *
+   * Twelve lines of shell in two jobs is what would let them drift apart again,
+   * one job at a time, with the failure landing on an author who wrote the
+   * sentence correctly. The event condition and the variable are asserted here
+   * rather than in the workflow because here is where they now live.
+   */
+  it('writes the text under one guard, in one place', () => {
+    const action = readFileSync(
+      new URL('../.github/actions/catalogue-floor-pr-text/action.yml', import.meta.url),
+      'utf8',
+    )
+
+    expect(action).toContain('CATALOGUE_FLOOR_PR_TEXT_FILE')
+    expect(action).toContain(
       "github.event_name == 'pull_request' || github.event_name == 'merge_group'",
     )
+    // The title is attacker-controlled: it reaches the shell through `env:` and
+    // a `printf`, never through a `${{ }}` interpolation inside `run:`. The
+    // assertion is on the shell body alone rather than on the file, because the
+    // prose above it discusses both and would match either way.
+    expect(action).toContain('PR_TITLE: ${{ github.event.pull_request.title }}')
+    const shell = action.slice(action.indexOf('run: |'))
+    expect(shell, 'the run: block interpolates a workflow expression').not.toContain('${{')
+    expect(shell).toContain('"$PR_TITLE"')
   })
 })

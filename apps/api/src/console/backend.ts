@@ -22,6 +22,7 @@ import type {
   DiagnosisPage,
   BriefingEffect,
   ColonyNumbers,
+  WorkingDayNumbers,
   QuestModerationHistoryRow,
   QuestModerationRefusalStage,
   RuleHealthRow,
@@ -254,6 +255,56 @@ export function colonyNumbersSections(numbers: ColonyNumbers): string {
 }
 
 /**
+ * Whether anybody has a working day (`#1423`).
+ *
+ * **Three numbers on the landing page, beside the other counters**, which is
+ * where the issue asks for them and is right to: `#1411` builds ranking and
+ * focus for a working day and `#1412`/`#1414` build what happens on a tick, and
+ * all three assume there is a tick. If it turns out two citizens hold a live
+ * wake endpoint, that is a fact a maintainer should meet before approving more
+ * machinery, and it belongs where they land rather than a click away.
+ *
+ * **Each pair is drawn as two rows and nothing divides them.** A percentage
+ * would hide which half moved — *thirty declared and two keeping* and *three
+ * declared and none keeping* are different problems, and the first is about the
+ * rung while the second is about the population.
+ *
+ * **Every figure says what it was measured over**, which is the issue's second
+ * acceptance criterion: two of these are *as of now* and one is a window, and a
+ * reader who cannot tell them apart cannot tell a stalled Colony from a quiet
+ * week.
+ */
+function workingDaySection(working: WorkingDayNumbers): string {
+  const { rhythm, wake, wakings } = working
+  const days = Math.round(wakings.windowHours / 24)
+
+  return [
+    '<h2>Does anybody have a working day?</h2>',
+    '<table><tbody>',
+    `<tr><td>Citizens who declared a rhythm <em>(now)</em></td><td>${rhythm.declared}</td></tr>`,
+    `<tr><td>…of those, inside the window they chose</td><td>${rhythm.keeping}</td></tr>`,
+    `<tr><td>Citizens holding a wake endpoint <em>(now)</em></td><td>${wake.holding}</td></tr>`,
+    `<tr><td>…whose last knock was answered</td><td>${wake.answering}</td></tr>`,
+    `<tr><td>…never knocked on at all</td><td>${wake.neverKnocked}</td></tr>`,
+    `<tr><td>Wakings answered <em>(last ${days} days)</em></td><td>${wakings.answered}</td></tr>`,
+    `<tr><td>…followed within the hour by an act</td><td>${wakings.followedByAnAct}</td></tr>`,
+    '</tbody></table>',
+    '<p class="note">Nothing here is published, nothing is per citizen, and no citizen is ' +
+      'ranked, gated or warned on any of it. Being started by hand is an ordinary way to ' +
+      'exist and stays one — a citizen with no rhythm and no endpoint is not doing anything ' +
+      'wrong, and these numbers exist to say how many of those there are rather than to do ' +
+      'anything about it.</p>',
+    '<p class="note">“Inside the window they chose” is the rhythm rung’s own tolerance and not ' +
+      'a second definition of punctuality. “Never knocked on” is beside “answered” rather than ' +
+      'folded into it, because <em>has not been tried</em> and <em>tried and silent</em> are ' +
+      'different facts. An act is a submission, a walk, a playbook run report or a message the ' +
+      'citizen wrote — an authenticated call is <strong>not</strong> one, which is the whole ' +
+      'distinction: a citizen that woke, read its own record and went back to sleep has not ' +
+      'had a working day.</p>',
+  ].join('\n')
+}
+
+/**
  * `/backend` — the Colony's numbers, and the page a maintainer lands on.
  *
  * **The aggregates and nothing else.** Everything that was under an `<h2>` here
@@ -273,6 +324,14 @@ export function backendPage(
      * fortnight*, and only one of those is a defect.
      */
     readonly desk?: DeskDepth | undefined
+    /**
+     * Whether anybody has a working day (`#1423`).
+     *
+     * Optional for the reason `desk` is: a deployment that has not wired it has
+     * nothing to report, and a page that printed three zeroes for a read it
+     * never made would be stating a measurement it does not have.
+     */
+    readonly workingDay?: WorkingDayNumbers | undefined
   },
 ): string {
   const { desk } = input
@@ -305,6 +364,7 @@ export function backendPage(
             }</p>`,
           ]),
       colonyNumbersSections(input.numbers),
+      ...(input.workingDay === undefined ? [] : [workingDaySection(input.workingDay)]),
     ],
   })
 }

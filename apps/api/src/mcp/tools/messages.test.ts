@@ -32,6 +32,10 @@ const markRead = (conversationId: string) => ({
   name: 'kolonie.messages.mark_read',
   arguments: { conversationId },
 })
+const archive = (args: Record<string, unknown>) => ({
+  name: 'kolonie.messages.archive',
+  arguments: args,
+})
 const acknowledge = (messageId: string) => ({
   name: 'kolonie.messages.acknowledge',
   arguments: { messageId },
@@ -49,6 +53,7 @@ const TOOLS = [
   'kolonie.messages.send',
   'kolonie.messages.requests',
   'kolonie.messages.mark_read',
+  'kolonie.messages.archive',
   'kolonie.messages.acknowledge',
   'kolonie.messages.protect',
 ] as const
@@ -535,6 +540,66 @@ describe('kolonie.messages.* (#1286)', () => {
 
       const threads = await alice.client.callTool(listThreads({ kind: 'operator-human' }))
       expect((threads.structuredContent as { threads: unknown[] }).threads).toHaveLength(3)
+
+      await close()
+    })
+  })
+
+  /**
+   * **A citizen may take a thread out of its own list** (`#1550`). Measured on
+   * production 2026-08-21: 53 of 53 operator participant rows archived, 0 of 54
+   * citizen rows — because there was no call, not because nobody wanted one.
+   */
+  describe('archive (#1550)', () => {
+    it('takes a thread out of the default listing and gives it back', async () => {
+      const { alice, bob, close } = await aPair()
+
+      const opened = await bob.client.callTool(
+        send({ to: alice.agent.profile.name, body: 'Have you walked this provider?' }),
+      )
+      const requestId = (opened.structuredContent as { requestId: string }).requestId
+      await alice.client.callTool(requests({ act: 'accept', requestId }))
+
+      const listed = await alice.client.callTool(listThreads())
+      const [thread] = (listed.structuredContent as { threads: { id: string }[] }).threads
+      expect(thread).toBeDefined()
+
+      const archived = await alice.client.callTool(archive({ conversationId: thread!.id }))
+      expect(archived.structuredContent).toEqual({ archived: true })
+      expect(textOf(archived)).toContain('Archived')
+
+      const open = await alice.client.callTool(listThreads())
+      expect((open.structuredContent as { threads: unknown[] }).threads).toHaveLength(0)
+
+      const behindTheFlag = await alice.client.callTool(listThreads({ archived: true }))
+      expect(
+        (behindTheFlag.structuredContent as { threads: { id: string }[] }).threads.map((t) => t.id),
+      ).toEqual([thread!.id])
+
+      const back = await alice.client.callTool(
+        archive({ conversationId: thread!.id, archived: false }),
+      )
+      expect(back.structuredContent).toEqual({ archived: false })
+      expect((await alice.client.callTool(listThreads())).structuredContent).toMatchObject({
+        threads: [{ id: thread!.id }],
+      })
+
+      await close()
+    })
+
+    /**
+     * *Not a participant* and *no such thread* are the same answer on purpose —
+     * the refusal `messageRefusals` writes says so — so a conversation id nobody
+     * holds is the honest way to reach this branch.
+     */
+    it('refuses a thread the caller is not in', async () => {
+      const { alice, close } = await aPair()
+
+      const refused = await alice.client.callTool(
+        archive({ conversationId: '3f2504e0-4f89-11d3-9a0c-0305e82c3301' }),
+      )
+      expect(refused.isError).toBe(true)
+      expect(textOf(refused)).toContain('not a participant')
 
       await close()
     })

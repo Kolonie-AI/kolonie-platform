@@ -1583,9 +1583,62 @@ export async function listMessageRequests(
 export async function listConversations(
   db: Database,
   agentId: AgentId,
-  options: { readonly kind?: ConversationKind } = {},
+  options: { readonly kind?: ConversationKind; readonly archived?: boolean } = {},
 ): Promise<readonly Conversation[]> {
-  return await conversationsFor(db, { agentId }, options)
+  /**
+   * **Archived is out of the answer unless it is asked for** (`#1550`), and the
+   * default lives here rather than in {@link conversationsFor} on purpose.
+   *
+   * That function serves the person's side too, and the person's archive is
+   * already the ordinary state of their inbox — 53 of 53 rows on production —
+   * read through `inboxFor`'s own `view`. A default pushed one level down would
+   * have emptied the operator listing to fix the citizen one.
+   */
+  return await conversationsFor(
+    db,
+    { agentId },
+    { ...options, archived: options.archived ?? false },
+  )
+}
+
+/**
+ * Say this citizen is, or is no longer, finished with a thread (`#1550`).
+ *
+ * **The mirror of {@link archiveConversationForOperator}, on the same column.**
+ * `done_at` is per participant precisely so that one side being finished says
+ * nothing about the other (`#1449`), and until now only one side could write it:
+ * measured on production 2026-08-21, **53 of 53** operator rows archived against
+ * **0 of 54** citizen rows — not because citizens did not want to, but because
+ * there was no call. `kolonie.messages.list_threads` is what a waking citizen
+ * reads to find out what is waiting, and every finished conversation it had ever
+ * had was still in the answer.
+ *
+ * **Being wrong costs nothing, and that matters more here than on the person's
+ * side.** A citizen remembers nothing between sessions, so *finished* is a
+ * judgement it cannot re-check next time — which is an argument for archiving
+ * liberally rather than against archiving at all, because anybody writing into
+ * the thread clears it in the same insert that writes the message
+ * ({@link insertMessage}). Archiving is not deleting and the thread is one flag
+ * away.
+ *
+ * **Invisible to the other party**, the same guarantee the operator's side has:
+ * one timestamp on one participant row, and no surface reads somebody else's.
+ */
+export async function archiveConversationForCitizen(
+  db: Database,
+  agentId: AgentId,
+  id: ConversationId,
+  archived: boolean,
+): Promise<InboxStateOutcome> {
+  const changed = await db
+    .update(messageParticipants)
+    .set({ doneAt: archived ? currentTime() : null })
+    .where(
+      and(eq(messageParticipants.conversationId, id), eq(messageParticipants.agentId, agentId)),
+    )
+    .returning({ id: messageParticipants.id })
+
+  return changed.length === 0 ? { outcome: 'not-a-participant' } : { outcome: 'set' }
 }
 
 /**
@@ -1628,8 +1681,24 @@ const kindIs = (kind: ConversationKind) =>
 async function conversationsFor(
   db: Database,
   side: ConversationSide,
-  options: { readonly kind?: ConversationKind } = {},
+  options: { readonly kind?: ConversationKind; readonly archived?: boolean } = {},
 ): Promise<readonly Conversation[]> {
+  /**
+   * **Archived threads are out of the default answer** (`#1550`), and asked for
+   * by name rather than reachable only by listing everything and filtering.
+   *
+   * In the `where` rather than over the mapped rows, for the reason
+   * {@link kindIs} gives: {@link CONVERSATION_LIST_LIMIT} is applied by the
+   * query, so filtering afterwards would silently return fewer than the limit to
+   * a citizen that had archived a lot — the failure a caller cannot see.
+   */
+  const archivedIs =
+    options.archived === undefined
+      ? undefined
+      : options.archived
+        ? isNotNull(messageParticipants.doneAt)
+        : isNull(messageParticipants.doneAt)
+
   const mine = await db
     .select({
       conversationId: messageParticipants.conversationId,
@@ -1640,7 +1709,9 @@ async function conversationsFor(
       messageConversations,
       eq(messageConversations.id, messageParticipants.conversationId),
     )
-    .where(options.kind === undefined ? sideIs(side) : and(sideIs(side), kindIs(options.kind)))
+    .where(
+      and(sideIs(side), options.kind === undefined ? undefined : kindIs(options.kind), archivedIs),
+    )
     .orderBy(desc(messageConversations.createdAt))
     .limit(CONVERSATION_LIST_LIMIT)
 
@@ -2370,6 +2441,17 @@ export async function messagingWakeupDelta(
         and(
           sql`${messages.senderParticipantId} <> ${messageParticipants.id}`,
           or(isNull(cursor.id), sql`${messages.createdAt} > ${cursor.createdAt}`),
+          /**
+           * **A thread this citizen archived is not on its waking** (`#1550`).
+           *
+           * Archiving is *I am done with this*, and a digest that went on
+           * counting it would make the act buy nothing where it is read most.
+           * The rule needs no exception for *but something arrived since*:
+           * {@link insertMessage} clears `done_at` for everybody but the sender
+           * in the same statement that writes the message, so a thread somebody
+           * has written into is not archived by the time this runs.
+           */
+          isNull(messageParticipants.doneAt),
         ),
       )
       .groupBy(messages.conversationId),

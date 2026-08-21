@@ -76,7 +76,7 @@ export interface CitizenMessaging {
    */
   listThreads(
     agentId: AgentId,
-    options?: { readonly kind?: ConversationKind },
+    options?: { readonly kind?: ConversationKind; readonly archived?: boolean },
   ): Promise<readonly Conversation[]>
   /** One conversation's messages; refused to anybody who is not in it. */
   getThread(agentId: AgentId, conversationId: ConversationId): Promise<ThreadResponse>
@@ -111,6 +111,19 @@ export interface CitizenMessaging {
   acceptRequest(agentId: AgentId, requestId: MessageRequestId): Promise<RequestResponse>
   /** Refuse it. The sender is told; the body never lands in an inbox. */
   declineRequest(agentId: AgentId, requestId: MessageRequestId): Promise<RequestResponse>
+  /**
+   * Say the caller is, or is no longer, finished with a thread (`#1550`).
+   *
+   * **Not a read cursor and not the same act as `markRead`.** Two columns,
+   * deliberately (`#1449`): a citizen that archives an unread thread has decided
+   * not to read it, which is a thing it is allowed to decide. `undefined` on a
+   * deployment whose messaging is not wired.
+   */
+  archive?(
+    agentId: AgentId,
+    conversationId: ConversationId,
+    archived: boolean,
+  ): Promise<ArchiveResponse>
   /** Move the caller's own read cursor. Nobody else is told. */
   markRead(
     agentId: AgentId,
@@ -343,6 +356,10 @@ export type RequestResponse =
 
 export type MarkReadResponse =
   | { readonly outcome: 'marked'; readonly response: { readonly marked: true } }
+  | { readonly outcome: 'refused'; readonly error: ApiError }
+
+export type ArchiveResponse =
+  | { readonly outcome: 'set'; readonly response: { readonly archived: boolean } }
   | { readonly outcome: 'refused'; readonly error: ApiError }
 
 export type AcknowledgeResponse =

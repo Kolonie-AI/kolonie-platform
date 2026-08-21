@@ -14,12 +14,9 @@
  * on both sides of it, and hands the pair with that commit's message to
  * `floorChangeVerdict`. A raise with no sentence exits non-zero.
  *
- * Since `#1235` it judges the per-tool ceiling from the same two versions and
- * the same message, through `ceilingChangeVerdict`. The rule is the floor's plus
- * the tool's name: a commit that raises the ceiling has to say which tool it is
- * making an exception for, because that is the half only an author who thought
- * about it can supply. A version from before that field existed carries no
- * ceiling, and is reported rather than failed.
+ * It judged a per-tool ceiling from the same pair between `#1235` and `#1518`.
+ * That figure is gone — see `catalogue-budget.ts` for the whole argument — so
+ * this now judges the two sums and nothing else.
  *
  * ## Why it is its own entry point
  *
@@ -79,9 +76,8 @@ const git = (...args) => {
 
 /** The rule itself, from the built api — the same module the suite tests. */
 let floorChangeVerdict
-let ceilingChangeVerdict
 try {
-  ;({ floorChangeVerdict, ceilingChangeVerdict } = await import(
+  ;({ floorChangeVerdict } = await import(
     pathToFileURL(path.join(ROOT, 'apps', 'api', 'dist', 'mcp', 'catalogue-budget.js')).href
   ))
 } catch {
@@ -99,25 +95,6 @@ const totalsOf = (json, where) => {
     throw new Error(`${where} has no tools/bytes pair`)
   }
   return { tools: parsed.tools, bytes: parsed.bytes }
-}
-
-/**
- * The ceiling out of the same file, or `undefined` for a version written before
- * the field existed (`#1235`). Missing is a fact about the history rather than a
- * malformed floor, so it is reported where `totalsOf` would throw.
- */
-const ceilingOf = (json) => {
-  const parsed = JSON.parse(json)
-  const heaviest = parsed.heaviest
-  if (
-    heaviest === undefined ||
-    heaviest === null ||
-    typeof heaviest.name !== 'string' ||
-    typeof heaviest.bytes !== 'number'
-  ) {
-    return undefined
-  }
-  return { name: heaviest.name, bytes: heaviest.bytes }
 }
 
 /** Locally a missing history is an export; in CI it is the guard not running. */
@@ -179,30 +156,15 @@ const verdict = floorChangeVerdict(
   message,
 )
 
-const ceilingBefore = ceilingOf(before)
-const ceilingAfter = ceilingOf(after)
-const ceiling =
-  ceilingBefore !== undefined && ceilingAfter !== undefined
-    ? ceilingChangeVerdict(ceilingBefore, ceilingAfter, message)
-    : undefined
-
 const workingSource = readFileSync(BUDGET, 'utf8')
 const working = totalsOf(workingSource, RELATIVE)
 const committed = totalsOf(after, RELATIVE)
-const workingCeiling = ceilingOf(workingSource)
-const uncommitted =
-  working.tools !== committed.tools ||
-  working.bytes !== committed.bytes ||
-  workingCeiling?.name !== ceilingAfter?.name ||
-  workingCeiling?.bytes !== ceilingAfter?.bytes
+const uncommitted = working.tools !== committed.tools || working.bytes !== committed.bytes
 
-// Both are reported before either exits, so that a commit which moved both
-// figures does not hide one refusal behind the other.
-for (const failed of [verdict, ceiling].filter((each) => each !== undefined && !each.allowed)) {
-  console.error(`${sha.slice(0, 8)} — ${failed.message}`)
+if (!verdict.allowed) {
+  console.error(`${sha.slice(0, 8)} — ${verdict.message}`)
+  process.exit(1)
 }
-
-if (!verdict.allowed || ceiling?.allowed === false) process.exit(1)
 
 const prTextPath = process.env.CATALOGUE_FLOOR_PR_TEXT_FILE
 const prText =
@@ -213,10 +175,6 @@ const prText =
 const beforeTotals = totalsOf(before, `${RELATIVE} before ${sha.slice(0, 8)}`)
 const afterTotals = totalsOf(after, `${RELATIVE} at ${sha.slice(0, 8)}`)
 const raised = afterTotals.tools > beforeTotals.tools || afterTotals.bytes > beforeTotals.bytes
-const ceilingRaised =
-  ceilingBefore !== undefined &&
-  ceilingAfter !== undefined &&
-  (ceilingAfter.bytes > ceilingBefore.bytes || ceilingAfter.name !== ceilingBefore.name)
 
 /**
  * Whether the raise this run found has already landed on the default branch.
@@ -237,20 +195,16 @@ const ceilingRaised =
  */
 const alreadyLanded = git('merge-base', '--is-ancestor', sha, 'origin/main') !== undefined
 
-if (prText.trim() !== '' && (raised || ceilingRaised) && !alreadyLanded) {
+if (prText.trim() !== '' && raised && !alreadyLanded) {
   const prFloor = floorChangeVerdict(beforeTotals, afterTotals, prText)
-  const prCeiling =
-    ceilingBefore !== undefined && ceilingAfter !== undefined
-      ? ceilingChangeVerdict(ceilingBefore, ceilingAfter, prText)
-      : undefined
-  for (const failed of [prFloor, prCeiling].filter((each) => each !== undefined && !each.allowed)) {
+  if (!prFloor.allowed) {
     console.error(
       'The pull request title and body will become the squash commit message, ' +
-        `and they do not justify this raise (kolonie-platform#1379). ${failed.message}`,
+        `and they do not justify this raise (kolonie-platform#1379). ${prFloor.message}`,
     )
+    process.exit(1)
   }
-  if (!prFloor.allowed || prCeiling?.allowed === false) process.exit(1)
-} else if (raised || ceilingRaised) {
+} else if (raised) {
   if (!alreadyLanded) {
     console.log(
       'This raise is justified on the branch commit. A squash merge will judge the pull ' +
@@ -263,28 +217,13 @@ if (prText.trim() !== '' && (raised || ceilingRaised) && !alreadyLanded) {
 
 console.log(`${sha.slice(0, 8)} — ${verdict.message}`)
 
-if (ceiling !== undefined) {
-  console.log(`${sha.slice(0, 8)} — ${ceiling.message}`)
-} else if (ceilingAfter === undefined) {
-  console.log(
-    `${RELATIVE} at ${sha.slice(0, 8)} carries no per-tool ceiling. ` +
-      '`node scripts/check-catalogue-budget.mjs` writes one.',
-  )
-} else {
-  console.log(
-    `${RELATIVE} gained its per-tool ceiling in ${sha.slice(0, 8)}, so there is no previous ` +
-      'one to compare it against.',
-  )
-}
-
 if (uncommitted) {
   // Not a failure: the message that would justify it does not exist yet. Saying
   // so is the whole of what can be done here, and saying nothing is what let the
   // floor move unremarked in the first place.
   console.log(
-    `${RELATIVE} is edited and not committed: ${working.tools} tools, ${working.bytes} bytes ` +
-      `and a ceiling of ${workingCeiling?.bytes ?? 'none'}\n` +
-      `against ${committed.tools}, ${committed.bytes} and ${ceilingAfter?.bytes ?? 'none'} in ` +
-      `${sha.slice(0, 8)}. The commit that lands it is what the next run judges.`,
+    `${RELATIVE} is edited and not committed: ${working.tools} tools and ${working.bytes} bytes ` +
+      `against ${committed.tools} and ${committed.bytes} in ${sha.slice(0, 8)}. ` +
+      'The commit that lands it is what the next run judges.',
   )
 }

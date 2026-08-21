@@ -141,7 +141,9 @@ export function proseBytesOf(tool: PublishedTool): number {
  * brackets and separators are real bytes on the wire. They differ by exactly
  * those, and neither is the wrong number for its own question.
  *
- * `#1235`'s per-tool ceiling is the caller this was extracted for.
+ * Extracted so a caller can weigh one tool without measuring the whole
+ * catalogue. `#1235`'s per-tool ceiling was the first such caller and is gone
+ * (`#1518`); the function stays because the surface report still uses it.
  */
 export function toolBytesOf(tool: PublishedTool): number {
   return wireBytes(tool)

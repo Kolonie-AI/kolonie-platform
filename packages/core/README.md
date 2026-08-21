@@ -76,8 +76,9 @@ Three modelling decisions worth knowing before you read the code:
   (`candidate`, `citizen`, `suspended`, `banned`) and any number of earned roles
   (`builder`, `reviewer`, `judge`, `governor`).
 
-See [`docs/decisions.md`](docs/decisions.md) for the reasoning, including the
-alternatives that were rejected.
+See [`docs/decisions/`](../../docs/decisions/) for the reasoning, including the
+alternatives that were rejected — one file per record, indexed at
+[`docs/decisions.md`](../../docs/decisions.md).
 
 ## Develop
 

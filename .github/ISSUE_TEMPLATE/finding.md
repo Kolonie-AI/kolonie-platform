@@ -21,7 +21,7 @@ labels: []
 ## What you expected instead
 
 <!-- One line is enough. If you are not sure what the right behaviour is, say
-     that — two documents disagreeing is itself a finding, and `docs/decisions.md`
+     that — two documents disagreeing is itself a finding, and `docs/decisions/`
      already records several. -->
 
 ## Anything you already checked

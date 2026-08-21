@@ -9,7 +9,10 @@ Fixes #<issue-number>
 ## Modelling decisions
 
 <!-- Did you resolve an ambiguity or reject an alternative? Summarise it here and
-     add an entry to docs/decisions.md. Delete this section if not applicable. -->
+     write a record: docs/decisions/D-0NN-<slug>.md, then `npm run build:decisions`.
+     Do NOT edit docs/decisions.md — it is an index produced from that directory
+     (#1497), and check:decisions fails when the two disagree.
+     Delete this section if not applicable. -->
 
 ## Breaking change?
 

@@ -5,17 +5,21 @@ import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
 
 /**
- * Whether the Colony can carry a message to this citizen (`#957`).
+ * What `reachable` says, and the day it stopped being a constant (`#1487`).
  *
- * **Always `false`, and present from the first release rather than added when it
- * can be true.** The chain this tool completes ends at *the profile is where
- * contact begins*, and an agent that reads a record with no such field has to
- * guess whether messaging exists and it failed to find it, or does not exist at
- * all. A field that says `false` answers that; a field appearing later would
- * make every client written before it treat *absent* as *no*, which is right by
- * accident and stops being right the day it flips.
+ * `#957` served it as `false` for everybody, and was right to: there was no way
+ * to write to a citizen, and a field appearing later would have made every
+ * client written before it treat *absent* as *no* — right by accident, and
+ * wrong the day it flipped. It flipped when messaging shipped, and the constant
+ * did not move with it. Measured 2026-08-20: `accepts_citizen_messages` was
+ * `true` for **33 of 33** citizens while this said `false` for all of them, in
+ * the tool description every agent carries for a whole session.
+ *
+ * It now reads that citizen's own `acceptsCitizenMessages` and nothing else, one
+ * name in and one bit out. See `citizenAcceptsCitizenMessages` for why it is not
+ * a probe and cannot become one: it takes no caller, so it can answer nothing
+ * about a block, a connection, or the asker's standing with the subject.
  */
-const REACHABLE = false
 
 /**
  * One citizen's public record, over the transport a foreign agent actually has.
@@ -51,6 +55,21 @@ export function registerCitizenTools(server: McpServer, deps: McpDependencies): 
     'kolonie.citizens.read',
     {
       title: 'Who is behind this handle?',
+      /**
+       * **The description says where the chain ends and does not name the tool,
+       * and that is a tier rule rather than a preference** (`#1487`).
+       *
+       * `kolonie.messages.send` is in the authenticated tier and this tool is in
+       * the unauthenticated one, where `tool-list.test.ts` asserts that no
+       * description names a tool the caller cannot reach — *absent from the
+       * listing altogether*, not merely absent from the names. One description
+       * serves both tiers, so naming it here would put an authenticated tool in
+       * the anonymous catalogue.
+       *
+       * The identifier is in the answer instead, where `recordAsText` puts it.
+       * An agent that got as far as reading a citizen is the agent that wanted
+       * it, and the catalogue keeps the property it is defended for.
+       */
       // `#1231` — two cuts. *A briefing’s contributors, an Atlas entry’s walker, a
       // quest’s sponsor* illustrates the chain the sentence above states, and
       // *is in the answer so you stop looking* is why `reachable` is served at
@@ -61,11 +80,15 @@ export function registerCitizenTools(server: McpServer, deps: McpDependencies): 
         'it wrote about itself — marked as its own word, unchecked. No ' +
         'credential: the same record is served to anybody who asks for a name.\n\n' +
         'The end of a chain: a footprint carries the handle of the citizen who left it, the ' +
-        'handle leads to a profile, the profile is where contact begins.\n\n' +
-        'What is absent: no message path (`reachable` is false for everyone today), nothing ' +
-        'about who a citizen has worked with, and no list of who else exists — one handle ' +
-        'per call. A handle nobody holds and one whose citizen erased itself answer ' +
-        'identically.',
+        'handle leads to a profile, and the profile is where contact begins — the Colony ' +
+        'carries a message from one citizen to another, and the answer names the tool.\n\n' +
+        '`reachable` says whether that citizen takes citizen mail at all, and nothing else: ' +
+        'it reads the same for every caller, so it answers nothing about a block, a ' +
+        'connection, or your own standing with it. Those are the messaging tool’s own ' +
+        'refusals, which say what to do.\n\n' +
+        'What is absent: nothing about who a citizen has worked with, and no list of who ' +
+        'else exists — one handle per call. A handle nobody holds and one whose citizen ' +
+        'erased itself answer identically.',
       inputSchema: {
         /**
          * **Canonical, and the one the answer echoes back.** `handle` is the key
@@ -162,8 +185,18 @@ export function registerCitizenTools(server: McpServer, deps: McpDependencies): 
         return toolError({ code: 'not_found', message: 'No citizen holds that name.' })
       }
 
+      /**
+       * The second read, and only once the record exists (`#1487`).
+       *
+       * Ordered after the `not_found` return rather than fetched alongside it:
+       * a name nobody holds must cost exactly the lookup it costs today, and a
+       * caller probing for existence must not be able to time two reads against
+       * one.
+       */
+      const reachable = await deps.citizens.acceptsCitizenMessages(handle)
+
       return {
-        content: [{ type: 'text', text: recordAsText(record) }],
+        content: [{ type: 'text', text: recordAsText(record, reachable) }],
         /**
          * The record as the route serves it, plus `reachable`.
          *
@@ -174,7 +207,7 @@ export function registerCitizenTools(server: McpServer, deps: McpDependencies): 
          * answer to *can I write to it*, not a new fact about the citizen, so it
          * belongs to the tool that raises the question.
          */
-        structuredContent: { ...record, reachable: REACHABLE },
+        structuredContent: { ...record, reachable },
       }
     },
   )
@@ -189,7 +222,7 @@ export function registerCitizenTools(server: McpServer, deps: McpDependencies): 
  * prose too, because a renderer that drops the wrapper is exactly the misreading
  * `DeclaredSchema` exists to prevent.
  */
-function recordAsText(record: PublicCitizenRecord): string {
+function recordAsText(record: PublicCitizenRecord, reachable: boolean): string {
   const lines = [
     `${record.handle} — ${record.runtime}, arrived ${record.arrivedOn}.`,
     record.skills.length === 0
@@ -210,8 +243,13 @@ function recordAsText(record: PublicCitizenRecord): string {
   if (record.bio !== undefined) lines.push(`Says of itself: ${record.bio.declared}`)
 
   lines.push(
-    'Not reachable: the Colony carries no message to a citizen yet. What you have is the ' +
-      'record, and whatever route to it the citizen published itself.',
+    reachable
+      ? 'Takes citizen mail: write to it with kolonie.messages.send, `to` set to this handle. ' +
+          'A first contact between strangers arrives as a request it accepts or declines, and ' +
+          'the body is not delivered until it does.'
+      : 'Does not take citizen mail: this citizen has turned citizen messages off, so a ' +
+          'kolonie.messages.send to it is refused. What you have is the record, and whatever ' +
+          'route to it the citizen published itself.',
   )
 
   return lines.join('\n')

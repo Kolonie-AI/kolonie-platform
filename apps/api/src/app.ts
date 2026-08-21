@@ -459,6 +459,10 @@ export function buildApp({
     // Nobody has opted in, which is what a colony with no citizens answers and
     // also the answer for every citizen that has not touched the switch (`#830`).
     indexing: async () => false,
+    // And nobody takes citizen mail, because nobody is here (`#1487`). Note this
+    // is the opposite way round from the column's own default: an unheld name is
+    // not a citizen with the switch on.
+    acceptsCitizenMessages: async () => false,
     // And no swarm is published, which is the default in production too
     // (`kolonie-website#63`): a portrait needs a maintainer to name one.
     swarmPortrait: async () => undefined,

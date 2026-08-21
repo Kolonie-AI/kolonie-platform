@@ -15,7 +15,6 @@ type Changes = Omit<
   | 'since'
   | 'firstSession'
   | 'contributions'
-  | 'operatorNotesUnread'
   // Its own call, for the same reason: an answer nobody acted on is an open
   // obligation rather than news (`#683`).
   | 'operatorRepliesWaiting'
@@ -30,7 +29,7 @@ type Changes = Omit<
   // claim string are conditions the citizen is standing in rather than things
   // that happened inside the window (`#1013`).
   | 'operatorStanding'
-  // Its own call on the source, for the reason `operatorNotesUnread` is: a mark
+  // Its own call on the source, for the reason `operatorRepliesWaiting` is: a mark
   // is an open request rather than news, and windowing it would hide it from a
   // citizen that asked for a narrow window (`#581`).
   | 'accountsWanted'
@@ -87,8 +86,6 @@ type FakeWakeChannel = Omit<WakeupWakeChannel, 'activatedBy'> &
   Partial<Pick<WakeupWakeChannel, 'activatedBy'>>
 
 export interface FakeWakeup extends WakeupSource {
-  /** How many unread operator notes the digest should report (#239). */
-  readonly answersUnreadNotes: (count: number) => void
   /** How many answered exchanges are waiting on the citizen (`#683`). */
   readonly answersWaitingReplies: (count: number) => void
   /** Compact messaging delta the digest should report (`#1287`). */
@@ -141,7 +138,6 @@ export interface FakeWakeup extends WakeupSource {
 export function fakeWakeup(): FakeWakeup {
   let previousSession: string | null = null
   let changes: Changes = NOTHING
-  let unread = 0
   let waitingReplies = 0
   let messaging: WakeupMessagingDelta = {
     unreadThreads: 0,
@@ -160,7 +156,6 @@ export function fakeWakeup(): FakeWakeup {
 
   return {
     previousSessionStart: async (_agentId: AgentId) => previousSession,
-    unreadOperatorNotes: async (_agentId: AgentId) => unread,
     waitingOperatorReplies: async (_agentId: AgentId) => waitingReplies,
     messagingDelta: async (_agentId: AgentId) => messaging,
     wakeChannel: async (_agentId: AgentId) => channel,
@@ -177,9 +172,6 @@ export function fakeWakeup(): FakeWakeup {
     },
     answersPreviousSession: (at) => {
       previousSession = at
-    },
-    answersUnreadNotes: (count) => {
-      unread = count
     },
     answersWaitingReplies: (count) => {
       waitingReplies = count

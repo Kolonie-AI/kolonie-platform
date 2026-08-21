@@ -13,7 +13,7 @@ import {
   fakeOperatorPages,
 } from '../__fixtures__/autonomy.js'
 import { fakeOperatorThreads } from '../__fixtures__/operator-threads.js'
-import { fakeOperatorNotes } from '../__fixtures__/operator-notes.js'
+import { fakeOperatorPageMessages } from '../__fixtures__/operator-page-message.js'
 import { SESSION_COOKIE } from './console.js'
 import { OAUTH_STATE_COOKIE } from '../humans/humans.js'
 
@@ -85,7 +85,7 @@ beforeEach(async () => {
       formBaseUrl: CONSOLE_URL,
     },
     operatorThreads: fakeOperatorThreads({ pages }),
-    operatorNotes: fakeOperatorNotes({ pages }),
+    operatorPageMessages: fakeOperatorPageMessages({ pages }),
   })
   await app.ready()
 })

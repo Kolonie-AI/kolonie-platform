@@ -9,6 +9,7 @@ import {
   looksLikeCredential,
   ConversationIdSchema,
   ConversationParticipantIdSchema,
+  HumanIdSchema,
   MessageIdSchema,
   MessageRequestIdSchema,
   type AgentId,
@@ -1174,7 +1175,13 @@ async function clearNeedsOperator(
  * no parameter that can set them.
  */
 export async function sendSystemMessage(
-  db: Database,
+  /**
+   * A transaction is accepted here (`#1454`), and only here among the send
+   * functions: `deleteHuman` has to tell an orphaned citizen inside the same
+   * transaction that deletes its operator, or a rolled-back deletion would
+   * leave a citizen told its operator had gone when it had not.
+   */
+  db: Database | Transaction,
   role: MessageSystemRole,
   toAgentId: AgentId,
   body: string,
@@ -1211,7 +1218,7 @@ export async function sendSystemMessage(
  * their citizen is not writing about anything in particular.
  */
 async function pairedConversation(
-  db: Database,
+  db: Database | Transaction,
   agentId: AgentId,
   other: {
     readonly humanId?: HumanId
@@ -1287,7 +1294,7 @@ async function pairedConversation(
  * conversation rather than on the citizen.
  */
 async function openDirectConversation(
-  db: Database,
+  db: Database | Transaction,
   agentId: AgentId,
   sender: {
     readonly party: Exclude<MessageParty, 'citizen'>
@@ -2851,6 +2858,89 @@ export async function muteConversationForOperator(
     .returning({ id: messageParticipants.id })
 
   return changed.length === 0 ? { outcome: 'not-a-participant' } : { outcome: 'set' }
+}
+
+/** How long one thread stays quiet after this person has been told about it. */
+export const OPERATOR_NOTIFY_QUIET_HOURS = 24
+
+/**
+ * Decide whether to tell this person a message arrived, and claim it (`#1451`).
+ *
+ * ## The rule
+ *
+ * `#1321` carried `operator_addresses`' rule across: **one ping per thread, and
+ * never on a reply**. Measured in production on 2026-08-20, that meant sixteen
+ * threads had an agent message newer than the operator's last reply and nobody
+ * had been told about any of them. The rule that replaces it — `#1447` frozen
+ * decision 1 — is four conditions, all of which must hold:
+ *
+ * 1. The message is from **somebody else**. A person is not told about their own
+ *    words, which is the one condition the old rule also had.
+ * 2. The thread is **unread** for this person at this moment. A thread they are
+ *    actively reading needs no mail; this is what replaces *never on a reply*
+ *    and keeps most of its effect.
+ * 3. Nothing has gone out about this thread in the last
+ *    {@link OPERATOR_NOTIFY_QUIET_HOURS} hours.
+ * 4. The thread is **not muted**, whatever the other three say. That is what
+ *    mute is (`#1449`) — *keep it in my list, stop telling me about it* — and
+ *    it is checked last here only because it is the one that overrides.
+ *
+ * What this preserves: an agent writing four times into a thread opened this
+ * morning still costs one mail, and an agent nudging the same unread thread
+ * hourly for a day still costs one. What it fixes: a reply to a thread the
+ * person answered last week now arrives.
+ *
+ * ## Why it claims rather than reports
+ *
+ * The stamp is written in the same statement that decides, so two messages
+ * landing at once cannot both find it stale — a read followed by a write would
+ * be one mail per concurrent send, which is the flood the old rule protected
+ * against arriving by a different route. A caller that decides not to send
+ * afterwards has spent a quiet period rather than sent a duplicate, which is
+ * the cheaper of the two mistakes.
+ *
+ * **Unread is the same cursor the inbox counts from**, so a person cannot be
+ * mailed about a thread the page shows as read.
+ */
+export async function claimOperatorNotification(
+  db: Database,
+  conversationId: ConversationId,
+  messageId: MessageId,
+): Promise<{ readonly humanId: HumanId } | undefined> {
+  const claimed = await db.execute<{ human_id: string }>(sql`
+    with sent as (
+      select m.id, m.created_at, m.sender_participant_id
+        from messages m
+       where m.id = ${messageId}::uuid and m.conversation_id = ${conversationId}::uuid
+    ),
+    -- The person's own row, and where their cursor is. A thread with no human
+    -- participant is a citizen or a Colony thread, and neither pings anybody.
+    theirs as (
+      select p.id, p.human_id, p.muted_until, p.notified_at, read.created_at as read_at
+        from message_participants p
+        left join messages read on read.id = p.last_read_message_id
+       where p.conversation_id = ${conversationId}::uuid and p.human_id is not null
+    )
+    update message_participants
+       set notified_at = now()
+      from theirs, sent
+     where message_participants.id = theirs.id
+       -- 1. Not their own words.
+       and sent.sender_participant_id <> theirs.id
+       -- 2. Unread: nothing read yet, or this message is newer than the cursor.
+       and (theirs.read_at is null or sent.created_at > theirs.read_at)
+       -- 3. Quiet for a day.
+       and (
+         theirs.notified_at is null
+         or theirs.notified_at < now() - ${sql.raw(`interval '${OPERATOR_NOTIFY_QUIET_HOURS} hours'`)}
+       )
+       -- 4. Not muted, which overrides the other three.
+       and (theirs.muted_until is null or theirs.muted_until <= now())
+    returning theirs.human_id
+  `)
+
+  const row = claimed[0]
+  return row === undefined ? undefined : { humanId: HumanIdSchema.parse(row.human_id) }
 }
 
 /**

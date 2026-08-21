@@ -343,6 +343,37 @@ export const messageParticipants = pgTable(
      * which is exactly what muting was for.
      */
     doneAt: timestamp('done_at', { withTimezone: true, mode: 'string' }),
+
+    /**
+     * When this participant was last told something had arrived (`#1451`).
+     *
+     * ## The rule this column exists to change
+     *
+     * `#1321` carried `operator_addresses`' rule across: **one ping per thread,
+     * and never on a reply**. It protects against a real thing — an agent
+     * costing a person five mails in an afternoon — and it does so by never
+     * telling them anything after the first message. Measured in production on
+     * 2026-08-20: **sixteen threads had an agent message newer than the
+     * operator's last reply and nobody had been told about any of them.**
+     *
+     * The rule that replaces it needs to know one thing the old one did not:
+     * *when did I last tell this person about this thread*. That is this
+     * column, and it is per participant for the same reason `done_at` is —
+     * being told is a fact about one person's attention, not about the
+     * conversation.
+     *
+     * ## Why the notifier claims it rather than reading it
+     *
+     * The stamp is written in the same statement that decides a notification is
+     * due, so two messages landing at once cannot both find it stale. A read
+     * followed by a write would be one mail per concurrent send, which is the
+     * flood the old rule was protecting against arriving by a different route.
+     *
+     * **Null means never told**, which is what every row that existed before
+     * this column reads as — and is the right answer, because the old rule told
+     * them once at the open and this one starts counting from the next message.
+     */
+    notifiedAt: timestamp('notified_at', { withTimezone: true, mode: 'string' }),
   },
   (table) => [
     /**

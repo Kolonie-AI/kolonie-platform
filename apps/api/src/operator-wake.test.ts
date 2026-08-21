@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest'
 import type { AgentId } from '@kolonie-ai/core'
 import { wakeSender } from '@kolonie-ai/verifiers'
 import { fakeWakeDesk } from './__fixtures__/wake.js'
-import { fakeOperatorNotes } from './__fixtures__/operator-notes.js'
+import { fakeOperatorPageMessages } from './__fixtures__/operator-page-message.js'
 import { fakeOperatorPages } from './__fixtures__/autonomy.js'
 import { fakeWishes } from './__fixtures__/account-wishes.js'
-import { writeOperatorNote } from './operator-notes.js'
+import { writeOperatorMessage } from './operator-page-message.js'
 import { markWishWanted, putOnWishList } from './account-wishes.js'
 import { operatorNoteLimiter } from './rate-limit.js'
 
@@ -37,14 +37,14 @@ const senderThatAnswers = () => {
 describe('an operator note wakes the agent it was written to', () => {
   const withANote = async (options: { readonly proved: boolean }) => {
     const pages = fakeOperatorPages()
-    const notes = fakeOperatorNotes({ pages })
+    const notes = fakeOperatorPageMessages({ pages })
     const { desk, sender } = senderThatAnswers()
 
     pages.exists(AGENT)
     const token = pages.issueNow(AGENT, 'operator@example.org')
     if (options.proved) desk.proves(AGENT, 'https://example.org/wake')
 
-    const written = await writeOperatorNote(
+    const written = await writeOperatorMessage(
       { token, body: 'The account is made; the handle is the one you asked for.' },
       { store: notes.store, limiter: operatorNoteLimiter(), wake: sender },
     )
@@ -83,7 +83,7 @@ describe('an operator note wakes the agent it was written to', () => {
    */
   it('writes the note even when the knock fails', async () => {
     const pages = fakeOperatorPages()
-    const notes = fakeOperatorNotes({ pages })
+    const notes = fakeOperatorPageMessages({ pages })
     const desk = fakeWakeDesk()
     const sender = wakeSender(desk, {
       fetch: async () => {
@@ -94,7 +94,7 @@ describe('an operator note wakes the agent it was written to', () => {
     pages.exists(AGENT)
     desk.proves(AGENT, 'https://example.org/wake')
 
-    const written = await writeOperatorNote(
+    const written = await writeOperatorMessage(
       {
         token: pages.issueNow(AGENT, 'operator@example.org'),
         body: 'Something you should know about.',
@@ -103,7 +103,7 @@ describe('an operator note wakes the agent it was written to', () => {
     )
 
     expect(written.outcome).toBe('written')
-    expect(await notes.store.countUnread(AGENT)).toBe(1)
+    expect(notes.store.allFor(AGENT)).toHaveLength(1)
     expect(desk.recorded()[0]?.outcome).not.toBe('answered')
   })
 
@@ -116,17 +116,17 @@ describe('an operator note wakes the agent it was written to', () => {
   it('tells the operator nothing about whether the knock landed', async () => {
     const { written } = await withANote({ proved: false })
 
-    expect(Object.keys(written)).toEqual(['outcome', 'unread'])
+    expect(Object.keys(written)).toEqual(['outcome'])
   })
 
   /** A note that was refused is not a thing the agent is waiting on. */
   it('does not knock when the write was refused', async () => {
     const pages = fakeOperatorPages()
-    const notes = fakeOperatorNotes({ pages })
+    const notes = fakeOperatorPageMessages({ pages })
     const { desk, sender } = senderThatAnswers()
     desk.proves(AGENT, 'https://example.org/wake')
 
-    const written = await writeOperatorNote(
+    const written = await writeOperatorMessage(
       { token: 'no-such-token', body: 'Nobody is listening on this one.' },
       { store: notes.store, limiter: operatorNoteLimiter(), wake: sender },
     )
@@ -208,7 +208,7 @@ describe('marking an entry wanted wakes the agent', () => {
 describe('the ceiling one agent has', () => {
   it('counts a note and a mark against the same allowance', async () => {
     const pages = fakeOperatorPages()
-    const notes = fakeOperatorNotes({ pages })
+    const notes = fakeOperatorPageMessages({ pages })
     const wishes = fakeWishes()
     const { desk, sender } = senderThatAnswers()
 
@@ -217,7 +217,7 @@ describe('the ceiling one agent has', () => {
     desk.ceiling(1)
     await putOnWishList(AGENT, 'operator', { provider: 'trello.com' }, { store: wishes })
 
-    await writeOperatorNote(
+    await writeOperatorMessage(
       {
         token: pages.issueNow(AGENT, 'operator@example.org'),
         body: 'The first thing I have to say.',

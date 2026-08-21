@@ -9,7 +9,7 @@ import {
   fakeAutonomyStore,
   fakeOperatorPages,
 } from '../__fixtures__/autonomy.js'
-import { fakeOperatorNotes } from '../__fixtures__/operator-notes.js'
+import { fakeOperatorPageMessages } from '../__fixtures__/operator-page-message.js'
 import { fakeOperatorThreads } from '../__fixtures__/operator-threads.js'
 import { fakeStore } from '../__fixtures__/store.js'
 import { fakeHumanStore, fakeTenant, type FakeHumanStore } from '../__fixtures__/humans.js'
@@ -55,7 +55,7 @@ beforeEach(async () => {
     // resolves an exchange and a note, so a second store here would let this
     // file write through a link the revoke path had never heard of.
     operatorThreads: requests,
-    operatorNotes: fakeOperatorNotes({ pages }),
+    operatorPageMessages: fakeOperatorPageMessages({ pages }),
     /**
      * A sealing key is configured (`#1444`). The page's sentence about where a
      * secret goes branches on this, and nothing here shares anything — what is

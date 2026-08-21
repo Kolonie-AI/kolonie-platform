@@ -1244,26 +1244,6 @@ export const WakeupResponseSchema = z.object({
     unavailable: z.string().nullable(),
   }),
   /**
-   * How many things the citizen's operator said to it, unasked and unread (#239).
-   *
-   * **A count and never the text**, which is the decision `#239` calls *"a count,
-   * not a feed"*. Two reasons, and either alone would be enough. The digest
-   * promises that reading it consumes nothing, so an operator's words carried here
-   * would be repeated on every wake-up until the citizen found some other way to
-   * clear them. And an operator's words must arrive labelled as its own on every
-   * surface they appear on — a rule that is cheap to hold in one renderer written
-   * for it, and easy to lose in a digest whose other twelve fields are the Colony
-   * speaking.
-   *
-   * **Not windowed by `since`, unlike everything above it.** An unread note is an
-   * open obligation rather than news, in the same way the account re-check is: a
-   * citizen that asked for a narrow window must still be told what is waiting, or
-   * the one call it makes on waking would hide the one thing addressed to it.
-   *
-   * `0` when there is nothing, and the renderer says nothing at all.
-   */
-  operatorNotesUnread: z.int(),
-  /**
    * Providers the operator has marked as wanted and the citizen does not hold
    * yet (`#527`, delivered by `#581`).
    *
@@ -1273,8 +1253,8 @@ export const WakeupResponseSchema = z.object({
    * all — because `wantedWishesFor` existed, was tested, and was called by
    * nothing.
    *
-   * **Not windowed by `since`**, for the reason `operatorNotesUnread` above is
-   * not: a mark is an open request rather than news. An operator who marked
+   * **Not windowed by `since`**, for the reason `accountRechecks` above is not:
+   * a mark is an open request rather than news. An operator who marked
    * something a week ago is still waiting, and a citizen that asked for a narrow
    * window must not be told the list is empty.
    *
@@ -1292,8 +1272,8 @@ export const WakeupResponseSchema = z.object({
    * How many exchanges the operator has written into last, and the citizen has
    * neither answered nor closed (`#683`).
    *
-   * **A count and never the text**, for both of the reasons `operatorNotesUnread`
-   * above is one — and the second reason binds harder here, because these words
+   * **A count and never the text**, for both of the reasons the retired note
+   * count was one (`#239`, retired by `#1454`) — and the second reason binds harder here, because these words
    * are an answer to a question the citizen asked and would read as the Colony's
    * own if the digest carried them unlabelled.
    *
@@ -1342,7 +1322,7 @@ export const WakeupResponseSchema = z.object({
    * link that already exists is that failure being manufactured every waking.
    *
    * **Not windowed by `since`**, for the reason `wakeChannel` and
-   * `operatorNotesUnread` are not: this is standing rather than news, and a
+   * `accountRechecks` are not: this is standing rather than news, and a
    * citizen that asked for a narrow window must still be told an unredeemed code
    * is outstanding.
    *
@@ -1387,8 +1367,12 @@ export const WakeupResponseSchema = z.object({
    * exists so a waking does not have to scrape the whole inbox to learn whether
    * anything is waiting. Defaults to zeros when messaging is not wired.
    *
-   * **Not windowed by `since`**, for the reason `operatorNotesUnread` is not: an
+   * **Not windowed by `since`**, for the reason `accountRechecks` is not: an
    * unread thread and a pending request are open obligations rather than news.
+   *
+   * **This is where an operator writing unasked is counted** since `#1454`
+   * retired `kolonie.operator.notes`. A note was the same fact this field
+   * carries, minus the one thing it could not do: be replied to.
    */
   messaging: WakeupMessagingDeltaSchema.default({
     unreadThreads: 0,
@@ -1488,10 +1472,9 @@ export function wakeupIsQuiet(digest: WakeupResponse): boolean {
     // citizen is paid now is SOL, read through `kolonie.me.earnings`. **So a
     // payment no longer makes a wake-up loud**, which is a real loss and is
     // named in `#553` rather than left here as a silent one.
-    // A note waiting is not a quiet wake-up (#239). Leaving it out here would
-    // make the digest say "nothing changed" over the top of the one thing on it
-    // that was addressed to this citizen personally.
-    digest.operatorNotesUnread === 0 &&
+    // What a note used to hold this place for is now `messaging.unreadThreads`
+    // below (`#1454`): an operator writing unasked opens a thread, which is the
+    // same fact counted by the field that can also be replied to.
     // A provider the operator marked and the citizen has not got is a thing
     // addressed to this citizen personally, exactly as an unread note is
     // (`#581`). A wake-up that called itself quiet over the top of one would be
@@ -1545,7 +1528,6 @@ export type WakeupUrgency = Pick<
   | 'accountRechecks'
   | 'submissionVerdicts'
   | 'contributions'
-  | 'operatorNotesUnread'
   | 'operatorRepliesWaiting'
   | 'wakeChannel'
   | 'messaging'
@@ -1570,8 +1552,6 @@ export type WakeupUrgency = Pick<
  *   needing resubmit*. A pass is news and needs nothing; these two open a next
  *   try, and the citizen is the only one who can take it.
  * - **`contributions.pullRequests`** — served as *pull requests waiting on you*.
- * - **`operatorNotesUnread`** — addressed to this citizen personally, and read
- *   by a call that consumes it. `#239`.
  * - **`operatorRepliesWaiting`** — an answer from a person to a question this
  *   citizen asked. `#683`.
  * - **`wakeChannel.consecutiveFailures`** — the push path is gone, and the poll
@@ -1612,7 +1592,6 @@ export function wakeupHasUrgentDelta(digest: WakeupUrgency): boolean {
       (verdict) => verdict.status === 'failed' || verdict.status === 'timeout',
     ) ||
     digest.contributions.pullRequests.length > 0 ||
-    digest.operatorNotesUnread > 0 ||
     digest.operatorRepliesWaiting > 0 ||
     (digest.wakeChannel !== null && digest.wakeChannel.consecutiveFailures > 0) ||
     digest.messaging.unreadThreads > 0 ||

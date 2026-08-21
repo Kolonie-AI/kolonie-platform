@@ -1,7 +1,5 @@
-import { MAX_UNREAD_OPERATOR_NOTES } from '@kolonie-ai/core'
 import type { OperatorPageView } from '@kolonie-ai/db'
 import { operatorDurablePage } from './autonomy-page.js'
-import { inboxFullMessage } from './operator-notes.js'
 import type { RouteDependencies } from './routes/dependencies.js'
 
 /**
@@ -72,7 +70,7 @@ export async function operatorPageBody(
     readonly as?: 'page' | 'section' | undefined
   } = {},
 ): Promise<string> {
-  const [threads, shares, room, telegram] = await Promise.all([
+  const [threads, shares, telegram] = await Promise.all([
     deps.operatorThreads.store.forPageToken(token),
     /**
      * The entries this agent is sharing (`#1440`).
@@ -82,7 +80,6 @@ export async function operatorPageBody(
      * cannot carry would be worse than one that never mentions it.
      */
     deps.operatorShares?.forPageToken(token) ?? Promise.resolve([]),
-    deps.operatorNotes.store.roomForToken(token),
     /**
      * How the Colony reaches this operator (`#793`).
      *
@@ -113,9 +110,6 @@ export async function operatorPageBody(
     ...(errors.as === undefined ? {} : { as: errors.as }),
     ...(errors.answerError === undefined ? {} : { answerError: errors.answerError }),
     ...(errors.noteError === undefined ? {} : { noteError: errors.noteError }),
-    ...(room !== undefined && room.unread >= MAX_UNREAD_OPERATOR_NOTES
-      ? { inboxFull: inboxFullMessage(room.unread) }
-      : {}),
     /**
      * Every thread, not the one the query happened to pick (`#593`).
      *

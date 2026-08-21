@@ -32,7 +32,7 @@ import { fakeSolana } from '../../__fixtures__/solana.js'
 import { fakeStore } from '../../__fixtures__/store.js'
 import { fakeSubmissions } from '../../__fixtures__/submissions.js'
 import { fakeSupportDesk } from '../../__fixtures__/support.js'
-import { fakeOperatorNotes } from '../../__fixtures__/operator-notes.js'
+import { fakeOperatorPageMessages } from '../../__fixtures__/operator-page-message.js'
 import { fakeOperatorThreads } from '../../__fixtures__/operator-threads.js'
 import { fakePermissionReports } from '../../__fixtures__/permission-reports.js'
 import { fakeRotation } from '../../__fixtures__/rotation.js'
@@ -521,7 +521,7 @@ describe('kolonie.register', () => {
       support: support({ desk: fakeSupportDesk() }),
       // The operator channel (#236), which this test does not exercise.
       operatorThreads: fakeOperatorThreads(),
-      operatorNotes: fakeOperatorNotes(),
+      operatorPageMessages: fakeOperatorPageMessages(),
       // Blocked by permission rather than by ability (#147), unexercised here.
       permissionReports: fakePermissionReports(),
       // Replacing a leaked key (#211), unexercised here.

@@ -12,7 +12,7 @@ import {
   fakeOperatorPages,
 } from '../__fixtures__/autonomy.js'
 import { fakeOperatorThreads } from '../__fixtures__/operator-threads.js'
-import { fakeOperatorNotes } from '../__fixtures__/operator-notes.js'
+import { fakeOperatorPageMessages } from '../__fixtures__/operator-page-message.js'
 import { SESSION_COOKIE } from './console.js'
 import { OAUTH_STATE_COOKIE } from '../humans/humans.js'
 
@@ -59,7 +59,7 @@ beforeEach(async () => {
       formBaseUrl: CONSOLE_URL,
     },
     operatorThreads: requests,
-    operatorNotes: fakeOperatorNotes({ pages }),
+    operatorPageMessages: fakeOperatorPageMessages({ pages }),
   })
   await app.ready()
 
@@ -107,41 +107,6 @@ const anOpenQuestion = (): { token: string; requestId: string } => {
 }
 
 describe('what the console renders about an operator page', () => {
-  it('links Answer at the console’s own door, carrying no token', async () => {
-    const cookie = await signedInCookie()
-    await link(agentId)
-    const { token, requestId } = anOpenQuestion()
-
-    /**
-     * The row exactly as `operatorQueue` builds it, `answerAt` included — so
-     * this asserts the console *substitutes* rather than that the field is
-     * absent. A test built on a row with no `answerAt` would pass against a
-     * console that had simply stopped rendering the link.
-     */
-    const person = humans.people()[humans.people().length - 1]
-    humans.isWaitingOn(person?.id as never, {
-      agentId,
-      agentName: 'canary',
-      kind: 'question',
-      ask: 'I cannot make this account without you.',
-      about: 'github-account',
-      since: new Date().toISOString() as never,
-      answerAt: `/operator/page/${token}`,
-      requestId,
-      dropId: null,
-    })
-
-    const response = await app.inject({
-      method: 'GET',
-      url: '/',
-      headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
-    })
-
-    expect(response.body).toContain(`/agents/${agentId}/operator#question-${requestId}`)
-    expect(response.body).not.toContain(token)
-    expect(response.body).not.toContain('/operator/page/')
-  })
-
   /**
    * The broad form, and the one worth keeping: not *this link is right* but
    * **no page behind the login contains the token anywhere** — not an `href`,
@@ -152,7 +117,9 @@ describe('what the console renders about an operator page', () => {
     await link(agentId)
     const { token } = anOpenQuestion()
 
-    for (const url of ['/', `/agents/${agentId}`, `/agents/${agentId}/operator`]) {
+    // `/inbox` joined the list with `#1448`. `/agents/:id/messages` is not
+    // here because it redirects into it — a 303 carries no body to inspect.
+    for (const url of ['/', '/inbox', `/agents/${agentId}`, `/agents/${agentId}/operator`]) {
       const response = await app.inject({
         method: 'GET',
         url,

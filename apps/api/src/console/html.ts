@@ -23,41 +23,12 @@
  * why it is copied from `kolonie-website` and what stops the copy drifting.
  */
 
-import type { WaitingItem, WaitingKind } from '@kolonie-ai/core'
 import { handoverNotice } from '@kolonie-ai/core'
 import { escape } from './escape.js'
 import { consoleNavigation, type ConsoleNav } from './navigation.js'
 import { CONSOLE_MAST } from './mark.js'
 import { CONSOLE_STYLE } from './theme.js'
 import { absolute, relative } from './time.js'
-import { threadAnchor } from '../autonomy-page.js'
-import { consoleOperatorPath } from '../operator-page-body.js'
-
-/**
- * Where the console sends an operator to answer one question (`#587`).
- *
- * **The console's own door, and never `answerAt`.** That field is a
- * `/operator/page/<token>` URL, and `operator_pages.token` is a durable bearer
- * credential revoked only by the agent — so rendering it inside a page behind a
- * login put permanent write access to an operator page into a screenshot, a
- * shared screen, a browser history entry and a referrer. `#428` refuses exactly
- * that, `operator-page-body.ts` says so in as many words, and the forms on that
- * page already obey it. The queue's `href` did not.
- *
- * `/agents/:agentId/operator` already exists, renders the identical body through
- * `operatorPageBody`, and posts to the console's own path — and the queue has
- * `agentId` in the same row, so this costs no extra query.
- *
- * **The fragment is what `#593` made possible.** Each thread is its own
- * section with its own anchor, so this lands on the question the operator
- * clicked rather than at the top of a page whose first three blocks are about
- * identity.
- */
-function consoleAnswerLink(item: WaitingItem): string {
-  const door = consoleOperatorPath(item.agentId)
-
-  return item.requestId === null ? door : `${door}#${threadAnchor(item.requestId)}`
-}
 
 export { escape } from './escape.js'
 
@@ -589,20 +560,6 @@ export function sessionsPage(input: {
  * draw them"*, and that holds one level up.
  */
 /**
- * What each kind of waiting item is, in the operator's terms rather than the
- * Colony's (`#530`).
- *
- * **Named for what the person will do, not for the table the row came from.**
- * *A code* and *a credential* are things somebody recognises from their own
- * afternoon; `operator_drops.kind` is not.
- */
-const WAITING_LABEL: Readonly<Record<WaitingKind, string>> = {
-  code: 'a code — seconds, if you have it in front of you',
-  credential: 'a credential — something to find or to create',
-  question: 'a question — it needs you to read it and decide',
-}
-
-/**
  * One live secret slot, as the dashboard draws it (`#931`).
  *
  * Structural on purpose: the storage's `WaitingSlot` is what fills it, and this
@@ -654,22 +611,22 @@ export function dashboardPage(input: {
     readonly waitingOn?: string | null | undefined
   }[]
   /**
-   * Everything waiting on this person, across every agent they operate (`#530`).
+   * How many conversations are unread, across every agent (`#1453`).
    *
-   * **Already ordered** by `inClearingOrder` — the renderer does not sort, so
-   * that the console and any future surface cannot disagree about the one
-   * property this section has.
+   * **The count `inboxFor` computed, carried rather than recomputed.** A number
+   * on a dashboard that disagrees with the page it links to is worse than no
+   * number at all, and the only way to guarantee they agree is for one of them
+   * not to count anything.
    */
-  readonly waiting?: readonly WaitingItem[] | undefined
+  readonly unreadThreads?: number | undefined
   /**
    * Live secret slots on the account conversations of the agents this person
    * operates (`#931`).
    *
-   * **Its own section and not a row in the queue above.** The queue is ordered
-   * by what each item costs to clear, and a slot has two directions: one costs a
-   * paste, the other costs a read that is spent whether or not it was needed.
-   * Folding a *you may read this* into a list headed *waiting on you* would ask
-   * somebody to spend one of three by reflex.
+   * **Its own section and not a row in the count above.** A slot has two
+   * directions: one costs a paste, the other costs a read that is spent whether
+   * or not it was needed. Folding a *you may read this* into a line headed
+   * *waiting on you* would ask somebody to spend one of three by reflex.
    */
   readonly slots?: readonly WaitingSlotItem[] | undefined
   /** The code this person is holding, if they have asked for one (`#426`). */
@@ -795,97 +752,44 @@ export function dashboardPage(input: {
         ]
 
   /**
-   * **The queue, and it comes before everything else on the page** (`#530`).
+   * **One line and a door, where the queue was** (`#1453`, epic `#1447`).
    *
-   * The fleet table answers *how are my agents getting on*; this answers *what
-   * is stopping one right now, that I can clear*. The second question is the one
-   * somebody opens this page twice a day for, so it is above the table rather
-   * than below it.
+   * ## Why the queue is gone rather than repaired
    *
-   * **An operator with one agent sees a short list, not an empty dashboard.**
-   * With nothing waiting there is no section at all — a heading over an empty
-   * table teaches a person that this page usually has nothing on it.
+   * `waitingForOperator` asked *is there a message from an operator in this
+   * thread*, and answered *no* exactly once per thread ever. Measured in
+   * production on 2026-08-20 that hid **46 of 52 conversations**, sixteen of
+   * them while genuinely waiting on somebody. Repairing that predicate would
+   * have meant a second definition of *waiting* beside the read cursor, and two
+   * definitions disagree within a week.
+   *
+   * ## What was lost with it, and it was real
+   *
+   * The queue ordered by **what each item costs to clear** rather than by age —
+   * `#530`: *a queue that puts a five-second captcha behind a card payment is a
+   * queue the operator abandons*. The inbox sorts by recency, which is the
+   * right sort for mail and the wrong one for a work queue, and nothing here
+   * pretends otherwise. `state/decisions/the-queue-becomes-a-count.md` is where
+   * that argument is kept, because it will be the right argument again the day
+   * somebody builds a work queue on top of the inbox.
+   *
+   * ## A count and not a second queue
+   *
+   * No logic of its own: it renders what `inboxFor` already computed. A number
+   * on a dashboard that disagrees with the page it links to is worse than no
+   * number, and the only way to guarantee they agree is for one of them not to
+   * count anything.
    */
-  const waiting = input.waiting ?? []
+  const unread = input.unreadThreads ?? 0
   const queue =
-    waiting.length === 0
+    unread === 0
       ? []
       : [
-          `<h2>Waiting on you (${String(waiting.length)})</h2>`,
-          /**
-           * **Ordered by what each one costs to clear, and the page says so.**
-           * `#530`: *"A queue that puts a five-second captcha behind a card
-           * payment is a queue the operator abandons."* Somebody who cannot see
-           * why the order is what it is will read it as arbitrary and re-sort it
-           * in their head by age, which is the ordering being avoided.
-           */
-          '<p>Shortest first, so a run down this list clears the most agents for the least of ' +
-            'your time. Each line is what the agent was actually asked for, in the words the ' +
-            'Colony gave it.</p>',
-          '<table>',
-          '<thead><tr><th>Agent</th><th>Asked for</th><th>What it was doing</th>' +
-            '<th>Waiting</th><th></th></tr></thead>',
-          `<tbody>${waiting
-            .map((item) =>
-              [
-                '<tr>',
-                `<td><a href="/agents/${escape(item.agentId)}">${escape(item.agentName)}</a></td>`,
-                `<td>${escape(item.ask)}<br><small>${escape(WAITING_LABEL[item.kind])}</small></td>`,
-                `<td>${item.about === null ? '—' : escape(item.about)}</td>`,
-                /**
-                 * How long it has waited, and nothing about how long it has left
-                 * (`#912`).
-                 *
-                 * The cell used to carry a deadline too, for the one kind that
-                 * had one — a browser share, which lapsed while the operator was
-                 * elsewhere. Nothing in this queue expires in view any more: a
-                 * question and a credential wait indefinitely, and a drop that
-                 * has run out is filtered out before it reaches a page.
-                 */
-                `<td>${escape(relative(item.since))}</td>`,
-                /**
-                 * **A question links to the page; a drop gets the field itself**
-                 * (`#570`).
-                 *
-                 * The cell used to say *use the link that was mailed to you*,
-                 * which sent an operator to their inbox for a three-day-old mail
-                 * — the item they do later or not at all, and `code` is first in
-                 * the ordering precisely because the value is already on a
-                 * screen in front of them. The link is still never reproduced:
-                 * this posts a row id from a session that has already proved
-                 * `operates()`.
-                 *
-                 * **`type="password"`, so the value is not left legible on a
-                 * shared screen.** It is not shown back afterwards either, from
-                 * anywhere — a filled drop is sealed and single-read by the
-                 * agent.
-                 */
-                `<td>${
-                  item.dropId === null
-                    ? item.answerAt === null
-                      ? '<small>use the link that was mailed to you</small>'
-                      : `<a href="${escape(consoleAnswerLink(item))}">Answer</a>`
-                    : [
-                        `<form method="post" action="/drops/${escape(item.dropId)}">`,
-                        '<input type="password" name="value" required maxlength="4096" ' +
-                          `autocomplete="off" aria-label="${escape(item.ask)}">`,
-                        '<button type="submit">Send</button>',
-                        '</form>',
-                      ].join('')
-                }</td>`,
-                '</tr>',
-              ].join(''),
-            )
-            .join('')}</tbody>`,
-          '</table>',
-          /**
-           * The two sentences somebody needs after reading the list: that
-           * answering is worth doing now rather than later (`#518`), and that
-           * this is still not a control panel (`#512`, inherited by `#530`).
-           */
-          '<p class="note">Answering wakes the agent, so it carries on within moments rather ' +
-            'than at its next rhythm — which is hours. Nothing here starts, stops or instructs ' +
-            'an agent; you are answering what it asked.</p>',
+          '<h2>Waiting on you</h2>',
+          `<p><a href="/inbox?unread=1"><strong>${String(unread)} unread ` +
+            `${unread === 1 ? 'conversation' : 'conversations'}</strong></a>, across every ` +
+            'agent you operate. Answering wakes the agent, so it carries on within moments ' +
+            'rather than at its next rhythm — which is hours.</p>',
         ]
 
   /**

@@ -24,7 +24,6 @@ import {
   type WakeupWantedAccount,
 } from '@kolonie-ai/core'
 import {
-  countUnreadOperatorNotes,
   countWaitingOperatorReplies,
   escalationFactsFor,
   messagingWakeupDelta,
@@ -70,20 +69,10 @@ export interface WakeupSource {
    */
   startDueRechecks?(agentId: AgentId): Promise<void>
   /**
-   * How many unread notes the citizen's operator has left it (#239).
-   *
-   * **Its own call rather than a field on `changes`**, because it is not measured
-   * from `since`. Everything `changes` returns is news inside a window; this is a
-   * standing count of what is waiting, and folding it in would either make it
-   * disappear for a citizen that asked for a narrow window or quietly make one
-   * field of `changes` ignore its own argument.
-   */
-  unreadOperatorNotes(agentId: AgentId): Promise<number>
-  /**
    * How many exchanges the operator answered last and the citizen has not
    * acted on (`#683`).
    *
-   * **Its own call, for the reason `unreadOperatorNotes` is one.** An answer
+   * **Its own call, for the reason `waitingOperatorReplies` is one.** An answer
    * nobody replied to is an open obligation rather than news, and a citizen
    * that asked for a narrow window must still be told a person is waiting on
    * it.
@@ -113,7 +102,7 @@ export interface WakeupSource {
   /**
    * What the operator has marked and the citizen has not got (`#581`).
    *
-   * **Its own call, for the reason `unreadOperatorNotes` is one.** A mark is an
+   * **Its own call, for the reason `waitingOperatorReplies` is one.** A mark is an
    * open request rather than news: an operator who marked something a week ago
    * is still waiting, and folding it into `changes` would make it vanish for a
    * citizen that asked for a narrow window.
@@ -122,7 +111,7 @@ export interface WakeupSource {
   /**
    * Where the citizen stands (`#344`).
    *
-   * **Its own call, for the reason `unreadOperatorNotes` is one**: everything
+   * **Its own call, for the reason `waitingOperatorReplies` is one**: everything
    * `changes` answers is news inside a window, and a standing is not news. Given
    * to `changes` it would have to either ignore its own `since` or report a
    * position as though it were a movement.
@@ -142,7 +131,7 @@ export interface WakeupSource {
    *
    * **Optional**: a deployment without messaging answers zeros, which is the
    * honest empty inbox rather than a claim that the surface is closed. Its own
-   * call rather than a field on `changes`, for the reason `unreadOperatorNotes`
+   * call rather than a field on `changes`, for the reason `waitingOperatorReplies`
    * is one — unread threads and pending requests are obligations, not news
    * inside a window.
    *
@@ -227,7 +216,6 @@ export interface WakeupSource {
       | 'since'
       | 'firstSession'
       | 'contributions'
-      | 'operatorNotesUnread'
       | 'operatorRepliesWaiting'
       | 'wakeChannel'
       | 'suspension'
@@ -294,7 +282,6 @@ export function databaseWakeup(db: Database, rechecks?: RecheckDependencies): Wa
   const quality = databaseContributionQuality(db)
   return {
     previousSessionStart: (agentId) => previousSessionStart(db, agentId),
-    unreadOperatorNotes: (agentId) => countUnreadOperatorNotes(db, agentId),
     waitingOperatorReplies: (agentId) => countWaitingOperatorReplies(db, agentId),
     contributionQualityWarning: (agentId, now) => quality.warningFor(agentId, now),
     messagingDelta: (agentId) => messagingWakeupDelta(db, agentId),
@@ -659,7 +646,6 @@ export async function wakeup(
   const [
     changes,
     pulls,
-    operatorNotesUnread,
     operatorRepliesWaiting,
     wakeChannel,
     operatorStanding,
@@ -673,7 +659,6 @@ export async function wakeup(
   ] = await Promise.all([
     source.changes(agentId, since),
     listContributions(agentId, contributions),
-    source.unreadOperatorNotes(agentId),
     source.waitingOperatorReplies(agentId),
     source.wakeChannel(agentId),
     source.operatorStanding(agentId),
@@ -858,7 +843,6 @@ export async function wakeup(
       accountRechecks: changes.accountRechecks,
       submissionVerdicts: changes.submissionVerdicts,
       contributions: contributionsSeen,
-      operatorNotesUnread,
       operatorRepliesWaiting,
       wakeChannel,
       messaging,
@@ -928,7 +912,6 @@ export async function wakeup(
             })),
           }),
       contributions: contributionsSeen,
-      operatorNotesUnread,
       operatorRepliesWaiting,
       /**
        * Compact messaging delta (`#1287`). Counts and sample ids only — bodies

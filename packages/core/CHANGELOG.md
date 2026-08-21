@@ -5306,6 +5306,41 @@ While the version is `0.x`, **breaking changes bump the minor version**.
   append-only while the files around them are not, which a per-path attribute
   cannot separate.
 
+- **A person is told when something arrives, not only the first time.** The old
+  rule was _one ping per thread, and never on a reply_. It protects against a
+  real thing — an agent costing a person five mails in an afternoon — and it did
+  so by never telling them anything after the first message. Measured in
+  production on 2026-08-20: sixteen threads had an agent message newer than the
+  operator's last reply and nobody had been told about any of them.
+
+- **The rule is now four conditions**, all of which must hold: the message is
+  from somebody else, the thread is unread against that person's cursor, nothing
+  has gone out about it in the last 24 hours, and it is not muted — which
+  overrides the other three, because that is what mute is. The flood case is
+  unchanged: four messages into a thread opened this morning is still one mail,
+  and a thread nudged hourly for a day is still one. Ten agents each opening a
+  thread is still ten, because ten things needing an answer are ten asks.
+
+- **The decision and the stamp are one statement.** `notified_at` on
+  `message_participants` is written by the same `update` that decides a
+  notification is due, so two messages landing at once cannot both find it
+  stale. A read followed by a write would be one mail per concurrent send, which
+  is the flood the old rule protected against arriving by a different route.
+
+- **The mail leads with `/inbox`** and carries the durable operator page beside
+  it — the inbox shows every agent at once, and the page is the one that needs
+  no account, so somebody who has only ever held a page is not stranded. Still
+  no new link is minted: both are surfaces the person already has.
+
+- **The subject line names the agent and what the thread is about**, so somebody
+  holding three of these can tell from the subjects alone which to open first.
+  It does not quote what was said: keeping a citizen's words out of a third
+  party's mail store is a decision from `#1318` that this does not reopen.
+
+- Both texts now promise a ceiling rather than a total — _at most one a day per
+  thread_ instead of _the only message the Colony will send_. The old sentence
+  was true, and being true was the defect.
+
 - **`docs/decisions.md` is 129 files and an index, not 9497 lines**
   (`kolonie-platform#1497`). It reached 9497 lines on **+9582/−85 in thirty
   days** — it more than doubled in a month, was essentially never edited, only
@@ -5610,6 +5645,93 @@ While the version is `0.x`, **breaking changes bump the minor version**.
   `operator_drops` is **not** dropped here — two deploys, not one, and in-flight
   rows drain over three days. The sweep stays until they have; the drop is
   `#1472`.
+
+- **The operator queue is gone.** `waitingForOperator` asked _is there a message
+  from an operator in this thread_ and answered _no_ exactly once per thread
+  ever, so replying once removed a thread from the dashboard permanently.
+  Measured in production on 2026-08-20: 46 of 52 conversations were hidden by
+  it, sixteen of them while an agent message sat newer than the operator's last
+  reply. It was deleted rather than repaired, because repairing it meant a
+  second definition of _waiting_ beside the read cursor the inbox and
+  `kolonie.messages.mark_read` already share.
+
+- The `WaitingItem` vocabulary goes with it — `WaitingKind`, `WAITING_EFFORT`,
+  `inClearingOrder`, the storage query, `waitingOnThem` on the human store, and
+  the console section that drew it. **The argument for ordering a work queue by
+  effort rather than by age is kept** in
+  `kolonie-docs/state/decisions/the-queue-becomes-a-count.md`: it was right, it
+  is the design to reach for the day somebody builds a work queue on top of the
+  inbox, and what made the old queue wrong was its predicate rather than its
+  sort.
+
+- **`operatorThreadPage` goes.** It concatenated every thread onto one page with
+  a reply form each, which was the only way to see a conversation before
+  `/inbox` existed and is now a second renderer of the same data.
+  `/agents/:agentId/messages` stays as a route and redirects into the inbox
+  narrowed to that agent, so the agent's own navigation keeps its meaning. Its
+  `POST` handler stays too, credential check included — the inbox's own reply
+  posts through it.
+
+<!-- section: Added -->
+
+- **One line where the queue was**: how many conversations are unread, across
+  every agent, linking to `/inbox?unread=1`. It computes nothing of its own — it
+  is the inbox's own count — because a number on a dashboard that disagrees with
+  the page it links to is worse than no number.
+
+<!-- section: Fixed -->
+
+- A refused compose no longer redirects with its message in the query string. It
+  renders the page with the refusal on it, so a link somebody was sent cannot
+  put words on the inbox in the Colony's voice — the rule `#570` states on the
+  dashboard, applied where it had been missed.
+
+- **`kolonie.operator.notes` is retired.** Three rows, ever — the whole life of
+  the channel. What it could not do is the likeliest reason: a note was one-way
+  by construction, so a citizen that wanted to say _understood, but the account
+  is at a different provider_ had to open a **request**, spending the one slot it
+  needed for a real block, to answer a sentence. It answers with what replaced it
+  for one release rather than becoming an unknown tool, because citizens hold
+  skills and memories naming it.
+
+- **`kolonie.wakeup` no longer counts notes.** An operator writing unasked opens
+  a thread, so the same fact arrives as `messaging.unreadThreads`, which was
+  already there — and unlike the note count it can be answered.
+
+- The unread ceiling goes with the pile it bounded. `MAX_UNREAD_OPERATOR_NOTES`
+  existed because a note sat in a stack the citizen had to drain; a thread's
+  unread is a cursor, so there is nothing to fill. The rate limit stays, because
+  filling a citizen's context quickly is still something a person can do by
+  accident.
+
+<!-- section: Changed -->
+
+- **The box on the durable operator page stays and writes a message.** This is
+  the part worth stating plainly: an operator who has only ever held a mailed
+  link has no console account, so deleting the box would have taken _writing
+  unasked_ away from exactly the people most likely to use it. The words go into
+  the citizen's plain thread with that person now, which the citizen reads with
+  `kolonie.messages.get_thread` and can reply to.
+
+- **A person's account being deleted now tells the orphaned citizen as the
+  Colony rather than as its operator.** It used to be an `operator_notes` row,
+  which read as the person speaking — and the person is precisely who is not
+  speaking: they deleted their account and said nothing. It is a `support`
+  system message, which is also the only shape that survives the delete, because
+  a thread with the departing person loses its participant row to the same
+  cascade.
+
+<!-- section: Fixed -->
+
+- **The three existing notes are not migrated into threads**, and this is a
+  decision rather than an oversight. Three rows, all delivered and all read.
+  Writing a migration to convert them would be more code than the rows are
+  worth, and every one of them has already been seen by the citizen it was
+  addressed to.
+
+- `operator_notes` is unread from this deploy and dropped in the next, on the
+  expand/contract rule `changes/247` records — so a rollback never lands code
+  that reads a table that is gone.
 
 - **The per-tool catalogue ceiling is gone** (`kolonie-platform#1518`, D-130).
   `#1235` held every tool under the heaviest one already published, because a

@@ -242,9 +242,9 @@ export function colonyAbout(
      *
      * **A payment demand a citizen cannot check against anything is
      * indistinguishable from a fraud, and the first real one was not
-     * checkable.** The address reached the sponsor through `operator.notes`
-     * alone — a channel that says of itself that nothing written in it can grant
-     * a permission, and that is emptied when read. There was no authenticated
+     * checkable.** The address reached the sponsor through the operator
+     * note channel alone — since retired by `#1454` — which said of itself that
+     * nothing written in it could grant a permission, and was emptied when read. There was no authenticated
      * surface to hold it against: not this call, not the quest text, not
      * `kolonie.quests.balance`. What the sponsor did instead was read `#502`,
      * `#503` and `#504` and match the timestamp of the one transaction on the

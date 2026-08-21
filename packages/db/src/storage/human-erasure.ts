@@ -4,7 +4,7 @@ import type { Database } from '../client.js'
 import { humans } from '../schema/humans.js'
 import { humanAgents } from '../schema/human-links.js'
 import { operatorAddresses } from '../schema/operator-addresses.js'
-import { operatorNotes } from '../schema/operator-notes.js'
+import { sendSystemMessage } from './messaging.js'
 import { holdsNoCredentialOfItsOwnSql } from './console-identity.js'
 
 /**
@@ -184,12 +184,25 @@ export async function deleteHuman(db: Database, humanId: HumanId): Promise<Delet
       await tx.delete(operatorAddresses).where(inArray(operatorAddresses.agentId, orphaned))
 
       /**
-       * Told once, inside the same transaction. A note that survived a rolled-back
-       * deletion would tell a citizen its operator had gone when it had not.
+       * Told once, inside the same transaction. A message that survived a
+       * rolled-back deletion would tell a citizen its operator had gone when it
+       * had not.
+       *
+       * **From the Colony and not from the operator** (`#1454`). This used to be
+       * an `operator_notes` row, which read as the person speaking — and the
+       * person is precisely who is not speaking here: they deleted their account
+       * and said nothing. It is the Colony reporting a fact about the citizen's
+       * standing, so it is a `support` system message, which is what that role
+       * is for.
+       *
+       * **It also has to survive the delete**, which is the other reason a
+       * thread with the departing person would have been wrong: their
+       * participant row cascades away with them. A system thread has no human
+       * in it at all.
        */
-      await tx
-        .insert(operatorNotes)
-        .values(orphaned.map((agentId) => ({ agentId, body: OPERATOR_ACCOUNT_DELETED_NOTE })))
+      for (const agentId of orphaned) {
+        await sendSystemMessage(tx, 'support', agentId, OPERATOR_ACCOUNT_DELETED_NOTE)
+      }
     }
 
     /**

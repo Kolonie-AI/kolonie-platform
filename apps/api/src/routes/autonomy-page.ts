@@ -9,7 +9,7 @@ import {
   operatorAnsweredPage,
   operatorNoteSentPage,
 } from '../autonomy-page.js'
-import { writeOperatorNote } from '../operator-notes.js'
+import { writeOperatorMessage } from '../operator-page-message.js'
 import { operatorPageBody } from '../operator-page-body.js'
 import { shareAdditionError } from '../operator-shares.js'
 import { answerOperatorThread, isWaitingOnTheOperator } from '../operator-threads.js'
@@ -276,7 +276,7 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
    *
    * **The token is the only thing that says whose citizen this is** on both
    * branches. `answerOperatorThread` resolves the token and the thread id
-   * together; `writeOperatorNote` takes no id at all. A valid token cannot be
+   * together; `writeOperatorMessage` takes no id at all. A valid token cannot be
    * aimed at another citizen either way.
    *
    * A refusal comes back as the page with the message on the box it belongs to,
@@ -415,9 +415,9 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
         await deps.operatorThreads.store.forPageToken(token as string),
       )
 
-      const written = await writeOperatorNote(
+      const written = await writeOperatorMessage(
         { token: token as string, body: submitted['body'] },
-        deps.operatorNotes,
+        deps.operatorPageMessages,
       )
 
       if (written.outcome === 'written') {
@@ -441,19 +441,12 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
       }
 
       /**
-       * A full inbox is not a refusal of what was typed, so it is not `422`. The
-       * page comes back with the wall in place of the box and the sentence that
-       * says it clears itself — `pageFor` resolves that from the count rather
-       * than being told, so the state shown is the state that is true.
+       * **There is no full-inbox branch any more** (`#1454`). A note sat in a
+       * pile the citizen had to drain, so `MAX_UNREAD_OPERATOR_NOTES` bounded
+       * the depth and this route had a `409` for hitting it. A message goes
+       * into a thread, where unread is a cursor rather than a queue — there is
+       * nothing to fill.
        */
-      if (written.outcome === 'inbox-full') {
-        return reply
-          .status(409)
-          .headers(CONSOLE_HEADERS)
-          .type('text/html')
-          .send(await pageFor(token as string, view))
-      }
-
       const noteError =
         written.outcome === 'rate-limited'
           ? `You have sent your agent a lot in the last hour. Try again in ` +

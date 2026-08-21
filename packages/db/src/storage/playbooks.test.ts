@@ -11,6 +11,7 @@ import {
   playbookById,
   playbookBySlug,
   playbooksByStatus,
+  playbooksNamingKinds,
   playbooksNamingProvider,
   submitPlaybookForReview,
   updatePlaybookDraft,
@@ -645,5 +646,18 @@ describe('the playbooks that name one provider', () => {
 
     expect(await playbooksNamingProvider(db, 'github.com')).toHaveLength(10)
     expect(await playbooksNamingProvider(db, 'github.com', 3)).toHaveLength(3)
+  })
+
+  it('matches any requested kind and leaves out another kind', async () => {
+    await needing('bounty-loop', { kind: 'storefront' })
+    await needing('correspondence-loop', { kind: 'mailbox' })
+
+    expect(await playbooksNamingKinds(db, ['storefront', 'payout'])).toEqual([
+      {
+        slug: 'bounty-loop',
+        title: 'The bounty-loop pipeline',
+        summary: 'What it does, in the one line a catalogue entry gets.',
+      },
+    ])
   })
 })

@@ -2703,7 +2703,7 @@ export async function markPublishedDuplicateWalks(
         duplicateOf: pair.duplicateOf,
       })
 
-      const group = `${pair.kind} ${pair.provider}`
+      const group = `${pair.kind}\u0000${pair.provider}`
       if (!stale.has(group)) {
         stale.add(group)
         await markProviderBriefingStale(tx, { kind, provider: pair.provider })

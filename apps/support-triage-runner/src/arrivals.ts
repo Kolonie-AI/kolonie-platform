@@ -218,7 +218,7 @@ export function clusterArrivals(
       aged.push(report.id)
       continue
     }
-    const key = `${arrivalKey(report.step)} ${arrivalKey(report.runtime)}`
+    const key = `${arrivalKey(report.step)}\u0000${arrivalKey(report.runtime)}`
     const group = groups.get(key)
     if (group === undefined) groups.set(key, [report])
     else group.push(report)

@@ -188,6 +188,22 @@ repository needs a genuinely different toolchain, audience, or blast radius.
   a fault**: read the fixture against the function, then re-pin. Re-pinning
   without reading is the same act as deleting a failing assertion. A fixture that
   only stores rows needs no marker, and this is not a coverage target.
+- **Never write a raw NUL byte into a source file; write `\u0000`.** The two
+  compile to the same character and only one of them leaves the file searchable.
+  **`grep` treats a file containing a NUL as binary and stops** — it prints
+  `Binary file … matches` at best, and under the wrapper this repository's agents
+  use it returns nothing at all with **exit code 1**, which is also how it
+  answers _this symbol is not here_. Measured 2026-08-21 (`#1527`): six files
+  carried one, including the 3,302-line
+  `packages/db/src/storage/account-walks.ts` with the byte at line 2706, so a
+  search for `recordWalkProseModeration` — called from
+  `apps/moderation-runner/src/main.ts` — answered _not found_. It cost real time
+  during `#1485`, where the call chain had to be reconstructed with a script.
+  `npm run check:searchable` refuses one in any tracked text file, with no
+  per-file exemption: the one fixture with a defensible reason encodes
+  identically from the escape, so an exemption would have bought nothing.
+  Non-ASCII is not the problem and is not checked — NUL is the byte that decides
+  a file is binary.
 - **A published description is written for a model choosing between tools and a
   model filling in arguments, and for nothing else.** It is not documentation.
   Every MCP tool description is carried into every session by every citizen: the

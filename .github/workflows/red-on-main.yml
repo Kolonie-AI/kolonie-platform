@@ -44,7 +44,18 @@ name: Red on main
 
 on:
   workflow_run:
-    workflows: [CI]
+    # **Two workflows, and the second is why `#1564` was filed** (`#1566`).
+    #
+    # `MCP surface` commits the catalogue floor. When the merge queue went on it
+    # lost its route to `main` and failed on ten consecutive merges — and because
+    # the floor is a *required* check, a stale figure then evicted queued pull
+    # requests that had touched nothing. The only symptom anywhere a person looks
+    # was somebody else's branch being refused for something it did not do.
+    #
+    # The rule this encodes: **a workflow on `main` that gates other people's
+    # branches has to reach somebody when it stops.** Adding a third is adding a
+    # name here.
+    workflows: [CI, MCP surface]
     types: [completed]
     branches: [main]
   # Hand-start against a known CI run, so the detector can be exercised without
@@ -79,16 +90,33 @@ jobs:
 
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      # First-line marker. Matched on the first line, never anywhere in the body
-      # (`#946`): an issue a person wrote *about* this watcher, quoting the marker
-      # in a fence, must not be adopted.
-      MARKER: '<!-- watch-finding: main-is-red -->'
 
     steps:
       - name: Which run is being read
         id: run
         run: |
           set -euo pipefail
+
+          # **One standing issue per watched workflow, and that is not tidiness**
+          # (`#1564`). Both run on the same push. A single marker would let CI's
+          # `success` close an issue `MCP surface`'s `failure` had just opened —
+          # which is *treating an absence of evidence as green*, the exact defect
+          # this file was rewritten to remove, arriving one level up.
+          #
+          # CI keeps the marker it has had since `#1280`, so the standing issue
+          # open right now is still adopted rather than orphaned.
+          workflow='${{ github.event.workflow_run.name }}'
+          if [[ -z "${workflow}" || "${workflow}" == "CI" ]]; then
+            echo 'MARKER=<!-- watch-finding: main-is-red -->' >> "$GITHUB_ENV"
+            echo "title=main is red" >> "$GITHUB_OUTPUT"
+            echo "isCI=true" >> "$GITHUB_OUTPUT"
+          else
+            slug=$(printf '%s' "${workflow}" | tr '[:upper:] ' '[:lower:]-')
+            echo "MARKER=<!-- watch-finding: main-workflow-red:${slug} -->" >> "$GITHUB_ENV"
+            echo "title=${workflow} is failing on main" >> "$GITHUB_OUTPUT"
+            echo "isCI=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "workflow=${workflow:-CI}" >> "$GITHUB_OUTPUT"
 
           verify='${{ inputs.verify_run_id }}'
           if [[ -n "${verify}" ]]; then
@@ -221,7 +249,16 @@ jobs:
             echo "${MARKER}"
             echo "<!-- red-since: sha=${sha} at=${at} -->"
             echo
-            echo "**\`main\` is red at \`${short}\`,** and it arrived by ${how}."
+            if [[ '${{ steps.run.outputs.isCI }}' == 'true' ]]; then
+              echo "**\`main\` is red at \`${short}\`,** and it arrived by ${how}."
+            else
+              echo "**\`${{ steps.run.outputs.workflow }}\` is failing on \`main\` at \`${short}\`,** and the commit arrived by ${how}."
+              echo
+              echo "CI itself may well be green. This is a workflow that runs on \`main\` and"
+              echo "gates other people's branches, so it failing quietly is worth as much as a"
+              echo "red tip — \`#1566\` is what it cost the last time: ten consecutive failures"
+              echo "nobody saw, and queued pull requests evicted for something they had not done."
+            fi
             echo
             echo "| Commit | Author | Failed jobs | Run |"
             echo "|---|---|---|---|"
@@ -233,17 +270,19 @@ jobs:
             cat assertion.txt
             echo '```'
             echo
-            echo "If you are here because your own branch is red on assertions you do not"
-            echo "recognise, check them against the block above before diagnosing: a branch"
-            echo "cut after \`${short}\` inherits every one of them."
-            echo
-            echo "**A pair of individually-green pull requests can do this** (\`#1308\`)."
-            echo "Each is checked against its own base and nothing re-checks the merge"
-            echo "result, because \`required_status_checks.strict\` is off on \`main\`. Turning"
-            echo "it on — \`Require branches to be up to date before merging\` — or a merge"
-            echo "queue is the setting that closes that hole, and it is the maintainer's"
-            echo "to take."
-            echo
+            if [[ '${{ steps.run.outputs.isCI }}' == 'true' ]]; then
+              echo "If you are here because your own branch is red on assertions you do not"
+              echo "recognise, check them against the block above before diagnosing: a branch"
+              echo "cut after \`${short}\` inherits every one of them."
+              echo
+              echo "**A pair of individually-green pull requests can do this** (\`#1308\`)."
+              echo "Each is checked against its own base and nothing re-checks the merge"
+              echo "result, because \`required_status_checks.strict\` is off on \`main\`. Turning"
+              echo "it on — \`Require branches to be up to date before merging\` — or a merge"
+              echo "queue is the setting that closes that hole, and it is the maintainer's"
+              echo "to take."
+              echo
+            fi
             echo "This is a standing finding, not one issue per commit. A later green CI run"
             echo "on \`main\` closes it. Closing it by hand while \`main\` is still red reopens"
             echo "it on the next red run."
@@ -269,7 +308,7 @@ jobs:
             # One `--label` per literal name — `scripts/github-issue-labels.test.ts`
             # cannot read a name assembled at run time (`#687`).
             url=$(gh issue create --repo "$GITHUB_REPOSITORY" \
-              --title "main is red" \
+              --title '${{ steps.run.outputs.title }}' \
               --body-file body.md \
               --label 'from:watcher' --label 'area:platform' --label 'p1')
             echo "Opened ${url}."

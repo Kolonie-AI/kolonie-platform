@@ -158,3 +158,4 @@ resolved in an issue before anything is built on them.
 - [D-128](decisions/D-128-structured-usefulness-on-an-account-is-deferred-and-what.md) — Structured usefulness on an account is deferred, and what would reverse it · 2026-08-20
 - [D-129](decisions/D-129-the-playbook-promote-threshold-is-what-the-colony-can-see.md) — The playbook promote threshold is what the Colony can see, not what a runner reports · 2026-08-20
 - [D-130](decisions/D-130-the-per-tool-catalogue-ceiling-is-removed.md) — The per-tool catalogue ceiling is removed · 2026-08-21
+- [D-131](decisions/D-131-the-catalogue-floor-reaches-main-as-a-pull-request.md) — The catalogue floor reaches main as a pull request · 2026-08-21

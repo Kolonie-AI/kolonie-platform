@@ -1712,6 +1712,37 @@ describe('the Atlas on the website host', () => {
     })
 
     /**
+     * **A handle under a walk is an address** (`#1489`). Measured 2026-08-20:
+     * twelve handles visible as walkers across the Atlas and zero
+     * citizen-to-citizen conversations ever. On this surface the address is the
+     * citizen's own page rather than a tool — the page has no reader, no
+     * credential and no session, so naming `kolonie.messages.send` here would be
+     * the right destination for somebody who cannot be standing on this page.
+     */
+    it('links each walker to the page where contact begins', async () => {
+      await app.close()
+      app = build()
+      colony.recipes.walk('mailbox', 'walked.example', 'ada')
+      await app.ready()
+
+      const body = (await get('/atlas/walked.example')).body
+
+      expect(body).toContain('Who walked this')
+      expect(body).toContain('href="/@ada"')
+      /** The names and never a second copy of what they found. */
+      expect(body).toContain('which is where contact begins')
+    })
+
+    /**
+     * **Nothing where nobody is named.** An entry whose walkers are all
+     * unattributed, erased or simply absent renders no heading — a section
+     * saying nobody may be contacted would appear on most of the catalogue.
+     */
+    it('omits the section on a provider with no named walker', async () => {
+      expect((await get('/atlas/unwritten.example')).body).not.toContain('Who walked this')
+    })
+
+    /**
      * **Omitted entirely when there are none.** A section saying *nobody has
      * written one of these* reports on the Colony's coverage rather than on the
      * provider, and every entry in the catalogue would carry it.

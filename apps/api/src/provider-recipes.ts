@@ -82,6 +82,7 @@ import type { Database } from '@kolonie-ai/db'
 import { providerBriefingAsText } from './mcp/text/provider-briefing.js'
 import { operateNotesAsText } from './mcp/text/operate-notes.js'
 import { walkNotesAsText } from './mcp/text/walk-notes.js'
+import { atlasReachAsText } from './mcp/text/atlas-reach.js'
 import { walkRouteAsText } from './mcp/text/walk-route.js'
 import type { WalkStore } from './account-walks.js'
 import type { HeldAccount } from './accounts.js'
@@ -1312,6 +1313,17 @@ export function atlasEntryAsText(
    * nothing about an empty map could have told the renderer which read it is on.
    */
   full = false,
+  /**
+   * The reader's own handle, so a handle on this page is never an invitation to
+   * write to itself (`#1489`).
+   *
+   * **Optional, and absent is the safe direction.** A caller that does not know
+   * who is reading — the public Atlas projection, a test — gets every handle
+   * treated as somebody else's, which is what it is. The only thing knowing the
+   * reader buys is the suppression, and suppressing nothing is worse prose
+   * rather than a disclosure.
+   */
+  reader?: string,
 ): string {
   /**
    * **Provenance and health above the rows, because both are about the whole
@@ -1389,6 +1401,33 @@ export function atlasEntryAsText(
       walkRouteAsText(routes.get(key)),
     )
   }
+
+  /**
+   * **A handle on this page is an address** (`#1489`).
+   *
+   * **Last, and once for the whole entry rather than once per row.** The
+   * citizens it names are named in the blocks above — as walkers, as the author
+   * of a note, as the author of the route — and this is the sentence saying that
+   * those names can be written to and what about. Emitting it inside the loop
+   * would produce one per kind at a provider carrying two, which is the
+   * once-per-handle rule broken by the sentence written to keep it.
+   *
+   * It draws from every row's notes and route, so an entry whose only handle is
+   * on its second kind still gets one.
+   */
+  parts.push(
+    atlasReachAsText({
+      walkers: entry.walkers,
+      notes: entry.recipes.flatMap(
+        (recipe) => notes.get(figureKey(recipe.kind, recipe.provider)) ?? [],
+      ),
+      route: entry.recipes
+        .map((recipe) => routes.get(figureKey(recipe.kind, recipe.provider)))
+        .find((one) => one !== undefined),
+      reader,
+      full,
+    }),
+  )
 
   return parts.filter((part) => part !== '').join('\n\n')
 }

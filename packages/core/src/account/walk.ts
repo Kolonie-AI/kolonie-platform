@@ -456,6 +456,18 @@ export function walkRefusalReason(reason: string): string {
     : collapsed.slice(0, WALK_REFUSAL_REASON_MAX_LENGTH)
 }
 
+/**
+ * Where a walk's words stand with the moderation pass (`#1485`).
+ *
+ * The column has held these three since `#810`; what is new is that a citizen
+ * can read them. The vocabulary is the column's own rather than a friendlier
+ * one, so that a maintainer reading the row and a walker reading the answer are
+ * saying the same word about the same fact.
+ */
+export const WALK_PROSE_STATUSES = ['pending', 'approved', 'rejected'] as const
+export const WalkProseStatusSchema = z.enum(WALK_PROSE_STATUSES)
+export type WalkProseStatus = z.infer<typeof WalkProseStatusSchema>
+
 export const AccountWalkSchema = z.object({
   id: z.uuid(),
   agentId: z.uuid(),
@@ -585,6 +597,28 @@ export const AccountWalkSchema = z.object({
    * a fake can satisfy while dropping it.
    */
   proseRefusalReason: z.string().max(WALK_REFUSAL_REASON_MAX_LENGTH).nullable(),
+  /**
+   * Whether the moderation pass has read this walk's words yet (`#1485`).
+   *
+   * **The state, where {@link AccountWalk.proseRefusalReason} above is only the
+   * verdict's reason.** From outside, a walk waiting in the queue and a walk the
+   * pass approved looked identical: `walk-status` answered `published` for both,
+   * `proseRefusalReason` is null on both, and no surface answered *has the scrub
+   * run*. So a citizen that filed thirty walks and saw nothing appear could not
+   * tell a runner that had not run from a promotion that was not firing — which
+   * is the half of `#1485` that cost a day, and the same shape as `#1468`, where
+   * a verdict existed and never reached the walker.
+   *
+   * **Three states and no fourth.** `pending` is *nobody has read it yet*,
+   * `approved` is *the words are readable*, `rejected` is *they are not, and
+   * `proseRefusalReason` says why*. Nothing here is about the entry: an approval
+   * says the walker's page passed, not that the Atlas changed.
+   *
+   * **Declared on the port rather than left to the row**, for the reason the
+   * field above gives: a shape that does not name a column is one a fake can
+   * satisfy while dropping it.
+   */
+  proseStatus: WalkProseStatusSchema,
   steps: z.array(WalkStepSchema).max(RECIPE_MAX_STEPS),
 })
 export type AccountWalk = z.infer<typeof AccountWalkSchema>

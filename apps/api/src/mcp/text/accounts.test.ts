@@ -57,6 +57,7 @@ describe('the inventory', () => {
       refusalReason: null,
       /** The other refusal, on its own axis and equally absent here (`#1340`). */
       proseRefusalReason: null,
+      proseStatus: 'approved',
       withdrawnReason: null,
       requiredChanges: null,
       entryStatus: 'measured',

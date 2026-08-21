@@ -179,6 +179,43 @@ export const AtlasWalkedSchema = z.object({
   homepage: z.string().nullable(),
 
   /**
+   * The scrubbed sentence a walker wrote about what this provider *is*, or null
+   * (`#1485`).
+   *
+   * **The same argument {@link AtlasWalked.homepage} makes one field up, and it
+   * was left half-made.** `#1330` established that a figure derived from
+   * `account_walks` may carry an identity fact even though it may not carry a
+   * count, and wired `homepage` through on it. `about` is the other half of what
+   * a `sighted` walk files and stayed `null` unconditionally, so
+   * `measuredOnlyRecipes` — which synthesises the row of every pair whose kind
+   * reaches no Atlas shelf — had nothing to put in it.
+   *
+   * **The cost was measured.** On 2026-08-20 a scout filed 30 `sighted` walks
+   * across the earn shelf, every one carrying an `about` read off the live
+   * homepage; every one was approved and scrubbed, and all 21 earn providers
+   * still rendered `about: null`. Not one of those pairs has a
+   * `provider_recipes` row at all — no earn kind reaches a shelf, so
+   * `recordMeasuredProvider` declines to write one and
+   * `promoteWalkerAboutToEntryIdentity` has nothing to promote onto. The
+   * sentence existed on the walk the whole time and no reader could reach it.
+   *
+   * **Scrubbed and approved, never the raw column** — and that is the one way
+   * this differs from `homepage`. A homepage is a URL and publishes unmoderated
+   * because it cannot carry a grudge; `about` is a sentence a citizen wrote, so
+   * it is exactly what `prose_status` governs. What is read here is
+   * `scrubbed_prose ->> 'about'` on an approved walk, which is the same text
+   * `providerBriefingCorpus` reads and the same text the promotion writes onto
+   * the entries that do have a row.
+   *
+   * **The freshest one wins**, where the homepage above takes the earliest. The
+   * two orderings differ because the two facts do: `writeProviderRecipe` already
+   * states it — an identity that moves under a reader on the strength of who
+   * walked last is not one, but a sentence describing a provider is better for
+   * being current.
+   */
+  about: z.string().nullable(),
+
+  /**
    * Whether anybody filed a `sighted` walk here (`#1333`).
    *
    * **A boolean and never the count**, on the rule the floor is made of and
@@ -438,6 +475,7 @@ export function noFigures(kind: string, provider: string): AtlasFigures {
       walls: [],
       /** Nobody has filed one, which is what null means everywhere in this row. */
       homepage: null,
+      about: null,
       anySighted: false,
       anyAbandoned: false,
     },

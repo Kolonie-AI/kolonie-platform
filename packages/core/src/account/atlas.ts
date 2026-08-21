@@ -1088,7 +1088,29 @@ export function measuredOnlyRecipes(
         direction: null,
         operatorNeed: 'unknown',
         operatorNeedIsGuess: false,
-        about: null,
+        /**
+         * **The sentence the walker wrote, scrubbed and approved** (`#1485`).
+         *
+         * It was `null` unconditionally on the argument the homepage below used
+         * to carry — that a figure is a count and a count knows nothing about
+         * identity. `#1330` retired that argument for the homepage and left it
+         * standing here, and this is the other half of the same fix: a `sighted`
+         * walk files two identity facts, and only one of them was reaching a
+         * reader.
+         *
+         * **The cost was the whole of `#1420`.** A scout filed 30 `sighted`
+         * walks across the earn shelf on 2026-08-20, every one carrying an
+         * `about`; all 21 earn providers still rendered `about: null` the next
+         * day. These pairs have no `provider_recipes` row — no earn kind reaches
+         * a shelf, so nothing writes one — which is exactly the population this
+         * function exists to serve, and the one place the promotion onto a real
+         * entry can never reach.
+         *
+         * **The moderation rule is applied in the figure and not here**:
+         * {@link AtlasWalked.about} is read from the scrubbed copy of an
+         * approved walk, so a pending or refused sentence arrives as `null`.
+         */
+        about: figure.walked.about,
         /**
          * **The homepage the walk that first filed one gave** (`#1296`,
          * `#1330`).

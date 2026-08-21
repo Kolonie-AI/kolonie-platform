@@ -10,7 +10,12 @@ import { sql } from 'drizzle-orm'
 import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { atlasFigures } from './atlas-figures.js'
-import { finishWalk, recordWalkStep, walkInProgress } from './account-walks.js'
+import {
+  finishWalk,
+  recordWalkProseModeration,
+  recordWalkStep,
+  walkInProgress,
+} from './account-walks.js'
 import { registerAgent } from './agents.js'
 
 const target = databaseTestTarget()
@@ -580,6 +585,126 @@ describe('the measured figures behind an Atlas entry', () => {
       })
 
       expect((await only('contested.test'))?.walked.homepage).toBe('https://contested.test')
+    })
+
+    /**
+     * **The about is the other identity fact, and it waits for a verdict**
+     * (`#1485`).
+     *
+     * Unlike the homepage above it, this is a sentence a citizen wrote, so it is
+     * exactly what `prose_status` governs. What the query reads is the scrubbed
+     * copy of an approved walk; the raw column is never served from here.
+     *
+     * The gap this closes: a pair whose kind reaches no Atlas shelf has no
+     * `provider_recipes` row for the promotion to write onto, so this figure is
+     * the only route its `about` has to a reader. Measured 2026-08-20 — 30
+     * approved `sighted` walks, 21 earn providers, `about: null` on every one.
+     */
+    it('publishes the scrubbed about of an approved walk', async () => {
+      const sentence = 'A board where a poster locks funds in escrow and agents compete.'
+      const agentId = await citizen('describer')
+      const walkId = await walkInProgress(db, agentId, { kind, provider: 'described.test' })
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+      await finishWalk(db, walkId, {
+        outcome: 'sighted',
+        about: sentence,
+        homepage: 'https://described.test',
+      })
+      await recordWalkProseModeration(db, {
+        walkId,
+        judged: { about: sentence },
+        decision: 'approved',
+        scrubbed: { about: sentence },
+      })
+
+      const figures = await only('described.test')
+
+      /** The suppressed shape, exactly as the homepage assertion above uses. */
+      expect(figures?.suppressed).toBe(true)
+      expect(figures?.walked.citizens).toBe(0)
+      expect(figures?.walked.about).toBe(sentence)
+    })
+
+    /**
+     * **The rejection case: a sentence nobody has read yet is not published.**
+     * `finishWalk` leaves `prose_status` at `pending`, which is the state every
+     * walk is in for the minutes before the moderation pass reaches it — and the
+     * state a walk stays in forever if the pass is down. The homepage beside it
+     * still publishes, which is the whole distinction: a URL is typed and cannot
+     * carry a grudge, a sentence can.
+     */
+    it('says null for an about whose words no verdict has passed', async () => {
+      const agentId = await citizen('unread')
+      const walkId = await walkInProgress(db, agentId, { kind, provider: 'pending.test' })
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+      await finishWalk(db, walkId, {
+        outcome: 'sighted',
+        about: 'Words that have not been read.',
+        homepage: 'https://pending.test',
+      })
+
+      const figures = await only('pending.test')
+
+      expect(figures?.walked.about).toBeNull()
+      expect(figures?.walked.homepage).toBe('https://pending.test')
+    })
+
+    /** And a refusal publishes nothing either, which is what a refusal is for. */
+    it('says null for an about the moderator refused', async () => {
+      const sentence = 'Words a moderator declined to pass on.'
+      const agentId = await citizen('refused-about')
+      const walkId = await walkInProgress(db, agentId, { kind, provider: 'declined.test' })
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+      await finishWalk(db, walkId, {
+        outcome: 'sighted',
+        about: sentence,
+        homepage: 'https://declined.test',
+      })
+      await recordWalkProseModeration(db, {
+        walkId,
+        judged: { about: sentence },
+        decision: 'rejected',
+        reason: 'It carries an instruction involving a credential.',
+        line: 'runnable-instruction',
+      })
+
+      expect((await only('declined.test'))?.walked.about).toBeNull()
+    })
+
+    /**
+     * **The freshest sentence wins, where the homepage above takes the
+     * earliest.** The two orderings differ because the two facts do, and
+     * `writeProviderRecipe` already states the reason on the entries that have a
+     * row: an identity that moves under a reader is not one, and a description
+     * is better for being current.
+     */
+    it('keeps the about of the walk that filed one last', async () => {
+      const older = 'What the first scout said it was.'
+      const newer = 'What the second scout said it was.'
+
+      const first = await citizen('earlier-describer')
+      const firstWalk = await walkInProgress(db, first, { kind, provider: 'restated.test' })
+      await recordWalkStep(db, firstWalk, { actor: 'agent' })
+      await finishWalk(db, firstWalk, { outcome: 'sighted', about: older })
+      await recordWalkProseModeration(db, {
+        walkId: firstWalk,
+        judged: { about: older },
+        decision: 'approved',
+        scrubbed: { about: older },
+      })
+
+      const second = await citizen('later-describer')
+      const secondWalk = await walkInProgress(db, second, { kind, provider: 'restated.test' })
+      await recordWalkStep(db, secondWalk, { actor: 'agent' })
+      await finishWalk(db, secondWalk, { outcome: 'sighted', about: newer })
+      await recordWalkProseModeration(db, {
+        walkId: secondWalk,
+        judged: { about: newer },
+        decision: 'approved',
+        scrubbed: { about: newer },
+      })
+
+      expect((await only('restated.test'))?.walked.about).toBe(newer)
     })
 
     /**

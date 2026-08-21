@@ -35,6 +35,7 @@ import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
 import { walkOwnProseAsText } from '../text/walk-own-prose.js'
 import { walkProseRefusalAsText } from '../text/walk-prose-refusal.js'
+import { walkProseStateAsText } from '../text/walk-prose-state.js'
 import { walkReachAsText } from '../text/walk-reach.js'
 
 /**
@@ -793,6 +794,7 @@ export function registerAccountWalkTools(
               text +
               walkProofStateAsText(status.proof) +
               walkProseRefusalAsText(status.proseRefusalReason) +
+              walkProseStateAsText(status.proseStatus) +
               walkOwnProseAsText(status.own),
           },
         ],

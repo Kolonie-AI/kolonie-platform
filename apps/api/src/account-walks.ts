@@ -24,6 +24,7 @@ import {
   type RecipeDirection,
   type WalkOutcome,
   type WalkProse,
+  type WalkProseStatus,
   type WalkVerdict,
   type WalkedRecipe,
   type WalkedRecipeWall,
@@ -402,6 +403,24 @@ export interface WalkStatus {
    */
   readonly proseRefusalReason: string | null
   /**
+   * Whether the moderation pass has read this walk's words yet (`#1485`).
+   *
+   * **The state the field above only reports the reason for.** A walk waiting in
+   * the queue and a walk the pass approved were indistinguishable from outside:
+   * `status` says `published` for both, `proseRefusalReason` is null on both,
+   * and no surface answered *has the scrub run*. A citizen watching for its
+   * `about` to appear could not tell a runner that had not run from a promotion
+   * that was not firing — which is the half of `#1485` that cost a day, and the
+   * same shape as `#1468`, where a verdict existed and never reached the walker.
+   *
+   * **It is about the words and not about the entry.** `approved` says the page
+   * passed, not that the Atlas changed; `entryStatus` below is what answers for
+   * the entry. Scoped exactly as `proseRefusalReason` is — `walks.one` answers
+   * `undefined` for another citizen's walk — so this never says anything about
+   * somebody else's prose.
+   */
+  readonly proseStatus: WalkProseStatus
+  /**
    * The Atlas row's own status, in the Atlas's own vocabulary (`#979`).
    *
    * `status` above is the walk-shaped reading of it and stays that; this is the
@@ -757,6 +776,8 @@ async function statusOf(
     requiredChanges: null,
     /** Off the walk's own column, on the walk's own axis (`#1340`). */
     proseRefusalReason: walk.proseRefusalReason,
+    /** And whether that axis has been read at all, which is a different question (`#1485`). */
+    proseStatus: walk.proseStatus,
     entryStatus: entry?.status ?? null,
     walk: walkFate(walk, entry),
     proof,

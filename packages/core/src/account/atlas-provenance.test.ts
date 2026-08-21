@@ -570,6 +570,7 @@ describe('the rows the figures imply', () => {
         platforms: {},
         walls: [],
         homepage: 'https://bounties.test',
+        about: null,
         anySighted: true,
         anyAbandoned: false,
       },
@@ -591,6 +592,69 @@ describe('the rows the figures imply', () => {
     )
 
     expect(synthesized[0]?.homepage).toBeNull()
+  })
+
+  /**
+   * **The other identity fact the same walk files** (`#1485`).
+   *
+   * The sentence a scout writes about what a provider *is* had no route to a
+   * reader on exactly the rows this function serves. Measured 2026-08-20: 30
+   * `sighted` walks across the earn shelf, every one approved and carrying an
+   * `about`, and all 21 earn providers rendering `about: null` the next day —
+   * because no earn kind reaches a shelf, so none of them has a
+   * `provider_recipes` row for the promotion to write onto.
+   */
+  it('carries the about the walks at this pair filed', () => {
+    const walked = {
+      ...figures({ kind: 'bounty-board', provider: 'bounties.test', attempted: 3, proved: 0 }),
+      walked: {
+        citizens: 2,
+        gotThrough: 0,
+        band: null,
+        platforms: {},
+        walls: [],
+        homepage: 'https://bounties.test',
+        about: 'A bounty board where a poster locks funds in escrow and agents compete.',
+        anySighted: true,
+        anyAbandoned: false,
+      },
+    }
+
+    expect(measuredOnlyRecipes([], [walked])[0]?.about).toBe(
+      'A bounty board where a poster locks funds in escrow and agents compete.',
+    )
+  })
+
+  /**
+   * **The rejection case, and the one that matters most here.** `about` is a
+   * sentence a citizen wrote, so it is what `prose_status` governs — unlike the
+   * homepage beside it, which is a URL and cannot carry a grudge. A walk whose
+   * words are still pending, or were refused, contributes nothing: the figure
+   * carries `null` because the SQL reads the scrubbed copy of an approved walk
+   * and nothing else, and this asserts the renderer does not invent one on the
+   * way past.
+   */
+  it('says null where the walk filed an about that is not approved', () => {
+    const walked = {
+      ...figures({ kind: 'bounty-board', provider: 'unmoderated.test', attempted: 2, proved: 0 }),
+      walked: {
+        citizens: 1,
+        gotThrough: 0,
+        band: null,
+        platforms: {},
+        walls: [],
+        /** The URL still publishes: it is typed, and it is not prose. */
+        homepage: 'https://unmoderated.test',
+        about: null,
+        anySighted: true,
+        anyAbandoned: false,
+      },
+    }
+
+    const synthesized = measuredOnlyRecipes([], [walked])
+
+    expect(synthesized[0]?.about).toBeNull()
+    expect(synthesized[0]?.homepage).toBe('https://unmoderated.test')
   })
 
   /**

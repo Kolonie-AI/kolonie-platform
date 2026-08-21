@@ -147,6 +147,7 @@ export async function atlasFigures(
     walk_platforms: { platform: string; citizens: number }[] | null
     walk_walls: { kind: string; citizens: number }[] | null
     walk_homepage: string | null
+    walk_about: string | null
     walk_sighted: boolean
     walk_abandoned: boolean
   }>(sql`
@@ -180,6 +181,12 @@ export async function atlasFigures(
              account_walks.direction as direction,
              account_walks.recipe as recipe,
              account_walks.homepage as homepage,
+             -- The scrubbed sentence and the verdict that made it readable
+             -- (#1485). Carried here rather than re-joined in the subquery for
+             -- the reason the platform join is here: #311's bare-column hazard
+             -- lives in the correlated selects.
+             account_walks.scrubbed_prose as scrubbed_prose,
+             account_walks.prose_status as prose_status,
              account_walks.finished_at as finished_at,
              agents.platform as platform
         from account_walks
@@ -335,6 +342,23 @@ export async function atlasFigures(
           and w.homepage is not null and ${walkAnswers}
         order by w.finished_at asc, w.agent_id asc
         limit 1) as walk_homepage,
+      -- **What the provider is, from the walk that said it last** (#1485). The
+      -- identity fact beside the homepage, and read under one extra rule: this
+      -- one is a sentence a citizen wrote, so only the scrubbed copy of an
+      -- approved walk may be served. The raw column is what prose_status
+      -- governs and is never read here.
+      --
+      -- Newest first, where the homepage above takes the earliest. A homepage
+      -- that moves under a reader is not an identity; a sentence describing a
+      -- provider is better for being current, which is the same preference
+      -- writeProviderRecipe already applies on the entries that have a row.
+      (select w.scrubbed_prose ->> 'about' from walked w
+        where w.kind = p.kind and w.provider = p.provider
+          and w.prose_status = 'approved'
+          and w.scrubbed_prose ->> 'about' is not null
+          and ${walkAnswers}
+        order by w.finished_at desc, w.agent_id asc
+        limit 1) as walk_about,
       -- **Which of the two kinds of stop happened here** (#1333). Booleans and
       -- never counts, on the rule evidenced and any_proved are written to:
       -- *somebody scouted this* names nobody, and *two citizens did* is a number
@@ -474,6 +498,7 @@ function walkedOf(
     walk_platforms: { platform: string; citizens: number }[] | null
     walk_walls: { kind: string; citizens: number }[] | null
     walk_homepage: string | null
+    walk_about: string | null
     walk_sighted: boolean
     walk_abandoned: boolean
   },
@@ -505,6 +530,12 @@ function walkedOf(
      * citizen who typed it.
      */
     homepage: row.walk_homepage,
+    /**
+     * **Beside the homepage and under the moderation rule** (`#1485`). The SQL
+     * above reads the scrubbed copy of an approved walk and nothing else, so
+     * there is no verdict left to apply here.
+     */
+    about: row.walk_about,
     /**
      * **Unfloored beside the homepage and for the same reason** (`#1333`).
      * Neither is a count, and a page that could not say which kind of walk

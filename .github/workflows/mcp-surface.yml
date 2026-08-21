@@ -322,19 +322,18 @@ jobs:
               verdict = { within: ratchet.outcome !== "refused", message: ratchet.message }
 
               if (ratchet.totals !== undefined) {
-                // Keep the per-tool ceiling the measurement did not recompute —
-                // this step only ratchets the two sums. The suite-driven
-                // `check-catalogue-budget.mjs` is what rewrites `heaviest`.
-                //
                 // `raisedFor` is written on a raise and dropped by a lowering
                 // (issue 1317): it says why the floor stands where it does, and a
                 // measurement that came down knows nothing about the figure before it.
+                //
+                // The per-tool ceiling used to be carried through here (`#1235`)
+                // and is gone (`#1518`): this step only ever ratcheted the two
+                // sums, and the third figure is no longer in the file.
                 await writeFile(
                   BUDGET,
                   `${JSON.stringify({
                     tools: ratchet.totals.tools,
                     bytes: ratchet.totals.bytes,
-                    heaviest: budget.heaviest,
                     measuredAt: new Date().toISOString().slice(0, 10),
                     command: "node scripts/check-catalogue-budget.mjs",
                     ...(ratchet.raisedFor === undefined ? {} : { raisedFor: ratchet.raisedFor }),

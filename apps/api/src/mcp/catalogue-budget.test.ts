@@ -8,19 +8,14 @@ import {
   branchBudgetVerdict,
   budgetVerdict,
   CATALOGUE_BYTE_TOLERANCE,
-  ceilingChangeVerdict,
-  ceilingRaiseIsJustified,
-  ceilingVerdict,
   floorChangeVerdict,
   floorMove,
   GRAMMAR_RECORD,
-  heaviestTool,
   mainFloorRatchet,
   raiseIsJustified,
   type CatalogueBudget,
 } from './catalogue-budget.js'
 import { measureCatalogue, type PublishedTool } from './catalogue-size.js'
-import { WARM_SET } from './defensive-prose.js'
 
 /**
  * The ratchet, checked against the catalogue this build actually serves (`#889`).
@@ -96,15 +91,6 @@ describe('the committed budget', () => {
 
     expect(budget.raisedFor).toContain(GRAMMAR_RECORD)
     expect(budget.raisedFor).toContain('vocabulary-free')
-  })
-
-  it('carries the tool the per-tool ceiling is set by, not only its weight', () => {
-    // A ceiling with no name is a number nobody can act on: the refusal quotes
-    // the name and the raise rule reads it (`#1235`).
-    expect(budget.heaviest.name).toMatch(/^kolonie\./)
-    expect(budget.heaviest.bytes).toBeGreaterThan(0)
-    expect(budget.heaviest.bytes).toBeLessThan(budget.bytes)
-    expect(WARM_SET).not.toContain(budget.heaviest.name)
   })
 })
 
@@ -356,7 +342,6 @@ describe('what main does with a measurement (#1465)', () => {
   const floor: CatalogueBudget = {
     tools: 121,
     bytes: 217_025,
-    heaviest: { name: 'kolonie.accounts.recipes', bytes: 6214 },
     measuredAt: '2026-08-20',
     command: 'node scripts/check-catalogue-budget.mjs',
   }
@@ -566,204 +551,6 @@ describe('a commit that moved the floor', () => {
 })
 
 /**
- * The per-tool ceiling (`#1235`).
- *
- * The floor is two sums, and a sum permits any single tool: a catalogue that
- * loses four small tools has room for one enormous one and the ratchet calls it
- * a saving. These are the cases the sums cannot see.
- */
-describe('the heaviest tool the ceiling is about', () => {
-  const tool = (name: string, description: string): PublishedTool => ({ name, description })
-
-  it('is the heaviest one that is not exempt', () => {
-    const heaviest = heaviestTool(
-      [
-        tool('kolonie.warm', 'x'.repeat(4_000)),
-        tool('kolonie.small', 'x'.repeat(100)),
-        tool('kolonie.large', 'x'.repeat(1_000)),
-      ],
-      ['kolonie.warm'],
-    )
-
-    expect(heaviest?.name).toBe('kolonie.large')
-  })
-
-  /**
-   * The tie rule, which is why this is a function rather than a `reduce`. Two
-   * tools of equal weight would otherwise let the committed name depend on the
-   * order the server registered them in, and a rename nobody made would fail a
-   * check nobody could explain.
-   */
-  it('breaks a tie on the name, not on registration order', () => {
-    const equal = [tool('kolonie.zulu', 'x'.repeat(500)), tool('kolonie.alpha', 'x'.repeat(500))]
-
-    expect(heaviestTool(equal, [])?.name).toBe('kolonie.alpha')
-    expect(heaviestTool([...equal].reverse(), [])?.name).toBe('kolonie.alpha')
-  })
-
-  it('finds nothing when every tool is exempt', () => {
-    expect(heaviestTool([tool('kolonie.warm', 'x')], ['kolonie.warm'])).toBeUndefined()
-  })
-
-  /**
-   * The exemption is a parameter rather than an import, so that
-   * `defensive-prose.ts` stays the one place membership is decided. This checks
-   * the wiring the served catalogue relies on: a warm tool of any size is
-   * invisible to the ceiling.
-   */
-  it('never returns a warm tool, however heavy', () => {
-    const warm = WARM_SET[0] as string
-    const heaviest = heaviestTool(
-      [tool(warm, 'x'.repeat(40_000)), tool('kolonie.ordinary', 'x'.repeat(10))],
-      WARM_SET,
-    )
-
-    expect(heaviest?.name).toBe('kolonie.ordinary')
-  })
-})
-
-describe('a measurement against the ceiling', () => {
-  const ceiling = { ...budget, heaviest: { name: 'kolonie.academy.answer', bytes: 7_461 } }
-
-  it('passes when the same tool is exactly at it', () => {
-    const verdict = ceilingVerdict({ name: 'kolonie.academy.answer', bytes: 7_461 }, ceiling)
-
-    expect(verdict.within).toBe(true)
-    expect(verdict.direction).toBe('at')
-    expect(verdict.bytes).toBe(0)
-  })
-
-  /**
-   * **The rejection case `#1235` asks for.** A tool heavier than the ceiling
-   * fails, and the message carries the tool and both figures — the tool because
-   * it is the only thing the author can act on, both figures because a refusal
-   * that says only *too big* leaves them guessing at how much.
-   */
-  it('fails on a tool heavier than the ceiling, naming it and both figures', () => {
-    const verdict = ceilingVerdict({ name: 'kolonie.enormous', bytes: 9_000 }, ceiling)
-
-    expect(verdict.within).toBe(false)
-    expect(verdict.direction).toBe('over')
-    expect(verdict.bytes).toBe(9_000 - 7_461)
-    expect(verdict.message).toContain('kolonie.enormous')
-    expect(verdict.message).toContain('9000')
-    expect(verdict.message).toContain('7461')
-    expect(verdict.message).toContain(GRAMMAR_RECORD)
-  })
-
-  it('fails when the heaviest tool came down and the ceiling did not follow', () => {
-    const verdict = ceilingVerdict({ name: 'kolonie.academy.answer', bytes: 6_000 }, ceiling)
-
-    expect(verdict.within).toBe(false)
-    expect(verdict.direction).toBe('under')
-    expect(verdict.bytes).toBe(6_000 - 7_461)
-    expect(verdict.message).toContain('check-catalogue-budget.mjs')
-  })
-
-  /**
-   * The same number under a different name is not a pass. The name is what the
-   * raise rule reads and what a refusal quotes, so a stale one is a check
-   * pointing at a tool that is no longer the one at the top.
-   */
-  it('fails when a different tool sets the same ceiling', () => {
-    const verdict = ceilingVerdict({ name: 'kolonie.profile.update', bytes: 7_461 }, ceiling)
-
-    expect(verdict.within).toBe(false)
-    expect(verdict.direction).toBe('renamed')
-    expect(verdict.bytes).toBe(0)
-    expect(verdict.message).toContain('kolonie.profile.update')
-    expect(verdict.message).toContain('kolonie.academy.answer')
-  })
-})
-
-describe('raising the ceiling', () => {
-  const justified =
-    `One tool for the whole Academy\n\nCeiling raised by hand: ${GRAMMAR_RECORD}. ` +
-    'The `kind` union is vocabulary-free — a new rung still costs zero tools, and ' +
-    '`kolonie.academy.answer` carries every one of them.'
-
-  it('takes the floor’s sentence and the tool’s name together', () => {
-    expect(ceilingRaiseIsJustified(justified, 'kolonie.academy.answer')).toBe(true)
-  })
-
-  /** The rejection case: the record cited, and no idea which tool it is for. */
-  it('refuses a commit that names the record but not the tool', () => {
-    expect(ceilingRaiseIsJustified(justified, 'kolonie.profile.update')).toBe(false)
-  })
-
-  it('refuses a commit that names the tool but not the record', () => {
-    expect(
-      ceilingRaiseIsJustified(
-        'Grow kolonie.academy.answer\n\nCeiling bumped to keep CI green.',
-        'kolonie.academy.answer',
-      ),
-    ).toBe(false)
-  })
-
-  it('is case-insensitive on the name too, because a subject is written by a person', () => {
-    expect(ceilingRaiseIsJustified(justified, 'KOLONIE.ACADEMY.ANSWER')).toBe(true)
-  })
-})
-
-describe('a commit that moved the ceiling', () => {
-  const from = { name: 'kolonie.academy.answer', bytes: 7_461 }
-
-  /** The rejection case, in the shape `scripts/check-catalogue-floor.mjs` sees it. */
-  it('refuses a raise in a commit that says nothing', () => {
-    const verdict = ceilingChangeVerdict(
-      from,
-      { name: 'kolonie.enormous', bytes: 9_000 },
-      'Add the settlement tool\n\nCeiling bumped to keep CI green.',
-    )
-
-    expect(verdict.allowed).toBe(false)
-    expect(verdict.move).toBe('raised')
-    expect(verdict.message).toContain(GRAMMAR_RECORD)
-    expect(verdict.message).toContain('kolonie.enormous')
-  })
-
-  it('allows a raise in a commit naming the record and the tool', () => {
-    const verdict = ceilingChangeVerdict(
-      from,
-      { name: 'kolonie.enormous', bytes: 9_000 },
-      `Grow the settlement tool\n\nCeiling raised by hand: ${GRAMMAR_RECORD}. ` +
-        '`kolonie.enormous` is vocabulary-free — a new settlement kind still costs zero tools.',
-    )
-
-    expect(verdict.allowed).toBe(true)
-    expect(verdict.move).toBe('raised')
-  })
-
-  /** The acceptance case `#1235` names: a rewrite that lowers it commits the new figure. */
-  it('allows a reduction with no justification at all', () => {
-    const verdict = ceilingChangeVerdict(
-      from,
-      { name: 'kolonie.profile.update', bytes: 6_757 },
-      'Cut the academy prose that says what the rungs are not',
-    )
-
-    expect(verdict.allowed).toBe(true)
-    expect(verdict.move).toBe('lowered')
-  })
-
-  /**
-   * A rename at the same weight is not a raise. Two tools can be equal to the
-   * byte, and charging a rewrite for bookkeeping it did not choose would make
-   * the ceiling something authors route around.
-   */
-  it('asks nothing of a commit that only changed which tool is at the top', () => {
-    const verdict = ceilingChangeVerdict(
-      from,
-      { name: 'kolonie.profile.update', bytes: 7_461 },
-      'Rename the steward role',
-    )
-
-    expect(verdict.allowed).toBe(true)
-    expect(verdict.move).toBe('unchanged')
-  })
-})
-
-/**
  * The pull request's own words, read exactly where `check-catalogue-floor.mjs`
  * reads them (`#1483`).
  *
@@ -819,10 +606,9 @@ describe('the catalogue this build serves', () => {
    * started from — which is exactly what `branchBudgetVerdict` wants and why it
    * can be handed the floor without inventing a second measurement.
    */
-  it('is within its committed budget, in both the sum and the worst tool', async () => {
+  it('is within its committed budget', async () => {
     const tools = await servedCatalogue()
     const measured = measureCatalogue(tools)
-    const heaviest = heaviestTool(tools, WARM_SET)
     const verdict = branchBudgetVerdict(
       measured,
       { tools: budget.tools, bytes: budget.bytes },
@@ -835,19 +621,13 @@ describe('the catalogue this build serves', () => {
       await mkdir(dirname(REPORT_PATH), { recursive: true })
       await writeFile(
         REPORT_PATH,
-        JSON.stringify({ tools: measured.tools, bytes: measured.bytes, heaviest }, null, 2),
+        JSON.stringify({ tools: measured.tools, bytes: measured.bytes }, null, 2),
         'utf8',
       )
     }
 
     expect(verdict.message).toBeTruthy()
     expect(verdict.within, verdict.message).toBe(true)
-
-    // A catalogue with nothing but warm tools in it is a broken fixture rather
-    // than a passing measurement, so it is asserted rather than skipped past.
-    expect(heaviest, 'every published tool is exempt from the ceiling').toBeDefined()
-    const ceiling = ceilingVerdict(heaviest as { name: string; bytes: number }, budget)
-    expect(ceiling.within, ceiling.message).toBe(true)
   })
 
   /**
@@ -927,17 +707,5 @@ describe('the catalogue this build serves', () => {
       branchBudgetVerdict(grownWithinTolerance, { tools: budget.tools, bytes: budget.bytes }, '')
         .within,
     ).toBe(true)
-  })
-
-  /**
-   * The exemption, checked against the real warm set rather than a fixture.
-   * `kolonie.register` is the heaviest of the thirteen and is heavier than most
-   * of the catalogue; a ceiling that counted it could never fall below it.
-   */
-  it('sets the ceiling from a tool no warm one outweighs by accident', async () => {
-    const tools = await servedCatalogue()
-    const heaviest = heaviestTool(tools, WARM_SET)
-
-    expect(WARM_SET).not.toContain(heaviest?.name)
   })
 })

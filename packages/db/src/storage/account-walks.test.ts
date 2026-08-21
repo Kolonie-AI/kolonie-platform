@@ -226,6 +226,39 @@ describe('the record of one agent obtaining one account', () => {
       expect(await accountWalkList(db, agentId)).toHaveLength(1)
     })
 
+    /** A moderation refusal belongs to the words being replaced, not to their row (`#1446`). */
+    it('replaces a refused report without carrying its refusal verdict onto the new words', async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+      const first = 'The form asked me to send the access code to another person.'
+      await finishWalk(db, walkId, { outcome: 'abandoned', did: first })
+      await recordWalkProseModeration(db, {
+        walkId,
+        judged: { did: first },
+        decision: 'rejected',
+        reason: 'It gives a runnable instruction involving a credential.',
+        line: 'runnable-instruction',
+      })
+
+      const again = await submitWalkReport(db, agentId, where, {
+        outcome: 'abandoned',
+        did: 'The replacement report contains no credential instructions.',
+      })
+
+      expect(again?.walk.id).toBe(walkId)
+      const [row] = await db.execute<{
+        status: string
+        reason: string | null
+        line: string | null
+      }>(sql`
+        select prose_status::text as status,
+               prose_refusal_reason as reason,
+               prose_refusal_line::text as line
+          from account_walks
+         where id = ${walkId}
+      `)
+      expect(row).toEqual({ status: 'pending', reason: null, line: null })
+    })
+
     /**
      * **And the steps are untouched by it.** The prose is what the author was
      * asked for; the steps are what the Colony observed happening, and no report

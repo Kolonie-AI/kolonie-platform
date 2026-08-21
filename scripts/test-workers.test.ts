@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error — a build script, deliberately outside the TypeScript
 // project, imported here for the same reason the runner beside it is: the
@@ -144,5 +145,62 @@ describe('the memory ceiling on a database-backed suite', () => {
   it('is a preference, so the budget still only lowers it', () => {
     expect(testWorkers(memoryCeiling(7186 * 1024 ** 2), { KOLONIE_TEST_WORKERS: '2' })).toBe(2)
     expect(testWorkers(memoryCeiling(7186 * 1024 ** 2), {})).toBe(4)
+  })
+})
+
+/**
+ * **Which config uses which rule, and what the wrong one cost** (`#1571`).
+ *
+ * The helper above is well covered. What was not covered is the thing that
+ * actually went wrong: `#1354` replaced the core rule with {@link memoryCeiling}
+ * in `apps/api` and **left `packages/db` on it** — the workspace that matters.
+ * In the `test` job of run `32504361754` (2026-08-21), `@kolonie-ai/db` was
+ * **518.4 s** of 619 s, and all eight other workspaces together were 99 s.
+ *
+ * Measured on an idle 8-core box against a relaxed Postgres, same 212 files and
+ * 4188 tests, green in every row: **437 s at two workers, 248 s at four, 205 s
+ * at six.** Every pull request pays the job twice — branch and merge-queue ref.
+ */
+describe('the two suites that hold Postgres backends', () => {
+  const configOf = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
+
+  it.each(['../apps/api/vitest.config.ts', '../packages/db/vitest.config.ts'])(
+    '%s sizes its pool from memory rather than from cores',
+    (path) => {
+      const text = configOf(path)
+
+      expect(text).toContain('testWorkers(memoryCeiling())')
+      expect(text).not.toContain('cpus().length - 2')
+    },
+  )
+
+  /**
+   * **The half that says `#1350` is not being reopened**, and the reason this is
+   * a test rather than a paragraph: the argument is arithmetic, so it can be
+   * checked.
+   *
+   * `npm run check` publishes a share of the machine — `test` concurrency first,
+   * then `shareOfMachine` — and each suite takes the smaller of that and its own
+   * preference. Run out on the only two machines this repository has.
+   */
+  describe('what packages/db ends up asking for', () => {
+    const GiB = 1024 ** 3
+    /** The rule `#1354` removed, here only to be compared against. */
+    const byCores = (cores) => Math.max(1, Math.min(6, cores - 2))
+    const budget = (cores) => shareOfMachine(Math.max(1, Math.min(4, Math.floor(cores / 4))), cores)
+
+    it('rises from two to four on a four-core, 16 GiB runner', () => {
+      // The job's own log for that run says `up to 4 test workers each`.
+      expect(budget(4)).toBe(4)
+      expect(Math.min(byCores(4), budget(4))).toBe(2)
+      expect(Math.min(memoryCeiling(16 * GiB), budget(4))).toBe(4)
+    })
+
+    it('does not move on the 8-core, 7.2 GiB host where the thrash was measured', () => {
+      // Both rules give the same answer there, so the change cannot reopen
+      // `#1350` — 5.5 GiB of 7.2 and the first touch of swap.
+      expect(Math.min(byCores(8), budget(8))).toBe(4)
+      expect(Math.min(memoryCeiling(7186 * 1024 ** 2), budget(8))).toBe(4)
+    })
   })
 })

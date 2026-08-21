@@ -368,9 +368,25 @@ jobs:
     # gone whichever way it lands. Twenty-five keeps the hang caught and stops
     # catching Tuesdays.
     #
-    # This is the number to lower again rather than raise: `packages/db` spends
-    # 237s of its 405s in setup, running every file under both projects, and the
-    # honest fix is that rather than this line.
+    # This is the number to lower again rather than raise, and `#1571` is the
+    # first step of that.
+    #
+    # **The sentence that stood here was stale and is corrected rather than
+    # deleted**, because it sent two readers looking in the wrong place: it said
+    # `packages/db` spends *237s of its 405s in setup, running every file under
+    # both projects*. That describes the state before `#1190`, when a root-level
+    # `include` was concatenated onto each project's own and every file ran
+    # twice. Re-measured 2026-08-22 on an idle 8-core box, 212 files and 4188
+    # tests: **205 s wall, of which setup is 37 s**, transform 30 s and import
+    # 14 s. The per-file `create database … template` — the other obvious
+    # suspect — is 70 ms against a 14 MB template, so 15 s across the whole run.
+    #
+    # Neither is the cost. The time is in the tests: **975 s aggregated**, real
+    # round trips to a real Postgres, spread rather than pooled — half of it in
+    # 31 of the 212 files. So parallelism is the lever, which is what `#1571`
+    # took: `packages/db` was asking for two workers on this runner against a
+    # published budget of four, and 518.4 s of this job's 619 s was that one
+    # workspace.
     timeout-minutes: 25
 
     # The database the integration tests in packages/db run against.

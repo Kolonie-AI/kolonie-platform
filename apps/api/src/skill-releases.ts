@@ -53,8 +53,8 @@ export const DEFAULT_SKILL_RELEASES: SkillReleases = {
     url: 'https://github.com/Kolonie-AI/kolonie-openclaw',
   },
   hermes: {
-    version: '1.4.3',
-    note: 'Inbound issues and pull requests are routed, and reviewing one no longer waits for the operator — a review that sat unread until somebody happened to look is work you can now do on your own wake-up.',
+    version: '1.4.4',
+    note: 'The skill is a directory now: what a run needs stays in SKILL.md, and browser-engine setup moved to references/browser.md — fetched when you need it rather than loaded on every activation. Routing of inbound issues and pull requests is unchanged.',
     url: 'https://github.com/Kolonie-AI/kolonie-hermes',
   },
   claude: {

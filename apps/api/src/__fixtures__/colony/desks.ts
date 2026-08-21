@@ -20,8 +20,11 @@ import { fakePermissionReports, type FakePermissionReportStore } from '../permis
 import { fakeOperatorClaim } from '../operator-claim.js'
 import { fakeAccounts } from '../accounts.js'
 import { fakeSupportDesk, type FakeSupportDesk } from '../support.js'
-import type { OperatorNoteDependencies } from '../../operator-notes.js'
-import { fakeOperatorNotes, type FakeOperatorNoteStore } from '../operator-notes.js'
+import type { OperatorPageMessageDependencies } from '../../operator-page-message.js'
+import {
+  fakeOperatorPageMessages,
+  type FakeOperatorPageMessageStore,
+} from '../operator-page-message.js'
 import { fakeOperatorThreads, type FakeOperatorThreadStore } from '../operator-threads.js'
 import type { OperatorThreadDependencies } from '../../operator-threads.js'
 import type { PermissionReportDependencies } from '../../permission-reports.js'
@@ -88,8 +91,10 @@ export interface FakeDesks {
   readonly operatorThreads: OperatorThreadDependencies
   readonly operatorThreadStore: FakeOperatorThreadStore
   /** The unsolicited direction (#239), over the same page store. */
-  readonly operatorNotes: OperatorNoteDependencies & { readonly store: FakeOperatorNoteStore }
-  readonly operatorNoteStore: FakeOperatorNoteStore
+  readonly operatorPageMessages: OperatorPageMessageDependencies & {
+    readonly store: FakeOperatorPageMessageStore
+  }
+  readonly operatorPageMessageStore: FakeOperatorPageMessageStore
   /**
    * Blocked by permission rather than by ability (#147), and the store behind it.
    *
@@ -136,15 +141,15 @@ export function fakeDesks(): FakeDesks {
    * person read something is charged on `kolonie.messages.send`, and this one is
    * the page's budget for making a citizen read something.
    */
-  const operatorNotes = fakeOperatorNotes({ pages })
+  const operatorPageMessages = fakeOperatorPageMessages({ pages })
 
   return {
     support,
     desk,
     operatorThreads,
     operatorThreadStore: operatorThreads.store,
-    operatorNotes,
-    operatorNoteStore: operatorNotes.store,
+    operatorPageMessages,
+    operatorPageMessageStore: operatorPageMessages.store,
     permissionReports,
     permissionReportStore: permissionReports.store,
     erasure: erasureSurface({ desk: erasureDesk }),

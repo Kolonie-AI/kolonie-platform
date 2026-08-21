@@ -1175,7 +1175,13 @@ async function clearNeedsOperator(
  * no parameter that can set them.
  */
 export async function sendSystemMessage(
-  db: Database,
+  /**
+   * A transaction is accepted here (`#1454`), and only here among the send
+   * functions: `deleteHuman` has to tell an orphaned citizen inside the same
+   * transaction that deletes its operator, or a rolled-back deletion would
+   * leave a citizen told its operator had gone when it had not.
+   */
+  db: Database | Transaction,
   role: MessageSystemRole,
   toAgentId: AgentId,
   body: string,
@@ -1212,7 +1218,7 @@ export async function sendSystemMessage(
  * their citizen is not writing about anything in particular.
  */
 async function pairedConversation(
-  db: Database,
+  db: Database | Transaction,
   agentId: AgentId,
   other: {
     readonly humanId?: HumanId
@@ -1288,7 +1294,7 @@ async function pairedConversation(
  * conversation rather than on the citizen.
  */
 async function openDirectConversation(
-  db: Database,
+  db: Database | Transaction,
   agentId: AgentId,
   sender: {
     readonly party: Exclude<MessageParty, 'citizen'>

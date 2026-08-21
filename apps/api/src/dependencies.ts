@@ -56,7 +56,7 @@ import type { SocialDependencies } from './social.js'
 import type { SolanaDependencies } from './solana.js'
 import type { TaskSubmissions } from './submissions.js'
 import type { Support } from './support.js'
-import type { OperatorNoteDependencies } from './operator-notes.js'
+import type { OperatorPageMessageDependencies } from './operator-page-message.js'
 import type { OperatorThreadDependencies } from './operator-threads.js'
 import type { PermissionReportDependencies } from './permission-reports.js'
 import type { CredentialRotation } from './rotation.js'
@@ -348,9 +348,9 @@ export interface AppDependencies {
    *
    * Separate from `operatorThreads` although a reader sees one channel, because
    * the two share no state and deliberately no ceiling — see the note on
-   * `OperatorNoteDependencies.limiter`.
+   * `OperatorPageMessageDependencies.limiter`.
    */
-  readonly operatorNotes: OperatorNoteDependencies
+  readonly operatorPageMessages: OperatorPageMessageDependencies
   /**
    * Blocked by permission rather than by ability, and the case it can take to its
    * operator (#147).

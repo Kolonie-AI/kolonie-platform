@@ -7,7 +7,23 @@ const bodyMin = sql.raw(String(OPERATOR_MESSAGE_MIN_LENGTH))
 const bodyMax = sql.raw(String(OPERATOR_MESSAGE_MAX_LENGTH))
 
 /**
- * One thing an operator said to its citizen without being asked (#239).
+ * One thing an operator said to its citizen without being asked (`#239`).
+ *
+ * ## Nothing reads this table (`#1454`)
+ *
+ * **Kept for one deploy and no longer**, on the expand/contract rule
+ * `changes/247` records: the deploy that stopped reading it ships first, and the
+ * migration that drops it ships after — so a rollback never lands code that
+ * reads a table that is gone. `#1512` is the issue that drops it.
+ *
+ * Three rows were ever written, all delivered and all read. They are not
+ * migrated into threads: a migration converting three read rows would be more
+ * code than the rows are worth, and `changes/392` says so rather than letting
+ * them go quietly.
+ *
+ * What replaced it is a message. Everything below this line describes a channel
+ * that no longer runs, and is kept only so the drop is reviewable against what
+ * it is dropping.
  *
  * ## Why this was a second table and not a nullable column on `operator_requests`
  *

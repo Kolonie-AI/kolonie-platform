@@ -56,7 +56,7 @@ import { databaseSubmissions } from './submissions.js'
 import { databaseGuidance } from './guidance.js'
 import { arrivalReports, databaseArrivalDesk } from './arrival-reports.js'
 import { databaseSupportDesk, support } from './support.js'
-import { databaseOperatorNoteStore } from './operator-notes.js'
+import { databaseOperatorPageMessages } from './operator-page-message.js'
 import { databasePermissionReportStore } from './permission-reports.js'
 import { databaseCredentialRotation } from './rotation.js'
 import { databaseErasureDesk, erasure } from './erasure.js'
@@ -1473,8 +1473,8 @@ const app = buildApp({
    * protects the citizen: handing it the support surface's allowance would let
    * an operator spend its citizen's ability to ask for help by talking to it.
    */
-  operatorNotes: {
-    store: databaseOperatorNoteStore(db),
+  operatorPageMessages: {
+    store: databaseOperatorPageMessages(db),
     limiter: operatorNoteLimiter(),
     /**
      * The wake channel on the second of its three operator events (`#580`).

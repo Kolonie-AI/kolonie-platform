@@ -1,5 +1,5 @@
 export * from './page.js'
-export * from './note.js'
+export * from './page-write.js'
 export * from './permission-report.js'
 export * from './drop.js'
 /**

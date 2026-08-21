@@ -287,9 +287,11 @@ export function signInClientLimiter(now?: () => number): RateLimiter {
  * Ten an hour, matching the ticket window so there is one period to hold in
  * mind. An operator typing into a browser form ten times in an hour has already
  * said more than the channel is for; this is not the bound that matters anyway.
- * **The bound that matters is `MAX_UNREAD_OPERATOR_NOTES`** — a rate limit
- * bounds speed, and an inbox needs bounding by depth, because ten an hour for a
- * week is still an unread pile no citizen should wake up to.
+ * **It is the only bound left** (`#1454`). There used to be a second,
+ * `MAX_UNREAD_OPERATOR_NOTES`, because a note sat in a pile the citizen had to
+ * drain: a rate limit bounds speed and that bounded depth. The words go into a
+ * thread now, where unread is a cursor rather than a queue, so there is no pile
+ * to fill and nothing for a depth bound to measure.
  *
  * Not configurable through the environment, for the reason `REGISTRATION_LIMIT`
  * gives: changing it is a commit.

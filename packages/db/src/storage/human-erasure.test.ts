@@ -13,7 +13,7 @@ import {
   confirmOperatorAddress,
   hasConfirmedOperator,
 } from './operator-addresses.js'
-import { countUnreadOperatorNotes } from './operator-notes.js'
+import { listConversations } from './messaging.js'
 import { deleteHuman, humanExport, humanUnreachableIdentities } from './human-erasure.js'
 
 const target = databaseTestTarget()
@@ -270,15 +270,26 @@ describe('deleting a person', () => {
     expect(await hasConfirmedOperator(db, agentId)).toBe(false)
   })
 
-  /** Told once, as a fact. It changes what the agent can attempt. */
-  it('tells the orphaned agent, once', async () => {
+  /**
+   * Told once, as a fact. It changes what the agent can attempt.
+   *
+   * **From the Colony and not from the operator** (`#1454`). It was an
+   * `operator_notes` row, which read as the person speaking — and the person is
+   * precisely who is not speaking here. It is now a `support` system message,
+   * which also survives the delete: a thread with the departing person would
+   * lose its participant row to the same cascade.
+   */
+  it('tells the orphaned agent, once, as the Colony', async () => {
     const agentId = await anAgent()
     const human = await aPerson()
     await link(human.id, agentId)
 
     await deleteHuman(db, human.id)
 
-    expect(await countUnreadOperatorNotes(db, agentId)).toBe(1)
+    const threads = await listConversations(db, agentId)
+    const told = threads.filter((thread) => thread.kind === 'system-role')
+    expect(told).toHaveLength(1)
+    expect(told[0]?.unread).toBe(1)
   })
 
   /**
@@ -354,7 +365,7 @@ describe('deleting a person', () => {
       sql`select count(*)::int as total from humans where id = ${human.id}`,
     )
     expect(row?.total).toBe(1)
-    expect(await countUnreadOperatorNotes(db, identity)).toBe(0)
+    expect(await listConversations(db, identity)).toHaveLength(0)
   })
 
   /**

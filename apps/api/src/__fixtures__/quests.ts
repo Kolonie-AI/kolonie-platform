@@ -167,6 +167,12 @@ export interface FakeQuestDesk extends QuestDesk {
       /** `#1098` — omit, or set null, when the ticket named no provider. */
       aboutProvider?: { kind: string; provider: string } | null
     }[]
+    /** Whether anybody has a working day (`#1423`). */
+    readonly workingDay?: {
+      rhythm: { declared: number; keeping: number }
+      wake: { holding: number; answering: number; neverKnocked: number }
+      wakings: { windowHours: number; answered: number; followedByAnAct: number }
+    }
   }) => void
   /**
    * Record participation that was **not** accepted (`#454`).
@@ -270,12 +276,30 @@ export function fakeQuests(): FakeQuestDesk {
     briefings: readonly unknown[]
     /** Quest verdicts shown on the maintainer's audit (`#814`). */
     moderations: readonly QuestModerationHistoryRow[]
+    /**
+     * Whether anybody has a working day (`#1423`).
+     *
+     * **Zeroes by default, which is the state the issue was filed about** — the
+     * Colony as it stood on 2026-08-20, with a page that had to be honest about
+     * it. A default of plausible-looking numbers would make the empty case the
+     * one nobody ever renders.
+     */
+    workingDay: {
+      rhythm: { declared: number; keeping: number }
+      wake: { holding: number; answering: number; neverKnocked: number }
+      wakings: { windowHours: number; answered: number; followedByAnAct: number }
+    }
   } = {
     tickets: [],
     arrivals: { agents: [], people: [] },
     unreported: [],
     briefings: [],
     moderations: [],
+    workingDay: {
+      rhythm: { declared: 0, keeping: 0 },
+      wake: { holding: 0, answering: 0, neverKnocked: 0 },
+      wakings: { windowHours: 24 * 7, answered: 0, followedByAnAct: 0 },
+    },
   }
   let fixedAudience: number | null = null
   /** Unset until a test turns one, exactly as the settings table is. */
@@ -557,6 +581,7 @@ export function fakeQuests(): FakeQuestDesk {
       if (input.unreported !== undefined) sections.unreported = input.unreported
       if (input.briefings !== undefined) sections.briefings = input.briefings
       if (input.moderations !== undefined) sections.moderations = input.moderations
+      if (input.workingDay !== undefined) sections.workingDay = input.workingDay
     },
 
     moderationAsked,
@@ -629,6 +654,11 @@ export function fakeQuests(): FakeQuestDesk {
         unconfirmed: sections.arrivals.unconfirmed ?? { total: 0, oldest: [], unmeasurable: 0 },
         computedAt: new Date().toISOString(),
       } as never
+    },
+
+    /** Whether anybody has a working day (`#1423`). Zeroes unless a test fills it. */
+    async workingDay() {
+      return { ...sections.workingDay, computedAt: new Date().toISOString() } as never
     },
 
     async backendSections() {

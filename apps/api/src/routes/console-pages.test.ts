@@ -1603,6 +1603,79 @@ describe('who arrived and what is waiting', () => {
     expect(landing).not.toContain('waiting the longest')
   })
 
+  /**
+   * Whether anybody has a working day (`#1423`).
+   *
+   * On the landing page beside the other counters, which is where the issue asks
+   * for it: `#1411` builds ranking for a working day and `#1412`/`#1414` build
+   * what happens on a tick, and all three assume there is a tick. A maintainer
+   * about to approve more of that machinery should meet the number on the page
+   * they land on rather than a click away.
+   */
+  describe('does anybody have a working day (#1423)', () => {
+    it('draws the three numbers, each saying what it was measured over', async () => {
+      quests.showsOnBackend({
+        workingDay: {
+          rhythm: { declared: 9, keeping: 2 },
+          wake: { holding: 4, answering: 1, neverKnocked: 2 },
+          wakings: { windowHours: 24 * 7, answered: 31, followedByAnAct: 6 },
+        },
+      })
+
+      const body = (await backend(await aMaintainer(), '/backend')).body
+
+      expect(body).toContain('Does anybody have a working day?')
+      // Both halves of each pair, and nothing dividing them: a percentage would
+      // hide which of the two moved.
+      expect(body).toContain('>9<')
+      expect(body).toContain('>2<')
+      expect(body).toContain('>31<')
+      expect(body).toContain('>6<')
+      // The window, which is the issue's second acceptance criterion.
+      expect(body).toContain('now')
+      expect(body).toContain('last 7 days')
+    })
+
+    /**
+     * **The empty case is the one that has to read well**, because it is the
+     * state the issue was filed about: every piece of the working day built, and
+     * nobody using any of it.
+     */
+    it('reads honestly when nobody has one', async () => {
+      const body = (await backend(await aMaintainer(), '/backend')).body
+
+      expect(body).toContain('Does anybody have a working day?')
+      expect(body).toContain('Citizens holding a wake endpoint')
+    })
+
+    /** Nothing published, nothing per citizen, nobody ranked — and the page says so. */
+    it('says out loud that nothing here ranks or warns anybody', async () => {
+      const body = (await backend(await aMaintainer(), '/backend')).body
+
+      expect(body).toContain('ranked, gated or warned')
+      expect(body).toContain('Being started by hand is an ordinary way to exist')
+    })
+
+    /** It is behind the same gate as everything else on this page. */
+    it('is not served to somebody without the role', async () => {
+      const human = humans_.store.holdsIdentity({
+        provider: 'github',
+        subject: `subject-${randomUUID()}`,
+        email: 'nobody@example.test',
+      })
+      void human
+
+      const anonymous = await app.inject({
+        method: 'GET',
+        url: '/backend',
+        headers: { host: CONSOLE_HOST, accept: 'text/html' },
+      })
+
+      expect(anonymous.statusCode).not.toBe(200)
+      expect(anonymous.body).not.toContain('Does anybody have a working day?')
+    })
+  })
+
   /** The order the sections arrive in is the order they are shown in. */
   it('shows the longest-waiting ticket above the others', async () => {
     const body = (await backend(await aMaintainer(), '/backend/tickets')).body

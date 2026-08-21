@@ -137,6 +137,13 @@ export function registerConsoleBackendPages(
      * with no desk wired has none of it to report.
      */
     const desk = deps.ticketDesk === undefined ? undefined : await deps.ticketDesk.depth()
+    /**
+     * Whether anybody has a working day (`#1423`). A third read rather than a
+     * field inside `ColonyNumbers`, on the same rule the desk follows: that
+     * object is one query of aggregates about the Colony's own state, and this
+     * is three queries about behaviour over time.
+     */
+    const workingDay = await deps.quests.workingDay()
 
     return wantsHtml(request)
       ? html(
@@ -144,10 +151,11 @@ export function registerConsoleBackendPages(
           backendPage({
             nav: navFor(request, ['maintainer']),
             numbers,
+            workingDay,
             ...(desk === undefined ? {} : { desk }),
           }),
         )
-      : reply.send({ numbers, ...(desk === undefined ? {} : { desk }) })
+      : reply.send({ numbers, workingDay, ...(desk === undefined ? {} : { desk }) })
   })
 
   /**

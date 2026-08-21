@@ -70,6 +70,7 @@ import {
   endQuest as endQuestInDatabase,
   sponsorQuestReports as sponsorQuestReportsInDatabase,
   colonyNumbers as colonyNumbersInDatabase,
+  workingDayNumbers as workingDayNumbersInDatabase,
   holdingCounts,
   backendSections as backendSectionsInDatabase,
   recentArrivals as recentArrivalsInDatabase,
@@ -104,6 +105,7 @@ import {
   type TaskWithoutReports,
   type BriefingEffect,
   type ColonyNumbers,
+  type WorkingDayNumbers,
   type HoldingCount,
   type QuestEndOutcome,
   type SponsorQuestReport,
@@ -396,6 +398,17 @@ export interface QuestDesk {
   /** The Colony's own numbers, each with the moment it was computed (`#181`). */
   numbers(): Promise<ColonyNumbers>
   /**
+   * Whether any citizen has a working day (`#1423`).
+   *
+   * **Beside `numbers()` rather than inside it**, on `backendSections`' rule one
+   * screen down: that object is one read of aggregates about the Colony's own
+   * state, and these are three reads answering a question about behaviour over
+   * time. Folding them in would make every reader of `ColonyNumbers` — the
+   * landing page is the only one — pay for three more queries to answer
+   * something it is not asking.
+   */
+  workingDay(): Promise<WorkingDayNumbers>
+  /**
    * How many citizens hold a proved account of each kind (`#524`).
    *
    * **On this desk because a sponsor is who asks**, and beside `numbers()`
@@ -534,6 +547,7 @@ export function databaseQuests(
     reportCounts: (taskId) => questReportCountsInDatabase(db, taskId),
     end: (input) => endQuestInDatabase(db, input),
     numbers: () => colonyNumbersInDatabase(db),
+    workingDay: () => workingDayNumbersInDatabase(db),
     holdings: () => holdingCounts(db),
     backendSections: () => backendSectionsInDatabase(db),
     arrivals: () => recentArrivalsInDatabase(db),

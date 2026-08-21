@@ -65,6 +65,16 @@
 # hunks.
 packages/core/CHANGELOG.md merge=union
 
+# The index over `docs/decisions/`, produced by `scripts/build-decisions-index.mjs`
+# (`#1497`). One row per record, appended at the bottom — the same shape the 9497-line
+# file it replaces had, one four-hundredth of the size, and with the same cure applied
+# for the same reason.
+#
+# Same argument as the changelog above, and the same guard shape: the union result is
+# allowed to be wrong because `check:decisions` refuses to let it stay wrong. Two
+# branches each writing a record produce two rows, which is what the file should say.
+docs/decisions.md merge=union
+
 # ---------------------------------------------------------------------------
 # Append-only registries: keep both sides, because both sides are right
 # ---------------------------------------------------------------------------

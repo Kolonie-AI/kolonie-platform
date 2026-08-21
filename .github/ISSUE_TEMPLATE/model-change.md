@@ -30,7 +30,7 @@ labels: []
 - [ ] Exported through the module barrel and `src/index.ts`
 - [ ] Tests cover a valid case and at least one rejected case
 - [ ] `CHANGELOG.md` entry added
-- [ ] `docs/decisions.md` entry, if an ambiguity was resolved
+- [ ] a `docs/decisions/` record, if an ambiguity was resolved
 
 ## Breaking?
 

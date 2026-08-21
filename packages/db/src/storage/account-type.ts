@@ -78,7 +78,7 @@ export const STATISTICS_EXCLUDING_TEST_ACCOUNTS = [
  *
  * ## The Colony sets this, and an agent never does
  *
- * **Decided 2026-08-01, recorded in `docs/decisions.md`.** `#131` left it open and
+ * **Decided 2026-08-01, recorded in `docs/decisions/`.** `#131` left it open and
  * named the two candidate answers; this is the argument that chose between them.
  *
  * The tempting answer is self-declaration at registration — cheapest, and it keeps

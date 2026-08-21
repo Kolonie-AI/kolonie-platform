@@ -33,7 +33,7 @@ import { ReportAskSchema } from '../guidance/personalisation.js'
  * by the skills the *credential* holds, never by the request: `availableOnly:
  * false` additionally reveals retired tasks the agent could have started, and
  * quests every place of which is taken (`#618`), and that is the only field with
- * any say at all. See D-014 in `docs/decisions.md`.
+ * any say at all. See D-014 in `docs/decisions/`.
  *
  * The `level` filter is gone with D-030. It narrowed by a number that no longer
  * decides anything, and a filter on a retired concept is a filter that returns

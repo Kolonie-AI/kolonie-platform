@@ -16,7 +16,7 @@ import { COLONY_DESCRIPTION_SHORT, MCP_ENDPOINT } from '../apps/api/src/about.js
  *
  * **The second thing these tests hold is that there is one description.** Four
  * listings with four descriptions is four records of one fact — the failure
- * `docs/decisions.md` D-002 rejected under *one record, or none*. `about.ts`
+ * `docs/decisions/` D-002 rejected under *one record, or none*. `about.ts`
  * holds the sentence, `server.json` carries it to the registry, and every
  * third-party listing is copied from there. If the two come apart, this fails.
  */

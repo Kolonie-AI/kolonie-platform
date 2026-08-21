@@ -23,7 +23,7 @@ import { silentLog, type Log } from '../log/log.js'
  *
  * **Only `POST …/chat/completions`.** Everything else — embeddings above all —
  * goes to OpenRouter untouched, and that is permanent rather than pending.
- * **`docs/decisions.md` D-122 holds the reasons**, and it is the file to read
+ * **`docs/decisions/` D-122 holds the reasons**, and it is the record to read
  * before making this uniform: it also carries the per-service model and key
  * rules, and the one place where a fallback is forbidden. Repeated here it would
  * be a second copy to keep true.
@@ -64,7 +64,7 @@ import { silentLog, type Log } from '../log/log.js'
  * {@link gatewayRoutedFetch} replays, and the quest stays `pending_review` for
  * the next tick. Every other stage keeps the fallback.
  *
- * Both are argued in `docs/decisions.md` D-122, with the alternative each was
+ * Both are argued in `docs/decisions/` D-122, with the alternative each was
  * chosen over — which is what a reader making these uniform "for consistency"
  * needs and a statement of the rule cannot give them.
  */

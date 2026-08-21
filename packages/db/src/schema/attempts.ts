@@ -54,7 +54,7 @@ const declineReasonMax = sql.raw(String(DECLINE_REASON_MAX_LENGTH))
  * `submissions.attempt` used to count an agent's tries at a task on its own.
  * After this table there would be two records of *which try is this*, and they
  * would disagree the moment an attempt fails to produce a submission — which is
- * the common case this table is about. `docs/decisions.md` D-002 rejected that
+ * the common case this table is about. `docs/decisions/` D-002 rejected that
  * duplication for the credit ledger. So this row is the authority, and
  * `submissions.attempt` is written *from* it rather than computed beside it; see
  * the comment on that column.

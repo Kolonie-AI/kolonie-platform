@@ -1243,3 +1243,487 @@ export function handoverPage(input: {
     ].join('\n'),
   })
 }
+
+/**
+ * The inbox: every thread across every agent this person operates (`#1448`).
+ *
+ * ## Why this page exists at all
+ *
+ * Measured in production 2026-08-20: **52 conversations, 243 messages, and a
+ * read cursor set on none of them.** The machinery works and people use it;
+ * what was missing was the door. Every operator surface was
+ * `/agents/:agentId/…`, so somebody operating three agents had three message
+ * pages and no view of what was waiting — and the dashboard's queue showed only
+ * threads *never answered*, so replying once removed a thread from it forever.
+ * Sixteen threads were waiting on a person and appeared nowhere.
+ */
+export function inboxPage(input: {
+  readonly nav: ConsoleNav
+  readonly threads: readonly {
+    readonly conversationId: string
+    readonly agentId: string
+    readonly agentName: string
+    readonly about: string | null
+    readonly preview: string | null
+    readonly at: string | null
+    readonly senderLabel: string | null
+    readonly mine: boolean
+    readonly unread: boolean
+    readonly unreadCount: number
+    readonly archived: boolean
+    readonly muted: boolean
+  }[]
+  /** Set when the list is narrowed to one agent (`#1447` frozen decision 6). */
+  readonly onlyAgent?: string | undefined
+  /** Which slice is being shown (`#1449`). Open is what an inbox means. */
+  readonly view: 'open' | 'archived' | 'all'
+  /**
+   * The agents this person operates, for starting a thread (`#1452`).
+   *
+   * **A picker and no subject line.** A thread's subject is what it is *about*
+   * — a task, a wish, an account — and those are chosen rather than typed. A
+   * thread about nothing in particular is an ordinary state and renders as one.
+   */
+  readonly agents?: readonly { readonly id: string; readonly name: string }[] | undefined
+  /** The accounts a new thread may name, by agent (`#1452`, `#1441`). */
+  readonly accounts?:
+    readonly { readonly id: string; readonly agentId: string; readonly label: string }[] | undefined
+  /** What to say if a compose was just refused — a credential, or an empty box. */
+  readonly composeError?: string | undefined
+  readonly bodyMaxLength?: number | undefined
+  /**
+   * What the list is currently narrowed by (`#1450`).
+   *
+   * **Reflected back into the controls**, so a person who arrived by a
+   * bookmarked link sees which filters are on rather than a bar that looks
+   * empty over a list that is not.
+   */
+  readonly filters?:
+    | {
+        readonly agentId?: string | undefined
+        readonly accountId?: string | undefined
+        readonly unreadOnly: boolean
+        readonly writtenByMe: boolean
+        readonly search: string
+      }
+    | undefined
+}): string {
+  const unread = input.threads.filter((thread) => thread.unread).length
+
+  /**
+   * The filters, as a query string, so the view switch and every state form
+   * keep them (`#1450`). Archiving a thread out of a filtered list must land
+   * back in the same filtered list — otherwise the filter is a thing that
+   * survives reading and not acting.
+   */
+  const kept = (extra: Record<string, string> = {}): string => {
+    const filters = input.filters
+    const carried = new URLSearchParams({
+      ...(filters?.agentId === undefined ? {} : { agent: filters.agentId }),
+      ...(filters?.accountId === undefined ? {} : { account: filters.accountId }),
+      ...(filters?.unreadOnly === true ? { unread: '1' } : {}),
+      ...(filters?.writtenByMe === true ? { sent: '1' } : {}),
+      ...(filters?.search === undefined || filters.search === '' ? {} : { q: filters.search }),
+      ...extra,
+    })
+    const rendered = carried.toString()
+    return rendered === '' ? '' : `?${rendered}`
+  }
+
+  const rows = input.threads.map((thread) =>
+    [
+      `<tr${thread.unread ? ' class="unread"' : ''}>`,
+      `<td><a href="/inbox/${escape(thread.conversationId)}">`,
+      thread.unread ? '<strong>' : '',
+      escape(thread.agentName),
+      thread.unread ? '</strong>' : '',
+      '</a>',
+      thread.about === null ? '' : `<br><span>${escape(thread.about)}</span>`,
+      '</td>',
+      /**
+       * **The latest message, and who wrote it.** The waiting queue shows the
+       * first deliberately — *the second message is usually a nudge rather than
+       * the question* — which is right for a queue of unanswered asks and wrong
+       * for an inbox: a thread that moved three times would render its opening
+       * line from two weeks ago.
+       */
+      '<td>',
+      thread.preview === null
+        ? 'Nothing said yet'
+        : `${thread.mine ? 'You: ' : `${escape(thread.senderLabel ?? '')}: `}` +
+          escape(preview(thread.preview)),
+      '</td>',
+      `<td>${thread.at === null ? '—' : escape(relative(thread.at))}</td>`,
+      `<td>${thread.unread ? `${String(thread.unreadCount)} unread` : ''}` +
+        (thread.muted ? ' <span class="muted">muted</span>' : '') +
+        '</td>',
+      /**
+       * **Two buttons and two columns** (`#1449`). Archive takes it out of the
+       * list; mute leaves it there and stops the notifier. A person who
+       * silenced a chatty thread and then could not find it would have been
+       * given one control for two intentions.
+       */
+      '<td>',
+      stateForm(
+        thread.conversationId,
+        thread.archived ? 'unarchive' : 'archive',
+        thread.archived ? 'Put back' : 'Archive',
+        input.view,
+        kept({ view: input.view }),
+      ),
+      stateForm(
+        thread.conversationId,
+        thread.muted ? 'unmute' : 'mute',
+        thread.muted ? 'Unmute' : 'Mute',
+        input.view,
+        kept({ view: input.view }),
+      ),
+      '</td>',
+      '</tr>',
+    ].join(''),
+  )
+
+  const body = [
+    '<h1>Your inbox</h1>',
+    input.onlyAgent === undefined
+      ? '<p>Every conversation between you and the agents you operate, newest first.</p>'
+      : `<p>Conversations with ${escape(input.onlyAgent)}, newest first. ` +
+        '<a href="/inbox">Every agent</a>.</p>',
+    /**
+     * **A switch and not folders** (`#1449`). A folder is a place a thread is
+     * *in*, which would make archiving a move and finding it again a second
+     * one; this is one predicate over one column.
+     */
+    '<p class="views">' +
+      (['open', 'archived', 'all'] as const)
+        .map((slice) =>
+          slice === input.view
+            ? `<strong>${VIEW_NAMES[slice]}</strong>`
+            : // The filters survive the switch (`#1450`): somebody looking at
+              // everything about one account who wants the archived ones has
+              // not changed their mind about the account.
+              `<a href="/inbox${escape(kept({ view: slice }))}">${VIEW_NAMES[slice]}</a>`,
+        )
+        .join(' · ') +
+      '</p>',
+    filterBar(input),
+    ...(input.threads.length === 0
+      ? [
+          input.view === 'archived'
+            ? '<p>Nothing archived.</p>'
+            : '<p>Nothing here yet. Your agents write to you when they need something only a ' +
+              'person can do — a decision, an account, a step behind a human check.</p>',
+        ]
+      : [
+          unread === 0
+            ? '<p class="note">Nothing unread.</p>'
+            : `<p class="note">${String(unread)} unread.</p>`,
+          '<table>',
+          '<thead><tr><th>Agent</th><th>Latest</th><th>When</th><th></th></tr></thead>',
+          `<tbody>${rows.join('')}</tbody>`,
+          '</table>',
+        ]),
+    composeBlock(input),
+  ].join('\n')
+
+  return page({ title: 'Your inbox', body, signedIn: true, nav: input.nav })
+}
+
+/**
+ * What each slice of the inbox is called on the switch (`#1449`).
+ *
+ * **Not `VIEW_NAMES`**, which is what it was called until
+ * `scripts/github-issue-labels.test.ts` read it as a set of GitHub issue
+ * labels. That check finds every `const …_LABELS` in a file that mentions
+ * GitHub, and this file mentions it because a person signs in with it. The
+ * heuristic is deliberately conservative and is right to be — an invented
+ * label is dropped silently by the API — so the name moved rather than the
+ * check.
+ */
+const VIEW_NAMES = { open: 'Open', archived: 'Archived', all: 'All' } as const
+
+/**
+ * Search and the four filters (`#1450`).
+ *
+ * **A `GET` form, so the result is a link.** Everything here lands in the query
+ * string, which is what makes *everything about the mailbox* something a person
+ * can bookmark, paste to somebody, or come back to next week. A `POST` and a
+ * server-held selection would have made it a place to navigate to.
+ *
+ * **Four checkboxes and two menus, not a query language.** No saved searches, no
+ * rules engine: the four things worth narrowing by are the ones `#1447` named,
+ * and they combine because they are four `and`s over one list.
+ */
+function filterBar(input: {
+  readonly view: 'open' | 'archived' | 'all'
+  readonly agents?: readonly { readonly id: string; readonly name: string }[] | undefined
+  readonly accounts?:
+    readonly { readonly id: string; readonly agentId: string; readonly label: string }[] | undefined
+  readonly filters?:
+    | {
+        readonly agentId?: string | undefined
+        readonly accountId?: string | undefined
+        readonly unreadOnly: boolean
+        readonly writtenByMe: boolean
+        readonly search: string
+      }
+    | undefined
+}): string {
+  const filters = input.filters
+  if (filters === undefined) return ''
+
+  const agents = input.agents ?? []
+  const accounts = input.accounts ?? []
+  const narrowed =
+    filters.agentId !== undefined ||
+    filters.accountId !== undefined ||
+    filters.unreadOnly ||
+    filters.writtenByMe ||
+    filters.search !== ''
+
+  const option = (value: string, label: string, chosen: boolean): string =>
+    `<option value="${escape(value)}"${chosen ? ' selected' : ''}>${escape(label)}</option>`
+
+  return [
+    '<form class="filters" method="get" action="/inbox">',
+    // The view is not a filter, but it has to survive one being applied.
+    `<input type="hidden" name="view" value="${escape(input.view)}">`,
+    '<label for="inbox-q">Search</label>',
+    `<input id="inbox-q" type="search" name="q" value="${escape(filters.search)}" ` +
+      'placeholder="A word in a message, an agent, an account">',
+    ...(agents.length < 2
+      ? []
+      : [
+          '<label for="inbox-agent">Agent</label>',
+          '<select id="inbox-agent" name="agent">',
+          option('', 'Every agent', filters.agentId === undefined),
+          ...agents.map((agent) => option(agent.id, agent.name, agent.id === filters.agentId)),
+          '</select>',
+        ]),
+    ...(accounts.length === 0
+      ? []
+      : [
+          '<label for="inbox-account">About</label>',
+          '<select id="inbox-account" name="account">',
+          option('', 'Anything', filters.accountId === undefined),
+          ...accounts.map((account) =>
+            option(account.id, account.label, account.id === filters.accountId),
+          ),
+          '</select>',
+        ]),
+    `<label><input type="checkbox" name="unread" value="1"${
+      filters.unreadOnly ? ' checked' : ''
+    }> Unread only</label>`,
+    /**
+     * *Sent*, as a filter (`#1447` frozen decision 3). A sent-folder is an
+     * artefact of mail having no threads — here every message already sits in
+     * the conversation it belongs to, so *did I ever answer that* is a
+     * predicate over this list and the person stays where they were reading.
+     */
+    `<label><input type="checkbox" name="sent" value="1"${
+      filters.writtenByMe ? ' checked' : ''
+    }> I have written in it</label>`,
+    '<button type="submit">Narrow</button>',
+    // Only when there is something to clear, so the bar does not offer a
+    // control that would do nothing.
+    narrowed ? `<a href="/inbox?view=${escape(input.view)}">Clear</a>` : '',
+    '</form>',
+  ].join('')
+}
+
+/**
+ * Starting a thread nobody asked for (`#1452`).
+ *
+ * ## Why it sits under the list rather than on a page of its own
+ *
+ * Every other way a person writes to an agent begins with a thread that already
+ * exists — the agent asked, and the person answers. This is the one that does
+ * not, and the reason it is a box at the foot of the inbox rather than a *New
+ * message* page is that a person who has just read six threads and wants to say
+ * a seventh thing should not have to navigate to say it.
+ *
+ * **No subject field.** A thread's subject is what it is *about*: a task, a
+ * wish, an account. Those are chosen from what exists, and a thread about
+ * nothing in particular is an ordinary state rather than a missing value. A
+ * typed subject would be a fourth kind of provenance that nothing else in the
+ * Colony could read.
+ *
+ * **Nothing renders when this person operates no agents.** There is no agent to
+ * pick, so the form would be a control with an empty menu.
+ */
+function composeBlock(input: {
+  readonly agents?: readonly { readonly id: string; readonly name: string }[] | undefined
+  readonly accounts?:
+    readonly { readonly id: string; readonly agentId: string; readonly label: string }[] | undefined
+  readonly composeError?: string | undefined
+  readonly bodyMaxLength?: number | undefined
+}): string {
+  const agents = input.agents ?? []
+  if (agents.length === 0) return ''
+
+  const accounts = input.accounts ?? []
+
+  return [
+    '<section class="compose">',
+    '<h2>Write to one of your agents</h2>',
+    input.composeError === undefined ? '' : `<p class="error">${escape(input.composeError)}</p>`,
+    '<form method="post" action="/inbox/compose">',
+    '<label for="compose-agent">Agent</label>',
+    '<select id="compose-agent" name="agentId">',
+    agents
+      .map((agent) => `<option value="${escape(agent.id)}">${escape(agent.name)}</option>`)
+      .join(''),
+    '</select>',
+    /**
+     * **Optional, and the empty option is named.** An unlabelled blank in a
+     * menu reads as *not chosen yet*; this one is a choice a person makes.
+     */
+    ...(accounts.length === 0
+      ? []
+      : [
+          '<label for="compose-account">About</label>',
+          '<select id="compose-account" name="accountId">',
+          '<option value="">Nothing in particular</option>',
+          accounts
+            .map(
+              (account) =>
+                `<option value="${escape(account.id)}">${escape(account.label)}</option>`,
+            )
+            .join(''),
+          '</select>',
+        ]),
+    '<label for="compose-body">Message</label>',
+    `<textarea id="compose-body" name="body" rows="4"${
+      input.bodyMaxLength === undefined ? '' : ` maxlength="${String(input.bodyMaxLength)}"`
+    } required></textarea>`,
+    /**
+     * The same sentence the reply carries, for `#236`'s reason: a person who
+     * has been asked for a credential answers where they were asked, and the
+     * refusal that follows is easier to read having been warned.
+     */
+    '<p class="note">Never put a password, a token or a recovery code in a message. ' +
+      'Your agent asks for those in a way that keeps them out of the conversation.</p>',
+    '<button type="submit">Send</button>',
+    '</form>',
+    '</section>',
+  ].join('')
+}
+
+/**
+ * One state change, as a form rather than a link.
+ *
+ * **A `POST` because it writes**, which is the same reason every other state
+ * change on this console is a form: a prefetching browser or a crawler
+ * following a link would archive somebody's threads for them.
+ *
+ * `back` carries the view being looked at, so archiving from *Archived* returns
+ * there rather than dropping the person into *Open* to find their place again.
+ */
+function stateForm(
+  conversationId: string,
+  act: string,
+  label: string,
+  view: 'open' | 'archived' | 'all',
+  /**
+   * The query string to return to, filters and all (`#1450`). Defaults to the
+   * view alone, which is what it was before there were filters to keep.
+   */
+  back = `?view=${view}`,
+): string {
+  return (
+    `<form method="post" action="/inbox/${escape(conversationId)}/state">` +
+    `<input type="hidden" name="act" value="${escape(act)}">` +
+    `<input type="hidden" name="back" value="${escape(`/inbox${back}`)}">` +
+    `<button type="submit">${escape(label)}</button>` +
+    '</form>'
+  )
+}
+
+/**
+ * The opening words of a message, for a list row.
+ *
+ * **Truncated here rather than in the query**, so the one place that decides how
+ * much of somebody's words a list shows is next to the list. A hundred and
+ * twenty characters is about a line at a readable width.
+ */
+function preview(body: string): string {
+  const flat = body.replace(/\s+/g, ' ').trim()
+  return flat.length <= 120 ? flat : `${flat.slice(0, 119)}…`
+}
+
+/**
+ * One thread, with the messages in order and a box to answer in (`#1448`).
+ *
+ * **Opening this page is what marks it read.** That is the single write the
+ * console never made, and it is why *unread* did not exist for a person.
+ */
+export function inboxThreadPage(input: {
+  readonly nav: ConsoleNav
+  readonly conversationId: string
+  readonly agentId: string
+  readonly agentName: string
+  readonly about: string | null
+  readonly messages: readonly {
+    readonly senderLabel: string
+    readonly party: string
+    readonly body: string
+    readonly createdAt: string
+  }[]
+  readonly declarations: readonly { readonly kind: string; readonly label: string }[]
+  readonly bodyMaxLength: number
+  readonly error?: string | undefined
+  readonly sent?: boolean | undefined
+  /** False once the operator link is gone: the words stay and nobody may add. */
+  readonly writable: boolean
+}): string {
+  const body = [
+    `<h1>${escape(input.agentName)}</h1>`,
+    input.about === null
+      ? '<p><a href="/inbox">Back to your inbox</a></p>'
+      : `<p>About ${escape(input.about)}. <a href="/inbox">Back to your inbox</a></p>`,
+    ...(input.sent === true ? ['<p>Sent.</p>'] : []),
+    ...(input.error === undefined ? [] : [`<p class="error">${escape(input.error)}</p>`]),
+    input.messages.length === 0
+      ? '<p>Nothing said yet.</p>'
+      : `<ul class="thread">${input.messages
+          .map(
+            (message) =>
+              `<li class="from-${escape(message.party)}">` +
+              `<strong>${escape(message.senderLabel)}</strong> ` +
+              `<span>${escape(relative(message.createdAt))}</span><br>` +
+              `${escape(message.body)}</li>`,
+          )
+          .join('')}</ul>`,
+    ...(input.writable
+      ? [
+          `<form method="post" action="/inbox/${escape(input.conversationId)}">`,
+          `<label for="reply">Write to ${escape(input.agentName)}</label>`,
+          `<textarea id="reply" name="body" maxlength="${String(input.bodyMaxLength)}"></textarea>`,
+          '<button type="submit">Send</button>',
+          /**
+           * **Beside the box, with the sentence that was missing** (`#1447`
+           * frozen decision 7, from `#1093`). The buttons discard typed text on
+           * purpose — so the citizen always reads the canonical sentence — and
+           * nothing on the page said so, which read as being ignored. The
+           * behaviour is unchanged; what changes is that nobody is surprised.
+           */
+          '<p class="note">These three send a fixed sentence instead of whatever you have ' +
+            'typed, so your agent always reads the same words for the same answer:</p>',
+          ...input.declarations.map(
+            (declaration) =>
+              `<button type="submit" name="kind" value="${escape(declaration.kind)}">` +
+              `${escape(declaration.label)}</button>`,
+          ),
+          '</form>',
+          '<p class="note">Your agent reads this as words from you — labelled as its operator ' +
+            'and never as the Colony. It is not a permission: nothing said here widens what ' +
+            'your agent may do.</p>',
+        ]
+      : [
+          '<p class="note">This conversation is finished — you no longer operate this agent. ' +
+            'What was said stays readable and neither of you may add to it.</p>',
+        ]),
+  ].join('\n')
+
+  return page({ title: input.agentName, body, signedIn: true, nav: input.nav })
+}

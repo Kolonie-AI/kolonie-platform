@@ -116,6 +116,10 @@ import {
   replyInConversation,
   reportMessageAbuse,
   conversationAboutAccount,
+  archiveConversationForOperator,
+  inboxFor,
+  muteConversationForOperator,
+  markConversationReadByOperator,
   sendColonyMessageToOperatorThread,
   openOperatorHelpConversation,
   operatorThreadContext,
@@ -1144,6 +1148,23 @@ const app = buildApp({
    */
   operatorMessaging: {
     listThreads: (humanId, agentId) => listOperatorConversations(db, humanId, agentId),
+    /**
+     * The inbox (`#1448`): every thread across every agent, newest activity
+     * first, with the agent's name and the latest message on the row.
+     */
+    inbox: (humanId, options) =>
+      inboxFor(db, humanId, {
+        ...(options?.agentId === undefined ? {} : { agentId: options.agentId }),
+        ...(options?.view === undefined ? {} : { view: options.view }),
+      }),
+    /** Three states, three columns, no folding (`#1449`, `#1447` decision 4). */
+    archive: (humanId, conversationId, archived) =>
+      archiveConversationForOperator(db, humanId, conversationId, archived),
+    mute: (humanId, conversationId, until) =>
+      muteConversationForOperator(db, humanId, conversationId, until),
+    /** The write the console never made — see `markConversationReadByOperator`. */
+    markRead: (humanId, conversationId) =>
+      markConversationReadByOperator(db, humanId, conversationId),
     getThread: async (humanId, conversationId) => {
       const result = await readOperatorConversation(db, humanId, conversationId)
       return result.outcome === 'read'
@@ -1162,6 +1183,7 @@ const app = buildApp({
         undefined,
         input.answerKind,
         input.conversationId,
+        input.accountId,
       )
       if (result.outcome === 'delivered') {
         return {

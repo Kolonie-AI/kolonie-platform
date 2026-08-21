@@ -19,6 +19,16 @@ import {
   type TaskId,
   type WishId,
 } from '@kolonie-ai/core'
+import type { InboxRow, InboxStateOutcome, InboxView } from '@kolonie-ai/db'
+
+/**
+ * Re-exported so a console route need not reach past this port into storage.
+ *
+ * The seam every surface here has: `apps/api` depends on this file and not on
+ * `@kolonie-ai/db`, and a route importing the type from the store would be the
+ * first crack in that.
+ */
+export type { InboxRow, InboxView } from '@kolonie-ai/db'
 import { createHash } from 'node:crypto'
 import {
   messageBurstLimiter,
@@ -150,6 +160,69 @@ export interface OperatorMessaging {
    * human, and a person holds a participant row only in their own.
    */
   listThreads(humanId: HumanId, agentId?: AgentId): Promise<readonly Conversation[]>
+  /**
+   * The inbox: every thread across every agent, newest **activity** first
+   * (`#1448`, epic `#1447`).
+   *
+   * Beside `listThreads` rather than replacing it: that one answers *which
+   * conversations exist*, in the shape the agents' side uses, and this one
+   * answers *what does a person open next*. They differ in the ordering, in the
+   * agent's name being on the row, and in the latest message rather than the
+   * first — three differences that would each be a flag on the other.
+   *
+   * `undefined` on a deployment with no inbox reader, like everything else here.
+   */
+  inbox?(
+    humanId: HumanId,
+    options?: {
+      readonly agentId?: AgentId
+      readonly view?: InboxView
+      /**
+       * The filters and the search (`#1450`), combinable because each is one
+       * predicate over this same list. *Sent* is `writtenByMe` and not a
+       * folder: every message already sits in the conversation it belongs to.
+       */
+      readonly accountId?: string
+      readonly unreadOnly?: boolean
+      readonly writtenByMe?: boolean
+      readonly search?: string
+    },
+  ): Promise<readonly InboxRow[]>
+  /**
+   * Say this person is, or is no longer, finished with a thread (`#1449`).
+   *
+   * **Not deleting.** The thread stays and a message from anybody else clears
+   * it, in the same insert that writes the message — which is what makes
+   * archiving safe to use liberally: nothing is lost by being wrong about it.
+   */
+  archive?(
+    humanId: HumanId,
+    conversationId: ConversationId,
+    archived: boolean,
+  ): Promise<InboxStateOutcome>
+  /**
+   * Silence it for this person, until a date or indefinitely (`#1449`).
+   *
+   * A muted thread stays in the list and still shows unread: mute is about
+   * being *told*, which is `#1451`'s notifier and nothing else. `null` un-mutes.
+   */
+  mute?(
+    humanId: HumanId,
+    conversationId: ConversationId,
+    until: string | null,
+  ): Promise<InboxStateOutcome>
+  /**
+   * Move this person's read cursor to the newest message of one thread.
+   *
+   * **The write the console never made.** Measured 2026-08-20, the column was
+   * null for all 52 operator participants — so *unread* did not exist for a
+   * person, only *never answered*, which is why sixteen threads were waiting
+   * unannounced.
+   */
+  markRead?(
+    humanId: HumanId,
+    conversationId: ConversationId,
+  ): Promise<{ readonly outcome: 'marked' } | { readonly outcome: 'not-a-participant' }>
   /** One of them, refused to anybody who is not in it. */
   getThread(humanId: HumanId, conversationId: ConversationId): Promise<ThreadResponse>
   /**
@@ -183,6 +256,14 @@ export interface OperatorMessaging {
        * a set-aside clears.
        */
       readonly conversationId?: ConversationId
+      /**
+       * The account a **newly opened** thread is about (`#1452`, `#1441`).
+       *
+       * Ignored when `conversationId` names an existing one: provenance is
+       * settled in the insert that creates a conversation and nowhere else, so
+       * a person cannot retitle a thread by replying into it.
+       */
+      readonly accountId?: string
     },
   ): Promise<SendResponse>
 }

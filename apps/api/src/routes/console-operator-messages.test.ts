@@ -343,3 +343,440 @@ describe('the declaration, and the thread it answers (#1319)', () => {
     }
   })
 })
+
+/**
+ * The inbox, over the console (`#1448`, epic `#1447`).
+ *
+ * **These assert the door rather than the model.** Ordering by activity, the
+ * latest message, and unread from the cursor are asserted against real
+ * PostgreSQL in `packages/db/src/storage/inbox.test.ts`. What is under test here
+ * is what the epic is actually about: that a top-level route exists at all, that
+ * it spans agents, that opening a thread writes the cursor, and that a thread
+ * belonging to somebody else's agent is not reachable through it.
+ */
+describe('the inbox (#1448)', () => {
+  const inbox = async (cookie: string) =>
+    await app.inject({
+      method: 'GET',
+      url: '/inbox',
+      headers: { host: CONSOLE_HOST, accept: 'application/json', cookie },
+    })
+
+  const openThread = async (cookie: string, conversationId: string, accept = 'application/json') =>
+    await app.inject({
+      method: 'GET',
+      url: `/inbox/${conversationId}`,
+      headers: { host: CONSOLE_HOST, accept, cookie },
+    })
+
+  it('spans every agent the person operates', async () => {
+    const cookie = await signedInCookie()
+    const human = await operates(agentId)
+    await operates(strangersAgentId)
+    messages.thread(human, String(agentId))
+    messages.thread(human, String(strangersAgentId))
+
+    const listed = await inbox(cookie)
+
+    expect(listed.statusCode).toBe(200)
+    expect((listed.json() as { threads: unknown[] }).threads).toHaveLength(2)
+  })
+
+  it('is a top-level page a signed-in person can reach', async () => {
+    const cookie = await signedInCookie()
+    await operates(agentId)
+
+    const rendered = await app.inject({
+      method: 'GET',
+      url: '/inbox',
+      headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
+    })
+
+    expect(rendered.statusCode).toBe(200)
+    expect(rendered.body).toContain('Your inbox')
+  })
+
+  it('opens a thread, and opening it is what marks it read', async () => {
+    const cookie = await signedInCookie()
+    const human = await operates(agentId)
+    const thread = messages.thread(human, String(agentId))
+
+    await post(cookie, agentId, { body: 'Something to read.', conversationId: thread })
+
+    const opened = await openThread(cookie, thread)
+    expect(opened.statusCode).toBe(200)
+    expect((opened.json() as { messages: unknown[] }).messages).toHaveLength(1)
+
+    // The write the console never made. Before it, `unread` did not exist for a
+    // person at all — only *never answered*.
+    const after = await inbox(cookie)
+    const rows = (after.json() as { threads: { unread: boolean }[] }).threads
+    expect(rows.every((row) => !row.unread)).toBe(true)
+  })
+
+  it('replies in place, through the existing rules', async () => {
+    const cookie = await signedInCookie()
+    const human = await operates(agentId)
+    const thread = messages.thread(human, String(agentId))
+
+    const sent = await app.inject({
+      method: 'POST',
+      url: `/inbox/${thread}`,
+      headers: { host: CONSOLE_HOST, accept: 'application/json', cookie },
+      payload: { body: 'The account is @ariadne.' },
+    })
+
+    expect(sent.statusCode).toBe(200)
+    expect(sent.json()).toMatchObject({ outcome: 'delivered' })
+  })
+
+  it('refuses a credential-shaped reply, exactly as the older door does', async () => {
+    const cookie = await signedInCookie()
+    const human = await operates(agentId)
+    const thread = messages.thread(human, String(agentId))
+
+    const refused = await app.inject({
+      method: 'POST',
+      url: `/inbox/${thread}`,
+      headers: { host: CONSOLE_HOST, accept: 'application/json', cookie },
+      payload: { body: 'the password is hunter2 and the token is ghp_0123456789abcdefghij' },
+    })
+
+    expect(refused.statusCode).toBe(422)
+  })
+
+  it('does not reach a thread of an agent this person does not operate', async () => {
+    const cookie = await signedInCookie()
+    await operates(agentId)
+
+    // A thread belonging to somebody else entirely: no participant row, so the
+    // store answers exactly as it does for an id that names nothing.
+    const theirs = messages.thread('11111111-1111-4111-8111-111111111111', String(agentId))
+
+    const opened = await openThread(cookie, theirs, 'text/html')
+    expect(opened.statusCode).toBe(404)
+
+    const posted = await app.inject({
+      method: 'POST',
+      url: `/inbox/${theirs}`,
+      headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
+      payload: { body: 'Not mine to write in.' },
+    })
+    expect(posted.statusCode).toBe(404)
+  })
+})
+
+/**
+ * Archive, mute and the view switch, over the console (`#1449`).
+ *
+ * The interaction rules — that a new message un-archives, that archiving does
+ * not mark read, that neither reaches an agent — are asserted against real
+ * PostgreSQL in `packages/db/src/storage/inbox.test.ts`. What is under test here
+ * is the door: that the acts exist, that the list narrows, and that a thread
+ * belonging to somebody else cannot be archived through it.
+ */
+describe('what a person has done with a thread (#1449)', () => {
+  const inbox = async (cookie: string, view?: string) =>
+    await app.inject({
+      method: 'GET',
+      url: view === undefined ? '/inbox' : `/inbox?view=${view}`,
+      headers: { host: CONSOLE_HOST, accept: 'application/json', cookie },
+    })
+
+  const act = async (cookie: string, conversationId: string, what: string) =>
+    await app.inject({
+      method: 'POST',
+      url: `/inbox/${conversationId}/state`,
+      headers: { host: CONSOLE_HOST, accept: 'application/json', cookie },
+      payload: { act: what },
+    })
+
+  const threadsOf = (response: { json: () => unknown }) =>
+    (response.json() as { threads: { conversationId: string; archived: boolean }[] }).threads
+
+  it('archives out of the open list and back again', async () => {
+    const cookie = await signedInCookie()
+    const human = await operates(agentId)
+    const thread = messages.thread(human, String(agentId))
+
+    expect((await act(cookie, thread, 'archive')).statusCode).toBe(200)
+    expect(threadsOf(await inbox(cookie))).toHaveLength(0)
+    expect(threadsOf(await inbox(cookie, 'archived'))).toHaveLength(1)
+    expect(threadsOf(await inbox(cookie, 'all'))).toHaveLength(1)
+
+    await act(cookie, thread, 'unarchive')
+    expect(threadsOf(await inbox(cookie))).toHaveLength(1)
+  })
+
+  it('brings an archived thread back when the agent writes', async () => {
+    const cookie = await signedInCookie()
+    const human = await operates(agentId)
+    const thread = messages.thread(human, String(agentId))
+    await act(cookie, thread, 'archive')
+
+    messages.agentWrites(human, String(agentId), 'One more thing.')
+
+    // Archive means *I am done with this*, and somebody writing again is the
+    // event that makes it untrue.
+    expect(threadsOf(await inbox(cookie))).toHaveLength(1)
+  })
+
+  it('leaves a muted thread in the list', async () => {
+    const cookie = await signedInCookie()
+    const human = await operates(agentId)
+    const thread = messages.thread(human, String(agentId))
+
+    expect((await act(cookie, thread, 'mute')).statusCode).toBe(200)
+
+    const rows = ((await inbox(cookie)).json() as { threads: { muted: boolean }[] }).threads
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.muted).toBe(true)
+  })
+
+  it('offers the switch on the page', async () => {
+    const cookie = await signedInCookie()
+    await operates(agentId)
+
+    const rendered = await app.inject({
+      method: 'GET',
+      url: '/inbox',
+      headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
+    })
+
+    expect(rendered.body).toContain('/inbox?view=archived')
+    expect(rendered.body).toContain('/inbox?view=all')
+  })
+
+  it('does not archive a thread of an agent this person does not operate', async () => {
+    const cookie = await signedInCookie()
+    await operates(agentId)
+    const theirs = messages.thread('11111111-1111-4111-8111-111111111111', String(agentId))
+
+    const refused = await app.inject({
+      method: 'POST',
+      url: `/inbox/${theirs}/state`,
+      headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
+      payload: { act: 'archive' },
+    })
+
+    expect(refused.statusCode).toBe(404)
+  })
+})
+
+/**
+ * A person starting a thread from the inbox (`#1452`).
+ *
+ * **The store already opened threads**, which is the issue's first acceptance
+ * criterion and is asserted in `packages/db/src/storage/inbox.test.ts` — that a
+ * send with no `conversationId` opens one, that a second lands in the same
+ * plain thread, and that an account narrows it. What is under test here is the
+ * surface: that the form exists, that the refusals are the existing ones, and
+ * that an agent this person does not operate is refused.
+ */
+describe('a person starting a thread (#1452)', () => {
+  const compose = async (cookie: string, payload: Record<string, unknown>) =>
+    await app.inject({
+      method: 'POST',
+      url: '/inbox/compose',
+      headers: { host: CONSOLE_HOST, accept: 'application/json', cookie },
+      payload,
+    })
+
+  it('offers the form on the inbox', async () => {
+    const cookie = await signedInCookie()
+    await operates(agentId)
+
+    const rendered = await app.inject({
+      method: 'GET',
+      url: '/inbox',
+      headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
+    })
+
+    expect(rendered.body).toContain('action="/inbox/compose"')
+    // No subject line: a thread's subject is what it is about, and those are
+    // chosen rather than typed.
+    expect(rendered.body).not.toContain('name="subject"')
+  })
+
+  it('opens a thread nobody asked for', async () => {
+    const cookie = await signedInCookie()
+    await operates(agentId)
+
+    const sent = await compose(cookie, { agentId, body: 'The account is @ariadne.' })
+
+    expect(sent.statusCode).toBe(200)
+    expect(sent.json()).toMatchObject({ outcome: 'delivered' })
+
+    const listed = await app.inject({
+      method: 'GET',
+      url: '/inbox',
+      headers: { host: CONSOLE_HOST, accept: 'application/json', cookie },
+    })
+    expect((listed.json() as { threads: unknown[] }).threads).toHaveLength(1)
+  })
+
+  it('refuses a credential-shaped body with the existing wording', async () => {
+    const cookie = await signedInCookie()
+    await operates(agentId)
+
+    const refused = await compose(cookie, {
+      agentId,
+      body: 'the password is hunter2 and the token is ghp_0123456789abcdefghij',
+    })
+
+    expect(refused.statusCode).toBe(422)
+  })
+
+  it('refuses an empty body', async () => {
+    const cookie = await signedInCookie()
+    await operates(agentId)
+
+    expect((await compose(cookie, { agentId, body: '   ' })).statusCode).toBe(422)
+  })
+
+  it('refuses an agent this person does not operate', async () => {
+    const cookie = await signedInCookie()
+    await operates(agentId)
+
+    const refused = await compose(cookie, {
+      agentId: strangersAgentId,
+      body: 'Not mine to write to.',
+    })
+
+    expect(refused.statusCode).toBe(403)
+  })
+})
+
+/**
+ * Filters and search, as query parameters (`#1450`).
+ *
+ * **The SQL is asserted against real PostgreSQL** in
+ * `packages/db/src/storage/inbox.test.ts`, including the one that matters — that
+ * no filter and no search reaches a thread this person is not in. What is under
+ * test here is the other half: that the query string becomes those options, that
+ * a filtered inbox is a link somebody can keep, and that acting on a thread
+ * lands back in the list they were looking at.
+ */
+
+/**
+ * Filters and search, as query parameters (`#1450`).
+ *
+ * **The SQL is asserted against real PostgreSQL** in
+ * `packages/db/src/storage/inbox.test.ts`, including the one that matters — that
+ * no filter and no search reaches a thread this person is not in. What is under
+ * test here is the other half: that the query string becomes those options, that
+ * a filtered inbox is a link somebody can keep, and that acting on a thread
+ * lands back in the list they were looking at.
+ */
+describe('narrowing the inbox (#1450)', () => {
+  const listed = async (cookie: string, query = '') =>
+    await app.inject({
+      method: 'GET',
+      url: `/inbox${query}`,
+      headers: { host: CONSOLE_HOST, accept: 'application/json', cookie },
+    })
+
+  const ids = (answered: { json: () => unknown }): string[] =>
+    (answered.json() as { threads: { conversationId: string }[] }).threads.map(
+      (thread) => thread.conversationId,
+    )
+
+  it('narrows to what this person has written in, and to what is unread', async () => {
+    const cookie = await signedInCookie()
+    const human = await operates(agentId)
+    const answered = messages.thread(human, String(agentId))
+    const waiting = messages.thread(human, String(agentId))
+    messages.agentWrites(human, String(agentId), 'May I open a mailbox?', answered)
+    messages.agentWrites(human, String(agentId), 'And this one?', waiting)
+
+    await app.inject({
+      method: 'POST',
+      url: `/inbox/${answered}`,
+      headers: { host: CONSOLE_HOST, accept: 'application/json', cookie },
+      payload: { body: 'Yes, go ahead.' },
+    })
+    // Opening is what marks read (`#1448`) — replying does not, and the two
+    // being separate acts is why they are separate filters.
+    await app.inject({
+      method: 'GET',
+      url: `/inbox/${answered}`,
+      headers: { host: CONSOLE_HOST, accept: 'application/json', cookie },
+    })
+
+    expect(ids(await listed(cookie, '?sent=1'))).toEqual([answered])
+    expect(ids(await listed(cookie, '?unread=1'))).toEqual([waiting])
+  })
+
+  it('searches the body of every message, not only the latest', async () => {
+    const cookie = await signedInCookie()
+    const human = await operates(agentId)
+    const wanted = messages.thread(human, String(agentId))
+    const other = messages.thread(human, String(agentId))
+    messages.agentWrites(human, String(agentId), 'The registrar is njalla.', wanted)
+    messages.agentWrites(human, String(agentId), 'Noted, thank you.', wanted)
+    messages.agentWrites(human, String(agentId), 'Nothing to do with that.', other)
+
+    expect(ids(await listed(cookie, '?q=njalla'))).toEqual([wanted])
+  })
+
+  it('combines a search with a filter rather than replacing it', async () => {
+    const cookie = await signedInCookie()
+    const human = await operates(agentId)
+    const thread = messages.thread(human, String(agentId))
+    messages.agentWrites(human, String(agentId), 'The registrar is njalla.', thread)
+
+    // Unread and matching: both predicates hold.
+    expect(ids(await listed(cookie, '?q=njalla&unread=1'))).toEqual([thread])
+    // Matching and not written in: one holds, the other does not, and the
+    // answer is empty rather than one of them winning.
+    expect(ids(await listed(cookie, '?q=njalla&sent=1'))).toEqual([])
+  })
+
+  it('reports what it narrowed by, so the page can reflect it back', async () => {
+    const cookie = await signedInCookie()
+    await operates(agentId)
+
+    const narrowed = (await listed(cookie, `?agent=${agentId}&unread=1&q=njalla`)).json() as {
+      filters: Record<string, unknown>
+    }
+
+    expect(narrowed.filters).toMatchObject({
+      agentId: String(agentId),
+      unreadOnly: true,
+      search: 'njalla',
+    })
+  })
+
+  it('ignores a malformed filter rather than refusing the page', async () => {
+    const cookie = await signedInCookie()
+    const human = await operates(agentId)
+    const thread = messages.thread(human, String(agentId))
+    messages.agentWrites(human, String(agentId), 'Still here.', thread)
+
+    // Somebody's mangled link. An inbox that answers 400 to one is worse than
+    // an inbox that answers with the unfiltered list.
+    const answered = await listed(cookie, '?agent=not-a-uuid')
+
+    expect(answered.statusCode).toBe(200)
+    expect(ids(answered)).toEqual([thread])
+  })
+
+  it('keeps the filters in the view switch and in the buttons', async () => {
+    const cookie = await signedInCookie()
+    const human = await operates(agentId)
+    const thread = messages.thread(human, String(agentId))
+    messages.agentWrites(human, String(agentId), 'The registrar is njalla.', thread)
+
+    const rendered = await app.inject({
+      method: 'GET',
+      url: '/inbox?q=njalla',
+      headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
+    })
+
+    // A filtered inbox is a link somebody can keep — including the link that
+    // switches the view, and including where archiving returns to. A filter
+    // that survived reading but not acting would be the worse half.
+    expect(rendered.body).toMatch(/href="\/inbox\?[^"]*q=njalla[^"]*"/)
+    expect(rendered.body).toMatch(/name="back" value="\/inbox\?[^"]*q=njalla/)
+  })
+})

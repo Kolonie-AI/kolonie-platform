@@ -26,6 +26,7 @@ import {
   platformFeePercentFromEnv,
   reportAudience,
   whyNotPublishable,
+  AgentIdSchema,
   ConversationIdSchema,
   OPERATOR_ANSWER_LABELS,
   OperatorAnswerKindSchema,
@@ -67,6 +68,8 @@ import {
   notFoundPage,
   accountDeletedPage,
   accountPage,
+  inboxPage,
+  inboxThreadPage,
   dashboardPage,
   handoverPage,
   sessionsPage,
@@ -160,6 +163,17 @@ import { writeOperatorNote } from '../operator-notes.js'
 import { answerOperatorThread, isWaitingOnTheOperator } from '../operator-threads.js'
 import { markWishWanted, putOnWishList, selectBundle } from '../account-wishes.js'
 import type { SealedSecret, WishCatalogueEntry } from '../console/agent-accounts.js'
+import type { InboxView } from '../messaging.js'
+
+/**
+ * What *muted, until I say otherwise* is written as (`#1449`).
+ *
+ * `muted_until` is a nullable timestamp so that *mute for a week* is
+ * expressible, and nothing on the page offers a date yet — so an indefinite
+ * mute is a date far enough out to mean it. A boolean column would have made
+ * the timed case a migration; this makes it a control somebody adds later.
+ */
+const MUTED_INDEFINITELY = '2999-01-01T00:00:00.000Z'
 import {
   atlasPickerIndex,
   atlasPickerPath,
@@ -4706,6 +4720,472 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     return reply
       .status(303)
       .header('location', `/agents/${String(operated.agentId)}/messages?said=sent`)
+      .send()
+  })
+
+  /**
+   * The thread view, shared by the read and by every refusal of a write.
+   *
+   * **The read cursor moves here and nowhere else** (`#1448`). Rendering the
+   * thread *is* reading it, so the write belongs at the moment the words reach
+   * the person rather than behind a second gesture nobody would make.
+   */
+  const inboxThread = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    signedIn: { readonly human: { readonly id: HumanId; readonly roles: readonly string[] } },
+    outcome: {
+      readonly error?: string
+      readonly status?: number
+      readonly sent?: boolean
+    } = {},
+  ): Promise<FastifyReply> => {
+    const desk = deps.operatorMessaging
+    if (desk === undefined) return consoleNotFound(reply, request)
+
+    const parsed = ConversationIdSchema.safeParse(
+      (request.params as { conversationId?: string }).conversationId,
+    )
+    if (!parsed.success) return consoleNotFound(reply, request)
+
+    const row = (await desk.inbox?.(signedIn.human.id, {}))?.find(
+      (candidate) => String(candidate.conversationId) === String(parsed.data),
+    )
+    if (row === undefined) return consoleNotFound(reply, request)
+
+    const read = await desk.getThread(signedIn.human.id, parsed.data)
+    if (read.outcome !== 'read') return consoleNotFound(reply, request)
+
+    await desk.markRead?.(signedIn.human.id, parsed.data)
+
+    const status = outcome.status ?? 200
+
+    if (!wantsHtml(request)) {
+      return reply.status(status).send({
+        conversationId: String(parsed.data),
+        agentId: row.agentId,
+        agentName: row.agentName,
+        messages: read.response.messages,
+        ...(outcome.error === undefined ? {} : { error: outcome.error }),
+      })
+    }
+
+    /**
+     * Whether there is a box under it. A thread whose operator link has been
+     * removed stays readable and stops accepting words — the relationship
+     * ending does not un-say what was said in it.
+     */
+    const writable = await deps.humans.store.operates(signedIn.human.id, row.agentId as AgentId)
+
+    return html(
+      reply.status(status),
+      inboxThreadPage({
+        nav: navFor(request, signedIn.human.roles),
+        conversationId: String(parsed.data),
+        agentId: row.agentId,
+        agentName: row.agentName,
+        about: row.about?.label ?? null,
+        messages: read.response.messages.map((message) => ({
+          senderLabel: message.sender.label,
+          party: message.sender.party,
+          body: message.body,
+          createdAt: message.createdAt,
+        })),
+        declarations: OperatorAnswerKindSchema.options.map((kind) => ({
+          kind,
+          label: OPERATOR_ANSWER_LABELS[kind],
+        })),
+        bodyMaxLength: MESSAGE_BODY_MAX_LENGTH,
+        writable,
+        ...(outcome.error === undefined ? {} : { error: outcome.error }),
+        ...(outcome.sent === true ? { sent: true } : {}),
+      }),
+    )
+  }
+
+  /**
+   * The accounts a new thread may name, across this person's agents (`#1452`).
+   *
+   * **Proved and in use only.** A thread about an account the citizen merely
+   * wrote down is a thread about a claim; the picker offers what the Colony has
+   * verified, and a person who wants to talk about anything else writes about
+   * nothing in particular, which is a supported state.
+   *
+   * Empty where no register is wired, which renders as no picker rather than as
+   * an empty one.
+   */
+  const composeAccounts = async (
+    operated: readonly { readonly id: AgentId; readonly name: string }[],
+  ): Promise<
+    readonly { readonly id: string; readonly agentId: string; readonly label: string }[]
+  > => {
+    const found: { id: string; agentId: string; label: string }[] = []
+
+    for (const agent of operated) {
+      const held = await deps.accounts.register.list(agent.id)
+      for (const account of held) {
+        if (!account.proved || account.status !== 'in-use') continue
+        found.push({
+          id: account.id,
+          agentId: String(agent.id),
+          label: `${agent.name} — ${account.identifier}`,
+        })
+      }
+    }
+
+    return found
+  }
+
+  /**
+   * The inbox (`#1448`, epic `#1447`).
+   *
+   * ## Why it is here and not under `/agents/:agentId/`
+   *
+   * That nesting **is** the defect. A person operating three agents had three
+   * message pages and no view across them, and the dashboard's queue showed
+   * only threads *never answered* — so replying once removed a thread from it
+   * for ever. Measured 2026-08-20: 52 conversations, 243 messages, sixteen
+   * threads waiting on a person and appearing nowhere.
+   *
+   * **Participation is the whole authorisation**, exactly as on every other
+   * messaging surface: the listing starts from this person's own participant
+   * rows, so there is no shape of input that reaches another person's thread —
+   * nor any of their agents' conversations with other citizens or with the
+   * Colony, which `#1447` frozen decision 2 rules out as surveillance.
+   */
+  app.get('/inbox', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const signedIn = await person(request)
+    if (signedIn === null) return signInRequired(request, reply)
+
+    const desk = deps.operatorMessaging
+
+    /**
+     * Open by default (`#1449`). An inbox is what is left to deal with, and a
+     * page that opened on *all* would be a log rather than an inbox.
+     */
+    const asked = (request.query as { view?: string }).view
+    const view: InboxView = asked === 'archived' || asked === 'all' ? asked : 'open'
+
+    /**
+     * The filters, as query parameters (`#1450`).
+     *
+     * **So that a filtered inbox is a link somebody can keep.** State held in a
+     * session would make *everything about the mailbox* a place a person has to
+     * navigate back to rather than something they can bookmark or paste.
+     *
+     * **Ignored rather than refused when malformed.** An `agent` that is not a
+     * uuid is somebody's mangled link, and an inbox that answers 400 to one is
+     * worse than an inbox that answers with the unfiltered list.
+     */
+    const query = request.query as {
+      readonly agent?: string
+      readonly account?: string
+      readonly unread?: string
+      readonly sent?: string
+      readonly q?: string
+    }
+    /**
+     * A uuid, or nothing. The store interpolates these into `::uuid` casts, so
+     * anything that is not one would be a database error rather than an empty
+     * list — and an empty list is the honest answer to *threads about a thing
+     * that does not exist*.
+     */
+    const uuid = (value: string | undefined): string | undefined =>
+      typeof value === 'string' && AgentIdSchema.safeParse(value).success ? value : undefined
+
+    const agent = uuid(query.agent)
+    const account = uuid(query.account)
+
+    const filters = {
+      ...(agent === undefined ? {} : { agentId: AgentIdSchema.parse(agent) }),
+      ...(account === undefined ? {} : { accountId: account }),
+      ...(query.unread === undefined ? {} : { unreadOnly: true }),
+      ...(query.sent === undefined ? {} : { writtenByMe: true }),
+      ...(typeof query.q === 'string' && query.q.trim() !== '' ? { search: query.q } : {}),
+    }
+
+    const threads =
+      desk?.inbox === undefined ? [] : await desk.inbox(signedIn.human.id, { view, ...filters })
+
+    const rows = threads.map((thread) => ({
+      conversationId: String(thread.conversationId),
+      agentId: thread.agentId,
+      agentName: thread.agentName,
+      about: thread.about?.label ?? null,
+      preview: thread.latest?.body ?? null,
+      at: thread.latest?.at ?? null,
+      senderLabel: thread.latest?.senderLabel ?? null,
+      mine: thread.latest?.mine ?? false,
+      unread: thread.unread,
+      unreadCount: thread.unreadCount,
+      archived: thread.archived,
+      muted: thread.mutedUntil !== null,
+    }))
+
+    if (!wantsHtml(request)) return reply.status(200).send({ view, filters, threads: rows })
+
+    /**
+     * The agents this person operates, for the compose form (`#1452`) and for
+     * the agent filter (`#1450`) — one read, because they are the same list.
+     *
+     * Read on the HTML branch only: a caller asking for JSON wants the list,
+     * and the pickers are furniture for the page.
+     */
+    const operated = await deps.humans.store.operated(signedIn.human.id)
+    const accounts = await composeAccounts(operated)
+
+    return html(
+      reply,
+      inboxPage({
+        nav: navFor(request, signedIn.human.roles),
+        threads: rows,
+        view,
+        agents: operated.map((agent) => ({ id: String(agent.id), name: agent.name })),
+        accounts,
+        filters: {
+          ...(filters.agentId === undefined ? {} : { agentId: String(filters.agentId) }),
+          ...(filters.accountId === undefined ? {} : { accountId: filters.accountId }),
+          unreadOnly: filters.unreadOnly === true,
+          writtenByMe: filters.writtenByMe === true,
+          search: typeof query.q === 'string' ? query.q : '',
+        },
+        bodyMaxLength: MESSAGE_BODY_MAX_LENGTH,
+        ...(typeof (request.query as { error?: string }).error === 'string'
+          ? { composeError: (request.query as { error: string }).error }
+          : {}),
+      }),
+    )
+  })
+
+  /**
+   * The person starts a thread (`#1452`).
+   *
+   * ## The handler this reuses already opened threads
+   *
+   * `sendOperatorMessage` with no `conversationId` matches this person's plain
+   * thread and, finding none, opens one — that behaviour predates this issue
+   * and is what the issue asks to be established rather than rebuilt. So what
+   * is new here is the surface and the account provenance, not a second path.
+   *
+   * **Only their own agents.** `sendOperatorMessage` refuses with
+   * `not-the-operator` when `human_agents` has no row, so the authorisation is
+   * the store's and this route adds none of its own.
+   *
+   * **No subject is typed.** A thread's subject is what it is *about*, and
+   * those are chosen. A thread about nothing in particular is an ordinary
+   * state.
+   */
+  app.post('/inbox/compose', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const signedIn = await person(request)
+    if (signedIn === null) return signInRequired(request, reply)
+
+    const desk = deps.operatorMessaging
+    if (desk === undefined) return consoleNotFound(reply, request)
+
+    const { agentId, body, accountId } = (request.body ?? {}) as {
+      agentId?: unknown
+      body?: unknown
+      accountId?: unknown
+    }
+    const written = typeof body === 'string' ? body.trim() : ''
+    const to = AgentIdSchema.safeParse(agentId)
+    if (!to.success) return consoleNotFound(reply, request)
+
+    const refuse = (message: string) =>
+      wantsHtml(request)
+        ? reply
+            .status(303)
+            .header('location', `/inbox?error=${encodeURIComponent(message)}`)
+            .send()
+        : reply.status(ERROR_STATUS.validation_failed).send({ error: message })
+
+    if (written.length < MESSAGE_BODY_MIN_LENGTH || written.length > MESSAGE_BODY_MAX_LENGTH) {
+      return refuse(messageBodyError.message)
+    }
+
+    /**
+     * **`#236`'s reason, unchanged**: a person writing to their agent has often
+     * just made it an account, and this is where a password most likely
+     * actually arrives. A refusal costs them nothing.
+     */
+    const finding = credentialFinding(written)
+    if (finding !== null) return refuse(credentialRefusalMessage(finding))
+
+    const result = await desk.send(signedIn.human.id, to.data, {
+      body: written,
+      ...(typeof accountId === 'string' && accountId !== '' ? { accountId } : {}),
+    })
+
+    if (result.outcome === 'refused') {
+      if (!wantsHtml(request)) {
+        return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+      }
+      return consoleNotFound(reply, request)
+    }
+
+    if (!wantsHtml(request)) {
+      return reply.status(200).send({ outcome: result.outcome, ...result.response })
+    }
+
+    return reply
+      .status(303)
+      .header('location', `/inbox/${String(result.response.conversationId)}?said=sent`)
+      .send()
+  })
+
+  /**
+   * One thread, and **opening it is what marks it read**.
+   *
+   * That write is the single thing the console never did: the column existed,
+   * the agents' side wrote it through `kolonie.messages.mark_read`, and nothing
+   * here ever did — so a person had no notion of unread at all.
+   *
+   * **A thread of an agent this person does not operate is not reachable**, and
+   * it is the store that refuses rather than this route: `getThread` starts from
+   * a participant row, so an id belonging to somebody else answers exactly as an
+   * id that names nothing.
+   */
+  app.get('/inbox/:conversationId', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const signedIn = await person(request)
+    if (signedIn === null) return signInRequired(request, reply)
+
+    const { said } = request.query as { said?: string }
+    return inboxThread(request, reply, signedIn, { sent: said === 'sent' })
+  })
+
+  /**
+   * The reply.
+   *
+   * **The existing handler's rules, unchanged**: the credential check runs here
+   * for `#236`'s reason — a person writing to their agent has usually just made
+   * it an account, and the answer is where a password most likely arrives — the
+   * body bounds are the same, and a declaration still carries no body of its own
+   * (`#1093`).
+   */
+  app.post('/inbox/:conversationId', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const signedIn = await person(request)
+    if (signedIn === null) return signInRequired(request, reply)
+
+    const desk = deps.operatorMessaging
+    if (desk === undefined) return consoleNotFound(reply, request)
+
+    const thread = ConversationIdSchema.safeParse(
+      (request.params as { conversationId?: string }).conversationId,
+    )
+    if (!thread.success) return consoleNotFound(reply, request)
+
+    const found = (await desk.inbox?.(signedIn.human.id, {}))?.find(
+      (row) => String(row.conversationId) === String(thread.data),
+    )
+    if (found === undefined) return consoleNotFound(reply, request)
+
+    const { body, kind } = (request.body ?? {}) as { body?: unknown; kind?: unknown }
+    const written = typeof body === 'string' ? body.trim() : ''
+    const declared = OperatorAnswerKindSchema.safeParse(kind)
+
+    const refuse = (message: string) =>
+      inboxThread(request, reply, signedIn, {
+        error: message,
+        status: ERROR_STATUS.validation_failed,
+      })
+
+    if (kind !== undefined && !declared.success) return refuse(messageDeclarationError.message)
+
+    if (!declared.success) {
+      if (written.length < MESSAGE_BODY_MIN_LENGTH || written.length > MESSAGE_BODY_MAX_LENGTH) {
+        return refuse(messageBodyError.message)
+      }
+
+      const finding = credentialFinding(written)
+      if (finding !== null) return refuse(credentialRefusalMessage(finding))
+    }
+
+    const result = await desk.send(signedIn.human.id, found.agentId as AgentId, {
+      ...(declared.success ? { answerKind: declared.data } : { body: written }),
+      conversationId: thread.data,
+    })
+
+    if (result.outcome === 'refused') {
+      return inboxThread(request, reply, signedIn, {
+        error: result.error.message,
+        status: ERROR_STATUS[result.error.code],
+      })
+    }
+
+    if (!wantsHtml(request)) {
+      return reply.status(200).send({ outcome: result.outcome, ...result.response })
+    }
+
+    return reply
+      .status(303)
+      .header('location', `/inbox/${String(thread.data)}?said=sent`)
+      .send()
+  })
+
+  /**
+   * The three states, as three writes (`#1449`, `#1447` frozen decision 4).
+   *
+   * **One route and an `act`, not three routes.** They are the same gesture on
+   * the same thread from the same list, and a person who pressed the wrong one
+   * has pressed a button rather than found a different page. What they are
+   * *not* is the same column: archive is *take it out of my list*, mute is
+   * *stop telling me about it*, and folding them would mean silencing a chatty
+   * thread also lost it.
+   *
+   * **Neither marks read**, and reading marks neither. Somebody who archives an
+   * unread thread has decided not to read it, which is a thing they are allowed
+   * to decide.
+   */
+  app.post('/inbox/:conversationId/state', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const signedIn = await person(request)
+    if (signedIn === null) return signInRequired(request, reply)
+
+    const desk = deps.operatorMessaging
+    if (desk === undefined) return consoleNotFound(reply, request)
+
+    const parsed = ConversationIdSchema.safeParse(
+      (request.params as { conversationId?: string }).conversationId,
+    )
+    if (!parsed.success) return consoleNotFound(reply, request)
+
+    const { act, back } = (request.body ?? {}) as { act?: unknown; back?: unknown }
+
+    /**
+     * **Muting with no date is indefinite.** `muted_until` is a nullable
+     * timestamp so *mute for a week* is expressible; nothing on this page offers
+     * a date yet, so the far future stands for *until I say otherwise* and the
+     * shape is ready for the control that will.
+     */
+    const outcome =
+      act === 'archive'
+        ? await desk.archive?.(signedIn.human.id, parsed.data, true)
+        : act === 'unarchive'
+          ? await desk.archive?.(signedIn.human.id, parsed.data, false)
+          : act === 'mute'
+            ? await desk.mute?.(signedIn.human.id, parsed.data, MUTED_INDEFINITELY)
+            : act === 'unmute'
+              ? await desk.mute?.(signedIn.human.id, parsed.data, null)
+              : undefined
+
+    if (outcome === undefined || outcome.outcome === 'not-a-participant') {
+      return consoleNotFound(reply, request)
+    }
+
+    if (!wantsHtml(request)) return reply.status(200).send({ act, outcome: outcome.outcome })
+
+    return reply
+      .status(303)
+      .header('location', typeof back === 'string' && back.startsWith('/inbox') ? back : '/inbox')
       .send()
   })
 

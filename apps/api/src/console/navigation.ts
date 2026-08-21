@@ -259,6 +259,22 @@ function sections(nav: ConsoleNav): readonly NavSection[] {
             })),
           },
         ]),
+    /**
+     * The inbox, above Quests and below the agents (`#1448`, epic `#1447`).
+     *
+     * **A top-level door and not a sub-page of one agent.** That nesting was
+     * the defect: a person operating three agents had three message pages and
+     * no view across them, and the dashboard showed only threads nobody had
+     * ever answered — so replying once removed a thread from it for ever.
+     *
+     * `/agents/:id/messages` survives and renders the same list filtered to one
+     * agent (`#1447` frozen decision 6), so the entry under an agent keeps its
+     * meaning and nothing that linked it breaks.
+     */
+    {
+      title: 'Messages',
+      items: [{ href: '/inbox', label: 'Your inbox' }],
+    },
     {
       title: 'Quests',
       items: [

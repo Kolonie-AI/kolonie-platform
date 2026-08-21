@@ -1,7 +1,8 @@
-import { and, asc, desc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 import {
   MESSAGE_REQUEST_EXPIRY_DAYS,
+  now as currentTime,
   MESSAGE_REQUEST_PREVIEW_MAX_LENGTH,
   OPERATOR_ANSWER_BODIES,
   WAKEUP_MESSAGING_SAMPLE_CAP,
@@ -348,6 +349,35 @@ async function insertMessage(
     .returning({ id: messages.id })
 
   if (row === undefined) throw new Error('inserting a message returned no row')
+
+  /**
+   * **A new message un-archives it, for everybody but the sender** (`#1449`).
+   *
+   * Archiving means *I am done with this*, and somebody writing again is the
+   * event that makes it untrue. Doing it here rather than in each send path is
+   * what makes it one rule: every message in the Colony goes through this
+   * function, so there is no way to write one that leaves a thread archived
+   * under somebody who has just been written to.
+   *
+   * **It does not un-mute.** Mute is *stop telling me about it* and survives
+   * exactly the event archive does not — that is `#1447` frozen decision 4, and
+   * the two columns are why it can be said at all.
+   *
+   * **The sender's own row is left alone.** A person who archived a thread and
+   * then wrote one more line into it has not changed their mind about being
+   * finished; they answered and moved on.
+   */
+  await db
+    .update(messageParticipants)
+    .set({ doneAt: null })
+    .where(
+      and(
+        eq(messageParticipants.conversationId, participant.conversationId),
+        isNotNull(messageParticipants.doneAt),
+        sql`${messageParticipants.id} <> ${participant.id}`,
+      ),
+    )
+
   return messageId(row.id)
 }
 
@@ -742,6 +772,18 @@ export async function sendOperatorMessage(
   label = 'your operator',
   answerKind?: OperatorAnswerKind,
   conversation?: ConversationId,
+  /**
+   * The account this thread is about, when a person opens one (`#1452`).
+   *
+   * **Only meaningful on an open**, and ignored when `conversation` names a
+   * thread that already exists — provenance is settled in the insert that
+   * creates a conversation and nowhere else (`#1319`), so a person cannot
+   * retitle a thread by replying into it.
+   *
+   * A person saying *I have put a card on the GitHub account* should be able to
+   * say which account, for the same reason the agent can (`#1441`).
+   */
+  accountId?: string,
 ): Promise<SendResult> {
   const text = body ?? (answerKind === undefined ? null : OPERATOR_ANSWER_BODIES[answerKind])
   if (text === null) throw new Error('an operator message needs a body or an answer kind')
@@ -758,9 +800,25 @@ export async function sendOperatorMessage(
 
   if (link === undefined) return { outcome: 'refused', refusal: 'not-the-operator' }
 
+  /**
+   * **The person's plain thread, or the one about this account** (`#1452`).
+   *
+   * With no provenance this matches on the person alone, which is the
+   * pre-`#1319` behaviour and the right one: a person writing to their citizen
+   * is usually not writing *about* anything in particular, and a second such
+   * message belongs in the thread that already holds the first. Naming an
+   * account narrows it the same way a citizen's own ask does — so *the same
+   * account again* lands in the thread that already holds the answer.
+   */
   const existing =
     conversation === undefined
-      ? await pairedConversation(db, toAgentId, { humanId })
+      ? await pairedConversation(
+          db,
+          toAgentId,
+          accountId === undefined
+            ? { humanId }
+            : { humanId, provenance: { taskId: null, wishId: null, accountId } },
+        )
       : await pairedConversation(db, toAgentId, { humanId, conversationId: conversation })
 
   if (existing === undefined && conversation !== undefined) {
@@ -784,7 +842,10 @@ export async function sendOperatorMessage(
     toAgentId,
     { party: 'operator-human', humanId, label },
     text,
-    { answerKind },
+    {
+      answerKind,
+      ...(accountId === undefined ? {} : { provenance: { taskId: null, wishId: null, accountId } }),
+    },
   )
 }
 
@@ -2449,4 +2510,393 @@ async function colonyParticipant(db: Database | Transaction, conversation: Conve
     label: made.label,
     systemRole: made.systemRole,
   }
+}
+
+/**
+ * One row of a person's inbox (`#1448`, epic `#1447`).
+ *
+ * **Across every agent they operate**, which is the defect the epic is about:
+ * every operator surface was `/agents/:agentId/…`, so a person with three
+ * agents had three message pages and no view of what was waiting.
+ */
+export interface InboxRow {
+  readonly conversationId: ConversationId
+  readonly agentId: string
+  /** The agent's handle, because a person reading this holds names and not ids. */
+  readonly agentName: string
+  /** What the thread is about, or null for one about nothing in particular. */
+  readonly about: ConversationAbout | null
+  /**
+   * The **latest** message, not the first.
+   *
+   * The waiting queue shows the first deliberately — *the second message is
+   * usually a nudge rather than the question* — which is right for a queue of
+   * unanswered asks and wrong for an inbox: a thread that moved three times
+   * would render its opening line from two weeks ago.
+   */
+  readonly latest: {
+    readonly body: string
+    readonly at: string
+    readonly senderLabel: string
+    readonly mine: boolean
+  } | null
+  /**
+   * Whether anything from anybody else is newer than this person's cursor.
+   *
+   * **From `last_read_message_id` and from nothing else.** The agents' side
+   * already uses that column through `kolonie.messages.mark_read`, and two
+   * definitions of read would disagree within a week.
+   */
+  readonly unread: boolean
+  /** How many of the messages are unread, for the one number a list wants. */
+  readonly unreadCount: number
+  /**
+   * Whether this person has said they are finished with it (`#1449`).
+   *
+   * Three states and three columns, which `#1447` froze: unread is the cursor,
+   * muted is *stop telling me*, and this is *take it out of my list*. A new
+   * message from anybody else clears it.
+   */
+  readonly archived: boolean
+  /**
+   * Until when this person has silenced it, or null.
+   *
+   * **A muted thread still appears and still shows unread.** Mute is about
+   * being told, not about being listed — folding the two would mean silencing a
+   * chatty thread also lost it.
+   */
+  readonly mutedUntil: string | null
+}
+
+/**
+ * Which slice of the inbox to answer (`#1449`).
+ *
+ * **Not folders — the same query with one predicate.** A folder is a place a
+ * thread is *in*, which would make archiving a move and un-archiving a second
+ * move somebody has to find; this is a column and a `where`.
+ */
+export type InboxView = 'open' | 'archived' | 'all'
+
+/**
+ * Every thread this person is a participant of, newest activity first.
+ *
+ * **Activity, not creation.** An inbox ordered by when a thread opened puts a
+ * conversation that moved this morning below one that has been quiet for a
+ * fortnight, which is the ordering of an archive rather than of an inbox.
+ *
+ * **Participation is the whole ACL, exactly as everywhere else in this file**
+ * (`#1447` frozen decision 2). It starts from this person's own participant
+ * rows, so there is no shape of input that reaches another person's thread, nor
+ * any of their agents' conversations with other citizens or with the Colony —
+ * reading those would be surveillance and would break what `kolonie.messages`
+ * promises the other party.
+ */
+export async function inboxFor(
+  db: Database,
+  humanId: HumanId,
+  options: {
+    readonly agentId?: AgentId
+    readonly limit?: number
+    /** Open by default: an inbox is what is left to deal with. */
+    readonly view?: InboxView
+    /** Only threads with something newer than this person's cursor (`#1450`). */
+    readonly unreadOnly?: boolean
+    /** Only threads about one account (`#1450`, and `#1441` for the subject). */
+    readonly accountId?: string
+    /**
+     * Only threads this person has written in — *sent*, as a filter (`#1450`).
+     *
+     * **Not a folder.** A sent-folder is an artefact of mail having no threads:
+     * when a reply is a new object with no parent, a separate pile is the only
+     * way to find what you wrote. Here every message already sits in the
+     * conversation it belongs to, so *did I ever answer that* is a predicate
+     * over this same list and the person stays where they were reading.
+     */
+    readonly writtenByMe?: boolean
+    /**
+     * A substring to look for, case-insensitively (`#1450`, frozen decision 5).
+     *
+     * **Plain `ILIKE` over message body, agent name and thread subject.** No
+     * full-text index, no ranking, no trigram similarity: the corpus is 243
+     * messages, and when a sequential scan over it is measurably slow *that
+     * measurement* is the issue which adds an index — one that will be better
+     * for having a real query pattern behind it. See the comment on the `hit`
+     * term below for what would justify one.
+     */
+    readonly search?: string
+  } = {},
+): Promise<readonly InboxRow[]> {
+  /**
+   * `%` and `_` are wildcards in `like`, and a person searching for `100%` means
+   * the characters. Escaped here rather than by refusing them, because a search
+   * box that rejects punctuation is a search box people stop using.
+   */
+  const term =
+    options.search === undefined || options.search.trim() === ''
+      ? null
+      : `%${options.search.trim().replace(/([\\%_])/g, '\\$1')}%`
+
+  const rows = await db.execute<{
+    conversation_id: string
+    agent_id: string
+    agent_name: string
+    latest_body: string | null
+    latest_at: string | null
+    latest_label: string | null
+    latest_mine: boolean | null
+    unread_count: string
+    done_at: string | null
+    muted_until: string | null
+  }>(sql`
+    with mine as (
+      select p.id as participant_id,
+             p.conversation_id,
+             p.last_read_message_id,
+             p.done_at,
+             p.muted_until
+        from message_participants p
+       where p.human_id = ${humanId}::uuid
+    ),
+    -- The agent side of each of those threads. An operator thread has exactly
+    -- one citizen in it, and the join is what puts a name on the row.
+    theirs as (
+      select mine.conversation_id, p.agent_id, a.name as agent_name
+        from mine
+        join message_participants p
+          on p.conversation_id = mine.conversation_id and p.agent_id is not null
+        join agents a on a.id = p.agent_id
+    ),
+    cursor_at as (
+      select mine.conversation_id, m.created_at
+        from mine
+        left join messages m on m.id = mine.last_read_message_id
+    ),
+    latest as (
+      select distinct on (m.conversation_id)
+             m.conversation_id, m.body, m.created_at, m.sender_label, m.sender_participant_id
+        from messages m
+        join mine on mine.conversation_id = m.conversation_id
+       order by m.conversation_id, m.created_at desc, m.id desc
+    ),
+    unread as (
+      select m.conversation_id, count(*)::text as unread_count
+        from messages m
+        join mine on mine.conversation_id = m.conversation_id
+        left join cursor_at on cursor_at.conversation_id = m.conversation_id
+       where m.sender_participant_id <> mine.participant_id
+         and (cursor_at.created_at is null or m.created_at > cursor_at.created_at)
+       group by m.conversation_id
+    ),
+    -- What each thread is *about*, denormalised to one label so the account
+    -- filter and the subject half of the search are both one predicate. The
+    -- same three columns conversationSubjects reads, in the same precedence.
+    subject as (
+      select c.id as conversation_id,
+             c.account_id,
+             coalesce(t.title, w.provider, ac.identifier) as label
+        from message_conversations c
+        join mine on mine.conversation_id = c.id
+        left join tasks t on t.id = c.task_id
+        left join account_wishes w on w.id = c.wish_id
+        left join accounts ac on ac.id = c.account_id
+    ),
+    -- Threads this person has written at least one message into.
+    wrote as (
+      select distinct m.conversation_id
+        from messages m
+        join mine on mine.participant_id = m.sender_participant_id
+    ),
+    -- Threads with a message body matching the search, over *every* message
+    -- rather than the latest: somebody looking for what was said a fortnight
+    -- ago would otherwise be told it is not there.
+    hit as (
+      select distinct m.conversation_id
+        from messages m
+        join mine on mine.conversation_id = m.conversation_id
+       where ${term === null ? sql`false` : sql`m.body ilike ${term} escape '\\'`}
+    )
+    select theirs.conversation_id,
+           theirs.agent_id,
+           theirs.agent_name,
+           latest.body as latest_body,
+           latest.created_at as latest_at,
+           latest.sender_label as latest_label,
+           (latest.sender_participant_id = mine.participant_id) as latest_mine,
+           coalesce(unread.unread_count, '0') as unread_count,
+           mine.done_at,
+           mine.muted_until
+      from theirs
+      join mine on mine.conversation_id = theirs.conversation_id
+      left join latest on latest.conversation_id = theirs.conversation_id
+      left join unread on unread.conversation_id = theirs.conversation_id
+      left join subject on subject.conversation_id = theirs.conversation_id
+      left join wrote on wrote.conversation_id = theirs.conversation_id
+      left join hit on hit.conversation_id = theirs.conversation_id
+     where ${options.agentId === undefined ? sql`true` : sql`theirs.agent_id = ${options.agentId}::uuid`}
+       and ${
+         (options.view ?? 'open') === 'all'
+           ? sql`true`
+           : (options.view ?? 'open') === 'archived'
+             ? sql`mine.done_at is not null`
+             : sql`mine.done_at is null`
+       }
+       -- Every filter below is combinable, and each is one and: four
+       -- predicates over the same list rather than four ways of listing.
+       and ${options.unreadOnly === true ? sql`unread.unread_count is not null` : sql`true`}
+       and ${
+         options.accountId === undefined
+           ? sql`true`
+           : sql`subject.account_id = ${options.accountId}::uuid`
+       }
+       and ${options.writtenByMe === true ? sql`wrote.conversation_id is not null` : sql`true`}
+       -- Body, agent name or subject. All three are inside mine, so a search
+       -- cannot reach a thread this person is not in — which is the surveillance
+       -- leak #1447 frozen decision 2 refused, arriving through the back door.
+       and ${
+         term === null
+           ? sql`true`
+           : sql`(hit.conversation_id is not null
+                  or theirs.agent_name ilike ${term} escape '\\'
+                  or subject.label ilike ${term} escape '\\')`
+       }
+     order by coalesce(latest.created_at, 'epoch'::timestamptz) desc, theirs.conversation_id
+     limit ${options.limit ?? CONVERSATION_LIST_LIMIT}
+  `)
+
+  const subjects = await conversationSubjects(
+    db,
+    rows.map((row) => row.conversation_id),
+  )
+
+  return rows.map((row) => ({
+    conversationId: conversationId(row.conversation_id),
+    agentId: row.agent_id,
+    agentName: row.agent_name,
+    about: subjects.get(row.conversation_id) ?? null,
+    latest:
+      row.latest_at === null
+        ? null
+        : {
+            body: row.latest_body ?? '',
+            at: row.latest_at,
+            senderLabel: row.latest_label ?? '',
+            mine: row.latest_mine === true,
+          },
+    unread: Number(row.unread_count) > 0,
+    unreadCount: Number(row.unread_count),
+    archived: row.done_at !== null,
+    mutedUntil: row.muted_until,
+  }))
+}
+
+/** What an archive or a mute did, or why it did nothing. */
+export type InboxStateOutcome =
+  { readonly outcome: 'set' } | { readonly outcome: 'not-a-participant' }
+
+/**
+ * Say this person is, or is no longer, finished with a thread (`#1449`).
+ *
+ * **Archiving is not deleting**, and this is the whole of what it does: one
+ * timestamp on one participant row. The thread stays, its messages stay, and a
+ * message from anybody else clears it in the same insert that writes the
+ * message. That is what makes it safe to use liberally — nothing is lost by
+ * being wrong about it.
+ *
+ * **It does not mark read**, and marking read does not archive. Two acts on two
+ * columns: a person who archives an unread thread has decided not to read it,
+ * which is a thing they are allowed to decide.
+ */
+export async function archiveConversationForOperator(
+  db: Database,
+  humanId: HumanId,
+  id: ConversationId,
+  archived: boolean,
+): Promise<InboxStateOutcome> {
+  const changed = await db
+    .update(messageParticipants)
+    .set({ doneAt: archived ? currentTime() : null })
+    .where(
+      and(eq(messageParticipants.conversationId, id), eq(messageParticipants.humanId, humanId)),
+    )
+    .returning({ id: messageParticipants.id })
+
+  return changed.length === 0 ? { outcome: 'not-a-participant' } : { outcome: 'set' }
+}
+
+/**
+ * Silence a thread for this person, until a date or indefinitely (`#1449`).
+ *
+ * **A muted thread stays in the list and still shows unread.** Mute is about
+ * being *told*, and `#1451`'s notifier is what reads it. Folding it into archive
+ * would mean a person silencing a chatty thread also lost it from their list,
+ * which is two intentions wearing one column.
+ *
+ * **The other party is never told.** An agent that learned it had been muted
+ * would reasonably open a second thread, which is exactly what muting was for.
+ *
+ * `null` un-mutes.
+ */
+export async function muteConversationForOperator(
+  db: Database,
+  humanId: HumanId,
+  id: ConversationId,
+  until: string | null,
+): Promise<InboxStateOutcome> {
+  const changed = await db
+    .update(messageParticipants)
+    .set({ mutedUntil: until })
+    .where(
+      and(eq(messageParticipants.conversationId, id), eq(messageParticipants.humanId, humanId)),
+    )
+    .returning({ id: messageParticipants.id })
+
+  return changed.length === 0 ? { outcome: 'not-a-participant' } : { outcome: 'set' }
+}
+
+/**
+ * Move this person's read cursor to the newest message of one thread (`#1448`).
+ *
+ * **The single missing write that makes the whole surface possible.** Measured
+ * 2026-08-20, `message_participants.last_read_message_id` was null for all 52
+ * operator participants: the column existed, the agents' side wrote it through
+ * `kolonie.messages.mark_read`, and nothing in the console ever did — so a
+ * person had no notion of *unread* at all, only of *never answered*.
+ *
+ * The agent's own `markConversationRead` is the same act one participant column
+ * over. Two functions rather than one because the two are found by different
+ * keys, and a single function taking *either* an agent or a human is a function
+ * whose authorisation a reader has to work out from which argument is set.
+ */
+export async function markConversationReadByOperator(
+  db: Database,
+  humanId: HumanId,
+  id: ConversationId,
+): Promise<{ readonly outcome: 'marked' } | { readonly outcome: 'not-a-participant' }> {
+  const [me] = await db
+    .select({ id: messageParticipants.id })
+    .from(messageParticipants)
+    .where(
+      and(eq(messageParticipants.conversationId, id), eq(messageParticipants.humanId, humanId)),
+    )
+    .limit(1)
+
+  if (me === undefined) return { outcome: 'not-a-participant' }
+
+  const [newest] = await db
+    .select({ id: messages.id })
+    .from(messages)
+    .where(eq(messages.conversationId, id))
+    .orderBy(desc(messages.createdAt), desc(messages.id))
+    .limit(1)
+
+  // A thread nobody has written in has no cursor to move, and that is `marked`
+  // rather than a refusal: the person has read everything there is.
+  if (newest === undefined) return { outcome: 'marked' }
+
+  await db
+    .update(messageParticipants)
+    .set({ lastReadMessageId: newest.id })
+    .where(eq(messageParticipants.id, me.id))
+
+  return { outcome: 'marked' }
 }

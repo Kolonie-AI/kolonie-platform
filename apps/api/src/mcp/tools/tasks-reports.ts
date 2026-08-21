@@ -130,7 +130,19 @@ export function registerReportTools(
                * `#111` holds back, and serving it here would route around that
                * rule rather than qualify it.
                */
-              result.response.helpWithheld ? '' : reportNotesAsText(result.response.reports),
+              result.response.helpWithheld
+                ? ''
+                : reportNotesAsText(
+                    result.response.reports,
+                    /**
+                     * **Who is reading** (`#1490`), so a citizen that wrote one
+                     * of these notes is not invited to write to itself about it.
+                     * On this surface that is the common case rather than the
+                     * edge one: an author re-reading a rung it has passed is
+                     * exactly who comes back here.
+                     */
+                    authenticatedAgent.agent.profile.name,
+                  ),
             ]
               .filter((part) => part !== '')
               .join('\n\n'),

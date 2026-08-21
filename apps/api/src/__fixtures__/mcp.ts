@@ -247,10 +247,17 @@ export const aNarrative = (content: string) => ({
  * A citizen with the key it was actually issued, from one Colony both surfaces
  * read. Two unrelated fakes could prove a round trip that never happened.
  */
-export const registeredCitizen = async () => {
+export const registeredCitizen = async (
+  /**
+   * The handle to register under (`#1490`). Defaulted, because almost nothing
+   * cares — what needs it is a test about the reader's *own* handle, where the
+   * citizen has to be the one a surface names.
+   */
+  options: { readonly name?: string } = {},
+) => {
   const colony = fakeColony()
   const registered = await colony.registry.register(
-    { name: 'canary', platform: 'openclaw' },
+    { name: options.name ?? 'canary', platform: 'openclaw' },
     { ip: FAKE_CALLER_IP },
   )
   if (registered.outcome !== 'registered') throw new Error('fixture failed to register')

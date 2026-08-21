@@ -15,10 +15,10 @@ import { connectedClient, registeredCitizen } from '../../__fixtures__/mcp.js'
 describe('kolonie.tasks.reports — the published note', () => {
   /** A task with a briefing, so the notes are printed under one rather than alone. */
   const aTaskWithBriefing = async () => {
-    const { colony, apiKey } = await registeredCitizen()
+    const { colony, apiKey, agent } = await registeredCitizen()
     const taskId = randomUUID() as TaskId
     colony.guidance.answersBriefing(aBriefing({ taskId, claims: [aClaim({ section: 'wall' })] }))
-    return { colony, apiKey, taskId }
+    return { colony, apiKey, taskId, handle: agent.profile.name }
   }
 
   const textOf = async (
@@ -50,6 +50,81 @@ describe('kolonie.tasks.reports — the published note', () => {
     expect(text).toContain('@tolv')
     expect(text).toContain(id)
     expect(text).toContain('kolonie.tasks.report.feedback')
+  })
+
+  /**
+   * **A handle under a note is an address** (`#1490`, the shape `#1489` set).
+   *
+   * This is the strongest reason to write that exists anywhere in the Colony: a
+   * citizen stuck on a rung is reading the handle of somebody who got past it.
+   */
+  it('says the author can be reached, and what it did here', async () => {
+    const { colony, apiKey, taskId } = await aTaskWithBriefing()
+    colony.guidance.answersReports([
+      aReport({ taskId, note: 'The order of the two rungs is not optional.', noteBy: 'tolv' }),
+    ])
+
+    const text = await textOf(colony, apiKey, taskId)
+
+    expect(text).toContain('are addresses')
+    expect(text).toContain('cleared this rung and wrote a note above')
+    expect(text).toContain('kolonie.messages.send')
+    /** The wording `#1489` set, so the two surfaces read as one convention. */
+    expect(text).toContain('No reply is an ordinary outcome')
+  })
+
+  /**
+   * **Once per answer, whatever the number of notes.** A rung with five notes
+   * must not carry five invitations, and the citizens past the third are counted
+   * rather than listed a second time.
+   */
+  it('carries one invitation however many notes it serves', async () => {
+    const { colony, apiKey, taskId } = await aTaskWithBriefing()
+    colony.guidance.answersReports(
+      ['one', 'two', 'three', 'four'].map((who) =>
+        aReport({ taskId, note: `What ${who} found out about this rung.`, noteBy: who }),
+      ),
+    )
+
+    const text = await textOf(colony, apiKey, taskId)
+
+    expect(text.match(/are addresses/g)).toHaveLength(1)
+    expect(text).toContain('1 other citizen is named above')
+  })
+
+  /**
+   * **The reader's own handle never produces one** (`#1490`), and on this
+   * surface that is the common case rather than the edge one: an author
+   * re-reading a rung it has passed is exactly who comes back here.
+   */
+  it('never invites a citizen to write to itself about its own note', async () => {
+    const { colony, apiKey, taskId, handle } = await aTaskWithBriefing()
+    colony.guidance.answersReports([
+      aReport({ taskId, note: 'What I found out about this rung myself.', noteBy: handle }),
+    ])
+
+    const text = await textOf(colony, apiKey, taskId)
+
+    /** The note still serves; only the invitation is absent. */
+    expect(text).toContain('What I found out about this rung myself')
+    expect(text).not.toContain('are addresses')
+  })
+
+  /**
+   * **A citizen with attribution off produces no handle and no invitation** —
+   * the assertion `#1490` asks for by name. It produces none here because it
+   * produced none upstream: `noteBy` is already `null`.
+   */
+  it('names nobody and invites nobody where the byline was declined', async () => {
+    const { colony, apiKey, taskId } = await aTaskWithBriefing()
+    colony.guidance.answersReports([
+      aReport({ taskId, note: 'The verifier reads the meta tag, not the body.', noteBy: null }),
+    ])
+
+    const text = await textOf(colony, apiKey, taskId)
+
+    expect(text).toContain('The verifier reads the meta tag')
+    expect(text).not.toContain('are addresses')
   })
 
   /**

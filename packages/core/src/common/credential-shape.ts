@@ -122,16 +122,168 @@ const NEVER_A_VALUE: ReadonlySet<string> = new Set([
  * `#236` is explicit that refusing wrongly is the cheaper failure. So they keep
  * the old rule — label, separator, anything that is not a stopword.
  */
-const MULTI_WORD_SECRET_LABELS = /^(?:pass ?phrase|seed[-_ ]?phrase|mnemonic)$/i
+const MULTI_WORD_SECRET_LABELS =
+  /^(?:pass ?phrase|seed[-_ ]?phrase|mnemonic|passphrase|wachtwoordzin|phrase\s+secr[eè]te|frase\s+(?:semilla|secreta)|frase\s+de\s+recupera[cç][aã]o|mnemo(?:nica|nique|nik)|wiederherstellungss?atz)$/iu
+
+/**
+ * The label alternation, grouped by the language it is written in.
+ *
+ * **The guard was English-only, and the operator channel is where a person
+ * writes their own language** (`#1529`). Measured 2026-08-21 against
+ * `packages/core/dist`: `the password is …` was caught and
+ * `das Passwort ist …`, `le mot de passe est …`, `la contraseña es …`,
+ * `het wachtwoord is …`, `a senha é …` and `la password è …` were all missed.
+ *
+ * `credentialFinding` states the case itself — *the answer is where a password
+ * is most likely to actually arrive, an operator who has just created an
+ * account is holding one* — and that is exactly the send path where a person is
+ * writing freely. There is a message in production carrying a plaintext account
+ * password in a German sentence of the second shape.
+ *
+ * **Six languages and no claim to be a list of all of them.** These are the ones
+ * the measurement covers; a seventh is a line in this array and a row in the
+ * table in the test. The guard is a shape test rather than a classifier, and it
+ * was never going to be exhaustive in one language either.
+ */
+const SECRET_LABELS: readonly string[] = [
+  // en
+  String.raw`pass(?:word|phrase)?`,
+  String.raw`pwd`,
+  String.raw`secret`,
+  String.raw`api[-_ ]?key`,
+  String.raw`access[-_ ]?token`,
+  String.raw`auth[-_ ]?token`,
+  String.raw`bearer`,
+  String.raw`credential`,
+  String.raw`priv(?:ate)?[-_ ]?key`,
+  String.raw`seed[-_ ]?phrase`,
+  String.raw`mnemonic`,
+  String.raw`otp`,
+  String.raw`totp`,
+  String.raw`2fa[-_ ]?(?:code|secret)`,
+  // de — `Kennwort` and `Zugangsdaten` are as ordinary as `Passwort` here, and
+  // German compounds them, so the key words take an optional prefix rather than
+  // one entry each.
+  String.raw`(?:\w+[-_ ]?)?pass(?:wort|phrase)`,
+  String.raw`kennwort`,
+  String.raw`(?:zugangs|anmelde|zugriffs|login)[-_ ]?(?:daten|informationen|code|schl[uü]ssel|token)`,
+  String.raw`(?:geheim|privat(?:er)?[-_ ]?|api[-_ ]?)schl[uü]ssel`,
+  String.raw`geheimnis`,
+  String.raw`(?:einmal|sicherheits|wiederherstellungs)[-_ ]?code`,
+  // fr
+  String.raw`mot\s+de\s+passe`,
+  String.raw`phrase\s+secr[eè]te`,
+  String.raw`cl[eé](?:\s+(?:api|priv[eé]e|secr[eè]te|d['’]acc[eè]s))?`,
+  String.raw`jeton(?:\s+d['’]acc[eè]s)?`,
+  String.raw`identifiants`,
+  // es
+  String.raw`contrase[nñ]a`,
+  String.raw`clave(?:\s+(?:api|privada|secreta|de\s+acceso))?`,
+  String.raw`secreto`,
+  String.raw`credenciales`,
+  // nl
+  String.raw`wachtwoord(?:zin)?`,
+  String.raw`(?:priv[eé]|api|geheime?)[-_ ]?sleutel`,
+  String.raw`toegangs(?:token|code|sleutel)`,
+  String.raw`inloggegevens`,
+  // pt
+  String.raw`senha`,
+  String.raw`palavra[-\s]?passe`,
+  String.raw`segredo`,
+  String.raw`chave(?:\s+(?:privada|secreta|de\s+api|de\s+acesso))?`,
+  String.raw`credenciais`,
+  // it — `password` is the ordinary Italian word and is already in the English
+  // group, which is the point the measurement makes: the row that missed had an
+  // English label and an Italian copula.
+  String.raw`parola\s+d['’]ordine`,
+  String.raw`chiave(?:\s+(?:privata|segreta|api|di\s+accesso))?`,
+  String.raw`segreto`,
+  String.raw`credenziali`,
+]
+
+/**
+ * What may stand between the label and the value.
+ *
+ * **The separator list is half the gap, and the Italian row is what proves it**
+ * (`#1529`): `la password è Xk9-…` carries the English label the pattern already
+ * had and was missed anyway, because the copula was not in
+ * `(?:is|are|=|:|->|→)`. So a vocabulary widening on its own would have left
+ * that row exactly where it was.
+ *
+ * Accent-less spellings are in deliberately — `e` for `è`, `sao` for `são` —
+ * because a person typing quickly, or a channel that has lost its diacritics,
+ * writes those. `e` and `é` are also *and* in Italian and *is* in Portuguese
+ * respectively, so both admit a sentence like *password e nome utente*; that is
+ * what {@link looksLikeAValue} is for, and it holds — the value there is an
+ * ordinary word with a sentence continuing past it.
+ */
+const SECRET_WORD_SEPARATORS: readonly string[] = [
+  // en / nl
+  'is',
+  'are',
+  'zijn',
+  // de
+  'ist',
+  'sind',
+  'lautet',
+  'lauten',
+  // fr / es
+  'est',
+  'sont',
+  'es',
+  'son',
+  // it / pt — including the accent-less spellings people actually type
+  'è',
+  'e',
+  'é',
+  'são',
+  'sao',
+]
+
+/** The ones that are punctuation, and so need no boundary after them. */
+const SECRET_SYMBOL_SEPARATORS: readonly string[] = ['=', ':', '->', '→']
 
 /**
  * The labels that make a following value look like a disclosure.
  *
  * Captured rather than merely matched, so the refusal can name which one fired
  * without echoing what came after it.
+ *
+ * **Unicode boundaries rather than `\b`** (`#1529`). `\b` is ASCII, so the
+ * boundary after `contraseña` sits between two characters it considers
+ * non-word and does not exist — a label ending in an accented letter could never
+ * match however carefully it was spelled. The lookarounds do what `\b` was
+ * standing in for, under `u`.
+ *
+ * **Longest alternative first, in both lists, because JavaScript alternation is
+ * ordered rather than greedy.** Both halves bite, and the second one is the
+ * quieter of the two:
+ *
+ * - With `cl[eé]` before `cl[eé]\s+api` the shorter label wins and what follows
+ *   is then a word rather than a copula.
+ * - With `is` before `ist`, `das Passwort ist Xk9-…` matches the separator `is`,
+ *   takes `t` as the value, leaves ` Xk9-…` as the rest — and
+ *   {@link looksLikeAValue} correctly says a bare letter mid-sentence is not a
+ *   value. **The disclosure is then missed by a guard that matched it**, which
+ *   is a shape worth naming: the pattern fired, the shape test refused, and the
+ *   two together answered no.
+ *
+ * A word separator also carries the boundary the label does, for the same
+ * reason: without it `es` matches the front of `est` and the same thing happens
+ * one language along.
  */
-const LABELLED_SECRET =
-  /\b(pass(?:word|phrase)?|pwd|secret|api[-_ ]?key|access[-_ ]?token|auth[-_ ]?token|bearer|credential|priv(?:ate)?[-_ ]?key|seed[-_ ]?phrase|mnemonic|otp|totp|2fa[-_ ]?(?:code|secret))\b\s*(?:is|are|=|:|->|→)\s*(\S+)([^\n]*)/i
+const LABELLED_SECRET = new RegExp(
+  String.raw`(?<![\p{L}\p{N}])(` +
+    [...SECRET_LABELS].sort((a, b) => b.length - a.length).join('|') +
+    String.raw`)(?![\p{L}\p{N}])\s*(?:(?:` +
+    [...SECRET_WORD_SEPARATORS].sort((a, b) => b.length - a.length).join('|') +
+    String.raw`)(?![\p{L}\p{N}])|` +
+    SECRET_SYMBOL_SEPARATORS.map((separator) =>
+      separator.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+    ).join('|') +
+    String.raw`)\s*(\S+)([^\n]*)`,
+  'iu',
+)
 
 /**
  * Whether what follows a label is a value rather than the rest of a sentence.

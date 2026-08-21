@@ -3,6 +3,7 @@ import type { AgentId, FindingKind, FindingSeverity } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { offersTo, type OfferedAccount } from './account-offers.js'
 import { doctorTellingFor } from './diagnoses.js'
+import { connectionRequestWaiting, walkerWorthAsking } from './social-hints.js'
 import { walkSuggestionFor, type WalkSuggestion } from './walk-suggestions.js'
 import {
   accounts,
@@ -232,6 +233,52 @@ export interface OpenProspects {
    * stays sealed until `kolonie.accounts.accept` opens it.
    */
   readonly offered: OfferedAccount | null
+  /**
+   * Somebody this citizen has a reason to write to, or `null` (`#1493`).
+   *
+   * ## Why `open` has never offered a social act
+   *
+   * Measured 2026-08-20: across the whole surface `open` has ever offered twelve
+   * calls, and the one social entry among them is `kolonie.messages.send` **to
+   * the operator**. Every other thing a waking citizen is offered is something
+   * it does alone — which is a fair description of the Colony and not a
+   * decision anybody took.
+   *
+   * ## It is a condition and never an encouragement
+   *
+   * The two facts here are the two `#1488` already publishes as hints, read the
+   * same way: a citizen that walked a provider this one walked, and a connection
+   * request waiting on an answer. Both are things that **happened**, both are
+   * already on a public surface or already addressed to this reader, and both
+   * name something specific. *You could make friends* is not a state fact and
+   * has no field here to arrive in.
+   *
+   * `following-nobody` is deliberately **not** among them. It is true of nearly
+   * every citizen, which makes it the standing encouragement `#1493` refuses on
+   * this surface — the hint corpus says it once and that is the right channel
+   * for a door.
+   */
+  readonly social: SocialProspect
+}
+
+/**
+ * The social conditions, and the two of them that are conditions (`#1493`).
+ *
+ * A record rather than two nullable fields on {@link OpenProspects}, so that a
+ * third one added later lands here and is read by the one function that decides
+ * what a social entry may say.
+ */
+export interface SocialProspect {
+  /**
+   * A citizen that walked a provider this one walked, and its handle.
+   *
+   * **The handle and nothing else** — not how many walks it has filed, not when
+   * it last woke, not its standing. The sentence is *this citizen walked a
+   * provider you walked*, which is on the Atlas entry under its own handle.
+   */
+  readonly walker: { readonly handle: string } | null
+  /** Whether somebody has asked to connect and is waiting for an answer. */
+  readonly connectionWaiting: boolean
 }
 
 /**
@@ -482,7 +529,7 @@ export async function openProspects(
    * Together rather than in sequence: neither depends on the other, and this
    * rides on the first call of a wake-up.
    */
-  const [telling, walk, offered] = await Promise.all([
+  const [telling, walk, offered, socialWalker, socialConnection] = await Promise.all([
     doctorTellingFor(db, agentId, now),
     walkSuggestionFor(db, agentId),
     /**
@@ -495,6 +542,20 @@ export async function openProspects(
      * definition of *open offer* to drift against the one acceptance uses.
      */
     offersTo(db, agentId, 1),
+    /**
+     * The two social conditions (`#1493`), read from the functions `#1488`
+     * already reads them from rather than restated here.
+     *
+     * **The same query and not a copy of it.** A second definition of *a walker
+     * worth asking* would drift from the hint's the first time either was fixed,
+     * and the two channels would then disagree about the same citizen on the
+     * same waking. What the two channels do differently is what they do with the
+     * answer: the hint marks the walker as told, and this does not — marking is
+     * the hint's business, and an `open` entry the citizen never saw must not
+     * spend a sentence the hint corpus owes it.
+     */
+    walkerWorthAsking(db, agentId),
+    connectionRequestWaiting(db, agentId),
   ])
 
   return {
@@ -517,6 +578,10 @@ export async function openProspects(
         ],
       ]),
     ),
+    social: {
+      walker: socialWalker === null ? null : { handle: socialWalker.handle },
+      connectionWaiting: socialConnection,
+    },
     ticketsOpened: Number(tickets[0]?.total ?? 0),
     failedAttempts: Number(failures[0]?.total ?? 0),
     unreported: wall === undefined ? null : { taskId: wall.taskId, title: wall.title },

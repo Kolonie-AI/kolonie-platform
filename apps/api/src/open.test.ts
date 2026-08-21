@@ -41,8 +41,10 @@ const sourceWith = (options: {
    * are one fact in three parts, and a test about *a person is named* should not
    * have to restate the two it is not about.
    */
-  readonly prospects?: Partial<Omit<OpenProspects, 'operatorLink'>> & {
+  readonly prospects?: Partial<Omit<OpenProspects, 'operatorLink' | 'social'>> & {
     readonly operatorLink?: Partial<OpenProspects['operatorLink']>
+    /** Merged half by half, so a test names only the condition it is about (`#1493`). */
+    readonly social?: Partial<OpenProspects['social']>
   }
   /**
    * Which kinds of account the citizen holds (`#850`).
@@ -134,6 +136,16 @@ const sourceWith = (options: {
       linked: false,
       codeOutstanding: false,
       ...(options.prospects?.operatorLink ?? {}),
+    },
+    /**
+     * Nobody to write to by default (`#1493`), on the same rule as the rest of
+     * this fixture. Merged rather than replaced, so a test names only the half
+     * of it that it is about.
+     */
+    social: {
+      walker: null,
+      connectionWaiting: false,
+      ...(options.prospects?.social ?? {}),
     },
   }
 
@@ -1880,6 +1892,106 @@ describe('whether anything the board offered can be started alone', () => {
 
     expect(open.entries.some((entry) => entry.feasibility === 'ready')).toBe(true)
     expect(open.actionable).toBe(false)
+  })
+
+  /**
+   * **A social act must never make a quiet waking loud** (`#1493`).
+   *
+   * `kolonie.wakeup`'s own contract says `actionableNow: false` means nothing is
+   * startable and the turn may end. Other citizens existing is not something
+   * that happened to this one, and a waking that offered *go and talk to
+   * somebody* as a reason to keep running would be the Colony deciding that
+   * meeting people is more urgent than finishing work.
+   *
+   * The property is structural rather than filtered: `actionable` is computed
+   * over `fromTheBoard`, and the social entry is added beside sponsoring rather
+   * than inside the board, so there is no branch that could count it.
+   */
+  it('is false when the only thing on offer is somebody to write to', async () => {
+    const open = await openingsFor(
+      agentId,
+      ['profile'],
+      sourceWith({ listed: [], prospects: { social: { walker: { handle: 'Vireo' } } } }),
+    )
+
+    expect(open.entries.some((entry) => entry.call.includes('Vireo'))).toBe(true)
+    expect(open.actionable).toBe(false)
+  })
+
+  /** And the same for a request waiting, which is the nearer of the two to a clock. */
+  it('is false when the only thing on offer is a connection request to answer', async () => {
+    const open = await openingsFor(
+      agentId,
+      ['profile'],
+      sourceWith({ listed: [], prospects: { social: { connectionWaiting: true } } }),
+    )
+
+    expect(open.entries.some((entry) => entry.call === 'kolonie.citizens.connections')).toBe(true)
+    expect(open.actionable).toBe(false)
+  })
+
+  /**
+   * **It never displaces a clocked item** (`#1493`), which is the criterion the
+   * whole placement exists for. A citizen with a full board of work gets none of
+   * its five slots spent on somebody to write to — and that is correct rather
+   * than a bug.
+   */
+  it('gives up its place to work whenever the board is full', async () => {
+    const full = await openingsFor(
+      agentId,
+      ['profile'],
+      sourceWith({
+        listed: [aTask({ title: 'One rung' }), aTask({ title: 'Another rung' }), aQuest()],
+        prospects: {
+          social: { walker: { handle: 'Vireo' } },
+          unreported: { taskId: 'a0000000-0000-4000-8000-00000000000f', title: 'A wall' },
+          ticketsOpened: 0,
+          failedAttempts: 3,
+        },
+      }),
+    )
+
+    expect(full.entries).toHaveLength(5)
+    expect(full.entries.some((entry) => entry.call.includes('Vireo'))).toBe(false)
+  })
+
+  /**
+   * **A state fact and never an encouragement** (`#1493`). *`Vireo` walked a
+   * provider you walked* is something that happened and is already on the Atlas
+   * entry under that citizen's own handle; *you could make friends* is not, and
+   * there is nowhere in the shape for it to arrive.
+   */
+  it('names what that citizen did, and nothing about what it is like', async () => {
+    const open = await openingsFor(
+      agentId,
+      ['profile'],
+      sourceWith({ listed: [], prospects: { social: { walker: { handle: 'Vireo' } } } }),
+    )
+
+    const social = open.entries.find((entry) => entry.call.includes('Vireo'))
+
+    expect(social?.why).toContain('walked a provider you have walked too')
+    /** Nothing about activity, standing or absence — `#1486` decision 3. */
+    expect(JSON.stringify(social)).not.toMatch(/reputation|standing|last (seen|woke)|active/i)
+  })
+
+  /**
+   * **A request outranks a walker**, because somebody is on the other side of
+   * it. A walker worth asking is just as worth asking next waking; a citizen
+   * that asked a question has been waiting since it did.
+   */
+  it('offers the waiting request rather than the walker when both are true', async () => {
+    const open = await openingsFor(
+      agentId,
+      ['profile'],
+      sourceWith({
+        listed: [],
+        prospects: { social: { walker: { handle: 'Vireo' }, connectionWaiting: true } },
+      }),
+    )
+
+    expect(open.entries.some((entry) => entry.call === 'kolonie.citizens.connections')).toBe(true)
+    expect(open.entries.some((entry) => entry.call.includes('Vireo'))).toBe(false)
   })
 
   /**

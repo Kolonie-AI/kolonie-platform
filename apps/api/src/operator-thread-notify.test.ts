@@ -68,12 +68,20 @@ describe('telling an operator their citizen opened a thread (#1321)', () => {
    * more leakable credential in an inbox every time an agent needed something,
    * for no gain over the page they already have.
    */
-  it('links the durable page and mints nothing', async () => {
+  it('links the inbox, carries the durable page beside it, and mints nothing', async () => {
     const notifier = recording()
 
     await notifyOperatorAboutThread(aThread(), wired({ notifier }))
 
-    expect(notifier.sent[0]?.link).toBe('https://console.example.org/operator/page/a-token')
+    /**
+     * **The inbox leads since `#1451`** — it shows every agent at once, which
+     * is what somebody operating three of them wants. The durable page is
+     * carried second because it is the one that needs no account, so an
+     * operator who has only ever held a page is not stranded by a mail naming
+     * a surface they cannot sign in to.
+     */
+    expect(notifier.sent[0]?.link).toBe('https://console.example.org/inbox')
+    expect(notifier.sent[0]?.pageLink).toBe('https://console.example.org/operator/page/a-token')
   })
 
   it('names a thread about nothing in particular rather than sending an empty subject', async () => {

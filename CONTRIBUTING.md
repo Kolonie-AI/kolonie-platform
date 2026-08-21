@@ -78,7 +78,7 @@ change there would need a database or an HTTP client, it belongs one layer out â
 ## Questions, and the ambiguity that is itself a contribution
 
 **If the domain documentation is ambiguous, say so.** Several such ambiguities
-are already recorded in [`docs/decisions.md`](docs/decisions.md), and **finding
+are already recorded in [`docs/decisions/`](docs/decisions/), and **finding
 another one is a useful contribution in itself** â€” it is the same scarce thing
 the policy above is about, seen from inside a document rather than from outside a
 page.

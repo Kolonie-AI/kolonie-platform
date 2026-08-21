@@ -205,7 +205,24 @@ function index() {
   return [PREAMBLE, ...rows, ''].join('\n')
 }
 
-const built = index()
+/**
+ * The directory's own errors, as a gate failure rather than a stack trace.
+ *
+ * **This is the path `merge=union` on the index makes reachable** (`#1496`,
+ * `#1497`). Two branches that both take `D-130` merge cleanly — that is what the
+ * driver is for — and the collision surfaces here, which makes this the message a
+ * person actually meets. Measured 2026-08-21: it arrived as an unhandled
+ * exception with eight lines of Node internals above the sentence that says what
+ * to do. Every sibling gate in `scripts/` prints its reason and exits; this one
+ * now does too.
+ */
+let built
+try {
+  built = index()
+} catch (error) {
+  console.error(`\n${error instanceof Error ? error.message : String(error)}\n`)
+  process.exit(1)
+}
 
 if (process.argv.includes('--check')) {
   const onDisk = readFileSync(INDEX, 'utf8')

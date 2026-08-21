@@ -1,36 +1,67 @@
-import { cpus } from 'node:os'
 import { defineConfig } from 'vitest/config'
 
 // @ts-expect-error the runner's helpers are build scripts, deliberately outside
 // the TypeScript project — the same reason `scripts/run-workspace-script.test.ts`
 // says this over its own import. This file is not typechecked either: the
 // package's tsconfig includes `src/**/*.ts` and nothing else.
-import { testWorkers } from '../../scripts/test-workers.mjs'
+import { memoryCeiling, testWorkers } from '../../scripts/test-workers.mjs'
 // @ts-expect-error the same, and for the same reason.
 import { sourceResolve } from '../../scripts/source-condition.mjs'
 
 /**
  * How many test files run at once.
  *
- * Derived from the machine rather than fixed to the one it was tuned on, and
- * capped on both sides for a reason. Below, a two-core runner should not be told
- * to keep six databases busy; above, the returns had gone flat when measured — on
- * CLAUDE002 (8 vCPU, 7.2 GiB RAM) on 2026-08-04 this package took 82 s across
- * four workers and 68 s across six.
+ * **The ceiling is memory, not cores — and this said so for two weeks while
+ * multiplying by cores** (`#1571`, applying `#1354`). Every worker holds a
+ * connection pool and a Postgres backend of its own; on CLAUDE002 (8 vCPU,
+ * 7.2 GiB) running this package six ways *while* the other six workspaces ran
+ * took the machine to 5.5 GiB and touched swap for the first time. That is a
+ * memory measurement, and `min(6, cpus - 2)` is not a memory rule.
  *
- * **The ceiling is memory, not cores.** Every worker holds a connection pool and
- * a Postgres backend of its own, and in the same session running this package six
- * ways *while* the other six workspaces ran took the machine to 5.5 GiB of
- * 7.2 GiB and touched swap for the first time.
+ * ## What the wrong rule cost, measured
+ *
+ * `#1354` removed exactly this formula from `apps/api` — *it asks for two workers
+ * on a four-core runner where the published budget already allowed four; the
+ * runner has 16 GiB and no memory problem at all* — and left this package, which
+ * is the long pole of every `npm test`, on it.
+ *
+ * The `test` job of run `32504361754` (2026-08-21) took 11 minutes, of which
+ * `@kolonie-ai/db` was **518.4 s** and all eight other workspaces together were
+ * 99 s. On that runner this expression is `min(6, 4 - 2)` = **2**, against a
+ * published budget of 4 — the job's own log says `up to 4 test workers each`.
+ *
+ * Measured on an idle 8-core box against a relaxed Postgres, same 212 files and
+ * 4188 tests, green in every row:
+ *
+ * | workers | wall |
+ * |---|---|
+ * | 2 — what CI got | 437 s |
+ * | 4 — what {@link memoryCeiling} gets | 248 s |
+ * | 6 | 205 s |
+ *
+ * **And every pull request pays the test job twice**, once on its branch and once
+ * on the merge-queue ref.
+ *
+ * ## Why this cannot reopen `#1350`
+ *
+ * It is arithmetic rather than judgement. On the 7.2 GiB machine where the
+ * thrashing was measured both expressions give **4**; on a 4-core 16 GiB runner
+ * the old one gives 2 and this gives 4. The change raises the number exactly
+ * where memory is plentiful and cores are few, and leaves it alone where memory
+ * binds. `worker-sizing.test.ts` asserts both halves.
+ *
+ * ## What has not changed
+ *
+ * The cap of six, which is not about this machine: past a handful of workers the
+ * shared Postgres saturates and no amount of RAM changes that — the 82 s across
+ * four against 68 s across six, measured 2026-08-04, is the flat return that
+ * argues for it.
  *
  * **`testWorkers` can only lower this** (`#963`). When `npm run check` runs
- * several workspaces at once it publishes a share of the machine, and this
- * package takes the smaller of the two. It is a ceiling in both directions
- * rather than an assignment: the six above is about memory, so a thirty-two-core
- * machine must not be allowed to raise it. Run on its own — `npx vitest run
- * --root packages/db` — there is no budget and the six stands.
+ * several workspaces at once it publishes a share of the machine and this package
+ * takes the smaller of the two, so the budget still caps what is asked for here.
  */
-const WORKERS = testWorkers(Math.max(1, Math.min(6, cpus().length - 2)))
+const WORKERS = testWorkers(memoryCeiling())
 
 /**
  * The files that keep per-file isolation.

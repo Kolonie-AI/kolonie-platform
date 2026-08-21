@@ -13,6 +13,14 @@ import { describe, expect, it } from 'vitest'
  */
 const TEXT = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
 
+/** The composite action `#1545` moved the squash-text step into, so that both
+ * the job running `check:catalogue-floor` and the job running the budget suite
+ * read the same words. */
+const ACTION = readFileSync(
+  new URL('../.github/actions/remember-squash-text/action.yml', import.meta.url),
+  'utf8',
+)
+
 /** The blocks under `jobs:`, keyed by the job id. Job ids are the only keys at
  * two-space indentation, so this needs no more than a regular expression. */
 function jobs(): Map<string, string> {
@@ -300,13 +308,48 @@ describe('the catalogue-floor job can read history', () => {
    * text is what stops a justified branch commit with an unjustified body from
    * landing (`#1379`). Making `Report the change` required cannot happen until
    * that workflow itself runs on `merge_group`, or the queue stalls.
+   *
+   * **Both jobs that weigh a floor raise, not only `build`** (`#1545`).
+   * `check:catalogue-floor` runs in `build` and `catalogue-budget.test.ts` runs
+   * in `test`, and `$GITHUB_ENV` does not cross a job boundary — so the step
+   * living in one of them made every raise unjustified in the other, whatever
+   * the author had written.
    */
-  it('hands the squash text to the floor check on pull_request and merge_group', () => {
-    const block = jobs().get('build') ?? ''
+  it.each(['build', 'test'])(
+    'hands the squash text to %s on pull_request and merge_group',
+    (job) => {
+      const block = jobs().get(job) ?? ''
 
-    expect(block).toContain('CATALOGUE_FLOOR_PR_TEXT_FILE')
-    expect(block).toContain(
-      "github.event_name == 'pull_request' || github.event_name == 'merge_group'",
-    )
+      expect(block).toContain('uses: ./.github/actions/remember-squash-text')
+      expect(block).toContain(
+        "github.event_name == 'pull_request' || github.event_name == 'merge_group'",
+      )
+    },
+  )
+
+  /**
+   * **One definition of the step, not two** — the acceptance criterion `#1545`
+   * is named after. The variable is written in the composite action and nowhere
+   * else; a job that inlines its own copy is the divergence that produced the
+   * defect, and it would pass the assertion above.
+   */
+  it('writes the variable in the action and in no job', () => {
+    for (const job of jobs().values()) {
+      expect(job).not.toContain('CATALOGUE_FLOOR_PR_TEXT_FILE')
+    }
+
+    expect(ACTION).toContain('echo "CATALOGUE_FLOOR_PR_TEXT_FILE=$file"')
+  })
+
+  /**
+   * The action does the reading `permissions: pull-requests: read` is declared
+   * for, and it does it with a token it is handed rather than one it assumes.
+   */
+  it('reads the merge_group text with a token the caller passes in', () => {
+    expect(ACTION).toContain('GH_TOKEN: ${{ inputs.token }}')
+
+    for (const job of ['build', 'test']) {
+      expect(jobs().get(job)).toContain('token: ${{ github.token }}')
+    }
   })
 })

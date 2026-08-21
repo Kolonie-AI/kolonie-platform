@@ -1,0 +1,52 @@
+name: Remember the text the squash will land
+description: >-
+  Write the pull request title and body to a file and export
+  CATALOGUE_FLOOR_PR_TEXT_FILE pointing at it, so a job that weighs a
+  catalogue-floor raise reads the same words the squash commit will carry.
+
+# **One definition, used by two jobs** (`#1545`).
+#
+# The step lived in `build` alone, for `check:catalogue-floor` in `gates:built`.
+# `#1504` then made `catalogue-budget.test.ts` weigh a raise the same way — and
+# that test runs in `test`, which never had the input. `$GITHUB_ENV` does not
+# cross jobs, so `pullRequestText()` read an unset variable, `raiseIsJustified('')`
+# was false, and **every raise was unjustified whatever the author wrote**. The
+# defect was latent until somebody added a tool; `#1507` was the first.
+#
+# So the twelve lines are here rather than in each job. Duplicating them is what
+# produced the divergence in the first place: two copies of a rule drift, and this
+# one drifted into a job that could not run it at all.
+inputs:
+  token:
+    description: >-
+      A token that may read this repository's pull requests. Used only on
+      merge_group, where the event carries a ref and the text has to be fetched.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # Hand the text the squash will use to the runner **through a file, never
+    # through an inline expression**: the title is attacker-controlled.
+    - name: Remember the text the squash will land
+      shell: bash
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+        PR_TITLE: ${{ github.event.pull_request.title }}
+        PR_BODY: ${{ github.event.pull_request.body }}
+        HEAD_REF: ${{ github.event.merge_group.head_ref }}
+        GH_TOKEN: ${{ inputs.token }}
+        REPOSITORY: ${{ github.repository }}
+      run: |
+        file="$RUNNER_TEMP/catalogue-floor-pr.txt"
+        if [ "$EVENT_NAME" = pull_request ]; then
+          printf '%s\n\n%s\n' "$PR_TITLE" "$PR_BODY" > "$file"
+        else
+          n=$(printf '%s' "$HEAD_REF" | sed -n 's/.*\/pr-\([0-9]\+\)-.*/\1/p')
+          if [ -z "$n" ]; then
+            echo "could not read a pull request number from HEAD_REF=$HEAD_REF"
+            exit 1
+          fi
+          gh api "repos/${REPOSITORY}/pulls/$n" --jq '[.title, .body] | join("\n\n")' > "$file"
+        fi
+        echo "CATALOGUE_FLOOR_PR_TEXT_FILE=$file" >> "$GITHUB_ENV"

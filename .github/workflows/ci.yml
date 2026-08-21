@@ -306,30 +306,16 @@ jobs:
       # The squash commit message is the pull request title and body (`#1379`).
       # `check:catalogue-floor` judges the last commit that touched the floor
       # file, which on a branch is the author's own — so a justified commit and
-      # an unjustified body both go green, then `main` goes red. Hand the text
-      # the squash will use to the same runner, through a file, never through
-      # an inline expression: the title is attacker-controlled.
+      # an unjustified body both go green, then `main` goes red.
+      #
+      # **The step is a composite action because `test` needs it too** (`#1545`),
+      # and `$GITHUB_ENV` does not cross jobs. What it does and why it writes a
+      # file rather than an inline expression is in the action.
       - name: Remember the text the squash will land
         if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_BODY: ${{ github.event.pull_request.body }}
-          HEAD_REF: ${{ github.event.merge_group.head_ref }}
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          file="$RUNNER_TEMP/catalogue-floor-pr.txt"
-          if [ "$EVENT_NAME" = pull_request ]; then
-            printf '%s\n\n%s\n' "$PR_TITLE" "$PR_BODY" > "$file"
-          else
-            n=$(printf '%s' "$HEAD_REF" | sed -n 's/.*\/pr-\([0-9]\+\)-.*/\1/p')
-            if [ -z "$n" ]; then
-              echo "could not read a pull request number from HEAD_REF=$HEAD_REF"
-              exit 1
-            fi
-            gh api "repos/${GITHUB_REPOSITORY}/pulls/$n" --jq '[.title, .body] | join("\n\n")' > "$file"
-          fi
-          echo "CATALOGUE_FLOOR_PR_TEXT_FILE=$file" >> "$GITHUB_ENV"
+        uses: ./.github/actions/remember-squash-text
+        with:
+          token: ${{ github.token }}
 
       # check:dist, check:catalogue-floor, check:migrations, typecheck —
       # everything that reads `dist/` and therefore cannot run in `tree`
@@ -469,6 +455,20 @@ jobs:
       # and nothing downstream can tell that from a fast one.
       - name: Relax the test database's durability
         run: npm run test:db:relax
+
+      # **`catalogue-budget.test.ts` weighs a raise the way the branch gate does**
+      # (`#1504`), which means it reads the pull request's own words — and it runs
+      # here, in `test`, not in `build`. `$GITHUB_ENV` does not cross jobs, so
+      # until `#1545` this variable was unset for the whole of the suite:
+      # `pullRequestText()` returned `''`, `raiseIsJustified('')` was false, and a
+      # pull request that added a tool and justified it in its body went red
+      # anyway. Same action as `build` uses, for the same reason and by the same
+      # name.
+      - name: Remember the text the squash will land
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+        uses: ./.github/actions/remember-squash-text
+        with:
+          token: ${{ github.token }}
 
       # Note that this cannot silently skip the database tests: with CI set and
       # DATABASE_URL missing, packages/db fails the run rather than reporting

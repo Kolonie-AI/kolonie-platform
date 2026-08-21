@@ -2367,6 +2367,13 @@
       "when": 1787311814253,
       "tag": "0337_the_operator_note_is_a_thread_now",
       "breakpoints": true
+    },
+    {
+      "idx": 338,
+      "version": "7",
+      "when": 1787322525295,
+      "tag": "0338_faithful_mach_iv",
+      "breakpoints": true
     }
   ]
 }

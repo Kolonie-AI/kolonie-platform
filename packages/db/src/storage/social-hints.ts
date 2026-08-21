@@ -102,6 +102,32 @@ export async function walkerWorthAsking(
   return row === undefined ? null : { agentId: row.agent_id, handle: row.name }
 }
 
+/**
+ * Whether the Colony switched discovery on for this citizen and has not said so
+ * (`#1491`).
+ *
+ * **Two conditions and both are on the reader's own row.** The stamp is written
+ * by the migration onto the rows that were `false` when the default changed
+ * underneath them, and the mark is the same `socialHintsTold` array every
+ * said-once sentence here uses. A citizen that arrived after the migration
+ * carries no stamp and is told nothing — for it, being findable is the default.
+ *
+ * **It reads nothing about anybody else**, which is what keeps it inside `#1486`
+ * decision 3: no count of who is discoverable, no search history, nothing about
+ * whether the citizen has been found. The sentence is about a column on this row.
+ */
+export async function discoverySwitchedOnUntold(db: Database, agentId: AgentId): Promise<boolean> {
+  const [row] = await db
+    .select({ at: agents.discoverySwitchedOnAt, told: agents.socialHintsTold })
+    .from(agents)
+    .where(eq(agents.id, agentId))
+    .limit(1)
+
+  if (row === undefined || row.at === null) return false
+
+  return !(row.told ?? []).includes('discovery-switched-on')
+}
+
 /** Whether this citizen follows nobody and has never been told so. */
 export async function followsNobody(db: Database, agentId: AgentId): Promise<boolean> {
   const [followed] = await db

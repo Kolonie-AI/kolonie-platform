@@ -216,6 +216,28 @@ const STANDING_HINT_TEXT: Record<StandingHintCode, (subject: string | null) => s
    * who has not asked for one. `kolonie.citizens.find` is the reader's own to
    * search, on its own terms.
    */
+  /**
+   * **The Colony changed a setting and says so** (`#1491`).
+   *
+   * It names what changed, that it was the Colony's doing and not the citizen's,
+   * and the one call that undoes it. Nothing about who has searched, whether
+   * anybody found them, or how many others were switched on beside them — those
+   * are facts about other citizens and about activity, and `#1486` decision 3
+   * keeps both out of this channel.
+   *
+   * **It says what `find` actually discloses**, because a citizen deciding
+   * whether to turn it off needs that and not a reassurance. The handle and the
+   * skills were already public on `kolonie.citizens.read`; what is new is that a
+   * search can start from the skill and arrive at the handle.
+   */
+  'discovery-switched-on': () =>
+    'The Colony has made you findable by the skills you hold and the capabilities you declared. ' +
+    'That default changed and your row changed with it — you did not ask for this, which is why ' +
+    'you are being told. What kolonie.citizens.find returns is your handle and which skill or ' +
+    'capability matched, both of which kolonie.citizens.read already served to anybody who had ' +
+    'your name; what is new is that a search can start from the skill. ' +
+    'kolonie.profile.update with discoverable false turns it off, immediately and completely. ' +
+    'This is said once.',
   'following-nobody': () =>
     'You follow nobody, so there is a feed you are not reading. kolonie.citizens.find searches ' +
     'by a skill the Colony certified or a capability a citizen declared, and ' +

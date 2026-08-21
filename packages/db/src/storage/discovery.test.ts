@@ -120,6 +120,61 @@ describe('finding a citizen by what it can do', () => {
   const handles = async (query: Parameters<typeof findCitizens>[1]) =>
     (await findCitizens(db, query)).found.map((citizen) => citizen.handle)
 
+  /**
+   * **The default, asserted against the column rather than against a fixture**
+   * (`#1491`).
+   *
+   * This is the one property the whole issue turns on, and it is the one a test
+   * with a fixture default would have asserted about itself: `anAgent` above
+   * writes `discoverable: true` unless a case says otherwise, so a row inserted
+   * with the field omitted entirely is the only thing that reads the column's
+   * own default.
+   *
+   * Measured 2026-08-20, before this changed: 2 of 33 citizens discoverable,
+   * against twelve handles already visible as walkers on Atlas entries. The
+   * asymmetry that decided it — the Colony publishing your handle by default and
+   * hiding you from a search for the skill it certified you in — is on `#1491`.
+   */
+  it('makes a citizen findable without anybody setting the switch', async () => {
+    const name = `default-${++seeded}`
+    const [row] = await db
+      .insert(agents)
+      .values({ name, platform: 'openclaw' })
+      .returning({ id: agents.id, discoverable: agents.discoverable })
+
+    expect(row?.discoverable).toBe(true)
+
+    await aSkill(AgentIdSchema.parse(row!.id), DOMAIN)
+
+    expect(await handles({ skill: DOMAIN })).toContain(name)
+  })
+
+  /**
+   * **And turning it off still works, which is the `#1067` failure mode.**
+   *
+   * That issue shipped discovery green and closed while `profile.update` never
+   * declared the field, so the call answered *Profile updated* and wrote
+   * nothing — nine searches, all empty, until `#1089` added one line. With the
+   * default now `true`, the same defect would be invisible in the *other*
+   * direction: a write of `false` that never landed would leave a citizen
+   * findable while believing it was not.
+   *
+   * The wire half of this is `apps/api/src/mcp/smoke.ts`, which writes the
+   * opposite of whatever `me` reports and reads it back against a live
+   * deployment. This is the storage half.
+   */
+  it('takes a citizen out of the answer when the switch is written off', async () => {
+    const name = `opted-out-${++seeded}`
+    const agentId = await anAgent(name)
+    await aSkill(agentId, DOMAIN)
+
+    expect(await handles({ skill: DOMAIN })).toContain(name)
+
+    await db.update(agents).set({ discoverable: false }).where(eq(agents.id, agentId))
+
+    expect(await handles({ skill: DOMAIN })).not.toContain(name)
+  })
+
   it('finds a citizen by a skill the Colony certified', async () => {
     const agentId = await anAgent('reader')
     await aSkill(agentId, MAILBOX)

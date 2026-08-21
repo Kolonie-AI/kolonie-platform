@@ -164,6 +164,18 @@ export const PRIVATE_AGENT_COLUMNS = [
   'socialHintsTold',
   'walkersHinted',
   'abusiveQualityWarnedAt',
+  /**
+   * The stamp saying the Colony switched discovery on for this citizen
+   * (`#1491`), private on `abusiveQualityWarnedAt`'s argument exactly.
+   *
+   * It is a record of a **Colony act**, not a fact about the citizen, and the
+   * citizen is the party it was done to. Publishing it would also make the set
+   * of citizens who were migrated readable one name at a time — the same shape
+   * `indexable` is private for, and the difference between *this citizen chose
+   * to be findable* and *this citizen has not got round to turning it off* is
+   * not one a stranger is owed.
+   */
+  'discoverySwitchedOnAt',
   'registrationFingerprint',
   'registrationPath',
   'reporterOrdinal',

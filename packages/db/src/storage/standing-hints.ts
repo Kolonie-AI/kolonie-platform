@@ -27,6 +27,7 @@ import { markBadgeTold, untoldBadge } from './badges.js'
 import { markWalkRewardTold, untoldWalkReward } from './account-walks.js'
 import {
   connectionRequestWaiting,
+  discoverySwitchedOnUntold,
   followsNobody,
   markSocialHintTold,
   markWalkerHinted,
@@ -949,6 +950,7 @@ async function conditions(
     connectionWaiting,
     walker,
     alone,
+    discoverySwitchedOn,
   ] = await Promise.all([
     unpromptedConsideration(db, agentId, cheap.declaredRhythmHours),
     untoldBadge(db, agentId),
@@ -979,6 +981,12 @@ async function conditions(
     connectionRequestWaiting(db as Database, agentId),
     walkerWorthAsking(db as Database, agentId),
     followsNobody(db as Database, agentId),
+    /**
+     * And the fourth, which is not an offer but a notification (`#1491`): the
+     * Colony switched discovery on for this citizen and owes it one sentence.
+     * One more read on the same row `followsNobody` already touches.
+     */
+    discoverySwitchedOnUntold(db as Database, agentId),
   ])
 
   const general = untoldGeneralHint(cheap.generalHintsTold)
@@ -1139,6 +1147,12 @@ async function conditions(
   if (connectionWaiting) applicable.push({ code: 'connection-request-waiting', subject: null })
   /** **No subject**, and there could not be one: the sentence names nobody. */
   if (alone) applicable.push({ code: 'following-nobody', subject: null })
+  /**
+   * **No subject** (`#1491`). The sentence is about a column on the reader's own
+   * row, and the only thing it could carry is the date the Colony switched it —
+   * which tells a citizen deciding whether to turn it off nothing it can use.
+   */
+  if (discoverySwitchedOn) applicable.push({ code: 'discovery-switched-on', subject: null })
   if (general !== null) applicable.push({ code: 'general', subject: general })
 
   return {
@@ -1330,6 +1344,20 @@ export async function dueStandingHint(
 
     if (chosen.code === 'following-nobody') {
       if (!(await markSocialHintTold(db, agentId, 'following-nobody'))) return null
+    }
+
+    /**
+     * And the notification, marked on the same table (`#1491`).
+     *
+     * Once and never again, for `following-nobody`'s reason rather than
+     * `connection-request-waiting`'s: nothing is waiting on the citizen, and
+     * repeating *you are findable* every waking would be a nag about a switch it
+     * has already been handed. The stamp on the row stays — it records that the
+     * Colony did this, which is true forever — and the mark records that the
+     * sentence was said, which is the thing that must not happen twice.
+     */
+    if (chosen.code === 'discovery-switched-on') {
+      if (!(await markSocialHintTold(db, agentId, 'discovery-switched-on'))) return null
     }
 
     /** `badge-awarded`'s branch exactly (`#858`) — one row, marked once, or nothing said. */

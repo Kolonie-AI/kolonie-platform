@@ -30,6 +30,86 @@ describe('looksLikeCredential', () => {
     }
   })
 
+  /**
+   * **The operator channel is where a person writes their own language**
+   * (`#1529`), and the guard read one. Measured 2026-08-21 against
+   * `packages/core/dist`: of these thirteen rows exactly the first was caught.
+   *
+   * `credentialFinding` states the case itself — *the answer is where a password
+   * is most likely to actually arrive, an operator who has just created an
+   * account is holding one* — and that is precisely the send path where a person
+   * is writing freely. A message in production carries a plaintext account
+   * password in a German sentence of the third shape below.
+   *
+   * **The Italian rows are the sharpest and are why the separator list had to
+   * widen too.** `password` is the ordinary Italian word, so the *label* is one
+   * the pattern already had; what it lacked was the copula. A vocabulary
+   * widening on its own would have left both of them missed.
+   *
+   * Accent-less spellings are here on purpose. People type them, and a channel
+   * that has lost its diacritics produces them.
+   */
+  it.each([
+    ['en', 'the password is Xk9-Placeholder'],
+    ['de', 'das Passwort ist Xk9-Placeholder'],
+    ['de', 'hier ist das Passwort: Xk9-Placeholder'],
+    ['de', 'Kennwort: Xk9-Placeholder'],
+    ['de', 'Zugangsdaten: Xk9-Placeholder'],
+    ['de', 'Der API-Schlüssel lautet Xk9-Placeholder'],
+    ['fr', 'le mot de passe est Xk9-Placeholder'],
+    ['fr', 'la clé API est Xk9-Placeholder'],
+    ['es', 'la contraseña es Xk9-Placeholder'],
+    ['es', 'la contrasena es Xk9-Placeholder'],
+    ['nl', 'het wachtwoord is Xk9-Placeholder'],
+    ['pt', 'a senha é Xk9-Placeholder'],
+    ['pt', 'a senha e Xk9-Placeholder'],
+    ['it', 'la password è Xk9-Placeholder'],
+    ['it', 'la password e Xk9-Placeholder'],
+  ])('catches a labelled secret written in %s', (_language, text) => {
+    expect(looksLikeCredential(text), text).toBe(true)
+  })
+
+  /**
+   * **The half that decides whether the widening was worth doing.** Every string
+   * here is an ordinary sentence in one of the six languages, containing the
+   * label and no secret — the same bar the English negatives below are held to,
+   * because a guard that refuses a person writing *the password is something you
+   * choose* has closed the channel in their language instead of only in English.
+   */
+  it.each([
+    ['de', 'Das Passwort ist etwas, das du dir aussuchst — sag es mir nicht.'],
+    ['de', 'Die Zugangsdaten sind schon im Vault, du musst mir nichts schicken.'],
+    ['de', 'Ich habe das Kennwort vergessen und frage dich lieber, statt zu raten.'],
+    ['fr', 'Le mot de passe est dans le coffre, je ne vous le demande pas.'],
+    ['es', 'La contraseña es algo que eliges tú, no me la digas.'],
+    ['nl', 'Het wachtwoord is al opgeslagen in de kluis, dus stuur het niet.'],
+    ['pt', 'A senha é escolhida por si, não preciso de a saber.'],
+    ['it', 'la password e nome utente sono nel vault'],
+  ])('lets an ordinary sentence in %s through', (_language, text) => {
+    expect(looksLikeCredential(text), text).toBe(false)
+  })
+
+  /**
+   * **Alternation is ordered, not greedy, and both lists were bitten by it.**
+   *
+   * With `is` before `ist`, `das Passwort ist Xk9-…` matched the separator `is`,
+   * took `t` as the value and left ` Xk9-…` as the rest — at which point
+   * `looksLikeAValue` correctly answered that a bare letter mid-sentence is not a
+   * value, and the disclosure went through *a guard that had matched it*. The
+   * same shape one language along with `es` inside `est`.
+   *
+   * Fixed by sorting longest-first and giving a word separator the same boundary
+   * the label carries. This is the rejection case for both.
+   */
+  it.each([
+    'das Passwort ist Xk9-Placeholder',
+    'die Zugangsdaten sind Xk9-Placeholder',
+    'le mot de passe est Xk9-Placeholder',
+    'het wachtwoord zijn Xk9-Placeholder',
+  ])('does not let a longer separator be shadowed by a shorter one: %s', (text) => {
+    expect(credentialFinding(text)?.reason).toBe('labelled-secret')
+  })
+
   it('catches a private key block, a TOTP URI and a vendor-prefixed key', () => {
     for (const text of [
       'here you go\n-----BEGIN OPENSSH PRIVATE KEY-----\nb3Blbn\n',

@@ -53,6 +53,7 @@ import { registerEmailRoutes } from './routes/email.js'
 import { registerSmsRoutes } from './routes/sms.js'
 import { registerInboundMailRoute } from './routes/email-inbound.js'
 import { registerAccountRoutes } from './routes/accounts.js'
+import { registerSupportRoutes } from './routes/support.js'
 import { registerMailboxRoutes } from './routes/mailboxes.js'
 import { registerKeyRoutes } from './routes/keys.js'
 import { registerSolanaRoutes } from './routes/solana.js'
@@ -724,6 +725,7 @@ export function buildApp({
       // condition as the one above and for the same reason: no secret, no route.
       registerTelegramRoutes(v1, routes)
       registerAccountRoutes(v1, routes)
+      registerSupportRoutes(v1, routes)
       registerConsoleRoutes(v1, routes)
       registerMailboxRoutes(v1, routes)
       registerKeyRoutes(v1, routes)

@@ -124,7 +124,12 @@ const MINT_SURFACES: readonly {
       openWebsiteChallenge(agentId, {
         ...fakeWebsite(),
         obstruction,
-        challenges: { mint: () => Promise.reject(anOutage()) },
+        challenges: {
+          mint: () => Promise.reject(anOutage()),
+          // `#1606` put a token reader on this interface. The outage this
+          // case is about is the mint above, which never gets past it.
+          openTokens: () => Promise.resolve([]),
+        },
       }),
   },
   {

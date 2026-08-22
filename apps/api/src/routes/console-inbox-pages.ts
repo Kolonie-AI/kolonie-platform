@@ -6,8 +6,10 @@ import {
   credentialRefusalMessage,
   AgentIdSchema,
   ConversationIdSchema,
+  OPERATOR_ANSWER_BODIES,
   OPERATOR_ANSWER_LABELS,
   OperatorAnswerKindSchema,
+  answerKindOfBody,
   type AgentId,
   type HumanId,
 } from '@kolonie-ai/core'
@@ -145,13 +147,19 @@ export function registerConsoleInboxPages(
     }
 
     /**
-     * A declaration carries no body of its own (`#1093`).
+     * A declaration carries no body of its own (`#1093`) — **and a request that
+     * sends both is now refused rather than silently having one dropped**
+     * (`#1548`).
      *
-     * The typed text is dropped rather than sent alongside, so the sentence a
-     * citizen reads is always the canonical one for the button that was pressed.
-     * The two checks below are about free text and have nothing to check when
-     * there is none: the Colony wrote the words.
+     * This is the JSON door; no page renders a form posting here since `#1547`,
+     * and the inbox's one form derives the tag from the body instead. What
+     * reaches this route with a `kind` is a caller declaring, and a caller that
+     * also sent words has made a request whose two halves disagree. Dropping one
+     * is what `#1548` is named for: *nothing else a person uses does that*.
+     * Saying so costs a caller one corrected call and costs nobody a sentence.
      */
+    if (declared.success && written !== '') return refuse(messageDeclarationError.message)
+
     if (!declared.success) {
       if (written.length < MESSAGE_BODY_MIN_LENGTH || written.length > MESSAGE_BODY_MAX_LENGTH) {
         return refuse(messageBodyError.message)
@@ -194,6 +202,8 @@ export function registerConsoleInboxPages(
       readonly error?: string
       readonly status?: number
       readonly sent?: boolean
+      /** What the box holds when it is drawn again (`#1548`). */
+      readonly body?: string
     } = {},
   ): Promise<FastifyReply> => {
     const desk = deps.operatorMessaging
@@ -256,6 +266,7 @@ export function registerConsoleInboxPages(
         writable,
         ...(outcome.error === undefined ? {} : { error: outcome.error }),
         ...(outcome.sent === true ? { sent: true } : {}),
+        ...(outcome.body === undefined ? {} : { body: outcome.body }),
       }),
     )
   }
@@ -587,29 +598,52 @@ export function registerConsoleInboxPages(
     )
     if (found === undefined) return consoleNotFound(reply, request)
 
-    const { body, kind } = (request.body ?? {}) as { body?: unknown; kind?: unknown }
+    const { body, fill } = (request.body ?? {}) as { body?: unknown; fill?: unknown }
     const written = typeof body === 'string' ? body.trim() : ''
-    const declared = OperatorAnswerKindSchema.safeParse(kind)
 
     const refuse = (message: string) =>
       inboxThread(request, reply, signedIn, {
         error: message,
         status: ERROR_STATUS.validation_failed,
+        body: written,
       })
 
-    if (kind !== undefined && !declared.success) return refuse(messageDeclarationError.message)
+    /**
+     * **A press that fills rather than sends** (`#1548`).
+     *
+     * The console has no script, so *put this sentence in the box* is a round
+     * trip. What comes back is the sentence, editable, in the field that will
+     * actually be sent — and **whatever was already typed is kept under it**,
+     * because discarding it is the defect this issue is about. A person who
+     * pressed by mistake still has their words.
+     */
+    const asked = OperatorAnswerKindSchema.safeParse(fill)
+    if (fill !== undefined) {
+      if (!asked.success) return refuse(messageDeclarationError.message)
 
-    if (!declared.success) {
-      if (written.length < MESSAGE_BODY_MIN_LENGTH || written.length > MESSAGE_BODY_MAX_LENGTH) {
-        return refuse(messageBodyError.message)
-      }
-
-      const finding = credentialFinding(written)
-      if (finding !== null) return refuse(credentialRefusalMessage(finding))
+      const sentence = OPERATOR_ANSWER_BODIES[asked.data]
+      return inboxThread(request, reply, signedIn, {
+        body: written === '' ? sentence : `${sentence}\n\n${written}`,
+      })
     }
 
+    if (written.length < MESSAGE_BODY_MIN_LENGTH || written.length > MESSAGE_BODY_MAX_LENGTH) {
+      return refuse(messageBodyError.message)
+    }
+
+    const finding = credentialFinding(written)
+    if (finding !== null) return refuse(credentialRefusalMessage(finding))
+
+    /**
+     * **The tag follows the body, not the button** (`#1548`). A body that *is* a
+     * canonical sentence carries its `answerKind`, so `#1093`'s guarantee to the
+     * citizen is intact: anything tagged *I have done it* says only that. An
+     * edited one is an ordinary message.
+     */
+    const declared = answerKindOfBody(written)
+
     const result = await desk.send(signedIn.human.id, found.agentId as AgentId, {
-      ...(declared.success ? { answerKind: declared.data } : { body: written }),
+      ...(declared === undefined ? { body: written } : { answerKind: declared }),
       conversationId: thread.data,
     })
 

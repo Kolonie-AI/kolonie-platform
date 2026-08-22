@@ -16,7 +16,7 @@ import { sourceResolve } from '../../scripts/source-condition.mjs'
  * than why isolation was turned off everywhere — a change here that makes the
  * suite faster and the check weaker is worse than no change (`#290`).
  */
-const ISOLATED = ['src/avatar.test.ts', 'src/website.test.ts']
+const ISOLATED = ['src/avatar.test.ts', 'src/website.test.ts', 'src/atlas/provider-icon.test.ts']
 
 const EVERY_TEST = ['src/**/*.test.ts']
 

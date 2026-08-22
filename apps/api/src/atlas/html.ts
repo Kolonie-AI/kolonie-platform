@@ -1486,6 +1486,43 @@ function shelfRest(category: string, size: number, shown: number, worked: boolea
  * than a form with blanks in it.
  */
 function indexRow(entry: AtlasPublicEntry): string {
+  /**
+   * **The chips after the kinds, joined rather than concatenated** (`#1401`).
+   *
+   * Every one of the three can be absent — `rowCost` and `rowDirection` return
+   * `''` when the recipes disagree or say nothing, and since decision 3 the need
+   * chip does too. The separator used to be written into the line before them,
+   * so a row with none of the three ended in a dash pointing at nothing. It is
+   * the ordinary cost of a hard-coded separator and the reason this is a list.
+   */
+  const chips = [
+    /**
+     * **A chip and not the tail of a sentence** (`#1164`). It is the one fact
+     * on the row that decides whether a reader has to volunteer an afternoon,
+     * and it was the last clause of a run-on line that began with the kinds.
+     * The words are {@link operatorLine}'s exactly, so the fact is unchanged
+     * and what moved is where the eye finds it.
+     *
+     * **And it is absent when nobody has settled it** (`#1401` decision 3).
+     * Measured 2026-08-22 on `/atlas/search?earn=bounty-board`: twenty-five
+     * tiles, **twenty-five need chips**, every one of them saying *who is needed
+     * is not known*. A fact printed on every row is not one a reader can use to
+     * tell two rows apart, and here it was not even new — both unknown wordings
+     * open by repeating the walk status the mark beside them already carries.
+     *
+     * **This does not undo `#1141`.** That issue found *nobody has walked this*
+     * printed next to a walked mark and split one string into four to stop it;
+     * the four are still what the provider page says, where *has anybody
+     * established this* is the page's own subject. What changes is that the tile
+     * stops answering it when the answer is *no*.
+     */
+    entry.operatorNeed === 'unknown'
+      ? ''
+      : `<span class="k-atlas-need">${escape(operatorLine(entry, atlasIsWalked(entry)))}</span>`,
+    rowCost(entry),
+    rowDirection(entry),
+  ].filter((chip) => chip !== '')
+
   return (
     `<li><a href="${escape(entry.path)}">${escape(entry.title)}</a>` +
     indexStatusMark(entry) +
@@ -1507,17 +1544,8 @@ function indexRow(entry: AtlasPublicEntry): string {
     (entry.description === null
       ? ''
       : `<br><small class="k-atlas-said">${escape(entry.description)}</small>`) +
-    `<br><small>${escape(kindsShown(entry))}${rowEarn(entry)}${rowProved(entry)}${escape(indexFigure(entry))} — ` +
-    /**
-     * **A chip and not the tail of a sentence** (`#1164`). It is the one fact
-     * on the row that decides whether a reader has to volunteer an afternoon,
-     * and it was the last clause of a run-on line that began with the kinds.
-     * The words are {@link operatorLine}'s exactly, so the fact is unchanged
-     * and what moved is where the eye finds it.
-     */
-    `<span class="k-atlas-need">${escape(operatorLine(entry, atlasIsWalked(entry)))}</span>` +
-    rowCost(entry) +
-    rowDirection(entry) +
+    `<br><small>${escape(kindsShown(entry))}${rowEarn(entry)}${rowProved(entry)}${escape(indexFigure(entry))}` +
+    (chips.length === 0 ? '' : ` — ${chips.join('')}`) +
     '</small></li>'
   )
 }

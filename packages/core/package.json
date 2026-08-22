@@ -1,6 +1,6 @@
 {
   "name": "@kolonie-ai/core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Shared domain model, schemas and types for the Kolonie AI platform",
   "license": "Apache-2.0",
   "private": false,

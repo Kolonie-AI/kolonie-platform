@@ -382,6 +382,24 @@ export const ShareVaultEntryRequestSchema = z
 export type ShareVaultEntryRequest = z.infer<typeof ShareVaultEntryRequestSchema>
 
 /**
+ * Whether the Colony's one notification about a share reached a bound channel
+ * (`#1575`).
+ *
+ * **Informational and never a share refusal.** The durable share is the channel;
+ * the notification is the knock that brings a person back to it. Reporting the
+ * knock separately means a failed send cannot destroy a share that is already
+ * live, while a citizen can still decide whether to tell its operator another
+ * way.
+ */
+export const VaultShareNotifyStatusSchema = z.enum([
+  'delivered',
+  'no-address',
+  'capped',
+  'undeliverable',
+])
+export type VaultShareNotifyStatus = z.infer<typeof VaultShareNotifyStatusSchema>
+
+/**
  * What a share answers with: the entry, now carrying its share.
  *
  * `extended` rather than `created`, in the shape `SetVaultEntryResponse` uses
@@ -392,6 +410,8 @@ export type ShareVaultEntryRequest = z.infer<typeof ShareVaultEntryRequestSchema
 export const ShareVaultEntryResponseSchema = z.object({
   entry: VaultEntrySchema,
   extended: z.boolean(),
+  /** What happened to the one notification attempt; the share stands in every case. */
+  notifyStatus: VaultShareNotifyStatusSchema,
   /**
    * The conversation it was attached to, or null (`#1441`).
    *

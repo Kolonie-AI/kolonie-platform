@@ -35,6 +35,8 @@ import {
   consultationFunnel,
   ruleHealth,
   handlesOf,
+  linkedOperator,
+  liveOperatorPageToken,
   markConsulted,
   recordDoctorFeedback,
   checkThrottle,
@@ -209,6 +211,7 @@ import { databaseAccountThreads } from './account-threads.js'
 import { usableSealingKey } from './operator-drops.js'
 import { databaseOperatorShares } from './operator-shares.js'
 import { operatorNotifierFor } from './operator-notifier.js'
+import { operatorVaultShareNotifier } from './vault-share-notifier.js'
 import {
   notifyOperatorAboutThread,
   type OperatorThreadNotifyDependencies,
@@ -1807,6 +1810,16 @@ const app = buildApp({
         ? process.env[OPERATOR_DROP_SEALING_KEY_VAR]
         : undefined,
     ),
+    notifier: operatorVaultShareNotifier({
+      recipient: (agentId) => linkedOperator(db, agentId),
+      pageToken: (agentId) => liveOperatorPageToken(db, agentId),
+      telegram: operatorTelegram,
+      mailer: mail.operatorMailer,
+      consoleUrl: process.env['CONSOLE_URL']?.trim() || undefined,
+      allowance: supportSurface,
+      log,
+    }),
+    log,
   },
   /**
    * The conversation about an account (`#930`).

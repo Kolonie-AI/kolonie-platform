@@ -13,10 +13,12 @@ import {
   type DeleteVaultEntryResponse,
   type GetVaultEntryResponse,
   type ListVaultEntriesResponse,
+  type Log,
   type SetVaultEntryResponse,
   type ShareVaultEntryResponse,
   type Timestamp,
   type UnshareVaultEntryResponse,
+  type VaultShareNotifyStatus,
 } from '@kolonie-ai/core'
 import {
   attachShareToConversation,
@@ -38,6 +40,7 @@ import {
   type VaultShareRow,
 } from '@kolonie-ai/db'
 import { fieldErrors } from './validation.js'
+import type { VaultShareNotifier } from './vault-share-notifier.js'
 
 /**
  * Everything the vault needs from the outside world.
@@ -124,6 +127,10 @@ export interface VaultStore {
 
 export interface VaultDependencies {
   readonly vault: VaultStore
+  /** The one knock on a bound operator channel; absent is reported, never refused. */
+  readonly notifier?: VaultShareNotifier | undefined
+  /** Used only when a notifier throws across its own non-failing contract. */
+  readonly log?: Log | undefined
 }
 
 export function databaseVault(db: Database, sealingKey?: string | undefined): VaultStore {
@@ -313,6 +320,7 @@ const NO_SEALING_KEY: ApiError = {
 export async function shareVaultEntry(
   token: string,
   agentId: AgentId,
+  agentName: string,
   rawKey: string | undefined,
   body: unknown,
   deps: VaultDependencies,
@@ -408,6 +416,27 @@ export async function shareVaultEntry(
     if (attached === 'attached') attachedTo = parsed.data.conversationId
   }
 
+  /**
+   * The share and its attachment are already durable before a channel is tried.
+   * A notification is a way back to the share, not a condition of its existence.
+   */
+  let notifyStatus: VaultShareNotifyStatus = 'undeliverable'
+  if (deps.notifier !== undefined) {
+    try {
+      notifyStatus = await deps.notifier.notify({
+        agentId,
+        agentName,
+        purpose: parsed.data.purpose,
+      })
+    } catch (error) {
+      deps.log?.warn('a vault share notification failed outside its adapter', {
+        event: 'vault.share.notify.failed',
+        channel: 'unknown',
+        reason: error instanceof Error ? error.name : 'unknown',
+      })
+    }
+  }
+
   const read = await deps.vault.get(token, agentId, named.key)
 
   return {
@@ -418,6 +447,7 @@ export async function shareVaultEntry(
       // what `kolonie.vault.list` will tell it on the next waking.
       entry: entryOr(read, named.key, shared.share),
       extended: shared.extended,
+      notifyStatus,
       attachedTo,
     },
   }

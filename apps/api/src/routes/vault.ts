@@ -178,7 +178,14 @@ export function registerVaultRoutes(v1: FastifyInstance, deps: RouteDependencies
     }
 
     const { key } = request.params as { key?: string }
-    const result = await shareVaultEntry(token, caller.id, key, request.body, vault)
+    const result = await shareVaultEntry(
+      token,
+      caller.id,
+      caller.profile.name,
+      key,
+      request.body,
+      vault,
+    )
 
     if (result.outcome === 'rejected') {
       return reply.status(ERROR_STATUS[result.error.code]).send(result.error)

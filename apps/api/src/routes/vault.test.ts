@@ -2,7 +2,12 @@ import { fakeHumans } from '../__fixtures__/humans.js'
 import { fakeArtefactChallenges } from '../__fixtures__/artefact.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
-import { ERROR_STATUS, VAULT_MAX_ENTRIES, type AgentId } from '@kolonie-ai/core'
+import {
+  ERROR_STATUS,
+  VAULT_MAX_ENTRIES,
+  type AgentId,
+  type VaultShareNotifyStatus,
+} from '@kolonie-ai/core'
 import { buildApp } from '../app.js'
 import { fakeRegistry } from '../__fixtures__/registry.js'
 import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
@@ -43,7 +48,7 @@ import { fakeMemory } from '../__fixtures__/memory.js'
 import { fakeSolana } from '../__fixtures__/solana.js'
 import { fakeAccounts } from '../__fixtures__/accounts.js'
 import { fakeAccountOffers } from '../__fixtures__/account-offers.js'
-import { fakeConsole } from '../__fixtures__/console.js'
+import { fakeConsole, recordingLog, type RecordingLog } from '../__fixtures__/console.js'
 import { fakeVault, type FakeVault } from '../__fixtures__/vault.js'
 import { VAULT_FULL, VAULT_SEALED_WITH_ANOTHER_KEY, VAULT_SHARED, VAULT_SPENT } from '../vault.js'
 import { fakeErasureDesk } from '../__fixtures__/erasure.js'
@@ -51,16 +56,25 @@ import { erasure } from '../erasure.js'
 import { noObstruction } from '../__fixtures__/obstruction.js'
 import { arrivalReports } from '../arrival-reports.js'
 import { fakeArrivalDesk } from '../__fixtures__/arrivals.js'
+import type { VaultShareNotification } from '../vault-share-notifier.js'
 
 let app: FastifyInstance
 let store: FakeStore
 let vault: FakeVault
 let apiKey: string
 let agentId: AgentId
+let notifications: VaultShareNotification[]
+let notifyStatus: VaultShareNotifyStatus
+let notifyFailure: Error | null
+let log: RecordingLog
 
 beforeEach(async () => {
   store = fakeStore()
   vault = fakeVault()
+  notifications = []
+  notifyStatus = 'delivered'
+  notifyFailure = null
+  log = recordingLog()
   app = buildApp({
     arrivals: arrivalReports({ desk: fakeArrivalDesk() }),
     humans: fakeHumans(),
@@ -107,7 +121,17 @@ beforeEach(async () => {
     vetting: fakeVetting(),
     authenticator: fakeAuthenticator(),
     academy: fakeAcademy(),
-    vault: { vault },
+    vault: {
+      vault,
+      notifier: {
+        notify: async (notification) => {
+          notifications.push(notification)
+          if (notifyFailure !== null) throw notifyFailure
+          return notifyStatus
+        },
+      },
+      log,
+    },
     accounts: fakeAccounts(),
     accountOffers: { offers: fakeAccountOffers() },
     console: fakeConsole(),
@@ -541,8 +565,11 @@ describe('sharing an entry with an operator', () => {
     expect(shared.body).not.toContain('hunter2')
     expect(shared.json()).toMatchObject({
       extended: false,
+      notifyStatus: 'delivered',
       entry: { key: 'github', share: { purpose: 'put a card on it' } },
     })
+    expect(notifications).toEqual([{ agentId, agentName: 'canary', purpose: 'put a card on it' }])
+    expect(JSON.stringify(notifications)).not.toContain('hunter2')
   })
 
   it('refuses a body carrying a value at all', async () => {
@@ -570,6 +597,9 @@ describe('sharing an entry with an operator', () => {
     expect(entries.find((entry) => entry.key === 'mailbox')?.share).toBeNull()
     // Still no values in a listing, share or no share.
     expect(listed.body).not.toContain('hunter2')
+    // The explicit share is the one notification event. Reading its state later
+    // does not turn into a reminder.
+    expect(notifications).toHaveLength(1)
   })
 
   it('extends rather than opening a second share, and says which it did', async () => {
@@ -584,6 +614,34 @@ describe('sharing an entry with an operator', () => {
       extended: true,
       entry: { share: { purpose: 'a card and the billing address' } },
     })
+    // Two explicit shares say two things; later reads say none.
+    expect(notifications).toHaveLength(2)
+  })
+
+  it('creates the share and reports when no notification address is bound', async () => {
+    await put('github', { value: 'hunter2' })
+    notifyStatus = 'no-address'
+
+    const shared = await share('github', { purpose: 'put a card on it' })
+
+    expect(shared.statusCode).toBe(201)
+    expect(shared.json()).toMatchObject({ notifyStatus: 'no-address', entry: { share: {} } })
+  })
+
+  it('keeps the share live when notification itself fails', async () => {
+    await put('github', { value: 'hunter2' })
+    notifyFailure = new Error('notification failed')
+
+    const shared = await share('github', { purpose: 'put a card on it' })
+
+    expect(shared.statusCode).toBe(201)
+    expect(shared.json()).toMatchObject({ notifyStatus: 'undeliverable', entry: { share: {} } })
+    expect((await get('github')).json().entry.share).not.toBeNull()
+    expect(log.lines()).toEqual([
+      expect.objectContaining({
+        fields: expect.objectContaining({ event: 'vault.share.notify.failed' }),
+      }),
+    ])
   })
 
   it('refuses a window longer than the maximum', async () => {

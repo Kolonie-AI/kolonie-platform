@@ -136,6 +136,7 @@ describe('whether anybody got through at a provider', () => {
             about: null,
             anySighted: false,
             anyAbandoned: false,
+            anyOperatorOpened: false,
           },
         }),
       ),

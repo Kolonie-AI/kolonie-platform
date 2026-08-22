@@ -150,6 +150,7 @@ export async function atlasFigures(
     walk_about: string | null
     walk_sighted: boolean
     walk_abandoned: boolean
+    walk_operator_opened: boolean
   }>(sql`
     with held as (
       select kind, provider, agent_id, proved, proved_at, created_at, status, for_work
@@ -188,6 +189,10 @@ export async function atlasFigures(
              account_walks.scrubbed_prose as scrubbed_prose,
              account_walks.prose_status as prose_status,
              account_walks.finished_at as finished_at,
+             -- Whether a person did any of it, as the walker declared it
+             -- (#1543). Read into one boolean per entry below and never a
+             -- count, exactly as walk_sighted is.
+             account_walks.assistance as assistance,
              agents.platform as platform
         from account_walks
         join agents on agents.id = account_walks.agent_id
@@ -369,7 +374,37 @@ export async function atlasFigures(
                   and w.outcome = 'sighted' and ${walkAnswers})) as walk_sighted,
       (exists (select 1 from walked w
                 where w.kind = p.kind and w.provider = p.provider
-                  and w.outcome = 'abandoned' and ${walkAnswers})) as walk_abandoned
+                  and w.outcome = 'abandoned' and ${walkAnswers})) as walk_abandoned,
+      -- **Whether the account here was opened with a person's help** (#1543),
+      -- which #1421 calls the strongest fact the Atlas can hold about a
+      -- provider. A boolean and never a count, on walk_sighted's rule: *somebody's
+      -- operator opened this* names nobody, and *two citizens' operators did* is
+      -- a number about two citizens.
+      --
+      -- Only a walk that got through sets it. An operator who helped at a walk
+      -- that stopped anyway did not open an account, and reporting it as one
+      -- would say a provider is reachable with a person when nobody has reached
+      -- it.
+      --
+      -- Both operator- values, because the question is *did the citizen get in
+      -- alone* and neither of them is alone. They stay apart on the row, where
+      -- the acquisition/control line is what is being recorded.
+      --
+      -- **Never on a provider whose terms forbid an agent-held account.** An
+      -- operator holding it there is not a way in, and marking it as one would
+      -- publish the opposite of #1421's rule. Read off the published entry
+      -- rather than off the walk, because the terms are the provider's.
+      (exists (select 1 from walked w
+                where w.kind = p.kind and w.provider = p.provider
+                  and w.outcome = 'proved'
+                  and w.assistance in ('operator-provided', 'operator-performed')
+                  and ${walkAnswers})
+       and not exists (select 1 from provider_recipes r
+                        where r.provider = p.provider
+                          and jsonb_typeof(r.walls) = 'array'
+                          and exists (select 1 from jsonb_array_elements(r.walls) wall
+                                       where wall ->> 'kind' = 'terms-forbid-agents')))
+        as walk_operator_opened
       from pairs p
      where ${only}
      order by p.kind, p.provider
@@ -501,6 +536,7 @@ function walkedOf(
     walk_about: string | null
     walk_sighted: boolean
     walk_abandoned: boolean
+    walk_operator_opened: boolean
   },
   suppressed: boolean,
 ): AtlasWalked {
@@ -543,6 +579,7 @@ function walkedOf(
      */
     anySighted: row.walk_sighted,
     anyAbandoned: row.walk_abandoned,
+    anyOperatorOpened: row.walk_operator_opened,
   }
 }
 

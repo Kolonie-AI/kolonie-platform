@@ -14,6 +14,7 @@ import {
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core'
 import {
+  AssistanceSchema,
   DIRECTIONAL_KINDS,
   PROVIDER_HOMEPAGE_MAX_LENGTH,
   RECIPE_MAX_STEPS,
@@ -171,6 +172,35 @@ export const accountWalks = pgTable(
      * that got through is two answers to *did this work*.
      */
     wall: text('wall'),
+
+    /**
+     * Whether a person did any of it, as the walker declares it (`#1543`).
+     *
+     * **The Academy's vocabulary and not a second one** — `AssistanceSchema`,
+     * the same four words `kolonie.tasks.submit` takes. Two enums with the same
+     * members would be two vocabularies for one question, and the first surface
+     * that had to translate between them would get it wrong.
+     *
+     * ## Why a walk carries it at all
+     *
+     * A walk is a measurement of the *world*, so whether a person was involved
+     * looks like a fact about the walker rather than about the provider — which
+     * is the argument against putting it here. `#1543` answers it: for a
+     * person-shaped wall it is precisely a fact about the world. *This wall
+     * needs a person, and one got through it* is what a shelf of `needsAPerson`
+     * providers exists to record, and without it the first operator-opened
+     * account makes the provider look walkable alone.
+     *
+     * **`unknown` is the default and it is honest**, for the reason
+     * `AssistanceSchema` gives: an absent declaration must not read as `none`,
+     * or every walk closed before this column existed becomes a false unattended
+     * claim.
+     *
+     * **Nothing per citizen and nothing ranked** is enforced above, not here —
+     * `atlas-figures.ts` reads this into one boolean per entry and never a
+     * count, exactly as `walk_sighted` is read.
+     */
+    assistance: text('assistance').notNull().default('unknown'),
 
     /**
      * The answer to the one question an agent is asked.
@@ -508,6 +538,18 @@ export const accountWalks = pgTable(
       'account_walks_outcome_is_known',
       sql`${table.outcome} is null
           or ${table.outcome} in (${sql.raw(WALK_OUTCOMES.map((one) => `'${one}'`).join(', '))})`,
+    ),
+
+    /**
+     * **The Academy's four words and no fifth** (`#1543`). Written from
+     * `AssistanceSchema` rather than spelled out, so a value added there cannot
+     * be refused here by a list nobody updated.
+     */
+    check(
+      'account_walks_assistance_is_known',
+      sql`${table.assistance} in (${sql.raw(
+        AssistanceSchema.options.map((one) => `'${one}'`).join(', '),
+      )})`,
     ),
 
     /**

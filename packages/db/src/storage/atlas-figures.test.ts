@@ -6,7 +6,7 @@ import {
   RegisterAgentRequestSchema,
   type AgentId,
 } from '@kolonie-ai/core'
-import { sql } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { atlasFigures } from './atlas-figures.js'
@@ -17,6 +17,8 @@ import {
   walkInProgress,
 } from './account-walks.js'
 import { registerAgent } from './agents.js'
+import { writeProviderRecipe } from './provider-recipes.js'
+import { providerRecipes } from '../schema/provider-recipes.js'
 
 const target = databaseTestTarget()
 const kind = AccountKindSchema.parse('mailbox')
@@ -770,6 +772,107 @@ describe('the measured figures behind an Atlas entry', () => {
       await finishWalk(db, walkId, { outcome: 'abandoned' })
 
       expect((await only('silent.test'))?.walked.homepage).toBeNull()
+    })
+
+    /**
+     * **Whether a person opened the account** (`#1543`), which `#1421` calls the
+     * strongest fact the Atlas can hold about a provider. Until this, *a citizen
+     * that got in alone* and *a citizen whose operator cleared a CAPTCHA for it*
+     * were the same row.
+     */
+    describe('an account opened with a person’s help', () => {
+      const proveWith = async (
+        provider: string,
+        name: string,
+        assistance: 'none' | 'operator-provided' | 'operator-performed' | undefined,
+        outcome: 'proved' | 'abandoned' = 'proved',
+      ) => {
+        const agentId = await citizen(name)
+        const walkId = await walkInProgress(db, agentId, { kind, provider })
+        await recordWalkStep(db, walkId, { actor: 'agent' })
+        await finishWalk(db, walkId, {
+          outcome,
+          ...(assistance === undefined ? {} : { assistance }),
+        })
+      }
+
+      it('says so when a walker declared that its operator carried out a step', async () => {
+        await proveWith('assisted.test', 'driven-walker', 'operator-performed')
+
+        expect((await only('assisted.test'))?.walked.anyOperatorOpened).toBe(true)
+      })
+
+      /**
+       * The reader's question is *did the citizen get in alone*, and being handed
+       * a credential is not alone. The two stay apart on the walk, where the
+       * acquisition/control line is what is being recorded.
+       */
+      it('says so for a handed-over credential too', async () => {
+        await proveWith('handed.test', 'given-walker', 'operator-provided')
+
+        expect((await only('handed.test'))?.walked.anyOperatorOpened).toBe(true)
+      })
+
+      it('says nothing of a walker that did every step itself', async () => {
+        await proveWith('alone.test', 'lone-walker', 'none')
+
+        expect((await only('alone.test'))?.walked.anyOperatorOpened).toBe(false)
+      })
+
+      /**
+       * **`unknown` is not a claim**, which is `AssistanceSchema`'s own rule: an
+       * absent declaration must not become a false claim in either direction.
+       */
+      it('says nothing of a walk that declared nothing', async () => {
+        await proveWith('undeclared.test', 'quiet-walker', undefined)
+
+        expect((await only('undeclared.test'))?.walked.anyOperatorOpened).toBe(false)
+      })
+
+      /**
+       * An operator who helped at a walk that stopped anyway did not open an
+       * account, and reporting it as one would say a provider is reachable with a
+       * person when nobody has reached it.
+       */
+      it('says nothing when the assisted walk did not get through', async () => {
+        await proveWith(
+          'helped-and-stopped.test',
+          'stopped-walker',
+          'operator-performed',
+          'abandoned',
+        )
+
+        expect((await only('helped-and-stopped.test'))?.walked.anyOperatorOpened).toBe(false)
+      })
+
+      /**
+       * **The one wall that takes it off the entry whatever else is true**
+       * (`#1421`): an operator holding the account there is not a way in, and
+       * marking it as one would publish the opposite of the rule.
+       */
+      it('never says so of a provider whose terms forbid an agent-held account', async () => {
+        await proveWith('forbidden.test', 'operator-let-in', 'operator-performed')
+
+        /**
+         * **After the walk, because closing one republishes the entry's walls.**
+         * The order is also the truer one: the terms are recorded on the entry,
+         * and the question is what the figures say once they are.
+         */
+        await writeProviderRecipe(db, {
+          kind,
+          provider: 'forbidden.test',
+          title: 'forbidden.test',
+          status: 'measured',
+          category: 'data-apis',
+          steps: [],
+        })
+        await db
+          .update(providerRecipes)
+          .set({ walls: [{ kind: 'terms-forbid-agents', reportedBy: 1, lastReportedAt: null }] })
+          .where(eq(providerRecipes.provider, 'forbidden.test'))
+
+        expect((await only('forbidden.test'))?.walked.anyOperatorOpened).toBe(false)
+      })
     })
 
     it('gives a provider audience only the provider it named', async () => {

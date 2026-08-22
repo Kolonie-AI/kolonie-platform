@@ -1048,6 +1048,7 @@ describe('the Atlas on the website host', () => {
         about: null,
         anySighted: false,
         anyAbandoned: false,
+        anyOperatorOpened: false,
       },
     }
 
@@ -1167,6 +1168,7 @@ describe('the Atlas on the website host', () => {
             about: null,
             anySighted: false,
             anyAbandoned: false,
+            anyOperatorOpened: false,
           },
         })
         one.recipes.brief(briefing)
@@ -1497,6 +1499,7 @@ describe('the Atlas on the website host', () => {
           about: null,
           anySighted: false,
           anyAbandoned: false,
+          anyOperatorOpened: false,
         },
       })
       await app.ready()
@@ -1530,6 +1533,7 @@ describe('the Atlas on the website host', () => {
           about: null,
           anySighted: true,
           anyAbandoned: false,
+          anyOperatorOpened: false,
         },
       })
       await app.ready()
@@ -1558,6 +1562,7 @@ describe('the Atlas on the website host', () => {
           about: null,
           anySighted: false,
           anyAbandoned: true,
+          anyOperatorOpened: false,
         },
       })
       await app.ready()
@@ -1594,6 +1599,7 @@ describe('the Atlas on the website host', () => {
           about: null,
           anySighted: true,
           anyAbandoned: false,
+          anyOperatorOpened: false,
         },
       })
       await app.ready()
@@ -1643,6 +1649,7 @@ describe('the Atlas on the website host', () => {
           about: null,
           anySighted: true,
           anyAbandoned: false,
+          anyOperatorOpened: false,
         },
       })
       colony.recipes.brief({
@@ -1776,6 +1783,7 @@ describe('the Atlas on the website host', () => {
           about: null,
           anySighted: true,
           anyAbandoned: false,
+          anyOperatorOpened: false,
         },
       })
       await app.ready()

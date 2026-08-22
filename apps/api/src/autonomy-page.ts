@@ -12,6 +12,7 @@ import { asciiName } from './console/ascii-name.js'
 import { escape, page } from './console/html.js'
 import type { ConsoleNav } from './console/navigation.js'
 import { shareHeading, shareIntro, shareWriteBack } from './share-block.js'
+import { asDay } from './console/time.js'
 
 /**
  * The one page an operator ever sees (#146).
@@ -25,39 +26,6 @@ import { shareHeading, shareIntro, shareWriteBack } from './share-block.js'
  * **No JavaScript**, like every other page here, which is what lets the CSP stay
  * as strict as it is.
  */
-
-const MONTHS = [
-  'January',
-  'February',
-  'March',
-  'April',
-  'May',
-  'June',
-  'July',
-  'August',
-  'September',
-  'October',
-  'November',
-  'December',
-]
-
-/**
- * A timestamp as a person reads one (`#399`).
- *
- * **A day and not a moment.** Nothing this page says is improved by a time of
- * day, and `2026-08-05T13:18:12.441Z` in front of somebody who has never heard
- * of the Colony reads as a machine talking to itself.
- *
- * Hand-formatted rather than through `Intl`, because the output of this page is
- * asserted in tests and a locale database that differs between this machine and
- * the deploy host is a difference nobody would look for.
- */
-function asDay(timestamp: string): string {
-  const at = new Date(timestamp)
-  if (Number.isNaN(at.getTime())) return timestamp
-
-  return `${at.getUTCDate()} ${MONTHS[at.getUTCMonth()]} ${at.getUTCFullYear()}`
-}
 
 /**
  * How long ago, for the one line that makes the page feel alive (`#423`).

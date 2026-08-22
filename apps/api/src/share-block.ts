@@ -1,4 +1,5 @@
 import { escape } from './console/escape.js'
+import { asDay } from './console/time.js'
 
 /**
  * The one shared-credential block, written once (`#1635`).
@@ -48,10 +49,19 @@ export function shareHeading(agentName: string): string {
 /**
  * Who is asking, for what, and until when.
  *
- * **The expiry is printed as it is stored**, which `#1634` is about and this
- * change deliberately does not fix — the point of unifying first is that the
- * format is now wrong in *one* place, so correcting it is a one-line change
- * rather than a hunt for the copy somebody missed.
+ * **The expiry is a day, formatted** (`#1634`). It used to be printed straight
+ * through, which put two different machine formats of one field in front of a
+ * person on the two doors — `2026-08-24 18:31:12.355+00` in the inbox thread and
+ * `2026-08-24T18:31:12.355Z` on the operator page. Milliseconds, a timezone
+ * offset written two ways, and no clock a reader recognises, on the field that
+ * decides when their access ends.
+ *
+ * **A day rather than a moment**, which is `#399`'s argument for every other date
+ * on these pages and applies here for the same reason: nobody plans around
+ * `18:31:12`. `absolute()` is better and needs a zone, which comes from a
+ * signed-in request — and the operator page is a mailed link opened by somebody
+ * with no session, so it has none. A silently-assumed zone would be confidently
+ * wrong by up to a day where this is honestly coarse.
  */
 export function shareIntro(
   share: {
@@ -69,7 +79,7 @@ export function shareIntro(
       (share.description === null || share.description === undefined
         ? ''
         : ` — ${escape(share.description)}`) +
-      `. The share ends on ${escape(share.expiresAt)}.</p>`,
+      `. The share ends on ${escape(asDay(share.expiresAt))}.</p>`,
   ]
 }
 

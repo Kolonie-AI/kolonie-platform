@@ -139,3 +139,44 @@ export function absolute(timestamp: string, zone: string): string {
 
   return `${formatted} ${zone}`
 }
+
+const MONTHS = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+]
+
+/**
+ * A timestamp as a person reads one, without needing to know where they are
+ * (`#399`, moved here by `#1634`).
+ *
+ * **A day and not a moment.** `#399`'s argument, unchanged: nothing the operator
+ * page says is improved by a time of day, and `2026-08-05T13:18:12.441Z` in
+ * front of somebody who has never heard of the Colony reads as a machine talking
+ * to itself.
+ *
+ * **Why not {@link absolute}.** That one is better and needs a zone, which comes
+ * from a signed-in request's headers. The operator page is reached by a mailed
+ * link by a person with no session, so there is no zone to give it — and a
+ * silently-assumed one would be worse than a day, because it would be confidently
+ * wrong by up to a day rather than honestly coarse.
+ *
+ * Hand-formatted rather than through `Intl`, because the output of these pages is
+ * asserted in tests and a locale database that differs between this machine and
+ * the deploy host is a difference nobody would look for.
+ */
+export function asDay(timestamp: string): string {
+  const at = new Date(timestamp)
+  if (Number.isNaN(at.getTime())) return timestamp
+
+  return `${at.getUTCDate()} ${MONTHS[at.getUTCMonth()]} ${at.getUTCFullYear()}`
+}

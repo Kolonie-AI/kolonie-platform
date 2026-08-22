@@ -1986,12 +1986,22 @@ function shareBlocks(input: {
            *
            * This is the one thing the two doors genuinely differ on, so it is
            * decided here rather than behind a flag in the shared module.
+           *
+           * **Destination first, reason second** (`#1636`). It used to read
+           * *Read what is in it — the value is not shown in a conversation*, and
+           * the maintainer's reaction on 2026-08-22 was to look for the value
+           * rather than to follow the link. The clause a person met first was a
+           * full stop, and a link inside a sentence about what is absent does not
+           * look like a way forward. The restriction is right and its reasoning
+           * is above; what a reader needs at that point in the page is *where do
+           * I go*.
            */
           ...(input.readAt === undefined
             ? []
             : [
                 `<p><a href="${escape(input.readAt)}#share-${escape(share.id)}">` +
-                  'Read what is in it</a> — the value is not shown in a conversation.</p>',
+                  'Open the entry to read what is in it</a>. It is not shown here — ' +
+                  'a credential does not go through a conversation.</p>',
               ]),
           ...shareWriteBack({
             shareId: share.id,

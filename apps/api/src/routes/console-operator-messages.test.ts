@@ -1338,8 +1338,24 @@ describe('a shared vault entry, inside the thread (#1574)', () => {
     const page = await threadPage(cookie, conversationId)
 
     expect(page.body).toContain(`/agents/${agentId}/operator#share-${shareId}`)
-    expect(page.body).toContain('the value is not shown in a conversation')
     expect(page.body).not.toContain('<pre class="shared-value">')
+
+    /**
+     * **Destination first, reason second** (`#1636`). The sentence used to open
+     * with the restriction — *Read what is in it — the value is not shown in a
+     * conversation* — and the maintainer's reaction was to look for the value
+     * rather than to follow the link.
+     *
+     * Asserted as an ordering rather than as a sentence, for the reason
+     * `share-block.test.ts` gives at length: a test pinning the exact words goes
+     * red on every copy edit and would not have caught the defect, because the
+     * old wording was individually correct.
+     */
+    const link = page.body.indexOf(`#share-${shareId}`)
+    const reason = page.body.indexOf('does not go through a conversation')
+
+    expect(link).toBeGreaterThan(-1)
+    expect(reason).toBeGreaterThan(link)
   })
 
   it('says an operator has already written into one', async () => {

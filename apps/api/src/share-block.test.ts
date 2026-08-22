@@ -50,13 +50,28 @@ describe('the shared-credential block', () => {
   })
 
   /**
-   * `#1634` is about the **format** of this date and is deliberately not fixed
-   * here. What matters for `#1635` is that it is printed in one place, so that
-   * `#1634` is a one-line change rather than a hunt for the copy somebody
-   * missed. This assertion is what makes that true rather than intended.
+   * **A day a person recognises** (`#1634`). It used to be printed straight
+   * through, which put two machine formats of one field on the two doors —
+   * `2026-08-24 18:31:12.355+00` in the inbox thread and
+   * `2026-08-24T18:31:12.355Z` on the operator page — on the field that decides
+   * when their access ends.
+   *
+   * The rejection cases are the point: no milliseconds, no `T`, no offset.
    */
-  it('prints the expiry once, from one place', () => {
-    expect(shareIntro(SHARE, 'colette').join('')).toContain('The share ends on')
+  it('prints the expiry as a day, not as a timestamp', () => {
+    const lines = shareIntro(SHARE, 'colette').join('')
+
+    expect(lines).toContain('The share ends on 24 August 2026')
+    expect(lines).not.toContain('18:31')
+    expect(lines).not.toContain('.355')
+    expect(lines).not.toContain('2026-08-24')
+  })
+
+  /** An unparseable date comes back as it came: a page is not where to discover that. */
+  it('passes a date it cannot read straight through', () => {
+    expect(shareIntro({ ...SHARE, expiresAt: 'whenever' }, 'colette').join('')).toContain(
+      'whenever',
+    )
   })
 
   /**

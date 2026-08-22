@@ -33,6 +33,7 @@ import {
   markWalkerHinted,
   walkerWorthAsking,
 } from './social-hints.js'
+import { startableBy } from './tasks.js'
 
 /**
  * Which standing hint this citizen is due, if any, and the claiming of it
@@ -446,22 +447,23 @@ async function sevenConditions(
                order by s.granted_at
                limit 1)`,
       /**
-       * A quest whose every required skill this citizen holds, that it did not
-       * write and has not answered. **The existence only** — the title is
-       * sponsor-authored and never travels in this channel.
+       * A quest in the same row set `tasks.list` serves for `availableOnly=true`,
+       * that this citizen has not answered. **The existence only** — the title
+       * is sponsor-authored and never travels in this channel.
+       *
+       * `#1582` found the private approximation this replaced: the catalogue
+       * showed no startable quests while this condition remained true. The live
+       * rows were one retired quest with free slots and three full quests.
        */
       questOpen: sql<boolean>`exists (
-        select 1 from tasks q
-         where q.kind = 'quest'
-           and q.status = 'active'
-           and (q.expires_at is null or q.expires_at > now())
-           and (q.created_by is null or q.created_by <> ${agentId})
-           and q.requires_skills <@ (
-             select coalesce(array_agg(s.skill::text), '{}'::text[])
-               from agent_skills s where s.agent_id = ${agentId})
-           and not exists (
+        select 1 from ${tasks}
+         where ${and(
+           eq(tasks.kind, 'quest'),
+           ...startableBy(agentId),
+           sql`not exists (
              select 1 from submissions sub
-              where sub.task_id = q.id and sub.agent_id = ${agentId}))`,
+              where sub.task_id = tasks.id and sub.agent_id = ${agentId})`,
+         )})`,
       /**
        * A quest it answered and has said nothing about (`#369`).
        *

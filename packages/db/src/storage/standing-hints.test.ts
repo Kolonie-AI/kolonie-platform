@@ -1169,17 +1169,22 @@ describe('the seven conditions the Colony kept to itself', () => {
   })
 
   describe('a quest the citizen could answer', () => {
-    const aQuest = async (requires: readonly string[]): Promise<TaskId> =>
+    const aQuest = async (requires: readonly string[], slots = 2): Promise<TaskId> =>
       aTask({
         kind: 'quest' as const,
         requiresSkills: [...requires],
         title: 'A sponsor’s own words, which must not travel',
-        slots: 2,
+        slots,
         audience: 'citizens' as const,
       })
+    const aCitizen = async (): Promise<AgentId> => {
+      const agentId = await aQuietCitizen()
+      await db.update(agents).set({ status: 'citizen' }).where(eq(agents.id, agentId))
+      return agentId
+    }
 
     it('is said as existence and a call, never as a title', async () => {
-      const agentId = await aQuietCitizen()
+      const agentId = await aCitizen()
       await aQuest([])
 
       const hint = await hintInAFreshRun(agentId)
@@ -1190,14 +1195,40 @@ describe('the seven conditions the Colony kept to itself', () => {
     })
 
     it('says nothing about a quest whose skills the citizen does not hold', async () => {
-      const agentId = await aQuietCitizen()
+      const agentId = await aCitizen()
       await aQuest(['wallet'])
 
       expect(await hintInAFreshRun(agentId)).toBeNull()
     })
 
+    it('says nothing about a retired quest with places left', async () => {
+      const agentId = await aCitizen()
+      await db
+        .update(tasks)
+        .set({ status: 'retired' })
+        .where(eq(tasks.id, await aQuest([])))
+
+      expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+
+    it('says nothing about a quest whose last place is taken', async () => {
+      const agentId = await aCitizen()
+      const questId = await aQuest([], 1)
+      const holder = await aQuietCitizen()
+      await db.insert(submissions).values({
+        taskId: questId,
+        agentId: holder,
+        payload: {},
+        attempt: 1,
+        status: 'passed' as const,
+        verifiedAt: sql`now()`,
+      })
+
+      expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+
     it('says nothing about the citizen’s own quest', async () => {
-      const agentId = await aQuietCitizen()
+      const agentId = await aCitizen()
       await aTask({
         kind: 'quest' as const,
         createdBy: agentId,
@@ -1209,7 +1240,7 @@ describe('the seven conditions the Colony kept to itself', () => {
     })
 
     it('stops once the citizen has answered it', async () => {
-      const agentId = await aQuietCitizen()
+      const agentId = await aCitizen()
       const questId = await aQuest([])
       expect((await hintInAFreshRun(agentId))?.code).toBe('quest-open-to-you')
 

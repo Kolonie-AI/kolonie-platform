@@ -1397,22 +1397,35 @@ describe('the Atlas on the website host', () => {
 
     const titleOf = (body: string) => /<title>([^<]*)<\/title>/.exec(body)?.[1] ?? ''
 
-    it('says the walk did not settle who is needed, rather than that nobody walked', async () => {
-      const row = rowFor((await get('/atlas?worked=false')).body, 'walked.example')
+    /**
+     * **The row says neither of them now** (`#1401`). Measured on
+     * `/atlas/search?earn=bounty-board`, 2026-08-22: twenty-five tiles and
+     * twenty-five need chips, all saying *who is needed is not known*. A fact on
+     * every row tells a reader nothing about any of them, and both unknown
+     * wordings open by repeating the walk status the mark beside them carries.
+     *
+     * **`#1141` is not undone and this pair still proves it** — the distinction
+     * between *nobody walked this* and *walkers went and did not settle it* is
+     * asserted two tests down, on the provider page, which is where the question
+     * *has anybody established this* is the page's own subject.
+     */
+    it('says neither unknown wording on a row', async () => {
+      const body = (await get('/atlas?worked=false')).body
 
-      expect(row).toContain('walked, but who is needed is not known')
-      expect(row).not.toContain('nobody has walked this')
+      expect(rowFor(body, 'walked.example')).not.toContain('who is needed is not known')
+      expect(rowFor(body, 'unwritten.example')).not.toContain('who is needed is not known')
     })
 
     /**
-     * **The rejection case, and the reason the string was worth keeping.** An
-     * entry nobody has been to still says so, verbatim — a fix that replaced the
-     * sentence everywhere would have lost the one place it is true.
+     * **The separator went with the chip** (`#1401`). `unwritten.example` has no
+     * need chip, no agreed cost and no direction, so it is the row that would
+     * have ended in a dash pointing at nothing had the separator stayed written
+     * into the line before them.
      */
-    it('still says nobody has walked an entry nobody has walked', async () => {
+    it('leaves no separator pointing at nothing', async () => {
       const row = rowFor((await get('/atlas?worked=false')).body, 'unwritten.example')
 
-      expect(row).toContain('nobody has walked this, so who is needed is not known')
+      expect(row).not.toMatch(/—\s*<\/small>/)
     })
 
     /** The same sentence on the entry's own facts line, not only on the row. */
@@ -4317,8 +4330,14 @@ describe('the Atlas on the website host', () => {
 
       expect(row).not.toContain('k-atlas-cost')
       expect(row).not.toContain('k-atlas-way')
-      /** The need is on every row, because every row has an answer to it. */
-      expect(row).toContain('k-atlas-need')
+      /**
+       * **And none for a need nobody settled either** (`#1401`). This line used
+       * to read *the need is on every row, because every row has an answer to
+       * it* — and `unknown` is not an answer, which is the whole of that issue.
+       * `walked.example` rolls up to `unknown`, so it is one of the rows that
+       * used to carry the chip and now carries nothing after its kinds.
+       */
+      expect(row).not.toContain('<span class="k-atlas-need"')
     })
 
     /**

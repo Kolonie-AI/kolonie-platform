@@ -734,6 +734,19 @@ main section h2 {
   border-left: var(--k-border) solid var(--k-hairline);
 }
 
+/**
+ * The line a page draws where nobody has said what the provider is (\`#1410\`).
+ *
+ * **Quieter than the identity copy it stands in for**, because it is an absence
+ * rather than a fact about the provider — the same weight \`k-atlas-said\` has,
+ * and deliberately not the weight of \`k-atlas-description\`, which a reader
+ * should be able to tell apart at a glance from a page that does have one.
+ */
+.k-atlas-noidentity {
+  color: var(--k-text-muted);
+  font-size: var(--k-text-sm);
+}
+
 .k-atlas-next h2 {
   margin-top: 0;
 }

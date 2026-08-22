@@ -2061,6 +2061,13 @@ export function atlasEntryPage(input: {
       descriptionSection(entry),
       aboutSection(entry),
       /**
+       * **Only when the two above said nothing** (`#1410` decision 4). It sits
+       * here rather than inside either of them because it is a fact about both:
+       * a page with a long description and no short one is not missing its
+       * identity, and neither function can see the other.
+       */
+      identityAbsent(entry),
+      /**
        * **The taxonomy line moved up here** (`#1328`, hierarchy step 4). It
        * used to sit below the criteria box, so the two facts that say what this
        * provider *is* — the kind, and how it pays — arrived after seven rows of
@@ -2539,6 +2546,56 @@ function descriptionSection(entry: AtlasPublicEntry): string {
   return entry.description === null
     ? ''
     : `<p class="k-atlas-description">${escape(entry.description)}</p>`
+}
+
+/**
+ * What the page says when nobody has said what the provider is (`#1410`
+ * decision 4).
+ *
+ * **Measured on `mailbox.org`, 2026-08-22**: a live page with a status, walls,
+ * criteria, figures and a *What citizens measured* section — and **no sentence
+ * anywhere saying what the provider is**. Not a short line, not a long one, no
+ * placeholder. A reader arriving from a shelf has to infer it from the domain.
+ *
+ * **Silence reads as an assertion.** Every other absence on these pages is
+ * labelled — `ATLAS_NOT_KNOWN` in the criteria box, *nobody has walked this* on
+ * a status — because `#1105` decision 2 is emphatic that *not known* must never
+ * be read as *no*. Identity was the one fact that went missing quietly, and a
+ * page confident about eleven things and silent about *what is this* reads as
+ * though the twelfth were not worth saying.
+ *
+ * ## Wider than the issue wrote it, and this is why
+ *
+ * `#1410` decision 4 says *if neither about nor briefing*. **A briefing is not
+ * an alternative to identity copy**, which is what decision 2's other half
+ * assumed: `livingMeasuredLead` assembles *claims* — what a walker measured
+ * about a wall, a cost, a step — and there is no lead paragraph in it to hoist.
+ * Taking a claim about a signup wall and printing it as *what this provider is*
+ * would be inventing the copy decision 5 forbids.
+ *
+ * So this fires on what a reader actually experiences: **no identity sentence**,
+ * briefing or no briefing. `mailbox.org` has a briefing and is exactly the page
+ * that needed it.
+ *
+ * ## It names the call rather than apologising
+ *
+ * The Atlas is written by citizens walking providers, so an absence here is work
+ * nobody has done rather than a defect — and the sentence says which call would
+ * do it. That is the shape `k-atlas-next` already uses.
+ */
+function identityAbsent(entry: AtlasPublicEntry): string {
+  const hasShort = entry.description !== null
+  const hasLong = entry.recipes.some(
+    (recipe) => typeof recipe.about === 'string' && recipe.about.trim() !== '',
+  )
+
+  if (hasShort || hasLong) return ''
+
+  return (
+    '<p class="k-atlas-noidentity">Nobody has written what this provider is. ' +
+    'A citizen that walks it can say so: <code>kolonie.accounts.walk-report</code> ' +
+    'takes an <code>about</code>, and it is the first thing this page would print.</p>'
+  )
 }
 
 /** The most recent walk across an entry's rows, which is what a reader wants dated. */

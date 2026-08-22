@@ -16,9 +16,6 @@ import { inboxPage, inboxThreadPage } from '../console/html.js'
 import { messageBodyError, messageDeclarationError } from '../messaging.js'
 import { consoleOperatorPath, operatorPageBody } from '../operator-page-body.js'
 import { shareAdditionError } from '../operator-shares.js'
-import { operatorAnsweredPage, operatorNoteSentPage } from '../autonomy-page.js'
-import { writeOperatorMessage } from '../operator-page-message.js'
-import { answerOperatorThread, isWaitingOnTheOperator } from '../operator-threads.js'
 import type { InboxView } from '../messaging.js'
 
 import type { RouteDependencies } from './dependencies.js'
@@ -239,6 +236,7 @@ export function registerConsoleInboxPages(
     return html(
       reply.status(status),
       inboxThreadPage({
+        signedIn: true,
         nav: navFor(request, signedIn.human.roles),
         conversationId: String(parsed.data),
         agentId: row.agentId,
@@ -426,6 +424,7 @@ export function registerConsoleInboxPages(
     return html(
       options.status === undefined ? reply : reply.status(options.status),
       inboxPage({
+        signedIn: true,
         nav: navFor(request, signedIn.human.roles),
         threads: rows,
         view,
@@ -697,6 +696,15 @@ export function registerConsoleInboxPages(
       await operatorPageBody(deps, door.token, consoleOperatorPath(agentId), door.view, {
         fillDrops: true,
         /**
+         * The console's own inbox, narrowed to this agent (`#1547`).
+         *
+         * **Not a token URL**, which is `#428`'s rule and the reason this is the
+         * door's parameter rather than something the renderer composes: a
+         * durable bearer link inside a page served behind a login is a
+         * credential leaking downward for no gain.
+         */
+        inboxBase: `/inbox?agent=${agentId}`,
+        /**
          * The share's forms post to the console's own path (`#1440`).
          *
          * **The same section either door**, unlike `fillDrops` beside it: a drop
@@ -748,6 +756,7 @@ export function registerConsoleInboxPages(
           reply,
           await operatorPageBody(deps, door.token, action, door.view, {
             fillDrops: true,
+            inboxBase: `/inbox?agent=${agentId}`,
             ...(shares === undefined ? {} : { shareAction: action }),
             ...(shareError === undefined ? {} : { shareError }),
           }),
@@ -775,76 +784,15 @@ export function registerConsoleInboxPages(
       )
     }
 
-    if (submitted['intent'] === 'note') {
-      /**
-       * Whether a question of the citizen's is still open (`#564`).
-       *
-       * **Read here rather than assumed**, because the confirmation page has to
-       * say so: a note leaves an open question open, and a person who thought
-       * they had just answered one finds out on the page that says *sent*
-       * instead of at their agent's sixth blocked run.
-       */
-      const stillWaiting = isWaitingOnTheOperator(
-        await deps.operatorThreads.store.forPageToken(door.token),
-      )
-
-      const written = await writeOperatorMessage(
-        { token: door.token, body: submitted['body'] },
-        deps.operatorPageMessages,
-      )
-
-      if (written.outcome === 'written') {
-        return html(reply, operatorNoteSentPage(door.view.agentName, stillWaiting))
-      }
-
-      if (written.outcome === 'unreachable') return consoleNotFound(reply, request)
-
-      // No full-inbox branch since `#1454`: a message goes into a thread, where
-      // unread is a cursor rather than a queue, so there is nothing to fill.
-      const noteError =
-        written.outcome === 'rate-limited'
-          ? `You have sent your agent a lot in the last hour. Try again in ` +
-            `${Math.ceil(written.retryAfterSeconds / 60)} minutes — nothing you already sent ` +
-            `is affected.`
-          : written.error.message
-
-      return html(
-        reply.status(422),
-        await operatorPageBody(
-          deps,
-          door.token,
-          action,
-          door.view,
-          noteError === undefined ? { fillDrops: true } : { noteError, fillDrops: true },
-        ),
-      )
-    }
-
-    const result = await answerOperatorThread(
-      {
-        token: door.token,
-        /** The second door renders the identical form, so it forwards `kind` too (`#1093`). */
-        body: {
-          threadId: submitted['threadId'],
-          body: submitted['body'],
-          kind: submitted['kind'],
-        },
-      },
-      deps.operatorThreads,
-    )
-
-    if (result.outcome === 'answered') {
-      return html(reply, operatorAnsweredPage(door.view.agentName))
-    }
-
-    if (result.outcome === 'unreachable') return consoleNotFound(reply, request)
-
-    return html(
-      reply.status(422),
-      await operatorPageBody(deps, door.token, action, door.view, {
-        answerError: result.error.message,
-        fillDrops: true,
-      }),
-    )
+    /*
+     * `intent === 'note'` and the `answerOperatorThread` fallthrough stood here
+     * until `#1547`. They were this door's half of the durable page's two
+     * message forms — the note box and the three declarations with their
+     * *Explain instead* field — and the page no longer renders either. Both acts
+     * survive at `/inbox`, which is now the one place an operator writes: the
+     * note is the inbox's compose, and the declarations are the buttons beside
+     * the reply box. One writer, reached two ways.
+     */
+    return consoleNotFound(reply, request)
   })
 }

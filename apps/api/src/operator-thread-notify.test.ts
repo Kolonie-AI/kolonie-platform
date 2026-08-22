@@ -81,7 +81,11 @@ describe('telling an operator their citizen opened a thread (#1321)', () => {
      * a surface they cannot sign in to.
      */
     expect(notifier.sent[0]?.link).toBe('https://console.example.org/inbox')
-    expect(notifier.sent[0]?.pageLink).toBe('https://console.example.org/operator/page/a-token')
+    expect(notifier.sent[0]?.pageLink).toBe(
+      // `#1547`: the mailed link opens the inbox, scoped to this agent, rather
+      // than a durable page that rendered the same threads a second way.
+      'https://console.example.org/operator/page/a-token/inbox',
+    )
   })
 
   it('names a thread about nothing in particular rather than sending an empty subject', async () => {

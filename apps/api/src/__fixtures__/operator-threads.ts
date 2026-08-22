@@ -1,5 +1,12 @@
 import { randomUUID } from 'node:crypto'
-import type { AgentId, ConversationId, OperatorAnswerKind, TaskId, WishId } from '@kolonie-ai/core'
+import type {
+  AgentId,
+  ConversationId,
+  HumanId,
+  OperatorAnswerKind,
+  TaskId,
+  WishId,
+} from '@kolonie-ai/core'
 import type { OperatorThreadDependencies, OperatorThreadStore } from '../operator-threads.js'
 import { fakeOperatorPages, type fakeAutonomyMailer, type FakeOperatorPages } from './autonomy.js'
 
@@ -21,6 +28,20 @@ export interface FakeOperatorThreadStore extends OperatorThreadStore {
     readonly body: string
     readonly kind: OperatorAnswerKind | null
   }[]
+  /**
+   * Say which person this citizen's page speaks as (`#1547`).
+   *
+   * In production `pageSubject` resolves it out of `human_agents` and the
+   * address the page was issued to. Here it is stated, because what a test of
+   * the mailed link is exercising is the routes above that resolution rather
+   * than the resolution itself — which is asserted in `packages/db` against a
+   * real database.
+   *
+   * Without it `subjectForPageToken` answers `undefined`, which is the honest
+   * fake of a citizen with several operators and no address match: the page
+   * renders and the inbox behind it is unreachable.
+   */
+  readonly operatedBy: (agentId: AgentId, humanId: string) => void
   /** What a `needs-operator` shelving looks like from here (`#234`). */
   readonly shelve: (agentId: AgentId, taskId: TaskId) => void
   readonly shelved: (agentId: AgentId, taskId: TaskId) => boolean
@@ -76,6 +97,7 @@ export function fakeOperatorThreadStore(
   const threads = new Map<ConversationId, Thread>()
   const unlinked = new Set<AgentId>()
   const shelvings = new Set<string>()
+  const operators = new Map<AgentId, string>()
 
   const shelfKey = (agentId: AgentId, taskId: TaskId) => `${agentId}::${taskId}`
 
@@ -108,6 +130,23 @@ export function fakeOperatorThreadStore(
           shares: [],
           shareEvents: [],
         })),
+      )
+    },
+
+    /**
+     * The token, resolved to one agent and one person (`#1547`).
+     *
+     * **A revoked page answers `undefined`**, like every other read here, so a
+     * test that revokes the page and expects the inbox to close is testing the
+     * rule the database holds rather than one this fake invented.
+     */
+    subjectForPageToken: (token) => {
+      const agentId = pages.agentForToken(token)
+      if (agentId === null) return Promise.resolve(undefined)
+
+      const humanId = operators.get(agentId)
+      return Promise.resolve(
+        humanId === undefined ? undefined : { agentId, humanId: humanId as HumanId },
       )
     },
 
@@ -196,6 +235,10 @@ export function fakeOperatorThreadStore(
         body: message.body,
         kind: message.kind,
       })),
+
+    operatedBy: (agentId, humanId) => {
+      operators.set(agentId, humanId)
+    },
 
     shelve: (agentId, taskId) => {
       shelvings.add(shelfKey(agentId, taskId))

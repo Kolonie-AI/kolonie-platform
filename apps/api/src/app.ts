@@ -74,6 +74,7 @@ import { registerAuthenticatorRoutes } from './routes/authenticator.js'
 import { registerAttributionRoutes } from './routes/attribution.js'
 import { registerBadgeRoutes } from './routes/badges.js'
 import { registerAutonomyPageRoutes } from './routes/autonomy-page.js'
+import { registerOperatorInboxRoutes } from './routes/operator-inbox.js'
 import { registerTelegramRoutes } from './routes/telegram.js'
 import { registerOperatorClaimRoutes } from './routes/operator-claim.js'
 import { registerSocialRoute } from './routes/social.js'
@@ -668,6 +669,8 @@ export function buildApp({
   // mail, and an API version in the URL would break them for reasons that have
   // nothing to do with the form. Same call the console made (#146).
   registerAutonomyPageRoutes(app, routes)
+  // The mailed link's half of the one inbox (`#1547`).
+  registerOperatorInboxRoutes(app, routes)
   // The one form in the Colony that asks a person for something secret (`#410`).
   // Beside the autonomy form and outside `/v1` for the same reason.
   // The badge pictures (`#241`). On the app rather than under `/v1`, because

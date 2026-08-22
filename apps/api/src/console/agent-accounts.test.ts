@@ -518,18 +518,24 @@ describe('what your agent has sealed for you', () => {
     })
 
     expect(html).toContain('It has asked you something')
-    expect(html).toContain('#question-77777777-7777-4777-8777-777777777777')
+    /**
+     * **The thread itself, since `#1547`.** This used to be an anchor on
+     * `/agents/:id/operator`, because that page rendered the conversation. It
+     * renders none now — the inbox is the one surface where an operator reads
+     * and answers — so the link goes where the words are.
+     */
+    expect(html).toContain('/inbox/77777777-7777-4777-8777-777777777777')
   })
 
   /** `#587`, `#428`: the durable bearer token is not rendered inside a session. */
-  it('deep-links through the console path and never the mailed token', () => {
+  it('deep-links through the console and never the mailed token', () => {
     const html = aPage({
       wishes: [aWish()],
       asks: { 'mail.example': '77777777-7777-4777-8777-777777777777' },
     })
 
-    expect(html).toContain(`/agents/${AGENT}/operator`)
-    expect(html).not.toContain('/operator/')
+    expect(html).toContain('/inbox/77777777-7777-4777-8777-777777777777')
+    expect(html).not.toContain('/operator/page/')
   })
 
   /** The mark is still the first thing the cell says. */

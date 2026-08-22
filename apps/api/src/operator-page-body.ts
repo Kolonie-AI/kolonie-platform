@@ -42,8 +42,13 @@ export async function operatorPageBody(
     declaredRhythmHours: OperatorPageView['declaredRhythmHours']
   },
   errors: {
-    readonly answerError?: string
-    readonly noteError?: string
+    /**
+     * Where this door's inbox is rooted (`#1547`).
+     *
+     * The door's own, like `action` beside it. Absent renders no messages
+     * section at all, which is what a deployment with no messaging gets.
+     */
+    readonly inboxBase?: string
     /** What to say if an operator's addition was just refused (`#1440`). */
     readonly shareError?: string
     /**
@@ -92,6 +97,23 @@ export async function operatorPageBody(
       : deps.telegram.store.bindingForPageToken(token),
   ])
 
+  /**
+   * What the inbox link says before it is clicked (`#1547`).
+   *
+   * **Counted from the threads this page already read, not from a second query.**
+   * `forPageToken` is still called — it is what `wishesWaiting` and the answered
+   * check are built on — so the two numbers are arithmetic over rows already in
+   * hand rather than a read added to every render.
+   *
+   * `waiting` is `isWaitingOnTheOperator`'s question asked per thread: a live
+   * thread the operator has not written into is a question in front of a person.
+   * `unread` is looser and is the count that moves when anything at all happens.
+   */
+  const waiting = threads.filter(
+    (thread: (typeof threads)[number]) =>
+      !thread.closed && !thread.messages.some((message) => message.author === 'operator'),
+  ).length
+
   return operatorDurablePage({
     agentId: view.agentId,
     agentName: view.agentName,
@@ -108,29 +130,26 @@ export async function operatorPageBody(
     declaredRhythmHours: view.declaredRhythmHours,
     action,
     ...(errors.as === undefined ? {} : { as: errors.as }),
-    ...(errors.answerError === undefined ? {} : { answerError: errors.answerError }),
-    ...(errors.noteError === undefined ? {} : { noteError: errors.noteError }),
     /**
-     * Every thread, not the one the query happened to pick (`#593`).
+     * Where the threads are, rather than the threads (`#1547`).
      *
-     * Passed through in the order storage gave — oldest first — because that
-     * order is what `#587`'s anchor depends on and re-sorting it here would be a
-     * second answer to *which question is first*.
+     * **`inboxBase` is the door's own**, exactly as `action` is and for the
+     * identical reason: the console must not put a durable bearer link inside a
+     * page served behind a login (`#428`), so each caller passes the root it is
+     * being served at and the token never leaves the server on that door.
+     *
+     * Absent where the caller names none, and then the page says nothing about
+     * messages rather than linking somewhere that answers 404.
      */
-    threads: threads.map((thread: (typeof threads)[number]) => ({
-      threadId: String(thread.threadId),
-      context: thread.context,
-      openedAt: thread.openedAt,
-      messages: thread.messages,
-      // Whether the page renders a box under it. True once the operator link is
-      // gone: the words stay readable and nobody may add to them.
-      closed: thread.closed,
-      // The account, the shares and their sequence, rendered **inside** the
-      // thread (`#1442`) rather than in a section of their own further down.
-      accountIdentifier: thread.accountIdentifier,
-      shares: thread.shares,
-      shareEvents: thread.shareEvents,
-    })),
+    ...(errors.inboxBase === undefined
+      ? {}
+      : {
+          inbox: {
+            href: errors.inboxBase,
+            unread: threads.length,
+            waiting,
+          },
+        }),
     shares,
     ...(errors.shareAction === undefined ? {} : { shareAction: errors.shareAction }),
     ...(errors.shareError === undefined ? {} : { shareError: errors.shareError }),

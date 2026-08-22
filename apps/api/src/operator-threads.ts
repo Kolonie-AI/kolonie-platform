@@ -7,6 +7,7 @@ import {
   type ApiError,
   type ConversationId,
   type CredentialFinding,
+  type HumanId,
   type OperatorAnswerKind,
 } from '@kolonie-ai/core'
 import type { OperatorThreadForPage } from '@kolonie-ai/db'
@@ -49,6 +50,26 @@ import type { WakeSender } from '@kolonie-ai/verifiers'
 export interface OperatorThreadStore {
   /** Every thread the page's own subject is in, oldest first. */
   forPageToken(token: string): Promise<readonly OperatorThreadForPage[]>
+  /**
+   * Who this page speaks as — the agent it names and the person holding it
+   * (`#1547`).
+   *
+   * **What lets the mailed link open the inbox rather than a second rendering
+   * of it.** Every method of `OperatorMessaging` is keyed by `human_id`, because
+   * participation is the whole ACL there; a page token is not a person, and this
+   * is the one resolution that turns one into the other. The store already did
+   * it internally for `answerOnPage` — this only names it.
+   *
+   * `undefined` where the token reaches nothing: revoked, unknown, or a citizen
+   * with several operators and no address match. One answer for all three, so a
+   * stranger holding a guessed token learns nothing from which it was.
+   *
+   * Optional, on D-013's terms: a deployment whose store predates this serves the
+   * durable page and no inbox behind it rather than failing.
+   */
+  subjectForPageToken?(
+    token: string,
+  ): Promise<{ readonly agentId: AgentId; readonly humanId: HumanId } | undefined>
   /** Which of a citizen's wishes have an unanswered question against them (`#1027`). */
   wishesWaiting(
     agentId: AgentId,

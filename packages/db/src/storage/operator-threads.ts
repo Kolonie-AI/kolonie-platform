@@ -192,6 +192,35 @@ export interface OperatorThreadShareEvent {
  * the page then shows notes and drops and no threads. Guessing between two
  * people would be showing one of them somebody else's conversation.
  */
+/**
+ * Who the durable page speaks as, for a caller outside this module (`#1547`).
+ *
+ * **The one thing the mailed link needed and did not have.** `#1547` makes that
+ * link open the inbox rather than a second rendering of the same threads, and
+ * every method of `OperatorMessaging` is keyed by `human_id` — deliberately,
+ * because participation is the whole ACL there. A page token is not a person, so
+ * something has to turn one into the other, and {@link pageSubject} was already
+ * doing it for the two write paths below.
+ *
+ * **It resolves and never asserts.** The rules are `pageSubject`'s, unchanged:
+ * the address the page was issued to, then the only link there is, and
+ * `undefined` where neither holds. A caller cannot widen them, because there is
+ * no argument here but the token.
+ *
+ * `undefined` therefore means *this token reaches no threads* — a revoked page,
+ * an unknown token, or a citizen with several operators and no address match.
+ * All three answer identically, which is the property `#241` rests on.
+ */
+export async function operatorPageSubject(
+  db: Database,
+  token: string,
+): Promise<{ readonly agentId: AgentId; readonly humanId: HumanId } | undefined> {
+  const subject = await pageSubject(db, token)
+  return subject === undefined
+    ? undefined
+    : { agentId: subject.agentId, humanId: subject.humanId as HumanId }
+}
+
 async function pageSubject(
   db: Database,
   token: string,

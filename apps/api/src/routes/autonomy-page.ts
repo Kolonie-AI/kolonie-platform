@@ -2,17 +2,9 @@ import { capabilitiesFromForm, type AgentId } from '@kolonie-ai/core'
 import type { OperatorPageView } from '@kolonie-ai/db'
 import type { FastifyInstance } from 'fastify'
 import { answerAutonomyForm } from '../autonomy.js'
-import {
-  autonomyClosedPage,
-  autonomyDonePage,
-  autonomyFormPage,
-  operatorAnsweredPage,
-  operatorNoteSentPage,
-} from '../autonomy-page.js'
-import { writeOperatorMessage } from '../operator-page-message.js'
+import { autonomyClosedPage, autonomyDonePage, autonomyFormPage } from '../autonomy-page.js'
 import { operatorPageBody } from '../operator-page-body.js'
 import { shareAdditionError } from '../operator-shares.js'
-import { answerOperatorThread, isWaitingOnTheOperator } from '../operator-threads.js'
 import { deepLinkFor } from '../operator-telegram.js'
 import { CONSOLE_HEADERS } from '../console/html.js'
 import type { RouteDependencies } from './dependencies.js'
@@ -225,14 +217,18 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
       facts: OperatorPageView['facts']
       declaredRhythmHours: OperatorPageView['declaredRhythmHours']
     },
-    errors: {
-      readonly answerError?: string
-      readonly noteError?: string
-      readonly shareError?: string
-    } = {},
+    errors: { readonly shareError?: string } = {},
   ): Promise<string> =>
     operatorPageBody(deps, token, `/operator/page/${token}`, view, {
       ...errors,
+      /**
+       * Where this door's threads are (`#1547`).
+       *
+       * **The token's own inbox**, which is the whole of the issue: the mailed
+       * link and the console are two ways onto one renderer, and the only thing
+       * that differs is the root the forms post to.
+       */
+      inboxBase: `/operator/page/${token}/inbox`,
       /**
        * The share's forms post to this same route (`#1440`).
        *
@@ -402,106 +398,23 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
       return reply.status(303).redirect(deepLinkFor(desk.bot, issued.token))
     }
 
-    if (submitted['intent'] === 'note') {
-      /**
-       * Whether a question of the citizen's is still open (`#564`).
-       *
-       * **Read here rather than assumed**, because the confirmation page has to
-       * say so: a note leaves an open question open, and a person who thought
-       * they had just answered one finds out on the page that says *sent*
-       * instead of at their agent's sixth blocked run.
-       */
-      const stillWaiting = isWaitingOnTheOperator(
-        await deps.operatorThreads.store.forPageToken(token as string),
-      )
-
-      const written = await writeOperatorMessage(
-        { token: token as string, body: submitted['body'] },
-        deps.operatorPageMessages,
-      )
-
-      if (written.outcome === 'written') {
-        return reply
-          .headers(CONSOLE_HEADERS)
-          .type('text/html')
-          .send(operatorNoteSentPage(view.agentName, stillWaiting))
-      }
-
-      /**
-       * `unreachable` becomes the closed page, as it does for an answer: the page
-       * was revoked between the `GET` and this `POST`, and *this is no longer
-       * open* is both true and the whole of what the operator needs to know.
-       */
-      if (written.outcome === 'unreachable') {
-        return reply
-          .status(404)
-          .headers(CONSOLE_HEADERS)
-          .type('text/html')
-          .send(autonomyClosedPage())
-      }
-
-      /**
-       * **There is no full-inbox branch any more** (`#1454`). A note sat in a
-       * pile the citizen had to drain, so `MAX_UNREAD_OPERATOR_NOTES` bounded
-       * the depth and this route had a `409` for hitting it. A message goes
-       * into a thread, where unread is a cursor rather than a queue — there is
-       * nothing to fill.
-       */
-      const noteError =
-        written.outcome === 'rate-limited'
-          ? `You have sent your agent a lot in the last hour. Try again in ` +
-            `${Math.ceil(written.retryAfterSeconds / 60)} minutes — nothing you already sent is ` +
-            `affected.`
-          : written.error.message
-
-      return reply
-        .status(422)
-        .headers(CONSOLE_HEADERS)
-        .type('text/html')
-        .send(await pageFor(token as string, view, { noteError }))
-    }
-
-    const result = await answerOperatorThread(
-      {
-        token: token as string,
-        /**
-         * **One of the two arrives, never both** (`#1093`). A fixed control posts
-         * `kind` and the Colony supplies the sentence; the explanation box posts
-         * `body`. Both fields are read off the form rather than one of them being
-         * inferred, and the schema refuses a submission carrying the pair — which
-         * is the same rule as `intent` above, for the same reason.
-         */
-        body: {
-          threadId: submitted['threadId'],
-          body: submitted['body'],
-          kind: submitted['kind'],
-        },
-      },
-      deps.operatorThreads,
-    )
-
-    if (result.outcome === 'answered') {
-      return reply
-        .headers(CONSOLE_HEADERS)
-        .type('text/html')
-        .send(operatorAnsweredPage(view.agentName))
-    }
-
-    /**
-     * `unreachable` becomes the closed page and not a refusal, deliberately: the
-     * thread being out of reach means the citizen took the page away or the
-     * operator link ended, and
-     * *"this is no longer open"* is both true and the whole of what the operator
-     * needs to know.
+    /*
+     * `intent === 'note'` and the `answerOperatorThread` fallthrough stood here
+     * until `#1547`. They were the two message forms the durable page used to
+     * render — the note box (`#239`) and the three declarations with their
+     * *Explain instead* field (`#1093`) — and the page renders neither now.
+     *
+     * Both acts survive at this token's own inbox, which is the one place an
+     * operator writes: the note is the inbox's compose, and the declarations are
+     * the buttons beside the reply box. One writer, reached two ways, which is
+     * what `#1547` is for.
+     *
+     * **What is left on this route is what is not a message**: a shared entry
+     * written into or handed back, and the Telegram binding. Both are above.
      */
-    if (result.outcome === 'unreachable') {
-      return reply.status(404).headers(CONSOLE_HEADERS).type('text/html').send(autonomyClosedPage())
-    }
-
     return reply
-      .status(422)
       .headers(CONSOLE_HEADERS)
       .type('text/html')
-      .send(await pageFor(token as string, view, { answerError: result.error.message }))
+      .send(await pageFor(token as string, view))
   })
 }

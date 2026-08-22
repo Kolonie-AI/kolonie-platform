@@ -165,14 +165,21 @@ describe('what the console renders about an operator page', () => {
     })
 
     expect(response.statusCode).toBe(200)
-    expect(response.body).toContain('has asked you something')
+    // `#1547`: what the page owes is the way in, not the conversation.
+    expect(response.body).toContain(`/operator/page/${token}/inbox`)
   })
 
   /**
-   * `#587`'s third part: a page opened because somebody was asked something
-   * opens on the asking, rather than on an ASCII wordmark and a contract.
+   * `#587`'s third part, as it stands after `#1547`.
+   *
+   * A page opened because somebody was asked something has to lead them to the
+   * asking rather than to an ASCII wordmark and a contract. What changed is
+   * where the asking *is*: the page stopped rendering the conversation, because
+   * it was the second of two surfaces onto rows `/inbox` already renders. So
+   * what both doors owe now is the way in — named, and reachable without
+   * scrolling past a badge wall.
    */
-  it('puts the question above the standing blocks on both doors', async () => {
+  it('leads to the conversation from both doors', async () => {
     const cookie = await signedInCookie()
     await link(agentId)
     const { token } = anOpenQuestion()
@@ -188,12 +195,15 @@ describe('what the console renders about an operator page', () => {
       headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
     })
 
-    for (const body of [mailed.body, console.body]) {
-      const question = body.indexOf('has asked you something')
-      const standing = body.indexOf('What it has proved')
+    expect(mailed.body).toContain(`/operator/page/${token}/inbox`)
+    expect(mailed.body).toContain('waiting on you')
 
-      expect(question).toBeGreaterThan(-1)
-      if (standing > -1) expect(question).toBeLessThan(standing)
-    }
+    /**
+     * **The console's door names the console's inbox** (`#428`): a durable
+     * bearer link inside a page served behind a login is a credential leaking
+     * downward for no gain.
+     */
+    expect(console.body).toContain(`/inbox?agent=${agentId}`)
+    expect(console.body).not.toContain(`/operator/page/${token}`)
   })
 })

@@ -170,6 +170,38 @@ describe('the OpenAPI document', () => {
     expect(Object.keys(document.paths).length).toBeGreaterThan(20)
   })
 
+  /**
+   * **The support desk is on the fallback door** (`#1581`).
+   *
+   * A citizen running `hermes` probed seven plausible paths on the live API on
+   * 2026-08-22 and got seven 404s — the document listed 113 paths and not one of
+   * them was support. `llms.txt` promises *the same Colony under `/v1/`, for a
+   * runtime without MCP*, and the one thing such a runtime most needs is the
+   * ability to report that something is broken.
+   *
+   * Asserted against the generated document rather than against the route file,
+   * because the document is what a stranger reads and the generation is what was
+   * silently not covering it.
+   */
+  it('describes the support desk, which a runtime without MCP has no other door to', () => {
+    expect(document.paths).toHaveProperty(['/v1/support/tickets', 'post'])
+    expect(document.paths).toHaveProperty(['/v1/support/tickets', 'get'])
+    expect(document.paths).toHaveProperty(['/v1/support/tickets/{ticketId}', 'get'])
+    expect(document.paths).toHaveProperty(['/v1/support/tickets/{ticketId}/withdraw', 'post'])
+  })
+
+  /**
+   * **There is no citizen `close`, and that is the answer rather than an
+   * omission** (`#1581`). `resolved` and `declined` are the Colony's own
+   * verdicts and carry what it said; a citizen closing over one would delete the
+   * answer. `withdraw` is the citizen's act and is refused on an already-ended
+   * ticket for exactly that reason.
+   */
+  it('offers no way for a citizen to close a ticket the Colony has answered', () => {
+    const paths = Object.keys(document.paths as Record<string, unknown>)
+    expect(paths.filter((path) => path.includes('support') && path.includes('close'))).toEqual([])
+  })
+
   it('puts every path under /v1/', () => {
     // The rejection case `#442` asks for: this fails the moment a route
     // outside the published prefix reaches the document.

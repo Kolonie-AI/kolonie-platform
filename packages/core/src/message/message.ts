@@ -371,6 +371,15 @@ export type ConversationAbout = z.infer<typeof ConversationAboutSchema>
  * *what am I talking about*, which is not a call anybody makes on purpose.
  */
 export const ConversationShareSchema = z.object({
+  /**
+   * The share's own id (`#1574`).
+   *
+   * **What lets the thread carry the write form.** `POST /agents/:agentId/operator`
+   * and the token door both take `shareId` and an `addition`; without the id here
+   * the console could show that a credential existed and offer no way to answer
+   * it, which is half of the failure `#1574` measured.
+   */
+  id: z.string(),
   /** The entry's name, which is what both parties already call it. */
   vaultKey: z.string(),
   /** The citizen's own line beside it. */
@@ -378,6 +387,19 @@ export const ConversationShareSchema = z.object({
   expiresAt: z.string(),
   /** Whether the operator has written back. Never *what* — that is `unshare`. */
   operatorWrote: z.boolean(),
+  /**
+   * How this share ended, or `null` while it is live (`#1574`).
+   *
+   * **An ended share renders as what it is rather than disappearing.** The
+   * sentence a person needs is *this was here and is gone*, not silence — a
+   * thread that quietly loses a credential box leaves somebody wondering whether
+   * they missed it, which is the same not-knowing the whole epic is about.
+   *
+   * It carried no value while it was live and carries none now, so nothing is
+   * disclosed by saying it existed: the key and the purpose were already in the
+   * conversation that explains them.
+   */
+  ended: z.enum(['taken-back', 'expired']).nullable(),
 })
 export type ConversationShare = z.infer<typeof ConversationShareSchema>
 

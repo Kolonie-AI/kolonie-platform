@@ -204,6 +204,8 @@ export function registerConsoleInboxPages(
       readonly sent?: boolean
       /** What the box holds when it is drawn again (`#1548`). */
       readonly body?: string
+      /** What to say if an addition to a shared entry was just refused (`#1574`). */
+      readonly shareError?: string
     } = {},
   ): Promise<FastifyReply> => {
     const desk = deps.operatorMessaging
@@ -263,6 +265,30 @@ export function registerConsoleInboxPages(
           label: OPERATOR_ANSWER_LABELS[kind],
         })),
         bodyMaxLength: MESSAGE_BODY_MAX_LENGTH,
+        /**
+         * The entries shared onto this thread (`#1574`).
+         *
+         * **Passed through, not queried.** `getThread` already returns them —
+         * `conversationShares` keys them by conversation — so this issue adds a
+         * renderer and no read. The share whose invisibility was measured on
+         * 2026-08-21 was in this response the whole time.
+         */
+        shares: read.response.shares,
+        /**
+         * Where a write lands, and where the value is read.
+         *
+         * **The console's own path**, never the durable token: `#428` refuses a
+         * bearer link inside a page served behind a login. Both are the same
+         * path here because reading and writing a share are both things
+         * `/agents/:agentId/operator` already does.
+         */
+        ...(deps.operatorShares === undefined
+          ? {}
+          : {
+              shareAction: consoleOperatorPath(row.agentId),
+              readAt: consoleOperatorPath(row.agentId),
+            }),
+        ...(outcome.shareError === undefined ? {} : { shareError: outcome.shareError }),
         writable,
         ...(outcome.error === undefined ? {} : { error: outcome.error }),
         ...(outcome.sent === true ? { sent: true } : {}),

@@ -1869,20 +1869,17 @@ async function conversationShares(
   const rows = await db
     .select({
       conversationId: messageConversationShares.conversationId,
+      id: vaultShares.id,
       vaultKey: vaultShares.vaultKey,
       purpose: vaultShares.purpose,
       expiresAt: vaultShares.expiresAt,
       operatorAddition: vaultShares.operatorAddition,
+      takenBackAt: vaultShares.takenBackAt,
+      live: sql<boolean>`${vaultShares.expiresAt} > now()`,
     })
     .from(messageConversationShares)
     .innerJoin(vaultShares, eq(vaultShares.id, messageConversationShares.shareId))
-    .where(
-      and(
-        inArray(messageConversationShares.conversationId, [...ids]),
-        isNull(vaultShares.takenBackAt),
-        sql`${vaultShares.expiresAt} > now()`,
-      ),
-    )
+    .where(inArray(messageConversationShares.conversationId, [...ids]))
     .orderBy(asc(messageConversationShares.attachedAt))
 
   const attached = new Map<string, ConversationShare[]>()
@@ -1890,10 +1887,22 @@ async function conversationShares(
   for (const row of rows) {
     const list = attached.get(row.conversationId) ?? []
     list.push({
+      id: row.id,
       vaultKey: row.vaultKey,
       purpose: row.purpose,
       expiresAt: row.expiresAt,
       operatorWrote: row.operatorAddition !== null,
+      /**
+       * **Ended rather than absent** (`#1574`). This used to join on the share
+       * still being open, so a take-back or an expiry detached it silently and a
+       * person returning to the thread found nothing where a credential had
+       * been. The row is still read; what changed is that it says how it ended.
+       *
+       * No value was ever selected here and none is now — `sealed_value` is not
+       * in the select at all, which is a stronger statement than not returning
+       * it.
+       */
+      ended: row.takenBackAt !== null ? 'taken-back' : row.live ? null : 'expired',
     })
     attached.set(row.conversationId, list)
   }

@@ -692,6 +692,29 @@ export function fakeMessaging(): FakeMessaging {
 }
 
 export interface FakeOperatorMessaging extends OperatorMessaging {
+  /**
+   * Hang a vault entry on a thread (`#1574`, from `#1441`).
+   *
+   * **Modelled here because the failure was a renderer that never saw one.** The
+   * fake used to answer `shares: []` unconditionally, so every console test
+   * passed against a thread that could not carry a credential — which is exactly
+   * the blindness `#1574` measured in production. A fixture that cannot produce
+   * the state cannot catch its absence.
+   *
+   * **It carries no value**, like the real read: `conversationShares` does not
+   * select `sealed_value` at all.
+   */
+  readonly shareOnThread: (
+    conversationId: string,
+    share: {
+      readonly id?: string
+      readonly vaultKey?: string
+      readonly purpose?: string
+      readonly expiresAt?: string
+      readonly operatorWrote?: boolean
+      readonly ended?: 'taken-back' | 'expired' | null
+    },
+  ) => string
   /** Confirm the relationship this port refuses to write without. */
   readonly link: (humanId: string, agentId: string) => void
   /** End it. The thread stays and stops taking words, which is `#1288`'s choice. */
@@ -751,6 +774,18 @@ export function fakeOperatorMessaging(): FakeOperatorMessaging {
   const read = new Set<string>()
   /** `done_at`, as a set rather than a timestamp (`#1449`). */
   const archived = new Set<string>()
+  /** What is hanging on each thread (`#1574`). Never a value — see `shareOnThread`. */
+  const attachedShares = new Map<
+    string,
+    {
+      id: string
+      vaultKey: string
+      purpose: string
+      expiresAt: string
+      operatorWrote: boolean
+      ended: 'taken-back' | 'expired' | null
+    }[]
+  >()
   const threads: {
     id: string
     humanId: string
@@ -963,7 +998,29 @@ export function fakeOperatorMessaging(): FakeOperatorMessaging {
       if (thread === undefined) {
         return { outcome: 'refused', error: messageRefusals['not-a-participant'] }
       }
-      return { outcome: 'read', response: { messages: thread.messages, about: null, shares: [] } }
+      return {
+        outcome: 'read',
+        response: {
+          messages: thread.messages,
+          about: null,
+          shares: attachedShares.get(thread.id) ?? [],
+        },
+      }
+    },
+
+    shareOnThread(conversationId, share) {
+      const id = share.id ?? `share-${String(attachedShares.size + 1)}`
+      const list = attachedShares.get(conversationId) ?? []
+      list.push({
+        id,
+        vaultKey: share.vaultKey ?? 'provider/handle',
+        purpose: share.purpose ?? 'the billing PIN, please',
+        expiresAt: share.expiresAt ?? '2026-09-01T00:00:00.000Z',
+        operatorWrote: share.operatorWrote ?? false,
+        ended: share.ended ?? null,
+      })
+      attachedShares.set(conversationId, list)
+      return id
     },
 
     // @mirrors packages/db/src/storage/messaging.ts sendOperatorMessage

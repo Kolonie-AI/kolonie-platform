@@ -23,6 +23,7 @@ import { shareAdditionError } from '../operator-shares.js'
 import type { InboxView } from '../messaging.js'
 
 import type { RouteDependencies } from './dependencies.js'
+import { composeSubjects } from './compose-subjects.js'
 
 /**
  * `console.kolonie.ai`: an authenticated surface served by the API (`#179`).
@@ -300,71 +301,6 @@ export function registerConsoleInboxPages(
   }
 
   /**
-   * What a new thread may be about, across this person's agents (`#1551`, from
-   * `#1452`).
-   *
-   * **Only that agent's own things.** An account another citizen holds, or a task
-   * this one never attempted, is not a subject its operator may name — the
-   * citizen's side already checks exactly this (`#1441`), and the person's side
-   * needs the same check. The list is built *from* what each agent holds, so a
-   * value not in it is refused rather than filtered.
-   *
-   * **Proved and in use only, for accounts.** A thread about an account the
-   * citizen merely wrote down is a thread about a claim.
-   *
-   * **Open attempts only, for tasks.** A closed one is work the citizen has
-   * finished reporting on; offering it would be offering a subject nobody is
-   * blocked on, which is how a picker over everything starts.
-   *
-   * Empty where no register is wired, which renders as no picker rather than as
-   * an empty one.
-   */
-  const composeSubjects = async (
-    operated: readonly { readonly id: AgentId; readonly name: string }[],
-  ): Promise<
-    readonly {
-      readonly value: string
-      readonly agentId: string
-      readonly label: string
-      readonly kind: 'task' | 'account'
-      readonly subjectId: string
-    }[]
-  > => {
-    const found: {
-      value: string
-      agentId: string
-      label: string
-      kind: 'task' | 'account'
-      subjectId: string
-    }[] = []
-
-    for (const agent of operated) {
-      for (const account of await deps.accounts.register.list(agent.id)) {
-        if (!account.proved || account.status !== 'in-use') continue
-        found.push({
-          value: `account:${account.id}`,
-          agentId: String(agent.id),
-          label: `${agent.name} — ${account.identifier}`,
-          kind: 'account',
-          subjectId: account.id,
-        })
-      }
-
-      for (const task of (await deps.operatorMessaging?.openTasks?.(agent.id)) ?? []) {
-        found.push({
-          value: `task:${task.id}`,
-          agentId: String(agent.id),
-          label: `${agent.name} — ${task.title}`,
-          kind: 'task',
-          subjectId: task.id,
-        })
-      }
-    }
-
-    return found
-  }
-
-  /**
    * The inbox (`#1448`, epic `#1447`).
    *
    * ## Why it is here and not under `/agents/:agentId/`
@@ -489,7 +425,7 @@ export function registerConsoleInboxPages(
      * and the pickers are furniture for the page.
      */
     const operated = await deps.humans.store.operated(signedIn.human.id)
-    const subjects = await composeSubjects(operated)
+    const subjects = await composeSubjects(deps, operated)
     const named = operated.find((held) => String(held.id) === agent)
 
     /**
@@ -615,7 +551,7 @@ export function registerConsoleInboxPages(
 
     if (named !== undefined) {
       const operated = await deps.humans.store.operated(signedIn.human.id)
-      const allowed = (await composeSubjects(operated)).find(
+      const allowed = (await composeSubjects(deps, operated)).find(
         (one) => one.value === named && one.agentId === String(to.data),
       )
       if (allowed === undefined) return consoleNotFound(reply, request)

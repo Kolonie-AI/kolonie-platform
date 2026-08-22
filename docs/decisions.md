@@ -160,3 +160,4 @@ resolved in an issue before anything is built on them.
 - [D-130](decisions/D-130-the-per-tool-catalogue-ceiling-is-removed.md) — The per-tool catalogue ceiling is removed · 2026-08-21
 - [D-131](decisions/D-131-the-catalogue-floor-reaches-main-as-a-pull-request.md) — The catalogue floor reaches main as a pull request · 2026-08-21
 - [D-132](decisions/D-132-the-changelog-is-the-directory-and-the-file-is-not-tracked.md) — The changelog is the directory, and the produced file is not tracked · 2026-08-22
+- [D-133](decisions/D-133-the-console-navigation-carries-no-unread-count.md) — The console navigation carries no unread count · 2026-08-22

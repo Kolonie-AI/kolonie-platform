@@ -81,3 +81,35 @@ export const OPERATOR_ANSWER_LABELS: Readonly<Record<OperatorAnswerKind, string>
   completion: 'I have done it',
   refusal: 'No',
 }
+
+/**
+ * Which declaration a body *is*, if it is one exactly (`#1548`).
+ *
+ * ## Why the tag follows the body rather than the button
+ *
+ * `#1093` guaranteed that a message *tagged* as a declaration carries only the
+ * canonical words, and it bought that by throwing away anything the person had
+ * typed. The implementation did it silently and said so nowhere on the page —
+ * *"the typed text is dropped rather than sent alongside"* — so a person who
+ * wrote two sentences of context and then pressed *I have done it* watched them
+ * disappear. Nothing else a person uses does that.
+ *
+ * Under one form a message either **is** the canonical sentence or it is free
+ * text, so the tag cannot come from which control was pressed. It comes from
+ * here.
+ *
+ * **What the citizen relies on is unchanged**: anything tagged `completion` says
+ * only *I have done what you asked*, because that is what having the tag now
+ * means. What changes is that the surface stops deciding a person did not mean
+ * the words they typed — an edited sentence is an ordinary message that happens
+ * to start with a familiar one.
+ *
+ * **Exact, after trimming, and nothing looser.** A prefix match would tag a
+ * message whose *second* sentence contradicts its first, which is the failure
+ * `#1093` exists to prevent arriving by a longer road.
+ */
+export function answerKindOfBody(body: string): OperatorAnswerKind | undefined {
+  const written = body.trim()
+
+  return OperatorAnswerKindSchema.options.find((kind) => OPERATOR_ANSWER_BODIES[kind] === written)
+}

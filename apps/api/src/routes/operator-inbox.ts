@@ -3,8 +3,10 @@ import {
   MESSAGE_BODY_MAX_LENGTH,
   MESSAGE_BODY_MIN_LENGTH,
   ConversationIdSchema,
+  OPERATOR_ANSWER_BODIES,
   OPERATOR_ANSWER_LABELS,
   OperatorAnswerKindSchema,
+  answerKindOfBody,
   credentialFinding,
   credentialRefusalMessage,
   type AgentId,
@@ -230,6 +232,8 @@ export function registerOperatorInboxRoutes(app: FastifyInstance, deps: RouteDep
       readonly error?: string | undefined
       readonly status?: number | undefined
       readonly sent?: boolean | undefined
+      /** What the box holds when it is drawn again (`#1548`). */
+      readonly body?: string | undefined
     } = {},
   ): Promise<FastifyReply> => {
     const desk = deps.operatorMessaging
@@ -271,6 +275,7 @@ export function registerOperatorInboxRoutes(app: FastifyInstance, deps: RouteDep
         writable: true,
         ...(outcome.error === undefined ? {} : { error: outcome.error }),
         ...(outcome.sent === true ? { sent: true } : {}),
+        ...(outcome.body === undefined ? {} : { body: outcome.body }),
       }),
     )
   }
@@ -339,29 +344,45 @@ export function registerOperatorInboxRoutes(app: FastifyInstance, deps: RouteDep
     const found = await threadOf(request, at)
     if (found === undefined) return closed(reply)
 
-    const { body, kind } = (request.body ?? {}) as { body?: unknown; kind?: unknown }
+    const { body, fill } = (request.body ?? {}) as { body?: unknown; fill?: unknown }
     const written = typeof body === 'string' ? body.trim() : ''
-    const declared = OperatorAnswerKindSchema.safeParse(kind)
 
     const refuse = (message: string) =>
       renderThread(request, reply, at, {
         error: message,
         status: ERROR_STATUS.validation_failed,
+        body: written,
       })
 
-    if (kind !== undefined && !declared.success) return refuse(messageDeclarationError.message)
+    /**
+     * **The same rule as the console's, because it is the channel's** (`#1548`).
+     *
+     * `#1547` made these one renderer so a change like this is one change; a
+     * *fill* that worked on one door and not the other would be the two-surfaces
+     * problem rebuilt one issue later, which is what D-134 rule 1 refuses.
+     */
+    const asked = OperatorAnswerKindSchema.safeParse(fill)
+    if (fill !== undefined) {
+      if (!asked.success) return refuse(messageDeclarationError.message)
 
-    if (!declared.success) {
-      if (written.length < MESSAGE_BODY_MIN_LENGTH || written.length > MESSAGE_BODY_MAX_LENGTH) {
-        return refuse(messageBodyError.message)
-      }
-
-      const finding = credentialFinding(written)
-      if (finding !== null) return refuse(credentialRefusalMessage(finding))
+      const sentence = OPERATOR_ANSWER_BODIES[asked.data]
+      return renderThread(request, reply, at, {
+        body: written === '' ? sentence : `${sentence}\n\n${written}`,
+      })
     }
 
+    if (written.length < MESSAGE_BODY_MIN_LENGTH || written.length > MESSAGE_BODY_MAX_LENGTH) {
+      return refuse(messageBodyError.message)
+    }
+
+    const finding = credentialFinding(written)
+    if (finding !== null) return refuse(credentialRefusalMessage(finding))
+
+    // The tag follows the body, not the button. See `answerKindOfBody`.
+    const declared = answerKindOfBody(written)
+
     const result = await desk.send(at.humanId, at.agentId, {
-      ...(declared.success ? { answerKind: declared.data } : { body: written }),
+      ...(declared === undefined ? { body: written } : { answerKind: declared }),
       conversationId: found.conversationId,
     })
 

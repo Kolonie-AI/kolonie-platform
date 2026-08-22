@@ -290,16 +290,29 @@ describe('the declaration, and the thread it answers (#1319)', () => {
   })
 
   /**
-   * The typed words are dropped rather than sent beside the sentence, so a
-   * message declared `permission` can never carry a body saying it was done.
+   * **Refused rather than dropped, since `#1548`.**
+   *
+   * A message declared `permission` still can never carry a body saying it was
+   * done — that guarantee is unchanged and is why this is refused. What changed
+   * is which way it is enforced. It used to throw the words away silently, which
+   * is the defect `#1548` is named for; this is the JSON door, no page has
+   * posted a form here since `#1547`, and a caller sending both halves of an
+   * answer that disagree gets told so rather than having one picked for it.
+   *
+   * The page's own answer to the same question is `answerKindOfBody`: one form,
+   * and the tag follows the body.
    */
-  it('drops what was typed when a control was pressed', async () => {
+  it('refuses a control and typed words together, rather than dropping the words', async () => {
     const cookie = await signedInCookie()
     await operates(agentId)
 
-    await post(cookie, agentId, { kind: 'permission', body: 'I already made the account.' })
+    const refused = await post(cookie, agentId, {
+      kind: 'permission',
+      body: 'I already made the account.',
+    })
 
-    expect((await latestTo(cookie, agentId))?.body).toBe(OPERATOR_ANSWER_BODIES.permission)
+    expect(refused.statusCode).toBe(422)
+    expect(await threadsOf(cookie, agentId)).toHaveLength(0)
   })
 
   it('refuses a kind it cannot read, and sends nothing', async () => {
@@ -1065,3 +1078,151 @@ describe('unread, and what clears it (#1427)', () => {
     expect(await unreadNow()).toBe(false)
   })
 })
+
+/**
+ * One form, and the tag follows the body (`#1548`).
+ *
+ * ## The defect
+ *
+ * The operator's reply was two forms sitting on top of each other: three buttons
+ * that sent a fixed sentence, and a separate *Explain instead (optional)* box
+ * with its own send. **Type into the box, press a button, and the typed text was
+ * discarded** — deliberately (`#1093`), silently, and said nowhere on the page.
+ *
+ * ## What is traded, and why the trade is worth it
+ *
+ * `#1093` guaranteed that a message *tagged* as a declaration carries only the
+ * canonical words. Under one form a message either **is** the canonical sentence
+ * or it is free text, so the tag has to follow the body. What a citizen relies on
+ * is unchanged — anything tagged *I have done it* says only that — and the
+ * surface stops deciding that a person did not mean the words they typed.
+ */
+describe('one form, and the tag follows the body (#1548)', () => {
+  const KINDS = ['permission', 'completion', 'refusal'] as const
+
+  const reply = async (cookie: string, conversationId: string, body: Record<string, unknown>) =>
+    await app.inject({
+      method: 'POST',
+      url: `/inbox/${conversationId}`,
+      headers: {
+        host: CONSOLE_HOST,
+        accept: 'text/html',
+        cookie,
+        'content-type': 'application/x-www-form-urlencoded',
+      },
+      payload: new URLSearchParams(body as Record<string, string>).toString(),
+    })
+
+  it('offers one text field and one send, with the three sentences as fills', async () => {
+    const cookie = await signedInCookie()
+    const humanId = await operates(agentId)
+    const conversationId = messages.thread(humanId, agentId)
+
+    const page = await app.inject({
+      method: 'GET',
+      url: `/inbox/${conversationId}`,
+      headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
+    })
+
+    expect(page.body.match(/<textarea/g)).toHaveLength(1)
+    expect(page.body).toContain('name="act" value="send"')
+    for (const kind of KINDS) expect(page.body).toContain(`name="fill" value="${kind}"`)
+    // The old shape: a second form, and a control that sent instead of filling.
+    expect(page.body).not.toContain('Explain instead')
+    expect(page.body).not.toContain('name="kind" value="permission"')
+  })
+
+  it.each(KINDS)('puts the %s sentence in the box, and sends nothing yet', async (kind) => {
+    const cookie = await signedInCookie()
+    const humanId = await operates(agentId)
+    const conversationId = messages.thread(humanId, agentId)
+
+    const filled = await reply(cookie, conversationId, { fill: kind })
+
+    expect(filled.statusCode).toBe(200)
+    expect(filled.body).toContain(escapeHtml(OPERATOR_ANSWER_BODIES[kind]))
+    expect(await readThread(cookie, conversationId)).toHaveLength(0)
+  })
+
+  /** **The defect this issue is named for.** */
+  it('keeps what a person typed when a sentence is put in the box', async () => {
+    const cookie = await signedInCookie()
+    const humanId = await operates(agentId)
+    const conversationId = messages.thread(humanId, agentId)
+
+    const filled = await reply(cookie, conversationId, {
+      fill: 'completion',
+      body: 'the handle is @foo2, by the way',
+    })
+
+    expect(filled.body).toContain('the handle is @foo2, by the way')
+    expect(filled.body).toContain(escapeHtml(OPERATOR_ANSWER_BODIES.completion))
+  })
+
+  it.each(KINDS)('sends %s with its answerKind when the sentence is unchanged', async (kind) => {
+    const cookie = await signedInCookie()
+    const humanId = await operates(agentId)
+    const conversationId = messages.thread(humanId, agentId)
+
+    const sent = await reply(cookie, conversationId, { body: OPERATOR_ANSWER_BODIES[kind] })
+
+    expect(sent.statusCode).toBe(303)
+    const latest = (await readThread(cookie, conversationId)).at(-1)
+    expect(latest?.answerKind).toBe(kind)
+    expect(latest?.body).toBe(OPERATOR_ANSWER_BODIES[kind])
+  })
+
+  /** The other direction, which is the half that makes the trade honest. */
+  it('sends an edited sentence as a plain message with no answerKind', async () => {
+    const cookie = await signedInCookie()
+    const humanId = await operates(agentId)
+    const conversationId = messages.thread(humanId, agentId)
+
+    const edited = `${OPERATOR_ANSWER_BODIES.completion}\n\nThe handle is @foo2.`
+    const sent = await reply(cookie, conversationId, { body: edited })
+
+    expect(sent.statusCode).toBe(303)
+    const latest = (await readThread(cookie, conversationId)).at(-1)
+    expect(latest?.answerKind).toBeUndefined()
+    expect(latest?.body).toBe(edited)
+  })
+
+  /**
+   * **No path discards text a person typed.** A refusal gives the box back
+   * holding what was written, rather than an empty one and a complaint.
+   */
+  it('returns what was typed when the credential guard refuses it', async () => {
+    const cookie = await signedInCookie()
+    const humanId = await operates(agentId)
+    const conversationId = messages.thread(humanId, agentId)
+
+    const refused = await reply(cookie, conversationId, {
+      body: 'the token is ghp_0123456789abcdefghijklmnopqrstuvwxyzAB',
+    })
+
+    expect(refused.statusCode).toBe(422)
+    expect(refused.body).toContain('ghp_0123456789abcdefghijklmnopqrstuvwxyzAB')
+    expect(await readThread(cookie, conversationId)).toHaveLength(0)
+  })
+
+  it('refuses a fill it cannot read, and keeps the box', async () => {
+    const cookie = await signedInCookie()
+    const humanId = await operates(agentId)
+    const conversationId = messages.thread(humanId, agentId)
+
+    const refused = await reply(cookie, conversationId, { fill: 'allow', body: 'Go on then.' })
+
+    expect(refused.statusCode).toBe(422)
+    expect(refused.body).toContain('Go on then.')
+    expect(await readThread(cookie, conversationId)).toHaveLength(0)
+  })
+})
+
+/** The console escapes everything it renders, so a needle has to be escaped too. */
+const escapeHtml = (value: string): string =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')

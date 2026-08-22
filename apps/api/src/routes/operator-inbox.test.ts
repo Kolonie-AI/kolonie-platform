@@ -12,6 +12,7 @@ import {
 import { fakeOperatorThreads } from '../__fixtures__/operator-threads.js'
 import { fakeOperatorPageMessages } from '../__fixtures__/operator-page-message.js'
 import { fakeOperatorMessaging, type FakeOperatorMessaging } from '../__fixtures__/messaging.js'
+import { OPERATOR_ANSWER_BODIES } from '@kolonie-ai/core'
 
 /**
  * The inbox behind the link in a notification mail (`#1547`, epic `#1447`).
@@ -184,21 +185,25 @@ describe('the inbox behind a mailed link', () => {
     })
 
     /**
-     * **`#1093`'s three controls, at the new door.** The reason still holds: a
-     * citizen reads the same sentence for the same button, so the control posts
-     * what it *means* and the Colony resolves the words.
+     * **`#1093`'s three answers, in `#1548`'s one form.** The reason still
+     * holds — a citizen reads the same sentence for the same answer — and what
+     * changed is that the control **fills** the box rather than replacing what
+     * is in it. The tag then follows the body.
      */
-    it('offers the three canonical answers, and posts the kind rather than the words', async () => {
+    it('offers the three canonical answers, as fills on one form', async () => {
       const token = await aPage()
       const conversationId = messaging.thread(humanId, agentId)
 
       const body = (await get(`/operator/page/${token}/inbox/${conversationId}`)).body
 
-      expect(body).toContain('name="kind" value="permission"')
-      expect(body).toContain('name="kind" value="completion"')
-      expect(body).toContain('name="kind" value="refusal"')
+      expect(body).toContain('name="fill" value="permission"')
+      expect(body).toContain('name="fill" value="completion"')
+      expect(body).toContain('name="fill" value="refusal"')
       expect(body).toContain('You may go ahead')
       expect(body).toContain('I have done it')
+      // One textarea and one send, on one form.
+      expect(body.match(/<textarea/g)).toHaveLength(1)
+      expect(body).toContain('name="act" value="send"')
     })
 
     /** **`#241`.** A valid token cannot be aimed at another citizen's thread. */
@@ -218,19 +223,51 @@ describe('the inbox behind a mailed link', () => {
   })
 
   describe('writing', () => {
-    it('records what a pressed control declared, in the Colony’s own words', async () => {
+    /**
+     * **`#1548`, on this door too.** `#1547` made the two doors one renderer so a
+     * change like this is one change; a fill that worked on one and not the
+     * other would be the two-surfaces problem rebuilt one issue later, which
+     * D-134 rule 1 refuses.
+     */
+    it('fills the box on a press, and sends the sentence on the next', async () => {
       const token = await aPage()
       const conversationId = messaging.thread(humanId, agentId)
 
-      const response = await post(`/operator/page/${token}/inbox/${conversationId}`, {
-        kind: 'completion',
+      const filled = await post(`/operator/page/${token}/inbox/${conversationId}`, {
+        fill: 'completion',
+        body: '',
       })
 
-      expect(response.statusCode).toBe(303)
+      expect(filled.statusCode).toBe(200)
+      expect(filled.body).toContain('I have done what you asked')
+      // Nothing was sent by the fill itself.
+      const before = await messaging.getThread(humanId as never, conversationId as never)
+      if (before.outcome !== 'read') throw new Error('the thread should be readable')
+      expect(before.response.messages).toHaveLength(0)
+
+      const sent = await post(`/operator/page/${token}/inbox/${conversationId}`, {
+        body: OPERATOR_ANSWER_BODIES.completion,
+      })
+
+      expect(sent.statusCode).toBe(303)
       const read = await messaging.getThread(humanId as never, conversationId as never)
-      expect(read.outcome).toBe('read')
-      if (read.outcome !== 'read') return
-      expect(read.response.messages.at(-1)?.body).toContain('done')
+      if (read.outcome !== 'read') throw new Error('the thread should be readable')
+      expect(read.response.messages.at(-1)?.body).toBe(OPERATOR_ANSWER_BODIES.completion)
+    })
+
+    /** **The defect this issue is named for**: a press must not eat what was typed. */
+    it('keeps what was already typed when a sentence is put in the box', async () => {
+      const token = await aPage()
+      const conversationId = messaging.thread(humanId, agentId)
+
+      const filled = await post(`/operator/page/${token}/inbox/${conversationId}`, {
+        fill: 'completion',
+        body: 'the handle is @foo2, by the way',
+      })
+
+      expect(filled.statusCode).toBe(200)
+      expect(filled.body).toContain('the handle is @foo2, by the way')
+      expect(filled.body).toContain('I have done what you asked')
     })
 
     it('carries what an operator typed', async () => {

@@ -1717,6 +1717,14 @@ export function inboxThreadPage(
     }[]
     readonly declarations: readonly { readonly kind: string; readonly label: string }[]
     readonly bodyMaxLength: number
+    /**
+     * What the box holds when the page is drawn (`#1548`).
+     *
+     * Set after a *fill* press — the canonical sentence — and after a refusal,
+     * so a person whose message tripped the credential guard gets it back rather
+     * than an empty box and a complaint. Empty on an ordinary read.
+     */
+    readonly body?: string | undefined
     readonly error?: string | undefined
     readonly sent?: boolean | undefined
     /** False once the operator link is gone: the words stay and nobody may add. */
@@ -1748,22 +1756,37 @@ export function inboxThreadPage(
           .join('')}</ul>`,
     ...(input.writable
       ? [
+          /**
+           * **One form** (`#1548`). There were two sitting on top of each other:
+           * three buttons that sent a fixed sentence, and a separate *Explain
+           * instead (optional)* box with its own send. Typing into the box and
+           * then pressing a button discarded what you had written — deliberately
+           * (`#1093`), silently, and said nowhere on the page. Nothing else a
+           * person uses does that.
+           *
+           * So the three sentences now **fill the field** rather than replacing
+           * it. Press one, the box holds that sentence, editable; send it
+           * unchanged and the citizen gets exactly what `#1093` promises,
+           * because the tag follows the body — see `answerKindOfBody`.
+           */
           `<form method="post" action="${escape(base)}/${escape(input.conversationId)}">`,
           `<label for="reply">Write to ${escape(input.agentName)}</label>`,
-          `<textarea id="reply" name="body" maxlength="${String(input.bodyMaxLength)}"></textarea>`,
-          '<button type="submit">Send</button>',
+          `<textarea id="reply" name="body" maxlength="${String(input.bodyMaxLength)}">` +
+            `${escape(input.body ?? '')}</textarea>`,
+          '<button type="submit" name="act" value="send">Send</button>',
           /**
-           * **Beside the box, with the sentence that was missing** (`#1447`
-           * frozen decision 7, from `#1093`). The buttons discard typed text on
-           * purpose — so the citizen always reads the canonical sentence — and
-           * nothing on the page said so, which read as being ignored. The
-           * behaviour is unchanged; what changes is that nobody is surprised.
+           * **Buttons on the same form, and no script** (`#422`: this console
+           * has none). Pressing one submits, and the route renders the thread
+           * back with the sentence in the box — so *fill* is a round trip rather
+           * than something a browser does locally, and the field a person is
+           * looking at is always the field that will be sent.
            */
-          '<p class="note">These three send a fixed sentence instead of whatever you have ' +
-            'typed, so your agent always reads the same words for the same answer:</p>',
+          '<p class="note">These three put a fixed sentence in the box above, which you can ' +
+            'then send as it is or add to. Sent unchanged, your agent reads the same words ' +
+            'for the same answer every time:</p>',
           ...input.declarations.map(
             (declaration) =>
-              `<button type="submit" name="kind" value="${escape(declaration.kind)}">` +
+              `<button type="submit" name="fill" value="${escape(declaration.kind)}">` +
               `${escape(declaration.label)}</button>`,
           ),
           '</form>',

@@ -114,6 +114,7 @@ import {
   blockSender,
   listConversations,
   listMessageRequests,
+  conversationsAboutAccount,
   listOperatorConversations,
   markConversationRead,
   readConversation,
@@ -1172,6 +1173,14 @@ const app = buildApp({
    */
   operatorMessaging: {
     listThreads: (humanId, agentId) => listOperatorConversations(db, humanId, agentId),
+    /**
+     * Every thread about one account, archived ones included (`#1600`).
+     *
+     * Scoped by `humanId` like every other read here, so naming another
+     * person's account id answers with nothing rather than with their threads.
+     */
+    threadsAboutAccount: (humanId, accountId) =>
+      conversationsAboutAccount(db, { humanId }, accountId),
     /** What a new thread may be about, on the task side (`#1551`). */
     openTasks: (agentId) => openTasksForAgent(db, agentId),
     /**

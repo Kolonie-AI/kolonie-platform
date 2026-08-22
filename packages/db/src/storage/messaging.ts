@@ -1709,7 +1709,39 @@ const kindIs = (kind: ConversationKind) =>
 async function conversationsFor(
   db: Database,
   side: ConversationSide,
-  options: { readonly kind?: ConversationKind; readonly archived?: boolean } = {},
+  options: {
+    readonly kind?: ConversationKind
+    readonly archived?: boolean
+    /**
+     * Only threads that are *about* this account (`#1600`).
+     *
+     * **In the `where` with the other two**, for the reason they are: the limit
+     * is applied by the query, so filtering afterwards would silently return
+     * fewer than the limit — the failure a caller cannot see.
+     *
+     * **It does not imply an archived state.** `#1600` asks for the history of
+     * an account and says so outright: *includes closed / archived threads about
+     * this account, not only the open one*. So this narrows the subject and
+     * leaves `archived` to say what it always said — a caller wanting the whole
+     * history passes this and omits that.
+     */
+    readonly accountId?: string
+    /**
+     * Whether the answer says which rows are archived (`#1600`).
+     *
+     * **Off everywhere else, and that is a rule rather than a default.**
+     * `inbox.test.ts` holds it: *archiving is a fact about one party's attention
+     * rather than about the conversation, and an agent shown it would reasonably
+     * read it as my operator has finished with me.* The citizen's listing must
+     * not carry the field at all — not `false`, absent — so this is opt-in and
+     * the reads that filter on archived leave it off, where it would only
+     * restate the filter.
+     *
+     * The account history is the one read that mixes both, because it is asked
+     * for whole, and there a row has to be able to say which it is.
+     */
+    readonly sayArchived?: boolean
+  } = {},
 ): Promise<readonly Conversation[]> {
   /**
    * **Archived threads are out of the default answer** (`#1550`), and asked for
@@ -1731,6 +1763,7 @@ async function conversationsFor(
     .select({
       conversationId: messageParticipants.conversationId,
       createdAt: messageConversations.createdAt,
+      doneAt: messageParticipants.doneAt,
     })
     .from(messageParticipants)
     .innerJoin(
@@ -1738,7 +1771,14 @@ async function conversationsFor(
       eq(messageConversations.id, messageParticipants.conversationId),
     )
     .where(
-      and(sideIs(side), options.kind === undefined ? undefined : kindIs(options.kind), archivedIs),
+      and(
+        sideIs(side),
+        options.kind === undefined ? undefined : kindIs(options.kind),
+        archivedIs,
+        options.accountId === undefined
+          ? undefined
+          : eq(messageConversations.accountId, options.accountId),
+      ),
     )
     .orderBy(desc(messageConversations.createdAt))
     .limit(CONVERSATION_LIST_LIMIT)
@@ -1814,6 +1854,7 @@ async function conversationsFor(
       createdAt: row.createdAt,
       ...(lastMessageAt == null ? {} : { lastMessageAt }),
       unread: unreadById.get(row.conversationId) ?? 0,
+      ...(options.sayArchived === true ? { archived: row.doneAt !== null } : {}),
       about: aboutById.get(row.conversationId) ?? null,
       shares: sharesById.get(row.conversationId) ?? [],
     }
@@ -1907,6 +1948,7 @@ async function conversationShares(
       expiresAt: vaultShares.expiresAt,
       operatorAddition: vaultShares.operatorAddition,
       takenBackAt: vaultShares.takenBackAt,
+      reads: vaultShares.reads,
       live: sql<boolean>`${vaultShares.expiresAt} > now()`,
     })
     .from(messageConversationShares)
@@ -1924,6 +1966,17 @@ async function conversationShares(
       purpose: row.purpose,
       expiresAt: row.expiresAt,
       operatorWrote: row.operatorAddition !== null,
+      /**
+       * **How many times the person has opened it** (`#1600`). `operatorWrote`
+       * already says whether they wrote something back; this says whether they
+       * looked at all, which is the difference between *the ask has not reached
+       * anybody* and *it reached somebody who has not acted*. Those send a
+       * citizen somewhere different, and until this the two were one silence.
+       *
+       * A count of opens by the one person the share is for, so it names nobody
+       * the reader does not already know about.
+       */
+      reads: row.reads,
       /**
        * **Ended rather than absent** (`#1574`). This used to join on the share
        * still being open, so a take-back or an expiry detached it silently and a
@@ -2039,6 +2092,40 @@ export function conversationKind(
  * relationship ending makes the conversation read-only (`operator-link-removed`)
  * and does not un-say what was said in it.
  */
+/**
+ * Every thread that is about one account, for the person who is in them
+ * (`#1600`).
+ *
+ * ## The join that was never built
+ *
+ * `#1441` allowed a conversation to be *about* an account and to carry shares;
+ * `#1442` made one thread carry the account, the ask and the credential.
+ * **Neither built the way back.** So an operator working a hold saw the account
+ * page — episodes, slots, operate-notes — and nothing about the inbox thread
+ * carrying the actual ask, and the citizen could not see on the account it works
+ * every two hours whether the person had opened the share. Measured on
+ * 2026-08-22: one thread, one live share, **zero reads**, and no surface joining
+ * the two.
+ *
+ * **Archived and closed threads are in it**, which is the opposite of the
+ * default listing and is `#1600`'s requirement in as many words: *history
+ * includes closed / archived threads about this account, not only the open one*.
+ * An account's history is the thing being asked for, and a history that silently
+ * dropped what had been put away would be answering a different question.
+ *
+ * **Scoped by the reader, not only by the account.** `side` is the person or the
+ * citizen asking, so a thread about somebody else's account is not reachable by
+ * naming its id — the same authorisation every other read in this file makes,
+ * and the reason a rejection test is worth having.
+ */
+export async function conversationsAboutAccount(
+  db: Database,
+  side: ConversationSide,
+  accountId: string,
+): Promise<readonly Conversation[]> {
+  return conversationsFor(db, side, { accountId, sayArchived: true })
+}
+
 export async function listOperatorConversations(
   db: Database,
   humanId: HumanId,

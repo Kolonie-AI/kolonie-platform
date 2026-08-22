@@ -11,6 +11,7 @@ import {
 import type { Database } from '../client.js'
 import {
   accountWishes,
+  accounts,
   agents,
   humanAgents,
   humans,
@@ -31,6 +32,8 @@ import {
   acknowledgeSystemMessage,
   answerOperatorMessageFromChat,
   archiveConversationForCitizen,
+  archiveConversationForOperator,
+  conversationsAboutAccount,
   blockSender,
   declineMessageRequest,
   listConversations,
@@ -1974,5 +1977,143 @@ describe('private messaging', () => {
 
       expect(await listSetAsides(db, citizen)).toHaveLength(0)
     })
+  })
+})
+
+/**
+ * The threads about one account (`#1600`).
+ *
+ * **The reverse index `#1441` and `#1442` did not build.** A thread has been able
+ * to say which account it is about since `#1441`, and nothing could ask an
+ * account which threads those were — so the ask lived in the inbox and the
+ * account page never mentioned it.
+ */
+describe('every thread about one account', () => {
+  let db: Database
+  let seeded = 0
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+  })
+
+  const anAgent = async (name: string): Promise<AgentId> => {
+    const [row] = await db
+      .insert(agents)
+      .values({ name: `${name}-${++seeded}`, platform: 'openclaw' })
+      .returning({ id: agents.id })
+    return AgentIdSchema.parse(row!.id)
+  }
+
+  const aPerson = async (operates: AgentId): Promise<HumanId> => {
+    const [row] = await db.insert(humans).values({}).returning({ id: humans.id })
+    const humanId = HumanIdSchema.parse(row!.id)
+    await db.insert(humanAgents).values({ agentId: operates, humanId })
+    return humanId
+  }
+
+  const anAccount = async (agentId: AgentId, identifier: string): Promise<string> => {
+    const [row] = await db
+      .insert(accounts)
+      .values({ agentId, kind: 'mailbox', identifier, provider: 'mail.example' })
+      .returning({ id: accounts.id })
+    return String(row!.id)
+  }
+
+  const aThreadAbout = async (agentId: AgentId, accountId: string, body: string) => {
+    const opened = await openOperatorHelpConversation(db, agentId, {
+      body,
+      provenance: { taskId: null, wishId: null, accountId },
+    })
+    if (opened.outcome !== 'delivered') throw new Error(opened.outcome)
+    return opened
+  }
+
+  it('answers with the threads about that account and no others', async () => {
+    const citizen = await anAgent('holder')
+    const humanId = await aPerson(citizen)
+    const stripe = await anAccount(citizen, 'one@mail.example')
+    const other = await anAccount(citizen, 'two@mail.example')
+
+    await aThreadAbout(citizen, stripe, 'The card, please.')
+    await aThreadAbout(citizen, other, 'A different account entirely.')
+
+    const found = await conversationsAboutAccount(db, { humanId }, stripe)
+
+    expect(found).toHaveLength(1)
+    expect(found[0]?.about).toMatchObject({ kind: 'account', id: stripe })
+  })
+
+  /**
+   * **The rejection `#1600` asks for by name**: a thread about account A must not
+   * render on account B. Asserted from the other end too — a person who is in no
+   * thread about this account gets nothing rather than somebody else's.
+   */
+  it('answers with nothing for a person who is in none of them', async () => {
+    const citizen = await anAgent('holder')
+    await aPerson(citizen)
+    const accountId = await anAccount(citizen, 'one@mail.example')
+    await aThreadAbout(citizen, accountId, 'The card, please.')
+
+    const stranger = await anAgent('stranger')
+    const otherPerson = await aPerson(stranger)
+
+    expect(await conversationsAboutAccount(db, { humanId: otherPerson }, accountId)).toEqual([])
+  })
+
+  /**
+   * **An account's history is asked for whole** (`#1600`), so a thread the person
+   * put away is in the answer and says that it was — where the default listing
+   * takes it out entirely.
+   */
+  it('keeps an archived thread, marked as one', async () => {
+    const citizen = await anAgent('holder')
+    const humanId = await aPerson(citizen)
+    const accountId = await anAccount(citizen, 'one@mail.example')
+    const opened = await aThreadAbout(citizen, accountId, 'Finished with this one.')
+
+    await archiveConversationForOperator(db, humanId, opened.conversationId, true)
+
+    const found = await conversationsAboutAccount(db, { humanId }, accountId)
+
+    expect(found).toHaveLength(1)
+    expect(found[0]?.archived).toBe(true)
+  })
+
+  it('says a thread is not archived when it is not', async () => {
+    const citizen = await anAgent('holder')
+    const humanId = await aPerson(citizen)
+    const accountId = await anAccount(citizen, 'one@mail.example')
+    await aThreadAbout(citizen, accountId, 'Still going.')
+
+    expect((await conversationsAboutAccount(db, { humanId }, accountId))[0]?.archived).toBe(false)
+  })
+
+  /**
+   * **The field is opt-in, and this is the rule it must not break.**
+   * `inbox.test.ts` holds that an agent is told nothing about what a person did
+   * with a thread — *archiving is a fact about one party's attention*, and an
+   * agent shown it would reasonably read it as *my operator has finished with
+   * me*. So the account history says it and the citizen's own listing must not
+   * carry the field at all: absent rather than `false`.
+   */
+  it('keeps the archive state off the citizen listing entirely', async () => {
+    const citizen = await anAgent('holder')
+    const humanId = await aPerson(citizen)
+    const accountId = await anAccount(citizen, 'one@mail.example')
+    const opened = await aThreadAbout(citizen, accountId, 'The card, please.')
+    await archiveConversationForOperator(db, humanId, opened.conversationId, true)
+
+    const asTheCitizen = await listConversations(db, citizen)
+
+    expect(asTheCitizen.map((row) => row.id)).toContain(opened.conversationId)
+    expect(JSON.stringify(asTheCitizen)).not.toContain('archiv')
   })
 })

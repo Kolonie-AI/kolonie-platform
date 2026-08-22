@@ -712,6 +712,8 @@ export interface FakeOperatorMessaging extends OperatorMessaging {
       readonly purpose?: string
       readonly expiresAt?: string
       readonly operatorWrote?: boolean
+      /** How many times the person opened it (`#1600`). Unopened by default. */
+      readonly reads?: number
       readonly ended?: 'taken-back' | 'expired' | null
     },
   ) => string
@@ -788,6 +790,8 @@ export function fakeOperatorMessaging(): FakeOperatorMessaging {
       purpose: string
       expiresAt: string
       operatorWrote: boolean
+      /** How many times the person opened it (`#1600`). */
+      reads: number
       ended: 'taken-back' | 'expired' | null
     }[]
   >()
@@ -800,6 +804,8 @@ export function fakeOperatorMessaging(): FakeOperatorMessaging {
     accountId?: string
     /** The other subject a person may name since `#1551`. At most one of the two. */
     taskId?: string
+    /** Whether the person put it away (`#1550`), which the account history shows (`#1600`). */
+    archived?: boolean
     messages: Message[]
   }[] = []
 
@@ -841,6 +847,24 @@ export function fakeOperatorMessaging(): FakeOperatorMessaging {
       const opened = { id: id(), humanId, agentId, createdAt: now(), messages: [] as Message[] }
       threads.push(opened)
       return opened.id
+    },
+
+    /**
+     * Every thread about one account, archived ones included (`#1600`).
+     *
+     * **Scoped by `humanId` here too**, and that is the part a fixture must get
+     * right: a fake that answered on the account id alone would make the
+     * rejection test — a thread about account A must not render on B, nor on
+     * another person's page — pass for the wrong reason.
+     */
+    async threadsAboutAccount(humanId, accountId) {
+      return threads
+        .filter((thread) => thread.humanId === humanId && thread.accountId === accountId)
+        .map((thread) => ({
+          ...asConversation(thread),
+          archived: thread.archived ?? false,
+          shares: attachedShares.get(thread.id) ?? [],
+        }))
     },
 
     threadAbout(humanId, agentId, accountId) {
@@ -1047,6 +1071,8 @@ export function fakeOperatorMessaging(): FakeOperatorMessaging {
         purpose: share.purpose ?? 'the billing PIN, please',
         expiresAt: share.expiresAt ?? '2026-09-01T00:00:00.000Z',
         operatorWrote: share.operatorWrote ?? false,
+        /** How many times the person opened it (`#1600`); unopened by default. */
+        reads: share.reads ?? 0,
         ended: share.ended ?? null,
       })
       attachedShares.set(conversationId, list)

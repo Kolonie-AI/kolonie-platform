@@ -421,6 +421,35 @@ jobs:
             echo "the floor is already committed at this figure"
             exit 0
           fi
+
+          # **Do not restart a race that is already running** (`#1594`). A
+          # force-push cancels the branch's in-flight runs and starts new ones —
+          # `cancel-in-progress` is right for a branch somebody is iterating on
+          # and wrong for one trying to reach a verdict. At 49 merges a day the
+          # replacement arrives before the verdict does, so the floor pull
+          # request never goes green. Measured on `#1590`: two full rounds of
+          # runs on one pull request, neither concluding.
+          #
+          # **Waiting is safe because the figure has no deadline.** A floor that
+          # lags is a floor *below* the catalogue: it costs strictness while it
+          # lags and cannot cost correctness, since a branch is weighed against
+          # its merge base (`#1266`) and never against this file. The next push
+          # to `main` measures again.
+          PENDING="$(gh pr checks "${BRANCH}" --json state \
+            --jq '[.[] | select(.state == "PENDING" or .state == "QUEUED" or .state == "IN_PROGRESS")] | length' \
+            2>/dev/null || echo 0)"
+          if [ "${PENDING:-0}" -gt 0 ]; then
+            TIP="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${BRANCH}" --jq '.commit.committer.date' 2>/dev/null || true)"
+            AGE=$(( $(date +%s) - $(date -d "${TIP:-now}" +%s) ))
+            # An hour is the queue's own `check_response_timeout_minutes`. Past
+            # it the checks are stuck rather than slow, and stranding the figure
+            # behind them is the worse of the two failures.
+            if [ "$AGE" -lt 3600 ]; then
+              echo "::notice::the floor pull request is still being checked at an older figure (${PENDING} pending, ${AGE}s); the run after it merges measures again"
+              exit 0
+            fi
+            echo "::warning::the floor branch has been pending ${AGE}s, past the queue's own timeout — pushing the newer figure over it"
+          fi
           # A raise quotes the message that earned it, and that is load-bearing
           # rather than courteous: `check:catalogue-floor` judges the *last commit
           # to touch this file*, so a raise commit whose own message says nothing

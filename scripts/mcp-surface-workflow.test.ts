@@ -110,6 +110,30 @@ describe('how the measured floor reaches main', () => {
   })
 
   /**
+   * **A force-push cancels the branch's in-flight runs** (`#1594`). That is right
+   * for a branch somebody is iterating on and wrong for one trying to reach a
+   * verdict: at the merge rate this repository runs at, the replacement arrives
+   * before the verdict does and the floor pull request never goes green.
+   * Measured on `#1590` — two full rounds of runs, neither concluding.
+   *
+   * Waiting is safe because the figure has no deadline. A floor that lags is a
+   * floor *below* the catalogue, which costs strictness and cannot cost
+   * correctness — a branch is weighed against its merge base (`#1266`).
+   *
+   * The hour is the queue's own `check_response_timeout_minutes`. Past it the
+   * checks are stuck rather than slow, and stranding the figure behind them for
+   * ever is the worse of the two failures — so it warns and pushes anyway.
+   */
+  it('leaves the floor branch alone while its own checks are still running', () => {
+    expect(TEXT).toContain('gh pr checks "${BRANCH}" --json state')
+    expect(TEXT).toContain('if [ "${PENDING:-0}" -gt 0 ]; then')
+    expect(TEXT).toContain('if [ "$AGE" -lt 3600 ]; then')
+    // The guard is worth nothing after the push it is meant to prevent.
+    const script = TEXT.slice(TEXT.indexOf('PENDING='))
+    expect(script.indexOf('git push --force')).toBeGreaterThan(script.indexOf('AGE'))
+  })
+
+  /**
    * **The failure was invisible for eleven hours**, which is half of what made it
    * expensive. Every way this job can fail to land the figure now writes an
    * `::error::` and exits non-zero.

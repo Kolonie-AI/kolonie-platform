@@ -153,6 +153,28 @@ describe('the vault, over MCP', () => {
     await close()
   })
 
+  it('says whether the operator was notified without returning the value', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    await client.callTool({
+      name: 'kolonie.vault.set',
+      arguments: { key: 'account', value: 'sealed-value-sentinel' },
+    })
+    const shared = await client.callTool({
+      name: 'kolonie.vault.share',
+      arguments: { key: 'account', purpose: 'Put a billing card on the account.' },
+    })
+
+    expect(shared.isError).toBeFalsy()
+    expect((shared.structuredContent as { notifyStatus: string }).notifyStatus).toBe(
+      'undeliverable',
+    )
+    expect(JSON.stringify(shared)).toContain('Nobody was notified')
+    expect(JSON.stringify(shared)).not.toContain('sealed-value-sentinel')
+    await close()
+  })
+
   it('shows a stranger nothing, and offers the tools to nobody without a key', async () => {
     const { colony, apiKey } = await registeredCitizen()
     const owner = await connectedClient(colony, `Bearer ${apiKey}`)

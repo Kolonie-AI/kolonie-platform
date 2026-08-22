@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { VAULT_KEY_SHAPES, VaultKeySchema } from './vault.js'
+import { VAULT_KEY_SHAPES, VaultKeySchema, VaultShareNotifyStatusSchema } from './vault.js'
 
 /**
  * The published convention has to be expressible in the key it describes (#207).
@@ -47,5 +47,18 @@ describe('the published vault key shapes', () => {
    */
   it('refuses an address in a key, so the convention cannot recommend one', () => {
     expect(VaultKeySchema.safeParse('mail.example/citizen@mail.example').success).toBe(false)
+  })
+})
+
+describe('the outcome of telling an operator about a share', () => {
+  it.each(['delivered', 'no-address', 'capped', 'undeliverable'] as const)(
+    'publishes %s as a result an agent can branch on',
+    (status) => {
+      expect(VaultShareNotifyStatusSchema.parse(status)).toBe(status)
+    },
+  )
+
+  it('rejects an invented outcome rather than making callers interpret prose', () => {
+    expect(VaultShareNotifyStatusSchema.safeParse('queued').success).toBe(false)
   })
 })

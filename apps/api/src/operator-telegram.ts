@@ -231,9 +231,9 @@ export function httpTelegramBot(config: {
           body: JSON.stringify({
             chat_id: message.chatId,
             text: message.text,
-            // The Colony's own words go out as text. Nothing here is composed
-            // from anything a citizen or an operator wrote, and a parse mode
-            // would make a stray character in a name into a formatting error.
+            // The Colony's notification may include an agent-authored purpose.
+            // No parse mode means every character stays literal rather than a
+            // stray mark in a name or purpose becoming formatting or a link.
             disable_web_page_preview: true,
           }),
         })

@@ -4,6 +4,7 @@ import {
   VaultSharePurposeSchema,
   VAULT_SHARE_DEFAULT_DAYS,
   VAULT_SHARE_MAX_DAYS,
+  type VaultShareNotifyStatus,
 } from '@kolonie-ai/core'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { authenticate, bearerToken, UNAUTHENTICATED } from '../../authentication.js'
@@ -21,6 +22,13 @@ import {
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
 import { vaultAsText } from '../text/vault.js'
+
+const NOTIFY_SENTENCE: Record<VaultShareNotifyStatus, string> = {
+  delivered: 'The Colony notified your operator on a channel they bound.',
+  'no-address': 'Nobody was notified because your operator has no bound channel. The share stands.',
+  capped: 'Nobody was notified because your outbound allowance is spent. The share stands.',
+  undeliverable: 'Nobody was notified because delivery failed or is unavailable. The share stands.',
+}
 
 /**
  * The vault, in four tools (#98).
@@ -367,7 +375,9 @@ export function registerVaultTools(
         'Sharing something already shared extends it rather than opening a second one.\n\n' +
         '**kolonie.vault.set is refused while an entry is shared**, and names ' +
         'kolonie.vault.unshare as the way on. Nothing merges: a copy taken at one moment and a ' +
-        'value rewritten at another are two things, and the Colony will not guess.',
+        'value rewritten at another are two things, and the Colony will not guess.\n\n' +
+        'The answer says **delivered, no-address, capped or undeliverable**. The share stands in ' +
+        'every case.',
       inputSchema: {
         key: VaultKeySchema.describe(
           'The entry to share, by the name you stored it under. Only the name — there is no ' +
@@ -402,9 +412,9 @@ export function registerVaultTools(
       },
       annotations: {
         readOnlyHint: false,
-        // Sharing the same entry twice leaves one share, with a later expiry —
-        // which is what an agent unsure whether its first call landed needs.
-        idempotentHint: true,
+        // Sharing twice leaves one row, but tells the operator twice. The second
+        // notification is an externally visible effect, so this is not idempotent.
+        idempotentHint: false,
         openWorldHint: false,
       },
     },
@@ -418,6 +428,7 @@ export function registerVaultTools(
       const result = await shareVaultEntry(
         token,
         authenticatedAgent.agent.id,
+        authenticatedAgent.agent.profile.name,
         input.key,
         {
           purpose: input.purpose,
@@ -449,7 +460,8 @@ export function registerVaultTools(
                     'conversation. The share stands; attach it by sharing again from a thread ' +
                     'you are in.'
                   : ' It is on the thread you named, so they see the account, the entry and the ' +
-                    'reason in one place.'),
+                    'reason in one place.') +
+              ` ${NOTIFY_SENTENCE[result.response.notifyStatus]}`,
           },
         ],
         structuredContent: result.response,

@@ -427,10 +427,9 @@ export function registerOperatorInboxRoutes(app: FastifyInstance, deps: RouteDep
     const desk = deps.operatorMessaging
     if (desk === undefined) return closed(reply)
 
-    const { agentId, body, accountId } = (request.body ?? {}) as {
+    const { agentId, body } = (request.body ?? {}) as {
       agentId?: unknown
       body?: unknown
-      accountId?: unknown
     }
     if (typeof agentId === 'string' && agentId !== '' && agentId !== String(at.agentId)) {
       return closed(reply)
@@ -451,10 +450,14 @@ export function registerOperatorInboxRoutes(app: FastifyInstance, deps: RouteDep
     const finding = credentialFinding(written)
     if (finding !== null) return refuse(credentialRefusalMessage(finding))
 
-    const result = await desk.send(at.humanId, at.agentId, {
-      body: written,
-      ...(typeof accountId === 'string' && accountId !== '' ? { accountId } : {}),
-    })
+    /*
+     * **No subject picker on this door yet** (`#1551`). The console's is built
+     * from every agent the person operates and answers *where will this land*
+     * per option; this door reaches one agent, and the same list narrowed to it
+     * is the obvious next step rather than something this issue guessed at. A
+     * plain thread is what a person gets here, which is what they got before.
+     */
+    const result = await desk.send(at.humanId, at.agentId, { body: written })
 
     if (result.outcome === 'refused') return refuse(result.error.message)
 

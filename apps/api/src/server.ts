@@ -128,6 +128,7 @@ import {
   operatorThreadContext,
   operatorPageRecipient,
   operatorThreadsForPageToken,
+  openTasksForAgent,
   operatorPageSubject,
   wishThreadsWaitingOn,
   answerOperatorThreadFromPage,
@@ -1168,6 +1169,8 @@ const app = buildApp({
    */
   operatorMessaging: {
     listThreads: (humanId, agentId) => listOperatorConversations(db, humanId, agentId),
+    /** What a new thread may be about, on the task side (`#1551`). */
+    openTasks: (agentId) => openTasksForAgent(db, agentId),
     /**
      * The inbox (`#1448`): every thread across every agent, newest activity
      * first, with the agent's name and the latest message on the row.
@@ -1202,6 +1205,7 @@ const app = buildApp({
         input.answerKind,
         input.conversationId,
         input.accountId,
+        input.taskId,
       )
       if (result.outcome === 'delivered') {
         return {

@@ -225,6 +225,18 @@ export interface OperatorMessaging {
     humanId: HumanId,
     conversationId: ConversationId,
   ): Promise<{ readonly outcome: 'marked' } | { readonly outcome: 'not-a-participant' }>
+  /**
+   * The tasks this citizen has open, for a person choosing a subject (`#1551`).
+   *
+   * **Here rather than on a task port**, because the only caller is the compose
+   * form and what it is asking is *what may this thread be about* — a messaging
+   * question that happens to be answered from `task_attempts`. A second port for
+   * one read would be a second place for the *open only* rule to drift.
+   *
+   * `undefined` on a deployment that wires none, like everything else here: the
+   * picker then offers accounts alone rather than failing.
+   */
+  openTasks?(agentId: AgentId): Promise<readonly { readonly id: TaskId; readonly title: string }[]>
   /** One of them, refused to anybody who is not in it. */
   getThread(humanId: HumanId, conversationId: ConversationId): Promise<ThreadResponse>
   /**
@@ -266,6 +278,15 @@ export interface OperatorMessaging {
        * a person cannot retitle a thread by replying into it.
        */
       readonly accountId?: string
+      /**
+       * The task a **newly opened** thread is about (`#1551`).
+       *
+       * At most one of the two, on the same rule the database holds: the check
+       * constraint counts, so a thread claiming both is impossible however it is
+       * reached. The citizen's side has had all three subjects since `#1441`;
+       * this is the last one the person could not name.
+       */
+      readonly taskId?: TaskId
     },
   ): Promise<SendResponse>
 }

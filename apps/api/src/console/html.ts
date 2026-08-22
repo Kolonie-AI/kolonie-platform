@@ -1245,7 +1245,42 @@ export function inboxPage(
      * would otherwise have been lost in the move.
      */
     readonly agents?: readonly { readonly id: string; readonly name: string }[] | undefined
-    /** The accounts a new thread may name, by agent (`#1452`, `#1441`). */
+    /**
+     * What a new thread may be about, by agent (`#1551`, from `#1452`).
+     *
+     * ## Why the option says where it will land
+     *
+     * The rule underneath is *reuse a thread with the same subject, otherwise
+     * open one* — sound, and invisible. The reason the maintainer noticed any of
+     * this was a message arriving somewhere unexpected. A line saying *this joins
+     * your thread about the GitHub account* turns a surprise into a decision, and
+     * it is most of the value of `#1551`.
+     *
+     * **It is on the option rather than under the form**, because this console
+     * has no script and a sentence that cannot react to the menu would be a
+     * sentence about the wrong subject. Each option carries its own answer, which
+     * is true before anything is pressed.
+     */
+    readonly subjects?:
+      | readonly {
+          /** `task:<id>` or `account:<id>` — one field, so the two cannot disagree. */
+          readonly value: string
+          readonly agentId: string
+          readonly label: string
+          /** Whether a thread with this subject already exists for this person. */
+          readonly joins: boolean
+        }[]
+      | undefined
+    /** Which agents already have a plain thread, for the *nothing in particular* option. */
+    readonly plainThreads?: readonly string[] | undefined
+    /**
+     * The accounts the *About* filter narrows by (`#1450`).
+     *
+     * **Beside `subjects` rather than folded into it**, because they answer
+     * different questions over different sets: this one is *which of the threads
+     * I already have*, and a filter offering a subject with no thread would offer
+     * a control that always empties the list.
+     */
     readonly accounts?:
       | readonly { readonly id: string; readonly agentId: string; readonly label: string }[]
       | undefined
@@ -1548,15 +1583,35 @@ function filterBar(input: {
 function composeBlock(input: {
   readonly base: string
   readonly agents?: readonly { readonly id: string; readonly name: string }[] | undefined
-  readonly accounts?:
-    readonly { readonly id: string; readonly agentId: string; readonly label: string }[] | undefined
+  readonly subjects?:
+    | readonly {
+        readonly value: string
+        readonly agentId: string
+        readonly label: string
+        readonly joins: boolean
+      }[]
+    | undefined
+  readonly plainThreads?: readonly string[] | undefined
   readonly composeError?: string | undefined
   readonly bodyMaxLength?: number | undefined
 }): string {
   const agents = input.agents ?? []
   if (agents.length === 0) return ''
 
-  const accounts = input.accounts ?? []
+  const subjects = input.subjects ?? []
+  const plain = new Set(input.plainThreads ?? [])
+
+  /**
+   * Where a message with this subject will land, said on the option itself
+   * (`#1551`).
+   *
+   * **This is most of the value of the issue.** The matching rule — reuse a
+   * thread with the same subject, otherwise open one — is sound and invisible,
+   * and a message arriving somewhere unexpected is what made anybody look. A
+   * line saying which turns a surprise into a decision.
+   */
+  const landing = (joins: boolean): string =>
+    joins ? 'joins the thread about it' : 'opens a new thread'
 
   return [
     '<section class="compose">',
@@ -1577,27 +1632,52 @@ function composeBlock(input: {
           '<label for="compose-agent">Agent</label>',
           '<select id="compose-agent" name="agentId">',
           agents
-            .map((agent) => `<option value="${escape(agent.id)}">${escape(agent.name)}</option>`)
+            .map(
+              (agent) =>
+                `<option value="${escape(agent.id)}">${escape(agent.name)}` +
+                ` — ${landing(plain.has(agent.id))} about nothing in particular</option>`,
+            )
             .join(''),
           '</select>',
         ]),
     /**
-     * **Optional, and the empty option is named.** An unlabelled blank in a
-     * menu reads as *not chosen yet*; this one is a choice a person makes.
+     * What this is about (`#1551`).
+     *
+     * **Three kinds and a plain default, not a picker over everything.** An open
+     * task of that agent's, an account it holds, or explicitly *nothing in
+     * particular* — which is the common case, is what produces a plain thread,
+     * and is **a visible choice rather than the absence of one**: a person who
+     * picked it should be able to tell that they did.
+     *
+     * **No free-text subject.** A thread already has one, and a typed line would
+     * be a second, competing notion of what a thread is about — unlike the real
+     * one, it would mean nothing to the agent.
+     *
+     * **A thread's subject can never change** (`#1319`: no storage function
+     * updates `task_id` or `wish_id`), which is why this is the one decision
+     * about a thread that has to be made at the moment it opens.
      */
-    ...(accounts.length === 0
+    ...(subjects.length === 0
       ? []
       : [
-          '<label for="compose-account">About</label>',
-          '<select id="compose-account" name="accountId">',
-          '<option value="">Nothing in particular</option>',
-          accounts
+          '<label for="compose-about">What this is about</label>',
+          '<select id="compose-about" name="about">',
+          `<option value="">Nothing in particular — ${escape(
+            agents.length === 1 && agents[0] !== undefined
+              ? landing(plain.has(agents[0].id))
+              : 'the plain thread with that agent',
+          )}</option>`,
+          subjects
             .map(
-              (account) =>
-                `<option value="${escape(account.id)}">${escape(account.label)}</option>`,
+              (subject) =>
+                `<option value="${escape(subject.value)}">${escape(subject.label)}` +
+                ` — ${landing(subject.joins)}</option>`,
             )
             .join(''),
           '</select>',
+          '<p class="note">A thread is about one thing for its whole length and that cannot be ' +
+            'changed afterwards, so this is chosen now. Writing about the same thing again ' +
+            'lands in the thread that already holds the answer.</p>',
         ]),
     '<label for="compose-body">Message</label>',
     `<textarea id="compose-body" name="body" rows="4"${

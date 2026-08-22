@@ -728,6 +728,11 @@ export interface FakeOperatorMessaging extends OperatorMessaging {
    * name which of them it answers.
    */
   readonly thread: (humanId: string, agentId: string) => string
+  /**
+   * A thread about one account (`#1551`), so the compose picker has something to
+   * say *joins* about.
+   */
+  readonly threadAbout: (humanId: string, agentId: string, accountId: string) => string
   /** The agent writing into it, which un-archives it for the person (`#1449`). */
   /**
    * A message from the agent's side. `conversationId` names which thread when
@@ -793,6 +798,8 @@ export function fakeOperatorMessaging(): FakeOperatorMessaging {
     createdAt: string
     /** What the thread is about, for the account filter (`#1450`, `#1452`). */
     accountId?: string
+    /** The other subject a person may name since `#1551`. At most one of the two. */
+    taskId?: string
     messages: Message[]
   }[] = []
 
@@ -832,6 +839,19 @@ export function fakeOperatorMessaging(): FakeOperatorMessaging {
     },
     thread(humanId, agentId) {
       const opened = { id: id(), humanId, agentId, createdAt: now(), messages: [] as Message[] }
+      threads.push(opened)
+      return opened.id
+    },
+
+    threadAbout(humanId, agentId, accountId) {
+      const opened = {
+        id: id(),
+        humanId,
+        agentId,
+        createdAt: now(),
+        accountId,
+        messages: [] as Message[],
+      }
       threads.push(opened)
       return opened.id
     },
@@ -1066,13 +1086,25 @@ export function fakeOperatorMessaging(): FakeOperatorMessaging {
        * Provenance is decided when a thread opens, so naming a conversation
        * wins over naming an account.
        */
+      /**
+       * At most one subject, on the rule the check constraint holds (`#1551`).
+       * A thread claiming a task *and* an account is impossible in the database
+       * however it is reached; the fake refuses it too, because a fixture more
+       * permissive than PostgreSQL lets a test pass against a row nothing can
+       * write.
+       */
+      if (input.accountId !== undefined && input.taskId !== undefined) {
+        return { outcome: 'refused', error: messageRefusals['not-a-participant'] }
+      }
+
       const existing =
         named ??
         threads.find(
           (thread) =>
             thread.humanId === humanId &&
             thread.agentId === agentId &&
-            thread.accountId === input.accountId,
+            thread.accountId === input.accountId &&
+            thread.taskId === input.taskId,
         )
       const thread =
         existing ??
@@ -1083,6 +1115,7 @@ export function fakeOperatorMessaging(): FakeOperatorMessaging {
             agentId,
             createdAt: now(),
             ...(input.accountId === undefined ? {} : { accountId: input.accountId }),
+            ...(input.taskId === undefined ? {} : { taskId: input.taskId }),
             messages: [] as Message[],
           }
           threads.push(opened)

@@ -1465,3 +1465,35 @@ export async function taskTrouble(db: Database, taskId: TaskId): Promise<TaskTro
 
   return { closed: Number(row?.closed ?? 0), failed: Number(row?.failed ?? 0) }
 }
+
+/**
+ * The tasks this citizen has open right now, for a person choosing a subject
+ * (`#1551`).
+ *
+ * **What a thread may be *about*, from the operator's side.** A thread's subject
+ * is settled in the insert that creates it and can never change (`#1319`), so it
+ * is the one decision about a thread that has to be made at the moment it opens
+ * — and until `#1551` the person had no way to make it while the citizen had
+ * three (`#1441`).
+ *
+ * **Open, and only open.** A closed attempt is work the citizen has finished
+ * reporting on; offering it would be offering a subject nobody is blocked on,
+ * which is how a picker over everything starts. `outcome is null` is the same
+ * condition {@link openAttemptFor} uses one function along.
+ *
+ * **Distinct by task**, because a citizen that attempted a rung three times has
+ * three rows and one subject.
+ */
+export async function openTasksForAgent(
+  db: Database,
+  agentId: AgentId,
+): Promise<readonly { readonly id: TaskId; readonly title: string }[]> {
+  const rows = await db
+    .selectDistinct({ id: tasks.id, title: tasks.title })
+    .from(taskAttempts)
+    .innerJoin(tasks, eq(tasks.id, taskAttempts.taskId))
+    .where(and(eq(taskAttempts.agentId, agentId), isNull(taskAttempts.outcome)))
+    .orderBy(tasks.title)
+
+  return rows.map((row) => ({ id: row.id as TaskId, title: row.title }))
+}

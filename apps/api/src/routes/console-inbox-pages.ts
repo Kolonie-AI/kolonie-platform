@@ -6,12 +6,14 @@ import {
   credentialRefusalMessage,
   AgentIdSchema,
   ConversationIdSchema,
+  TaskIdSchema,
   OPERATOR_ANSWER_BODIES,
   OPERATOR_ANSWER_LABELS,
   OperatorAnswerKindSchema,
   answerKindOfBody,
   type AgentId,
   type HumanId,
+  type TaskId,
 } from '@kolonie-ai/core'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { inboxPage, inboxThreadPage } from '../console/html.js'
@@ -298,31 +300,63 @@ export function registerConsoleInboxPages(
   }
 
   /**
-   * The accounts a new thread may name, across this person's agents (`#1452`).
+   * What a new thread may be about, across this person's agents (`#1551`, from
+   * `#1452`).
    *
-   * **Proved and in use only.** A thread about an account the citizen merely
-   * wrote down is a thread about a claim; the picker offers what the Colony has
-   * verified, and a person who wants to talk about anything else writes about
-   * nothing in particular, which is a supported state.
+   * **Only that agent's own things.** An account another citizen holds, or a task
+   * this one never attempted, is not a subject its operator may name — the
+   * citizen's side already checks exactly this (`#1441`), and the person's side
+   * needs the same check. The list is built *from* what each agent holds, so a
+   * value not in it is refused rather than filtered.
+   *
+   * **Proved and in use only, for accounts.** A thread about an account the
+   * citizen merely wrote down is a thread about a claim.
+   *
+   * **Open attempts only, for tasks.** A closed one is work the citizen has
+   * finished reporting on; offering it would be offering a subject nobody is
+   * blocked on, which is how a picker over everything starts.
    *
    * Empty where no register is wired, which renders as no picker rather than as
    * an empty one.
    */
-  const composeAccounts = async (
+  const composeSubjects = async (
     operated: readonly { readonly id: AgentId; readonly name: string }[],
   ): Promise<
-    readonly { readonly id: string; readonly agentId: string; readonly label: string }[]
+    readonly {
+      readonly value: string
+      readonly agentId: string
+      readonly label: string
+      readonly kind: 'task' | 'account'
+      readonly subjectId: string
+    }[]
   > => {
-    const found: { id: string; agentId: string; label: string }[] = []
+    const found: {
+      value: string
+      agentId: string
+      label: string
+      kind: 'task' | 'account'
+      subjectId: string
+    }[] = []
 
     for (const agent of operated) {
-      const held = await deps.accounts.register.list(agent.id)
-      for (const account of held) {
+      for (const account of await deps.accounts.register.list(agent.id)) {
         if (!account.proved || account.status !== 'in-use') continue
         found.push({
-          id: account.id,
+          value: `account:${account.id}`,
           agentId: String(agent.id),
           label: `${agent.name} — ${account.identifier}`,
+          kind: 'account',
+          subjectId: account.id,
+        })
+      }
+
+      for (const task of (await deps.operatorMessaging?.openTasks?.(agent.id)) ?? []) {
+        found.push({
+          value: `task:${task.id}`,
+          agentId: String(agent.id),
+          label: `${agent.name} — ${task.title}`,
+          kind: 'task',
+          subjectId: task.id,
         })
       }
     }
@@ -455,8 +489,27 @@ export function registerConsoleInboxPages(
      * and the pickers are furniture for the page.
      */
     const operated = await deps.humans.store.operated(signedIn.human.id)
-    const accounts = await composeAccounts(operated)
+    const subjects = await composeSubjects(operated)
     const named = operated.find((held) => String(held.id) === agent)
+
+    /**
+     * Where a message with each subject will land (`#1551`).
+     *
+     * **Read from the threads this person already has**, unfiltered — the list
+     * above is narrowed by whatever the person is looking at, and *does a thread
+     * about this exist* is a question about all of them. `about` carries the
+     * subject's own id, which is what makes this a comparison rather than a
+     * guess about prose.
+     */
+    const all = (await desk?.inbox?.(signedIn.human.id, { view: 'all' })) ?? []
+    const taken = new Set(
+      all.flatMap((thread) => (thread.about == null ? [] : [String(thread.about.id)])),
+    )
+    const plainThreads = all.flatMap((thread) => (thread.about == null ? [thread.agentId] : []))
+
+    const accounts = subjects
+      .filter((subject) => subject.kind === 'account')
+      .map((subject) => ({ id: subject.subjectId, agentId: subject.agentId, label: subject.label }))
 
     return html(
       options.status === undefined ? reply : reply.status(options.status),
@@ -467,6 +520,13 @@ export function registerConsoleInboxPages(
         view,
         agents: operated.map((held) => ({ id: String(held.id), name: held.name })),
         accounts,
+        subjects: subjects.map((subject) => ({
+          value: subject.value,
+          agentId: subject.agentId,
+          label: subject.label,
+          joins: taken.has(subject.subjectId),
+        })),
+        plainThreads,
         ...(options.onlyAgent !== undefined && named !== undefined
           ? { onlyAgent: named.name }
           : {}),
@@ -519,10 +579,10 @@ export function registerConsoleInboxPages(
     const desk = deps.operatorMessaging
     if (desk === undefined) return consoleNotFound(reply, request)
 
-    const { agentId, body, accountId } = (request.body ?? {}) as {
+    const { agentId, body, about } = (request.body ?? {}) as {
       agentId?: unknown
       body?: unknown
-      accountId?: unknown
+      about?: unknown
     }
     const written = typeof body === 'string' ? body.trim() : ''
     const to = AgentIdSchema.safeParse(agentId)
@@ -540,6 +600,32 @@ export function registerConsoleInboxPages(
         status: ERROR_STATUS.validation_failed,
       })
 
+    /**
+     * **A subject that is not that agent's own is refused** (`#1551`), matching
+     * the citizen-side check `#1441` already makes about *a citizen naming an
+     * account row that is not its own*.
+     *
+     * It is checked against the list the picker was built from rather than by a
+     * second query, so the two cannot disagree — and the comparison is on the
+     * pair, so an account of *this* person's other agent is refused as firmly as
+     * a stranger's.
+     */
+    const named = typeof about === 'string' && about !== '' ? about : undefined
+    let provenance: { accountId?: string; taskId?: TaskId } = {}
+
+    if (named !== undefined) {
+      const operated = await deps.humans.store.operated(signedIn.human.id)
+      const allowed = (await composeSubjects(operated)).find(
+        (one) => one.value === named && one.agentId === String(to.data),
+      )
+      if (allowed === undefined) return consoleNotFound(reply, request)
+
+      provenance =
+        allowed.kind === 'account'
+          ? { accountId: allowed.subjectId }
+          : { taskId: TaskIdSchema.parse(allowed.subjectId) }
+    }
+
     if (written.length < MESSAGE_BODY_MIN_LENGTH || written.length > MESSAGE_BODY_MAX_LENGTH) {
       return refuse(messageBodyError.message)
     }
@@ -554,7 +640,7 @@ export function registerConsoleInboxPages(
 
     const result = await desk.send(signedIn.human.id, to.data, {
       body: written,
-      ...(typeof accountId === 'string' && accountId !== '' ? { accountId } : {}),
+      ...provenance,
     })
 
     if (result.outcome === 'refused') {

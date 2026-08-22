@@ -781,7 +781,27 @@ export async function sendOperatorMessage(
    * say which account, for the same reason the agent can (`#1441`).
    */
   accountId?: string,
+  /**
+   * The task this thread is about, when a person opens one (`#1551`).
+   *
+   * **The third thing a person may name, and the last one they could not.** A
+   * citizen has had all of them since `#1441`; the person had `accountId` alone,
+   * so *about the rung you are stuck on* was a thread only one side could open.
+   *
+   * Mutually exclusive with `accountId` — the check constraint on
+   * `message_conversations` counts, so a thread claiming both is impossible
+   * however it is reached, and this refuses before it gets there rather than
+   * relying on a `23514` nobody can read.
+   *
+   * Only meaningful on an open, exactly as `accountId` is: provenance is settled
+   * in the insert that creates a conversation and nowhere else (`#1319`).
+   */
+  taskId?: TaskId,
 ): Promise<SendResult> {
+  if (accountId !== undefined && taskId !== undefined) {
+    return { outcome: 'refused', refusal: 'not-a-participant' }
+  }
+
   const text = body ?? (answerKind === undefined ? null : OPERATOR_ANSWER_BODIES[answerKind])
   if (text === null) throw new Error('an operator message needs a body or an answer kind')
 
@@ -825,7 +845,11 @@ export async function sendOperatorMessage(
     conversation === undefined
       ? await pairedConversation(db, toAgentId, {
           humanId,
-          provenance: { taskId: null, wishId: null, accountId: accountId ?? null },
+          provenance: {
+            taskId: taskId ?? null,
+            wishId: null,
+            accountId: accountId ?? null,
+          },
         })
       : await pairedConversation(db, toAgentId, { humanId, conversationId: conversation })
 
@@ -852,7 +876,15 @@ export async function sendOperatorMessage(
     text,
     {
       answerKind,
-      ...(accountId === undefined ? {} : { provenance: { taskId: null, wishId: null, accountId } }),
+      ...(accountId === undefined && taskId === undefined
+        ? {}
+        : {
+            provenance: {
+              taskId: taskId ?? null,
+              wishId: null,
+              accountId: accountId ?? null,
+            },
+          }),
     },
   )
 }

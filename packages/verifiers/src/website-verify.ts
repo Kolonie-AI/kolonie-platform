@@ -31,57 +31,76 @@ export class WebsiteVerifyVerifier implements Verifier {
       }
     }
 
-    let targetUrl: URL
-    try {
-      targetUrl = new URL(payloadUrl)
-    } catch {
-      return { status: 'fail', evidence: 'Submitted URL is invalid.' }
-    }
-
-    if (targetUrl.protocol !== 'http:' && targetUrl.protocol !== 'https:') {
-      return { status: 'fail', evidence: 'URL must use http or https protocol.' }
-    }
-
     const tokens = await this.deps.challenges.openWebsiteTokens(context.agent.id)
-    if (tokens.length === 0) {
+    return checkWebsiteControl(payloadUrl, tokens)
+  }
+}
+
+/**
+ * Does this URL serve one of these tokens in a meta tag?
+ *
+ * **Extracted from the verifier so that a rotation asks the identical question**
+ * (`#1606`). A citizen whose tunnel hostname expired moves the proof onto the new
+ * origin without going through the rung, and the two paths have to agree about
+ * every refusal in here: what counts as a URL, that `text/html` is required, what
+ * SSRF means, and — the one most easily got wrong twice — that a `403` says
+ * nothing about the citizen's page (`#1153`).
+ *
+ * It takes the tokens rather than reading them, because the rung reads them off a
+ * `VerificationContext` and the rotation off the calling agent, and neither of
+ * those belongs in a function about fetching a page.
+ */
+export async function checkWebsiteControl(
+  url: string,
+  tokens: readonly string[],
+): Promise<VerifyResult> {
+  let targetUrl: URL
+  try {
+    targetUrl = new URL(url)
+  } catch {
+    return { status: 'fail', evidence: 'Submitted URL is invalid.' }
+  }
+
+  if (targetUrl.protocol !== 'http:' && targetUrl.protocol !== 'https:') {
+    return { status: 'fail', evidence: 'URL must use http or https protocol.' }
+  }
+
+  if (tokens.length === 0) {
+    return {
+      status: 'fail',
+      evidence:
+        'You have no open website challenges. Mint one first or mint a new one if it expired.',
+    }
+  }
+
+  try {
+    const response = await safeFetch(targetUrl.href)
+
+    const contentType = response.headers.get('content-type') || ''
+    if (!contentType.toLowerCase().includes('text/html')) {
       return {
         status: 'fail',
-        evidence:
-          'You have no open website challenges. Mint one first or mint a new one if it expired.',
+        evidence: `Target URL returned Content-Type "${contentType}", expected text/html.`,
       }
     }
 
-    try {
-      const response = await safeFetch(targetUrl.href)
+    const html = await response.text()
+    const matchedToken = extractTokens(html).find((t) => tokens.includes(t))
+    if (matchedToken !== undefined) {
+      return { status: 'pass', evidence: 'Verification token found in a meta tag.' }
+    }
 
-      const contentType = response.headers.get('content-type') || ''
-      if (!contentType.toLowerCase().includes('text/html')) {
-        return {
-          status: 'fail',
-          evidence: `Target URL returned Content-Type "${contentType}", expected text/html.`,
-        }
-      }
-
-      const html = await response.text()
-      const foundTokens = extractTokens(html)
-
-      const matchedToken = foundTokens.find((t) => tokens.includes(t))
-      if (matchedToken) {
-        return { status: 'pass', evidence: 'Verification token found in a meta tag.' }
-      }
-
-      return {
-        status: 'fail',
-        evidence: 'Verification token not found in a meta tag on the page.',
-      }
-    } catch (err: unknown) {
-      if (err instanceof Error && err.message.startsWith('SSRF')) {
-        return { status: 'fail', evidence: `Security restriction: ${err.message}` }
-      }
-      return {
-        status: 'fail',
-        evidence: `Failed to fetch URL: ${err instanceof Error ? err.message : String(err)}`,
-      }
+    return {
+      status: 'fail',
+      evidence: 'Verification token not found in a meta tag on the page.',
+    }
+  } catch (err: unknown) {
+    if (err instanceof Error && err.message.startsWith('SSRF')) {
+      return { status: 'fail', evidence: `Security restriction: ${err.message}` }
+    }
+    return {
+      status: 'fail',
+      evidence: `Failed to fetch URL: ${err instanceof Error ? err.message : String(err)}`,
     }
   }
 }

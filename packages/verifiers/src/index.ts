@@ -237,6 +237,7 @@ export {
   type GithubChallenges,
 } from './github-account.js'
 export {
+  checkWebsiteControl,
   extractTokens,
   fetchPage,
   isPrivateIP,

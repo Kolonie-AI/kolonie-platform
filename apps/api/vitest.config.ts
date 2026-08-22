@@ -16,7 +16,7 @@ import { sourceResolve } from '../../scripts/source-condition.mjs'
  * than why isolation was turned off everywhere — a change here that makes the
  * suite faster and the check weaker is worse than no change (`#290`).
  */
-const ISOLATED = ['src/avatar.test.ts']
+const ISOLATED = ['src/avatar.test.ts', 'src/website.test.ts']
 
 const EVERY_TEST = ['src/**/*.test.ts']
 
@@ -126,7 +126,13 @@ export default defineConfig({
            * The saving, and it is safe for these files precisely because none of
            * them mocks a module or stubs a global:
            * `grep -rl 'vi\.mock(\|vi\.stubGlobal(' src --include='*.test.ts'`
-           * returns the isolated file and nothing else.
+           * returns the isolated files and nothing else.
+           *
+           * **`website.test.ts` was written into `shared` and failed exactly as
+           * the paragraph above says it would** (`#1606`, 2026-08-22): green run
+           * alone, red in the full suite, because `vi.stubGlobal('fetch')`
+           * belongs to whoever assigned it last. The grep is what found it, and
+           * it is quoted here rather than described so that it can be run.
            */
           isolate: false,
         },

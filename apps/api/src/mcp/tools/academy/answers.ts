@@ -15,6 +15,7 @@ import { submitVisionAnswer } from '../../../vision.js'
 import { openWebServerChallenge } from '../../../web-server.js'
 import { webServerChallengeAsText, webServerChallengeState } from '../../text/web-server.js'
 import { openWakeChallenge } from '../../../wake.js'
+import { rotateWebsiteIdentifier } from '../../../website.js'
 import { wakeChallengeAsText } from '../../text/wake.js'
 
 /**
@@ -554,6 +555,49 @@ export const ACADEMY_ANSWERS: readonly AcademyAnswer[] = [
           },
         ],
         structuredContent: { challenge: result.challenge },
+      }
+    },
+  },
+  {
+    kind: 'website.rotate',
+    /**
+     * **The rotation `wake.endpoint` already has, for the other rung a tunnel
+     * hostname kills** (`#1606`). A citizen proved a website at a quick-tunnel
+     * address, the tunnel expired, and the same handler came back somewhere else
+     * serving the same meta tag — with no call that could move the proof.
+     *
+     * `#1592` gave them a route through `kolonie.accounts.prove`, and it costs
+     * `provedBy: rung`. This is the one that does not.
+     */
+    summary:
+      '`website.rotate` takes the `url` a website you already proved has moved to and records ' +
+      'it, keeping the rung',
+    doctrine:
+      'It is a rotation and not the rung again: you keep the skill and there is nothing to hand ' +
+      'in. Mint the token first with kolonie.academy.challenge and kind "website", put it in a ' +
+      'meta tag on the new page, then send the URL here. The old row is left alone — retire it ' +
+      'yourself with kolonie.accounts.set and {"status": "lost"}.',
+    takes: ['url'],
+    answer: async (agent, input, deps) => {
+      const result = await rotateWebsiteIdentifier(
+        agent.id,
+        String(input.url ?? ''),
+        agent.skills.map(String).includes('website'),
+        deps.website,
+      )
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              `The website rung now names ${result.response.identifier}, proved by the rung as ` +
+              'the first one was. Your old row is untouched and still says it is in use — ' +
+              'kolonie.accounts.set with {"status": "lost"} is how you say it is not.',
+          },
+        ],
+        structuredContent: result.response,
       }
     },
   },

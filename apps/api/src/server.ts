@@ -10,6 +10,8 @@ import {
   payoutWalletMismatch,
   solanaAddressFromSeed,
   throttleRefusal,
+  AccountKindSchema,
+  AccountCapabilitySchema,
 } from '@kolonie-ai/core'
 import type { AgentId, Timestamp } from '@kolonie-ai/core'
 import {
@@ -39,6 +41,7 @@ import {
   liveOperatorPageToken,
   markConsulted,
   recordDoctorFeedback,
+  recordProvedAccount,
   checkThrottle,
 } from '@kolonie-ai/db'
 import { buildApp } from './app.js'
@@ -1700,7 +1703,26 @@ const app = buildApp({
      */
     recordFeedback: (input) => recordDoctorFeedback(db, input, new Date()),
   },
-  website: { challenges: databaseWebsiteChallenges(db), obstruction },
+  website: {
+    challenges: databaseWebsiteChallenges(db),
+    obstruction,
+    /**
+     * What a rotation is allowed to write (`#1606`): one proved website row,
+     * `provedBy: rung`, and nothing else. `recordProvedAccount` inserts for a
+     * new identifier and leaves the dead one exactly where it is — a row names
+     * one instrument for ever, and the citizen retires the old one itself.
+     */
+    proved: {
+      record: async (agentId, identifier) => {
+        await recordProvedAccount(db, agentId, {
+          kind: AccountKindSchema.parse('website'),
+          identifier,
+          capabilities: [AccountCapabilitySchema.parse('control')],
+          provedAt: new Date().toISOString(),
+        })
+      },
+    },
+  },
   /**
    * The rung above it (`#244`).
    *

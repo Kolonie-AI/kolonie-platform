@@ -1392,9 +1392,23 @@ export function inboxPage(
               'person can do — a decision, an account, a step behind a human check.</p>',
         ]
       : [
+          /**
+           * **What is counted, and over what** (`#1535`, D-133).
+           *
+           * The dashboard says *N unread conversations, across every agent you
+           * operate*; this says the same unit over a different scope — the list
+           * in front of you, which is filtered and defaults to `open`. Both are
+           * conversations rather than messages, so the console carries one
+           * definition; what differs is the scope, and each now states it.
+           *
+           * Bare *N unread* was the risk `#1535` names in the criterion it
+           * quotes: two numbers called unread that a reader would take for a
+           * disagreement when they are two honest answers to two questions.
+           */
           unread === 0
-            ? '<p class="note">Nothing unread.</p>'
-            : `<p class="note">${String(unread)} unread.</p>`,
+            ? '<p class="note">Nothing unread here.</p>'
+            : `<p class="note">${String(unread)} unread ` +
+              `${unread === 1 ? 'conversation' : 'conversations'} in this list.</p>`,
           '<table>',
           '<thead><tr><th>Agent</th><th>Latest</th><th>When</th><th></th></tr></thead>',
           `<tbody>${rows.join('')}</tbody>`,

@@ -161,4 +161,25 @@ describe('the navigation on a page', () => {
     expect(stranger).not.toContain('/sign-out')
     expect(stranger).toContain('<p>x</p>')
   })
+
+  /**
+   * **D-133, asserted rather than only written down** (`#1535`).
+   *
+   * `#1427`'s fourth criterion left the count optional and `#1534` declined it.
+   * The reason it stays declined is that `navFor` is synchronous on 48 render
+   * sites, the cheap version puts a badge on two pages and reads as *zero* on
+   * forty-six, and — since `#1547` — the mailed link's inbox has no navigation
+   * at all, so a nav badge is a fact only console-holders would get. `#1437`
+   * frozen decision 1 says operators hold the page rather than an account.
+   *
+   * The needle is a digit next to the label, because the failure this guards
+   * against is somebody adding the number without reopening the decision.
+   */
+  it('carries no count beside the inbox, which is D-133', () => {
+    const rendered = consoleNavigation({})
+
+    expect(rendered).toContain('/inbox')
+    expect(rendered).not.toMatch(/Inbox[^<]*\d/)
+    expect(rendered).not.toContain('unread')
+  })
 })

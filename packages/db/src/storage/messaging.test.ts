@@ -21,6 +21,7 @@ import {
   messages,
   operatorTelegramChats,
   tasks,
+  vaultShares,
 } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
 import { acceptConnection, removeConnection, requestConnection } from './connections.js'
@@ -33,6 +34,7 @@ import {
   answerOperatorMessageFromChat,
   archiveConversationForCitizen,
   archiveConversationForOperator,
+  attachShareToConversation,
   conversationsAboutAccount,
   blockSender,
   declineMessageRequest,
@@ -2117,3 +2119,132 @@ describe('every thread about one account', () => {
     expect(JSON.stringify(asTheCitizen)).not.toContain('archiv')
   })
 })
+
+/**
+ * The need state, end to end (`#1601`).
+ *
+ * The rules are held in `packages/core/src/message/operator-need.test.ts`; what
+ * these hold is the wiring — that the facts the derivation reads are the ones
+ * the database actually has, and that the field appears where it should and
+ * nowhere else.
+ */
+describe('where the ask on an operator thread has got to', () => {
+  let db: Database
+  let seeded = 0
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+  })
+
+  const anAgent = async (name: string): Promise<AgentId> => {
+    const [row] = await db
+      .insert(agents)
+      .values({ name: `${name}-${++seeded}`, platform: 'openclaw' })
+      .returning({ id: agents.id })
+    return AgentIdSchema.parse(row!.id)
+  }
+
+  const aPerson = async (operates: AgentId): Promise<HumanId> => {
+    const [row] = await db.insert(humans).values({}).returning({ id: humans.id })
+    const humanId = HumanIdSchema.parse(row!.id)
+    await db.insert(humanAgents).values({ agentId: operates, humanId })
+    return humanId
+  }
+
+  const anAsk = async (agentId: AgentId) => {
+    const opened = await openOperatorHelpConversation(db, agentId, { body: 'The card, please.' })
+    if (opened.outcome !== 'delivered') throw new Error(opened.outcome)
+    return opened.conversationId
+  }
+
+  /** A share on the thread, in whatever state the case needs. */
+  const aShare = async (
+    agentId: AgentId,
+    conversation: Awaited<ReturnType<typeof anAsk>>,
+    fields: { reads?: number; expiresInDays?: number } = {},
+  ) => {
+    const [row] = await db
+      .insert(vaultShares)
+      .values({
+        agentId,
+        vaultKey: `provider/handle-${++seeded}`,
+        purpose: 'the billing PIN',
+        sealedValue: 'sealed',
+        expiresAt: sql`now() + (${sql.raw(String(fields.expiresInDays ?? 7))} * interval '1 day')`,
+        ...(fields.reads === undefined ? {} : { reads: fields.reads }),
+      })
+      .returning({ id: vaultShares.id })
+    await attachShareToConversation(db, agentId, conversation, String(row!.id))
+    return String(row!.id)
+  }
+
+  const needOf = async (agentId: AgentId) => (await listConversations(db, agentId))[0]?.need
+
+  it('is open on an ask nobody has touched', async () => {
+    const citizen = await anAgent('asker')
+    await aPerson(citizen)
+    await anAsk(citizen)
+
+    expect(await needOf(citizen)).toBe('open')
+  })
+
+  it('is seen once the person has opened the credential', async () => {
+    const citizen = await anAgent('asker')
+    await aPerson(citizen)
+    const thread = await anAsk(citizen)
+    await aShare(citizen, thread, { reads: 1 })
+
+    expect(await needOf(citizen)).toBe('seen')
+  })
+
+  it('is done once the person has written back', async () => {
+    const citizen = await anAgent('asker')
+    const humanId = await aPerson(citizen)
+    await anAsk(citizen)
+    await sendOperatorMessage(db, humanId, citizen, 'Done, the card is on.')
+
+    expect(await needOf(citizen)).toBe('done')
+  })
+
+  /** Never silent-success: the offer ran out and nobody ever opened it. */
+  it('is blocked once the offer expired unread', async () => {
+    const citizen = await anAgent('asker')
+    await aPerson(citizen)
+    const thread = await anAsk(citizen)
+    await aShare(citizen, thread, { expiresInDays: -1 })
+
+    expect(await needOf(citizen)).toBe('blocked')
+  })
+
+  /**
+   * **Absent on a thread with no operator in it.** The four words would be an
+   * answer to a question nobody asked, and a default would be worse than
+   * nothing.
+   */
+  it('says nothing at all on a citizen-to-citizen thread', async () => {
+    const citizen = await anAgent('one')
+    const other = await anAgent('two')
+    const sent = await sendCitizenMessage(db, citizen, {
+      toHandle: await handleFor(db, other),
+      body: 'Hello.',
+    })
+    if (sent.outcome !== 'delivered' && sent.outcome !== 'requested') throw new Error(sent.outcome)
+
+    const threads = await listConversations(db, citizen)
+    for (const thread of threads) expect(thread.need).toBeUndefined()
+  })
+})
+
+/** The handle a citizen holds, for a test that has to address one by name. */
+async function handleFor(db: Database, agentId: AgentId): Promise<string> {
+  const [row] = await db.select({ name: agents.name }).from(agents).where(eq(agents.id, agentId))
+  return row!.name
+}

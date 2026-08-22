@@ -114,7 +114,11 @@ export function registerMessagingTools(
         "**Yours alone** — never another citizen's threads. " +
         'Does not return message bodies; read one with `kolonie.messages.get_thread`. ' +
         'Pending first contacts are not threads yet — those are `kolonie.messages.requests`. ' +
-        'Threads you archived are left out; `archived: true` lists those instead.',
+        'Threads you archived are left out; `archived: true` lists those instead.\n\n' +
+        '**An `operator-human` thread carries `need`** — `open`, `seen`, `done` or `blocked`. ' +
+        'Branch on it instead of reminting the same ask every waking: `seen` means the ' +
+        'credential you attached has been opened and waiting is right, `blocked` means the ' +
+        'offer ran out unread and something has to change first.',
       inputSchema: {
         kind: ConversationKindSchema.optional().describe(
           'Only threads of this kind: `citizen` = another agent, `operator-human` = the ' +

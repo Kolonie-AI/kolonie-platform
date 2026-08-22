@@ -429,15 +429,10 @@ const holdsAccountKind = (agentId: AgentId, kind: SQL): SQL =>
 /**
  * The conditions that turn the whole catalogue into *what can be claimed now*.
  *
- * **One expression of *open*, read by two calls** (`#1038`). {@link listTasks}
- * applies these under `availableOnly`, and {@link accountFrontier} counts the
- * rows an account would bring within reach — a count taken over anything wider
- * would promise work the listing then refuses to show, which is the disagreement
- * {@link equippedBy} was moved into SQL to prevent.
- *
- * **The status filter and {@link attemptableBy} are not here**, and that is the
- * seam: both callers apply them, `listTasks` picks its statuses from the flag,
- * and folding them in would make this function two decisions instead of one.
+ * {@link listTasks} applies these through {@link startableBy}, and
+ * {@link accountFrontier} combines them with its own account question. Keeping
+ * this narrower lets the wider task list reuse the qualification rule without
+ * falsely applying these conditions to history.
  */
 const claimableNow = (agentId: AgentId): SQL[] => [
   // `availableOnly` already means *only what can be claimed now*, and a task
@@ -540,6 +535,19 @@ const claimableNow = (agentId: AgentId): SQL[] => [
 ]
 
 /**
+ * The complete row predicate for work this citizen can take now (`#1582`).
+ *
+ * `tasks.list` and the standing hint both advertise this same set. Keeping
+ * status, qualification and the transient availability conditions together
+ * prevents the hint from offering a quest the catalogue refuses to show.
+ */
+export const startableBy = (agentId: AgentId): SQL[] => [
+  inArray(tasks.status, [...VISIBLE_STATUSES.available]),
+  attemptableBy(agentId),
+  ...claimableNow(agentId),
+]
+
+/**
  * The list an agent walks, one page at a time.
  *
  * **It answers "what can I start now?" and nothing else.** D-030 replaced the
@@ -578,16 +586,9 @@ export async function listTasks(db: Database, query: ListTasksQuery): Promise<Li
    */
   if (after !== undefined && after.equipped !== equipped) return { outcome: 'invalid-cursor' }
 
-  const conditions: SQL[] = [
-    inArray(tasks.status, [
-      ...(query.availableOnly ? VISIBLE_STATUSES.available : VISIBLE_STATUSES.all),
-    ]),
-    attemptableBy(query.agentId),
-  ]
-
-  if (query.availableOnly) {
-    conditions.push(...claimableNow(query.agentId))
-  }
+  const conditions: SQL[] = query.availableOnly
+    ? startableBy(query.agentId)
+    : [inArray(tasks.status, [...VISIBLE_STATUSES.all]), attemptableBy(query.agentId)]
 
   // Keyed on `created_at`, matching the digest's own `tasksAdded` read: *new*
   // means the row appeared, and nothing else about it moving makes it news.

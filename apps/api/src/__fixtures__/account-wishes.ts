@@ -21,6 +21,14 @@ export interface FakeWishes extends WishStore {
    * the only part of `atlas_proposals` any surface above storage reads.
    */
   readonly decide: (provider: string, atlas: WishAtlasAnswer) => void
+  /**
+   * Say that a provider's terms forbid an agent-held account (`#1542`).
+   *
+   * **A seam, like `decide`.** The fake holds no catalogue, and the only part of
+   * `provider_recipes.walls` any surface above storage reads is the yes-or-no
+   * this answers.
+   */
+  readonly forbid: (provider: string) => void
 }
 
 /**
@@ -36,6 +44,7 @@ export function fakeWishes(): FakeWishes {
   const lists = new Map<AgentId, Wish[]>()
   const decisions = new Map<string, WishAtlasAnswer>()
   const raised = new Set<string>()
+  const forbidden = new Set<string>()
 
   const listFor = (agentId: AgentId): Wish[] => lists.get(agentId) ?? []
   /**
@@ -66,6 +75,12 @@ export function fakeWishes(): FakeWishes {
     decide: (provider, atlas) => {
       decisions.set(provider, atlas)
     },
+
+    forbid: (provider) => {
+      forbidden.add(provider)
+    },
+
+    forbidsAgents: async (providers) => new Set(providers.filter((one) => forbidden.has(one))),
 
     list: async (agentId) => listFor(agentId),
 

@@ -99,5 +99,43 @@ export const AddWishSchema = z.object({
 })
 export type AddWish = z.infer<typeof AddWishSchema>
 
+/**
+ * How many providers one ask may carry (`#1542`).
+ *
+ * **A ceiling on the ask rather than on the list.** A citizen may wish for as
+ * many providers as it likes over time; what is bounded is how many arrive in
+ * front of a person at once, because the whole point of `#1421` is that the ask
+ * a person actually reads is the one that is short. Twenty is above the size of
+ * the shelf that motivated this — the earn shelf's person-shaped wall list — and
+ * far below the size at which a list stops being a decision and becomes a chore.
+ */
+export const WISH_BUNDLE_MAX = 20
+
+/**
+ * Several providers in one ask (`#1542`).
+ *
+ * ## Why this is a second schema and not `provider` made plural
+ *
+ * `#1542` weighed three shapes and took the first: *put five on the list and
+ * write one message*. The list is already what an operator reads and the
+ * *wanted* mark is already per provider, so one call writing five rows needs no
+ * new channel and does not touch what a thread is about (`#1319`).
+ *
+ * **The two are exclusive and the tool refuses both together**, rather than
+ * quietly concatenating. A caller that sent `provider` *and* `providers` has two
+ * different pictures of what it is asking for, and picking one for it is how the
+ * other silently does not happen.
+ *
+ * **One `noticedWhile` for the whole ask.** The context that matters here is
+ * *why this shelf*, not why each row — a citizen holding the `needsAPerson` list
+ * noticed the whole of it at once, and asking it to write five sentences is
+ * asking it to write five copies of one.
+ */
+export const AddWishesSchema = z.object({
+  providers: z.array(AccountProviderSchema).min(1).max(WISH_BUNDLE_MAX),
+  noticedWhile: z.string().trim().min(1).max(WISH_NOTE_MAX_LENGTH).optional(),
+})
+export type AddWishes = z.infer<typeof AddWishesSchema>
+
 export const WishListSchema = z.object({ wishes: z.array(WishSchema) })
 export type WishList = z.infer<typeof WishListSchema>

@@ -15,6 +15,7 @@ import {
   dressProviderRecipe,
   providerRecipe,
   providerRecipeList,
+  providersForbiddingAgents,
   recordMeasuredProvider,
   writeProviderRecipe,
   writeRecipeEarnFacets,
@@ -1193,5 +1194,108 @@ describe('the earn facets on a catalogue entry', () => {
         .insert(providerRecipeFacets)
         .values({ recipeId: row?.id ?? '', axis: 'utility', slug: 'mailbox' }),
     ).rejects.toThrow()
+  })
+})
+
+/**
+ * Which providers no operator can open on an agent's behalf (`#1542`).
+ *
+ * **The wall that is about permission rather than difficulty.** Every other wall
+ * on the list is something a person could get through; `terms-forbid-agents`
+ * says the account may not be an agent's at all, so an operator clearing it
+ * would be holding the account in their own name and lending it. `#1421` is
+ * explicit that such a row stays closed and is not queued.
+ */
+describe('providers whose terms forbid an agent-held account', () => {
+  let db: Database
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+  })
+
+  /**
+   * Written straight onto the row, because the walls arrive there from the
+   * publish pass rather than from `writeProviderRecipe`'s own arguments — and
+   * what is under test is the read.
+   */
+  const write = async (provider: string, walls: readonly { kind: string }[]) => {
+    await writeProviderRecipe(db, {
+      kind: kind('bounty-board'),
+      provider,
+      title: provider,
+      status: 'measured',
+      category: 'data-apis',
+      steps: [],
+    })
+    await db
+      .update(providerRecipes)
+      .set({ walls: walls as never })
+      .where(eq(providerRecipes.provider, provider))
+  }
+
+  it('names the one that forbids and not the ones that merely stop an agent', async () => {
+    await write('huntr.com', [{ kind: 'terms-forbid-agents' }, { kind: 'human-check' }])
+    await write('0din.ai', [{ kind: 'human-check' }])
+    await write('bugcrowd.com', [{ kind: 'identity-document' }])
+
+    const forbidden = await providersForbiddingAgents(db, ['huntr.com', '0din.ai', 'bugcrowd.com'])
+
+    expect([...forbidden]).toEqual(['huntr.com'])
+  })
+
+  it('is empty for a provider with no walls at all', async () => {
+    await write('gain.gg', [])
+
+    expect(await providersForbiddingAgents(db, ['gain.gg'])).toEqual(new Set())
+  })
+
+  /**
+   * A provider nobody has written down carries no terms, so there is nothing to
+   * refuse it on — the wish list is where an unknown provider gets proposed.
+   */
+  it('says nothing about a provider the Atlas has never heard of', async () => {
+    expect(await providersForbiddingAgents(db, ['never-mentioned.example'])).toEqual(new Set())
+  })
+
+  it('takes an empty ask without asking the database', async () => {
+    expect(await providersForbiddingAgents(db, [])).toEqual(new Set())
+  })
+
+  /**
+   * **A provider's terms are the provider's.** An entry that recorded the
+   * refusal under one shelf is describing the same document as the entry under
+   * another, so reading only the asked-for kind would let a citizen reach a
+   * forbidden provider by naming the shelf it was not written down on.
+   */
+  it('disqualifies the provider whichever kind recorded it', async () => {
+    await writeProviderRecipe(db, {
+      kind: kind('gig-marketplace'),
+      provider: 'huntr.com',
+      title: 'huntr.com',
+      status: 'measured',
+      category: 'data-apis',
+      steps: [],
+    })
+    await write('huntr.com', [])
+    await db
+      .update(providerRecipes)
+      .set({ walls: [{ kind: 'terms-forbid-agents' }] as never })
+      .where(eq(providerRecipes.kind, kind('gig-marketplace')))
+
+    expect([...(await providersForbiddingAgents(db, ['huntr.com']))]).toEqual(['huntr.com'])
+  })
+
+  it('folds case the way a provider token is folded everywhere else', async () => {
+    await write('huntr.com', [{ kind: 'terms-forbid-agents' }])
+
+    expect([...(await providersForbiddingAgents(db, ['HUNTR.COM']))]).toEqual(['huntr.com'])
   })
 })

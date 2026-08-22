@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 import {
+  operatorNeedState,
   MESSAGE_REQUEST_EXPIRY_DAYS,
   now as currentTime,
   MESSAGE_REQUEST_PREVIEW_MAX_LENGTH,
@@ -1840,6 +1841,30 @@ async function conversationsFor(
   const lastById = new Map(latest.map((row) => [row.conversationId, row.lastMessageAt]))
   const unreadById = new Map(unreadRows.map((row) => [row.conversationId, row.unread]))
 
+  /**
+   * Which of these threads the person has written into (`#1601`).
+   *
+   * **Whether, never what.** The derivation branches on a reply having happened
+   * and nothing here reads a body — the citizen reads the words itself and
+   * decides what they meant, which is why `blocked` is not inferred from a
+   * refusal somebody wrote.
+   *
+   * One grouped query for the page, like the two above it.
+   */
+  const repliedRows = await db
+    .selectDistinct({ conversationId: messages.conversationId })
+    .from(messages)
+    .innerJoin(
+      messageParticipants,
+      and(
+        eq(messageParticipants.id, messages.senderParticipantId),
+        eq(messageParticipants.party, 'operator-human'),
+      ),
+    )
+    .where(inArray(messages.conversationId, ids))
+
+  const personReplied = new Set(repliedRows.map((row) => row.conversationId))
+
   // Two statements for the whole page rather than two per thread (`#1441`).
   const aboutById = await conversationSubjects(db, ids)
   const sharesById = await conversationShares(db, ids)
@@ -1847,16 +1872,32 @@ async function conversationsFor(
   return mine.map((row) => {
     const lastMessageAt = lastById.get(row.conversationId)
     const participants = parties.filter((party) => party.conversationId === row.conversationId)
+    const kind = conversationKind(participants)
+    const shares = sharesById.get(row.conversationId) ?? []
+
     return {
       id: conversationId(row.conversationId),
-      kind: conversationKind(participants),
+      kind,
       participants: participants.map(asSender),
       createdAt: row.createdAt,
       ...(lastMessageAt == null ? {} : { lastMessageAt }),
       unread: unreadById.get(row.conversationId) ?? 0,
       ...(options.sayArchived === true ? { archived: row.doneAt !== null } : {}),
       about: aboutById.get(row.conversationId) ?? null,
-      shares: sharesById.get(row.conversationId) ?? [],
+      shares,
+      /**
+       * **Only where there is an operator to be waiting on** (`#1601`). On a
+       * citizen↔citizen thread the four words would be an answer to a question
+       * nobody asked, so the field is absent rather than `open`.
+       */
+      ...(kind === 'operator-human'
+        ? {
+            need: operatorNeedState({
+              personReplied: personReplied.has(row.conversationId),
+              shares,
+            }),
+          }
+        : {}),
     }
   })
 }

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { OperatorAnswerKindSchema } from './answer-kind.js'
+import { OperatorNeedStateSchema } from './operator-need.js'
 import {
   ConversationIdSchema,
   ConversationParticipantIdSchema,
@@ -476,6 +477,20 @@ export const ConversationSchema = z.object({
    * detach call and no second way to stop a person seeing something.
    */
   shares: z.array(ConversationShareSchema),
+  /**
+   * Where the ask on this thread has got to (`#1601`), on an `operator-human`
+   * thread and absent on every other kind.
+   *
+   * **Derived on every read and stored nowhere** — see `operatorNeedState` for
+   * what it reads and, more importantly, for the two things it refuses to read.
+   * A citizen branches on this instead of reminting the same ask every waking,
+   * which is the whole of what `#1601` asked for.
+   *
+   * Absent rather than `open` on a citizen↔citizen thread: there is no operator
+   * there to be waiting on, and a default would be an answer to a question
+   * nobody asked.
+   */
+  need: OperatorNeedStateSchema.optional(),
 })
 export type Conversation = z.infer<typeof ConversationSchema>
 

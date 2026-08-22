@@ -628,6 +628,13 @@ A verifier deployed late must never fail submissions that were correct.
       which is produced from that directory (`#1497`). See below for where a new
       record goes
 - [ ] Breaking changes labelled in the PR, with affected workspaces named
+- [ ] **An operator-facing mechanism reaches both doors, carries a delivery
+      figure, and is not called done at the merge** — the console inbox _and_ the
+      durable page (`D-134`). Three mechanisms for handing something to a person
+      have shipped correct and been read **zero** times: 42 sealed and 0 read, 7
+      opened and 0 filled, 2 shared and 0 read. Each reached one surface, and
+      seven of the ten operator pages in production belong to one address. Say
+      which figure you will read, and say that the merge is not the ending
 - [ ] No secrets, hosts or IPs anywhere in the diff
 
 ### Where a decision record is written

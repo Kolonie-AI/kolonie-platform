@@ -3,6 +3,7 @@ import {
   MESSAGE_BODY_MAX_LENGTH,
   MESSAGE_BODY_MIN_LENGTH,
   ConversationIdSchema,
+  TaskIdSchema,
   OPERATOR_ANSWER_BODIES,
   OPERATOR_ANSWER_LABELS,
   OperatorAnswerKindSchema,
@@ -12,11 +13,13 @@ import {
   type AgentId,
   type ConversationId,
   type HumanId,
+  type TaskId,
 } from '@kolonie-ai/core'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { autonomyClosedPage } from '../autonomy-page.js'
 import { CONSOLE_HEADERS, inboxPage, inboxThreadPage } from '../console/html.js'
 import { messageBodyError, messageDeclarationError, type InboxView } from '../messaging.js'
+import { composeSubjects } from './compose-subjects.js'
 import type { RouteDependencies } from './dependencies.js'
 
 /**
@@ -162,6 +165,12 @@ export function registerOperatorInboxRoutes(app: FastifyInstance, deps: RouteDep
     }
 
     const threads = await desk.inbox(at.humanId, { view, ...filters })
+    const subjects = await composeSubjects(deps, [{ id: at.agentId, name: at.agentName }])
+    const all = await desk.inbox(at.humanId, { agentId: at.agentId, view: 'all' })
+    const taken = new Set(
+      all.flatMap((thread) => (thread.about == null ? [] : [String(thread.about.id)])),
+    )
+    const plainThreads = all.flatMap((thread) => (thread.about == null ? [thread.agentId] : []))
 
     return html(
       outcome.status === undefined ? reply : reply.status(outcome.status),
@@ -189,6 +198,13 @@ export function registerOperatorInboxRoutes(app: FastifyInstance, deps: RouteDep
          * only unprompted route they have.
          */
         agents: [{ id: String(at.agentId), name: at.agentName }],
+        subjects: subjects.map((subject) => ({
+          value: subject.value,
+          agentId: subject.agentId,
+          label: subject.label,
+          joins: taken.has(subject.subjectId),
+        })),
+        plainThreads,
         filters: {
           ...(account === undefined ? {} : { accountId: account }),
           unreadOnly: filters.unreadOnly === true,
@@ -427,9 +443,10 @@ export function registerOperatorInboxRoutes(app: FastifyInstance, deps: RouteDep
     const desk = deps.operatorMessaging
     if (desk === undefined) return closed(reply)
 
-    const { agentId, body } = (request.body ?? {}) as {
+    const { agentId, body, about } = (request.body ?? {}) as {
       agentId?: unknown
       body?: unknown
+      about?: unknown
     }
     if (typeof agentId === 'string' && agentId !== '' && agentId !== String(at.agentId)) {
       return closed(reply)
@@ -443,6 +460,26 @@ export function registerOperatorInboxRoutes(app: FastifyInstance, deps: RouteDep
         status: ERROR_STATUS.validation_failed,
       })
 
+    /**
+     * The token narrows both the picker and this check to one agent (`#1612`).
+     * The address-scoped index may lead this person to other agents' pages, but
+     * holding those links does not widen any one token's authority.
+     */
+    const named = typeof about === 'string' && about !== '' ? about : undefined
+    let provenance: { accountId?: string; taskId?: TaskId } = {}
+
+    if (named !== undefined) {
+      const allowed = (await composeSubjects(deps, [{ id: at.agentId, name: at.agentName }])).find(
+        (one) => one.value === named && one.agentId === String(at.agentId),
+      )
+      if (allowed === undefined) return closed(reply)
+
+      provenance =
+        allowed.kind === 'account'
+          ? { accountId: allowed.subjectId }
+          : { taskId: TaskIdSchema.parse(allowed.subjectId) }
+    }
+
     if (written.length < MESSAGE_BODY_MIN_LENGTH || written.length > MESSAGE_BODY_MAX_LENGTH) {
       return refuse(messageBodyError.message)
     }
@@ -450,14 +487,7 @@ export function registerOperatorInboxRoutes(app: FastifyInstance, deps: RouteDep
     const finding = credentialFinding(written)
     if (finding !== null) return refuse(credentialRefusalMessage(finding))
 
-    /*
-     * **No subject picker on this door yet** (`#1551`). The console's is built
-     * from every agent the person operates and answers *where will this land*
-     * per option; this door reaches one agent, and the same list narrowed to it
-     * is the obvious next step rather than something this issue guessed at. A
-     * plain thread is what a person gets here, which is what they got before.
-     */
-    const result = await desk.send(at.humanId, at.agentId, { body: written })
+    const result = await desk.send(at.humanId, at.agentId, { body: written, ...provenance })
 
     if (result.outcome === 'refused') return refuse(result.error.message)
 

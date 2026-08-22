@@ -979,7 +979,12 @@ export function fakeOperatorMessaging(): FakeOperatorMessaging {
               conversationId: thread.id as ConversationId,
               agentId: thread.agentId,
               agentName: thread.agentId,
-              about: null,
+              about:
+                thread.taskId !== undefined
+                  ? { kind: 'task' as const, id: thread.taskId, label: thread.taskId }
+                  : thread.accountId !== undefined
+                    ? { kind: 'account' as const, id: thread.accountId, label: thread.accountId }
+                    : null,
               latest:
                 latest === undefined
                   ? null
@@ -1022,7 +1027,12 @@ export function fakeOperatorMessaging(): FakeOperatorMessaging {
         outcome: 'read',
         response: {
           messages: thread.messages,
-          about: null,
+          about:
+            thread.taskId !== undefined
+              ? { kind: 'task', id: thread.taskId, label: thread.taskId }
+              : thread.accountId !== undefined
+                ? { kind: 'account', id: thread.accountId, label: thread.accountId }
+                : null,
           shares: attachedShares.get(thread.id) ?? [],
         },
       }

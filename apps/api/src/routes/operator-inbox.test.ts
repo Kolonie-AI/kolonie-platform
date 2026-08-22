@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify'
 import { buildApp } from '../app.js'
 import { fakeColony } from '../__fixtures__/colony/index.js'
 import { fakeStore } from '../__fixtures__/store.js'
+import { fakeAccountRegister, type FakeAccountRegister } from '../__fixtures__/accounts.js'
 import {
   fakeAutonomyMailer,
   fakeAutonomyStore,
@@ -12,7 +13,12 @@ import {
 import { fakeOperatorThreads } from '../__fixtures__/operator-threads.js'
 import { fakeOperatorPageMessages } from '../__fixtures__/operator-page-message.js'
 import { fakeOperatorMessaging, type FakeOperatorMessaging } from '../__fixtures__/messaging.js'
-import { OPERATOR_ANSWER_BODIES } from '@kolonie-ai/core'
+import {
+  AccountKindSchema,
+  OPERATOR_ANSWER_BODIES,
+  TaskIdSchema,
+  type TaskId,
+} from '@kolonie-ai/core'
 
 /**
  * The inbox behind the link in a notification mail (`#1547`, epic `#1447`).
@@ -35,17 +41,23 @@ describe('the inbox behind a mailed link', () => {
   let pages: FakeOperatorPages
   let threads: ReturnType<typeof fakeOperatorThreads>
   let messaging: FakeOperatorMessaging
+  let register: FakeAccountRegister
+  let openTasks: Map<string, readonly { readonly id: TaskId; readonly title: string }[]>
   let agentId: string
   let humanId: string
 
   beforeEach(async () => {
     pages = fakeOperatorPages()
     const agents = fakeStore()
+    const colony = fakeColony()
     threads = fakeOperatorThreads({ pages })
     messaging = fakeOperatorMessaging()
+    register = fakeAccountRegister()
+    openTasks = new Map()
 
     app = buildApp({
-      ...fakeColony(),
+      ...colony,
+      accounts: { ...colony.accounts, register },
       store: agents,
       autonomy: {
         store: fakeAutonomyStore(),
@@ -55,7 +67,10 @@ describe('the inbox behind a mailed link', () => {
       },
       operatorThreads: threads,
       operatorPageMessages: fakeOperatorPageMessages({ pages }),
-      operatorMessaging: messaging,
+      operatorMessaging: {
+        ...messaging,
+        openTasks: async (id) => openTasks.get(String(id)) ?? [],
+      },
     })
     await app.ready()
 
@@ -330,6 +345,77 @@ describe('the inbox behind a mailed link', () => {
       expect(response.statusCode).toBe(303)
       const listed = await messaging.inbox?.(humanId as never, {})
       expect(listed).toHaveLength(1)
+    })
+
+    it("offers this agent's task, account and plain subject with where each lands", async () => {
+      const taskId = TaskIdSchema.parse('22222222-2222-4222-8222-222222222222')
+      const account = register.proveDirectly(agentId as never, {
+        identifier: 'octocat',
+        kind: AccountKindSchema.parse('github'),
+      })
+      openTasks.set(agentId, [{ id: taskId, title: 'Set up the release account' }])
+      messaging.thread(humanId, agentId)
+      const token = await aPage()
+
+      const body = (await get(`/operator/page/${token}/inbox`)).body
+      const compose = body.slice(body.indexOf('<section class="compose">'))
+
+      expect(compose).toContain('name="about"')
+      expect(compose).toContain('Nothing in particular — joins the thread about it')
+      expect(compose).toContain('canary — octocat — opens a new thread')
+      expect(compose).toContain('canary — Set up the release account — opens a new thread')
+      expect(compose.indexOf('Nothing in particular')).toBeLessThan(compose.indexOf('octocat'))
+      expect(compose).not.toContain('name="subject"')
+      expect(compose).not.toMatch(/<input[^>]*name="about"/)
+      expect(compose).not.toMatch(/<textarea[^>]*name="about"/)
+
+      const accountSent = await post(`/operator/page/${token}/inbox/compose`, {
+        agentId,
+        about: `account:${account.id}`,
+        body: 'The account is ready for the release.',
+      })
+      const taskSent = await post(`/operator/page/${token}/inbox/compose`, {
+        agentId,
+        about: `task:${taskId}`,
+        body: 'I have started the release account work.',
+      })
+      const taskSentAgain = await post(`/operator/page/${token}/inbox/compose`, {
+        agentId,
+        about: `task:${taskId}`,
+        body: 'One more detail for the same task.',
+      })
+
+      expect(accountSent.statusCode).toBe(303)
+      expect(taskSent.statusCode).toBe(303)
+      expect(taskSentAgain.statusCode).toBe(303)
+      expect(taskSentAgain.headers.location).toBe(taskSent.headers.location)
+
+      const after = (await get(`/operator/page/${token}/inbox`)).body
+      const afterCompose = after.slice(after.indexOf('<section class="compose">'))
+      expect(afterCompose).toContain('canary — octocat — joins the thread about it')
+      expect(afterCompose).toContain(
+        'canary — Set up the release account — joins the thread about it',
+      )
+    })
+
+    /** The address index reaches both pages; either token still grants one agent only. */
+    it("refuses another page's subject held by the same address", async () => {
+      const other = String(fakeStore().issue().agent.id)
+      const theirs = register.proveDirectly(other as never, {
+        identifier: 'elsewhere',
+        kind: AccountKindSchema.parse('github'),
+      })
+      await pages.issue(other as never, 'op@example.org')
+      const token = await aPage()
+
+      const response = await post(`/operator/page/${token}/inbox/compose`, {
+        agentId,
+        about: `account:${theirs.id}`,
+        body: 'This belongs to the other page.',
+      })
+
+      expect(response.statusCode).toBe(404)
+      expect(await messaging.inbox?.(humanId as never, {})).toHaveLength(0)
     })
 
     /**

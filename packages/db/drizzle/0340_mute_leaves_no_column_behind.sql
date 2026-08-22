@@ -1,0 +1,1 @@
+ALTER TABLE "message_participants" DROP COLUMN "muted_until";

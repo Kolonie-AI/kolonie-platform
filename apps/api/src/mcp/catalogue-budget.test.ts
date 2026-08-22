@@ -666,7 +666,8 @@ describe('what a refusal tells the caller to do', () => {
 })
 
 /**
- * **The two gates agree about whether a sentence is required** (`#1583`).
+ * **The three gates agree about whether a sentence is required** (`#1583`,
+ * `#1586`).
  *
  * ## The deadlock this is named after
  *
@@ -684,15 +685,28 @@ describe('what a refusal tells the caller to do', () => {
  * commit that caused it has landed and its message cannot be edited, and no later
  * commit can justify a raise somebody else's change caused.
  *
+ * ## And then a third time (`#1586`)
+ *
+ * `#1583` fixed two of three. `floorChangeVerdict` — the one
+ * `scripts/check-catalogue-floor.mjs` runs, so the one in `npm run check` and in
+ * the merge queue — still demanded the sentence for a raise of any size. The
+ * repaired ratchet measured the 742 bytes and opened a pull request for them;
+ * that pull request could not merge, on a check asking why a figure two other
+ * gates had approved had gone up.
+ *
+ * **So the table drives all three.** A rule written three times agrees until it
+ * does not, and each place it is written is a place it can be fixed in isolation.
+ *
  * ## Why this is a property test and not a table of messages
  *
- * A test that pinned the two verdict strings would have passed happily through
- * the whole bug — both functions were saying exactly what they meant. What was
- * wrong was that they disagreed, and *that* is the thing to assert: over the same
- * inputs, **the branch gate letting something through unjustified and the ratchet
- * recording it unjustified are the same answer.**
+ * A test that pinned the verdict strings would have passed happily through the
+ * whole bug — every one of these functions was saying exactly what it meant.
+ * What was wrong was that they disagreed, and *that* is the thing to assert: over
+ * the same inputs, **the branch gate letting something through unjustified, the
+ * ratchet recording it unjustified, and the check letting it land unjustified are
+ * one answer.**
  */
-describe('the branch gate and the main ratchet', () => {
+describe('the branch gate, the main ratchet and the landed check', () => {
   const floor: CatalogueBudget = {
     tools: 123,
     bytes: 217_496,
@@ -706,6 +720,15 @@ describe('the branch gate and the main ratchet', () => {
     mainFloorRatchet(measured, floor, sentence).outcome !== 'refused'
 
   const permitted = (measured: CatalogueTotals) => branchBudgetVerdict(measured, floor).within
+
+  /**
+   * The third gate (`#1586`): the same move, judged as two committed versions of
+   * the floor file with the commit message between them. That is what
+   * `scripts/check-catalogue-floor.mjs` hands it, and therefore what `npm run
+   * check` and the merge queue ask.
+   */
+  const landed = (measured: CatalogueTotals, sentence = 'Measured by the workflow') =>
+    floorChangeVerdict({ tools: floor.tools, bytes: floor.bytes }, measured, sentence).allowed
 
   const CASES: readonly (readonly [string, CatalogueTotals])[] = [
     ['the live case — +742 bytes, no tool', { tools: 123, bytes: 218_238 }],
@@ -727,11 +750,25 @@ describe('the branch gate and the main ratchet', () => {
   )
 
   /**
+   * **All three, over the same inputs** (`#1586`). `#1583` asserted this of two
+   * of them and the third went on disagreeing — which is how a pull request the
+   * automation opened for a figure both of those gates had approved sat blocked
+   * on a check demanding a sentence for it.
+   */
+  it.each(CASES)(
+    'agree on %s in the check that runs on every branch and in the queue',
+    (_what, measured) => {
+      expect(landed(measured)).toBe(permitted(measured))
+    },
+  )
+
+  /**
    * The other direction, so the property above cannot be satisfied by both
    * refusing everything: a sentence still buys what a sentence is for.
    */
   it.each(CASES)('records %s once the landing message says why', (_what, measured) => {
     expect(recorded(measured, justified)).toBe(true)
+    expect(landed(measured, justified)).toBe(true)
   })
 
   /** The live numbers, named, because this is the run that was red. */
@@ -746,6 +783,24 @@ describe('the branch gate and the main ratchet', () => {
   })
 
   /**
+   * The live numbers again, at the gate that actually blocked them (`#1586`).
+   * The message the pull request was failing on, verbatim, was *in a commit that
+   * does not say why* — and the commit was the workflow's, which has nothing to
+   * say and nobody to say it.
+   */
+  it('lets the 742 bytes through the check that blocked the automation', () => {
+    const verdict = floorChangeVerdict(
+      { tools: 123, bytes: 217_496 },
+      { tools: 123, bytes: 218_238 },
+      'The catalogue floor goes up to what main measured',
+    )
+
+    expect(verdict.allowed).toBe(true)
+    expect(verdict.move).toBe('raised')
+    expect(verdict.message).toContain('No sentence was needed')
+  })
+
+  /**
    * **A tool raise is untouched**, which is the half that must not loosen:
    * `tools > 0` is what the record exists to tax.
    */
@@ -753,6 +808,12 @@ describe('the branch gate and the main ratchet', () => {
     expect(mainFloorRatchet({ tools: 124, bytes: 217_000 }, floor).outcome).toBe('refused')
     expect(mainFloorRatchet({ tools: 124, bytes: 217_496 }, floor).outcome).toBe('refused')
     expect(mainFloorRatchet({ tools: 124, bytes: 219_496 }, floor).outcome).toBe('refused')
+
+    const base = { tools: 123, bytes: 217_496 }
+    const quiet = 'Add the settlement tool'
+    expect(floorChangeVerdict(base, { tools: 124, bytes: 217_000 }, quiet).allowed).toBe(false)
+    expect(floorChangeVerdict(base, { tools: 124, bytes: 217_496 }, quiet).allowed).toBe(false)
+    expect(floorChangeVerdict(base, { tools: 124, bytes: 219_496 }, quiet).allowed).toBe(false)
   })
 })
 

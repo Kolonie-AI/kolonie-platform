@@ -631,18 +631,44 @@ export interface FloorChangeVerdict {
 /**
  * Judge a commit that moved the floor (`#1118`).
  *
- * Three cases, and only one of them can fail. **Lowering needs no permission** —
+ * Four cases, and only one of them can fail. **Lowering needs no permission** —
  * it is the ratchet doing what it is for, and the run that measures a smaller
  * catalogue writes the smaller figure itself. **Unchanged is not a change** and
  * is not asked to justify itself. **Raising needs the sentence**
- * {@link raiseIsJustified} looks for, and a commit that does not carry it is
- * refused.
+ * {@link raiseIsJustified} looks for — unless the move is one
+ * {@link branchBudgetVerdict} would have let land without one.
  *
  * This runs **after the fact, against history**, which is what makes it possible
  * at all: a check that ran before the commit existed would be asked to read a
  * message nobody had written yet. The cost of reading history instead is that
  * the refusal arrives one commit late — on the branch, in the pull request,
  * where amending is still ordinary.
+ *
+ * ## The third gate (`#1586`)
+ *
+ * *Whether a raise costs a sentence* was written in three places. `#1483` gave
+ * bytes {@link CATALOGUE_BYTE_TOLERANCE}, `#1583` had {@link mainFloorRatchet}
+ * ask the branch gate instead of re-deriving it — and this function, which is
+ * what `scripts/check-catalogue-floor.mjs` runs and therefore what `npm run
+ * check` and the merge queue run, went on demanding the sentence for every raise
+ * of any size. So the automation `#1465` describes measured 742 bytes, opened a
+ * pull request with the figure, and could not merge it: two gates said the
+ * growth was fine and the third asked for a justification the commit that caused
+ * it had no reason to carry.
+ *
+ * So the question is **asked** here rather than answered a third time. The other
+ * repair — having the workflow write {@link GRAMMAR_RECORD} into its own commit
+ * message — is a workflow reciting a justification nobody authored, and it would
+ * pass every future raise whatever its size: the gate deleting itself while
+ * still appearing to run.
+ *
+ * **What this loosens, stated plainly.** A hand-edited raise of the floor file
+ * within tolerance and adding no tool now passes here, where it used to be
+ * refused. That is the permission `#1483` already granted on the branch, applied
+ * to the same move written down; and it buys the editor nothing, because the
+ * branch gate weighs the *measured* catalogue against its merge base and never
+ * against this file. **A tool raise is untouched** — `tools > 0` fails
+ * {@link branchBudgetVerdict} without a sentence, so it fails here without one.
  */
 export function floorChangeVerdict(
   from: CatalogueTotals,
@@ -675,14 +701,32 @@ export function floorChangeVerdict(
     }
   }
 
+  /**
+   * Asked of {@link branchBudgetVerdict}, not decided here (`#1586`). A raise
+   * the branch gate would have let land unjustified is one this gate records
+   * unjustified — the same delegation `#1583` made on `main`.
+   */
+  if (branchBudgetVerdict(to, from).within) {
+    return {
+      allowed: true,
+      move,
+      message:
+        `The floor moved to ${to.tools} tools and ${to.bytes} bytes — ` +
+        `${to.bytes - from.bytes} bytes up, no tool added. No sentence was needed: the growth ` +
+        `is within the ${CATALOGUE_BYTE_TOLERANCE}-byte tolerance, which is what the branch ` +
+        'gate had already permitted when it let this land.',
+    }
+  }
+
   return {
     allowed: false,
     move,
     message:
       `The floor was raised from ${from.tools} tools and ${from.bytes} bytes to ` +
       `${to.tools} and ${to.bytes}, in a commit that does not say why. ` +
-      `Raising it takes a commit message naming ${GRAMMAR_RECORD} and saying what the new ` +
-      'tools are vocabulary-free for. If the growth is a new rung it belongs in a `kind` enum ' +
-      'and costs zero tools, and the floor should not move at all.',
+      `That is past what lands unasked — ${CATALOGUE_BYTE_TOLERANCE} bytes and no new tool. ` +
+      `Raising it further takes a commit message naming ${GRAMMAR_RECORD} and saying what the ` +
+      'new tools are vocabulary-free for. If the growth is a new rung it belongs in a `kind` ' +
+      'enum and costs zero tools, and the floor should not move at all.',
   }
 }

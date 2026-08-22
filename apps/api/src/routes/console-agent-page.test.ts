@@ -587,8 +587,15 @@ describe('the agent page', () => {
       expect(body).toContain('Leaving this agent a note')
       expect(body).toContain(`href="/agents/${agentId}/operator"`)
       expect(body).not.toContain(`action="/agents/${agentId}/operator"`)
+      /**
+       * **What the section leads to since `#1547`.** It used to carry the note
+       * box, so the assertion was that the door's own path was a form action
+       * there. The page renders no message form at all now — the inbox is the
+       * one surface an operator writes on — so what the section owes is the way
+       * to it, narrowed to this agent.
+       */
       expect((await openSection(cookie, agentId, 'operator')).body).toContain(
-        `action="/agents/${agentId}/operator"`,
+        `/inbox?agent=${agentId}`,
       )
     })
 
@@ -631,8 +638,14 @@ describe('the agent page', () => {
         method: 'POST',
         url: `/agents/${agentId}/operator`,
         payload: new URLSearchParams({
-          intent: 'note',
-          body: 'a note',
+          /**
+           * `#1547` took `intent: 'note'` off this route — the note is the
+           * inbox's compose now — so what is exercised here is what the route
+           * still accepts. The assertion is the one `#453` asks for and is
+           * unchanged: whatever this door reaches, it is never a permission.
+           */
+          act: 'hand-back',
+          shareId: '',
           // Neither of these is a field any handler reads. The assertion is
           // that they change nothing, not that they are rejected loudly.
           permission: 'grant-everything',

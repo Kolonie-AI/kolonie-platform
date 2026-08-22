@@ -1149,6 +1149,55 @@ export function handoverPage(input: {
 }
 
 /**
+ * Where a rendering of the inbox is rooted, and who is reading it (`#1547`).
+ *
+ * ## Why the paths are a parameter now
+ *
+ * There were **two surfaces onto the same threads**: `/inbox` in the console,
+ * and `operatorPageBody` behind the link in a notification mail. `#1447` built
+ * the first; the second is what a person actually meets, because the mail is
+ * what tells them there is something to read — and it still carried the
+ * pre-thread design, three fixed declarations with a separate explanation box
+ * under every message.
+ *
+ * While there were two, every later change to an operator surface was built
+ * twice or built half. So the renderer takes the root it is being served at, and
+ * the two doors differ in exactly three things and nothing else:
+ *
+ * | | Console | Mailed link |
+ * |---|---|---|
+ * | Who is reading | a signed-in person | the holder of `operator_pages.token` |
+ * | What they see | every agent they operate | **that agent only** |
+ * | `base` | `/inbox` | `/operator/page/<token>/inbox` |
+ *
+ * **The token stays per agent**, which is what the scoping is: a mailed link
+ * that suddenly showed every agent its holder happens to operate would be a
+ * widening nobody asked for. That is enforced where the rows are read, not here
+ * — this type only says where the forms post.
+ *
+ * **`signedIn` is not *is somebody authenticated*.** It is the same flag
+ * {@link PageInput} carries and means the same thing: whether to draw a
+ * navigation and a sign-out. A person holding a mailed link has no account, so
+ * offering them either would be furniture that lies.
+ */
+export type InboxSurface = {
+  /**
+   * The path this inbox is rooted at, with no trailing slash.
+   *
+   * Every link and every form target below is derived from it, so a door is
+   * added by naming its root rather than by finding the seven places `/inbox`
+   * was written.
+   */
+  readonly base?: string | undefined
+} & (
+  | { readonly signedIn: true; readonly nav: ConsoleNav }
+  | { readonly signedIn?: false | undefined; readonly nav?: undefined }
+)
+
+/** The console's own root, and the default for a caller that names none. */
+const INBOX_BASE = '/inbox'
+
+/**
  * The inbox: every thread across every agent this person operates (`#1448`).
  *
  * ## Why this page exists at all
@@ -1160,57 +1209,77 @@ export function handoverPage(input: {
  * pages and no view of what was waiting — and the dashboard's queue showed only
  * threads *never answered*, so replying once removed a thread from it forever.
  * Sixteen threads were waiting on a person and appeared nowhere.
+ *
+ * **Since `#1547` it is also what the mailed link opens**, scoped to one agent.
+ * See {@link InboxSurface}.
  */
-export function inboxPage(input: {
-  readonly nav: ConsoleNav
-  readonly threads: readonly {
-    readonly conversationId: string
-    readonly agentId: string
-    readonly agentName: string
-    readonly about: string | null
-    readonly preview: string | null
-    readonly at: string | null
-    readonly senderLabel: string | null
-    readonly mine: boolean
-    readonly unread: boolean
-    readonly unreadCount: number
-    readonly archived: boolean
-  }[]
-  /** Set when the list is narrowed to one agent (`#1447` frozen decision 6). */
-  readonly onlyAgent?: string | undefined
-  /** Which slice is being shown (`#1449`). Open is what an inbox means. */
-  readonly view: 'open' | 'archived' | 'all'
-  /**
-   * The agents this person operates, for starting a thread (`#1452`).
-   *
-   * **A picker and no subject line.** A thread's subject is what it is *about*
-   * — a task, a wish, an account — and those are chosen rather than typed. A
-   * thread about nothing in particular is an ordinary state and renders as one.
-   */
-  readonly agents?: readonly { readonly id: string; readonly name: string }[] | undefined
-  /** The accounts a new thread may name, by agent (`#1452`, `#1441`). */
-  readonly accounts?:
-    readonly { readonly id: string; readonly agentId: string; readonly label: string }[] | undefined
-  /** What to say if a compose was just refused — a credential, or an empty box. */
-  readonly composeError?: string | undefined
-  readonly bodyMaxLength?: number | undefined
-  /**
-   * What the list is currently narrowed by (`#1450`).
-   *
-   * **Reflected back into the controls**, so a person who arrived by a
-   * bookmarked link sees which filters are on rather than a bar that looks
-   * empty over a list that is not.
-   */
-  readonly filters?:
-    | {
-        readonly agentId?: string | undefined
-        readonly accountId?: string | undefined
-        readonly unreadOnly: boolean
-        readonly writtenByMe: boolean
-        readonly search: string
-      }
-    | undefined
-}): string {
+export function inboxPage(
+  input: {
+    readonly threads: readonly {
+      readonly conversationId: string
+      readonly agentId: string
+      readonly agentName: string
+      readonly about: string | null
+      readonly preview: string | null
+      readonly at: string | null
+      readonly senderLabel: string | null
+      readonly mine: boolean
+      readonly unread: boolean
+      readonly unreadCount: number
+      readonly archived: boolean
+    }[]
+    /** Set when the list is narrowed to one agent (`#1447` frozen decision 6). */
+    readonly onlyAgent?: string | undefined
+    /** Which slice is being shown (`#1449`). Open is what an inbox means. */
+    readonly view: 'open' | 'archived' | 'all'
+    /**
+     * The agents this person operates, for starting a thread (`#1452`).
+     *
+     * **A picker and no subject line.** A thread's subject is what it is *about*
+     * — a task, a wish, an account — and those are chosen rather than typed. A
+     * thread about nothing in particular is an ordinary state and renders as one.
+     *
+     * On the mailed link this is the one agent the token names, so the picker is
+     * a menu of one rather than absent: the box is how a person says something
+     * nobody asked them, which is what `#239` gave the durable page and what
+     * would otherwise have been lost in the move.
+     */
+    readonly agents?: readonly { readonly id: string; readonly name: string }[] | undefined
+    /** The accounts a new thread may name, by agent (`#1452`, `#1441`). */
+    readonly accounts?:
+      | readonly { readonly id: string; readonly agentId: string; readonly label: string }[]
+      | undefined
+    /** What to say if a compose was just refused — a credential, or an empty box. */
+    readonly composeError?: string | undefined
+    readonly bodyMaxLength?: number | undefined
+    /**
+     * What the list is currently narrowed by (`#1450`).
+     *
+     * **Reflected back into the controls**, so a person who arrived by a
+     * bookmarked link sees which filters are on rather than a bar that looks
+     * empty over a list that is not.
+     */
+    readonly filters?:
+      | {
+          readonly agentId?: string | undefined
+          readonly accountId?: string | undefined
+          readonly unreadOnly: boolean
+          readonly writtenByMe: boolean
+          readonly search: string
+        }
+      | undefined
+    /**
+     * What else this page's reader can reach (`#1547`).
+     *
+     * The mailed link's inbox is one section of what that person holds; the rest
+     * — the badge wall, the contract, what the agent has proved — is on the
+     * durable page, and a reader who arrived from a mail has no navigation to
+     * find it with. Absent in the console, which has one.
+     */
+    readonly alongside?: { readonly href: string; readonly label: string } | undefined
+  } & InboxSurface,
+): string {
+  const base = input.base ?? INBOX_BASE
   const unread = input.threads.filter((thread) => thread.unread).length
 
   /**
@@ -1236,7 +1305,7 @@ export function inboxPage(input: {
   const rows = input.threads.map((thread) =>
     [
       `<tr${thread.unread ? ' class="unread"' : ''}>`,
-      `<td><a href="/inbox/${escape(thread.conversationId)}">`,
+      `<td><a href="${escape(base)}/${escape(thread.conversationId)}">`,
       thread.unread ? '<strong>' : '',
       escape(thread.agentName),
       thread.unread ? '</strong>' : '',
@@ -1272,6 +1341,7 @@ export function inboxPage(input: {
         thread.archived ? 'unarchive' : 'archive',
         thread.archived ? 'Put back' : 'Archive',
         input.view,
+        base,
         kept({ view: input.view }),
       ),
       '</td>',
@@ -1283,8 +1353,19 @@ export function inboxPage(input: {
     '<h1>Your inbox</h1>',
     input.onlyAgent === undefined
       ? '<p>Every conversation between you and the agents you operate, newest first.</p>'
-      : `<p>Conversations with ${escape(input.onlyAgent)}, newest first. ` +
-        '<a href="/inbox">Every agent</a>.</p>',
+      : /**
+         * **On the mailed link there is no *every agent* to offer** (`#1547`).
+         * The token names one agent and reaches no other, so a link back to an
+         * unscoped inbox would be a link to a page that answers 404 for a person
+         * with no session — and an invitation to a widening the token does not
+         * grant. The console's narrowed view still offers it.
+         */
+        `<p>Conversations with ${escape(input.onlyAgent)}, newest first.` +
+        (base === INBOX_BASE ? ' <a href="/inbox">Every agent</a>.' : '') +
+        '</p>',
+    ...(input.alongside === undefined
+      ? []
+      : [`<p><a href="${escape(input.alongside.href)}">${escape(input.alongside.label)}</a></p>`]),
     /**
      * **A switch and not folders** (`#1449`). A folder is a place a thread is
      * *in*, which would make archiving a move and finding it again a second
@@ -1298,11 +1379,11 @@ export function inboxPage(input: {
             : // The filters survive the switch (`#1450`): somebody looking at
               // everything about one account who wants the archived ones has
               // not changed their mind about the account.
-              `<a href="/inbox${escape(kept({ view: slice }))}">${VIEW_NAMES[slice]}</a>`,
+              `<a href="${escape(base)}${escape(kept({ view: slice }))}">${VIEW_NAMES[slice]}</a>`,
         )
         .join(' · ') +
       '</p>',
-    filterBar(input),
+    filterBar({ ...input, base }),
     ...(input.threads.length === 0
       ? [
           input.view === 'archived'
@@ -1319,10 +1400,12 @@ export function inboxPage(input: {
           `<tbody>${rows.join('')}</tbody>`,
           '</table>',
         ]),
-    composeBlock(input),
+    composeBlock({ ...input, base }),
   ].join('\n')
 
-  return page({ title: 'Your inbox', body, signedIn: true, nav: input.nav })
+  return input.signedIn === true
+    ? page({ title: 'Your inbox', body, signedIn: true, nav: input.nav })
+    : page({ title: 'Your inbox', body })
 }
 
 /**
@@ -1351,6 +1434,7 @@ const VIEW_NAMES = { open: 'Open', archived: 'Archived', all: 'All' } as const
  * and they combine because they are four `and`s over one list.
  */
 function filterBar(input: {
+  readonly base: string
   readonly view: 'open' | 'archived' | 'all'
   readonly agents?: readonly { readonly id: string; readonly name: string }[] | undefined
   readonly accounts?:
@@ -1381,7 +1465,7 @@ function filterBar(input: {
     `<option value="${escape(value)}"${chosen ? ' selected' : ''}>${escape(label)}</option>`
 
   return [
-    '<form class="filters" method="get" action="/inbox">',
+    `<form class="filters" method="get" action="${escape(input.base)}">`,
     // The view is not a filter, but it has to survive one being applied.
     `<input type="hidden" name="view" value="${escape(input.view)}">`,
     '<label for="inbox-q">Search</label>',
@@ -1422,7 +1506,7 @@ function filterBar(input: {
     '<button type="submit">Narrow</button>',
     // Only when there is something to clear, so the bar does not offer a
     // control that would do nothing.
-    narrowed ? `<a href="/inbox?view=${escape(input.view)}">Clear</a>` : '',
+    narrowed ? `<a href="${escape(input.base)}?view=${escape(input.view)}">Clear</a>` : '',
     '</form>',
   ].join('')
 }
@@ -1448,6 +1532,7 @@ function filterBar(input: {
  * pick, so the form would be a control with an empty menu.
  */
 function composeBlock(input: {
+  readonly base: string
   readonly agents?: readonly { readonly id: string; readonly name: string }[] | undefined
   readonly accounts?:
     readonly { readonly id: string; readonly agentId: string; readonly label: string }[] | undefined
@@ -1461,15 +1546,27 @@ function composeBlock(input: {
 
   return [
     '<section class="compose">',
-    '<h2>Write to one of your agents</h2>',
+    agents.length === 1
+      ? `<h2>Tell ${escape(agents[0]?.name ?? '')} something</h2>`
+      : '<h2>Write to one of your agents</h2>',
     input.composeError === undefined ? '' : `<p class="error">${escape(input.composeError)}</p>`,
-    '<form method="post" action="/inbox/compose">',
-    '<label for="compose-agent">Agent</label>',
-    '<select id="compose-agent" name="agentId">',
-    agents
-      .map((agent) => `<option value="${escape(agent.id)}">${escape(agent.name)}</option>`)
-      .join(''),
-    '</select>',
+    `<form method="post" action="${escape(input.base)}/compose">`,
+    /**
+     * **A menu of one is a hidden field** (`#1547`). The mailed link reaches one
+     * agent, and a `select` with a single option is a control that looks like a
+     * choice and is not. The value is still posted, and the route still checks
+     * it against the token rather than trusting it.
+     */
+    ...(agents.length === 1
+      ? [`<input type="hidden" name="agentId" value="${escape(agents[0]?.id ?? '')}">`]
+      : [
+          '<label for="compose-agent">Agent</label>',
+          '<select id="compose-agent" name="agentId">',
+          agents
+            .map((agent) => `<option value="${escape(agent.id)}">${escape(agent.name)}</option>`)
+            .join(''),
+          '</select>',
+        ]),
     /**
      * **Optional, and the empty option is named.** An unlabelled blank in a
      * menu reads as *not chosen yet*; this one is a choice a person makes.
@@ -1520,6 +1617,8 @@ function stateForm(
   act: string,
   label: string,
   view: 'open' | 'archived' | 'all',
+  /** Which inbox this row is in (`#1547`). See {@link InboxSurface}. */
+  base: string,
   /**
    * The query string to return to, filters and all (`#1450`). Defaults to the
    * view alone, which is what it was before there were filters to keep.
@@ -1527,9 +1626,9 @@ function stateForm(
   back = `?view=${view}`,
 ): string {
   return (
-    `<form method="post" action="/inbox/${escape(conversationId)}/state">` +
+    `<form method="post" action="${escape(base)}/${escape(conversationId)}/state">` +
     `<input type="hidden" name="act" value="${escape(act)}">` +
-    `<input type="hidden" name="back" value="${escape(`/inbox${back}`)}">` +
+    `<input type="hidden" name="back" value="${escape(`${base}${back}`)}">` +
     `<button type="submit">${escape(label)}</button>` +
     '</form>'
   )
@@ -1590,30 +1689,34 @@ export function partyMark(party: string): string {
   return party
 }
 
-export function inboxThreadPage(input: {
-  readonly nav: ConsoleNav
-  readonly conversationId: string
-  readonly agentId: string
-  readonly agentName: string
-  readonly about: string | null
-  readonly messages: readonly {
-    readonly senderLabel: string
-    readonly party: string
-    readonly body: string
-    readonly createdAt: string
-  }[]
-  readonly declarations: readonly { readonly kind: string; readonly label: string }[]
-  readonly bodyMaxLength: number
-  readonly error?: string | undefined
-  readonly sent?: boolean | undefined
-  /** False once the operator link is gone: the words stay and nobody may add. */
-  readonly writable: boolean
-}): string {
+export function inboxThreadPage(
+  input: {
+    readonly conversationId: string
+    readonly agentId: string
+    readonly agentName: string
+    readonly about: string | null
+    readonly messages: readonly {
+      readonly senderLabel: string
+      readonly party: string
+      readonly body: string
+      readonly createdAt: string
+    }[]
+    readonly declarations: readonly { readonly kind: string; readonly label: string }[]
+    readonly bodyMaxLength: number
+    readonly error?: string | undefined
+    readonly sent?: boolean | undefined
+    /** False once the operator link is gone: the words stay and nobody may add. */
+    readonly writable: boolean
+  } & InboxSurface,
+): string {
+  const base = input.base ?? INBOX_BASE
+  const backLink = `<a href="${escape(base)}">Back to your inbox</a>`
+
   const body = [
     `<h1>${escape(input.agentName)}</h1>`,
     input.about === null
-      ? '<p><a href="/inbox">Back to your inbox</a></p>'
-      : `<p>About ${escape(input.about)}. <a href="/inbox">Back to your inbox</a></p>`,
+      ? `<p>${backLink}</p>`
+      : `<p>About ${escape(input.about)}. ${backLink}</p>`,
     ...(input.sent === true ? ['<p>Sent.</p>'] : []),
     ...(input.error === undefined ? [] : [`<p class="error">${escape(input.error)}</p>`]),
     input.messages.length === 0
@@ -1631,7 +1734,7 @@ export function inboxThreadPage(input: {
           .join('')}</ul>`,
     ...(input.writable
       ? [
-          `<form method="post" action="/inbox/${escape(input.conversationId)}">`,
+          `<form method="post" action="${escape(base)}/${escape(input.conversationId)}">`,
           `<label for="reply">Write to ${escape(input.agentName)}</label>`,
           `<textarea id="reply" name="body" maxlength="${String(input.bodyMaxLength)}"></textarea>`,
           '<button type="submit">Send</button>',
@@ -1660,5 +1763,7 @@ export function inboxThreadPage(input: {
         ]),
   ].join('\n')
 
-  return page({ title: input.agentName, body, signedIn: true, nav: input.nav })
+  return input.signedIn === true
+    ? page({ title: input.agentName, body, signedIn: true, nav: input.nav })
+    : page({ title: input.agentName, body })
 }

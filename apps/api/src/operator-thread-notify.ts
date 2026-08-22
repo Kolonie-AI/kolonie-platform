@@ -108,7 +108,16 @@ export async function notifyOperatorAboutThread(
      * page is carried second because it is the one that needs no account.
      */
     link: `${base}/inbox`,
-    pageLink: `${base}/operator/page/${recipient.pageToken}`,
+    /**
+     * **The mailed link opens the inbox** (`#1547`), scoped to this agent.
+     *
+     * It used to open the durable page, which rendered the same threads through
+     * a second renderer carrying the pre-thread design — so the surface most
+     * operators actually meet was the worse of the two. It is the same list, the
+     * same thread view and the same reply path the console has; what stays
+     * different is that this one reaches one agent, which is what the token is.
+     */
+    pageLink: `${base}/operator/page/${recipient.pageToken}/inbox`,
     address: recipient.operatorAddress,
   }
 

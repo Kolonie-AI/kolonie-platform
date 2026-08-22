@@ -141,10 +141,22 @@ describe('the operator page opens on a session', () => {
     expect(throughToken.statusCode).toBe(200)
     expect(throughSession.statusCode).toBe(200)
 
-    const normalised = (body: string, action: string) => body.split(action).join('{action}')
+    /**
+     * **Two things differ between the doors, not one** (`#428`, `#1547`): where
+     * the forms post, and where the inbox is. Both are the door's own for the
+     * same reason — a durable bearer link inside a page served behind a login is
+     * a credential leaking downward for no gain — so both are normalised away
+     * and everything else must match byte for byte.
+     */
+    // The inbox first: on the token door it *contains* the action, so replacing
+    // the action first would leave `{action}/inbox` and never match.
+    const normalised = (body: string, action: string, inbox: string) =>
+      body.split(inbox).join('{inbox}').split(action).join('{action}')
 
-    expect(normalised(throughSession.body, `/agents/${agentId}/operator`)).toBe(
-      normalised(throughToken.body, `/operator/page/${token}`),
+    expect(
+      normalised(throughSession.body, `/agents/${agentId}/operator`, `/inbox?agent=${agentId}`),
+    ).toBe(
+      normalised(throughToken.body, `/operator/page/${token}`, `/operator/page/${token}/inbox`),
     )
   })
 
@@ -282,12 +294,28 @@ describe('the operator page opens on a session', () => {
    * 2026-08-05: a session is the stronger credential of the two, and giving it
    * less would be a rule with no argument behind it.
    */
-  it('carries an unsolicited note to the agent, as the token door does', async () => {
+  /**
+   * **Both message acts left this route with `#1547`**, and this asserts they
+   * left rather than merely stopped being rendered.
+   *
+   * The unsolicited note (`#239`) and the three fixed controls (`#1093`) were
+   * this door's half of the durable page's two message forms. The page renders
+   * neither now, because it was the second of two surfaces onto rows `/inbox`
+   * already renders — so a route still accepting them would be the very thing
+   * the issue removed, kept alive where nothing points at it.
+   *
+   * **The acts themselves are not gone.** The note is the inbox's compose and
+   * the controls are the buttons beside its reply box, on both doors:
+   * `console-operator-messages.test.ts` for this one, `operator-inbox.test.ts`
+   * for the mailed link.
+   */
+  it('no longer takes a message on this route, because the inbox does', async () => {
     const cookie = await signedInCookie()
     await link(agentId)
     await pages.issue(agentId, 'op@example.org')
+    const threadId = requests.store.giveThread(agentId)
 
-    const response = await app.inject({
+    const asNote = await app.inject({
       method: 'POST',
       url: `/agents/${agentId}/operator`,
       payload: new URLSearchParams({ intent: 'note', body: 'the account is made' }).toString(),
@@ -299,22 +327,7 @@ describe('the operator page opens on a session', () => {
       },
     })
 
-    expect(response.statusCode).toBe(200)
-  })
-
-  /**
-   * **The fixed controls work through this door too** (`#1093`). One renderer means
-   * the session page carries the same three buttons, so a door that forwarded only
-   * the words would refuse every press — and the person answering would meet a 422
-   * on the control the page itself had offered them.
-   */
-  it('records what a pressed control declared, as the token door does', async () => {
-    const cookie = await signedInCookie()
-    await link(agentId)
-    await pages.issue(agentId, 'op@example.org')
-    const threadId = requests.store.giveThread(agentId)
-
-    const response = await app.inject({
+    const asControl = await app.inject({
       method: 'POST',
       url: `/agents/${agentId}/operator`,
       payload: new URLSearchParams({
@@ -330,9 +343,22 @@ describe('the operator page opens on a session', () => {
       },
     })
 
-    expect(response.statusCode).toBe(200)
-    const seen = requests.store.messagesIn(threadId)
-    expect(seen.at(-1)).toMatchObject({ author: 'operator', kind: 'completion' })
+    expect(asNote.statusCode).toBe(404)
+    expect(asControl.statusCode).toBe(404)
+    // And nothing of the operator's was written on the way to those refusals —
+    // the thread still holds only what the citizen said when it opened.
+    expect(requests.store.messagesIn(threadId).filter((one) => one.author === 'operator')).toEqual(
+      [],
+    )
+  })
+
+  /** The door still names where an operator does write. */
+  it('leads to this agent’s inbox', async () => {
+    const cookie = await signedInCookie()
+    await link(agentId)
+    await pages.issue(agentId, 'op@example.org')
+
+    expect((await openDoor(cookie, agentId)).body).toContain(`/inbox?agent=${agentId}`)
   })
 
   it('refuses a write for an agent this human does not operate', async () => {

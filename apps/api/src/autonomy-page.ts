@@ -4,10 +4,7 @@ import {
   AUTONOMY_DIRECTION_NOTE,
   AUTONOMY_LEVELS,
   AUTONOMY_LEVEL_DESCRIPTIONS,
-  OPERATOR_ANSWER_LABELS,
-  OPERATOR_MESSAGE_MAX_LENGTH,
   OPERATOR_ROUTE_MAX_LENGTH,
-  OperatorAnswerKindSchema,
   type AutonomyCapability,
   type HeldBadge,
 } from '@kolonie-ai/core'
@@ -27,17 +24,6 @@ import type { ConsoleNav } from './console/navigation.js'
  * **No JavaScript**, like every other page here, which is what lets the CSP stay
  * as strict as it is.
  */
-
-/**
- * The fixed answers, in the order an operator meets them (`#1093`).
- *
- * Built from the enum rather than listed again here, so a fourth kind cannot be
- * added to the Colony and left off the one page where a person answers.
- */
-const OPERATOR_ANSWER_CONTROLS = OperatorAnswerKindSchema.options.map((kind) => ({
-  kind,
-  label: OPERATOR_ANSWER_LABELS[kind],
-}))
 
 const MONTHS = [
   'January',
@@ -141,97 +127,13 @@ function tile(value: number, label: string): string {
 }
 
 /**
- * One thread between a citizen and its operator, as this page renders it.
- *
- * **Named since `#593`**, because the page shows a list of them and a function
- * that takes one needs something to be typed against. Before that it was an
- * inline shape on the page's input and there was only ever one.
- */
-export interface OperatorThread {
-  readonly threadId: string
-  /** The task title or wanted provider that explains why this was asked. */
-  readonly context: string
-  readonly openedAt: string
-  readonly messages: readonly {
-    /**
-     * Three, since `#1445`: the citizen, you, and the Colony.
-     *
-     * The third is what a handoff writes. Its sentence is composed from a recipe
-     * and **no agent could have authored it**, which is what makes it safe to act
-     * on — and a property a reader cannot see is not one. So it is labelled
-     * differently rather than folded into the citizen's words.
-     */
-    readonly author: 'citizen' | 'operator' | 'colony'
-    readonly body: string
-    readonly writtenAt: string
-  }[]
-  /**
-   * Whether the thread has become read-only, in which case it is shown
-   * **without a box**.
-   *
-   * `#359` put this here for a finished exchange the citizen had answered into
-   * afterwards. A thread is never finished, so what it means since `#1325` is
-   * the one state that does stop words: the operator link has been removed. The
-   * thread stays readable on both sides — ending the relationship does not
-   * un-say what was said in it — and neither side may add to it.
-   */
-  readonly closed?: boolean | undefined
-  /**
-   * The account this thread is about, by identifier (`#1442`).
-   *
-   * Null for a thread about a task, a wish or nothing in particular.
-   */
-  readonly accountIdentifier?: string | null | undefined
-  /**
-   * The entries shared onto this thread, rendered **inside** it (`#1442`).
-   *
-   * **This is what the epic is judged on.** After `#1439`–`#1441` the account,
-   * the shares and the words are three things a person has to assemble; here
-   * they are one view. The reason drops failed is that the secret and the reason
-   * for it lived in different places, and a page that put them in two sections
-   * would have rebuilt that failure with better plumbing.
-   */
-  readonly shares?: readonly OperatorPageShare[] | undefined
-  /**
-   * What has happened to those shares, in order (`#1442`).
-   *
-   * **Rendered as a sequence, not as messages.** A share is state on the
-   * conversation with one lifecycle; making it a chat entry would make it
-   * something that can be sent, quoted and forwarded, which is exactly what
-   * `#1442` says to avoid. These come from the share's own timestamps and are
-   * stored nowhere.
-   */
-  readonly shareEvents?:
-    | readonly {
-        readonly vaultKey: string
-        readonly kind: 'shared' | 'read' | 'written' | 'handed-back'
-        readonly at: string
-      }[]
-    | undefined
-}
-
-/**
- * Who wrote one message, in words the person reading is looking at (`#1445`).
- *
- * **The Colony's own line is not the citizen's**, and the distinction is the
- * whole of `#592` constraint 4: a handoff arrives cold, about a provider the
- * operator may never have heard of, and the reason it is safe to act on is that
- * no agent could have composed it. A label is how that reaches them.
- */
-function whoWrote(author: 'citizen' | 'operator' | 'colony', who: string): string {
-  if (author === 'operator') return 'You wrote'
-  if (author === 'colony') return 'The Colony wrote'
-  return `${who} wrote`
-}
-
-/**
  * What each share event is called, on the page (`#1442`).
  *
  * A closed list rather than composed prose, and it is the Colony's own words:
  * the whole point of rendering a lifecycle rather than a message is that no
  * agent could have written any of these.
  */
-const SHARE_EVENT_WORDS: Record<'shared' | 'read' | 'written' | 'handed-back', string> = {
+export const SHARE_EVENT_WORDS: Record<'shared' | 'read' | 'written' | 'handed-back', string> = {
   shared: 'shared with you',
   read: 'opened',
   written: 'you wrote something into it',
@@ -266,18 +168,6 @@ export interface OperatorPageShare {
   readonly description: string | null
   /** Whether they have already written something into it. */
   readonly wrote: boolean
-}
-
-/**
- * The fragment one thread lives at (`#593`, pointed at by `#587`).
- *
- * **The thread id and not an index.** A position changes the moment another
- * question is opened or answered, so a link built on one would send an operator
- * to a different question than the one they clicked — which is the defect this
- * page already had, arriving through the link instead of through the query.
- */
-export function threadAnchor(threadId: string): string {
-  return `question-${threadId}`
 }
 
 /** The form itself. `token` is in the action, so nothing has to carry it in a field. */
@@ -729,26 +619,29 @@ export function operatorDurablePage(input: {
     readonly alsoCovered?: readonly string[] | undefined
   } | null
   /**
-   * The open questions this citizen has asked (`#236`, `#594`).
+   * Where this page's threads are read and answered (`#1547`).
    *
-   * Empty for the ordinary case, in which the page is exactly what `#257` built
-   * and carries no form at all.
+   * **This page stopped rendering the conversation.** Until `#1547` it drew the
+   * threads itself, with three fixed controls and a separate *Explain instead*
+   * box under every message — a second surface onto the same rows as `/inbox`,
+   * carrying the pre-thread design of `#1093`, where a person answered one
+   * question on one page. Two renderings of an operator's view disagree within a
+   * month and the one being read is the wrong one, which is `#428`'s own
+   * argument turned on the thing `#428` did not cover.
    *
-   * **A list since `#593`, and the rule it replaces was never enforced here.**
-   * The page showed one thread because the query said `limit(1)`, and the
-   * sentence about never confronting an operator with a queue was written over
-   * the top of that. The console queue already listed every open request, so an
-   * operator clicked *Answer* on the second, landed on a page showing the first,
-   * answered it, and found the row they wanted still there — with nothing saying
-   * why.
-   *
-   * **And there is no ceiling behind it any more** (`#1325`, epic `#1318`
-   * decision 11). The paragraph this replaces said an operator was protected by
-   * the bounded simultaneous-open limit; that limit was a property of the
-   * exchange row and died with it. A citizen with four problems has four
-   * threads, which is what a person reading them wants anyway.
+   * So what is here is a way in, and the inbox is the surface. Absent on a page
+   * with no messaging behind it, and then this section says nothing rather than
+   * offering a link to a door that answers 404.
    */
-  readonly threads?: readonly OperatorThread[] | undefined
+  readonly inbox?:
+    | {
+        readonly href: string
+        /** How many of this agent's threads hold something unread by this person. */
+        readonly unread: number
+        /** How many are waiting on an answer — a question asked and not written into. */
+        readonly waiting: number
+      }
+    | undefined
   /** Every actionable sealed box for this page's agent. */
   readonly drops?: readonly OperatorPageDrop[] | undefined
   /**
@@ -1235,31 +1128,15 @@ export function operatorDurablePage(input: {
    * and what a person pressed is recorded on the message rather than guessed at
    * from the words.
    */
-  const answerAction = input.action
-
-  const openQuestions =
-    answerAction === undefined
-      ? []
-      : (input.threads ?? [])
-          .filter((thread) => thread.closed !== true)
-          .map((thread) => ({
-            openedAt: thread.openedAt,
-            tie: `question-${thread.threadId}`,
-            body: [
-              /**
-               * **Each thread is its own section with its own anchor** (`#593`),
-               * so `#587`'s *Answer* link has something stable to point at and an
-               * operator who answers the second of three lands back where they were
-               * rather than at the top of a long page.
-               */
-              `<section id="${escape(threadAnchor(thread.threadId))}">`,
-              ...threadBlock(thread, name, {
-                action: answerAction,
-                ...(input.answerError === undefined ? {} : { answerError: input.answerError }),
-              }),
-              '</section>',
-            ],
-          }))
+  /*
+   * `openQuestions` stood here until `#1547`. It rendered one section per open
+   * thread — the citizen's question, the three fixed controls, an *Explain
+   * instead (optional)* box and the conversation so far — and it was the second
+   * of two surfaces onto rows `/inbox` already renders. It is gone rather than
+   * kept beside the link below, which is the whole of the issue: while there
+   * were two, every later change to an operator surface was built twice or built
+   * half.
+   */
 
   /**
    * Sealed boxes are `operator_drops`, not reverse handovers (`#594`). The
@@ -1366,289 +1243,90 @@ export function operatorDurablePage(input: {
   }
 
   /**
-   * The shares that hang on no thread (`#1442`).
+   * The shares (`#1442`, `#1440`).
    *
-   * Everything attached to a conversation is rendered **inside** it, so this is
-   * what is left: an entry the citizen shared without writing about it. It is
-   * a real case — a citizen may share first and explain afterwards — and
-   * dropping it from the page would hide a credential a person can read.
+   * **All of them since `#1547`, and this is the fix `#1574` describes.** They
+   * used to be filtered against the ids attached to a thread, because a thread
+   * rendered its own shares inside the conversation that explains them. This
+   * page no longer renders threads, so a share attached to one would have
+   * appeared nowhere at all — which is exactly the failure measured on
+   * 2026-08-21: an agent shared an entry with its operator, said so in the
+   * thread, and the operator could not find it.
    */
-  const attachedIds = new Set(
-    (input.threads ?? []).flatMap((thread) => (thread.shares ?? []).map((share) => share.id)),
-  )
+  const openShares = (input.shares ?? []).map((share, index) => ({
+    openedAt: share.expiresAt,
+    tie: `share-${share.id}`,
+    body: [
+      `<h2>${name} has shared a credential with you</h2>`,
+      ...shareBlock(share, name, { withRisk: index === 0 }),
+    ],
+  }))
 
-  const openShares = (input.shares ?? [])
-    .filter((share) => !attachedIds.has(share.id))
-    .map((share, index) => ({
-      openedAt: share.expiresAt,
-      tie: `share-${share.id}`,
-      body: [
-        `<h2>${name} has shared a credential with you</h2>`,
-        ...shareBlock(share, name, { withRisk: index === 0 && (input.threads ?? []).length === 0 }),
-      ],
-    }))
-
-  const openActions = [...openQuestions, ...openDrops, ...openShares]
+  const openActions = [...openDrops, ...openShares]
     .sort((a, b) => a.openedAt.localeCompare(b.openedAt) || a.tie.localeCompare(b.tie))
     .flatMap((item) => item.body)
 
-  const closedExchanges =
-    answerAction === undefined
-      ? []
-      : (input.threads ?? [])
-          .filter((thread) => thread.closed === true)
-          .flatMap((thread) => threadBlock(thread, name, { action: answerAction }))
-
   /**
-   * One thread: what was said, and the box to answer it (`#236`).
+   * Where the conversation is (`#1547`).
    *
-   * Lifted out of the page body by `#593` because there are now several of them.
-   * Nothing about what it renders changed.
+   * ## What stood here
+   *
+   * `threadBlock` — the citizen's question, three fixed controls, an *Explain
+   * instead (optional)* box and the conversation so far — and under it the note
+   * box `#239` added for saying something nobody asked. Both are gone, and gone
+   * rather than left beside this link, which is the acceptance criterion `#1547`
+   * writes in those words.
+   *
+   * ## Why
+   *
+   * They were the **second** surface onto rows `/inbox` already renders. `#1447`
+   * built the first; this is what a person meets, because the mail is what tells
+   * them there is something to read — so the surface most operators use was the
+   * one carrying the pre-thread design of `#1093`, where a person answered one
+   * question on one page. While there were two, the compose fix, the two-forms
+   * defect, choosing a subject and every deferred visual change were each going
+   * to be built twice or built half.
+   *
+   * It also settles the button question without anybody arguing it: the inbox
+   * has one reply box, so a surface that renders the inbox has one reply box.
+   *
+   * ## What is not lost
+   *
+   * The three canonical sentences keep working — `#1093`'s reason still holds,
+   * and a citizen reads the same sentence for the same button. `inboxThreadPage`
+   * offers them. **The note box is the inbox's compose**, which is the same act
+   * through the same writer.
+   *
+   * ## Why a count and not a preview
+   *
+   * A line of the newest message would be a third rendering of a thread, on the
+   * page that just stopped having two. The number answers the only question a
+   * person has before they click, and `waiting` answers the one `#564` is about:
+   * *is something actually in front of me*, as against *has anything moved*.
    */
-  function threadBlock(
-    thread: OperatorThread,
-    who: string,
-    context: { readonly action: string; readonly answerError?: string | undefined },
-  ): readonly string[] {
-    return thread.closed === true
-      ? [
-          /**
-           * A thread nobody may write into any more (`#359`, `#1325`).
-           *
-           * **Shown, and shown without a box.** `#359` reached this state
-           * through a closed exchange; since `#1325` it is a thread whose
-           * operator link has been removed. Both are the same thing to the
-           * person reading: the words stay, and there is nowhere to put a
-           * reply. The route to saying something else is the note box further
-           * down.
-           */
-          `<h2>${who} wrote to you</h2>`,
-          `<p>About “${escape(thread.context)}”, in a conversation that is`,
-          'now finished. There is nothing to reply to here — if you want to say something else,',
-          'use the message box below.</p>',
-          '<table>',
-          ...thread.messages.map(
-            (message) =>
-              `<tr><th class="wrote-${escape(message.author)}">${whoWrote(message.author, who)}</th>` +
-              `<td>${escape(message.body)}</td></tr>`,
-          ),
-          '</table>',
-        ]
+  const messages: readonly string[] =
+    input.inbox === undefined
+      ? []
       : [
-          `<h2>${who} has asked you something</h2>`,
-          thread.accountIdentifier == null
-            ? `<p>About “${escape(thread.context)}”.</p>`
-            : /**
-               * **The account named as an account** (`#1442`), rather than as a
-               * phrase that happens to be its identifier. A person about to open
-               * a provider's billing page needs to know *which* login this is
-               * about, and the whole failure `#1441` fixed was that they could
-               * not tell.
-               */
-              `<p>About the account <strong>${escape(thread.accountIdentifier)}</strong>.</p>`,
-          context.answerError === undefined
-            ? ''
-            : `<p class="note"><strong>${escape(context.answerError)}</strong></p>`,
-          '<ul class="operator-asks">',
-          '<li>',
-          `<p class="operator-ask"><strong>${who} asks:</strong> ${escape(
-            [...thread.messages].reverse().find((message) => message.author === 'citizen')?.body ??
-              '',
-          )}</p>`,
-          '<div class="operator-answer-controls">',
-          ...OPERATOR_ANSWER_CONTROLS.flatMap(({ kind, label }) => [
-            `<form method="post" action="${escape(context.action)}">`,
-            '<input type="hidden" name="intent" value="answer">',
-            `<input type="hidden" name="threadId" value="${escape(thread.threadId)}">`,
-            /**
-             * **The control posts what it means, never the words** (`#1093`). The
-             * sentence is written once, in core, and resolved server-side — so a
-             * button labelled *I have done it* cannot deliver a body that says
-             * anything else, whatever this markup later becomes.
-             */
-            `<input type="hidden" name="kind" value="${escape(kind)}">`,
-            `<button type="submit">${escape(label)}</button>`,
-            '</form>',
-          ]),
-          `<form class="operator-answer-explanation" method="post" action="${escape(context.action)}">`,
+          `<h2>What ${name} has said to you</h2>`,
+          input.inbox.waiting > 0
+            ? `<p><strong>${String(input.inbox.waiting)} ${
+                input.inbox.waiting === 1 ? 'question is' : 'questions are'
+              } waiting on you.</strong></p>`
+            : input.inbox.unread > 0
+              ? `<p>${String(input.inbox.unread)} ${
+                  input.inbox.unread === 1 ? 'thread has' : 'threads have'
+                } something you have not read.</p>`
+              : `<p>Nothing is waiting on you right now.</p>`,
+          `<p><a href="${escape(input.inbox.href)}">Read and answer ${name}</a></p>`,
           /**
-           * Which of the page's two boxes this is (`#239`). Named rather than
-           * inferred from `threadId`, because both page forms carry words.
-           */
-          '<input type="hidden" name="intent" value="answer">',
-          `<input type="hidden" name="threadId" value="${escape(thread.threadId)}">`,
-          '<label>Explain instead (optional)',
-          `<textarea name="body" rows="3" maxlength="${OPERATOR_MESSAGE_MAX_LENGTH}" required></textarea>`,
-          '</label>',
-          '<button type="submit">Send explanation</button>',
-          '</form>',
-          '</div>',
-          '</li>',
-          '</ul>',
-          /**
-           * **Inside the thread, above the conversation** (`#1442`). The reason
-           * drops failed is that the secret and the reason for it lived in
-           * different places; a share rendered in its own section further down
-           * the page would be that failure rebuilt with better plumbing.
-           */
-          ...(thread.shares ?? []).flatMap((share, index) =>
-            shareBlock(share, who, { withRisk: index === 0 }),
-          ),
-          ...((thread.shareEvents ?? []).length === 0
-            ? []
-            : [
-                '<p class="note">What has happened to what was shared here:</p>',
-                '<ul class="share-events">',
-                ...(thread.shareEvents ?? []).map(
-                  (event) =>
-                    `<li><code>${escape(event.vaultKey)}</code> — ` +
-                    `${escape(SHARE_EVENT_WORDS[event.kind])} on ${escape(event.at)}</li>`,
-                ),
-                '</ul>',
-              ]),
-          ...collapsed('Conversation so far', [
-            '<table>',
-            ...thread.messages.map(
-              (message) =>
-                `<tr><th class="wrote-${escape(message.author)}">${whoWrote(message.author, who)}</th>` +
-                `<td>${escape(message.body)}</td></tr>`,
-            ),
-            '</table>',
-          ]),
-          /**
-           * Three things a person needs to know before they type, in the order
-           * they need them: what their words are worth, what they must not
-           * include, and that they may correct themselves later. The last one is
-           * why the record is append-only, and saying so is what stops an
-           * operator agonising over the first draft.
-           */
-          '<p class="note">Your agent reads this as <em>your</em> words rather than as the',
-          'Colony’s, and weighs it against what you already recorded above. Answering cannot',
-          'give it any new permission — not from you, and not from anybody else who somehow got',
-          'this link.</p>',
-          '<p class="note"><strong>Never put a password, key or code here.</strong> The Colony',
-          'refuses those on purpose: this text goes into its database and cannot be taken back.',
-          'If your agent needs a credential, it will tell you where to put it instead.</p>',
-          '<p class="note">You can add to your answer later if you got something wrong — nothing',
-          'you send is edited or deleted, so a correction is simply another message.</p>',
-          /**
-           * **Last, because it is what happens after the button** (`#495`).
-           * The three above are things to know before typing; this one is the
-           * thing to know before walking away, and an operator that reads only
-           * the last line has read the one that stops them wondering whether
-           * they were ignored.
+           * **Said here as well as beside the box** (`#495`). An operator who
+           * reads this page and does not click through has still been told when
+           * their agent will read them and that no notification is coming, which
+           * is the half they cannot infer.
            */
           ...whenItWillRead(),
         ]
-  }
-
-  /**
-   * The box for saying something nobody asked for (`#239`).
-   *
-   * **Always here, unlike the answer box.** That is the whole of the issue: `#236`
-   * gave the citizen a way to ask and left the operator with a route only when it
-   * had been asked. An operator who has just created the X account, changed a key,
-   * or wants a week without publishing has something to say and no question in
-   * front of it — and the citizen would otherwise keep walking into a wall one
-   * sentence could remove.
-   *
-   * **Still one input and still no second field.** Same rule as the answer box,
-   * and it is the rule the whole page is amended under: the link carries words and
-   * cannot carry permissions. Nothing that would widen what the agent may do is
-   * reachable from here — that stays on the separate form, behind its own
-   * single-use token, where `#146` put it.
-   *
-   * **The wall is shown instead of the box, not beside it.** An operator that has
-   * filled its agent's unread inbox is told before it types rather than after, and
-   * told the thing that matters: nothing is wrong, and it clears itself.
-   */
-  /**
-   * **The box is not drawn while a question is waiting** (`#564`).
-   *
-   * A citizen reported the failure: its operator answered *"yes, you may"* on
-   * this page, in the box that was in front of them, and the rung went on
-   * saying `awaitingOperator` — because these words went to `operator_notes` and
-   * the rung read `operator_request_messages`. *"Neither of us is wrong about
-   * what we can see."* The exchange table is gone since `#1325` and the answer
-   * now lives in a conversation, but the failure was never about which table:
-   * it was two boxes on one page, and only one of them answering.
-   *
-   * Two boxes on one page, and only one of them answers the question. The cheap
-   * fixes — labelling them harder, putting the answer box first — are the ones
-   * that lose to somebody scrolling to the box they used last time. So while
-   * something is genuinely waiting, there is **one box**, and a line pointing at
-   * it.
-   *
-   * It is not lost either way: a note posted while a question is open is
-   * recorded as the answer to that question rather than dropped. See the
-   * routes.
-   */
-  /**
-   * **Any open question the operator has not written into yet** (`#593`).
-   *
-   * `some` rather than the one thread this used to read, and the choice is the
-   * conservative one: with two questions waiting, the note box says *use the box
-   * above* until both have been answered. Showing a second box while anything is
-   * still unanswered is exactly how an answer ends up somewhere the Colony does
-   * not look, which is the sentence below it.
-   */
-  const waitingOnAnAnswer = (input.threads ?? []).some(
-    (thread) =>
-      thread.closed !== true && !thread.messages.some((message) => message.author === 'operator'),
-  )
-
-  const note =
-    input.action === undefined
-      ? []
-      : waitingOnAnAnswer
-        ? [
-            `<h2>Tell ${name} something</h2>`,
-            `<p class="note">${name} has a question waiting, just above. While it is there, ` +
-              'the box above is the only one on this page — anything you write in it reaches ' +
-              'your agent, whether or not it is about the question. A second box here is how ' +
-              'an answer ends up somewhere the Colony does not look.</p>',
-          ]
-        : [
-            `<h2>Tell ${name} something</h2>`,
-            input.noteError === undefined
-              ? ''
-              : `<p class="note"><strong>${escape(input.noteError)}</strong></p>`,
-            ...(input.inboxFull === undefined
-              ? [
-                  `<form method="post" action="${escape(input.action)}">`,
-                  '<input type="hidden" name="intent" value="note">',
-                  `<textarea name="body" rows="5" maxlength="${OPERATOR_MESSAGE_MAX_LENGTH}" required></textarea>`,
-                  `<button type="submit">Send this to ${name}</button>`,
-                  '</form>',
-                  /**
-                   * The same three things the answer box says, plus the one that is
-                   * only true here: nothing is waiting on this, and the agent will
-                   * read it when it next runs rather than now.
-                   */
-                  `<p class="note">${name} reads this as <em>your</em> words rather than as the`,
-                  'Colony’s, and weighs it against what you already recorded above. It may decide',
-                  'not to act on it, and that is the arrangement working rather than failing.',
-                  'Nothing you write here can give it a permission — not from you, and not from',
-                  'anybody else who somehow got this link.</p>',
-                  '<p class="note"><strong>Never put a password, key or code here.</strong> The',
-                  'Colony refuses those on purpose: this text goes into its database and cannot be',
-                  'taken back. If your agent needs a credential, it will tell you where to put it',
-                  'instead.</p>',
-                  '<p class="note">Nothing is edited or deleted once sent, so a correction is simply',
-                  'another message.</p>',
-                  /**
-                   * **This box used to carry half of it** (`#495`): it said the
-                   * agent reads this the next time it wakes and is not
-                   * interrupted, which is the right fact and not the whole one. It
-                   * never said how long that is, and it never said that the answer
-                   * arrives without a notification — so an operator learned when
-                   * to stop expecting an interruption and not when to come back.
-                   * The sentence is now written once, for both boxes.
-                   */
-                  ...whenItWillRead(),
-                ]
-              : [`<p class="note">${escape(input.inboxFull)}</p>`]),
-          ]
 
   /**
    * The agent's name in blocks, above everything (`#424`).
@@ -1744,8 +1422,14 @@ export function operatorDurablePage(input: {
       'you. That is deliberate: the page is about your agreement with it, and it is the one who',
       'decides who holds a link to it.</p>',
     ]),
-    ...collapsed('History', [...standing, ...closedExchanges]),
-    ...collapsed(`Tell ${input.agentName} something`, note.filter(Boolean).slice(1)),
+    ...collapsed('History', standing),
+    /**
+     * **Open, and not in a disclosure** (`#1547`). The three sections above are
+     * context for a decision; this is the decision. `#657` made every non-ask
+     * section collapse, and what an operator is here to do is the one thing that
+     * must not be behind a summary they have to think to press.
+     */
+    ...messages,
   ]
 
   if (input.as === 'section') return operatorSection.filter(Boolean).join('\n')

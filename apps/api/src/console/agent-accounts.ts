@@ -42,8 +42,6 @@ import {
   type Wish,
 } from '@kolonie-ai/core'
 import type { BundleView } from '@kolonie-ai/db'
-import { threadAnchor } from '../autonomy-page.js'
-import { consoleOperatorPath } from '../operator-page-body.js'
 import { escape, page } from './html.js'
 import type { ConsoleNav } from './navigation.js'
 import { absolute, relative } from './time.js'
@@ -241,8 +239,13 @@ function wishStatusCell(input: AgentAccountsInput, wish: Wish): string {
     ...(ask === undefined
       ? []
       : [
-          `<br><a href="${escape(consoleOperatorPath(input.agentId))}#${escape(threadAnchor(ask))}">` +
-            'It has asked you something</a>',
+          /**
+           * **Straight into the thread** (`#1547`). This used to be an anchor on
+           * `/agents/:id/operator`, which is where the page rendered the
+           * conversation; it renders none now, so the link goes where the words
+           * are — the one inbox, at the one thread.
+           */
+          `<br><a href="/inbox/${escape(ask)}">It has asked you something</a>`,
         ]),
   ].join('')
 }

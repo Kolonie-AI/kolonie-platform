@@ -128,6 +128,7 @@ import {
   operatorThreadContext,
   operatorPageRecipient,
   operatorThreadsForPageToken,
+  operatorPageSubject,
   wishThreadsWaitingOn,
   answerOperatorThreadFromPage,
   citizenHandle,
@@ -1516,6 +1517,14 @@ const app = buildApp({
             ? process.env[OPERATOR_DROP_SEALING_KEY_VAR]
             : undefined,
         ),
+      /**
+       * Who the page speaks as, for the inbox behind it (`#1547`).
+       *
+       * The same resolution `answerOnPage` has always made internally, named so
+       * that the one surface an operator writes on can be reached by a token as
+       * well as by a session.
+       */
+      subjectForPageToken: (token) => operatorPageSubject(db, token),
       wishesWaiting: (agentId) => wishThreadsWaitingOn(db, agentId),
       answerOnPage: (input) => answerOperatorThreadFromPage(db, input),
     },

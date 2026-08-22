@@ -185,6 +185,14 @@ import {
 } from '@kolonie-ai/db'
 import { askRefusal, databaseWebServerChallenges } from './web-server.js'
 import { databaseWalks } from './account-walks.js'
+import { atlasFiguresCache } from './atlas/figures-cache.js'
+import {
+  tellingAccounts,
+  tellingEmail,
+  tellingProofs,
+  tellingSms,
+  tellingWalks,
+} from './atlas/figures-invalidation.js'
 import { databaseWishes } from './account-wishes.js'
 import { swarmPortraitOf } from '@kolonie-ai/db'
 import { databaseWakeChallenges } from './wake.js'
@@ -370,6 +378,22 @@ const HOST = '0.0.0.0'
 // discovering that on the first agent's registration is worse than discovering
 // it before the container is ever declared healthy.
 const db = createDatabase(databaseUrlFromEnv())
+
+/**
+ * The Atlas figures, held between reads (`#1629`).
+ *
+ * **One per process, created here and shared**, because the whole point is that
+ * two readers get the same answer without two queries. It is handed to the
+ * catalogue port for reading and to the two write ports whose writes move a
+ * figure, so the invalidation and the read cannot come to disagree about which
+ * cache they mean.
+ *
+ * **What it cannot hear.** The verifier runner proves accounts and the
+ * moderation runner decides walk prose, and both are separate processes. Those
+ * writes heal on `ATLAS_FIGURES_TTL_MS` rather than on an event, which is what
+ * that constant is for and why it is not optional.
+ */
+const atlasFigures = atlasFiguresCache()
 
 /**
  * One live settings reader for the whole process (`#532`, D-104).
@@ -1814,7 +1838,7 @@ const app = buildApp({
    * obtaining an account produces a draft entry as a by-product, and a steward
    * publishes it.
    */
-  walks: databaseWalks(db),
+  walks: tellingWalks(databaseWalks(db), atlasFigures),
   image: { challenges: databaseImageChallenges(db), obstruction },
   // The generator rung (#216). Same shape as the rung above and the same
   // absence of a Colony credential at this layer: minting draws from a
@@ -1947,7 +1971,7 @@ const app = buildApp({
   // No configuration of its own — it is a read and a few writes over the
   // citizen's own rows.
   /** The provider catalogue (`#521`). Its own object because it names no citizen. */
-  recipes: databaseProviderRecipes(db),
+  recipes: databaseProviderRecipes(db, atlasFigures),
   /** Where a provider used to be, for the Atlas's redirects (`#546`). */
   renames: databaseAtlasRenames(db),
   atlasQuests: databaseAtlasQuests(db),
@@ -1963,7 +1987,7 @@ const app = buildApp({
   /** What the Colony will confirm about one agent, to anybody (`#519`). */
   attestations: databaseAttestations(db),
   accounts: {
-    register: databaseAccounts(db),
+    register: tellingAccounts(databaseAccounts(db), atlasFigures),
     resolution: databaseAccountResolution(db),
     /**
      * The generic proofs (`#520`). The challenge domain is the same configured
@@ -1971,7 +1995,7 @@ const app = buildApp({
      * beside a badge's, because it is the same door.
      */
     proofs: {
-      proofs: databaseAccountProofs(db, liveSettings),
+      proofs: tellingProofs(databaseAccountProofs(db, liveSettings), atlasFigures),
       challengeDomain: process.env['EMAIL_CHALLENGE_DOMAIN'] ?? '',
     },
     /**
@@ -2051,7 +2075,7 @@ const app = buildApp({
   skillReleases,
   log,
   email: {
-    challenges: databaseEmailChallenges(db),
+    challenges: tellingEmail(databaseEmailChallenges(db), atlasFigures),
     obstruction,
     // Present only when all three are configured. Absent, the rung answers 503
     // rather than minting a challenge nobody could ever complete — the code
@@ -2069,7 +2093,7 @@ const app = buildApp({
      * (`#520`), so the inbound handler is handed both readers and tries the
      * challenges first. One route, one token space, two tables.
      */
-    accountProofs: databaseAccountProofs(db, liveSettings),
+    accountProofs: tellingProofs(databaseAccountProofs(db, liveSettings), atlasFigures),
   },
   /**
    * The two phone rungs (`#411`).
@@ -2079,7 +2103,7 @@ const app = buildApp({
    * rather than minting a challenge nobody could complete.
    */
   sms: {
-    challenges: databaseSmsChallenges(db),
+    challenges: tellingSms(databaseSmsChallenges(db), atlasFigures),
     obstruction,
     ...(smsSender === undefined ? {} : { sender: smsSender }),
     // Read for telling, not for refusing — the refusal is inside the guarded
@@ -2205,7 +2229,7 @@ try {
 if (smsVendor !== undefined) {
   startInboundSmsPolling({
     adapter: smsVendor,
-    challenges: databaseSmsChallenges(db),
+    challenges: tellingSms(databaseSmsChallenges(db), atlasFigures),
     log,
   })
   log.info('reading inbound SMS', {

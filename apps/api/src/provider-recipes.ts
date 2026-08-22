@@ -86,6 +86,7 @@ import { atlasReachAsText } from './mcp/text/atlas-reach.js'
 import { walkRouteAsText } from './mcp/text/walk-route.js'
 import type { WalkStore } from './account-walks.js'
 import type { HeldAccount } from './accounts.js'
+import { type AtlasFiguresCache, atlasFiguresKey } from './atlas/figures-cache.js'
 import {
   atlasFigures,
   atlasWalkers,
@@ -256,13 +257,42 @@ export interface ProviderRecipes {
   ): Promise<boolean>
 }
 
-export function databaseProviderRecipes(db: Database): ProviderRecipes {
+export function databaseProviderRecipes(
+  db: Database,
+  /**
+   * Where the whole-corpus figures are held between reads (`#1629`).
+   *
+   * **Optional, and absent means compute every time** — which is what every
+   * test that does not care about caching wants, and what the behaviour was
+   * before this. The one process that serves reads passes one; nothing else
+   * needs to.
+   */
+  cache?: AtlasFiguresCache,
+): ProviderRecipes {
   return {
     list: (kind) => providerRecipeList(db, kind),
     listInternal: () => providerRecipeList(db, undefined, { includeInternal: true }),
     categories: () => atlasCategoryList(db),
     one: (kind, provider) => providerRecipe(db, kind, provider),
-    figures: (options) => atlasFigures(db, options ?? {}),
+    figures: (options) => {
+      const asked = options ?? {}
+
+      /**
+       * **Three reads go straight to the query, and each for its own reason.**
+       *
+       * No cache at all is the pre-`#1629` behaviour and what the tests that
+       * built this port expect. A read naming `only` is already milliseconds
+       * since `#1627`, so caching it would put 224 entries in memory to save
+       * nothing. And a read naming `entitledTo` is a provider seeing its own
+       * unfloored numbers — rare, and the one answer that must never be handed
+       * to somebody else by a key collision.
+       */
+      if (cache === undefined || asked.only !== undefined || asked.entitledTo !== undefined) {
+        return atlasFigures(db, asked)
+      }
+
+      return cache.read(atlasFiguresKey(asked), () => atlasFigures(db, asked))
+    },
     briefings: (provider) => providerBriefingsAt(db, provider),
     notes: (provider) => publishedWalkNotesAt(db, provider),
     routes: (provider) => publishedWalkRoutesAt(db, provider),

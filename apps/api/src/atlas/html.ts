@@ -69,7 +69,12 @@ import {
   atlasProvedChip,
   type AtlasChip,
 } from './chips.js'
-import { atlasEarnFacets, atlasEarnPhrase, atlasEarnPhrasePlural } from './taxonomy.js'
+import {
+  atlasEarnFacets,
+  atlasEarnPhrase,
+  atlasEarnPhrasePlural,
+  atlasShelfIsFallback,
+} from './taxonomy.js'
 import { atlasRuntimeLine } from './runtimes.js'
 import { CONSOLE_MAST } from '../console/mark.js'
 import { CHROME_STYLE, CONSOLE_STYLE } from '../console/theme.js'
@@ -1496,6 +1501,25 @@ function indexRow(entry: AtlasPublicEntry): string {
    * the ordinary cost of a hard-coded separator and the reason this is a list.
    */
   const chips = [
+    /**
+     * **A shelf nobody chose says so, on the shelf** (`#1407`). `#1329` fixed
+     * this on the provider *page* — a fallback-shelved entry renders with no
+     * shelf claim there — and left the row alone, which is the surface where it
+     * matters most, because that is where the fallback entries sit together.
+     *
+     * Measured 2026-08-22 on `/atlas/c/data-apis`: **123 entries**, against 36
+     * on the next largest shelf, and **none of the twenty-five rows on the first
+     * page said which of them landed there by default**. `opentask.ai`, a bounty
+     * marketplace, and `cobaltsites.com`, a website partner programme, sat
+     * between Alpha Vantage and Unsplash with nothing to tell them apart.
+     *
+     * **It does not invent a shelf**, which `#1326` decision 4 refuses by name:
+     * the earn axis already carries what these entries are, and a second
+     * vocabulary saying the same thing is the disagreement `#1301` split the
+     * axes to prevent. So the row says the shelf is not a classification and
+     * stops there.
+     */
+    atlasShelfIsFallback(entry) ? '<span class="k-atlas-unshelved">uncategorised</span>' : '',
     /**
      * **A chip and not the tail of a sentence** (`#1164`). It is the one fact
      * on the row that decides whether a reader has to volunteer an afternoon,

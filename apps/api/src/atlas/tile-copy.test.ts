@@ -137,4 +137,45 @@ describe('what an Atlas tile says about who is needed', () => {
   it('keeps the separator when a chip follows it', () => {
     expect(tiles({ operatorNeed: 'unaided' })).toMatch(/—\s*<span class="k-atlas-need"/)
   })
+
+  /**
+   * **A shelf nobody chose says so, on the shelf** (`#1407`). `#1329` fixed this
+   * on the provider page and left the row alone — which is the surface where it
+   * matters most, because that is where the fallback entries sit together.
+   *
+   * Measured 2026-08-22 on `/atlas/c/data-apis`: **123 entries** against 36 on
+   * the next largest shelf, and **none of the twenty-five rows on the first page
+   * said which of them landed there by default**. `opentask.ai`, a bounty
+   * marketplace, sat between Alpha Vantage and Unsplash with nothing to tell
+   * them apart.
+   */
+  it('says so when the shelf is one nobody chose', () => {
+    const html = tiles({
+      recipes: [recipe({ categoryIsFallback: true })] as AtlasEntry['recipes'],
+    })
+
+    expect(html).toContain('<span class="k-atlas-unshelved">uncategorised</span>')
+  })
+
+  /** And a shelf somebody did choose makes no such claim about itself. */
+  it('says nothing of the sort when the shelf was chosen', () => {
+    expect(tiles()).not.toContain('k-atlas-unshelved">uncategorised')
+  })
+
+  /**
+   * **Every row that put it there has to be a fallback**, which is
+   * `atlasShelfIsFallback`'s own rule: a provider with a catalogued mailbox and
+   * an unshelvable bounty board has a shelf somebody chose, and demoting it
+   * would hide a real classification behind a second row's absence.
+   */
+  it('keeps the shelf when one of its rows was classified', () => {
+    const html = tiles({
+      recipes: [
+        recipe({ categoryIsFallback: true }),
+        recipe({ kind: 'mailbox', categoryIsFallback: false }),
+      ] as AtlasEntry['recipes'],
+    })
+
+    expect(html).not.toContain('k-atlas-unshelved">uncategorised')
+  })
 })

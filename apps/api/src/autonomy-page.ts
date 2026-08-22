@@ -11,6 +11,7 @@ import {
 import { asciiName } from './console/ascii-name.js'
 import { escape, page } from './console/html.js'
 import type { ConsoleNav } from './console/navigation.js'
+import { shareHeading, shareIntro, shareWriteBack } from './share-block.js'
 
 /**
  * The one page an operator ever sees (#146).
@@ -1209,10 +1210,19 @@ export function operatorDurablePage(input: {
   ): readonly string[] {
     return [
       `<section id="share-${escape(share.id)}" class="shared-entry">`,
-      `<p class="operator-ask"><strong>${who} says:</strong> ${escape(share.purpose)}</p>`,
-      `<p>Entry <code>${escape(share.vaultKey)}</code>` +
-        (share.description === null ? '' : ` — ${escape(share.description)}`) +
-        `. The share ends on ${escape(share.expiresAt)}.</p>`,
+      /**
+       * **From one module since `#1635`.** The purpose line, the entry line and
+       * the expiry sentence were written here and again in `console/html.ts`,
+       * for one object on two doors.
+       */
+      ...shareIntro(share, who),
+      /**
+       * **This page prints the value and the inbox thread does not**, which is
+       * the one thing the two doors genuinely differ on: this page *is* the
+       * deliberate act of reading it, and a listing that carried a credential
+       * would put one through a response nobody asked for it in (`#1574`,
+       * `#931`). So it is decided here rather than behind a flag.
+       */
       `<pre class="shared-value">${escape(share.value)}</pre>`,
       ...(options.withRisk
         ? [
@@ -1222,30 +1232,12 @@ export function operatorDurablePage(input: {
             'link entirely, and this share ends on its own date whatever happens.</p>',
           ]
         : []),
-      ...(input.shareAction === undefined
-        ? [
-            '<p class="note">Sign in to the operator console to write something back into this ',
-            'entry or to hand it back early.</p>',
-          ]
-        : [
-            ...(input.shareError === undefined
-              ? []
-              : [`<p class="error">${escape(input.shareError)}</p>`]),
-            `<form method="post" action="${escape(input.shareAction)}">`,
-            `<input type="hidden" name="shareId" value="${escape(share.id)}">`,
-            '<label>Write something back into this entry — a billing PIN, a recovery code, a ' +
-              'note. Your agent collects it when it takes the entry back.',
-            '<input type="password" name="addition" maxlength="4096" autocomplete="off">',
-            '</label>',
-            `<button type="submit" name="act" value="write">${
-              share.wrote ? 'Replace what you wrote' : 'Save it for them'
-            }</button>`,
-            '<button type="submit" name="act" value="hand-back">Hand it back now</button>',
-            '</form>',
-            ...(share.wrote
-              ? ['<p class="note">You have already written something into this one.</p>']
-              : []),
-          ]),
+      ...shareWriteBack({
+        shareId: share.id,
+        wrote: share.wrote,
+        action: input.shareAction,
+        error: input.shareError,
+      }),
       '</section>',
     ]
   }
@@ -1264,10 +1256,7 @@ export function operatorDurablePage(input: {
   const openShares = (input.shares ?? []).map((share, index) => ({
     openedAt: share.expiresAt,
     tie: `share-${share.id}`,
-    body: [
-      `<h2>${name} has shared a credential with you</h2>`,
-      ...shareBlock(share, name, { withRisk: index === 0 }),
-    ],
+    body: [shareHeading(name), ...shareBlock(share, name, { withRisk: index === 0 })],
   }))
 
   const openActions = [...openDrops, ...openShares]

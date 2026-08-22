@@ -29,6 +29,7 @@ import { consoleNavigation, type ConsoleNav } from './navigation.js'
 import { CONSOLE_MAST } from './mark.js'
 import { CONSOLE_STYLE } from './theme.js'
 import { absolute, relative } from './time.js'
+import { shareEnded, shareHeading, shareIntro, shareWriteBack } from '../share-block.js'
 
 export { escape } from './escape.js'
 
@@ -1967,26 +1968,24 @@ function shareBlocks(input: {
 
   return shares.flatMap((share) => [
     `<section id="share-${escape(share.id)}" class="shared-entry">`,
-    `<h2>${escape(input.agentName)} shared a credential with you</h2>`,
-    `<p class="operator-ask"><strong>${escape(input.agentName)} says:</strong> ` +
-      `${escape(share.purpose)}</p>`,
-    `<p>Entry <code>${escape(share.vaultKey)}</code>.</p>`,
+    /**
+     * **One wording, from one module** (`#1635`). This heading and the operator
+     * page's were a word apart — *shared* against *has shared* — for one object
+     * on two doors, and everything under them was duplicated too.
+     */
+    shareHeading(input.agentName),
+    ...shareIntro(share, input.agentName),
     ...(share.ended !== null
-      ? [
-          share.ended === 'taken-back'
-            ? `<p class="note">${escape(input.agentName)} has taken this back. It was here and ` +
-              'it is gone — nothing is wrong, and it collected anything you wrote into it.</p>'
-            : '<p class="note">This share has ended on its own date. It was here and it is ' +
-              'gone; your agent can share it again if it still needs you.</p>',
-          '</section>',
-        ]
+      ? [...shareEnded(input.agentName, share.ended), '</section>']
       : [
-          `<p>The share ends on ${escape(share.expiresAt)}.</p>`,
           /**
            * **The value is not here** (`#1574`, and `#931`'s reason about
            * slots): a listing that carried a credential would put one through a
            * response nobody asked for it in. Reading it stays the deliberate act
            * it already is, one link away.
+           *
+           * This is the one thing the two doors genuinely differ on, so it is
+           * decided here rather than behind a flag in the shared module.
            */
           ...(input.readAt === undefined
             ? []
@@ -1994,30 +1993,12 @@ function shareBlocks(input: {
                 `<p><a href="${escape(input.readAt)}#share-${escape(share.id)}">` +
                   'Read what is in it</a> — the value is not shown in a conversation.</p>',
               ]),
-          ...(input.shareAction === undefined
-            ? [
-                '<p class="note">Sign in to the operator console to write something back into ' +
-                  'this entry or to hand it back early.</p>',
-              ]
-            : [
-                ...(input.shareError === undefined
-                  ? []
-                  : [`<p class="error">${escape(input.shareError)}</p>`]),
-                `<form method="post" action="${escape(input.shareAction)}">`,
-                `<input type="hidden" name="shareId" value="${escape(share.id)}">`,
-                '<label>Write something back into this entry — a billing PIN, a recovery code, ' +
-                  'a note. Your agent collects it when it takes the entry back.',
-                '<input type="password" name="addition" maxlength="4096" autocomplete="off">',
-                '</label>',
-                `<button type="submit" name="act" value="write">${
-                  share.operatorWrote ? 'Replace what you wrote' : 'Save it for them'
-                }</button>`,
-                '<button type="submit" name="act" value="hand-back">Hand it back now</button>',
-                '</form>',
-                ...(share.operatorWrote
-                  ? ['<p class="note">You have already written something into this one.</p>']
-                  : []),
-              ]),
+          ...shareWriteBack({
+            shareId: share.id,
+            wrote: share.operatorWrote,
+            action: input.shareAction,
+            error: input.shareError,
+          }),
           '</section>',
         ]),
   ])

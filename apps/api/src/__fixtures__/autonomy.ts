@@ -167,6 +167,10 @@ export type FakeOperatorPages = OperatorPages & {
    * with a page the request path had never heard of.
    */
   readonly agentForToken: (token: string) => AgentId | null
+  /** Say this agent has asked its operator something, for the index (`#1577`). */
+  readonly waits: (agentId: AgentId) => void
+  /** Say this agent is sharing entries, for the index (`#1577`). */
+  readonly sharing: (agentId: AgentId, count: number) => void
   readonly liveFor: (agentId: AgentId) => { address: string; token: string } | null
   /**
    * `issue`, without the promise.
@@ -188,6 +192,9 @@ export type FakeOperatorPages = OperatorPages & {
 
 export function fakeOperatorPages(): FakeOperatorPages {
   const live = new Map<string, { agentId: AgentId; address: string }>()
+  /** What the index says is waiting (`#1577`), stated rather than derived. */
+  const waitingFor = new Set<AgentId>()
+  const sharesFor = new Map<AgentId, number>()
   const byPair = new Map<string, string>()
   const opened = new Map<string, string>()
   const contracts = new Map<AgentId, StoredAutonomyContract>()
@@ -264,6 +271,38 @@ export function fakeOperatorPages(): FakeOperatorPages {
         declaredRhythmHours: rhythms.get(row.agentId) ?? null,
       })
     },
+    /**
+     * The index one address reaches from any live page it holds (`#1577`).
+     *
+     * **Folded for case and surrounding space**, as the real read folds it: two
+     * rows differing only in capitalisation are one operator, and a fake that
+     * split them would let a test pass against an index the database does not
+     * produce.
+     *
+     * `undefined` for a token that names no live page, so a revoked one and a
+     * guessed one answer identically here as everywhere else.
+     */
+    agentsForToken: (token) => {
+      const mine = live.get(token)
+      if (mine === undefined) return Promise.resolve(undefined)
+
+      const wanted = mine.address.trim().toLowerCase()
+
+      return Promise.resolve(
+        [...live.entries()]
+          .filter(([, row]) => row.address.trim().toLowerCase() === wanted)
+          .map(([held, row]) => ({
+            agentId: row.agentId,
+            agentName: names.get(row.agentId) ?? 'canary',
+            token: held,
+            issuedAt: '2026-08-21T00:00:00.000Z' as never,
+            lastOpenedAt: (opened.get(held) ?? null) as never,
+            waiting: waitingFor.has(row.agentId),
+            shares: sharesFor.get(row.agentId) ?? 0,
+          })),
+      )
+    },
+
     revoke: (agentId, address) => {
       const token = byPair.get(key(agentId, address))
       if (token === undefined) return Promise.resolve(false)
@@ -322,6 +361,12 @@ export function fakeOperatorPages(): FakeOperatorPages {
 
     tokenFor: (agentId, address) => byPair.get(key(agentId, address)) ?? null,
     agentForToken: (token) => live.get(token)?.agentId ?? null,
+    waits: (agentId) => {
+      waitingFor.add(agentId)
+    },
+    sharing: (agentId, count) => {
+      sharesFor.set(agentId, count)
+    },
     liveFor: (agentId) => {
       const found = [...live.entries()].find(([, row]) => row.agentId === agentId)
       return found === undefined ? null : { address: found[1].address, token: found[0] }

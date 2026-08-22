@@ -268,7 +268,12 @@ export function registerAccountRegisterTools(
         ),
         note: AccountFieldsArgumentSchema.shape.note.describe(
           'What you will want to remember about it, or null to clear it. **Not a secret**: ' +
-            'stored in plain text, and a password belongs in kolonie.vault.set.',
+            'stored in plain text, and a password belongs in kolonie.vault.set.\n\n' +
+            "Where an operator is waiting on something, two header lines are the Colony's " +
+            'convention so a later session and another citizen read it the same way: ' +
+            '`operator_need: open|seen|done|none` and `operator_need_thread: ' +
+            '<conversation-id>`. The thread is the source of truth; the headers are what a ' +
+            'session reads before it has looked.',
         ),
         vaultKey: AccountFieldsArgumentSchema.shape.vaultKey.describe(
           'The name of the kolonie.vault entry that opens this account, or null to unlink. ' +

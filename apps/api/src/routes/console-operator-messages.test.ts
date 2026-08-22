@@ -12,7 +12,8 @@ import {
   fakeOperatorPages,
 } from '../__fixtures__/autonomy.js'
 import { fakeOperatorMessaging, type FakeOperatorMessaging } from '../__fixtures__/messaging.js'
-import { OPERATOR_ANSWER_BODIES, OPERATOR_ANSWER_LABELS } from '@kolonie-ai/core'
+import { fakeAccountRegister } from '../__fixtures__/accounts.js'
+import { AccountKindSchema, OPERATOR_ANSWER_BODIES, OPERATOR_ANSWER_LABELS } from '@kolonie-ai/core'
 import { SESSION_COOKIE } from './console.js'
 import { OAUTH_STATE_COOKIE } from '../humans/humans.js'
 
@@ -34,6 +35,8 @@ let app: FastifyInstance
 let humans: FakeHumanStore
 let colony: FakeColony
 let messages: FakeOperatorMessaging
+/** The register the compose picker is built from (`#1551`). */
+let register: ReturnType<typeof fakeAccountRegister>
 let agentId: AgentId
 let strangersAgentId: AgentId
 
@@ -43,9 +46,11 @@ beforeEach(async () => {
   const agents = fakeStore()
   colony = fakeColony()
   messages = fakeOperatorMessaging()
+  register = fakeAccountRegister()
 
   app = buildApp({
     ...colony,
+    accounts: { ...colony.accounts, register },
     operatorMessaging: messages,
     store: agents,
     console: { ...fakeConsole(), consoleUrl: CONSOLE_URL },
@@ -656,9 +661,20 @@ describe('a person starting a thread (#1452)', () => {
     })
 
     expect(rendered.body).toContain('action="/inbox/compose"')
-    // No subject line: a thread's subject is what it is about, and those are
-    // chosen rather than typed.
+    /**
+     * **No free-text subject** (`#1452`, and `#1551` which added the picker). A
+     * thread's subject is what it is *about* — a task, an account — and those
+     * are chosen from what exists. A typed one would be a second, competing
+     * notion of what a thread is about, and unlike the real one it would mean
+     * nothing to the agent.
+     *
+     * The needle is the *input*, not the name: `#1551`'s picker is a `select`
+     * called `about`, and asserting the name alone would have gone quiet the
+     * moment somebody added a box beside it.
+     */
     expect(rendered.body).not.toContain('name="subject"')
+    expect(rendered.body).not.toMatch(/<input[^>]*name="about"/)
+    expect(rendered.body).not.toMatch(/<textarea[^>]*name="about"/)
   })
 
   it('opens a thread nobody asked for', async () => {
@@ -1365,5 +1381,144 @@ describe('a shared vault entry, inside the thread (#1574)', () => {
     expect((await threadPage(cookie, conversationId)).body).not.toContain(
       'shared a credential with you',
     )
+  })
+})
+
+/**
+ * What a thread is about, chosen when it opens (`#1551`).
+ *
+ * ## What was missing
+ *
+ * A thread's subject is settled in the insert that creates the conversation and
+ * **can never change** (`#1319`: no storage function updates `task_id` or
+ * `wish_id`). It is therefore the one decision about a thread that has to be
+ * made at the moment it opens — and compose did not offer it. A person clicking
+ * *write to one of your agents* got a text box, and whatever thread resulted was
+ * whatever the matching rule produced.
+ *
+ * The citizen's side has had the choice since `#1441`. The person had the same
+ * threads and no way to say the same thing.
+ *
+ * ## And where it lands, before it is sent
+ *
+ * The rule underneath is *reuse a thread with the same subject, otherwise open
+ * one* — sound, and invisible. The reason the maintainer noticed any of this was
+ * a message arriving somewhere unexpected.
+ */
+describe('what a thread is about, and where it will land (#1551)', () => {
+  const compose = async (cookie: string, payload: Record<string, unknown>) =>
+    await app.inject({
+      method: 'POST',
+      url: '/inbox/compose',
+      headers: { host: CONSOLE_HOST, accept: 'application/json', cookie },
+      payload,
+    })
+
+  const inbox = async (cookie: string) =>
+    await app.inject({
+      method: 'GET',
+      url: '/inbox',
+      headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
+    })
+
+  it('offers nothing in particular as a named choice, and it is the default', async () => {
+    const cookie = await signedInCookie()
+    await operates(agentId)
+    register.proveDirectly(agentId, {
+      identifier: 'octocat',
+      kind: AccountKindSchema.parse('github'),
+    })
+
+    const body = (await inbox(cookie)).body
+
+    /**
+     * **A visible choice rather than the absence of one.** It is the common
+     * case, it is what produces a plain thread, and a person who picked it
+     * should be able to tell that they did.
+     */
+    // Within the compose form: `octocat` also appears in the *About* filter
+    // above it, so measuring across the whole page would measure the wrong menu.
+    const compose = body.slice(body.indexOf('<section class="compose">'))
+    expect(compose).toContain('Nothing in particular')
+    expect(compose.indexOf('Nothing in particular')).toBeLessThan(compose.indexOf('octocat'))
+  })
+
+  it('says whether a subject joins a thread or opens one', async () => {
+    const cookie = await signedInCookie()
+    const humanId = await operates(agentId)
+    const account = register.proveDirectly(agentId, {
+      identifier: 'octocat',
+      kind: AccountKindSchema.parse('github'),
+    })
+
+    expect((await inbox(cookie)).body).toContain('opens a new thread')
+
+    messages.threadAbout(humanId, agentId, account.id)
+
+    expect((await inbox(cookie)).body).toContain('joins the thread about it')
+  })
+
+  it('opens a thread about the account that was chosen', async () => {
+    const cookie = await signedInCookie()
+    await operates(agentId)
+    const account = register.proveDirectly(agentId, {
+      identifier: 'octocat',
+      kind: AccountKindSchema.parse('github'),
+    })
+
+    const sent = await compose(cookie, {
+      agentId,
+      about: `account:${account.id}`,
+      body: 'I have put a card on it.',
+    })
+
+    expect(sent.statusCode).toBe(200)
+    const listed = (
+      (
+        await app.inject({
+          method: 'GET',
+          url: `/inbox?account=${account.id}`,
+          headers: { host: CONSOLE_HOST, accept: 'application/json', cookie },
+        })
+      ).json() as { threads: unknown[] }
+    ).threads
+    expect(listed).toHaveLength(1)
+  })
+
+  /**
+   * **The rejection case.** A subject that is not that agent's own is refused,
+   * matching the citizen-side check `#1441` already makes — and the comparison
+   * is on the pair, so an account of this same person's *other* agent is refused
+   * as firmly as a stranger's.
+   */
+  it('refuses a subject that is not that agent’s own', async () => {
+    const cookie = await signedInCookie()
+    await operates(agentId)
+    await operates(strangersAgentId)
+    const theirs = register.proveDirectly(strangersAgentId, {
+      identifier: 'elsewhere',
+      kind: AccountKindSchema.parse('github'),
+    })
+
+    const refused = await compose(cookie, {
+      agentId,
+      about: `account:${theirs.id}`,
+      body: 'Not this agent’s account.',
+    })
+
+    expect(refused.statusCode).toBe(404)
+  })
+
+  it('refuses a subject nothing at all corresponds to', async () => {
+    const cookie = await signedInCookie()
+    await operates(agentId)
+
+    const refused = await compose(cookie, {
+      agentId,
+      about: 'account:11111111-1111-4111-8111-111111111111',
+      body: 'Invented.',
+    })
+
+    expect(refused.statusCode).toBe(404)
   })
 })

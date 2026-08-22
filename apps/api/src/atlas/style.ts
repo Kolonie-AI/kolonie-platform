@@ -742,6 +742,20 @@ main section h2 {
  * and deliberately not the weight of \`k-atlas-description\`, which a reader
  * should be able to tell apart at a glance from a page that does have one.
  */
+/**
+ * The mark on a row whose shelf nobody chose (\`#1407\`).
+ *
+ * **Quieter than a chip that carries a fact.** \`k-atlas-earn\` and
+ * \`k-atlas-proved\` say something measured about the provider; this says the
+ * Colony has not classified it, which is a fact about the catalogue's own
+ * coverage. It is set like \`k-atlas-count\` — context rather than a claim.
+ */
+.k-atlas-unshelved {
+  color: var(--k-text-faint);
+  font-size: var(--k-text-xs);
+  font-style: italic;
+}
+
 .k-atlas-noidentity {
   color: var(--k-text-muted);
   font-size: var(--k-text-sm);

@@ -75,17 +75,62 @@ describe('how the measured floor reaches main', () => {
    * queue could never take the entry. `workflow_dispatch` is the documented
    * exception, and `#1171` put the trigger on `ci.yml` for this shape of problem.
    *
-   * Without this line the whole arrangement is a pull request that sits for ever,
-   * which is a quieter version of the failure it replaces.
+   * `#1587` measured what that dispatch is worth and kept it anyway: a
+   * `workflow_dispatch` run does not *satisfy* the branch protection context, so
+   * it is the answer when there is no real actor rather than the answer.
    */
-  it('starts CI on the floor branch itself, because nothing else will', () => {
+  it('starts CI on the floor branch itself when nothing else will', () => {
     expect(TEXT).toContain('gh workflow run ci.yml --ref "${BRANCH}"')
     expect(TEXT).toMatch(/^\s+actions: write$/m)
+    // And only then: with an actor the `pull_request` runs exist and report.
+    expect(TEXT).toContain('if [ -z "${FLOOR_TOKEN}" ]; then')
+  })
+
+  /**
+   * **The pull request needs an author who is a collaborator** (`#1587`). This
+   * organisation's approval policy is `all_external_contributors`, and
+   * `app/github-actions` is not one — so every `pull_request` run on a branch it
+   * opened finishes `action_required`, held for a maintainer's button. Measured
+   * on `#1585` and again on `#1590`: three held runs apiece.
+   *
+   * The push has to carry the same actor, or a force-push creates no
+   * `synchronize` run and the required check reports a head two measurements old.
+   * `checkout` leaves an `extraheader` that beats URL credentials, so it goes.
+   */
+  it('opens and pushes the floor as an actor whose runs are not held', () => {
+    expect(TEXT).toContain('GH_TOKEN: ${{ secrets.FLOOR_BOT_TOKEN || github.token }}')
+    expect(TEXT).toContain('FLOOR_TOKEN: ${{ secrets.FLOOR_BOT_TOKEN }}')
+    expect(TEXT).toContain("git config --unset-all 'http.https://github.com/.extraheader'")
+    expect(TEXT).toContain('git push --force "$REMOTE" "HEAD:${BRANCH}"')
   })
 
   /** A lowering still lands without anybody asking, and so does a justified raise. */
   it('arms auto-merge rather than waiting for a person', () => {
     expect(TEXT).toContain('gh pr merge "${NUMBER}" --auto')
+  })
+
+  /**
+   * **A force-push cancels the branch's in-flight runs** (`#1594`). That is right
+   * for a branch somebody is iterating on and wrong for one trying to reach a
+   * verdict: at the merge rate this repository runs at, the replacement arrives
+   * before the verdict does and the floor pull request never goes green.
+   * Measured on `#1590` — two full rounds of runs, neither concluding.
+   *
+   * Waiting is safe because the figure has no deadline. A floor that lags is a
+   * floor *below* the catalogue, which costs strictness and cannot cost
+   * correctness — a branch is weighed against its merge base (`#1266`).
+   *
+   * The hour is the queue's own `check_response_timeout_minutes`. Past it the
+   * checks are stuck rather than slow, and stranding the figure behind them for
+   * ever is the worse of the two failures — so it warns and pushes anyway.
+   */
+  it('leaves the floor branch alone while its own checks are still running', () => {
+    expect(TEXT).toContain('gh pr checks "${BRANCH}" --json state')
+    expect(TEXT).toContain('if [ "${PENDING:-0}" -gt 0 ]; then')
+    expect(TEXT).toContain('if [ "$AGE" -lt 3600 ]; then')
+    // The guard is worth nothing after the push it is meant to prevent.
+    const script = TEXT.slice(TEXT.indexOf('PENDING='))
+    expect(script.indexOf('git push --force')).toBeGreaterThan(script.indexOf('AGE'))
   })
 
   /**

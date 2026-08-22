@@ -1718,6 +1718,54 @@ export function inboxThreadPage(
     readonly declarations: readonly { readonly kind: string; readonly label: string }[]
     readonly bodyMaxLength: number
     /**
+     * The entries shared onto this conversation (`#1574`, from `#1442`).
+     *
+     * ## Why they are here and not only on the durable page
+     *
+     * Measured 2026-08-21: an agent shared an entry with its operator and said so
+     * **in this thread** — *"I shared vault … on this thread."* The operator
+     * opened the message and could not find it. Everything under it was wired:
+     * the sealing key was set, the row existed, the durable page rendered it.
+     * The console rendered the same conversation and did not know.
+     *
+     * `#1442`'s decision was that a share belongs *inside* the conversation that
+     * explains it, because the reason drops failed is that the secret and the
+     * reason for it lived in different places. That decision reached one of the
+     * two surfaces. This is the other one — and since `#1547` there is one
+     * renderer, so it reaches both at once.
+     *
+     * ## Never the value, on either door
+     *
+     * A listing says the key, the purpose, when it ends and whether an addition
+     * has been written. **Reading the secret stays the deliberate act it is on
+     * the operator page**, for `#931`'s reason about slots: a listing that
+     * carried one would put a credential through a response nobody asked for it
+     * in. `readAt` is where that act lives.
+     */
+    readonly shares?:
+      | readonly {
+          readonly id: string
+          readonly vaultKey: string
+          readonly purpose: string
+          readonly expiresAt: string
+          readonly operatorWrote: boolean
+          readonly ended: 'taken-back' | 'expired' | null
+        }[]
+      | undefined
+    /**
+     * Where a share's write and hand-back post, and where its value is read
+     * (`#1574`).
+     *
+     * The door's own path, exactly as `base` is: the console posts to
+     * `/agents/:agentId/operator` and the mailed link to its token. Absent
+     * renders the shares read-only, which is what a deployment with no sealing
+     * key gets.
+     */
+    readonly shareAction?: string | undefined
+    readonly readAt?: string | undefined
+    /** What to say if an addition was just refused — an empty box, or too long. */
+    readonly shareError?: string | undefined
+    /**
      * What the box holds when the page is drawn (`#1548`).
      *
      * Set after a *fill* press — the canonical sentence — and after a refusal,
@@ -1754,6 +1802,7 @@ export function inboxThreadPage(
               `${escape(message.body)}</li>`,
           )
           .join('')}</ul>`,
+    ...shareBlocks(input),
     ...(input.writable
       ? [
           /**
@@ -1803,4 +1852,93 @@ export function inboxThreadPage(
   return input.signedIn === true
     ? page({ title: input.agentName, body, signedIn: true, nav: input.nav })
     : page({ title: input.agentName, body })
+}
+
+/**
+ * The shares hanging on one thread, rendered inside it (`#1574`, from `#1442`).
+ *
+ * **Above the reply box and below the messages**, which is where `#1442` puts
+ * them on the durable page: the credential and the sentence explaining it are one
+ * view, because the reason drops failed is that they lived in different places.
+ *
+ * **An ended share is a sentence, not an empty box.** It has no value to offer
+ * and nothing to write into, and *this was here and is gone* is what a person
+ * returning to a finished thread actually needs. Silence would leave them
+ * wondering whether they had missed it.
+ */
+function shareBlocks(input: {
+  readonly shares?:
+    | readonly {
+        readonly id: string
+        readonly vaultKey: string
+        readonly purpose: string
+        readonly expiresAt: string
+        readonly operatorWrote: boolean
+        readonly ended: 'taken-back' | 'expired' | null
+      }[]
+    | undefined
+  readonly agentName: string
+  readonly shareAction?: string | undefined
+  readonly readAt?: string | undefined
+  readonly shareError?: string | undefined
+}): readonly string[] {
+  const shares = input.shares ?? []
+  if (shares.length === 0) return []
+
+  return shares.flatMap((share) => [
+    `<section id="share-${escape(share.id)}" class="shared-entry">`,
+    `<h2>${escape(input.agentName)} shared a credential with you</h2>`,
+    `<p class="operator-ask"><strong>${escape(input.agentName)} says:</strong> ` +
+      `${escape(share.purpose)}</p>`,
+    `<p>Entry <code>${escape(share.vaultKey)}</code>.</p>`,
+    ...(share.ended !== null
+      ? [
+          share.ended === 'taken-back'
+            ? `<p class="note">${escape(input.agentName)} has taken this back. It was here and ` +
+              'it is gone — nothing is wrong, and it collected anything you wrote into it.</p>'
+            : '<p class="note">This share has ended on its own date. It was here and it is ' +
+              'gone; your agent can share it again if it still needs you.</p>',
+          '</section>',
+        ]
+      : [
+          `<p>The share ends on ${escape(share.expiresAt)}.</p>`,
+          /**
+           * **The value is not here** (`#1574`, and `#931`'s reason about
+           * slots): a listing that carried a credential would put one through a
+           * response nobody asked for it in. Reading it stays the deliberate act
+           * it already is, one link away.
+           */
+          ...(input.readAt === undefined
+            ? []
+            : [
+                `<p><a href="${escape(input.readAt)}#share-${escape(share.id)}">` +
+                  'Read what is in it</a> — the value is not shown in a conversation.</p>',
+              ]),
+          ...(input.shareAction === undefined
+            ? [
+                '<p class="note">Sign in to the operator console to write something back into ' +
+                  'this entry or to hand it back early.</p>',
+              ]
+            : [
+                ...(input.shareError === undefined
+                  ? []
+                  : [`<p class="error">${escape(input.shareError)}</p>`]),
+                `<form method="post" action="${escape(input.shareAction)}">`,
+                `<input type="hidden" name="shareId" value="${escape(share.id)}">`,
+                '<label>Write something back into this entry — a billing PIN, a recovery code, ' +
+                  'a note. Your agent collects it when it takes the entry back.',
+                '<input type="password" name="addition" maxlength="4096" autocomplete="off">',
+                '</label>',
+                `<button type="submit" name="act" value="write">${
+                  share.operatorWrote ? 'Replace what you wrote' : 'Save it for them'
+                }</button>`,
+                '<button type="submit" name="act" value="hand-back">Hand it back now</button>',
+                '</form>',
+                ...(share.operatorWrote
+                  ? ['<p class="note">You have already written something into this one.</p>']
+                  : []),
+              ]),
+          '</section>',
+        ]),
+  ])
 }

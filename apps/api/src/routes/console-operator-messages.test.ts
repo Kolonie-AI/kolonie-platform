@@ -56,6 +56,21 @@ beforeEach(async () => {
       mailer: fakeAutonomyMailer(),
       formBaseUrl: CONSOLE_URL,
     },
+    /**
+     * A sealing key is configured (`#1444`, `#1574`).
+     *
+     * **The thread's share forms branch on this**, and rightly: without a key
+     * nothing can be shared, so offering a write box would be offering a control
+     * that always refuses. Nothing here shares anything — what the thread renders
+     * comes from `getThread`, and this only says the Colony could carry one.
+     */
+    operatorShares: {
+      forPageToken: () => Promise.resolve([]),
+      forOperator: () => Promise.resolve([]),
+      recordRead: () => Promise.resolve(false),
+      write: () => Promise.resolve({ outcome: 'closed' as const }),
+      handBack: () => Promise.resolve({ outcome: 'closed' as const }),
+    },
   })
   await app.ready()
 
@@ -1226,3 +1241,129 @@ const escapeHtml = (value: string): string =>
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;')
+
+/**
+ * A shared vault entry, in the thread it was attached to (`#1574`, from `#1442`).
+ *
+ * ## The measurement
+ *
+ * On 2026-08-21 an agent shared an entry with its operator and told them so **in
+ * the same thread** — *"I shared vault `toku.agency/assay_kolonie` on this
+ * thread."* The operator opened the message and could not find it. A second
+ * share, from a different agent, had the same shape and the same `reads: 0`.
+ *
+ * **The agent did everything right and everything under it was wired.** The
+ * sealing key was set, `message_conversation_shares` held the row, and
+ * `operator-page-body.ts` passed the shares into the durable page. The console
+ * rendered the same conversation through a different function, and that one had
+ * no `shares` field at all.
+ *
+ * The operator lives in the console. The share lived on the other page.
+ */
+describe('a shared vault entry, inside the thread (#1574)', () => {
+  const openThread = async () => {
+    const humanId = await operates(agentId)
+    return { humanId, conversationId: messages.thread(humanId, agentId) }
+  }
+
+  const threadPage = async (cookie: string, conversationId: string) =>
+    await app.inject({
+      method: 'GET',
+      url: `/inbox/${conversationId}`,
+      headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
+    })
+
+  it('renders the key, the purpose and when it ends', async () => {
+    const cookie = await signedInCookie()
+    const { conversationId } = await openThread()
+    messages.shareOnThread(conversationId, {
+      vaultKey: 'toku.agency/assay_kolonie',
+      purpose: 'the billing PIN, please',
+    })
+
+    const page = await threadPage(cookie, conversationId)
+
+    expect(page.statusCode).toBe(200)
+    expect(page.body).toContain('toku.agency/assay_kolonie')
+    expect(page.body).toContain('the billing PIN, please')
+    expect(page.body).toContain('shared a credential with you')
+  })
+
+  /**
+   * **Read and write, not read only** (`#1574`). The write path already existed
+   * — `POST /agents/:agentId/operator` takes an `addition` — so the thread
+   * reuses it rather than inventing a second writer, which is what keeps
+   * `operator_addition` with one and `kolonie.vault.unshare` returning exactly
+   * what a person typed.
+   */
+  it('offers the write and hand-back forms, posting to the existing path', async () => {
+    const cookie = await signedInCookie()
+    const { conversationId } = await openThread()
+    const shareId = messages.shareOnThread(conversationId, {})
+
+    const page = await threadPage(cookie, conversationId)
+
+    expect(page.body).toContain(`action="/agents/${agentId}/operator"`)
+    expect(page.body).toContain(`value="${shareId}"`)
+    expect(page.body).toContain('name="act" value="write"')
+    expect(page.body).toContain('name="act" value="hand-back"')
+  })
+
+  /**
+   * **Never the value in a listing** (`#931`'s reason about slots): a listing
+   * that carried a credential would put one through a response nobody asked for
+   * it in. Reading it stays the deliberate act it already is, one link away.
+   */
+  it('shows no value, and links to where reading one is a deliberate act', async () => {
+    const cookie = await signedInCookie()
+    const { conversationId } = await openThread()
+    const shareId = messages.shareOnThread(conversationId, {})
+
+    const page = await threadPage(cookie, conversationId)
+
+    expect(page.body).toContain(`/agents/${agentId}/operator#share-${shareId}`)
+    expect(page.body).toContain('the value is not shown in a conversation')
+    expect(page.body).not.toContain('<pre class="shared-value">')
+  })
+
+  it('says an operator has already written into one', async () => {
+    const cookie = await signedInCookie()
+    const { conversationId } = await openThread()
+    messages.shareOnThread(conversationId, { operatorWrote: true })
+
+    expect((await threadPage(cookie, conversationId)).body).toContain(
+      'You have already written something into this one',
+    )
+  })
+
+  /**
+   * **An ended share renders as what it is rather than disappearing.** The
+   * sentence a person needs is *this was here and is gone*, not silence —
+   * `conversationShares` used to join on the share still being open, so a
+   * take-back detached it without anything saying so.
+   */
+  it.each([
+    ['taken-back', 'taken this back'],
+    ['expired', 'ended on its own date'],
+  ] as const)('says a %s share was here and is gone', async (ended, sentence) => {
+    const cookie = await signedInCookie()
+    const { conversationId } = await openThread()
+    messages.shareOnThread(conversationId, { vaultKey: 'provider/handle', ended })
+
+    const page = await threadPage(cookie, conversationId)
+
+    expect(page.body).toContain('provider/handle')
+    expect(page.body).toContain(sentence)
+    // Nothing to write into, and nothing to read.
+    expect(page.body).not.toContain('name="act" value="write"')
+  })
+
+  it('draws nothing at all for a thread carrying no share', async () => {
+    const cookie = await signedInCookie()
+    const { conversationId } = await openThread()
+
+    expect((await threadPage(cookie, conversationId)).body).not.toContain(
+      'shared a credential with you',
+    )
+  })
+})

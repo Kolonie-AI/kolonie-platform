@@ -187,7 +187,7 @@ describe('a conversation about an account', () => {
     )
   })
 
-  it('carries several shares at once, and drops one when it ends', async () => {
+  it('carries several shares at once, and marks one that ends rather than dropping it', async () => {
     const conversation = await openAboutAccount()
     await shareOnto(conversation, 'github/octocat')
     await shareOnto(conversation, 'mail/citizen')
@@ -201,13 +201,27 @@ describe('a conversation about an account', () => {
       operatorWrote: false,
     })
 
-    // Detaching happens by the share ending. There is no detach call, because
-    // two ways to stop a person seeing something is one way too many.
+    expect(read.shares.every((share) => share.ended === null)).toBe(true)
+
+    // A share ends by being taken back. There is still no detach call, because
+    // two ways to stop a person reading something is one way too many.
     await unshareVaultEntry(db, agentId, 'github/octocat', sealingKey)
 
+    /**
+     * **It stays in the read, marked** (`#1574`). This used to join on the share
+     * still being open, so a take-back detached it silently and a person
+     * returning to the thread found nothing where a credential had been. The
+     * sentence they need is *this was here and is gone*, and a row that
+     * disappears cannot say it.
+     *
+     * **Nothing is disclosed by saying it existed**: the key and the purpose
+     * were already in the conversation that explains them, and no value was ever
+     * selected here.
+     */
     const after = await readConversation(db, agentId, conversation)
     if (after.outcome !== 'read') throw new Error(after.refusal)
-    expect(after.shares.map((share) => share.vaultKey)).toEqual(['mail/citizen'])
+    expect(after.shares.map((share) => share.vaultKey)).toEqual(['github/octocat', 'mail/citizen'])
+    expect(after.shares.map((share) => share.ended)).toEqual(['taken-back', null])
   })
 
   it('never puts a value in a thread read', async () => {

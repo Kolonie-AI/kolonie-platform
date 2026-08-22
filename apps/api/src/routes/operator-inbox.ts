@@ -267,6 +267,18 @@ export function registerOperatorInboxRoutes(app: FastifyInstance, deps: RouteDep
         })),
         bodyMaxLength: MESSAGE_BODY_MAX_LENGTH,
         /**
+         * The entries shared onto this thread (`#1574`), on this door too.
+         *
+         * `#1442` put a share inside the conversation that explains it and
+         * reached one of the two surfaces. `#1547` made them one renderer, so
+         * this reaches both — D-134 rule 1, which exists because a mechanism
+         * that reaches one door is a mechanism half the operators cannot see.
+         */
+        shares: read.response.shares,
+        /** The token's own page is where a share is written and read. */
+        shareAction: `/operator/page/${at.token}`,
+        readAt: `/operator/page/${at.token}`,
+        /**
          * A live page means a live operator link: `subjectForPageToken` resolves
          * through `human_agents`, so a thread reachable here is one this person
          * still operates. The console has to ask separately because a session

@@ -174,6 +174,22 @@ export interface OperatorMessaging {
    */
   listThreads(humanId: HumanId, agentId?: AgentId): Promise<readonly Conversation[]>
   /**
+   * Every thread that is *about* one account, archived ones included (`#1600`).
+   *
+   * **The reverse of `kolonie.messages.send`'s `accountId`.** A thread has been
+   * able to say which account it is about since `#1441`; nothing could ask an
+   * account which threads those were, so the ask and the account it is about
+   * lived on two pages that never met.
+   *
+   * **Archived threads are in the answer**, unlike `listThreads`. An account's
+   * history is what is being asked for, and one that dropped what had been put
+   * away would answer a different question.
+   *
+   * Scoped by `humanId` like every other read on this port: naming an account id
+   * this person is not in a thread about answers with nothing.
+   */
+  threadsAboutAccount(humanId: HumanId, accountId: string): Promise<readonly Conversation[]>
+  /**
    * The inbox: every thread across every agent, newest **activity** first
    * (`#1448`, epic `#1447`).
    *

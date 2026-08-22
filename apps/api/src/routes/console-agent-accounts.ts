@@ -422,12 +422,38 @@ export function registerConsoleAgentAccounts(
       }
     }
 
+    /**
+     * The inbox threads about this account (`#1600`).
+     *
+     * **Read here rather than in the renderer**, on the rule every console page
+     * holds. Absent where the deployment has no messaging, which renders as no
+     * section at all — the same choice the episodes above make: a missing
+     * dependency is not a claim about the operator's data.
+     */
+    const inboxThreads = (
+      (await deps.operatorMessaging?.threadsAboutAccount(operated.humanId, accountId)) ?? []
+    ).map((conversation) => ({
+      id: String(conversation.id),
+      /** The opening is the last activity of a thread nobody has written in. */
+      lastActivityAt: conversation.lastMessageAt ?? conversation.createdAt,
+      unread: conversation.unread,
+      archived: conversation.archived ?? false,
+      shares: conversation.shares.map((share) => ({
+        vaultKey: share.vaultKey,
+        purpose: share.purpose,
+        opened: share.reads > 0,
+        operatorWrote: share.operatorWrote,
+        ended: share.ended,
+      })),
+    }))
+
     if (!wantsHtml(request)) {
       return reply.send({
         agentId: String(operated.agentId),
         name: held.name,
         account,
         conversations,
+        inboxThreads,
       })
     }
 
@@ -440,6 +466,7 @@ export function registerConsoleAgentAccounts(
         zone: zoneFrom(request.headers),
         account,
         conversations,
+        inboxThreads,
         /**
          * What the Atlas has on this provider, on the page where the work is
          * being done (`#936`).

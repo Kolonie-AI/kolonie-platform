@@ -388,6 +388,20 @@ export const ConversationShareSchema = z.object({
   /** Whether the operator has written back. Never *what* — that is `unshare`. */
   operatorWrote: z.boolean(),
   /**
+   * How many times the person has opened it (`#1600`).
+   *
+   * **Beside `operatorWrote` because they answer different questions.** That one
+   * says whether the person acted; this says whether the ask reached them at
+   * all. *Nobody has looked* and *somebody looked and did nothing* send a
+   * citizen somewhere different — the first is a delivery problem and the second
+   * is a waiting problem — and until this they were one silence.
+   *
+   * A count of opens by the one person the share was made for, so it names
+   * nobody the reader does not already know about, and it is a number about that
+   * person rather than about any citizen.
+   */
+  reads: z.number().int().min(0),
+  /**
    * How this share ended, or `null` while it is live (`#1574`).
    *
    * **An ended share renders as what it is rather than disappearing.** The
@@ -436,6 +450,17 @@ export const ConversationSchema = z.object({
   lastMessageAt: z.string().optional(),
   /** How many messages the reader has not read. Delivery state, never a receipt for the sender. */
   unread: z.number().int().min(0),
+  /**
+   * Whether the reader has put this thread away (`#1550`), where the caller
+   * asked a question that can return both (`#1600`).
+   *
+   * **Optional, because most reads cannot return both.** The default listing
+   * filters archived out and `archived: true` returns only those, so on either
+   * of them this field would restate the argument. It is answered by the reads
+   * that mix the two — the account history, which is asked for whole — and there
+   * a row has to be able to say which it is.
+   */
+  archived: z.boolean().optional(),
   /**
    * What it is about, settled when it was opened (`#1319`, `#1441`).
    *

@@ -4,6 +4,7 @@ import {
   statusLine,
   type Conversation,
   type ConversationSlot,
+  type InboxThread,
 } from './account-thread.js'
 import type { HeldAccountRow } from './agent-accounts.js'
 
@@ -349,5 +350,106 @@ describe('what the Atlas knows about this provider', () => {
     expect(html).toContain('no written path for new.example')
     expect(html).not.toContain('What somebody who walked')
     expect(html).not.toContain('class="notice"')
+  })
+})
+
+/**
+ * The inbox threads about this account (`#1600`).
+ *
+ * **The join `#1441` and `#1442` left out.** A thread could say which account it
+ * was about and could carry a share; nothing could ask an account which threads
+ * those were. So the operator worked the account page and the ask lived in the
+ * inbox, and neither page mentioned the other.
+ */
+describe('the messages about this account', () => {
+  const aThread = (overrides: Partial<InboxThread> = {}): InboxThread => ({
+    id: '55555555-5555-4555-8555-555555555555',
+    lastActivityAt: '2026-08-22T09:00:00.000Z',
+    unread: 0,
+    archived: false,
+    shares: [],
+    ...overrides,
+  })
+
+  it('lists a thread with a link into the inbox', () => {
+    const html = aPage({ inboxThreads: [aThread()] })
+
+    expect(html).toContain('Messages about this account')
+    expect(html).toContain('/inbox/55555555-5555-4555-8555-555555555555')
+  })
+
+  /**
+   * **No empty shell** (`#1600`). A heading over nothing says this account has an
+   * inbox and that it is empty, and most accounts would rather not claim the
+   * first half.
+   */
+  it('omits the section entirely when there is none', () => {
+    expect(aPage({ inboxThreads: [] })).not.toContain('Messages about this account')
+    expect(aPage()).not.toContain('Messages about this account')
+  })
+
+  it('says how much is waiting on the person', () => {
+    expect(aPage({ inboxThreads: [aThread({ unread: 3 })] })).toContain('<strong>3</strong>')
+    expect(aPage({ inboxThreads: [aThread({ unread: 0 })] })).toContain('nothing new')
+  })
+
+  /**
+   * **The case this was written for.** A live share with no reads looked exactly
+   * like a thread nobody had opened, from both sides. *Not opened*, *opened* and
+   * *answered* are three different next moves and the row has to separate them.
+   */
+  describe('a credential hanging on the thread', () => {
+    const withShare = (share: Partial<InboxThread['shares'][number]>) =>
+      aPage({
+        inboxThreads: [
+          aThread({
+            shares: [
+              {
+                vaultKey: 'toku.example/handle',
+                purpose: 'the card, please',
+                opened: false,
+                operatorWrote: false,
+                ended: null,
+                ...share,
+              },
+            ],
+          }),
+        ],
+      })
+
+    it('says plainly when the person has not opened it', () => {
+      expect(withShare({})).toContain('you have not opened it')
+    })
+
+    it('says when they opened it and did nothing', () => {
+      const html = withShare({ opened: true })
+      expect(html).toContain('you opened it')
+      expect(html).not.toContain('you have not opened it')
+    })
+
+    it('says when they answered it', () => {
+      expect(withShare({ opened: true, operatorWrote: true })).toContain('you answered it')
+    })
+
+    /** `#1574`: an ended share renders as ended rather than vanishing. */
+    it('still shows one that has been taken back or has expired', () => {
+      expect(withShare({ ended: 'taken-back' })).toContain('taken back')
+      expect(withShare({ ended: 'expired' })).toContain('expired')
+    })
+
+    /**
+     * The key and the purpose were already in the conversation that explains
+     * them; the value has never been on this path and must not arrive on it.
+     */
+    it('carries the key and the purpose and never a value', () => {
+      const html = withShare({})
+      expect(html).toContain('toku.example/handle')
+      expect(html).toContain('the card, please')
+    })
+  })
+
+  /** History includes what was put away — `#1600` asks for the account whole. */
+  it('marks a thread the person has archived rather than hiding it', () => {
+    expect(aPage({ inboxThreads: [aThread({ archived: true })] })).toContain('put away')
   })
 })

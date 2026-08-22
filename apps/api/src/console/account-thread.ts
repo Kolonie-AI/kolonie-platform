@@ -93,6 +93,38 @@ export interface Conversation {
   readonly slots: readonly ConversationSlot[]
 }
 
+/**
+ * One inbox thread about this account, as the page needs it (`#1600`).
+ *
+ * **A projection and not the storage shape.** The page needs six facts and the
+ * `Conversation` it comes from carries participants, bodies and subjects it has
+ * no business rendering here — a renderer given the whole thing would be one
+ * edit away from putting a message body on a page that is not the thread.
+ */
+export interface InboxThread {
+  readonly id: string
+  /** When anything last happened in it, or when it was opened if nothing has. */
+  readonly lastActivityAt: string
+  /** How many messages the person has not read. */
+  readonly unread: number
+  /** Whether this thread is one the person has put away. */
+  readonly archived: boolean
+  /**
+   * The credential asks hanging on it — never a value, and never a key the
+   * thread did not already name in its own words.
+   */
+  readonly shares: readonly {
+    readonly vaultKey: string
+    readonly purpose: string
+    /** Whether the person has opened it at all. */
+    readonly opened: boolean
+    /** Whether they wrote something back into it. */
+    readonly operatorWrote: boolean
+    /** `null` while it is live. */
+    readonly ended: 'taken-back' | 'expired' | null
+  }[]
+}
+
 export interface AccountThreadInput {
   readonly nav: ConsoleNav
   readonly agentId: string
@@ -110,6 +142,22 @@ export interface AccountThreadInput {
    * from anyone reading either half alone.
    */
   readonly conversations: readonly Conversation[]
+  /**
+   * The inbox threads that are *about* this account (`#1600`), newest first.
+   *
+   * **A second list beside the episodes, labelled, and not merged into them.**
+   * `#1600` freezes the distinction: an episode is the repair/handoff
+   * conversation the account page has always owned, an inbox thread is
+   * `kolonie.messages.*`, and the page lists both under one head rather than
+   * pretending they are one sequence. They have different authors, different
+   * lifecycles and different renderers, and a merged list would have to invent
+   * an ordering across two clocks.
+   *
+   * **Empty means the section is not rendered at all** — an empty shell would be
+   * a promise that this account has an inbox, which for most accounts is not a
+   * thing anybody wants to be told.
+   */
+  readonly inboxThreads?: readonly InboxThread[] | undefined
   /**
    * What the Atlas has on this account's provider (`#936`).
    *
@@ -387,6 +435,72 @@ function atlasBlock(atlas: AtlasState): readonly string[] {
   ]
 }
 
+/**
+ * The inbox threads about this account (`#1600`).
+ *
+ * **Each row says whether the ask reached anybody.** That is the whole reason
+ * this section exists rather than a bare list of links: the case it was written
+ * for is a live share with zero reads, which from the citizen's side and from
+ * the operator's looked exactly like a thread nobody had opened. *Not opened*,
+ * *opened*, and *answered* are three different next moves.
+ *
+ * **A link out rather than the thread inlined.** The inbox already renders a
+ * thread and does it in one place; a second renderer here would be a second copy
+ * of the one surface `#1547` unified.
+ */
+function inboxThreadsBlock(threads: readonly InboxThread[], zone: string): string[] {
+  return [
+    '<h2>Messages about this account</h2>',
+    '<p class="note">These are inbox threads, not the account history above. Opening one takes ' +
+      'you to your inbox.</p>',
+    '<table>',
+    '<thead><tr><th>Thread</th><th>Last activity</th><th>Waiting on you</th>' +
+      '<th>Credentials attached</th></tr></thead>',
+    '<tbody>',
+    ...threads.map((thread) => {
+      const shares =
+        thread.shares.length === 0
+          ? '<small>none</small>'
+          : thread.shares
+              .map((share) => {
+                /**
+                 * The four states a share can be in, said as what the person
+                 * would do next rather than as a status word. An ended one still
+                 * renders — `#1574`'s rule that a credential box does not vanish
+                 * without saying it was there.
+                 */
+                const state =
+                  share.ended === 'taken-back'
+                    ? 'taken back'
+                    : share.ended === 'expired'
+                      ? 'expired'
+                      : share.operatorWrote
+                        ? 'you answered it'
+                        : share.opened
+                          ? 'you opened it'
+                          : '<strong>you have not opened it</strong>'
+                return `<div>${escape(share.vaultKey)} — ${state}<br><small>${escape(
+                  share.purpose,
+                )}</small></div>`
+              })
+              .join('')
+
+      return (
+        '<tr>' +
+        `<td><a href="/inbox/${escape(thread.id)}">Open thread</a>${
+          thread.archived ? ' <small>(put away)</small>' : ''
+        }</td>` +
+        `<td>${absolute(thread.lastActivityAt, zone)}</td>` +
+        `<td>${thread.unread === 0 ? '<small>nothing new</small>' : `<strong>${String(thread.unread)}</strong>`}</td>` +
+        `<td>${shares}</td>` +
+        '</tr>'
+      )
+    }),
+    '</tbody>',
+    '</table>',
+  ]
+}
+
 export function accountThreadPage(input: AccountThreadInput): string {
   const action = `/agents/${escape(input.agentId)}/accounts/${escape(input.account.id)}`
   const nothingOpen = input.conversations.every((conversation) => conversation.outcome !== null)
@@ -406,6 +520,15 @@ export function accountThreadPage(input: AccountThreadInput): string {
       `<td>${heldRecheckCell(input.account, input.zone)}</td></tr></tbody>`,
     '</table>',
     ...(input.atlas === undefined ? [] : atlasBlock(input.atlas)),
+    /**
+     * **Omitted entirely when there is none** (`#1600`), rather than an empty
+     * shell: a heading over nothing tells an operator this account has an inbox
+     * and that it is empty, and the first half of that is the part most accounts
+     * would rather not claim.
+     */
+    ...(input.inboxThreads === undefined || input.inboxThreads.length === 0
+      ? []
+      : inboxThreadsBlock(input.inboxThreads, input.zone)),
     ...(input.conversations.length === 0
       ? [
           '<p>Nothing has ever happened to this account. That is the ordinary state of an ' +

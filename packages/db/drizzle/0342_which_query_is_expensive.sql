@@ -1,0 +1,19 @@
+--> `#1630` needs `pg_stat_statements`, which answers *which query costs the most*
+--> retrospectively instead of by sampling `pg_stat_activity` in a loop and hoping
+--> to catch a burst. Not written by drizzle-kit — the schema file has no way to
+--> say *this extension*, exactly as `0274` says of `pg_trgm`.
+-->
+--> **The extension is half of it and the other half is not here.** The module has
+--> to be in `shared_preload_libraries` or the view raises
+--> `pg_stat_statements must be loaded via shared_preload_libraries` on every
+--> read; that is a server setting and it lives in `kolonie-infra`'s compose file,
+--> beside the `log_line_prefix` already there. This statement is safe to apply
+--> without it — `CREATE EXTENSION` succeeds either way, verified against
+--> `postgres:16` on 2026-08-22 — so the two halves may land in either order and
+--> neither breaks the other.
+-->
+--> **Nothing in the application reads it.** No storage function, no route, no
+--> test. It exists so that a maintainer with a slow database can ask one question
+--> instead of running a stakeout, which is what finding the Atlas figures query
+--> actually cost.
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;

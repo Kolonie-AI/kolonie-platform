@@ -129,7 +129,10 @@ export interface ProviderRecipes {
    */
   figures(options?: {
     readonly audience?: AtlasAudience
-    readonly provider?: string
+    /** The provider a `provider` audience is entitled to — *who is reading*. */
+    readonly entitledTo?: string
+    /** Compute for this provider alone — *what to compute* (`#1627`). */
+    readonly only?: string
     /** Which capability the reader came for, on the kinds with two (`#990`). */
     readonly direction?: RecipeDirection
   }): Promise<readonly AtlasFigures[]>
@@ -316,6 +319,29 @@ export async function atlasCatalogue(
      * missing from.
      */
     readonly log?: Log
+    /**
+     * Assemble one provider's entry and nothing else (`#1627`).
+     *
+     * **A narrowing and not a filter**, which is the distinction that makes it
+     * safe: nothing in this assembly reads across entries. `atlasEntries` groups
+     * per provider, `measuredOnlyRecipes` synthesises per figure, `atlasStateOf`
+     * looks its own provider up, and the counts underneath are keyed on the
+     * row's own `(kind, provider)`. So the entry this returns is the entry the
+     * whole catalogue would have contained.
+     *
+     * **What it is therefore not for: any caller that reads the catalogue
+     * *around* an entry.** The Atlas provider page is the one that looks like it
+     * should use this and must not — its neighbours block orders by measured
+     * outcome (`atlasByOutcome` reads `recipes[].figures`), so three narrowed
+     * entries cannot be sorted against a corpus that was never computed. Left
+     * whole deliberately, and made cheap by the cache in `#1629` rather than by
+     * a quieter answer here.
+     *
+     * **`ordered` becomes meaningless** — one entry sorts to itself — and is
+     * left alone rather than refused, so a caller can narrow an existing call
+     * without also having to reason about it.
+     */
+    readonly only?: string
   } = {},
 ): Promise<readonly AtlasEntry[]> {
   /**
@@ -334,11 +360,29 @@ export async function atlasCatalogue(
     recipes.figures({
       ...(options.audience === undefined ? {} : { audience: options.audience }),
       ...(options.direction === undefined ? {} : { direction: options.direction }),
+      ...(options.only === undefined ? {} : { only: options.only }),
     }),
     recipes.walkers(),
   ])
 
-  const rows = listed.map((recipe) => directionScoped(recipe, recipe.direction, options.direction))
+  /**
+   * **The list is narrowed here and the figures are narrowed in the query**
+   * (`#1627`), and the asymmetry is deliberate.
+   *
+   * `providerRecipeList` is one flat select of a few hundred rows and was never
+   * what a provider page waited on; `atlasFigures` is the 644-line statement
+   * that was caught active in forty-four of sixty samples of a single page load.
+   * Pushing a `where` into the cheap half as well would be a second surface to
+   * keep in step for no measured gain, and `list` has no provider argument to
+   * push it through.
+   *
+   * `walkers` is left whole for the same reason — one `select distinct` over the
+   * walks, which is what every other Atlas surface already pays.
+   */
+  const wanted = options.only
+  const scoped = wanted === undefined ? listed : listed.filter((one) => one.provider === wanted)
+
+  const rows = scoped.map((recipe) => directionScoped(recipe, recipe.direction, options.direction))
 
   const synthesized = measuredOnlyRecipes(
     rows,
@@ -369,7 +413,20 @@ export async function atlasStateAt(
   provider: string,
   kind?: string,
 ): Promise<AtlasState> {
-  return atlasStateOf(await atlasCatalogue(recipes, { ordered: false }), provider, kind)
+  /**
+   * **Narrowed, because this call has always wanted exactly one entry**
+   * (`#1627`). `atlasStateOf` finds its provider and drops the rest, so the
+   * catalogue around it was assembled to be thrown away — on every account page
+   * and every thread read, at the cost of the whole Atlas.
+   *
+   * Unlike the Atlas provider page, nothing here is ordered against the corpus:
+   * this answers *what is this provider* and never *what is near it*.
+   */
+  return atlasStateOf(
+    await atlasCatalogue(recipes, { ordered: false, only: provider.trim().toLowerCase() }),
+    provider,
+    kind,
+  )
 }
 
 export type RecipeOutcome<T> =

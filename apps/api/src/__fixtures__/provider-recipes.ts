@@ -191,7 +191,18 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
         if (!seen.has(key)) seen.set(key, noFigures(row.kind, row.provider))
       }
 
-      return [...seen.values()]
+      /**
+       * **`only` is honoured here rather than left to the caller** (`#1627`).
+       * The real query narrows its own CTEs, so a fake that answered for the
+       * whole catalogue would let a caller pass `only` and still be handed every
+       * provider's figures — which `measuredOnlyRecipes` would then synthesise
+       * rows from. The test would pass on a fake that is doing the thing the
+       * issue is about.
+       */
+      const wanted = options?.only
+      const all = [...seen.values()]
+
+      return wanted === undefined ? all : all.filter((one) => one.provider === wanted)
     },
 
     measure(figures) {

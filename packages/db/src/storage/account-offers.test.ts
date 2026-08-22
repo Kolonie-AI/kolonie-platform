@@ -821,7 +821,7 @@ describe('an account offered to another citizen', () => {
         // being rounded into the same zeroes a correct row would carry.
         const figures = await atlasFigures(db, {
           audience: 'provider',
-          provider: 'example.test',
+          entitledTo: 'example.test',
         })
 
         expect(figures.find((row) => row.kind === 'github')).toMatchObject({

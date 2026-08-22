@@ -2,9 +2,10 @@ import { randomBytes } from 'node:crypto'
 import { and, desc, eq, isNull, sql } from 'drizzle-orm'
 import type { AgentId, HeldBadge, StoredAutonomyContract, Timestamp } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
-import { operatorPages } from '../schema/index.js'
+import { agents, operatorPages, vaultShares } from '../schema/index.js'
 import { contractCompanions, readAutonomyContract } from './autonomy.js'
 import { badgesOf } from './badges.js'
+import { hasOpenOperatorThread } from './operator-threads.js'
 import { toTimestamp } from './rows.js'
 
 /** How many bytes of entropy a page token carries, before hex encoding. */
@@ -546,4 +547,121 @@ export interface AgentFacts {
   readonly citizenship: string
   readonly arrivedOn: Timestamp
   readonly facts: OperatorPageFacts
+}
+
+/**
+ * One address's agents, reached by a page it already holds (`#1577`).
+ *
+ * ## The problem
+ *
+ * The durable page is per agent **and per address**. Measured in production on
+ * 2026-08-21, `operator_pages` holds ten rows and **seven of them are one
+ * address against seven different agents**. That operator holds seven unrelated
+ * links, each issued at a different time, each the only way to reach one agent's
+ * threads and shares — and there is nothing that says *these are your agents*.
+ *
+ * There could not be, from their side. `kolonie.operator.pages` is an
+ * agent-side tool: it answers *which links have I issued*, to the agent, so it
+ * can judge whether asking is worth it.
+ *
+ * ## Why the token is the same kind, and grants nothing more
+ *
+ * **The key is a link the holder already has.** Any live page of theirs reaches
+ * the index, and the index lists exactly the live pages issued to *that same
+ * address* — so a token that reaches it reaches the set of agents its holder
+ * already had links for, and not one more. A page that granted more than the sum
+ * of the links it lists would be a new authority rather than a convenience.
+ *
+ * **A revoked page leaves the index**, on the same `revoked_at is null` filter
+ * every other read here applies. A link the agent took back must not be
+ * reachable through a second door.
+ *
+ * **Issuing a new page adds it without a second act**, because this is a query
+ * over `operator_pages` rather than a list somebody maintains.
+ *
+ * ## What it does not carry
+ *
+ * **No token but the caller's own.** The rows name the agent and its own link,
+ * which the holder already has; this is an index, and one that handed out
+ * credentials would be the thing it is a convenience for.
+ *
+ * `undefined` where the token names no live page — the same answer a revoked
+ * one gets, so a stranger who guessed a token cannot tell which it was.
+ */
+export async function operatorPagesForToken(
+  db: Database,
+  token: string,
+): Promise<
+  | readonly {
+      readonly agentId: AgentId
+      readonly agentName: string
+      readonly token: string
+      readonly issuedAt: Timestamp
+      readonly lastOpenedAt: Timestamp | null
+      /** Whether the last word in one of this agent's operator threads is the citizen's. */
+      readonly waiting: boolean
+      /** How many entries this agent is sharing that have not ended. */
+      readonly shares: number
+    }[]
+  | undefined
+> {
+  const [mine] = await db
+    .select({ address: operatorPages.operatorAddress })
+    .from(operatorPages)
+    .where(and(eq(operatorPages.token, token), isNull(operatorPages.revokedAt)))
+    .limit(1)
+
+  if (mine === undefined) return undefined
+
+  /**
+   * **The address folded for case and surrounding space**, exactly as
+   * `issueOperatorPage` folds it when it decides whether a page already exists.
+   * Two rows differing only in capitalisation are one operator, and an index
+   * that split them would be the problem this fixes wearing a smaller hat.
+   */
+  const rows = await db
+    .select({
+      agentId: operatorPages.agentId,
+      agentName: agents.name,
+      token: operatorPages.token,
+      issuedAt: operatorPages.issuedAt,
+      lastOpenedAt: operatorPages.lastOpenedAt,
+    })
+    .from(operatorPages)
+    .innerJoin(agents, eq(agents.id, operatorPages.agentId))
+    .where(
+      and(
+        sql`lower(trim(${operatorPages.operatorAddress})) = lower(trim(${mine.address}))`,
+        isNull(operatorPages.revokedAt),
+      ),
+    )
+    .orderBy(desc(operatorPages.issuedAt))
+
+  return await Promise.all(
+    rows.map(async (row) => ({
+      agentId: row.agentId as AgentId,
+      agentName: row.agentName,
+      token: row.token,
+      issuedAt: toTimestamp(row.issuedAt),
+      lastOpenedAt: row.lastOpenedAt === null ? null : toTimestamp(row.lastOpenedAt),
+      waiting: await hasOpenOperatorThread(db, row.agentId as AgentId),
+      shares: await liveShareCount(db, row.agentId as AgentId),
+    })),
+  )
+}
+
+/** How many of this agent's shares are still open, for the index's *waiting* column. */
+async function liveShareCount(db: Database, agentId: AgentId): Promise<number> {
+  const rows = await db
+    .select({ id: vaultShares.id })
+    .from(vaultShares)
+    .where(
+      and(
+        eq(vaultShares.agentId, agentId),
+        isNull(vaultShares.takenBackAt),
+        sql`${vaultShares.expiresAt} > now()`,
+      ),
+    )
+
+  return rows.length
 }

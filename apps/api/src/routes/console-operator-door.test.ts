@@ -142,22 +142,36 @@ describe('the operator page opens on a session', () => {
     expect(throughSession.statusCode).toBe(200)
 
     /**
-     * **Two things differ between the doors, not one** (`#428`, `#1547`): where
-     * the forms post, and where the inbox is. Both are the door's own for the
+     * **What differs between the doors, and why each one does** (`#428`,
+     * `#1547`, `#1577`).
+     *
+     * Where the forms post and where the inbox is are the door's own for the
      * same reason — a durable bearer link inside a page served behind a login is
-     * a credential leaking downward for no gain — so both are normalised away
-     * and everything else must match byte for byte.
+     * a credential leaking downward for no gain — so both are normalised away.
+     *
+     * **The index is the one thing only the mailed door carries** (`#1577`), and
+     * it is a difference rather than a leak: a signed-in person has a navigation
+     * and their own list of agents, and an operator holding seven mailed links
+     * had no way from one to the others. So the session's body is the token's
+     * *minus that paragraph*, asserted rather than papered over.
      */
     // The inbox first: on the token door it *contains* the action, so replacing
     // the action first would leave `{action}/inbox` and never match.
     const normalised = (body: string, action: string, inbox: string) =>
       body.split(inbox).join('{inbox}').split(action).join('{action}')
 
+    const index = `/operator/page/${token}/agents`
+    expect(throughToken.body).toContain(index)
+    expect(throughSession.body).not.toContain('Every agent that has given you a')
+
+    const withoutTheIndex = throughToken.body
+      .split('\n')
+      .filter((line) => !line.includes(index) && !line.includes('you need not keep seven links'))
+      .join('\n')
+
     expect(
       normalised(throughSession.body, `/agents/${agentId}/operator`, `/inbox?agent=${agentId}`),
-    ).toBe(
-      normalised(throughToken.body, `/operator/page/${token}`, `/operator/page/${token}/inbox`),
-    )
+    ).toBe(normalised(withoutTheIndex, `/operator/page/${token}`, `/operator/page/${token}/inbox`))
   })
 
   /**

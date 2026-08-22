@@ -2,7 +2,12 @@ import { capabilitiesFromForm, type AgentId } from '@kolonie-ai/core'
 import type { OperatorPageView } from '@kolonie-ai/db'
 import type { FastifyInstance } from 'fastify'
 import { answerAutonomyForm } from '../autonomy.js'
-import { autonomyClosedPage, autonomyDonePage, autonomyFormPage } from '../autonomy-page.js'
+import {
+  autonomyClosedPage,
+  autonomyDonePage,
+  autonomyFormPage,
+  operatorAgentsPage,
+} from '../autonomy-page.js'
 import { operatorPageBody } from '../operator-page-body.js'
 import { shareAdditionError } from '../operator-shares.js'
 import { deepLinkFor } from '../operator-telegram.js'
@@ -230,6 +235,11 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
        */
       inboxBase: `/operator/page/${token}/inbox`,
       /**
+       * The index, on this door only (`#1577`). The console has a navigation and
+       * the person's own list of agents; a mailed link has neither.
+       */
+      agentsIndex: `/operator/page/${token}/agents`,
+      /**
        * The share's forms post to this same route (`#1440`).
        *
        * **On the durable page and not only in the console**, which is `#1437`
@@ -239,6 +249,42 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
        */
       ...(deps.operatorShares === undefined ? {} : { shareAction: `/operator/page/${token}` }),
     })
+
+  /**
+   * One address's agents, from any page it holds (`#1577`).
+   *
+   * **Before `/operator/page/:token` in the file and after it in the router's
+   * matching**, which is the same thing said twice: Fastify prefers the static
+   * segment, so `agents` cannot be mistaken for a token however a token is
+   * shaped.
+   *
+   * A token that names no live page answers exactly as the per-agent page does
+   * for one, so a stranger who guessed one learns nothing from the difference.
+   */
+  app.get('/operator/page/:token/agents', async (request, reply) => {
+    const { token } = request.params as { token?: string }
+    const held = token === undefined ? undefined : await autonomy.pages.agentsForToken?.(token)
+
+    if (held === undefined || held.length === 0) {
+      return reply.status(404).headers(CONSOLE_HEADERS).type('text/html').send(autonomyClosedPage())
+    }
+
+    return reply
+      .headers(CONSOLE_HEADERS)
+      .type('text/html')
+      .send(
+        operatorAgentsPage({
+          agents: held.map((one) => ({
+            agentName: one.agentName,
+            token: one.token,
+            issuedAt: one.issuedAt,
+            lastOpenedAt: one.lastOpenedAt,
+            waiting: one.waiting,
+            shares: one.shares,
+          })),
+        }),
+      )
+  })
 
   app.get('/operator/page/:token', async (request, reply) => {
     const { token } = request.params as { token?: string }

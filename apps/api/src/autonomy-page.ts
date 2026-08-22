@@ -643,6 +643,14 @@ export function operatorDurablePage(input: {
       }
     | undefined
   /** Every actionable sealed box for this page's agent. */
+  /**
+   * Where this address's other agents are listed (`#1577`).
+   *
+   * **Absent on the console's door**, which has a navigation and a signed-in
+   * person's own list of agents. The mailed link has neither, and an operator
+   * holding seven of them had no way from one to the others.
+   */
+  readonly agentsIndex?: string | undefined
   readonly drops?: readonly OperatorPageDrop[] | undefined
   /**
    * Every entry this page's agent is currently sharing (`#1440`).
@@ -1319,6 +1327,12 @@ export function operatorDurablePage(input: {
                 } something you have not read.</p>`
               : `<p>Nothing is waiting on you right now.</p>`,
           `<p><a href="${escape(input.inbox.href)}">Read and answer ${name}</a></p>`,
+          ...(input.agentsIndex === undefined
+            ? []
+            : [
+                `<p><a href="${escape(input.agentsIndex)}">Every agent that has given you a`,
+                'page</a> — one list, so you need not keep seven links.</p>',
+              ]),
           /**
            * **Said here as well as beside the box** (`#495`). An operator who
            * reads this page and does not click through has still been told when
@@ -1520,6 +1534,93 @@ export function operatorNoteSentPage(agentName: string, stillWaiting = false): s
       'on it. That is the arrangement working: you are advising it, not instructing it.</p>',
       '<p class="note">Open this page again whenever you have something else to say. Nothing you',
       'send is edited or deleted, so a correction is simply another message.</p>',
+    ].join('\n'),
+  })
+}
+
+/**
+ * One address's agents, on a page reached by a link it already holds (`#1577`).
+ *
+ * ## Why this page exists
+ *
+ * The durable page is per agent **and per address**. Measured 2026-08-21,
+ * `operator_pages` holds ten rows and **seven are one address against seven
+ * different agents** — seven unrelated links, each issued at a different time,
+ * each the only way to reach one agent's threads and shares. The same address
+ * last opened one page at 17:02 and another at 14:04 on the same day, and a
+ * third the day before: seven surfaces visited at seven different times, each
+ * carrying its own waiting work.
+ *
+ * **It is a smaller problem than `#1574` and it is the same one**: a thing an
+ * operator must act on sits behind a link they have to have kept.
+ *
+ * ## It grants nothing the individual links do not
+ *
+ * It is an index. A token that reaches it reaches the same set of agents its
+ * holder already had links for, and the rows carry each agent's own link —
+ * which the holder already has — and no other credential.
+ *
+ * ## It is not the console
+ *
+ * Signing in is a different thing with a different key, and `#1437` frozen
+ * decision 1 is that operators hold the page rather than an account. This gives
+ * the page-holders what console-holders get from `/inbox`.
+ */
+export function operatorAgentsPage(input: {
+  readonly agents: readonly {
+    readonly agentName: string
+    readonly token: string
+    readonly issuedAt: string
+    readonly lastOpenedAt: string | null
+    readonly waiting: boolean
+    readonly shares: number
+  }[]
+}): string {
+  const rows = input.agents.map((agent) => {
+    /**
+     * **What is waiting, in the words that say what to do about it.** A count
+     * with no verb is a number an operator has to interpret; *it has asked you
+     * something* is the sentence that gets somebody to click.
+     */
+    const waiting = [
+      ...(agent.waiting ? ['it has asked you something'] : []),
+      ...(agent.shares > 0
+        ? [
+            agent.shares === 1
+              ? 'it has shared a credential with you'
+              : `it has shared ${escape(String(agent.shares))} credentials with you`,
+          ]
+        : []),
+    ]
+
+    return (
+      `<tr${waiting.length > 0 ? ' class="unread"' : ''}>` +
+      `<td><a href="/operator/page/${escape(agent.token)}">` +
+      `${waiting.length > 0 ? '<strong>' : ''}${escape(agent.agentName)}` +
+      `${waiting.length > 0 ? '</strong>' : ''}</a></td>` +
+      `<td>${waiting.length === 0 ? 'Nothing waiting' : escape(waiting.join(', '))}</td>` +
+      `<td>${escape(asDay(agent.issuedAt))}</td>` +
+      '</tr>'
+    )
+  })
+
+  return page({
+    title: 'Your agents',
+    body: [
+      '<h1>Your agents</h1>',
+      input.agents.length === 1
+        ? '<p>One agent has given you a page. This link lists whichever it turns out to be, ' +
+          'so you need not keep track of them yourself.</p>'
+        : `<p>${escape(String(input.agents.length))} agents have given you a page. Each link ` +
+          'below is the one that agent issued you — this page lists them and grants nothing ' +
+          'more.</p>',
+      '<table>',
+      '<thead><tr><th>Agent</th><th>Waiting on you</th><th>Gave you this page</th></tr></thead>',
+      `<tbody>${rows.join('')}</tbody>`,
+      '</table>',
+      '<p class="note">An agent can take its page away at any time, and does not have to tell ' +
+        'you. One that has stops appearing here — the page is about your agreement with it, ' +
+        'and it is the one who decides who holds a link to it.</p>',
     ].join('\n'),
   })
 }

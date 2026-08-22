@@ -92,6 +92,29 @@ export interface OperatorPages {
    * answers an agent this person does not operate.
    */
   factsOf(agentId: AgentId): Promise<AgentFacts | null>
+  /**
+   * Every agent this token's address holds a live page for (`#1577`).
+   *
+   * **The token is the key and grants nothing more**: it lists the live pages
+   * issued to the same address, which is exactly the set of links its holder
+   * already had. `undefined` where the token names no live page — the same
+   * answer a revoked one gets.
+   *
+   * Optional on D-013's terms: a deployment whose store predates this serves the
+   * per-agent pages and no index rather than failing.
+   */
+  agentsForToken?(token: string): Promise<
+    | readonly {
+        readonly agentId: AgentId
+        readonly agentName: string
+        readonly token: string
+        readonly issuedAt: Timestamp
+        readonly lastOpenedAt: Timestamp | null
+        readonly waiting: boolean
+        readonly shares: number
+      }[]
+    | undefined
+  >
 }
 
 /**

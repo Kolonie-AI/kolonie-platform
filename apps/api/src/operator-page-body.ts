@@ -49,6 +49,8 @@ export async function operatorPageBody(
      * section at all, which is what a deployment with no messaging gets.
      */
     readonly inboxBase?: string
+    /** Where this address's other agents are listed (`#1577`). The door's own. */
+    readonly agentsIndex?: string
     /** What to say if an operator's addition was just refused (`#1440`). */
     readonly shareError?: string
     /**
@@ -141,6 +143,7 @@ export async function operatorPageBody(
      * Absent where the caller names none, and then the page says nothing about
      * messages rather than linking somewhere that answers 404.
      */
+    ...(errors.agentsIndex === undefined ? {} : { agentsIndex: errors.agentsIndex }),
     ...(errors.inboxBase === undefined
       ? {}
       : {

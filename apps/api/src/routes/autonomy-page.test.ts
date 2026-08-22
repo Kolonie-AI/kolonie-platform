@@ -1276,3 +1276,155 @@ describe('the operator’s form', () => {
     })
   })
 })
+
+/**
+ * One address's agents, from any page it holds (`#1577`).
+ *
+ * The durable page is per agent **and per address**. Measured in production on
+ * 2026-08-21, `operator_pages` holds ten rows and **seven of them are one
+ * address against seven different agents** — seven unrelated links, each issued
+ * at a different time, each the only way to reach one agent's threads and
+ * shares, and nothing that says *these are your agents*.
+ *
+ * There could not be from their side: `kolonie.operator.pages` is agent-side, and
+ * answers *which links have I issued* to the agent.
+ */
+describe('every agent one address holds a page for (#1577)', () => {
+  let app: FastifyInstance
+  let pages: ReturnType<typeof fakeOperatorPages>
+  let agents: ReturnType<typeof fakeStore>
+
+  beforeEach(async () => {
+    pages = fakeOperatorPages()
+    agents = fakeStore()
+    app = buildApp({
+      ...fakeColony(),
+      store: agents,
+      autonomy: {
+        store: fakeAutonomyStore(),
+        pages,
+        mailer: fakeAutonomyMailer(),
+        formBaseUrl: 'https://console.example.org',
+      },
+      operatorThreads: fakeOperatorThreads({ pages }),
+      operatorPageMessages: fakeOperatorPageMessages({ pages }),
+    })
+    await app.ready()
+  })
+
+  afterEach(async () => {
+    await app?.close()
+  })
+
+  const index = (token: string) =>
+    app.inject({ method: 'GET', url: `/operator/page/${token}/agents` })
+
+  it('lists every agent that address holds a live page for', async () => {
+    const first = agents.issue().agent.id
+    const second = agents.issue().agent.id
+    pages.nameFor(first, 'canary')
+    pages.nameFor(second, 'vireo')
+    const token = pages.issueNow(first, 'op@example.org')
+    pages.issueNow(second, 'op@example.org')
+
+    const response = await index(token)
+
+    expect(response.statusCode).toBe(200)
+    expect(response.body).toContain('canary')
+    expect(response.body).toContain('vireo')
+    expect(response.body).toContain('2 agents have given you a page')
+  })
+
+  it('says what is waiting, and links to that agent’s own page', async () => {
+    const first = agents.issue().agent.id
+    const second = agents.issue().agent.id
+    pages.nameFor(first, 'canary')
+    pages.nameFor(second, 'vireo')
+    const token = pages.issueNow(first, 'op@example.org')
+    const theirs = pages.issueNow(second, 'op@example.org')
+    pages.waits(second)
+    pages.sharing(second, 2)
+
+    const body = (await index(token)).body
+
+    expect(body).toContain('it has asked you something')
+    expect(body).toContain('it has shared 2 credentials with you')
+    expect(body).toContain('Nothing waiting')
+    expect(body).toContain(`href="/operator/page/${theirs}"`)
+  })
+
+  /**
+   * **The first rejection case `#1577` asks for.** A link the agent took back
+   * must not be reachable through a second door.
+   */
+  it('leaves a revoked page out, and its agent unreachable through the index', async () => {
+    const first = agents.issue().agent.id
+    const second = agents.issue().agent.id
+    pages.nameFor(first, 'canary')
+    pages.nameFor(second, 'vireo')
+    const token = pages.issueNow(first, 'op@example.org')
+    const theirs = pages.issueNow(second, 'op@example.org')
+
+    await pages.revoke(second, 'op@example.org')
+
+    const body = (await index(token)).body
+
+    expect(body).toContain('canary')
+    expect(body).not.toContain('vireo')
+    expect(body).not.toContain(theirs)
+  })
+
+  /**
+   * **The second.** The index reaches no agent the address does not already hold
+   * a page for — it grants nothing the individual links do not, which is what
+   * makes it a convenience rather than a new authority.
+   */
+  it('reaches no agent this address holds no page for', async () => {
+    const mine = agents.issue().agent.id
+    const somebodyElses = agents.issue().agent.id
+    pages.nameFor(mine, 'canary')
+    pages.nameFor(somebodyElses, 'stranger')
+    const token = pages.issueNow(mine, 'op@example.org')
+    const theirs = pages.issueNow(somebodyElses, 'other@example.org')
+
+    const body = (await index(token)).body
+
+    expect(body).toContain('canary')
+    expect(body).not.toContain('stranger')
+    expect(body).not.toContain(theirs)
+  })
+
+  /** **Issuing a page adds it without a second act**, because this is a query. */
+  it('picks up a page issued after the index was first opened', async () => {
+    const first = agents.issue().agent.id
+    pages.nameFor(first, 'canary')
+    const token = pages.issueNow(first, 'op@example.org')
+
+    expect((await index(token)).body).not.toContain('vireo')
+
+    const second = agents.issue().agent.id
+    pages.nameFor(second, 'vireo')
+    pages.issueNow(second, 'op@example.org')
+
+    expect((await index(token)).body).toContain('vireo')
+  })
+
+  it('answers a revoked or unknown token as the per-agent page does', async () => {
+    const only = agents.issue().agent.id
+    const token = pages.issueNow(only, 'op@example.org')
+    await pages.revoke(only, 'op@example.org')
+
+    expect((await index(token)).statusCode).toBe(404)
+    expect((await index('not-a-token')).statusCode).toBe(404)
+  })
+
+  /** The way in, from the page a person was actually mailed. */
+  it('is named on the agent’s own page, which has no navigation', async () => {
+    const only = agents.issue().agent.id
+    const token = pages.issueNow(only, 'op@example.org')
+
+    const page = await app.inject({ method: 'GET', url: `/operator/page/${token}` })
+
+    expect(page.body).toContain(`/operator/page/${token}/agents`)
+  })
+})

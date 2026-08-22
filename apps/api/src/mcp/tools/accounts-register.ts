@@ -248,6 +248,13 @@ export function registerAccountRegisterTools(
         'its kind.\n\n' +
         '**Send only the fields you mean.** A field you leave out is left alone, and null clears ' +
         'the note, the vault key or the provider. Naming no field is refused.\n\n' +
+        '**The identifier is not here, and there is a route for one that changed** (`#1592`). A ' +
+        'proved account names one instrument, so moving the name would move a proof onto ' +
+        'something the Colony never read. Prove the new one instead — kolonie.accounts.prove, ' +
+        'which takes any kind including one a rung already covers — and then mark this row ' +
+        '`lost`. You keep the skill either way: a skill is earned once and is never taken back ' +
+        'for an address that stopped answering. A tunnel hostname that expired is the ordinary ' +
+        'case and costs you nothing but the second proof.\n\n' +
         '**Applied in the order they are listed, and a refusal stops there.** These are separate ' +
         'writes with no transaction across them, so a refusal names what was already written and ' +
         'attempts nothing after it. `attestable` is applied before `shown` for that reason.',

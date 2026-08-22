@@ -58,12 +58,61 @@ describe('a walked recipe', () => {
   it('refuses a credential in every field, not only the free-text ones', () => {
     const secret = 'ghp_0123456789abcdefghijklmnopqrstuvwxyzAB'
 
-    expect(WalkedRecipeSchema.safeParse({ prerequisites: [secret] }).success).toBe(false)
-    expect(WalkedRecipeSchema.safeParse({ verification: [secret] }).success).toBe(false)
-    expect(WalkedRecipeSchema.safeParse({ steps: [{ title: secret }] }).success).toBe(false)
+    expect(SubmittedWalkedRecipeSchema.safeParse({ prerequisites: [secret] }).success).toBe(false)
+    expect(SubmittedWalkedRecipeSchema.safeParse({ verification: [secret] }).success).toBe(false)
     expect(
-      WalkedRecipeSchema.safeParse({ walls: [{ title: 'wall', remedy: secret }] }).success,
+      SubmittedWalkedRecipeSchema.safeParse({ steps: [{ title: secret, detail: 'a step' }] })
+        .success,
     ).toBe(false)
+    expect(
+      SubmittedWalkedRecipeSchema.safeParse({ steps: [{ title: 'a step', detail: secret }] })
+        .success,
+    ).toBe(false)
+    expect(
+      SubmittedWalkedRecipeSchema.safeParse({
+        walls: [{ kind: 'human-check', title: 'wall', remedy: secret }],
+      }).success,
+    ).toBe(false)
+    expect(
+      SubmittedWalkedRecipeSchema.safeParse({
+        walls: [{ kind: 'human-check', title: 'wall', symptom: secret }],
+      }).success,
+    ).toBe(false)
+    expect(
+      SubmittedWalkedRecipeSchema.safeParse({ walls: [{ kind: 'human-check', title: secret }] })
+        .success,
+    ).toBe(false)
+  })
+
+  /**
+   * `#1573`. The check moved from {@link WalkedRecipeSchema} to the door, and
+   * this is the failure that moved it: one stored step whose detail tripped the
+   * heuristic made `kolonie.accounts.list` throw a `ZodError` for that citizen —
+   * every call, for every account it held, with no way to reach the row.
+   *
+   * **A row that is already in the database must always come back out.** The
+   * refusal is worth something only where the walker can still correct it, which
+   * is what the assertions above cover.
+   */
+  it('reads back a stored recipe whose detail looks like a credential', () => {
+    const stored = { steps: [{ title: 'Authorise the app', detail: 'ghp_0123456789abcdef' }] }
+
+    expect(WalkedRecipeSchema.safeParse(stored).success).toBe(true)
+    expect(SubmittedWalkedRecipeSchema.safeParse(stored).success).toBe(false)
+  })
+
+  it('names the field a credential was found in, so a walker knows which to rewrite', () => {
+    const parsed = SubmittedWalkedRecipeSchema.safeParse({
+      steps: [
+        { title: 'fine', detail: 'nothing secret here' },
+        { title: 'also fine', detail: 'ghp_0123456789abcdefghijklmnopqrstuvwxyzAB' },
+      ],
+    })
+
+    expect(parsed.success).toBe(false)
+    if (parsed.success) return
+    const issue = parsed.error.issues.find((one) => one.message.includes('looks like a credential'))
+    expect(issue?.path).toEqual(['steps', 1, 'detail'])
   })
 
   /**

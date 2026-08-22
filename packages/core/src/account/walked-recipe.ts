@@ -57,6 +57,19 @@ import {
  * un-hold. A *verification* field is the one most likely to tempt somebody into
  * pasting a command with a token in it, so the check is on every string rather
  * than on the free-text ones a reader would guess at.
+ *
+ * **The check lives at the door and not on the shape** (`#1573`). It used to sit
+ * on {@link line}, which is the shape rows already stored are read back through
+ * — so one walk whose step tripped the heuristic made `kolonie.accounts.list`
+ * throw a `ZodError` for that citizen, every time, for everything it held. The
+ * whole listing died on one field of one walk, and there was no way for the
+ * citizen to reach the row and fix it.
+ *
+ * This is the same argument {@link SubmittedWalkedRecipeSchema} already makes
+ * about a step with no detail, and it applies for the same reason: the base
+ * schema parses **what is already in the database**, and a rule that can refuse
+ * a stored row is a rule that can make reading it impossible. A refusal is worth
+ * something only where the walker is still in the room and can correct it.
  */
 
 /** What a single string in a walked recipe may not be. */
@@ -66,13 +79,14 @@ const NO_CREDENTIAL = {
     'a value in this field would be one the Colony holds and cannot un-hold.',
 } as const
 
-const line = (max: number) =>
-  z
-    .string()
-    .trim()
-    .min(1)
-    .max(max)
-    .refine((value) => !looksLikeCredential(value), NO_CREDENTIAL)
+/**
+ * One string of a walked recipe: bounded, and nothing else.
+ *
+ * **Structure and length only.** Whether it looks like a credential is asked at
+ * the door — see {@link noCredentialAnywhere} — because this shape is also how a
+ * stored row comes back out.
+ */
+const line = (max: number) => z.string().trim().min(1).max(max)
 
 /** How long one prerequisite or verification line may be. */
 export const WALKED_RECIPE_LINE_MAX_LENGTH = 300
@@ -660,6 +674,42 @@ export function costContradictsPaymentWall(): string {
 }
 
 /**
+ * Every string a walked recipe carries, with the path it sits at (`#1573`).
+ *
+ * **One list, so the door cannot fall behind the shape.** The credential check
+ * used to be attached to {@link line} itself, which meant a field added later
+ * inherited it for free — and also meant a stored row could stop parsing. Moving
+ * the check to the door costs exactly this: a list that has to name the fields.
+ * It is written next to the schemas it walks so the two are read together, and
+ * `walked-recipe.test.ts` asserts a credential is still refused in every one of
+ * them, which is what stops a new field being added here in name only.
+ */
+function everyString(
+  recipe: WalkedRecipe,
+): readonly { readonly value: string; readonly path: readonly (string | number)[] }[] {
+  const found: { value: string; path: readonly (string | number)[] }[] = []
+  const add = (value: string | undefined, ...path: (string | number)[]): void => {
+    if (value !== undefined) found.push({ value, path })
+  }
+
+  for (const [at, one] of (recipe.prerequisites ?? []).entries()) add(one, 'prerequisites', at)
+  for (const [at, one] of (recipe.verification ?? []).entries()) add(one, 'verification', at)
+
+  for (const [at, step] of (recipe.steps ?? []).entries()) {
+    add(step.title, 'steps', at, 'title')
+    add(step.detail, 'steps', at, 'detail')
+  }
+
+  for (const [at, wall] of (recipe.walls ?? []).entries()) {
+    add(wall.title, 'walls', at, 'title')
+    add(wall.symptom, 'walls', at, 'symptom')
+    add(wall.remedy, 'walls', at, 'remedy')
+  }
+
+  return found
+}
+
+/**
  * The walker's account, as a walk report may hand it in (`#941`).
  *
  * **Stricter than {@link WalkedRecipeSchema} on purpose, and only at the door.**
@@ -675,8 +725,18 @@ export function costContradictsPaymentWall(): string {
  * forever on a sentence nobody has — the wordless-step deadlock `#941` was opened
  * about. Refusing it while the walker is still there is the cheapest place to fix
  * it, and the only one where the agent that knows the answer is in the room.
+ *
+ * **The credential check is here for the identical reason** (`#1573`), and it was
+ * on the shape until one stored step took a citizen's whole account listing down
+ * with a `ZodError`. Same message, same paths, same fields — what changed is that
+ * it now refuses a submission rather than a row nobody can reach to correct.
  */
 export const SubmittedWalkedRecipeSchema = WalkedRecipeSchema.superRefine((recipe, ctx) => {
+  for (const { value, path } of everyString(recipe)) {
+    if (!looksLikeCredential(value)) continue
+    ctx.addIssue({ code: 'custom', message: NO_CREDENTIAL.message, path: [...path] })
+  }
+
   for (const [at, step] of (recipe.steps ?? []).entries()) {
     if (step.detail !== undefined) continue
 

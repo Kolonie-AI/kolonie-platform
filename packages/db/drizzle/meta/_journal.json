@@ -2395,6 +2395,13 @@
       "when": 1787413210676,
       "tag": "0341_a_walk_says_whether_a_person_helped",
       "breakpoints": true
+    },
+    {
+      "idx": 342,
+      "version": "7",
+      "when": 1787432288940,
+      "tag": "0342_which_query_is_expensive",
+      "breakpoints": true
     }
   ]
 }

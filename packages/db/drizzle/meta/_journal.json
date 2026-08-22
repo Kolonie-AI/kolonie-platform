@@ -2381,6 +2381,13 @@
       "when": 1787327724137,
       "tag": "0339_a_citizen_may_end_its_own_ticket",
       "breakpoints": true
+    },
+    {
+      "idx": 340,
+      "version": "7",
+      "when": 1787397015987,
+      "tag": "0340_mute_leaves_no_column_behind",
+      "breakpoints": true
     }
   ]
 }

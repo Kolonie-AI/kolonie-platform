@@ -284,29 +284,6 @@ export const messageParticipants = pgTable(
     joinedAt: timestamp('joined_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
 
     /**
-     * **Read by nothing, and waiting for its drop** (`#1549`).
-     *
-     * Mute was *keep it in my list, stop telling me about it*, frozen as `#1447`
-     * decision 4 and built by `#1449`. The distinction from archive was logically
-     * clean and it was answering a problem this system does not have: mute
-     * presupposes a flood, and `#1451` caps notifications at **one per thread per
-     * person per day**. **In its whole life nobody used it** — 0 of 107
-     * participants, measured 2026-08-21 — so the console carried two buttons
-     * beside every thread of which one had never solved anything.
-     *
-     * The column stays for exactly one deploy. AGENTS.md §3: a migration that
-     * drops waits for the deploy that stopped reading, and `0261` is the worked
-     * example of getting that wrong. **This commit is the deploy that stopped
-     * reading**; the drop is its own migration behind it, and nothing is migrated
-     * because the column is null in all 107 rows.
-     *
-     * **What would bring mute back**: a measurement showing threads a person
-     * wants in their list and does not want to hear about. That is the bar, and
-     * it is deliberately higher than the anecdote this was built on.
-     */
-    mutedUntil: timestamp('muted_until', { withTimezone: true, mode: 'string' }),
-
-    /**
      * How far this party has read.
      *
      * A message id and not a timestamp, because it is a *cursor*: two messages
@@ -337,6 +314,11 @@ export const messageParticipants = pgTable(
      * its whole life nobody used it**: 0 of 107 participants, measured
      * 2026-08-21. What would bring it back is a measurement showing threads a
      * person wants in their list and does not want to hear about.
+     *
+     * **The column is gone** (`#1562`). `#1561` was the deploy that stopped
+     * reading it and this is the migration behind it, which is the order
+     * `AGENTS.md` §3 requires and `0261` is the worked example of getting wrong.
+     * Nothing was migrated: the column was null in all 107 rows.
      *
      * ## Per participant, not per conversation
      *

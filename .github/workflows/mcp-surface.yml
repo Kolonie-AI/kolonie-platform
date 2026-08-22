@@ -168,11 +168,14 @@ jobs:
       contents: write
       # The sticky comment, and the floor's own pull request.
       pull-requests: write
-      # **`gh workflow run` on the floor branch, and that is not optional**
-      # (`#1566`). A pull request opened with `GITHUB_TOKEN` creates no workflow
-      # runs — GitHub's own loop guard — so the required check would never report
-      # and the queue would never take it. `workflow_dispatch` is the documented
-      # exception to that guard, and `ci.yml` has had the trigger since `#1171`.
+      # **`gh workflow run` on the floor branch, for the degraded path** — kept
+      # because the dispatch is what runs when `FLOOR_BOT_TOKEN` is absent
+      # (`#1587`). `#1566` needed it always: a pull request opened with
+      # `GITHUB_TOKEN` creates no workflow runs, GitHub's own loop guard, so the
+      # required check would never report. `workflow_dispatch` is the documented
+      # exception and `ci.yml` has had the trigger since `#1171`. What `#1587`
+      # established is that the dispatched run does not *satisfy* the
+      # requirement, only produce a verdict — so with a real actor it is not run.
       actions: write
 
     steps:
@@ -388,7 +391,23 @@ jobs:
         if: steps.floor.outputs.moved != '' && github.event_name == 'push'
         env:
           MOVED: ${{ steps.floor.outputs.moved }}
-          GH_TOKEN: ${{ github.token }}
+          # **A real actor, and that is the whole of `#1587`.** A pull request
+          # opened with `GITHUB_TOKEN` is authored by `app/github-actions`, which
+          # is not a repository collaborator, and this organisation's approval
+          # policy is `all_external_contributors`. Every `pull_request` run on
+          # such a branch finishes `action_required` — held for a maintainer's
+          # button — so the required check `format, lint, build, typecheck, test`
+          # reads *Expected* forever and the queue never takes the entry.
+          #
+          # Measured on `#1585` and again on `#1590`: three held runs apiece, and
+          # a dispatched CI run beside them that is green and does not count.
+          #
+          # The policy is org-wide and guards every fork, so it is not what moves.
+          # `FLOOR_BOT_TOKEN` belongs to a collaborator; falling back to
+          # `github.token` keeps the degraded path working where the secret is
+          # absent, which is what the dispatch below is still for.
+          GH_TOKEN: ${{ secrets.FLOOR_BOT_TOKEN || github.token }}
+          FLOOR_TOKEN: ${{ secrets.FLOOR_BOT_TOKEN }}
           BRANCH: automation/catalogue-floor
         run: |
           set -euo pipefail
@@ -431,7 +450,20 @@ jobs:
           # that is queued is about to land, and the run after it re-measures.
           # Everything else is a failure and says so — this job being unable to
           # land the figure silently is the whole of `#1566`.
-          if ! git push --force origin "HEAD:${BRANCH}" 2>push.err; then
+          #
+          # **The push carries the same actor as the pull request** (`#1587`).
+          # `checkout` leaves an `extraheader` holding `GITHUB_TOKEN`, and that
+          # header beats credentials in the URL — so it is unset rather than
+          # worked around. A branch updated by `GITHUB_TOKEN` creates no
+          # `synchronize` runs, which would leave the required check reporting a
+          # head two measurements old.
+          if [ -n "${FLOOR_TOKEN}" ]; then
+            git config --unset-all 'http.https://github.com/.extraheader' || true
+            REMOTE="https://x-access-token:${FLOOR_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          else
+            REMOTE=origin
+          fi
+          if ! git push --force "$REMOTE" "HEAD:${BRANCH}" 2>push.err; then
             cat push.err
             if grep -q 'queued for merging' push.err; then
               echo "::notice::the floor branch is in the queue; the next run re-measures"
@@ -464,15 +496,21 @@ jobs:
             exit 1
           fi
 
-          # **Nothing else will start CI on this branch.** A pull request opened
-          # with `GITHUB_TOKEN` creates no workflow runs, so without this the
-          # required check never reports and the entry is never takeable by the
-          # queue. `workflow_dispatch` is the exception GitHub documents, and
-          # `#1171` put the trigger on `ci.yml` for exactly this shape of problem.
-          gh workflow run ci.yml --ref "${BRANCH}" || {
-            echo "::error::could not start CI on ${BRANCH}; the floor pull request will not go green by itself"
-            exit 1
-          }
+          # **The degraded path only** (`#1587`). A pull request opened with
+          # `GITHUB_TOKEN` creates no workflow runs — GitHub's own loop guard —
+          # and `#1566` dispatched CI by hand to get a verdict at all. `#1587`
+          # then measured what that verdict is worth: a `workflow_dispatch` run
+          # is not the `pull_request` run the branch protection names, so it goes
+          # green beside a required check that still reads *Expected*.
+          #
+          # With a real actor the `pull_request` runs exist and report, and there
+          # is nothing to dispatch. Without one this is still better than silence.
+          if [ -z "${FLOOR_TOKEN}" ]; then
+            gh workflow run ci.yml --ref "${BRANCH}" || {
+              echo "::error::could not start CI on ${BRANCH}; the floor pull request will not go green by itself"
+              exit 1
+            }
+          fi
 
           # A lowering still lands without anybody asking, and so does a raise:
           # the queue is the reviewer, and the sentence it judges is in the body.

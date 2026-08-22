@@ -19,5 +19,20 @@ This repository is licensed under two licenses, on purpose.
 
 The same split applies to the skill repositories, which are Apache-2.0.
 
+Third party
+-----------
+
+  Font Awesome Free — icons CC BY 4.0, fonts SIL OFL 1.1, code MIT
+      Copyright 2026 Fonticons, Inc. — https://fontawesome.com/license/free
+
+      The Atlas icon set in apps/api/src/atlas/icons.ts is generated from the
+      Font Awesome Free icons named in scripts/build-atlas-icons.mjs. Only the
+      path data is taken and it is inlined into the served HTML; no webfont,
+      stylesheet or CDN is used, and the package is a devDependency.
+
+      CC BY 4.0 requires attribution, which is what this paragraph is, and the
+      generated file carries it as well so that a reader of the icons sees it
+      without going looking.
+
 The copyright holder is Kolonie AI FZ-LLC, a Dubai Free Zone company in
 formation as of 2026-07-27. See governance/legal-structure.md in kolonie-docs.

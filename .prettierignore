@@ -12,6 +12,15 @@ packages/db/drizzle/meta
 # The generated storage barrel (#271). See .gitignore.
 packages/db/src/storage/index.ts
 
+# The Atlas icon set (#1409), written by `scripts/build-atlas-icons.mjs` from
+# Font Awesome Free. Committed rather than gitignored — a reader of the Atlas
+# should be able to see the path data without installing anything — but not
+# formatted: the path `d` attributes are single tokens of several hundred
+# characters, so Prettier only chooses where to break the lines around them and
+# then disagrees with the generator on the next run. `check:atlas-icons` is what
+# keeps it honest instead, and it compares bytes.
+apps/api/src/atlas/icons.ts
+
 # The enumeration probe (#1190). See .gitignore. It exists for the length of one
 # test, and formatting it is a race rather than a rule.
 packages/db/vitest.*-probe.config.ts

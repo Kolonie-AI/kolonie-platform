@@ -1739,7 +1739,21 @@ function criteriaBox(criteria: readonly AtlasCriterion[], briefed: boolean): str
     .map((one) => `<dt>${escape(one.question)}</dt><dd>${escape(one.answer)}</dd>`)
     .join('')
 
-  return `<dl class="k-atlas-criteria">${rows}</dl>`
+  /**
+   * **The box gets a heading of its own** (`#1409`). It was a bare `<dl>`
+   * between two headed sections, so a reader arriving at it had to infer from
+   * the first question what the whole block was — and `#1326` decision 6's
+   * argument for a definition list, that it degrades readably with no CSS,
+   * works against it here: with no styling the rows run straight on from
+   * whatever preceded them.
+   *
+   * The mark is decorative and sits beside its own word, which is decision 7
+   * and the only rule the icon set has.
+   */
+  return (
+    `<section><h2>${atlasIcon('question')}Questions somebody asked about this provider</h2>` +
+    `<dl class="k-atlas-criteria">${rows}</dl></section>`
+  )
 }
 
 /**

@@ -162,3 +162,4 @@ resolved in an issue before anything is built on them.
 - [D-132](decisions/D-132-the-changelog-is-the-directory-and-the-file-is-not-tracked.md) — The changelog is the directory, and the produced file is not tracked · 2026-08-22
 - [D-133](decisions/D-133-the-console-navigation-carries-no-unread-count.md) — The console navigation carries no unread count · 2026-08-22
 - [D-134](decisions/D-134-what-an-operator-facing-mechanism-owes.md) — What an operator-facing mechanism owes, and when it is done · 2026-08-22
+- [D-135](decisions/D-135-the-atlas-icon-set-comes-from-a-library.md) — The Atlas icon set comes from a library, not from us · 2026-08-22

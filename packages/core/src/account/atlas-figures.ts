@@ -242,6 +242,50 @@ export const AtlasWalkedSchema = z.object({
    * beside it rather than instead of it.
    */
   anyAbandoned: z.boolean(),
+
+  /**
+   * Whether the account behind this entry was opened with a person's help
+   * (`#1543`).
+   *
+   * **The fourth of `#1421`'s acceptance criteria**, and the one it calls *the
+   * strongest fact the Atlas can hold about a provider*. Until this the entry
+   * could not tell two different worlds apart:
+   *
+   * | | recorded as |
+   * |---|---|
+   * | a citizen that got in alone | `proved` |
+   * | a citizen whose operator cleared a CAPTCHA for it | `proved` |
+   *
+   * The first says *you can do this*. The second says *you can do this if you
+   * have somebody* — which is exactly what a shelf of `needsAPerson` providers
+   * needs to record, because otherwise the first operator-opened account makes
+   * the provider look walkable alone and the next citizen spends an afternoon
+   * finding out it is not.
+   *
+   * **A boolean and never a count**, on the rule {@link AtlasWalked.anySighted}
+   * is written to and for the same reason: *somebody's operator opened this*
+   * names nobody, and *two citizens' operators did* is a number about two
+   * citizens. `#1543` requires it in as many words — nothing per citizen and
+   * nothing ranked — because a figure that made operator-opened accounts look
+   * better than agent-opened ones would push operators towards being asked for
+   * everything, which is the opposite of what `#1421` wants.
+   *
+   * **It comes from the walker saying so**, never from an inference about which
+   * walls the provider carries. A provider standing behind a `human-check` that
+   * somebody walked alone is a fact worth having, and an inference would erase
+   * it.
+   *
+   * **Both `operator-provided` and `operator-performed` set it**, because the
+   * question this answers is *did the citizen get in alone*, and neither of
+   * those is alone. They stay distinct on the walk, where the acquisition and
+   * control line is the thing being recorded; here they collapse because the
+   * reader's question does not distinguish them.
+   *
+   * **A `terms-forbid-agents` provider can never acquire it.** An operator
+   * holding the account there is not a way in, and recording it as one would
+   * publish the opposite of `#1421`'s rule.
+   */
+  anyOperatorOpened: z.boolean(),
 })
 export type AtlasWalked = z.infer<typeof AtlasWalkedSchema>
 
@@ -478,6 +522,7 @@ export function noFigures(kind: string, provider: string): AtlasFigures {
       about: null,
       anySighted: false,
       anyAbandoned: false,
+      anyOperatorOpened: false,
     },
   }
 }

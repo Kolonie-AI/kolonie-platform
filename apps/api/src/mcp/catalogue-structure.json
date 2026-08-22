@@ -1,5 +1,5 @@
 {
-  "measuredAt": "2026-08-21",
+  "measuredAt": "2026-08-22",
   "command": "npm run catalogue-structure",
   "tools": [
     {
@@ -998,6 +998,10 @@
       "schema": {
         "properties": {
           "about": {
+            "type": "string"
+          },
+          "assistance": {
+            "enum": ["unknown", "none", "operator-provided", "operator-performed"],
             "type": "string"
           },
           "broke": {

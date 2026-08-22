@@ -1,0 +1,2 @@
+ALTER TABLE "account_walks" ADD COLUMN "assistance" text DEFAULT 'unknown' NOT NULL;--> statement-breakpoint
+ALTER TABLE "account_walks" ADD CONSTRAINT "account_walks_assistance_is_known" CHECK ("account_walks"."assistance" in ('unknown', 'none', 'operator-provided', 'operator-performed'));

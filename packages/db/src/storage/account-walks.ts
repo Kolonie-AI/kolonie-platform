@@ -49,6 +49,7 @@ import {
   type AtlasCategorySlug,
   type ProviderRecipe,
   type ProviderTerms,
+  type Assistance,
   type RecipeDirection,
   type RecipeOperatorGuess,
   type SignupCost,
@@ -1148,6 +1149,13 @@ type WalkFinishInput = {
    */
   readonly direction?: RecipeDirection | null
   /**
+   * Whether a person did any of it, as the walker declared it (`#1543`).
+   *
+   * Absent means `unknown` and never `none`, which is `AssistanceSchema`'s own
+   * rule: an absent declaration must not read as a claim that nobody helped.
+   */
+  readonly assistance?: Assistance | null
+  /**
    * Whether this is a converted provider verdict rather than a described walk
    * (`#1036`).
    *
@@ -1313,6 +1321,12 @@ export async function finishWalk(
         filedTags: input.tags == null ? null : [...new Set(input.tags)],
         recipe: input.recipe ?? null,
         direction: input.direction ?? null,
+        /**
+         * **`unknown` when nothing was declared** (`#1543`), never `none`. The
+         * column's own default says the same thing; writing it explicitly here
+         * keeps a re-close from carrying a previous attempt's declaration.
+         */
+        assistance: input.assistance ?? 'unknown',
         fromProviderReport: input.fromProviderReport ?? false,
         scrubbedProse: null,
         /**

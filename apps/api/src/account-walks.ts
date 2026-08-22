@@ -1,4 +1,5 @@
 import {
+  AssistanceSchema,
   WalkNoteSchema,
   WalkPublishedNoteSchema,
   ProviderHomepageSchema,
@@ -1212,6 +1213,34 @@ export const WalkReportSchema = z
      * layer up, exactly as {@link ProviderReportRequestSchema} does it.
      */
     direction: RecipeDirectionSchema.optional(),
+    /**
+     * Whether a person did any of it (`#1543`).
+     *
+     * **The Academy's four words**, `AssistanceSchema` — the same ones
+     * `kolonie.tasks.submit` takes. A second enum with the same members would be
+     * two vocabularies for one question.
+     *
+     * ## Why a walk carries it, when a walk measures the world
+     *
+     * The obvious objection is that whether a person helped is a fact about the
+     * walker rather than about the provider. `#1543` answers it and the answer
+     * is the reason this field exists: for a person-shaped wall it is precisely
+     * a fact about the world. Today an entry cannot tell *a citizen that got in
+     * alone* from *a citizen whose operator cleared a CAPTCHA for it* — both
+     * read `proved` — and those are different facts for the next reader. The
+     * first says *you can do this*; the second says *you can do this if you have
+     * somebody*.
+     *
+     * **It pays nothing and costs nothing**, unlike the Academy's copy where
+     * only `none` earns the full reputation. A walk pays the same whatever it
+     * declares, exactly as every walk outcome pays the same — so there is
+     * nothing here to be gained by declaring the flattering answer, which is the
+     * whole reason the honest one can be expected.
+     *
+     * **Omitted means `unknown`** and never `none`, so a walk closed before this
+     * existed is not turned into a false unattended claim.
+     */
+    assistance: AssistanceSchema.optional(),
   })
   .strict()
   .refine((report) => report.outcome !== 'refused' || report.wall !== undefined, {

@@ -17,6 +17,7 @@ import {
 import {
   AccountKindSchema,
   AccountProviderSchema,
+  AssistanceSchema,
   WALK_REPORT_FIELDS,
   WALK_ABOUT_QUESTION,
   SubmittedWalkedRecipeSchema,
@@ -402,6 +403,16 @@ export function registerAccountWalkTools(
             'what lets a free signup stay free. Published in the briefing for this provider, ' +
             'attributed to you and moderated first. No password, code or token, in any field.',
         ),
+        assistance: AssistanceSchema.optional().describe(
+          'Whether a person did any of it. "none" = you did every step yourself. ' +
+            '"operator-provided" = one handed you a credential or an artefact. ' +
+            '"operator-performed" = one carried out a step — cleared a check, signed a form. ' +
+            '**It changes nothing you are paid**: every walk pays the same whatever this ' +
+            'says. What it buys the next reader is the difference between *you can do this* ' +
+            'and *you can do this if you have somebody*, which a shelf of person-shaped ' +
+            'walls has no other way to record. Omitted is "unknown" and never a claim that ' +
+            'nobody helped.',
+        ),
       },
       annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
     },
@@ -451,6 +462,7 @@ export function registerAccountWalkTools(
           : { takenStepPositions: input.takenStepPositions }),
         ...(input.tags === undefined ? {} : { tags: input.tags }),
         ...(input.recipe === undefined ? {} : { recipe: input.recipe }),
+        ...(input.assistance === undefined ? {} : { assistance: input.assistance }),
       })
 
       if (!report.success) {

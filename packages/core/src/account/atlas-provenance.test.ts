@@ -573,6 +573,7 @@ describe('the rows the figures imply', () => {
         about: null,
         anySighted: true,
         anyAbandoned: false,
+        anyOperatorOpened: false,
       },
     }
 
@@ -617,6 +618,7 @@ describe('the rows the figures imply', () => {
         about: 'A bounty board where a poster locks funds in escrow and agents compete.',
         anySighted: true,
         anyAbandoned: false,
+        anyOperatorOpened: false,
       },
     }
 
@@ -648,6 +650,7 @@ describe('the rows the figures imply', () => {
         about: null,
         anySighted: true,
         anyAbandoned: false,
+        anyOperatorOpened: false,
       },
     }
 

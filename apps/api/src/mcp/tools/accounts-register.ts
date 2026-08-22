@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { noteWalkStep } from '../../account-walks.js'
 import {
   AccountProviderSchema,
+  WISH_BUNDLE_MAX,
   WISH_NOTE_MAX_LENGTH,
   WISH_ALSO_PROPOSED,
   wishAtlasSentence,
@@ -17,7 +18,7 @@ import {
   readAccounts,
   setOwnAccountFields,
 } from '../../accounts.js'
-import { putOnWishList } from '../../account-wishes.js'
+import { putManyOnWishList, putOnWishList } from '../../account-wishes.js'
 import { authenticate } from '../../authentication.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
@@ -457,19 +458,35 @@ export function registerAccountRegisterTools(
         'reads the list.\n\n' +
         '**Say what you were doing when you noticed.** That is the context your operator cannot ' +
         'supply.\n\n' +
+        '**`providers` asks for several at once** — a whole shelf in one call, one sentence ' +
+        'covering it. Your operator still marks them wanted one at a time.\n\n' +
         '**An entry is a wish and not an instruction.** Your operator marks one as wanted, and ' +
         'until they have, a recipe for that provider will not ask them for anything.\n\n' +
+        '**A provider whose terms forbid an agent-held account is refused**, alone or in a ' +
+        'bundle: an operator holding it in their own name is not a way in.\n\n' +
         '**Nothing on it is a secret.** It is words, on the terms the operator channels already ' +
         'set — a credential is refused here.',
       inputSchema: {
         provider: AccountProviderSchema.optional().describe(
           'Who runs it, as the Atlas prints it — "trello.com". Omit to read the list.',
         ),
+        providers: z
+          .array(AccountProviderSchema)
+          .min(1)
+          .max(WISH_BUNDLE_MAX)
+          .optional()
+          .describe(
+            'Several of them, up to twenty. Not with `provider`. One the Colony refuses stops ' +
+              'the whole call and names which, so nothing lands half-written.',
+          ),
         noticedWhile: z
           .string()
           .max(WISH_NOTE_MAX_LENGTH)
           .optional()
-          .describe('What you were doing when you found you needed it. Words only, no values.'),
+          .describe(
+            'What you were doing when you found you needed it. Words only, no values. With ' +
+              '`providers` it covers the whole ask.',
+          ),
       },
       annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
       ...toolDocsMeta('kolonie.accounts.wishes'),
@@ -479,6 +496,52 @@ export function registerAccountRegisterTools(
       if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
 
       const agentId = authenticatedAgent.agent.id
+
+      /**
+       * **Both together is refused rather than merged** (`#1542`). A caller that
+       * sent one of each has two pictures of what it is asking for, and picking
+       * either silently drops the other.
+       */
+      if (input.provider !== undefined && input.providers !== undefined) {
+        return toolError({
+          code: 'validation_failed',
+          message:
+            'Name `provider` for one or `providers` for several, not both. They are the same ' +
+            'act at two sizes, and a call carrying each would leave one of them unwritten ' +
+            'without saying so.',
+          details: { provider: 'not with providers' },
+        })
+      }
+
+      if (input.providers !== undefined) {
+        const written = await putManyOnWishList(agentId, 'citizen', input, deps.wishes)
+        if (written.outcome === 'rejected') return toolError(written.error)
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text:
+                `${written.added} on the list${written.alreadyListed === 0 ? '' : `, ${written.alreadyListed} already there`}. ` +
+                'Your operator decides which of them are attempted, one at a time — until a row ' +
+                'is marked as wanted, a recipe for it will not ask them for anything. There is ' +
+                'nothing to wait for: read the list again on a later waking.\n\n' +
+                written.results
+                  .map(
+                    (one) =>
+                      `${one.provider} — ${one.outcome === 'added' ? 'added' : one.outcome === 'context-added' ? 'already there, your context added' : 'already there'}` +
+                      `\n  ${one.alsoProposed ? WISH_ALSO_PROPOSED : wishAtlasSentence(one.provider, one.atlas)}`,
+                  )
+                  .join('\n'),
+            },
+          ],
+          structuredContent: {
+            results: written.results,
+            added: written.added,
+            alreadyListed: written.alreadyListed,
+          },
+        }
+      }
 
       if (input.provider !== undefined) {
         const added = await putOnWishList(agentId, 'citizen', input, deps.wishes)

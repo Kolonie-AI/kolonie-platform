@@ -1211,6 +1211,17 @@
             "minLength": 1,
             "pattern": "^[a-z0-9][a-z0-9.+_-]*$",
             "type": "string"
+          },
+          "providers": {
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[a-z0-9][a-z0-9.+_-]*$",
+              "type": "string"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "type": "array"
           }
         },
         "type": "object"

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { AgentId } from '@kolonie-ai/core'
-import { putOnWishList, selectBundle } from './account-wishes.js'
+import { WISH_BUNDLE_MAX, type AgentId } from '@kolonie-ai/core'
+import { putManyOnWishList, putOnWishList, selectBundle } from './account-wishes.js'
 import { fakeWishList } from './__fixtures__/account-wishes.js'
 
 /**
@@ -167,5 +167,194 @@ describe('taking a bundle', () => {
     const result = await selectBundle(agentId, { slug: 'not-a-bundle' }, fakeWishList())
 
     expect(result.outcome).toBe('no-such-bundle')
+  })
+})
+
+/**
+ * One ask covering several providers (`#1542`).
+ *
+ * **The third of `#1421`'s four acceptance criteria**, built as shape (1) — the
+ * list is already the bundle a person reads, so *ask once for five* is *put five
+ * on the list*. What these tests hold is the two properties that make it an ask
+ * rather than a shortcut: a provider no operator could hold never enters, and
+ * the operator still answers row by row.
+ */
+describe('asking for several providers at once', () => {
+  const agentId = '11111111-1111-4111-8111-111111111111' as AgentId
+
+  it('puts the whole shelf on the list in one call', async () => {
+    const deps = fakeWishList()
+    const result = await putManyOnWishList(
+      agentId,
+      'citizen',
+      {
+        providers: ['0din.ai', 'Arena42.ai', 'bugcrowd.com'],
+        noticedWhile: 'Every earn provider I can reach stands behind a person-shaped wall.',
+      },
+      deps,
+    )
+
+    if (result.outcome !== 'written') throw new Error('not written')
+    expect(result.added).toBe(3)
+    expect(deps.store.held(agentId).map((wish) => wish.provider)).toEqual([
+      '0din.ai',
+      // Parsed the same way the single write parses it, so case is folded.
+      'arena42.ai',
+      'bugcrowd.com',
+    ])
+  })
+
+  /**
+   * **A bundle is an ask, not an all-or-nothing** (`#1542`). It arrives together
+   * and nothing about it is marked wanted — the operator answers each row on the
+   * console, and may say yes to some and no to others.
+   */
+  it('marks nothing as wanted', async () => {
+    const deps = fakeWishList()
+    await putManyOnWishList(agentId, 'citizen', { providers: ['0din.ai', 'gain.gg'] }, deps)
+
+    expect(deps.store.held(agentId).every((wish) => wish.wantedAt === null)).toBe(true)
+  })
+
+  it('carries one sentence across the whole ask', async () => {
+    const deps = fakeWishList()
+    await putManyOnWishList(
+      agentId,
+      'citizen',
+      { providers: ['0din.ai', 'gain.gg'], noticedWhile: 'The earn shelf is scouted and shut.' },
+      deps,
+    )
+
+    expect(deps.store.held(agentId).map((wish) => wish.noticedWhile)).toEqual([
+      'The earn shelf is scouted and shut.',
+      'The earn shelf is scouted and shut.',
+    ])
+  })
+
+  it('reports what was already there rather than failing on it', async () => {
+    const deps = fakeWishList()
+    await putOnWishList(agentId, 'citizen', { provider: '0din.ai' }, deps)
+
+    const result = await putManyOnWishList(
+      agentId,
+      'citizen',
+      { providers: ['0din.ai', 'gain.gg'] },
+      deps,
+    )
+
+    if (result.outcome !== 'written') throw new Error('not written')
+    expect(result.added).toBe(1)
+    expect(result.alreadyListed).toBe(1)
+    // Every provider is reported, so a caller can tell "unchanged" from "dropped".
+    expect(result.results.map((one) => one.provider)).toEqual(['0din.ai', 'gain.gg'])
+  })
+
+  it('writes one row for a provider named twice', async () => {
+    const deps = fakeWishList()
+    const result = await putManyOnWishList(
+      agentId,
+      'citizen',
+      { providers: ['0din.ai', '0din.ai'] },
+      deps,
+    )
+
+    if (result.outcome !== 'written') throw new Error('not written')
+    expect(result.added).toBe(1)
+    // Not an `already-listed` the caller caused itself.
+    expect(result.alreadyListed).toBe(0)
+    expect(deps.store.held(agentId)).toHaveLength(1)
+  })
+
+  /**
+   * `#1421`'s rule, and the one wall `PERSON_SHAPED_WALLS` says can never be on
+   * the list: an operator holding the account there is not a way in.
+   */
+  describe('a provider whose terms forbid an agent-held account', () => {
+    it('refuses the whole ask and names which', async () => {
+      const deps = fakeWishList()
+      deps.store.forbid('huntr.com')
+
+      const result = await putManyOnWishList(
+        agentId,
+        'citizen',
+        { providers: ['0din.ai', 'huntr.com', 'gain.gg'] },
+        deps,
+      )
+
+      expect(result.outcome).toBe('rejected')
+      if (result.outcome !== 'rejected') throw new Error('not rejected')
+      expect(result.error.message).toContain('huntr.com')
+      // Nothing lands half-written, so the repair is one call rather than a diff.
+      expect(deps.store.held(agentId)).toEqual([])
+    })
+
+    /**
+     * **The same refusal on the single write**, because a rule the plural call
+     * enforces and the singular one does not is a rule a caller gets past by
+     * sending five requests.
+     */
+    it('is refused one at a time as well', async () => {
+      const deps = fakeWishList()
+      deps.store.forbid('huntr.com')
+
+      const result = await putOnWishList(agentId, 'citizen', { provider: 'huntr.com' }, deps)
+
+      expect(result.outcome).toBe('rejected')
+      if (result.outcome !== 'rejected') throw new Error('not rejected')
+      expect(result.error.message).toContain('huntr.com')
+      expect(deps.store.held(agentId)).toEqual([])
+    })
+
+    it('lets everything else through once it is dropped', async () => {
+      const deps = fakeWishList()
+      deps.store.forbid('huntr.com')
+
+      const result = await putManyOnWishList(
+        agentId,
+        'citizen',
+        { providers: ['0din.ai', 'gain.gg'] },
+        deps,
+      )
+
+      if (result.outcome !== 'written') throw new Error('not written')
+      expect(result.added).toBe(2)
+    })
+  })
+
+  describe('nothing in it is a secret either', () => {
+    it('refuses a credential in the shared sentence', async () => {
+      const result = await putManyOnWishList(
+        agentId,
+        'citizen',
+        {
+          providers: ['0din.ai', 'gain.gg'],
+          noticedWhile: 'my api key is sk-live-4eC39HqLyjWDarjtT1zdp7dc',
+        },
+        fakeWishList(),
+      )
+
+      expect(result.outcome).toBe('rejected')
+      if (result.outcome !== 'rejected') throw new Error('not rejected')
+      expect(JSON.stringify(result.error)).not.toContain('sk-live-4eC39HqLyjWDarjtT1zdp7dc')
+    })
+  })
+
+  describe('what the ask will not take', () => {
+    it('refuses an empty list', async () => {
+      const result = await putManyOnWishList(agentId, 'citizen', { providers: [] }, fakeWishList())
+
+      expect(result.outcome).toBe('rejected')
+    })
+
+    /**
+     * The ceiling is on the ask rather than on the list: what is bounded is how
+     * many arrive in front of a person at once.
+     */
+    it('refuses more than the bundle ceiling', async () => {
+      const providers = Array.from({ length: WISH_BUNDLE_MAX + 1 }, (_, at) => `p${at}.example`)
+      const result = await putManyOnWishList(agentId, 'citizen', { providers }, fakeWishList())
+
+      expect(result.outcome).toBe('rejected')
+    })
   })
 })

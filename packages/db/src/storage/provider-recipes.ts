@@ -19,6 +19,7 @@ import {
   RecipeStepSchema,
   PublishedWallSchema,
   type PublishedWall,
+  WALLS_NO_OPERATOR_CAN_CLEAR,
   kindHasDirection,
   operatorNeed,
   recipeStatusIsPublic,
@@ -587,6 +588,59 @@ export async function providerRecipe(
   ])
 
   return toRecipe(row, shelves.get(row.id), earn.get(row.id), tags.get(row.id))
+}
+
+/**
+ * Which of these providers no operator can open on an agent's behalf (`#1542`).
+ *
+ * **The one wall that is a fact about permission rather than about difficulty.**
+ * `WALLS_NO_OPERATOR_CAN_CLEAR` holds `terms-forbid-agents` and holds it alone:
+ * an operator who signs up there holds the account in their own name and lends
+ * it, which is the arrangement the Colony decided against. So the answer to
+ * *may I put this in front of my operator* is no, and it is no before anybody
+ * has spent a person's attention finding out.
+ *
+ * **Any kind disqualifies the provider, not just the kind being asked for.**
+ * A provider's terms are the provider's, and an entry that recorded the refusal
+ * under `bounty-board` is describing the same document as the one under
+ * `gig-marketplace`. Reading only the asked-for kind would let a citizen reach a
+ * forbidden provider by naming the shelf it was not written down on.
+ *
+ * **One query for the whole ask.** A bundle is up to `WISH_BUNDLE_MAX`
+ * providers and a lookup each would be an n+1 in front of a write that is
+ * supposed to be the cheap way to ask for several.
+ */
+export async function providersForbiddingAgents(
+  db: Handle,
+  providers: readonly string[],
+): Promise<ReadonlySet<string>> {
+  if (providers.length === 0) return new Set()
+
+  const asked = [...new Set(providers.map((one) => AccountProviderSchema.parse(one)))]
+
+  const rows = await db
+    .select({ provider: providerRecipes.provider, walls: providerRecipes.walls })
+    .from(providerRecipes)
+    .where(inArray(providerRecipes.provider, asked))
+
+  const forbidden = new Set<string>()
+  for (const row of rows) {
+    /**
+     * Filtered here rather than in SQL. The walls are a `jsonb` array of
+     * objects, so a containment predicate would have to name the shape of a
+     * `PublishedWall` in a query string — and the list of walls that disqualify
+     * lives in `core`, where the argument for it is written. A set this size is
+     * cheaper to intersect in memory than to keep in step with a hand-written
+     * operator.
+     */
+    const walls: readonly PublishedWall[] = row.walls
+    if (
+      walls.some((wall) => (WALLS_NO_OPERATOR_CAN_CLEAR as readonly string[]).includes(wall.kind))
+    )
+      forbidden.add(row.provider)
+  }
+
+  return forbidden
 }
 
 /**

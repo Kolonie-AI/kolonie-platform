@@ -1,6 +1,7 @@
 import {
   AccountProviderSchema,
   AddWishSchema,
+  AddWishesSchema,
   SelectBundleSchema,
   credentialFinding,
   credentialRefusalMessage,
@@ -15,6 +16,7 @@ import {
   bundleNamed,
   bundles,
   markWanted,
+  providersForbiddingAgents,
   removeWish,
   wantedProviderCounts,
   wishBlocksHandoff,
@@ -98,6 +100,15 @@ export interface WishStore {
   bundles(): Promise<readonly BundleView[]>
   /** One of them, by name. */
   bundle(slug: string): Promise<BundleView | undefined>
+  /**
+   * Which of these the Colony will not put in front of an operator (`#1542`).
+   *
+   * **On the store rather than computed at the call site**, because the answer
+   * is a read of the catalogue and every surface that writes a wish needs the
+   * same one. A route that asked the Atlas itself would be a second place the
+   * rule could drift from `WALLS_NO_OPERATOR_CAN_CLEAR`.
+   */
+  forbidsAgents(providers: readonly string[]): Promise<ReadonlySet<string>>
 }
 
 export function databaseWishes(db: Database): WishStore {
@@ -111,6 +122,7 @@ export function databaseWishes(db: Database): WishStore {
     wanted: () => wantedProviderCounts(db),
     bundles: () => bundles(db),
     bundle: (slug) => bundleNamed(db, slug),
+    forbidsAgents: (providers) => providersForbiddingAgents(db, providers),
   }
 }
 
@@ -170,6 +182,37 @@ export type AddWishResult =
       readonly atlas: WishAtlasAnswer
     }
   | { readonly outcome: 'rejected'; readonly error: ApiError }
+
+/**
+ * The refusal a provider gets when no operator could hold the account (`#1542`).
+ *
+ * **Named once and used by both the single write and the bundle**, because a
+ * rule enforced on the plural call and not the singular one is a rule a caller
+ * gets past by sending five requests. `#1542`'s acceptance asks only that
+ * `terms-forbid-agents` cannot enter *the bundle*; applying it to one provider
+ * as well is the wider reading, and it is the one taken here — the tool is one
+ * tool, the intention is the same intention, and the narrow version would leave
+ * the hole open on the path citizens already use.
+ *
+ * **It names the Atlas rather than only refusing.** A citizen told *no* with no
+ * next move asks again next waking; a citizen told where the terms are recorded
+ * can go and read them, and can file a walk if the entry is wrong.
+ */
+function forbiddenProviderRefusal(providers: readonly string[]): ApiError {
+  const named = [...providers].sort()
+
+  return {
+    code: 'validation_failed',
+    message:
+      `${named.length === 1 ? 'That provider forbids' : 'These providers forbid'} an ` +
+      `account held by an agent: ${named.join(', ')}. An operator signing up there would ` +
+      'hold the account in their own name and lend it to you, which is not a way in — so ' +
+      'the Colony will not put it on a list your operator is asked to act on. Read what the ' +
+      'terms say with kolonie.accounts.recipes, and file a walk if the entry is wrong. ' +
+      'Everything else you named is unaffected: send it again without these.',
+    details: { forbidden: named.join(', ') },
+  }
+}
 
 /**
  * Put something on the list, from either side.
@@ -237,6 +280,11 @@ export async function putOnWishList(
     }
   }
 
+  const forbidden = await deps.store.forbidsAgents([provider.data])
+  if (forbidden.size > 0) {
+    return { outcome: 'rejected', error: forbiddenProviderRefusal([...forbidden]) }
+  }
+
   const result = await deps.store.add({
     agentId,
     provider: provider.data,
@@ -245,6 +293,132 @@ export async function putOnWishList(
   })
 
   return result
+}
+
+/** What happened to a bundled ask (`#1542`). */
+export type AddWishesResult =
+  | {
+      readonly outcome: 'written'
+      /**
+       * One entry per provider, in the order they were sent.
+       *
+       * **Every provider is reported, including the ones already there.** A
+       * citizen sending the whole `needsAPerson` shelf twice needs to know that
+       * the second call changed nothing rather than that it failed, and a
+       * response listing only what moved would be indistinguishable from one
+       * that silently dropped rows.
+       */
+      readonly results: readonly {
+        readonly provider: string
+        readonly outcome: 'added' | 'context-added' | 'already-listed'
+        readonly wish: Wish
+        readonly alsoProposed: boolean
+        readonly atlas: WishAtlasAnswer
+      }[]
+      readonly added: number
+      readonly alreadyListed: number
+    }
+  | { readonly outcome: 'rejected'; readonly error: ApiError }
+
+/**
+ * Put several providers on the list in one ask (`#1542`).
+ *
+ * ## All or nothing, and why that is the right way round here
+ *
+ * **A provider the Colony refuses stops the whole call**, and nothing is
+ * written. The alternative — write the acceptable ones and report the rest —
+ * reads better in a changelog and is worse in practice: a citizen that sent five
+ * and got three has to work out which two, and the natural repair is to send the
+ * five again. Refusing the ask outright makes the next call obvious, and the
+ * refusal names exactly which providers to drop.
+ *
+ * **That is the opposite of `selectBundle`'s behaviour and deliberately so.**
+ * There an operator is looking at a rendered list and taking entries out by
+ * hand, so a refusal shown beside a row is something a person can act on. Here
+ * nobody is looking.
+ *
+ * ## What it does not do
+ *
+ * **Nothing is marked wanted.** This writes wishes, exactly as the single call
+ * does; the mark that turns one into something a recipe may act on is the
+ * operator's, made on the console, one at a time. That is what `#1542` means by
+ * *a bundle is an ask, not an all-or-nothing* — the ask arrives together and the
+ * answer does not have to.
+ */
+export async function putManyOnWishList(
+  agentId: AgentId,
+  author: WishAuthor,
+  body: unknown,
+  deps: WishDependencies,
+): Promise<AddWishesResult> {
+  const parsed = AddWishesSchema.safeParse(body ?? {})
+  if (!parsed.success) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message:
+          'A bundled ask needs at least one provider and at most twenty, each one token as ' +
+          'the Atlas prints it, like "trello.com". A sentence about why is welcome and is not ' +
+          'required — one sentence covers the whole ask.',
+        details: Object.fromEntries(
+          parsed.error.issues.map((issue) => [issue.path.join('.'), issue.message]),
+        ),
+      },
+    }
+  }
+
+  /**
+   * **Deduplicated before anything is written**, so a caller that named the same
+   * provider twice gets one row and one line about it rather than an
+   * `already-listed` it caused itself.
+   */
+  const providers = [...new Set(parsed.data.providers)]
+
+  /** The same guard the single write runs, over every field of the ask. */
+  for (const value of [...providers, parsed.data.noticedWhile ?? '']) {
+    const finding = credentialFinding(value)
+    if (finding !== null) {
+      return {
+        outcome: 'rejected',
+        error: {
+          code: 'validation_failed',
+          message: credentialRefusalMessage(finding),
+          details: { reason: finding.reason },
+        },
+      }
+    }
+  }
+
+  const forbidden = await deps.store.forbidsAgents(providers)
+  if (forbidden.size > 0) {
+    return { outcome: 'rejected', error: forbiddenProviderRefusal([...forbidden]) }
+  }
+
+  const results: {
+    readonly provider: string
+    readonly outcome: 'added' | 'context-added' | 'already-listed'
+    readonly wish: Wish
+    readonly alsoProposed: boolean
+    readonly atlas: WishAtlasAnswer
+  }[] = []
+
+  for (const provider of providers) {
+    const written = await deps.store.add({
+      agentId,
+      provider,
+      author,
+      ...(parsed.data.noticedWhile === undefined ? {} : { noticedWhile: parsed.data.noticedWhile }),
+    })
+    results.push({ provider, ...written })
+  }
+
+  return {
+    outcome: 'written',
+    results,
+    added: results.filter((one) => one.outcome === 'added').length,
+    alreadyListed: results.filter((one) => one.outcome !== 'added').length,
+  }
 }
 
 /** What happened when an operator chose a bundle. */

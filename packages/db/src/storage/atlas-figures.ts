@@ -62,8 +62,36 @@ export async function atlasFigures(
      * unfloored whole catalogue is not one word away.
      */
     readonly audience?: AtlasAudience
-    /** The single provider a `provider` audience is entitled to. Ignored when public. */
-    readonly provider?: string
+    /**
+     * The single provider a `provider` audience is entitled to. Ignored when
+     * public.
+     *
+     * **This is *who is reading*, and {@link only} is *what to compute*** — two
+     * meanings that shared the word `provider` until `#1627`, which is how a
+     * public read about one provider came to compute the whole catalogue and
+     * throw 223 entries away. The lift is the thing `#548`'s claim buys and it
+     * has nothing to do with narrowing; a caller wanting one provider's row at
+     * public standing names {@link only} and gets the floor applied exactly as
+     * before.
+     */
+    readonly entitledTo?: string
+    /**
+     * Compute for this provider alone (`#1627`).
+     *
+     * **A performance argument and never a disclosure one.** It narrows what is
+     * scanned and changes no published number: every count in the select list is
+     * already keyed on the row's own `(kind, provider)`, and the floor is
+     * `ATLAS_FIGURE_FLOOR` — a constant, not a share of the corpus — so a count
+     * computed over one provider's rows is the count computed over all of them.
+     * There is nothing here a caller can ask for that it could not already read
+     * out of the full answer.
+     *
+     * **It composes with {@link entitledTo} rather than replacing it.** Both
+     * present and disagreeing is an empty answer, which is the honest one: a
+     * provider entitled to its own numbers asking about somebody else's is not
+     * entitled to those.
+     */
+    readonly only?: string
     /**
      * Which capability the reader came for, on the kinds with two (`#990` point 1).
      *
@@ -96,12 +124,37 @@ export async function atlasFigures(
    * one word — the escape hatch every audience flag grows if nothing closes it.
    */
   const entitled =
-    audience === 'provider' && options.provider !== undefined
-      ? AccountProviderSchema.parse(options.provider)
+    audience === 'provider' && options.entitledTo !== undefined
+      ? AccountProviderSchema.parse(options.entitledTo)
       : undefined
 
   const retention = sql.raw(String(ATLAS_RETENTION_DAYS))
-  const only = entitled === undefined ? sql`true` : sql`p.provider = ${entitled}`
+  const entitledOnly = entitled === undefined ? sql`true` : sql`p.provider = ${entitled}`
+
+  /**
+   * **Which provider the CTEs are allowed to see** (`#1627`).
+   *
+   * Until this the three `with` blocks below selected every row of `accounts`,
+   * `provider_reports` and `account_walks` whatever the caller asked for, and
+   * the narrowing happened in the final `where` — after `pairs`, and after
+   * everything the correlated subqueries had scanned. So a read about one
+   * provider cost what the whole index cost: 7.6 s against 6.9 s, measured
+   * 2026-08-22.
+   *
+   * **An entitled read narrows too**, because the final `where` already returns
+   * that provider and nothing else — the only thing computing the other 223 was
+   * buying it was the time.
+   *
+   * Written out per table rather than as one predicate over an alias, for the
+   * reason `#311` exists: `walked` joins `agents`, and a bare `provider` inside
+   * it resolves against whichever table Postgres finds it in, with the wrong
+   * answer arriving under no error at all.
+   */
+  const computed = options.only === undefined ? entitled : AccountProviderSchema.parse(options.only)
+  const heldOnly = computed === undefined ? sql`true` : sql`accounts.provider = ${computed}`
+  const reportedOnly =
+    computed === undefined ? sql`true` : sql`provider_reports.provider = ${computed}`
+  const walkedOnly = computed === undefined ? sql`true` : sql`account_walks.provider = ${computed}`
 
   /**
    * `directionAnswers`, written as a predicate over a report row.
@@ -156,6 +209,7 @@ export async function atlasFigures(
       select kind, provider, agent_id, proved, proved_at, created_at, status, for_work
         from accounts
        where provider is not null
+         and ${heldOnly}
     ),
     reported as (
       select kind, provider, agent_id, outcome, scrubbed_reason, direction
@@ -164,6 +218,7 @@ export async function atlasFigures(
        -- and not twice (#1036). The row survives the conversion so the mapping
        -- stays checkable; what it stops doing is contributing a second citizen.
        where provider_reports.migrated_at is null
+         and ${reportedOnly}
     ),
     -- **Walks, which is where a provider verdict now lives** (#1036). Until this
     -- the figures read the account register and the standing-verdict table and
@@ -208,6 +263,7 @@ export async function atlasFigures(
              -- was outside this CTE anyway, so a gift leaves every figure here
              -- bit for bit as it was.
              and account_walks.closed_by_transfer_at is null
+             and ${walkedOnly}
     ),
     -- Every provider anybody has been to, whatever direction they went in. The
     -- scoping below narrows what a row says and never which rows exist: a
@@ -406,7 +462,7 @@ export async function atlasFigures(
                                        where wall ->> 'kind' = 'terms-forbid-agents')))
         as walk_operator_opened
       from pairs p
-     where ${only}
+     where ${entitledOnly}
      order by p.kind, p.provider
   `)
 

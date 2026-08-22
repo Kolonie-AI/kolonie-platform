@@ -430,7 +430,7 @@ describe('the measured figures behind an Atlas entry', () => {
     it('does not apply to a provider reading its own entry', async () => {
       await holds({ name: 'lonely', provider: 'rare.test' })
 
-      const [figures] = await atlasFigures(db, { audience: 'provider', provider: 'rare.test' })
+      const [figures] = await atlasFigures(db, { audience: 'provider', entitledTo: 'rare.test' })
 
       expect(figures?.suppressed).toBe(false)
       expect(figures?.attempted).toBe(1)
@@ -879,9 +879,145 @@ describe('the measured figures behind an Atlas entry', () => {
       await holds({ name: 'one', provider: 'rare.test' })
       await holds({ name: 'two', provider: 'other.test' })
 
-      const rows = await atlasFigures(db, { audience: 'provider', provider: 'rare.test' })
+      const rows = await atlasFigures(db, { audience: 'provider', entitledTo: 'rare.test' })
 
       expect(rows.map((one) => one.provider)).toEqual(['rare.test'])
+    })
+  })
+
+  /**
+   * **What the narrowing has to be worth nothing at all** (`#1627`).
+   *
+   * A read naming one provider used to compute the figures for all 224
+   * catalogue entries and throw 223 of them away, so `/atlas/desec.io` cost what
+   * `/atlas` cost. The narrowing is a `where` in three CTEs — and the whole risk
+   * of it is that a count computed over one provider's rows might not equal the
+   * one computed over every provider's.
+   *
+   * It cannot, and the reason is worth stating rather than only asserting: every
+   * count in the select list is keyed on the row's own `(kind, provider)`, and
+   * the suppression floor is `ATLAS_FIGURE_FLOOR`, a constant. Nothing in the
+   * statement is relative to the corpus. If that ever stops being true, this is
+   * the test that says so.
+   */
+  describe('narrowing to one provider', () => {
+    /**
+     * A corpus with the shapes production has, rather than one provider twice.
+     * Suppressed and unsuppressed, held and refused, walked and unwalked, and a
+     * pair that exists only because somebody filed a report — which is the one
+     * `pairs` builds from the union and the narrowing could most easily drop.
+     */
+    const corpus = async () => {
+      for (let i = 0; i < 7; i++) await holds({ name: `busy-${i}`, provider: 'busy.test' })
+      for (let i = 0; i < 3; i++)
+        await reported({
+          name: `busy-stopped-${i}`,
+          provider: 'busy.test',
+          outcome: 'signup-refused',
+          scrubbed: 'The signup form asked for a card.',
+        })
+
+      await holds({ name: 'thin', provider: 'thin.test' })
+      await holds({ name: 'unproved', provider: 'thin.test', proved: false })
+
+      await reported({ name: 'nowhere', provider: 'report-only.test', outcome: 'no-service' })
+
+      const registered = await registerAgent(
+        db,
+        RegisterAgentRequestSchema.parse({ name: 'walker-of-two', platform: 'codex' }),
+      )
+      if (registered.outcome !== 'registered') throw new Error(registered.outcome)
+
+      for (const provider of ['busy.test', 'walked-only.test']) {
+        const walkId = await walkInProgress(db, registered.agent.id, { kind, provider })
+        await recordWalkStep(db, walkId, { actor: 'agent' })
+        await finishWalk(db, walkId, { outcome: 'proved', homepage: `https://${provider}` })
+      }
+    }
+
+    it('returns byte-identical figures to the whole-catalogue read', async () => {
+      await corpus()
+
+      const all = await atlasFigures(db)
+      expect(all.length).toBeGreaterThan(3)
+
+      for (const row of all) {
+        const narrowed = await atlasFigures(db, { only: row.provider })
+
+        expect(JSON.stringify(narrowed)).toBe(
+          JSON.stringify(all.filter((one) => one.provider === row.provider)),
+        )
+      }
+    })
+
+    /**
+     * The floor is the half a narrowing could break without anybody noticing: a
+     * row of one citizen must stay suppressed when it is the only row computed,
+     * exactly as it is when it is one of five.
+     */
+    it('keeps the floor where it was', async () => {
+      await corpus()
+
+      const [thin] = await atlasFigures(db, { only: 'thin.test' })
+      const [busy] = await atlasFigures(db, { only: 'busy.test' })
+
+      expect(thin?.suppressed).toBe(true)
+      expect(thin?.attempted).toBe(0)
+      expect(busy?.suppressed).toBe(false)
+      expect(busy?.attempted).toBeGreaterThanOrEqual(ATLAS_FIGURE_FLOOR)
+    })
+
+    /**
+     * A pair no catalogue row and no account backs — it exists because one
+     * citizen filed a report — is still found when it is what was asked for.
+     * That is the arm of `pairs` a `where` on `accounts` alone would have lost.
+     */
+    it('finds a pair that only a report or a walk puts on the shelf', async () => {
+      await corpus()
+
+      expect((await atlasFigures(db, { only: 'report-only.test' }))[0]?.provider).toBe(
+        'report-only.test',
+      )
+      expect((await atlasFigures(db, { only: 'walked-only.test' }))[0]?.provider).toBe(
+        'walked-only.test',
+      )
+    })
+
+    it('answers nothing for a provider nobody has been to', async () => {
+      await corpus()
+
+      expect(await atlasFigures(db, { only: 'never-heard-of.test' })).toEqual([])
+    })
+
+    /**
+     * **The two meanings of the word, kept apart** (`#1627`). `entitledTo` is
+     * who is reading and `only` is what to compute; a provider entitled to its
+     * own numbers and asking about somebody else's is entitled to neither, and
+     * the empty answer is what says so.
+     */
+    it('gives a provider entitled to one nothing about another', async () => {
+      await corpus()
+
+      const rows = await atlasFigures(db, {
+        audience: 'provider',
+        entitledTo: 'thin.test',
+        only: 'busy.test',
+      })
+
+      expect(rows).toEqual([])
+    })
+
+    it('still lifts the floor for a provider reading its own narrowed row', async () => {
+      await corpus()
+
+      const [thin] = await atlasFigures(db, {
+        audience: 'provider',
+        entitledTo: 'thin.test',
+        only: 'thin.test',
+      })
+
+      expect(thin?.suppressed).toBe(false)
+      expect(thin?.attempted).toBe(2)
     })
   })
 

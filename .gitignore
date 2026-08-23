@@ -41,3 +41,16 @@ packages/db/src/storage/index.ts
 # `#271` had already answered this shape: a file nobody commits cannot be merged
 # at all. `changes/` is the changelog; `prepack` builds this for a publish.
 packages/core/CHANGELOG.md
+
+# Produced by `scripts/build-decisions-index.mjs` from `docs/decisions/`, and
+# **not tracked either** (`#1662`, D-138). The same defect as the changelog above,
+# reached the same way and cured the same way: two branches each adding a record
+# regenerate this index, `merge=union` keeps both rows in a working tree, and
+# GitHub never applies the driver — so the pair conflicts in the merge queue,
+# where it reads as `UNMERGEABLE` and the entry is dropped quietly.
+#
+# `#1497` kept it tracked for a reader that was measured on 2026-08-24 and is not
+# there: **no file in this repository links into `docs/decisions.md` by anchor.**
+# `docs/decisions/` is the records; `npm run build:decisions` writes this for
+# anybody who wants the one-page list.
+docs/decisions.md

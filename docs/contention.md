@@ -39,7 +39,7 @@ contention and says nothing about length.
 **Not everything here is a problem.** Four of the ten are the shape the rule
 deliberately excludes: `docs/decisions.md`, `CHANGELOG.md` and the two test files
 are chronicles. (Both of the first two have since been split into a directory,
-and `CHANGELOG.md` is no longer tracked at all — `#951`, `#1497`, `#1572`.) A conflict in one of those is a text conflict git raises and
+and **neither of the produced files is tracked any more** — `#951`, `#1497`, `#1572`, `#1662`.) A conflict in one of those is a text conflict git raises and
 anybody can resolve.
 
 **Two of those four have since been fixed anyway, and the reason is worth the

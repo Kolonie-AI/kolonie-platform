@@ -20,6 +20,7 @@ import {
   REPORT_NOTE_MAX_LENGTH,
   type ReportField,
 } from '../guidance/guidance.js'
+import { withSuspensionAppeal } from '../guidance/contribution-verdict.js'
 import { WalkedRecipeSchema } from './walked-recipe.js'
 
 /**
@@ -1216,4 +1217,69 @@ export const UNWRITTEN_STEP = 'Not written up yet — this step happened and nob
 /** A step's instruction, or the sentence that says there is not one. */
 export function stepInstruction(step: Pick<RecipeStep, 'instruction'>): string {
   return step.instruction ?? UNWRITTEN_STEP
+}
+
+/**
+ * How many of the walls that triggered a walk-prose suspension are named in the
+ * reason a citizen reads (`#1645`).
+ *
+ * **Five, because the backstop is five.** A suspension imposed by the
+ * consecutive rule has exactly {@link WALK_PROSE_CONSECUTIVE} distinct walls and
+ * naming all of them is naming the whole case. One imposed by the rate can have
+ * more, and a reason that listed twelve would be a wall of text about walls —
+ * the count is stated beside the list, so a citizen is told there are more
+ * rather than left to wonder.
+ */
+export const WALK_PROSE_WALLS_NAMED = 5
+
+/** How much of one moderator's sentence the reason carries before it is cut. */
+const WALL_SENTENCE_LIMIT = 180
+
+/**
+ * What a citizen reads when a walk-prose suspension is imposed (`#1645`).
+ *
+ * **It names the walls, not just the count.** A citizen told *five refusals*
+ * cannot act on it; one told *what it wrote, at which providers* can. That is
+ * the whole difference between a suspension that is a sentence to serve and one
+ * that is a puzzle — and it is the reason this function exists rather than a
+ * constant string.
+ *
+ * `walls` are the moderator's own words, taken from
+ * `account_walks.prose_refusal_reason`, deduplicated by the same ladder the rule
+ * counts by. They are already written for a reader; nothing here rephrases them,
+ * because a paraphrase of a refusal is a second refusal nobody made.
+ *
+ * The appeal line comes from `withSuspensionAppeal`, so **every suspension in
+ * the Colony ends with the same way out** whichever rule imposed it. That is
+ * `#1645`'s point restated: the asymmetry was never that this rule was wrong,
+ * only that it left nothing to answer.
+ */
+export function refusedWalkProseReason(command: {
+  readonly refusals: number
+  readonly walls: readonly string[]
+  readonly expiresAt: Date
+}): string {
+  const day = command.expiresAt.toISOString().slice(0, 10)
+  const named = command.walls.slice(0, WALK_PROSE_WALLS_NAMED)
+  const unnamed = command.walls.length - named.length
+
+  const opening =
+    `Suspended for walk reports that crossed a red line: ${command.refusals} refused ` +
+    `out of your last ${WALK_PROSE_WINDOW} decided walks, across ` +
+    `${command.walls.length} distinct wall${command.walls.length === 1 ? '' : 's'}. ` +
+    `Lapses on ${day}.`
+
+  const listed =
+    named.length === 0
+      ? ''
+      : ` What was refused: ${named
+          .map((wall) => {
+            const trimmed = wall.trim().replace(/\s+/g, ' ')
+            return trimmed.length > WALL_SENTENCE_LIMIT
+              ? `${trimmed.slice(0, WALL_SENTENCE_LIMIT - 1).trimEnd()}…`
+              : trimmed
+          })
+          .join(' · ')}${unnamed > 0 ? ` · and ${unnamed} more` : ''}.`
+
+  return withSuspensionAppeal(`${opening}${listed}`)
 }

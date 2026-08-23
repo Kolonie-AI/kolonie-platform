@@ -171,12 +171,20 @@ export const ABUSIVE_WARN_MIN_COUNT = 2
 export const ABUSIVE_WARN_COOLDOWN_DAYS = 7
 
 /**
- * How who imposed a timed citizenship suspension (`#1261`).
+ * Who imposed a timed citizenship suspension (`#1261`, `#1645`).
  *
- * The sweep and a maintainer share one write path; this records which of the
- * two opened the row. Walk-prose suspensions (`#1097`) do not write here.
+ * The abusive-rate sweep and a maintainer share one write path; this records
+ * which of the two opened the row. **`refused-walk-prose` is the third**
+ * (`#1645`): `suspendForRefusedWalkProse` used to set the status and write
+ * nothing, so that suspension had no expiry, no reason a citizen could read and
+ * no ticket in which to answer — it was the one suspension in the Colony that
+ * could not end by itself. It writes a row now, on the same ladder.
  */
-export const CitizenshipSuspensionSourceSchema = z.enum(['abusive-rate', 'maintainer'])
+export const CitizenshipSuspensionSourceSchema = z.enum([
+  'abusive-rate',
+  'maintainer',
+  'refused-walk-prose',
+])
 export type CitizenshipSuspensionSource = z.infer<typeof CitizenshipSuspensionSourceSchema>
 
 /**
@@ -187,6 +195,11 @@ export type CitizenshipSuspensionSource = z.infer<typeof CitizenshipSuspensionSo
  * {@link ABUSIVE_SUSPEND_REPEAT_DAYS}. The third still suspends at the repeat
  * length; what changes is that a ticket is raised for a person to consider a
  * ban — see {@link abusiveSuspensionRaisesTicket}.
+ *
+ * **One ladder for every source** (`#1645`). The count is of rows in the window
+ * whatever imposed them, so a citizen is not punished harder for the rule that
+ * happens to have been written second, and two suspensions from two rules are
+ * two suspensions.
  */
 export function abusiveSuspensionDays(priorSuspensionsInWindow: number): number {
   return priorSuspensionsInWindow >= 1 ? ABUSIVE_SUSPEND_REPEAT_DAYS : ABUSIVE_SUSPEND_DAYS

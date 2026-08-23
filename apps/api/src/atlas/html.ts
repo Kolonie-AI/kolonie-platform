@@ -69,7 +69,14 @@ import {
   atlasProvedChip,
   type AtlasChip,
 } from './chips.js'
-import { atlasEarnFacets, atlasEarnPhrase, atlasEarnPhrasePlural } from './taxonomy.js'
+import {
+  atlasEarnFacets,
+  atlasEarnPhrase,
+  atlasEarnPhrasePlural,
+  atlasHoldingPenNote,
+  atlasShelfIsHoldingPen,
+  atlasUncategorisedNote,
+} from './taxonomy.js'
 import { atlasRuntimeLine } from './runtimes.js'
 import { CONSOLE_MAST } from '../console/mark.js'
 import { CHROME_STYLE, CONSOLE_STYLE } from '../console/theme.js'
@@ -1030,6 +1037,24 @@ export function atlasCategoryPage(input: {
       '<main>',
       `<h1>${escape(question)}</h1>`,
       `<p>${escape(category.standfirst)}</p>`,
+      /**
+       * **The holding pen says so on its own page** (`#1407` decision 4).
+       *
+       * `#1329` stopped an *entry* page presenting the fallback shelf as that
+       * provider's identity, and left the shelf's own page alone — which is the
+       * surface that reads worst: a heading, a standfirst about data and APIs,
+       * and under it a bounty board, a freelance marketplace and an LLM gateway.
+       * A reader arriving there is being told in the strongest form the site has
+       * that these things belong together.
+       *
+       * Below the standfirst rather than instead of it: the standfirst is the
+       * shelf's real copy and is right for the entries that genuinely are data
+       * and APIs, which the pen also holds. This is the sentence that stops the
+       * heading being read as a claim about the rest.
+       */
+      atlasShelfIsHoldingPen(category.slug)
+        ? `<p class="k-atlas-holding-pen">${escape(atlasHoldingPenNote(mine.length))}</p>`
+        : '',
       atlasRuntimeLine(),
       /**
        * **The block and not {@link ATLAS_JOIN_LINE}, above the list rather than
@@ -2074,6 +2099,24 @@ export function atlasEntryPage(input: {
        * conditions about a thing the reader had not been told the nature of.
        */
       taxonomyLine(entry),
+      /**
+       * **Directly under the line that classifies it, because it is what that
+       * line could not say** (`#1407` decision 4).
+       *
+       * `#1329` demoted the fallback shelf out of the header, so a reader is no
+       * longer told this provider is *Data and APIs*. What replaced it was
+       * silence: on an entry carrying an earn facet the header says what it pays
+       * and nothing about the shelf at all, which reads as *classified* rather
+       * than as *nobody has classified this*.
+       *
+       * **The header's silence is right and this is not a header clause.**
+       * `atlasShelfClause` states the fact for a reader deciding what the
+       * provider is; this states the gap for a reader who could close it. The
+       * two are separate functions in `taxonomy.ts` with that difference written
+       * on both, because folding them would put `#1329`'s reasoning and this
+       * one's in the same `if`.
+       */
+      uncategorisedSection(entry),
       cautionSection(entry),
       measuredLead.html,
       operateSection(entry, input.operateNotes),
@@ -2471,6 +2514,24 @@ function cautionSection(entry: AtlasPublicEntry): string {
         `${escape(caution)}</div>`,
     )
     .join('')
+}
+
+/**
+ * The note saying this provider has no shelf, and what closes that (`#1407`).
+ *
+ * **A paragraph and not a chip.** A chip is what the header uses for facts the
+ * entry carries, and *nothing has been decided about this* is not one of those —
+ * it is an absence, and dressing an absence as a label beside real ones is how
+ * `data-apis` came to read as a classification in the first place.
+ *
+ * The sentence is `taxonomy.ts`'s, so the rule about which entries get it lives
+ * beside the rule about what the header may claim rather than in this file.
+ */
+function uncategorisedSection(entry: AtlasPublicEntry): string {
+  const note = atlasUncategorisedNote(entry)
+  if (note === undefined) return ''
+
+  return `<p class="k-atlas-uncategorised">${escape(note)}</p>`
 }
 
 function taxonomyLine(entry: AtlasPublicEntry): string {

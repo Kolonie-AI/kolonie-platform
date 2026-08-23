@@ -192,3 +192,81 @@ export function atlasIsDualUse(entry: AtlasPublicEntry): boolean {
 
 /** The slug the fallback uses, re-exported so a renderer need not import core for it. */
 export { ATLAS_FALLBACK_CATEGORY }
+
+/**
+ * Whether this shelf is the holding pen rather than a classification (`#1407`).
+ *
+ * A shelf-level counterpart to {@link atlasShelfIsFallback}, which asks about an
+ * entry. The page for `data-apis` is the one place a reader meets the fallback
+ * *as a shelf* — with a title, a standfirst and forty rows under it — and it is
+ * the surface `#1407` names as the junk drawer.
+ */
+export function atlasShelfIsHoldingPen(slug: string): boolean {
+  return slug === ATLAS_FALLBACK_CATEGORY
+}
+
+/**
+ * What the holding pen's page says about itself (`#1407` decision 4).
+ *
+ * ## The sentence exists because the shelf reads as an answer and is not one
+ *
+ * `#1096` files a kind that reaches no shelf under the fallback rather than
+ * dropping it, and that is right — a wrong shelf is a claim a reader can argue
+ * with, a dropped entry is a walk nobody can find. `#1329` then stopped the
+ * *entry* page presenting that shelf as the provider's identity.
+ *
+ * **Nothing was done about the shelf's own page**, and it is the one that reads
+ * worst: a heading, a standfirst about data and APIs, and under it a bounty
+ * board, a freelance marketplace and an LLM gateway. A reader arriving there is
+ * being told, in the strongest form the site has, that these things belong
+ * together. `#1407` decision 4 is that they must not be told that.
+ *
+ * ## What it does not do
+ *
+ * **It does not rename or split the shelf** (decision 1). Nothing here writes a
+ * row; the sentence says what the rows already say and points at the one route
+ * that can change them, which a maintainer walks. An auto-rename is exactly what
+ * decision 1 refuses, and it would be refused by this function having no
+ * database to write to even if somebody wanted one.
+ */
+export function atlasHoldingPenNote(count: number): string {
+  return (
+    `This is where an entry goes when its kind matches no shelf — ${count === 1 ? 'one entry is' : `${count} entries are`} ` +
+    'filed here because nothing better existed, not because they belong together. ' +
+    'Read it as a queue rather than as a category: what these providers have in common is ' +
+    'that nobody has proposed a shelf that fits them.'
+  )
+}
+
+/**
+ * What a fallback-shelved entry says about not being classified (`#1407`
+ * decision 4).
+ *
+ * ## Why this exists beside {@link atlasShelfClause} rather than inside it
+ *
+ * The two answer different questions and `#1329` settled the other one. That
+ * clause is part of the **header**, where the page states what the provider *is*
+ * — and it is deliberately silent on an entry carrying an earn facet, because a
+ * reader who has just been told *this pays for finished tasks* has been
+ * classified and *nobody has filed it on a shelf* would spend a line on the
+ * Colony's bookkeeping. That reasoning is still right and is untouched.
+ *
+ * **This is not a header clause. It is the route to change the fact**, and it
+ * belongs on every fallback entry including the earn-carrying ones — those are
+ * precisely the entries `#1407` was filed about. Saying *no shelf fits this yet,
+ * and here is how one gets proposed* to a reader who can act on it is not
+ * bookkeeping; it is the difference between a taxonomy that is dead and one that
+ * is living.
+ *
+ * Returns nothing for an entry whose shelf somebody chose, which is most of
+ * them.
+ */
+export function atlasUncategorisedNote(entry: AtlasPublicEntry): string | undefined {
+  if (!atlasShelfIsFallback(entry)) return undefined
+
+  return (
+    'No shelf fits this provider yet. It sits under the catalogue’s fallback because its ' +
+    'kind matched nothing, which is a gap in the taxonomy rather than a fact about the ' +
+    'provider — a walk report naming what it actually is is what closes it.'
+  )
+}

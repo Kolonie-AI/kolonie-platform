@@ -590,6 +590,25 @@ export function startRunner(deps: LoopDependencies, options: RunnerOptions = {})
               event: 'contacts.pruned',
               pruned,
             })
+
+          // The one sweep here that reaches outside the Colony (`#1405`), and
+          // the only reason it is on this tick rather than on a cron: this is
+          // the process guaranteed to be running and not on a request path.
+          //
+          // **Bounded hard, because it is the one that can block.** Everything
+          // above is a statement against the Colony's own database and returns
+          // in milliseconds; this one talks to hosts the Colony does not own,
+          // and a sweep that spent a minute waiting on four of them would delay
+          // every verdict behind it. `refreshProviderIcons` takes the ceiling
+          // and never exceeds it — see `queue.ts` for the arithmetic that says
+          // two per minute is more than the catalogue needs.
+          const icons = await deps.queue.refreshProviderIcons()
+          if (icons.looked > 0)
+            log.info(`looked at ${icons.looked} provider icon(s)`, {
+              event: 'atlas.icons.refreshed',
+              looked: icons.looked,
+              found: icons.found,
+            })
         }
 
         let taken = 0

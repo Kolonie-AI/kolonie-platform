@@ -13,6 +13,10 @@ import {
   now,
   AccountProviderSchema,
   AtlasCategorySlugSchema,
+  AVATAR_MEDIA_TYPE,
+  PROVIDER_ICON_CACHE_SECONDS,
+  PROVIDER_MONOGRAM_MEDIA_TYPE,
+  providerMonogram,
   type AtlasDocument,
   type AtlasEntry,
 } from '@kolonie-ai/core'
@@ -67,7 +71,20 @@ import type { RouteDependencies } from './dependencies.js'
  * the same call the console made (`#179`) and the mailed pages after it.
  */
 export function registerAtlasPages(app: FastifyInstance, deps: RouteDependencies): void {
-  const { recipes, websiteUrl, renames, atlasQuests, atlasPlaybooks } = deps
+  const { recipes, websiteUrl, renames, atlasQuests, atlasPlaybooks, atlasIcons } = deps
+
+  /**
+   * Which of these providers carry an `<img>` rather than a drawn monogram
+   * (`#1405`).
+   *
+   * **One query per page and never one per tile.** A shelf is forty entries and
+   * a page that asked about each of them separately would be forty round trips
+   * for a decoration. An absent reader answers *none*, so a deployment without
+   * the sweep renders every tile with its monogram — a complete picture rather
+   * than a gap, which is the whole of decision 3.
+   */
+  const iconsFor = async (entries: readonly AtlasEntry[]): Promise<ReadonlySet<string>> =>
+    (await atlasIcons?.held(entries.map((entry) => entry.provider))) ?? new Set<string>()
 
   /**
    * The site's own header and footer, fetched from the website rather than
@@ -169,10 +186,13 @@ export function registerAtlasPages(app: FastifyInstance, deps: RouteDependencies
         }
       }
 
+      const entries = await listEntries()
+
       return send(
         reply,
         atlasIndexPage({
-          entries: await listEntries(),
+          entries,
+          icons: await iconsFor(entries),
           /**
            * **The canonical carries neither filter.** `#1103` puts `?worked=`
            * under the rule `#1107` moved `?category=` out of: the default view
@@ -265,6 +285,7 @@ export function registerAtlasPages(app: FastifyInstance, deps: RouteDependencies
         reply,
         atlasSearchPage({
           entries: matching,
+          icons: await iconsFor(matching),
           query,
           ...(earn === undefined ? {} : { earn }),
           ...(tag === undefined ? {} : { tag }),
@@ -345,6 +366,12 @@ export function registerAtlasPages(app: FastifyInstance, deps: RouteDependencies
         reply,
         atlasCategoryPage({
           entries,
+          /**
+           * **The shelf's own entries and not the whole catalogue.** `covers` is
+           * what the page is about, and asking after four hundred providers to
+           * render forty would be a larger query for an answer nobody reads.
+           */
+          icons: await iconsFor(entries.filter((one) => covers.includes(one.category))),
           category,
           nav,
           parent: shelves.find((one) => one.slug === category.parent),
@@ -414,6 +441,80 @@ export function registerAtlasPages(app: FastifyInstance, deps: RouteDependencies
     return send(reply, JSON.stringify(document), 'application/json; charset=utf-8')
   })
 
+  /**
+   * One provider's mark, served from the Colony's own domain (`#1405`).
+   *
+   * ## The whole point is that this URL is not the provider's URL
+   *
+   * `routes/avatars.ts` wrote this sentence first and the reason is sharper
+   * here: an `<img>` pointing at a provider's host would announce **every reader
+   * of that provider's page to that provider** — address, user-agent, and the
+   * fact that somebody is researching them — from a page the Colony serves and
+   * puts its name on. A catalogue that tells four hundred companies who is
+   * reading about them is a worse thing than a catalogue with no pictures.
+   *
+   * So `ATLAS_HEADERS` keeps `img-src 'self'` exactly as it was. **This issue
+   * loosens no policy**, which is what decision 4 asks for once the bytes are on
+   * this side.
+   *
+   * ## Always an image, and that is what makes the monogram structural
+   *
+   * A provider the Colony has never looked at, one it looked at and found
+   * nothing for, and one whose bytes have not been fetched yet are three
+   * different facts about the Colony's schedule and the same picture: the
+   * monogram. This route never 404s for a provider the catalogue holds, so a
+   * tile cannot render a broken image however the sweep is doing.
+   *
+   * **A provider the catalogue does not hold is a 404**, because the address
+   * itself names nothing — the same call `/atlas/:provider` makes one route
+   * down, and drawing a monogram for any string anybody types would mint an
+   * unbounded number of addresses that all answer 200.
+   *
+   * ## Registered before `/atlas/:provider`, and it would win anyway
+   *
+   * Fastify matches a static segment before a parametric one whatever the order,
+   * so a provider called `icon` could not swallow this — the property `/c/` and
+   * `/search` already rely on.
+   */
+  app.get<{ Params: { provider: string } }>(
+    `${ATLAS_PATH}/icon/:provider`,
+    async (request, reply) => {
+      if (wrongHost(request)) return reply.callNotFound()
+
+      const asked = AccountProviderSchema.safeParse(request.params.provider)
+      if (!asked.success) return reply.callNotFound()
+
+      const catalogue = await listEntries()
+      if (!catalogue.some((one) => one.provider === asked.data)) return reply.callNotFound()
+
+      for (const [header, value] of Object.entries(ATLAS_HEADERS)) void reply.header(header, value)
+
+      /**
+       * `access-control-allow-origin: *` for `routes/avatars.ts`'s reason: this
+       * is an image, and an image that only renders on one origin is one a
+       * reader cannot quote.
+       */
+      void reply.header('access-control-allow-origin', '*')
+      void reply.header('cache-control', `public, max-age=${PROVIDER_ICON_CACHE_SECONDS}`)
+
+      const held = await atlasIcons?.bytes(asked.data)
+
+      /**
+       * **The monogram is drawn rather than stored**, so a provider that gains
+       * an icon tomorrow needs nothing invalidated: the row appears, this branch
+       * stops being taken, and the day of `cache-control` above is how long a
+       * reader may go on seeing the old one. That is the trade `#1405` decision
+       * 2 makes deliberately — the stored copy is the promise, and this is only
+       * how long somebody may go without asking again.
+       */
+      if (held === undefined) {
+        return reply.type(PROVIDER_MONOGRAM_MEDIA_TYPE).send(providerMonogram(asked.data))
+      }
+
+      return reply.type(AVATAR_MEDIA_TYPE[held.format]).send(Buffer.from(held.bytes))
+    },
+  )
+
   app.get<{ Params: { provider: string } }>(`${ATLAS_PATH}/:provider`, async (request, reply) => {
     if (wrongHost(request)) return reply.callNotFound()
 
@@ -447,6 +548,13 @@ export function registerAtlasPages(app: FastifyInstance, deps: RouteDependencies
       reply,
       atlasEntryPage({
         entry,
+        /**
+         * Whether this provider's own mark is drawn or fetched (`#1405`). One
+         * provider, so the set is at most one long — and asking the same
+         * question the tiles ask keeps the two surfaces from disagreeing about
+         * what the Colony holds.
+         */
+        icons: await iconsFor([entry]),
         canonical: `${websiteUrl}${entry.path}`,
         chrome: await chromeOf(),
         /**

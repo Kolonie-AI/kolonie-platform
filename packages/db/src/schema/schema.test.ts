@@ -386,6 +386,15 @@ describe('schema', () => {
          */
         'atlas_proposals',
         /**
+         * `#1405`. The Colony's own copy of a provider's favicon, so an Atlas
+         * tile can carry a mark without an `<img>` pointing at that provider's
+         * host — which would announce every reader of a page to the company the
+         * page is about. `bytes` null is a finding rather than an absence: it
+         * says the sweep looked and there was nothing, which is what stops every
+         * iconless provider being re-fetched on every pass.
+         */
+        'atlas_provider_icons',
+        /**
          * `#546`. Where a provider used to be, so the Atlas's old paths keep
          * answering after a rename. Three columns and no foreign key: the thing
          * it records is a name that no longer exists, which by definition has no

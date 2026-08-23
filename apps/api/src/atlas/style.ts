@@ -24,9 +24,25 @@
  * of other companies' marks reads as a partnership page and none of them has
  * agreed to anything. **The category is the visual, not the brand.**
  *
+ * **`#1405` narrows *no logos* rather than reversing it, and the line is worth
+ * stating because the next reader will meet both sentences.** What `#97` refused
+ * is a *grid of marks as the visual* — a wall of logos with the Colony's name
+ * over it, which reads as a partnership page whoever built it. What `#1405` adds
+ * is a **16-pixel mark beside a provider's own name**, on the row that is
+ * already about that provider, at a size no reader would call a brand wall. It
+ * is an identity aid on a card whose heading is the company, not decoration and
+ * not an endorsement: nothing about a mark being present says the Colony
+ * recommends anything, and `#1408`'s proved chip is still what carries whether
+ * an entry is any good.
+ *
+ * **The refusal that survives whole is the aggregate one.** No page here may
+ * lay marks out as a grid on their own, and the category tiles stay typographic.
+ * If that ever stops being true, this paragraph is what it is argued against.
+ *
  * So what does the work here is structure: a shelf is a card, a state is a
  * chip, and the index reads as a map rather than as a bulleted list. Nothing
- * below draws a picture.
+ * below draws a picture, and the one image that reaches a page is the
+ * provider's own 16-pixel mark or the monogram the Colony draws for it.
  *
  * ## Every value is a token
  *
@@ -261,17 +277,75 @@ main h1 + p {
  * whole card is not a link, deliberately: a card that is one link cannot hold
  * the second link a category needs, and #97 is about internal linking running
  * in both directions.
+ *
+ * :first-of-type and not :first-child, since #1405. The provider's mark is an
+ * img or a span sitting before the name, so the name stopped being the first
+ * child while remaining the first link — and the difference is that under the
+ * old selector every heading on every tile silently lost its size, weight and
+ * colour and rendered as body text. Nothing would have failed; the page would
+ * just have looked wrong everywhere at once.
  */
-.k-atlas-index li > a:first-child {
+.k-atlas-index li > a:first-of-type {
   color: var(--k-text-strong);
   font-size: var(--k-text-lg);
   font-weight: 600;
   text-decoration: none;
 }
 
-.k-atlas-index li > a:first-child:hover,
-.k-atlas-index li > a:first-child:focus-visible {
+.k-atlas-index li > a:first-of-type:hover,
+.k-atlas-index li > a:first-of-type:focus-visible {
   color: var(--k-accent);
+}
+
+/*
+ * The provider's mark (#1405), fetched or drawn.
+ *
+ * One rule for both, because the two are the same thing to the layout: a 16px
+ * square that sits on the text's own baseline and reserves its space whichever
+ * branch rendered it. A tile whose row height depended on which one arrived
+ * would settle visibly as the images loaded, which is what width/height on the
+ * element and this fixed box together prevent.
+ *
+ * flex-shrink: 0 because a long provider name must eat into the text rather
+ * than into the mark — a squashed logo reads as a rendering fault.
+ */
+.k-atlas-mark {
+  display: inline-block;
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  margin-right: var(--k-space-2);
+  vertical-align: -0.15em;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.k-atlas-mark svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/*
+ * On the entry page the mark sits beside the h1 rather than inside it, so the
+ * heading's own text stays exactly the question a reader typed. This is what
+ * puts the two on one line, and what scales the mark to the heading instead of
+ * leaving it at the tile's 16px next to 2rem of type.
+ */
+.k-atlas-head {
+  display: flex;
+  align-items: center;
+  gap: var(--k-space-3);
+}
+
+.k-atlas-head > .k-atlas-mark {
+  width: 1.6rem;
+  height: 1.6rem;
+  margin-right: 0;
+}
+
+.k-atlas-head > h1 {
+  margin: 0;
 }
 
 .k-atlas-index small {

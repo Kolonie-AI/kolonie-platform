@@ -86,6 +86,22 @@ export function atlasPath(provider: string): string {
 }
 
 /**
+ * The path one provider's mark is served at (`#1405`).
+ *
+ * **Derived here for {@link atlasPath}'s reason and one more.** The renderer
+ * writes this URL into an `<img>` and the route answers it, and those are in
+ * different packages — a string built by hand in both is a string that goes out
+ * of step in one, and the failure is a broken image on every tile at once.
+ *
+ * Under `/atlas/icon/` rather than `/atlas/<provider>/icon` so the segment is
+ * static: Fastify matches a static segment ahead of a parametric one, so no
+ * provider name can ever swallow this route.
+ */
+export function atlasIconPath(provider: string): string {
+  return `${ATLAS_PATH}/icon/${AccountProviderSchema.parse(provider)}`
+}
+
+/**
  * The path one shelf's page is at (`#1107`, decision 1).
  *
  * **One route for both levels of the taxonomy.** A top category and a sub

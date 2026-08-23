@@ -4,6 +4,8 @@ import {
   OPERATOR_NEED_THREAD_HEADER,
   operatorNeedHeaders,
   readOperatorNeedHeaders,
+  earnFocusHeaders,
+  readEarnFocusHeaders,
 } from './note-headers.js'
 
 /**
@@ -95,5 +97,120 @@ describe('the operator-need headers on an account note', () => {
     for (const need of ['open', 'seen', 'done', 'blocked', 'none'] as const) {
       expect(readOperatorNeedHeaders(operatorNeedHeaders({ need })).need).toBe(need)
     }
+  })
+})
+
+/**
+ * The Earn-Ops focus headers (`#1412`).
+ *
+ * The same shape as the operator-need pair above, and the tests worth having are
+ * the same three: what a full tick writes, what an empty-handed one leaves out,
+ * and that the two header sets can share one note without reading each other's
+ * lines.
+ */
+describe('the Earn-Ops focus headers', () => {
+  const full = {
+    intent: 'bounty board, weekly sweep for TypeScript jobs',
+    lastAction: 'read the board, nothing under 2 hours',
+    usefulness: 'low',
+    jobsSeen: 3,
+    blocker: 'every open job wants a portfolio link',
+    next: 'try the RSS feed instead of the web board',
+  } as const
+
+  it('writes the six lines a full tick has', () => {
+    expect(earnFocusHeaders(full).split('\n')).toEqual([
+      'intent: bounty board, weekly sweep for TypeScript jobs',
+      'last_action: read the board, nothing under 2 hours',
+      'usefulness: low',
+      'jobs_seen: 3',
+      'blocker: every open job wants a portfolio link',
+      'next: try the RSS feed instead of the web board',
+    ])
+  })
+
+  /**
+   * A header carrying nothing reads as *this question was asked and not
+   * answered*, which is a fault rather than the ordinary case. A tick with no
+   * blocker had no blocker.
+   */
+  it('leaves out the blocker and the count where the tick had neither', () => {
+    const written = earnFocusHeaders({
+      intent: 'referral rail',
+      lastAction: 'checked the dashboard',
+      usefulness: 'unknown',
+      next: 'ask the operator for the payout address',
+    })
+
+    expect(written).not.toContain('blocker')
+    expect(written).not.toContain('jobs_seen')
+    expect(written.split('\n')).toHaveLength(4)
+  })
+
+  it('reads back what it wrote', () => {
+    expect(readEarnFocusHeaders(earnFocusHeaders(full))).toEqual({
+      intent: full.intent,
+      lastAction: full.lastAction,
+      usefulness: 'low',
+      jobsSeen: 3,
+      blocker: full.blocker,
+      next: full.next,
+    })
+  })
+
+  it('reads a note that carries only some of them', () => {
+    expect(readEarnFocusHeaders('usefulness: high\nnext: run it again tomorrow')).toEqual({
+      usefulness: 'high',
+      next: 'run it again tomorrow',
+    })
+  })
+
+  /**
+   * `#1602`'s headers and these share one note and do not know about each
+   * other, which is what lets Earn-Ops touch an account that also has a live
+   * operator ask.
+   */
+  it('shares a note with the operator-need headers, each reading its own lines', () => {
+    const note = [
+      operatorNeedHeaders({ need: 'open', threadId: THREAD }),
+      '',
+      earnFocusHeaders(full),
+      '',
+      'and a sentence of my own about the provider',
+    ].join('\n')
+
+    expect(readOperatorNeedHeaders(note)).toEqual({ need: 'open', threadId: THREAD })
+    expect(readEarnFocusHeaders(note).usefulness).toBe('low')
+    expect(readEarnFocusHeaders(note).intent).toBe(full.intent)
+  })
+
+  /** A reader of somebody else's free text does not claim to have understood it. */
+  it('drops a usefulness word that is not one of the three', () => {
+    expect(readEarnFocusHeaders('usefulness: quite good')).toEqual({})
+  })
+
+  it('drops a count that is not a whole number rather than rounding it', () => {
+    expect(readEarnFocusHeaders('jobs_seen: about six')).toEqual({})
+  })
+
+  it('reads nothing out of a note that carries none of them', () => {
+    expect(readEarnFocusHeaders('just a note to myself')).toEqual({})
+    expect(readEarnFocusHeaders(null)).toEqual({})
+  })
+
+  /**
+   * A newline inside a value would end the header and start whatever the next
+   * line parses as, so it is collapsed rather than carried.
+   */
+  it('keeps a value on one line', () => {
+    const written = earnFocusHeaders({
+      intent: 'a rail\nwith a newline in it',
+      lastAction: 'looked',
+      usefulness: 'unknown',
+      next: 'look again',
+    })
+
+    expect(written).toContain('intent: a rail with a newline in it')
+    expect(written.split('\n')).toHaveLength(4)
   })
 })

@@ -146,6 +146,24 @@ main h1 + p {
   font-variant-numeric: tabular-nums;
 }
 
+/*
+ * The two sentences that say nothing has been classified yet (#1407).
+ *
+ * Muted and set in prose, because both are the Colony talking about its own
+ * taxonomy rather than about the provider — the same register as the order note.
+ * Deliberately not a chip and not a caution: an absence dressed as a label
+ * beside real ones is how the fallback shelf came to read as a classification.
+ */
+.k-atlas-holding-pen,
+.k-atlas-uncategorised {
+  max-width: var(--k-measure);
+  margin: var(--k-space-4) 0;
+  padding-left: var(--k-space-4);
+  border-left: var(--k-border) solid var(--k-hairline-strong);
+  color: var(--k-text-muted);
+  font-size: var(--k-text-sm);
+}
+
 /* ---- The index ---------------------------------------------------------- */
 
 /*

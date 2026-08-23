@@ -8,6 +8,9 @@ import {
   atlasShelfClause,
   atlasShelfIsClaim,
   atlasShelfIsFallback,
+  atlasHoldingPenNote,
+  atlasShelfIsHoldingPen,
+  atlasUncategorisedNote,
 } from './taxonomy.js'
 import type { AtlasPublicEntry } from './public-projection.js'
 
@@ -182,5 +185,81 @@ describe('whether an Atlas shelf is a claim or the default', () => {
     })
 
     expect(atlasIsDualUse(shelvedOnly)).toBe(false)
+  })
+})
+
+/**
+ * The taxonomy saying it has not decided, rather than saying nothing (`#1407`).
+ *
+ * `#1329` stopped the fallback shelf being *printed as a claim*, which is a
+ * different achievement from a reader being told that nothing has been decided.
+ * On an earn-carrying entry the header now says what it pays and nothing at all
+ * about the shelf — correct as a header, and indistinguishable from having been
+ * classified. These two sentences are what close that, and the tests below are
+ * mostly about which of them lands where.
+ */
+describe('what an unclassified entry says about being unclassified', () => {
+  it('names the gap on a fallback entry', () => {
+    expect(atlasUncategorisedNote(entry())).toContain('No shelf fits this provider yet')
+  })
+
+  /**
+   * **The entry `#1407` was filed about.** An earn-carrying bounty board on the
+   * fallback shelf is exactly the case where `atlasShelfClause` is deliberately
+   * silent, and it is the case that most needs somebody to propose a shelf.
+   */
+  it('names it on an earn-carrying entry too, where the header clause is silent', () => {
+    const earning = entry({
+      facets: [
+        { axis: 'utility', slug: ATLAS_FALLBACK_CATEGORY },
+        { axis: 'earn', slug: 'bounty-board' },
+      ],
+    } as Partial<AtlasPublicEntry>)
+
+    expect(atlasShelfClause(earning)).toBeUndefined()
+    expect(atlasUncategorisedNote(earning)).toBeDefined()
+  })
+
+  it('says nothing about an entry somebody filed on a shelf', () => {
+    const shelved = entry({
+      category: 'mailbox',
+      recipes: [recipe({ category: 'mailbox', categoryIsFallback: false })],
+    } as Partial<AtlasPublicEntry>)
+
+    expect(atlasUncategorisedNote(shelved)).toBeUndefined()
+  })
+
+  /**
+   * Decision 1: nothing here renames, splits or reshelves anything. The sentence
+   * points at the route and a maintainer walks it.
+   */
+  it('offers a route rather than asserting a shelf', () => {
+    const note = atlasUncategorisedNote(entry()) ?? ''
+
+    expect(note).toContain('walk report')
+    expect(note).not.toContain('Data and APIs')
+  })
+})
+
+describe('the holding pen page', () => {
+  it('is the fallback shelf and nothing else', () => {
+    expect(atlasShelfIsHoldingPen(ATLAS_FALLBACK_CATEGORY)).toBe(true)
+    expect(atlasShelfIsHoldingPen('mailbox')).toBe(false)
+  })
+
+  /**
+   * The junk-drawer sentence `#1407` was opened about. What the page must not do
+   * is let its own heading be read as a claim about forty unrelated rows.
+   */
+  it('says the entries are queued rather than related', () => {
+    const note = atlasHoldingPenNote(42)
+
+    expect(note).toContain('42 entries')
+    expect(note).toContain('queue rather than as a category')
+    expect(note).toContain('nothing better existed')
+  })
+
+  it('counts one entry in the singular', () => {
+    expect(atlasHoldingPenNote(1)).toContain('one entry is')
   })
 })

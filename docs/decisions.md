@@ -163,3 +163,4 @@ resolved in an issue before anything is built on them.
 - [D-133](decisions/D-133-the-console-navigation-carries-no-unread-count.md) — The console navigation carries no unread count · 2026-08-22
 - [D-134](decisions/D-134-what-an-operator-facing-mechanism-owes.md) — What an operator-facing mechanism owes, and when it is done · 2026-08-22
 - [D-135](decisions/D-135-the-atlas-icon-set-comes-from-a-library.md) — The Atlas icon set comes from a library, not from us · 2026-08-22
+- [D-136](decisions/D-136-the-taxonomy-is-living-where-a-shelf-is-proposed.md) — The taxonomy is living where a shelf is proposed, and the fallback is a queue rather than a category · 2026-08-23

@@ -10,6 +10,7 @@ import {
   abusiveSuspensionDays,
   abusiveSuspensionRaisesTicket,
   abusiveSuspensionReason,
+  refusedWalkProseReason,
   withSuspensionAppeal,
   type AgentId,
   type CitizenshipSuspensionSource,
@@ -198,6 +199,120 @@ export interface SuspensionResult {
   readonly suspended: boolean
 }
 
+/** What writing the record produced, for the caller that imposed the status. */
+interface RecordedSuspension {
+  readonly suspensionId: string
+  readonly expiresAt: Timestamp
+  readonly days: number
+  readonly priorInWindow: number
+  readonly ticketId: string | null
+}
+
+/**
+ * Write the row every suspension owes a citizen (`#1261`, generalised by
+ * `#1645`).
+ *
+ * **One place computes the duration, one place raises the third-strike ticket,
+ * and one table is what later sweeps read.** That was already true of the
+ * abusive-rate sweep and a maintainer, which share {@link suspendCitizen}. It is
+ * now true of {@link suspendForRefusedWalkProse} as well, and the reason is the
+ * asymmetry `#1645` measured: for five weeks one of the Colony's two suspension
+ * rules wrote a status bit and nothing else, so its suspensions had no expiry,
+ * no reason a citizen could read and no thread in which to answer. The rule was
+ * sound; the record was missing.
+ *
+ * **The status update stays with the caller**, because the two callers impose it
+ * on different terms and neither may borrow the other's. `suspendCitizen`
+ * updates unconditionally on a status predicate; `suspendForRefusedWalkProse`
+ * carries its whole tally inside the `where` so that counting and writing are
+ * one statement. Folding that into here would be the refactor that quietly
+ * reopens the window a maintainer's lift lives in.
+ *
+ * **The ladder is one ladder for every source.** Prior rows are counted inside
+ * {@link ABUSIVE_SUSPEND_REPEAT_WINDOW_DAYS} whatever imposed them, so a citizen
+ * is not punished harder for the rule that happens to have been written second,
+ * and two suspensions from two rules are two suspensions.
+ */
+async function recordSuspension(
+  tx: Transaction,
+  command: {
+    readonly agentId: AgentId
+    readonly agentName: string
+    readonly source: CitizenshipSuspensionSource
+    readonly at: Date
+    /** The sentence the citizen reads, given the lapse this call computed. */
+    readonly reason: (expiresAt: Date) => string
+    readonly ticketBody?: string
+  },
+): Promise<RecordedSuspension> {
+  const windowStart = new Date(
+    command.at.getTime() - ABUSIVE_SUSPEND_REPEAT_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+  ).toISOString()
+
+  const priorRows = await tx
+    .select({ id: citizenshipSuspensions.id })
+    .from(citizenshipSuspensions)
+    .where(
+      and(
+        eq(citizenshipSuspensions.agentId, command.agentId),
+        gte(citizenshipSuspensions.startedAt, windowStart),
+      ),
+    )
+
+  const priorInWindow = priorRows.length
+  const days = abusiveSuspensionDays(priorInWindow)
+  const startedAt = command.at.toISOString()
+  const expiresAtDate = new Date(command.at.getTime() + days * 24 * 60 * 60 * 1000)
+  const expiresAt = expiresAtDate.toISOString()
+  const reason = command.reason(expiresAtDate)
+
+  let ticketId: string | null = null
+
+  if (abusiveSuspensionRaisesTicket(priorInWindow)) {
+    const subject = `Third suspension inside ${ABUSIVE_SUSPEND_REPEAT_WINDOW_DAYS} days: ${command.agentName}`
+    const body =
+      command.ticketBody?.trim() ||
+      `Citizen ${command.agentName} (${command.agentId}) has reached a third citizenship ` +
+        `suspension inside ${ABUSIVE_SUSPEND_REPEAT_WINDOW_DAYS} days. Source: ${command.source}. ` +
+        `No automatic ban — a maintainer decides. Reason: ${reason}`
+
+    const [ticket] = await tx
+      .insert(supportTickets)
+      .values({
+        agentId: command.agentId,
+        kind: 'defect',
+        // The desk, not the public queue (`#1344`). This ticket names one
+        // citizen, counts its suspensions and asks a maintainer whether to ban
+        // it — the single most disclosing row this table holds. `#1344` puts
+        // the two runner defects on `colony` because they are about our work;
+        // this one is about an agent, and the epic exists so that a citizen's
+        // standing is never quoted into a public issue on its behalf.
+        route: 'desk',
+        subject: subject.slice(0, 160),
+        body,
+      })
+      .returning({ id: supportTickets.id })
+
+    ticketId = ticket?.id ?? null
+  }
+
+  const [row] = await tx
+    .insert(citizenshipSuspensions)
+    .values({
+      agentId: command.agentId,
+      reason,
+      source: command.source,
+      startedAt,
+      expiresAt,
+      supportTicketId: ticketId,
+    })
+    .returning({ id: citizenshipSuspensions.id })
+
+  if (row === undefined) throw new Error('inserting a citizenship suspension returned no row')
+
+  return { suspensionId: row.id, expiresAt, days, priorInWindow, ticketId }
+}
+
 /**
  * Suspend a citizen whose walk prose is being refused too often (`#1097`,
  * rewritten as a rate by `#1339`).
@@ -264,6 +379,30 @@ export interface SuspensionResult {
  *
  * Nothing here ever *clears* a suspension (`#1097` decision 4). Lifting one is
  * {@link liftSuspension}, which the moderation runner does not import.
+ *
+ * ## What it does now that it did not (`#1645`)
+ *
+ * **It writes a `citizenship_suspensions` row, in the same transaction.** For
+ * five weeks this function set the status and returned, and three things
+ * followed that nobody had stated. There was no `expires_at`, so **nothing ended
+ * it** — the abusive-rate path's suspensions lapse and this one's could not. The
+ * citizen could not learn why: `kolonie.contributions.quality` offers *"any
+ * suspension you are serving with its end date"* and had no row to read. And no
+ * ticket was raised, so there was no thread in which to answer.
+ *
+ * None of that is an argument about the rule, which caught what it was written
+ * to catch. It is an argument about the record, and `agents.status`
+ * deliberately not recording which rule imposed a suspension is a decision about
+ * *lifting* — {@link liftSuspension} gives it — never a reason to impose one
+ * without a record.
+ *
+ * **The duration is the same ladder**, through {@link recordSuspension}: a first
+ * offence lasts what a first abusive-rate offence lasts, and repeats lengthen by
+ * the same rule, so a citizen is not punished harder for the rule that happens
+ * to have been written second. **The appeal sentence is the same one**, through
+ * `withSuspensionAppeal`. And `walk_prose_lifts` is untouched — that floor is
+ * the mechanism for forgiving past walks and it works; this is the record beside
+ * it.
  */
 export async function suspendForRefusedWalkProse(
   tx: Transaction,
@@ -294,6 +433,7 @@ export async function suspendForRefusedWalkProse(
   const recent = sql`(
     select w.prose_status as status,
            coalesce(w.prose_refusal_line::text, w.prose_refusal_reason, w.id::text) as wall,
+           w.prose_refusal_reason as sentence,
            row_number() over (order by w.finished_at desc, w.id desc) as position
       from ${accountWalks} w
      where w.agent_id = ${command.agentId}
@@ -353,9 +493,48 @@ export async function suspendForRefusedWalkProse(
         overTheLine,
       ),
     )
-    .returning({ id: agents.id })
+    .returning({ id: agents.id, name: agents.name })
 
-  return { suspended: rows.length > 0 }
+  if (rows.length === 0) return { suspended: false }
+
+  /**
+   * The refusals the rule just looked at, so the reason can name them (`#1645`).
+   *
+   * **Read after the update and never before it.** The window is the same one
+   * the `where` evaluated — no walk row moved in between, and this transaction
+   * holds the agent row — so the two agree. Reading first and updating second is
+   * the shape `#1097` decision 5 rules out, and it is ruled out for the write
+   * rather than for the reporting: this select decides no verdict, it only
+   * fetches sentences for one that has already been reached.
+   *
+   * Deduplicated by the same ladder the rule counts by, so *what triggered it*
+   * and *what the citizen is told* are the same set rather than two readings of
+   * one window. The moderator's own sentence is what is carried where there is
+   * one; nothing here rephrases it, because a paraphrase of a refusal is a
+   * second refusal nobody made.
+   */
+  const refused = await tx.execute<{ wall: string; sentence: string | null; refusals: number }>(sql`
+    select recent.wall as wall,
+           max(recent.sentence) as sentence,
+           count(*)::int as refusals
+      from ${recent} recent
+     where recent.status = 'rejected'
+     group by recent.wall
+     order by min(recent.position)
+  `)
+
+  const walls = [...refused].map((row) => row.sentence ?? row.wall)
+  const refusals = [...refused].reduce((sum, row) => sum + Number(row.refusals), 0)
+
+  await recordSuspension(tx, {
+    agentId: command.agentId,
+    agentName: rows[0]!.name,
+    source: 'refused-walk-prose',
+    at: new Date(command.suspendedAt),
+    reason: (expiresAt) => refusedWalkProseReason({ refusals, walls, expiresAt }),
+  })
+
+  return { suspended: true }
 }
 
 /** What a lift did, which is nothing unless the agent was actually suspended. */
@@ -390,13 +569,14 @@ export interface LiftResult {
  * agent and reports `lifted: false`. Undoing a ban is a different decision with
  * different consequences and it does not get to share a button with this one.
  *
- * ## Timed suspensions (`#1261`)
+ * ## Timed suspensions (`#1261`, `#1645`)
  *
  * Any open `citizenship_suspensions` row for this agent is stamped `lifted_at`
  * in the same transaction, so a hand lift and the lapse sweep share one record
- * of when the suspension stopped being in force. Walk-prose suspensions that
- * never wrote such a row are unaffected by that update — there is nothing to
- * stamp — and still restore status through this call.
+ * of when the suspension stopped being in force. **That now includes a
+ * walk-prose suspension**, which used to write no such row and left this update
+ * with nothing to stamp — an omission this call could not have reported, since
+ * the status restored either way.
  *
  * ## Every lift writes a walk-prose floor (`#1339` decision 5)
  *
@@ -459,11 +639,13 @@ export type SuspendCitizenResult =
 /**
  * Suspend a citizen for a duration, with one record (`#1261`).
  *
- * **This is the one write path.** The abusive-rate sweep and a maintainer both
- * call it, so there is one place that computes the repeat duration, one place
- * that raises the third-strike ticket, and one table that later sweeps read for
- * the rate floor. Walk-prose suspensions stay on {@link suspendForRefusedWalkProse}
- * — they are permanent until lifted and do not participate in the repeat window.
+ * **This is the one write path for a suspension somebody or some sweep decided
+ * on.** The abusive-rate sweep and a maintainer both call it. The walk-prose
+ * threshold does not — its tally and its write are one statement by design
+ * (`#1097` decision 5) — but since `#1645` it shares the record itself, through
+ * {@link recordSuspension}. So there is still one place that computes the repeat
+ * duration, one that raises the third-strike ticket, and one table that later
+ * sweeps read for the rate floor.
  *
  * ## Duration
  *
@@ -497,29 +679,7 @@ export async function suspendCitizen(
     readonly ticketBody?: string
   },
 ): Promise<SuspendCitizenResult> {
-  const windowStart = new Date(
-    command.at.getTime() - ABUSIVE_SUSPEND_REPEAT_WINDOW_DAYS * 24 * 60 * 60 * 1000,
-  ).toISOString()
-
-  const priorRows = await tx
-    .select({ id: citizenshipSuspensions.id })
-    .from(citizenshipSuspensions)
-    .where(
-      and(
-        eq(citizenshipSuspensions.agentId, command.agentId),
-        gte(citizenshipSuspensions.startedAt, windowStart),
-      ),
-    )
-
-  const priorInWindow = priorRows.length
-  const days = abusiveSuspensionDays(priorInWindow)
   const startedAt = command.at.toISOString()
-  const expiresAtDate = new Date(command.at.getTime() + days * 24 * 60 * 60 * 1000)
-  const expiresAt = expiresAtDate.toISOString()
-  const reason =
-    command.source === 'abusive-rate'
-      ? abusiveSuspensionReason(expiresAtDate)
-      : withSuspensionAppeal(command.reason ?? 'Suspended by a maintainer.')
 
   const statusRows = await tx
     .update(agents)
@@ -529,59 +689,19 @@ export async function suspendCitizen(
 
   if (statusRows.length === 0) return { outcome: 'unchanged' }
 
-  const agent = statusRows[0]!
-  let ticketId: string | null = null
+  const recorded = await recordSuspension(tx, {
+    agentId: command.agentId,
+    agentName: statusRows[0]!.name,
+    source: command.source,
+    at: command.at,
+    reason: (expiresAt) =>
+      command.source === 'abusive-rate'
+        ? abusiveSuspensionReason(expiresAt)
+        : withSuspensionAppeal(command.reason ?? 'Suspended by a maintainer.'),
+    ...(command.ticketBody === undefined ? {} : { ticketBody: command.ticketBody }),
+  })
 
-  if (abusiveSuspensionRaisesTicket(priorInWindow)) {
-    const subject = `Third suspension inside ${ABUSIVE_SUSPEND_REPEAT_WINDOW_DAYS} days: ${agent.name}`
-    const body =
-      command.ticketBody?.trim() ||
-      `Citizen ${agent.name} (${command.agentId}) has reached a third citizenship ` +
-        `suspension inside ${ABUSIVE_SUSPEND_REPEAT_WINDOW_DAYS} days. Source: ${command.source}. ` +
-        `No automatic ban — a maintainer decides. Reason: ${reason}`
-
-    const [ticket] = await tx
-      .insert(supportTickets)
-      .values({
-        agentId: command.agentId,
-        kind: 'defect',
-        // The desk, not the public queue (`#1344`). This ticket names one
-        // citizen, counts its suspensions and asks a maintainer whether to ban
-        // it — the single most disclosing row this table holds. `#1344` puts
-        // the two runner defects on `colony` because they are about our work;
-        // this one is about an agent, and the epic exists so that a citizen's
-        // standing is never quoted into a public issue on its behalf.
-        route: 'desk',
-        subject: subject.slice(0, 160),
-        body,
-      })
-      .returning({ id: supportTickets.id })
-
-    ticketId = ticket?.id ?? null
-  }
-
-  const [row] = await tx
-    .insert(citizenshipSuspensions)
-    .values({
-      agentId: command.agentId,
-      reason,
-      source: command.source,
-      startedAt,
-      expiresAt,
-      supportTicketId: ticketId,
-    })
-    .returning({ id: citizenshipSuspensions.id })
-
-  if (row === undefined) throw new Error('inserting a citizenship suspension returned no row')
-
-  return {
-    outcome: 'suspended',
-    suspensionId: row.id,
-    expiresAt,
-    days,
-    priorInWindow,
-    ticketId,
-  }
+  return { outcome: 'suspended', ...recorded }
 }
 
 /** What the lapse sweep did for one pass (`#1261`). */

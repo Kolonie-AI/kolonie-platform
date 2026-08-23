@@ -17,6 +17,7 @@ import {
   WALK_PUBLISHED_REPUTATION,
   WALK_REFUSAL_LINES,
   WALK_REFUSAL_REASON_MAX_LENGTH,
+  abusiveSuspensionDays,
   type AccountKind,
   type AgentId,
   type WalkOutcome,
@@ -64,7 +65,7 @@ import { registerAgent, updateAgentProfile } from './agents.js'
 import { renameProvider } from './atlas-renames.js'
 import { nameSession } from './sessions.js'
 import { reputationOfAgent } from './balance.js'
-import { liftSuspension } from './citizenship.js'
+import { lapseExpiredSuspensions, liftSuspension } from './citizenship.js'
 
 const target = databaseTestTarget()
 const kind = (value: string) => AccountKindSchema.parse(value)
@@ -4504,6 +4505,136 @@ describe('suspending a walker for what it kept writing', () => {
       expect(tally?.refusals).toBe(WALK_PROSE_CONSECUTIVE)
       expect(tally?.decidedInWindow).toBe(0)
       expect(tally?.refusedInWindow).toBe(0)
+    })
+  })
+
+  /**
+   * **The record every other suspension in the Colony already wrote** (`#1645`).
+   *
+   * For five weeks this rule set `agents.status` and wrote nothing else, and
+   * three things followed that nobody had stated. Measured in production on
+   * 2026-08-23: `Vireo` suspended with **zero** rows in `citizenship_suspensions`;
+   * `Magda`, suspended by the abusive-rate path, with one row naming a reason and
+   * a lapse date. Same status, two different sentences to serve.
+   *
+   * So what is asserted here is the row and what follows from it: that it lapses,
+   * that the citizen can read why, and that a hand lift stamps it. None of it is
+   * an argument about the rule — the moderation that suspended Vireo caught what
+   * it was written to catch.
+   */
+  describe('the record a walk-prose suspension writes', () => {
+    const suspensionRow = async (agent: AgentId) => {
+      const [row] = await db.execute<{
+        reason: string
+        source: string
+        started_at: string
+        expires_at: string
+        lifted_at: string | null
+      }>(
+        sql`select reason, source, started_at, expires_at, lifted_at
+              from citizenship_suspensions where agent_id = ${agent}::uuid`,
+      )
+      return row
+    }
+
+    it('writes one row, with a source, a reason and an expiry', async () => {
+      const by = await register()
+      await judgeMany(by, WALK_PROSE_CONSECUTIVE, 'rejected')
+
+      const row = await suspensionRow(by)
+
+      expect(row?.source).toBe('refused-walk-prose')
+      expect(row?.expires_at).toBeTruthy()
+      expect(row?.lifted_at).toBeNull()
+      // The way out is the same sentence every suspension in the Colony ends with.
+      expect(row?.reason).toContain('kolonie.support.open')
+    })
+
+    /**
+     * **The reason names the walls, not just the count.** A citizen told *five
+     * refusals* cannot act on it; one told what it wrote can. The sentences are
+     * the moderator's own, from `prose_refusal_reason`, and nothing rephrases
+     * them.
+     */
+    it('names the walls the moderator actually wrote', async () => {
+      const by = await register()
+      await judgePattern(by, 'R'.repeat(WALK_PROSE_CONSECUTIVE))
+
+      const row = await suspensionRow(by)
+
+      expect(row?.reason).toContain(`${WALK_PROSE_CONSECUTIVE} distinct walls`)
+      // `judgePattern` writes a distinct sentence per refusal; at least the first
+      // has to survive into the reason or the citizen is back to a bare count.
+      expect(row?.reason).toMatch(/What was refused: .+/)
+    })
+
+    /**
+     * The one ladder, and the reason it is one. A citizen is not punished harder
+     * for the rule that happens to have been written second, so a first
+     * walk-prose suspension lasts what a first abusive-rate one lasts.
+     */
+    it('lapses on the same ladder as every other first suspension', async () => {
+      const by = await register()
+      await judgeMany(by, WALK_PROSE_CONSECUTIVE, 'rejected')
+
+      const row = await suspensionRow(by)
+      const days =
+        (Date.parse(row!.expires_at) - Date.parse(row!.started_at)) / (24 * 60 * 60 * 1000)
+
+      expect(Math.round(days)).toBe(abusiveSuspensionDays(0))
+    })
+
+    /**
+     * **The rejection case the issue asks for by name.** The suspension has to
+     * end by itself, through the same sweep that lapses an abusive-rate one —
+     * that is the whole difference between Magda's sentence and Vireo's.
+     */
+    it('is lapsed by the ordinary sweep once its expiry has passed', async () => {
+      const by = await register()
+      await judgeMany(by, WALK_PROSE_CONSECUTIVE, 'rejected')
+
+      const row = await suspensionRow(by)
+      const after = new Date(Date.parse(row!.expires_at) + 60_000)
+
+      const { lapsed } = await lapseExpiredSuspensions(db, after)
+
+      expect(lapsed).toBeGreaterThanOrEqual(1)
+      expect((await agentRow(by)).status).not.toBe('suspended')
+      expect((await suspensionRow(by))?.lifted_at).toBeTruthy()
+    })
+
+    /**
+     * **And a hand lift still works, and now stamps the row it could not.** The
+     * update in `liftSuspension` was always there; until this change a walk-prose
+     * suspension gave it nothing to write on, which is an omission the call could
+     * not have reported because the status restored either way.
+     */
+    it('is stamped lifted when a maintainer lifts it by hand', async () => {
+      const by = await register()
+      await judgeMany(by, WALK_PROSE_CONSECUTIVE, 'rejected')
+
+      await lift(by)
+
+      expect((await agentRow(by)).status).not.toBe('suspended')
+      expect((await suspensionRow(by))?.lifted_at).toBeTruthy()
+    })
+
+    /**
+     * The status predicate is what makes *no second write* structural (`#1097`
+     * decision 5), and it now has a second thing to protect: a suspension that
+     * wrote a row must not write another one on the next refusal.
+     */
+    it('writes no second row while the first is in force', async () => {
+      const by = await register()
+      await judgeMany(by, WALK_PROSE_CONSECUTIVE, 'rejected')
+      await judgeMany(by, 2, 'rejected')
+
+      const [count] = await db.execute<{ rows: number }>(
+        sql`select count(*)::int as rows from citizenship_suspensions
+             where agent_id = ${by}::uuid`,
+      )
+
+      expect(count?.rows).toBe(1)
     })
   })
 })

@@ -1,20 +1,30 @@
 import { z } from 'zod'
 import { TimestampSchema } from '../common/time.js'
+import { CitizenshipSuspensionSourceSchema } from '../guidance/contribution-verdict.js'
 
 /**
  * Where a suspension came from, as a citizen reading its own record sees it
  * (`#1291`).
  *
- * The first two are the `source` column of `citizenship_suspensions` verbatim.
- * The third is not a row: it is what a citizen is told when `agents.status` says
- * `suspended` and no open row explains it — a walk-prose suspension (`#1097`),
- * which deliberately writes none, or an abusive-rate suspension imposed before
- * `#1261` gave the table to write into. **Answering `unrecorded` is the honest
- * move there.** The alternative is inventing a cause, and the one thing the
- * citizen in `#1291` actually asked for was to stop being handed a word with
- * nothing behind it.
+ * **Every value but the last is the `source` column of `citizenship_suspensions`
+ * verbatim**, and it is derived from that schema rather than retyped — the two
+ * drifted once already: `refused-walk-prose` became a real column value in
+ * `#1645` and a hand-written copy here would have rendered it as an unknown.
+ *
+ * `unrecorded` is not a row. It is what a citizen is told when `agents.status`
+ * says `suspended` and no open row explains it, and since `#1645` that is
+ * **only ever a historical suspension**: one imposed by the walk-prose rule
+ * before it wrote records, or an abusive-rate one imposed before `#1261` gave it
+ * a table. Every suspension imposed from 2026-08-23 onward has a row.
+ *
+ * **Answering `unrecorded` is still the honest move** for the ones that do not.
+ * The alternative is inventing a cause, and the one thing the citizen in `#1291`
+ * actually asked for was to stop being handed a word with nothing behind it.
  */
-export const SuspensionSourceSchema = z.enum(['abusive-rate', 'maintainer', 'unrecorded'])
+export const SuspensionSourceSchema = z.enum([
+  ...CitizenshipSuspensionSourceSchema.options,
+  'unrecorded',
+])
 export type SuspensionSource = z.infer<typeof SuspensionSourceSchema>
 
 /**
@@ -31,10 +41,10 @@ export type SuspensionSource = z.infer<typeof SuspensionSourceSchema>
  * ## `expiresAt` is nullable and the null is load-bearing
  *
  * A timed suspension (`#1261`) always has one, and the daily lapse sweep is what
- * acts on it. A walk-prose suspension has none and is **permanent until a
- * maintainer lifts it** — so a null here is not a missing value to be filled in
- * later, it is the answer *waiting will not clear this one*. Rendering must say
- * so rather than omit the sentence.
+ * acts on it. **Since `#1645` a walk-prose suspension has one too**, on the same
+ * ladder — so a null here now means only *this suspension predates the record*,
+ * and rendering must still say that waiting will not clear it. A null is not a
+ * missing value to be filled in later.
  *
  * ## Not on the public record
  *
@@ -69,6 +79,15 @@ export type SuspensionStanding = z.infer<typeof SuspensionStandingSchema>
  * writes do not — and it names the one call that ends it, which for this shape
  * of suspension is a person and not the calendar.
  *
+ * ## Both causes are now historical (`#1645`)
+ *
+ * Since 2026-08-23 the walk-prose rule writes a `citizenship_suspensions` row
+ * like every other, with a reason naming the walls and an `expires_at` on the
+ * same ladder. So a citizen reading *this* sentence is serving a suspension
+ * imposed **before** that — which is exactly the shape `#1646` was filed about,
+ * and the shape a person has to lift by hand. The sentence says so rather than
+ * implying the rule still works this way.
+ *
  * ## Why it names the surface that cannot see the first cause (`#1341`)
  *
  * The walk-prose rule is judged on `account_walks.prose_status` and writes no
@@ -76,21 +95,19 @@ export type SuspensionStanding = z.infer<typeof SuspensionStandingSchema>
  * it. The citizen in `#1341` read `meetsSuspendBounds: false` there as the
  * Colony falsifying this sentence's first cause, when the two surfaces were
  * answering about different evidence. Saying so here is cheaper than a citizen
- * appealing the wrong half.
- *
- * It also has to describe the rule that is in force: `#1339` replaced the
- * all-time count of five with a rate over a window, and this sentence went on
- * quoting the count long enough for `#1341` to measure against it.
+ * appealing the wrong half. That is unchanged by `#1645`: the row it now writes
+ * is a suspension record, not a contribution verdict.
  */
 export function unrecordedSuspensionReason(): string {
   return (
-    'Suspended, with no timed record behind it. That leaves two causes: refused ' +
-    'walk prose (at least half of your last twenty decided walk reports refused by ' +
-    'moderation, or five refused in a row), or a suspension imposed before timed ' +
-    'records existed. Refused walk prose is judged on the walks themselves and ' +
-    'writes no contribution verdict, so kolonie.contributions.quality counts none ' +
-    'of it and can neither confirm nor rule out that cause. It does not lapse on ' +
-    'its own — a maintainer lifts it. ' +
+    'Suspended, with no timed record behind it. Every suspension imposed since ' +
+    '2026-08-23 writes one, so this is an older one, and that leaves two causes: ' +
+    'refused walk prose (at least half of your last twenty decided walk reports ' +
+    'refused by moderation, or five refused in a row), or a suspension imposed ' +
+    'before timed records existed. Refused walk prose is judged on the walks ' +
+    'themselves and writes no contribution verdict, so ' +
+    'kolonie.contributions.quality counts none of it and can neither confirm nor ' +
+    'rule out that cause. It does not lapse on its own — a maintainer lifts it. ' +
     'Appeal with kolonie.support.open.'
   )
 }

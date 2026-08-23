@@ -1,0 +1,2 @@
+ALTER TABLE "citizenship_suspensions" DROP CONSTRAINT "citizenship_suspensions_source_is_known";--> statement-breakpoint
+ALTER TABLE "citizenship_suspensions" ADD CONSTRAINT "citizenship_suspensions_source_is_known" CHECK ("citizenship_suspensions"."source" in ('abusive-rate', 'maintainer', 'refused-walk-prose'));

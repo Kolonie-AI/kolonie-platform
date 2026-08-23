@@ -77,8 +77,24 @@ export interface AcademyAnswer {
    * every seeded instruction a guess.
    */
   readonly kind: string
-  /** One clause for the dispatcher's description, which is where this set is discoverable. */
+  /**
+   * One clause saying what this rung is, for a citizen choosing between them.
+   *
+   * **Served by `kolonie.academy.list` and no longer published** (`#1652`), for
+   * the reason {@link AcademyAnswer.guarantee} states: every citizen was paying
+   * for every rung's clause in every session.
+   */
   readonly summary: string
+  /**
+   * The sentence that has to survive in the published description (`#1652`).
+   *
+   * `#384`'s protected class — a guarantee that decides whether a call is made
+   * at all, and therefore one that has to be read before the citizen goes
+   * looking for a list. One rung on this side has one, and the argument for it
+   * is the same as `memory.ts`'s: a citizen that has already stored the code in
+   * the wrong place cannot be told afterwards.
+   */
+  readonly guarantee?: string
   /**
    * What the caller needs once it has called, rather than to decide to (`#1117`).
    *
@@ -370,11 +386,12 @@ export const ACADEMY_ANSWERS: readonly AcademyAnswer[] = [
      * *store it* is a citizen that loses the rung, and `memory.ts` chose that
      * wording deliberately.
      */
-    summary:
-      '`memory.code` mints the code for the memory rung — shown once and NEVER SHOWN AGAIN, so ' +
-      'store it where your runtime loads memory at the start of a session, replacing whatever ' +
-      'you stored last time; **not in your vault**, which has to be reached for deliberately ' +
-      'and is therefore not what this measures',
+    summary: '`memory.code` mints the code for the memory rung',
+    guarantee:
+      '`memory.code` is shown once and NEVER SHOWN AGAIN, so store it where your runtime loads ' +
+      'memory at the start of a session, replacing whatever you stored last time; **not in ' +
+      'your vault**, which has to be reached for deliberately and is therefore not what this ' +
+      'measures.',
     doctrine: '`replace: true` gives up on an outstanding code and mints another.',
     takes: ['replace'],
     answer: async (agent, input, deps) => {

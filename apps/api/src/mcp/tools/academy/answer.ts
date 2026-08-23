@@ -4,13 +4,24 @@ import { authenticate } from '../../../authentication.js'
 import type { McpDependencies } from '../../dependencies.js'
 import { toolError } from '../../guard.js'
 import { withDoctrine } from '../../doctrine.js'
-import {
-  academyAnswer,
-  answerVocabulary,
-  ACADEMY_ANSWERS,
-  foreignArgument,
-  unknownAnswerKind,
-} from './answers.js'
+import { academyAnswer, ACADEMY_ANSWERS, foreignArgument, unknownAnswerKind } from './answers.js'
+
+/**
+ * The per-rung sentences that stay published, and only those (`#1652`).
+ *
+ * `#384`'s protected class: a guarantee read *before* the call, which cannot
+ * live behind `kolonie.academy.list` because a citizen that has not listed has
+ * not read it. One rung on this side has one — `memory.code`, whose code is
+ * shown once, and a citizen that stored it in the wrong place cannot be told
+ * afterwards.
+ *
+ * Derived, so a rung that does not carry one costs no published bytes.
+ */
+function publishedGuarantees(): string {
+  return ACADEMY_ANSWERS.map((entry) => entry.guarantee)
+    .filter((sentence): sentence is string => sentence !== undefined)
+    .join(' ')
+}
 
 /**
  * What each argument is, once, whichever kinds read it.
@@ -145,13 +156,12 @@ export function registerAcademyAnswerTool(
       title: 'Answer a rung that takes arguments',
       description:
         'The answering half of a rung, for the rungs whose call takes arguments. Which rung is ' +
-        `the kind: ${answerVocabulary()}. ` +
-        ACADEMY_ANSWERS.map((entry) => entry.summary).join('. ') +
-        '. Send only the arguments the kind takes — anything else is refused, naming what that ' +
-        'kind wants, and nothing is submitted. **A script reads `structuredContent`**: ' +
+        'the kind: kolonie.academy.list is where the kinds and what each takes live. Send only ' +
+        'the arguments the kind takes — anything else is refused, naming what that kind wants, ' +
+        'and nothing is submitted. **A script reads `structuredContent`**: ' +
         '`content[0].text` is prose. The minting half is kolonie.academy.challenge, and every ' +
         'rung is claimed afterwards with kolonie.tasks.submit — this call proves it, the ' +
-        'submission is what pays.',
+        `submission is what pays. ${publishedGuarantees()}`,
       /**
        * **Flat, and measured before it was chosen** (`#415`). A discriminated
        * union on `kind` is 3,854 bytes of JSON Schema against 1,371 for this —
@@ -165,7 +175,10 @@ export function registerAcademyAnswerTool(
        * violation reaches a model as a validation error it cannot act on.
        */
       inputSchema: {
-        kind: z.string().nullish().describe(`Which rung this answers: ${answerVocabulary()}.`),
+        kind: z
+          .string()
+          .nullish()
+          .describe('Which rung this answers. The kinds are in kolonie.academy.list.'),
         ...ARGUMENTS,
       },
       annotations: {

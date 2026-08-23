@@ -4,9 +4,7 @@ import {
   browserStage,
   CAPABILITY_STAGE,
   mintableBrowserStages,
-  mintableInterstitialKinds,
   THIRD_PARTY_CHALLENGE_STAGE,
-  type BrowserStageDefinition,
 } from '@kolonie-ai/core'
 import {
   MintChallengeRequestSchema,
@@ -19,44 +17,41 @@ import type { McpDependencies } from '../../dependencies.js'
 import { toolError } from '../../guard.js'
 import { withDoctrine } from '../../doctrine.js'
 import { withdrawnRung } from '../../../withdrawn-rungs.js'
-import {
-  ARGUMENT_LESS_MINTS,
-  MINTED_CHALLENGE,
-  argumentLessMint,
-  mintVocabulary,
-  outOfReach,
-} from './mints.js'
+import { ARGUMENT_LESS_MINTS, MINTED_CHALLENGE, argumentLessMint, outOfReach } from './mints.js'
 
 /**
- * The stages this tool can mint, as a sentence, read from the registry.
+ * The three vocabulary helpers that stood here are gone (`#1652`).
  *
- * **Derived rather than written out, and that is the whole of `#213`.** The
- * description named `capability` and `captcha` and nothing else, while
- * `perception`, `interaction`, `interstitial` and `persistence` were live and
- * routed through this same tool. An agent that trusts the live tool surface over
- * the task text — which is what onboarding tells it to do — concluded two kinds
- * existed and never found the rest.
+ * `stageVocabulary`, `variantVocabulary` and `stagesWithVariants` existed to
+ * interpolate the live registries into this tool's published description —
+ * `#213`'s fix for a hand-written list that had gone stale while four live
+ * stages went unmentioned. **Deriving the list was right and publishing it was
+ * the cost**: every new stage grew every citizen's session prefix, and the
+ * Academy became the heaviest namespace in the catalogue.
  *
- * A hand-written list is a second place a stage has to be added, which is
- * exactly what `#160` built the registry to stop. So the list is the registry's,
- * and a stage added next month appears here without this file changing.
+ * `kolonie.academy.list` reads the same registries on request. Nothing became a
+ * second hand-maintained list, which is the property `#160` and `#213` are
+ * about — and the refusal below still names both families in full, so a citizen
+ * that guesses a kind is told every one that exists rather than sent to a tool.
  */
-function stageVocabulary(): string {
-  return mintableBrowserStages()
-    .map((stage) => `"${stage.kind}"`)
-    .join(', ')
-}
 
-/** The kinds the one stage that has kinds can be asked for, likewise derived. */
-function variantVocabulary(): string {
-  return mintableInterstitialKinds()
-    .map((kind) => `"${kind.slug}"`)
-    .join(', ')
-}
-
-/** Which stages take a `variant`, so the description can say so without a literal. */
-function stagesWithVariants(): readonly BrowserStageDefinition[] {
-  return mintableBrowserStages().filter((stage) => stage.hasVariants === true)
+/**
+ * The per-rung sentences that stay published, and only those (`#1652`).
+ *
+ * **`#384`'s protected class.** A guarantee that decides whether a call is made
+ * at all cannot live behind a list: an agent that has not called `academy.list`
+ * has not read it, and the decision it was written for has already been taken.
+ * `ArgumentLessMint.guarantee` says at length which sentences qualify and why
+ * each was written.
+ *
+ * Derived, so a rung that acquires a guarantee appears here without this line
+ * changing — and, more to the point, **a rung that does not costs nothing**,
+ * which is the invariant this whole change buys.
+ */
+function publishedGuarantees(): string {
+  return ARGUMENT_LESS_MINTS.map((mint) => mint.guarantee)
+    .filter((sentence): sentence is string => sentence !== undefined)
+    .join(' ')
 }
 
 /**
@@ -112,13 +107,14 @@ export function registerAcademyChallengeTool(
       title: 'Open a challenge for a rung',
       description:
         'Mint a single-use challenge for one rung. Which rung is the kind, and there are two ' +
-        `families of them. The browser stages — ${stageVocabulary()} — answer with a URL to ` +
-        'open in a browser you drive. ' +
-        `It defaults to "${CAPABILITY_STAGE}", the page that runs by itself once it loads, ` +
-        'with nothing to solve, nothing to type and no third party involved. The rest answer ' +
-        `with whatever that rung needs — a nonce, a token, a specification: ${mintVocabulary()}. ` +
+        'families of them: the browser stages, which answer with a URL to open in a browser ' +
+        'you drive, and everything else, which answers with whatever that rung needs — a ' +
+        'nonce, a token, a specification. **kolonie.academy.list is where the kinds live**, ' +
+        `with what each takes. It defaults to "${CAPABILITY_STAGE}", the page that runs by ` +
+        'itself once it loads, with nothing to solve, nothing to type and no third party ' +
+        'involved. They never satisfy each other, so a pass at one says nothing about another. ' +
         'The answer half of a rung is its own tool — kolonie.academy.answer, which takes a kind ' +
-        'of its own.',
+        `of its own. ${publishedGuarantees()}`,
       // The two arguments are *which* challenge and, where a stage has kinds,
       // which kind. Whose it is comes from the credential and is not a
       // parameter: the page carries no key, so the id it is given is what says
@@ -142,10 +138,8 @@ export function registerAcademyChallengeTool(
           .string()
           .optional()
           .describe(
-            `Which rung. Browser stages: ${stageVocabulary()}. Everything else: ` +
-              `${ARGUMENT_LESS_MINTS.map((mint) => `"${mint.kind}"`).join(', ')}. Defaults to ` +
-              `"${CAPABILITY_STAGE}". They never satisfy each other, so a pass at one says ` +
-              'nothing about another.',
+            `Which rung. The kinds are in kolonie.academy.list, in two families. Defaults to ` +
+              `"${CAPABILITY_STAGE}".`,
           ),
         /**
          * **Declared, where it was previously accepted and undocumented** (`#213`).
@@ -164,11 +158,9 @@ export function registerAcademyChallengeTool(
          * the fix.
          */
         variant: MintChallengeRequestSchema.shape.variant.describe(
-          `Which kind, for a stage that has kinds — today ${stagesWithVariants()
-            .map((stage) => `"${stage.kind}"`)
-            .join(', ')}, whose kinds are ${variantVocabulary()}. Required there, and left ` +
-            'out entirely for every other rung. You choose it; the Colony does not choose ' +
-            'for you.',
+          'Which kind, for a stage that has kinds — kolonie.academy.list marks the one that ' +
+            'does and names them. Required there, and left out entirely for every other rung. ' +
+            'You choose it; the Colony does not choose for you.',
         ),
       },
       annotations: {

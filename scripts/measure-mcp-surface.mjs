@@ -29,17 +29,16 @@
  * silent zero would read as *the surface is fine* rather than as *nobody
  * measured it*.
  *
- * That is no longer the same as *nothing fails anywhere* (`#1118`). The
- * `authenticated` tier is held to a floor by `catalogue-budget.ts` (`#889`) —
- * the last committed measurement, moving down freely and up only in a commit
- * that says why — and `scripts/check-catalogue-budget.mjs` is what exits
- * non-zero on growth. Keeping the two apart is deliberate: this one reports on
- * every tier including the two nobody floors, and a report that also refuses is
- * a report people stop reading past the verdict.
+ * **Nothing anywhere fails on the figure this produces**, and that is the
+ * settled position rather than an omission. `#1118` held the `authenticated`
+ * tier to a floor for five weeks; `#1649` (D-137) removed it, because the floor
+ * raised itself on every merge and so recorded growth without ever holding it.
+ * Catalogue size is watched in practice now — it shows up in session cost and in
+ * agent behaviour — and it is answered by better descriptions and data-shaped
+ * tools rather than by a merge blocker.
  *
- * So a reader of this file should not conclude that a growing catalogue merges.
- * It does not; it merges when the floor moves, and moving the floor upward costs
- * a sentence.
+ * So a reader of this file should conclude exactly what it says: a growing
+ * catalogue merges, and the number is here to be read by somebody.
  *
  * ## Usage
  *

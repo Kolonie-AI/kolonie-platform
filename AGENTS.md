@@ -236,17 +236,34 @@ repository needs a genuinely different toolchain, audience, or blast radius.
   somebody has got it wrong. `apps/api/src/mcp/tools/operator-claim.ts` is the
   worked example: two contrasts moved out of the description into the file header,
   with the reason.
+- **Catalogue size is watched in practice and gated by nothing** (`#1649`,
+  D-137, operator decision 2026-08-23). A floor stood in
+  `catalogue-budget.json` from `#889` until then: the last committed
+  measurement, moving down freely and up only in a commit that named the record.
+  It raised itself on every merge — the catalogue went 112 → 123 tools and
+  194,396 → 221,007 bytes in four days while it was in force, with eight
+  auto-raise commits on 2026-08-22 alone — so it recorded growth and never held
+  it, while charging a queue round trip per merge and standing as a
+  disincentive to ship a tool at all. **The gate is removed and is not to be
+  rebuilt in any form** — no hard ceiling, no per-namespace budget, no
+  raise-approval process — without a maintainer decision reversing D-137. If the
+  catalogue gets too big that shows up in session cost and in agent behaviour,
+  and it is fixed then, by shipping better descriptions and data-shaped tools.
+  The ruler stays: `scripts/measure-mcp-catalogue.mjs` weighs it per namespace on
+  demand, and the MCP surface workflow leaves the figures on every pull request
+  as a comment that fails nothing.
 - **Success is measured in published catalogue bytes, and nothing else counts.**
-  `catalogue-budget.json` (`#889`) is the guard — a ceiling on total published
-  bytes that only moves down, which a rewrite that merely reworded leaves exactly
-  where it was. `defensive-prose.ts` measures one class of sentence — _is not_,
-  _are not_, _rather than_, _instead of_, _never a_ — and its test holds that
-  class under a ceiling, but **the class metric is gameable on its own**, because
-  a sentence is charged to it whole: lifting one marker clause out of a long
-  paragraph books the paragraph as saved and saves the citizen nothing. `#1116` is
-  the measured proof rather than the worry — its class fell 27,757 → 5,500 bytes,
-  **22,257 booked, while only 3,543 bytes actually left the catalogue**. Read the
-  two tests together or neither means anything.
+  `defensive-prose.ts` measures one class of sentence — _is not_, _are not_,
+  _rather than_, _instead of_, _never a_ — and its test holds that class under a
+  ceiling, but **the class metric is gameable on its own**, because a sentence is
+  charged to it whole: lifting one marker clause out of a long paragraph books
+  the paragraph as saved and saves the citizen nothing. `#1116` is the measured
+  proof rather than the worry — its class fell 27,757 → 5,500 bytes, **22,257
+  booked, while only 3,543 bytes actually left the catalogue**. The byte floor
+  used to be what caught that, and it is gone; what answers it now is the prose
+  share in the surface report, which is a figure to read rather than a check to
+  pass. So read the class metric as saying the markers went, never as saying the
+  catalogue got smaller.
 - **Shorter is not the goal, and the limit is asserted.**
   `choice-time-descriptions.test.ts` holds the three classes of sentence a cut may
   not lose — the front door's budget, a contrast with a neighbouring tool, and a
@@ -408,49 +425,25 @@ about the change: every one was two branches incrementing a number.
 
 **Two of the three are fixed and need nothing from you.**
 
-- **The catalogue floor** (`apps/api/src/mcp/catalogue-budget.json`). No branch
-  writes it any more. `main` measures the surface after a merge and commits the
-  figure itself — up as well as down. A raise still costs a sentence, and the
-  sentence is the pull request's title and body, which the branch gate
-  (`branchBudgetVerdict`) and the ratchet on `main` (`mainFloorRatchet`) both
-  read. Name
-  `the-catalogue-encodes-grammar-never-vocabulary` and say what the growth is
-  **vocabulary-free** for, in the pull request, and there is nothing to edit.
-  This was the dangerous one: a wrongly resolved floor was green on the branch
-  and red on `main` for everybody, which is `#1379` and `#1456`.
+- **The catalogue floor** (`apps/api/src/mcp/catalogue-budget.json`). **Gone
+  entirely** (`#1649`, D-137, 2026-08-23) — the file, the branch gate, the
+  ratchet on `main`, the `automation/catalogue-floor` pull request and
+  `check:catalogue-floor` with it. A growing catalogue merges, no run fails on a
+  figure, and there is no floor to conflict on, resolve wrongly, or edit after
+  all.
 
-  **How the floor reaches `main`, since the queue went on** (`#1566`). It used to
-  be a push from the `MCP surface` workflow, and `main` stopped accepting one —
-  the job failed on ten consecutive merges with nobody watching, the floor went
-  stale, and because it is a **required** check every queued entry then failed on
-  tools it had not added. The figure now arrives as a pull request from
-  `automation/catalogue-floor`, force-updated so ten merges are one pull request,
-  and it merges itself. **Still nothing for you to edit**; what changed is that
-  the floor now lands one queue cycle behind the change that moved it, so a branch
-  opened inside that window can be measured against a number one tool old. The
-  refusal says so and how to tell.
+  It is worth knowing what it cost while it stood, because that is the argument
+  against rebuilding it. A wrongly resolved floor was green on the branch and red
+  on `main` for everybody (`#1379`, `#1456`). When the merge queue went on, the
+  push it depended on started being refused and the job failed on ten
+  consecutive merges with nobody watching — the floor went stale at 121 against a
+  served catalogue of 123, and because it was a **required** check every queued
+  entry then failed on tools it had not added (`#1566`). And a local run could
+  refuse a branch for doing exactly what the raise procedure told it to do
+  (`#1483`).
 
-  **A merge group is measured and reported, never failed** (`#1567`). There the
-  served catalogue is `main` plus every entry ahead of you, so the difference is
-  what several changes added together and no verdict about your entry can be drawn
-  from it. The gate is the pull request, where an author is present.
-
-  **What a red catalogue run locally means** (`#1483`). `npm run check` weighs the
-  surface the same way the branch gate does — the 1024-byte tolerance, and your
-  pull request's own words read from `CATALOGUE_FLOOR_PR_TEXT_FILE` or
-  `CATALOGUE_FLOOR_PR_TEXT`. So a red run says _this growth needs a sentence_,
-  never _raise the floor_. Write the sentence in the pull request. If you want to
-  see the verdict before there is a pull request to read, put the text in the
-  variable for one run:
-
-  ```bash
-  CATALOGUE_FLOOR_PR_TEXT="$(git log -1 --format='%B')" npm run check
-  ```
-
-  Until `#1483` that assertion compared against the floor with no tolerance and
-  read no justification, so it failed a branch for doing exactly what the
-  paragraph above tells you to do, and the only way past it was to edit the floor
-  after all.
+  §3 has the policy that replaces it. In short: size is watched in practice, and
+  no size gate comes back without a maintainer decision reversing D-137.
 
 - **The table and enum counts** in `packages/db/src/migrate.test.ts`. Both are
   counted from the schema barrel now, so adding a table edits nothing there.

@@ -16,39 +16,37 @@ name: MCP surface
 #
 # `#388` put a number in front of whoever was adding to the surface and
 # deliberately stopped there, on the ground that a hard ceiling is a figure
-# somebody picks and new tools have to be able to exist. That reasoning still
-# holds and there is still no ceiling. What ten days of the report established is
-# that a number nobody has to answer for is a number: the catalogue went from 96
-# tools to 101 while this ran, and every one of those runs was green.
+# somebody picks and new tools have to be able to exist.
 #
-# So the `authenticated` tier — the one every citizen pays for, in every session —
-# is held to a **floor** rather than a ceiling (`#1118`). The floor is the last
-# committed measurement, in `apps/api/src/mcp/catalogue-budget.json`. It moves
-# down freely, and up only in a commit naming the record and saying what the new
-# tools are vocabulary-free for. Nobody picked it, which is the whole difference
-# between a floor and a ceiling.
+# **A floor stood here from `#1118` until 2026-08-23, and it is gone** (`#1649`,
+# D-137). It was the last committed measurement, raised in a commit that named
+# the record — and between 2026-08-18 and 2026-08-22 the catalogue grew from 112
+# tools and 194,396 bytes to 123 and 221,007 while it was in force, because the
+# floor raised itself on every merge. Eight commits titled *"The catalogue floor
+# goes up to what main measured"* landed on 2026-08-22 alone. A gate that
+# ratchets itself records growth and never holds it, and what it charged for
+# recording it was a queue round trip per merge and a standing disincentive to
+# ship a tool at all.
 #
-# The other two tiers are weighed and reported and nothing fails on them. Nobody
-# has shown either of them growing, and a gate on a surface that is not moving is
-# a gate that only ever costs somebody an afternoon.
-#
-# ## Why this gates when the test suite does not
-#
-# `catalogue-budget.test.ts` is synthetic — stubs and arithmetic on the committed
-# numbers. `npm run check` runs `check:catalogue-floor` (the commit-message check)
-# and not `check-catalogue-budget.mjs`. **This workflow is the only place the live
-# catalogue is weighed against the floor.** What it also does that a test cannot
-# is write a reduction back: on a push to `main`, a saving is committed in the
-# same run that measured it (`#1118`). A pull request never writes the floor
-# (`#1266`) — it is judged against its merge base instead, so a later merge cannot
-# re-lower the floor underneath an open branch and retro-fail it.
+# So **this workflow measures and reports and fails nothing.** Every tier is
+# weighed, the numbers land in the job summary and in a sticky comment, and no
+# job here can turn a pull request red. Catalogue size is watched in practice
+# from now on: it shows up in session cost and in agent behaviour, and it is
+# fixed then — by better descriptions (`#1650`) and data-shaped tools (`#1652`),
+# not by a merge blocker. **No size gate is to be reintroduced in any form
+# without a maintainer decision reversing D-137.**
 #
 # ## Why it runs on `main` as well as on a pull request
 #
-# Because `main` is pushed to directly (D-053), and a check that only ever spoke
+# Because `main` is pushed to directly (D-053), and a report that only ever spoke
 # on pull requests would be silent for most of what changes the surface. On a
 # pull request the report is a sticky comment; on a push it is the job summary,
 # which is the equivalent surface for a commit that had no review page.
+#
+# `merge_group` is kept for the same reason it was added and not for the gate:
+# the queue builds each entry onto a `gh-readonly-queue/…` ref, and a workflow
+# that does not run there reports nothing at all on the revision that actually
+# lands.
 #
 # ## Why two jobs rather than one with a second checkout
 #
@@ -63,14 +61,14 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  # The queue builds each entry onto a `gh-readonly-queue/…` ref, and a check
-  # that does not run there can never be required — it would report nothing, the
-  # entry would wait out `check_response_timeout_minutes` and be evicted. So a
-  # workflow that is meant to gate has to answer on all three events, and this
-  # one is meant to gate: the floor is judged against the message of the commit
-  # that lands, and under a squash queue that message exists for the first time
-  # here (issue 1379).
   merge_group:
+    # The queue builds each entry onto a `gh-readonly-queue/…` ref. This
+    # workflow no longer gates anything (`#1649`), so it is here to report on
+    # the revision that lands rather than to hold it — but a required check that
+    # did not run here would report nothing, and the entry would wait out
+    # `check_response_timeout_minutes` and be evicted (issue 1379). Whether any
+    # of these jobs is still named in branch protection is not readable from
+    # this file, so the trigger stays.
 
 # The tip is the only revision anybody reads a size report for.
 concurrency:
@@ -162,29 +160,23 @@ jobs:
     timeout-minutes: 5
 
     permissions:
-      # The floor branch, and nothing else. **Never `main`** (`#1566`): the
-      # measured figure now travels as a pull request, so what this token writes
-      # is `automation/catalogue-floor` and a sticky comment.
-      contents: write
-      # The sticky comment, and the floor's own pull request.
+      # **Read, and one comment.** The floor branch this job used to write, the
+      # pull request it used to open and the `gh workflow run` it used to
+      # dispatch all went with the gate (`#1649`, D-137), and their grants went
+      # with them — `contents: write` and `actions: write` are the two a
+      # reporting job has no use for.
+      contents: read
+      # The sticky comment, which is the whole of what this job now writes.
       pull-requests: write
-      # **`gh workflow run` on the floor branch, for the degraded path** — kept
-      # because the dispatch is what runs when `FLOOR_BOT_TOKEN` is absent
-      # (`#1587`). `#1566` needed it always: a pull request opened with
-      # `GITHUB_TOKEN` creates no workflow runs, GitHub's own loop guard, so the
-      # required check would never report. `workflow_dispatch` is the documented
-      # exception and `ci.yml` has had the trigger since `#1171`. What `#1587`
-      # established is that the dispatched run does not *satisfy* the
-      # requirement, only produce a verdict — so with a real actor it is not run.
-      actions: write
 
     steps:
       - uses: actions/checkout@v7
         with:
-          # The branch, not the merge commit a pull request builds by default:
-          # a lowered floor is pushed back here, and a detached merge commit has
-          # nowhere to be pushed. On a push to `main` both expressions are the
-          # same ref.
+          # The branch, not the merge commit a pull request builds by default.
+          # Nothing is pushed back here any more, so this is now only about
+          # measuring the revision the author is looking at rather than a merge
+          # commit nobody has. On a push to `main` both expressions are the same
+          # ref.
           ref: ${{ github.event.pull_request.head.ref || github.ref }}
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
 
@@ -218,154 +210,6 @@ jobs:
           ' --input-type=module
           cat surface-report.md >> "$GITHUB_STEP_SUMMARY"
 
-      # The verdict is computed before the sticky comment so the comment carries
-      # it, and the step does not exit non-zero here — a failing run must still
-      # leave the number where the author can read it. The fail comes after the
-      # comment, from `Fail the run when the catalogue grew past its gate`.
-      #
-      # On a pull request the comparison is head against base (`#1266`): tools
-      # stay at zero, bytes get CATALOGUE_BYTE_TOLERANCE, and nothing writes the
-      # floor file. On a push to main the comparison is against the committed
-      # floor, and a reduction is written for the commit step below.
-      #
-      # References are spelled out as words rather than written with a hash, and
-      # that is the fix rather than the quoting: in a plain YAML scalar a ` #`
-      # starts a comment, so `see #388.` was discarded before the shell saw it
-      # and the step ran an unterminated quote. Quoting would work until the next
-      # person edits the line. The character is the trap.
-      # PR_TEXT is what `branchBudgetVerdict` reads for the justification the
-      # failure message asks for, and this repository squash-merges, so the body
-      # is what becomes the commit message on main. The gate that runs there
-      # reads the same sentence.
-      #
-      # It goes through `env` and never through an inline expression. A pull
-      # request title is attacker-controlled text and this step is a shell
-      # heredoc around a node script: interpolated, a body containing a quote
-      # ends the script.
-      - name: Hold the authenticated tier to its floor
-        id: floor
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          PR_TEXT: |
-            ${{ github.event.pull_request.title }}
-
-            ${{ github.event.pull_request.body }}
-        run: |
-          # On a queue entry there is no pull request in the payload, so the two
-          # expressions above are empty. The commit sitting on the queue ref *is*
-          # the squash, and its message is the pull request's title and body —
-          # the very text the gate on main will read once it lands. Taking it
-          # from git rather than from the event is what makes this run and that
-          # one agree.
-          if [ "${EVENT_NAME}" = "merge_group" ]; then
-            PR_TEXT="$(git log -1 --pretty=%B)"
-            export PR_TEXT
-          fi
-          # On a push to main the squash has already happened, and its message is
-          # the pull request's title and body — the same text the branch gate read.
-          # This is what lets main write a justified raise itself rather than
-          # asking a branch to type the number (issue 1465).
-          LANDING_MESSAGE="$(git log -1 --pretty=%B)"
-          export LANDING_MESSAGE
-          node -e '
-            const {
-              mainFloorRatchet,
-              branchBudgetVerdict,
-            } = await import("./apps/api/dist/mcp/catalogue-budget.js")
-            const { readFile, writeFile, appendFile } = await import("node:fs/promises")
-            const BUDGET = "apps/api/src/mcp/catalogue-budget.json"
-            const say = async (line) => {
-              await appendFile(process.env.GITHUB_STEP_SUMMARY, `\n${line}\n`, "utf8")
-              console.log(line)
-            }
-            const readTiers = async (path) => {
-              try { return JSON.parse(await readFile(path, "utf8")) } catch { return null }
-            }
-            const authenticated = (tiers) =>
-              Array.isArray(tiers) ? tiers.find((tier) => tier.tier === "authenticated") : undefined
-
-            const headTiers = await readTiers("measurements/head.json")
-            const citizen = authenticated(headTiers)
-            if (citizen === undefined) {
-              // The measurement is what this judges. Missing, there is nothing
-              // to judge, and passing here would read as a catalogue at its
-              // floor rather than as a job that did not run.
-              await say("The authenticated tier was not measured, so the floor could not be checked.")
-              await appendFile(process.env.GITHUB_OUTPUT, "failed=true\n", "utf8")
-              process.exit(0)
-            }
-
-            // A pull request and a queue entry are both judged against a base
-            // rather than against the committed floor; only a push to main
-            // ratchets it. Named for what it decides rather than for the event,
-            // because it is now true of two of the three.
-            const judgedAgainstBase = process.env.EVENT_NAME !== "push"
-            let verdict
-            if (judgedAgainstBase) {
-              const baseTiers = await readTiers("measurements/base.json")
-              const base = authenticated(baseTiers)
-              if (base === undefined) {
-                await say(
-                  "The merge-base authenticated tier was not measured, so the branch " +
-                    "could not be weighed against it.",
-                )
-                await appendFile(process.env.GITHUB_OUTPUT, "failed=true\n", "utf8")
-                process.exit(0)
-              }
-              verdict = branchBudgetVerdict(
-                { tools: citizen.tools, bytes: citizen.bytes },
-                { tools: base.tools, bytes: base.bytes },
-                process.env.PR_TEXT,
-              )
-            } else {
-              const budget = JSON.parse(await readFile(BUDGET, "utf8"))
-              // The message of the commit that landed is the squash of the pull
-              // request that earned it, so the sentence this reads is the one
-              // `branchBudgetVerdict` already accepted on the branch (issue 1465).
-              const landing = process.env.LANDING_MESSAGE
-              const ratchet = mainFloorRatchet(
-                { tools: citizen.tools, bytes: citizen.bytes },
-                budget,
-                landing,
-              )
-              verdict = { within: ratchet.outcome !== "refused", message: ratchet.message }
-
-              if (ratchet.totals !== undefined) {
-                // `raisedFor` is written on a raise and dropped by a lowering
-                // (issue 1317): it says why the floor stands where it does, and a
-                // measurement that came down knows nothing about the figure before it.
-                //
-                // The per-tool ceiling used to be carried through here (`#1235`)
-                // and is gone (`#1518`): this step only ever ratcheted the two
-                // sums, and the third figure is no longer in the file.
-                await writeFile(
-                  BUDGET,
-                  `${JSON.stringify({
-                    tools: ratchet.totals.tools,
-                    bytes: ratchet.totals.bytes,
-                    measuredAt: new Date().toISOString().slice(0, 10),
-                    command: "node scripts/check-catalogue-budget.mjs",
-                    ...(ratchet.raisedFor === undefined ? {} : { raisedFor: ratchet.raisedFor }),
-                  }, null, 2)}\n`,
-                  "utf8",
-                )
-                await appendFile(
-                  process.env.GITHUB_OUTPUT,
-                  `moved=${ratchet.outcome}\n`,
-                  "utf8",
-                )
-              }
-            }
-
-            await say(verdict.message)
-            await appendFile("surface-report.md", `\n${verdict.message}\n`, "utf8")
-            if (!verdict.within) {
-              await appendFile(process.env.GITHUB_OUTPUT, "failed=true\n", "utf8")
-            }
-          ' --input-type=module
-
-      # On a push to `main` there is no comment surface, and the job summary
-      # above is the report. This step is the pull-request half only.
       - name: Say it where the review is
         if: github.event_name == 'pull_request'
         env:
@@ -376,174 +220,3 @@ jobs:
           # with nine size reports on it is a page where the size report is
           # skipped. `--edit-last --create-if-none` is the whole mechanism.
           gh pr comment "$PR" --body-file surface-report.md --edit-last --create-if-none
-
-      - name: Fail the run when the catalogue grew past its gate
-        if: steps.floor.outputs.failed == 'true'
-        run: |
-          echo "The authenticated tier grew past its gate — see the verdict above."
-          exit 1
-
-      # Only on a push to main. A pull request never writes the floor (`#1266`):
-      # writing it on a branch was how concurrent workers collided on the same
-      # file and how a later merge retro-failed open ones. The fork carve-out
-      # went with that branch case.
-      - name: Land the floor main measured
-        if: steps.floor.outputs.moved != '' && github.event_name == 'push'
-        env:
-          MOVED: ${{ steps.floor.outputs.moved }}
-          # **A real actor, and that is the whole of `#1587`.** A pull request
-          # opened with `GITHUB_TOKEN` is authored by `app/github-actions`, which
-          # is not a repository collaborator, and this organisation's approval
-          # policy is `all_external_contributors`. Every `pull_request` run on
-          # such a branch finishes `action_required` — held for a maintainer's
-          # button — so the required check `format, lint, build, typecheck, test`
-          # reads *Expected* forever and the queue never takes the entry.
-          #
-          # Measured on `#1585` and again on `#1590`: three held runs apiece, and
-          # a dispatched CI run beside them that is green and does not count.
-          #
-          # The policy is org-wide and guards every fork, so it is not what moves.
-          # `FLOOR_BOT_TOKEN` belongs to a collaborator; falling back to
-          # `github.token` keeps the degraded path working where the secret is
-          # absent, which is what the dispatch below is still for.
-          GH_TOKEN: ${{ secrets.FLOOR_BOT_TOKEN || github.token }}
-          FLOOR_TOKEN: ${{ secrets.FLOOR_BOT_TOKEN }}
-          BRANCH: automation/catalogue-floor
-        run: |
-          set -euo pipefail
-          git config user.name 'kolonie-surface[bot]'
-          git config user.email 'kolonie-surface@users.noreply.github.com'
-          git add apps/api/src/mcp/catalogue-budget.json
-          # Nothing to commit is an ordinary outcome, not a failure: two runs on
-          # the same branch measure the same catalogue, and the second finds the
-          # floor already where it belongs.
-          if git diff --cached --quiet; then
-            echo "the floor is already committed at this figure"
-            exit 0
-          fi
-
-          # **Do not restart a race that is already running** (`#1594`). A
-          # force-push cancels the branch's in-flight runs and starts new ones —
-          # `cancel-in-progress` is right for a branch somebody is iterating on
-          # and wrong for one trying to reach a verdict. At 49 merges a day the
-          # replacement arrives before the verdict does, so the floor pull
-          # request never goes green. Measured on `#1590`: two full rounds of
-          # runs on one pull request, neither concluding.
-          #
-          # **Waiting is safe because the figure has no deadline.** A floor that
-          # lags is a floor *below* the catalogue: it costs strictness while it
-          # lags and cannot cost correctness, since a branch is weighed against
-          # its merge base (`#1266`) and never against this file. The next push
-          # to `main` measures again.
-          PENDING="$(gh pr checks "${BRANCH}" --json state \
-            --jq '[.[] | select(.state == "PENDING" or .state == "QUEUED" or .state == "IN_PROGRESS")] | length' \
-            2>/dev/null || echo 0)"
-          if [ "${PENDING:-0}" -gt 0 ]; then
-            TIP="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${BRANCH}" --jq '.commit.committer.date' 2>/dev/null || true)"
-            AGE=$(( $(date +%s) - $(date -d "${TIP:-now}" +%s) ))
-            # An hour is the queue's own `check_response_timeout_minutes`. Past
-            # it the checks are stuck rather than slow, and stranding the figure
-            # behind them is the worse of the two failures.
-            if [ "$AGE" -lt 3600 ]; then
-              echo "::notice::the floor pull request is still being checked at an older figure (${PENDING} pending, ${AGE}s); the run after it merges measures again"
-              exit 0
-            fi
-            echo "::warning::the floor branch has been pending ${AGE}s, past the queue's own timeout — pushing the newer figure over it"
-          fi
-          # A raise quotes the message that earned it, and that is load-bearing
-          # rather than courteous: `check:catalogue-floor` judges the *last commit
-          # to touch this file*, so a raise commit whose own message says nothing
-          # would refuse itself on the next run, with no honest edit available to
-          # clear it — the `#1317` trap. Quoting the landing message means the
-          # sentence a person wrote is the sentence that check reads.
-          #
-          # **And it has to be in the pull request body too, not only here.** The
-          # queue squashes, so the message that ends up on `main` is the title and
-          # body — the same trap one step along, which is why BODY below repeats it.
-          LANDED="$(git log -1 --pretty=%B HEAD)"
-          if [ "${MOVED}" = "raised" ]; then
-            SUBJECT='The catalogue floor goes up to what main measured'
-            REASON='Written by the MCP surface workflow. The figure is measured and was typed by nobody; the raise is justified by the commit that landed, quoted below. See issue 1465.'
-          else
-            SUBJECT='The catalogue floor comes down to what main measured'
-            REASON='Written by the MCP surface workflow. A lowering costs no sentence — a saving is bookkeeping. See issue 1118.'
-          fi
-          git commit -m "$SUBJECT" -m "$REASON" -m "$LANDED"
-
-          # **One branch, force-updated: ten merges in a morning are one pull
-          # request, not ten.** The branch carries a figure rather than a history,
-          # so the older commit is worth nothing once a newer measurement exists.
-          #
-          # A branch already in the queue cannot be force-pushed (`GH006`), and
-          # that is the one refusal to survive rather than report: the version
-          # that is queued is about to land, and the run after it re-measures.
-          # Everything else is a failure and says so — this job being unable to
-          # land the figure silently is the whole of `#1566`.
-          #
-          # **The push carries the same actor as the pull request** (`#1587`).
-          # `checkout` leaves an `extraheader` holding `GITHUB_TOKEN`, and that
-          # header beats credentials in the URL — so it is unset rather than
-          # worked around. A branch updated by `GITHUB_TOKEN` creates no
-          # `synchronize` runs, which would leave the required check reporting a
-          # head two measurements old.
-          if [ -n "${FLOOR_TOKEN}" ]; then
-            git config --unset-all 'http.https://github.com/.extraheader' || true
-            REMOTE="https://x-access-token:${FLOOR_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          else
-            REMOTE=origin
-          fi
-          if ! git push --force "$REMOTE" "HEAD:${BRANCH}" 2>push.err; then
-            cat push.err
-            if grep -q 'queued for merging' push.err; then
-              echo "::notice::the floor branch is in the queue; the next run re-measures"
-              exit 0
-            fi
-            echo "::error::could not update ${BRANCH} — the floor cannot be landed"
-            exit 1
-          fi
-
-          BODY="$(printf '%s\n\n%s\n\n---\n\nThe message that landed, quoted because `check:catalogue-floor` judges the last commit to touch this file and the queue squashes this body into it:\n\n%s\n' \
-            "$REASON" \
-            'Opened by the MCP surface workflow rather than pushed, because `main` is behind the merge queue (issue 1566). Nothing here is hand-typed: the figure is measured on `main` after a merge.' \
-            "$LANDED")"
-
-          NUMBER="$(gh pr list --head "${BRANCH}" --state open --json number --jq '.[0].number // empty')"
-          if [ -z "$NUMBER" ]; then
-            NUMBER="$(gh pr create --head "${BRANCH}" --base main --title "$SUBJECT" --body "$BODY" \
-              | sed -n 's|.*/pull/\([0-9]*\)$|\1|p')"
-            echo "opened #${NUMBER} for the floor"
-          else
-            # The open one is re-titled and re-bodied rather than left describing
-            # a figure two merges old — the body is what the squash will land.
-            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/pulls/${NUMBER}" \
-              -f title="$SUBJECT" -f body="$BODY" >/dev/null
-            echo "updated #${NUMBER} for the floor"
-          fi
-
-          if [ -z "$NUMBER" ]; then
-            echo "::error::no pull request number for the floor — the figure is on ${BRANCH} and is not landing"
-            exit 1
-          fi
-
-          # **The degraded path only** (`#1587`). A pull request opened with
-          # `GITHUB_TOKEN` creates no workflow runs — GitHub's own loop guard —
-          # and `#1566` dispatched CI by hand to get a verdict at all. `#1587`
-          # then measured what that verdict is worth: a `workflow_dispatch` run
-          # is not the `pull_request` run the branch protection names, so it goes
-          # green beside a required check that still reads *Expected*.
-          #
-          # With a real actor the `pull_request` runs exist and report, and there
-          # is nothing to dispatch. Without one this is still better than silence.
-          if [ -z "${FLOOR_TOKEN}" ]; then
-            gh workflow run ci.yml --ref "${BRANCH}" || {
-              echo "::error::could not start CI on ${BRANCH}; the floor pull request will not go green by itself"
-              exit 1
-            }
-          fi
-
-          # A lowering still lands without anybody asking, and so does a raise:
-          # the queue is the reviewer, and the sentence it judges is in the body.
-          gh pr merge "${NUMBER}" --auto || {
-            echo "::error::could not arm auto-merge on #${NUMBER}"
-            exit 1
-          }

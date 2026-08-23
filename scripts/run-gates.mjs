@@ -7,8 +7,8 @@
  * `npm run check` was ten steps joined by `&&` (`#1158`). **Five of them depend on
  * nothing but the working tree** — `check:lock`, `format:check`, `lint`,
  * `check:fixtures`, `check:changelog` — and ran one after another for no reason
- * but the order somebody typed them in. Four more depend only on the build:
- * `check:dist`, `check:catalogue-floor`, `check:migrations` and `typecheck`.
+ * but the order somebody typed them in. Three more depend only on the build:
+ * `check:dist`, `check:migrations` and `typecheck`.
  * `check:migrations` reads `@kolonie-ai/core`'s `dist` (`#1367`); hoisted into
  * the tree phase it reported a missing migration that did not exist, against a
  * stale build.
@@ -47,9 +47,8 @@
  *
  * **It does not know which gates may run together.** The caller names them, and
  * the ordering that matters is asserted in `scripts/run-gates.test.ts` against
- * `package.json` itself: `check:catalogue-floor` reads
- * `apps/api/dist/mcp/catalogue-budget.js`, `check:dist` reads every `dist/`, and
- * `check:migrations` reads `@kolonie-ai/core`'s `dist` (`#1367`), so all three
+ * `package.json` itself: `check:dist` reads every `dist/` and
+ * `check:migrations` reads `@kolonie-ai/core`'s `dist` (`#1367`), so both
  * belong after `build`. A phase that hoisted them in front of it would fail with
  * a message about the wrong thing entirely.
  */

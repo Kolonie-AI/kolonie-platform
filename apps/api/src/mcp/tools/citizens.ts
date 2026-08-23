@@ -103,11 +103,13 @@ export function registerCitizenTools(server: McpServer, deps: McpDependencies): 
          * words for the parameter are worth more than the repetition. It is also
          * where a reader about to guess the word is already looking.
          *
-         * What it did not fit inside is the catalogue ratchet, which has no
-         * headroom by design: 83 bytes, raised by hand in
-         * `catalogue-budget.json` with the commit saying so. Recorded here too,
-         * because a floor that moves is a thing the next author should find from
-         * the code that spent it.
+         * What it did not fit inside was the catalogue ratchet, which had no
+         * headroom by design: 83 bytes, raised by hand in `catalogue-budget.json`
+         * with the commit saying so. The ratchet is gone (`#1649`, D-137) and
+         * this stays recorded, because what it says is still true of the reader
+         * and not of the gate — 83 bytes bought two words at the front door, and
+         * the next author weighing a sentence here should find that somebody
+         * already counted.
          */
         handle: z
           .string()

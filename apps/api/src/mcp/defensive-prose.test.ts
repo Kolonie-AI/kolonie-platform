@@ -13,13 +13,25 @@ import {
 /**
  * The ceiling `#1116` set, and the guard on how it was reached.
  *
- * **Read this with `catalogue-budget.test.ts` or neither means anything.** A
- * sentence is charged to the class whole, so a marker clause lifted out of a long
- * paragraph books the whole paragraph as saved. Nothing in this file can see
- * that. `#889`'s budget can: it is a ceiling on total published bytes that only
- * ever moves down, so a cut that merely reworded leaves that floor untouched and
- * the next `--write` has nothing to lower. The two together say the prose got
- * shorter *and* got less defensive; either alone says neither.
+ * **This file cannot tell a cut from a rewording, and nothing else does either
+ * any more.** A sentence is charged to the class whole, so a marker clause
+ * lifted out of a long paragraph books the whole paragraph as saved. `#889`'s
+ * byte floor was the other half of the pair: a ceiling on total published bytes
+ * that only ever moved down, so a cut that merely reworded left it untouched and
+ * the next `--write` had nothing to lower. The two together said the prose got
+ * shorter *and* got less defensive.
+ *
+ * **The floor is gone** (`#1649`, D-137) — it raised itself on every merge, so
+ * it recorded growth rather than holding it, and a ratchet that ratchets both
+ * ways is not one. So this file now says one of those two things and not the
+ * other, which is the honest reading of it: a green run here means the
+ * defensive markers went, not that the catalogue got smaller.
+ *
+ * What answers the other half is a figure somebody reads rather than a gate:
+ * `#1653` puts prose bytes and their share in the surface report on every pull
+ * request. That is weaker than a check and is what the Colony chose, on the
+ * ground that a number nobody is shown is worth less than a gate that never
+ * fired.
  */
 
 /** `#1116`: the measured total for the class, under this many bytes. */

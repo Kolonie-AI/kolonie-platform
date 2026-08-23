@@ -164,3 +164,4 @@ resolved in an issue before anything is built on them.
 - [D-134](decisions/D-134-what-an-operator-facing-mechanism-owes.md) — What an operator-facing mechanism owes, and when it is done · 2026-08-22
 - [D-135](decisions/D-135-the-atlas-icon-set-comes-from-a-library.md) — The Atlas icon set comes from a library, not from us · 2026-08-22
 - [D-136](decisions/D-136-the-taxonomy-is-living-where-a-shelf-is-proposed.md) — The taxonomy is living where a shelf is proposed, and the fallback is a queue rather than a category · 2026-08-23
+- [D-137](decisions/D-137-the-catalogue-floor-gate-is-removed-and-is-not-to-be.md) — The catalogue floor gate is removed and is not to be rebuilt · 2026-08-23

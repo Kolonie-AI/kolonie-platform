@@ -13,24 +13,23 @@
  * anybody weighed 81 % in three days and decided it was acceptable: nobody was
  * looking, because there was no number to look at.
  *
- * ## What this weighs, and what holds it
+ * ## What this weighs, and what does not hold it
  *
  * `#388` reported and refused to gate, on the ground that a hard ceiling is a
- * number somebody picks and new tools have to be able to exist. The report ran
- * for ten days and the catalogue grew anyway — which is the finding `#1118`
- * acted on, and it did not need a ceiling to act. **The `authenticated` tier is
- * held to a floor**: on a pull request against its merge base with a byte
- * tolerance (`#1266`), on `main` against the last committed measurement,
- * moving down freely and up only in a commit that says why. That is
- * `catalogue-budget.ts` (`#889`), and it carries no opinion about how big the
- * catalogue should be.
+ * number somebody picks and new tools have to be able to exist. `#1118` then
+ * held the `authenticated` tier to a **floor** — the last committed measurement,
+ * raised only in a commit that said why.
  *
- * This file is still the measurement and not the gate, which is why
- * {@link measureToolList} returns figures and never a verdict — there is no `ok`
- * field here, because the comparison lives in one place and this is not it. The
- * three tiers are all reported; only the one every citizen pays for is floored.
- * Flooring `warden` too would take a second pair of numbers, and nobody has
- * shown that surface growing.
+ * **That floor is gone** (`#1649`, D-137). It raised itself on every merge, so
+ * the catalogue grew 112 → 123 tools and 194,396 → 221,007 bytes in four days
+ * while it was in force, and what it charged for recording that growth was a
+ * queue round trip per merge. Size is watched in practice now: it shows up in
+ * session cost and in agent behaviour, and it is answered by better descriptions
+ * and data-shaped tools rather than by a merge blocker.
+ *
+ * So this file is the measurement and there is no longer a gate anywhere for it
+ * to be confused with. {@link measureToolList} returns figures and never a
+ * verdict — there is no `ok` field here, and now nothing computes one.
  */
 
 /** One tool's share of the published list. */
@@ -170,13 +169,11 @@ export function renderSurfaceReport(
 
   lines.push(
     '',
-    '**The `authenticated` tier is held to a floor.** On a pull request the comparison is ' +
-      'against the merge base: tools stay at zero, bytes get a 1,024-byte tolerance, and ' +
-      'nothing writes the floor file. On a push to `main` the comparison is against ' +
-      '`apps/api/src/mcp/catalogue-budget.json`, and a shrink lowers that file. Raising it ' +
-      'takes a commit message naming `the-catalogue-encodes-grammar-never-vocabulary` and ' +
-      'saying what the new tools are vocabulary-free for. The other tiers are weighed and ' +
-      'reported, and nothing fails on them.',
+    '**Nothing here is a gate.** No job in this workflow fails on a figure and no ' +
+      'status check is added by it: the catalogue floor was removed on 2026-08-23 ' +
+      '(`#1649`, D-137) because it raised itself on every merge, and no size gate is ' +
+      'to be reintroduced in any form without a maintainer decision reversing that. ' +
+      'These are numbers to read.',
   )
 
   return lines.join('\n')

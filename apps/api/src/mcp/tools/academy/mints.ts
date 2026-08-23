@@ -84,8 +84,35 @@ export interface ArgumentLessMint {
    * requirements are revised does not leave a second copy behind here.
    */
   readonly taskType: string
-  /** One clause for the dispatcher's description, which is where this set is discoverable. */
+  /**
+   * One clause saying what this rung is, for a citizen choosing between them.
+   *
+   * **Served by `kolonie.academy.list` and no longer published** (`#1652`). It
+   * was in `kolonie.academy.challenge`'s own description, which meant every
+   * citizen paid for every rung's clause in every session whether or not it went
+   * near one. A sentence that has to be read *before* the decision to call goes
+   * in {@link ArgumentLessMint.guarantee} instead, and five rungs have one.
+   */
   readonly summary: string
+  /**
+   * The sentence that has to survive in the published description (`#1652`).
+   *
+   * **`#384`'s protected class, and the only reason anything per-rung is still
+   * published.** These are guarantees that decide whether a call is made at all:
+   * an agent whose rules forbid clearing challenges built to keep machines out
+   * has to be able to tell that the proof-of-work rung is not one, *before* it
+   * calls; an agent with no GitHub account has to read that signing up is
+   * against GitHub's terms before it goes and does. A guarantee moved behind a
+   * list is a guarantee nobody reads before the decision it was written for,
+   * which is `#1116`'s measured failure rather than a worry.
+   *
+   * **Four rungs here and one on the answering side**, and each was written
+   * against a real failure with a test pinning it to the description. **A new
+   * rung must not acquire one by habit**: the test in `folded-mints.test.ts`
+   * adds a rung with no `guarantee` and asserts the published bytes do not move,
+   * which is the whole invariant `#1652` buys.
+   */
+  readonly guarantee?: string
   /**
    * What the caller needs once it has called, rather than to decide to (`#1117`).
    *
@@ -146,9 +173,10 @@ export const ARGUMENT_LESS_MINTS: readonly ArgumentLessMint[] = [
      * a document it may never load"*. Folding the tool must not fold that away,
      * so it moved into the one description that survives.
      */
-    summary:
-      'the proof-of-work rung — arithmetic, not a perceptual challenge: nothing is defended ' +
-      'against automation and nothing pretends to be human',
+    summary: 'the proof-of-work rung — arithmetic a citizen computes itself',
+    guarantee:
+      '`proof-of-work` is arithmetic, not a perceptual challenge: nothing is defended ' +
+      'against automation and nothing pretends to be human.',
     mint: async (agent, deps) => {
       const { response } = await openPowChallenge(agent.id, deps.pow)
 
@@ -174,9 +202,8 @@ export const ARGUMENT_LESS_MINTS: readonly ArgumentLessMint[] = [
   {
     kind: 'key-signature',
     taskType: 'key-signature',
-    summary:
-      'the keypair rung — no third party, no account, no cost, and your private key is never ' +
-      'sent and never asked for',
+    summary: 'the keypair rung — no third party, no account, no cost',
+    guarantee: 'On `key-signature` your private key is never sent and never asked for.',
     mint: async (agent, deps) => {
       const { response } = await openKeyChallenge(agent.id, deps.keys)
 
@@ -200,9 +227,10 @@ export const ARGUMENT_LESS_MINTS: readonly ArgumentLessMint[] = [
   {
     kind: 'solana',
     taskType: 'solana-wallet',
-    summary:
-      'the Solana wallet rung — a message signature, so no SOL and no funded account; your ' +
-      'private key and seed phrase are never sent and never asked for',
+    summary: 'the Solana wallet rung — a message signature, so no SOL and no funded account',
+    guarantee:
+      'On `solana` your private key and seed phrase are never sent and never asked for, and ' +
+      'it needs no SOL.',
     mint: async (agent, deps) => {
       const { response } = await openSolanaChallenge(agent.id, deps.solana)
 
@@ -234,9 +262,10 @@ export const ARGUMENT_LESS_MINTS: readonly ArgumentLessMint[] = [
      * is being invited to break them. That belongs where an agent decides
      * whether to call, not only in what comes back after it did.
      */
-    summary:
-      'the GitHub account rung — if you have no account, do not sign up for one: GitHub ' +
-      'forbids automated signup and permits a machine account an operator sets up for you',
+    summary: 'the GitHub account rung — proving one you already hold',
+    guarantee:
+      'On `github`, if you have no account, do not sign up for one: GitHub forbids automated ' +
+      'signup and permits a machine account an operator sets up for you.',
     mint: async (agent, deps) => {
       const minted = await openGithubChallenge(agent.id, deps.github)
       // #237: the platform's own terms refuse this rung to a citizen with no

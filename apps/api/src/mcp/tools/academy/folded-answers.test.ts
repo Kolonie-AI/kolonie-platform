@@ -30,10 +30,16 @@ describe('the folded answer tools', () => {
     for (const kind of kinds) {
       expect(names).not.toContain(`kolonie.academy.${kind}`)
     }
-    // The whole `kolonie.academy.*` surface is three entries, which is the goal
-    // `#415` states: mint, answer, retest.
+    /**
+     * The whole `kolonie.academy.*` surface is four entries: mint, list, answer,
+     * retest. It was three at `#415` and `kolonie.academy.list` is the fourth
+     * (`#1652`) — one tool bought so that a rung's *vocabulary* stops being paid
+     * for by every citizen in every session, which is the same trade `#415` made
+     * for a rung's *tool*.
+     */
     expect(names.filter((name) => name.startsWith('kolonie.academy.'))).toEqual([
       'kolonie.academy.challenge',
+      'kolonie.academy.list',
       'kolonie.academy.answer',
       'kolonie.academy.retest',
     ])
@@ -44,6 +50,13 @@ describe('the folded answer tools', () => {
    * The vocabulary is derived rather than written out, which is the rule `#213`
    * and `#385` both established: a twelfth kind must appear on this surface
    * without anybody editing a sentence.
+   *
+   * **The surface moved and the rule did not** (`#1652`). It was this tool's own
+   * description, which meant every citizen paid for every kind in every session;
+   * `kolonie.academy.list` serves the same registry on request. What is still
+   * asserted here is that every argument any kind takes is in *this* schema,
+   * described once — the flat shape is a fact about how the call is made and
+   * belongs where the call is.
    */
   it('names every kind in the description, from the set rather than from a literal', async () => {
     const { colony, apiKey } = await registeredCitizen()
@@ -53,8 +66,16 @@ describe('the folded answer tools', () => {
       (tool) => tool.name === 'kolonie.academy.answer',
     )
 
+    const listed = await client.callTool({
+      name: 'kolonie.academy.list',
+      arguments: { family: 'answer' },
+    })
+    const served = (
+      listed.structuredContent as { families: { answer: { rungs: { kind: string }[] } } }
+    ).families.answer.rungs.map((rung) => rung.kind)
+
     for (const kind of kinds) {
-      expect(answer?.description, kind).toContain(`"${kind}"`)
+      expect(served, kind).toContain(kind)
     }
     // And every argument any kind takes is in the schema, described once.
     for (const field of answerArguments()) {

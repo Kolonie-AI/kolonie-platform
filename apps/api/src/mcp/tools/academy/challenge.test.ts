@@ -48,34 +48,61 @@ describe('kolonie.academy.challenge', () => {
    * against the registry, and it fails the day a stage is added and the surface
    * is not derived from it.
    */
-  it('names every stage the registry says can be minted', async () => {
+  it('serves every stage the registry says can be minted', async () => {
     const { colony, apiKey } = await registeredCitizen()
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
 
-    const { tools } = await client.listTools()
-    const tool = tools.find((candidate) => candidate.name === 'kolonie.academy.challenge')
-    const surface = JSON.stringify({
-      description: tool?.description,
-      properties: tool?.inputSchema.properties,
+    const listed = await client.callTool({
+      name: 'kolonie.academy.list',
+      arguments: { family: 'browser' },
     })
+    const served = JSON.stringify(listed.structuredContent)
 
     for (const stage of mintableBrowserStages()) {
-      expect(surface, `the tool never mentions the ${stage.kind} stage`).toContain(stage.kind)
+      expect(served, `the Academy never offers the ${stage.kind} stage`).toContain(stage.kind)
     }
     await close()
   })
 
-  /** Same argument, one level down: the kinds a kindful stage takes are named too. */
-  it('names every kind the one stage with kinds can be asked for', async () => {
+  /** Same argument, one level down: the kinds a kindful stage takes are served too. */
+  it('serves every kind the one stage with kinds can be asked for', async () => {
     const { colony, apiKey } = await registeredCitizen()
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
 
-    const { tools } = await client.listTools()
-    const tool = tools.find((candidate) => candidate.name === 'kolonie.academy.challenge')
-    const surface = JSON.stringify(tool?.inputSchema.properties)
+    const listed = await client.callTool({
+      name: 'kolonie.academy.list',
+      arguments: { family: 'browser' },
+    })
+    const served = JSON.stringify(listed.structuredContent)
 
     for (const kind of mintableInterstitialKinds()) {
-      expect(surface, `the tool never mentions the ${kind.slug} kind`).toContain(kind.slug)
+      expect(served, `the Academy never offers the ${kind.slug} kind`).toContain(kind.slug)
+    }
+    await close()
+  })
+
+  /**
+   * **The rung a citizen guesses at is still told every name** (`#1652`).
+   *
+   * This is what makes moving the vocabulary out of the description safe rather
+   * than merely cheaper. `#213`'s failure was an agent concluding two stages
+   * existed because the description named two; the cure was to derive the list,
+   * and the cost was publishing it. A citizen that guesses now reads both
+   * families in full from the refusal itself — no list call, no second guess,
+   * and no free-string loop.
+   */
+  it('names every family in full when a kind is not one of them', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const refused = await client.callTool({
+      name: 'kolonie.academy.challenge',
+      arguments: { kind: 'a-rung-nobody-has-written' },
+    })
+    const said = JSON.stringify(refused.content)
+
+    for (const stage of mintableBrowserStages()) {
+      expect(said, stage.kind).toContain(stage.kind)
     }
     await close()
   })

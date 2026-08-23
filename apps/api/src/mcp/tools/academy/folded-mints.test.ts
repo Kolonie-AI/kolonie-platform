@@ -61,27 +61,76 @@ describe('the folded argument-less mints', () => {
   })
 
   /**
-   * The description is the only place this set is discoverable now, so it
-   * carries the whole set rather than examples — the same rule `#213` established
-   * for the browser stages one family over.
+   * **Where this set is discoverable moved, and the property did not** (`#1652`).
+   *
+   * It was `kolonie.academy.challenge`'s own description, which carried the whole
+   * set rather than examples — `#213`'s rule, and right. What it also meant is
+   * that every citizen paid for every kind in every session whether or not it
+   * went near one. `kolonie.academy.list` serves the same registry on request,
+   * so the set is still complete and is no longer in the prefix.
    *
    * **Except a rung that has been withdrawn** (`#954`). A retired rung stays in
    * the registry so the dispatcher can refuse it *by name and with its reason*
-   * rather than answering *no such kind*, but a citizen choosing from this
-   * sentence must not be sent at one — so the vocabulary drops it and this loop
-   * has to skip it too. The rejection case below is the half that matters:
-   * absent from the sentence, still dispatchable.
+   * rather than answering *no such kind*, but a citizen choosing from this list
+   * must not be sent at one. The rejection case below is the half that matters:
+   * absent from the list, still dispatchable.
    */
-  it('lists every folded kind in the description a citizen reads', async () => {
+  it('lists every folded kind, from the set rather than from a literal', async () => {
     const { colony, apiKey } = await registeredCitizen()
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
 
-    const tool = (await client.listTools()).tools.find(
-      (candidate) => candidate.name === 'kolonie.academy.challenge',
-    )
+    const listed = await client.callTool({
+      name: 'kolonie.academy.list',
+      arguments: { family: 'mint' },
+    })
+    const kinds = (
+      listed.structuredContent as { families: { mint: { rungs: { kind: string }[] } } }
+    ).families.mint.rungs.map((rung) => rung.kind)
 
     for (const mint of ARGUMENT_LESS_MINTS.filter((mint) => !isWithdrawnRung(mint.taskType))) {
-      expect(tool?.description).toContain(`"${mint.kind}"`)
+      expect(kinds, mint.kind).toContain(mint.kind)
+    }
+    await close()
+  })
+
+  /**
+   * **The invariant `#1652` buys, stated as the property rather than as a byte
+   * count.**
+   *
+   * Adding a rung must cost the published catalogue nothing. A committed number
+   * would have to be edited by whoever adds one, which makes it a chore — and
+   * the one edit that matters is the one that would look like all the others.
+   * What is asserted instead is the reason the number cannot move: **the
+   * published description mentions no rung except through a `guarantee`**, so a
+   * rung without one contributes no bytes by construction.
+   *
+   * A rung carrying a `guarantee` is the deliberate exception and does move it.
+   * That is `#384`'s protected class — a sentence read *before* the decision to
+   * call — and `mints.ts` says at length why these are published and why a
+   * further one is an argument rather than an addition.
+   */
+  it('mentions no rung in the published description except through a guarantee', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const published =
+      (await client.listTools()).tools.find(
+        (candidate) => candidate.name === 'kolonie.academy.challenge',
+      )?.description ?? ''
+
+    expect(published).not.toBe('')
+
+    const silent = ARGUMENT_LESS_MINTS.filter((mint) => mint.guarantee === undefined)
+    const speaking = ARGUMENT_LESS_MINTS.filter((mint) => mint.guarantee !== undefined)
+
+    // The set is mostly silent, or this assertion is measuring nothing.
+    expect(silent.length).toBeGreaterThan(speaking.length)
+
+    for (const mint of silent) {
+      expect(published, mint.kind).not.toContain(mint.kind)
+    }
+    for (const mint of speaking) {
+      expect(published, mint.kind).toContain(mint.guarantee ?? '')
     }
     await close()
   })
@@ -91,14 +140,18 @@ describe('the folded argument-less mints', () => {
     const { colony, apiKey } = await registeredCitizen()
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
 
-    const tool = (await client.listTools()).tools.find(
-      (candidate) => candidate.name === 'kolonie.academy.challenge',
-    )
+    const listed = await client.callTool({
+      name: 'kolonie.academy.list',
+      arguments: { family: 'mint' },
+    })
+    const kinds = (
+      listed.structuredContent as { families: { mint: { rungs: { kind: string }[] } } }
+    ).families.mint.rungs.map((rung) => rung.kind)
 
     const withdrawn = ARGUMENT_LESS_MINTS.filter((mint) => isWithdrawnRung(mint.taskType))
     expect(withdrawn.length).toBeGreaterThan(0)
     for (const mint of withdrawn) {
-      expect(tool?.description).not.toContain(`"${mint.kind}"`)
+      expect(kinds).not.toContain(mint.kind)
       expect(argumentLessMint(mint.kind)?.taskType).toBe(mint.taskType)
     }
     await close()
@@ -122,9 +175,18 @@ describe('the folded argument-less mints', () => {
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
 
     const names = (await client.listTools()).tools.map((tool) => tool.name)
-    const answer = (await client.listTools()).tools.find(
-      (tool) => tool.name === 'kolonie.academy.answer',
-    )
+
+    /**
+     * Where a chooser reads the kind moved to `kolonie.academy.list` (`#1652`);
+     * that each old tool is gone and each kind exists did not.
+     */
+    const listed = await client.callTool({
+      name: 'kolonie.academy.list',
+      arguments: { family: 'answer' },
+    })
+    const kinds = (
+      listed.structuredContent as { families: { answer: { rungs: { kind: string }[] } } }
+    ).families.answer.rungs.map((rung) => rung.kind)
 
     for (const kind of [
       'pow.solve',
@@ -137,8 +199,7 @@ describe('the folded argument-less mints', () => {
       'authenticator.check',
     ]) {
       expect(names).not.toContain(`kolonie.academy.${kind}`)
-      // And the kind that replaced it is named where a chooser reads it.
-      expect(answer?.description, kind).toContain(`"${kind}"`)
+      expect(kinds, kind).toContain(kind)
     }
     await close()
   })

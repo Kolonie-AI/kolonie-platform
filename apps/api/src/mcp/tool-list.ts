@@ -225,15 +225,21 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.submissions.list',
   'kolonie.wakeup',
   /**
-   * The Academy is two tools and a retest (`#385`, `#415`).
+   * The Academy is three tools and a retest (`#385`, `#415`, `#1652`).
    *
    * `kolonie.academy.challenge` mints, `kolonie.academy.answer` answers, and
    * each dispatches on a `kind` derived from its own set — `mints.ts` and
    * `answers.ts`. It was **thirteen entries** on 2026-08-05 and the rungs behind
    * them are unchanged: what went is a tool per rung, which every citizen paid
    * for in every session whether or not it was anywhere near that rung.
+   *
+   * `kolonie.academy.list` is what stopped the *vocabulary* being paid for the
+   * same way. Both dispatchers published every kind and a summary per kind, so a
+   * rung that cost no tool still cost every session's prefix; they name this
+   * instead, and it reads the same registries on request.
    */
   'kolonie.academy.challenge',
+  'kolonie.academy.list',
   'kolonie.academy.answer',
   // Registered by `tools/mailboxes.ts` and not with the Academy, and it says
   // why. Neither of these two is a rung.

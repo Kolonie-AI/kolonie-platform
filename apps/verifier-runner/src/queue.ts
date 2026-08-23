@@ -6,7 +6,6 @@ import {
   expireOverdueSubmissions,
   pruneContactHistory,
   sweepAbandonedAttempts,
-  destroyExpiredDrops,
   destroyExpiredSlots,
   destroyExpiredVaultShares,
   recordVerdict,
@@ -122,44 +121,28 @@ export interface SubmissionQueue {
    */
   sweepAbandoned(): Promise<number>
   /**
-   * Destroy the value of every drop whose window has passed (`#410`, `#955`).
-   *
-   * `kolonie.operator.drop.open` promised the secret is *gone on the timer
-   * whether or not anybody read it*, and until this ran nothing was on that
-   * timer: the only thing that cleared a drop's ciphertext was an agent coming
-   * back to take it. The channel is retired (`#1444`) and no row can be written
-   * or filled any more, so what is left is the drain — three days of it from the
-   * retirement, which is why this outlived the table (`#1472`).
-   *
-   * **`destroyExpiredHandovers` stood beside this and went with `#1472`.** Its
-   * channel drained in four hours rather than three days, and that window had
-   * closed before the drop was written. What the two shared is unchanged and is
-   * the reason all four of these are on one tick: a secret the Colony holds is
-   * destroyed on its own timer, and a sweep is the only thing that can make that
-   * sentence true.
-   */
-  destroyExpiredDrops(): Promise<number>
-  /**
    * Destroy the value of every slot whose window has passed (`#931`, `#955`).
    *
-   * The third of the three, and it is here because a destruction rule that
-   * covers two of the three channels is not a rule. `destroyExpiredSlots` was
-   * written with the slot itself and called by nothing, which is the failure a
-   * sweep is worst at showing: no error, no red test, just ciphertext that stays.
+   * **The last of the three sealed-container sweeps, and now the only one.**
+   * `destroyExpiredHandovers` went with its table in `#1472` and
+   * `destroyExpiredDrops` with the drop channel's drain in `#1526`; this one
+   * covers a channel that is still live. It was written with the slot itself and
+   * called by nothing until `#955` wired it, which is the failure a sweep is
+   * worst at showing: no error, no red test, just ciphertext that stays.
    */
   destroyExpiredSlots(): Promise<number>
   /**
    * Destroy the copy behind every vault share whose window has passed (`#1439`).
    *
-   * The fourth, added with the channel rather than after it, for the reason the
-   * three above spell out. `kolonie.vault.share` says the copy is gone on the
-   * timer whether or not anybody read it, and a sweep is the only thing that can
-   * make that sentence true — the citizen who shared it may not wake for a week.
+   * Added with the channel rather than after it, for the reason the one above
+   * spells out. `kolonie.vault.share` says the copy is gone on the timer whether
+   * or not anybody read it, and a sweep is the only thing that can make that
+   * sentence true — the citizen who shared it may not wake for a week.
    *
    * **Nothing reads through this.** An expired share already answers as no share
-   * on its own timestamp, so a late sweep costs storage rather than access,
-   * which is the property `destroyExpiredDrops` had to argue for and this one
-   * inherits.
+   * on its own timestamp, so a late sweep costs storage rather than access. That
+   * property is what let the retired drop sweep be deleted on a schedule rather
+   * than urgently, and it is worth keeping in mind for this one too.
    */
   destroyExpiredVaultShares(): Promise<number>
   /**
@@ -189,7 +172,6 @@ export function databaseQueue(db: Database): SubmissionQueue {
     release: (submissionId) => releaseSubmission(db, submissionId),
     expireOverdue: () => expireOverdueSubmissions(db),
     sweepAbandoned: () => sweepAbandonedAttempts(db),
-    destroyExpiredDrops: () => destroyExpiredDrops(db),
     destroyExpiredSlots: () => destroyExpiredSlots(db),
     destroyExpiredVaultShares: () => destroyExpiredVaultShares(db),
     pruneContacts: () => pruneContactHistory(db),

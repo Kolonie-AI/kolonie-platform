@@ -398,7 +398,8 @@ export async function openSharesFor(
 /**
  * Destroy the copy of every share whose window has passed.
  *
- * `destroyExpiredDrops` in shape, and it keeps the promise `kolonie.vault.share`
+ * The same shape as the sealed-container sweeps in `account_slots`, and it
+ * keeps the promise `kolonie.vault.share`
  * makes out loud: the copy is gone on the timer whether or not anybody read it.
  *
  * **The row survives without its value**, so *I shared this and it ran out*

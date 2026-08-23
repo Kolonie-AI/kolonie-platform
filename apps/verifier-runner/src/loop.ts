@@ -559,18 +559,11 @@ export function startRunner(deps: LoopDependencies, options: RunnerOptions = {})
               closed: abandoned,
             })
 
-          // Same tick and the same reason again (`#410`, `#955`). A drop that
+          // Same tick and the same reason again (`#931`, `#955`). A slot that
           // outlives its window is unreadable already; what this stops is
-          // ciphertext sitting in a row nobody is watching. The handover sweep
-          // stood here too until `#1472` — its channel drained in four hours
-          // where this one drains in three days.
-          const drops = await deps.queue.destroyExpiredDrops()
-          if (drops > 0)
-            log.info(`destroyed ${drops} expired drop(s)`, {
-              event: 'drops.expired.destroyed',
-              destroyed: drops,
-            })
-
+          // ciphertext sitting in a row nobody is watching. Two sweeps stood
+          // here beside it and are gone: handover with its table (`#1472`), drop
+          // once its three-day drain had run out (`#1526`).
           const slots = await deps.queue.destroyExpiredSlots()
           if (slots > 0)
             log.info(`destroyed ${slots} expired slot(s)`, {

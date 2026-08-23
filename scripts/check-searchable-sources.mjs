@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Fail when a tracked text file carries a raw NUL byte (`#1527`).
+ * Fail when a text file in the working tree carries a raw NUL byte (`#1527`).
  *
  * ## Why a gate and not a one-time fix
  *
@@ -32,11 +32,24 @@
  *
  * ## What it reads
  *
- * `git ls-files`, so the set is *what is tracked* rather than a directory walk
+ * `git ls-files`, so the set comes from git rather than from a directory walk
  * that has to learn about `node_modules`, `dist` and worktrees. Extensions are
  * an allowlist rather than a denylist: a NUL in a `.png` is the file working
  * correctly, and guessing which unknown extension is text is how a gate starts
  * failing on somebody's fixture.
+ *
+ * **`--others --exclude-standard`, so the set is the working tree and not only
+ * what is tracked (`#1644`).** Without them the gate is silent for exactly as
+ * long as a file is new — which is the whole time it is being written, and the
+ * case where the byte gets in: nobody pastes a NUL into a file they have been
+ * editing for a week. `apps/api/src/atlas/figures-cache.ts` was written with one
+ * in a template literal, passed `npm run check` locally before `git add`, and
+ * failed the same commit on CI. The flags cost nothing and move that failure to
+ * where the author is.
+ *
+ * The ignore rules are what keep `node_modules` and `dist` out, so the exclusion
+ * this file relied on survives — it is now stated by `.gitignore` rather than
+ * implied by the file not having been added yet.
  *
  * **There is no per-file exemption and that is deliberate.** The one file with a
  * defensible reason — a `TextEncoder` fixture building an EXIF header — encodes
@@ -72,12 +85,16 @@ const TEXT = new Set([
   '.toml',
 ])
 
-const tracked = execFileSync('git', ['ls-files', '-z'], { encoding: 'utf8' })
+const inTree = execFileSync(
+  'git',
+  ['ls-files', '-z', '--cached', '--others', '--exclude-standard'],
+  { encoding: 'utf8' },
+)
   .split('\0')
   .filter((name) => name !== '')
 
 const carrying = []
-for (const name of tracked) {
+for (const name of inTree) {
   const dot = name.lastIndexOf('.')
   if (dot === -1 || !TEXT.has(name.slice(dot))) continue
 
@@ -85,8 +102,9 @@ for (const name of tracked) {
   try {
     bytes = readFileSync(name)
   } catch {
-    // Tracked and absent is somebody else's failure — a sparse checkout, a file
-    // being deleted in this very commit. Not this gate's to report.
+    // Listed and absent is somebody else's failure — a sparse checkout, a file
+    // being deleted in this very commit, an untracked one removed between the
+    // listing and the read. Not this gate's to report.
     continue
   }
 
@@ -98,7 +116,7 @@ for (const name of tracked) {
 }
 
 if (carrying.length === 0) {
-  console.log(`No tracked text file carries a NUL byte (${tracked.length} tracked).`)
+  console.log(`No text file in the working tree carries a NUL byte (${inTree.length} read).`)
   process.exit(0)
 }
 

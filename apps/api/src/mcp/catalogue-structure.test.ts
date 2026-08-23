@@ -23,11 +23,10 @@ import { CATALOGUE_FINGERPRINT } from './catalogue-fingerprint.js'
  * catalogue against a committed snapshot of its shape with every `description`
  * stripped, so a green run is the sentence *this was prose* and nothing else.
  *
- * It lives in the suite rather than in a script for the reason
- * `catalogue-budget.test.ts` gives: fixtures are kept out of `dist`, so a script
- * building its own server would be measuring something adjacent to what ships.
- * `scripts/write-catalogue-structure.mjs` runs this file with
- * {@link OUTPUT_PATH} set and commits what it writes.
+ * It lives in the suite rather than in a script because fixtures are kept out of
+ * `dist`, so a script building its own server would be measuring something
+ * adjacent to what ships. `scripts/write-catalogue-structure.mjs` runs this file
+ * with {@link OUTPUT_PATH} set and commits what it writes.
  */
 
 /** Where the regeneration script asks for the structure. Unset in an ordinary run, and then nothing is written. */

@@ -115,9 +115,10 @@ concurrency:
 
 permissions:
   contents: read
-  # The catalogue-floor check reads the pull request title and body on a
-  # merge_group event (`#1379`), because that is the text the squash will land
-  # and the merge_group payload does not carry it.
+  # The pull request title and body on a `merge_group` event, which the
+  # merge_group payload does not carry. The catalogue-floor check was what asked
+  # for it (`#1379`) and is gone (`#1649`); the grant is read-only and kept
+  # rather than traded for a second run to discover what else reads it.
   pull-requests: read
 
 # **Three jobs and a summary, rather than one job of seventeen minutes** (`#1159`).
@@ -246,13 +247,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          # The catalogue-floor ratchet reads git history (`#1373`). Default depth
-          # of 1 made `check:catalogue-floor` exit zero in every CI run — the
-          # script's own header says a shallow clone reports what it could not
-          # read and exits zero rather than failing a build over checkout depth.
-          # That fallback is right for an export and wrong here, which is the one
-          # place the ratchet was meant to hold. Full history, because the last
-          # commit that touched the floor file is often not HEAD.
+          # Full history. The catalogue-floor ratchet was what needed it
+          # (`#1373`) and is gone (`#1649`) — this stays because `main` is the
+          # revision every measurement and every `git log` in this repository is
+          # taken against, and a depth-1 clone is the kind of thing that reports
+          # what it could not read rather than failing. Reverting it is a
+          # separate change with its own way of being wrong quietly.
           fetch-depth: 0
 
       - uses: actions/setup-node@v7
@@ -303,20 +303,15 @@ jobs:
       - name: Build
         run: npm run build
 
-      # The squash commit message is the pull request title and body (`#1379`).
-      # `check:catalogue-floor` judges the last commit that touched the floor
-      # file, which on a branch is the author's own — so a justified commit and
-      # an unjustified body both go green, then `main` goes red.
+      # check:dist, check:migrations, typecheck — everything that reads `dist/`
+      # and therefore cannot run in `tree` (`#1367`). Hoisted up there they would
+      # fail with a message about the wrong thing entirely, on a tree that is
+      # fine.
       #
-      # **The `test` job below needs the identical file** and cannot have it from
-      # here: `$GITHUB_ENV` does not cross a job boundary. That is `#1545`, and
-      # the action is what keeps the two from drifting apart again.
-      - uses: ./.github/actions/catalogue-floor-pr-text
-
-      # check:dist, check:catalogue-floor, check:migrations, typecheck —
-      # everything that reads `dist/` and therefore cannot run in `tree`
-      # (`#1367`). Hoisted up there they would fail with a message about the
-      # wrong thing entirely, on a tree that is fine.
+      # `check:catalogue-floor` was the fourth and is gone with the floor gate
+      # (`#1649`, D-137), and so is `./.github/actions/catalogue-floor-pr-text`,
+      # which existed to hand this job and `test` the identical pull-request text
+      # to weigh a raise against (`#1545`).
       - name: Built gates
         run: npm run gates:built
 
@@ -477,13 +472,11 @@ jobs:
       # the one run whose answer nobody re-checks, which makes it the wrong place
       # to hold a cache at all. The same variable GitHub sets for every step is
       # what decides it, so there is nothing here to keep in sync.
-      # **`catalogue-budget.test.ts` weighs a raise against this text**, since
-      # `#1504` made the local run agree with the branch gate. It is the same
-      # file the `build` job writes and it has to be written again here, because
-      # `$GITHUB_ENV` is per job — without it every pull request that adds a tool
-      # is refused for saying nothing, whatever its body says (`#1545`).
-      - uses: ./.github/actions/catalogue-floor-pr-text
-
+      #
+      # `./.github/actions/catalogue-floor-pr-text` used to run here too: the
+      # pull-request text `catalogue-budget.test.ts` weighed a raise against,
+      # written twice because `$GITHUB_ENV` is per job (`#1545`). Both it and the
+      # test that read it went with the floor gate (`#1649`, D-137).
       - name: Test
         run: npm run test
 

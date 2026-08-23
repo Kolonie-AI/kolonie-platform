@@ -271,18 +271,21 @@ describe('the same gates as the command contributors run', () => {
 })
 
 /**
- * **The catalogue-floor ratchet cannot fail on a depth-1 checkout** (`#1373`).
+ * **A full clone in `build`, and the reason it is there has changed** (`#1373`,
+ * then `#1649`).
  *
- * `check:catalogue-floor` lives in `gates:built`, which only the `build` job
- * runs. The script's local fallback — report what it could not read and exit
- * zero — is right for an export and was the whole of every CI run, because
- * `actions/checkout@v7` defaults to `fetch-depth: 1`. Full history here is the
- * half that lets the guard see the last commit that touched the floor file;
- * failing closed when `GITHUB_ACTIONS` is set and the clone is still shallow is
- * the other half, in the script itself.
+ * `check:catalogue-floor` lived in `gates:built`, which only the `build` job
+ * runs, and `actions/checkout@v7` defaults to `fetch-depth: 1` — so the guard
+ * reported what it could not read and exited zero in every CI run until the
+ * depth was fixed. The floor gate is gone with D-137 and the full clone stays:
+ * `main` is the revision every measurement in this repository is taken against,
+ * and a shallow one fails by answering rather than by stopping.
+ *
+ * What is asserted is unchanged in both directions — the clone is full where
+ * the built gates run, and the two jobs that read no history do not pay for one.
  */
-describe('the catalogue-floor job can read history', () => {
-  it('fetches full history in the job that runs the floor check', () => {
+describe('what each job clones', () => {
+  it('fetches full history in the job that runs the built gates', () => {
     const block = jobs().get('build') ?? ''
 
     expect(block).toContain('run: npm run gates:built')
@@ -296,53 +299,29 @@ describe('the catalogue-floor job can read history', () => {
   })
 
   /**
-   * The required check already runs on `merge_group`. Handing it the squash
-   * text is what stops a justified branch commit with an unjustified body from
-   * landing (`#1379`). Making `Report the change` required cannot happen until
-   * that workflow itself runs on `merge_group`, or the queue stalls.
+   * **The floor gate left no step behind in either job** (`#1649`, D-137).
    *
-   * **Both jobs, and that is the whole of `#1545`.** `check:catalogue-floor`
-   * reads the text in `build`; `catalogue-budget.test.ts` reads it in `test`,
-   * since `#1504` made the local run weigh a raise the way the branch gate
-   * does. `$GITHUB_ENV` does not cross a job boundary, so a step in one of them
-   * exports nothing to the other — and for a day every pull request that added
-   * a tool was refused for saying nothing, whatever its body said. The
-   * assertion is on both because one of them passing is what the defect looked
-   * like.
+   * `./.github/actions/catalogue-floor-pr-text` handed `build` and `test` the
+   * identical squash text to weigh a raise against, written twice because
+   * `$GITHUB_ENV` does not cross a job boundary (`#1545`). Both readers are
+   * gone, the composite action is deleted, and a `uses:` pointing at a path
+   * that no longer exists fails a run with *"Can't find action.yml"* — which
+   * reads as a broken checkout rather than as a step somebody forgot to remove.
+   *
+   * Asserted on both jobs for the same reason `#1545` asserted on both: one of
+   * them being right is exactly what the earlier defect looked like. Comments
+   * are stripped first — the paragraphs above the steps explain what was removed
+   * and name it, and a check that read those would fail on the account of the
+   * removal rather than on the removal.
    */
-  it('hands the squash text to both jobs that weigh a raise', () => {
-    for (const job of ['build', 'test']) {
-      expect(jobs().get(job) ?? '', job).toContain(
-        'uses: ./.github/actions/catalogue-floor-pr-text',
-      )
+  it('names no catalogue-floor step in any job', () => {
+    for (const job of ['tree', 'build', 'test']) {
+      const steps = (jobs().get(job) ?? '')
+        .split('\n')
+        .filter((line) => !/^\s*#/.test(line))
+        .join('\n')
+
+      expect(steps, job).not.toContain('catalogue-floor')
     }
-  })
-
-  /**
-   * One definition, and the guard is on it.
-   *
-   * Twelve lines of shell in two jobs is what would let them drift apart again,
-   * one job at a time, with the failure landing on an author who wrote the
-   * sentence correctly. The event condition and the variable are asserted here
-   * rather than in the workflow because here is where they now live.
-   */
-  it('writes the text under one guard, in one place', () => {
-    const action = readFileSync(
-      new URL('../.github/actions/catalogue-floor-pr-text/action.yml', import.meta.url),
-      'utf8',
-    )
-
-    expect(action).toContain('CATALOGUE_FLOOR_PR_TEXT_FILE')
-    expect(action).toContain(
-      "github.event_name == 'pull_request' || github.event_name == 'merge_group'",
-    )
-    // The title is attacker-controlled: it reaches the shell through `env:` and
-    // a `printf`, never through a `${{ }}` interpolation inside `run:`. The
-    // assertion is on the shell body alone rather than on the file, because the
-    // prose above it discusses both and would match either way.
-    expect(action).toContain('PR_TITLE: ${{ github.event.pull_request.title }}')
-    const shell = action.slice(action.indexOf('run: |'))
-    expect(shell, 'the run: block interpolates a workflow expression').not.toContain('${{')
-    expect(shell).toContain('"$PR_TITLE"')
   })
 })

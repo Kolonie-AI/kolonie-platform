@@ -9,19 +9,19 @@
  * snapshot so the structural diff stands on its own in the same commit — a few
  * lines, beside a rewrite of eight hundred lines of prose.
  *
- * It is a separate command rather than an auto-write, unlike
- * `check-catalogue-budget.mjs`. That check's finding *is* the new number, so
- * writing it down costs a reader nothing. This check's finding is the diff, and
- * a check that quietly rewrites what it compares against would leave the
- * reviewer exactly where `#1227` found them.
+ * It is a separate command rather than an auto-write. The catalogue floor's own
+ * check used to be the contrast here — its finding *was* the new number, so
+ * writing it down cost a reader nothing — and it is gone with the gate (`#1649`,
+ * D-137). The argument for this one is unchanged and stands on its own: this
+ * check's finding is the diff, and a check that quietly rewrites what it
+ * compares against would leave the reviewer exactly where `#1227` found them.
  *
  * ## Why it drives the suite
  *
- * The same reason `check-catalogue-budget.mjs` does: the catalogue has to be
- * read as it is *served*, through a real client on a real transport against a
- * server built from the api suite's fixtures — and fixtures are kept out of
- * `dist`. So `DATABASE_URL` has to reach a PostgreSQL 16, as it does for any
- * api test.
+ * The catalogue has to be read as it is *served*, through a real client on a
+ * real transport against a server built from the api suite's fixtures — and
+ * fixtures are kept out of `dist`. So `DATABASE_URL` has to reach a PostgreSQL
+ * 16, as it does for any api test.
  *
  * ## Determinism
  *

@@ -4,13 +4,25 @@ import process from 'node:process'
 import { describe, expect, it } from 'vitest'
 import { anonymousClient, connectedClient, registeredCitizen } from '../__fixtures__/mcp.js'
 import { AUTHENTICATED_TOOLS, WARDEN_TOOLS, UNAUTHENTICATED_TOOLS } from '../mcp.js'
-import { GRAMMAR_RECORD } from './catalogue-budget.js'
 import {
   BYTES_PER_TOKEN,
   measureToolList,
   renderSurfaceReport,
   type SurfaceMeasurement,
 } from './surface-size.js'
+
+/**
+ * The record a floor raise used to have to name, spelled out here because the
+ * module that exported it is gone with the floor (`#1649`).
+ *
+ * **The rule it names is not gone** — the catalogue still encodes grammar and
+ * never vocabulary, and `AGENTS.md` §3 still asks for it. What went is the
+ * check that made a commit message say the words. So this is a string a test
+ * asserts is *absent* from the report, and grepping the repository for the slug
+ * should find the prose that cites it rather than an enforcement that no longer
+ * exists.
+ */
+const GRAMMAR_RECORD = 'the-catalogue-encodes-grammar-never-vocabulary'
 
 /**
  * Weigh every tier through a real client over a real transport (`#388`).
@@ -113,24 +125,27 @@ describe('the size of the surface a citizen is handed at connect', () => {
   })
 
   /**
-   * **`#388` asked this to say it was not a gate, and `#1118` is the deliberate
-   * decision the old version of this comment demanded.**
+   * **The promise `#388` made, taken away by `#1118` and given back by
+   * `#1649`.**
    *
-   * What stood here asserted the report contained the words *Nothing here is a
-   * gate*, so that a threshold added in a hurry would fail a test rather than
-   * merge. The comment said in as many words that a later change wanting a gate
-   * had to be a decision with an issue behind it. It is: the report ran for ten
-   * days, the catalogue grew from 96 tools to 101 while it ran, and `#1118`
-   * closed the gap between the number and anything happening.
+   * `#388` asserted the report contained the words *Nothing here is a gate*, so
+   * that a threshold added in a hurry would fail a test rather than merge, and
+   * said in as many words that a later change wanting a gate had to be a
+   * decision with an issue behind it. `#1118` was that decision and this case
+   * asserted the opposite for five weeks: where the floor lived, and the
+   * sentence that raised it.
    *
-   * So what is asserted is the other half of the same discipline. This file
-   * still renders and never refuses — {@link renderSurfaceReport} returns a
-   * string for a surface twice the size, with no verdict in the return type and
-   * nothing to catch — and the report now says where the comparison that *does*
-   * refuse actually lives. A reader who is told a run failed and cannot find
-   * what failed it is the failure mode a gate has and a report does not.
+   * `#1649` (D-137) is the decision that reverses it, on the ground the floor
+   * could not answer — it raised itself on every merge, so it recorded growth
+   * and never held it, and charged a queue round trip per merge for the record.
+   *
+   * So the assertion is back the way `#388` wrote it, and it is worth more the
+   * second time: what it now guards is not an untested promise but one the
+   * Colony has already broken once and decided about in the open. A gate
+   * reintroduced here fails this test, and the way past it is a maintainer
+   * decision reversing D-137 rather than an edit to this line.
    */
-  it('renders a surface that grew, and names what holds it', async () => {
+  it('renders a surface that grew, and refuses to hold it', async () => {
     const measured = await measureTiers()
     const citizen = measured.find((tier) => tier.tier === 'authenticated')
     expect(citizen).toBeDefined()
@@ -144,12 +159,12 @@ describe('the size of the surface a citizen is handed at connect', () => {
 
     const report = renderSurfaceReport([doubled], [citizen])
     expect(report).toMatch(/\| \+[\d,]+ \|/)
-    // Where the floor is, and the one sentence that gets it raised. Both have to
-    // survive, or the failure arrives without the way out.
-    expect(report).toContain('catalogue-budget.json')
-    expect(report).toContain(GRAMMAR_RECORD)
-    // The old promise is gone, and it stays gone.
-    expect(report).not.toContain('Nothing here is a gate')
+    // The promise itself, and the decision that has to be reversed to remove it.
+    expect(report).toContain('Nothing here is a gate')
+    expect(report).toContain('D-137')
+    // The floor and the sentence that raised it are gone, and stay gone.
+    expect(report).not.toContain('catalogue-budget.json')
+    expect(report).not.toContain(GRAMMAR_RECORD)
   })
 
   it('renders each tier as its own row, and never one total', () => {

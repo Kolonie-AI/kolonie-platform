@@ -106,11 +106,11 @@ describe('what the reader gets', () => {
 /**
  * **The ordering that is not this script's to enforce, asserted where it lives.**
  *
- * `check:catalogue-floor` reads `apps/api/dist/mcp/catalogue-budget.js`,
  * `check:dist` reads every workspace's `dist/`, and `check:migrations` reads
  * `@kolonie-ai/core`'s `dist` (`#1367`). Hoisted into the tree-only phase they
  * would fail with a message about the wrong thing entirely, on a tree that is
- * fine.
+ * fine. `check:catalogue-floor` was the third and is gone with the floor gate
+ * (`#1649`, D-137).
  *
  * The gates are named in `package.json` rather than in the runner, so this is a
  * test about `package.json`, and it is the one `#1158` asks for by name.
@@ -160,12 +160,27 @@ describe('the phases in package.json', () => {
   })
 
   it('keeps everything that reads dist in the phase after build', () => {
-    expect(scripts['gates:built']).toContain('check:catalogue-floor')
     expect(scripts['gates:built']).toContain('check:dist')
     expect(scripts['gates:built']).toContain('check:migrations')
-    expect(scripts['gates:tree']).not.toContain('check:catalogue-floor')
     expect(scripts['gates:tree']).not.toContain('check:dist')
     expect(scripts['gates:tree']).not.toContain('check:migrations')
+  })
+
+  /**
+   * **The floor gate is gone from both phases and from `package.json`
+   * entirely** (`#1649`, D-137).
+   *
+   * Asserted rather than left to the absence of a line, because the failure it
+   * guards against is silent in a way the ordering case above is not: a
+   * `gates:built` that still named `check:catalogue-floor` would fail with
+   * *"Missing script"*, and that reads as a typo somebody should fix rather
+   * than as a gate somebody decided to remove. Reintroducing it is a maintainer
+   * decision reversing D-137, not an edit to this line.
+   */
+  it('names no catalogue floor gate in any phase', () => {
+    expect(scripts['gates:built']).not.toContain('catalogue-floor')
+    expect(scripts['gates:tree']).not.toContain('catalogue-floor')
+    expect(Object.keys(scripts)).not.toContain('check:catalogue-floor')
   })
 
   /**

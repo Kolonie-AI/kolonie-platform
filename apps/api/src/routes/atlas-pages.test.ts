@@ -19,6 +19,18 @@ import { atlasRuntimeLine } from '../atlas/runtimes.js'
 import { ATLAS_STYLE } from '../atlas/style.js'
 import { CHROME_STYLE } from '../console/theme.js'
 
+/**
+ * A rendered page with the provider marks taken out (`#1405`).
+ *
+ * Every helper below that reads *which providers a page links to* runs the body
+ * through this first. The mark is a `<span>` or an `<img>` between the `<li>`
+ * and the entry's link, and it is not one of the providers — so it is removed
+ * rather than matched around, which keeps each row pattern saying what it means
+ * and stops a future change to the mark's markup from quietly matching nothing.
+ */
+const withoutMarks = (body: string): string =>
+  body.replace(/<span class="k-atlas-mark"[^>]*>.*?<\/span>|<img class="k-atlas-mark"[^>]*>/g, '')
+
 const SITE = 'https://site.test'
 const SITE_HOST = 'site.test'
 
@@ -2161,7 +2173,9 @@ describe('the Atlas on the website host', () => {
 
     /** Entry rows: a provider link, and never a shelf or a navigation one. */
     const rowsIn = (body: string) =>
-      [...body.matchAll(/<li><a href="\/atlas\/(?!c\/)([^"]+)">/g)].map((one) => one[1] ?? '')
+      [...withoutMarks(body).matchAll(/<li><a href="\/atlas\/(?!c\/)([^"]+)">/g)].map(
+        (one) => one[1] ?? '',
+      )
 
     const shelf = (query = '') => get(`${ATLAS_PATH}/c/mailbox${query}`)
 
@@ -4063,7 +4077,9 @@ describe('the Atlas on the website host', () => {
      * one of these assertions would be counting the navigation.
      */
     const listed = (body: string): readonly string[] =>
-      [...body.matchAll(/<li><a href="\/atlas\/(?!c\/)([^"]+)">/g)].map((one) => one[1] ?? '')
+      [...withoutMarks(body).matchAll(/<li><a href="\/atlas\/(?!c\/)([^"]+)">/g)].map(
+        (one) => one[1] ?? '',
+      )
 
     it('shows only what somebody got through, by default and on a shelf', async () => {
       await withBothHalves()
@@ -4437,7 +4453,9 @@ describe('the Atlas on the website host', () => {
   describe('a category as a page of its own', () => {
     /** Every provider the page links to, shelf links excluded as above. */
     const listed = (body: string): readonly string[] =>
-      [...body.matchAll(/<li><a href="\/atlas\/(?!c\/)([^"]+)">/g)].map((one) => one[1] ?? '')
+      [...withoutMarks(body).matchAll(/<li><a href="\/atlas\/(?!c\/)([^"]+)">/g)].map(
+        (one) => one[1] ?? '',
+      )
 
     /**
      * Two of *identity and access*'s three shelves filled, the third left empty.

@@ -1,10 +1,14 @@
 import type { SubmissionId, TaskType } from '@kolonie-ai/core'
+import { fetchProviderIcon } from '@kolonie-ai/verifiers'
 import {
   claimNextSubmission,
   recordDeferral,
   reportRepeatedDeferral,
   expireOverdueSubmissions,
   pruneContactHistory,
+  providerHomepages,
+  providersDueForIcon,
+  recordProviderIcon,
   sweepAbandonedAttempts,
   destroyExpiredSlots,
   destroyExpiredVaultShares,
@@ -158,6 +162,28 @@ export interface SubmissionQueue {
    * as a number rather than as a table that is quietly larger every month.
    */
   pruneContacts(): Promise<number>
+  /**
+   * Look at a bounded number of provider icons, and say what came of it
+   * (`#1405`).
+   *
+   * **The only sweep on this tick that reaches outside the Colony**, which is
+   * why it is the only one with a ceiling on how much work it may do. The
+   * others are statements against the Colony's own database and return in
+   * milliseconds; this one talks to hosts nobody here controls, and a host that
+   * accepts a connection and says nothing costs `PROVIDER_ICON_TIMEOUT_MS`
+   * whatever the Colony wants.
+   *
+   * **Two per sweep, and the arithmetic is why that is enough.** The sweep runs
+   * once a minute, so two is 2,880 providers a day against a catalogue in the
+   * hundreds refreshed weekly — an order of magnitude of headroom over what
+   * `PROVIDER_ICON_TTL_DAYS` asks for. Raising it would buy nothing and would
+   * spend the one thing this tick cannot afford, which is time.
+   *
+   * Returns both numbers because neither says it alone: a `looked` that climbs
+   * while `found` stays at zero is something broken at the far end, and a
+   * `looked` stuck at zero is a catalogue with no homepages in it.
+   */
+  refreshProviderIcons(): Promise<{ readonly looked: number; readonly found: number }>
 }
 
 /** Wire the loop to a real database. */
@@ -175,7 +201,45 @@ export function databaseQueue(db: Database): SubmissionQueue {
     destroyExpiredSlots: () => destroyExpiredSlots(db),
     destroyExpiredVaultShares: () => destroyExpiredVaultShares(db),
     pruneContacts: () => pruneContactHistory(db),
+    refreshProviderIcons: () => refreshProviderIcons(db),
   }
+}
+
+/**
+ * How many providers one sweep looks at. See the interface member for why two.
+ */
+export const PROVIDER_ICONS_PER_SWEEP = 2
+
+/**
+ * Look at the providers that are due, and write down what came back.
+ *
+ * **Concurrently rather than in sequence**, which is what keeps the ceiling on
+ * this sweep the timeout rather than the timeout times the count. Two hosts that
+ * each take the full six seconds cost six seconds, not twelve.
+ *
+ * **A failure is written down like any other finding.** There is no `catch` that
+ * swallows and no path that leaves a provider unrecorded: `fetchProviderIcon`
+ * returns an absence for every way it can fail, and a provider whose row is
+ * never written is one the sweep asks about again on every single pass forever.
+ * That is the failure this function exists to make impossible.
+ */
+export async function refreshProviderIcons(
+  db: Database,
+  limit: number = PROVIDER_ICONS_PER_SWEEP,
+): Promise<{ readonly looked: number; readonly found: number }> {
+  const homepages = await providerHomepages(db)
+  const due = await providersDueForIcon(db, homepages, limit)
+  if (due.length === 0) return { looked: 0, found: 0 }
+
+  const findings = await Promise.all(
+    due.map(async ({ provider, homepage }) => {
+      const fetched = await fetchProviderIcon(homepage)
+      await recordProviderIcon(db, provider, fetched)
+      return fetched.outcome === 'icon'
+    }),
+  )
+
+  return { looked: findings.length, found: findings.filter(Boolean).length }
 }
 
 /**

@@ -245,6 +245,14 @@ class FakeQueue implements SubmissionQueue {
     return 0
   }
 
+  /** Counted for the same reason as `abandonedSweeps` above (`#1405`). */
+  iconSweeps = 0
+
+  async refreshProviderIcons(): Promise<{ looked: number; found: number }> {
+    this.iconSweeps++
+    return { looked: 0, found: 0 }
+  }
+
   /** Counted for the same reason as `abandonedSweeps` above (#141). */
   contactPrunes = 0
 
@@ -413,6 +421,7 @@ describe('startRunner', () => {
     expect(queue.slotSweeps).toBeGreaterThan(0)
     expect(queue.vaultShareSweeps).toBeGreaterThan(0)
     expect(queue.contactPrunes).toBeGreaterThan(0)
+    expect(queue.iconSweeps).toBeGreaterThan(0)
   })
 
   /**

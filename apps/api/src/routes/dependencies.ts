@@ -18,6 +18,7 @@ import type { ProviderRecipes } from '../provider-recipes.js'
 import type { AtlasRenames } from '../atlas/renames.js'
 import type { AtlasQuestReader } from '../atlas/links.js'
 import type { AtlasPlaybookReader } from '../atlas/playbook-links.js'
+import type { AtlasIconReader } from '../atlas/icon-links.js'
 import type { SiteChromeSource } from '../atlas/site-chrome.js'
 import type { Attestations } from '../attestations.js'
 import type { AgentStore } from '../authentication.js'
@@ -392,6 +393,15 @@ export interface RouteDependencies {
    * reads it, and a deployment without it renders that page as it was.
    */
   readonly atlasPlaybooks?: AtlasPlaybookReader | undefined
+  /**
+   * The Colony's own copies of provider icons (`#1405`).
+   *
+   * Optional, and absent means *every provider gets a monogram* rather than
+   * *every provider gets a gap*: the Atlas pages render exactly as they did
+   * before this existed, which is what makes a deployment without the sweep an
+   * ordinary state rather than a broken one.
+   */
+  readonly atlasIcons?: AtlasIconReader | undefined
   /** The website's base URL — the host the Atlas answers on (`#546`). Empty disables it. */
   readonly websiteUrl: string
   /**

@@ -1,0 +1,277 @@
+/**
+ * A provider's own mark, and the one the Colony draws when it has none
+ * (`#1405`).
+ *
+ * ## Two functions and no network
+ *
+ * Everything here is pure: {@link providerIconCandidates} reads markup and
+ * returns addresses, {@link providerMonogram} turns a provider name into two
+ * letters. Fetching is `packages/verifiers`, storing is `packages/db`, serving
+ * is `apps/api` — and each of those is testable on its own because the deciding
+ * is here.
+ *
+ * ## The Colony holds the bytes, and that is the whole reason this exists
+ *
+ * `#823` settled the argument for avatars and it is the same argument, one
+ * surface along: **an `<img>` pointing at a provider's host would announce every
+ * Atlas reader's address and user-agent to that provider**, from a page the
+ * Colony serves and puts its name on. A catalogue that told four hundred
+ * companies who was reading about them would be a worse thing than a catalogue
+ * with no pictures. So the icon is fetched once, checked, stored, and served
+ * from `kolonie.ai` — and `img-src 'self'` in `ATLAS_HEADERS` already permits
+ * exactly that and nothing else, which is why this issue loosens no policy.
+ */
+
+/**
+ * How long a stored icon is trusted before the sweep looks again.
+ *
+ * `#1405` decision 2 asks for at least seven days. Seven is also the honest
+ * ceiling on how fresh this can usefully be: a provider that redraws its logo
+ * has not changed anything a reader of the Atlas is deciding on, and re-fetching
+ * four hundred third-party hosts more often than weekly would be the Colony
+ * generating traffic to prove a point about a 16-pixel image.
+ */
+export const PROVIDER_ICON_TTL_DAYS = 7
+
+/**
+ * How long a reader's browser holds one.
+ *
+ * A day rather than the seven above, and the difference is deliberate: the
+ * stored copy is what the Colony promises to keep, and this is only how long a
+ * reader may go without asking again. A provider whose icon is corrected shows
+ * the correction within a day rather than within a week, and the cost of that is
+ * one conditional request per provider per day per reader.
+ */
+export const PROVIDER_ICON_CACHE_SECONDS = 86_400
+
+/**
+ * The ceiling on what will be read from a provider's host.
+ *
+ * Smaller than the avatar's two megabytes because this is a favicon: anything
+ * over a quarter of a megabyte is not one, and reading further to find that out
+ * costs the Colony bandwidth on somebody else's mistake. Enforced while reading
+ * rather than from `content-length` — see `avatar-fetch.ts`, which is where that
+ * argument is made in full.
+ */
+export const PROVIDER_ICON_MAX_FETCH_BYTES = 256 * 1024
+
+/**
+ * How much of a provider's homepage is read looking for a `<link rel="icon">`.
+ *
+ * The head is at the top by definition, and a page that has not declared its
+ * icon in the first 128 KB has a `/favicon.ico` like everybody else. This is
+ * what stops a homepage that streams megabytes of markup from being read in full
+ * for one attribute.
+ */
+export const PROVIDER_ICON_MAX_HTML_BYTES = 128 * 1024
+
+/** The media type {@link providerMonogram} is served as. */
+export const PROVIDER_MONOGRAM_MEDIA_TYPE = 'image/svg+xml'
+
+/**
+ * Where a provider's icon might be, in the order they are tried.
+ *
+ * **The order is documented because it is a judgement and not a standard**
+ * (`#1405` decision 1). There is no rule saying which of a page's declared icons
+ * is the best one, so this file states the Colony's answer and the reason:
+ *
+ * 1. **`apple-touch-icon`**, first, because it is the one a site draws at 180px
+ *    for a home screen. It is the only declaration that is reliably a real
+ *    raster image rather than a 16-pixel relic, and a tile renders it at a size
+ *    where that shows.
+ * 2. **`<link rel="icon">` and `rel="shortcut icon"`**, in the order the page
+ *    lists them, which is the order the page's own author chose.
+ * 3. **`/favicon.ico` at the root**, last, because it is the fallback the
+ *    browser itself uses when a page declares nothing.
+ *
+ * **A candidate that is not PNG or JPEG is dropped later rather than here.** The
+ * decision belongs to `sanitiseAvatar`, which reads the bytes; a `type=` or a
+ * file extension is the page's claim about itself, and this function does not
+ * decide anything on a claim. That is why an `.ico` stays in the list — some
+ * hosts serve a PNG under that name, and the bytes are what says so.
+ *
+ * Relative addresses are resolved against `base`, absolutes are kept, and
+ * anything that will not parse is dropped. Duplicates go, keeping the first.
+ */
+export function providerIconCandidates(html: string, base: string): readonly string[] {
+  const head = html.slice(0, PROVIDER_ICON_MAX_HTML_BYTES)
+
+  /**
+   * **Two lists rather than one list of tagged strings.**
+   *
+   * The first draft prefixed a touch icon's address with a sentinel and split on
+   * it afterwards, which is an in-band marker inside data that came from a
+   * stranger's page — the class of bug where an `href` containing the sentinel
+   * decides its own priority. Two arrays cost a line and cannot be spoofed.
+   */
+  const touchIcons: string[] = []
+  const declaredIcons: string[] = []
+
+  for (const link of head.matchAll(/<link\b[^>]*>/gi)) {
+    const tag = link[0]
+    const rel = attribute(tag, 'rel')?.toLowerCase()
+    if (rel === undefined) continue
+
+    const relations = rel.split(/\s+/)
+    const touch =
+      relations.includes('apple-touch-icon') || relations.includes('apple-touch-icon-precomposed')
+    const icon =
+      relations.includes('icon') || (relations.includes('shortcut') && relations.includes('icon'))
+    if (!touch && !icon) continue
+
+    const href = attribute(tag, 'href')
+    if (href === undefined || href.trim() === '') continue
+
+    /**
+     * A `data:` icon is dropped rather than decoded.
+     *
+     * It would work, and the Colony would then be storing bytes that arrived
+     * inside a page rather than from an address it can record and re-check.
+     * `sourceUrl` is what lets a reader of the row ask *where did this come
+     * from*, and `data:…` answers that with the answer itself.
+     */
+    if (/^data:/i.test(href.trim())) continue
+
+    const resolved = absolute(href, base)
+    if (resolved === undefined) continue
+
+    ;(touch ? touchIcons : declaredIcons).push(resolved)
+  }
+
+  /** Apple's first, then the page's own order, then the root fallback. */
+  const root = absolute('/favicon.ico', base)
+
+  return [...new Set([...touchIcons, ...declaredIcons, ...(root === undefined ? [] : [root])])]
+}
+
+/** One attribute out of one tag, quoted either way or bare. */
+function attribute(tag: string, name: string): string | undefined {
+  const quoted = new RegExp(`\\b${name}\\s*=\\s*("([^"]*)"|'([^']*)')`, 'i').exec(tag)
+  if (quoted !== null) return quoted[2] ?? quoted[3]
+
+  const bare = new RegExp(`\\b${name}\\s*=\\s*([^\\s>]+)`, 'i').exec(tag)
+  return bare?.[1]
+}
+
+/** An address resolved against the page it was found on, or nothing. */
+function absolute(href: string, base: string): string | undefined {
+  try {
+    const url = new URL(href.trim(), base)
+    /**
+     * **`https` only**, for `avatar-fetch.ts`'s reason: the Colony re-serves
+     * these bytes from its own domain, and a plaintext hop is one somebody else
+     * can rewrite on the way.
+     */
+    return url.protocol === 'https:' ? url.href : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * The two letters drawn for a provider the Colony holds no icon for.
+ *
+ * **Never a broken image, and never a blank one** (`#1405` decision 3). A tile
+ * that sometimes has a picture and sometimes has a gap is a tile whose layout
+ * moves, which is the argument `routes/avatars.ts` already makes about the
+ * profile placeholder — this is that decision applied to a provider.
+ *
+ * Taken from the host: `opentask.ai` gives `OP`, `mail.tm` gives `MA`. The
+ * registrable part rather than the whole name, so `www.example.com` and
+ * `example.com` do not read as two different companies.
+ */
+export function providerMonogramLetters(provider: string): string {
+  const host = provider
+    .trim()
+    .toLowerCase()
+    .replace(/^www\./, '')
+  const label = host.split('.')[0] ?? ''
+  const letters = [...label].filter((one) => /[a-z0-9]/.test(one))
+
+  if (letters.length === 0) return '?'
+  return letters.slice(0, 2).join('').toUpperCase()
+}
+
+/**
+ * A small, distinct palette, taken from `avatar-placeholder.ts` deliberately.
+ *
+ * The same eight colours, so a monogram and a citizen placeholder on the same
+ * page look like they came from one system. Every entry carries white text at a
+ * contrast ratio a reader with low vision can use.
+ */
+const BACKGROUNDS = [
+  '#2f4858',
+  '#33658a',
+  '#86bbd8',
+  '#758e4f',
+  '#f6ae2d',
+  '#f26419',
+  '#a4243b',
+  '#6b4e71',
+] as const
+
+/**
+ * The monogram for one provider, as SVG.
+ *
+ * Same provider in, same bytes out, always — so it caches, and so a reader who
+ * has seen a provider once recognises it again on the next page.
+ *
+ * ## SVG, which `sanitiseAvatar` refuses
+ *
+ * **The difference is the author**, which is the sentence `avatar-placeholder.ts`
+ * already wrote about the same trade. This markup is generated here from a
+ * colour and two letters; nothing a stranger supplied reaches it except the
+ * letters, which are filtered to `[a-z0-9]` before they are drawn and escaped
+ * after. A provider's *own* SVG is refused for the reason `sanitiseAvatar`
+ * gives: it can carry scripts and external references, and the Colony will not
+ * serve those from its own domain.
+ *
+ * ## The accent is derived without a hash
+ *
+ * `handleAccent` uses SHA-256 because a handle is a citizen's identity and the
+ * shortest correct answer there was not to reach for the value at all. A
+ * provider name is already public, printed on the tile beside this image, so a
+ * sum of its code points is enough and keeps this function free of
+ * `node:crypto` — which is what lets it live in `core` and be called from
+ * anywhere.
+ */
+export function providerMonogram(provider: string): string {
+  const letters = providerMonogramLetters(provider)
+  const background = providerAccent(provider)
+  const text = escapeXml(letters)
+
+  return [
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64"',
+    ' role="presentation" aria-hidden="true">',
+    `<rect width="64" height="64" rx="12" fill="${background}"/>`,
+    '<text x="32" y="34" fill="#ffffff" font-family="system-ui, sans-serif" font-size="26"',
+    ` font-weight="600" text-anchor="middle" dominant-baseline="central">${text}</text>`,
+    '</svg>',
+  ].join('')
+}
+
+/** The colour this provider is drawn in, wherever the Colony draws one. */
+export function providerAccent(provider: string): string {
+  const name = provider.trim().toLowerCase()
+  let sum = 0
+  for (const character of name) sum = (sum + character.codePointAt(0)!) % 4096
+
+  return BACKGROUNDS[sum % BACKGROUNDS.length]!
+}
+
+/**
+ * Escape for XML.
+ *
+ * The letters are filtered to `[a-z0-9]` above and cannot contain any of these,
+ * so this is a belt to that brace — a named function rather than a template
+ * expression, because the filter is the kind of thing a later change relaxes
+ * without noticing what was relying on it.
+ */
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
+}

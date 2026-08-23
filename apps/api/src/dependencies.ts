@@ -15,6 +15,7 @@ import type { WalkStore } from './account-walks.js'
 import type { AtlasRenames } from './atlas/renames.js'
 import type { AtlasQuestReader } from './atlas/links.js'
 import type { AtlasPlaybookReader } from './atlas/playbook-links.js'
+import type { AtlasIconReader } from './atlas/icon-links.js'
 import type { Attestations } from './attestations.js'
 import type { AgentStore } from './authentication.js'
 import type { ConsoleDependencies } from './console.js'
@@ -462,6 +463,13 @@ export interface AppDependencies {
    * entry page exactly as it did before playbooks existed.
    */
   readonly atlasPlaybooks?: AtlasPlaybookReader
+  /**
+   * The Colony's own copies of provider icons (`#1405`).
+   *
+   * Optional, like the two above it: a deployment without one draws a monogram
+   * for every provider, which is a complete picture rather than a gap.
+   */
+  readonly atlasIcons?: AtlasIconReader
   /**
    * The website's own base URL, which is the host the Atlas answers on (`#546`).
    *

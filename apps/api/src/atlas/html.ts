@@ -4,8 +4,10 @@ import {
   ATLAS_QUERY_MAX_LENGTH,
   atlasCapabilityPhrase,
   atlasCategoryPath,
+  atlasIconPath,
   atlasIsWalked,
   atlasKindPhrase,
+  providerMonogram,
   EARN_FACETS,
   type EarnFacet,
   atlasShelfHasEvidence,
@@ -648,8 +650,19 @@ export function atlasIndexPage(input: {
    * Which side of {@link atlasEntryWorked} to show. Absent is `true`, which is
    * `#1103` decision 1: the reader who asked for nothing asked for what worked.
    */
+  /**
+   * Which providers the Colony holds a fetched icon for (`#1405`).
+   *
+   * **Absent is every provider getting a monogram**, which is a complete
+   * picture rather than a gap: a deployment without the sweep renders the pages
+   * it rendered before this existed. That is what makes the fallback structural
+   * rather than a branch somebody has to remember.
+   */
+  readonly icons?: ReadonlySet<string> | undefined
   readonly worked?: boolean | undefined
 }): string {
+  /** Absent is every provider drawn (`#1405`). */
+  const icons = input.icons ?? new Set<string>()
   /**
    * **The projection, on the first line and not at the caller** (`#1100`).
    * Everything below this point takes {@link AtlasPublicEntry}, so there is no
@@ -702,7 +715,9 @@ export function atlasIndexPage(input: {
           'nothing being joinable.</p>'
         : [
             workedNote({ asked, fellBack, category: undefined, shown: shown.length, other }),
-            shelves({ entries: shown, order, cap: ATLAS_SHELF_ROWS, worked: asked }).join('\n'),
+            shelves({ entries: shown, order, cap: ATLAS_SHELF_ROWS, worked: asked, icons }).join(
+              '\n',
+            ),
           ]
             .filter((one) => one !== '')
             .join('\n'),
@@ -783,7 +798,18 @@ export function atlasSearchPage(input: {
   readonly earn?: EarnFacet | undefined
   /** Which tag the reader asked for, if any (`#1406` decision 4). */
   readonly tag?: string | undefined
+  /**
+   * Which providers the Colony holds a fetched icon for (`#1405`).
+   *
+   * **Absent is every provider getting a monogram**, which is a complete
+   * picture rather than a gap: a deployment without the sweep renders the pages
+   * it rendered before this existed. That is what makes the fallback structural
+   * rather than a branch somebody has to remember.
+   */
+  readonly icons?: ReadonlySet<string> | undefined
 }): string {
+  /** Absent is every provider drawn (`#1405`). */
+  const icons = input.icons ?? new Set<string>()
   const asked = input.query.trim()
   const earn = input.earn
   const tag = input.tag
@@ -916,7 +942,7 @@ export function atlasSearchPage(input: {
             'catalogue</a> is one link away.</p>'
           : [
               `<p>${counted(shown.length)}</p>`,
-              `<ul class="k-atlas-index">${shown.map(indexRow).join('')}</ul>`,
+              `<ul class="k-atlas-index">${shown.map((one) => indexRow(one, icons)).join('')}</ul>`,
             ].join('\n'),
       '</main>',
     ].join('\n'),
@@ -969,8 +995,19 @@ export function atlasCategoryPage(input: {
    * The route has already turned anything that is not a positive integer into
    * the first and refused anything past the last, so this is a page that exists.
    */
+  /**
+   * Which providers the Colony holds a fetched icon for (`#1405`).
+   *
+   * **Absent is every provider getting a monogram**, which is a complete
+   * picture rather than a gap: a deployment without the sweep renders the pages
+   * it rendered before this existed. That is what makes the fallback structural
+   * rather than a branch somebody has to remember.
+   */
+  readonly icons?: ReadonlySet<string> | undefined
   readonly page?: number | undefined
 }): string {
+  /** Absent is every provider drawn (`#1405`). */
+  const icons = input.icons ?? new Set<string>()
   const { category, covers } = input
   const all = atlasPublicEntries(input.entries)
   /**
@@ -1102,8 +1139,8 @@ export function atlasCategoryPage(input: {
                  * shelf, and what it cuts off is on the next page rather than
                  * behind an *All 27 →* link to the page the reader is on.
                  */
-                shelves({ entries: onPage, order, worked: asked }).join('\n')
-              : `<ul class="k-atlas-index">${onPage.map(indexRow).join('')}</ul>`,
+                shelves({ entries: onPage, order, worked: asked, icons }).join('\n')
+              : `<ul class="k-atlas-index">${onPage.map((one) => indexRow(one, icons)).join('')}</ul>`,
             pageNav({ page, pages, at: pagePath }),
           ]
             .filter((one) => one !== '')
@@ -1433,6 +1470,8 @@ function shelves(input: {
   readonly cap?: number | undefined
   /** Which half the reader is on, so that a link out of a shelf keeps it. */
   readonly worked: boolean
+  /** Which providers carry a fetched mark rather than a drawn one (`#1405`). */
+  readonly icons: ReadonlySet<string>
 }): readonly string[] {
   const byCategory = groupByShelf(input.entries)
 
@@ -1459,7 +1498,7 @@ function shelves(input: {
          * make the cap invisible.
          */
         `<span class="k-atlas-count">${shelf.length}</span></h2>` +
-        `<ul class="k-atlas-index">${shown.map(indexRow).join('')}${shelfRest(
+        `<ul class="k-atlas-index">${shown.map((one) => indexRow(one, input.icons)).join('')}${shelfRest(
           category,
           shelf.length,
           shown.length,
@@ -1510,7 +1549,44 @@ function shelfRest(category: string, size: number, shown: number, worked: boolea
  * that the row is empty, and `#1164` asks for a card a reader can scan rather
  * than a form with blanks in it.
  */
-function indexRow(entry: AtlasPublicEntry): string {
+/**
+ * The provider's own mark, or the one the Colony draws for it (`#1405`).
+ *
+ * ## Two elements, and the difference is one query rather than a broken image
+ *
+ * A provider the Colony holds bytes for gets an `<img>` pointing at
+ * `/atlas/icon/<provider>` — **the Colony's own origin**, which is what
+ * `img-src 'self'` in {@link ATLAS_HEADERS} already permits and the whole reason
+ * this issue loosens no policy. Everything else gets the monogram inlined here:
+ * no request, no round trip, and nothing that can 404.
+ *
+ * **The inline path is the common one and that is why it is inline.** Most
+ * providers have no stored icon at any moment — the sweep has not reached them,
+ * or it has and there was none — so a shelf of forty tiles issues a handful of
+ * image requests rather than forty.
+ *
+ * ## Decorative, and the name beside it is the content
+ *
+ * `#1405` decision 5, which is `#1326` decision 7 one surface along: the mark
+ * always sits beside the provider's name as text, so it is `aria-hidden` with an
+ * empty `alt` and carries no title. A reader who cannot see it has lost nothing
+ * — everything it says, the link says in words.
+ *
+ * `width` and `height` are written so the row does not move when the bytes
+ * arrive, which is the same reason `agent_avatars` stores the dimensions.
+ */
+function providerMark(provider: string, icons: ReadonlySet<string>): string {
+  if (!icons.has(provider)) {
+    return `<span class="k-atlas-mark" aria-hidden="true">${providerMonogram(provider)}</span>`
+  }
+
+  return (
+    `<img class="k-atlas-mark" src="${escape(atlasIconPath(provider))}" alt="" ` +
+    'width="16" height="16" loading="lazy" decoding="async" aria-hidden="true">'
+  )
+}
+
+function indexRow(entry: AtlasPublicEntry, icons: ReadonlySet<string>): string {
   /**
    * **The chips after the kinds, joined rather than concatenated** (`#1401`).
    *
@@ -1549,7 +1625,7 @@ function indexRow(entry: AtlasPublicEntry): string {
   ].filter((chip) => chip !== '')
 
   return (
-    `<li><a href="${escape(entry.path)}">${escape(entry.title)}</a>` +
+    `<li>${providerMark(entry.provider, icons)}<a href="${escape(entry.path)}">${escape(entry.title)}</a>` +
     indexStatusMark(entry) +
     (entry.recipes.some((recipe) => recipe.paid) ? ' <span class="k-paid">paid</span>' : '') +
     /**
@@ -1906,6 +1982,15 @@ function colonyBlockFor(entry: AtlasPublicEntry, briefed: boolean): string {
 /** One provider's page. */
 export function atlasEntryPage(input: {
   readonly entry: AtlasEntry
+  /**
+   * Which providers the Colony holds a fetched icon for (`#1405`).
+   *
+   * **Absent is every provider getting a monogram**, which is a complete
+   * picture rather than a gap: a deployment without the sweep renders the pages
+   * it rendered before this existed. That is what makes the fallback structural
+   * rather than a branch somebody has to remember.
+   */
+  readonly icons?: ReadonlySet<string> | undefined
   readonly canonical: string
   readonly chrome?: SiteChrome | undefined
   /**
@@ -1975,6 +2060,8 @@ export function atlasEntryPage(input: {
    * this page by anybody forgetting anything: there is nowhere left to forget
    * it.
    */
+  /** Absent is the provider drawn rather than fetched (`#1405`). */
+  const icons = input.icons ?? new Set<string>()
   const entry = atlasPublicEntry(input.entry)
   const briefings = input.briefings ?? new Map<string, ProviderBriefing>()
 
@@ -2081,7 +2168,23 @@ export function atlasEntryPage(input: {
        * answers nothing — a reader who clicked a result already knows which
        * provider they clicked.
        */
-      `<h1>${escape(atlasEntryQuestion(entry))}</h1>`,
+      /**
+       * **The provider's mark sits beside the heading and not inside it**
+       * (`#1405`).
+       *
+       * A tempting shape was `<h1><img>…question…</h1>`, and it is wrong twice.
+       * The heading's text is *the question somebody typed* (`#1105` decision
+       * 3), and a decoration inside the element makes the accessible name of
+       * that heading something other than the question — which is the one
+       * sentence on this page that has to survive being read aloud. It also
+       * couples fourteen assertions across two test files to the presence of an
+       * icon they are not about.
+       *
+       * So it is a sibling in a wrapper, and `.k-atlas-head` is what puts the
+       * two on one line. The mark is `aria-hidden` either way; what this buys is
+       * that `<h1>` still contains exactly the question and nothing else.
+       */
+      `<div class="k-atlas-head">${providerMark(entry.provider, icons)}<h1>${escape(atlasEntryQuestion(entry))}</h1></div>`,
       statusSubline(entry),
       descriptionSection(entry),
       aboutSection(entry),

@@ -252,6 +252,12 @@ export {
   type WebsiteChallenges,
 } from './website-verify.js'
 export {
+  fetchProviderIcon,
+  PROVIDER_ICON_MAX_CANDIDATES,
+  PROVIDER_ICON_TIMEOUT_MS,
+  type ProviderIconFetch,
+} from './provider-icon-fetch.js'
+export {
   noWake,
   wakeSender,
   type WakeDesk,

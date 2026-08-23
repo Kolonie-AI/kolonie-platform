@@ -185,3 +185,122 @@ describe('the size of the surface a citizen is handed at connect', () => {
     expect(report).toMatch(/\| `unauthenticated` \|.*\| — \| — \|/)
   })
 })
+
+/**
+ * **The two figures the sum hides** (`#1653`).
+ *
+ * `#1649` removed the floor and kept the ruler — but the ruler measured only the
+ * sum, and a sum is the one number that hides both of the things the catalogue
+ * work is actually steered by. **It permits any single tool**: a 7 KB entry
+ * passes as long as something else shrank, and on 2026-08-23 the heaviest
+ * non-exempt tool was 7,381 bytes against a median of 1,394. And the prose share
+ * — the number `#1650` exists to move — lived in a document last written on
+ * 2026-08-14 rather than in the report that runs on every pull request.
+ *
+ * Everything asserted here fails nothing. That is not a caveat: the whole reason
+ * `#1653` is two lines in a comment rather than a check is D-137, and a case
+ * here that made a run red would be the gate coming back under another name.
+ */
+describe('the figures the catalogue is steered by', () => {
+  /** A tool whose weight is entirely its own description, to a byte target. */
+  const weighing = (name: string, bytes: number) => ({ name, description: 'x'.repeat(bytes) })
+
+  it('names the heaviest tool with its bytes, and the median beside it', () => {
+    const report = renderSurfaceReport([
+      measureToolList('authenticated', [
+        weighing('kolonie.accounts.recipes', 7000),
+        weighing('kolonie.quests.write', 1000),
+        weighing('kolonie.playbooks.list', 900),
+      ]),
+    ])
+
+    expect(report).toContain('`kolonie.accounts.recipes`')
+    expect(report).toMatch(/Heaviest tool outside `WARM_SET`/)
+    expect(report).toMatch(/Median tool \| [\d,]+ B over 3 tools/)
+    // The comparison is the point: a sum cannot say five times the median.
+    expect(report).toMatch(/× the median/)
+  })
+
+  /**
+   * **A `WARM_SET` tool never appears as the heaviest.** The thirteen are read by
+   * every citizen on every waking and nothing is cut from them (`#1116`), so
+   * ranking them would put a tool nobody may touch at the top of a list about
+   * what to touch.
+   */
+  it('never names an exempt tool as the heaviest, however heavy it is', () => {
+    const report = renderSurfaceReport([
+      measureToolList('authenticated', [
+        weighing('kolonie.wakeup', 20_000),
+        weighing('kolonie.accounts.recipes', 7000),
+        weighing('kolonie.quests.write', 1000),
+      ]),
+    ])
+
+    const heaviest = report.slice(report.indexOf('Heaviest tool outside'))
+    expect(heaviest.split('\n')[0]).toContain('`kolonie.accounts.recipes`')
+    expect(heaviest.split('\n')[0]).not.toContain('kolonie.wakeup')
+  })
+
+  /** A tier of nothing but exempt tools prints no heaviest line rather than an untrue one. */
+  it('names no heaviest tool when every tool is exempt', () => {
+    const report = renderSurfaceReport([
+      measureToolList('authenticated', [
+        weighing('kolonie.wakeup', 900),
+        weighing('kolonie.me', 800),
+      ]),
+    ])
+
+    expect(report).not.toContain('Heaviest tool outside')
+    // The other two figures are still true and still printed.
+    expect(report).toContain('Median tool')
+    expect(report).toContain('Prose')
+  })
+
+  /**
+   * **Prose is counted by `proseBytesOf` and not by a second implementation.**
+   * The nested `description` is what says so: the tool's own sentence alone is
+   * `descriptionBytes`, which the table above already prints, and a paragraph on
+   * a property is paid for exactly as often as the paragraph on the tool.
+   */
+  it('counts a description nested in a schema as prose', () => {
+    const bare = renderSurfaceReport([
+      measureToolList('authenticated', [{ name: 'kolonie.quests.write', description: 'short' }]),
+    ])
+    const nested = renderSurfaceReport([
+      measureToolList('authenticated', [
+        {
+          name: 'kolonie.quests.write',
+          description: 'short',
+          inputSchema: { properties: { slots: { description: 'y'.repeat(500) } } },
+        },
+      ]),
+    ])
+
+    const bytesIn = (report: string) =>
+      Number((/\| Prose \| ([\d,]+) B/.exec(report)?.[1] ?? '0').replace(/,/g, ''))
+
+    expect(bytesIn(nested)).toBeGreaterThan(bytesIn(bare) + 400)
+    expect(nested).toMatch(/\| Prose \| [\d,]+ B — \d+\.\d % of the tier \|/)
+  })
+
+  /**
+   * **The tier is `authenticated`, not the widest one.** `warden` is
+   * `authenticated` plus one tool, so it is always the widest and its figures are
+   * always almost identical — and *almost* is the problem. These figures steer
+   * work on the tier every citizen pays for in every session; the byte table
+   * above ranks the widest, and the two blocks may name different tiers.
+   */
+  it('reports the figures for the tier every citizen pays for', () => {
+    const report = renderSurfaceReport([
+      measureToolList('authenticated', [weighing('kolonie.quests.write', 1000)]),
+      measureToolList('warden', [
+        weighing('kolonie.quests.write', 1000),
+        weighing('kolonie.warden.review', 9000),
+      ]),
+    ])
+
+    expect(report).toContain('The two figures the sum hides, for `authenticated`')
+    const figures = report.slice(report.indexOf('The two figures'))
+    expect(figures).not.toContain('kolonie.warden.review')
+  })
+})

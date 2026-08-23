@@ -30,7 +30,25 @@
  * So this file is the measurement and there is no longer a gate anywhere for it
  * to be confused with. {@link measureToolList} returns figures and never a
  * verdict — there is no `ok` field here, and now nothing computes one.
+ *
+ * ## The two figures the sum hides (`#1653`)
+ *
+ * A total is the one number that hides both problems the catalogue work is
+ * actually steered by. **A sum permits any single tool**: a 7 KB entry passes as
+ * long as something else shrank, and on 2026-08-23 the heaviest non-exempt tool
+ * was 7,381 bytes against a median of 1,394 — five times over, with nothing
+ * measuring it. `#1235` asked for a per-tool ceiling and was closed without one;
+ * `#388` refused one before that. **And the prose share is the number `#1650`
+ * exists to move**, and it lived in a document last written on 2026-08-14 rather
+ * than in the report that runs on every pull request.
+ *
+ * Both are now in the report, and both fail nothing. `proseBytesOf` is imported
+ * from `catalogue-size.ts` rather than reimplemented — one definition of what
+ * counts as prose, or the committed measurements and the pull-request comment
+ * would answer the same question differently.
  */
+import { proseBytesOf } from './catalogue-size.js'
+import { WARM_SET } from './defensive-prose.js'
 
 /** One tool's share of the published list. */
 export interface ToolMeasurement {
@@ -41,6 +59,17 @@ export interface ToolMeasurement {
   readonly descriptionBytes: number
   /** Bytes of its `inputSchema` — the part read only after it is chosen. */
   readonly schemaBytes: number
+  /**
+   * What a reader has to read to know what this tool is for: its own
+   * `description` plus every `description` nested in its schema.
+   *
+   * **Not the same as {@link ToolMeasurement.descriptionBytes}**, which is the
+   * tool's own sentence alone. A paragraph on a property is paid for exactly as
+   * often as the paragraph on the tool, so the question *how much of this entry
+   * is prose* has to count both. `proseBytesOf` is the one definition, shared
+   * with the committed catalogue measurements.
+   */
+  readonly proseBytes: number
 }
 
 /** One tier's published `tools/list`, weighed. */
@@ -91,6 +120,7 @@ export function measureToolList(
       bytes: wireBytes(tool),
       descriptionBytes: wireBytes(tool.description),
       schemaBytes: wireBytes(tool.inputSchema),
+      proseBytes: proseBytesOf(tool),
     }))
     .sort((a, b) => b.bytes - a.bytes || a.name.localeCompare(b.name))
 
@@ -112,6 +142,93 @@ const signed = (delta: number): string =>
     : delta > 0
       ? `+${delta.toLocaleString('en-US')}`
       : delta.toLocaleString('en-US')
+
+const count = (bytes: number): string => bytes.toLocaleString('en-US')
+
+/**
+ * The middle tool by bytes.
+ *
+ * **The median and not the mean**, because the mean is the sum divided by the
+ * count and the sum is the figure this whole block exists to look past: one
+ * 7 KB tool moves a mean of 123 by 45 bytes and moves a median not at all. What
+ * is being asked is *how far from ordinary is the heaviest one*, and only a
+ * middle answers that.
+ *
+ * Even counts take the lower of the two middles rather than averaging them, so
+ * the figure printed is always a tool that exists.
+ */
+const medianBytes = (byWeight: readonly ToolMeasurement[]): number =>
+  byWeight.length === 0 ? 0 : (byWeight[(byWeight.length - 1) >> 1]?.bytes ?? 0)
+
+/**
+ * The tier the two figures are about: `authenticated`, or nothing.
+ *
+ * **Deliberately not the widest tier**, which is what the byte table above
+ * ranks. `warden` is `authenticated` plus one tool, so it is always the widest
+ * and its figures are always almost identical — and *almost* is the problem. It
+ * is the tier a handful of agents see, and these figures exist to steer work on
+ * the one **every citizen pays for, in every session**, which is the sentence
+ * this whole file opens with.
+ *
+ * A deployment serving no `authenticated` tier falls back to the widest rather
+ * than printing nothing: the figures are still true of what they name, and the
+ * block names its tier.
+ */
+const steeredTier = (head: readonly SurfaceMeasurement[]): SurfaceMeasurement | undefined =>
+  head.find((measurement) => measurement.tier === 'authenticated')
+
+/**
+ * The heaviest single tool and the prose share (`#1653`).
+ *
+ * **Two figures, no threshold, no target and no budget file.** They fail
+ * nothing and add no status check; what they replace is a sum, which is the one
+ * number that hides both of the things they say.
+ *
+ * **The exempt set is `WARM_SET`**, as everywhere else. The thirteen are read by
+ * every citizen on every waking and nothing is cut from them (`#1116`), so
+ * ranking them would put a tool nobody may touch at the top of a list about what
+ * to touch. A tier consisting only of exempt tools prints no heaviest line
+ * rather than an untrue one.
+ *
+ * The median is taken over **every** tool in the tier, exempt ones included: it
+ * is what an ordinary entry in this catalogue weighs, and leaving out thirteen
+ * of the most-read tools would make the comparison flatter than the catalogue
+ * is.
+ */
+const steeringFigures = (measurement: SurfaceMeasurement): string[] => {
+  const exempt = new Set(WARM_SET)
+  const heaviest = measurement.byWeight.find((tool) => !exempt.has(tool.name))
+  const middle = medianBytes(measurement.byWeight)
+  const prose = measurement.byWeight.reduce((sum, tool) => sum + tool.proseBytes, 0)
+  const share = measurement.bytes === 0 ? 0 : (prose / measurement.bytes) * 100
+
+  const lines = [
+    `The two figures the sum hides, for \`${measurement.tier}\`:`,
+    '',
+    '| | |',
+    '|---|---|',
+  ]
+
+  if (heaviest !== undefined) {
+    const times = middle === 0 ? undefined : (heaviest.bytes / middle).toFixed(1)
+    lines.push(
+      `| Heaviest tool outside \`WARM_SET\` | \`${heaviest.name}\` — ${count(heaviest.bytes)} B` +
+        `${times === undefined ? '' : `, ${times}× the median`} |`,
+    )
+  }
+
+  lines.push(
+    `| Median tool | ${count(middle)} B over ${measurement.tools} tools |`,
+    `| Prose | ${count(prose)} B — ${share.toFixed(1)} % of the tier |`,
+    '',
+    'Prose is each tool’s own `description` plus every `description` nested in its ' +
+      'schema, counted by the same `proseBytesOf` the committed catalogue ' +
+      'measurements use. A sum permits any single tool — a 7 KB entry passes as long ' +
+      'as something else shrank — and the prose share is what `#1650` moves.',
+  )
+
+  return lines
+}
 
 /**
  * Render the tiers as Markdown, for a job summary or a pull-request comment.
@@ -165,6 +282,8 @@ export function renderSurfaceReport(
           `${tool.descriptionBytes.toLocaleString('en-US')} | ${tool.schemaBytes.toLocaleString('en-US')} |`,
       )
     }
+
+    lines.push('', ...steeringFigures(steeredTier(head) ?? widest))
   }
 
   lines.push(

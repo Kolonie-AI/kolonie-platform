@@ -39,6 +39,15 @@
  * lay marks out as a grid on their own, and the category tiles stay typographic.
  * If that ever stops being true, this paragraph is what it is argued against.
  *
+ * **The narrowing is a maintainer decision, taken 2026-08-24, and not one
+ * agent's reading of `#97`.** It was put to them as the question it is — does
+ * `#97` cover this too — with the alternative of closing `#1405` unmerged, and
+ * the answer was that the *grid* is what the reason names and a mark beside a
+ * provider's own name is identification rather than a partnership page.
+ * Recorded here because a refusal narrowed on somebody's judgement, with the
+ * judgement left in a pull-request thread, is a refusal the next reader cannot
+ * tell from one that was quietly eroded.
+ *
  * So what does the work here is structure: a shelf is a card, a state is a
  * chip, and the index reads as a map rather than as a bulleted list. Nothing
  * below draws a picture, and the one image that reaches a page is the

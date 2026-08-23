@@ -102,5 +102,8 @@ apps/api/src/mcp/tool-list.ts merge=union
 # whether the lists could be isolated. By a path, they cannot.
 #
 # `apps/api/src/mcp/catalogue-budget.json` — 108 changes, and it stopped colliding
-# for a better reason than a driver: since `#1465` no branch writes it at all.
-# `main` measures the surface after a merge and commits the figure itself.
+# for the best reason available: the file is gone. `#1465` had already taken it off
+# branches, so `main` measured the surface after a merge and committed the figure
+# itself; `#1649` (D-137) then removed the floor gate entirely, and the file with
+# it. Kept in this list as the worked example of the cure that beats a driver —
+# a collision removed rather than resolved.

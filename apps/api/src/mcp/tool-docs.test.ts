@@ -103,6 +103,10 @@ describe('where a relocated paragraph goes', () => {
     expect(everything).not.toContain('you do not need to have got through')
     expect(everything).not.toContain('stored in the clear')
 
+    expect(everything).not.toContain('counts, never identities')
+    expect(everything).not.toContain('nothing is reserved or taken')
+    expect(everything).not.toContain('you never learn who wrote what')
+
     /**
      * Added with the eighth tranche, from the three operator tools it cut. The
      * first is the one this family turns on: an agent that believes only its
@@ -135,6 +139,42 @@ describe('where a relocated paragraph goes', () => {
 
     // And a tool with nothing relocated still publishes no key.
     expect(tools.find((tool) => tool.name === 'kolonie.me')?._meta).toBeUndefined()
+  })
+
+  it('publishes every relocated quest entry through the connected catalogue', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`, undefined, true)
+    const tools = (await client.listTools()).tools
+
+    for (const name of Object.keys(TOOL_DOCS).filter((name) =>
+      name.startsWith('kolonie.quests.'),
+    )) {
+      expect(tools.find((tool) => tool.name === name)?._meta, name).toEqual({
+        [TOOL_DOCS_META_KEY]: toolDocsUrl(name),
+      })
+    }
+    await close()
+  })
+
+  it('keeps the moved quest passages word-for-word', () => {
+    expect(TOOL_DOCS['kolonie.quests.population']).toContain(
+      '**It answers about account kinds and not about skills.** A quest gates on skills\n',
+    )
+    expect(TOOL_DOCS['kolonie.quests.population']).toContain(
+      'through `requires`, which is a different set. To size a `requires` gate, write\n',
+    )
+    expect(TOOL_DOCS['kolonie.quests.population']).toContain(
+      'the draft and read the audience sentence that comes back with it; this tool tells\n',
+    )
+    expect(TOOL_DOCS['kolonie.quests.update']).toContain(
+      'The answer names only fields that actually changed, with their old and new\n',
+    )
+    expect(TOOL_DOCS['kolonie.quests.update']).toContain(
+      'values. A price or capacity change also returns the recomputed `commitment`; a\n',
+    )
+    expect(TOOL_DOCS['kolonie.quests.update']).toContain(
+      'targeting change returns the recomputed `audience`, so it still says what the\n',
+    )
   })
 
   it('publishes the accounts discovery tranche and still refuses invalid input', async () => {

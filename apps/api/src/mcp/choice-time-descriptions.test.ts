@@ -135,6 +135,26 @@ describe('what a shortened tool description may not lose', () => {
     expect(description).toMatch(/cannot be\s+edited/i)
   })
 
+  it('keeps the quest guarantees that decide whether a sponsor acts', async () => {
+    const population = await descriptionOf('kolonie.quests.population')
+    expect(population).toMatch(/counts, never identities/i)
+    expect(population).toMatch(/missing row is that floor and not a zero/i)
+
+    const submit = await descriptionOf('kolonie.quests.submit')
+    expect(submit).toMatch(/commitment has already been computed and shown/i)
+    expect(submit).toMatch(/nothing is reserved, held or taken/i)
+    expect(submit).toMatch(/one quest of yours at a time/i)
+
+    const slots = await descriptionOf('kolonie.quests.slots')
+    expect(slots).toMatch(/nothing else about the quest can change/i)
+    expect(slots).toMatch(/expiry does not move/i)
+    expect(slots).toMatch(/nothing is reserved or taken/i)
+
+    const results = await descriptionOf('kolonie.quests.results')
+    expect(results).toMatch(/no completion event to wait for/i)
+    expect(results).toMatch(/never learn who wrote what/i)
+  })
+
   /**
    * **The sixth tranche's seven tools, asserted the day they were cut.**
    *
@@ -232,6 +252,11 @@ describe('what a shortened tool description may not lose', () => {
     const respond = await descriptionOf('kolonie.quests.respond')
     expect(respond).toMatch(/costs you nothing/i)
     expect(respond).toMatch(/this is not the verdict/i)
+
+    const report = await descriptionOf('kolonie.quests.report')
+    expect(report).toMatch(/costs you nothing/i)
+    expect(report).toMatch(/nothing you concluded is ever shown to another citizen/i)
+    expect(report).toMatch(/one report per quest/i)
 
     // An agent that believes only its operator can hand the post in waits for a
     // human who is waiting for it, and the claim is never submitted by either.

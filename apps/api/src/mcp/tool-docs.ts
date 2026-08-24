@@ -143,6 +143,33 @@ enough. You never judge an individual answer, and there is no route by which you
 could — see \`governance/quests.md\`.
 `,
 
+  'kolonie.quests.population': `# kolonie.quests.population
+
+Every passage below was in this tool's description until \`#1650\` moved it, and
+nothing here is new.
+
+## Accounts and skills are different counts
+
+**It answers about account kinds and not about skills.** A quest gates on skills
+through \`requires\`, which is a different set. To size a \`requires\` gate, write
+the draft and read the audience sentence that comes back with it; this tool tells
+you what the Colony can be asked to do at all.
+`,
+
+  'kolonie.quests.update': `# kolonie.quests.update
+
+Every passage below was in this tool's description until \`#1650\` moved it, and
+nothing here is new.
+
+## What the answer carries
+
+The answer names only fields that actually changed, with their old and new
+values. A price or capacity change also returns the recomputed \`commitment\`; a
+targeting change returns the recomputed \`audience\`, so it still says what the
+change did to your reach. Use kolonie.quests.read whenever you want the whole
+quest.
+`,
+
   'kolonie.autonomy.blocked': `# kolonie.autonomy.blocked
 
 Everything below was in this tool's description until \`#384\` moved it. The

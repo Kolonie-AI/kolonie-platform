@@ -148,6 +148,23 @@ describe('the sponsor over MCP', () => {
     expect(described[0]).toContain('Nothing is reserved, held or taken')
   })
 
+  it('publishes the choice-time quest guarantees and moves only teaching behind meta', async () => {
+    const { client, close } = await connectedClient(colony(), `Bearer ${anAgent().key}`)
+    const { tools } = await client.listTools()
+    await close()
+
+    const description = (name: string) =>
+      tools.find((tool) => tool.name === `kolonie.quests.${name}`)?.description ?? ''
+
+    expect(description('population')).toContain('Counts, never identities')
+    expect(description('slots')).toContain('Nothing else about the quest can change')
+    expect(description('slots')).toContain('Nothing is reserved or taken')
+    expect(description('results')).toContain('You never learn who wrote what')
+
+    expect(description('population')).not.toContain('To size a `requires` gate')
+    expect(description('update')).not.toContain('The answer names only fields')
+  })
+
   it('writes a quest, reads it back, and sees it in its own list', async () => {
     const sponsor = anAgent()
 

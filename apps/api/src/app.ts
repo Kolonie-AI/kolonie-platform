@@ -191,6 +191,7 @@ export function buildApp({
   renames,
   atlasQuests,
   atlasPlaybooks,
+  atlasIcons,
   websiteUrl = '',
   siteChrome,
   walks,
@@ -610,6 +611,10 @@ export function buildApp({
     renames: atlasRenames,
     ...(atlasQuests === undefined ? {} : { atlasQuests }),
     ...(atlasPlaybooks === undefined ? {} : { atlasPlaybooks }),
+    // The icon reader (`#1405`). Built in `server.ts` and, until `#1667`, never
+    // forwarded here — so `registerAtlasPages` read `undefined`, every tile drew
+    // its monogram, and the feature was dark in production while looking wired.
+    ...(atlasIcons === undefined ? {} : { atlasIcons }),
     websiteUrl,
     siteChrome,
     walks,

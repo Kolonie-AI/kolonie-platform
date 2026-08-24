@@ -1,4 +1,4 @@
-import { and, asc, eq, isNotNull, isNull, lte, or, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNotNull, isNull, lte, or, sql } from 'drizzle-orm'
 import { now as currentTime, PROVIDER_ICON_TTL_DAYS, type AvatarFormat } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { atlasProviderIcons } from '../schema/atlas-provider-icons.js'
@@ -11,6 +11,24 @@ import { providerRecipes } from '../schema/provider-recipes.js'
  * icon, the sweep asks which providers are due, and the sweep writes what it
  * found. Nothing here fetches anything — the address guard and the byte ceiling
  * live in `packages/verifiers`, and the sanitiser lives in `packages/core`.
+ *
+ * ## A list goes through `inArray` and never through `any()`
+ *
+ * The two functions here that take a list of providers used to write
+ * `` sql`${column} = any(${providers})` ``, and **both were broken for every
+ * non-empty input from the day they shipped** (`#1667`). Drizzle expands a JS
+ * array interpolated into a `sql` template into a *placeholder list*, so the
+ * query reaches Postgres as `any(($1, $2, $3))` — a row constructor, which
+ * `any()` refuses with `42809`, *op ANY/ALL (array) requires array on right
+ * side*. One element is no better: `any(($1))` reads the scalar as an array
+ * literal and fails with `22P02`.
+ *
+ * `any(column)` is fine and there are six of those elsewhere in this package —
+ * `agents.roles`, `agents.generalHintsTold`, `playbookRevisions.proposalIds`.
+ * Those are real Postgres array *columns*, and nothing is expanded. **The
+ * distinction is whether the right-hand side is a column or a bound value**, and
+ * it is invisible at the call site, which is why the rule here is the blunt one:
+ * a list from JavaScript goes through `inArray`.
  */
 
 /** One stored icon, as the route serves it. */
@@ -73,7 +91,7 @@ export async function providersDueForIcon(
       refreshAfter: atlasProviderIcons.refreshAfter,
     })
     .from(atlasProviderIcons)
-    .where(sql`${atlasProviderIcons.provider} = any(${providers})`)
+    .where(inArray(atlasProviderIcons.provider, providers))
 
   const known = new Map(rows.map((row) => [row.provider, row.refreshAfter]))
   const at = currentTime()
@@ -183,10 +201,7 @@ export async function providersWithIcons(
     .select({ provider: atlasProviderIcons.provider })
     .from(atlasProviderIcons)
     .where(
-      and(
-        sql`${atlasProviderIcons.provider} = any(${[...providers]})`,
-        isNotNull(atlasProviderIcons.bytes),
-      ),
+      and(inArray(atlasProviderIcons.provider, providers), isNotNull(atlasProviderIcons.bytes)),
     )
 
   return new Set(rows.map((row) => row.provider))

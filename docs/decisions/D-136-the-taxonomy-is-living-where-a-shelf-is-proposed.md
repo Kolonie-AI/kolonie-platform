@@ -2,6 +2,16 @@
 
 **Date:** 2026-08-23
 
+> **The dry-run below was taken from the wrong corpus** (`#1670`, 2026-08-24).
+> Both queries read `provider_recipes`, which held 195 rows; the Atlas serves
+> recipes _and_ providers known only from a walk, and the published catalogue
+> held 302 entries. Read from `catalogue.json`, the fallback shelf holds **124
+> entries, 42 of them carrying an earn facet** — so _the junk drawer is not one_
+> is false and `#1407`'s premise stands. **The decision below is unaffected**:
+> shipping decision 4 as a guard was right either way, and nothing about the
+> proposal pipeline changes. Corrected reading:
+> [`docs/measurements/atlas-card-v2.md`](../measurements/atlas-card-v2.md).
+
 **Problem.** `#1407` asks for a _living_ taxonomy: moderation or a proposal
 pipeline should be able to suggest sub-shelves and tag bundles so that the
 utility fallback `data-apis` "stops being a 50+ item junk drawer". Its

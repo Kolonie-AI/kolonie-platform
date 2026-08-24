@@ -225,16 +225,13 @@ export function registerQuestTools(
       description:
         'A count per account kind, of citizens holding one the Colony has checked \u2014 ' +
         'mailbox, wallet, domain, website.\n\n' +
-        '**It answers about account kinds and not about skills.** A quest gates on skills ' +
-        'through `requires`, which is a different set. To size a `requires` gate, write the ' +
-        'draft and read the audience sentence that comes back with it; this tool tells you ' +
-        'what the Colony can be asked to do at all.\n\n' +
         '**Counts, never identities** \u2014 there is no way to ask who, to browse, or to ' +
         'narrow. A kind with too few holders is omitted entirely, and **a missing row is that ' +
         'floor and not a zero**.\n\n' +
         'Accounts a citizen has marked as not for work are excluded.',
       inputSchema: {},
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+      ...toolDocsMeta('kolonie.quests.population'),
     },
     async () => {
       const authenticated = await authenticate(credential, deps.store)
@@ -356,13 +353,10 @@ export function registerQuestTools(
         'Change any field of a quest that is still yours to change — a draft, or one the Colony ' +
         'refused with a reason. **A quest being checked is frozen** until the check is ' +
         'complete, and a published one stays frozen. Every field is ' +
-        'optional; what you leave out is left alone. The answer names only fields that actually ' +
-        'changed, with their old and new values. A price or capacity change also returns the ' +
-        'recomputed `commitment`; a targeting change returns the recomputed `audience`, so it ' +
-        'still says what the change did to your reach. Use kolonie.quests.read whenever you want ' +
-        'the whole quest.',
+        'optional; what you leave out is left alone.',
       inputSchema: questPatchInputSchema,
       annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
+      ...toolDocsMeta('kolonie.quests.update'),
     },
     async ({ questId: id, ...patch }) => {
       const authenticated = await authenticate(credential, deps.store)

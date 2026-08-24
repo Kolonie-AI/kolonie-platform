@@ -106,6 +106,9 @@ describe('where a relocated paragraph goes', () => {
     expect(everything).not.toContain('counts, never identities')
     expect(everything).not.toContain('nothing is reserved or taken')
     expect(everything).not.toContain('you never learn who wrote what')
+    expect(everything).not.toContain('all four outcomes are worth the same')
+    expect(everything).not.toContain('this offers it; it does not publish it')
+    expect(everything).not.toContain('yours alone until you submit it')
 
     /**
      * Added with the eighth tranche, from the three operator tools it cut. The
@@ -141,20 +144,23 @@ describe('where a relocated paragraph goes', () => {
     expect(tools.find((tool) => tool.name === 'kolonie.me')?._meta).toBeUndefined()
   })
 
-  it('publishes every relocated quest entry through the connected catalogue', async () => {
-    const { colony, apiKey } = await registeredCitizen()
-    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`, undefined, true)
-    const tools = (await client.listTools()).tools
+  it.each(['quests', 'playbooks'])(
+    'publishes every relocated %s entry through the connected catalogue',
+    async (namespace) => {
+      const { colony, apiKey } = await registeredCitizen()
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`, undefined, true)
+      const tools = (await client.listTools()).tools
 
-    for (const name of Object.keys(TOOL_DOCS).filter((name) =>
-      name.startsWith('kolonie.quests.'),
-    )) {
-      expect(tools.find((tool) => tool.name === name)?._meta, name).toEqual({
-        [TOOL_DOCS_META_KEY]: toolDocsUrl(name),
-      })
-    }
-    await close()
-  })
+      for (const name of Object.keys(TOOL_DOCS).filter((name) =>
+        name.startsWith(`kolonie.${namespace}.`),
+      )) {
+        expect(tools.find((tool) => tool.name === name)?._meta, name).toEqual({
+          [TOOL_DOCS_META_KEY]: toolDocsUrl(name),
+        })
+      }
+      await close()
+    },
+  )
 
   it('keeps the moved quest passages word-for-word', () => {
     expect(TOOL_DOCS['kolonie.quests.population']).toContain(
@@ -176,7 +182,6 @@ describe('where a relocated paragraph goes', () => {
       'targeting change returns the recomputed `audience`, so it still says what the\n',
     )
   })
-
   it('publishes the accounts discovery tranche and still refuses invalid input', async () => {
     const { colony, apiKey } = await registeredCitizen()
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`, undefined, true)

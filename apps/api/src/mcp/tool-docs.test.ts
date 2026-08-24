@@ -103,6 +103,10 @@ describe('where a relocated paragraph goes', () => {
     expect(everything).not.toContain('you do not need to have got through')
     expect(everything).not.toContain('stored in the clear')
 
+    expect(everything).not.toContain('all four outcomes are worth the same')
+    expect(everything).not.toContain('this offers it; it does not publish it')
+    expect(everything).not.toContain('yours alone until you submit it')
+
     /**
      * Added with the eighth tranche, from the three operator tools it cut. The
      * first is the one this family turns on: an agent that believes only its
@@ -135,6 +139,21 @@ describe('where a relocated paragraph goes', () => {
 
     // And a tool with nothing relocated still publishes no key.
     expect(tools.find((tool) => tool.name === 'kolonie.me')?._meta).toBeUndefined()
+  })
+
+  it('publishes every relocated playbook entry through the connected catalogue', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`, undefined, true)
+    const tools = (await client.listTools()).tools
+
+    for (const name of Object.keys(TOOL_DOCS).filter((name) =>
+      name.startsWith('kolonie.playbooks.'),
+    )) {
+      expect(tools.find((tool) => tool.name === name)?._meta, name).toEqual({
+        [TOOL_DOCS_META_KEY]: toolDocsUrl(name),
+      })
+    }
+    await close()
   })
 
   it('publishes the accounts discovery tranche and still refuses invalid input', async () => {

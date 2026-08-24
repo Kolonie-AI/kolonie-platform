@@ -30,29 +30,37 @@
  * | `kolonie-docs/state/decisions/` | the directory | a **register**, not the records |
  *
  * `docs/decisions.md` has no consumer outside this repository, which argues
- * against producing the whole file. But **twenty-odd things link into it**,
- * several by `D-` number — `ci.yml:192` and `:398` cite *"D-009 in
- * docs/decisions.md"*, `AGENTS.md` cites D-008, `core/src/api/tasks.ts` cites
- * D-014 — and deleting it breaks every one.
+ * against producing the whole file. But **things cite records by `D-` number** —
+ * `ci.yml:193` and `:391` cite D-009, `AGENTS.md` cites D-008,
+ * `core/src/api/tasks.ts` cites D-014 — and a reader who follows one wants a list.
  *
  * So this takes `kolonie-docs`' shape, which is neither of the two the issue
  * offers and is what that repository actually built when it faced this: **the
  * file stays and stops being the records.** It becomes an index — number, title,
- * date, link — about 140 lines, and every existing reference still lands
- * somewhere that answers it. A citation by `D-` number resolves better than
- * before, because the index links straight at the record instead of asking a
+ * date, link — about 140 lines, and a citation by `D-` number resolves better
+ * than before, because the index links straight at the record instead of asking a
  * reader to scroll 9497 lines.
  *
- * ## Why it is produced rather than hand-maintained
+ * ## Why it is produced and not tracked
  *
  * `packages/core/changes/README.md` names the failure mode: if both the directory
  * and the file are hand-edited, the conflict comes back with an extra step in
- * front of it. So `--check` runs in `npm run check`, the index is derived, and
- * the two cannot drift.
+ * front of it. So the index is derived, and the two cannot drift.
  *
- * It is also what lets `.gitattributes` give the index `merge=union` under
- * `#1496`: a produced file's union result is allowed to be wrong, because this is
- * what refuses to let it stay wrong.
+ * **Deriving it is not enough on its own, which took one more issue to find out**
+ * (`#1662`, D-138). `#1497` kept the produced file tracked and `#1496` gave it
+ * `merge=union`, with `check:decisions` named as the guard that made a union
+ * result safe. Measured 2026-08-23: `#1657` and `#1660` each added a record,
+ * overlapped in this one file, and the second sat `UNMERGEABLE` in the merge
+ * queue — because **GitHub never applies a `.gitattributes` merge driver**, and
+ * because a gate that catches a *wrong* index cannot catch one that never merged.
+ *
+ * `#1497` had one argument for keeping it tracked — *twenty-odd things link into
+ * it by anchor*. Measured 2026-08-24, **nothing in the repository links into
+ * `docs/decisions.md` by anchor at all**: `ci.yml` cites `docs/decisions/`, the
+ * rest cite bare `D-` numbers, and the single markdown link was in
+ * `packages/core/README.md`. So the file is now ignored the way the changelog is,
+ * and this script writes it for whoever wants it.
  *
  * ## What a record is
  *
@@ -89,11 +97,11 @@ alternative that was rejected, and what it would have cost — so a future agent
 can tell a deliberate choice from an accident.
 
 **One record is one file, in [\`docs/decisions/\`](decisions/).** This page is an
-index over that directory and is **produced** by
-\`scripts/build-decisions-index.mjs\` — do not edit it, and do not add a row to it.
-Write \`docs/decisions/D-0NN-<slug>.md\`, take the next free number, and run
-\`npm run build:decisions\` (or \`npm run check\`, which fails when the two have
-drifted).
+index over that directory, it is **produced** by
+\`scripts/build-decisions-index.mjs\`, and it is **not tracked** (\`#1662\`, D-138) —
+do not edit it, and do not expect to find it on a fresh checkout. Write
+\`docs/decisions/D-0NN-<slug>.md\`, take the next free number, and run
+\`npm run build:decisions\` if you want this page rebuilt for yourself.
 
 **Why it is shaped this way** (\`#1497\`): until 2026-08-21 every record lived in
 this file, which reached 9497 lines on +9582/−85 in thirty days. It was never
@@ -102,6 +110,13 @@ so two agents recording two unrelated decisions collided by construction. The
 same argument had already been won twice in this organisation, at
 \`kolonie-docs/state/decisions.md\` and at \`packages/core/CHANGELOG.md\`. This file
 is the one that was never brought along.
+
+**And why it is not tracked** (\`#1662\`): splitting the records left this index
+behind as a produced file that every record still touches, so the collision moved
+here rather than going away. \`merge=union\` resolved it in a working tree and
+GitHub never applied the driver, which put the second of two records in flight at
+\`UNMERGEABLE\` in the merge queue. \`#271\`'s sentence, for the third time: a file
+nobody commits cannot be merged at all.
 
 **Numbers are never reassigned.** \`D-114\` stays \`D-114\` forever, because things
 cite it — \`ci.yml\`, \`AGENTS.md\` and a dozen source comments cite records by
@@ -190,9 +205,9 @@ function records() {
  * conflict than the one being cured. A list item is one line, and a new record
  * adds exactly one line at the end.
  *
- * That also makes `merge=union` on this file correct rather than merely safe:
- * two branches each appending one line produce two lines, which is what the file
- * should say.
+ * That is a property worth keeping now that the file is untracked (`#1662`) and
+ * git never merges it: the one-line-per-record shape is what makes a rebuilt
+ * index a small, readable diff for whoever rebuilds it.
  *
  * One entry per record and nothing else. Whatever a reader wants beyond the
  * title is in the record, one link away, which is the whole point.
@@ -208,9 +223,10 @@ function index() {
 /**
  * The directory's own errors, as a gate failure rather than a stack trace.
  *
- * **This is the path `merge=union` on the index makes reachable** (`#1496`,
- * `#1497`). Two branches that both take `D-130` merge cleanly — that is what the
- * driver is for — and the collision surfaces here, which makes this the message a
+ * **A reused number is what this catches**, and it is the one collision the split
+ * cannot remove: two branches each taking `D-130` write two different files, so
+ * git merges them without a word and the pair is only wrong once both are on
+ * `main`. `check:decisions` is where that surfaces, which makes this the message a
  * person actually meets. Measured 2026-08-21: it arrived as an unhandled
  * exception with eight lines of Node internals above the sentence that says what
  * to do. Every sibling gate in `scripts/` prints its reason and exits; this one
@@ -225,18 +241,22 @@ try {
 }
 
 if (process.argv.includes('--check')) {
-  const onDisk = readFileSync(INDEX, 'utf8')
-  if (onDisk === built) {
-    console.log(`docs/decisions.md is the index ${records().length} records assemble to`)
-    process.exit(0)
-  }
-
-  console.error(
-    'docs/decisions.md is not what scripts/build-decisions-index.mjs would write.\n' +
-      'It is produced from docs/decisions/ and must not be hand-edited — a record is a file in\n' +
-      'that directory. Run `npm run build:decisions` and commit the result.',
+  /**
+   * **`--check` asserts that the directory assembles, and nothing about a file
+   * on disk** (`#1662`, D-138). It used to compare against a tracked
+   * `docs/decisions.md`, which is no longer tracked — there is nothing to be out
+   * of step with, and the only way to fail is to write a record this cannot read.
+   *
+   * That is what the comparison was really buying anyway: `records()` above is
+   * where a missing heading, a missing date, a misnamed file and a reused number
+   * are refused, and every one of those throws before the comparison is reached.
+   * The same move `#1572` made for `build-changelog.mjs --check`, one file over.
+   */
+  console.log(
+    `docs/decisions/ assembles: ${records().length} records, ${built.split('\n').length} lines. ` +
+      'Not written — docs/decisions.md is produced, not tracked (#1662).',
   )
-  process.exit(1)
+  process.exit(0)
 }
 
 writeFileSync(INDEX, built, 'utf8')

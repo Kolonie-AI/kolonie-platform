@@ -29,8 +29,8 @@
 # (`#1572`): union resolved it correctly in a working tree and GitHub never
 # applied it, so the file went on conflicting on the one surface that decides
 # whether a branch can land. A file nobody commits cannot be merged, which is a
-# better answer than a driver that only works locally. The index below keeps
-# `union` because it is still tracked and still read.
+# better answer than a driver that only works locally. **The decisions index
+# followed it** (`#1662`, D-138), for the same reason and after the same failure.
 #
 # ## Where `union` is wrong
 #
@@ -43,20 +43,6 @@
 # `scripts/check-union-merge-guards.mjs` enforces the condition rather than
 # trusting it: every path marked `union` must name its guard in that script, and
 # a path that does not fails the check.
-
-# ---------------------------------------------------------------------------
-# The produced index: never conflict, and regenerate
-# ---------------------------------------------------------------------------
-
-# The index over `docs/decisions/`, produced by `scripts/build-decisions-index.mjs`
-# (`#1497`). One row per record, appended at the bottom — the same shape the 9497-line
-# file it replaces had, one four-hundredth of the size, and with the same cure applied
-# for the same reason.
-#
-# Same argument as the changelog above, and the same guard shape: the union result is
-# allowed to be wrong because `check:decisions` refuses to let it stay wrong. Two
-# branches each writing a record produce two rows, which is what the file should say.
-docs/decisions.md merge=union
 
 # ---------------------------------------------------------------------------
 # Append-only registries: keep both sides, because both sides are right
@@ -107,3 +93,14 @@ apps/api/src/mcp/tool-list.ts merge=union
 # itself; `#1649` (D-137) then removed the floor gate entirely, and the file with
 # it. Kept in this list as the worked example of the cure that beats a driver —
 # a collision removed rather than resolved.
+#
+# `docs/decisions.md` — the second worked example of that cure, and the one that
+# had a driver first. It carried `merge=union` from `#1496` with `check:decisions`
+# named as its guard, on the argument that a produced file's union result is
+# allowed to be wrong because a gate refuses to let it stay wrong. Measured
+# 2026-08-23, that argument answered the wrong question: `#1657` and `#1660` each
+# added a record, overlapped in this one file, and the second sat `UNMERGEABLE` in
+# the merge queue. **A gate catches a wrong index; nothing catches an index that
+# never merged**, because there is no merge to check. `#1662` (D-138) stopped
+# tracking it, as `#1572` did for the changelog — the records under
+# `docs/decisions/` are the source and never collide, one file each.

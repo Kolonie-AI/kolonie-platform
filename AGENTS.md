@@ -114,15 +114,17 @@ repository needs a genuinely different toolchain, audience, or blast radius.
 
   **Where an assembled file is genuinely read by somebody**, it is **produced** by
   a script and checked in, and a `--check` mode runs in `npm run check` so the two
-  cannot drift. [`scripts/build-decisions-index.mjs`](scripts/build-decisions-index.mjs)
-  is the worked example, producing `docs/decisions.md` as an index over
-  `docs/decisions/` (`#1497`) — twenty-odd things link into that file by anchor.
-  If both the directory and the file are hand-edited, the conflict comes back with
-  an extra step in front of it, and the `--check` is what refuses that.
+  cannot drift. **Measured twice now, there is no such file in this repository.**
+  [`scripts/build-decisions-index.mjs`](scripts/build-decisions-index.mjs) was the
+  worked example, producing `docs/decisions.md` as an index over `docs/decisions/`
+  (`#1497`) on the argument that twenty-odd things linked into it by anchor;
+  measured 2026-08-24, nothing did, and the merge queue had already dropped a pull
+  request over the file. So it is not tracked either (`#1662`, D-138).
 
   **And where it is not genuinely read, it is not tracked at all** (`#1572`,
-  reversing `D-123`). `packages/core/CHANGELOG.md` was produced _and_ checked in
-  because _consumers read it at a tag_. Measured 2026-08-22: **zero tags, no
+  reversing `D-123`; then `#1662`). `packages/core/CHANGELOG.md` was produced
+  _and_ checked in because _consumers read it at a tag_. Measured 2026-08-22:
+  **zero tags, no
   workflow that publishes or releases, no package under the organisation.** The
   reader never existed, and the file cost 432 commits in thirty days — every one
   of which conflicts with every other open pull request, because `merge=union`
@@ -130,6 +132,14 @@ repository needs a genuinely different toolchain, audience, or blast radius.
   `packages/core/changes/` is the changelog; `build-changelog.mjs` still produces
   the file, and `packages/core`'s `prepack` runs it so a publish would ship one.
   `#271`'s sentence is the rule: _a file nobody commits cannot be merged at all._
+
+  **A `--check` gate is not a substitute for untracking, and that is the sharper
+  half of the rule** (`#1662`). A gate catches a produced file that is _wrong_. It
+  cannot catch one that never merged — there is no merge to check — and a merge
+  queue reports that as `UNMERGEABLE` and drops the entry, which is quiet. Both
+  produced files had a gate and both needed untracking anyway. `--check` earns its
+  place by validating the _source directory_ (a reused `D-` number, an entry with
+  no section marker), which is a collision the split genuinely cannot remove.
 
   **Registries cannot become directories and get a merge driver instead.** A
   barrel, a tool list, a table of contents is a list _by nature_ — there is
@@ -616,9 +626,10 @@ A verifier deployed late must never fail submissions that were correct.
       side** — `--ours` drops the other branch's entry
       ([`changes/README.md`](packages/core/changes/README.md), `#951`)
 - [ ] A file in `docs/decisions/` if you resolved an ambiguity or made a
-      structural choice that is not obvious from the code, and
-      `npm run build:decisions` run — **not an edit to `docs/decisions.md`**,
-      which is produced from that directory (`#1497`). See below for where a new
+      structural choice that is not obvious from the code — **and nothing else.**
+      `docs/decisions.md` is produced from that directory and is **not tracked**
+      (`#1497`, `#1662`), so there is no index to update and no
+      `npm run build:decisions` to run before a commit. See below for where a new
       record goes
 - [ ] Breaking changes labelled in the PR, with affected workspaces named
 - [ ] **An operator-facing mechanism reaches both doors, carries a delivery
@@ -633,12 +644,17 @@ A verifier deployed late must never fail submissions that were correct.
 ### Where a decision record is written
 
 **One record is one file: `docs/decisions/D-0NN-<slug>.md`.** Take the next free
-number, open the file with `## D-0NN — Title`, put `**Date:** YYYY-MM-DD` on the
-line after it, and run `npm run build:decisions`.
+number, open the file with `## D-0NN — Title`, and put `**Date:** YYYY-MM-DD` on
+the line after it. That file is the whole of what you commit.
 
-**Do not edit `docs/decisions.md`.** It is an index over that directory, produced
-by `scripts/build-decisions-index.mjs`, and `check:decisions` fails when the two
-have drifted.
+**There is no index to edit** (`#1662`, D-138). `docs/decisions.md` is produced by
+`scripts/build-decisions-index.mjs` and is not tracked — run
+`npm run build:decisions` if you want the one-page list for yourself, and do not
+add it to a commit. What `check:decisions` still enforces is the _directory_: a
+heading that does not parse, a missing date, a file named for a different record,
+and above all **a `D-` number claimed twice**. That last one is the collision the
+split cannot remove — two branches taking `D-138` write two different files, so
+git merges them silently and the pair is only wrong once both are on `main`.
 
 **Numbers are never reassigned.** `D-114` stays `D-114` forever, because things
 cite it — `ci.yml` cites D-009, this file cites D-008, and a dozen source

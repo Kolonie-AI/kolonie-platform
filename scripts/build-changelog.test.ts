@@ -184,11 +184,28 @@ describe('what is tracked', () => {
   })
 
   /**
-   * `docs/decisions.md` is the other produced file and is deliberately the other
-   * way round: twenty-odd things link into it by anchor, so it stays tracked and
-   * keeps `merge=union` with `check:decisions` as its guard (`#1497`).
+   * `docs/decisions.md` is the other produced file, and it went the same way one
+   * issue later (`#1662`, D-138). `#1497` had kept it tracked because *twenty-odd
+   * things link into it by anchor*; measured 2026-08-24, nothing links into it by
+   * anchor at all, and the merge queue had already dropped a pull request over it.
+   *
+   * Asserted here, beside the changelog, because the two are one rule and the
+   * failure mode is the same `git add`.
    */
-  it('still tracks the decisions index, which does have readers', () => {
-    expect(tracked('docs/decisions.md')).toBe(true)
+  it('does not track the produced decisions index either', () => {
+    expect(tracked('docs/decisions.md')).toBe(false)
+  })
+
+  /** The records are the decisions, so losing *those* is the real failure. */
+  it('does track every decision record the index is assembled from', () => {
+    const records = execFileSync('git', ['ls-files', '--', 'docs/decisions/'], {
+      cwd: new URL('..', import.meta.url).pathname,
+      encoding: 'utf8',
+    })
+      .trim()
+      .split('\n')
+      .filter((name) => /\/D-\d{3}-.*\.md$/.test(name))
+
+    expect(records.length).toBeGreaterThan(100)
   })
 })

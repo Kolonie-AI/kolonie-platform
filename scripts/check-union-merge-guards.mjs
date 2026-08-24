@@ -49,12 +49,19 @@
  * - `regenerated` — the file is produced, and a `--check` gate compares it to
  *   what its script would write. The union result is not expected to be right;
  *   it is expected not to stop the merge, and the named gate is what makes that
- *   safe. `docs/decisions.md` and `check:decisions` are the case.
+ *   safe.
  *
- * **`packages/core/CHANGELOG.md` was the other one and is no longer tracked**
- * (`#1572`): union resolved it correctly in a working tree and GitHub never
- * applied it, so the file went on conflicting where it decides whether a branch
- * can land. A file nobody commits needs no driver and no guard.
+ * **`regenerated` currently has no members, and both files that had it left for
+ * the same reason.** `packages/core/CHANGELOG.md` went first (`#1572`) and
+ * `docs/decisions.md` followed (`#1662`, D-138): union resolved each correctly in
+ * a working tree, GitHub never applied the driver, and both went on conflicting
+ * where it decides whether a branch can land. The kind is kept described rather
+ * than deleted because the distinction is the useful part — if a produced file is
+ * ever tracked and given `union` again, it is guarded by its `--check` and not by
+ * a scan for repeated lines. **What that pair proved is the sharper rule:** a
+ * gate catches a *wrong* file and cannot catch one that never merged, so for a
+ * produced file the cure is to stop tracking it rather than to guard it. A file
+ * nobody commits needs no driver and no guard.
  *
  * ## What counts as an entry
  *
@@ -123,10 +130,6 @@ const GUARDS = {
   'apps/api/src/mcp/tool-list.ts': {
     kind: 'duplicate-scan',
     why: 'also apps/api/src/mcp/tool-list.test.ts, which diffs it against the served tools/list',
-  },
-  'docs/decisions.md': {
-    kind: 'regenerated',
-    why: 'check:decisions runs build-decisions-index.mjs --check inside npm run check',
   },
 }
 

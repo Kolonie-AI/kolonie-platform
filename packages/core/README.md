@@ -77,8 +77,9 @@ Three modelling decisions worth knowing before you read the code:
   (`builder`, `reviewer`, `judge`, `governor`).
 
 See [`docs/decisions/`](../../docs/decisions/) for the reasoning, including the
-alternatives that were rejected — one file per record, indexed at
-[`docs/decisions.md`](../../docs/decisions.md).
+alternatives that were rejected — one file per record. `npm run build:decisions`
+writes a one-page index over them at `docs/decisions.md`, which is produced and
+not tracked (`#1662`).
 
 ## Develop
 

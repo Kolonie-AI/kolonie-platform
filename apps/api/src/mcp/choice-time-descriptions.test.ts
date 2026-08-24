@@ -249,6 +249,26 @@ describe('what a shortened tool description may not lose', () => {
     )
   })
 
+  it('keeps the playbook guarantees where a citizen decides and where it writes', async () => {
+    for (const name of ['list', 'get', 'frontier']) {
+      const description = await descriptionOf(`kolonie.playbooks.${name}`)
+      expect(description).toMatch(/never carries a credential/i)
+      expect(description).toMatch(/takes no share/i)
+      expect(description).toMatch(/yours and your operator/i)
+      expect(description).toMatch(/reported separately/i)
+    }
+
+    expect(await descriptionOf('kolonie.playbooks.run-report')).toMatch(
+      /all four outcomes are worth the same/i,
+    )
+    expect(await descriptionOf('kolonie.playbooks.draft')).toMatch(
+      /yours alone until you submit it/i,
+    )
+    expect(await descriptionOf('kolonie.playbooks.submit')).toMatch(
+      /this offers it; it does not publish it/i,
+    )
+  })
+
   /** The accounts discovery tranche: one read, one shared plan and one public proof. */
   it('keeps the accounts discovery boundaries visible before selection', async () => {
     const recipes = await descriptionOf('kolonie.accounts.recipes')

@@ -9,6 +9,7 @@ import type { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { describe, expect, it } from 'vitest'
 import { anonymousClient, connectedClient, registeredCitizen } from '../../__fixtures__/mcp.js'
 import type { PlaybookMatch } from '../../playbooks.js'
+import { TOOL_DOCS } from '../tool-docs.js'
 
 /**
  * The read surface of Playbooks v1 (`#1174`, `kolonie-docs#430`).
@@ -88,54 +89,29 @@ describe('kolonie.playbooks.list/.get/.frontier (#1174)', () => {
     await close()
   })
 
-  /**
-   * The three sentences the issue asks the descriptions to carry.
-   *
-   * Asserted on the catalogue rather than on the prose of one handler, because a
-   * citizen decides whether to call a tool from its description and may never
-   * reach the answer: a listing that failed to say a playbook carries no password
-   * is one that has already misled.
-   *
-   * **The third sentence is the reads' and not the surface's** (`#1176`). Two of
-   * the three are true of every playbook tool there will ever be; *runs report
-   * elsewhere* was only ever true of a tool that does not take the report, and
-   * `kolonie.playbooks.run-report` is where the elsewhere turned out to be. So it
-   * is asserted against the reads by name rather than against the prefix, and a
-   * fourth read added without it is still caught — `#1179` added three writes,
-   * which carry the two sentences and not the third, and `#1180` a fourth.
-   * `#1247` added `reports`, which is a read that *is* the reporting surface, so
-   * it is excluded from the third sentence on purpose rather than expected to
-   * carry it.
-   */
-  it('says in every description that it carries no credential, whose the doing is, and that runs report elsewhere', async () => {
+  it('keeps the shared playbook guarantees on the three decision reads', async () => {
     const { client, close } = await aCitizen()
 
     const listed = (await client.listTools()).tools.filter((tool) =>
       tool.name.startsWith('kolonie.playbooks.'),
     )
-    const writes = ['run-report', 'propose-step', 'note', 'draft', 'update', 'submit', 'fork'].map(
-      (name) => `kolonie.playbooks.${name}`,
-    )
-    // `reports` is a read, and the one place that must *not* say runs report
-    // elsewhere — it is the elsewhere (`#1247`).
-    const reportSurface = 'kolonie.playbooks.reports'
-    const reads = listed.filter(
-      (tool) => !writes.includes(tool.name) && tool.name !== reportSurface,
-    )
+    const decisionReads = ['list', 'get', 'frontier'].map((name) => `kolonie.playbooks.${name}`)
+    const relocated = listed.filter((tool) => !decisionReads.includes(tool.name))
 
-    expect(reads).toHaveLength(listed.length - writes.length - 1)
-    // list, get, frontier, history (`#1255`). `note` is a write (`#1248`).
-    expect(reads).toHaveLength(4)
-    expect(listed.map((tool) => tool.name)).toContain(reportSurface)
-    for (const tool of listed) {
-      expect(tool.description, tool.name).toContain('never carries a credential')
-      expect(tool.description, tool.name).toContain('yours and your operator')
+    expect(listed).toHaveLength(12)
+    for (const name of decisionReads) {
+      const tool = listed.find((candidate) => candidate.name === name)
+      expect(tool?.description, name).toContain('never carries a credential')
+      expect(tool?.description, name).toContain('yours and your operator')
+      expect(tool?.description, name).toContain('reported separately')
     }
-    for (const tool of reads) {
-      expect(tool.description, tool.name).toContain('reported separately')
+    for (const tool of relocated) {
+      expect(tool.description, tool.name).not.toContain('never carries a credential')
+      expect(tool.description, tool.name).not.toContain('yours and your operator')
+      expect(TOOL_DOCS[tool.name], tool.name).toContain('never carries a credential')
+      expect(TOOL_DOCS[tool.name], tool.name).toMatch(/yours and your\s+operator[’']/)
     }
-    const reports = listed.find((tool) => tool.name === reportSurface)
-    expect(reports?.description).not.toContain('reported separately')
+    expect(TOOL_DOCS['kolonie.playbooks.history']).toContain('reported separately')
     await close()
   })
 

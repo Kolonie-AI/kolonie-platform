@@ -368,6 +368,28 @@ base and nothing re-checked the pair; on 2026-08-19 `main` was red on 15 of the
 16 commits between 00:11 and 10:51, and 26 of the previous 60 runs on `main` had
 failed. The cost is one more CI round per merge and a queue that serialises them.
 
+**`mergeable: UNKNOWN` is not a symptom, and arming is a silent no-op while it
+holds.** GitHub computes mergeability in the background. Until it answers,
+`gh pr merge <n> --auto` exits `0`, prints nothing, and leaves `autoMergeRequest`
+null — so the arm did not happen and nothing says so. Measured 2026-08-24 on
+`#1668` and `#1669`: eight retries over four minutes, plus a REST read of the
+pull request meant to force the computation, every one answering `UNKNOWN` —
+and **both had already merged**. The field covers _not computed yet_ and _no
+longer open_ and does not distinguish them, so a retry loop around it is waiting
+on nothing. Arm once, then judge by something that cannot answer `UNKNOWN`:
+
+```bash
+git fetch origin && git log --oneline -3 origin/main
+gh api repos/Kolonie-AI/kolonie-platform/issues/<n> --jq .state   # what the PR closes
+gh api graphql -f query='{repository(owner:"Kolonie-AI",name:"kolonie-platform"){
+  mergeQueue(branch:"main"){entries(first:20){nodes{position state pullRequest{number}}}}}}'
+```
+
+`isInMergeQueue` and the queue itself are trustworthy where `mergeable` is not,
+and a merged pull request leaves a commit on `main` whatever the API says about
+it. **`BEHIND` after somebody else lands is ordinary** and the queue rebases the
+entry itself — that one is worth waiting out rather than acting on.
+
 ### A stack goes into the queue one at a time, or it merges the wrong end first
 
 **The queue picks the pull request that contains the others.** Working a package

@@ -42,6 +42,12 @@ import type { AtlasFiguresCache } from './figures-cache.js'
  * figures — `proved` and `proved_at` drive five of them, `prose_status` drives
  * the *about* sentence. Nothing in this file can hear those, which is what
  * `ATLAS_FIGURES_TTL_MS` is for and why the backstop is not optional.
+ *
+ * **That is a decision and not a gap: D-139** (`#1641`). `LISTEN`/`NOTIFY` would
+ * reach both, and it is not built — measured 2026-08-24, the verifier runner
+ * moves `proved` twice a day and prose moderation runs 3–132 times, against a
+ * window of at most sixty seconds that sits behind a 300-second edge promise.
+ * The record carries the arithmetic and the three numbers that would reopen it.
  */
 function tellingAfter(cache: AtlasFiguresCache): <T>(write: Promise<T>) => Promise<T> {
   return async (write) => {

@@ -27,13 +27,13 @@ import {
   AtlasFacetSchema,
   AtlasSourceSchema,
   earnFacetsOf,
-} from '../packages/core/dist/index.js'
+} from '@kolonie-ai/core'
 import {
   createDatabase,
   databaseUrlFromEnv,
   openAtlasCategoryProposal,
   providerBriefingCorpus,
-} from '../packages/db/dist/index.js'
+} from '@kolonie-ai/db'
 
 const DEFAULT_CATALOGUE_URL = 'https://kolonie.ai/atlas/catalogue.json'
 const FALLBACK_CATEGORY = 'data-apis'

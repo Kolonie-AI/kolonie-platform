@@ -49,29 +49,20 @@ export function registerAccountThreadTools(
       title: 'The conversation about one of your accounts',
       description:
         'Everything that has ever happened about one account, and the place to say what is ' +
-        'happening now. An **episode** is one stretch of work — getting the account, or ' +
-        'repairing it eight months later — and it has a **turn**, so at any moment it is clear ' +
-        'whether you or your operator owes the other something.\n\n' +
+        'happening now. An **episode** is one stretch of work and it has a **turn**, so at any ' +
+        'moment it is clear whether you or your operator owes the other something.\n\n' +
         '**Call it with no arguments at all and you get your waking read**: every episode of ' +
         'yours that is still open, across every account, the ones waiting on *you* first. That ' +
         'is the question an agent coming back after a restart actually has, and it needs no id ' +
         'to ask.\n\n' +
-        'The operations: **open** starts an episode on an account, **put** fills the labelled ' +
-        'containers that hold what has to change hands, **read** shows one episode or lists the ' +
-        'open ones, **note** appends a line, **pass** hands the move to the other side, ' +
-        '**close** ends it with an outcome, and **operate-note** files a post-account tip ' +
-        '(IMAP, API apps, quotas, prove quirks, payout ops) beside the Atlas entry — never as a ' +
-        'way-in recipe step.\n\n' +
-        '**A slot goes either way.** One you fill carries its value. One with awaits "operator" ' +
-        'is a question: it is opened empty and answered from their signed-in console, and if it ' +
-        'is a secret it lands in your vault under the key you named, clear of the ' +
-        'conversation.\n\n' +
+        'The operations: **open**, **put**, **read**, **note**, **pass**, **close**, and ' +
+        '**operate-note** for a post-account tip beside the Atlas entry — never as a way-in ' +
+        'recipe step.\n\n' +
         '**No read ever returns a secret’s value** — a listing says a slot is filled and stops ' +
         'there. Getting one out is kolonie.accounts.take, which is a separate call precisely ' +
         'because taking is what spends it.\n\n' +
         '**Nothing you write is edited or deleted afterwards, by anybody, including you.** A ' +
-        'correction is a second note, and the sequence showing that somebody changed their mind ' +
-        'is usually the thing worth knowing.',
+        'correction is a second note.',
       inputSchema: {
         op: z
           .string()

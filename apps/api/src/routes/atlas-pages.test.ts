@@ -14,6 +14,7 @@ import {
 } from '@kolonie-ai/core'
 import type { SiteChrome } from '../atlas/site-chrome.js'
 import type { AtlasPlaybookReader } from '../atlas/playbook-links.js'
+import type { AtlasIconReader } from '../atlas/icon-links.js'
 import { ATLAS_META_DESCRIPTION_MAX_LENGTH } from '../atlas/html.js'
 import { atlasRuntimeLine } from '../atlas/runtimes.js'
 import { ATLAS_STYLE } from '../atlas/style.js'
@@ -80,7 +81,11 @@ describe('the Atlas on the website host', () => {
   let app: FastifyInstance
   let colony: FakeColony
 
-  const build = (websiteUrl: string = SITE, atlasPlaybooks?: AtlasPlaybookReader) => {
+  const build = (
+    websiteUrl: string = SITE,
+    atlasPlaybooks?: AtlasPlaybookReader,
+    atlasIcons?: AtlasIconReader,
+  ) => {
     colony = fakeColony()
     colony.recipes.write({
       kind: 'github',
@@ -131,6 +136,7 @@ describe('the Atlas on the website host', () => {
       websiteUrl,
       siteChrome,
       ...(atlasPlaybooks === undefined ? {} : { atlasPlaybooks }),
+      ...(atlasIcons === undefined ? {} : { atlasIcons }),
     })
   }
 
@@ -4727,6 +4733,68 @@ describe('the Atlas on the website host', () => {
       })
 
       expect(withoutTime(credentialed.body)).toBe(withoutTime(anonymous.body))
+    })
+  })
+
+  /**
+   * `#1667` — the icon reader reaches the route, which until now it did not.
+   *
+   * `server.ts` has built a `databaseAtlasIcons` since `#1405` and `app.ts` never
+   * forwarded it, so `registerAtlasPages` destructured `undefined`, `iconsFor`
+   * answered the empty set, and every tile in production drew its monogram. The
+   * feature was dark while looking wired, and no test said so because every test
+   * here built the app without a reader — which is exactly the state the bug
+   * produced.
+   *
+   * So the assertion is about the wiring and not about the picture: give
+   * `buildApp` a reader, and what it answers has to change the page.
+   */
+  describe('the provider marks', () => {
+    const readerFor = (held: ReadonlySet<string>): AtlasIconReader => ({
+      held: (providers) => Promise.resolve(new Set(providers.filter((one) => held.has(one)))),
+      bytes: () => Promise.resolve(undefined),
+    })
+
+    afterEach(async () => {
+      await app?.close()
+    })
+
+    it('draws a monogram for every provider when no reader is wired', async () => {
+      app = build()
+      const body = (await get(ATLAS_PATH)).body
+
+      expect(body).toContain('<span class="k-atlas-mark"')
+      expect(body).not.toContain('<img class="k-atlas-mark"')
+    })
+
+    it("draws the provider's own mark for the ones the reader holds", async () => {
+      app = build(SITE, undefined, readerFor(new Set(['github'])))
+      const body = (await get(ATLAS_PATH)).body
+
+      expect(body).toContain(`<img class="k-atlas-mark" src="${ATLAS_PATH}/icon/github"`)
+    })
+
+    /**
+     * The same row, with a reader that holds nothing — so what changed is the
+     * reader's answer and not which entries the page happened to list.
+     */
+    it('draws a monogram on that same row when the reader holds nothing', async () => {
+      app = build(SITE, undefined, readerFor(new Set()))
+      const body = (await get(ATLAS_PATH)).body
+
+      expect(body).not.toContain('<img class="k-atlas-mark"')
+      expect(body).toContain('<span class="k-atlas-mark"')
+    })
+
+    /**
+     * A provider page asks the same question about one entry, so the wiring has
+     * to reach that route too — it is a separate `iconsFor` call site.
+     */
+    it('reaches the provider page as well', async () => {
+      app = build(SITE, undefined, readerFor(new Set(['github'])))
+      const body = (await get(`${ATLAS_PATH}/github`)).body
+
+      expect(body).toContain(`<img class="k-atlas-mark" src="${ATLAS_PATH}/icon/github"`)
     })
   })
 })

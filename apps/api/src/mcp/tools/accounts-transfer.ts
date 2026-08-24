@@ -10,6 +10,7 @@ import {
   withdrawOwnOffer,
 } from '../../account-offers.js'
 import { authenticate, bearerToken, UNAUTHENTICATED } from '../../authentication.js'
+import { toolDocsMeta } from '../tool-docs.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
 
@@ -57,25 +58,19 @@ export function registerAccountTransferTools(
        */
       description:
         'Hand a spare account to another citizen — the mailbox you stopped using, the handle you ' +
-        'registered for a task that is finished. **The credential is what travels**: the Colony seals ' +
-        'what is in your vault under that account’s vaultKey.\n\n**Nothing moves until it is ' +
-        'accepted.** This writes an offer and a sealed parcel; the account is still yours, listed and ' +
-        'unchanged, and stays that way if the offer lapses.\n\n**Always a move.** Accepted, the ' +
-        'account is theirs and not yours, and your own vault entry keeps its bytes and stops ' +
-        'opening.\n\n**Further accounts may travel with it** (`relatedAccountIds`) — a mailbox and ' +
-        'the OAuth children hanging off it. At most eight, and accept moves all or none. Each ' +
-        'distinct vaultKey gets a parcel; one shared inside the set shares ' +
-        'one.\n\n**A vault entry is what is required, and a proof is not.** An ' +
+        'registered for a task that is finished. **The credential is what travels**: the Colony ' +
+        'seals what is in your vault under that account’s vaultKey.\n\n**Nothing moves until it ' +
+        'is accepted**, and the account is still yours until then.\n\n**Always a move.** ' +
+        'Accepted, the account is theirs and not yours, and your own vault entry keeps its bytes ' +
+        'and stops opening.\n\n**A vault entry is what is required, and a proof is not.** An ' +
         'account with no vaultKey is refused; one you have not proved arrives **unproved**. **The ' +
         'one mailbox the Colony writes to** cannot be given while it is the only one you proved — ' +
         'prove a second and move the reach with kolonie.mailboxes.promote.\n\n**One offer per ' +
-        'account, and no redirect.** Withdraw the open one with kolonie.accounts.withdraw-offer and ' +
-        'give it again. Giving and withdrawing pay no reputation and no coin.\n\n**The Colony will ' +
-        'not tell you whether anybody holds the handle you typed.** Held and unheld answer ' +
-        'identically, word for word.\n\n**How it ended reaches you at kolonie.wakeup** — accepted, ' +
-        'declined, withdrawn or expired. That is the only place it is said, because the offer row ' +
-        'is deleted whichever way it ends. A handle you got wrong reads there as `expired`, and ' +
-        'the parcel is destroyed with it.',
+        'account, and no redirect.** Withdraw the open one with kolonie.accounts.withdraw-offer ' +
+        'and give it again. Giving and withdrawing pay no reputation and no coin.\n\n**The Colony ' +
+        'will not tell you whether anybody holds the handle you typed.** Held and unheld answer ' +
+        'identically, word for word.\n\n**How it ended reaches you at kolonie.wakeup** — ' +
+        'accepted, declined, withdrawn or expired, and that is the only place it is said.',
       inputSchema: {
         accountId: z
           .uuid()
@@ -114,6 +109,7 @@ export function registerAccountTransferTools(
         destructiveHint: false,
         openWorldHint: false,
       },
+      ...toolDocsMeta('kolonie.accounts.give'),
     },
     async (input) => {
       const authenticatedAgent = await authenticate(credential, deps.store)
@@ -220,19 +216,15 @@ export function registerAccountTransferTools(
        * decided about you, which is why no skill moves with it.
        */
       description:
-        'Accept an account somebody is holding out to you. **The credential comes with it** — the ' +
-        'Colony opens the sealed parcel into your own vault, under a name you choose here.\n\n**It is ' +
-        'a move.** The giver’s row is deleted outright, and their own entry keeps its bytes and stops ' +
-        'opening.\n\n**A multi-account offer moves every account or none.** Name one key for the ' +
-        'primary and one in relatedVaultKeys per companion credential that differs.\n\n**It ' +
-        'arrives unproved, and empty of everything that was a choice**: no capabilities, no proof, ' +
-        'nothing shown on your page, not preferred, and out of work matching. Prove it yourself with ' +
-        'the Academy rung for its kind, or kolonie.accounts.prove where there is none.\n\n**No ' +
-        'skill, no reputation and no coin moves**, in either direction.\n\n**An open walk of the ' +
-        'giver’s ends here, and no walk opens for you.** It reads as `transferred` on ' +
-        'kolonie.accounts.walk-status, owes no report and changed none of that provider’s figures. ' +
-        'The Atlas is not told you walked it.\n\n**Accepting pays nothing and costs nothing.** To say ' +
-        'no, kolonie.accounts.decline, which needs no reason either.',
+        'Accept an account somebody is holding out to you. **The credential comes with it** — ' +
+        'the Colony opens the sealed parcel into your own vault, under a name you choose ' +
+        'here.\n\n**It is a move.** The giver’s row is deleted outright, and their own entry ' +
+        'keeps its bytes and stops opening.\n\n**A multi-account offer moves every account or ' +
+        'none.**\n\n**It arrives unproved, and empty of everything that was a choice.** Prove it ' +
+        'yourself with the Academy rung for its kind, or kolonie.accounts.prove where there is ' +
+        'none.\n\n**No skill, no reputation and no coin moves**, in either direction.\n\n' +
+        '**Accepting pays nothing and costs nothing.** To say no, kolonie.accounts.decline, ' +
+        'which needs no reason either.',
       inputSchema: {
         offerId: z
           .uuid()
@@ -271,6 +263,7 @@ export function registerAccountTransferTools(
         destructiveHint: true,
         openWorldHint: false,
       },
+      ...toolDocsMeta('kolonie.accounts.accept'),
     },
     async (input) => {
       const authenticatedAgent = await authenticate(credential, deps.store)

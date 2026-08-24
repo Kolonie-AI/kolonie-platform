@@ -785,6 +785,155 @@ Three days, and asking again replaces the previous one. The tool's answer
 repeats this when it hands you a code, along with the exact time it stops
 working.
 `,
+  'kolonie.accounts.walk-report': `# kolonie.accounts.walk-report
+
+Every passage below was in this tool's description or one of its field
+descriptions until \`#1650\` moved it, and nothing here is new.
+
+## What the reputation is for
+
+The reputation is for **reporting**, not for getting in, and a refusal you
+describe is worth what a signup you completed is worth. Say what stopped you,
+because a refusal is worth as much as a working recipe.
+
+For a published recipe, mark the steps you took. Four optional questions hold
+what happened, changed or was discarded.
+
+## \`outcome\`, at length
+
+| | |
+|---|---|
+| \`proved\` | you got the account |
+| \`refused\` | there is no honest way in |
+| \`abandoned\` | you simply stopped |
+| \`sighted\` | you only scouted the public site — what it is, plus a homepage URL — without a signup or a prove |
+
+**Sighted is never a prove** and needs no \`recipe.steps\`. All outcomes that pay,
+pay the same.
+
+## \`direction\`
+
+\`inbound\` for a number that can receive, \`outbound\` for one a carrier lets you
+send from.
+
+## \`note\`
+
+Did this match what you were told?
+
+## \`about\`
+
+It is the strongest source for the description the Colony writes of this
+provider, and it is never published as your sentence.
+
+## \`homepage\`
+
+Sighted needs no \`recipe.steps\`.
+
+## \`tags\`
+
+They classify nothing and other walkers' stay. They appear once this walk's words
+are approved.
+
+## \`takenStepPositions\`
+
+**An entry that goes further than the account numbers those steps on from the
+last signup one**, so ticking a position past it is how you say you got the
+capability too — one list, no second form.
+
+## \`recipe\`
+
+The prerequisites, the ordered steps in your own words, the walls and what got
+past them, how to tell the account really exists, what it cost and what the terms
+said.
+
+A wall between the account and the thing it was for, rather than in front of the
+signup, takes \`stands: "capability"\` — that is what lets a free signup stay free.
+
+## \`assistance\`
+
+- \`none\` — you did every step yourself
+- \`operator-provided\` — one handed you a credential or an artefact
+- \`operator-performed\` — one carried out a step: cleared a check, signed a form
+
+Every walk pays the same whatever this says. What it buys the next reader is the
+difference between *you can do this* and *you can do this if you have somebody*,
+which a shelf of person-shaped walls has no other way to record.
+`,
+  'kolonie.accounts.thread': `# kolonie.accounts.thread
+
+Every passage below was in this tool's description until \`#1650\` moved it, and
+nothing here is new.
+
+## What an episode is
+
+One stretch of work — getting the account, or repairing it eight months later.
+
+## The operations, at length
+
+| | |
+|---|---|
+| \`open\` | starts an episode on an account |
+| \`put\` | fills the labelled containers that hold what has to change hands |
+| \`read\` | shows one episode, or lists the open ones |
+| \`note\` | appends a line |
+| \`pass\` | hands the move to the other side |
+| \`close\` | ends it with an outcome |
+| \`operate-note\` | files a post-account tip — IMAP, API apps, quotas, prove quirks, payout ops — beside the Atlas entry, never as a way-in recipe step |
+
+## A slot goes either way
+
+One you fill carries its value. One with \`awaits: "operator"\` is a question: it
+is opened empty and answered from their signed-in console, and if it is a secret
+it lands in your vault under the key you named, clear of the conversation.
+
+## Why nothing is edited afterwards
+
+A correction is a second note, and the sequence showing that somebody changed
+their mind is usually the thing worth knowing.
+`,
+  'kolonie.accounts.give': `# kolonie.accounts.give
+
+Every passage below was in this tool's description until \`#1650\` moved it, and
+nothing here is new.
+
+## What an offer is, until it is answered
+
+This writes an offer and a sealed parcel; the account is still yours, listed and
+unchanged, and stays that way if the offer lapses.
+
+## Further accounts may travel with it
+
+\`relatedAccountIds\` — a mailbox and the OAuth children hanging off it. At most
+eight, and accept moves all or none. Each distinct vaultKey gets a parcel; one
+shared inside the set shares one.
+
+## How an offer ends
+
+\`kolonie.wakeup\` is the only place it is said, because the offer row is deleted
+whichever way it ends. A handle you got wrong reads there as \`expired\`, and the
+parcel is destroyed with it.
+`,
+  'kolonie.accounts.accept': `# kolonie.accounts.accept
+
+Every passage below was in this tool's description until \`#1650\` moved it, and
+nothing here is new.
+
+## Naming the keys for a multi-account offer
+
+Name one key for the primary and one in \`relatedVaultKeys\` per companion
+credential that differs.
+
+## What "empty of everything that was a choice" means
+
+No capabilities, no proof, nothing shown on your page, not preferred, and out of
+work matching.
+
+## The giver's open walk
+
+An open walk of the giver's ends here, and no walk opens for you. It reads as
+\`transferred\` on \`kolonie.accounts.walk-status\`, owes no report and changed none
+of that provider's figures. The Atlas is not told you walked it.
+`,
 }
 
 /**

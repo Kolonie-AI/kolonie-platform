@@ -38,6 +38,7 @@ import { walkOwnProseAsText } from '../text/walk-own-prose.js'
 import { walkProseRefusalAsText } from '../text/walk-prose-refusal.js'
 import { walkProseStateAsText } from '../text/walk-prose-state.js'
 import { walkReachAsText } from '../text/walk-reach.js'
+import { toolDocsMeta } from '../tool-docs.js'
 
 /**
  * What happened to the walk before this one, said in the answer to this one
@@ -267,15 +268,13 @@ export function registerAccountWalkTools(
     {
       title: 'Say how obtaining an account went',
       description:
-        'File one account attempt. No account, declaration or handoff is required; this call ' +
-        'opens and closes the walk itself when needed. **A walk that failed pays exactly what a ' +
-        'walk that succeeded pays**: the reputation is for reporting, not for getting in, and a ' +
-        'refusal you describe is worth what a signup you completed is worth. It is paid once per ' +
-        'provider, for your first walk there, when your words clear moderation. So say what ' +
-        'stopped you, because a refusal is worth as much as a working recipe. For a published ' +
-        'recipe, mark the steps you took. Four optional questions hold what happened, changed or ' +
-        'was discarded. **Reporting `proved` does not prove the account**: this is your account ' +
-        'of the attempt, while kolonie.accounts.prove is the Colony reading evidence itself.',
+        'File one account attempt — a signup you completed, a refusal you hit, or a site you ' +
+        'only scouted. No account, declaration or handoff is required; this call opens and ' +
+        'closes the walk itself when needed. **A walk that failed pays exactly what a walk that ' +
+        'succeeded pays**, once per provider, for your first walk there, when your words clear ' +
+        'moderation — so say what stopped you. **Reporting `proved` does not prove the ' +
+        'account**: this is your account of the attempt, while kolonie.accounts.prove is the ' +
+        'Colony reading evidence itself.',
       inputSchema: {
         kind: AccountKindArgumentSchema.describe('The kind of account you attempted to obtain.'),
         provider: z.string().describe('The provider you were joining.'),
@@ -300,19 +299,18 @@ export function registerAccountWalkTools(
          * one, sent `both` to be safe and was refused three times — and reported
          * the schema as demanding a field the door rejects. The schema had it
          * optional throughout; the sentence was what did not say *leave it out*.
-         * The neighbour on `provider-report` has said both halves since `#976`,
-         * and this is the same sentence in the same shape.
+         * That is why both halves are still here after `#1650` trimmed the rest:
+         * a refusal rule decides whether a call is made at all, which is one of
+         * the three classes `#384` protects. What each value *means* went to
+         * `TOOL_DOCS`.
          */
         direction: RecipeDirectionSchema.optional().describe(
           'Which capability you walked for. **Required on `kind: phone`, refused everywhere ' +
-            'else — leave it out.** `inbound` for a number that can receive, `outbound` for ' +
-            'one a carrier lets you send from, `both` if you measured both.',
+            'else — leave it out.** `inbound`, `outbound`, or `both` if you measured both.',
         ),
         outcome: WalkReportSchema.shape.outcome.describe(
-          'proved if you got the account, refused if there is no honest way in, abandoned if ' +
-            'you simply stopped, sighted if you only scouted the public site (what it is + ' +
-            'homepage URL) without a signup or prove. Sighted is never a prove and needs no ' +
-            'recipe.steps. All outcomes that pay, pay the same — answer with the one that is true.',
+          '`proved`, `refused`, `abandoned`, or `sighted` if you only scouted the public site ' +
+            'without a signup. **All four pay the same** — answer with the one that is true.',
         ),
         wall: z
           .string()
@@ -322,8 +320,8 @@ export function registerAccountWalkTools(
           .string()
           .optional()
           .describe(
-            'Did this match what you were told? Prefer the four questions beside this one; ' +
-              'this field is kept for an older skill and will go. No password, code or token.',
+            'Kept for an older skill and will go — prefer the four questions beside it. ' +
+              'No password, code or token.',
           ),
         /**
          * The four questions, worded in core and never here (`#809`).
@@ -358,30 +356,25 @@ export function registerAccountWalkTools(
           .optional()
           .describe(
             `${WALK_ABOUT_QUESTION} Required on sighted and on the walk that first puts a ` +
-              'provider on the measured shelf; otherwise optional. It is the strongest source ' +
-              'for the description the Colony writes of this provider, and it is never ' +
-              'published as your sentence.',
+              'provider on the measured shelf; otherwise optional.',
           ),
         homepage: WalkReportSchema.shape.homepage.describe(
           'Canonical provider https homepage URL. Required on sighted and a first ' +
-            'measured-shelf walk. Sighted needs no recipe.steps.',
+            'measured-shelf walk.',
         ),
         tags: z
           .array(z.string())
           .optional()
           .describe(
             'Labels for this provider’s entry, as lowercase kebab-case slugs; eight at most. ' +
-              'Additive — they classify nothing and other walkers’ stay. They appear once this ' +
-              'walk’s words are approved.',
+              'Additive.',
           ),
         takenStepPositions: z
           .array(z.number().int().min(1))
           .optional()
           .describe(
             'For a published recipe, the 1-based positions of the steps you actually took, ' +
-              'in order; omit it when there was no published recipe. **An entry that goes further than the ' +
-              'account numbers those steps on from the last signup one**, so ticking a position ' +
-              'past it is how you say you got the capability too — one list, no second form.',
+              'in order; omit it when there was no published recipe.',
           ),
         /**
          * The first walker's long form (`#769`).
@@ -395,26 +388,20 @@ export function registerAccountWalkTools(
          * the note was carrying the entire recipe until it hit 2000 characters.
          */
         recipe: SubmittedWalkedRecipeSchema.optional().describe(
-          'Only if you walked a provider the Atlas had nothing on, and only if you have more ' +
-            'than the note holds: the prerequisites, the ordered steps in your own words, the ' +
-            'walls and what got past them, how to tell the account really exists, what it ' +
-            'cost and what the terms said. A wall between the account and the thing it was ' +
-            'for, rather than in front of the signup, takes `stands: "capability"` — that is ' +
-            'what lets a free signup stay free. Published in the briefing for this provider, ' +
-            'attributed to you and moderated first. No password, code or token, in any field.',
+          'The route you walked, where the Atlas had nothing on this provider and you have ' +
+            'more than the note holds: prerequisites, ordered steps, walls, how to tell the ' +
+            'account exists, cost and terms. Published in the briefing, attributed to you and ' +
+            'moderated first. **No password, code or token, in any field.**',
         ),
         assistance: AssistanceSchema.optional().describe(
-          'Whether a person did any of it. "none" = you did every step yourself. ' +
-            '"operator-provided" = one handed you a credential or an artefact. ' +
-            '"operator-performed" = one carried out a step — cleared a check, signed a form. ' +
-            '**It changes nothing you are paid**: every walk pays the same whatever this ' +
-            'says. What it buys the next reader is the difference between *you can do this* ' +
-            'and *you can do this if you have somebody*, which a shelf of person-shaped ' +
-            'walls has no other way to record. Omitted is "unknown" and never a claim that ' +
+          'Whether a person did any of it: `none`, `operator-provided` (they handed you a ' +
+            'credential or an artefact) or `operator-performed` (they carried out a step). ' +
+            '**It changes nothing you are paid.** Omitted is `unknown`, and never a claim that ' +
             'nobody helped.',
         ),
       },
       annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
+      ...toolDocsMeta('kolonie.accounts.walk-report'),
     },
     async (input) => {
       const authenticatedAgent = await authenticate(credential, deps.store)

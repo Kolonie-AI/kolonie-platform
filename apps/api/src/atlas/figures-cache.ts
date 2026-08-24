@@ -18,6 +18,20 @@ import type { AtlasFigures } from '@kolonie-ai/core'
  * already told these numbers may be five minutes old; a figure that heals within
  * one is strictly fresher than what is already served, and nothing downstream
  * can tell the difference.
+ *
+ * **Whether the timer should be an event was asked and answered: D-139**
+ * (`#1641`). `LISTEN`/`NOTIFY` on the tables the two out-of-process runners write
+ * would let them invalidate this the way the decorators do. It is not built, and
+ * the argument is not *it would be hard* — it is that **a listener that dies
+ * silently is a cache that is stale until a restart, so this constant stays
+ * whatever happens.** The trade is therefore a timer against a timer plus schema
+ * in two tables and a connection to supervise, bought to shrink a window that is
+ * already below what the edge serves.
+ *
+ * The rates that make it a rounding error, measured 2026-08-24: the verifier
+ * runner moves `proved` **twice a day** (14 in seven), and walk-prose moderation
+ * follows the walk rate at **3–132 a day**, one every eleven minutes at peak. The
+ * record names the three numbers that would reopen it.
  */
 export const ATLAS_FIGURES_TTL_MS = 60_000
 

@@ -571,6 +571,14 @@ export const messageRefusals = {
       'waiting on you — or you already cleared it. One answer covers all of those so the ' +
       "call cannot probe another citizen's inbox.",
   },
+  'no-such-message': {
+    code: 'not_found',
+    message:
+      '`upTo` names no message in that conversation. Read the thread with ' +
+      '`kolonie.messages.get_thread` and take the id from it, or omit `upTo` to mark through ' +
+      'the latest. A message in another thread answers the same way, so the id cannot be used ' +
+      'to find out what is in a conversation you are not in. Your cursor is where it was.',
+  },
   'credential-shaped-body': {
     code: 'credential_shaped_body',
     message:

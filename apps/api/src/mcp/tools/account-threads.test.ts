@@ -180,6 +180,113 @@ describe('the account conversation', () => {
     await close()
   })
 
+  /**
+   * `#1685`: a PEM private-key block is refused on a secret write and noticed,
+   * not refused, when it is already in a slot being taken.
+   */
+  describe('key material a secret slot must not take in', () => {
+    const pem =
+      '-----BEGIN RSA PRIVATE KEY-----\nMIIE-SENTINEL-DO-NOT-ECHO\n-----END RSA PRIVATE KEY-----'
+
+    it('refuses a PEM on put with secret: true, and writes nothing', async () => {
+      const { client, close, accountThreads, episodeId } = await opened()
+
+      const refused = await client.callTool({
+        name: 'kolonie.accounts.thread',
+        arguments: {
+          op: 'put',
+          episodeId,
+          slots: [{ label: 'the key', value: pem, secret: true }],
+        },
+      })
+
+      expect(refused.isError).toBe(true)
+      const error = (
+        refused as unknown as {
+          structuredContent: { error: { code: string; message: string } }
+        }
+      ).structuredContent.error
+      expect(error.code).toBe('key_material_refused')
+      expect(error.message).toContain('PEM private-key block')
+      expect(JSON.stringify(refused)).not.toContain('MIIE-SENTINEL-DO-NOT-ECHO')
+
+      const read = await client.callTool({
+        name: 'kolonie.accounts.thread',
+        arguments: { op: 'read', episodeId },
+      })
+      expect((read.structuredContent as { slots: readonly unknown[] }).slots).toHaveLength(0)
+      expect(accountThreads.vaultContents().size).toBe(0)
+
+      await close()
+    })
+
+    it('notices a PEM already in a slot on take, and still stores it', async () => {
+      const { client, close, accountThreads, episodeId, agent } = await opened()
+      accountThreads.addOperator(agent.id, 'the-person')
+
+      const put = await client.callTool({
+        name: 'kolonie.accounts.thread',
+        arguments: {
+          op: 'put',
+          episodeId,
+          slots: [
+            {
+              label: 'the key',
+              secret: true,
+              awaits: 'operator',
+              vaultKey: 'ssh/host',
+            },
+          ],
+        },
+      })
+      await accountThreads.fillAsOperator({
+        slotId: onlySlot(put) as never,
+        humanId: 'the-person',
+        value: pem,
+      })
+
+      const taken = await client.callTool({
+        name: 'kolonie.accounts.take',
+        arguments: { slotId: onlySlot(put) },
+      })
+
+      expect(taken.isError).toBeFalsy()
+      expect(taken.structuredContent).toMatchObject({
+        secret: true,
+        value: null,
+        vaultKey: 'ssh/host',
+        noticed: { reason: 'private-key-block', matched: 'private-key-block' },
+      })
+      expect(JSON.stringify(taken.structuredContent)).not.toMatch(/noticedKeyMaterial/)
+      expect([...accountThreads.vaultContents().values()]).toContain(pem)
+
+      await close()
+    })
+
+    it('omits noticed when the slot is not a private-key block', async () => {
+      const { client, close, episodeId } = await opened()
+
+      const put = await client.callTool({
+        name: 'kolonie.accounts.thread',
+        arguments: {
+          op: 'put',
+          episodeId,
+          slots: [{ label: 'the password', value: 'the-one-value', secret: true }],
+        },
+      })
+
+      const taken = await client.callTool({
+        name: 'kolonie.accounts.take',
+        arguments: { slotId: onlySlot(put), vaultKey: 'mailbox/held' },
+      })
+
+      expect(taken.isError).toBeFalsy()
+      expect(taken.structuredContent).not.toHaveProperty('noticed')
+
+      await close()
+    })
+  })
+
   it('hands back a slot that is not a secret, and does not spend it', async () => {
     const { client, close, episodeId } = await opened()
 

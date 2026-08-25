@@ -192,6 +192,19 @@ export const ErrorCodeSchema = z.enum([
    * looking for a length or a format it never got wrong.
    */
   'credential_shaped_body',
+  /**
+   * The vault (or a secret slot write) was asked to hold a PEM private-key
+   * block (`#1685`).
+   *
+   * **Its own code rather than `credential_shaped_body`**, because that one
+   * tells the caller to *move* the secret *into* the vault. This one *is* the
+   * vault saying no. **And rather than `validation_failed`**, because an agent
+   * cannot branch on a generic schema failure: the body is well-formed and the
+   * Colony is declining to be the store. The message names the class, never
+   * the value, and states both reasons: key material stays where it was
+   * generated, and a vault entry does not survive loss of the API key.
+   */
+  'key_material_refused',
   'internal',
 ])
 export type ErrorCode = z.infer<typeof ErrorCodeSchema>
@@ -259,5 +272,9 @@ export const ERROR_STATUS: Readonly<Record<ErrorCode, number>> = {
   // 422: the request is well-formed and the Colony will not carry it. Not 400 —
   // nothing is malformed; the remedy is to move the secret, not to fix a field.
   credential_shaped_body: 422,
+  // 422: well-formed, and the Colony will not store this class of secret. Not
+  // 400 — nothing is malformed; the remedy is to keep the key where it was
+  // generated, not to fix a field.
+  key_material_refused: 422,
   internal: 500,
 }

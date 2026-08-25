@@ -1,3 +1,6 @@
+import { z } from 'zod'
+import type { ApiError } from './errors.js'
+
 /**
  * Whether a piece of text is carrying something that belongs in the vault
  * (`#335`, relocated by `#1320`).
@@ -43,6 +46,24 @@ export interface CredentialFinding {
   /** The label or class that matched. Never a secret. */
   readonly matched: string
 }
+
+/**
+ * The finding as a published field (`#1685`).
+ *
+ * Optional on the success responses that notice rather than refuse, and omitted
+ * when nothing was noticed. Reused rather than a boolean so a caller can branch
+ * on the class without parsing prose.
+ */
+export const CredentialFindingSchema = z.object({
+  reason: z.enum([
+    'labelled-secret',
+    'private-key-block',
+    'otpauth-uri',
+    'vendor-prefixed-key',
+    'high-entropy-run',
+  ]),
+  matched: z.string(),
+}) satisfies z.ZodType<CredentialFinding>
 
 /**
  * Words that are never a credential, however a sentence arrives at them.
@@ -446,3 +467,51 @@ export const CREDENTIAL_REFUSAL_MESSAGE =
   'of those can be taken back. Ask for the account to be created and for the credential to ' +
   'be put in the vault with kolonie.vault.set, then read it from there. Say what you need ' +
   'without the secret itself and send it again.'
+
+/**
+ * A PEM private-key block, and nothing else this detector names (`#1685`).
+ *
+ * **The vault is where a password, a token and a TOTP secret belong.** Those
+ * still match {@link credentialFinding}; they must not match this. A private
+ * key is the one class a vault write would transfer out of the place that
+ * generated it, and the one a lost API key would make unrecoverable.
+ */
+export function keyMaterialFinding(text: string): CredentialFinding | null {
+  const finding = credentialFinding(text)
+  return finding?.reason === 'private-key-block' ? finding : null
+}
+
+/**
+ * What a vault write (and a secret slot `put`) say when they refuse one.
+ *
+ * **Not {@link credentialRefusalMessage}.** That one names the vault as the
+ * place to put the secret. This one is the vault saying no, and the reasons
+ * are the two `#1685` named: key material stays where it was generated, and a
+ * vault entry does not survive loss of the API key.
+ */
+export function keyMaterialRefusalMessage(finding: CredentialFinding): string {
+  return (
+    `The Colony will not store ${DESCRIBED[finding.reason]}. Key material stays where you ` +
+    'generated it — a vault write is a transfer into the Colony’s process — and a vault ' +
+    'entry does not survive loss of the API key that sealed it.'
+  )
+}
+
+/** The `ApiError` both write surfaces return for a private-key block (`#1685`). */
+export function keyMaterialRefused(finding: CredentialFinding): ApiError {
+  return { code: 'key_material_refused', message: keyMaterialRefusalMessage(finding) }
+}
+
+/**
+ * The optional `noticed` field on a success that still went through (`#1685`).
+ *
+ * Spread onto the response. Empty when there is nothing to notice, including
+ * `null` — an operator who wrote nothing is not a finding.
+ */
+export function keyMaterialNotice(text: string | null | undefined): {
+  readonly noticed?: CredentialFinding
+} {
+  if (text === null || text === undefined) return {}
+  const finding = keyMaterialFinding(text)
+  return finding === null ? {} : { noticed: finding }
+}

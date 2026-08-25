@@ -175,6 +175,120 @@ describe('the vault, over MCP', () => {
     await close()
   })
 
+  /**
+   * `#1685`: a PEM private-key block is the one shape the vault must not hold.
+   * The other findings this detector names are what a vault is *for*.
+   */
+  describe('key material a vault write must not hold', () => {
+    const pem =
+      '-----BEGIN RSA PRIVATE KEY-----\nMIIE-SENTINEL-DO-NOT-ECHO\n-----END RSA PRIVATE KEY-----'
+
+    const errorOf = (result: unknown) =>
+      (result as { structuredContent: { error: { code: string; message: string } } })
+        .structuredContent.error
+
+    it('refuses a PEM private-key block, stores nothing, and names the class not the body', async () => {
+      const { colony, apiKey } = await registeredCitizen()
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+      const refused = await client.callTool({
+        name: 'kolonie.vault.set',
+        arguments: { key: 'ssh/host', value: pem },
+      })
+
+      expect(refused.isError).toBe(true)
+      const error = errorOf(refused)
+      expect(error.code).toBe('key_material_refused')
+      expect(error.message).toContain('PEM private-key block')
+      expect(error.message).toMatch(/stays where (it was |you )?generat/)
+      expect(error.message).toContain('API key')
+      expect(JSON.stringify(refused)).not.toContain('MIIE-SENTINEL-DO-NOT-ECHO')
+
+      const listed = await client.callTool({ name: 'kolonie.vault.list', arguments: {} })
+      expect((listed.structuredContent as { entries: unknown[] }).entries).toHaveLength(0)
+
+      await close()
+    })
+
+    it.each([
+      ['labelled-secret', 'password: hunter2-mailbox'],
+      ['otpauth-uri', 'otpauth://totp/Example:user?secret=JBSWY3DPEHPK3PXP'],
+      ['vendor-prefixed-key', 'ghp_abcdefghijklmnopqrstuvwxyz01'],
+      ['high-entropy-run', 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6'],
+    ] as const)('accepts a %s, which is what a vault is for', async (_reason, value) => {
+      const { colony, apiKey } = await registeredCitizen()
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+      const stored = await client.callTool({
+        name: 'kolonie.vault.set',
+        arguments: { key: 'credential/example', value },
+      })
+
+      expect(stored.isError).toBeFalsy()
+      const read = await client.callTool({
+        name: 'kolonie.vault.get',
+        arguments: { key: 'credential/example' },
+      })
+      expect((read.structuredContent as { value: string }).value).toBe(value)
+
+      await close()
+    })
+
+    it('notices a PEM the operator wrote back, and still hands the addition over', async () => {
+      const { colony, apiKey, agent } = await registeredCitizen()
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+      await client.callTool({
+        name: 'kolonie.vault.set',
+        arguments: { key: 'account', value: 'sealed-value-sentinel' },
+      })
+      await client.callTool({
+        name: 'kolonie.vault.share',
+        arguments: { key: 'account', purpose: 'Put a billing card on the account.' },
+      })
+      colony.vault.vault.operatorWrites(agent.id, 'account', pem)
+
+      const taken = await client.callTool({
+        name: 'kolonie.vault.unshare',
+        arguments: { key: 'account' },
+      })
+
+      expect(taken.isError).toBeFalsy()
+      expect(taken.structuredContent).toMatchObject({
+        operatorAddition: pem,
+        noticed: { reason: 'private-key-block', matched: 'private-key-block' },
+      })
+      expect(JSON.stringify(taken.structuredContent)).not.toMatch(/noticedKeyMaterial/)
+
+      await close()
+    })
+
+    it('omits noticed when the operator wrote nothing that is a private key', async () => {
+      const { colony, apiKey, agent } = await registeredCitizen()
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+      await client.callTool({
+        name: 'kolonie.vault.set',
+        arguments: { key: 'account', value: 'sealed-value-sentinel' },
+      })
+      await client.callTool({
+        name: 'kolonie.vault.share',
+        arguments: { key: 'account', purpose: 'Put a billing card on the account.' },
+      })
+      colony.vault.vault.operatorWrites(agent.id, 'account', 'billing PIN 4417')
+
+      const taken = await client.callTool({
+        name: 'kolonie.vault.unshare',
+        arguments: { key: 'account' },
+      })
+
+      expect(taken.isError).toBeFalsy()
+      expect(taken.structuredContent).not.toHaveProperty('noticed')
+
+      await close()
+    })
+  })
+
   it('shows a stranger nothing, and offers the tools to nobody without a key', async () => {
     const { colony, apiKey } = await registeredCitizen()
     const owner = await connectedClient(colony, `Bearer ${apiKey}`)

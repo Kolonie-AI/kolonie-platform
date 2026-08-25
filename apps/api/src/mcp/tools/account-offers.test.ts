@@ -414,7 +414,7 @@ describe('offering an account to another citizen', () => {
     /** The recipient's name for it, and the one decision `accept` asks for. */
     const MINE = 'mine/the-mailbox'
 
-    const pair = async (over: { readonly proved?: boolean } = {}) => {
+    const pair = async (over: { readonly proved?: boolean; readonly vaultValue?: string } = {}) => {
       const { colony, apiKey, agent } = await registeredCitizen()
       const offers = colony.accountOfferStore
       const accountId = offers.hold(agent.id, {
@@ -422,6 +422,7 @@ describe('offering an account to another citizen', () => {
         identifier: 'spare@example.test',
         provider: 'mail.tm',
         ...(over.proved === undefined ? {} : { proved: over.proved }),
+        ...(over.vaultValue === undefined ? {} : { vaultValue: over.vaultValue }),
       })
 
       const registered = await colony.registry.register(
@@ -495,6 +496,55 @@ describe('offering an account to another citizen', () => {
       expect(text).toContain('spare@example.test')
       expect(text).toContain('canary')
       expect(text).toContain('kolonie.vault.get')
+
+      await close()
+    })
+
+    /**
+     * `#1685`: a PEM already in the parcel is noticed, not refused. Accept is
+     * a move, and refusing it would leave the credential stranded with the
+     * giver who can no longer store it either.
+     */
+    it('notices a PEM in the parcel and still moves the account', async () => {
+      const pem =
+        '-----BEGIN RSA PRIVATE KEY-----\nMIIE-SENTINEL-DO-NOT-ECHO\n-----END RSA PRIVATE KEY-----'
+      const {
+        client,
+        close,
+        offers,
+        accountId,
+        giver: from,
+        recipient,
+        offerId,
+      } = await pair({
+        vaultValue: pem,
+      })
+
+      const result = await accept(client, { offerId })
+
+      expect(result.isError).toBeFalsy()
+      expect(result.structuredContent).toMatchObject({
+        fromHandle: 'canary',
+        vaultKey: MINE,
+        noticed: { reason: 'private-key-block', matched: 'private-key-block' },
+      })
+      expect(JSON.stringify(result.structuredContent)).not.toMatch(/noticedKeyMaterial/)
+      expect(JSON.stringify(result.structuredContent)).not.toContain('MIIE-SENTINEL-DO-NOT-ECHO')
+      expect(offers.row(accountId)).toBeUndefined()
+      expect(offers.rowsOf(from.id)).toHaveLength(0)
+      expect(offers.rowsOf(recipient.id)).toHaveLength(1)
+      expect(offers.holdsVaultEntry(recipient.id, MINE)).toBe(true)
+
+      await close()
+    })
+
+    it('omits noticed when the parcel is not a private-key block', async () => {
+      const { client, close, offerId } = await pair()
+
+      const result = await accept(client, { offerId })
+
+      expect(result.isError).toBeFalsy()
+      expect(result.structuredContent).not.toHaveProperty('noticed')
 
       await close()
     })

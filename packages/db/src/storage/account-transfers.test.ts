@@ -138,6 +138,36 @@ describe('a credential travelling between two citizens', () => {
     ])
   })
 
+  /**
+   * `#1685`: a PEM in the parcel is noticed, not refused. Opening still
+   * settles — refusing it would consume the parcel and leave the credential
+   * nowhere.
+   */
+  it('notices a PEM private-key block and still settles', async () => {
+    const pem =
+      '-----BEGIN RSA PRIVATE KEY-----\nMIIE-SENTINEL-DO-NOT-ECHO\n-----END RSA PRIVATE KEY-----'
+    await setVaultEntry(db, giverToken, giver, 'provider/pem', pem)
+    const sealed = await seal('provider/pem')
+    if (sealed.outcome !== 'sealed') throw new Error(sealed.outcome)
+
+    expect(await open(sealed.id, { vaultKey: 'inherited/pem' })).toMatchObject({
+      outcome: 'settled',
+      noticed: { reason: 'private-key-block', matched: 'private-key-block' },
+    })
+
+    const read = await getVaultEntry(db, recipientToken, recipient, 'inherited/pem')
+    expect(read).toMatchObject({ outcome: 'found', value: pem })
+  })
+
+  it('omits noticed when the parcel is not a private-key block', async () => {
+    const sealed = await seal()
+    if (sealed.outcome !== 'sealed') throw new Error(sealed.outcome)
+
+    const settled = await open(sealed.id)
+    expect(settled).toMatchObject({ outcome: 'settled' })
+    expect(settled).not.toHaveProperty('noticed')
+  })
+
   it('is gone from the table once it has been opened', async () => {
     const sealed = await seal()
     if (sealed.outcome !== 'sealed') throw new Error(sealed.outcome)

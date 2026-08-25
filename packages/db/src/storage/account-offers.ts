@@ -7,6 +7,7 @@ import {
   TRANSFER_TTL_DAYS,
   type AgentId,
   type ConfirmationVerdict,
+  type CredentialFinding,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 import { accountOfferOutcomes } from '../schema/account-offer-outcomes.js'
@@ -779,6 +780,11 @@ export type AcceptAccountOfferOutcome =
       readonly fromHandle: string
       /** Companions that moved with it (`#1217`). Empty for a single gift. */
       readonly related: readonly AcceptedRelatedAccount[]
+      /**
+       * Present when a parcel that landed was a PEM private-key block (`#1685`).
+       * **The call still succeeded.** Omitted when nothing was noticed.
+       */
+      readonly noticed?: CredentialFinding
     }
   /**
    * No such offer, not addressed to this citizen, expired, or the giver has
@@ -1022,6 +1028,7 @@ export async function acceptAccountOffer(
      */
     const openedParcels = new Set<string>()
     let openedAny = false
+    let noticed: CredentialFinding | undefined
     for (const member of ordered) {
       const account = accountById.get(member.accountId)!
       const transferId = member.transferId!
@@ -1053,6 +1060,7 @@ export async function acceptAccountOffer(
         return { outcome: 'unknown' }
       }
       openedAny = true
+      if (opened.noticed !== undefined && noticed === undefined) noticed = opened.noticed
     }
 
     const arrivedByOfferId = new Map<string, AcceptedRelatedAccount>()
@@ -1137,6 +1145,7 @@ export async function acceptAccountOffer(
       vaultKey: primaryArrived.vaultKey,
       fromHandle: row.fromHandle,
       related: relatedMembers.map((member) => arrivedByOfferId.get(member.id)!),
+      ...(noticed === undefined ? {} : { noticed }),
     }
   })
 }

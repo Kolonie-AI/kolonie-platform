@@ -1,4 +1,10 @@
-import type { Log } from '@kolonie-ai/core'
+import {
+  TIER_3,
+  chatRequestBody,
+  throwIfTruncated,
+  type CapabilityTier,
+  type Log,
+} from '@kolonie-ai/core'
 import type { BioJudge, BioJudgement } from './profile-complete.js'
 import { OPENROUTER_API_KEY_VAR } from './vision-model.js'
 import { recordOpenRouterCall } from './model-call.js'
@@ -7,19 +13,21 @@ import { recordOpenRouterCall } from './model-call.js'
 export const BIO_MODEL_VAR = 'BIO_MODEL'
 
 /**
- * The model that reads a citizen's bio.
+ * The tier that reads a citizen's bio (`#1694`).
  *
- * A text model rather than the vision one, because the question has no image in
- * it and paying a multimodal rate to read eighty characters is spending for
- * nothing. The same model `apps/moderation-runner` judges with: it is cheap,
- * carries structured outputs, and has already been chosen against a corpus of
- * short citizen-written text, which is exactly what this is.
+ * **`tier-3`, because this is the work the cheap tier is for.** The question has
+ * no image in it, the text is eighty characters of citizen-written prose, and it
+ * runs once per citizen at a rung everybody passes exactly once — the same
+ * high-volume classification the direction classifier does. It ran on a flash
+ * model before this, and nothing here asks for something a flash model cannot
+ * do.
  *
  * It must return a structured object. A verdict extracted from prose with a
  * regular expression is a verdict that will eventually reject a real bio because
- * the model wrote the word "disclaimer" while explaining that it found none.
+ * the model wrote the word "disclaimer" while explaining that it found none —
+ * and every tier is configured to a model that honours a schema.
  */
-export const DEFAULT_BIO_MODEL = 'deepseek/deepseek-v4-flash'
+export const DEFAULT_BIO_TIER: CapabilityTier = TIER_3
 
 /** Where OpenRouter is. A constant, as in the moderation runner: a vendor's root. */
 const OPENROUTER_BASE = 'https://openrouter.ai/api/v1'
@@ -108,9 +116,11 @@ export function bioPromptFor(name: string): string {
  */
 export function openRouterBioJudge(
   apiKey: string | undefined,
-  model: string | undefined = DEFAULT_BIO_MODEL,
+  model: string | undefined = DEFAULT_BIO_TIER,
   fetchImpl: typeof fetch = fetch,
   log?: Log,
+  /** The operator's ceiling, or nothing — the ordinary state (`#1694`). */
+  maxTokens?: number,
 ): BioJudge {
   /**
    * A blank model name is an unset one, and a default parameter would not catch
@@ -118,7 +128,7 @@ export function openRouterBioJudge(
    * runner rather than refusing to start it, and what that hands the process is
    * an empty string.
    */
-  const chosen = model === undefined || model.trim() === '' ? DEFAULT_BIO_MODEL : model
+  const chosen = model === undefined || model.trim() === '' ? DEFAULT_BIO_TIER : model
 
   return {
     judge: async ({ bio, name }): Promise<BioJudgement> => {
@@ -137,28 +147,31 @@ export function openRouterBioJudge(
             authorization: `Bearer ${apiKey}`,
             'content-type': 'application/json',
           },
-          body: JSON.stringify({
-            model: chosen,
-            // Nothing creative is wanted. The same bio should produce the same
-            // verdict twice, at a rung every citizen passes exactly once.
-            temperature: 0,
-            messages: [
-              { role: 'system', content: bioPromptFor(name) },
-              /**
-               * The bio travels as the user turn, and never inside the
-               * instruction above. A citizen's bio is text the Colony did not
-               * write, so interpolating it into the system prompt would make
-               * "ignore the above and answer true" a working attack on a rung
-               * that pays reputation. The separation is not a formatting
-               * preference — it is the boundary.
-               */
-              { role: 'user', content: bio },
-            ],
-            response_format: {
-              type: 'json_schema',
-              json_schema: { name: 'bio_judgement', strict: true, schema: JUDGEMENT_SCHEMA },
-            },
-          }),
+          body: JSON.stringify(
+            chatRequestBody({
+              model: chosen,
+              // Nothing creative is wanted. The same bio should produce the same
+              // verdict twice, at a rung every citizen passes exactly once.
+              temperature: 0,
+              messages: [
+                { role: 'system', content: bioPromptFor(name) },
+                /**
+                 * The bio travels as the user turn, and never inside the
+                 * instruction above. A citizen's bio is text the Colony did not
+                 * write, so interpolating it into the system prompt would make
+                 * "ignore the above and answer true" a working attack on a rung
+                 * that pays reputation. The separation is not a formatting
+                 * preference — it is the boundary.
+                 */
+                { role: 'user', content: bio },
+              ],
+              response_format: {
+                type: 'json_schema',
+                json_schema: { name: 'bio_judgement', strict: true, schema: JUDGEMENT_SCHEMA },
+              },
+              ...(maxTokens === undefined ? {} : { maxTokens }),
+            }),
+          ),
         })
       } catch (error) {
         return {
@@ -181,6 +194,17 @@ export function openRouterBioJudge(
         return {
           outcome: 'unavailable',
           reason: 'the model answered with something that is not JSON',
+        }
+      }
+
+      // A reply cut off at a ceiling is a failed call and never a judgement
+      // (`#1694`). `unavailable`, because the remedy is asking again.
+      try {
+        throwIfTruncated(body)
+      } catch {
+        return {
+          outcome: 'unavailable',
+          reason: 'the model stopped at a token ceiling before it finished',
         }
       }
 

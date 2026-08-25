@@ -1,4 +1,9 @@
-import { createLog, gatewayFromEnvironment, gatewayRoutedFetch } from '@kolonie-ai/core'
+import {
+  createLog,
+  gatewayFromEnvironment,
+  gatewayRoutedFetch,
+  maxTokensFromEnvironment,
+} from '@kolonie-ai/core'
 import { readFileSync } from 'node:fs'
 import {
   createDatabase,
@@ -88,6 +93,10 @@ const modelFetch = gatewayRoutedFetch(gatewayFromEnvironment('triage'), { log })
  */
 const { model, writer } = modelClients(apiKey, {
   ...(process.env['TRIAGE_MODEL'] && { model: process.env['TRIAGE_MODEL'] }),
+  // The operator's ceiling, or nothing — the ordinary state (`#1694`).
+  ...(maxTokensFromEnvironment('triage') !== undefined && {
+    maxTokens: maxTokensFromEnvironment('triage'),
+  }),
   fetchImpl: modelFetch,
   log,
 })

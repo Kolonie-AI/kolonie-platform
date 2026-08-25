@@ -184,11 +184,11 @@ export {
   type BioJudgement,
   type ProfileCompleteDependencies,
 } from './profile-complete.js'
-export { bioPromptFor, BIO_MODEL_VAR, DEFAULT_BIO_MODEL, openRouterBioJudge } from './bio-judge.js'
+export { bioPromptFor, BIO_MODEL_VAR, DEFAULT_BIO_TIER, openRouterBioJudge } from './bio-judge.js'
 export {
   directionPrompt,
   DIRECTION_MODEL_VAR,
-  DEFAULT_DIRECTION_MODEL,
+  DEFAULT_DIRECTION_TIER,
   openRouterDirectionClassifier,
 } from './direction-classifier.js'
 /**
@@ -212,7 +212,7 @@ export {
   type ClaimReader,
 } from './operator-claim.js'
 export {
-  DEFAULT_QUEST_JUDGE_MODEL,
+  DEFAULT_QUEST_JUDGE_TIER,
   QUEST_JUDGE_MODEL_VAR,
   QuestReportVerifier,
   openRouterQuestJudge,
@@ -441,14 +441,14 @@ export {
   type VisionAssetMetadata,
 } from './vision-assets.js'
 export {
-  DEFAULT_VISION_MODEL,
+  DEFAULT_VISION_TIER,
   openRouterVision,
   OPENROUTER_API_KEY_VAR,
   visionPromptFor,
   VISION_MODEL_VAR,
 } from './vision-model.js'
 export {
-  DEFAULT_SCENE_VISION_MODEL,
+  DEFAULT_SCENE_VISION_TIER,
   openRouterSceneVision,
   scenePromptForModel,
   SCENE_VISION_MODEL_VAR,

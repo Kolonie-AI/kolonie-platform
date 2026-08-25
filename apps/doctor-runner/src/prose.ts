@@ -1,7 +1,9 @@
 import {
   GatewayUnavailable,
+  chatRequestBody,
   gatewayOnlyFetch,
   silentLog,
+  throwIfTruncated,
   type Finding,
   type Gateway,
   type Log,
@@ -68,8 +70,19 @@ import {
  */
 export const PROSE_MAX_LENGTH = 600
 
-/** How much room the answer gets. Generous, because tokens are billed as generated. */
-const MAX_TOKENS = 2_000
+/**
+ * The operator's ceiling, or nothing — and nothing is the ordinary state
+ * (`#1694`).
+ *
+ * A named 2,000 stood here, generous because tokens are billed as generated.
+ * That is the argument for *not* naming one at all: `max_tokens` is a ceiling
+ * and not a reservation, so a number here can only ever be too small, and the
+ * model stops on its own. What bounds the *answer* is
+ * {@link PROSE_MAX_LENGTH}, which is a real bound because the sentence rides in
+ * a wake-up entry and a console row — and it is checked on what came back rather
+ * than asked of the model.
+ */
+const ceilingFor = (options: ProseOptions): number | undefined => options.maxTokens
 
 /**
  * What the model is told it is for.
@@ -104,6 +117,12 @@ Answer with the explanation and nothing else.`
 export interface ProseOptions {
   readonly fetchImpl?: typeof fetch
   readonly log?: Log
+  /**
+   * The operator's ceiling, or nothing — the ordinary state, in which
+   * `max_tokens` is absent from the request body (`#1694`). Read from
+   * `LLM_GATEWAY_MAX_TOKENS_DOCTOR` in this runner's wiring.
+   */
+  readonly maxTokens?: number
 }
 
 /**
@@ -142,6 +161,7 @@ export const noProse: ProseWriter = {
 export function gatewayProse(gateway: Gateway, options: ProseOptions = {}): ProseWriter {
   const log = options.log ?? silentLog
   const doFetch = gatewayOnlyFetch(gateway, { fetch: options.fetchImpl ?? fetch, log })
+  const ceiling = ceilingFor(options)
 
   return {
     available: true,
@@ -154,15 +174,17 @@ export function gatewayProse(gateway: Gateway, options: ProseOptions = {}): Pros
             authorization: `Bearer ${gateway.apiKey}`,
             'content-type': 'application/json',
           },
-          body: JSON.stringify({
-            model: gateway.model,
-            messages: [
-              { role: 'system', content: SYSTEM },
-              { role: 'user', content: promptFor(finding) },
-            ],
-            max_tokens: MAX_TOKENS,
-            temperature: 0.2,
-          }),
+          body: JSON.stringify(
+            chatRequestBody({
+              model: gateway.model,
+              messages: [
+                { role: 'system', content: SYSTEM },
+                { role: 'user', content: promptFor(finding) },
+              ],
+              temperature: 0.2,
+              ...(ceiling === undefined ? {} : { maxTokens: ceiling }),
+            }),
+          ),
         })
 
         const body = (await response.json()) as {
@@ -170,6 +192,21 @@ export function gatewayProse(gateway: Gateway, options: ProseOptions = {}): Pros
             readonly message?: { readonly content?: string | null }
             readonly finish_reason?: string
           }>
+        }
+
+        /**
+         * A sentence cut off at a ceiling is a failed call and never a sentence
+         * (`#1694`). It lands in the `acceptable` path as `null`, which is what
+         * this writer already does with every other failure: the diagnosis is
+         * stored complete and silent, which every surface treats as an answer.
+         */
+        try {
+          throwIfTruncated(body)
+        } catch {
+          log.warn('the model stopped at a token ceiling; this diagnosis gets no sentence', {
+            event: 'doctor.prose.truncated',
+          })
+          return null
         }
 
         return acceptable(body.choices?.[0]?.message?.content ?? null, finding, log)

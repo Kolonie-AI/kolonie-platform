@@ -13,7 +13,17 @@
  * it that can be tested without a network should be.
  */
 
-import { readModelCall, silentLog, type Log, type ModelCall } from '@kolonie-ai/core'
+import {
+  TIER_1,
+  chatRequestBody,
+  maxTokensFromEnvironment,
+  readModelCall,
+  silentLog,
+  throwIfTruncated,
+  type CapabilityTier,
+  type Log,
+  type ModelCall,
+} from '@kolonie-ai/core'
 
 /** The environment variable the key arrives in. Never a literal, anywhere. */
 export const OPENROUTER_API_KEY_VAR = 'OPENROUTER_API_KEY'
@@ -26,146 +36,91 @@ export const OPENROUTER_API_KEY_VAR = 'OPENROUTER_API_KEY'
 const OPENROUTER_BASE = 'https://openrouter.ai/api/v1'
 
 /**
- * The model that judges.
+ * The tier that judges (`#1694`).
  *
- * `deepseek/deepseek-v4-flash`, chosen by the maintainer on 2026-07-30. It
- * supports strict JSON schema output, which is what lets every prompt here
- * return a shape rather than prose this process would have to parse out of a
- * paragraph — and a moderator whose verdict has to be extracted with a regular
- * expression is a moderator that will eventually approve something because it
- * wrote the word "approve" in an explanation.
+ * **`tier-1`, because this is the one judgement the Colony cannot take back.**
+ * Since `#693` a quest that clears moderation is published *by* that verdict, so
+ * there is no later stage that would catch a weak one — which is the same
+ * argument `gatewayOnlyFetch` makes about falling back, one layer up. Every
+ * other call in this file rides the same client, and paying tier-1 for answer
+ * moderation is cheaper than a second key set and a second client to separate
+ * them.
  *
- * **It replaced `xiaomi/mimo-v2.5`, and the reasons are worth keeping.** That
- * model was served from a shared free pool — `limit_source:
- * upstream_provider_shared_pool` — and rate-limited hard enough that four of
- * four briefing syntheses failed or degraded in one hour. It also degenerated:
- * given one short tip it wrote a correct opening sentence and then repeated
- * `(1 local) (1 immediate) (1 one shot) …` until it exhausted the token budget,
- * truncating the reply inside a field and losing the one after it. Same price
- * per token, one megabyte of context, structured outputs on both.
+ * **What a tier buys here is the thing the old constant could not.** The model
+ * that served this before was chosen by the maintainer against a real corpus and
+ * then had to be *changed in code* every time that judgement was revisited — and
+ * it had been, twice: `xiaomi/mimo-v2.5` was replaced for being served from a
+ * shared free pool, rate-limited hard enough that four of four briefing
+ * syntheses failed in one hour, and for degenerating into repeated fragments
+ * until it exhausted the token budget. Those are gateway-side facts about a
+ * model, and they now change a preset rather than this file.
  *
- * Overridable, because the choice is a judgement that will be revisited and the
- * alternative is a code change to try another model against the same corpus.
+ * **The tier-1 preset must not carry an internal fallback chain**, for the
+ * reason `CAPABILITY_TIERS` states beside the tier: a preset that silently
+ * substitutes a weaker model defeats the rule above from inside the gateway,
+ * where no test here can see it.
+ *
+ * It must still support strict JSON schema output — every prompt in this file
+ * asks for a shape rather than prose, and a moderator whose verdict has to be
+ * extracted with a regular expression is one that will eventually approve
+ * something because it wrote the word "approve" in an explanation.
  */
-export const MODERATION_MODEL = 'deepseek/deepseek-v4-flash'
+export const MODERATION_TIER: CapabilityTier = TIER_1
 
 /**
- * The model that measures similarity.
+ * Where the model that measures similarity is named — configuration, and never a
+ * constant here (`#1694`).
  *
  * A different model from the one that judges, and necessarily so: judging is a
  * chat completion and similarity is an embedding, and no model does both. This
  * one only ever narrows the field — **it never decides a merge**. See `dedup.ts`
  * for why that separation is the whole design rather than an implementation
  * detail.
+ *
+ * **An embedding has no tier, and cannot have one.** A tier is a preset on a
+ * chat endpoint; embeddings do not route through the gateway at all — D-122 §1,
+ * and the gateway answers 404 for `/embeddings`. So the slug that used to sit
+ * here is read from the environment instead, and there is no default.
+ *
+ * **Unset means no embeddings, which is not an outage.** `embed` answers with
+ * nothing, `findDuplicate` reads the short answer and returns `distinct`, and
+ * entries are published without being compared. That is the direction `dedup.ts`
+ * already documents as safe: the failure shows up as nothing ever being merged,
+ * which is visible and reversible, rather than as a merge onto the wrong pair.
  */
-export const EMBEDDING_MODEL = 'openai/text-embedding-3-small'
+export const EMBEDDING_MODEL_VAR = 'OPENROUTER_EMBEDDING_MODEL'
 
 /**
- * The token ceiling on a synthesis, which is the only call here whose answer is a
- * document rather than a verdict.
+ * The operator's ceiling for this service, or nothing at all (`#1694`).
  *
- * **2000 was too low, and the way it failed is the reason this is a named
- * constant rather than a literal.** `briefing.failed` fired on two seeded tasks
- * on 2026-08-05 with `finish_reason length` and **no content at all** — not a
- * truncated briefing, an empty one. A reply cut off inside its own JSON is at
- * least partly salvageable; a reply that never began is not.
+ * **Four named ceilings used to live here and all four are gone.** They were
+ * `BRIEFING_MAX_TOKENS`, `CLASSIFY_MAX_TOKENS`, `MARK_MAX_TOKENS` and
+ * `CEILING_ESCALATION`, and the history they carried is the argument for
+ * removing them rather than against it: 2000 was too low and briefings came back
+ * empty (`#416`), 400 was too low and verdicts came back empty (`#437`), 4000
+ * was too low and a walk-prose pass came back empty (`#1192`). Each was raised
+ * with a correct paragraph attached and each was too small again, because
+ * **reasoning tokens are charged against the ceiling and never appear in the
+ * reply**, and how much a model reasons is a property of the page in front of it
+ * and of a model somebody else may swap under us.
  *
- * What was not accounted for is that **reasoning tokens are charged against this
- * ceiling and do not appear in the reply.** The model reasons first and writes
- * afterwards, so a budget sized for the document alone can be spent before the
- * first character of it is emitted — and from outside, that is indistinguishable
- * from a model that answered nothing.
+ * `max_tokens` is a ceiling and not a reservation: the model stops on its own,
+ * so a number set here can only ever be too small, and setting one very high is
+ * omitting it plus a figure a later reader mistakes for a considered limit and
+ * adjusts. Unset, the field is absent from the request body entirely.
  *
- * 8000 is four times the document this call has ever needed, deliberately: the
- * cost of a ceiling that is too high is tokens on a call that runs a few times an
- * hour, and the cost of one that is too low is a task whose briefing never gets
- * written, retried every poll for ever. Those are not the same size of mistake.
- *
- * Still bounded, for the reason the old comment gave and which still holds: a
- * briefing that wanted more than this is one claim per entry, which is the list
- * it was supposed to replace.
+ * **What replaces the escalation is not another number.** A reply the model said
+ * it did not finish is a failed call, at any ceiling — including one the gateway
+ * imposes that nothing here can see. `throwIfTruncated` raises it and
+ * `TruncatedCompletion` carries a stable code, so the row stays in its queue and
+ * the next poll tries again, which is what every other failure in this file
+ * already does.
  */
-export const BRIEFING_MAX_TOKENS = 8000
+export const moderationCeiling = (
+  env: Record<string, string | undefined> = process.env,
+): number | undefined => maxTokensFromEnvironment('moderation', env)
 
-/**
- * The token ceiling on one verdict.
- *
- * **400 was too low, and it failed exactly the way the briefing ceiling above
- * failed one day earlier** (`#437`). `entry.moderate.failed` fired three times on
- * one advice entry between 01:24 and 01:26 on 2026-08-06, twice with
- * `finish_reason length` and no content at all.
- *
- * **The old number was sized for the answer, which is the mistake.** Its comment
- * reasoned entirely about the reply — *"the reason is read by a citizen whose
- * entry was refused, so it has to fit in a moderation note"* — and that is a true
- * sentence about a field that is capped at {@link MODERATION_NOTE_MAX_LENGTH}
- * characters elsewhere. It is not what `max_tokens` bounds. **Reasoning tokens
- * are charged against this ceiling and never appear in the reply**, so a budget
- * sized for a 500-character sentence is spent before the first character of it is
- * written, and from outside that is indistinguishable from a model that answered
- * nothing.
- *
- * That is the same paragraph {@link BRIEFING_MAX_TOKENS} already carries. The
- * lesson was learned on the one call whose answer is a document and not applied
- * to the two whose answers are short — and *short answer* is precisely the
- * argument that makes a ceiling look safe when it is not.
- *
- * **Raising it is close to free, which is why the headroom is generous.**
- * `max_tokens` caps what may be generated; it is not a spend. A verdict that
- * needed 300 tokens costs 300 whether this reads 400 or 4000. What the old number
- * bought was not economy, it was a deterministic failure: at `temperature: 0` the
- * same entry produces the same empty reply on every poll, the row stays
- * `pending`, and `loop.ts` tries it again for ever.
- */
-export const CLASSIFY_MAX_TOKENS = 4000
-
-/**
- * The token ceiling on one marking pass.
- *
- * Raised from 800 with {@link CLASSIFY_MAX_TOKENS} and for its reason rather than
- * for evidence of its own: this call has not been seen to fail, and it is the same
- * model reasoning against the same ceiling with a budget sized for the list it
- * writes. Waiting for it to fail too would be waiting for something already
- * understood.
- *
- * Still bounded, for the reason the old comment gave and which still holds: a
- * reply that wanted more than this is marking most of the text, which is the
- * failure mode this stage is most at risk of. That bound is now well clear of the
- * reasoning rather than sharing a budget with it.
- */
-export const MARK_MAX_TOKENS = 4000
-
-/**
- * How much larger the second attempt's ceiling is, when the first one went
- * entirely on reasoning.
- *
- * **Raising a constant is not a fix for this failure, it is a fix for one
- * instance of it** (`#1192`). `#437` raised `classify` from 400 to 4000 with the
- * right paragraph attached; `walk-prose.moderate.failed` then arrived on
- * 2026-08-16 with `finish_reason length` at 4000. The number was too small
- * again, and the number will be too small again — how much a model reasons is a
- * property of the page in front of it and of a model somebody else may swap
- * under us, so no constant in this file is a bound on it.
- *
- * **What can be fixed is the shape of the failure.** A reply that was
- * interrupted before its first character is the one case where trying again
- * unchanged is guaranteed to fail: at `temperature: 0` the same page produces
- * the same empty reply on every poll, the row stays in the queue that selected
- * it, and `loop.ts` offers it again for ever. So the retry has to change
- * something, and the only thing worth changing is the ceiling it ran out of.
- *
- * Once, and multiplicatively. Once, because a second interruption is no longer
- * this anomaly — it is a page or a prompt that does not fit, which is a fact a
- * person should read in a log line rather than a cost the runner keeps paying.
- * Multiplicatively, because it has to clear the shortfall rather than nudge at
- * it: a ceiling missed by reasoning is missed by a lot or not at all.
- *
- * **This is the same rule the rest of this file already follows in three other
- * places: the failure has to degrade rather than latch.** `max_tokens` caps what
- * may be generated and is not a spend, so the escalated attempt costs what it
- * writes — and it only ever happens after an attempt that wrote nothing.
- */
-export const CEILING_ESCALATION = 4
+/** What a marking pass may be told about one span. Unchanged by `#1694`. */
 
 /** What a classification prompt is allowed to answer. */
 export interface Classification {
@@ -481,89 +436,18 @@ function stoppedWithoutContent(body: unknown): boolean {
 }
 
 /**
- * The reply was interrupted before its first character — the whole ceiling went
- * on reasoning (`#437`, `#1192`).
- *
- * **Interrupted *with* content is a different event and is not this.** A cut-off
- * briefing has claims in it worth keeping, and `salvageClaims` keeps them; there
- * is nothing to salvage here, which is what makes retrying at a higher ceiling
- * the only move that changes anything.
- */
-function spentOnReasoning(body: unknown): boolean {
-  return finishReason(body) === 'length' && withoutContent(body)
-}
-
-/**
  * One request to the completions endpoint.
  *
- * Only `max_tokens` is named, because it is the only field the transport itself
- * reads or rewrites. The rest is the caller's business and travels unexamined.
+ * **No `max_tokens` field** (`#1694`). The operator's ceiling, when one is set
+ * at all, is applied by `chatRequestBody` at the point of the send — so no
+ * caller in this file names a number, and with nothing set the field is absent
+ * from the body entirely.
  */
 interface ChatRequest {
   readonly model: string
   readonly messages: readonly { readonly role: string; readonly content: string }[]
   readonly response_format?: unknown
-  readonly max_tokens: number
   readonly temperature?: number
-}
-
-/**
- * The claims that were complete when the reply was cut off.
- *
- * **A truncated briefing is worth more than no briefing, and it used to be worth
- * nothing.** A reply cut off at the token ceiling ends mid-object, `JSON.parse`
- * throws on the whole string, and every claim the model finished writing — which
- * may be all but the last — was discarded with the fragment. At `temperature: 0`
- * that is not a bad hour: the same corpus produces the same truncated reply on
- * every poll, so the task's briefing is never written again.
- *
- * This is the same rule the rest of this file already follows in two other
- * places: **the failure has to degrade rather than latch.**
- *
- * It scans rather than repairs — no brace is added and no string is closed. Every
- * balanced object inside the array is handed to `JSON.parse` on its own, and one
- * that does not parse is dropped rather than guessed at. So the worst case is
- * fewer claims than the model wrote, never a claim it did not write.
- */
-function salvageClaims(content: string): readonly unknown[] {
-  const start = content.indexOf('[')
-  if (start === -1) return []
-
-  const claims: unknown[] = []
-  let depth = 0
-  let objectStart = -1
-  let inString = false
-  let escaped = false
-
-  for (let i = start; i < content.length; i++) {
-    const character = content[i]
-
-    // A brace inside a string is text, and a claim's text may contain one.
-    if (inString) {
-      if (escaped) escaped = false
-      else if (character === '\\') escaped = true
-      else if (character === '"') inString = false
-      continue
-    }
-
-    if (character === '"') inString = true
-    else if (character === '{') {
-      if (depth === 0) objectStart = i
-      depth++
-    } else if (character === '}') {
-      depth--
-      if (depth === 0 && objectStart !== -1) {
-        try {
-          claims.push(JSON.parse(content.slice(objectStart, i + 1)))
-        } catch {
-          // Balanced but not parseable. Dropped, for the reason above.
-        }
-        objectStart = -1
-      }
-    }
-  }
-
-  return claims
 }
 
 /**
@@ -673,8 +557,9 @@ export function unavailableModel(reason: string): Model {
  * file is a credential whose blast radius is one file.
  */
 export function openRouterModel(apiKey: string, options: ModelOptions = {}): Model {
-  const model = options.model ?? MODERATION_MODEL
-  const embeddingModel = options.embeddingModel ?? EMBEDDING_MODEL
+  const model = options.model ?? MODERATION_TIER
+  const embeddingModel = options.embeddingModel
+  const ceiling = options.maxTokens
   const fetchImpl = options.fetch ?? fetch
   const log = options.log ?? silentLog
   /**
@@ -753,58 +638,52 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
   }
 
   /**
-   * One completion, with the two empty replies this file has been bitten by
-   * already handled — and the ceiling that was actually spent handed back.
+   * One completion, with the empty reply this file has been bitten by handled.
    *
-   * **The ceiling is returned rather than assumed** (`#1192`). Every caller used
-   * to name its own constant in the error it throws, which was right while the
-   * request could only ever carry that constant. It cannot any more: after an
-   * escalation the reply came from a different budget, and a message naming the
-   * first one sends whoever reads it to change a number that was not the one in
-   * force.
+   * **A truncated reply throws rather than escalating a ceiling** (`#1694`). The
+   * escalation this used to do — retry once at four times the ceiling — was a
+   * fix for one instance of a failure whose cause is that a ceiling exists at
+   * all, and it was written after the third time a named constant turned out to
+   * be too small. There is no ceiling to raise now unless an operator set one,
+   * and `throwIfTruncated` catches the cut-off answer at whatever ceiling the
+   * gateway itself imposes, which no constant here could ever see.
+   *
+   * A throw here leaves the row in the queue that selected it and the next poll
+   * tries again, which is what every other failure in this file already does.
    */
   const chat = async (
     request: ChatRequest,
   ): Promise<{
     readonly body: unknown
     readonly accounting: ModelCall | undefined
-    readonly ceiling: number
   }> => {
-    const ceiling = request.max_tokens
-    const response = await call('/chat/completions', request)
+    const body = chatRequestBody({
+      ...request,
+      ...(ceiling === undefined ? {} : { maxTokens: ceiling }),
+    })
+    const response = await call('/chat/completions', body)
 
     // `stop` ordinarily means a complete answer. One empty response is a
     // provider anomaly; one immediate retry avoids delaying the entry until the
     // next poll, while a second empty response still fails visibly.
-    if (stoppedWithoutContent(response.body)) {
-      return { ...(await call('/chat/completions', request)), ceiling }
-    }
+    const answered = stoppedWithoutContent(response.body)
+      ? await call('/chat/completions', body)
+      : response
 
-    // Interrupted before the first character. Retrying this unchanged is the one
-    // case that cannot work — see CEILING_ESCALATION.
-    if (!spentOnReasoning(response.body)) return { ...response, ceiling }
+    // Cut off before it finished — at the operator's ceiling if one is set, and
+    // at the gateway's own otherwise. Either way it is a failed call and never a
+    // verdict: a truncated reply is well-formed, which is what makes accepting
+    // one a judgement nobody finished writing.
+    throwIfTruncated(answered.body)
 
-    const raised = ceiling * CEILING_ESCALATION
-    log.warn(
-      `${model} spent the whole ${ceiling}-token ceiling on reasoning; retrying once at ${raised}`,
-      {
-        event: 'model.ceiling.raised',
-        model,
-        ceiling,
-        raised,
-      },
-    )
-    return {
-      ...(await call('/chat/completions', { ...request, max_tokens: raised })),
-      ceiling: raised,
-    }
+    return answered
   }
 
   return {
     name: model,
 
     async classify({ system, user, choices }) {
-      const { body, accounting, ceiling } = await chat({
+      const { body, accounting } = await chat({
         model,
         messages: [
           { role: 'system', content: system },
@@ -831,32 +710,25 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
             },
           },
         },
-        // Sized for the reasoning and not for the sentence — see
-        // CLASSIFY_MAX_TOKENS, which is what `#437` was.
-        max_tokens: CLASSIFY_MAX_TOKENS,
         // Judging the same text twice should reach the same verdict. This is a
         // classification, not a composition.
         temperature: 0,
       })
 
       /**
-       * **The ceiling is passed so the refusal can name it** (`#437`). Without it
-       * `messageContent` says only `finish_reason length`, which is the symptom
-       * with the actionable half left out — the briefing call has passed it since
-       * `#416` and these two never did, so the one log line that would have
-       * pointed straight at the number did not carry it.
-       *
-       * It is the ceiling the reply came back under and not the constant, which
-       * are the same number until an escalation makes them different (`#1192`).
+       * **No ceiling to name any more** (`#1694`). `messageContent` still
+       * reports `finish_reason`, and a reply cut off at a ceiling never reaches
+       * here at all — `chat` throws on it, because a truncated verdict is a
+       * verdict nobody finished writing.
        */
       return {
-        ...parseVerdict(messageContent(body, ceiling), choices, finishReason(body), ceiling),
+        ...parseVerdict(messageContent(body), choices, finishReason(body)),
         call: accounting,
       }
     },
 
     async mark({ system, user, kinds }) {
-      const { body, ceiling } = await chat({
+      const { body } = await chat({
         model,
         messages: [
           { role: 'system', content: system },
@@ -895,12 +767,9 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
             },
           },
         },
-        // See MARK_MAX_TOKENS. Sized clear of the reasoning rather than sized to
-        // the list, which is what `#437` corrected here and in `classify`.
-        max_tokens: MARK_MAX_TOKENS,
         temperature: 0,
       })
-      const content = messageContent(body, ceiling)
+      const content = messageContent(body)
 
       const parsed = JSON.parse(content) as { spans?: unknown }
       if (!Array.isArray(parsed.spans)) {
@@ -920,7 +789,7 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
     },
 
     async compose({ system, user, sections, sourceIds, maxClaimLength }) {
-      const { body, ceiling } = await chat({
+      const { body } = await chat({
         model,
         messages: [
           { role: 'system', content: system },
@@ -975,44 +844,36 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
             },
           },
         },
-        // The largest ceiling in this file, because this is the only call whose
-        // answer is a document rather than a verdict. See BRIEFING_MAX_TOKENS for
-        // why the number is what it is and what happened at the previous one.
-        max_tokens: BRIEFING_MAX_TOKENS,
         temperature: 0,
       })
-      const content = messageContent(body, ceiling)
-      const truncated = finishReason(body) === 'length'
+      const content = messageContent(body)
 
-      let claims: readonly unknown[]
-      try {
-        const parsed = JSON.parse(content) as { claims?: unknown }
-        if (!Array.isArray(parsed.claims)) {
-          throw new Error('the model returned a briefing without a claims array')
-        }
-        claims = parsed.claims
-      } catch (error) {
-        // Only a reply the model itself said was cut off is salvaged. Anything
-        // else that will not parse is malformed rather than incomplete, and
-        // reading a malformed reply optimistically is how a briefing ends up
-        // saying something nobody wrote.
-        if (!truncated) throw error
-
-        claims = salvageClaims(content)
-        if (claims.length === 0) {
-          throw new Error(
-            `the briefing was cut off at the ${ceiling}-token ceiling before one claim was complete`,
-            { cause: error },
-          )
-        }
-
-        log.warn(`${model} was cut off mid-briefing; kept ${claims.length} complete claim(s)`, {
-          event: 'model.briefing.truncated',
-          model,
-          kept: claims.length,
-          ceiling,
-        })
+      /**
+       * **A truncated briefing is no longer salvaged, and that is a behaviour
+       * this issue changed on purpose** (`#1694`).
+       *
+       * What stood here read a reply the model said was cut off, scanned it for
+       * the claims that were complete, and published those. It was right while
+       * the alternative was a task whose briefing was never written again — at
+       * `temperature: 0` the same corpus produced the same truncated reply on
+       * every poll, so the failure latched.
+       *
+       * It cannot stand beside the rule this issue sets: *a reply with
+       * `finish_reason: length` is a failed call and is never returned as a
+       * successful answer.* A salvaged briefing is exactly that — a successful
+       * answer assembled from a call that failed, published under the Colony's
+       * own name with however much the model had got to. And the reason it
+       * latched is gone with the ceiling: there is no number here to be too
+       * small, so a retry is no longer guaranteed to reproduce the cut.
+       *
+       * `chat` throws before this line on a truncated reply. What is left here
+       * is the ordinary malformed case, which still throws and always did.
+       */
+      const parsed = JSON.parse(content) as { claims?: unknown }
+      if (!Array.isArray(parsed.claims)) {
+        throw new Error('the model returned a briefing without a claims array')
       }
+      const claims: readonly unknown[] = parsed.claims
 
       /**
        * A malformed claim is dropped; a malformed *reply* throws.
@@ -1066,6 +927,20 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
     async embed(inputs) {
       if (inputs.length === 0) return []
 
+      /**
+       * No embedding model configured is no comparison, and the caller reads a
+       * short answer as `distinct` (`#1694`). Loud, because a Colony that
+       * silently stopped de-duplicating looks exactly like one where nothing has
+       * been published twice yet.
+       */
+      if (embeddingModel === undefined || embeddingModel.trim() === '') {
+        log.warn(
+          `${EMBEDDING_MODEL_VAR} is not set. Entries are published without being compared.`,
+          { event: 'config.missing', variable: EMBEDDING_MODEL_VAR },
+        )
+        return []
+      }
+
       const { body } = await call('/embeddings', { model: embeddingModel, input: [...inputs] })
       const data = (body as { data?: { embedding?: number[]; index?: number }[] }).data
 
@@ -1089,6 +964,12 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
 export interface ModelOptions {
   readonly model?: string
   readonly embeddingModel?: string
+  /**
+   * The operator's ceiling, or nothing — which is the ordinary state and means
+   * `max_tokens` is absent from every request body (`#1694`). Read from
+   * `LLM_GATEWAY_MAX_TOKENS_MODERATION` in the runner's wiring, like the key.
+   */
+  readonly maxTokens?: number
   /** Injectable so tests need no network. */
   readonly fetch?: typeof fetch
   /**

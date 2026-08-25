@@ -1,7 +1,11 @@
 import {
   SceneCheckSchema,
   SCENE_PROHIBITION,
+  TIER_2,
+  chatRequestBody,
   sceneBindingPhrase,
+  throwIfTruncated,
+  type CapabilityTier,
   type SceneConstraints,
   type Log,
 } from '@kolonie-ai/core'
@@ -25,21 +29,21 @@ import { recordOpenRouterCall } from './model-call.js'
 export const SCENE_VISION_MODEL_VAR = 'SCENE_VISION_MODEL'
 
 /**
- * The model that judges a scene.
+ * The tier that judges a scene (`#1694`).
  *
  * It has to accept an image *and* return a structured object, for the reason
- * `DEFAULT_VISION_MODEL` records — a verdict extracted from prose with a regular
+ * `DEFAULT_VISION_TIER` records — a verdict extracted from prose with a regular
  * expression eventually passes an image because the model wrote the word
  * "correct" in an explanation.
  *
- * **And it has to count.** That is the requirement this default is chosen for
- * and the one that rules out the cheap tier: a judge that miscounts four objects
- * fails a citizen who did exactly what was asked, on a rung whose attempts cost
- * that citizen money. The choice is settled against real submissions rather than
- * argued, which is why it is a variable — the same discipline
- * `apps/support-triage-runner` records for its own model.
+ * **And it has to count.** That is the requirement this tier is chosen for and
+ * the one that rules out `tier-3`: a judge that miscounts four objects fails a
+ * citizen who did exactly what was asked, on a rung whose attempts cost that
+ * citizen money. Which model serves `tier-2` is settled at the gateway against
+ * real submissions — that is what the tier bought, and the variable below is
+ * still there for pinning one during an incident.
  */
-export const DEFAULT_SCENE_VISION_MODEL = 'openai/gpt-4o'
+export const DEFAULT_SCENE_VISION_TIER: CapabilityTier = TIER_2
 
 /** Where OpenRouter is. A constant, as in the moderation runner: a vendor's root. */
 const OPENROUTER_BASE = 'https://openrouter.ai/api/v1'
@@ -113,9 +117,11 @@ export function scenePromptForModel(constraints: SceneConstraints): string {
  */
 export function openRouterSceneVision(
   apiKey: string | undefined,
-  model: string | undefined = DEFAULT_SCENE_VISION_MODEL,
+  model: string | undefined = DEFAULT_SCENE_VISION_TIER,
   fetchImpl: typeof fetch = fetch,
   log?: Log,
+  /** The operator's ceiling, or nothing — the ordinary state (`#1694`). */
+  maxTokens?: number,
 ): SceneChecker {
   /**
    * A blank model name is an unset one, and a default parameter would not catch
@@ -123,7 +129,7 @@ export function openRouterSceneVision(
    * so a missing variable degrades the runner rather than refusing to start it,
    * and what that hands the process is an empty string.
    */
-  const chosen = model === undefined || model.trim() === '' ? DEFAULT_SCENE_VISION_MODEL : model
+  const chosen = model === undefined || model.trim() === '' ? DEFAULT_SCENE_VISION_TIER : model
 
   return {
     check: async ({ image, format, constraints }): Promise<SceneCheckResult> => {
@@ -144,25 +150,28 @@ export function openRouterSceneVision(
             authorization: `Bearer ${apiKey}`,
             'content-type': 'application/json',
           },
-          body: JSON.stringify({
-            model: chosen,
-            // Nothing creative is wanted. The same picture and the same
-            // specification should produce the same verdict twice.
-            temperature: 0,
-            messages: [
-              {
-                role: 'user',
-                content: [
-                  { type: 'text', text: scenePromptForModel(constraints) },
-                  { type: 'image_url', image_url: { url: dataUrl } },
-                ],
+          body: JSON.stringify(
+            chatRequestBody({
+              model: chosen,
+              // Nothing creative is wanted. The same picture and the same
+              // specification should produce the same verdict twice.
+              temperature: 0,
+              messages: [
+                {
+                  role: 'user',
+                  content: [
+                    { type: 'text', text: scenePromptForModel(constraints) },
+                    { type: 'image_url', image_url: { url: dataUrl } },
+                  ],
+                },
+              ],
+              response_format: {
+                type: 'json_schema',
+                json_schema: { name: 'scene_check', strict: true, schema: SCENE_CHECK_SCHEMA },
               },
-            ],
-            response_format: {
-              type: 'json_schema',
-              json_schema: { name: 'scene_check', strict: true, schema: SCENE_CHECK_SCHEMA },
-            },
-          }),
+              ...(maxTokens === undefined ? {} : { maxTokens }),
+            }),
+          ),
         })
       } catch (error) {
         return {
@@ -204,6 +213,17 @@ export function openRouterSceneVision(
         return {
           outcome: 'unavailable',
           reason: 'the model answered with something that is not JSON.',
+        }
+      }
+
+      // A reply cut off at a ceiling is a failed call and never a verdict
+      // (`#1694`). `unavailable`, because the remedy is asking again.
+      try {
+        throwIfTruncated(body)
+      } catch {
+        return {
+          outcome: 'unavailable',
+          reason: 'the model stopped at a token ceiling before it finished.',
         }
       }
 

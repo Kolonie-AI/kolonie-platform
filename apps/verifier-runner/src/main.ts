@@ -54,6 +54,7 @@ import {
   AgentIdSchema,
   createLog,
   gatewayFromEnvironment,
+  maxTokensFromEnvironment,
   gatewayRoutedFetch,
   SubmissionIdSchema,
   TaskIdSchema,
@@ -135,6 +136,14 @@ const log: Log = createLog({
  * wrong is replayed against OpenRouter underneath, so `unavailable` still means
  * what it meant and no citizen is failed for our routing.
  */
+/**
+ * The operator's ceiling for every model this runner asks, or nothing — which is
+ * the ordinary state and means `max_tokens` is absent from every request body
+ * (`#1694`). One read, passed to each rung, because the containment it exists
+ * for is per service rather than per rung.
+ */
+const verifierCeiling = maxTokensFromEnvironment('verifier')
+
 const modelFetch = gatewayRoutedFetch(gatewayFromEnvironment('verifier'), {
   log,
 })
@@ -262,6 +271,7 @@ const verifiers = createVerifiers({
     process.env[VISION_MODEL_VAR],
     modelFetch,
     log,
+    verifierCeiling,
   ),
   imageChallenges: { latest: (agentId) => latestImageChallenge(db, AgentIdSchema.parse(agentId)) },
   // Both are passed straight through, blank and all: `openRouterVision` treats
@@ -272,6 +282,7 @@ const verifiers = createVerifiers({
     process.env[VISION_MODEL_VAR],
     modelFetch,
     log,
+    verifierCeiling,
   ),
   /**
    * The generator rung (`#216`), on the same key and a **different model**.
@@ -291,6 +302,7 @@ const verifiers = createVerifiers({
     process.env[SCENE_VISION_MODEL_VAR],
     modelFetch,
     log,
+    verifierCeiling,
   ),
   /**
    * The prompt-injection badge (`#168`). No vendor half and no credential: every
@@ -330,6 +342,7 @@ const verifiers = createVerifiers({
     process.env[BIO_MODEL_VAR],
     modelFetch,
     log,
+    verifierCeiling,
   ),
   /**
    * The quest report's two halves (`#177`): the rows that say what a quest asks,
@@ -354,6 +367,7 @@ const verifiers = createVerifiers({
     process.env[QUEST_JUDGE_MODEL_VAR],
     modelFetch,
     log,
+    verifierCeiling,
   ),
   // The GitHub rung's Colony-side half: which nonces this agent may currently
   // publish. Credential-free like the three above — the *token* this rung needs

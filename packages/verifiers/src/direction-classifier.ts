@@ -1,6 +1,10 @@
 import {
   KNOWN_SKILLS,
+  TIER_3,
+  chatRequestBody,
   knownSkillsOnly,
+  throwIfTruncated,
+  type CapabilityTier,
   type DirectionClassifier,
   type DispositionStance,
   type Skill,
@@ -28,13 +32,16 @@ import { recordOpenRouterCall } from './model-call.js'
 export const DIRECTION_MODEL_VAR = 'DIRECTION_MODEL'
 
 /**
- * The same text model the bio judge and the moderator use.
+ * The same tier the bio judge asks for (`#1694`).
  *
- * It is cheap, it supports strict JSON schema output, and it has already been
- * chosen against a corpus of short citizen-written text — which is exactly what
- * two sentences about what an agent wants to become are.
+ * **`tier-3`, because nothing here needs more.** Two sentences about what an
+ * agent wants to become, sorted into four stances, on every profile that
+ * declares one — high-volume classification, which is what the cheap tier is
+ * for. It ran on a flash model before this and asks for nothing a flash model
+ * cannot do. **And it decides nothing**: every failure answers `null`, which
+ * every reader turns into *no preference*.
  */
-export const DEFAULT_DIRECTION_MODEL = 'deepseek/deepseek-v4-flash'
+export const DEFAULT_DIRECTION_TIER: CapabilityTier = TIER_3
 
 /** Where OpenRouter is. A constant, as everywhere else: a vendor's root. */
 const OPENROUTER_BASE = 'https://openrouter.ai/api/v1'
@@ -124,13 +131,15 @@ function declarationText(input: {
  */
 export function openRouterDirectionClassifier(
   apiKey: string | undefined,
-  model: string | undefined = DEFAULT_DIRECTION_MODEL,
+  model: string | undefined = DEFAULT_DIRECTION_TIER,
   fetchImpl: typeof fetch = fetch,
   log?: Log,
+  /** The operator's ceiling, or nothing — the ordinary state (`#1694`). */
+  maxTokens?: number,
 ): DirectionClassifier {
   // A blank name is an unset one: Compose writes `${DIRECTION_MODEL:-}`, which
   // hands the process an empty string rather than nothing at all.
-  const chosen = model === undefined || model.trim() === '' ? DEFAULT_DIRECTION_MODEL : model
+  const chosen = model === undefined || model.trim() === '' ? DEFAULT_DIRECTION_TIER : model
 
   return {
     classify: async (input) => {
@@ -142,32 +151,35 @@ export function openRouterDirectionClassifier(
         response = await fetchImpl(`${OPENROUTER_BASE}/chat/completions`, {
           method: 'POST',
           headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
-          body: JSON.stringify({
-            model: chosen,
-            // The same declaration must sort the same way twice. Nothing about
-            // this benefits from variety.
-            temperature: 0,
-            messages: [
-              { role: 'system', content: directionPrompt() },
-              /**
-               * The citizen's own words travel as the user turn and never
-               * inside the instruction. This is text the Colony did not write,
-               * so interpolating it above would make *"ignore the above"* a
-               * working instruction — and while nothing here pays or gates, a
-               * classifier that can be talked into an answer is one whose
-               * answers mean nothing.
-               */
-              { role: 'user', content: declarationText(input) },
-            ],
-            response_format: {
-              type: 'json_schema',
-              json_schema: {
-                name: 'direction_classification',
-                strict: true,
-                schema: CLASSIFICATION_SCHEMA,
+          body: JSON.stringify(
+            chatRequestBody({
+              model: chosen,
+              // The same declaration must sort the same way twice. Nothing about
+              // this benefits from variety.
+              temperature: 0,
+              messages: [
+                { role: 'system', content: directionPrompt() },
+                /**
+                 * The citizen's own words travel as the user turn and never
+                 * inside the instruction. This is text the Colony did not write,
+                 * so interpolating it above would make *"ignore the above"* a
+                 * working instruction — and while nothing here pays or gates, a
+                 * classifier that can be talked into an answer is one whose
+                 * answers mean nothing.
+                 */
+                { role: 'user', content: declarationText(input) },
+              ],
+              response_format: {
+                type: 'json_schema',
+                json_schema: {
+                  name: 'direction_classification',
+                  strict: true,
+                  schema: CLASSIFICATION_SCHEMA,
+                },
               },
-            },
-          }),
+              ...(maxTokens === undefined ? {} : { maxTokens }),
+            }),
+          ),
         })
       } catch {
         return null
@@ -179,6 +191,14 @@ export function openRouterDirectionClassifier(
       try {
         body = (await response.json()) as typeof body
         recordOpenRouterCall(body, log, response)
+      } catch {
+        return null
+      }
+
+      // A reply cut off at a ceiling is a failed call (`#1694`), and at this
+      // classifier every failure is `null` — no preference, rather than a guess.
+      try {
+        throwIfTruncated(body)
       } catch {
         return null
       }

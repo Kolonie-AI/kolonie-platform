@@ -2,7 +2,11 @@ import {
   QUEST_TASK_TYPE,
   QUEST_VERIFIER_PROVES,
   RED_LINE_REVIEW_NOTICE,
+  TIER_3,
   TaskTypeSchema,
+  chatRequestBody,
+  throwIfTruncated,
+  type CapabilityTier,
   type QuestProofVerifier,
   type QuestQuestion,
   type Log,
@@ -289,9 +293,26 @@ export class QuestReportVerifier implements Verifier {
   }
 }
 
-/** Which model reads a report. Overridable, like every other model choice here. */
+/**
+ * The operator's pin for this judge. **The override still overrides** (`#1694`):
+ * pinning one service to one exact model during an incident is what it is for.
+ */
 export const QUEST_JUDGE_MODEL_VAR = 'QUEST_JUDGE_MODEL'
-export const DEFAULT_QUEST_JUDGE_MODEL = 'deepseek/deepseek-v4-flash'
+
+/**
+ * The tier that reads a quest report (`#1694`).
+ *
+ * **`tier-3`, on current behaviour**, which is the rule this issue set: it ran
+ * on a flash model, and reading whether an answer addresses the question asked
+ * is not something a flash model cannot do.
+ *
+ * **This is not the quest *moderation* verdict**, which is the decision the
+ * Colony cannot take back and is `apps/moderation-runner`'s. This judge answers
+ * `null` at every failure and the verifier turns `null` into `pending`, so a bad
+ * day here costs a report its verdict until the model is back — it never fails a
+ * citizen and never publishes anything.
+ */
+export const DEFAULT_QUEST_JUDGE_TIER: CapabilityTier = TIER_3
 
 const OPENROUTER_BASE = 'https://openrouter.ai/api/v1'
 
@@ -370,11 +391,13 @@ export function questJudgePrompt(questions: readonly QuestQuestion[]): string {
  */
 export function openRouterQuestJudge(
   apiKey: string | undefined,
-  model: string | undefined = DEFAULT_QUEST_JUDGE_MODEL,
+  model: string | undefined = DEFAULT_QUEST_JUDGE_TIER,
   fetchImpl: typeof fetch = fetch,
   log?: Log,
+  /** The operator's ceiling, or nothing — the ordinary state (`#1694`). */
+  maxTokens?: number,
 ): QuestJudge {
-  const chosen = model === undefined || model.trim() === '' ? DEFAULT_QUEST_JUDGE_MODEL : model
+  const chosen = model === undefined || model.trim() === '' ? DEFAULT_QUEST_JUDGE_TIER : model
 
   return {
     judge: async ({ questions, answers }): Promise<QuestJudgement | null> => {
@@ -387,24 +410,27 @@ export function openRouterQuestJudge(
         response = await fetchImpl(`${OPENROUTER_BASE}/chat/completions`, {
           method: 'POST',
           headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
-          body: JSON.stringify({
-            model: chosen,
-            temperature: 0,
-            messages: [
-              { role: 'system', content: questJudgePrompt(questions) },
-              /**
-               * The answers travel as the user turn and never inside the
-               * instruction. The same boundary `bio-judge` draws, and it matters
-               * more here: this text was written by a citizen with money
-               * depending on the verdict.
-               */
-              { role: 'user', content: report },
-            ],
-            response_format: {
-              type: 'json_schema',
-              json_schema: { name: 'quest_judgement', strict: true, schema: JUDGEMENT_SCHEMA },
-            },
-          }),
+          body: JSON.stringify(
+            chatRequestBody({
+              model: chosen,
+              temperature: 0,
+              messages: [
+                { role: 'system', content: questJudgePrompt(questions) },
+                /**
+                 * The answers travel as the user turn and never inside the
+                 * instruction. The same boundary `bio-judge` draws, and it matters
+                 * more here: this text was written by a citizen with money
+                 * depending on the verdict.
+                 */
+                { role: 'user', content: report },
+              ],
+              response_format: {
+                type: 'json_schema',
+                json_schema: { name: 'quest_judgement', strict: true, schema: JUDGEMENT_SCHEMA },
+              },
+              ...(maxTokens === undefined ? {} : { maxTokens }),
+            }),
+          ),
         })
       } catch {
         return null
@@ -416,6 +442,14 @@ export function openRouterQuestJudge(
       try {
         body = (await response.json()) as typeof body
         recordOpenRouterCall(body, log, response)
+      } catch {
+        return null
+      }
+
+      // A reply cut off at a ceiling is a failed call (`#1694`). `null` here is
+      // `pending` at the verifier: the report is judged when the model is back.
+      try {
+        throwIfTruncated(body)
       } catch {
         return null
       }

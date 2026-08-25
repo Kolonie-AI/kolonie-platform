@@ -1,4 +1,12 @@
-import { ImageCheckSchema, type ImageConstraints, type Log } from '@kolonie-ai/core'
+import {
+  ImageCheckSchema,
+  TIER_2,
+  chatRequestBody,
+  throwIfTruncated,
+  type CapabilityTier,
+  type ImageConstraints,
+  type Log,
+} from '@kolonie-ai/core'
 import type { VisionChecker, VisionCheckResult } from './raster.js'
 import { isPermanentVendorStatus, readVendorRejection } from './vendor.js'
 import { recordOpenRouterCall } from './model-call.js'
@@ -12,19 +20,31 @@ import { recordOpenRouterCall } from './model-call.js'
  */
 export const OPENROUTER_API_KEY_VAR = 'OPENROUTER_API_KEY'
 
-/** Which model looks at the image. Overridable, because the choice will be revisited. */
+/**
+ * The operator's pin for this one rung.
+ *
+ * **The override still overrides** (`#1694`). A tier is what a service asks for
+ * in the ordinary case; an operator containing an incident must still be able to
+ * pin this rung to one exact model, and that is what this variable is for. Set,
+ * it wins over the tier.
+ */
 export const VISION_MODEL_VAR = 'VISION_MODEL'
 
 /**
- * The model that looks at the image.
+ * The tier that looks at the image (`#1694`).
  *
- * It has to accept an image *and* return a structured object — a verdict
- * extracted from prose with a regular expression is a verdict that will
- * eventually pass an image because the model wrote the word "correct" in an
- * explanation. That is the same reasoning `MODERATION_MODEL` records, and it
- * rules out most of the cheap vision models rather than a few.
+ * **`tier-2` and not `tier-3`, because this one reads pictures.** It has to
+ * accept an image *and* return a structured object — a verdict extracted from
+ * prose with a regular expression is a verdict that will eventually pass an
+ * image because the model wrote the word "correct" in an explanation. That rules
+ * out the cheap, fast tier rather than making it a saving: the cheapest tier is
+ * where a model that cannot see is likeliest to be configured.
+ *
+ * It is not `tier-1` either. Nothing here is a decision the Colony cannot take
+ * back — a wrong verdict on an image is `unavailable` or a rung an agent
+ * attempts again, not paid work published.
  */
-export const DEFAULT_VISION_MODEL = 'openai/gpt-4o-mini'
+export const DEFAULT_VISION_TIER: CapabilityTier = TIER_2
 
 /** Where OpenRouter is. A constant, as in the moderation runner: a vendor's root. */
 /**
@@ -95,18 +115,24 @@ export function visionPromptFor(constraints: ImageConstraints): string {
  */
 export function openRouterVision(
   apiKey: string | undefined,
-  model: string | undefined = DEFAULT_VISION_MODEL,
+  model: string | undefined = DEFAULT_VISION_TIER,
   fetchImpl: typeof fetch = fetch,
   log?: Log,
+  /**
+   * The operator's ceiling, from `LLM_GATEWAY_MAX_TOKENS_VERIFIER`, or nothing
+   * — which is the ordinary state and means the field is absent from the request
+   * body entirely (`#1694`). Read in the runner's wiring, like the key.
+   */
+  maxTokens?: number,
 ): VisionChecker {
   /**
-   * A blank model name is an unset one, and a default parameter would not catch
-   * it. `docker-compose.yml` writes `VISION_MODEL: ${VISION_MODEL:-}` so that a
+   * A blank name is an unset one, and a default parameter would not catch it.
+   * `docker-compose.yml` writes `VISION_MODEL: ${VISION_MODEL:-}` so that a
    * missing variable degrades the runner rather than refusing to start it, and
    * what that hands the process is an empty string. Without this the Colony
-   * would ask OpenRouter for a model called `""` on every submission.
+   * would ask for a model called `""` on every submission.
    */
-  const chosen = model === undefined || model.trim() === '' ? DEFAULT_VISION_MODEL : model
+  const chosen = model === undefined || model.trim() === '' ? DEFAULT_VISION_TIER : model
 
   return {
     check: async ({ image, format, constraints }): Promise<VisionCheckResult> => {
@@ -127,25 +153,28 @@ export function openRouterVision(
             authorization: `Bearer ${apiKey}`,
             'content-type': 'application/json',
           },
-          body: JSON.stringify({
-            model: chosen,
-            // Nothing creative is wanted. The same picture and the same
-            // constraints should produce the same verdict twice.
-            temperature: 0,
-            messages: [
-              {
-                role: 'user',
-                content: [
-                  { type: 'text', text: visionPromptFor(constraints) },
-                  { type: 'image_url', image_url: { url: dataUrl } },
-                ],
+          body: JSON.stringify(
+            chatRequestBody({
+              model: chosen,
+              // Nothing creative is wanted. The same picture and the same
+              // constraints should produce the same verdict twice.
+              temperature: 0,
+              messages: [
+                {
+                  role: 'user',
+                  content: [
+                    { type: 'text', text: visionPromptFor(constraints) },
+                    { type: 'image_url', image_url: { url: dataUrl } },
+                  ],
+                },
+              ],
+              response_format: {
+                type: 'json_schema',
+                json_schema: { name: 'image_check', strict: true, schema: CHECK_SCHEMA },
               },
-            ],
-            response_format: {
-              type: 'json_schema',
-              json_schema: { name: 'image_check', strict: true, schema: CHECK_SCHEMA },
-            },
-          }),
+              ...(maxTokens === undefined ? {} : { maxTokens }),
+            }),
+          ),
         })
       } catch (error) {
         return {
@@ -187,6 +216,21 @@ export function openRouterVision(
         return {
           outcome: 'unavailable',
           reason: 'the model answered with something that is not JSON.',
+        }
+      }
+
+      /**
+       * A reply cut off at a ceiling is a failed call and never a verdict
+       * (`#1694`). `unavailable` and not `rejected`: the request was right, and
+       * the remedy is asking again — which is what this rung already does with
+       * every other way the Colony fails to get an answer.
+       */
+      try {
+        throwIfTruncated(body)
+      } catch {
+        return {
+          outcome: 'unavailable',
+          reason: 'the model stopped at a token ceiling before it finished.',
         }
       }
 

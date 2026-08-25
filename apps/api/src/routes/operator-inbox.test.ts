@@ -221,6 +221,45 @@ describe('the inbox behind a mailed link', () => {
       expect(body).toContain('name="act" value="send"')
     })
 
+    it('renders the same canonical share lifecycle on the durable door', async () => {
+      const token = await aPage()
+      const conversationId = messaging.thread(humanId, agentId)
+      const at = '2026-08-24T12:00:00.000Z'
+      messaging.shareOnThread(conversationId, {
+        events: [
+          { vaultKey: 'provider/first', kind: 'shared', at },
+          { vaultKey: 'provider/second', kind: 'shared', at },
+          { vaultKey: 'provider/first', kind: 'read', at },
+          { vaultKey: 'provider/second', kind: 'read', at },
+          { vaultKey: 'provider/first', kind: 'written', at },
+          { vaultKey: 'provider/second', kind: 'written', at },
+          { vaultKey: 'provider/first', kind: 'handed-back', at },
+          { vaultKey: 'provider/second', kind: 'handed-back', at },
+        ],
+      })
+
+      const rendered = await get(`/operator/page/${token}/inbox/${conversationId}`)
+      const lifecycle = rendered.body.slice(rendered.body.indexOf('<ul class="share-events">'))
+      const expected = [
+        'provider/first</code> — shared with you',
+        'provider/second</code> — shared with you',
+        'provider/first</code> — opened',
+        'provider/second</code> — opened',
+        'provider/first</code> — you wrote something into it',
+        'provider/second</code> — you wrote something into it',
+        'provider/first</code> — handed back',
+        'provider/second</code> — handed back',
+      ]
+
+      expect(rendered.statusCode).toBe(200)
+      let previous = -1
+      for (const needle of expected) {
+        const position = lifecycle.indexOf(needle)
+        expect(position).toBeGreaterThan(previous)
+        previous = position
+      }
+    })
+
     /** **`#241`.** A valid token cannot be aimed at another citizen's thread. */
     it('cannot be aimed at a thread this token does not reach', async () => {
       const other = String(fakeStore().issue().agent.id)

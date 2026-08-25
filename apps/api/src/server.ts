@@ -1228,7 +1228,12 @@ const app = buildApp({
       return result.outcome === 'read'
         ? {
             outcome: 'read',
-            response: { messages: result.messages, about: result.about, shares: result.shares },
+            response: {
+              messages: result.messages,
+              about: result.about,
+              shares: result.shares,
+              shareEvents: result.shareEvents,
+            },
           }
         : { outcome: 'refused', error: messageRefusals[result.refusal] }
     },

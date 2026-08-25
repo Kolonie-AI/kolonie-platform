@@ -291,6 +291,7 @@ export function registerOperatorInboxRoutes(app: FastifyInstance, deps: RouteDep
          * that reaches one door is a mechanism half the operators cannot see.
          */
         shares: read.response.shares,
+        shareEvents: read.response.shareEvents,
         /** The token's own page is where a share is written and read. */
         shareAction: `/operator/page/${at.token}`,
         readAt: `/operator/page/${at.token}`,

@@ -24,6 +24,7 @@
  */
 
 import { handoverNotice } from '@kolonie-ai/core'
+import type { ShareLifecycleEvent } from '@kolonie-ai/db'
 import { escape } from './escape.js'
 import { consoleNavigation, type ConsoleNav } from './navigation.js'
 import { CONSOLE_MAST } from './mark.js'
@@ -1833,6 +1834,8 @@ export function inboxThreadPage(
           readonly ended: 'taken-back' | 'expired' | null
         }[]
       | undefined
+    /** The canonical lifecycle sequence; this renderer preserves its supplied order (`#1633`). */
+    readonly shareEvents?: readonly ShareLifecycleEvent[] | undefined
     /**
      * Where a share's write and hand-back post, and where its value is read
      * (`#1574`).
@@ -1884,6 +1887,7 @@ export function inboxThreadPage(
           )
           .join('')}</ul>`,
     ...shareBlocks(input),
+    ...shareEventSequence(input.shareEvents ?? []),
     ...(input.writable
       ? [
           /**
@@ -1933,6 +1937,28 @@ export function inboxThreadPage(
   return input.signedIn === true
     ? page({ title: input.agentName, body, signedIn: true, nav: input.nav })
     : page({ title: input.agentName, body })
+}
+
+const SHARE_EVENT_WORDS: Record<ShareLifecycleEvent['kind'], string> = {
+  shared: 'shared with you',
+  read: 'opened',
+  written: 'you wrote something into it',
+  'handed-back': 'handed back',
+}
+
+function shareEventSequence(events: readonly ShareLifecycleEvent[]): readonly string[] {
+  if (events.length === 0) return []
+
+  return [
+    '<p class="note">What has happened to what was shared here:</p>',
+    '<ul class="share-events">',
+    ...events.map(
+      (event) =>
+        `<li><code>${escape(event.vaultKey)}</code> — ` +
+        `${escape(SHARE_EVENT_WORDS[event.kind])} on ${escape(event.at)}</li>`,
+    ),
+    '</ul>',
+  ]
 }
 
 /**

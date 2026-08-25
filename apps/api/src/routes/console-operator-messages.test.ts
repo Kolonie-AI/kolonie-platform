@@ -478,6 +478,47 @@ describe('the inbox (#1448)', () => {
     expect(rows.every((row) => !row.unread)).toBe(true)
   })
 
+  it('renders the share lifecycle in the canonical supplied order', async () => {
+    const cookie = await signedInCookie()
+    const human = await operates(agentId)
+    const thread = messages.thread(human, String(agentId))
+    const at = '2026-08-24T12:00:00.000Z'
+    messages.shareOnThread(thread, {
+      events: [
+        { vaultKey: 'provider/first', kind: 'shared', at },
+        { vaultKey: 'provider/second', kind: 'shared', at },
+        { vaultKey: 'provider/first', kind: 'read', at },
+        { vaultKey: 'provider/second', kind: 'read', at },
+        { vaultKey: 'provider/first', kind: 'written', at },
+        { vaultKey: 'provider/second', kind: 'written', at },
+        { vaultKey: 'provider/first', kind: 'handed-back', at },
+        { vaultKey: 'provider/second', kind: 'handed-back', at },
+      ],
+    })
+
+    const rendered = await openThread(cookie, thread, 'text/html')
+    const lifecycle = rendered.body.slice(rendered.body.indexOf('<ul class="share-events">'))
+    const expected = [
+      'provider/first</code> — shared with you',
+      'provider/second</code> — shared with you',
+      'provider/first</code> — opened',
+      'provider/second</code> — opened',
+      'provider/first</code> — you wrote something into it',
+      'provider/second</code> — you wrote something into it',
+      'provider/first</code> — handed back',
+      'provider/second</code> — handed back',
+    ]
+
+    expect(rendered.statusCode).toBe(200)
+    expect(rendered.body).toContain('What has happened to what was shared here')
+    let previous = -1
+    for (const needle of expected) {
+      const position = lifecycle.indexOf(needle)
+      expect(position).toBeGreaterThan(previous)
+      previous = position
+    }
+  })
+
   it('replies in place, through the existing rules', async () => {
     const cookie = await signedInCookie()
     const human = await operates(agentId)

@@ -55,6 +55,7 @@ import {
 } from '../schema/index.js'
 import { isAcceptedConnection } from './connections.js'
 import { clearSetAside } from './set-asides.js'
+import { shareLifecycleEvents, type ShareLifecycleEvent } from './vault-shares.js'
 
 /**
  * Sending, reading and refusing private messages (`#1285`, epic `#1284`).
@@ -166,6 +167,8 @@ export type ReadResult =
        */
       readonly about: ConversationAbout | null
       readonly shares: readonly ConversationShare[]
+      /** The attached shares' derived lifecycle, already in its canonical order (`#1633`). */
+      readonly shareEvents: readonly ShareLifecycleEvent[]
     }
   | { readonly outcome: 'refused'; readonly refusal: MessageRefusal }
 
@@ -1974,20 +1977,20 @@ async function conversationSubjects(
  * **No value comes out of here**, in either direction. `sealed_value` is not in
  * the select at all, which is a stronger statement than not returning it.
  */
-async function conversationShares(
-  db: Database,
-  ids: readonly string[],
-): Promise<ReadonlyMap<string, ConversationShare[]>> {
-  if (ids.length === 0) return new Map()
+async function conversationShareRows(db: Database, ids: readonly string[]) {
+  if (ids.length === 0) return []
 
-  const rows = await db
+  return await db
     .select({
       conversationId: messageConversationShares.conversationId,
       id: vaultShares.id,
       vaultKey: vaultShares.vaultKey,
       purpose: vaultShares.purpose,
+      sharedAt: vaultShares.sharedAt,
       expiresAt: vaultShares.expiresAt,
       operatorAddition: vaultShares.operatorAddition,
+      additionWrittenAt: vaultShares.additionWrittenAt,
+      lastReadAt: vaultShares.lastReadAt,
       takenBackAt: vaultShares.takenBackAt,
       reads: vaultShares.reads,
       live: sql<boolean>`${vaultShares.expiresAt} > now()`,
@@ -1995,8 +1998,19 @@ async function conversationShares(
     .from(messageConversationShares)
     .innerJoin(vaultShares, eq(vaultShares.id, messageConversationShares.shareId))
     .where(inArray(messageConversationShares.conversationId, [...ids]))
-    .orderBy(asc(messageConversationShares.attachedAt))
+    .orderBy(asc(messageConversationShares.attachedAt), asc(vaultShares.id))
+}
 
+async function conversationShares(
+  db: Database,
+  ids: readonly string[],
+): Promise<ReadonlyMap<string, ConversationShare[]>> {
+  return conversationSharesFromRows(await conversationShareRows(db, ids))
+}
+
+function conversationSharesFromRows(
+  rows: Awaited<ReturnType<typeof conversationShareRows>>,
+): ReadonlyMap<string, ConversationShare[]> {
   const attached = new Map<string, ConversationShare[]>()
 
   for (const row of rows) {
@@ -2252,7 +2266,20 @@ export async function readConversation(
  */
 async function conversationBodies(db: Database, id: ConversationId): Promise<ReadResult> {
   const about = (await conversationSubjects(db, [id])).get(id) ?? null
-  const shares = (await conversationShares(db, [id])).get(id) ?? []
+  const shareRows = await conversationShareRows(db, [id])
+  const shares = conversationSharesFromRows(shareRows).get(id) ?? []
+  const shareEvents = shareLifecycleEvents(
+    shareRows.map(
+      ({ id: shareId, vaultKey, sharedAt, lastReadAt, additionWrittenAt, takenBackAt }) => ({
+        id: shareId,
+        vaultKey,
+        sharedAt,
+        lastReadAt,
+        additionWrittenAt,
+        takenBackAt,
+      }),
+    ),
+  )
 
   const rows = await db
     .select({
@@ -2279,6 +2306,7 @@ async function conversationBodies(db: Database, id: ConversationId): Promise<Rea
     outcome: 'read',
     about,
     shares,
+    shareEvents,
     messages: rows.map((row) => {
       const base: Message = {
         id: messageId(row.id),

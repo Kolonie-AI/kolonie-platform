@@ -19,7 +19,7 @@ import {
   type TaskId,
   type WishId,
 } from '@kolonie-ai/core'
-import type { InboxRow, InboxStateOutcome, InboxView } from '@kolonie-ai/db'
+import type { InboxRow, InboxStateOutcome, InboxView, ShareLifecycleEvent } from '@kolonie-ai/db'
 
 /**
  * Re-exported so a console route need not reach past this port into storage.
@@ -254,7 +254,7 @@ export interface OperatorMessaging {
    */
   openTasks?(agentId: AgentId): Promise<readonly { readonly id: TaskId; readonly title: string }[]>
   /** One of them, refused to anybody who is not in it. */
-  getThread(humanId: HumanId, conversationId: ConversationId): Promise<ThreadResponse>
+  getThread(humanId: HumanId, conversationId: ConversationId): Promise<OperatorThreadResponse>
   /**
    * Write to a citizen this person operates.
    *
@@ -355,6 +355,19 @@ export type SendResponse =
       readonly response: {
         readonly conversationId: ConversationId
         readonly requestId: MessageRequestId
+      }
+    }
+  | { readonly outcome: 'refused'; readonly error: ApiError }
+
+export type OperatorThreadResponse =
+  | {
+      readonly outcome: 'read'
+      readonly response: {
+        readonly messages: readonly Message[]
+        readonly about: ConversationAbout | null
+        readonly shares: readonly ConversationShare[]
+        /** Their derived lifecycle, already in the order the console renders (`#1633`). */
+        readonly shareEvents: readonly ShareLifecycleEvent[]
       }
     }
   | { readonly outcome: 'refused'; readonly error: ApiError }

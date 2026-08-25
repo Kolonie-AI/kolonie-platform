@@ -127,20 +127,6 @@ function tile(value: number, label: string): string {
   )
 }
 
-/**
- * What each share event is called, on the page (`#1442`).
- *
- * A closed list rather than composed prose, and it is the Colony's own words:
- * the whole point of rendering a lifecycle rather than a message is that no
- * agent could have written any of these.
- */
-export const SHARE_EVENT_WORDS: Record<'shared' | 'read' | 'written' | 'handed-back', string> = {
-  shared: 'shared with you',
-  read: 'opened',
-  written: 'you wrote something into it',
-  'handed-back': 'handed back',
-}
-
 /** An unfilled operator drop, shown without a value or bearer link. */
 export interface OperatorPageDrop {
   readonly id: string

@@ -16,6 +16,7 @@ import { getVaultEntry, listVaultEntries, setVaultDescription, setVaultEntry } f
 import {
   destroyExpiredVaultShares,
   openShareFor,
+  shareLifecycleEvents,
   shareVaultEntry,
   unshareVaultEntry,
 } from './vault-shares.js'
@@ -67,6 +68,39 @@ describe('sharing a vault entry with an operator', () => {
       ...(days === undefined ? {} : { days }),
       sealingKey,
     })
+
+  it('totally orders tied lifecycle events before exposing them', () => {
+    const at = '2026-08-24T12:00:00.000Z'
+    const events = shareLifecycleEvents([
+      {
+        id: 'share-b',
+        vaultKey: 'provider/second',
+        sharedAt: at,
+        lastReadAt: at,
+        additionWrittenAt: at,
+        takenBackAt: at,
+      },
+      {
+        id: 'share-a',
+        vaultKey: 'provider/first',
+        sharedAt: at,
+        lastReadAt: at,
+        additionWrittenAt: at,
+        takenBackAt: at,
+      },
+    ])
+
+    expect(events.map((event) => `${event.kind}:${event.vaultKey}`)).toEqual([
+      'shared:provider/first',
+      'shared:provider/second',
+      'read:provider/first',
+      'read:provider/second',
+      'written:provider/first',
+      'written:provider/second',
+      'handed-back:provider/first',
+      'handed-back:provider/second',
+    ])
+  })
 
   it('takes the key and copies the value without it being sent', async () => {
     await setVaultEntry(db, token, agentId, 'github/octocat', 'hunter2', 'the login')

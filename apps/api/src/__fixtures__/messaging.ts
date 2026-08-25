@@ -606,12 +606,18 @@ export function fakeMessaging(): FakeMessaging {
       return { outcome: 'declined', response: { declined: true } }
     },
 
+    // @mirrors packages/db/src/storage/messaging.ts markConversationRead 74fcc886
     async markRead(agentId, conversationId, upTo): Promise<MarkReadResponse> {
       const me = participantOf(conversationId, agentId)
       if (me === undefined) return refused('not-a-participant')
       const row = conversations.get(conversationId)!
-      const target =
-        upTo === undefined ? row.messages.at(-1)?.id : row.messages.find((m) => m.id === upTo)?.id
+      if (upTo !== undefined) {
+        const named = row.messages.find((m) => m.id === upTo)
+        if (named === undefined) return refused('no-such-message')
+        me.lastReadMessageId = named.id
+        return { outcome: 'marked', response: { marked: true } }
+      }
+      const target = row.messages.at(-1)?.id
       if (target !== undefined) me.lastReadMessageId = target
       return { outcome: 'marked', response: { marked: true } }
     },

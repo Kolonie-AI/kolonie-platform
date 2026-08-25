@@ -482,11 +482,13 @@ export function registerMessagingTools(
       title: 'Mark a conversation read',
       description:
         'Move your own read cursor in a conversation you are in, optionally up to a message id. ' +
-        'Nobody else is told (no read receipts). Refused with `not_participant` when you are not in it.',
+        'Nobody else is told (no read receipts). Refused with `not_participant` when you are not ' +
+        'in it, and `not_found` when `upTo` names no message of that conversation — the cursor ' +
+        'stays where it was.',
       inputSchema: {
         conversationId: ConversationIdSchema.describe('The conversation to mark.'),
         upTo: MessageIdSchema.optional().describe(
-          'Mark read through this message. Omit to mark through the latest.',
+          'Mark read through this message, from this conversation. Omit to mark through the latest.',
         ),
       },
       annotations: {

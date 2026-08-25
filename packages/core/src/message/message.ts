@@ -609,6 +609,23 @@ export const MessageRefusalSchema = z.enum([
    */
   'nothing-to-acknowledge',
   /**
+   * `upTo` names no message of that conversation (`#1681`).
+   *
+   * **A refusal rather than a throw.** `last_read_message_id` carries a foreign
+   * key onto `messages`, so an id naming nothing reached the update and Postgres
+   * raised `23503` — which the MCP layer logged as `mcp.tool.threw` and answered
+   * as an internal error, for what is an ordinary bad argument. Production sent
+   * the all-zero UUID six times in two minutes; it parses as a UUID, so nothing
+   * above storage had anything to object to.
+   *
+   * **It also covers a message in somebody else's thread**, which the foreign
+   * key was perfectly happy with: that wrote a cursor pointing outside the
+   * conversation, and every unread count then read it. One refusal for both,
+   * because the two must stay indistinguishable — telling them apart would let a
+   * caller probe whether a message id exists in a conversation it is not in.
+   */
+  'no-such-message',
+  /**
    * The body looks like it is carrying a password, key or code (`#1320`).
    *
    * **The same detector the operator channel has refused with since `#335`**,

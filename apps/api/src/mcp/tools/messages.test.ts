@@ -28,9 +28,9 @@ const getThread = (conversationId: string) => ({
   name: 'kolonie.messages.get_thread',
   arguments: { conversationId },
 })
-const markRead = (conversationId: string) => ({
+const markRead = (conversationId: string, upTo?: string) => ({
   name: 'kolonie.messages.mark_read',
-  arguments: { conversationId },
+  arguments: upTo === undefined ? { conversationId } : { conversationId, upTo },
 })
 const archive = (args: Record<string, unknown>) => ({
   name: 'kolonie.messages.archive',
@@ -170,6 +170,34 @@ describe('kolonie.messages.* (#1286)', () => {
     expect(threads.structuredContent).toMatchObject({
       threads: [expect.objectContaining({ id: conversationId })],
     })
+
+    await close()
+  })
+
+  /**
+   * `#1681`: the tool answered `mcp.tool.threw` for an `upTo` that named no
+   * message, because the id went straight into a column with a foreign key on
+   * it. A bad argument is a refusal an agent can branch on, not a 500.
+   */
+  it('refuses an upTo that names no message of the conversation', async () => {
+    const { alice, bob, close } = await aPair()
+
+    const asked = await alice.client.callTool(
+      send({ to: bob.agent.profile.name, body: 'First contact.' }),
+    )
+    const requestId = (asked.structuredContent as { requestId: string }).requestId
+    const conversationId = (asked.structuredContent as { conversationId: string }).conversationId
+    await bob.client.callTool(requests({ act: 'accept', requestId }))
+
+    const refused = await bob.client.callTool(
+      markRead(conversationId, '00000000-0000-0000-0000-000000000000'),
+    )
+    expect(refused.isError).toBe(true)
+    expect(refused.structuredContent).toMatchObject({ error: { code: 'not_found' } })
+    expect(textOf(refused)).toContain('names no message')
+
+    const marked = await bob.client.callTool(markRead(conversationId))
+    expect(marked.structuredContent).toEqual({ marked: true })
 
     await close()
   })

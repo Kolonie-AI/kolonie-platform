@@ -53,7 +53,8 @@ import {
 import {
   AgentIdSchema,
   createLog,
-  gatewayFromEnvironment,
+  gatewayClient,
+  gatewaysFromEnvironment,
   maxTokensFromEnvironment,
   gatewayRoutedFetch,
   SubmissionIdSchema,
@@ -74,11 +75,6 @@ import {
   openRouterSceneVision,
   openRouterBioJudge,
   openRouterQuestJudge,
-  QUEST_JUDGE_MODEL_VAR,
-  BIO_MODEL_VAR,
-  OPENROUTER_API_KEY_VAR,
-  VISION_MODEL_VAR,
-  SCENE_VISION_MODEL_VAR,
   MASTODON_INSTANCES_VAR,
   mastodonAdapter,
   moltbookAdapter,
@@ -143,10 +139,11 @@ const log: Log = createLog({
  * for is per service rather than per rung.
  */
 const verifierCeiling = maxTokensFromEnvironment('verifier')
+const verifierGateways = gatewaysFromEnvironment('verifier')
+const verifierGateway = gatewayClient(verifierGateways)
+const verifierApiKey = verifierGateway?.apiKey
 
-const modelFetch = gatewayRoutedFetch(gatewayFromEnvironment('verifier'), {
-  log,
-})
+const modelFetch = gatewayRoutedFetch(verifierGateways, { log })
 
 // Throws with an explanation if DATABASE_URL is missing (D-009). Failing at
 // startup is the point: a runner that cannot reach its database has not
@@ -267,8 +264,8 @@ const verifiers = createVerifiers({
       recordArtefactServed(db, AgentIdSchema.parse(agentId), artefactUrl),
   },
   artefactReader: openRouterArtefactReader(
-    process.env[OPENROUTER_API_KEY_VAR],
-    process.env[VISION_MODEL_VAR],
+    verifierApiKey,
+    verifierGateway?.model,
     modelFetch,
     log,
     verifierCeiling,
@@ -278,8 +275,8 @@ const verifiers = createVerifiers({
   // an empty string as unset, because Compose writes `${VAR:-}` for every
   // optional variable and that is an empty string rather than `undefined`.
   visionModel: openRouterVision(
-    process.env[OPENROUTER_API_KEY_VAR],
-    process.env[VISION_MODEL_VAR],
+    verifierApiKey,
+    verifierGateway?.model,
     modelFetch,
     log,
     verifierCeiling,
@@ -298,8 +295,8 @@ const verifiers = createVerifiers({
    */
   sceneChallenges: { latest: (agentId) => latestSceneChallenge(db, AgentIdSchema.parse(agentId)) },
   sceneVision: openRouterSceneVision(
-    process.env[OPENROUTER_API_KEY_VAR],
-    process.env[SCENE_VISION_MODEL_VAR],
+    verifierApiKey,
+    verifierGateway?.model,
     modelFetch,
     log,
     verifierCeiling,
@@ -338,8 +335,8 @@ const verifiers = createVerifiers({
    * whole graph and an outage of ours must not close it.
    */
   bioJudge: openRouterBioJudge(
-    process.env[OPENROUTER_API_KEY_VAR],
-    process.env[BIO_MODEL_VAR],
+    verifierApiKey,
+    verifierGateway?.model,
     modelFetch,
     log,
     verifierCeiling,
@@ -363,8 +360,8 @@ const verifiers = createVerifiers({
     passedRung: (agentId, taskType) => hasPassedRung(db, AgentIdSchema.parse(agentId), taskType),
   },
   questJudge: openRouterQuestJudge(
-    process.env[OPENROUTER_API_KEY_VAR],
-    process.env[QUEST_JUDGE_MODEL_VAR],
+    verifierApiKey,
+    verifierGateway?.model,
     modelFetch,
     log,
     verifierCeiling,

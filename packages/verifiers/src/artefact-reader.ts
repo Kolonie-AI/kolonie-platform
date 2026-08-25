@@ -1,7 +1,7 @@
 import { chatRequestBody, throwIfTruncated, type Log } from '@kolonie-ai/core'
 import type { ArtefactCodeReader, ArtefactReadResult } from './artefact-publish.js'
 import { isPermanentVendorStatus, readVendorRejection } from './vendor.js'
-import { DEFAULT_VISION_TIER, OPENROUTER_API_KEY_VAR, OPENROUTER_BASE } from './vision-model.js'
+import { DEFAULT_VISION_TIER, OPENROUTER_API_KEY_VAR } from './vision-model.js'
 import { recordOpenRouterCall } from './model-call.js'
 
 /**
@@ -65,7 +65,7 @@ export function openRouterArtefactReader(
 
       let response: Response
       try {
-        response = await fetchImpl(`${OPENROUTER_BASE}/chat/completions`, {
+        response = await fetchImpl('/chat/completions', {
           method: 'POST',
           headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
           body: JSON.stringify(

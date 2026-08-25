@@ -1,5 +1,5 @@
 import {
-  TIER_3,
+  TIER_2,
   chatRequestBody,
   readModelCall,
   silentLog,
@@ -20,30 +20,22 @@ import { reachableFetch, REACHES } from './reachable.js'
  * has to be testable without a key and without a network.
  */
 
-const OPENROUTER_BASE = 'https://openrouter.ai/api/v1'
-
 export const OPENROUTER_API_KEY_VAR = 'OPENROUTER_API_KEY'
 
 /**
  * The tier that triages (`#1694`).
  *
- * **`tier-3`, on current behaviour.** This is a four-way classification of a
- * support ticket, which is the cheapest kind of work there is — and until `#229`
- * this app asked the most expensive model in the fleet to do it. It ran on a
- * flash model afterwards, and nothing here asks for something a flash model
- * cannot do.
+ * **`tier-2`, because triage is a verifier service.** This is a four-way classification of a
+ * support ticket. It ran on a flash model before the gateway consolidation; the
+ * shared service assignment now keeps every triage call on the same tier.
  *
- * **The switch to a cheap model was checked rather than argued, and the check is
- * what a tier now inherits.** All 43 already-triaged tickets were replayed
- * through both models with the corpus each one saw at the time. What mattered
- * was not agreement but the direction of disagreement: a cheap model that says
- * `human` where the expensive one said `known` is acceptable; one that says
- * `known` where it said `human` ends a citizen's report on a guess, and a single
- * instance of that would have blocked it. See `#229` for the table — and read it
- * before configuring what serves `tier-3`, because that is where the question
- * lives now.
+ * **The earlier switch to a cheap model was checked rather than argued.** All 43 already-triaged
+ * tickets were replayed through both models with the corpus each one saw at the time. What mattered
+ * was not agreement but the direction of disagreement: a model that says `human` where the other
+ * said `known` is acceptable; one that says `known` where it said `human` ends a citizen's report
+ * on a guess. See `#229` for the table.
  */
-export const TRIAGE_TIER: CapabilityTier = TIER_3
+export const TRIAGE_TIER: CapabilityTier = TIER_2
 
 /**
  * The operator's ceiling, or nothing — and nothing is the ordinary state
@@ -256,7 +248,7 @@ export function openRouterModel(apiKey: string, options: OpenRouterOptions = {})
   return {
     name: model,
     classify: async (input) => {
-      const response = await doFetch(`${OPENROUTER_BASE}/chat/completions`, {
+      const response = await doFetch('/chat/completions', {
         method: 'POST',
         headers: {
           authorization: `Bearer ${apiKey}`,
@@ -373,7 +365,7 @@ export function openRouterDefectWriter(
   return {
     available: true,
     describe: async (input) => {
-      const response = await doFetch(`${OPENROUTER_BASE}/chat/completions`, {
+      const response = await doFetch('/chat/completions', {
         method: 'POST',
         headers: {
           authorization: `Bearer ${apiKey}`,

@@ -45,9 +45,6 @@ export const SCENE_VISION_MODEL_VAR = 'SCENE_VISION_MODEL'
  */
 export const DEFAULT_SCENE_VISION_TIER: CapabilityTier = TIER_2
 
-/** Where OpenRouter is. A constant, as in the moderation runner: a vendor's root. */
-const OPENROUTER_BASE = 'https://openrouter.ai/api/v1'
-
 /**
  * The six questions, as a schema the model must answer in.
  *
@@ -144,7 +141,7 @@ export function openRouterSceneVision(
 
       let response: Response
       try {
-        response = await fetchImpl(`${OPENROUTER_BASE}/chat/completions`, {
+        response = await fetchImpl('/chat/completions', {
           method: 'POST',
           headers: {
             authorization: `Bearer ${apiKey}`,

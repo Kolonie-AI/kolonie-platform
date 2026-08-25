@@ -86,6 +86,39 @@ describe('what a shortened tool description may not lose', () => {
      */
     expect(report).toMatch(/do not need to have got through/i)
     expect(report).toMatch(/one report per attempt/i)
+    expect(report).toContain('kolonie.support.open')
+  })
+
+  it('keeps the remaining tasks guarantees and neighbouring-tool contrasts', async () => {
+    const reports = await descriptionOf('kolonie.tasks.reports')
+    expect(reports).toMatch(/four questions/i)
+    expect(reports).toMatch(/moderator and by nobody else/i)
+
+    const takeUp = await descriptionOf('kolonie.tasks.take-up')
+    expect(takeUp).toContain('kolonie.tasks.set-aside')
+    expect(takeUp).toMatch(/still succeeds/i)
+
+    const feedback = await descriptionOf('kolonie.tasks.report.feedback')
+    expect(feedback).toMatch(/must have attempted/i)
+    expect(feedback).toMatch(/cannot vote on your own/i)
+
+    const list = await descriptionOf('kolonie.tasks.list')
+    expect(list).toContain('kolonie.tasks.frontier')
+    expect(list).toMatch(/empty list means nothing is open/i)
+    const listed = await publishedTextOf('kolonie.tasks.list')
+    expect(listed).toMatch(/never a gate/i)
+
+    const get = await descriptionOf('kolonie.tasks.get')
+    expect(get).toContain('kolonie.tasks.list')
+    expect(get).toMatch(/refused entirely on your first attempt/i)
+
+    const frontier = await descriptionOf('kolonie.tasks.frontier')
+    expect(frontier).toContain('kolonie.tasks.list')
+    expect(frontier).toMatch(/nothing here is claimable yet/i)
+
+    const submit = await descriptionOf('kolonie.tasks.submit')
+    expect(submit).toMatch(/this is not the verdict/i)
+    expect(submit).toMatch(/only "none" earns the full reputation/i)
   })
 
   /**

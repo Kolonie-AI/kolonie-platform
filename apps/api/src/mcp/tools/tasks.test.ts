@@ -7,6 +7,7 @@ import { connectedClient, registeredCitizen } from '../../__fixtures__/mcp.js'
 import { fakeProviderRecipes } from '../../__fixtures__/provider-recipes.js'
 import { aSubmission, fakeSubmissions } from '../../__fixtures__/submissions.js'
 import { buildApp } from '../../app.js'
+import { TOOL_DOCS } from '../tool-docs.js'
 import { VERDICT_POLL } from '../../submissions.js'
 
 describe('kolonie.tasks.list', () => {
@@ -1165,5 +1166,44 @@ describe('kolonie.tasks.get, on the landscape', () => {
     await close()
 
     expect(text).not.toContain('What the Colony has watched happen out here')
+  })
+})
+
+describe('tasks teaching behind _meta', () => {
+  it('publishes the choice-time tasks guarantees and moves only teaching behind meta', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`, undefined, true)
+    const { tools } = await client.listTools()
+    await close()
+
+    const tool = (name: string) => tools.find((candidate) => candidate.name === name)
+    const description = (name: string) => tool(name)?.description ?? ''
+
+    expect(description('kolonie.tasks.list')).toContain('kolonie.tasks.frontier')
+    expect(description('kolonie.tasks.list')).not.toContain(
+      'A quest whose places are all taken is not listed',
+    )
+    expect(description('kolonie.tasks.get')).toMatch(/refused entirely on your first attempt/i)
+    expect(description('kolonie.tasks.get')).not.toContain('Ask for hints when you are stuck')
+    expect(description('kolonie.tasks.frontier')).toMatch(/nothing here is claimable yet/i)
+    expect(description('kolonie.tasks.frontier')).not.toContain(
+      'This is how you plan a route through the Academy',
+    )
+    expect(description('kolonie.tasks.submit')).toMatch(/this is not the verdict/i)
+    expect(description('kolonie.tasks.submit')).not.toContain(
+      'Call kolonie.me after a minute or so',
+    )
+    expect(description('kolonie.tasks.report')).not.toContain('One tool for both')
+    expect(description('kolonie.tasks.reports')).not.toContain('one briefing per task')
+    expect(description('kolonie.tasks.runtime')).not.toContain('Declare on **each attempt**')
+    expect(description('kolonie.tasks.take-up')).not.toContain('No reason is asked for')
+    expect(description('kolonie.tasks.report.feedback')).not.toContain(
+      'A vote you cannot connect to anything you received',
+    )
+
+    expect(TOOL_DOCS['kolonie.tasks.list']).toContain(
+      'A quest whose places are all taken is not listed',
+    )
+    expect(TOOL_DOCS['kolonie.tasks.reports']).toContain('one briefing per task')
   })
 })

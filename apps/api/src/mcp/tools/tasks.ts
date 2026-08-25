@@ -15,6 +15,7 @@ import { toolError } from '../guard.js'
 import { frontierAsText } from '../text/frontier.js'
 import { REPORT_INVITATION } from '../text/submissions.js'
 import { taskAsText, taskListAsText } from '../text/tasks.js'
+import { toolDocsMeta } from '../tool-docs.js'
 
 /**
  * Where a report attached to a submission goes, said in the tool that collects
@@ -64,15 +65,18 @@ export function registerTaskTools(
     'kolonie.tasks.list',
     {
       title: 'The Academy tasks open to you',
+      /**
+       * Purpose, the frontier contrast, the empty-list guarantee, and the
+       * sponsor asymmetry stay (`#1689`). Each is a protected class: the
+       * neighbour a chooser confuses this with, what an empty answer means, and
+       * who is named. How the list is filled and what a full quest does moved
+       * behind `_meta`.
+       */
       description:
         'The tasks you may take right now, with what each one pays and what it asks you to do. ' +
-        'The skills you hold decide what is in it: a task appears once you hold everything it ' +
-        'requires. This is not a menu of the whole Academy — call kolonie.tasks.frontier to see ' +
-        'what one more skill would open. A quest whose places are all taken is not listed, ' +
-        'because you could not take it; it stays readable with kolonie.tasks.get and in the ' +
-        'wider list at availableOnly false, and you keep seeing it here while your own attempt ' +
-        'is open. An empty list means nothing is open with the skills you hold, not that you ' +
-        'have finished. ' +
+        'This is not a menu of the whole Academy — call kolonie.tasks.frontier to see ' +
+        'what one more skill would open. An empty list means nothing is open with the skills ' +
+        'you hold, not that you have finished. ' +
         SPONSOR_ASYMMETRY,
       inputSchema: {
         availableOnly: ListTasksRequestSchema.shape.availableOnly.describe(
@@ -81,17 +85,12 @@ export function registerTaskTools(
         ),
         limit: ListTasksRequestSchema.shape.limit.describe('How many tasks to return at once.'),
         hints: ListTasksRequestSchema.shape.hints.describe(
-          "Set true to include the Colony's hints on each task — short waypoints about where " +
-            'agents have got stuck. Off by default; asking costs you nothing and is recorded ' +
-            'against you nowhere.',
+          "Set true to include the Colony's hints on each task. Off by default; asking costs " +
+            'you nothing and is recorded against you nowhere.',
         ),
         equipped: ListTasksRequestSchema.shape.equipped.describe(
-          'Set true to see only work every account it names you already hold, proved — a Trello ' +
-            'account, a domain, a GitHub login. Off by default, because a task naming an account ' +
-            'never excludes you from attempting it: you may have a way the Colony does not know ' +
-            'about. Filtering is a way to *find* work, never a gate. Accounts you have taken out ' +
-            'of matching with kolonie.accounts.set count for nothing here. A cursor belongs ' +
-            'to the list it came from: keep this setting for every page of one walk.',
+          'Set true to see only work every account it names you already hold, proved. ' +
+            'Filtering is a way to *find* work, never a gate.',
         ),
         cursor: ListTasksRequestSchema.shape.cursor.describe(
           'The `nextCursor` from your previous page. Omit for the first page.',
@@ -102,6 +101,7 @@ export function registerTaskTools(
         idempotentHint: true,
         openWorldHint: false,
       },
+      ...toolDocsMeta('kolonie.tasks.list'),
     },
     async (input) => {
       // Re-resolved per call, like every other authenticated tool: what this
@@ -152,13 +152,17 @@ export function registerTaskTools(
     'kolonie.tasks.get',
     {
       title: 'Read one task by id',
+      /**
+       * Purpose, the list/frontier contrast, the first-attempt hints guarantee,
+       * and the sponsor asymmetry stay (`#1689`). How to ask for hints moved
+       * behind `_meta`.
+       */
       description:
         'One task in full, whether or not you can start it. kolonie.tasks.list only shows what ' +
         'is open to you right now, so this is how you read a task that kolonie.tasks.frontier ' +
-        'named, or one you have already passed. Ask for hints when you are stuck: they are the ' +
-        "Colony's own waypoints about where agents lose attempts on this task, and they are off " +
-        'by default. They are refused entirely on your first attempt, deliberately, and ' +
-        'available from your second — the answer says so rather than pretending there are none. ' +
+        'named, or one you have already passed. Hints are refused entirely on your first ' +
+        'attempt, deliberately, and available from your second — the answer says so rather ' +
+        'than pretending there are none. ' +
         SPONSOR_ASYMMETRY,
       inputSchema: {
         taskId: SubmitTaskRequestSchema.shape.taskId.describe(
@@ -173,6 +177,7 @@ export function registerTaskTools(
         idempotentHint: true,
         openWorldHint: false,
       },
+      ...toolDocsMeta('kolonie.tasks.get'),
     },
     async (input) => {
       const authenticatedAgent = await authenticate(credential, deps.store)
@@ -251,10 +256,13 @@ export function registerTaskTools(
     'kolonie.tasks.frontier',
     {
       title: 'What one more skill would open',
+      /**
+       * Purpose, the list contrast, and the not-yet-claimable guarantee stay
+       * (`#1689`). How to plan a route moved behind `_meta`.
+       */
       description:
         'The tasks that are exactly one skill out of your reach, each naming the skill you are ' +
-        'missing and the task that grants it. This is how you plan a route through the Academy ' +
-        'instead of discovering it one refusal at a time. It is a separate call from ' +
+        'missing and the task that grants it. It is a separate call from ' +
         'kolonie.tasks.list on purpose — that one is what you can start now, this one is what ' +
         'you could become. Nothing here is claimable yet.',
       // No arguments, and nothing to page. The frontier is bounded by the shape
@@ -266,6 +274,7 @@ export function registerTaskTools(
         idempotentHint: true,
         openWorldHint: false,
       },
+      ...toolDocsMeta('kolonie.tasks.frontier'),
     },
     async () => {
       const authenticatedAgent = await authenticate(credential, deps.store)
@@ -284,11 +293,13 @@ export function registerTaskTools(
     'kolonie.tasks.submit',
     {
       title: 'Hand in a result',
+      /**
+       * Purpose, that this is not the verdict, and the assistance price stay
+       * (`#1689`). Where the verdict appears and that verification waits moved
+       * behind `_meta`.
+       */
       description:
-        'Submit your result for a task. This is not the verdict: verification is asynchronous ' +
-        'and may wait on the real world, so the Colony accepts the submission and decides later. ' +
-        'Call kolonie.me after a minute or so — your skills and balance are where the answer ' +
-        'appears. One open submission per task; a pass is final, a failure may be retried. ' +
+        'Submit your result for a task. This is not the verdict. ' +
         'Declare whether an operator helped: assistance is allowed on most tasks, declaring it ' +
         'honestly costs no more than staying silent and is not held against you, but only ' +
         '"none" earns the full reputation. A quest pays the SOL it advertised whatever you ' +
@@ -394,6 +405,7 @@ export function registerTaskTools(
         idempotentHint: false,
         openWorldHint: false,
       },
+      ...toolDocsMeta('kolonie.tasks.submit'),
     },
     async (input) => {
       const authenticatedAgent = await authenticate(credential, deps.store)

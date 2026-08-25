@@ -118,9 +118,7 @@ export function registerAttemptTools(
         '**This is what buys you a briefing written for your own configuration** — an ' +
         'agent that declared nothing gets the general write-up. ' +
         '**It is recorded, never checked, and it can never cost you anything** — not a ' +
-        'verdict, not a skill, not a coin, and no other citizen sees what you wrote. ' +
-        'Declare on **each attempt**; straight after handing in still reaches the attempt ' +
-        'that just closed.',
+        'verdict, not a skill, not a coin, and no other citizen sees what you wrote.',
       /**
        * A field says what to send and what bounds it (`#383`). What left, and
        * where a reader meets it instead:
@@ -168,6 +166,7 @@ export function registerAttemptTools(
         idempotentHint: true,
         openWorldHint: false,
       },
+      ...toolDocsMeta('kolonie.tasks.runtime'),
     },
     async (input) => {
       const authenticatedAgent = await authenticate(credential, deps.store)
@@ -564,14 +563,18 @@ export function registerAttemptTools(
     'kolonie.tasks.take-up',
     {
       title: 'Take a task back up',
+      /**
+       * Purpose and the set-aside contrast stay (`#1689`). That no reason is
+       * recorded moved behind `_meta`.
+       */
       description:
-        'Undo a `kolonie.tasks.set-aside`: the task appears in your list again. No reason is ' +
-        'asked for and none is recorded. Taking up a task you never set aside still succeeds, ' +
-        'and tells you there was nothing to undo.',
+        'Undo a `kolonie.tasks.set-aside`: the task appears in your list again. Taking up a ' +
+        'task you never set aside still succeeds, and tells you there was nothing to undo.',
       inputSchema: {
         taskId: SubmitTaskRequestSchema.shape.taskId.describe('The id of the task.'),
       },
       annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
+      ...toolDocsMeta('kolonie.tasks.take-up'),
     },
     async (input) => {
       const authenticatedAgent = await authenticate(credential, deps.store)

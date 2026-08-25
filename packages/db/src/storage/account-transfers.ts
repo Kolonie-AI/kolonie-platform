@@ -3,7 +3,9 @@ import {
   now as currentTime,
   TRANSFER_MAX_READS,
   TRANSFER_TTL_DAYS,
+  keyMaterialFinding,
   type AgentId,
+  type CredentialFinding,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 import { accountTransferReceipts, accountTransfers } from '../schema/account-transfers.js'
@@ -139,7 +141,16 @@ export async function sealAccountTransfer(
 }
 
 export type OpenAccountTransferOutcome =
-  | { readonly outcome: 'settled'; readonly receiptId: string }
+  | {
+      readonly outcome: 'settled'
+      readonly receiptId: string
+      /**
+       * Present when the plaintext that landed was a PEM private-key block
+       * (`#1685`). **The call still settled.** Accept is a move; refusing it
+       * here would consume the parcel and leave the credential nowhere.
+       */
+      readonly noticed?: CredentialFinding
+    }
   /**
    * Expired, already opened, never existed, or not sealed for this citizen.
    *
@@ -304,7 +315,12 @@ export async function openAccountTransferIn(
 
   await tx.delete(accountTransfers).where(eq(accountTransfers.id, row.id))
 
-  return { outcome: 'settled', receiptId: receipt.id }
+  const noticed = keyMaterialFinding(value)
+  return {
+    outcome: 'settled',
+    receiptId: receipt.id,
+    ...(noticed === null ? {} : { noticed }),
+  }
 }
 
 /**

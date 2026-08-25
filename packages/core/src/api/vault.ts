@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { CredentialFindingSchema } from '../common/credential-shape.js'
 import { TimestampSchema } from '../common/time.js'
 
 /**
@@ -448,6 +449,14 @@ export const UnshareVaultEntryResponseSchema = z.object({
   handedBackByOperator: z.boolean(),
   /** The entry as it now stands, with no share on it. */
   entry: VaultEntrySchema,
+  /**
+   * Present when the operator's addition was a PEM private-key block (`#1685`).
+   *
+   * **The call still succeeded.** The addition is handed over either way; this
+   * says the class of what came back, never the value. Omitted when nothing
+   * was noticed.
+   */
+  noticed: CredentialFindingSchema.optional(),
 })
 export type UnshareVaultEntryResponse = z.infer<typeof UnshareVaultEntryResponseSchema>
 

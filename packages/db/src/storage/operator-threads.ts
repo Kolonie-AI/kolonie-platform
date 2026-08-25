@@ -24,6 +24,7 @@ import {
   vaultShares,
 } from '../schema/index.js'
 import { openVaultValue, vaultDescriptionScope } from '../vault-crypto.js'
+import { shareLifecycleEvents, type ShareLifecycleEvent } from './vault-shares.js'
 
 /**
  * The four questions the Colony asks about a citizen's operator thread
@@ -144,13 +145,14 @@ export interface OperatorThreadForPage {
    */
   readonly shares: readonly OperatorThreadShare[]
   /**
-   * What has happened to those shares, in order (`#1442`).
+   * What has happened to those shares, in total order (`#1442`, `#1633`).
    *
    * **Derived from the share's own timestamps, not written as messages.** A
    * share is state on the conversation with one lifecycle, and turning it into
    * chat entries would make it something that can be sent, quoted and forwarded
-   * — which `#1442` names as the thing to get right. The events are read out of
-   * `vault_shares` on every render and stored nowhere.
+   * — which `#1442` names as the thing to get right. Tied timestamps follow the
+   * lifecycle, then stable share identity; the console renders this array
+   * unchanged, so storage is the single ordering authority.
    */
   readonly shareEvents: readonly OperatorThreadShareEvent[]
 }
@@ -166,12 +168,8 @@ export interface OperatorThreadShare {
   readonly wrote: boolean
 }
 
-/** One thing that happened to a share, placed in the thread by when it happened. */
-export interface OperatorThreadShareEvent {
-  readonly vaultKey: string
-  readonly kind: 'shared' | 'read' | 'written' | 'handed-back'
-  readonly at: string
-}
+/** One thing that happened to a share, in the order both operator doors consume. */
+export type OperatorThreadShareEvent = ShareLifecycleEvent
 
 /**
  * Who the durable page speaks as (`#1325`).
@@ -765,20 +763,8 @@ async function sharesOnThread(
     .orderBy(asc(vaultShares.sharedAt), asc(vaultShares.id))
 
   const shares: OperatorThreadShare[] = []
-  const events: OperatorThreadShareEvent[] = []
 
   for (const row of rows) {
-    events.push({ vaultKey: row.vaultKey, kind: 'shared', at: row.sharedAt })
-    if (row.lastReadAt !== null) {
-      events.push({ vaultKey: row.vaultKey, kind: 'read', at: row.lastReadAt })
-    }
-    if (row.additionWrittenAt !== null) {
-      events.push({ vaultKey: row.vaultKey, kind: 'written', at: row.additionWrittenAt })
-    }
-    if (row.takenBackAt !== null) {
-      events.push({ vaultKey: row.vaultKey, kind: 'handed-back', at: row.takenBackAt })
-    }
-
     /**
      * **A closed share is an event and not a box.** It has no value to render —
      * `unshare` and the sweep both clear it — and a box with nothing in it
@@ -814,7 +800,5 @@ async function sharesOnThread(
     })
   }
 
-  events.sort((left, right) => left.at.localeCompare(right.at))
-
-  return { shares, events }
+  return { shares, events: shareLifecycleEvents(rows) }
 }

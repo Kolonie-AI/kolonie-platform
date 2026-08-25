@@ -51,6 +51,78 @@ const shareScope = (key: string): string => `vault-share:${key}`
 /** The operator's addition, under its own scope for {@link shareScope}'s reason. */
 const additionScope = (key: string): string => `vault-share:${key}#addition`
 
+/** One derived lifecycle event, in the order every operator surface renders it. */
+export interface ShareLifecycleEvent {
+  readonly vaultKey: string
+  readonly kind: 'shared' | 'read' | 'written' | 'handed-back'
+  readonly at: string
+}
+
+/** The share columns from which the lifecycle is derived. */
+export interface ShareLifecycleSource {
+  readonly id: string
+  readonly vaultKey: string
+  readonly sharedAt: string
+  readonly lastReadAt: string | null
+  readonly additionWrittenAt: string | null
+  readonly takenBackAt: string | null
+}
+
+const SHARE_LIFECYCLE_ORDER: Record<ShareLifecycleEvent['kind'], number> = {
+  shared: 0,
+  read: 1,
+  written: 2,
+  'handed-back': 3,
+}
+
+interface OrderedShareLifecycleEvent extends ShareLifecycleEvent {
+  readonly shareId: string
+}
+
+/**
+ * Derive the one total lifecycle order used by storage assertions and operator pages (`#1633`).
+ *
+ * Time remains primary. Equal instants follow lifecycle causality, then stable
+ * share identity; the internal id is removed before the events leave storage.
+ */
+export function shareLifecycleEvents(
+  rows: readonly ShareLifecycleSource[],
+): readonly ShareLifecycleEvent[] {
+  const events: OrderedShareLifecycleEvent[] = []
+
+  for (const row of rows) {
+    events.push({ shareId: row.id, vaultKey: row.vaultKey, kind: 'shared', at: row.sharedAt })
+    if (row.lastReadAt !== null) {
+      events.push({ shareId: row.id, vaultKey: row.vaultKey, kind: 'read', at: row.lastReadAt })
+    }
+    if (row.additionWrittenAt !== null) {
+      events.push({
+        shareId: row.id,
+        vaultKey: row.vaultKey,
+        kind: 'written',
+        at: row.additionWrittenAt,
+      })
+    }
+    if (row.takenBackAt !== null) {
+      events.push({
+        shareId: row.id,
+        vaultKey: row.vaultKey,
+        kind: 'handed-back',
+        at: row.takenBackAt,
+      })
+    }
+  }
+
+  return events
+    .toSorted(
+      (left, right) =>
+        left.at.localeCompare(right.at) ||
+        SHARE_LIFECYCLE_ORDER[left.kind] - SHARE_LIFECYCLE_ORDER[right.kind] ||
+        left.shareId.localeCompare(right.shareId),
+    )
+    .map(({ vaultKey, kind, at }) => ({ vaultKey, kind, at }))
+}
+
 /** One open share, as every reader of the vault is shown it. */
 export interface VaultShareRow {
   readonly purpose: string

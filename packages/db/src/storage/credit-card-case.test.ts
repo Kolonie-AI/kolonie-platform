@@ -13,8 +13,12 @@ import {
   vaultShares,
 } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
-import { listConversations, openOperatorHelpConversation } from './messaging.js'
-import { attachShareToConversation } from './messaging.js'
+import {
+  attachShareToConversation,
+  listConversations,
+  openOperatorHelpConversation,
+  readOperatorConversation,
+} from './messaging.js'
 import { operatorThreadsForPageToken } from './operator-threads.js'
 import { setVaultEntry, getVaultEntry, listVaultEntries } from './vault.js'
 import {
@@ -195,6 +199,66 @@ describe('the credit-card case', () => {
     // A handed-back share is a sequence and no longer a box: there is nothing
     // to render, because `handBackShare` cleared the value.
     expect(thread?.shares).toEqual([])
+  })
+
+  it('breaks tied event timestamps by lifecycle before share identity', async () => {
+    const opened = await openOperatorHelpConversation(db, agentId, {
+      body: 'please put a card on the GitHub account',
+      provenance: { accountId },
+    })
+    if (opened.outcome !== 'delivered') throw new Error(opened.outcome)
+
+    const shares: { readonly id: string; readonly key: string }[] = []
+    for (const key of ['github/first', 'github/second']) {
+      await setVaultEntry(db, token, agentId, key, 'non-sensitive regression fixture')
+      const shared = await shareVaultEntry(db, {
+        token,
+        agentId,
+        key,
+        purpose: 'regression fixture',
+        sealingKey,
+      })
+      if (shared.outcome !== 'shared') throw new Error(shared.outcome)
+      shares.push({ id: shared.shareId, key })
+      await attachShareToConversation(db, agentId, opened.conversationId, shared.shareId)
+      await recordShareRead(db, shared.shareId)
+      await writeShareAddition(
+        db,
+        { pageToken },
+        shared.shareId,
+        'non-sensitive regression addition fixture',
+        sealingKey,
+      )
+      await handBackShare(db, { pageToken }, shared.shareId)
+    }
+
+    const tiedAt = '2026-08-24T12:00:00.000Z'
+    await db
+      .update(vaultShares)
+      .set({
+        sharedAt: tiedAt,
+        lastReadAt: tiedAt,
+        additionWrittenAt: tiedAt,
+        takenBackAt: tiedAt,
+      })
+      .where(eq(vaultShares.agentId, agentId))
+
+    const [thread] = await operatorThreadsForPageToken(db, pageToken, sealingKey)
+    const inboxThread = await readOperatorConversation(db, humanId, opened.conversationId)
+    if (inboxThread.outcome !== 'read') throw new Error(inboxThread.refusal)
+
+    const stableShareOrder = shares.toSorted((left, right) => left.id.localeCompare(right.id))
+    const expectedEvents = ['shared', 'read', 'written', 'handed-back'].flatMap((kind) =>
+      stableShareOrder.map((share) => ({ key: share.key, kind })),
+    )
+
+    expect(thread?.shareEvents.map((event) => ({ key: event.vaultKey, kind: event.kind }))).toEqual(
+      expectedEvents,
+    )
+    expect(
+      inboxThread.shareEvents.map((event) => ({ key: event.vaultKey, kind: event.kind })),
+    ).toEqual(expectedEvents)
+    expect(inboxThread.shareEvents).toEqual(thread?.shareEvents)
   })
 
   it('never turns a share into a message', async () => {

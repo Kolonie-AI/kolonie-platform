@@ -277,6 +277,7 @@ export function registerConsoleInboxPages(
          * 2026-08-21 was in this response the whole time.
          */
         shares: read.response.shares,
+        shareEvents: read.response.shareEvents,
         /**
          * Where a write lands, and where the value is read.
          *

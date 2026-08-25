@@ -23,6 +23,7 @@ import {
   type ProtectResponse,
   type RequestResponse,
   type SendResponse,
+  type OperatorThreadResponse,
   type ThreadResponse,
 } from '../messaging.js'
 
@@ -715,6 +716,11 @@ export interface FakeOperatorMessaging extends OperatorMessaging {
       /** How many times the person opened it (`#1600`). Unopened by default. */
       readonly reads?: number
       readonly ended?: 'taken-back' | 'expired' | null
+      readonly events?: readonly {
+        readonly vaultKey: string
+        readonly kind: 'shared' | 'read' | 'written' | 'handed-back'
+        readonly at: string
+      }[]
     },
   ) => string
   /** Confirm the relationship this port refuses to write without. */
@@ -793,6 +799,11 @@ export function fakeOperatorMessaging(): FakeOperatorMessaging {
       /** How many times the person opened it (`#1600`). */
       reads: number
       ended: 'taken-back' | 'expired' | null
+      events: readonly {
+        vaultKey: string
+        kind: 'shared' | 'read' | 'written' | 'handed-back'
+        at: string
+      }[]
     }[]
   >()
   const threads: {
@@ -1042,7 +1053,7 @@ export function fakeOperatorMessaging(): FakeOperatorMessaging {
       return { outcome: 'marked' as const }
     },
 
-    async getThread(humanId, conversationId): Promise<ThreadResponse> {
+    async getThread(humanId, conversationId): Promise<OperatorThreadResponse> {
       const thread = threads.find((one) => one.id === conversationId && one.humanId === humanId)
       if (thread === undefined) {
         return { outcome: 'refused', error: messageRefusals['not-a-participant'] }
@@ -1058,6 +1069,7 @@ export function fakeOperatorMessaging(): FakeOperatorMessaging {
                 ? { kind: 'account', id: thread.accountId, label: thread.accountId }
                 : null,
           shares: attachedShares.get(thread.id) ?? [],
+          shareEvents: (attachedShares.get(thread.id) ?? []).flatMap((share) => share.events),
         },
       }
     },
@@ -1074,6 +1086,7 @@ export function fakeOperatorMessaging(): FakeOperatorMessaging {
         /** How many times the person opened it (`#1600`); unopened by default. */
         reads: share.reads ?? 0,
         ended: share.ended ?? null,
+        events: share.events ?? [],
       })
       attachedShares.set(conversationId, list)
       return id

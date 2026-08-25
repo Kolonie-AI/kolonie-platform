@@ -13,7 +13,7 @@ interface OpenRouterBody {
     }>
   }>
 }
-import { DEFAULT_VISION_MODEL, openRouterVision, visionPromptFor } from './vision-model.js'
+import { DEFAULT_VISION_TIER, openRouterVision, visionPromptFor } from './vision-model.js'
 
 const CONSTRAINTS: ImageConstraints = {
   background: 'green',
@@ -46,7 +46,7 @@ function endpoint(body: unknown, status = 200) {
 }
 
 const answered = (content: unknown) => ({
-  model: DEFAULT_VISION_MODEL,
+  model: DEFAULT_VISION_TIER,
   usage: { prompt_tokens: 308, completion_tokens: 5, total_tokens: 313 },
   choices: [{ message: { content: JSON.stringify(content) } }],
 })
@@ -61,7 +61,7 @@ const allTrue = {
 }
 
 const check = (impl: typeof fetch, options: { readonly key?: string | undefined } = {}) =>
-  openRouterVision('key' in options ? options.key : 'a-key', DEFAULT_VISION_MODEL, impl).check({
+  openRouterVision('key' in options ? options.key : 'a-key', DEFAULT_VISION_TIER, impl).check({
     image: IMAGE,
     format: 'image/png',
     constraints: CONSTRAINTS,
@@ -73,7 +73,7 @@ describe('openRouterVision', () => {
 
     expect(await check(impl)).toMatchObject({
       outcome: 'checked',
-      model: DEFAULT_VISION_MODEL,
+      model: DEFAULT_VISION_TIER,
       check: { backgroundCorrect: true, secondaryCorrect: true },
     })
   })
@@ -160,7 +160,7 @@ describe('openRouterVision', () => {
     const key = 'sk-or-v1-0123456789abcdef'
     const { impl, calls } = endpoint({ error: { message: `bad key ${key}` } }, 401)
 
-    const result = await openRouterVision(key, DEFAULT_VISION_MODEL, impl).check({
+    const result = await openRouterVision(key, DEFAULT_VISION_TIER, impl).check({
       image: IMAGE,
       format: 'image/png',
       constraints: CONSTRAINTS,
@@ -222,8 +222,8 @@ describe('the model it asks', () => {
       constraints: CONSTRAINTS,
     })
 
-    expect(calls[0]?.body.model).toBe(DEFAULT_VISION_MODEL)
-    expect(result).toMatchObject({ outcome: 'checked', model: DEFAULT_VISION_MODEL })
+    expect(calls[0]?.body.model).toBe(DEFAULT_VISION_TIER)
+    expect(result).toMatchObject({ outcome: 'checked', model: DEFAULT_VISION_TIER })
   })
 
   it('uses a model it was actually given', async () => {

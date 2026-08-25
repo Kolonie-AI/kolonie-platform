@@ -1,7 +1,7 @@
-import type { Log } from '@kolonie-ai/core'
+import { chatRequestBody, throwIfTruncated, type Log } from '@kolonie-ai/core'
 import type { ArtefactCodeReader, ArtefactReadResult } from './artefact-publish.js'
 import { isPermanentVendorStatus, readVendorRejection } from './vendor.js'
-import { DEFAULT_VISION_MODEL, OPENROUTER_API_KEY_VAR, OPENROUTER_BASE } from './vision-model.js'
+import { DEFAULT_VISION_TIER, OPENROUTER_API_KEY_VAR, OPENROUTER_BASE } from './vision-model.js'
 import { recordOpenRouterCall } from './model-call.js'
 
 /**
@@ -39,11 +39,13 @@ export const ARTEFACT_READ_PROMPT =
 
 export function openRouterArtefactReader(
   apiKey: string | undefined,
-  model: string | undefined = DEFAULT_VISION_MODEL,
+  model: string | undefined = DEFAULT_VISION_TIER,
   fetchImpl: typeof fetch = fetch,
   log?: Log,
+  /** The operator's ceiling, or nothing — the ordinary state (`#1694`). */
+  maxTokens?: number,
 ): ArtefactCodeReader {
-  const chosen = model === undefined || model.trim() === '' ? DEFAULT_VISION_MODEL : model
+  const chosen = model === undefined || model.trim() === '' ? DEFAULT_VISION_TIER : model
 
   return {
     read: async ({ image, format }): Promise<ArtefactReadResult> => {
@@ -66,25 +68,28 @@ export function openRouterArtefactReader(
         response = await fetchImpl(`${OPENROUTER_BASE}/chat/completions`, {
           method: 'POST',
           headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
-          body: JSON.stringify({
-            model: chosen,
-            // Nothing creative is wanted: the same picture should transcribe the
-            // same way twice.
-            temperature: 0,
-            messages: [
-              {
-                role: 'user',
-                content: [
-                  { type: 'text', text: ARTEFACT_READ_PROMPT },
-                  { type: 'image_url', image_url: { url: dataUrl } },
-                ],
+          body: JSON.stringify(
+            chatRequestBody({
+              model: chosen,
+              // Nothing creative is wanted: the same picture should transcribe
+              // the same way twice.
+              temperature: 0,
+              messages: [
+                {
+                  role: 'user',
+                  content: [
+                    { type: 'text', text: ARTEFACT_READ_PROMPT },
+                    { type: 'image_url', image_url: { url: dataUrl } },
+                  ],
+                },
+              ],
+              response_format: {
+                type: 'json_schema',
+                json_schema: { name: 'artefact_text', strict: true, schema: READ_SCHEMA },
               },
-            ],
-            response_format: {
-              type: 'json_schema',
-              json_schema: { name: 'artefact_text', strict: true, schema: READ_SCHEMA },
-            },
-          }),
+              ...(maxTokens === undefined ? {} : { maxTokens }),
+            }),
+          ),
         })
       } catch (error) {
         return {
@@ -118,6 +123,19 @@ export function openRouterArtefactReader(
         call = recordOpenRouterCall(body, log, response)
       } catch {
         return { outcome: 'unavailable', reason: 'the model answered something that is not JSON.' }
+      }
+
+      // A transcription cut off at a ceiling is a failed read and never a code
+      // (`#1694`). `unavailable`, because the remedy is asking again — and a
+      // half-transcribed code compared against the issued one would fail a
+      // citizen who drew it correctly.
+      try {
+        throwIfTruncated(body)
+      } catch {
+        return {
+          outcome: 'unavailable',
+          reason: 'the model stopped at a token ceiling before it finished.',
+        }
       }
 
       const content = body.choices?.[0]?.message?.content

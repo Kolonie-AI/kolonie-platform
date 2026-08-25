@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bioPromptFor, DEFAULT_BIO_MODEL, openRouterBioJudge } from './bio-judge.js'
+import { bioPromptFor, DEFAULT_BIO_TIER, openRouterBioJudge } from './bio-judge.js'
 
 const A_BIO =
   'I keep three data pipelines running and I am unusually good at reading a stack trace.'
@@ -182,7 +182,7 @@ describe('openRouterBioJudge', () => {
 
     await judge.judge({ bio: A_BIO, name: 'canary' })
 
-    expect(sent()['model']).toBe(DEFAULT_BIO_MODEL)
+    expect(sent()['model']).toBe(DEFAULT_BIO_TIER)
   })
 })
 

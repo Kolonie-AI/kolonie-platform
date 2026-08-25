@@ -112,6 +112,7 @@ import {
   AccountProviderSchema,
   createLog,
   gatewayFromEnvironment,
+  maxTokensFromEnvironment,
   gatewayOnlyFetch,
   gatewayRoutedFetch,
   now,
@@ -120,7 +121,12 @@ import {
   type TaskId,
 } from '@kolonie-ai/core'
 import { githubIssues, TRIPWIRE_TOKEN_VAR } from './tripwire.js'
-import { openRouterModel, unavailableModel, OPENROUTER_API_KEY_VAR } from './llm.js'
+import {
+  openRouterModel,
+  unavailableModel,
+  EMBEDDING_MODEL_VAR,
+  OPENROUTER_API_KEY_VAR,
+} from './llm.js'
 import { openRouterDirectionClassifier, DIRECTION_MODEL_VAR } from '@kolonie-ai/verifiers'
 import type { DirectionStore } from './directions.js'
 import type { ProfileReviewStore } from './profiles.js'
@@ -196,6 +202,12 @@ const apiKey = process.env[OPENROUTER_API_KEY_VAR] ?? ''
  * That is a property of the wrapper rather than a setting here, which is the
  * only version of it that cannot be switched on by mistake.
  */
+/**
+ * The operator's ceiling for this service, or nothing — the ordinary state, in
+ * which `max_tokens` is absent from every request body (`#1694`).
+ */
+const moderationCeiling = maxTokensFromEnvironment('moderation')
+
 const modelFetch = gatewayRoutedFetch(gatewayFromEnvironment('moderation'), {
   log,
 })
@@ -208,9 +220,11 @@ const model =
         // decision that will be revisited against a real corpus — and the
         // alternative is a code change to try the next one.
         ...(process.env['OPENROUTER_MODEL'] && { model: process.env['OPENROUTER_MODEL'] }),
-        ...(process.env['OPENROUTER_EMBEDDING_MODEL'] && {
-          embeddingModel: process.env['OPENROUTER_EMBEDDING_MODEL'],
+        ...(process.env[EMBEDDING_MODEL_VAR] && {
+          embeddingModel: process.env[EMBEDDING_MODEL_VAR],
         }),
+        // The operator's ceiling, or nothing — the ordinary state (`#1694`).
+        ...(moderationCeiling !== undefined && { maxTokens: moderationCeiling }),
         // So a reply this cannot read is counted rather than dropped in silence
         // (`#230`).
         log,
@@ -242,6 +256,7 @@ const questModel =
     ? unavailableModel(`${OPENROUTER_API_KEY_VAR} not set`)
     : openRouterModel(apiKey, {
         ...(process.env['OPENROUTER_MODEL'] && { model: process.env['OPENROUTER_MODEL'] }),
+        ...(moderationCeiling !== undefined && { maxTokens: moderationCeiling }),
         log,
         fetch: gatewayOnlyFetch(gatewayFromEnvironment('moderation'), { log }),
       })

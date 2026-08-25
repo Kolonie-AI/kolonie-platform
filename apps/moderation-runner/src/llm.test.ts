@@ -1,13 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import {
-  openRouterModel,
-  ProviderUnreachable,
-  BRIEFING_MAX_TOKENS,
-  CEILING_ESCALATION,
-  CLASSIFY_MAX_TOKENS,
-  MARK_MAX_TOKENS,
-  MODERATION_MODEL,
-} from './llm.js'
+import { TIER_1, TruncatedCompletion } from '@kolonie-ai/core'
+import { openRouterModel, ProviderUnreachable, MODERATION_TIER } from './llm.js'
 import { cosine, SIMILARITY_THRESHOLD } from './dedup.js'
 
 /** A `fetch` that answers with one canned body and records what it was sent. */
@@ -47,7 +40,7 @@ const accounted = (body: unknown): unknown =>
 const aVerdict = (content: string) => ({ choices: [{ message: { content } }] })
 
 describe('classifying', () => {
-  it('sends the model the maintainer chose, and asks for a closed set of answers', async () => {
+  it('asks for a capability tier, and for a closed set of answers', async () => {
     const { impl, sent } = stubFetch(aVerdict('{"decision":"approve","reason":"concrete"}'))
 
     await openRouterModel('a-key', { fetch: impl }).classify({
@@ -57,11 +50,22 @@ describe('classifying', () => {
     })
 
     const body = JSON.parse(String(sent[0]?.init?.body)) as Record<string, unknown>
-    expect(body.model).toBe(MODERATION_MODEL)
-    // Named rather than merely equal to the constant: a test that only compared
-    // it to the export would pass whatever the export said.
-    expect(MODERATION_MODEL).toBe('deepseek/deepseek-v4-flash')
+    /**
+     * **The tier string reaches the transport unchanged** (`#1694`) — no prefix
+     * added, none removed. Named rather than merely equal to the export: a test
+     * comparing it only to the constant would pass whatever the constant said.
+     */
+    expect(body.model).toBe(MODERATION_TIER)
+    expect(MODERATION_TIER).toBe('@preset/tier-1')
+    expect(MODERATION_TIER).toBe(TIER_1)
     expect(body.temperature).toBe(0)
+
+    // The reply is parsed as JSON, so the request must say it is not a stream:
+    // omitting the field yields `text/event-stream` and a parse error on a 200.
+    expect(body.stream).toBe(false)
+
+    // No ceiling set, so no ceiling sent — not a default number (`#1694`).
+    expect('max_tokens' in body).toBe(false)
 
     // The answers reach the model as a schema enum rather than as a sentence in
     // the prompt, so an answer outside the set is impossible rather than handled.
@@ -280,15 +284,16 @@ describe('classifying', () => {
   })
 
   /**
-   * **The three failures `#437` was filed for, as three tests.**
+   * **The ceiling is not sent unless an operator set one** (`#1694`).
    *
-   * One advice entry failed to moderate three times between 01:24 and 01:26 on
-   * 2026-08-06, twice with `finish_reason length` and no content and once with a
-   * verdict carrying neither field. All three are one cause: `max_tokens` was
-   * 400, sized for the sentence a citizen reads, while the reasoning tokens that
-   * are charged against it never appear in the reply.
+   * Four named ceilings stood here and the tests that pinned them stood with
+   * them: `CLASSIFY_MAX_TOKENS` at 4000 after `#437` raised it from 400, and
+   * `MARK_MAX_TOKENS` beside it. Both numbers were argued correctly and both
+   * were too small — the second one ten days later, on a walk for a mailbox
+   * provider (`#1192`). `max_tokens` is a ceiling and not a reservation, so a
+   * number here can only ever be too small.
    */
-  it('gives a verdict enough room for the reasoning, not just for the sentence', async () => {
+  it('sends no ceiling on a verdict when nobody set one', async () => {
     const { impl, sent } = stubFetch(aVerdict('{"decision":"approve","reason":"concrete"}'))
 
     await openRouterModel('a-key', { fetch: impl }).classify({
@@ -297,14 +302,13 @@ describe('classifying', () => {
       choices: ['approve', 'reject'],
     })
 
-    const body = JSON.parse(String(sent[0]?.init?.body)) as { max_tokens: number }
-    expect(body.max_tokens).toBe(CLASSIFY_MAX_TOKENS)
-    // Named rather than merely equal to the export, which would pass whatever
-    // the export said — and 400 is the number that produced the failure.
-    expect(CLASSIFY_MAX_TOKENS).toBe(4000)
+    const body = JSON.parse(String(sent[0]?.init?.body)) as Record<string, unknown>
+    // Absent from the body entirely, rather than present with a default number
+    // a later reader would mistake for a considered limit.
+    expect('max_tokens' in body).toBe(false)
   })
 
-  it('gives a marking pass the same room, for the same reason', async () => {
+  it('sends no ceiling on a marking pass either', async () => {
     const { impl, sent } = stubFetch(aVerdict('{"spans":[]}'))
 
     await openRouterModel('a-key', { fetch: impl }).mark({
@@ -313,21 +317,56 @@ describe('classifying', () => {
       kinds: ['struggle'],
     })
 
-    const body = JSON.parse(String(sent[0]?.init?.body)) as { max_tokens: number }
-    expect(body.max_tokens).toBe(MARK_MAX_TOKENS)
-    expect(MARK_MAX_TOKENS).toBe(4000)
+    const body = JSON.parse(String(sent[0]?.init?.body)) as Record<string, unknown>
+    expect('max_tokens' in body).toBe(false)
   })
 
   /**
-   * **The ceiling is named in the refusal, which is the actionable half.**
-   *
-   * `finish_reason length` alone says the reply was interrupted. It does not say
-   * by what, and the number is the thing somebody reading the line would change.
-   * The briefing call has passed its ceiling through since `#416`; `classify` and
-   * `mark` never did, which is why the logged line carried the symptom without
-   * the fix.
+   * **The operator's ceiling is still available**, for somebody containing an
+   * incident. Set, it reaches the body; the tier is what changed, not the lever.
    */
-  it('names the ceiling it was cut off at, not only that it was cut off', async () => {
+  it('sends the ceiling an operator set', async () => {
+    const { impl, sent } = stubFetch(aVerdict('{"decision":"approve","reason":"concrete"}'))
+
+    await openRouterModel('a-key', { fetch: impl, maxTokens: 4000 }).classify({
+      system: 's',
+      user: 'u',
+      choices: ['approve', 'reject'],
+    })
+
+    const body = JSON.parse(String(sent[0]?.init?.body)) as { max_tokens: number }
+    expect(body.max_tokens).toBe(4000)
+  })
+
+  /**
+   * **A truncated reply is a failed call, and the escalation that used to answer
+   * it is gone** (`#1694`).
+   *
+   * What stood here retried once at four times the ceiling. It was a fix for one
+   * instance of a failure whose cause is that a ceiling exists at all, and it
+   * was written after the third time a named constant turned out to be too
+   * small. There is no ceiling to raise now unless an operator set one — and a
+   * gateway may impose one that no constant here can see, which is exactly the
+   * case an escalation could never have reached.
+   */
+  it('refuses a verdict the model said it did not finish', async () => {
+    const { impl, sent } = stubFetch({ choices: [{ message: {}, finish_reason: 'length' }] })
+
+    await expect(
+      openRouterModel('a-key', { fetch: impl }).classify({
+        system: 's',
+        user: 'u',
+        choices: ['approve', 'reject'],
+      }),
+    ).rejects.toBeInstanceOf(TruncatedCompletion)
+
+    // One call and not two. The retry that used to happen here changed a number
+    // that no longer exists.
+    expect(sent).toHaveLength(1)
+  })
+
+  /** The code, not the sentence: an agent cannot branch on prose. */
+  it('carries a stable code on a truncated verdict', async () => {
     const { impl } = stubFetch({ choices: [{ message: {}, finish_reason: 'length' }] })
 
     await expect(
@@ -336,135 +375,15 @@ describe('classifying', () => {
         user: 'u',
         choices: ['approve', 'reject'],
       }),
-    ).rejects.toThrow(
-      // The raised one, because that is the budget the reply that failed came
-      // back under. Naming the first would send a reader to change a number that
-      // was no longer in force (`#1192`).
-      `${CLASSIFY_MAX_TOKENS * CEILING_ESCALATION}-token ceiling`,
-    )
+    ).rejects.toMatchObject({ code: 'completion_truncated' })
   })
 
   /**
-   * **The ceiling that was too low twice (`#437`, `#1192`).**
-   *
-   * `#437` raised this from 400 to 4000 and the same failure arrived at 4000 ten
-   * days later, on a walk for `mailbox/resend.com`. How much a model reasons is a
-   * property of the page and of a model somebody may swap under us, so the next
-   * constant is a guess too. What can be fixed instead is the shape: at
-   * `temperature: 0` a retry that changes nothing produces the same empty reply
-   * for ever, so the retry raises the thing that ran out.
+   * **Interrupted *with* content is the same failure**, and it did not used to
+   * be. A cut-off reply that has something in it is still a judgement nobody
+   * finished writing, and it is the shape most likely to be accepted: it parses.
    */
-  it('retries at a higher ceiling when the whole ceiling went on reasoning', async () => {
-    const { impl, sent } = stubFetchSequence(
-      { choices: [{ message: {}, finish_reason: 'length' }] },
-      aVerdict('{"decision":"approve","reason":"concrete"}'),
-    )
-
-    const verdict = await openRouterModel('a-key', { fetch: impl }).classify({
-      system: 's',
-      user: 'u',
-      choices: ['approve', 'reject'],
-    })
-
-    expect(verdict).toMatchObject({ decision: 'approve', reason: 'concrete' })
-    expect(sent).toHaveLength(2)
-    const first = JSON.parse(String(sent[0]?.init?.body)) as { max_tokens: number }
-    const second = JSON.parse(String(sent[1]?.init?.body)) as { max_tokens: number }
-    expect(first.max_tokens).toBe(CLASSIFY_MAX_TOKENS)
-    expect(second.max_tokens).toBe(CLASSIFY_MAX_TOKENS * CEILING_ESCALATION)
-  })
-
-  /**
-   * Once. A second interruption is no longer the anomaly this retry is for — it
-   * is a page or a prompt that does not fit, and that is a fact for a person to
-   * read rather than a cost the runner keeps paying every poll.
-   */
-  it('escalates once and no further', async () => {
-    const spent = { choices: [{ message: {}, finish_reason: 'length' }] }
-    const { impl, sent } = stubFetchSequence(spent, spent)
-
-    await expect(
-      openRouterModel('a-key', { fetch: impl }).classify({
-        system: 's',
-        user: 'u',
-        choices: ['approve', 'reject'],
-      }),
-    ).rejects.toThrow('went on reasoning')
-    expect(sent).toHaveLength(2)
-  })
-
-  /** The raise is visible, because a doubled bill nobody can explain is worse. */
-  it('says it raised the ceiling, and by how much', async () => {
-    const warn = vi.fn()
-    const { impl } = stubFetchSequence(
-      { choices: [{ message: {}, finish_reason: 'length' }] },
-      aVerdict('{"decision":"approve","reason":"concrete"}'),
-    )
-
-    await openRouterModel('a-key', {
-      fetch: impl,
-      log: { info: vi.fn(), warn, error: vi.fn() },
-    }).classify({ system: 's', user: 'u', choices: ['approve', 'reject'] })
-
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining('on reasoning'),
-      expect.objectContaining({
-        event: 'model.ceiling.raised',
-        ceiling: CLASSIFY_MAX_TOKENS,
-        raised: CLASSIFY_MAX_TOKENS * CEILING_ESCALATION,
-      }),
-    )
-  })
-
-  /**
-   * **A reply that was interrupted *with* content is a different event.** There
-   * is something in it — a briefing's finished claims, a verdict to complain
-   * about — and spending a second call to get a longer version of an answer we
-   * already have is not what this retry is for.
-   */
-  it('does not retry a reply that was cut off with content in it', async () => {
-    const { impl, sent } = stubFetch({
-      choices: [{ message: { content: '{}' }, finish_reason: 'length' }],
-    })
-
-    await expect(
-      openRouterModel('a-key', { fetch: impl }).classify({
-        system: 's',
-        user: 'u',
-        choices: ['approve', 'reject'],
-      }),
-    ).rejects.toThrow('without a decision and a reason')
-    expect(sent).toHaveLength(1)
-  })
-
-  /** The marking pass is the other half of what `walk-prose` needs (`#1192`). */
-  it('gives a marking pass the same escalation', async () => {
-    const { impl, sent } = stubFetchSequence(
-      { choices: [{ message: {}, finish_reason: 'length' }] },
-      aVerdict('{"spans":[]}'),
-    )
-
-    const spans = await openRouterModel('a-key', { fetch: impl }).mark({
-      system: 's',
-      user: 'u',
-      kinds: ['struggle'],
-    })
-
-    expect(spans).toEqual([])
-    const second = JSON.parse(String(sent[1]?.init?.body)) as { max_tokens: number }
-    expect(second.max_tokens).toBe(MARK_MAX_TOKENS * CEILING_ESCALATION)
-  })
-
-  /**
-   * **A truncated verdict said *the model answered badly*, and it had not.**
-   *
-   * The third logged failure. A reply cut off at the ceiling arrives here looking
-   * like a model that returned the wrong shape — short, parseable, missing the
-   * fields. Whether it is short because the model had nothing to say or because
-   * it was interrupted is a fact only `finish_reason` holds, so it is read rather
-   * than guessed at.
-   */
-  it('says a verdict missing its fields was truncated, when it was', async () => {
+  it('refuses a reply cut off with content in it', async () => {
     const { impl } = stubFetch({
       choices: [{ message: { content: '{}' }, finish_reason: 'length' }],
     })
@@ -475,9 +394,33 @@ describe('classifying', () => {
         user: 'u',
         choices: ['approve', 'reject'],
       }),
-    ).rejects.toThrow('without a decision and a reason — the reply was cut off')
+    ).rejects.toBeInstanceOf(TruncatedCompletion)
   })
 
+  /** The marking pass is the other half of what `walk-prose` needs (`#1192`). */
+  it('refuses a marking pass that was cut off', async () => {
+    const { impl } = stubFetch({ choices: [{ message: {}, finish_reason: 'length' }] })
+
+    await expect(
+      openRouterModel('a-key', { fetch: impl }).mark({
+        system: 's',
+        user: 'u',
+        kinds: ['struggle'],
+      }),
+    ).rejects.toBeInstanceOf(TruncatedCompletion)
+  })
+
+  /**
+   * **A truncated verdict is refused as truncated, before it is read as
+   * malformed** (`#1694`).
+   *
+   * `#437`'s third logged failure was a reply cut off at the ceiling arriving
+   * looking like a model that returned the wrong shape — short, parseable,
+   * missing the fields — and the fix then was to *name* the truncation in the
+   * message it threw. The check now happens one layer earlier, so the reply
+   * never reaches the verdict parser at all. Same distinction, drawn where the
+   * fact lives: `finish_reason` is what tells the two apart.
+   */
   /** And does not say so when it was not: a genuinely malformed answer stays malformed. */
   it('does not blame the ceiling for a verdict the model simply got wrong', async () => {
     const { impl } = stubFetch({
@@ -854,17 +797,23 @@ describe('composing', () => {
   })
 
   /**
-   * **A briefing cut off at the ceiling keeps the claims that were finished
-   * (`#416`).**
+   * **A truncated briefing is refused rather than salvaged** (`#1694`).
    *
-   * `JSON.parse` throws on the whole string when a reply ends mid-object, so
-   * every complete claim beside the fragment used to be discarded with it. At
-   * `temperature: 0` the same corpus produces the same truncated reply on every
-   * poll, so that is not a bad hour — it is a briefing that is never written
-   * again. The rule the rest of the transport already follows is that the failure
-   * degrades rather than latches.
+   * Three tests stood here and they were right about a real problem. `#416`
+   * found that `JSON.parse` throws on the whole string when a reply ends
+   * mid-object, so every complete claim beside the fragment was discarded with
+   * it — and at `temperature: 0` the same corpus produced the same truncated
+   * reply on every poll, so the briefing was never written again. Salvaging the
+   * finished claims made the failure degrade instead of latch.
+   *
+   * It cannot stand beside this issue's rule: *a reply with `finish_reason:
+   * length` is a failed call and is never returned as a successful answer.* A
+   * salvaged briefing is a successful answer assembled from a call that failed,
+   * published under the Colony's own name. And the reason it latched has gone
+   * with the ceiling — there is no number here to be too small, so a retry is no
+   * longer guaranteed to reproduce the cut.
    */
-  it('keeps the complete claims out of a reply that was cut off', async () => {
+  it('refuses a briefing the model said it did not finish, however much it wrote', async () => {
     const { impl } = stubFetch({
       choices: [
         {
@@ -879,57 +828,22 @@ describe('composing', () => {
       ],
     })
 
-    const claims = await openRouterModel('a-key', { fetch: impl }).compose({
-      system: 's',
-      user: 'u',
-      sections: ['wall', 'route', 'unsolved'],
-      sourceIds: ['a', 'b'],
-      maxClaimLength: 400,
-    })
-
-    // The two that were finished, and not the third. Nothing is repaired: no
-    // brace is added and no string is closed, so a fragment cannot become a
-    // claim the model did not write.
-    expect(claims).toEqual([
-      { section: 'wall', text: 'A provider asks for a phone number.', sources: ['a'] },
-      { section: 'route', text: 'The operator relays the code.', sources: ['b'] },
-    ])
-  })
-
-  /** A brace inside a claim's own text is text, and must not end the claim. */
-  it('does not end a claim at a brace inside its text', async () => {
-    const { impl } = stubFetch({
-      choices: [
-        {
-          message: {
-            content:
-              '{"claims":[{"section":"wall","text":"The API answers {\\"error\\":\\"denied\\"} to an agent.","sources":["a"]},' +
-              '{"section":"route","text":"cut off here',
-          },
-          finish_reason: 'length',
-        },
-      ],
-    })
-
-    const claims = await openRouterModel('a-key', { fetch: impl }).compose({
-      system: 's',
-      user: 'u',
-      sections: ['wall', 'route'],
-      sourceIds: ['a'],
-      maxClaimLength: 400,
-    })
-
-    expect(claims).toEqual([
-      { section: 'wall', text: 'The API answers {"error":"denied"} to an agent.', sources: ['a'] },
-    ])
+    await expect(
+      openRouterModel('a-key', { fetch: impl }).compose({
+        system: 's',
+        user: 'u',
+        sections: ['wall', 'route', 'unsolved'],
+        sourceIds: ['a', 'b'],
+        maxClaimLength: 400,
+      }),
+    ).rejects.toBeInstanceOf(TruncatedCompletion)
   })
 
   /**
-   * The rejection case, and the one this issue was actually filed for: the
-   * ceiling was spent before a single claim was complete, and there is nothing to
-   * salvage. That throws, and the message carries the number a reader can change.
+   * The case `#416` was filed for — the ceiling spent before one claim was
+   * complete — is the same failure now, and no longer a different one.
    */
-  it('refuses a reply cut off before one claim was complete, and names the ceiling', async () => {
+  it('refuses a briefing cut off before one claim was complete', async () => {
     const { impl } = stubFetch({
       choices: [{ message: { content: '{"claims":[{"section":"wa' }, finish_reason: 'length' }],
     })
@@ -942,7 +856,26 @@ describe('composing', () => {
         sourceIds: ['a'],
         maxClaimLength: 400,
       }),
-    ).rejects.toThrow(`cut off at the ${BRIEFING_MAX_TOKENS}-token ceiling`)
+    ).rejects.toBeInstanceOf(TruncatedCompletion)
+  })
+
+  /**
+   * The observed failure on 2026-08-05: `finish_reason length` with **no content
+   * at all**, because reasoning tokens are charged against the same ceiling and
+   * the model never reached the document.
+   */
+  it('refuses a briefing where the ceiling went on reasoning', async () => {
+    const { impl } = stubFetch({ choices: [{ message: {}, finish_reason: 'length' }] })
+
+    await expect(
+      openRouterModel('a-key', { fetch: impl }).compose({
+        system: 's',
+        user: 'u',
+        sections: ['wall'],
+        sourceIds: ['a'],
+        maxClaimLength: 400,
+      }),
+    ).rejects.toBeInstanceOf(TruncatedCompletion)
   })
 
   /**
@@ -966,28 +899,8 @@ describe('composing', () => {
     ).rejects.toThrow(SyntaxError)
   })
 
-  /**
-   * The observed failure on 2026-08-05: `finish_reason length` with **no content
-   * at all**, because reasoning tokens are charged against the same ceiling and
-   * the model never reached the document. The error says so, with the number.
-   */
-  it('says the ceiling went on reasoning when nothing was written', async () => {
-    const { impl } = stubFetch({ choices: [{ message: {}, finish_reason: 'length' }] })
-
-    await expect(
-      openRouterModel('a-key', { fetch: impl }).compose({
-        system: 's',
-        user: 'u',
-        sections: ['wall'],
-        sourceIds: ['a'],
-        maxClaimLength: 400,
-      }),
-    ).rejects.toThrow(
-      `the whole ${BRIEFING_MAX_TOKENS * CEILING_ESCALATION}-token ceiling went on reasoning`,
-    )
-  })
-
-  it('asks for the briefing ceiling, not a verdict’s', async () => {
+  /** No ceiling on a briefing either, unless an operator set one (`#1694`). */
+  it('sends no ceiling on a briefing', async () => {
     const { impl, sent } = stubFetch(aBriefing(''))
 
     await openRouterModel('a-key', { fetch: impl }).compose({
@@ -998,8 +911,10 @@ describe('composing', () => {
       maxClaimLength: 400,
     })
 
-    const body = JSON.parse(String(sent[0]?.init?.body)) as { max_tokens: number }
-    expect(body.max_tokens).toBe(BRIEFING_MAX_TOKENS)
+    const body = JSON.parse(String(sent[0]?.init?.body)) as Record<string, unknown>
+    expect('max_tokens' in body).toBe(false)
+    // And the reply is parsed as JSON, so it must not have been a stream.
+    expect(body.stream).toBe(false)
   })
 
   /** A reply with no claims array at all is unusable, and that still throws. */
@@ -1019,6 +934,15 @@ describe('composing', () => {
 })
 
 describe('embedding', () => {
+  /**
+   * **The embedding model is configuration and has no default** (`#1694`).
+   *
+   * It cannot have a tier: a tier is a preset on a chat endpoint, and embeddings
+   * do not route through the gateway at all (D-122 §1). So the slug that used to
+   * be a constant here is passed in, exactly as the deployment passes it.
+   */
+  const embedding = { embeddingModel: 'a-model-the-repository-does-not-name' }
+
   it('returns one vector per input, in the order they were sent', async () => {
     const { impl } = stubFetch({
       data: [
@@ -1027,7 +951,10 @@ describe('embedding', () => {
       ],
     })
 
-    const vectors = await openRouterModel('a-key', { fetch: impl }).embed(['first', 'second'])
+    const vectors = await openRouterModel('a-key', { fetch: impl, ...embedding }).embed([
+      'first',
+      'second',
+    ])
 
     // Reordered by `index`, not taken as they arrived. A silently transposed
     // pair here would compare the wrong two texts.
@@ -1041,14 +968,40 @@ describe('embedding', () => {
     const { impl } = stubFetch({ data: [{ index: 0, embedding: [1, 0] }] })
 
     await expect(
-      openRouterModel('a-key', { fetch: impl }).embed(['first', 'second']),
+      openRouterModel('a-key', { fetch: impl, ...embedding }).embed(['first', 'second']),
     ).rejects.toThrow('different number of embeddings')
+  })
+
+  /**
+   * **Unset means no comparison, and that is not an outage** (`#1694`).
+   *
+   * `findDuplicate` reads a short answer as `distinct`, so entries are published
+   * without being compared — the direction `dedup.ts` already documents as safe:
+   * the failure shows up as nothing ever being merged, rather than as a merge
+   * onto the wrong pair. Loud, because a Colony that silently stopped
+   * de-duplicating looks exactly like one where nothing has been published twice.
+   */
+  it('asks nothing and says so when no embedding model is configured', async () => {
+    const warn = vi.fn()
+    const { impl, sent } = stubFetch({ data: [{ index: 0, embedding: [1, 0] }] })
+
+    const vectors = await openRouterModel('a-key', {
+      fetch: impl,
+      log: { info: vi.fn(), warn, error: vi.fn() },
+    }).embed(['first'])
+
+    expect(vectors).toEqual([])
+    expect(sent).toEqual([])
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('OPENROUTER_EMBEDDING_MODEL'),
+      expect.objectContaining({ event: 'config.missing' }),
+    )
   })
 
   it('asks for nothing when there is nothing to embed', async () => {
     const { impl, sent } = stubFetch({ data: [] })
 
-    expect(await openRouterModel('a-key', { fetch: impl }).embed([])).toEqual([])
+    expect(await openRouterModel('a-key', { fetch: impl, ...embedding }).embed([])).toEqual([])
     expect(sent).toEqual([])
   })
 })

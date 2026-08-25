@@ -112,9 +112,20 @@ export const GATEWAY_API_KEY_VARS = {
    * below is built to treat as complete rather than as broken.
    */
   doctor: 'LLM_GATEWAY_API_KEY_DOCTOR',
+  /**
+   * The OpenCode worker that works issues in any repository (`kolonie-docs#493`).
+   *
+   * Read by a workflow in `Kolonie-AI/kolonie-docs` rather than by this
+   * repository, exactly as the Reviewer Agent's key is, and named here for the
+   * same reason: the point of this list is to be complete, because the strings
+   * have to match what is installed on the deployment and one list is one thing
+   * to reconcile. Until that issue the worker read `OPENCODE_LLM_API_KEY`, and a
+   * key rotated under one naming scheme left the other answering 401.
+   */
+  worker: 'LLM_GATEWAY_API_KEY_WORKER',
 } as const
 
-/** One of the four services the gateway knows by name. */
+/** One of the services the gateway knows by name. */
 export type GatewayService = keyof typeof GATEWAY_API_KEY_VARS
 
 /**
@@ -142,6 +153,7 @@ export const GATEWAY_MODEL_VARS: Record<GatewayService, string> = {
   triage: 'LLM_GATEWAY_MODEL_TRIAGE',
   reviewer: 'LLM_GATEWAY_MODEL_REVIEWER',
   doctor: 'LLM_GATEWAY_MODEL_DOCTOR',
+  worker: 'LLM_GATEWAY_MODEL_WORKER',
 } as const
 
 /**

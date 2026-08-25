@@ -3,6 +3,7 @@ import {
   GATEWAY_MODEL_VARS,
   createLog,
   gatewayFromEnvironment,
+  maxTokensFromEnvironment,
 } from '@kolonie-ai/core'
 import {
   academyProgressFor,
@@ -143,7 +144,16 @@ const store: DoctorStore = {
  * appears nowhere in the repository.
  */
 const gateway = gatewayFromEnvironment('doctor')
-const prose = gateway === undefined ? noProse : gatewayProse(gateway, { log })
+const prose =
+  gateway === undefined
+    ? noProse
+    : gatewayProse(gateway, {
+        log,
+        // The operator's ceiling, or nothing — the ordinary state (`#1694`).
+        ...(maxTokensFromEnvironment('doctor') !== undefined && {
+          maxTokens: maxTokensFromEnvironment('doctor'),
+        }),
+      })
 
 if (!prose.available) {
   log.warn(

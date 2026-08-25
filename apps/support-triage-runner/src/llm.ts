@@ -1,4 +1,13 @@
-import { readModelCall, silentLog, type Log, type ModelCall } from '@kolonie-ai/core'
+import {
+  TIER_3,
+  chatRequestBody,
+  readModelCall,
+  silentLog,
+  throwIfTruncated,
+  type CapabilityTier,
+  type Log,
+  type ModelCall,
+} from '@kolonie-ai/core'
 import type { TriageInput, TriageModel } from './triage.js'
 import { reachableFetch, REACHES } from './reachable.js'
 
@@ -16,58 +25,44 @@ const OPENROUTER_BASE = 'https://openrouter.ai/api/v1'
 export const OPENROUTER_API_KEY_VAR = 'OPENROUTER_API_KEY'
 
 /**
- * Which model triages.
+ * The tier that triages (`#1694`).
  *
- * Configuration rather than a constant, like `OPENROUTER_MODEL` one app over: the
- * right model for this is a question to settle against real tickets, and the
- * alternative is a code change to try the next one.
+ * **`tier-3`, on current behaviour.** This is a four-way classification of a
+ * support ticket, which is the cheapest kind of work there is — and until `#229`
+ * this app asked the most expensive model in the fleet to do it. It ran on a
+ * flash model afterwards, and nothing here asks for something a flash model
+ * cannot do.
  *
- * **The same slug the other two callers already run**, and the third of three:
- * `apps/moderation-runner` and `packages/verifiers/src/bio-judge.ts` are both on
- * it. Until `#229` this app asked the most expensive model in the fleet to do a
- * four-way classification, which is the cheapest kind of work there is.
- *
- * **Undated on purpose.** A pinned variant was considered and rejected: three
- * callers sharing one slug is worth more than a pin nobody else shares.
- * Confirmed present on OpenRouter's model list on 2026-08-03, at
- * `openrouter.ai/api/v1/models`.
- *
- * **The switch was checked rather than argued.** All 43 already-triaged tickets
- * were replayed through both models with the corpus each one saw at the time.
- * What matters is not agreement but the direction of disagreement: a cheap model
- * that says `human` where Sonnet said `known` is acceptable; one that says
- * `known` where Sonnet said `human` ends a citizen's report on a guess, and a
- * single instance of that would have blocked this. See `#229` for the table.
+ * **The switch to a cheap model was checked rather than argued, and the check is
+ * what a tier now inherits.** All 43 already-triaged tickets were replayed
+ * through both models with the corpus each one saw at the time. What mattered
+ * was not agreement but the direction of disagreement: a cheap model that says
+ * `human` where the expensive one said `known` is acceptable; one that says
+ * `known` where it said `human` ends a citizen's report on a guess, and a single
+ * instance of that would have blocked it. See `#229` for the table — and read it
+ * before configuring what serves `tier-3`, because that is where the question
+ * lives now.
  */
-export const TRIAGE_MODEL = 'deepseek/deepseek-v4-flash'
+export const TRIAGE_TIER: CapabilityTier = TIER_3
 
 /**
- * How much room the answer gets.
+ * The operator's ceiling, or nothing — and nothing is the ordinary state
+ * (`#1694`).
  *
- * **A ceiling, not a spend.** Tokens are billed as generated, so a generous cap
- * costs nothing on the calls that never approach it — which is all of them: a
- * triage answer is a four-way verdict plus a url or an id, and the measured
- * replies were 60–200 completion tokens.
+ * **A named ceiling used to stand here and it is gone.** It was 100,000, and its
+ * comment was three careful paragraphs: a ceiling and not a spend, sized for the
+ * model's own reasoning, checked against a real triage payload on 2026-08-03
+ * because `deepseek/deepseek-v4-flash` was served by twenty-one providers whose
+ * completion limits ran from 32,768 upwards. All of that was true and all of it
+ * was about one model at one provider — which is exactly the knowledge that
+ * stopped being this repository's when the model choice moved to the gateway.
  *
- * What the room is for is the model's own reasoning, and there is no way to size
- * that from outside. The failure it guards against is total rather than partial:
- * OpenRouter returns `content: null` with `finish_reason: length`, and the whole
- * answer is lost, not truncated. The previous 8000 carried a comment saying it
- * was measured — but on a neighbouring feature, against a different model.
- *
- * **The ceiling that could have broken this was checked, not assumed.**
- * `deepseek/deepseek-v4-flash` is served by twenty-one providers whose completion
- * limits run from Venice's 32,768 to 1,048,576, so a naive reading says 100,000
- * is above the floor and every call fails. It does not: OpenRouter routes to a
- * provider that can satisfy the request. Verified on 2026-08-03 by sending a real
- * triage payload at this exact cap — answered by CoreWeave, `finish_reason:
- * stop`. Per-provider limits from `openrouter.ai/api/v1/models/{slug}/endpoints`.
- *
- * The `finish_reason: length` path below stays handled regardless. A larger
- * ceiling makes that failure rarer, not impossible, and a rare silent failure is
- * worse than a frequent one because nobody is watching for it.
+ * `max_tokens` is a ceiling and not a reservation: the model stops on its own,
+ * so a number set here can only ever be too small. Unset, the field is absent
+ * from the request body entirely, and `throwIfTruncated` catches a cut-off
+ * answer at whatever ceiling the gateway itself imposes.
  */
-const MAX_TOKENS = 100_000
+const ceilingFor = (options: OpenRouterOptions): number | undefined => options.maxTokens
 
 const SYSTEM = `You triage support tickets for Kolonie AI, a colony of autonomous agents.
 
@@ -221,6 +216,12 @@ export interface OpenRouterOptions {
   readonly model?: string
   readonly fetchImpl?: typeof fetch
   readonly log?: Log
+  /**
+   * The operator's ceiling, or nothing — which is the ordinary state and means
+   * `max_tokens` is absent from the request body (`#1694`). Read from
+   * `LLM_GATEWAY_MAX_TOKENS_TRIAGE` in the runner's wiring, like the key.
+   */
+  readonly maxTokens?: number
 }
 
 type OpenRouterBody = {
@@ -247,9 +248,10 @@ function modelCall(body: OpenRouterBody, log: Log, http?: Response): ModelCall |
 }
 
 export function openRouterModel(apiKey: string, options: OpenRouterOptions = {}): TriageModel {
-  const model = options.model ?? TRIAGE_MODEL
+  const model = options.model ?? TRIAGE_TIER
   const doFetch = reachableFetch(REACHES.model, options.fetchImpl ?? fetch)
   const log = options.log ?? silentLog
+  const ceiling = ceilingFor(options)
 
   return {
     name: model,
@@ -262,16 +264,18 @@ export function openRouterModel(apiKey: string, options: OpenRouterOptions = {})
           'http-referer': 'https://github.com/Kolonie-AI',
           'x-title': 'Kolonie support triage',
         },
-        body: JSON.stringify({
-          model,
-          messages: [
-            { role: 'system', content: SYSTEM },
-            { role: 'user', content: prompt(input) },
-          ],
-          response_format: { type: 'json_object' },
-          max_tokens: MAX_TOKENS,
-          temperature: 0.1,
-        }),
+        body: JSON.stringify(
+          chatRequestBody({
+            model,
+            messages: [
+              { role: 'system', content: SYSTEM },
+              { role: 'user', content: prompt(input) },
+            ],
+            response_format: { type: 'json_object' },
+            temperature: 0.1,
+            ...(ceiling === undefined ? {} : { maxTokens: ceiling }),
+          }),
+        ),
       })
 
       if (!response.ok) {
@@ -283,11 +287,14 @@ export function openRouterModel(apiKey: string, options: OpenRouterOptions = {})
       const body = (await response.json()) as OpenRouterBody
       const call = modelCall(body, log, response)
 
+      // Cut off before it finished is a failed call and never a triage verdict
+      // (`#1694`) — including when it wrote something first, because a partial
+      // classification is a ticket routed on half an answer.
+      throwIfTruncated(body)
+
       const choice = body.choices?.[0]
       const text = choice?.message?.content
       if (text === undefined || text === null || text === '') {
-        // `finish_reason: length` is the one worth naming: the model ran out of
-        // room mid-object and there is no partial answer to salvage.
         throw new Error(
           `the model returned no content (finish_reason: ${choice?.finish_reason ?? 'unknown'})`,
         )
@@ -358,9 +365,10 @@ export function openRouterDefectWriter(
   apiKey: string,
   options: OpenRouterOptions = {},
 ): DefectWriter {
-  const model = options.model ?? TRIAGE_MODEL
+  const model = options.model ?? TRIAGE_TIER
   const doFetch = reachableFetch(REACHES.model, options.fetchImpl ?? fetch)
   const log = options.log ?? silentLog
+  const ceiling = ceilingFor(options)
 
   return {
     available: true,
@@ -373,34 +381,41 @@ export function openRouterDefectWriter(
           'http-referer': 'https://github.com/Kolonie-AI',
           'x-title': 'Kolonie log defects',
         },
-        body: JSON.stringify({
-          model,
-          messages: [
-            { role: 'system', content: DEFECT_SYSTEM },
-            {
-              role: 'user',
-              content: [
-                `signature: ${input.signature}`,
-                `service: ${input.service}`,
-                `event: ${input.event}`,
-                `lines in the last hour: ${input.count}`,
-                `the service last started: ${input.lastStart ?? 'not found in the day before'}`,
-                '',
-                'sample lines:',
-                ...input.samples,
-              ].join('\n'),
-            },
-          ],
-          response_format: { type: 'json_object' },
-          max_tokens: MAX_TOKENS,
-          temperature: 0.2,
-        }),
+        body: JSON.stringify(
+          chatRequestBody({
+            model,
+            messages: [
+              { role: 'system', content: DEFECT_SYSTEM },
+              {
+                role: 'user',
+                content: [
+                  `signature: ${input.signature}`,
+                  `service: ${input.service}`,
+                  `event: ${input.event}`,
+                  `lines in the last hour: ${input.count}`,
+                  `the service last started: ${input.lastStart ?? 'not found in the day before'}`,
+                  '',
+                  'sample lines:',
+                  ...input.samples,
+                ].join('\n'),
+              },
+            ],
+            response_format: { type: 'json_object' },
+            temperature: 0.2,
+            ...(ceiling === undefined ? {} : { maxTokens: ceiling }),
+          }),
+        ),
       })
 
       if (!response.ok) throw new Error(`the model endpoint answered ${response.status}`)
 
       const body = (await response.json()) as OpenRouterBody
       const call = modelCall(body, log, response)
+
+      // A write-up cut off at a ceiling is a failed call (`#1694`): it becomes a
+      // GitHub issue somebody reads, and half a reading is worse than none.
+      throwIfTruncated(body)
+
       const text = body.choices?.[0]?.message?.content
       if (text === undefined || text === null || text === '') {
         throw new Error(

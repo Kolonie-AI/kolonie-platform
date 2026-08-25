@@ -13,6 +13,29 @@ import { connectedClient } from '../../__fixtures__/mcp.js'
  * that using it is not held against anybody.
  */
 describe('kolonie.credential.rotate', () => {
+  const pause = async (client: Awaited<ReturnType<typeof connectedClient>>['client']) => {
+    const result = await client.callTool({ name: 'kolonie.credential.rotate', arguments: {} })
+    const token = (
+      result.structuredContent as {
+        error: { details: { confirmationToken: string } }
+      }
+    ).error.details.confirmationToken
+    return { result, token }
+  }
+
+  const rotate = async (client: Awaited<ReturnType<typeof connectedClient>>['client']) => {
+    const paused = await client.callTool({ name: 'kolonie.credential.rotate', arguments: {} })
+    const token = (
+      paused.structuredContent as {
+        error: { details: { confirmationToken: string } }
+      }
+    ).error.details.confirmationToken
+    return client.callTool({
+      name: 'kolonie.credential.rotate',
+      arguments: { confirm: token },
+    })
+  }
+
   const aCitizen = async () => {
     const colony = fakeColony()
     const registered = await colony.registry.register(
@@ -38,11 +61,130 @@ describe('kolonie.credential.rotate', () => {
     await close()
   })
 
+  /**
+   * `#1683`: rotation used to happen on the first call. A citizen that failed to
+   * save the answer therefore lost both the old key and the only copy of the new
+   * one in one unconfirmed act.
+   */
+  it('refuses the first call, issues no key and leaves the current key live', async () => {
+    const { colony, apiKey } = await aCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const paused = await client.callTool({ name: 'kolonie.credential.rotate', arguments: {} })
+
+    expect(paused.isError).toBe(true)
+    expect(paused.structuredContent).toMatchObject({
+      error: {
+        code: 'confirmation_required',
+        details: {
+          confirm: 'first-call',
+          confirmationToken: expect.any(String),
+          confirmationExpiresAt: expect.any(String),
+        },
+      },
+    })
+    const text = JSON.stringify(paused.content)
+    expect(text).toContain('current API key still works')
+    expect(text).toContain('stops working')
+    expect(text).toContain('shown exactly once')
+    expect(text).toContain('cannot recover')
+
+    const me = await client.callTool({ name: 'kolonie.me', arguments: {} })
+    expect(me.isError).toBeFalsy()
+    await close()
+  })
+
+  it('rotates only on a second call carrying the confirmation token', async () => {
+    const { colony, apiKey } = await aCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const paused = await client.callTool({ name: 'kolonie.credential.rotate', arguments: {} })
+    const token = (
+      paused.structuredContent as {
+        error: { details: { confirmationToken: string } }
+      }
+    ).error.details.confirmationToken
+    const result = await client.callTool({
+      name: 'kolonie.credential.rotate',
+      arguments: { confirm: token },
+    })
+
+    expect(result.isError).toBeFalsy()
+    const { credentials } = RotateCredentialResponseSchema.parse(result.structuredContent)
+    expect(credentials.apiKey).not.toBe(apiKey)
+    await close()
+  })
+
+  it('refuses an expired token and leaves the key live', async () => {
+    const { colony, apiKey } = await aCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+    const { token } = await pause(client)
+    colony.expireRotationConfirmation(token)
+
+    const refused = await client.callTool({
+      name: 'kolonie.credential.rotate',
+      arguments: { confirm: token },
+    })
+    expect(refused.isError).toBe(true)
+    expect(refused.structuredContent).toMatchObject({
+      error: { code: 'confirmation_required', details: { confirm: 'expired' } },
+    })
+    expect((await client.callTool({ name: 'kolonie.me', arguments: {} })).isError).toBeFalsy()
+    await close()
+  })
+
+  it('refuses a reused token and leaves the replacement key live', async () => {
+    const { colony, apiKey } = await aCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+    const { token } = await pause(client)
+    const rotated = await client.callTool({
+      name: 'kolonie.credential.rotate',
+      arguments: { confirm: token },
+    })
+    const replacement = RotateCredentialResponseSchema.parse(rotated.structuredContent).credentials
+    await close()
+
+    const fresh = await connectedClient(colony, `Bearer ${replacement.apiKey}`)
+    const refused = await fresh.client.callTool({
+      name: 'kolonie.credential.rotate',
+      arguments: { confirm: token },
+    })
+    expect(refused.isError).toBe(true)
+    expect(refused.structuredContent).toMatchObject({
+      error: { code: 'confirmation_required', details: { confirm: 'other-name' } },
+    })
+    expect((await fresh.client.callTool({ name: 'kolonie.me', arguments: {} })).isError).toBeFalsy()
+    await fresh.close()
+  })
+
+  it('refuses a token issued for a different credential', async () => {
+    const { colony, apiKey } = await aCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+    const { token } = await pause(client)
+    const rotated = await client.callTool({
+      name: 'kolonie.credential.rotate',
+      arguments: { confirm: token },
+    })
+    const replacement = RotateCredentialResponseSchema.parse(rotated.structuredContent).credentials
+    await close()
+
+    const fresh = await connectedClient(colony, `Bearer ${replacement.apiKey}`)
+    const refused = await fresh.client.callTool({
+      name: 'kolonie.credential.rotate',
+      arguments: { confirm: token },
+    })
+    expect(refused.isError).toBe(true)
+    expect(refused.structuredContent).toMatchObject({
+      error: { code: 'confirmation_required', details: { confirm: 'other-name' } },
+    })
+    await fresh.close()
+  })
+
   it('issues a new key, and the old one stops working from the next call', async () => {
     const { colony, agent, apiKey } = await aCitizen()
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
 
-    const result = await client.callTool({ name: 'kolonie.credential.rotate', arguments: {} })
+    const result = await rotate(client)
     expect(result.isError).toBeFalsy()
 
     const { credentials } = RotateCredentialResponseSchema.parse(result.structuredContent)
@@ -76,7 +218,7 @@ describe('kolonie.credential.rotate', () => {
     const { colony, apiKey } = await aCitizen()
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
 
-    const result = await client.callTool({ name: 'kolonie.credential.rotate', arguments: {} })
+    const result = await rotate(client)
     const { credentials } = RotateCredentialResponseSchema.parse(result.structuredContent)
     const text = JSON.stringify(result.content)
 
@@ -118,7 +260,7 @@ describe('kolonie.credential.rotate', () => {
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
     const before = await client.callTool({ name: 'kolonie.me', arguments: {} })
 
-    const result = await client.callTool({ name: 'kolonie.credential.rotate', arguments: {} })
+    const result = await rotate(client)
     const { credentials } = RotateCredentialResponseSchema.parse(result.structuredContent)
     await close()
 
@@ -150,7 +292,7 @@ describe('kolonie.credential.rotate', () => {
       name: 'kolonie.vault.set',
       arguments: { key: 'mailbox/keeper', value: 'a value', description: 'the mailbox' },
     })
-    const result = await client.callTool({ name: 'kolonie.credential.rotate', arguments: {} })
+    const result = await rotate(client)
     const { credentials, vault } = RotateCredentialResponseSchema.parse(result.structuredContent)
     await close()
 
@@ -179,7 +321,7 @@ describe('kolonie.credential.rotate', () => {
       await client.callTool({ name: 'kolonie.vault.set', arguments: { key, value: 'a value' } })
     }
 
-    const result = await client.callTool({ name: 'kolonie.credential.rotate', arguments: {} })
+    const result = await rotate(client)
     const { vault } = RotateCredentialResponseSchema.parse(result.structuredContent)
 
     expect(vault).toEqual({ resealed: 2, unreadable: 0 })
@@ -194,7 +336,7 @@ describe('kolonie.credential.rotate', () => {
     const { colony, apiKey } = await aCitizen()
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
 
-    const result = await client.callTool({ name: 'kolonie.credential.rotate', arguments: {} })
+    const result = await rotate(client)
 
     expect(RotateCredentialResponseSchema.parse(result.structuredContent).vault).toEqual({
       resealed: 0,
@@ -224,9 +366,7 @@ describe('kolonie.credential.rotate', () => {
     const { colony, apiKey } = await aCitizen()
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
 
-    expect(
-      (await client.callTool({ name: 'kolonie.credential.rotate', arguments: {} })).isError,
-    ).toBeFalsy()
+    expect((await rotate(client)).isError).toBeFalsy()
     // The second call presents a credential that is now revoked, so it does not even
     // authenticate — the same answer any other tool would give it.
     const again = await client.callTool({ name: 'kolonie.credential.rotate', arguments: {} })

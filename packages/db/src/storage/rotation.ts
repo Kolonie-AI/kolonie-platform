@@ -1,8 +1,15 @@
+import { randomBytes } from 'node:crypto'
 import { and, eq, isNull, sql } from 'drizzle-orm'
-import { AgentIdSchema, CredentialIdSchema, type RotatedCredentials } from '@kolonie-ai/core'
+import {
+  AgentIdSchema,
+  CredentialIdSchema,
+  ROTATION_CONFIRMATION_TTL_SECONDS,
+  type ConfirmationVerdict,
+  type RotatedCredentials,
+} from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { generateApiKey, hashApiKey } from '../api-key.js'
-import { credentials } from '../schema/index.js'
+import { credentialRotationConfirmations, credentials } from '../schema/index.js'
 import { sendSystemMessage } from './messaging.js'
 import { toTimestamp } from './rows.js'
 import { reSealVault, type VaultReSeal } from './vault.js'
@@ -49,14 +56,12 @@ export type RotateApiKeyResult =
 /**
  * Give this citizen a new key and kill the one it presented, in one transaction.
  *
- * ## Why there is no challenge flow, unlike erasure
+ * ## Why the confirmation is one extra call and no waiting period
  *
- * `erase.challenge` exists because erasure destroys things the caller may want back,
- * so it states the loss before the caller commits. **Rotation destroys nothing.** The
- * agent id, the standing, the vetting history and the tasks are all untouched, and the
- * only thing that stops working is a string the caller has just said it no longer
- * trusts. A confirmation step here would add a round trip to the remedy for a leak, at
- * the moment speed is the point.
+ * `erase.challenge` protects a destructive act. Rotation keeps the agent id, standing,
+ * vetting history and tasks, but `#1683` measured a different loss: a caller that did
+ * not store the one-time answer lost both keys at once. Its token adds one call and no
+ * delay, and the old key remains live until the confirmed call returns.
  *
  * That sentence was not true of the vault until `#1127`, and the exception was the
  * expensive kind: the sealing key is derived from the presented API key, so every
@@ -88,6 +93,76 @@ export type RotateApiKeyResult =
  * Colony keeps is what it keeps for every credential — `issued_at` on the new row and
  * `revoked_at` on the old — which is an audit trail without being a score.
  */
+const ROTATION_TOKEN_BYTES = 32
+
+export async function mintRotationConfirmation(
+  db: Database,
+  presented: string,
+): Promise<{ token: string; expiresAt: string } | undefined> {
+  const [credential] = await db
+    .select({ id: credentials.id })
+    .from(credentials)
+    .where(
+      and(
+        eq(credentials.secretHash, hashApiKey(presented)),
+        eq(credentials.kind, 'api-key'),
+        isNull(credentials.revokedAt),
+        isNull(credentials.expiresAt),
+      ),
+    )
+    .limit(1)
+  if (credential === undefined) return undefined
+
+  const token = randomBytes(ROTATION_TOKEN_BYTES).toString('base64url')
+  const expiresAt = new Date(Date.now() + ROTATION_CONFIRMATION_TTL_SECONDS * 1000).toISOString()
+  await db
+    .insert(credentialRotationConfirmations)
+    .values({ credentialId: credential.id, token, expiresAt })
+  return { token, expiresAt }
+}
+
+export async function spendRotationConfirmation(
+  db: Database,
+  presented: string,
+  token: string,
+): Promise<ConfirmationVerdict> {
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .select({
+        id: credentialRotationConfirmations.id,
+        credentialId: credentialRotationConfirmations.credentialId,
+        expiresAt: credentialRotationConfirmations.expiresAt,
+        consumedAt: credentialRotationConfirmations.consumedAt,
+      })
+      .from(credentialRotationConfirmations)
+      .where(eq(credentialRotationConfirmations.token, token))
+      .for('update')
+      .limit(1)
+
+    if (row === undefined) return 'unknown'
+    const [credential] = await tx
+      .select({ id: credentials.id })
+      .from(credentials)
+      .where(
+        and(
+          eq(credentials.secretHash, hashApiKey(presented)),
+          eq(credentials.kind, 'api-key'),
+          isNull(credentials.revokedAt),
+          isNull(credentials.expiresAt),
+        ),
+      )
+      .limit(1)
+    if (credential === undefined || credential.id !== row.credentialId) return 'other-name'
+    if (row.consumedAt !== null) return 'spent'
+
+    await tx
+      .update(credentialRotationConfirmations)
+      .set({ consumedAt: sql`now()` })
+      .where(eq(credentialRotationConfirmations.id, row.id))
+    return new Date(row.expiresAt).getTime() <= Date.now() ? 'expired' : 'confirmed'
+  })
+}
+
 export async function rotateApiKey(db: Database, presented: string): Promise<RotateApiKeyResult> {
   const presentedHash = hashApiKey(presented)
 

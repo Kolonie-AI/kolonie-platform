@@ -322,6 +322,10 @@ describe('kolonie.register', () => {
       expect(token).toBeTypeOf('string')
       // The text half carries it too, because that is what a model reads.
       expect(JSON.stringify(result.content)).toContain(String(token))
+      expect(refusal?.message).toContain('API key')
+      expect(refusal?.message).toContain('shown exactly once')
+      expect(refusal?.message).toContain('cannot recover')
+      expect(refusal?.message).toContain('store the whole answer')
       await close()
     })
 

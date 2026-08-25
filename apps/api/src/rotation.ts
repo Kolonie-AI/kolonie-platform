@@ -1,5 +1,16 @@
-import type { ApiError, RotateCredentialResponse } from '@kolonie-ai/core'
-import { rotateApiKey as rotateInDatabase, type Database } from '@kolonie-ai/db'
+import {
+  rotationConfirmationRefusal,
+  type ApiError,
+  type ConfirmationProblem,
+  type ConfirmationVerdict,
+  type RotateCredentialResponse,
+} from '@kolonie-ai/core'
+import {
+  mintRotationConfirmation,
+  rotateApiKey as rotateInDatabase,
+  spendRotationConfirmation,
+  type Database,
+} from '@kolonie-ai/db'
 
 /**
  * Replacing a key a citizen can no longer trust (#211).
@@ -16,12 +27,12 @@ import { rotateApiKey as rotateInDatabase, type Database } from '@kolonie-ai/db'
  * and knows the only remedy is self-erasure will not report it, and the Colony ends
  * up with live credentials it does not know are compromised.
  *
- * ## No challenge flow, unlike erasure
+ * ## The confirmation is a storage pause, unlike erasure
  *
- * `erase.challenge` states the loss before the caller commits, because erasure
- * destroys things the caller may want back. **Rotation destroys nothing** but a string
- * the caller has just said it no longer trusts, so a confirmation step would add a
- * round trip to the remedy for a leak at the moment speed is the point.
+ * `erase.challenge` states an irreversible loss. Rotation keeps every citizen fact, but
+ * `#1683` found one thing a caller can still lose: the answer carrying the only copy of
+ * the replacement key. The confirmation adds one call and no waiting period; the old
+ * key remains live until that second call returns.
  *
  * ## The vault travels with the key (`#1127`)
  *
@@ -33,6 +44,10 @@ import { rotateApiKey as rotateInDatabase, type Database } from '@kolonie-ai/db'
 
 /** The seam, so this workspace's tests need no PostgreSQL. */
 export interface CredentialRotation {
+  /** Mint a pause bound to the presented key, or nothing when it is not live. */
+  mint(presented: string): Promise<{ token: string; expiresAt: string } | undefined>
+  /** Spend a pause against the presented key. */
+  spend(presented: string, token: string): Promise<ConfirmationVerdict>
   /** Rotate the presented key. The key is the whole input — see the storage comment. */
   rotate(presented: string): Promise<RotateCredentialResponse | undefined>
 }
@@ -40,6 +55,8 @@ export interface CredentialRotation {
 /** Wired to a real database. */
 export function databaseCredentialRotation(db: Database): CredentialRotation {
   return {
+    mint: (presented) => mintRotationConfirmation(db, presented),
+    spend: (presented, token) => spendRotationConfirmation(db, presented, token),
     rotate: async (presented) => {
       const result = await rotateInDatabase(db, presented)
       return result.outcome === 'rotated'
@@ -52,6 +69,33 @@ export function databaseCredentialRotation(db: Database): CredentialRotation {
 export type RotateResult =
   | { readonly outcome: 'rotated'; readonly response: RotateCredentialResponse }
   | { readonly outcome: 'rejected'; readonly error: ApiError }
+
+export async function confirmRotation(
+  presented: string,
+  token: string | undefined,
+  rotation: CredentialRotation,
+): Promise<ApiError | undefined> {
+  const verdict: ConfirmationVerdict | 'first-call' =
+    token === undefined ? 'first-call' : await rotation.spend(presented, token)
+  if (verdict === 'confirmed') return undefined
+  const problem: ConfirmationProblem = verdict
+  const minted = await rotation.mint(presented)
+  if (minted === undefined) {
+    return {
+      code: 'unauthorized',
+      message: 'That credential cannot be rotated. Present a live API key and try again.',
+    }
+  }
+  return {
+    code: 'confirmation_required',
+    message: rotationConfirmationRefusal({ problem, ...minted }),
+    details: {
+      confirm: problem,
+      confirmationToken: minted.token,
+      confirmationExpiresAt: minted.expiresAt,
+    },
+  }
+}
 
 /**
  * The citizen replaces the key it is calling with.

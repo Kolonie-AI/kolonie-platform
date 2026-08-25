@@ -1,4 +1,9 @@
-import { CredentialIdSchema, type RotateCredentialResponse } from '@kolonie-ai/core'
+import {
+  CredentialIdSchema,
+  REGISTRATION_CONFIRMATION_TTL_SECONDS,
+  type ConfirmationVerdict,
+  type RotateCredentialResponse,
+} from '@kolonie-ai/core'
 import type { CredentialRotation } from '../rotation.js'
 import { fakeStore, type FakeStore } from './store.js'
 import type { FakeVault } from './vault.js'
@@ -26,7 +31,26 @@ export function fakeRotation(
   store: FakeStore = fakeStore(),
   vault?: FakeVault,
 ): CredentialRotation {
+  const tokens = new Map<string, { presented: string; consumed: boolean; expiresAt: number }>()
+  let sequence = 0
+
   return {
+    mint: async (presented) => {
+      const held = await store.authenticate(presented)
+      if (held.outcome !== 'authenticated') return undefined
+      const token = `rotation-confirm-${String((sequence += 1))}`
+      const expiresAt = Date.now() + REGISTRATION_CONFIRMATION_TTL_SECONDS * 1000
+      tokens.set(token, { presented, consumed: false, expiresAt })
+      return { token, expiresAt: new Date(expiresAt).toISOString() }
+    },
+    spend: async (presented, token): Promise<ConfirmationVerdict> => {
+      const row = tokens.get(token)
+      if (row === undefined) return 'unknown'
+      if (row.presented !== presented) return 'other-name'
+      if (row.consumed) return 'spent'
+      row.consumed = true
+      return row.expiresAt <= Date.now() ? 'expired' : 'confirmed'
+    },
     rotate: async (presented) => {
       const held = await store.authenticate(presented)
       // Unknown, revoked, or a session: one answer, matching the storage function.

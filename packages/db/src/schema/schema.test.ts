@@ -456,6 +456,12 @@ describe('schema', () => {
          * (`#1261`) reads a rate over the whole of it.
          */
         'contribution_verdicts',
+        /**
+         * `#1683`: the one-use, fifteen-minute pause before a live API key is
+         * replaced. Bound to the credential rather than the citizen, because a
+         * citizen may hold several keys and confirming one must not rotate another.
+         */
+        'credential_rotation_confirmations',
         'credentials',
         /**
          * `diagnoses` (`#838`): what the Doctor found, one row per finding

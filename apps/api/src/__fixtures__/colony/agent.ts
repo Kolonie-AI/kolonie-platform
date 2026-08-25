@@ -1,5 +1,4 @@
-import { fakeAdoption } from '../adoption.js'
-import type { AdoptionDesk } from '../../adoption.js'
+import { fakeAdoption, type FakeAdoptionDesk } from '../adoption.js'
 import { randomUUID } from 'node:crypto'
 import {
   AgentBalanceSchema,
@@ -20,6 +19,7 @@ import {
   type AgentId,
   type OperatorStanding,
   type SessionDeclaration,
+  type ConfirmationVerdict,
   type ProfileReview,
   type ApiKey,
   type RegisterAgentFields,
@@ -100,7 +100,7 @@ export interface FakeAgent {
    */
   readonly confirm: (name: string) => Promise<string>
   /** The hand-over door (`#459`), so the tool it registers exists in a test colony. */
-  readonly adoption: AdoptionDesk
+  readonly adoption: FakeAdoptionDesk
   readonly store: AgentStore
   /**
    * Replacing a key a citizen can no longer trust (#211).
@@ -111,6 +111,7 @@ export interface FakeAgent {
    * rather than assert that a function returned a new string.
    */
   readonly rotation: CredentialRotation
+  readonly expireRotationConfirmation: (token: string) => void
   readonly wakeup: WakeupSource
   /**
    * What `kolonie.doctor` reads (`#837`).
@@ -373,6 +374,11 @@ export function fakeAgent(deps: {
 
   const isTaken = async (name: string) => takenNames.has(name.toLowerCase())
   const gate = memoryGate(isTaken)
+  const rotationTokens = new Map<
+    string,
+    { presented: string; consumed: boolean; expiresAt: number }
+  >()
+  let rotationTokenSequence = 0
 
   return {
     confirm: gate.confirm,
@@ -505,7 +511,27 @@ export function fakeAgent(deps: {
       absences.set(String(agentId), hours)
     },
 
+    expireRotationConfirmation: (token) => {
+      const row = rotationTokens.get(token)
+      if (row !== undefined) row.expiresAt = 0
+    },
     rotation: {
+      mint: async (presented: string) => {
+        const held = byKey.get(presented)
+        if (held === undefined || held.revoked) return undefined
+        const token = `rotation-confirm-${String((rotationTokenSequence += 1))}`
+        const expiresAt = Date.now() + 900_000
+        rotationTokens.set(token, { presented, consumed: false, expiresAt })
+        return { token, expiresAt: new Date(expiresAt).toISOString() }
+      },
+      spend: async (presented: string, token: string): Promise<ConfirmationVerdict> => {
+        const held = rotationTokens.get(token)
+        if (held === undefined) return 'unknown'
+        if (held.presented !== presented) return 'other-name'
+        if (held.consumed) return 'spent'
+        held.consumed = true
+        return held.expiresAt <= Date.now() ? 'expired' : 'confirmed'
+      },
       rotate: async (presented: string) => {
         const held = byKey.get(presented)
         // Unknown, revoked or a session: one answer, matching the storage function.

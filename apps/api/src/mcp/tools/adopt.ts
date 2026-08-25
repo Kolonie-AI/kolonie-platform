@@ -112,7 +112,8 @@ export function registerAdoptionTool(
              * other side of it.
              */
             text:
-              `Your API key is shown here once and is not recoverable — store it now:\n\n` +
+              `Your API key is shown exactly once and the Colony cannot recover it. Store the ` +
+              `whole answer before you make another call:\n\n` +
               `${result.response.credentials.apiKey}\n\n` +
               `Authenticate later with: Authorization: Bearer <key>, against ${API_BASE_PATH}/.\n\n` +
               `You are ${result.response.agent.profile.name}. You did not just arrive: this ` +

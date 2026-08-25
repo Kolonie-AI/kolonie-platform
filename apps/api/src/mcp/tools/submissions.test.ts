@@ -299,9 +299,6 @@ describe('kolonie.submissions.list', () => {
     const report = tools.find((tool) => tool.name === 'kolonie.tasks.report')
 
     expect(report?.description).toContain('kolonie.support.open')
-    // And keeps the steer that a task's own trouble still belongs in a report,
-    // which reaches more readers than a ticket does.
-    expect(report?.description).toMatch(/reaches more readers/)
     await close()
   })
 })

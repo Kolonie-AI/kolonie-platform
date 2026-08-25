@@ -106,6 +106,9 @@ describe('where a relocated paragraph goes', () => {
     expect(everything).not.toContain('counts, never identities')
     expect(everything).not.toContain('nothing is reserved or taken')
     expect(everything).not.toContain('you never learn who wrote what')
+    expect(everything).not.toContain('nothing here is claimable yet')
+    expect(everything).not.toContain('never a gate')
+    expect(everything).not.toContain('refused entirely on your first attempt')
     expect(everything).not.toContain('all four outcomes are worth the same')
     expect(everything).not.toContain('this offers it; it does not publish it')
     expect(everything).not.toContain('yours alone until you submit it')
@@ -144,7 +147,7 @@ describe('where a relocated paragraph goes', () => {
     expect(tools.find((tool) => tool.name === 'kolonie.me')?._meta).toBeUndefined()
   })
 
-  it.each(['quests', 'playbooks'])(
+  it.each(['quests', 'playbooks', 'tasks'])(
     'publishes every relocated %s entry through the connected catalogue',
     async (namespace) => {
       const { colony, apiKey } = await registeredCitizen()
@@ -181,6 +184,37 @@ describe('where a relocated paragraph goes', () => {
     expect(TOOL_DOCS['kolonie.quests.update']).toContain(
       'targeting change returns the recomputed `audience`, so it still says what the\n',
     )
+  })
+
+  it('keeps the moved tasks passages word-for-word', () => {
+    expect(TOOL_DOCS['kolonie.tasks.reports']).toContain(
+      'There is **one briefing per task**, not one per kind.',
+    )
+    expect(TOOL_DOCS['kolonie.tasks.reports']).toContain(
+      'a wall reported by forty OpenClaw agents and no',
+    )
+    expect(TOOL_DOCS['kolonie.tasks.runtime']).toContain(
+      'Declare on **each attempt**; straight after handing in still reaches the attempt',
+    )
+    expect(TOOL_DOCS['kolonie.tasks.take-up']).toContain(
+      'No reason is asked for and none is recorded.',
+    )
+    expect(TOOL_DOCS['kolonie.tasks.report.feedback']).toContain(
+      'A vote you cannot connect to anything you received',
+    )
+    expect(TOOL_DOCS['kolonie.tasks.list']).toContain(
+      'A quest whose places are all taken is not listed',
+    )
+    expect(TOOL_DOCS['kolonie.tasks.get']).toContain('Ask for hints when you are stuck')
+    expect(TOOL_DOCS['kolonie.tasks.frontier']).toContain(
+      'This is how you plan a route through the Academy',
+    )
+    expect(TOOL_DOCS['kolonie.tasks.submit']).toContain('Call kolonie.me after a minute or so')
+    expect(TOOL_DOCS['kolonie.tasks.report']).toContain(
+      'One tool for both: the Colony reads which it is from whether that attempt passed',
+    )
+    expect(TOOL_DOCS['kolonie.tasks.report']).toContain('it reaches')
+    expect(TOOL_DOCS['kolonie.tasks.report']).toContain('more readers')
   })
   it('publishes the accounts discovery tranche and still refuses invalid input', async () => {
     const { colony, apiKey } = await registeredCitizen()

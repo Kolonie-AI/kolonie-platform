@@ -58,6 +58,16 @@ export const TIER_2: CapabilityTier = '@preset/tier-2'
 /** The cheap, fast model: classification and high-volume passes, where a wrong answer is cheap. */
 export const TIER_3: CapabilityTier = '@preset/tier-3'
 
+/** The service-level capability assignment used by every gateway. */
+export const SERVICE_TIERS: Record<GatewayService, CapabilityTier> = {
+  moderation: TIER_1,
+  worker: TIER_1,
+  verifier: TIER_2,
+  triage: TIER_2,
+  doctor: TIER_2,
+  reviewer: TIER_2,
+}
+
 /**
  * The operator's ceiling for one service, and it is unset in the ordinary case
  * (`#1694`).

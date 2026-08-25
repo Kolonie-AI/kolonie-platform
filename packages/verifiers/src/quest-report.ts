@@ -2,7 +2,7 @@ import {
   QUEST_TASK_TYPE,
   QUEST_VERIFIER_PROVES,
   RED_LINE_REVIEW_NOTICE,
-  TIER_3,
+  TIER_2,
   TaskTypeSchema,
   chatRequestBody,
   throwIfTruncated,
@@ -302,9 +302,9 @@ export const QUEST_JUDGE_MODEL_VAR = 'QUEST_JUDGE_MODEL'
 /**
  * The tier that reads a quest report (`#1694`).
  *
- * **`tier-3`, on current behaviour**, which is the rule this issue set: it ran
- * on a flash model, and reading whether an answer addresses the question asked
- * is not something a flash model cannot do.
+ * **`tier-2`, because verifier calls share one service tier.** Reading whether
+ * an answer addresses the question is part of the verifier service, so it uses
+ * the same capability request as the other judgements in that runner.
  *
  * **This is not the quest *moderation* verdict**, which is the decision the
  * Colony cannot take back and is `apps/moderation-runner`'s. This judge answers
@@ -312,9 +312,7 @@ export const QUEST_JUDGE_MODEL_VAR = 'QUEST_JUDGE_MODEL'
  * day here costs a report its verdict until the model is back — it never fails a
  * citizen and never publishes anything.
  */
-export const DEFAULT_QUEST_JUDGE_TIER: CapabilityTier = TIER_3
-
-const OPENROUTER_BASE = 'https://openrouter.ai/api/v1'
+export const DEFAULT_QUEST_JUDGE_TIER: CapabilityTier = TIER_2
 
 const JUDGEMENT_SCHEMA = {
   type: 'object',
@@ -407,7 +405,7 @@ export function openRouterQuestJudge(
 
       let response: Response
       try {
-        response = await fetchImpl(`${OPENROUTER_BASE}/chat/completions`, {
+        response = await fetchImpl('/chat/completions', {
           method: 'POST',
           headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
           body: JSON.stringify(

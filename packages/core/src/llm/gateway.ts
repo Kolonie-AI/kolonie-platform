@@ -1,3 +1,4 @@
+import { SERVICE_TIERS } from './tier.js'
 import { silentLog, type Log } from '../log/log.js'
 
 /**
@@ -72,6 +73,9 @@ import { silentLog, type Log } from '../log/log.js'
 /** Where the gateway is. Never a literal: `AGENTS.md` §9, and it is a host of ours. */
 export const GATEWAY_BASE_URL_VAR = 'LLM_GATEWAY_BASE_URL'
 
+/** The second gateway's address. Unset means there is no configured fallback. */
+export const FALLBACK_GATEWAY_BASE_URL_VAR = 'LLM_GATEWAY_FALLBACK_BASE_URL'
+
 /**
  * Which model the gateway is asked for, overriding whatever the caller
  * configured — for **every** service that has no override of its own.
@@ -127,6 +131,16 @@ export const GATEWAY_API_KEY_VARS = {
 
 /** One of the services the gateway knows by name. */
 export type GatewayService = keyof typeof GATEWAY_API_KEY_VARS
+
+/** The fallback gateway's service-scoped credentials. */
+export const FALLBACK_GATEWAY_API_KEY_VARS: Record<GatewayService, string> = {
+  verifier: 'LLM_GATEWAY_FALLBACK_API_KEY_VERIFIER',
+  moderation: 'LLM_GATEWAY_FALLBACK_API_KEY_MODERATION',
+  triage: 'LLM_GATEWAY_FALLBACK_API_KEY_TRIAGE',
+  reviewer: 'LLM_GATEWAY_FALLBACK_API_KEY_REVIEWER',
+  doctor: 'LLM_GATEWAY_FALLBACK_API_KEY_DOCTOR',
+  worker: 'LLM_GATEWAY_FALLBACK_API_KEY_WORKER',
+} as const
 
 /**
  * One model per service, overriding {@link GATEWAY_MODEL_VAR} for that one
@@ -185,6 +199,12 @@ export interface Gateway {
   readonly model: string
 }
 
+/** The independently configured primary and fallback gateways. */
+export interface GatewaySet {
+  readonly primary?: Gateway
+  readonly fallback?: Gateway
+}
+
 /**
  * Why the gateway did not answer, in the four classes worth telling apart.
  *
@@ -226,20 +246,58 @@ export function gatewayFromEnvironment(
   service: GatewayService,
   env: Record<string, string | undefined> = process.env,
 ): Gateway | undefined {
-  const baseUrl = (env[GATEWAY_BASE_URL_VAR] ?? '').trim()
-  const apiKey = (env[GATEWAY_API_KEY_VARS[service]] ?? '').trim()
-  // This service's model, then the one every service shares. An unset
-  // per-service variable is inert rather than a model called the empty string,
-  // which is what lets `#726` and the deploy that reads it land in either order.
-  const model =
-    (env[GATEWAY_MODEL_VARS[service]] ?? '').trim() || (env[GATEWAY_MODEL_VAR] ?? '').trim()
+  return configuredGateway(
+    env[GATEWAY_BASE_URL_VAR],
+    env[GATEWAY_API_KEY_VARS[service]],
+    modelFromEnvironment(service, env),
+  )
+}
 
-  if (baseUrl === '' || apiKey === '' || model === '') return undefined
+function modelFromEnvironment(
+  service: GatewayService,
+  env: Record<string, string | undefined>,
+): string {
+  return (
+    (env[GATEWAY_MODEL_VARS[service]] ?? '').trim() ||
+    (env[GATEWAY_MODEL_VAR] ?? '').trim() ||
+    SERVICE_TIERS[service]
+  )
+}
 
-  // Compose writes `${VAR:-}` for every optional variable, so unset arrives as an
-  // empty string rather than as `undefined`; a trailing slash is the other way a
-  // hand-edited `.env` differs from the one that was tested.
-  return { baseUrl: baseUrl.replace(/\/+$/, ''), apiKey, model }
+function configuredGateway(
+  configuredBaseUrl: string | undefined,
+  configuredApiKey: string | undefined,
+  configuredModel: string,
+): Gateway | undefined {
+  const baseUrl = (configuredBaseUrl ?? '').trim()
+  const apiKey = (configuredApiKey ?? '').trim()
+  if (baseUrl === '' || apiKey === '' || configuredModel === '') return undefined
+  return { baseUrl: baseUrl.replace(/\/+$/, ''), apiKey, model: configuredModel }
+}
+
+/** Build both gateways independently from environment configuration. */
+export function gatewaysFromEnvironment(
+  service: GatewayService,
+  env: Record<string, string | undefined> = process.env,
+): GatewaySet {
+  const model = modelFromEnvironment(service, env)
+  return {
+    primary: configuredGateway(
+      env[GATEWAY_BASE_URL_VAR],
+      env[GATEWAY_API_KEY_VARS[service]],
+      model,
+    ),
+    fallback: configuredGateway(
+      env[FALLBACK_GATEWAY_BASE_URL_VAR],
+      env[FALLBACK_GATEWAY_API_KEY_VARS[service]],
+      model,
+    ),
+  }
+}
+
+/** The gateway a direct model caller should use when it cannot route itself. */
+export function gatewayClient(gateways: GatewaySet): Gateway | undefined {
+  return gateways.fallback ?? gateways.primary
 }
 
 export interface RoutedFetchOptions {
@@ -247,6 +305,44 @@ export interface RoutedFetchOptions {
   readonly fetch?: typeof fetch
   readonly log?: Log
   readonly timeoutMs?: number
+}
+
+function gatewaySet(configured: Gateway | GatewaySet | undefined): GatewaySet {
+  if (configured === undefined) return {}
+  if ('baseUrl' in configured) return { primary: configured }
+  return configured
+}
+
+function relativePath(input: string): string | undefined {
+  if (input.startsWith('/')) return input
+  try {
+    return new URL(input).pathname
+  } catch {
+    return undefined
+  }
+}
+
+/** Aim relative model paths at one configured gateway. */
+export function gatewayFetch(gateway: Gateway, underlying: typeof fetch = fetch): typeof fetch {
+  return async (input, init) => {
+    if (typeof input !== 'string') return underlying(input, init)
+    const path = relativePath(input)
+    if (path === undefined) return underlying(input, init)
+    const headers = new Headers(init?.headers)
+    headers.set('authorization', `Bearer ${gateway.apiKey}`)
+    headers.set('content-type', 'application/json')
+    headers.set('user-agent', GATEWAY_USER_AGENT)
+    return underlying(`${gateway.baseUrl}${path}`, { ...init, headers })
+  }
+}
+
+function aimAt(
+  gateway: Gateway,
+  input: Parameters<typeof fetch>[0],
+  init: Parameters<typeof fetch>[1],
+  underlying: typeof fetch,
+): Promise<Response> {
+  return gatewayFetch(gateway, underlying)(input, init)
 }
 
 /**
@@ -257,18 +353,27 @@ export interface RoutedFetchOptions {
  * carries no routing code on its path at all.
  */
 export function gatewayRoutedFetch(
-  gateway: Gateway | undefined,
+  configured: Gateway | GatewaySet | undefined,
   options: RoutedFetchOptions = {},
 ): typeof fetch {
   const underlying = options.fetch ?? fetch
-  if (gateway === undefined) return underlying
+  const gateways = gatewaySet(configured)
+  const gateway = gateways.primary
+  const fallback = gateways.fallback
+  if (gateway === undefined && fallback === undefined) return underlying
 
   const log = options.log ?? silentLog
   const timeoutMs = options.timeoutMs ?? GATEWAY_TIMEOUT_MS
 
   return async (input, init) => {
-    const routed = gatewayRequest(gateway, input, init)
-    if (routed === undefined) return underlying(input, init)
+    const chatGateway = gateway ?? fallback
+    const routed = chatGateway === undefined ? undefined : gatewayRequest(chatGateway, input, init)
+    if (routed === undefined) {
+      return fallback === undefined
+        ? underlying(input, init)
+        : aimAt(fallback, input, init, underlying)
+    }
+    if (gateway === undefined) return underlying(routed.url, routed.init)
 
     const attempt = await tryGateway(underlying, routed, timeoutMs)
     if (attempt.response !== undefined) return attempt.response
@@ -289,8 +394,17 @@ export function gatewayRoutedFetch(
       ...(attempt.detail === undefined ? {} : { detail: attempt.detail }),
     })
 
-    const response = await underlying(input, init)
-    return stamp(response, 'openrouter', attempt.reason, attempt.detail)
+    if (fallback === undefined) {
+      return stamp(await underlying(input, init), 'openrouter', attempt.reason, attempt.detail)
+    }
+    const fallbackRequest = gatewayRequest(fallback, input, init)
+    if (fallbackRequest === undefined) return underlying(input, init)
+    return stamp(
+      await underlying(fallbackRequest.url, fallbackRequest.init),
+      'openrouter',
+      attempt.reason,
+      attempt.detail,
+    )
   }
 }
 
@@ -325,10 +439,12 @@ export function gatewayRoutedFetch(
  * rather than the protection.
  */
 export function gatewayOnlyFetch(
-  gateway: Gateway | undefined,
+  configured: Gateway | GatewaySet | undefined,
   options: RoutedFetchOptions = {},
 ): typeof fetch {
   const underlying = options.fetch ?? fetch
+  const gateways = gatewaySet(configured)
+  const gateway = gateways.primary ?? gateways.fallback
   if (gateway === undefined) return underlying
 
   const log = options.log ?? silentLog

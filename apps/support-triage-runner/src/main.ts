@@ -1,6 +1,7 @@
 import {
   createLog,
-  gatewayFromEnvironment,
+  gatewayClient,
+  gatewaysFromEnvironment,
   gatewayRoutedFetch,
   maxTokensFromEnvironment,
 } from '@kolonie-ai/core'
@@ -70,7 +71,9 @@ const db = createDatabase(databaseUrlFromEnv())
  * service existed. Refusing to start would take down the health endpoint that is
  * how anyone would find out.
  */
-const apiKey = process.env[OPENROUTER_API_KEY_VAR] ?? ''
+const triageGateways = gatewaysFromEnvironment('triage')
+const triageGateway = gatewayClient(triageGateways)
+const apiKey = triageGateway?.apiKey ?? ''
 
 /**
  * What this runner's triage calls talk through (`#674`).
@@ -85,14 +88,14 @@ const apiKey = process.env[OPENROUTER_API_KEY_VAR] ?? ''
  * paragraph is treated as no answer, and the ticket is triaged by OpenRouter
  * rather than on a verdict parsed out of prose.
  */
-const modelFetch = gatewayRoutedFetch(gatewayFromEnvironment('triage'), { log })
+const modelFetch = gatewayRoutedFetch(triageGateways, { log })
 
 /**
  * Both of them, built together, so neither can be built without the transport
  * above (`#780`). `clients.ts` says why that is a module and not two lines here.
  */
 const { model, writer } = modelClients(apiKey, {
-  ...(process.env['TRIAGE_MODEL'] && { model: process.env['TRIAGE_MODEL'] }),
+  ...(triageGateway === undefined ? {} : { model: triageGateway.model }),
   // The operator's ceiling, or nothing — the ordinary state (`#1694`).
   ...(maxTokensFromEnvironment('triage') !== undefined && {
     maxTokens: maxTokensFromEnvironment('triage'),

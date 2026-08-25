@@ -46,14 +46,6 @@ export const VISION_MODEL_VAR = 'VISION_MODEL'
  */
 export const DEFAULT_VISION_TIER: CapabilityTier = TIER_2
 
-/** Where OpenRouter is. A constant, as in the moderation runner: a vendor's root. */
-/**
- * Where OpenRouter is. Exported since `#389` so `artefact-reader.ts` uses this
- * one rather than writing a second copy — the same argument `safeFetch` makes
- * about the SSRF list, one vendor along.
- */
-export const OPENROUTER_BASE = 'https://openrouter.ai/api/v1'
-
 /**
  * The five questions, as a schema the model must answer in.
  *
@@ -147,7 +139,7 @@ export function openRouterVision(
 
       let response: Response
       try {
-        response = await fetchImpl(`${OPENROUTER_BASE}/chat/completions`, {
+        response = await fetchImpl('/chat/completions', {
           method: 'POST',
           headers: {
             authorization: `Bearer ${apiKey}`,

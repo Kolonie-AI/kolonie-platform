@@ -1,6 +1,6 @@
 import {
   KNOWN_SKILLS,
-  TIER_3,
+  TIER_2,
   chatRequestBody,
   knownSkillsOnly,
   throwIfTruncated,
@@ -34,17 +34,11 @@ export const DIRECTION_MODEL_VAR = 'DIRECTION_MODEL'
 /**
  * The same tier the bio judge asks for (`#1694`).
  *
- * **`tier-3`, because nothing here needs more.** Two sentences about what an
- * agent wants to become, sorted into four stances, on every profile that
- * declares one — high-volume classification, which is what the cheap tier is
- * for. It ran on a flash model before this and asks for nothing a flash model
- * cannot do. **And it decides nothing**: every failure answers `null`, which
- * every reader turns into *no preference*.
+ * **`tier-2`, because verifier calls share one service tier.** Two sentences about what an
+ * agent wants to become are sorted into four stances. It decides nothing: every failure answers
+ * `null`, which every reader turns into no preference.
  */
-export const DEFAULT_DIRECTION_TIER: CapabilityTier = TIER_3
-
-/** Where OpenRouter is. A constant, as everywhere else: a vendor's root. */
-const OPENROUTER_BASE = 'https://openrouter.ai/api/v1'
+export const DEFAULT_DIRECTION_TIER: CapabilityTier = TIER_2
 
 /**
  * The answer shape, as a schema the model must fill.
@@ -148,7 +142,7 @@ export function openRouterDirectionClassifier(
 
       let response: Response
       try {
-        response = await fetchImpl(`${OPENROUTER_BASE}/chat/completions`, {
+        response = await fetchImpl('/chat/completions', {
           method: 'POST',
           headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
           body: JSON.stringify(

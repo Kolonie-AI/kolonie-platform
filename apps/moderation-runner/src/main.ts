@@ -111,7 +111,8 @@ import {
   AccountKindSchema,
   AccountProviderSchema,
   createLog,
-  gatewayFromEnvironment,
+  gatewayClient,
+  gatewaysFromEnvironment,
   maxTokensFromEnvironment,
   gatewayOnlyFetch,
   gatewayRoutedFetch,
@@ -127,7 +128,7 @@ import {
   EMBEDDING_MODEL_VAR,
   OPENROUTER_API_KEY_VAR,
 } from './llm.js'
-import { openRouterDirectionClassifier, DIRECTION_MODEL_VAR } from '@kolonie-ai/verifiers'
+import { openRouterDirectionClassifier } from '@kolonie-ai/verifiers'
 import type { DirectionStore } from './directions.js'
 import type { ProfileReviewStore } from './profiles.js'
 import { createHealthServer, STALE_POLLS } from './health.js'
@@ -186,7 +187,9 @@ const db = createDatabase(databaseUrlFromEnv())
  * key. Refusing to start would instead take down the health endpoint that is how
  * anyone would find out.
  */
-const apiKey = process.env[OPENROUTER_API_KEY_VAR] ?? ''
+const moderationGateways = gatewaysFromEnvironment('moderation')
+const moderationGateway = gatewayClient(moderationGateways)
+const apiKey = moderationGateway?.apiKey ?? ''
 
 /**
  * What this runner's chat completions talk through (`#674`).
@@ -208,9 +211,7 @@ const apiKey = process.env[OPENROUTER_API_KEY_VAR] ?? ''
  */
 const moderationCeiling = maxTokensFromEnvironment('moderation')
 
-const modelFetch = gatewayRoutedFetch(gatewayFromEnvironment('moderation'), {
-  log,
-})
+const modelFetch = gatewayRoutedFetch(moderationGateways, { log })
 
 const model =
   apiKey === ''
@@ -219,7 +220,7 @@ const model =
         // Configuration rather than a constant, because which model judges is a
         // decision that will be revisited against a real corpus — and the
         // alternative is a code change to try the next one.
-        ...(process.env['OPENROUTER_MODEL'] && { model: process.env['OPENROUTER_MODEL'] }),
+        ...(moderationGateway === undefined ? {} : { model: moderationGateway.model }),
         ...(process.env[EMBEDDING_MODEL_VAR] && {
           embeddingModel: process.env[EMBEDDING_MODEL_VAR],
         }),
@@ -255,10 +256,10 @@ const questModel =
   apiKey === ''
     ? unavailableModel(`${OPENROUTER_API_KEY_VAR} not set`)
     : openRouterModel(apiKey, {
-        ...(process.env['OPENROUTER_MODEL'] && { model: process.env['OPENROUTER_MODEL'] }),
+        ...(moderationGateway === undefined ? {} : { model: moderationGateway.model }),
         ...(moderationCeiling !== undefined && { maxTokens: moderationCeiling }),
         log,
-        fetch: gatewayOnlyFetch(gatewayFromEnvironment('moderation'), { log }),
+        fetch: gatewayOnlyFetch(moderationGateways, { log }),
       })
 
 if (apiKey === '') {
@@ -826,12 +827,7 @@ const runner = startRunner(
     walkProse: { store: walkProseStore, model, log },
     directions: {
       directions: directionStore,
-      classifier: openRouterDirectionClassifier(
-        process.env[OPENROUTER_API_KEY_VAR],
-        process.env[DIRECTION_MODEL_VAR],
-        modelFetch,
-        log,
-      ),
+      classifier: openRouterDirectionClassifier(apiKey, moderationGateway?.model, modelFetch, log),
       log,
     },
     /**

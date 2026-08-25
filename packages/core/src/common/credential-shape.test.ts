@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest'
+import { ERROR_STATUS } from './errors.js'
 import {
+  CREDENTIAL_REFUSAL_MESSAGE,
   credentialFinding,
   credentialRefusalMessage,
+  keyMaterialFinding,
+  keyMaterialNotice,
+  keyMaterialRefusalMessage,
   looksLikeCredential,
 } from './credential-shape.js'
 
@@ -235,5 +240,50 @@ describe('looksLikeCredential', () => {
     )
     // Thirty-one characters of letters only — a long word, not a key.
     expect(looksLikeCredential('abcdefghijklmnopqrstuvwxyzabcde')).toBe(false)
+  })
+})
+
+/**
+ * `#1685`: the vault refuses a PEM private-key block and nothing else this
+ * detector names. The other reasons still belong in a message; a vault write
+ * is where a password, a token and a TOTP secret are supposed to go.
+ */
+describe('key material the vault must not hold', () => {
+  const pem =
+    '-----BEGIN RSA PRIVATE KEY-----\nMIIE-SENTINEL-DO-NOT-ECHO\n-----END RSA PRIVATE KEY-----'
+
+  it('finds a PEM private-key block and names the class, never the body', () => {
+    const finding = keyMaterialFinding(pem)
+
+    expect(finding).toEqual({ reason: 'private-key-block', matched: 'private-key-block' })
+    expect(JSON.stringify(finding)).not.toContain('MIIE-SENTINEL-DO-NOT-ECHO')
+  })
+
+  it('lets every other finding through, which is what a vault is for', () => {
+    expect(keyMaterialFinding('password: hunter2')).toBeNull()
+    expect(keyMaterialFinding('otpauth://totp/Example:user?secret=JBSWY3DPEHPK3PXP')).toBeNull()
+    expect(keyMaterialFinding('ghp_abcdefghijklmnopqrstuvwxyz01')).toBeNull()
+    expect(keyMaterialFinding('a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6')).toBeNull()
+  })
+
+  it('refuses with a code an agent can branch on, naming both reasons', () => {
+    const finding = keyMaterialFinding(pem)
+    if (finding === null) throw new Error('expected a private-key-block finding')
+
+    const message = keyMaterialRefusalMessage(finding)
+    expect(ERROR_STATUS.key_material_refused).toBe(422)
+    expect(message).toContain('PEM private-key block')
+    expect(message).toMatch(/stays where (it was |you )?generat/)
+    expect(message).toContain('API key')
+    expect(message).not.toContain('MIIE-SENTINEL-DO-NOT-ECHO')
+    expect(message).not.toContain(CREDENTIAL_REFUSAL_MESSAGE.slice(0, 40))
+  })
+
+  it('notices a block as an object, and omits the field when there is none', () => {
+    expect(keyMaterialNotice(pem)).toEqual({
+      noticed: { reason: 'private-key-block', matched: 'private-key-block' },
+    })
+    expect(keyMaterialNotice('hunter2')).toEqual({})
+    expect(keyMaterialNotice(null)).toEqual({})
   })
 })

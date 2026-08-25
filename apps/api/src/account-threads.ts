@@ -16,12 +16,16 @@ import {
   SlotFillerSchema,
   VaultKeySchema,
   episodeOperateNote,
+  keyMaterialFinding,
+  keyMaterialNotice,
+  keyMaterialRefused,
   type AccountEntry,
   type AccountEpisode,
   type AccountSlot,
   type AgentId,
   type ApiError,
   type AtlasState,
+  type CredentialFinding,
 } from '@kolonie-ai/core'
 import {
   accountOf,
@@ -864,6 +868,19 @@ async function putSlots(
   }
 
   /**
+   * A PEM private-key block is refused on a secret write (`#1685`), and only
+   * there. A non-secret slot is a code or an address; a secret one is a vault
+   * write by another door, so it takes the same refusal `storeVaultEntry` does.
+   * Checked before any slot is opened, on the same all-or-nothing rule above.
+   */
+  for (const entry of wanted) {
+    if (entry.secret !== true || entry.value === undefined) continue
+    const keyMaterial = keyMaterialFinding(entry.value)
+    if (keyMaterial === null) continue
+    return { outcome: 'rejected', error: keyMaterialRefused(keyMaterial) }
+  }
+
+  /**
    * **The vault name is checked before the operator is asked** (`#931`).
    *
    * The claim at the far end is what actually protects the entry, and it refuses
@@ -1298,6 +1315,13 @@ export type TakeResponse = {
   /** Where a secret landed, and null for anything else. */
   readonly vaultKey: string | null
   readonly takenAt: string | null
+  /**
+   * Present when a secret that landed was a PEM private-key block (`#1685`).
+   *
+   * **The call still succeeded.** Taking is what spends it, and refusing a
+   * value already in the slot would strand it. Omitted when nothing was noticed.
+   */
+  readonly noticed?: CredentialFinding
 }
 
 export type TakeOutcome =
@@ -1540,6 +1564,7 @@ export async function takeAccountSlot(
       value: null,
       vaultKey: key.data,
       takenAt: taken.slot.takenAt,
+      ...keyMaterialNotice(value),
     },
   }
 }

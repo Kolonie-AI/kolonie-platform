@@ -597,6 +597,36 @@ describe('an account offered to another citizen', () => {
       // Nothing of the handover survives it.
       expect(await db.select().from(accountOffers)).toEqual([])
       expect(await db.select().from(accountTransfers)).toEqual([])
+      expect(taken).not.toHaveProperty('noticed')
+    })
+
+    /**
+     * `#1685`: a PEM in the parcel is noticed, not refused. Accept is a move;
+     * refusing it would strand the credential with a giver who can no longer
+     * store it either.
+     */
+    it('notices a PEM private-key block and still moves the account', async () => {
+      const pem =
+        '-----BEGIN RSA PRIVATE KEY-----\nMIIE-SENTINEL-DO-NOT-ECHO\n-----END RSA PRIVATE KEY-----'
+      await setVaultEntry(db, giverToken, giver, 'provider/pem', pem)
+      const pemAccount = await anAccount({
+        vaultKey: 'provider/pem',
+        proved: true,
+        kind: 'github',
+        identifier: 'a-pem-handle',
+      })
+      const offered = await give({ accountId: pemAccount })
+      if (offered.outcome !== 'offered') throw new Error(offered.outcome)
+
+      const taken = await accept({ offerId: offered.offerId, vaultKey: 'mine/the-pem' })
+      expect(taken).toMatchObject({
+        outcome: 'accepted',
+        noticed: { reason: 'private-key-block', matched: 'private-key-block' },
+      })
+      expect(await getVaultEntry(db, recipientToken, recipient, 'mine/the-pem')).toMatchObject({
+        outcome: 'found',
+        value: pem,
+      })
     })
 
     /**

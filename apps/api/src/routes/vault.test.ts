@@ -207,6 +207,36 @@ describe('storing and fetching', () => {
     expect((await get('email')).json()).toMatchObject({ value: 'two' })
   })
 
+  /**
+   * `#1685`: a PEM private-key block is refused at the shared write boundary,
+   * so REST and MCP cannot drift. The other findings this detector names are
+   * what a vault is for.
+   */
+  it('refuses a PEM private-key block and stores nothing', async () => {
+    const pem =
+      '-----BEGIN RSA PRIVATE KEY-----\nMIIE-SENTINEL-DO-NOT-ECHO\n-----END RSA PRIVATE KEY-----'
+
+    const refused = await put('ssh-host', { value: pem })
+
+    expect(refused.statusCode).toBe(ERROR_STATUS.key_material_refused)
+    expect(refused.json()).toMatchObject({ code: 'key_material_refused' })
+    expect(refused.json().message).toContain('PEM private-key block')
+    expect(refused.body).not.toContain('MIIE-SENTINEL-DO-NOT-ECHO')
+    expect((await get('ssh-host')).statusCode).toBe(ERROR_STATUS.not_found)
+  })
+
+  it.each([
+    ['labelled-secret', 'password: hunter2-mailbox'],
+    ['otpauth-uri', 'otpauth://totp/Example:user?secret=JBSWY3DPEHPK3PXP'],
+    ['vendor-prefixed-key', 'ghp_abcdefghijklmnopqrstuvwxyz01'],
+    ['high-entropy-run', 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6'],
+  ] as const)('accepts a %s on a write', async (_reason, value) => {
+    const stored = await put('credential-example', { value })
+
+    expect(stored.statusCode).toBe(201)
+    expect((await get('credential-example')).json().value).toBe(value)
+  })
+
   it('404s for a name that was never stored', async () => {
     const read = await get('never-written')
 
@@ -685,6 +715,34 @@ describe('sharing an entry with an operator', () => {
 
     expect((await unshare('github')).statusCode).toBe(404)
     expect((await put('github', { value: 'hunter4' })).statusCode).toBe(200)
+  })
+
+  it('notices a PEM the operator wrote back and still hands the addition over', async () => {
+    const pem =
+      '-----BEGIN RSA PRIVATE KEY-----\nMIIE-SENTINEL-DO-NOT-ECHO\n-----END RSA PRIVATE KEY-----'
+    await put('github', { value: 'hunter2' })
+    await share('github', { purpose: 'put a card on it' })
+    vault.operatorWrites(agentId, 'github', pem)
+
+    const taken = await unshare('github')
+
+    expect(taken.statusCode).toBe(200)
+    expect(taken.json()).toMatchObject({
+      operatorAddition: pem,
+      noticed: { reason: 'private-key-block', matched: 'private-key-block' },
+    })
+    expect(taken.json()).not.toHaveProperty('noticedKeyMaterial')
+  })
+
+  it('omits noticed when the operator wrote nothing that is a private key', async () => {
+    await put('github', { value: 'hunter2' })
+    await share('github', { purpose: 'put a card on it' })
+    vault.operatorWrites(agentId, 'github', 'billing PIN 4417')
+
+    const taken = await unshare('github')
+
+    expect(taken.statusCode).toBe(200)
+    expect(taken.json()).not.toHaveProperty('noticed')
   })
 
   it('refuses a citizen with nobody linked, and names kolonie.operator.link', async () => {

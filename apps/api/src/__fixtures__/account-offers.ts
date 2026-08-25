@@ -1,5 +1,11 @@
 import { randomUUID } from 'node:crypto'
-import { RELATED_ACCOUNTS_MAX, TRANSFER_TTL_DAYS, type AgentId } from '@kolonie-ai/core'
+import {
+  RELATED_ACCOUNTS_MAX,
+  TRANSFER_TTL_DAYS,
+  keyMaterialFinding,
+  type AgentId,
+  type CredentialFinding,
+} from '@kolonie-ai/core'
 import type { AccountOfferStore } from '../account-offers.js'
 import type { GiveAccountCommand, GiveAccountOutcome, SharedVaultKeyAccount } from '@kolonie-ai/db'
 
@@ -38,6 +44,12 @@ export interface FakeAccountOffers extends AccountOfferStore {
       readonly reachMailbox?: boolean
       /** What else that vault entry opens — non-empty mints the confirmation. */
       readonly sharedWith?: readonly SharedVaultKeyAccount[]
+      /**
+       * The plaintext the parcel would carry (`#1685`). Absent is an ordinary
+       * credential the fixture does not inspect. Present so an accept can
+       * notice a PEM without implementing AES.
+       */
+      readonly vaultValue?: string
     },
   ): string
   /** A credential the giver can actually open. Absent is `nothing-to-give`. */
@@ -120,6 +132,8 @@ const handleKey = (handle: string): string => handle.trim().toLowerCase()
 export function fakeAccountOffers(): FakeAccountOffers {
   const accounts = new Map<string, HeldAccount>()
   const vaultEntries = new Set<string>()
+  /** Plaintext a test put under a vault name, so accept can notice a PEM (`#1685`). */
+  const vaultValues = new Map<string, string>()
   /** A subset of `vaultEntries`: still held, no longer the citizen's to use. */
   const spentEntries = new Set<string>()
   const handles = new Map<string, AgentId>()
@@ -157,7 +171,12 @@ export function fakeAccountOffers(): FakeAccountOffers {
         forWork: true,
       })
       const held = accounts.get(id) as HeldAccount
-      if (held.vaultKey !== null) vaultEntries.add(`${agentId}:${held.vaultKey}`)
+      if (held.vaultKey !== null) {
+        vaultEntries.add(`${agentId}:${held.vaultKey}`)
+        if (account.vaultValue !== undefined) {
+          vaultValues.set(`${agentId}:${held.vaultKey}`, account.vaultValue)
+        }
+      }
       return id
     },
 
@@ -510,6 +529,18 @@ export function fakeAccountOffers(): FakeAccountOffers {
       }
 
       const primary = arrived[0]!
+      let noticed: CredentialFinding | undefined
+      for (const member of ordered) {
+        const vaultKey = member.account.vaultKey
+        if (vaultKey === null) continue
+        const plaintext = vaultValues.get(`${member.account.ownerId}:${vaultKey}`)
+        if (plaintext === undefined) continue
+        const finding = keyMaterialFinding(plaintext)
+        if (finding !== null) {
+          noticed = finding
+          break
+        }
+      }
       return Promise.resolve({
         outcome: 'accepted' as const,
         accountId: primary.accountId,
@@ -519,6 +550,7 @@ export function fakeAccountOffers(): FakeAccountOffers {
         vaultKey: primary.vaultKey,
         fromHandle: giverHandle(open.fromAgentId),
         related: arrived.slice(1),
+        ...(noticed === undefined ? {} : { noticed }),
       })
     },
 

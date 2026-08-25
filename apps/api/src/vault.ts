@@ -8,6 +8,9 @@ import {
   VAULT_MAX_ENTRIES,
   VAULT_SHARE_DEFAULT_DAYS,
   VAULT_SHARE_MAX_DAYS,
+  keyMaterialFinding,
+  keyMaterialNotice,
+  keyMaterialRefused,
   type ApiError,
   type AgentId,
   type DeleteVaultEntryResponse,
@@ -235,6 +238,18 @@ export async function storeVaultEntry(
         details: fieldErrors(parsed.error),
       },
     }
+  }
+
+  /**
+   * A PEM private-key block is the one class this write will not hold (`#1685`).
+   *
+   * **Before the store, so a refusal leaves nothing behind.** The other findings
+   * `credentialFinding` names — a labelled password, a TOTP URI, a vendor key,
+   * a high-entropy run — are what a vault is for.
+   */
+  const keyMaterial = keyMaterialFinding(parsed.data.value)
+  if (keyMaterial !== null) {
+    return { outcome: 'rejected', error: keyMaterialRefused(keyMaterial) }
   }
 
   const stored = await deps.vault.set(
@@ -497,6 +512,7 @@ export async function unshareVaultEntry(
       reads: ended.reads,
       handedBackByOperator: ended.handedBackByOperator,
       entry: entryOr(read, named.key, null),
+      ...keyMaterialNotice(ended.operatorAddition),
     },
   }
 }

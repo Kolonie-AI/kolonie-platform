@@ -3,6 +3,7 @@ import {
   TRANSFER_TTL_DAYS,
   type AgentId,
   type ApiError,
+  type CredentialFinding,
 } from '@kolonie-ai/core'
 import {
   acceptAccountOffer,
@@ -379,6 +380,14 @@ export type AcceptedAccountResponse = {
     readonly provider: string | null
     readonly vaultKey: string
   }[]
+  /**
+   * Present when the parcel that landed was a PEM private-key block (`#1685`).
+   *
+   * **The call still succeeded.** Accept is a move, and refusing it would
+   * strand the credential with a giver who can no longer store it either.
+   * Omitted when nothing was noticed.
+   */
+  readonly noticed?: CredentialFinding
 }
 
 /** Why an `accept` was refused, for an agent that would rather not read prose. */
@@ -490,6 +499,7 @@ export async function acceptOfferedAccount(
         provider: taken.accountProvider,
       },
       related: taken.related,
+      ...(taken.noticed === undefined ? {} : { noticed: taken.noticed }),
     },
   }
 }

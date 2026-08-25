@@ -28,6 +28,11 @@
  * A run that finds the structure already committed writes nothing at all — not
  * even a fresh `measuredAt`. `#1227` asks that regenerating on an unchanged tree
  * produce no diff, and a date stamped on every run is a diff.
+ *
+ * That is per artefact rather than for the pair (`#1621`). The snapshot and the
+ * fingerprint are one fact and each is compared on its own, so a run with only
+ * the fingerprint to repair repairs it and leaves the 80 kB snapshot — and its
+ * `measuredAt` — exactly as it found them.
  */
 import console from 'node:console'
 import { spawnSync } from 'node:child_process'
@@ -75,13 +80,6 @@ try {
 const committed = JSON.parse(readFileSync(SNAPSHOT, 'utf8'))
 const shape = (snapshot) => JSON.stringify(snapshot.tools)
 
-if (shape(committed) === shape(served)) {
-  console.log(
-    `The snapshot already describes the catalogue this build serves: ${served.tools.length} tools. Nothing written.`,
-  )
-  process.exit(0)
-}
-
 /**
  * The fingerprint moves with the snapshot and is written in the same breath
  * (`#1392`).
@@ -94,34 +92,74 @@ if (shape(committed) === shape(served)) {
  */
 const fingerprint = createHash('sha256').update(shape(served)).digest('hex').slice(0, 12)
 
-// Written through Prettier rather than through `JSON.stringify` alone: the file
-// is 80 kB and `format:check` covers it, so a snapshot this script formats its
-// own way is one that fails the gate in the same commit that regenerated it.
-const snapshot = JSON.stringify(
-  { measuredAt: today(), command: COMMAND, tools: served.tools },
-  null,
-  2,
-)
-
-writeFileSync(
-  SNAPSHOT,
-  await format(snapshot, { ...(await resolveConfig(SNAPSHOT)), filepath: SNAPSHOT }),
-  'utf8',
-)
-
+const DECLARATION = /export const CATALOGUE_FINGERPRINT = '[0-9a-f]*'/
 const fingerprintSource = readFileSync(FINGERPRINT, 'utf8')
-writeFileSync(
-  FINGERPRINT,
-  fingerprintSource.replace(
-    /export const CATALOGUE_FINGERPRINT = '[0-9a-f]*'/,
-    `export const CATALOGUE_FINGERPRINT = '${fingerprint}'`,
-  ),
-  'utf8',
+
+// `String.replace` on a miss returns the source unchanged, so a file this regex
+// no longer matches would be reported as written and would not be (`#1621`).
+if (!DECLARATION.test(fingerprintSource)) {
+  console.error(
+    `${FINGERPRINT} carries no generated CATALOGUE_FINGERPRINT declaration for this to rewrite.\n` +
+      'Nothing was written. Restore the declaration and run the command again.',
+  )
+  process.exit(1)
+}
+
+const snapshotIsCurrent = shape(committed) === shape(served)
+const fingerprintIsCurrent = fingerprintSource.includes(
+  `export const CATALOGUE_FINGERPRINT = '${fingerprint}'`,
 )
+
+/**
+ * **Both artefacts, because either can be stale on its own** (`#1621`).
+ *
+ * This gate used to read the snapshot alone and stood in front of the
+ * fingerprint write, so a correct snapshot beside a stale fingerprint printed
+ * *Nothing written* and wrote nothing — while `catalogue-structure.test.ts` went
+ * on failing and naming this command as its own remedy. That pair is what
+ * resolving the fingerprint's one-line rebase conflict in favour of `origin/main`
+ * produces, and it cost a full check to rediscover on `#1616`.
+ */
+if (snapshotIsCurrent && fingerprintIsCurrent) {
+  console.log(
+    `The snapshot and fingerprint already describe the catalogue this build serves: ${served.tools.length} tools. Nothing written.`,
+  )
+  process.exit(0)
+}
+
+const written = []
+
+if (!snapshotIsCurrent) {
+  // Written through Prettier rather than through `JSON.stringify` alone: the file
+  // is 80 kB and `format:check` covers it, so a snapshot this script formats its
+  // own way is one that fails the gate in the same commit that regenerated it.
+  const snapshot = JSON.stringify(
+    { measuredAt: today(), command: COMMAND, tools: served.tools },
+    null,
+    2,
+  )
+
+  writeFileSync(
+    SNAPSHOT,
+    await format(snapshot, { ...(await resolveConfig(SNAPSHOT)), filepath: SNAPSHOT }),
+    'utf8',
+  )
+  written.push('apps/api/src/mcp/catalogue-structure.json')
+}
+
+// Left alone when it already agrees, for the reason the snapshot is: `#1227`
+// asks that a run on an unchanged tree produce no diff.
+if (!fingerprintIsCurrent) {
+  writeFileSync(
+    FINGERPRINT,
+    fingerprintSource.replace(DECLARATION, `export const CATALOGUE_FINGERPRINT = '${fingerprint}'`),
+    'utf8',
+  )
+  written.push('apps/api/src/mcp/catalogue-fingerprint.ts')
+}
 
 console.log(
-  `The snapshot now describes ${served.tools.length} tools, fingerprint ${fingerprint}. ` +
-    'Commit apps/api/src/mcp/catalogue-structure.json and catalogue-fingerprint.ts — the ' +
-    'snapshot diff is the structural change, and every line of it is one a reviewer should be ' +
-    'able to account for.',
+  `The catalogue this build serves has ${served.tools.length} tools, fingerprint ${fingerprint}. ` +
+    `Commit ${written.join(' and ')} — a snapshot diff is the structural change, and every ` +
+    'line of it is one a reviewer should be able to account for.',
 )

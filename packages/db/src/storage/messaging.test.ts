@@ -109,6 +109,27 @@ describe('private messaging', () => {
     return row!.name
   }
 
+  /**
+   * One participant's read cursor, read straight out of the row.
+   *
+   * `#1681` asserts that a refused `markConversationRead` leaves it exactly as
+   * it was, and no read surface exposes the column itself — `unread` is derived
+   * from it, which answers a different question.
+   */
+  const cursorOf = async (conversation: string, agentId: AgentId): Promise<string | null> => {
+    const [row] = await db
+      .select({ cursor: messageParticipants.lastReadMessageId })
+      .from(messageParticipants)
+      .where(
+        and(
+          eq(messageParticipants.conversationId, conversation),
+          eq(messageParticipants.agentId, agentId),
+        ),
+      )
+      .limit(1)
+    return row?.cursor ?? null
+  }
+
   const aPerson = async (operates?: AgentId): Promise<HumanId> => {
     const [row] = await db.insert(humans).values({}).returning({ id: humans.id })
     const humanId = HumanIdSchema.parse(row!.id)
@@ -937,6 +958,79 @@ describe('private messaging', () => {
         outcome: 'refused',
         refusal: 'not-a-participant',
       })
+    })
+
+    /**
+     * `#1681`: an id that names no message at all reached the update and the
+     * foreign key threw, which the MCP layer turned into `mcp.tool.threw` — a
+     * 500 for what is an ordinary bad argument. The all-zero UUID is the one
+     * production sent, six times in two minutes, and it is a valid UUID so
+     * nothing upstream of storage had anything to object to.
+     */
+    it('refuses an upTo that names no message, without touching the cursor', async () => {
+      const a = await anAgent('a')
+      const b = await anAgent('b')
+
+      const opened = await sendCitizenMessage(db, a, {
+        toHandle: await handleOf(b),
+        body: 'One.',
+      })
+      if (opened.outcome !== 'requested') throw new Error('unreachable')
+      await acceptMessageRequest(db, b, opened.requestId)
+      await markConversationRead(db, b, opened.conversationId)
+
+      const before = await cursorOf(opened.conversationId, b)
+      expect(before).not.toBeNull()
+
+      expect(
+        await markConversationRead(
+          db,
+          b,
+          opened.conversationId,
+          '00000000-0000-0000-0000-000000000000' as Parameters<typeof markConversationRead>[3],
+        ),
+      ).toEqual({ outcome: 'refused', refusal: 'no-such-message' })
+
+      expect(await cursorOf(opened.conversationId, b)).toBe(before)
+    })
+
+    /**
+     * A message that exists but belongs to somebody else's thread. The foreign
+     * key is satisfied, so this one never threw — it silently wrote a cursor
+     * pointing outside the conversation, which every unread count then read.
+     */
+    it('refuses an upTo from another conversation', async () => {
+      const a = await anAgent('a')
+      const b = await anAgent('b')
+      const c = await anAgent('c')
+
+      const mine = await sendCitizenMessage(db, a, { toHandle: await handleOf(b), body: 'One.' })
+      if (mine.outcome !== 'requested') throw new Error('unreachable')
+      await acceptMessageRequest(db, b, mine.requestId)
+
+      const elsewhere = await sendCitizenMessage(db, a, {
+        toHandle: await handleOf(c),
+        body: 'Elsewhere.',
+      })
+      if (elsewhere.outcome !== 'requested') throw new Error('unreachable')
+      await acceptMessageRequest(db, c, elsewhere.requestId)
+
+      const [foreign] = await db
+        .select({ id: messages.id })
+        .from(messages)
+        .where(eq(messages.conversationId, elsewhere.conversationId))
+        .limit(1)
+
+      expect(
+        await markConversationRead(
+          db,
+          b,
+          mine.conversationId,
+          foreign!.id as Parameters<typeof markConversationRead>[3],
+        ),
+      ).toEqual({ outcome: 'refused', refusal: 'no-such-message' })
+
+      expect(await cursorOf(mine.conversationId, b)).toBeNull()
     })
   })
 

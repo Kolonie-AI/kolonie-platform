@@ -2401,6 +2401,21 @@ export async function acknowledgeSystemMessage(
  * writes to the caller's own participant row and nowhere else. Without a message
  * id it moves to the newest message in the conversation, which is what *I have
  * read this thread* means.
+ *
+ * ## `upTo` is checked against this conversation before it is written (`#1681`)
+ *
+ * The column carries a foreign key onto `messages`, so an id naming no message
+ * reached the update and Postgres raised `23503` — which the MCP layer logged as
+ * `mcp.tool.threw` and answered as an internal error, for what is an ordinary
+ * bad argument. Six of those in two minutes on 2026-08-24, all carrying the
+ * all-zero UUID, which parses as a UUID and so cleared every schema above here.
+ *
+ * **Restricting it to this conversation is the same check and not a second
+ * one.** A message that exists but belongs elsewhere satisfies the foreign key,
+ * so that case never threw — it wrote a cursor pointing outside the conversation
+ * and every unread count then read it. One query answers both, and one refusal
+ * covers both so that a caller cannot use the difference to probe whether a
+ * message id is real in a thread it is not in.
  */
 export async function markConversationRead(
   db: Database,
@@ -2413,8 +2428,8 @@ export async function markConversationRead(
   const me = await participantOf(db, id, agentId)
   if (me === undefined) return { outcome: 'refused', refusal: 'not-a-participant' }
 
-  let target = upTo as string | undefined
-  if (target === undefined) {
+  let target: string | undefined
+  if (upTo === undefined) {
     const [newest] = await db
       .select({ id: messages.id })
       .from(messages)
@@ -2422,6 +2437,14 @@ export async function markConversationRead(
       .orderBy(desc(messages.createdAt))
       .limit(1)
     target = newest?.id
+  } else {
+    const [named] = await db
+      .select({ id: messages.id })
+      .from(messages)
+      .where(and(eq(messages.id, upTo), eq(messages.conversationId, id)))
+      .limit(1)
+    if (named === undefined) return { outcome: 'refused', refusal: 'no-such-message' }
+    target = named.id
   }
 
   if (target === undefined) return { outcome: 'marked' }

@@ -15,7 +15,7 @@ import {
 
 const GATEWAY = { baseUrl: 'https://gateway.invalid/v1', apiKey: 'gw-key', model: 'gateway-model' }
 
-const CHAT = 'https://openrouter.ai/api/v1/chat/completions'
+const CHAT = 'https://provider.invalid/v1/chat/completions'
 
 const completion = (content: string): string =>
   JSON.stringify({ model: 'openrouter-model', choices: [{ message: { content } }] })
@@ -61,7 +61,7 @@ const post = (body: unknown, url = CHAT): [string, RequestInit] => [
 ]
 
 describe('reading the gateway out of the environment', () => {
-  it('needs the address, the key and the model together', () => {
+  it('needs the address and service key, and defaults the model to the service tier', () => {
     const complete = {
       [GATEWAY_BASE_URL_VAR]: 'https://gateway.invalid/v1',
       LLM_GATEWAY_API_KEY_MODERATION: 'k',
@@ -74,9 +74,12 @@ describe('reading the gateway out of the environment', () => {
       model: 'm',
     })
 
-    for (const missing of Object.keys(complete)) {
+    for (const missing of [GATEWAY_BASE_URL_VAR, GATEWAY_API_KEY_VARS.moderation]) {
       expect(gatewayFromEnvironment('moderation', { ...complete, [missing]: '' })).toBeUndefined()
     }
+    expect(
+      gatewayFromEnvironment('moderation', { ...complete, [GATEWAY_MODEL_VAR]: '' })?.model,
+    ).toBe('@preset/tier-1')
   })
 
   /**
@@ -151,12 +154,12 @@ describe('a chat completion with a gateway configured', () => {
     const response = await routed(
       ...post(
         { model: 'openai/text-embedding-3-small', input: 'x' },
-        'https://openrouter.ai/api/v1/embeddings',
+        'https://provider.invalid/v1/embeddings',
       ),
     )
 
     expect(under.calls).toHaveLength(1)
-    expect(under.calls[0]!.url).toBe('https://openrouter.ai/api/v1/embeddings')
+    expect(under.calls[0]!.url).toBe('https://provider.invalid/v1/embeddings')
     expect(new Headers(under.calls[0]!.init!.headers).get('authorization')).toBe(
       'Bearer openrouter-key',
     )
@@ -167,13 +170,13 @@ describe('a chat completion with a gateway configured', () => {
     const under = transport(ok('[]'))
     const routed = gatewayRoutedFetch(GATEWAY, { fetch: under.fetch })
 
-    await routed('https://openrouter.ai/api/v1/models')
+    await routed('https://provider.invalid/v1/models')
     await routed(CHAT, { method: 'GET' })
     await routed(CHAT, { method: 'POST', body: 'not json' })
     await routed(CHAT, { method: 'POST', body: JSON.stringify({ messages: [] }) })
 
     expect(under.calls.map((call) => call.url)).toEqual([
-      'https://openrouter.ai/api/v1/models',
+      'https://provider.invalid/v1/models',
       CHAT,
       CHAT,
       CHAT,
@@ -387,9 +390,7 @@ describe('a model chosen per service', () => {
     const env = { ...base, [GATEWAY_MODEL_VARS.moderation]: 'gpt-5.6-sol' }
 
     expect(gatewayFromEnvironment('moderation', env)?.model).toBe('gpt-5.6-sol')
-    // Nothing names a model for the verifier, so it is not configured at all —
-    // which is OpenRouter on the caller's own model, exactly as before.
-    expect(gatewayFromEnvironment('verifier', env)).toBeUndefined()
+    expect(gatewayFromEnvironment('verifier', env)?.model).toBe('@preset/tier-2')
   })
 
   it('names a model variable for every service that has a key variable', () => {
@@ -448,9 +449,9 @@ describe('a call that may not fall back', () => {
 
     // The gateway answers 404 on `/embeddings`. Routing one would be the failure
     // rather than the protection.
-    await only(...post({ model: 'm', input: 'x' }, 'https://openrouter.ai/api/v1/embeddings'))
+    await only(...post({ model: 'm', input: 'x' }, 'https://provider.invalid/v1/embeddings'))
 
-    expect(under.calls[0]?.url).toBe('https://openrouter.ai/api/v1/embeddings')
+    expect(under.calls[0]?.url).toBe('https://provider.invalid/v1/embeddings')
   })
 
   it('is the transport it was given when no gateway is configured', () => {

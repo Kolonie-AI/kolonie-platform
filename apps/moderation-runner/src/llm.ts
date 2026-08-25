@@ -29,13 +29,6 @@ import {
 export const OPENROUTER_API_KEY_VAR = 'OPENROUTER_API_KEY'
 
 /**
- * Where OpenRouter is. A constant rather than configuration: it is a vendor's
- * public API root, not a host of ours, so `AGENTS.md` §9 does not reach it — and
- * making it configurable would invite pointing this at something else.
- */
-const OPENROUTER_BASE = 'https://openrouter.ai/api/v1'
-
-/**
  * The tier that judges (`#1694`).
  *
  * **`tier-1`, because this is the one judgement the Colony cannot take back.**
@@ -272,9 +265,8 @@ export interface MarkedSpan {
  * its job. This walks the chain and puts it in the message, where it survives
  * every transport that keeps a message.
  *
- * **The path, not the URL.** {@link OPENROUTER_BASE} is a constant in this file
- * and naming it again in every failure adds no information, while `AGENTS.md`
- * §9 is about not putting hosts of ours in logs at all. `/chat/completions` is
+ * **The path, not the URL.** The endpoint root is supplied by the configured
+ * transport, and naming it in every failure adds no information. `/chat/completions` is
  * what distinguishes a synthesis from an embedding, and that is the part a
  * reader is missing.
  */
@@ -577,7 +569,7 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
   ): Promise<{ readonly body: unknown; readonly accounting: ModelCall | undefined }> => {
     let response: Response
     try {
-      response = await fetchImpl(`${OPENROUTER_BASE}${path}`, {
+      response = await fetchImpl(path, {
         method: 'POST',
         headers: {
           authorization: `Bearer ${apiKey}`,

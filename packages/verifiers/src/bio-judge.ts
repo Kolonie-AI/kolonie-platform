@@ -1,5 +1,5 @@
 import {
-  TIER_3,
+  TIER_2,
   chatRequestBody,
   throwIfTruncated,
   type CapabilityTier,
@@ -15,22 +15,16 @@ export const BIO_MODEL_VAR = 'BIO_MODEL'
 /**
  * The tier that reads a citizen's bio (`#1694`).
  *
- * **`tier-3`, because this is the work the cheap tier is for.** The question has
- * no image in it, the text is eighty characters of citizen-written prose, and it
- * runs once per citizen at a rung everybody passes exactly once — the same
- * high-volume classification the direction classifier does. It ran on a flash
- * model before this, and nothing here asks for something a flash model cannot
- * do.
+ * **`tier-2`, because verifier calls share one service tier.** The question has
+ * no image in it and runs once per citizen. Keeping one verifier tier means the
+ * runner sends the same capability request for every judgement it owns.
  *
  * It must return a structured object. A verdict extracted from prose with a
  * regular expression is a verdict that will eventually reject a real bio because
  * the model wrote the word "disclaimer" while explaining that it found none —
  * and every tier is configured to a model that honours a schema.
  */
-export const DEFAULT_BIO_TIER: CapabilityTier = TIER_3
-
-/** Where OpenRouter is. A constant, as in the moderation runner: a vendor's root. */
-const OPENROUTER_BASE = 'https://openrouter.ai/api/v1'
+export const DEFAULT_BIO_TIER: CapabilityTier = TIER_2
 
 /**
  * The one question, as a schema the model must answer in.
@@ -141,7 +135,7 @@ export function openRouterBioJudge(
 
       let response: Response
       try {
-        response = await fetchImpl(`${OPENROUTER_BASE}/chat/completions`, {
+        response = await fetchImpl('/chat/completions', {
           method: 'POST',
           headers: {
             authorization: `Bearer ${apiKey}`,

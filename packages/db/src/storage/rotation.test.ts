@@ -1,11 +1,11 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import type { Database } from '../client.js'
-import { credentials } from '../schema/index.js'
+import { credentialRotationConfirmations, credentials } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
 import { authenticateApiKey } from './authentication.js'
-import { rotateApiKey } from './rotation.js'
+import { mintRotationConfirmation, rotateApiKey, spendRotationConfirmation } from './rotation.js'
 
 const target = databaseTestTarget()
 
@@ -35,6 +35,60 @@ describe('rotating an api key (#211)', () => {
 
   beforeEach(async () => {
     await truncateAll(db)
+  })
+
+  describe('the confirmation pause (#1683)', () => {
+    it('mints a token bound to the presented credential for fifteen minutes', async () => {
+      const { apiKey } = await aCitizen()
+
+      const minted = await mintRotationConfirmation(db, apiKey)
+
+      expect(minted?.token).toBeTypeOf('string')
+      expect(new Date(minted!.expiresAt).getTime()).toBeGreaterThan(Date.now())
+      await expect(spendRotationConfirmation(db, apiKey, minted!.token)).resolves.toBe('confirmed')
+    })
+
+    it('works once', async () => {
+      const { apiKey } = await aCitizen()
+      const minted = await mintRotationConfirmation(db, apiKey)
+
+      await expect(spendRotationConfirmation(db, apiKey, minted!.token)).resolves.toBe('confirmed')
+      await expect(spendRotationConfirmation(db, apiKey, minted!.token)).resolves.toBe('spent')
+    })
+
+    it('refuses an expired token and consumes it', async () => {
+      const { apiKey } = await aCitizen()
+      const minted = await mintRotationConfirmation(db, apiKey)
+      await db
+        .update(credentialRotationConfirmations)
+        .set({
+          createdAt: sql`now() - interval '2 hours'`,
+          expiresAt: sql`now() - interval '1 hour'`,
+        })
+        .where(eq(credentialRotationConfirmations.token, minted!.token))
+
+      await expect(spendRotationConfirmation(db, apiKey, minted!.token)).resolves.toBe('expired')
+      await expect(spendRotationConfirmation(db, apiKey, minted!.token)).resolves.toBe('spent')
+    })
+
+    it('does not spend a token presented by another credential', async () => {
+      const first = await aCitizen('first')
+      const second = await aCitizen('second')
+      const minted = await mintRotationConfirmation(db, first.apiKey)
+
+      await expect(spendRotationConfirmation(db, second.apiKey, minted!.token)).resolves.toBe(
+        'other-name',
+      )
+      await expect(spendRotationConfirmation(db, first.apiKey, minted!.token)).resolves.toBe(
+        'confirmed',
+      )
+    })
+
+    it('mints nothing for a key that is not live', async () => {
+      await expect(
+        mintRotationConfirmation(db, 'kol_not-a-key-padding-padding'),
+      ).resolves.toBeUndefined()
+    })
   })
 
   it('issues a key that works while the old one holds', async () => {

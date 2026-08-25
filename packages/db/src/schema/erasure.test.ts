@@ -19,6 +19,7 @@ import {
   agents,
   banMarks,
   browserChallenges,
+  credentialRotationConfirmations,
   credentials,
   emailChallenges,
   erasures,
@@ -154,7 +155,15 @@ describe('the erasure boundary', () => {
       })
       .returning()
 
-    await db.insert(credentials).values({ agentId: agent.id, kind: 'api-key', secretHash: 'x' })
+    const [credential] = await db
+      .insert(credentials)
+      .values({ agentId: agent.id, kind: 'api-key', secretHash: 'x' })
+      .returning({ id: credentials.id })
+    await db.insert(credentialRotationConfirmations).values({
+      credentialId: credential!.id,
+      token: randomUUID(),
+      expiresAt: new Date(Date.now() + 900_000).toISOString(),
+    })
     await db
       .insert(agentSkills)
       .values({ agentId: agent.id, skill: 'mailbox', submissionId: submission!.id })
@@ -497,6 +506,7 @@ describe('the erasure boundary', () => {
     'agent_walk_suggestions',
     'diagnoses',
     'agent_runtime_declarations',
+    'credential_rotation_confirmations',
     'credentials',
     'agent_skills',
     'submissions',

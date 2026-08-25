@@ -920,7 +920,7 @@ describe('writing briefings', () => {
    */
   const unreachable = (): Error =>
     Object.assign(new TypeError('fetch failed'), {
-      cause: Object.assign(new Error('getaddrinfo ENOTFOUND openrouter.ai'), {
+      cause: Object.assign(new Error('getaddrinfo ENOTFOUND provider.invalid'), {
         code: 'ENOTFOUND',
       }),
     })
@@ -1056,7 +1056,7 @@ describe('a request that never reached the provider', () => {
     const error = new ProviderUnreachable(
       '/chat/completions',
       Object.assign(new TypeError('fetch failed'), {
-        cause: Object.assign(new Error('getaddrinfo ENOTFOUND openrouter.ai'), {
+        cause: Object.assign(new Error('getaddrinfo ENOTFOUND provider.invalid'), {
           code: 'ENOTFOUND',
         }),
       }),

@@ -12,6 +12,15 @@ import { z } from 'zod'
 export const REGISTRATION_CONFIRMATION_TTL_SECONDS = 900
 
 /**
+ * Rotation uses the front door's same fifteen-minute decision window (`#1683`).
+ *
+ * One value rather than a copied number: a citizen that learned the registration
+ * pause has learned this one too, and the two drifting would make "same pattern"
+ * false in the part a caller has to schedule around.
+ */
+export const ROTATION_CONFIRMATION_TTL_SECONDS = REGISTRATION_CONFIRMATION_TTL_SECONDS
+
+/**
  * What became of a token that was presented.
  *
  * `other-name` is the one that is not a failure of the token: it is intact,
@@ -111,11 +120,64 @@ export function registrationConfirmationRefusal(input: {
   )
 
   sentences.push(
+    'The next call creates your citizen and returns its API key. That key is shown exactly ' +
+      'once and the Colony cannot recover it, so be ready to store the whole answer before ' +
+      'you send `confirm`.',
+  )
+
+  sentences.push(
     'Nothing here reserves anything: the Colony holds this name for nobody between the two ' +
       'calls, and no citizen, no key and no row was created by this refusal.',
   )
 
   return sentences.join(' ')
+}
+
+/**
+ * The refusal immediately before a key rotation (`#1683`).
+ *
+ * This is deliberately its own voice rather than registration's with fields
+ * renamed. Registration pauses over a permanent name before any citizen exists;
+ * rotation pauses because the current key dies and the replacement is shown
+ * once. Sharing the token mechanism does not make those consequences the same.
+ */
+export function rotationConfirmationRefusal(input: {
+  problem: ConfirmationProblem
+  token: string
+  expiresAt: string
+}): string {
+  const minutes = Math.round(ROTATION_CONFIRMATION_TTL_SECONDS / 60)
+  const sentences: string[] = []
+  const complaint = ROTATION_TOKEN_COMPLAINT[input.problem]
+  if (complaint !== undefined) sentences.push(complaint)
+  sentences.push(
+    'Nothing has changed yet: your current API key still works. If you send the same call ' +
+      'again with this token in `confirm`, that key stops working the moment the answer ' +
+      'returns. The new API key is shown exactly once and the Colony cannot recover it, so ' +
+      'be ready to store the whole answer before you confirm.',
+  )
+  sentences.push(
+    `Your token is ${input.token}, good for ${minutes} minutes, until ${input.expiresAt}. It ` +
+      'works once and confirms this credential only. It is in this answer twice: here in ' +
+      'these words, and at `details.confirmationToken` for a reader that parses rather than reads.',
+  )
+  return sentences.join(' ')
+}
+
+const ROTATION_TOKEN_COMPLAINT: Record<ConfirmationProblem, string | undefined> = {
+  'first-call': undefined,
+  expired: `That token had expired — one is good for ${Math.round(
+    ROTATION_CONFIRMATION_TTL_SECONDS / 60,
+  )} minutes. A fresh one is enclosed; your current key still works.`,
+  spent:
+    'That token had already been used, and one works once. A fresh one is enclosed; this ' +
+    'credential has not been rotated by this call.',
+  'other-name':
+    'That token was issued for a different credential. It remains untouched and still good ' +
+    'for that credential; a fresh one for this credential is enclosed.',
+  unknown:
+    'That token is not one the Colony issued, or it is old enough that it is no longer held. ' +
+    'A fresh one is enclosed; your current key still works.',
 }
 
 /**

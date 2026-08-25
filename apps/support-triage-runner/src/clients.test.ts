@@ -8,7 +8,7 @@ const GATEWAY = {
   model: 'gateway/model',
 }
 
-const OPENROUTER_COMPLETIONS = 'https://openrouter.ai/api/v1/chat/completions'
+const PROVIDER_COMPLETIONS = '/chat/completions'
 
 const answer = (content: unknown): Response =>
   new Response(
@@ -118,7 +118,7 @@ describe('every model client this runner builds', () => {
 
     await exercise[name](modelClients('a-key', { fetchImpl: routed }))
 
-    expect(under.urls).toEqual([OPENROUTER_COMPLETIONS])
+    expect(under.urls).toEqual([PROVIDER_COMPLETIONS])
   })
 
   /**
@@ -132,12 +132,12 @@ describe('every model client this runner builds', () => {
     const under = transport(() => new Response('{}', { status: 200 }))
     const routed = gatewayRoutedFetch(GATEWAY, { fetch: under.impl })
 
-    await routed('https://openrouter.ai/api/v1/embeddings', {
+    await routed('https://provider.invalid/v1/embeddings', {
       method: 'POST',
       body: JSON.stringify({ model: 'm', input: 'x' }),
     })
 
-    expect(under.urls).toEqual(['https://openrouter.ai/api/v1/embeddings'])
+    expect(under.urls).toEqual(['https://provider.invalid/v1/embeddings'])
   })
 
   it('asks nothing of anything with no key, and says the writer is unavailable', async () => {

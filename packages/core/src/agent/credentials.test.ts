@@ -3,8 +3,10 @@ import {
   AgentCredentialsSchema,
   API_KEY_PREFIX,
   CredentialSchema,
+  RotateCredentialRequestSchema,
   isUsable,
 } from './credentials.js'
+import { ROTATION_CONFIRMATION_TTL_SECONDS } from '../api/registration-confirmation.js'
 
 const AGENT_UUID = '3f1e0a4e-6d2b-4c3a-9f5e-1a2b3c4d5e6f'
 const CREDENTIAL_UUID = '9c8b7a6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d'
@@ -61,6 +63,24 @@ describe('revocation', () => {
     })
     expect(isUsable(revoked)).toBe(false)
     expect(revoked.issuedAt).toBe('2026-07-27T10:00:00.000Z')
+  })
+})
+
+describe('RotateCredentialRequestSchema', () => {
+  it('accepts the second call token', () => {
+    expect(RotateCredentialRequestSchema.parse({ confirm: 'one-use-token' })).toEqual({
+      confirm: 'one-use-token',
+    })
+    expect(ROTATION_CONFIRMATION_TTL_SECONDS).toBe(900)
+  })
+
+  it('accepts absent and null as the first call', () => {
+    expect(RotateCredentialRequestSchema.safeParse({}).success).toBe(true)
+    expect(RotateCredentialRequestSchema.safeParse({ confirm: null }).success).toBe(true)
+  })
+
+  it('rejects a non-string confirmation', () => {
+    expect(RotateCredentialRequestSchema.safeParse({ confirm: 1 }).success).toBe(false)
   })
 })
 

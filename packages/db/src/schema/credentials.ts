@@ -132,3 +132,42 @@ export const credentials = pgTable(
     index('credentials_agent_id_idx').on(table.agentId),
   ],
 )
+
+/**
+ * The pause immediately before a live API key is replaced (`#1683`).
+ *
+ * **Bound to the credential, not the citizen.** A citizen may hold several API
+ * keys. A token minted while calling with one must not confirm rotating another,
+ * even though both authenticate as the same citizen. Cascading with the
+ * credential also makes a token worthless once that credential is gone.
+ *
+ * Shaped on `registration_confirmations`: single-use, fifteen minutes, and a
+ * consumed timestamp rather than deletion so a replay answers `spent` instead
+ * of becoming indistinguishable from a random string.
+ */
+export const credentialRotationConfirmations = pgTable(
+  'credential_rotation_confirmations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    /** The live key this pause may replace. A token never names an agent directly. */
+    credentialId: uuid('credential_id')
+      .notNull()
+      .references(() => credentials.id, { onDelete: 'cascade' }),
+    token: text('token').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+    expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'string' }).notNull(),
+    consumedAt: timestamp('consumed_at', { withTimezone: true, mode: 'string' }),
+  },
+  (table) => [
+    uniqueIndex('credential_rotation_confirmations_token_unique').on(table.token),
+    index('credential_rotation_confirmations_open_idx')
+      .on(table.expiresAt)
+      .where(sql`${table.consumedAt} is null`),
+    check(
+      'credential_rotation_confirmations_expiry_after_creation',
+      sql`${table.expiresAt} > ${table.createdAt}`,
+    ),
+  ],
+)

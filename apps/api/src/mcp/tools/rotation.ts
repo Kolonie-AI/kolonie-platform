@@ -1,6 +1,7 @@
+import { RotateCredentialRequestSchema } from '@kolonie-ai/core'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { authenticate, bearerToken } from '../../authentication.js'
-import { rotateCredential } from '../../rotation.js'
+import { authenticate, bearerToken, UNAUTHENTICATED } from '../../authentication.js'
+import { confirmRotation, rotateCredential } from '../../rotation.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
 
@@ -42,9 +43,15 @@ export function registerRotationTools(
         'no standing, and it is recorded nowhere any other citizen or your operator can see. ' +
         'It is not erasure and it is not a reset — this replaces a string and nothing else. ' +
         '**Your vault comes with you**: every entry that opens under the key you are replacing ' +
-        'is re-sealed under the new one in the same transaction. ' +
-        '**Be ready to store the new key before you call**: it is shown exactly once.',
-      inputSchema: {},
+        'is re-sealed under the new one in the same transaction. The first call returns a ' +
+        'single-use confirmation token and changes nothing; send it back in `confirm` to rotate.',
+      inputSchema: {
+        confirm: RotateCredentialRequestSchema.shape.confirm.describe(
+          'The token from the refused first call. That refusal has `isError` set and carries it ' +
+            'at `structuredContent.error.details.confirmationToken`. Leave it out on the first ' +
+            'call. It works once, for this credential, for 15 minutes.',
+        ),
+      },
       annotations: {
         readOnlyHint: false,
         // Emphatically not idempotent: a second call replaces the key the first one
@@ -54,7 +61,7 @@ export function registerRotationTools(
         openWorldHint: false,
       },
     },
-    async () => {
+    async (input) => {
       /**
        * Authenticated first even though `rotateCredential` resolves the credential
        * itself, and the redundancy is on purpose: it means an unknown key gets the
@@ -72,7 +79,13 @@ export function registerRotationTools(
        * rotated*, which is the most misleading possible answer to a citizen holding a
        * key that is perfectly good.
        */
-      const result = await rotateCredential(bearerToken(credential), deps.rotation)
+      const presented = bearerToken(credential)
+      if (presented === undefined) return toolError(UNAUTHENTICATED)
+
+      const paused = await confirmRotation(presented, input.confirm ?? undefined, deps.rotation)
+      if (paused !== undefined) return toolError(paused)
+
+      const result = await rotateCredential(presented, deps.rotation)
       if (result.outcome === 'rejected') return toolError(result.error)
 
       const { credentials, vault } = result.response

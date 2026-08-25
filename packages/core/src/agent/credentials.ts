@@ -263,6 +263,15 @@ export const VaultReSealSchema = z.object({
 })
 export type VaultReSeal = z.infer<typeof VaultReSealSchema>
 
+export const RotateCredentialRequestSchema = z.object({
+  /**
+   * The token from the refused first call (`#1683`). Null and absent both mean
+   * first call, matching registration and flat MCP clients that fill every key.
+   */
+  confirm: z.string().nullish(),
+})
+export type RotateCredentialRequest = z.infer<typeof RotateCredentialRequestSchema>
+
 export const RotateCredentialResponseSchema = z.object({
   credentials: RotatedCredentialsSchema,
   /**

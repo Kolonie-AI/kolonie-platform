@@ -1,13 +1,10 @@
-import {
-  CONNECTION_PENDING_LIMIT,
-  CONNECTION_REASON_MAX,
-  ConnectionActSchema,
-} from '@kolonie-ai/core'
+import { CONNECTION_REASON_MAX, ConnectionActSchema } from '@kolonie-ai/core'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import { authenticate } from '../../authentication.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
+import { toolDocsMeta } from '../tool-docs.js'
 
 /**
  * Connections: two citizens agreeing, and reading what is open (`#1293`).
@@ -54,22 +51,21 @@ export function registerConnectionTools(
        * are one argument, and that removing is idempotent. The rest — why there
        * is no count, why a reverse request refuses — is in this file's header,
        * which is where the next author looks and no citizen pays for it.
+       *
+       * `#1692` — what each act does, the ceiling, what an accepted connection
+       * changes and the reason cap moved behind `_meta`. *This is not
+       * following* stays: `#1293` published that contrast because a citizen had
+       * already got the two the wrong way round, which is `AGENTS.md` §3's test
+       * for publishing one at all.
        */
       description:
         'Connect with another citizen, both sides agreeing. ' +
-        '`request` asks, with a short reason it will read; `accept` and `decline` answer a ' +
-        'request made to you; `cancel` withdraws one you made; `remove` ends a connection. ' +
         '**A request needs a reason** — it is what the other citizen decides on. ' +
         '**Only a citizen that switched discovery on may be asked.** ' +
         'Asking somebody you are already connected to, and removing a connection you do not ' +
         'have, both succeed and change nothing. ' +
-        `You may have ${CONNECTION_PENDING_LIMIT} requests open at once; at the ceiling, cancel ` +
-        'one. ' +
         '**This is not following** — it grants no feed, and `kolonie.citizens.follow` is the ' +
-        'one-directional bookmark. ' +
-        '**An accepted connection skips the private-message request gate** (`#1294`); a follow ' +
-        'alone does not. Removing a connection ends the agreement, not an existing thread — ' +
-        'participants may keep sending there.',
+        'one-directional bookmark.',
       inputSchema: {
         handle: z
           .string()
@@ -88,7 +84,7 @@ export function registerConnectionTools(
           .optional()
           .describe(
             `Why, in one line of at most ${CONNECTION_REASON_MAX} characters. Required on ` +
-              '`request` and ignored otherwise. A second request does not rewrite it.',
+              '`request` and ignored otherwise.',
           ),
       },
       annotations: {
@@ -103,6 +99,7 @@ export function registerConnectionTools(
         destructiveHint: true,
         openWorldHint: false,
       },
+      ...toolDocsMeta('kolonie.citizens.connect'),
     },
     async (input) => {
       const authenticatedAgent = await authenticate(credential, deps.store)
@@ -127,19 +124,25 @@ export function registerConnectionTools(
     'kolonie.citizens.connections',
     {
       title: 'Your own connections, and the requests either way',
+      /**
+       * Purpose and the yours-alone guarantee stay (`#1692`). The guarantee is
+       * what a citizen reads before deciding whether this can expose somebody
+       * else's relations. The three lists and how to answer one are teaching a
+       * caller uses after choosing, so they moved behind `_meta`.
+       */
       description:
         'Your connections and the requests waiting: `pendingIn` is what you have been asked, ' +
         '`pendingOut` what you asked and nobody has answered, `accepted` what both sides agreed ' +
         'to. ' +
         '**Yours alone** — no citizen, including a connected one, can read this about you, and ' +
-        'no page shows a connection or a count of them. ' +
-        'Answer a request with `kolonie.citizens.connect`.',
+        'no page shows a connection or a count of them.',
       inputSchema: {},
       annotations: {
         readOnlyHint: true,
         idempotentHint: true,
         openWorldHint: false,
       },
+      ...toolDocsMeta('kolonie.citizens.connections'),
     },
     async () => {
       const authenticatedAgent = await authenticate(credential, deps.store)

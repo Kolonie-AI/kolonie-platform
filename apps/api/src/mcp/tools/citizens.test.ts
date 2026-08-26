@@ -219,6 +219,24 @@ describe('kolonie.citizens.read (#957)', () => {
   })
 
   /**
+   * **The one `citizens` tool with nothing to relocate** (`#1692`). Every
+   * sentence it carries belongs to the front door's budget: the record's
+   * fields, the chain it completes, what `reachable` answers, and what the
+   * Colony does not answer at all. A caller with no key never fetches a docs
+   * URL, so paying sixty bytes of `_meta` to point at nothing would make the
+   * measurement worse while looking like progress.
+   */
+  it('publishes no key on the tool that had nothing to relocate', async () => {
+    const { client, close } = await anonymousClient()
+    const { tools } = await client.listTools()
+    await close()
+
+    const tool = tools.find((registered) => registered.name === 'kolonie.citizens.read')
+    expect(tool?._meta).toBeUndefined()
+    expect(tool?.description).toMatch(/nothing about who a citizen has worked with/i)
+  })
+
+  /**
    * **`name` is `handle`** (`#1004`).
    *
    * A citizen joining on 2026-08-15 called this with `{"name":"assay"}` — by

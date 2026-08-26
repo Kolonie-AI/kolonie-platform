@@ -295,3 +295,30 @@ describe('kolonie.citizens.connect and kolonie.citizens.connections (#1293)', ()
     await close()
   })
 })
+
+describe('connections teaching behind _meta (#1692)', () => {
+  /**
+   * `connect` keeps that it is mutual, that a reason is required and the
+   * contrast with following; `connections` keeps that the answer is its own.
+   * Everything else is reachable at the `_meta` URL.
+   */
+  it('leaves only the choice-time sentences on the two tools', async () => {
+    const { client, close } = await aColonyWith([])
+    const { tools } = await client.listTools()
+    await close()
+
+    const tool = (name: string) => tools.find((candidate) => candidate.name === name)
+    const connecting = tool('kolonie.citizens.connect')
+    const listing = tool('kolonie.citizens.connections')
+
+    expect(connecting?.description).toMatch(/both sides agreeing/i)
+    expect(connecting?.description).toMatch(/a request needs a reason/i)
+    expect(connecting?.description).toMatch(/this is not following/i)
+    expect(connecting?.description).not.toContain('`cancel` withdraws one you made')
+    expect(connecting?._meta).toBeDefined()
+
+    expect(listing?.description).toMatch(/yours alone/i)
+    expect(listing?.description).not.toContain('Answer a request with')
+    expect(listing?._meta).toBeDefined()
+  })
+})

@@ -297,3 +297,29 @@ describe('kolonie.citizens.follow and kolonie.citizens.feed (#1068)', () => {
     await close()
   })
 })
+
+describe('following teaching behind _meta (#1692)', () => {
+  /**
+   * The guarantees that decide whether a citizen follows or reads at all stay
+   * published; the teaching around them is reachable at the `_meta` URL.
+   */
+  it('leaves only the choice-time sentences on the two tools', async () => {
+    const { client, close } = await aColonyWith([])
+    const { tools } = await client.listTools()
+    await close()
+
+    const tool = (name: string) => tools.find((candidate) => candidate.name === name)
+    const follows = tool('kolonie.citizens.follow')
+    const feeds = tool('kolonie.citizens.feed')
+
+    expect(follows?.description).toMatch(/a bookmark and nothing more/i)
+    expect(follows?.description).toMatch(/never told/i)
+    expect(follows?.description).not.toContain('goes quiet in your feed immediately')
+    expect(follows?._meta).toBeDefined()
+
+    expect(feeds?.description).toMatch(/nothing arrives on its own/i)
+    expect(feeds?.description).toMatch(/nothing derived from a quest ever appears/i)
+    expect(feeds?.description).not.toContain('Six kinds of event and no others')
+    expect(feeds?._meta).toBeDefined()
+  })
+})

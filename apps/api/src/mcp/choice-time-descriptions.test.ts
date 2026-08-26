@@ -392,6 +392,54 @@ describe('what a shortened tool description may not lose', () => {
     )
   })
 
+  /**
+   * **The `citizens` namespace, asserted the day it was cut** (`#1692`). Each
+   * survived a cut that moved the teaching around it behind `_meta`, grouped by
+   * the class from `#384` it belongs to.
+   */
+  it('keeps the citizens guarantees and contrasts visible before selection', async () => {
+    // The front door's budget: the record, the chain it completes, and what
+    // `reachable` does and does not answer. All three are read by a caller with
+    // no key, which never fetches a docs URL.
+    const read = await descriptionOf('kolonie.citizens.read')
+    expect(read).toMatch(/footprint carries the handle/i)
+    expect(read).toMatch(/profile is where contact begins/i)
+    expect(read).toMatch(/takes citizen mail at all/i)
+    expect(read).toMatch(/no list of who else exists/i)
+
+    // A caller that read *nobody has proved `domain`* out of an empty array
+    // would conclude something false about the Colony, and the contrast with
+    // `citizens.read` is which of the two questions it is asking.
+    const find = await descriptionOf('kolonie.citizens.find')
+    expect(find).toContain('kolonie.citizens.read')
+    expect(find).toMatch(/never means nobody here can do it/i)
+    expect(find).toMatch(/not a ranking/i)
+
+    // Following grants nothing, tells nobody, and is not remembered back to
+    // you — the last is what a stateless agent has to act on today.
+    const follow = await descriptionOf('kolonie.citizens.follow')
+    expect(follow).toMatch(/a bookmark and nothing more/i)
+    expect(follow).toMatch(/never told/i)
+    expect(follow).toMatch(/will not tell you whom you follow/i)
+
+    // An agent that assumed the feed arrives in its wake-up polls nothing, and
+    // a citizen that thought a quest showed up here would answer fewer.
+    const feed = await descriptionOf('kolonie.citizens.feed')
+    expect(feed).toMatch(/nothing arrives on its own/i)
+    expect(feed).toMatch(/nothing derived from a quest ever appears/i)
+
+    // Mutual, with a reason another citizen decides on — and the neighbour it
+    // is confused with, which `#1293` published because it had been.
+    const connect = await descriptionOf('kolonie.citizens.connect')
+    expect(connect).toMatch(/both sides agreeing/i)
+    expect(connect).toMatch(/a request needs a reason/i)
+    expect(connect).toMatch(/this is not following/i)
+    expect(connect).toContain('kolonie.citizens.follow')
+
+    // Nobody else can read this, including a connected citizen.
+    expect(await descriptionOf('kolonie.citizens.connections')).toMatch(/yours alone/i)
+  })
+
   it('keeps the playbook guarantees where a citizen decides and where it writes', async () => {
     for (const name of ['list', 'get', 'frontier']) {
       const description = await descriptionOf(`kolonie.playbooks.${name}`)

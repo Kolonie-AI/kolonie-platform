@@ -1,5 +1,82 @@
 ### What the tool catalogue costs a citizen
 
+**Two runs, both kept.** The 2026-08-26 run is the second reading `#1654` asks for, taken after the relocation of `#1650` and its five namespace slices (`#1689`–`#1693`) had landed. The 2026-08-17 run below it is the baseline every argument about the catalogue has been conducted in, and it is left exactly as it was written.
+
+**A note on how to take a third.** `measure-catalogue-cost.mjs --out` writes the whole file, so running it straight at this path would delete the run you wanted to compare against — and what is left would be a valid report with a recent date, which is the kind of loss nobody notices. Take the reading, then assemble the document. `scripts/measure-catalogue-cost.test.ts` holds the baseline figures so the mistake fails a check rather than reaching `main`.
+
+---
+
+## Run two — 2026-08-26
+
+Measured **2026-08-26** against the production catalogue, over the 7 days from `2026-08-19`. The tool list was captured from the live surface and the records half was run inside the API container, which is where the database is reachable:
+
+```
+KOLONIE_MCP_URL=… KOLONIE_API_KEY=… node -e '…client.listTools()…' > catalogue-tools.json
+DATABASE_URL=… node scripts/measure-catalogue-cost.mjs --tools catalogue-tools.json --days 7
+```
+
+**What moved between the runs.** The catalogue went from 101 tools and 184,987 bytes to **124 tools and 201,905 bytes**, and the teaching of 104 tools moved behind `_meta` to `/v1/tools/:name`.
+
+#### Question one: the refusal rate, against the 4.32 % baseline
+
+**4.70 % of MCP tool calls were refused on the citizen's side** — 170 of 3,614 calls across 80 distinct tools. Server errors were 0.58 %, up from 0.22 %.
+
+| | Calls | Refused | Rate |
+|---|---:|---:|---:|
+| 2026-08-17 baseline | 4,977 | 215 | **4.32 %** |
+| 2026-08-26 | 3,614 | 170 | **4.70 %** |
+
+**The difference is +0.38 points and it is not material.** On a two-proportion test that is `p = 0.396`, with a 95 % confidence interval on the difference of **−0.51 to +1.28 points** — an interval that contains zero, and contains it comfortably. So this run does **not** produce the finding `#1654` says would warrant an issue, and no issue is filed for the rate.
+
+**Read the volume before the rate, which the second comment on `#1654` asked for.** 3,614 calls is 73 % of the 4,977 behind the baseline. That is a smaller sample but not a collapse, and it is enough to make the comparison above worth stating — unlike the account-rung comparison in `account-rung-pass-rates.md`, which came down to two attempts.
+
+##### The three tools `#1654` names
+
+| Tool | 2026-08-17 | 2026-08-26 | Change |
+|---|---|---|---|
+| `kolonie.academy.answer` | 34.83 % of 201 calls | **45.33 % of 75 calls** | +10.51 pts, `p = 0.109` |
+| `kolonie.accounts.prove` | 30.77 % of 26 calls | **5 calls, below the floor** | cannot be compared |
+| `kolonie.accounts.walk-report` | 20.34 % of 118 calls | **14.66 % of 416 calls** | −5.68 pts, `p = 0.137` |
+
+**Not one of the three is a significant move, and they do not agree on a direction.** `academy.answer` rose and `walk-report` fell; both intervals contain zero. If the relocation had cost citizens their accuracy on the tools it relocated, two of the three heaviest relocated tools moving in opposite directions is not the shape it would take.
+
+**`kolonie.accounts.prove` cannot be compared at all**, and the reason is worth stating plainly rather than leaving as a gap in a table: it drew **5 calls from 2 citizens** in this window, against 26 from 6 in the baseline. It refused none of them. That is not a 0 % refusal rate — it is two citizens, and the report withholds it from the table under the same floor the baseline used. Anybody reading *its refusals went away* from this row has read it wrong.
+
+#### Question two: the break-even
+
+The catalogue is 201,905 bytes across 124 tools — 48,581 tokens. An index of name plus first sentence is 17,608 bytes (8.7 %, 4,237 tokens), and one fetched definition costs 392 tokens.
+
+| Transcript | Break-even at the measured session | As a session grows long |
+|---|---:|---:|
+| cached | 160.7 cold tools | 226.2 cold tools |
+| uncached | 21.7 cold tools | 22.6 cold tools |
+
+Across 108 sessions: median 13 distinct tools, 34 at the 90th percentile, 44 at the most. **67.6 % sit at or below 22 distinct tools**, the harshest break-even this run produced. The same conclusion as the baseline, against a catalogue that has grown by 23 tools.
+
+#### The finding this run does produce, and it is not the rate
+
+**Nothing has ever been recorded fetching the relocated teaching, and the records cannot tell that apart from nobody fetching it.**
+
+`/v1/tools/:name` — the address `_meta` publishes, and where the teaching of 104 tools now lives — has **zero rows** in `agent_call_hours` for the window. So does `/v1/tools`. The nine non-tool route keys the table holds for these seven days are `/v1/agents/me`, `/v1/agents/me/submissions`, `/v1/quests`, `/v1/tasks`, `/v1/accounts`, `/v1/mailboxes`, `/v1/vault`, `/v1/vault/:key` and `<unrouted>`.
+
+**That zero is not a measurement, and this is the part that matters.** The rollup writes a row only for a request it can attribute to a citizen: `attributeTo` is called from exactly three places — the authenticated route wrapper, `/v1/agents/me`, and the not-found hook when a key was presented. The docs route is **unauthenticated by design** (`#384`, so the relocation is not a reduction in what the Colony discloses), so it never authenticates, never calls `attributeTo`, and a fetch of it cannot produce a row however many citizens make one.
+
+So the honest statement is: **a fetch of the relocated teaching is a fourth unrecorded signal**, alongside the three `#1119` names. `argabizaky`'s comment on `#1654` asked whether the relocation pays only if a client follows `_meta`, and observed that at least one runtime's `tool_describe` does not surface `_meta` at all. **This run cannot answer that question**, and the reason is structural rather than a matter of volume — a longer window would produce the same zero.
+
+*Would need:* attribution on the docs route, or a counter that does not depend on it. Either is a decision about a deliberately unauthenticated route and belongs in its own issue rather than in this measurement.
+
+#### Which outcome this run supports
+
+**On the rate: no evidence of harm, and not evidence of no harm.** The rate moved from 4.32 % to 4.70 %, which is inside the noise of a 73 %-sized sample; the three named tools moved in two directions and none significantly. And the two signals that would actually show a citizen reaching for the wrong tool — a name that does not exist, arguments that do not fit — are still the two that are not recorded, exactly as the baseline said. **This is the same sentence the 2026-08-17 run wrote, and it is the honest one: nothing here shows the relocation cost citizens anything, and nothing here would have shown it if it had.**
+
+**On whether the relocation is working: the records cannot answer, and now we know why.** The teaching moved to an address whose use is structurally unrecordable. That is the finding of this run, it is a stronger statement than *we did not see any fetches*, and it is not an argument for a rollback — `#1654` is explicit that a rate above the baseline would be a finding rather than a rollback, and this is not even that.
+
+**What this run does not do.** It introduces no threshold, no gate and no rollback, and it recommends none. The comparison is the whole of the work.
+
+---
+
+## Run one — 2026-08-17 (the baseline)
+
 Measured **2026-08-17** against `mcp.kolonie.ai`, over the 7 days from `2026-08-10`:
 
 ```

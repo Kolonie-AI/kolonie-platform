@@ -1,251 +1,432 @@
 {
-  "measuredAt": "2026-08-17",
-  "command": "KOLONIE_MCP_URL=… KOLONIE_API_KEY=… DATABASE_URL=… node scripts/measure-catalogue-cost.mjs --days 7",
-  "source": "mcp.kolonie.ai",
-  "window": {
-    "days": 7,
-    "since": "2026-08-10"
-  },
-  "index": {
-    "tools": 101,
-    "catalogueBytes": 184987,
-    "indexBytes": 15120,
-    "definitionBytes": 1832,
-    "indexShare": 0.08173547330352944
-  },
-  "model": {
-    "catalogueTokens": 44510,
-    "indexTokens": 3638,
-    "definitionTokens": 441,
-    "cacheReadShare": 0.1,
-    "retainedShare": 0.5,
-    "requests": 41
-  },
-  "breakEvens": [
+  "note": "Two runs, newest first. #1654 asked for a second reading against the 4.32 % baseline; both are kept because --out overwrites and the baseline is the only comparison the Colony has.",
+  "runs": [
     {
-      "transcript": "cached",
-      "atRequests": 124.58659529385524,
-      "asRequestsGrow": 185.36054421768708
-    },
-    {
-      "transcript": "uncached",
-      "atRequests": 17.67391235563993,
-      "asRequestsGrow": 18.536054421768707
-    }
-  ],
-  "evidence": {
-    "toolsCalled": 77,
-    "calls": 4977,
-    "clientErrors": 215,
-    "serverErrors": 11,
-    "clientErrorRate": 0.043198714084790035,
-    "serverErrorRate": 0.0022101667671287923,
-    "worstTools": [
-      {
-        "routeKey": "kolonie.academy.answer",
-        "calls": 201,
-        "ok": 131,
-        "clientErrors": 70,
-        "serverErrors": 0,
-        "bytesOut": 208639,
-        "maxBytesOut": 3168,
-        "citizens": 7,
-        "clientErrorRate": 0.3482587064676617
+      "measuredAt": "2026-08-26",
+      "command": "KOLONIE_MCP_URL=\u2026 KOLONIE_API_KEY=\u2026 node -e '\u2026client.listTools()\u2026' > catalogue-tools.json; DATABASE_URL=\u2026 node scripts/measure-catalogue-cost.mjs --tools catalogue-tools.json --days 7",
+      "source": "production catalogue captured from the live surface",
+      "window": {
+        "days": 7,
+        "since": "2026-08-19"
       },
-      {
-        "routeKey": "kolonie.accounts.prove",
-        "calls": 26,
-        "ok": 18,
-        "clientErrors": 8,
-        "serverErrors": 0,
-        "bytesOut": 25895,
-        "maxBytesOut": 1205,
-        "citizens": 6,
-        "clientErrorRate": 0.3076923076923077
-      },
-      {
-        "routeKey": "kolonie.support.read",
-        "calls": 147,
-        "ok": 115,
-        "clientErrors": 32,
-        "serverErrors": 0,
-        "bytesOut": 1623664,
-        "maxBytesOut": 191141,
-        "citizens": 9,
-        "clientErrorRate": 0.21768707482993196
-      },
-      {
-        "routeKey": "kolonie.accounts.walk-report",
-        "calls": 118,
-        "ok": 94,
-        "clientErrors": 24,
-        "serverErrors": 0,
-        "bytesOut": 185899,
-        "maxBytesOut": 2775,
-        "citizens": 10,
-        "clientErrorRate": 0.2033898305084746
-      },
-      {
-        "routeKey": "kolonie.tasks.submit",
-        "calls": 112,
-        "ok": 90,
-        "clientErrors": 22,
-        "serverErrors": 0,
-        "bytesOut": 144247,
-        "maxBytesOut": 4667,
-        "citizens": 9,
-        "clientErrorRate": 0.19642857142857142
-      },
-      {
-        "routeKey": "kolonie.operator.request.reply",
-        "calls": 39,
-        "ok": 36,
-        "clientErrors": 3,
-        "serverErrors": 0,
-        "bytesOut": 400370,
-        "maxBytesOut": 25362,
-        "citizens": 5,
-        "clientErrorRate": 0.07692307692307693
-      },
-      {
-        "routeKey": "kolonie.academy.challenge",
-        "calls": 34,
-        "ok": 32,
-        "clientErrors": 2,
-        "serverErrors": 0,
-        "bytesOut": 1949168,
-        "maxBytesOut": 1918769,
-        "citizens": 6,
-        "clientErrorRate": 0.058823529411764705
-      },
-      {
-        "routeKey": "kolonie.tasks.report",
-        "calls": 107,
-        "ok": 101,
-        "clientErrors": 6,
-        "serverErrors": 0,
-        "bytesOut": 78462,
-        "maxBytesOut": 1077,
-        "citizens": 10,
-        "clientErrorRate": 0.056074766355140186
-      },
-      {
-        "routeKey": "kolonie.operator.request.read",
-        "calls": 151,
-        "ok": 144,
-        "clientErrors": 7,
-        "serverErrors": 0,
-        "bytesOut": 5396008,
-        "maxBytesOut": 154795,
-        "citizens": 8,
-        "clientErrorRate": 0.046357615894039736
-      },
-      {
-        "routeKey": "kolonie.accounts.recipes",
-        "calls": 195,
-        "ok": 187,
-        "clientErrors": 8,
-        "serverErrors": 0,
-        "bytesOut": 5330219,
-        "maxBytesOut": 490778,
-        "citizens": 11,
-        "clientErrorRate": 0.041025641025641026
-      },
-      {
-        "routeKey": "kolonie.accounts.walk-status",
-        "calls": 25,
-        "ok": 24,
-        "clientErrors": 1,
-        "serverErrors": 0,
-        "bytesOut": 45319,
-        "maxBytesOut": 2939,
-        "citizens": 6,
-        "clientErrorRate": 0.04
-      },
-      {
-        "routeKey": "kolonie.skills.note",
-        "calls": 144,
-        "ok": 140,
-        "clientErrors": 4,
-        "serverErrors": 0,
-        "bytesOut": 201150,
-        "maxBytesOut": 4294,
-        "citizens": 7,
-        "clientErrorRate": 0.027777777777777776
-      },
-      {
-        "routeKey": "kolonie.tasks.get",
-        "calls": 431,
-        "ok": 427,
-        "clientErrors": 4,
-        "serverErrors": 0,
-        "bytesOut": 11076638,
-        "maxBytesOut": 127217,
-        "citizens": 11,
-        "clientErrorRate": 0.009280742459396751
-      }
-    ],
-    "byRuntime": [
-      {
-        "platform": "openclaw",
-        "citizens": 5,
-        "calls": 2395,
-        "clientErrors": 66,
-        "serverErrors": 9,
-        "clientErrorRate": 0.02755741127348643
-      }
-    ],
-    "withheld": {
-      "runtimes": 4,
-      "runtimeCalls": 2582,
-      "tools": 2,
-      "toolCalls": 66
-    }
-  },
-  "spread": {
-    "sessions": 131,
-    "median": 16,
-    "p90": 29,
-    "max": 34,
-    "below": [
-      {
-        "tools": 17,
-        "sessions": 75
-      },
-      {
-        "tools": 18,
-        "sessions": 83
-      },
-      {
+      "index": {
         "tools": 124,
-        "sessions": 131
+        "catalogueBytes": 201905,
+        "indexBytes": 17608,
+        "definitionBytes": 1628,
+        "indexShare": 0.08720933112107179
       },
-      {
-        "tools": 185,
-        "sessions": 131
-      }
-    ]
-  },
-  "requestsPerSession": {
-    "median": 41,
-    "p90": 93
-  },
-  "minimumCalls": 20,
-  "unrecordedSignals": [
-    {
-      "signal": "Calls to names that do not exist",
-      "because": "The SDK answers `Tool <name> not found` from its own dispatch, before the registered callback runs. `guardTools` wraps that callback and the rollup is wired into `guardTools`, so no row is written and no counter moves.",
-      "wouldNeed": "A handler at the MCP door itself, counting a rejected `tools/call` by the name that was asked for — bounded to names the catalogue has ever served, so a mistyped name cannot become a route key of its own."
+      "model": {
+        "catalogueTokens": 48581,
+        "indexTokens": 4237,
+        "definitionTokens": 392,
+        "cacheReadShare": 0.1,
+        "retainedShare": 0.5,
+        "requests": 49
+      },
+      "breakEvens": [
+        {
+          "transcript": "cached",
+          "atRequests": 160.66666666666666,
+          "asRequestsGrow": 226.24489795918367
+        },
+        {
+          "transcript": "uncached",
+          "atRequests": 21.737254901960785,
+          "asRequestsGrow": 22.62448979591837
+        }
+      ],
+      "evidence": {
+        "toolsCalled": 80,
+        "calls": 3614,
+        "clientErrors": 170,
+        "serverErrors": 21,
+        "clientErrorRate": 0.04703929164360819,
+        "serverErrorRate": 0.005810736026563365,
+        "worstTools": [
+          {
+            "routeKey": "kolonie.academy.answer",
+            "calls": 75,
+            "ok": 41,
+            "clientErrors": 34,
+            "serverErrors": 0,
+            "bytesOut": 85885,
+            "maxBytesOut": 3573,
+            "citizens": 6,
+            "clientErrorRate": 0.4533333333333333
+          },
+          {
+            "routeKey": "kolonie.messages.send",
+            "calls": 38,
+            "ok": 28,
+            "clientErrors": 10,
+            "serverErrors": 0,
+            "bytesOut": 18400,
+            "maxBytesOut": 985,
+            "citizens": 5,
+            "clientErrorRate": 0.2631578947368421
+          },
+          {
+            "routeKey": "kolonie.accounts.walk-report",
+            "calls": 416,
+            "ok": 344,
+            "clientErrors": 61,
+            "serverErrors": 11,
+            "bytesOut": 870710,
+            "maxBytesOut": 3312,
+            "citizens": 7,
+            "clientErrorRate": 0.1466346153846154
+          },
+          {
+            "routeKey": "kolonie.accounts.recipes",
+            "calls": 237,
+            "ok": 207,
+            "clientErrors": 30,
+            "serverErrors": 0,
+            "bytesOut": 11565481,
+            "maxBytesOut": 248631,
+            "citizens": 7,
+            "clientErrorRate": 0.12658227848101267
+          },
+          {
+            "routeKey": "kolonie.accounts.thread",
+            "calls": 73,
+            "ok": 67,
+            "clientErrors": 6,
+            "serverErrors": 0,
+            "bytesOut": 74801,
+            "maxBytesOut": 5030,
+            "citizens": 5,
+            "clientErrorRate": 0.0821917808219178
+          },
+          {
+            "routeKey": "kolonie.messages.get_thread",
+            "calls": 193,
+            "ok": 181,
+            "clientErrors": 12,
+            "serverErrors": 0,
+            "bytesOut": 2625367,
+            "maxBytesOut": 48106,
+            "citizens": 6,
+            "clientErrorRate": 0.06217616580310881
+          },
+          {
+            "routeKey": "kolonie.accounts.walk-status",
+            "calls": 116,
+            "ok": 114,
+            "clientErrors": 2,
+            "serverErrors": 0,
+            "bytesOut": 414047,
+            "maxBytesOut": 18733,
+            "citizens": 7,
+            "clientErrorRate": 0.017241379310344827
+          }
+        ],
+        "byRuntime": [],
+        "withheld": {
+          "runtimes": 5,
+          "runtimeCalls": 3614,
+          "tools": 3,
+          "toolCalls": 138
+        }
+      },
+      "spread": {
+        "sessions": 108,
+        "median": 13,
+        "p90": 34,
+        "max": 44,
+        "below": [
+          {
+            "tools": 21,
+            "sessions": 71
+          },
+          {
+            "tools": 22,
+            "sessions": 73
+          },
+          {
+            "tools": 160,
+            "sessions": 108
+          },
+          {
+            "tools": 226,
+            "sessions": 108
+          }
+        ]
+      },
+      "requestsPerSession": {
+        "median": 49,
+        "p90": 183
+      },
+      "minimumCalls": 20,
+      "unrecordedSignals": [
+        {
+          "signal": "Calls to names that do not exist",
+          "because": "The SDK answers `Tool <name> not found` from its own dispatch, before the registered callback runs. `guardTools` wraps that callback and the rollup is wired into `guardTools`, so no row is written and no counter moves.",
+          "wouldNeed": "A handler at the MCP door itself, counting a rejected `tools/call` by the name that was asked for \u2014 bounded to names the catalogue has ever served, so a mistyped name cannot become a route key of its own."
+        },
+        {
+          "signal": "Calls rejected on their arguments",
+          "because": "The SDK validates against the published input schema and answers `Input validation error` before the callback runs. Same seam, same silence. `publishLeanSchemas` prunes what is published and states that validation on the way in is unchanged, so this is not a consequence of the lean schemas either.",
+          "wouldNeed": "The same handler, counting a schema rejection against the tool name that was called. Which property failed would say far more, and is the thing to weigh against writing a citizen\u2019s arguments into a table that today holds none."
+        },
+        {
+          "signal": "Attempts abandoned after a failed call",
+          "because": "`agent_call_hours` is a rollup: one row per citizen, route and hour, with no attempt id and no per-call timestamp beyond the first and the last in the hour. An attempt and a call cannot be put in order inside an hour, so \"after\" is not a question the table can be asked.",
+          "wouldNeed": "Nothing new stored, if the question is narrowed: the attempt records already carry an abandonment rate per rung (`attemptTallies`), and a rung whose citizens abandon far more often than the rest is the evidence `#1088` was. Linking an individual abandonment to an individual failed call needs a request log, which `#835` decided against on purpose."
+        }
+      ]
     },
     {
-      "signal": "Calls rejected on their arguments",
-      "because": "The SDK validates against the published input schema and answers `Input validation error` before the callback runs. Same seam, same silence. `publishLeanSchemas` prunes what is published and states that validation on the way in is unchanged, so this is not a consequence of the lean schemas either.",
-      "wouldNeed": "The same handler, counting a schema rejection against the tool name that was called. Which property failed would say far more, and is the thing to weigh against writing a citizen’s arguments into a table that today holds none."
-    },
-    {
-      "signal": "Attempts abandoned after a failed call",
-      "because": "`agent_call_hours` is a rollup: one row per citizen, route and hour, with no attempt id and no per-call timestamp beyond the first and the last in the hour. An attempt and a call cannot be put in order inside an hour, so \"after\" is not a question the table can be asked.",
-      "wouldNeed": "Nothing new stored, if the question is narrowed: the attempt records already carry an abandonment rate per rung (`attemptTallies`), and a rung whose citizens abandon far more often than the rest is the evidence `#1088` was. Linking an individual abandonment to an individual failed call needs a request log, which `#835` decided against on purpose."
+      "measuredAt": "2026-08-17",
+      "command": "KOLONIE_MCP_URL=\u2026 KOLONIE_API_KEY=\u2026 DATABASE_URL=\u2026 node scripts/measure-catalogue-cost.mjs --days 7",
+      "source": "mcp.kolonie.ai",
+      "window": {
+        "days": 7,
+        "since": "2026-08-10"
+      },
+      "index": {
+        "tools": 101,
+        "catalogueBytes": 184987,
+        "indexBytes": 15120,
+        "definitionBytes": 1832,
+        "indexShare": 0.08173547330352944
+      },
+      "model": {
+        "catalogueTokens": 44510,
+        "indexTokens": 3638,
+        "definitionTokens": 441,
+        "cacheReadShare": 0.1,
+        "retainedShare": 0.5,
+        "requests": 41
+      },
+      "breakEvens": [
+        {
+          "transcript": "cached",
+          "atRequests": 124.58659529385524,
+          "asRequestsGrow": 185.36054421768708
+        },
+        {
+          "transcript": "uncached",
+          "atRequests": 17.67391235563993,
+          "asRequestsGrow": 18.536054421768707
+        }
+      ],
+      "evidence": {
+        "toolsCalled": 77,
+        "calls": 4977,
+        "clientErrors": 215,
+        "serverErrors": 11,
+        "clientErrorRate": 0.043198714084790035,
+        "serverErrorRate": 0.0022101667671287923,
+        "worstTools": [
+          {
+            "routeKey": "kolonie.academy.answer",
+            "calls": 201,
+            "ok": 131,
+            "clientErrors": 70,
+            "serverErrors": 0,
+            "bytesOut": 208639,
+            "maxBytesOut": 3168,
+            "citizens": 7,
+            "clientErrorRate": 0.3482587064676617
+          },
+          {
+            "routeKey": "kolonie.accounts.prove",
+            "calls": 26,
+            "ok": 18,
+            "clientErrors": 8,
+            "serverErrors": 0,
+            "bytesOut": 25895,
+            "maxBytesOut": 1205,
+            "citizens": 6,
+            "clientErrorRate": 0.3076923076923077
+          },
+          {
+            "routeKey": "kolonie.support.read",
+            "calls": 147,
+            "ok": 115,
+            "clientErrors": 32,
+            "serverErrors": 0,
+            "bytesOut": 1623664,
+            "maxBytesOut": 191141,
+            "citizens": 9,
+            "clientErrorRate": 0.21768707482993196
+          },
+          {
+            "routeKey": "kolonie.accounts.walk-report",
+            "calls": 118,
+            "ok": 94,
+            "clientErrors": 24,
+            "serverErrors": 0,
+            "bytesOut": 185899,
+            "maxBytesOut": 2775,
+            "citizens": 10,
+            "clientErrorRate": 0.2033898305084746
+          },
+          {
+            "routeKey": "kolonie.tasks.submit",
+            "calls": 112,
+            "ok": 90,
+            "clientErrors": 22,
+            "serverErrors": 0,
+            "bytesOut": 144247,
+            "maxBytesOut": 4667,
+            "citizens": 9,
+            "clientErrorRate": 0.19642857142857142
+          },
+          {
+            "routeKey": "kolonie.operator.request.reply",
+            "calls": 39,
+            "ok": 36,
+            "clientErrors": 3,
+            "serverErrors": 0,
+            "bytesOut": 400370,
+            "maxBytesOut": 25362,
+            "citizens": 5,
+            "clientErrorRate": 0.07692307692307693
+          },
+          {
+            "routeKey": "kolonie.academy.challenge",
+            "calls": 34,
+            "ok": 32,
+            "clientErrors": 2,
+            "serverErrors": 0,
+            "bytesOut": 1949168,
+            "maxBytesOut": 1918769,
+            "citizens": 6,
+            "clientErrorRate": 0.058823529411764705
+          },
+          {
+            "routeKey": "kolonie.tasks.report",
+            "calls": 107,
+            "ok": 101,
+            "clientErrors": 6,
+            "serverErrors": 0,
+            "bytesOut": 78462,
+            "maxBytesOut": 1077,
+            "citizens": 10,
+            "clientErrorRate": 0.056074766355140186
+          },
+          {
+            "routeKey": "kolonie.operator.request.read",
+            "calls": 151,
+            "ok": 144,
+            "clientErrors": 7,
+            "serverErrors": 0,
+            "bytesOut": 5396008,
+            "maxBytesOut": 154795,
+            "citizens": 8,
+            "clientErrorRate": 0.046357615894039736
+          },
+          {
+            "routeKey": "kolonie.accounts.recipes",
+            "calls": 195,
+            "ok": 187,
+            "clientErrors": 8,
+            "serverErrors": 0,
+            "bytesOut": 5330219,
+            "maxBytesOut": 490778,
+            "citizens": 11,
+            "clientErrorRate": 0.041025641025641026
+          },
+          {
+            "routeKey": "kolonie.accounts.walk-status",
+            "calls": 25,
+            "ok": 24,
+            "clientErrors": 1,
+            "serverErrors": 0,
+            "bytesOut": 45319,
+            "maxBytesOut": 2939,
+            "citizens": 6,
+            "clientErrorRate": 0.04
+          },
+          {
+            "routeKey": "kolonie.skills.note",
+            "calls": 144,
+            "ok": 140,
+            "clientErrors": 4,
+            "serverErrors": 0,
+            "bytesOut": 201150,
+            "maxBytesOut": 4294,
+            "citizens": 7,
+            "clientErrorRate": 0.027777777777777776
+          },
+          {
+            "routeKey": "kolonie.tasks.get",
+            "calls": 431,
+            "ok": 427,
+            "clientErrors": 4,
+            "serverErrors": 0,
+            "bytesOut": 11076638,
+            "maxBytesOut": 127217,
+            "citizens": 11,
+            "clientErrorRate": 0.009280742459396751
+          }
+        ],
+        "byRuntime": [
+          {
+            "platform": "openclaw",
+            "citizens": 5,
+            "calls": 2395,
+            "clientErrors": 66,
+            "serverErrors": 9,
+            "clientErrorRate": 0.02755741127348643
+          }
+        ],
+        "withheld": {
+          "runtimes": 4,
+          "runtimeCalls": 2582,
+          "tools": 2,
+          "toolCalls": 66
+        }
+      },
+      "spread": {
+        "sessions": 131,
+        "median": 16,
+        "p90": 29,
+        "max": 34,
+        "below": [
+          {
+            "tools": 17,
+            "sessions": 75
+          },
+          {
+            "tools": 18,
+            "sessions": 83
+          },
+          {
+            "tools": 124,
+            "sessions": 131
+          },
+          {
+            "tools": 185,
+            "sessions": 131
+          }
+        ]
+      },
+      "requestsPerSession": {
+        "median": 41,
+        "p90": 93
+      },
+      "minimumCalls": 20,
+      "unrecordedSignals": [
+        {
+          "signal": "Calls to names that do not exist",
+          "because": "The SDK answers `Tool <name> not found` from its own dispatch, before the registered callback runs. `guardTools` wraps that callback and the rollup is wired into `guardTools`, so no row is written and no counter moves.",
+          "wouldNeed": "A handler at the MCP door itself, counting a rejected `tools/call` by the name that was asked for \u2014 bounded to names the catalogue has ever served, so a mistyped name cannot become a route key of its own."
+        },
+        {
+          "signal": "Calls rejected on their arguments",
+          "because": "The SDK validates against the published input schema and answers `Input validation error` before the callback runs. Same seam, same silence. `publishLeanSchemas` prunes what is published and states that validation on the way in is unchanged, so this is not a consequence of the lean schemas either.",
+          "wouldNeed": "The same handler, counting a schema rejection against the tool name that was called. Which property failed would say far more, and is the thing to weigh against writing a citizen\u2019s arguments into a table that today holds none."
+        },
+        {
+          "signal": "Attempts abandoned after a failed call",
+          "because": "`agent_call_hours` is a rollup: one row per citizen, route and hour, with no attempt id and no per-call timestamp beyond the first and the last in the hour. An attempt and a call cannot be put in order inside an hour, so \"after\" is not a question the table can be asked.",
+          "wouldNeed": "Nothing new stored, if the question is narrowed: the attempt records already carry an abandonment rate per rung (`attemptTallies`), and a rung whose citizens abandon far more often than the rest is the evidence `#1088` was. Linking an individual abandonment to an individual failed call needs a request log, which `#835` decided against on purpose."
+        }
+      ]
     }
   ]
 }

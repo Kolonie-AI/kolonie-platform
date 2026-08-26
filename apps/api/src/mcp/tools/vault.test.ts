@@ -305,3 +305,46 @@ describe('the vault, over MCP', () => {
     await stranger.close()
   })
 })
+
+describe('vault teaching behind _meta (#1693)', () => {
+  /**
+   * Each pair is the same shape: the red line or the guarantee stays published,
+   * and the teaching around it is reachable at the `_meta` URL instead.
+   */
+  it('leaves only the choice-time sentences on the namespace', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+    const { tools } = await client.listTools()
+    await close()
+
+    const tool = (name: string) => tools.find((candidate) => candidate.name === name)
+    const description = (name: string) => tool(name)?.description ?? ''
+
+    expect(description('kolonie.vault.set')).toContain('Not key material')
+    expect(description('kolonie.vault.set')).toMatch(/cannot recover it for you/i)
+    expect(JSON.stringify(tool('kolonie.vault.set')?.inputSchema)).not.toContain('`totp/<service>`')
+
+    expect(description('kolonie.vault.get')).toMatch(/same API key that stored it/i)
+    expect(description('kolonie.vault.get')).not.toContain('kolonie.vault.list tells you')
+
+    expect(description('kolonie.vault.list')).toMatch(/never the values/i)
+    expect(description('kolonie.vault.list')).not.toContain('description is decrypted for you')
+
+    expect(description('kolonie.vault.describe')).toMatch(/never reads or\s+writes the value/i)
+    expect(description('kolonie.vault.describe')).not.toContain('encrypted like the value')
+
+    expect(description('kolonie.vault.delete')).toMatch(/a real delete/i)
+    expect(description('kolonie.vault.delete')).not.toContain('kolonie.credential.rotate')
+
+    expect(description('kolonie.vault.share')).toMatch(/sharing spends something/i)
+    expect(description('kolonie.vault.share')).toContain('kolonie.vault.unshare')
+    expect(description('kolonie.vault.share')).not.toContain('seals a copy of its own')
+
+    expect(description('kolonie.vault.unshare')).toMatch(/handed to you here, once/i)
+    expect(description('kolonie.vault.unshare')).not.toContain('already expired still works')
+
+    for (const name of ['set', 'get', 'list', 'describe', 'delete', 'share', 'unshare']) {
+      expect(tool(`kolonie.vault.${name}`)?._meta, name).toBeDefined()
+    }
+  })
+})

@@ -159,6 +159,22 @@ describe('where a relocated paragraph goes', () => {
     expect(everything).not.toContain('nothing derived from a quest ever appears')
     expect(everything).not.toContain('a request needs a reason')
     expect(everything).not.toContain('yours alone')
+
+    /**
+     * Added with the `vault` tranche (`#1693`). These are the red lines and
+     * guarantees that decide whether a citizen entrusts a secret to a call or
+     * destroys one. They stay in the listing an undecided caller reads.
+     */
+    expect(everything).not.toContain('not key material')
+    expect(everything).not.toContain('cannot recover it for you')
+    expect(everything).not.toContain('same api key that stored it')
+    expect(everything).not.toContain('never the values')
+    expect(everything).not.toContain('this never reads or writes the value')
+    expect(everything).not.toContain('it is a real delete')
+    expect(everything).not.toContain('sharing spends something')
+    expect(everything).not.toContain('it takes the name and never the value')
+    expect(everything).not.toContain('anything they wrote back is handed to you here, once')
+    expect(everything).not.toContain('nothing is deleted from your vault')
   })
 
   /** The published list carries it, over the transport a citizen actually uses. */
@@ -177,7 +193,7 @@ describe('where a relocated paragraph goes', () => {
     expect(tools.find((tool) => tool.name === 'kolonie.me')?._meta).toBeUndefined()
   })
 
-  it.each(['quests', 'playbooks', 'tasks', 'messages', 'citizens'])(
+  it.each(['quests', 'playbooks', 'tasks', 'messages', 'citizens', 'vault'])(
     'publishes every relocated %s entry through the connected catalogue',
     async (namespace) => {
       const { colony, apiKey } = await registeredCitizen()
@@ -307,6 +323,30 @@ describe('where a relocated paragraph goes', () => {
     )
     expect(TOOL_DOCS['kolonie.citizens.connections']).toContain(
       'Answer a request with `kolonie.citizens.connect`.',
+    )
+  })
+
+  it('keeps the moved vault passages word-for-word', () => {
+    expect(TOOL_DOCS['kolonie.vault.set']).toContain(
+      '`totp/<service>` for a second factor as its own entry',
+    )
+    expect(TOOL_DOCS['kolonie.vault.get']).toContain(
+      'kolonie.vault.list tells you what is in there if you no',
+    )
+    expect(TOOL_DOCS['kolonie.vault.list']).toContain(
+      'The **description is decrypted for you and the value is not**.',
+    )
+    expect(TOOL_DOCS['kolonie.vault.describe']).toContain(
+      'It is **encrypted like the value**, so the username and the provider belong here,',
+    )
+    expect(TOOL_DOCS['kolonie.vault.delete']).toContain(
+      'this is how you clear the name so you can use it again',
+    )
+    expect(TOOL_DOCS['kolonie.vault.share']).toContain(
+      'The Colony opens the entry with the key you',
+    )
+    expect(TOOL_DOCS['kolonie.vault.unshare']).toContain(
+      'Taking back an entry whose share already expired still works',
     )
   })
 

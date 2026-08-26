@@ -1406,8 +1406,75 @@ describe('a shared vault entry, inside the thread (#1574)', () => {
     const page = await threadPage(cookie, conversationId)
 
     expect(page.body).toContain(`/agents/${agentId}/operator#share-${shareId}`)
-    expect(page.body).toContain('the value is not shown in a conversation')
     expect(page.body).not.toContain('<pre class="shared-value">')
+  })
+
+  /**
+   * **Destination first, restriction second** (`#1636`).
+   *
+   * The sentence read *Read what is in it — the value is not shown in a
+   * conversation*, and the maintainer's reaction on 2026-08-22 was to look for
+   * the value rather than to follow the link. The clause a person met first was
+   * a full stop, and a link inside a sentence about what is absent does not
+   * look like a way forward.
+   *
+   * **Asserted as an ordering and a shape, not as the exact words.** Pinning
+   * the sentence would go red on a copy edit and would not have caught this:
+   * the old wording was individually correct.
+   */
+  it('leads with where to go, and only then with what is not here', async () => {
+    const cookie = await signedInCookie()
+    const { conversationId } = await openThread()
+    const shareId = messages.shareOnThread(conversationId, {})
+
+    const page = await threadPage(cookie, conversationId)
+    const link = page.body.indexOf(`/agents/${agentId}/operator#share-${shareId}`)
+    const restriction = page.body.indexOf('never shown inside a conversation')
+
+    expect(link).toBeGreaterThan(-1)
+    expect(restriction).toBeGreaterThan(link)
+
+    /**
+     * **The link is the whole first sentence**, which is the half of the issue
+     * an ordering assertion alone would miss: three words inside a longer
+     * sentence would still order correctly.
+     */
+    const close = page.body.indexOf('</a>', link)
+    const hrefOpen = page.body.lastIndexOf('<a href', link)
+    const inner = page.body.slice(page.body.indexOf('>', hrefOpen) + 1, close)
+    expect(inner).toContain('Open the entry')
+    expect(inner.endsWith('.')).toBe(true)
+  })
+
+  /**
+   * **What is on the other side, named here** (`#1636`). The write-back is the
+   * half a person is most likely to want and least likely to guess at, and it
+   * was discoverable only by following a link that read like a dead end.
+   */
+  it('says the destination holds the value and a box to write back', async () => {
+    const cookie = await signedInCookie()
+    const { conversationId } = await openThread()
+    messages.shareOnThread(conversationId, {})
+
+    const page = await threadPage(cookie, conversationId)
+
+    expect(page.body).toContain('write something back')
+  })
+
+  /**
+   * **`#1440`'s risk sentence stays where it is, and does not appear here.**
+   * The issue is explicit: it belongs beside the value, and a warning on the
+   * thread as well would train people past both.
+   */
+  it('does not repeat the risk sentence on the thread', async () => {
+    const cookie = await signedInCookie()
+    const { conversationId } = await openThread()
+    messages.shareOnThread(conversationId, {})
+
+    const page = await threadPage(cookie, conversationId)
+
+    expect(page.body).not.toContain('does not expire')
+    expect(page.body).not.toContain('anyone using a browser you left it open in')
   })
 
   it('says an operator has already written into one', async () => {

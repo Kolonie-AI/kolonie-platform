@@ -2014,10 +2014,16 @@ function shareBlocks(input: {
       ? [...shareEnded(input.agentName, share.ended), '</section>']
       : [
           /**
-           * **The value is not here** (`#1574`, and `#931`'s reason about
-           * slots): a listing that carried a credential would put one through a
-           * response nobody asked for it in. Reading it stays the deliberate act
-           * it already is, one link away.
+           * **The destination comes first** (`#1636`), and says what is there:
+           * the value and the box to write back. The sentence used to lead with
+           * the restriction, so the maintainer looked for the value rather than
+           * following the link. The link is the whole first sentence now rather
+           * than three words inside a sentence about what is absent.
+           *
+           * **The restriction stays, separately** (`#1574`, and `#931`'s reason
+           * about slots): a listing that carried a credential would put one
+           * through a response nobody asked for it in. Reading it stays the
+           * deliberate act it already is, one link away.
            *
            * This is the one thing the two doors genuinely differ on, so it is
            * decided here rather than behind a flag in the shared module.
@@ -2026,7 +2032,9 @@ function shareBlocks(input: {
             ? []
             : [
                 `<p><a href="${escape(input.readAt)}#share-${escape(share.id)}">` +
-                  'Read what is in it</a> — the value is not shown in a conversation.</p>',
+                  'Open the entry to read the value and use the box to write something back.</a> ' +
+                  'The value is never shown inside a conversation — reading one is a deliberate ' +
+                  'act, so it happens on its own page.</p>',
               ]),
           ...shareWriteBack({
             shareId: share.id,

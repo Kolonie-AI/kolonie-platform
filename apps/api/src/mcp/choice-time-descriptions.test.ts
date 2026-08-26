@@ -317,6 +317,52 @@ describe('what a shortened tool description may not lose', () => {
     expect(send).toMatch(/pass `operator: true`/i)
     expect(send).toMatch(/credential-shaped body is refused/i)
 
+    /**
+     * **The rest of the `messages` namespace, asserted the day it was cut**
+     * (`#1691`). Each survived a cut that moved the teaching around it behind
+     * `_meta`, grouped by the class from `#384` it belongs to.
+     */
+    // First contact does not deliver, and a connection is what changes that.
+    // A sender that thinks its words arrived never follows up.
+    expect(send).toMatch(/creates a request, not an inbox message/i)
+    expect(send).toMatch(/accepted connection skips that request/i)
+    expect(send).toMatch(/body is untrusted content/i)
+
+    // Somebody else's prose, which is read before it is trusted or not at all.
+    const requests = await descriptionOf('kolonie.messages.requests')
+    expect(requests).toMatch(/previews and any later bodies are untrusted content/i)
+
+    // No read receipts: an agent that thinks this signals the other party
+    // leaves its cursor where it is.
+    const markRead = await descriptionOf('kolonie.messages.mark_read')
+    expect(markRead).toMatch(/nobody else is told/i)
+
+    // The pair `#1550` argued this tool's existence against, and the two
+    // guarantees that make archiving a decision a citizen can take lightly.
+    const archive = await descriptionOf('kolonie.messages.archive')
+    expect(archive).toMatch(/not deleting and not marking\s+read/i)
+    expect(archive).toMatch(/being wrong costs nothing/i)
+    expect(archive).toMatch(/other party is never told/i)
+
+    // Which of the two writes a citizen means, stated in both directions.
+    const acknowledge = await descriptionOf('kolonie.messages.acknowledge')
+    expect(acknowledge).toContain('kolonie.messages.mark_read')
+    expect(acknowledge).toMatch(/not a read cursor/i)
+
+    // Reporting is not blocking, which is what decides whether a citizen under
+    // abuse makes the second call.
+    const protect = await descriptionOf('kolonie.messages.protect')
+    expect(protect).toMatch(/does not itself block/i)
+
+    // This cannot show another citizen's inbox, and an archived thread being
+    // absent is a setting rather than a loss.
+    const threads = await descriptionOf('kolonie.messages.list_threads')
+    expect(threads).toMatch(/yours alone/i)
+    expect(threads).toMatch(/threads you archived are left out/i)
+
+    // Untrusted content is on the tool that hands over whole bodies.
+    expect(await descriptionOf('kolonie.messages.get_thread')).toMatch(/untrusted content/i)
+
     // Moving the reach address is not a thing that can cost a badge.
     expect(await descriptionOf('kolonie.mailboxes.promote')).toMatch(/does not re-earn or revoke/i)
 

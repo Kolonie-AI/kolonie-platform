@@ -204,7 +204,17 @@ export function registerMessagingTools(
                 if (m.nextAction !== undefined) flags.push(`nextAction=${m.nextAction}`)
                 if (m.acknowledgedAt !== undefined) flags.push(`acknowledgedAt=${m.acknowledgedAt}`)
                 const meta = flags.length === 0 ? '' : ` [${flags.join(', ')}]`
-                return `[${m.createdAt}] ${m.sender.label}${meta}: ${m.body}`
+                /**
+                 * **The id is on the line because `mark_read` asks for one**
+                 * (`#1682`). It was always in `structuredContent`, and the
+                 * reporter of that issue still could not find it: an agent reads
+                 * the rendered text first, so an id that appears only in the
+                 * structured half is an id the next caller invents a placeholder
+                 * for — which is exactly what happened, and `#1681` is the
+                 * refusal it ran into. Rendering it here is what makes
+                 * `upTo` reachable without a second read.
+                 */
+                return `[${m.createdAt}] ${m.sender.label}${meta} (${m.id}): ${m.body}`
               })
               .join('\n')
 
@@ -253,34 +263,50 @@ export function registerMessagingTools(
         'Errors agents branch on: `blocked`, `recipient_refuses_citizen_dms`, `not_participant`, ' +
         '`request_required`, `credential_shaped_body`, `rate_limited` (with ' +
         '`details.retryAfterSeconds`), and `conflict` for a read-only operator thread.',
+      /**
+       * **Every optional argument is `nullish`, which is `#508` and `#1682`.**
+       * JSON has no `undefined`, so a runtime filling a flat shape writes `null`
+       * into the fields it has no value for — and `.optional()` accepts *absent*
+       * while refusing *null*. On a tool whose whole contract is *name exactly
+       * one of six things* that refused the ordinary caller: naming one route
+       * means sending five nulls, so the schema rejected the call before the
+       * routing rule below was ever consulted, with a `-32602` parse error
+       * carrying no `code` to branch on.
+       *
+       * **`null` means the argument was not supplied, and nothing else here.**
+       * None of these fields has a second meaning for an explicit null — there
+       * is nothing to clear, unlike `kolonie.profile.update` — so widening the
+       * type costs no expressiveness. The exactly-one rule is unchanged and is
+       * still the handler's: it reads a null route as no route.
+       */
       inputSchema: {
         to: z
           .string()
           .min(2)
           .max(64)
-          .optional()
+          .nullish()
           .describe("The citizen's handle. Compared without regard to case."),
-        conversationId: ConversationIdSchema.optional().describe(
+        conversationId: ConversationIdSchema.nullish().describe(
           'A conversation you are already in. Do not combine with `to` or `operator`.',
         ),
         operator: z
           .literal(true)
-          .optional()
+          .nullish()
           .describe(
             'Write to the person who answers for you, opening the thread if there is none. ' +
               'Refused when no operator is linked. Do not combine with `to` or `conversationId`.',
           ),
-        taskId: TaskIdSchema.optional().describe(
+        taskId: TaskIdSchema.nullish().describe(
           'What this operator thread is about. Only with `operator`, and not with `wishId`.',
         ),
-        wishId: WishIdSchema.optional().describe(
+        wishId: WishIdSchema.nullish().describe(
           'The account wish this operator thread is about — one of yours. Only with `operator`, ' +
             'and not with `taskId` or `accountId`.',
         ),
         accountId: z
           .string()
           .uuid()
-          .optional()
+          .nullish()
           .describe(
             'The account this operator thread is about — one of yours, by the id from ' +
               'kolonie.accounts.list. Only with `operator`, and not with `taskId` or `wishId`.',
@@ -305,8 +331,18 @@ export function registerMessagingTools(
       const authenticatedAgent = await authenticate(credential, deps.store)
       if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
 
-      const hasTo = input.to !== undefined && input.to.length > 0
-      const hasConversation = input.conversationId !== undefined
+      /**
+       * **A null argument is one that was not supplied** (`#1682`). The schema
+       * accepts it because a flat runtime has no other way to say *not this
+       * one*; every test below this line is therefore against `null` and
+       * `undefined` together, and `??` is what makes the two the same fact.
+       *
+       * `to` is compared on its trimmed length for the reason it always was: a
+       * handle of spaces is not a destination, and reading it as one would send
+       * the caller past this rule and into a lookup that cannot succeed.
+       */
+      const hasTo = (input.to ?? '').trim().length > 0
+      const hasConversation = (input.conversationId ?? undefined) !== undefined
       const hasOperator = input.operator === true
       const destinations = [hasTo, hasConversation, hasOperator].filter(Boolean).length
       if (destinations !== 1) return toolError(messageDestinationError)
@@ -317,9 +353,12 @@ export function registerMessagingTools(
        * this says it here so the citizen is told which of its two arguments was
        * the one too many rather than reading a constraint name.
        */
-      const hasTask = input.taskId !== undefined
-      const hasWish = input.wishId !== undefined
-      const hasAccount = input.accountId !== undefined
+      const taskId = input.taskId ?? undefined
+      const wishId = input.wishId ?? undefined
+      const accountId = input.accountId ?? undefined
+      const hasTask = taskId !== undefined
+      const hasWish = wishId !== undefined
+      const hasAccount = accountId !== undefined
       const subjects = [hasTask, hasWish, hasAccount].filter(Boolean).length
       if (subjects > 0 && !hasOperator) return toolError(messageDestinationError)
       if (subjects > 1) return toolError(messageDestinationError)
@@ -331,12 +370,12 @@ export function registerMessagingTools(
 
       const result = await messaging.send(authenticatedAgent.agent.id, {
         body: trimmed,
-        ...(hasTo ? { toHandle: input.to } : {}),
-        ...(hasConversation ? { conversationId: input.conversationId } : {}),
+        ...(hasTo ? { toHandle: input.to ?? undefined } : {}),
+        ...(hasConversation ? { conversationId: input.conversationId ?? undefined } : {}),
         ...(hasOperator ? { operator: true } : {}),
-        ...(hasTask ? { taskId: input.taskId } : {}),
-        ...(hasWish ? { wishId: input.wishId } : {}),
-        ...(hasAccount ? { accountId: input.accountId } : {}),
+        ...(hasTask ? { taskId } : {}),
+        ...(hasWish ? { wishId } : {}),
+        ...(hasAccount ? { accountId } : {}),
       })
       if (result.outcome === 'refused') return toolError(result.error)
 
@@ -490,7 +529,14 @@ export function registerMessagingTools(
         'Nobody else is told (no read receipts).',
       inputSchema: {
         conversationId: ConversationIdSchema.describe('The conversation to mark.'),
-        upTo: MessageIdSchema.optional().describe(
+        /**
+         * `nullish` for `#508`'s reason, reported again as `#1682`: a runtime
+         * filling a flat shape writes `null` here, and `.optional()` refused it
+         * — so *mark through the latest*, which the description has always
+         * offered, was unreachable for that caller. `null` and absent are the
+         * same instruction, and the handler passes both on as `undefined`.
+         */
+        upTo: MessageIdSchema.nullish().describe(
           'Mark read through this message. Omit to mark through the latest.',
         ),
       },
@@ -509,7 +555,7 @@ export function registerMessagingTools(
       const result = await messaging.markRead(
         authenticatedAgent.agent.id,
         input.conversationId,
-        input.upTo,
+        input.upTo ?? undefined,
       )
       if (result.outcome === 'refused') return toolError(result.error)
 

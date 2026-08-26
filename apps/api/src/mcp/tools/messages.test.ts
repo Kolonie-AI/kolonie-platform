@@ -28,7 +28,7 @@ const getThread = (conversationId: string) => ({
   name: 'kolonie.messages.get_thread',
   arguments: { conversationId },
 })
-const markRead = (conversationId: string, upTo?: string) => ({
+const markRead = (conversationId: string, upTo?: string | null) => ({
   name: 'kolonie.messages.mark_read',
   arguments: upTo === undefined ? { conversationId } : { conversationId, upTo },
 })
@@ -676,6 +676,158 @@ describe('messages teaching behind _meta (#1691)', () => {
     ]) {
       expect(tool(`kolonie.messages.${name}`)?._meta, name).toBeDefined()
     }
+  })
+
+  /**
+   * A runtime that fills every declared property writes `null` into the ones it
+   * has no value for (`#1682`, and `#508` before it — JSON has no `undefined`).
+   *
+   * **The published schema was never the defect**, which is what the report got
+   * wrong and what makes the real cause worth pinning: `required` has always
+   * been `["body"]` on `send` and `["conversationId"]` on `mark_read`, measured
+   * from a real `tools/list` below. What refused these calls is `.optional()`,
+   * which accepts *absent* and rejects *null* — so the caller that names exactly
+   * one route in the shape its runtime produces is refused before the handler's
+   * routing rule is ever consulted.
+   *
+   * The endpoint rule is unchanged and is asserted here in the same block: a
+   * `null` route is not a route, so two real routes still fail, and they fail on
+   * `validation_failed` from the handler rather than on a schema parse.
+   */
+  describe('a runtime that writes null for what it has no value for (#1682)', () => {
+    /** The reporter's own shape: every property present, exactly one route named. */
+    const flatSend = (route: Record<string, unknown>, body: string) =>
+      send({
+        to: null,
+        conversationId: null,
+        operator: null,
+        taskId: null,
+        wishId: null,
+        accountId: null,
+        ...route,
+        body,
+      })
+
+    const anOpenThread = async () => {
+      const pair = await aPair()
+      const asked = await pair.alice.client.callTool(
+        send({ to: pair.bob.agent.profile.name, body: 'First contact.' }),
+      )
+      const { requestId, conversationId } = asked.structuredContent as {
+        requestId: string
+        conversationId: string
+      }
+      await pair.bob.client.callTool(requests({ act: 'accept', requestId }))
+      return { ...pair, conversationId }
+    }
+
+    it('publishes only the genuinely required fields', async () => {
+      const { alice, close } = await aPair()
+      const { tools } = await alice.client.listTools()
+      await close()
+
+      const required = (name: string) =>
+        (tools.find((tool) => tool.name === name)?.inputSchema as { required?: string[] }).required
+
+      expect(required('kolonie.messages.send')).toEqual(['body'])
+      expect(required('kolonie.messages.mark_read')).toEqual(['conversationId'])
+    })
+
+    it('accepts a null for every route it is not taking', async () => {
+      const { alice, bob, conversationId, close } = await anOpenThread()
+
+      const replied = await bob.client.callTool(
+        flatSend({ conversationId }, 'Reply in the open thread.'),
+      )
+      expect(replied.isError).toBeFalsy()
+      expect(replied.structuredContent).toMatchObject({ outcome: 'delivered' })
+
+      const byHandle = await alice.client.callTool(
+        flatSend({ to: bob.agent.profile.name }, 'Named by handle, everything else null.'),
+      )
+      expect(byHandle.isError).toBeFalsy()
+
+      await close()
+    })
+
+    it('accepts a null upTo as marking through the latest', async () => {
+      const { bob, conversationId, close } = await anOpenThread()
+
+      const marked = await bob.client.callTool(markRead(conversationId, null))
+      expect(marked.isError).toBeFalsy()
+      expect(marked.structuredContent).toEqual({ marked: true })
+
+      await close()
+    })
+
+    /**
+     * The rejection case, and the reason it is asserted on the code rather than
+     * only on `isError`: widening the schema must not widen the endpoint. Two
+     * routes have to fail, and they have to fail as the handler's routing
+     * refusal — a schema parse error would be `-32602` with no `code` to branch
+     * on, and would mean the exactly-one rule had stopped being reached.
+     */
+    it('still refuses two real routes, on the routing rule and not on a parse', async () => {
+      const { alice, bob, conversationId, close } = await anOpenThread()
+
+      const two = await alice.client.callTool(
+        flatSend({ to: bob.agent.profile.name, conversationId }, 'Two routes at once.'),
+      )
+      expect(two.isError).toBe(true)
+      expect(two.structuredContent).toMatchObject({
+        error: { code: 'validation_failed' },
+      })
+      expect(textOf(two)).toContain('exactly one of the three')
+
+      const none = await alice.client.callTool(flatSend({}, 'No route at all.'))
+      expect(none.isError).toBe(true)
+      expect(none.structuredContent).toMatchObject({
+        error: { code: 'validation_failed' },
+      })
+
+      await close()
+    })
+
+    /**
+     * A subject still belongs to an operator open and nowhere else. `null` is
+     * how the flat caller says *no subject*, so it must not read as one.
+     */
+    it('does not read a null subject as a subject on a non-operator send', async () => {
+      const { bob, conversationId, close } = await anOpenThread()
+
+      const replied = await bob.client.callTool(
+        flatSend({ conversationId, taskId: null, wishId: null }, 'No subject here.'),
+      )
+      expect(replied.isError).toBeFalsy()
+
+      await close()
+    })
+  })
+
+  /**
+   * The reporter reached for a placeholder `upTo` because the text they were
+   * reading carried no id (`#1682`). The ids were always in
+   * `structuredContent`; what was missing was any way to get one out of the
+   * rendered lines, which is what an agent reads first.
+   */
+  it('renders a message id beside each line of a thread', async () => {
+    const { alice, bob, close } = await aPair()
+
+    const asked = await alice.client.callTool(
+      send({ to: bob.agent.profile.name, body: 'First contact.' }),
+    )
+    const { requestId, conversationId } = asked.structuredContent as {
+      requestId: string
+      conversationId: string
+    }
+    await bob.client.callTool(requests({ act: 'accept', requestId }))
+
+    const thread = await bob.client.callTool(getThread(conversationId))
+    const messages = (thread.structuredContent as { messages: { id: string }[] }).messages
+    expect(messages).toHaveLength(1)
+    expect(textOf(thread)).toContain(messages[0]!.id)
+
+    await close()
   })
 
   /**

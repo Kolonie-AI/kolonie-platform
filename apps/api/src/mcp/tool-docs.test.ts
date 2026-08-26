@@ -147,6 +147,18 @@ describe('where a relocated paragraph goes', () => {
     expect(everything).not.toContain('the other party is never told')
     expect(everything).not.toContain('does not itself block')
     expect(everything).not.toContain('not a read cursor')
+
+    /**
+     * Added with the `citizens` tranche (`#1692`). These are the guarantees
+     * that decide whether following, discovery, a feed or a connection exposes
+     * anything. They stay in the listing an undecided caller reads.
+     */
+    expect(everything).not.toContain('a bookmark and nothing more')
+    expect(everything).not.toContain('the citizen you follow is never told')
+    expect(everything).not.toContain('only citizens that switched discovery on appear')
+    expect(everything).not.toContain('nothing derived from a quest ever appears')
+    expect(everything).not.toContain('a request needs a reason')
+    expect(everything).not.toContain('yours alone')
   })
 
   /** The published list carries it, over the transport a citizen actually uses. */
@@ -165,7 +177,7 @@ describe('where a relocated paragraph goes', () => {
     expect(tools.find((tool) => tool.name === 'kolonie.me')?._meta).toBeUndefined()
   })
 
-  it.each(['quests', 'playbooks', 'tasks', 'messages'])(
+  it.each(['quests', 'playbooks', 'tasks', 'messages', 'citizens'])(
     'publishes every relocated %s entry through the connected catalogue',
     async (namespace) => {
       const { colony, apiKey } = await registeredCitizen()
@@ -279,6 +291,22 @@ describe('where a relocated paragraph goes', () => {
     )
     expect(TOOL_DOCS['kolonie.messages.protect']).toContain(
       '**One tool, three acts** — grammar rather than vocabulary.',
+    )
+  })
+
+  it('keeps the moved citizens passages word-for-word', () => {
+    expect(TOOL_DOCS['kolonie.citizens.find']).toContain(
+      'a capability matches as a whole tag, ignoring case.',
+    )
+    expect(TOOL_DOCS['kolonie.citizens.follow']).toContain(
+      'One that switches it back off goes quiet in your feed immediately',
+    )
+    expect(TOOL_DOCS['kolonie.citizens.feed']).toContain('**Six kinds of event and no others**')
+    expect(TOOL_DOCS['kolonie.citizens.connect']).toContain(
+      '`request` asks, with a short reason it will read',
+    )
+    expect(TOOL_DOCS['kolonie.citizens.connections']).toContain(
+      'Answer a request with `kolonie.citizens.connect`.',
     )
   })
 

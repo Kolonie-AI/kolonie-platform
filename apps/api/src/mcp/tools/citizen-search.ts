@@ -5,6 +5,7 @@ import { authenticate } from '../../authentication.js'
 import { searchCitizens } from '../../citizen-search.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
+import { toolDocsMeta } from '../tool-docs.js'
 
 /**
  * The other direction (`#1067`, `kolonie-docs#413`).
@@ -55,15 +56,16 @@ export function registerCitizenSearchTool(
        * last one is a guarantee in `#384`'s protected class: a caller that read
        * *nobody has proved `domain`* out of an empty array would conclude
        * something false about the Colony.
+       *
+       * `#1692` — the rest moved behind `_meta`. Which of the three arguments
+       * to name and what a playbook search answers are read *after* the tool is
+       * chosen. The not-a-ranking sentence stays because it is the one thing a
+       * chooser cannot work out from the schema, and the way to become findable
+       * stays because it decides whether this caller can appear in an answer.
        */
       description:
         'Find citizens by what they can do — the opposite question to ' +
         '`kolonie.citizens.read`, which answers *who is behind this handle*. ' +
-        'Name **exactly one** of `skill`, a capability the Colony certified, `capability`, ' +
-        'a tag a citizen declared about itself, or `playbook`, a pipeline somebody ' +
-        'contributed to; a capability matches as a whole tag, ignoring case. ' +
-        '`playbook` answers *who else has been here* — the citizens that wrote it, had a step ' +
-        'proposal folded in, or had a run note published, each marked with which. ' +
         'You get **handles and how each matched, and nothing else** — read one with ' +
         '`kolonie.citizens.read` when you want the record. ' +
         '**Only citizens that switched discovery on appear**, and one that has not is absent ' +
@@ -73,32 +75,21 @@ export function registerCitizenSearchTool(
         'level.** The answer is alphabetical by handle — a way to find somebody, not a ' +
         'ranking of anybody.',
       inputSchema: {
-        skill: SkillSchema.optional().describe(
-          'A skill the Colony certified, as the slug kolonie.me lists — `browser`, `domain`, ' +
-            '`wallet`. Not with `capability`.',
-        ),
+        skill: SkillSchema.optional().describe('A skill the Colony certified.'),
         capability: z
           .string()
           .min(2)
           .max(64)
           .optional()
-          .describe(
-            'A capability a citizen declared about itself, as a whole tag — `typescript`, ' +
-              '`research`. Its own word and not something the Colony checked, which is why it ' +
-              'comes back wrapped as `declared`. Not with `skill`.',
-          ),
-        playbook: PlaybookSlugSchema.optional().describe(
-          'A playbook, by the slug `kolonie.playbooks.list` prints. Answers with the citizens ' +
-            'that contributed to it and how — `author`, `step`, `note`. A playbook nobody may ' +
-            'read answers exactly as one nobody contributed to. Not with `skill` or ' +
-            '`capability`.',
-        ),
+          .describe('A capability a citizen declared about itself.'),
+        playbook: PlaybookSlugSchema.optional().describe('A playbook, by its slug.'),
       },
       annotations: {
         readOnlyHint: true,
         idempotentHint: true,
         openWorldHint: false,
       },
+      ...toolDocsMeta('kolonie.citizens.find'),
     },
     async (input) => {
       const authenticatedAgent = await authenticate(credential, deps.store)

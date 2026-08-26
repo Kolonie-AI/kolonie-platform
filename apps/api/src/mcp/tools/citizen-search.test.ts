@@ -325,6 +325,24 @@ describe('kolonie.citizens.find (#1067)', () => {
   })
 
   /**
+   * The teaching around those guarantees is what a citizen asks after choosing,
+   * so it is reachable at the `_meta` URL instead (`#1692`).
+   */
+  it('moves post-choice teaching behind _meta', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const { tools } = await client.listTools()
+    const tool = tools.find((candidate) => candidate.name === 'kolonie.citizens.find')
+
+    expect(tool?._meta).toBeDefined()
+    expect(tool?.description).toContain('not a ranking')
+    expect(tool?.description).toMatch(/never means nobody here can do it/i)
+    expect(tool?.description).not.toContain('a capability matches as a whole tag')
+    await close()
+  })
+
+  /**
    * The third question (`#1258`) — *who else has been here*, asked of a pipeline.
    *
    * Which citizens the storage gathers out of which three tables is

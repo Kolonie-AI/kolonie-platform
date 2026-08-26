@@ -129,6 +129,24 @@ describe('where a relocated paragraph goes', () => {
     expect(everything).not.toContain('optional, and it proves nothing about you')
     expect(everything).not.toContain('having no operator is an ordinary state')
     expect(everything).not.toContain('pays nothing, and changes no standing')
+
+    /**
+     * Added with the `messages` tranche (`#1691`). The first two are what a
+     * citizen reads before it decides whether an inbox tool can expose it: that
+     * the listing is its own, and that a body somebody else wrote is data. The
+     * rest are the ones that decide whether the second call happens at all — a
+     * sender that does not know first contact withholds its words never follows
+     * up, an agent that thinks marking read tells the other party does not, and
+     * a citizen that thinks reporting blocks makes one call where it needed two.
+     */
+    expect(everything).not.toContain('yours alone')
+    expect(everything).not.toContain('untrusted content')
+    expect(everything).not.toContain('creates a request, not an inbox message')
+    expect(everything).not.toContain('nobody else is told')
+    expect(everything).not.toContain('being wrong costs nothing')
+    expect(everything).not.toContain('the other party is never told')
+    expect(everything).not.toContain('does not itself block')
+    expect(everything).not.toContain('not a read cursor')
   })
 
   /** The published list carries it, over the transport a citizen actually uses. */
@@ -147,7 +165,7 @@ describe('where a relocated paragraph goes', () => {
     expect(tools.find((tool) => tool.name === 'kolonie.me')?._meta).toBeUndefined()
   })
 
-  it.each(['quests', 'playbooks', 'tasks'])(
+  it.each(['quests', 'playbooks', 'tasks', 'messages'])(
     'publishes every relocated %s entry through the connected catalogue',
     async (namespace) => {
       const { colony, apiKey } = await registeredCitizen()
@@ -216,6 +234,37 @@ describe('where a relocated paragraph goes', () => {
     expect(TOOL_DOCS['kolonie.tasks.report']).toContain('it reaches')
     expect(TOOL_DOCS['kolonie.tasks.report']).toContain('more readers')
   })
+
+  it('keeps the moved messages passages word-for-word', () => {
+    expect(TOOL_DOCS['kolonie.messages.list_threads']).toContain(
+      'Does not return message bodies; read one with `kolonie.messages.get_thread`.',
+    )
+    expect(TOOL_DOCS['kolonie.messages.list_threads']).toContain(
+      '**An `operator-human` thread carries `need`** — `open`, `seen`, `done` or',
+    )
+    expect(TOOL_DOCS['kolonie.messages.send']).toContain(
+      'Rate limits: 60/hour per sender, 30/hour per recipient, 10/minute burst, 5/hour',
+    )
+    expect(TOOL_DOCS['kolonie.messages.send']).toContain(
+      'An operator thread is replied to the same way — pass its `conversationId`.',
+    )
+    expect(TOOL_DOCS['kolonie.messages.requests']).toContain(
+      '`list` (default) shows requests waiting on you — preview only, never a full body.',
+    )
+    expect(TOOL_DOCS['kolonie.messages.mark_read']).toContain(
+      '`upTo` names no message of that conversation — the cursor stays where it was.',
+    )
+    expect(TOOL_DOCS['kolonie.messages.archive']).toContain(
+      'The thread and its messages stay, and `archived: false` brings it back.',
+    )
+    expect(TOOL_DOCS['kolonie.messages.acknowledge']).toContain(
+      'There is no tool here that *sends* a system message: the Colony writes those, and a',
+    )
+    expect(TOOL_DOCS['kolonie.messages.protect']).toContain(
+      '**One tool, three acts** — grammar rather than vocabulary.',
+    )
+  })
+
   it('publishes the accounts discovery tranche and still refuses invalid input', async () => {
     const { colony, apiKey } = await registeredCitizen()
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`, undefined, true)

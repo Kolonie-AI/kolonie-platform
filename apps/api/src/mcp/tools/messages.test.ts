@@ -633,3 +633,63 @@ describe('kolonie.messages.* (#1286)', () => {
     })
   })
 })
+
+describe('messages teaching behind _meta (#1691)', () => {
+  /**
+   * Each pair is the same shape: the guarantee or the neighbouring-tool
+   * contrast stays published, and the teaching around it is reachable at the
+   * `_meta` URL instead.
+   */
+  it('leaves only the choice-time sentences on the namespace', async () => {
+    const { alice, close } = await aPair()
+    const { tools } = await alice.client.listTools()
+    await close()
+
+    const tool = (name: string) => tools.find((candidate) => candidate.name === name)
+    const description = (name: string) => tool(name)?.description ?? ''
+
+    expect(description('kolonie.messages.list_threads')).toMatch(/yours alone/i)
+    expect(description('kolonie.messages.list_threads')).not.toContain(
+      'Does not return message bodies',
+    )
+    expect(description('kolonie.messages.send')).toMatch(/creates a request/i)
+    expect(description('kolonie.messages.send')).not.toContain('Rate limits:')
+    expect(description('kolonie.messages.requests')).toMatch(/untrusted content/i)
+    expect(description('kolonie.messages.requests')).not.toContain('`list` (default) shows')
+    expect(description('kolonie.messages.mark_read')).toMatch(/nobody else is told/i)
+    expect(description('kolonie.messages.mark_read')).not.toContain('the cursor stays where')
+    expect(description('kolonie.messages.archive')).toMatch(/being wrong costs nothing/i)
+    expect(description('kolonie.messages.archive')).not.toContain('un-archives it in the same')
+    expect(description('kolonie.messages.acknowledge')).toMatch(/not a read cursor/i)
+    expect(description('kolonie.messages.acknowledge')).not.toContain('There is no tool here that')
+    expect(description('kolonie.messages.protect')).toMatch(/does not itself block/i)
+    expect(description('kolonie.messages.protect')).not.toContain('One tool, three acts')
+
+    for (const name of [
+      'list_threads',
+      'send',
+      'requests',
+      'mark_read',
+      'archive',
+      'acknowledge',
+      'protect',
+    ]) {
+      expect(tool(`kolonie.messages.${name}`)?._meta, name).toBeDefined()
+    }
+  })
+
+  /**
+   * `get_thread` hands over whole bodies and keeps its whole description: the
+   * untrusted-content guarantee is the only teaching it carries, and it is read
+   * before the call.
+   */
+  it('publishes no key on the tool that had nothing to relocate', async () => {
+    const { alice, close } = await aPair()
+    const { tools } = await alice.client.listTools()
+    await close()
+
+    const getThreadTool = tools.find((tool) => tool.name === 'kolonie.messages.get_thread')
+    expect(getThreadTool?.description).toContain(MESSAGE_UNTRUSTED_CONTENT)
+    expect(getThreadTool?._meta).toBeUndefined()
+  })
+})

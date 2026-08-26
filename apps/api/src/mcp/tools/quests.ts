@@ -412,10 +412,16 @@ export function registerQuestTools(
     'kolonie.quests.submit',
     {
       title: 'Submit your quest to be checked',
+      /**
+       * Purpose, the two money guarantees and the withdraw contrast stay
+       * (`#1690`). The commitment being computed already and the wallet read
+       * taking nothing are what decide whether a sponsor submits at all; the
+       * one-at-a-time rule names the neighbour that undoes this. How a refusal
+       * leaves the draft moved behind `_meta`.
+       */
       description:
         'Hand a draft to the Colony to be checked. **The commitment has already been ' +
-        'computed and shown, and the text is fixed until the check is complete.** A refusal ' +
-        'tells you why and leaves the draft untouched; correct it and submit again. If it ' +
+        'computed and shown, and the text is fixed until the check is complete.** If it ' +
         'clears, the Colony publishes it and asks you to pay the full commitment from your ' +
         'own wallet before the quest goes live. ' +
         '**Your wallet is checked at this call** \u2014 refused if the ' +
@@ -426,6 +432,7 @@ export function registerQuestTools(
         'is complete.',
       inputSchema: { questId },
       annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
+      ...toolDocsMeta('kolonie.quests.submit'),
     },
     async ({ questId: id }) => {
       const authenticated = await authenticate(credential, deps.store)
@@ -467,14 +474,21 @@ export function registerQuestTools(
     'kolonie.quests.withdraw',
     {
       title: 'Take back a quest while the Colony checks it',
+      /**
+       * Purpose, the submit contrast and the nothing-is-lost guarantee stay
+       * (`#1690`). The contrast is the whole of what a chooser is deciding —
+       * this is the undo for the neighbouring tool — and an agent that thinks
+       * withdrawing discards its draft never calls it. When the window closes
+       * moved behind `_meta`.
+       */
       description:
         'Move a quest being checked back to a draft, so you can change it. **This is the undo ' +
         'for `kolonie.quests.submit`** \u2014 it makes the text editable again and lets you ' +
-        'submit another quest. It works until the check is complete; after that the quest is ' +
-        'published or refused, and neither is withdrawn. Nothing is lost, and submitting ' +
+        'submit another quest. Nothing is lost, and submitting ' +
         'again sends it back to be checked.',
       inputSchema: { questId },
       annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
+      ...toolDocsMeta('kolonie.quests.withdraw'),
     },
     async ({ questId: id }) => {
       const authenticated = await authenticate(credential, deps.store)
@@ -502,15 +516,22 @@ export function registerQuestTools(
     'kolonie.quests.discard',
     {
       title: 'Throw away a draft nobody has seen',
+      /**
+       * Purpose, the nobody-has-seen-it guarantee, the `update` contrast and
+       * the only-a-draft rule stay (`#1690`). The guarantee is what makes
+       * discarding free, and the contrast is the neighbour a sponsor with a
+       * typo should reach for instead. What a refused quest and a published one
+       * get instead moved behind `_meta`.
+       */
       description:
         'Delete one of your own quest drafts. **A draft is the one thing here that nobody but ' +
-        'you has ever seen** \u2014 no money committed, no check, no citizen offered it \u2014 so ' +
+        'you has ever seen**, so ' +
         'discarding one costs nothing and leaves nothing behind. A typo is corrected with ' +
         '`kolonie.quests.update`; this is for the draft you wrote and do not want. ' +
-        '**Only a draft.** A quest the Colony refused keeps its refusal and is corrected; a ' +
-        'published one is being answered, and is ended.',
+        '**Only a draft.**',
       inputSchema: { questId },
       annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
+      ...toolDocsMeta('kolonie.quests.discard'),
     },
     async ({ questId: id }) => {
       const authenticated = await authenticate(credential, deps.store)
@@ -536,20 +557,26 @@ export function registerQuestTools(
     'kolonie.quests.slots',
     {
       title: 'Buy more places on a quest that is already running',
+      /**
+       * Purpose and the three guarantees stay (`#1690`): what cannot change,
+       * that the expiry does not move with what unfilled capacity is worth, and
+       * that the wallet read takes nothing. Each decides whether a sponsor buys
+       * capacity at all. Why to start small and when the places become
+       * answerable moved behind `_meta`.
+       */
       description:
-        'Add capacity to your own published quest by paying for it. **Start small and buy ' +
-        'more if it works.** ' +
+        'Add capacity to your own published quest by paying for it. ' +
         '**Nothing else about the quest can change** \u2014 the price per answer, the ' +
         'questions, the criteria and the expiry are what the answering citizens relied on, ' +
         'and there is no field here for any of them. Capacity only goes up. ' +
-        '**The expiry does not move**, and the answer says how many hours are left. The ' +
-        'places become answerable when the payment arrives, not when you ask. Added capacity ' +
-        'is bought outright, and capacity nobody fills expires with the quest. ' +
+        '**The expiry does not move**, and the answer says how many hours are left. Added ' +
+        'capacity is bought outright, and capacity nobody fills expires with the quest. ' +
         '**Your wallet is checked at this call** \u2014 the ask is refused if the address you ' +
         'proved cannot cover what these places cost and one transaction fee. Nothing is ' +
         'reserved or taken.',
       inputSchema: { questId, ...QuestTopUpSchema.shape },
       annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
+      ...toolDocsMeta('kolonie.quests.slots'),
     },
     async ({ questId: id, ...input }) => {
       const authenticated = await authenticate(credential, deps.store)
@@ -601,13 +628,20 @@ export function registerQuestTools(
     'kolonie.quests.read',
     {
       title: 'One of your own quests',
+      /**
+       * Purpose and the hold guarantee stay (`#1690`). *There is nothing for
+       * you to do about one* is what stops a sponsor chasing a wait that is
+       * ours — the defect `#759` recorded — and it is read before the call
+       * rather than after it. What the two waits are moved behind `_meta`.
+       */
       description:
         'One quest you wrote, with its current status, the reason the Colony gave if it was ' +
-        'refused, and whether it has been checked yet. **A quest under review sits in one of ' +
-        'two waits** \u2014 still being read, or read and cleared and held back by us. `held` ' +
-        'says which, and since when. A hold is ours: there is nothing for you to do about one.',
+        'refused, and whether it has been checked yet. `held` ' +
+        'says which wait it is in, and since when. A hold is ours: there is nothing for you ' +
+        'to do about one.',
       inputSchema: { questId },
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+      ...toolDocsMeta('kolonie.quests.read'),
     },
     async ({ questId: id }) => {
       const authenticated = await authenticate(credential, deps.store)
@@ -662,22 +696,27 @@ export function registerQuestTools(
       'kolonie.quests.payment',
       {
         title: 'What became of one transfer you sent the Colony',
+        /**
+         * Purpose, the three answers, the do-not-pay-twice guarantee and the
+         * unknown-signature guarantee stay (`#1690`). The first stops a sponsor
+         * paying a second time on a transfer that is merely minutes old, and
+         * the second is what makes asking about a public signature safe. What
+         * `held` is for, and how often the wallet is re-read, moved behind
+         * `_meta`.
+         */
         description:
           'Ask what the Colony saw of one payment, by the transaction signature you sent it. ' +
           'Three answers: not seen; credited to you; or **held** \u2014 money that arrived ' +
           'from an address no citizen has proved it controls, which the Colony can see and ' +
           'cannot attribute.\n\n' +
-          '**Held is the case this exists for.** From your side a held payment looks exactly ' +
-          'like one that never arrived. The answer names the address it came from and the ' +
-          'two ways on.\n\n' +
-          '**Not seen is the ordinary answer for a transfer that is minutes old** \u2014 only ' +
-          'a finalized transaction is recognised, and the pass that re-reads the wallet runs ' +
-          'hourly. Ask again before you conclude it is lost, and do not pay twice on the ' +
+          '**Not seen is the ordinary answer for a transfer that is minutes old.** ' +
+          'Ask again before you conclude it is lost, and do not pay twice on the ' +
           'strength of one look.\n\n' +
           'A payment that belongs to another citizen answers exactly as a signature the ' +
           'Colony has never seen.',
         inputSchema: { signature: paymentSignature },
         annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+        ...toolDocsMeta('kolonie.quests.payment'),
       },
       async ({ signature }) => {
         const authenticated = await authenticate(credential, deps.store)

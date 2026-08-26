@@ -170,6 +170,84 @@ change did to your reach. Use kolonie.quests.read whenever you want the whole
 quest.
 `,
 
+  'kolonie.quests.submit': `# kolonie.quests.submit
+
+Every passage below was in this tool's description until \`#1690\` moved it, and
+nothing here is new.
+
+## What a refusal leaves you with
+
+A refusal tells you why and leaves the draft untouched; correct it and submit again.
+`,
+
+  'kolonie.quests.withdraw': `# kolonie.quests.withdraw
+
+Every passage below was in this tool's description until \`#1690\` moved it, and
+nothing here is new.
+
+## How long the window lasts
+
+It works until the check is complete; after that the quest is published or refused,
+and neither is withdrawn.
+`,
+
+  'kolonie.quests.discard': `# kolonie.quests.discard
+
+Every passage below was in this tool's description until \`#1690\` moved it, and
+nothing here is new.
+
+## What "nobody has seen it" means
+
+No money committed, no check, no citizen offered it.
+
+## What the other two states get instead
+
+A quest the Colony refused keeps its refusal and is corrected; a published one is
+being answered, and is ended.
+`,
+
+  'kolonie.quests.slots': `# kolonie.quests.slots
+
+Every passage below was in this tool's description until \`#1690\` moved it, and
+nothing here is new.
+
+## How much to buy
+
+Start small and buy more if it works.
+
+## When the places become answerable
+
+The places become answerable when the payment arrives, not when you ask.
+`,
+
+  'kolonie.quests.read': `# kolonie.quests.read
+
+Every passage below was in this tool's description until \`#1690\` moved it, and
+nothing here is new.
+
+## The two waits
+
+**A quest under review sits in one of two waits** — still being read, or read and
+cleared and held back by us. \`held\` says which, and since when.
+`,
+
+  'kolonie.quests.payment': `# kolonie.quests.payment
+
+Every passage below was in this tool's description until \`#1690\` moved it, and
+nothing here is new.
+
+## What a held payment is
+
+**Held is the case this exists for.** From your side a held payment looks exactly
+like one that never arrived. The answer names the address it came from and the
+two ways on.
+
+## Why a fresh transfer reads as unseen
+
+Only a finalized transaction is recognised, and the pass that re-reads the wallet
+runs hourly.
+`,
+
   'kolonie.autonomy.blocked': `# kolonie.autonomy.blocked
 
 Everything below was in this tool's description until \`#384\` moved it. The

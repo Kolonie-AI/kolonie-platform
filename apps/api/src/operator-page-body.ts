@@ -1,5 +1,6 @@
 import type { OperatorPageView } from '@kolonie-ai/db'
 import { operatorDurablePage } from './autonomy-page.js'
+import { FALLBACK_ZONE } from './console/time.js'
 import type { RouteDependencies } from './routes/dependencies.js'
 
 /**
@@ -75,6 +76,15 @@ export async function operatorPageBody(
      * are the same handlers either way.
      */
     readonly as?: 'page' | 'section' | undefined
+    /**
+     * The zone a share's expiry is rendered in (`#1634`).
+     *
+     * **The door's own, exactly as `action` is**, because only a route holds the
+     * request the zone is read off. Absent is `UTC`, which is what `zoneFrom`
+     * itself answers when no header arrives — a named clock rather than the
+     * stored string, which is `#461`'s whole finding.
+     */
+    readonly zone?: string
   } = {},
 ): Promise<string> {
   const [threads, shares, telegram] = await Promise.all([
@@ -154,6 +164,7 @@ export async function operatorPageBody(
           },
         }),
     shares,
+    zone: errors.zone ?? FALLBACK_ZONE,
     ...(errors.shareAction === undefined ? {} : { shareAction: errors.shareAction }),
     ...(errors.shareError === undefined ? {} : { shareError: errors.shareError }),
     ...(deps.telegram === undefined

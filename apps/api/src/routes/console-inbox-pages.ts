@@ -17,6 +17,7 @@ import {
 } from '@kolonie-ai/core'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { inboxPage, inboxThreadPage } from '../console/html.js'
+import { zoneFrom } from '../console/time.js'
 import { messageBodyError, messageDeclarationError } from '../messaging.js'
 import { consoleOperatorPath, operatorPageBody } from '../operator-page-body.js'
 import { shareAdditionError } from '../operator-shares.js'
@@ -278,6 +279,8 @@ export function registerConsoleInboxPages(
          */
         shares: read.response.shares,
         shareEvents: read.response.shareEvents,
+        /** The reader's clock, for the share expiry beneath (`#1634`). */
+        zone: zoneFrom(request.headers),
         /**
          * Where a write lands, and where the value is read.
          *
@@ -778,6 +781,8 @@ export function registerConsoleInboxPages(
       reply,
       await operatorPageBody(deps, door.token, consoleOperatorPath(agentId), door.view, {
         fillDrops: true,
+        /** The reader's clock, for a share's expiry (`#1634`). */
+        zone: zoneFrom(request.headers),
         /**
          * The console's own inbox, narrowed to this agent (`#1547`).
          *
@@ -839,6 +844,8 @@ export function registerConsoleInboxPages(
           reply,
           await operatorPageBody(deps, door.token, action, door.view, {
             fillDrops: true,
+            /** The reader's clock, for a share's expiry (`#1634`). */
+            zone: zoneFrom(request.headers),
             inboxBase: `/inbox?agent=${agentId}`,
             ...(shares === undefined ? {} : { shareAction: action }),
             ...(shareError === undefined ? {} : { shareError }),

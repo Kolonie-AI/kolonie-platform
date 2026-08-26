@@ -1323,12 +1323,39 @@ describe('a shared vault entry, inside the thread (#1574)', () => {
     return { humanId, conversationId: messages.thread(humanId, agentId) }
   }
 
-  const threadPage = async (cookie: string, conversationId: string) =>
+  const threadPage = async (cookie: string, conversationId: string, zone?: string) =>
     await app.inject({
       method: 'GET',
       url: `/inbox/${conversationId}`,
-      headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
+      headers: {
+        host: CONSOLE_HOST,
+        accept: 'text/html',
+        cookie,
+        ...(zone === undefined ? {} : { 'x-kolonie-timezone': zone }),
+      },
     })
+
+  /**
+   * **The door has to pass the zone, or the renderer cannot use it** (`#1634`).
+   *
+   * `share-block.test.ts` proves `shareIntro` formats correctly given a zone.
+   * That is worth nothing if this route never reads one — the unit test would
+   * stay green while every reader saw `UTC`. This asserts the wiring: the same
+   * share, two requests, two clocks, and the hour moves.
+   */
+  it("renders the expiry on the reader's clock, never as stored", async () => {
+    const cookie = await signedInCookie()
+    const { conversationId } = await openThread()
+    messages.shareOnThread(conversationId, { expiresAt: '2026-08-24T18:31:12.355Z' })
+
+    const berlin = await threadPage(cookie, conversationId, 'Europe/Berlin')
+    const auckland = await threadPage(cookie, conversationId, 'Pacific/Auckland')
+
+    expect(berlin.body).toContain('The share ends on 24 Aug 2026, 20:31 Europe/Berlin.')
+    expect(auckland.body).toContain('Pacific/Auckland')
+    expect(berlin.body).not.toContain('2026-08-24T18:31:12.355Z')
+    expect(berlin.body).not.toContain('.355')
+  })
 
   it('renders the key, the purpose and when it ends', async () => {
     const cookie = await signedInCookie()

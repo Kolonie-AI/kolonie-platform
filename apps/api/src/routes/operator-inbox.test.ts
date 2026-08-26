@@ -86,7 +86,15 @@ describe('the inbox behind a mailed link', () => {
 
   const aPage = async (): Promise<string> => pages.issue(agentId as never, 'op@example.org')
 
-  const get = (url: string) => app.inject({ method: 'GET', url, headers: { accept: 'text/html' } })
+  const get = (url: string, zone?: string) =>
+    app.inject({
+      method: 'GET',
+      url,
+      headers: {
+        accept: 'text/html',
+        ...(zone === undefined ? {} : { 'x-kolonie-timezone': zone }),
+      },
+    })
 
   /** A real form post: urlencoded, because that is what a browser sends. */
   const post = (url: string, fields: Record<string, string>) =>
@@ -219,6 +227,32 @@ describe('the inbox behind a mailed link', () => {
       // One textarea and one send, on one form.
       expect(body.match(/<textarea/g)).toHaveLength(1)
       expect(body).toContain('name="act" value="send"')
+    })
+
+    /**
+     * **The mailed door reads a zone too** (`#1634`).
+     *
+     * This is the door that showed `2026-08-24T18:31:12.355Z`, and it is opened
+     * by somebody with no session — which is exactly why it must take the zone
+     * from the request rather than assume one. Where a request says nothing,
+     * `zoneFrom` answers `UTC`: a clock a reader recognises, and never the
+     * stored string coming back.
+     */
+    it("renders a share's expiry on the reader's clock, and names UTC otherwise", async () => {
+      const token = await aPage()
+      const conversationId = messaging.thread(humanId, agentId)
+      messaging.shareOnThread(conversationId, { expiresAt: '2026-08-24T18:31:12.355Z' })
+
+      const url = `/operator/page/${token}/inbox/${conversationId}`
+      const berlin = await get(url, 'Europe/Berlin')
+      const silent = await get(url)
+
+      expect(berlin.body).toContain('The share ends on 24 Aug 2026, 20:31 Europe/Berlin.')
+      expect(silent.body).toContain('The share ends on 24 Aug 2026, 18:31 UTC.')
+      for (const body of [berlin.body, silent.body]) {
+        expect(body).not.toContain('2026-08-24T18:31:12.355Z')
+        expect(body).not.toContain('.355')
+      }
     })
 
     it('renders the same canonical share lifecycle on the durable door', async () => {

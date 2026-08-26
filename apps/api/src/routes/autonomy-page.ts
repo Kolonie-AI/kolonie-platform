@@ -9,6 +9,7 @@ import {
   operatorAgentsPage,
 } from '../autonomy-page.js'
 import { operatorPageBody } from '../operator-page-body.js'
+import { zoneFrom } from '../console/time.js'
 import { shareAdditionError } from '../operator-shares.js'
 import { deepLinkFor } from '../operator-telegram.js'
 import { CONSOLE_HEADERS } from '../console/html.js'
@@ -222,9 +223,18 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
       facts: OperatorPageView['facts']
       declaredRhythmHours: OperatorPageView['declaredRhythmHours']
     },
+    /**
+     * The reader's clock, for a share's expiry (`#1634`).
+     *
+     * **A parameter rather than a read in here**, because this helper is closed
+     * over the route and not over one request. Every caller has its own, and
+     * `zoneFrom` answers `UTC` where a door cannot tell.
+     */
+    zone: string,
     errors: { readonly shareError?: string } = {},
   ): Promise<string> =>
     operatorPageBody(deps, token, `/operator/page/${token}`, view, {
+      zone,
       ...errors,
       /**
        * Where this door's threads are (`#1547`).
@@ -297,7 +307,7 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
     return reply
       .headers(CONSOLE_HEADERS)
       .type('text/html')
-      .send(await pageFor(token as string, view))
+      .send(await pageFor(token as string, view, zoneFrom(request.headers)))
   })
 
   /**
@@ -357,7 +367,7 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
           .headers(CONSOLE_HEADERS)
           .type('text/html')
           .send(
-            await pageFor(token as string, view, {
+            await pageFor(token as string, view, zoneFrom(request.headers), {
               shareError: 'That share is not one this page can reach any more.',
             }),
           )
@@ -368,7 +378,7 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
         return reply
           .headers(CONSOLE_HEADERS)
           .type('text/html')
-          .send(await pageFor(token as string, view))
+          .send(await pageFor(token as string, view, zoneFrom(request.headers)))
       }
 
       const addition = typeof submitted['addition'] === 'string' ? submitted['addition'] : ''
@@ -378,7 +388,11 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
         return reply
           .headers(CONSOLE_HEADERS)
           .type('text/html')
-          .send(await pageFor(token as string, view, { shareError: refusal }))
+          .send(
+            await pageFor(token as string, view, zoneFrom(request.headers), {
+              shareError: refusal,
+            }),
+          )
       }
 
       const written = await shares.write({ pageToken: token as string }, shareId, addition.trim())
@@ -390,6 +404,7 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
           await pageFor(
             token as string,
             view,
+            zoneFrom(request.headers),
             written.outcome === 'closed'
               ? { shareError: 'That share ended before this was saved. Nothing was written.' }
               : {},
@@ -421,7 +436,7 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
           .status(409)
           .headers(CONSOLE_HEADERS)
           .type('text/html')
-          .send(await pageFor(token as string, view))
+          .send(await pageFor(token as string, view, zoneFrom(request.headers)))
       }
 
       const issued = await desk.store.issueStartForPage(token as string)
@@ -461,6 +476,6 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
     return reply
       .headers(CONSOLE_HEADERS)
       .type('text/html')
-      .send(await pageFor(token as string, view))
+      .send(await pageFor(token as string, view, zoneFrom(request.headers)))
   })
 }

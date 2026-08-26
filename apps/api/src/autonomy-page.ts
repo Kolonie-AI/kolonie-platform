@@ -647,6 +647,15 @@ export function operatorDurablePage(input: {
    * whole of frozen decision 1, and the opposite of how `drops` above works.
    */
   readonly shares?: readonly OperatorPageShare[] | undefined
+  /**
+   * The zone a share's expiry is rendered in (`#461`, `#1634`).
+   *
+   * **From the request, and never stored** — `zoneFrom` reads a header and
+   * answers `UTC` when there is none, so this page names a clock either way.
+   * It is the only absolute time here that a person acts on: it decides when
+   * their access to the credential above it ends.
+   */
+  readonly zone: string
   /** Where a share's forms post. Absent renders it read-only. */
   readonly shareAction?: string | undefined
   /** What to say if an addition was just refused — an empty box, or too long. */
@@ -1201,7 +1210,7 @@ export function operatorDurablePage(input: {
        * the expiry sentence were written here and again in `console/html.ts`,
        * for one object on two doors.
        */
-      ...shareIntro(share, who),
+      ...shareIntro(share, who, input.zone),
       /**
        * **This page prints the value and the inbox thread does not**, which is
        * the one thing the two doors genuinely differ on: this page *is* the

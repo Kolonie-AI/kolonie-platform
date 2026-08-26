@@ -34,7 +34,7 @@ const SHARE = {
 
 describe('the shared-credential block', () => {
   it('names the citizen and says what it wants', () => {
-    const lines = shareIntro(SHARE, 'colette').join('')
+    const lines = shareIntro(SHARE, 'colette', 'Europe/Berlin').join('')
 
     expect(lines).toContain('colette says:')
     expect(lines).toContain('Put a card on the account')
@@ -42,21 +42,84 @@ describe('the shared-credential block', () => {
   })
 
   it('carries the entry description when there is one', () => {
-    const lines = shareIntro({ ...SHARE, description: 'the login, not the token' }, 'colette').join(
-      '',
-    )
+    const lines = shareIntro(
+      { ...SHARE, description: 'the login, not the token' },
+      'colette',
+      'Europe/Berlin',
+    ).join('')
 
     expect(lines).toContain('the login, not the token')
   })
 
   /**
-   * `#1634` is about the **format** of this date and is deliberately not fixed
-   * here. What matters for `#1635` is that it is printed in one place, so that
-   * `#1634` is a one-line change rather than a hunt for the copy somebody
-   * missed. This assertion is what makes that true rather than intended.
+   * `#1635` made this one call site so that `#1634` could be one change here.
+   * That assertion stays: one place prints it, and both doors read this.
    */
   it('prints the expiry once, from one place', () => {
-    expect(shareIntro(SHARE, 'colette').join('')).toContain('The share ends on')
+    expect(shareIntro(SHARE, 'colette', 'Europe/Berlin').join('')).toContain('The share ends on')
+  })
+
+  /**
+   * `#1634`. The date decides when a person's access to a credential ends, and
+   * it was printed exactly as stored — `2026-08-24 18:31:12.355+00` on one door
+   * and `2026-08-24T18:31:12.355Z` on the other, for one field.
+   *
+   * **This is `#461` again**, which is what `console/time.ts` was written for:
+   * the defect was never the offset, it was that the output said nothing about
+   * which clock it was on. `+00` is the worse half of it — it looks like an
+   * offset a reader could act on, and it is the one almost nobody is in.
+   */
+  it("renders the expiry on the reader's clock, with the zone named", () => {
+    const lines = shareIntro(SHARE, 'colette', 'Europe/Berlin').join('')
+
+    expect(lines).toContain('The share ends on 24 Aug 2026, 20:31 Europe/Berlin.')
+  })
+
+  /**
+   * **A rejection case, and the one the issue asks for by name.** Neither
+   * surface may emit the stored value: an assertion on the good output alone
+   * would still pass if the raw string were printed beside it.
+   */
+  it('emits neither the ISO nor the Postgres form of the stored value', () => {
+    const iso = shareIntro(SHARE, 'colette', 'Europe/Berlin').join('')
+    const postgres = shareIntro(
+      { ...SHARE, expiresAt: '2026-08-24 18:31:12.355+00' },
+      'colette',
+      'Europe/Berlin',
+    ).join('')
+
+    for (const lines of [iso, postgres]) {
+      expect(lines).not.toContain('2026-08-24T18:31:12.355Z')
+      expect(lines).not.toContain('2026-08-24 18:31:12.355+00')
+      expect(lines).not.toContain('.355')
+      expect(lines).not.toMatch(/\d{2}:\d{2}:\d{2}/)
+    }
+  })
+
+  /**
+   * **The two doors were two formats for one field**, which is half of what the
+   * issue measured. One renderer and one zone is what makes that impossible
+   * rather than merely fixed today.
+   */
+  it('reads the same whichever shape the store hands back', () => {
+    expect(shareIntro(SHARE, 'colette', 'Europe/Berlin').join('')).toBe(
+      shareIntro(
+        { ...SHARE, expiresAt: '2026-08-24 18:31:12.355+00' },
+        'colette',
+        'Europe/Berlin',
+      ).join(''),
+    )
+  })
+
+  /**
+   * A zone nobody could resolve still gets an hour and a named clock, because
+   * `zoneFrom` answers `UTC` rather than nothing when a header is absent — the
+   * fallback is a clock a reader recognises, not the raw value returning.
+   */
+  it('falls back to a named clock rather than to the stored string', () => {
+    const lines = shareIntro(SHARE, 'colette', 'UTC').join('')
+
+    expect(lines).toContain('The share ends on 24 Aug 2026, 18:31 UTC.')
   })
 
   /**
@@ -111,6 +174,7 @@ describe('the shared-credential block', () => {
     const lines = shareIntro(
       { ...SHARE, purpose: '<script>alert(1)</script>', vaultKey: 'a<b' },
       '<em>colette</em>',
+      'Europe/Berlin',
     ).join('')
 
     expect(lines).not.toContain('<script>')

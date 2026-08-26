@@ -18,6 +18,7 @@ import {
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { autonomyClosedPage } from '../autonomy-page.js'
 import { CONSOLE_HEADERS, inboxPage, inboxThreadPage } from '../console/html.js'
+import { zoneFrom } from '../console/time.js'
 import { messageBodyError, messageDeclarationError, type InboxView } from '../messaging.js'
 import { composeSubjects } from './compose-subjects.js'
 import type { RouteDependencies } from './dependencies.js'
@@ -292,6 +293,8 @@ export function registerOperatorInboxRoutes(app: FastifyInstance, deps: RouteDep
          */
         shares: read.response.shares,
         shareEvents: read.response.shareEvents,
+        /** The reader's clock, for the share expiry beneath (`#1634`). */
+        zone: zoneFrom(request.headers),
         /** The token's own page is where a share is written and read. */
         shareAction: `/operator/page/${at.token}`,
         readAt: `/operator/page/${at.token}`,

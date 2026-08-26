@@ -1850,6 +1850,13 @@ export function inboxThreadPage(
     /** What to say if an addition was just refused — an empty box, or too long. */
     readonly shareError?: string | undefined
     /**
+     * The zone every absolute time on this page is rendered in (`#461`).
+     *
+     * **A share's expiry reads on it** (`#1634`). It was printed as stored, and
+     * this is the door that showed the Postgres shape of it.
+     */
+    readonly zone: string
+    /**
      * What the box holds when the page is drawn (`#1548`).
      *
      * Set after a *fill* press — the canonical sentence — and after a refusal,
@@ -1988,6 +1995,8 @@ function shareBlocks(input: {
   readonly shareAction?: string | undefined
   readonly readAt?: string | undefined
   readonly shareError?: string | undefined
+  /** The zone every absolute time on this page is rendered in (`#461`, `#1634`). */
+  readonly zone: string
 }): readonly string[] {
   const shares = input.shares ?? []
   if (shares.length === 0) return []
@@ -2000,7 +2009,7 @@ function shareBlocks(input: {
      * on two doors, and everything under them was duplicated too.
      */
     shareHeading(input.agentName),
-    ...shareIntro(share, input.agentName),
+    ...shareIntro(share, input.agentName, input.zone),
     ...(share.ended !== null
       ? [...shareEnded(input.agentName, share.ended), '</section>']
       : [

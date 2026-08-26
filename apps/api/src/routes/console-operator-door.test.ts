@@ -33,6 +33,7 @@ let pages: ReturnType<typeof fakeOperatorPages>
 let requests: ReturnType<typeof fakeOperatorThreads>
 let agentId: AgentId
 let otherAgentId: AgentId
+let sharedExpiry: string | undefined
 
 beforeEach(async () => {
   humans = fakeHumanStore()
@@ -62,8 +63,8 @@ beforeEach(async () => {
      * being asserted is the copy, not the channel.
      */
     operatorShares: {
-      forPageToken: () => Promise.resolve([]),
-      forOperator: () => Promise.resolve([]),
+      forPageToken: () => Promise.resolve(shareFixture()),
+      forOperator: () => Promise.resolve(shareFixture()),
       recordRead: () => Promise.resolve(false),
       write: () => Promise.resolve({ outcome: 'closed' as const }),
       handBack: () => Promise.resolve({ outcome: 'closed' as const }),
@@ -73,7 +74,23 @@ beforeEach(async () => {
 
   agentId = agents.issue().agent.id
   otherAgentId = agents.issue().agent.id
+  sharedExpiry = undefined
 })
+
+const shareFixture = () =>
+  sharedExpiry === undefined
+    ? []
+    : [
+        {
+          id: 'share-zone',
+          vaultKey: 'provider/handle',
+          purpose: 'check the clock',
+          expiresAt: sharedExpiry,
+          value: 'shared value',
+          description: null,
+          wrote: false,
+        },
+      ]
 
 afterEach(async () => {
   await app?.close()
@@ -112,14 +129,46 @@ const link = async (id: AgentId): Promise<void> => {
   if (redeemed.outcome !== 'linked') throw new Error(`link refused: ${redeemed.outcome}`)
 }
 
-const openDoor = (cookie: string, id: AgentId) =>
+const openDoor = (cookie: string, id: AgentId, zone?: string) =>
   app.inject({
     method: 'GET',
     url: `/agents/${id}/operator`,
-    headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
+    headers: {
+      host: CONSOLE_HOST,
+      accept: 'text/html',
+      cookie,
+      ...(zone === undefined ? {} : { 'x-kolonie-timezone': zone }),
+    },
   })
 
 describe('the operator page opens on a session', () => {
+  /**
+   * **Both operator-page doors pass their own request zone** (`#1634`). The
+   * renderer-level test cannot prove that: it would stay green while every
+   * route silently fell back to UTC. One stored value and two requests produce
+   * one named local clock on each door, with neither machine form left behind.
+   */
+  it("renders a share expiry on each door's reader clock", async () => {
+    const cookie = await signedInCookie()
+    await link(agentId)
+    const token = await pages.issue(agentId, 'op@example.org')
+    sharedExpiry = '2026-08-24T18:31:12.355Z'
+
+    const mailed = await app.inject({
+      method: 'GET',
+      url: `/operator/page/${token}`,
+      headers: { 'x-kolonie-timezone': 'Europe/Berlin' },
+    })
+    const signedIn = await openDoor(cookie, agentId, 'Pacific/Auckland')
+
+    expect(mailed.body).toContain('The share ends on 24 Aug 2026, 20:31 Europe/Berlin.')
+    expect(signedIn.body).toContain('Pacific/Auckland')
+    for (const body of [mailed.body, signedIn.body]) {
+      expect(body).not.toContain('2026-08-24T18:31:12.355Z')
+      expect(body).not.toContain('.355')
+    }
+  })
+
   /**
    * **The acceptance criterion this issue turns on.** One renderer, two routes —
    * asserted by comparing the bodies rather than by reading both and agreeing

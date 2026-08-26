@@ -1,4 +1,5 @@
 import { escape } from './console/escape.js'
+import { absolute } from './console/time.js'
 
 /**
  * The one shared-credential block, written once (`#1635`).
@@ -48,10 +49,29 @@ export function shareHeading(agentName: string): string {
 /**
  * Who is asking, for what, and until when.
  *
- * **The expiry is printed as it is stored**, which `#1634` is about and this
- * change deliberately does not fix — the point of unifying first is that the
- * format is now wrong in *one* place, so correcting it is a one-line change
- * rather than a hunt for the copy somebody missed.
+ * **The expiry is rendered on the reader's clock** (`#1634`). It was printed as
+ * stored until then, and the store hands the same field back in two shapes — a
+ * reader on the inbox thread saw `2026-08-24 18:31:12.355+00` and one on the
+ * operator page saw `2026-08-24T18:31:12.355Z`, for one object on the same day.
+ *
+ * **This is `#461`, on a date that decides when access to a credential ends.**
+ * That issue is what `console/time.ts` exists for and its finding is the one
+ * that applies here: the defect was never the offset, it was that the output
+ * said nothing about which clock it was on. `+00` is the worse half — it reads
+ * as an offset somebody could act on, and it is the one almost nobody is in.
+ *
+ * **The zone is the caller's, because only the caller has the request.**
+ * `zoneFrom` reads it from a header and falls back to `UTC`, so a door that
+ * cannot tell still names a clock rather than printing the stored string. Both
+ * doors pass it, which is what `#1635` bought by making this one call site.
+ *
+ * **Milliseconds are dropped, and that is not merely tidier.** A share ends on
+ * a day and an hour; three decimal places is a machine leaking rather than
+ * information, and `absolute` renders to the minute.
+ *
+ * **What is stored is untouched.** `autonomy-page.ts` sorts open actions on
+ * `share.expiresAt` and goes on sorting on the stored value — rendering is what
+ * changed, and a sort key that read this output would order August after April.
  */
 export function shareIntro(
   share: {
@@ -61,6 +81,7 @@ export function shareIntro(
     readonly expiresAt: string
   },
   agentName: string,
+  zone: string,
 ): readonly string[] {
   return [
     `<p class="operator-ask"><strong>${escape(agentName)} says:</strong> ` +
@@ -69,7 +90,7 @@ export function shareIntro(
       (share.description === null || share.description === undefined
         ? ''
         : ` — ${escape(share.description)}`) +
-      `. The share ends on ${escape(share.expiresAt)}.</p>`,
+      `. The share ends on ${escape(absolute(share.expiresAt, zone))}.</p>`,
   ]
 }
 

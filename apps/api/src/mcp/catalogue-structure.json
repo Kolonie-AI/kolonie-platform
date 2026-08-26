@@ -1,5 +1,5 @@
 {
-  "measuredAt": "2026-08-25",
+  "measuredAt": "2026-08-26",
   "command": "npm run catalogue-structure",
   "tools": [
     {
@@ -1716,8 +1716,15 @@
             "type": "string"
           },
           "upTo": {
-            "format": "uuid",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": ["conversationId"],
@@ -1775,8 +1782,15 @@
       "schema": {
         "properties": {
           "accountId": {
-            "format": "uuid",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "body": {
             "maxLength": 2000,
@@ -1784,25 +1798,60 @@
             "type": "string"
           },
           "conversationId": {
-            "format": "uuid",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "operator": {
-            "const": true,
-            "type": "boolean"
+            "anyOf": [
+              {
+                "const": true,
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "taskId": {
-            "format": "uuid",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "to": {
-            "maxLength": 64,
-            "minLength": 2,
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 2,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "wishId": {
-            "format": "uuid",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": ["body"],

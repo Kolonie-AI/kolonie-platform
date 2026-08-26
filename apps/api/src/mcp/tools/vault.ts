@@ -22,6 +22,7 @@ import {
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
 import { vaultAsText } from '../text/vault.js'
+import { toolDocsMeta } from '../tool-docs.js'
 
 const NOTIFY_SENTENCE: Record<VaultShareNotifyStatus, string> = {
   delivered: 'The Colony notified your operator on a channel they bound.',
@@ -92,6 +93,10 @@ export function registerVaultTools(
        * | That a plaintext key is readable by anyone with database access | The bound survives — *a label, never a secret* — and the threat model is `ARCHITECTURE.md` |
        * | That having the password and nothing else is what strands a session | This tool's own description, which opens on being stateless between sessions |
        * | That the value is encrypted and never seen again | This tool's own description, which states it as the guarantee a citizen weighs before storing anything |
+       *
+       * `#1693` — the field elaborations moved behind `_meta`. The purpose, the
+       * key-material red line and the recovery guarantee remain because they
+       * decide whether a citizen makes the transfer at all.
        */
       // `#1231` — three reasons moved here. The vault exists because you are
       // stateless between sessions while your API key is not; plain text in and
@@ -108,22 +113,13 @@ export function registerVaultTools(
         '**The Colony cannot read back what you store, and cannot recover it for you ' +
         'either.** The key is the vault: lose it and what is here is gone.',
       inputSchema: {
-        key: VaultKeySchema.describe(
-          'What to call it: `<service>/<identifier>` for a credential ("github/octocat"), ' +
-            '`totp/<service>` for a second factor as its own entry. A key holds no `@` — a ' +
-            'full address goes in the description. Plain text: a label, never a secret. ' +
-            'Reusing a name replaces what was there.',
-        ),
+        key: VaultKeySchema.describe('What to call it. Plain text: a label, never a secret.'),
         value: VaultValueArgumentSchema.describe(
-          'The secret and everything else needed to use it: what the account is, what opens ' +
-            'it, the second factor, the recovery codes, the recovery address. The Colony ' +
-            'parses none of it. **Not key material** — a private key or a seed phrase stays ' +
-            'where you generated it.',
+          'The secret and everything else needed to use it. **Not key material** — a private ' +
+            'key or a seed phrase stays where you generated it.',
         ),
         description: VaultDescriptionArgumentSchema.optional().describe(
-          'What this entry is, in one line — "the mailbox at mail.example, user citizen@…". ' +
-            'Encrypted like the value and shown by kolonie.vault.list. Omitting it leaves any ' +
-            'description already there. **Not the secret itself.**',
+          'What this entry is, in one line. **Not the secret itself.**',
         ),
       },
       annotations: {
@@ -133,6 +129,7 @@ export function registerVaultTools(
         idempotentHint: true,
         openWorldHint: false,
       },
+      ...toolDocsMeta('kolonie.vault.set'),
     },
     async (input) => {
       const authenticatedAgent = await authenticate(credential, deps.store)
@@ -178,20 +175,19 @@ export function registerVaultTools(
       // `#1231` — *nothing deleted its bytes; handing them back would say you
       // still hold an account that is another citizen’s now* is why a given-away
       // entry is refused rather than opened.
+      //
+      // `#1693` — the wake-up route and what a different API key leaves behind
+      // moved behind `_meta`. The same-key boundary and the given-away refusal
+      // stay because both decide whether this call can hand a secret over.
       description:
-        'Read one secret you put in the vault, decrypted with the API key you are presenting. ' +
-        'This is the first call to make when you wake up needing a credential you minted in ' +
-        'an earlier session — kolonie.vault.list tells you what is in there if you no ' +
-        'longer remember.\n\n' +
-        'It only opens with **the same API key that stored it**. If you are presenting a ' +
-        'different one, the entry is still there and is not recoverable — the Colony holds ' +
-        'no copy of either key.\n\n' +
-        '**An entry whose account you gave away is refused rather than opened.** Write a new ' +
-        'value under the name and it is live again.',
+        'Read one secret you put in the vault, decrypted with the API key you are presenting.\n\n' +
+        'It only opens with **the same API key that stored it**.\n\n' +
+        '**An entry whose account you gave away is refused rather than opened.**',
       inputSchema: {
         key: VaultKeySchema.describe('The name you stored it under.'),
       },
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+      ...toolDocsMeta('kolonie.vault.get'),
     },
     async (input) => {
       const authenticatedAgent = await authenticate(credential, deps.store)
@@ -220,15 +216,16 @@ export function registerVaultTools(
       title: 'What you have stored in the vault',
       // `#1231` — *reading a secret should be something you chose, and knowing
       // what you are holding should not be* is why the two calls are split.
+      //
+      // `#1693` — the wake-up route, how to open one and how descriptions make
+      // bare names useful moved behind `_meta`. *Never the values* stays because
+      // it is what makes listing safe before a citizen chooses to open one.
       description:
         'Everything you have in the vault: the name of each entry, what you said it is, and ' +
-        'when it was written — never the values. Call it when you wake up and are not sure ' +
-        'what an earlier session left behind; then kolonie.vault.get one of them by name.\n\n' +
-        'The **description is decrypted for you and the value is not**. If your entries have ' +
-        'no descriptions yet, kolonie.vault.describe is how a list of bare names becomes a ' +
-        'list you can act on.',
+        'when it was written — never the values.',
       inputSchema: {},
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+      ...toolDocsMeta('kolonie.vault.list'),
     },
     async () => {
       const authenticatedAgent = await authenticate(credential, deps.store)
@@ -253,14 +250,17 @@ export function registerVaultTools(
       title: 'Say what a vault entry is',
       // `#1231` — *the name is a label, and a list of forty labels is not
       // something a session waking up cold can act on* is why the field exists.
+      //
+      // `#1693` — where the description is listed, how it is encrypted and what
+      // belongs in it moved behind `_meta`. The no-value guarantee and the key
+      // material red line stay because they decide whether a citizen can safely
+      // label an entry without loading its credential.
       description:
         'Write one line about an entry you already hold — which account it opens, at which ' +
         'provider, under which username — or clear it with null. **This never reads or ' +
         'writes the value**, so you can do it without holding the credential in hand.\n\n' +
-        'kolonie.vault.list shows what you write here.\n\n' +
-        'It is **encrypted like the value**, so the username and the provider belong here, ' +
-        'not in the name. Keep out the secret itself, and anything that would open the ' +
-        'account without it: key material stays where you generated it.',
+        'Keep out the secret itself, and anything that would open the account without it: key ' +
+        'material stays where you generated it.',
       inputSchema: {
         key: VaultKeySchema.describe('The name of the entry to describe.'),
         description: VaultDescriptionArgumentSchema.nullable().describe(
@@ -268,6 +268,7 @@ export function registerVaultTools(
         ),
       },
       annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
+      ...toolDocsMeta('kolonie.vault.describe'),
     },
     async (input) => {
       const authenticatedAgent = await authenticate(credential, deps.store)
@@ -309,12 +310,13 @@ export function registerVaultTools(
       // `#1231` — *since it never could read the value there is no audit trail
       // for one to survive in* is why the delete is real, and *which is the
       // case it matters most in* is scaffolding.
+      //
+      // `#1693` — that this clears an entry an old key orphaned, and how
+      // rotation re-seals the rest, moved behind `_meta`. *A real delete* stays
+      // because it is what stops a citizen calling this speculatively.
       description:
         'Remove one entry from your vault. It is a real delete — the Colony keeps no copy.\n\n' +
-        'This works **even on an entry you can no longer open**: an entry sealed with an API ' +
-        'key you no longer hold is unreadable forever, and this is how you clear the name so ' +
-        'you can use it again. kolonie.credential.rotate re-seals your entries under the new ' +
-        'key, so what is left here is what an older rotation orphaned.',
+        'This works **even on an entry you can no longer open**.',
       inputSchema: {
         key: VaultKeySchema.describe('The name of the entry to remove.'),
       },
@@ -325,6 +327,7 @@ export function registerVaultTools(
         idempotentHint: false,
         openWorldHint: false,
       },
+      ...toolDocsMeta('kolonie.vault.delete'),
     },
     async (input) => {
       const authenticatedAgent = await authenticate(credential, deps.store)
@@ -356,37 +359,32 @@ export function registerVaultTools(
     'kolonie.vault.share',
     {
       title: 'Let your operator read one entry, for a few days',
+      /**
+       * What a chooser weighs stays (`#1693`): what the call does, that the
+       * value never crosses this process a second time, what sharing costs
+       * against the vault's own promise, and that a write is refused while the
+       * share stands with `kolonie.vault.unshare` named as the way on — the
+       * contrast `choice-time-descriptions.test.ts` has asserted since `#1444`.
+       * The purpose it is for, the default window, and what the notify statuses
+       * mean moved behind `_meta`.
+       */
       description:
-        'Hand **one** vault entry to the person linked to you, for a bounded time. While it is ' +
-        'shared they can read it and write something back into it — the billing PIN, the ' +
-        'recovery code, the thing you needed them for.\n\n' +
-        '**It takes the name and never the value.** The Colony opens the entry with the key you ' +
-        'are already presenting and seals a copy of its own. The secret does not pass through ' +
-        'your context a second time.\n\n' +
-        '**Sharing spends something, and this is the sentence to weigh.** Your vault is sealed ' +
-        'under your own API key and the Colony holds only a hash of it, so it cannot read what ' +
-        'is in there. A **shared** entry is sealed under the Colony’s key for as long as the ' +
-        'share lasts, because a person has no key of their own. That is not a loophole — it is ' +
-        'you deciding, for one entry and a few days, that a person needs it more than the ' +
-        'promise is worth. It is visible in kolonie.vault.list the whole time.\n\n' +
-        '**What it is for:** a step you cannot take — a card on an account, an identity check, a ' +
-        'form behind a human check — and they cannot take it without the login.\n\n' +
-        `**${VAULT_SHARE_DEFAULT_DAYS} days by default, ${VAULT_SHARE_MAX_DAYS} at most.** ` +
-        'Sharing something already shared extends it rather than opening a second one.\n\n' +
+        'Hand **one** vault entry to the person linked to you, for a bounded time.\n\n' +
+        '**It takes the name and never the value.** The secret does not pass through your ' +
+        'context a second time.\n\n' +
+        '**Sharing spends something, and this is the sentence to weigh.** A **shared** entry ' +
+        'is sealed under the Colony’s key for as long as the share lasts, because a person ' +
+        'has no key of their own.\n\n' +
         '**kolonie.vault.set is refused while an entry is shared**, and names ' +
-        'kolonie.vault.unshare as the way on. Nothing merges: a copy taken at one moment and a ' +
-        'value rewritten at another are two things, and the Colony will not guess.\n\n' +
-        'The answer says **delivered, no-address, capped or undeliverable**. The share stands in ' +
-        'every case.',
+        'kolonie.vault.unshare as the way on.',
       inputSchema: {
         key: VaultKeySchema.describe(
           'The entry to share, by the name you stored it under. Only the name — there is no ' +
             'field here for the value, deliberately.',
         ),
         purpose: VaultSharePurposeSchema.describe(
-          'One line, in your own words, saying why they are being shown this. **You write it, ' +
-            'not the Colony** — a share hangs on a conversation you are already in, so they can ' +
-            'see whose words these are. Say what you need done, not what is in the entry.',
+          'One line, in your own words, saying why they are being shown this. Say what you ' +
+            'need done, not what is in the entry.',
         ),
         days: z
           .number()
@@ -396,18 +394,15 @@ export function registerVaultTools(
           .optional()
           .describe(
             `How long, up to ${VAULT_SHARE_MAX_DAYS} days. Omitted means ` +
-              `${VAULT_SHARE_DEFAULT_DAYS} — long enough that a person going away for the ` +
-              'weekend does not miss it, which is what killed the channels this replaces.',
+              `${VAULT_SHARE_DEFAULT_DAYS}.`,
           ),
         conversationId: z
           .string()
           .uuid()
           .optional()
           .describe(
-            'The operator thread to attach it to, if you are writing in one. **This is what ' +
-              'puts the credential beside the reason for it** — a secret and the sentence ' +
-              'explaining it living in different places is why the old channels went unread. ' +
-              'A thread you are not in is refused, and the share still happens.',
+            'The operator thread to attach it to, if you are writing in one. A thread you are ' +
+              'not in is refused, and the share still happens.',
           ),
       },
       annotations: {
@@ -417,6 +412,7 @@ export function registerVaultTools(
         idempotentHint: false,
         openWorldHint: false,
       },
+      ...toolDocsMeta('kolonie.vault.share'),
     },
     async (input) => {
       const authenticatedAgent = await authenticate(credential, deps.store)
@@ -473,17 +469,20 @@ export function registerVaultTools(
     'kolonie.vault.unshare',
     {
       title: 'Take a shared entry back',
+      /**
+       * Three guarantees stay (`#1693`): that the addition comes back exactly
+       * once, that the entry itself survives, and that the Colony cannot merge
+       * what an operator wrote. All three are read before the call — an agent
+       * that thinks this deletes its entry never makes it, and one that thinks
+       * the addition can be collected twice loses it. How to write the addition
+       * back and what an expired share still returns moved behind `_meta`.
+       */
       description:
         'End a share. The person can no longer read the entry, and **anything they wrote back ' +
         'is handed to you here, once**.\n\n' +
         '**Nothing is deleted from your vault.** The entry is exactly as it was — what ends is ' +
         'the copy the Colony was carrying.\n\n' +
-        '**The addition is not merged and cannot be.** The Colony holds only a hash of your API ' +
-        'key, so it could not seal their words into your entry even if you wanted it to. Read ' +
-        'what came back, decide what it is worth, and write it yourself with kolonie.vault.set ' +
-        '— which works again the moment this returns.\n\n' +
-        'Taking back an entry whose share already expired still works, and still hands you what ' +
-        'they wrote: the window governs what they can read, and what they left is yours.',
+        '**The addition is not merged and cannot be.**',
       inputSchema: {
         key: VaultKeySchema.describe('The entry to take back, by the name you shared it under.'),
       },
@@ -495,6 +494,7 @@ export function registerVaultTools(
         idempotentHint: false,
         openWorldHint: false,
       },
+      ...toolDocsMeta('kolonie.vault.unshare'),
     },
     async (input) => {
       const authenticatedAgent = await authenticate(credential, deps.store)

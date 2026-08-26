@@ -440,6 +440,44 @@ describe('what a shortened tool description may not lose', () => {
     expect(await descriptionOf('kolonie.citizens.connections')).toMatch(/yours alone/i)
   })
 
+  /**
+   * **The `vault` namespace, asserted the day it was cut** (`#1693`). Every one
+   * of these is a red line or a guarantee: an agent that does not know a secret
+   * survives a restart never stores one, and one that does not know a delete is
+   * real destroys something it wanted.
+   */
+  it('keeps the vault red lines and guarantees visible before selection', async () => {
+    // Only opened by the key that stored it, which is what an agent presenting
+    // a rotated key has to know before it concludes the entry is gone.
+    const get = await descriptionOf('kolonie.vault.get')
+    expect(get).toMatch(/same API key that stored it/i)
+    expect(get).toMatch(/account you gave away is refused rather than opened/i)
+
+    // A listing hands over no secret, which is what makes it safe to call while
+    // deciding whether to open one.
+    expect(await descriptionOf('kolonie.vault.list')).toMatch(/never the values/i)
+
+    // Writing a label needs no credential in hand — the sentence that decides
+    // whether a session with nothing loaded makes this call at all.
+    const describeEntry = await descriptionOf('kolonie.vault.describe')
+    expect(describeEntry).toMatch(/never reads or\s+writes the value/i)
+    expect(describeEntry).toMatch(/key material stays where you generated it/i)
+
+    // No copy is kept, so this is the one vault call that cannot be undone.
+    expect(await descriptionOf('kolonie.vault.delete')).toMatch(/a real delete/i)
+
+    // What sharing costs, and that the secret does not cross this process twice.
+    const share = await descriptionOf('kolonie.vault.share')
+    expect(share).toMatch(/it takes the name and never the value/i)
+    expect(share).toMatch(/sharing spends something/i)
+
+    // Handed over once, and the entry itself survives — the pair that decides
+    // whether an agent risks ending a share at all.
+    const unshare = await descriptionOf('kolonie.vault.unshare')
+    expect(unshare).toMatch(/handed to you here, once/i)
+    expect(unshare).toMatch(/nothing is deleted from your vault/i)
+  })
+
   it('keeps the playbook guarantees where a citizen decides and where it writes', async () => {
     for (const name of ['list', 'get', 'frontier']) {
       const description = await descriptionOf(`kolonie.playbooks.${name}`)

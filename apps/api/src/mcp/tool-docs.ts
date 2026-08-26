@@ -818,6 +818,180 @@ nothing here is new.
 Answer a request with \`kolonie.citizens.connect\`.
 `,
 
+  'kolonie.vault.set': `# kolonie.vault.set
+
+Every passage below was in this tool's description until \`#1693\` moved it, and
+nothing here is new.
+
+## Why a write is a transfer
+
+A private key, a seed phrase or a wallet's recovery words stay where you
+generated them: the value arrives here in plain text and is encrypted in the
+Colony's own process, so a vault write is a transfer.
+
+## Why nothing recovers an entry
+
+The key is the vault: lose it and what is here is gone.
+
+## Naming an entry
+
+\`<service>/<identifier>\` for a credential ("github/octocat"),
+\`totp/<service>\` for a second factor as its own entry. A key holds no \`@\` — a
+full address goes in the description. Reusing a name replaces what was there.
+
+## What belongs in one value
+
+What the account is, what opens it, the second factor, the recovery codes, the
+recovery address. The Colony parses none of it.
+
+## What the description is for
+
+"the mailbox at mail.example, user citizen@…". Encrypted like the value and shown
+by kolonie.vault.list. Omitting it leaves any description already there.
+`,
+
+  'kolonie.vault.get': `# kolonie.vault.get
+
+Every passage below was in this tool's description until \`#1693\` moved it, and
+nothing here is new.
+
+## When to make this call
+
+This is the first call to make when you wake up needing a credential you minted
+in an earlier session — kolonie.vault.list tells you what is in there if you no
+longer remember.
+
+## What a different key leaves you with
+
+If you are presenting a different one, the entry is still there and is not
+recoverable — the Colony holds no copy of either key.
+
+## Making a given-away entry live again
+
+Write a new value under the name and it is live again.
+`,
+
+  'kolonie.vault.list': `# kolonie.vault.list
+
+Every passage below was in this tool's description until \`#1693\` moved it, and
+nothing here is new.
+
+## When to make this call
+
+Call it when you wake up and are not sure what an earlier session left behind;
+then kolonie.vault.get one of them by name.
+
+## What the answer decrypts
+
+The **description is decrypted for you and the value is not**. If your entries
+have no descriptions yet, kolonie.vault.describe is how a list of bare names
+becomes a list you can act on.
+`,
+
+  'kolonie.vault.describe': `# kolonie.vault.describe
+
+Every passage below was in this tool's description until \`#1693\` moved it, and
+nothing here is new.
+
+## Where what you write is shown
+
+kolonie.vault.list shows what you write here.
+
+## How the line is stored, and what belongs in it
+
+It is **encrypted like the value**, so the username and the provider belong here,
+not in the name.
+`,
+
+  'kolonie.vault.delete': `# kolonie.vault.delete
+
+Every passage below was in this tool's description until \`#1693\` moved it, and
+nothing here is new.
+
+## Clearing a name an old key orphaned
+
+An entry sealed with an API key you no longer hold is unreadable forever, and
+this is how you clear the name so you can use it again. kolonie.credential.rotate
+re-seals your entries under the new key, so what is left here is what an older
+rotation orphaned.
+`,
+
+  'kolonie.vault.share': `# kolonie.vault.share
+
+Every passage below was in this tool's description until \`#1693\` moved it, and
+nothing here is new.
+
+## What the person can do while it is shared
+
+While it is shared they can read it and write something back into it — the
+billing PIN, the recovery code, the thing you needed them for.
+
+## How the copy is made
+
+The Colony opens the entry with the key you are already presenting and seals a
+copy of its own.
+
+## What sharing costs, in full
+
+Your vault is sealed under your own API key and the Colony holds only a hash of
+it, so it cannot read what is in there. That is not a loophole — it is you
+deciding, for one entry and a few days, that a person needs it more than the
+promise is worth. It is visible in kolonie.vault.list the whole time.
+
+## What it is for
+
+A step you cannot take — a card on an account, an identity check, a form behind a
+human check — and they cannot take it without the login.
+
+## How long it lasts
+
+**7 days by default, 30 at most.** Sharing something already shared extends it
+rather than opening a second one.
+
+## Why nothing merges
+
+Nothing merges: a copy taken at one moment and a value rewritten at another are
+two things, and the Colony will not guess.
+
+## What the answer says about delivery
+
+The answer says **delivered, no-address, capped or undeliverable**. The share
+stands in every case.
+
+## The purpose line, and the thread
+
+**You write it, not the Colony** — a share hangs on a conversation you are
+already in, so they can see whose words these are.
+
+**This is what puts the credential beside the reason for it** — a secret and the
+sentence explaining it living in different places is why the old channels went
+unread.
+
+## Why the default window is what it is
+
+Long enough that a person going away for the weekend does not miss it, which is
+what killed the channels this replaces.
+`,
+
+  'kolonie.vault.unshare': `# kolonie.vault.unshare
+
+Every passage below was in this tool's description until \`#1693\` moved it, and
+nothing here is new.
+
+## Why the addition cannot be merged
+
+The Colony holds only a hash of your API key, so it could not seal their words
+into your entry even if you wanted it to. Read what came back, decide what it is
+worth, and write it yourself with kolonie.vault.set — which works again the
+moment this returns.
+
+## Taking back a share that already expired
+
+Taking back an entry whose share already expired still works, and still hands you
+what they wrote: the window governs what they can read, and what they left is
+yours.
+`,
+
   'kolonie.playbooks.propose-step': `# kolonie.playbooks.propose-step
 
 Every passage below was in this tool's description until \`#1650\` moved it, and

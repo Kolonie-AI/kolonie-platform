@@ -184,6 +184,23 @@ describe('where a relocated paragraph goes', () => {
     expect(TOOL_DOCS['kolonie.quests.update']).toContain(
       'targeting change returns the recomputed `audience`, so it still says what the\n',
     )
+    expect(TOOL_DOCS['kolonie.quests.submit']).toContain(
+      'A refusal tells you why and leaves the draft untouched; correct it and submit again.',
+    )
+    expect(TOOL_DOCS['kolonie.quests.withdraw']).toContain(
+      'It works until the check is complete; after that the quest is published or refused,',
+    )
+    expect(TOOL_DOCS['kolonie.quests.slots']).toContain('Start small and buy more if it works.')
+    expect(TOOL_DOCS['kolonie.quests.read']).toContain(
+      '**A quest under review sits in one of two waits**',
+    )
+    expect(TOOL_DOCS['kolonie.quests.read']).toContain('`held` says which, and since when.')
+    expect(TOOL_DOCS['kolonie.quests.payment']).toContain(
+      '**Held is the case this exists for.** From your side a held payment looks exactly',
+    )
+    expect(TOOL_DOCS['kolonie.quests.payment']).toContain(
+      'The answer names the address it came from and the\ntwo ways on.',
+    )
   })
 
   it('keeps the moved tasks passages word-for-word', () => {

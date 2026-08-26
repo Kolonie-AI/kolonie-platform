@@ -181,11 +181,50 @@ describe('what a shortened tool description may not lose', () => {
     const slots = await descriptionOf('kolonie.quests.slots')
     expect(slots).toMatch(/nothing else about the quest can change/i)
     expect(slots).toMatch(/expiry does not move/i)
+    expect(slots).toMatch(/capacity nobody fills expires with the quest/i)
     expect(slots).toMatch(/nothing is reserved or taken/i)
 
     const results = await descriptionOf('kolonie.quests.results')
     expect(results).toMatch(/no completion event to wait for/i)
     expect(results).toMatch(/never learn who wrote what/i)
+  })
+
+  /**
+   * **The rest of the `quests` namespace, asserted the day it was cut**
+   * (`#1690`). Each of these survived a cut that moved the teaching around it
+   * behind `_meta`, and the argument for keeping it would otherwise live only
+   * in the commit — which is the state `#1680` left the namespace in.
+   *
+   * Grouped by the class from `#384` each belongs to: a guarantee that decides
+   * whether the call is made, and a contrast with the neighbour a chooser
+   * confuses it with.
+   */
+  it('keeps the remaining quest guarantees and neighbouring-tool contrasts', async () => {
+    // The undo, and the neighbour it is the undo *for*. An agent that does not
+    // know submitting is reversible waits instead of correcting.
+    const withdraw = await descriptionOf('kolonie.quests.withdraw')
+    expect(withdraw).toContain('kolonie.quests.submit')
+    expect(withdraw).toMatch(/nothing is lost/i)
+
+    // Nobody has seen a draft, which is what makes discarding one free — and
+    // the contrast with the tool that corrects rather than deletes.
+    const discard = await descriptionOf('kolonie.quests.discard')
+    expect(discard).toContain('kolonie.quests.update')
+    expect(discard).toMatch(/nobody but you has ever seen/i)
+    expect(discard).toMatch(/only a draft/i)
+
+    // A sponsor that thinks its own shelf is public does not keep drafts here.
+    const list = await descriptionOf('kolonie.quests.list')
+    expect(list).toMatch(/your own shelf only/i)
+
+    // The two answers that stop a sponsor acting on a silence: a hold is not
+    // something to chase, and a payment minutes old is not a payment to repeat.
+    const read = await descriptionOf('kolonie.quests.read')
+    expect(read).toMatch(/nothing for you to do about one/i)
+
+    const payment = await descriptionOf('kolonie.quests.payment')
+    expect(payment).toMatch(/do not pay twice on the strength of one look/i)
+    expect(payment).toMatch(/another citizen answers exactly as a signature the Colony has never/i)
   })
 
   /**

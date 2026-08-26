@@ -165,6 +165,35 @@ describe('the sponsor over MCP', () => {
     expect(description('update')).not.toContain('The answer names only fields')
   })
 
+  /**
+   * The rest of the namespace, moved by `#1690`. Each pair is the same shape:
+   * the guarantee or the contrast stays published, and the teaching around it
+   * is reachable at the `_meta` URL instead.
+   */
+  it('leaves only the choice-time sentences on the rest of the namespace', async () => {
+    const { client, close } = await connectedClient(colony(), `Bearer ${anAgent().key}`)
+    const { tools } = await client.listTools()
+    await close()
+
+    const description = (name: string) =>
+      tools.find((tool) => tool.name === `kolonie.quests.${name}`)?.description ?? ''
+
+    expect(description('submit')).not.toContain('A refusal tells you why')
+    expect(description('withdraw')).not.toContain('after that the quest is published or refused')
+    expect(description('slots')).not.toContain('Start small and buy more if it works')
+    expect(description('read')).not.toContain('still being read, or read and cleared')
+    expect(description('payment')).not.toContain('the pass that re-reads the wallet runs hourly')
+    expect(description('discard')).not.toContain('no money committed, no check')
+
+    // And what a `_meta` key is worth is that the teaching is reachable.
+    for (const name of ['submit', 'withdraw', 'slots', 'read', 'payment', 'discard']) {
+      expect(
+        tools.find((tool) => tool.name === `kolonie.quests.${name}`)?._meta,
+        name,
+      ).toBeDefined()
+    }
+  })
+
   it('writes a quest, reads it back, and sees it in its own list', async () => {
     const sponsor = anAgent()
 

@@ -67,4 +67,34 @@ describe('the long form of a tool description', () => {
 
     expect(response.statusCode).toBe(200)
   })
+
+  /**
+   * **The property `#1718` must not regress, asserted against the change that
+   * could have.** Attributing a fetch when a key happens to be presented
+   * (D-143) runs beside the answer rather than in front of it: a malformed
+   * credential is not a refusal here, because this is documentation and the
+   * relocation was built on it needing no key. A route that had started
+   * refusing one would fail here rather than in production.
+   */
+  it('serves the documentation whatever the Authorization header says', async () => {
+    const url = new URL(toolDocsUrl('kolonie.quests.write')).pathname
+
+    for (const authorization of ['Bearer not-a-key', 'nonsense', 'Bearer ']) {
+      const response = await app.inject({ method: 'GET', url, headers: { authorization } })
+
+      expect(response.statusCode, authorization).toBe(200)
+      expect(response.headers['content-type']).toContain('text/markdown')
+    }
+  })
+
+  /** And the index, which answers the same question about the same surface. */
+  it('serves the index whatever the Authorization header says', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/v1/tools',
+      headers: { authorization: 'Bearer not-a-key' },
+    })
+
+    expect(response.statusCode).toBe(200)
+  })
 })

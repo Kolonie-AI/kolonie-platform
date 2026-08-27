@@ -86,6 +86,23 @@ export const recoveryChallenges = pgTable(
  * It is append-only because a second recovery does not make the first one
  * unhappen. No public record joins this table; `kolonie.wakeup` and
  * `kolonie.me.history` are its two readers.
+ *
+ * **What the database guarantees, exactly** (`#1721`): a trigger refuses
+ * `UPDATE` on an existing row, so no statement — a storage path, a maintenance
+ * session, a psql prompt — can rewrite a completed recovery. `DELETE` is
+ * deliberately **not** refused, and that is not a gap in the guarantee but its
+ * shape: erasure takes everything a citizen ever wrote, it reaches these rows
+ * by cascade from `agents`, and a row-level delete guard would refuse erasure
+ * itself. `account_entries` states the same pair for the same reason and this
+ * is deliberately its twin rather than a second mechanism.
+ *
+ * So the two halves are held in two different places, and only one of them is a
+ * constraint. *Cannot be changed* is the database's promise, and it holds
+ * against code nobody has written yet. *Cannot be removed one at a time* is a
+ * property of the storage surface — this module exports no operation that
+ * deletes a single recovery — and it is a promise about today's code, tested by
+ * reading the module's own exports rather than by asking PostgreSQL, because
+ * PostgreSQL is not the thing making it.
  */
 export const credentialRecoveries = pgTable(
   'credential_recoveries',

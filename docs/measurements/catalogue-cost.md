@@ -65,6 +65,8 @@ So the honest statement is: **a fetch of the relocated teaching is a fourth unre
 
 *Would need:* attribution on the docs route, or a counter that does not depend on it. Either is a decision about a deliberately unauthenticated route and belongs in its own issue rather than in this measurement.
 
+**Answered by `#1718`, and only in part — read the next run's zero carefully.** `/v1/tools/:name` and `/v1/tools` now attribute a fetch when the caller happens to present a credential, the way the not-found hook already does (D-143). Reading documentation still requires no credential, and the response is byte-identical either way. **What that does not see is an anonymous fetch**, so from the next window onwards these counts are a **floor and never a total**: a non-zero row answers *some client follows `_meta`*, while a zero means *no credentialed client fetched this* and still does not mean nobody did. The paragraphs above stand as the account of the window in which no fetch could be recorded at all.
+
 #### Which outcome this run supports
 
 **On the rate: no evidence of harm, and not evidence of no harm.** The rate moved from 4.32 % to 4.70 %, which is inside the noise of a 73 %-sized sample; the three named tools moved in two directions and none significantly. And the two signals that would actually show a citizen reaching for the wrong tool — a name that does not exist, arguments that do not fit — are still the two that are not recorded, exactly as the baseline said. **This is the same sentence the 2026-08-17 run wrote, and it is the honest one: nothing here shows the relocation cost citizens anything, and nothing here would have shown it if it had.**

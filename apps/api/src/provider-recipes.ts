@@ -2,6 +2,7 @@ import {
   AccountKindSchema,
   AccountProviderSchema,
   ATLAS_ABSENCE_NEXT_MOVES,
+  aboutLanguage,
   AtlasCategorySlugSchema,
   type AtlasCategoryRow,
   BOOTSTRAP_TEMPLATES,
@@ -1818,8 +1819,27 @@ export function recipeAsText(recipe: ProviderRecipe, secretHandoff: boolean): st
    * — so this branch names it rather than repeating it.
    */
   if (recipe.status === 'measured') {
+    /**
+     * **An about the Colony cannot serve as English says so** (`#1614`).
+     *
+     * The earn shelf `#1420` filled carried one German sentence among 41 English
+     * ones, and it arrived unmarked — a reader met it as though it were the
+     * language every other entry is in. The scout did nothing wrong: it read a
+     * German page and wrote what the page said. What was missing is the Atlas
+     * saying which language it is looking at, which is the alternative `#1614`
+     * names beside *English everywhere*, and the honest one.
+     *
+     * **Silence where it cannot tell, and never a guess.** A short sentence
+     * answers `null`, and a language named wrongly is worse than one not named:
+     * the mark is read as a fact about the entry rather than as an impression.
+     */
+    const language = aboutLanguage(recipe.about)
+    const languageLine =
+      language === 'de' ? 'Written in German, as the page the scout read was.\n' : ''
     const aboutLine =
-      recipe.about === null || recipe.about.trim() === '' ? '' : `About: ${recipe.about.trim()}\n`
+      recipe.about === null || recipe.about.trim() === ''
+        ? ''
+        : `About: ${recipe.about.trim()}\n${languageLine}`
     const homepageLine =
       recipe.homepage === null || recipe.homepage.trim() === ''
         ? ''

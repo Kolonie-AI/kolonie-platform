@@ -118,6 +118,128 @@ describe('kolonie.accounts.walk-report', () => {
     await close()
   })
 
+  /**
+   * **The sighted `about` is answered against the page the walker named**
+   * (`#1614`).
+   *
+   * `#1420` filled a 42-entry shelf from sighted walks, and four of the six
+   * spot-checked asserted a figure, an amount, a chain or an organisation the
+   * homepage never carried. The walk instruction already forbade it; what it
+   * could not do is tell the walker which of its own sentences came from the
+   * page, because only the page can answer that.
+   */
+  it('refuses a sighted about asserting what the fetched page never says', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const walks = fakeWalks()
+    const { client, close } = await connectedClient(
+      {
+        ...colony,
+        walks,
+        walkPage: {
+          read: async () => ({
+            outcome: 'read' as const,
+            contentType: 'text/html',
+            html: '<h1>Verdikta</h1><p>Criteria-based judgments that settle payments on-chain.</p>',
+          }),
+        },
+      },
+      `Bearer ${apiKey}`,
+    )
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.walk-report',
+      arguments: {
+        kind: 'data-apis',
+        provider: 'scout-evidence.test',
+        outcome: 'sighted',
+        about: 'A judgment protocol with fees paid in ETH on Base, run by Ultravioleta DAO.',
+        homepage: 'https://scout-evidence.test/',
+      },
+    })
+
+    expect(result.isError).toBe(true)
+    const body = JSON.stringify(result.structuredContent ?? result.content)
+    expect(body).toContain('Base')
+    expect(body).toContain('Ultravioleta DAO')
+    /** Nothing is filed, so the walker files again rather than correcting a published row. */
+    expect(await walks.list(agent.id)).toEqual([])
+    await close()
+  })
+
+  /**
+   * **The half that must not become a second failure mode.** An about that says
+   * less than the page is what a scout should write, and `#1614` says so
+   * outright — so the terse one has to pass with the same reader in place.
+   */
+  it('takes a terse sighted about the page supports', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const walks = fakeWalks()
+    const { client, close } = await connectedClient(
+      {
+        ...colony,
+        walks,
+        walkPage: {
+          read: async () => ({
+            outcome: 'read' as const,
+            contentType: 'text/html',
+            html: '<h1>Verdikta</h1><p>Criteria-based judgments that settle payments on-chain.</p>',
+          }),
+        },
+      },
+      `Bearer ${apiKey}`,
+    )
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.walk-report',
+      arguments: {
+        kind: 'data-apis',
+        provider: 'scout-terse.test',
+        outcome: 'sighted',
+        about: 'A protocol for criteria-based judgments that settle on-chain.',
+        homepage: 'https://scout-terse.test/',
+      },
+    })
+
+    expect(result.isError).not.toBe(true)
+    expect(await walks.list(agent.id)).toMatchObject([{ outcome: 'sighted' }])
+    await close()
+  })
+
+  /**
+   * A page the Colony could not fetch has said nothing about the walker's
+   * sentence. Reading *unreadable* as *unsupported* would refuse a scout for the
+   * network between them, which is the line `PageRead` already draws.
+   */
+  it('files the walk where the page could not be read', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const walks = fakeWalks()
+    const { client, close } = await connectedClient(
+      {
+        ...colony,
+        walks,
+        walkPage: {
+          read: async () => ({ outcome: 'unavailable' as const, reason: 'it did not answer.' }),
+        },
+      },
+      `Bearer ${apiKey}`,
+    )
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.walk-report',
+      arguments: {
+        kind: 'data-apis',
+        provider: 'scout-unread.test',
+        outcome: 'sighted',
+        about: 'A marketplace exposing 38 MCP tools, run by Ultravioleta DAO.',
+        homepage: 'https://scout-unread.test/',
+      },
+    })
+
+    expect(result.isError).not.toBe(true)
+    expect(await walks.list(agent.id)).toMatchObject([{ outcome: 'sighted' }])
+    await close()
+  })
+
   it('publishes homepage for schema-driven first-shelf filings', async () => {
     const { colony, apiKey } = await registeredCitizen()
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)

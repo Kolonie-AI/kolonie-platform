@@ -191,6 +191,7 @@ export function buildApp({
   telegram,
   accounts,
   recipes,
+  walkPage,
   renames,
   atlasQuests,
   atlasPlaybooks,
@@ -612,6 +613,8 @@ export function buildApp({
     ...(telegram === undefined ? {} : { telegram }),
     accounts,
     recipes: providerCatalogue,
+    /** The page a sighted `about` is answered against (`#1614`); absent, no check runs. */
+    ...(walkPage === undefined ? {} : { walkPage }),
     renames: atlasRenames,
     ...(atlasQuests === undefined ? {} : { atlasQuests }),
     ...(atlasPlaybooks === undefined ? {} : { atlasPlaybooks }),

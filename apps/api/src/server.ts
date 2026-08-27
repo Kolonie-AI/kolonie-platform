@@ -98,6 +98,7 @@ import { databaseMemoryCodes } from './memory.js'
 import { databaseGithubChallenges } from './github.js'
 import {
   GITHUB_VERIFIER_TOKEN_VAR,
+  fetchPage,
   httpClaimReader,
   httpContributionReader,
 } from '@kolonie-ai/verifiers'
@@ -1980,6 +1981,15 @@ const app = buildApp({
   // citizen's own rows.
   /** The provider catalogue (`#521`). Its own object because it names no citizen. */
   recipes: databaseProviderRecipes(db, atlasFigures),
+  /**
+   * The page a sighted walk's `about` is answered against (`#1614`).
+   *
+   * `fetchPage` and not a fetcher of this file's own, on `account-proofs.ts`'
+   * argument: it is the one SSRF-guarded reader here, and it already tells *there
+   * is no page* from *nothing answered*, which is the distinction the check turns
+   * on.
+   */
+  walkPage: { read: (url: string) => fetchPage(url) },
   /** Where a provider used to be, for the Atlas's redirects (`#546`). */
   renames: databaseAtlasRenames(db),
   atlasQuests: databaseAtlasQuests(db),

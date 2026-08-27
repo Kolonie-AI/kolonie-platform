@@ -316,6 +316,59 @@ describe('what a finished walk proposes', () => {
     ).toBe('writes')
   })
 
+  /**
+   * **A second scout that saw the same thing is evidence and not noise**
+   * (`#1614`). A `measured` entry carrying an about the Colony cannot date is
+   * one a reader has no way to weigh; a later sighted walk restating it is
+   * exactly the *has anybody looked lately* that `last_confirmed_at` answers,
+   * and it was falling through to `writes` and rewriting the sentence with
+   * itself.
+   */
+  it('confirms a measured entry a later scout restates', () => {
+    const verdict = walkVerdict(walk(one, { outcome: 'sighted', about: 'A bounty board.' }), {
+      status: 'measured',
+      steps: [],
+      about: 'A bounty board.',
+    })
+
+    expect(verdict.kind).toBe('confirms')
+  })
+
+  /** Punctuation and case are not a disagreement about what the page says. */
+  it('confirms across a difference only of case and trailing punctuation', () => {
+    expect(
+      walkVerdict(walk(one, { outcome: 'sighted', about: 'a bounty board' }), {
+        status: 'measured',
+        steps: [],
+        about: 'A bounty board.',
+      }).kind,
+    ).toBe('confirms')
+  })
+
+  /**
+   * A scout saying something else has not confirmed anything — it has measured,
+   * and the freshest sentence wins on the `writes` branch as it always did.
+   */
+  it('writes rather than confirms where the scout says something else', () => {
+    expect(
+      walkVerdict(walk(one, { outcome: 'sighted', about: 'A gig marketplace.' }), {
+        status: 'measured',
+        steps: [],
+        about: 'A bounty board.',
+      }).kind,
+    ).toBe('writes')
+  })
+
+  it('writes where the measured entry carries no sentence to agree with', () => {
+    expect(
+      walkVerdict(walk(one, { outcome: 'sighted', about: 'A bounty board.' }), {
+        status: 'measured',
+        steps: [],
+        about: null,
+      }).kind,
+    ).toBe('writes')
+  })
+
   it('proposes nothing for a sighted filing against a Colony-backed entry', () => {
     const verdict = walkVerdict(walk(one, { outcome: 'sighted' }), {
       status: 'joinable',

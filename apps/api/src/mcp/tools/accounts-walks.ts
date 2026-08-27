@@ -2,6 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 /** The page ceiling is the storage's to set, and the argument states it (`#1101`). */
 import { type PreviousWalkVerdict } from '@kolonie-ai/db'
+import { htmlToText } from '@kolonie-ai/verifiers'
 import {
   WalkReportSchema,
   fieldAndReason,
@@ -26,6 +27,8 @@ import {
   reachedByWalk,
   requiresScoutIntake,
   scoutIntakeMissing,
+  unsupportedAboutClaims,
+  unsupportedClaimRefusal,
   walkIsReported,
   walkProse,
   type AgentId,
@@ -511,6 +514,52 @@ export function registerAccountWalkTools(
         })
       }
 
+      /**
+       * **The sighted `about` is answered against the page it names** (`#1614`).
+       *
+       * `#1420` filled a 42-entry shelf from sighted walks and four of the six
+       * spot-checked asserted something the homepage never carried — a bounty
+       * range, a chain, a tool count, a governing DAO. Every walker had genuinely
+       * fetched the page; the instruction not to embellish was already there and
+       * could not work, because **the walker cannot tell which of its own
+       * sentences came from the page**. Only the page can answer that, so the
+       * Colony asks it.
+       *
+       * **It refuses before anything is filed**, so the walker files again rather
+       * than the Colony publishing a sentence and correcting it later — a
+       * `measured` row is public in the request that writes it.
+       *
+       * **A page that could not be read refuses nothing.** `unavailable` and
+       * `blocked` are the network between the Colony and the provider, and
+       * spending a walker's report on that would be the same mistake
+       * `account-proofs.ts` names one file over.
+       */
+      const assertAboutIsSupported = async (): Promise<
+        ReturnType<typeof toolError> | undefined
+      > => {
+        if (deps.walkPage === undefined) return undefined
+        if (report.data.outcome !== 'sighted') return undefined
+        const about = report.data.about ?? null
+        const homepage = report.data.homepage ?? null
+        if (about === null || homepage === null) return undefined
+
+        const page = await deps.walkPage.read(homepage)
+        if (page.outcome !== 'read') return undefined
+
+        const claims = unsupportedAboutClaims(about, htmlToText(page.html))
+        if (claims.length === 0) return undefined
+
+        return toolError({
+          code: 'validation_failed',
+          message: unsupportedClaimRefusal(claims),
+          details: {
+            next_action: 'kolonie.accounts.walk-report',
+            fields: 'about',
+            unsupported: claims.map((claim) => `${claim.value} (${claim.kind})`).join(', '),
+          },
+        })
+      }
+
       const open = await deps.walks.inProgress(authenticatedAgent.agent.id, {
         kind,
         provider: canonical,
@@ -591,6 +640,8 @@ export function registerAccountWalkTools(
           if (amended === undefined) {
             const scoutGate = await assertScoutIntake()
             if (scoutGate !== undefined) return scoutGate
+            const evidenceGate = await assertAboutIsSupported()
+            if (evidenceGate !== undefined) return evidenceGate
             const submitted = await deps.walks.submit(
               authenticatedAgent.agent.id,
               { kind: AccountKindSchema.parse(input.kind), provider: canonical },
@@ -680,6 +731,8 @@ export function registerAccountWalkTools(
 
       const scoutGate = await assertScoutIntake()
       if (scoutGate !== undefined) return scoutGate
+      const evidenceGate = await assertAboutIsSupported()
+      if (evidenceGate !== undefined) return evidenceGate
       const finished = await deps.walks.finish(open.id, report.data)
       if (finished === undefined) {
         return toolError({

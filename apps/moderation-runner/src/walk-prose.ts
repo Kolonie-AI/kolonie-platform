@@ -1,5 +1,6 @@
 import {
   ConfidentialSpanKindSchema,
+  GatewayUnavailable,
   WALK_PROSE_CLEAR,
   WALK_PROSE_FIELDS,
   WALK_PROSE_REFUSAL_RATE,
@@ -18,7 +19,7 @@ import type {
 } from '@kolonie-ai/db'
 import { redact } from './answers.js'
 import type { Log } from './loop.js'
-import type { Model } from './llm.js'
+import { ProviderUnreachable, type Model } from './llm.js'
 
 /**
  * The stage between what a walker wrote and every citizen that reads about the
@@ -393,6 +394,29 @@ export const WALK_CONFIDENTIALITY_PROMPT = [
 type WalkProseModerationWriter = Pick<WalkProseModerationStore, 'write' | 'refuse'>
 
 /**
+ * The one failure that says the next row cannot fare differently.
+ *
+ * `ProviderUnreachable` alone is deliberately insufficient: it also wraps a
+ * socket reset on the direct vendor leg, which is transient but does not prove
+ * both configured routes are unavailable. `GatewayUnavailable` underneath it
+ * is emitted only after the gateway and its fallback have both failed. Walking
+ * the cause chain rather than checking one fixed depth preserves that typed
+ * fact when another transport wrapper adds context.
+ */
+function providerOutage(error: unknown): boolean {
+  let current: unknown = error
+  const seen = new Set<unknown>()
+
+  while (current instanceof Error && !seen.has(current)) {
+    if (current instanceof GatewayUnavailable) return error instanceof ProviderUnreachable
+    seen.add(current)
+    current = current.cause
+  }
+
+  return false
+}
+
+/**
  * Scrub one walk's words, or refuse them.
  *
  * A failure leaves the row in the queue state that selected it, so the next pass
@@ -452,6 +476,8 @@ async function moderateWalkProseWith(
 
     return { kind: 'scrubbed', redacted: present.length }
   } catch (error) {
+    if (providerOutage(error)) throw error
+
     log.error(`could not moderate the walk at ${nameOf(walk)}`, error, {
       event: 'walk-prose.moderate.failed',
       provider: walk.provider,

@@ -682,6 +682,7 @@ async function scrubWalkProse(deps: LoopDependencies, batchSize: number, log: Lo
       )
     }
   } catch (error) {
+    if (error instanceof ProviderUnreachable) throw error
     log.error('the walk prose pass failed', error, { event: 'walk-prose.pass.failed' })
   }
 }

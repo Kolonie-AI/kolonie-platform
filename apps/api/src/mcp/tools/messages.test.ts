@@ -1,4 +1,4 @@
-import { MESSAGE_UNTRUSTED_CONTENT } from '@kolonie-ai/core'
+import { MESSAGE_IDLE_AFTER_DAYS, MESSAGE_UNTRUSTED_CONTENT } from '@kolonie-ai/core'
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { describe, expect, it } from 'vitest'
 import { FAKE_CALLER_IP } from '../../__fixtures__/colony/index.js'
@@ -574,6 +574,82 @@ describe('kolonie.messages.* (#1286)', () => {
   })
 
   /**
+   * **A thread nobody has written in falls to the bottom on its own** (`#1560`).
+   * The citizen decides nothing: idle is derived from the thread's last message
+   * time, so it needs no call and no memory between sessions — which is the
+   * whole argument for it beside `#1550`'s explicit act.
+   */
+  describe('idle threads (#1560)', () => {
+    /** One idle thread and one fresh one, both this citizen's. */
+    const anIdleAndAFreshThread = async () => {
+      const pair = await aPair()
+      const idle = pair.colony.messaging.operatorThread(pair.alice.agent.profile.name)
+      const fresh = pair.colony.messaging.systemThread(pair.alice.agent.profile.name)
+      pair.colony.messaging.ageThread(idle, MESSAGE_IDLE_AFTER_DAYS + 1)
+      return { ...pair, idle, fresh: fresh.conversationId }
+    }
+
+    const idsOf = (result: Awaited<ReturnType<Client['callTool']>>) =>
+      (result.structuredContent as { threads: { id: string }[] }).threads.map((one) => one.id)
+
+    it('keeps an idle thread in the default answer and sorts it last', async () => {
+      const { alice, idle, fresh, close } = await anIdleAndAFreshThread()
+
+      expect(idsOf(await alice.client.callTool(listThreads()))).toEqual([fresh, idle])
+
+      await close()
+    })
+
+    it('returns only idle threads on true and excludes them on false', async () => {
+      const { alice, idle, fresh, close } = await anIdleAndAFreshThread()
+
+      expect(idsOf(await alice.client.callTool(listThreads({ idle: true })))).toEqual([idle])
+      expect(idsOf(await alice.client.callTool(listThreads({ idle: false })))).toEqual([fresh])
+
+      await close()
+    })
+
+    /**
+     * **Un-idling is not an event anybody writes.** A message moves the thread's
+     * last-message time and it stops being idle on the next read.
+     */
+    it('stops calling a thread idle once somebody writes in it', async () => {
+      const { alice, idle, close } = await anIdleAndAFreshThread()
+
+      await alice.client.callTool(send({ conversationId: idle, body: 'Picking this back up.' }))
+
+      expect(idsOf(await alice.client.callTool(listThreads({ idle: true })))).toEqual([])
+      expect(idsOf(await alice.client.callTool(listThreads({ idle: false })))).toContain(idle)
+
+      await close()
+    })
+
+    /** Idle is orthogonal to archive: neither argument answers for the other. */
+    it('leaves archived threads where archive put them', async () => {
+      const { alice, idle, fresh, close } = await anIdleAndAFreshThread()
+
+      await alice.client.callTool(archive({ conversationId: idle }))
+
+      expect(idsOf(await alice.client.callTool(listThreads()))).toEqual([fresh])
+      expect(idsOf(await alice.client.callTool(listThreads({ idle: true })))).toEqual([])
+      expect(
+        idsOf(await alice.client.callTool(listThreads({ archived: true, idle: true }))),
+      ).toEqual([idle])
+
+      await close()
+    })
+
+    it('refuses an idle argument that is not a boolean', async () => {
+      const { alice, close } = await aPair()
+
+      const refused = await alice.client.callTool(listThreads({ idle: 'yes' }))
+      expect(refused.isError).toBe(true)
+
+      await close()
+    })
+  })
+
+  /**
    * **A citizen may take a thread out of its own list** (`#1550`). Measured on
    * production 2026-08-21: 53 of 53 operator participant rows archived, 0 of 54
    * citizen rows — because there was no call, not because nobody wanted one.
@@ -649,6 +725,7 @@ describe('messages teaching behind _meta (#1691)', () => {
     const description = (name: string) => tool(name)?.description ?? ''
 
     expect(description('kolonie.messages.list_threads')).toMatch(/yours alone/i)
+    expect(description('kolonie.messages.list_threads')).toMatch(/idle/i)
     expect(description('kolonie.messages.list_threads')).not.toContain(
       'Does not return message bodies',
     )

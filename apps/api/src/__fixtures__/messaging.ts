@@ -1,5 +1,6 @@
 import {
   MESSAGE_BODY_MAX_LENGTH,
+  MESSAGE_IDLE_AFTER_DAYS,
   OPERATOR_ANSWER_BODIES,
   MESSAGE_REQUEST_PREVIEW_MAX_LENGTH,
   looksLikeCredential,
@@ -37,6 +38,8 @@ export interface FakeMessaging extends CitizenMessaging {
    * `kind` is `operator-human` and the filter has something to find.
    */
   readonly operatorThread: (handle: string, label?: string) => string
+  /** Age a thread's messages so the derived idle listing can be exercised. */
+  readonly ageThread: (conversationId: string, days: number) => void
   /** Make an operator thread read-only, as removing the relationship does. */
   readonly endOperatorLink: (conversationId: string) => void
   /**
@@ -258,6 +261,12 @@ export function fakeMessaging(): FakeMessaging {
       })
       return conversationId
     },
+    ageThread(conversationId, days) {
+      const row = conversations.get(conversationId)
+      if (row === undefined) throw new Error(`no such conversation: ${conversationId}`)
+      const at = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
+      for (const message of row.messages) message.createdAt = at
+    },
     endOperatorLink(conversationId) {
       const row = conversations.get(conversationId)
       if (row !== undefined) row.linkEnded = true
@@ -306,12 +315,22 @@ export function fakeMessaging(): FakeMessaging {
 
     async listThreads(agentId, options = {}) {
       const wantArchived = options.archived === true
+      const cutoff = Date.now() - MESSAGE_IDLE_AFTER_DAYS * 24 * 60 * 60 * 1000
+      const lastAt = (row: ConversationRow) =>
+        row.messages.reduce((latest, message) => Math.max(latest, Date.parse(message.createdAt)), 0)
+      const idleOf = (row: ConversationRow) => lastAt(row) < cutoff
       return [...conversations.values()]
         .filter((row) => row.participants.some((p) => p.agentId === agentId))
         .filter((row) => options.kind === undefined || kindOf(row) === options.kind)
         .filter((row) => {
           const me = row.participants.find((p) => p.agentId === agentId)
           return (me?.doneAt !== undefined) === wantArchived
+        })
+        .filter((row) => options.idle === undefined || idleOf(row) === options.idle)
+        .sort((a, b) => {
+          const idleDelta = Number(idleOf(a)) - Number(idleOf(b))
+          if (idleDelta !== 0) return idleDelta
+          return lastAt(b) - lastAt(a)
         })
         .map((row) => asConversation(row, agentId))
     },

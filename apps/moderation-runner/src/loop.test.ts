@@ -7,7 +7,7 @@ import type {
   PendingReport,
   PendingQuest,
 } from '@kolonie-ai/db'
-import { ATLAS_SEEDED_CATEGORIES } from '@kolonie-ai/core'
+import { ATLAS_SEEDED_CATEGORIES, GatewayUnavailable } from '@kolonie-ai/core'
 import type {
   BriefingClaim,
   Log,
@@ -31,6 +31,7 @@ import { segmentsOf, SIMILARITY_THRESHOLD } from './dedup.js'
 import { fakeModel, type FakeModel } from './__fixtures__/model.js'
 import { ProviderUnreachable } from './llm.js'
 import type { QuestModerationStore } from './quests.js'
+import type { WalkProseModerationStore } from './walk-prose.js'
 import {
   FIRST_REPORT,
   MEASURED_CLAIM_SIMILARITY,
@@ -1205,6 +1206,52 @@ describe('a poll that throws', () => {
     const failure = lines.find((line) => line.event === 'poll.failed')
     expect(failure?.level).toBe('error')
     expect(failure?.message).toContain('retrying in')
+  })
+
+  it('backs off consecutive walk-provider outages and resets after a successful poll', async () => {
+    const waits: number[] = []
+    const pendingWalk = {
+      walkId: '11111111-1111-4111-8111-111111111111',
+      kind: 'mailbox' as const,
+      provider: 'example.invalid',
+      prose: { did: 'I completed the public form.', broke: 'The form refused the request.' },
+    }
+    let outagePolls = 2
+    const walkStore: WalkProseModerationStore = {
+      requeueRefused: async () => [],
+      pending: async () => (outagePolls > 0 ? [pendingWalk] : []),
+      approvedWithoutScrub: async () => [],
+      write: async () => {},
+      refuse: async () => ({ suspended: false }),
+      rescrub: async () => ({ written: false, suspended: false }),
+      markDuplicates: async () => [],
+    }
+    const outage = new ProviderUnreachable(
+      '/chat/completions',
+      new GatewayUnavailable('status', '503'),
+    )
+    const walkModel = {
+      ...model,
+      classify: async () => {
+        outagePolls--
+        throw outage
+      },
+    }
+    const started: { runner?: ReturnType<typeof startRunner> } = {}
+    const sleep = async (ms: number) => {
+      waits.push(ms)
+      if (waits.length === 3) void started.runner?.stop()
+    }
+
+    const runner = startRunner(
+      { store, model, walkProse: { store: walkStore, model: walkModel } },
+      { pollIntervalMs: 10, maxBackoffMs: 100, sleep },
+    )
+    started.runner = runner
+    await runner.finished
+
+    expect(waits).toEqual([20, 40, 10])
+    expect(runner.health().consecutiveFailures).toBe(0)
   })
 
   /**

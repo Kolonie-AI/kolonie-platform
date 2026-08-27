@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   AccountKindSchema,
   ConfidentialSpanKindSchema,
+  GatewayUnavailable,
   WALK_PROSE_CLEAR,
   WALK_PROSE_FIELDS,
   WALK_PROSE_QUESTIONS,
@@ -18,6 +19,7 @@ import type {
   UnmoderatedWalkProse,
 } from '@kolonie-ai/db'
 import type { Model } from './llm.js'
+import { ProviderUnreachable } from './llm.js'
 import { REDACTION } from './answers.js'
 import {
   WALK_CONFIDENTIALITY_CASES,
@@ -237,7 +239,7 @@ describe('the Colony scrubbing what a walker wrote', () => {
     const model: Model = {
       name: 'test-model',
       classify: async () => {
-        throw new Error('the provider is unreachable')
+        throw new Error('the model answered malformed content')
       },
       mark: async () => [],
       compose: async () => [],
@@ -250,6 +252,83 @@ describe('the Colony scrubbing what a walker wrote', () => {
     expect(judgement.kind).toBe('failed')
     expect(written).toHaveLength(0)
     expect(refused).toHaveLength(0)
+  })
+
+  it('aborts a batch after one typed provider outage and leaves both walks pending', async () => {
+    const first = aWalk()
+    const second = { ...aWalk(), walkId: '22222222-2222-4222-8222-222222222222' }
+    let calls = 0
+    const outage = new ProviderUnreachable(
+      '/chat/completions',
+      new GatewayUnavailable('status', '503'),
+    )
+    const model: Model = {
+      name: 'test-model',
+      classify: async () => {
+        calls++
+        throw outage
+      },
+      mark: async () => [],
+      compose: async () => [],
+      embed: async () => [],
+    }
+    const { store, written, refused } = recording([first, second])
+
+    await expect(walkProseTick({ store, model }, 10)).rejects.toBe(outage)
+
+    expect(calls).toBe(1)
+    expect(written).toEqual([])
+    expect(refused).toEqual([])
+  })
+
+  it('does not give a bare provider error outage semantics', async () => {
+    const first = aWalk()
+    const second = { ...aWalk(), walkId: '22222222-2222-4222-8222-222222222222' }
+    let calls = 0
+    const model: Model = {
+      name: 'test-model',
+      classify: async () => {
+        calls++
+        if (calls === 1) {
+          throw new ProviderUnreachable('/chat/completions', new Error('the socket closed'))
+        }
+        return { decision: 'clear', reason: 'Nothing crossed.' }
+      },
+      mark: async () => [],
+      compose: async () => [],
+      embed: async () => [],
+    }
+    const { store, written } = recording([first, second])
+
+    const outcome = await walkProseTick({ store, model }, 10)
+
+    expect(outcome.failed).toBe(1)
+    expect(outcome.scrubbed).toBe(1)
+    expect(written.map(({ walkId }) => walkId)).toEqual([second.walkId])
+  })
+
+  it('keeps arbitrary row-local failures isolated and moderates the next walk', async () => {
+    const first = aWalk()
+    const second = { ...aWalk(), walkId: '22222222-2222-4222-8222-222222222222' }
+    let calls = 0
+    const model: Model = {
+      name: 'test-model',
+      classify: async () => {
+        calls++
+        if (calls === 1) throw new Error('the model answered malformed content')
+        return { decision: 'clear', reason: 'Nothing crossed.' }
+      },
+      mark: async () => [],
+      compose: async () => [],
+      embed: async () => [],
+    }
+    const { store, written } = recording([first, second])
+
+    const outcome = await walkProseTick({ store, model }, 10)
+
+    expect(outcome.failed).toBe(1)
+    expect(outcome.scrubbed).toBe(1)
+    expect(written.map(({ walkId }) => walkId)).toEqual([second.walkId])
   })
 
   it('counts a batch it took through, one outcome at a time', async () => {

@@ -20,6 +20,8 @@ export interface HealthReport {
   /** Why, when it is not ok. Read by a human looking at a container, not by an agent. */
   readonly reason?: string
   readonly lastPollAt: string | null
+  /** The last poll the loop entered, completed or not. See {@link healthOf}. */
+  readonly lastAttemptAt: string | null
   readonly consecutiveFailures: number
 }
 
@@ -40,6 +42,21 @@ export interface HealthReport {
  * Consecutive failures do not on their own make it unhealthy: the backoff is a
  * deliberate response to an outage elsewhere (a database restart, a model
  * refusing requests), and a runner that correctly waits it out is doing its job. What is fatal is silence.
+ *
+ * **Which is why the question is asked about attempts and not only completions**
+ * (`#1736`). `#1730` made a provider outage in the walk-prose pass reach the
+ * runner's backoff; the image built from it was rolled back by run 33104602304,
+ * because the container's first poll failed against a 503 gateway, it logged
+ * `retryInMs: 120000` exactly as designed, and `lastPollAt` — written only after
+ * a poll *completes* — stayed null through the deployment's 180-second window.
+ * A loop obeying its backoff and a loop that never started read identically.
+ *
+ * So a running loop is ok while its most recent **attempt** is inside the
+ * staleness budget, and the budget is what keeps this from decaying into *the
+ * process is up*: an attempt that is itself too old is stalled however
+ * deliberate the waiting was, a loop that has attempted nothing is stalled, and
+ * a stopped loop is stalled. The outage stays visible in `consecutiveFailures`
+ * and in a `lastPollAt` that does not move.
  */
 export function healthOf(
   health: RunnerHealth,
@@ -48,6 +65,7 @@ export function healthOf(
 ): HealthReport {
   const base = {
     lastPollAt: health.lastPollAt,
+    lastAttemptAt: health.lastAttemptAt,
     consecutiveFailures: health.consecutiveFailures,
   }
 
@@ -55,17 +73,20 @@ export function healthOf(
     return { status: 'stalled', reason: 'The loop is not running.', ...base }
   }
 
-  if (health.lastPollAt === null) {
-    // Nothing has completed yet. Startup covers this: Compose gives the
+  if (health.lastAttemptAt === null) {
+    // Nothing has been attempted yet. Startup covers this: Compose gives the
     // container a start period before a failing check counts against it.
-    return { status: 'stalled', reason: 'No poll has completed yet.', ...base }
+    return { status: 'stalled', reason: 'No poll has been attempted yet.', ...base }
   }
 
-  const silentFor = at - Date.parse(health.lastPollAt)
-  if (silentFor > staleAfterMs) {
+  const idleFor = at - Date.parse(health.lastAttemptAt)
+  if (idleFor > staleAfterMs) {
     return {
       status: 'stalled',
-      reason: `The last poll completed ${Math.round(silentFor / 1000)}s ago.`,
+      reason:
+        health.lastPollAt === null
+          ? `No poll has completed, and the last attempt was ${Math.round(idleFor / 1000)}s ago.`
+          : `The last poll attempt was ${Math.round(idleFor / 1000)}s ago.`,
       ...base,
     }
   }

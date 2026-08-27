@@ -30,6 +30,7 @@ import type { AtlasCategoryProposalStore } from './atlas-category-proposals.js'
 import { segmentsOf, SIMILARITY_THRESHOLD } from './dedup.js'
 import { fakeModel, type FakeModel } from './__fixtures__/model.js'
 import { ProviderUnreachable } from './llm.js'
+import { healthOf } from './health.js'
 import type { QuestModerationStore } from './quests.js'
 import type { WalkProseModerationStore } from './walk-prose.js'
 import {
@@ -1201,6 +1202,13 @@ describe('a poll that throws', () => {
     )
 
     await vi.waitFor(() => expect(lines.some((line) => line.event === 'poll.failed')).toBe(true))
+
+    const duringBackoff = runner.health()
+    expect(duringBackoff.running).toBe(true)
+    expect(duringBackoff.lastPollAt).toBeNull()
+    expect(duringBackoff.lastAttemptAt).not.toBeNull()
+    expect(duringBackoff.consecutiveFailures).toBeGreaterThan(0)
+
     await runner.stop()
 
     const failure = lines.find((line) => line.event === 'poll.failed')
@@ -1252,6 +1260,40 @@ describe('a poll that throws', () => {
 
     expect(waits).toEqual([20, 40, 10])
     expect(runner.health().consecutiveFailures).toBe(0)
+  })
+
+  /**
+   * The deployment case (`#1736`), end to end through the runner rather than
+   * through `healthOf` alone: a first poll that fails against an unavailable
+   * provider has to leave the container health-check answering 200 while it
+   * waits out the backoff, or the deploy rolls the image back — which is what
+   * run 33104602304 did to `#1730`.
+   */
+  it('reports healthy while it waits out a first poll that failed', async () => {
+    const held = new Promise<void>(() => {})
+    const runner = startRunner(
+      {
+        store: {
+          ...store,
+          pending: async () =>
+            Promise.reject(
+              new ProviderUnreachable('/chat/completions', new GatewayUnavailable('status', '503')),
+            ),
+        },
+        model,
+      },
+      { pollIntervalMs: 60_000, sleep: () => held },
+    )
+
+    await vi.waitFor(() => expect(runner.health().consecutiveFailures).toBe(1))
+
+    const state = runner.health()
+    expect(state.lastPollAt).toBeNull()
+    expect(healthOf(state, 180_000).status).toBe('ok')
+
+    await runner.stop()
+    // A stopped loop is unhealthy again, backoff or not.
+    expect(healthOf(runner.health(), 180_000).status).toBe('stalled')
   })
 
   /**

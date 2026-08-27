@@ -1445,7 +1445,16 @@ export interface Runner {
 
 export interface RunnerHealth {
   readonly running: boolean
+  /** The last successful poll, retained as the service-work diagnostic. */
   readonly lastPollAt: string | null
+  /**
+   * The last time the loop entered `tick`, whether it completed or threw.
+   *
+   * Kept apart from `lastPollAt`: a failed provider call is activity for health
+   * and still not a successful moderation poll. Collapsing the two would make a
+   * green health response hide the outage this field exists to distinguish.
+   */
+  readonly lastAttemptAt: string | null
   readonly consecutiveFailures: number
 }
 
@@ -1524,6 +1533,7 @@ export function startRunner(deps: LoopDependencies, options: RunnerOptions = {})
 
   let running = true
   let lastPollAt: string | null = null
+  let lastAttemptAt: string | null = null
   let consecutiveFailures = 0
   let wake: (() => void) | undefined
 
@@ -1539,6 +1549,7 @@ export function startRunner(deps: LoopDependencies, options: RunnerOptions = {})
 
   const finished = (async () => {
     while (running) {
+      lastAttemptAt = new Date().toISOString()
       try {
         const outcome = await tick(deps, batchSize)
         // One line per completed cycle, even when nothing was waiting (`#230`).
@@ -1593,7 +1604,7 @@ export function startRunner(deps: LoopDependencies, options: RunnerOptions = {})
       wake?.()
       await finished
     },
-    health: () => ({ running, lastPollAt, consecutiveFailures }),
+    health: () => ({ running, lastPollAt, lastAttemptAt, consecutiveFailures }),
   }
 }
 
@@ -1615,6 +1626,7 @@ export function startQuestRunner(deps: LoopDependencies, options: RunnerOptions 
 
   let running = true
   let lastPollAt: string | null = null
+  let lastAttemptAt: string | null = null
   let consecutiveFailures = 0
   let ticks = 0
   let wake: (() => void) | undefined
@@ -1631,6 +1643,7 @@ export function startQuestRunner(deps: LoopDependencies, options: RunnerOptions 
 
   const finished = (async () => {
     while (running) {
+      lastAttemptAt = new Date().toISOString()
       try {
         if (ticks % HELD_QUEST_TICK_MULTIPLIER === 0) await sweepHeldQuests(deps, batchSize, log)
         if (ticks % CONTRIBUTION_VERDICT_SWEEP_TICK_MULTIPLIER === 0)
@@ -1679,7 +1692,7 @@ export function startQuestRunner(deps: LoopDependencies, options: RunnerOptions 
       wake?.()
       await finished
     },
-    health: () => ({ running, lastPollAt, consecutiveFailures }),
+    health: () => ({ running, lastPollAt, lastAttemptAt, consecutiveFailures }),
   }
 }
 
@@ -1954,6 +1967,7 @@ export function startBriefingRunner(
 
   let running = true
   let lastPollAt: string | null = null
+  let lastAttemptAt: string | null = null
   let consecutiveFailures = 0
   let wake: (() => void) | undefined
 
@@ -1969,6 +1983,7 @@ export function startBriefingRunner(
 
   const finished = (async () => {
     while (running) {
+      lastAttemptAt = new Date().toISOString()
       try {
         const outcome = await briefingTick(deps, batchSize)
         // Same rule as the moderation cycle above: a completed pass says so even
@@ -2017,7 +2032,7 @@ export function startBriefingRunner(
       wake?.()
       await finished
     },
-    health: () => ({ running, lastPollAt, consecutiveFailures }),
+    health: () => ({ running, lastPollAt, lastAttemptAt, consecutiveFailures }),
   }
 }
 

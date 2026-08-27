@@ -12,9 +12,11 @@ import {
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { generateApiKey } from '../api-key.js'
-import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
+import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
 import {
   accounts,
+  agents,
+  credentialRecoveries,
   credentials,
   keyChallenges,
   recoveryChallenges,
@@ -28,6 +30,7 @@ import { reputationOfAgent } from './balance.js'
 import { skillsOfAgent } from './skills.js'
 import { getVaultEntry, setVaultEntry } from './vault.js'
 import { recoveryNominationFor, vaultKeyOpensNominatedAccount } from './recovery-nominations.js'
+import * as recovery from './recovery.js'
 import {
   completedRecoveries,
   mintRecoveryChallenge,
@@ -746,6 +749,105 @@ describe('recovering a lost key', () => {
       const later = new Date(Date.now() + 60_000).toISOString()
       expect(await completedRecoveries(db, agentId, since)).toHaveLength(1)
       expect(await completedRecoveries(db, agentId, later)).toEqual([])
+    })
+  })
+
+  /**
+   * The history is append-only, and the two halves of that are held in two
+   * different places (`#1721`).
+   *
+   * `#1684` left it to the storage surface exposing no update path, which is a
+   * promise about today's code. What is asserted here is the pair that
+   * `account_entries` already carries: the database refuses to change a row, so
+   * the guarantee survives a caller that writes its own `UPDATE`; and it
+   * deliberately does **not** refuse a delete, because erasure reaches these
+   * rows by cascade and a row-level delete guard would refuse erasure itself.
+   */
+  describe('a completed recovery cannot be rewritten', () => {
+    /** One recovery on the record, through the real path that writes one. */
+    const aCompletedRecovery = async () => {
+      const key = await nominatedAndEffective()
+      const challenge = await mintOne()
+      const recovered = await recoverCredential(db, {
+        handle: 'canary',
+        nonce: challenge.nonce,
+        signature: key.sign(challenge.nonce),
+      })
+      if (recovered.outcome !== 'recovered') throw new Error(recovered.outcome)
+
+      const [row] = await db
+        .select({ id: credentialRecoveries.id })
+        .from(credentialRecoveries)
+        .where(eq(credentialRecoveries.agentId, agentId))
+      if (row === undefined) throw new Error('the recovery wrote no row')
+      return row.id
+    }
+
+    it('is refused by the table when an update goes around this module', async () => {
+      const id = await aCompletedRecovery()
+
+      await expectRejection(
+        () =>
+          db
+            .update(credentialRecoveries)
+            .set({ strandedVaultEntries: 99 })
+            .where(eq(credentialRecoveries.id, id)),
+        /append-only/,
+      )
+      expect(await completedRecoveries(db, agentId)).toMatchObject([{ strandedVaultEntries: 0 }])
+    })
+
+    /**
+     * The stamp as much as the count: a recovery moved in time would put the
+     * event outside the window `kolonie.wakeup` reads, which is the quietest
+     * possible way to hide one from the citizen it happened to.
+     */
+    it('refuses a change to when it happened', async () => {
+      const id = await aCompletedRecovery()
+
+      await expectRejection(
+        () =>
+          db
+            .update(credentialRecoveries)
+            .set({ recoveredAt: new Date(Date.now() - 30 * 86_400_000).toISOString() })
+            .where(eq(credentialRecoveries.id, id)),
+        /append-only/,
+      )
+      expect(
+        await completedRecoveries(db, agentId, new Date(Date.now() - 60_000).toISOString()),
+      ).toHaveLength(1)
+    })
+
+    /**
+     * **Asserted over the module's exports** rather than by calling something
+     * and expecting it to fail, exactly as `account-threads.test.ts` asserts the
+     * same property: what is being checked is that a caller reading this module
+     * finds nothing to reach for.
+     */
+    it('offers no way to change one and no way to remove one', () => {
+      const named = Object.keys(recovery).filter((name) => /recover/i.test(name))
+
+      expect(named.sort()).toEqual([
+        'completedRecoveries',
+        'mintRecoveryChallenge',
+        'nominateRecoveryAccount',
+        'recoverCredential',
+      ])
+    })
+
+    /**
+     * Refusing an update must not become refusing a delete: erasure reaches
+     * these rows by cascade, and a trigger that refused it would refuse erasure.
+     */
+    it('goes with the citizen when the agent is erased', async () => {
+      await aCompletedRecovery()
+
+      await db.delete(agents).where(eq(agents.id, agentId))
+
+      const [remaining] = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(credentialRecoveries)
+      expect(remaining?.count).toBe(0)
     })
   })
 

@@ -878,7 +878,15 @@ describe('the migrations', () => {
     // correct about the join table without having been told it exists, which is
     // what lets a later issue give an entry a second shelf without first
     // finding every writer.
-    expect(afterFirst.triggers).toBe('8')
+    //
+    // `#1721` makes nine: `credential_recoveries_are_append_only` is
+    // `account_entries_are_append_only` again, on the citizen's private record
+    // that a recovery completed, and it carries the same asymmetry for the same
+    // reason — `UPDATE` refused, `DELETE` left alone because erasure reaches
+    // those rows by cascade. `#1684` left the guarantee to the storage surface
+    // exposing no update path, which is a promise about today's code; this is
+    // the half that holds against code nobody has written yet.
+    expect(afterFirst.triggers).toBe('9')
 
     await expect(migrate(db, { migrationsFolder: MIGRATIONS_FOLDER })).resolves.not.toThrow()
     expect(await objectCounts()).toEqual(afterFirst)

@@ -1,4 +1,4 @@
-## D-143 — A sighted `about` is checked against the page, and never for coverage
+## D-144 — A sighted `about` is checked against the page, and never for coverage
 
 **Date:** 2026-08-27
 

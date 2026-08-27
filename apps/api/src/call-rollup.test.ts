@@ -140,6 +140,104 @@ describe('the hourly call rollup', () => {
     })
 
     /**
+     * The relocated teaching, countable at last (`#1718`).
+     *
+     * `/v1/tools/:name` authenticates nothing by design, so it reached none of
+     * the three places that call `attributeTo` and a fetch could produce no row
+     * however many citizens made one — measured as zero rows over seven days in
+     * which the same table recorded 3,614 tool calls. The route now applies the
+     * not-found hook's rule: attribute where a key happens to be presented.
+     */
+    it('counts a docs fetch that presented a credential, under the route template', async () => {
+      const { app, counted, apiKey, agentId } = await citizen()
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/v1/tools/kolonie.quests.write',
+        headers: { authorization: `Bearer ${apiKey}` },
+      })
+      await settled()
+
+      expect(response.statusCode).toBe(200)
+      expect(counted).toHaveLength(1)
+      expect(counted[0]?.agentId).toBe(agentId)
+      // The template, so which documentation was read is not in the table.
+      expect(counted[0]?.call.routeKey).toBe('/v1/tools/:name')
+      expect(counted[0]?.call.status).toBe(200)
+    })
+
+    /** The index answers the same question and is counted the same way. */
+    it('counts a fetch of the index too', async () => {
+      const { app, counted, apiKey } = await citizen()
+
+      await app.inject({
+        method: 'GET',
+        url: '/v1/tools',
+        headers: { authorization: `Bearer ${apiKey}` },
+      })
+      await settled()
+
+      expect(counted).toHaveLength(1)
+      expect(counted[0]?.call.routeKey).toBe('/v1/tools')
+    })
+
+    /**
+     * **The rejection case, and the limitation D-143 exists to write down.** An
+     * anonymous fetch produces no row, so these counts are a floor and never a
+     * total: a zero means no credentialed client fetched this, never that
+     * nobody did.
+     */
+    it('counts nothing for a docs fetch that presented no credential, and serves it anyway', async () => {
+      const { app, counted } = await citizen()
+
+      const response = await app.inject({ method: 'GET', url: '/v1/tools/kolonie.quests.write' })
+      await settled()
+
+      expect(response.statusCode).toBe(200)
+      expect(counted).toEqual([])
+    })
+
+    /**
+     * A key that resolves to nobody is nobody — the outcome is discarded, on
+     * the same rule the not-found hook follows. The documentation is served
+     * regardless, which is what keeps this from being a credential requirement.
+     */
+    it('serves the documentation and counts nothing when the credential does not resolve', async () => {
+      const { app, counted } = await citizen()
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/v1/tools/kolonie.quests.write',
+        headers: { authorization: 'Bearer not-a-key' },
+      })
+      await settled()
+
+      expect(response.statusCode).toBe(200)
+      expect(counted).toEqual([])
+    })
+
+    /**
+     * **Not an oracle.** The answer is byte-identical whether the key resolved,
+     * did not, or was never sent, so nothing about the attribution can be read
+     * back out of a response.
+     */
+    it('answers identically whatever credential was or was not presented', async () => {
+      const { app, apiKey } = await citizen()
+      const url = '/v1/tools/kolonie.quests.write'
+
+      const [withKey, withBadKey, without] = await Promise.all([
+        app.inject({ method: 'GET', url, headers: { authorization: `Bearer ${apiKey}` } }),
+        app.inject({ method: 'GET', url, headers: { authorization: 'Bearer not-a-key' } }),
+        app.inject({ method: 'GET', url }),
+      ])
+
+      expect(withKey.body).toBe(without.body)
+      expect(withBadKey.body).toBe(without.body)
+      expect(withKey.statusCode).toBe(without.statusCode)
+      expect(withBadKey.statusCode).toBe(without.statusCode)
+    })
+
+    /**
      * An app built without a rollup installs no hook at all, which is what every
      * test in this repository that predates the rollup is running against.
      */

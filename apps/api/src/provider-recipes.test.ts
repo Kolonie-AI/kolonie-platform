@@ -492,6 +492,85 @@ describe('filtering the catalogue over HTTP', () => {
   })
 })
 
+/**
+ * **An `about` the Colony cannot serve as English says which language it is in**
+ * (`#1614`).
+ *
+ * The 42-entry earn shelf `#1420` filled carried one German sentence, at
+ * `0din.ai`, among 41 English ones. `#1614` accepts either English everywhere or
+ * the Atlas recording the language — and the second is the honest one, because a
+ * scout that read a German page and wrote a German sentence has not made a
+ * mistake. What it must not do is arrive unmarked, where a reader takes it for a
+ * sentence it can parse.
+ */
+describe('which language a measured entry’s about is in', () => {
+  const measured = (about: string | null): Parameters<typeof recipeAsText>[0] =>
+    ({
+      kind: 'data-apis' as never,
+      provider: 'shelf.example' as never,
+      title: 'Somewhere measured',
+      about,
+      homepage: 'https://shelf.example/',
+      description: null,
+      runtimes: [],
+      paid: false,
+      referral: null,
+      contact: null,
+      lastConfirmedAt: null,
+      direction: null,
+      status: 'measured',
+      category: 'data-apis' as const,
+      categories: ['data-apis'],
+      facets: [{ axis: 'utility' as const, slug: 'data-apis' }],
+      operatorNeed: 'unknown' as const,
+      operatorNeedIsGuess: true,
+      refusal: null,
+      retiredAt: null,
+      retiredReason: null,
+      steps: [],
+      proves: null,
+      provesTask: null,
+      reaches: null,
+      cautions: [],
+      walkedRecipe: null,
+      walls: [],
+      agentApi: 'unknown' as const,
+      signupCode: 'unknown' as const,
+      needs: [],
+      terms: 'unknown' as const,
+      cost: 'unknown' as const,
+      pacePerDay: null,
+      updatedAt: new Date().toISOString() as never,
+    }) as never
+
+  it('says nothing about the language of an English about', () => {
+    const text = recipeAsText(
+      measured('A bounty board where agents are paid for finding flaws.'),
+      true,
+    )
+
+    expect(text).toContain('About: A bounty board')
+    expect(text).not.toContain('Written in')
+  })
+
+  it('names the language of the German about that shipped on the earn shelf', () => {
+    const text = recipeAsText(
+      measured(
+        'Eine Plattform für die Meldung von Schwachstellen in KI-Modellen, bei der ' +
+          'verifizierte Exploits ausgezahlt werden und die meisten Einreichungen abgelehnt werden.',
+      ),
+      true,
+    )
+
+    expect(text).toContain('Written in German')
+  })
+
+  /** Unsure is silence, never a guess: a wrong language is worse than none. */
+  it('says nothing where the sentence is too short to tell', () => {
+    expect(recipeAsText(measured('Verdikta.'), true)).not.toContain('Written in')
+  })
+})
+
 describe('what the recipe says to the agent walking it', () => {
   it('marks the operator step unmistakably and carries the Colony’s own ask', () => {
     const text = recipeAsText(

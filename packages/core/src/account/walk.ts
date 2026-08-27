@@ -1112,9 +1112,33 @@ export type WalkVerdict =
       readonly published: readonly RecipeStep[]
     }
 
+/**
+ * Whether two `about` sentences say the same thing (`#1614`).
+ *
+ * **Folded on case and trailing punctuation and nothing else.** A scout writing
+ * *a bounty board* against an entry reading *A bounty board.* has agreed, and
+ * treating that as a disagreement would spend a confirmation on typography. Any
+ * difference of wording is left as a difference — the two sentences are then two
+ * claims, and choosing between them is the `writes` branch's job rather than
+ * this comparison's.
+ */
+function aboutsAgree(walked: string | null, published: string | null | undefined): boolean {
+  const fold = (value: string | null | undefined): string =>
+    (value ?? '')
+      .trim()
+      .toLowerCase()
+      .replace(/[.!?]+$/u, '')
+      .replace(/\s+/gu, ' ')
+
+  const one = fold(walked)
+  return one !== '' && one === fold(published)
+}
+
 export function walkVerdict(
   walk: AccountWalk,
-  entry: (Pick<ProviderRecipe, 'status' | 'steps'> & Reaching) | undefined,
+  entry:
+    | (Pick<ProviderRecipe, 'status' | 'steps'> & Reaching & { readonly about?: string | null })
+    | undefined,
 ): WalkVerdict {
   if (walk.outcome === null) {
     return { kind: 'nothing', why: 'the walk has not finished' }
@@ -1154,15 +1178,42 @@ export function walkVerdict(
    * the Colony already stands behind.
    */
   if (walk.outcome === 'sighted') {
-    return entry !== undefined && entry.status !== 'unwritten' && entry.status !== 'measured'
-      ? {
-          kind: 'nothing',
-          why:
-            'this provider is already on the shelf with a Colony-backed status, so a scout ' +
-            'filing adds no measured row — keep the identity facts on the walk; they still feed ' +
-            'the briefing once moderated',
-        }
-      : { kind: 'writes' }
+    if (entry !== undefined && entry.status !== 'unwritten' && entry.status !== 'measured') {
+      return {
+        kind: 'nothing',
+        why:
+          'this provider is already on the shelf with a Colony-backed status, so a scout ' +
+          'filing adds no measured row — keep the identity facts on the walk; they still feed ' +
+          'the briefing once moderated',
+      }
+    }
+
+    /**
+     * **A second scout that saw the same thing dates the entry** (`#1614`).
+     *
+     * A `measured` row carries an `about` and no way to tell when anybody last
+     * looked, and `last_confirmed_at` is the column that answers exactly that —
+     * *has anybody been here lately* — for a route. A scout restating the
+     * sentence already published is the same evidence in the shape a sighted
+     * walk can produce: it saw the page, and the page still says what the entry
+     * says.
+     *
+     * **It confirms rather than writing, and the difference is what a reader
+     * gets.** The `writes` branch below would take the identical sentence and
+     * rewrite the row with itself — no new fact, no date, and a `updated_at`
+     * that moves for a write that changed nothing. `confirms` moves the one
+     * column that says a person or an agent has looked since.
+     *
+     * Agreement is judged on the sentence and nothing else, because that is the
+     * whole of what a sighted walk claims. Anything else the scout says is a
+     * measurement and takes the `writes` branch, where the freshest sentence
+     * wins as it always did.
+     */
+    if (entry?.status === 'measured' && aboutsAgree(walk.about, entry.about)) {
+      return { kind: 'confirms' }
+    }
+
+    return { kind: 'writes' }
   }
 
   if (walk.outcome === 'refused') {

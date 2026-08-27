@@ -9,6 +9,7 @@ import type { AgentId, Log, RhythmBounds, SkillReleases } from '@kolonie-ai/core
 import type { OpenProspects } from '@kolonie-ai/db'
 import type { AcademyDependencies } from './academy.js'
 import type { AccountDependencies } from './accounts.js'
+import type { PageReader } from '@kolonie-ai/verifiers'
 import type { ProviderRecipes } from './provider-recipes.js'
 import type { SiteChromeSource } from './atlas/site-chrome.js'
 import type { WalkStore } from './account-walks.js'
@@ -452,6 +453,15 @@ export interface AppDependencies {
    * nobody has written an entry.
    */
   readonly recipes?: ProviderRecipes
+  /**
+   * The page a sighted walk's `about` is answered against (`#1614`).
+   *
+   * **Optional, and absent means the check does not run** — the arrangement
+   * every other reader on this interface has. A colony assembled without it
+   * files sighted walks exactly as it did before, which is the true answer in a
+   * deployment that cannot reach the web at all.
+   */
+  readonly walkPage?: PageReader | undefined
   /**
    * Where a provider used to be, for the Atlas's redirects (`#546`).
    *

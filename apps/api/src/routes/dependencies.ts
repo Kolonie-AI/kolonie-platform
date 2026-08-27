@@ -14,6 +14,7 @@ import type { SkillNotes } from '../skills.js'
 import type { AcademyDependencies } from '../academy.js'
 import type { AccountDependencies, AccountResolution } from '../accounts.js'
 import type { AccountOfferDependencies } from '../account-offers.js'
+import type { PageReader } from '@kolonie-ai/verifiers'
 import type { ProviderRecipes } from '../provider-recipes.js'
 import type { AtlasRenames } from '../atlas/renames.js'
 import type { AtlasQuestReader } from '../atlas/links.js'
@@ -386,6 +387,13 @@ export interface RouteDependencies {
   readonly accounts: AccountDependencies
   /** The provider catalogue (`#521`), read-only — curation is `#549`'s. */
   readonly recipes: ProviderRecipes
+  /**
+   * The page a sighted walk's `about` is answered against (`#1614`).
+   *
+   * Optional here as it is on the surface it is forwarded to: absent, the check
+   * does not run and a sighted walk files as it did before.
+   */
+  readonly walkPage?: PageReader | undefined
   /** Where a provider used to be, for the Atlas's redirects (`#546`). */
   readonly renames: AtlasRenames
   /**

@@ -1045,6 +1045,42 @@ describe('the record of one agent obtaining one account', () => {
     })
 
     /**
+     * **A second scout that saw the same thing dates the entry** (`#1614`).
+     *
+     * A `measured` row carries an `about` and nothing saying when anybody last
+     * looked, and `last_confirmed_at` is the column that answers exactly that.
+     * Before this, a scout restating the published sentence fell through to the
+     * write branch and rewrote the row with itself — no new fact, and a date
+     * that still said nobody had ever confirmed it.
+     */
+    it('confirms a measured entry a later scout restates, without rewriting it', async () => {
+      const first = await walkInProgress(db, agentId, where)
+      await finishWalk(db, first, {
+        outcome: 'sighted',
+        about: 'A disposable mailbox with a web inbox.',
+        homepage: 'https://somewhere.example/',
+      })
+
+      const written = await providerRecipe(db, where.kind, where.provider)
+      expect(written?.status).toBe('measured')
+      expect(written?.lastConfirmedAt).toBeNull()
+
+      const second = await walkInProgress(db, otherAgentId, where)
+      const finished = await finishWalk(db, second, {
+        outcome: 'sighted',
+        about: 'A disposable mailbox with a web inbox.',
+        homepage: 'https://somewhere.example/',
+      })
+
+      expect(finished?.verdict.kind).toBe('confirms')
+
+      const entry = await providerRecipe(db, where.kind, where.provider)
+      expect(entry?.lastConfirmedAt).not.toBeNull()
+      /** Confirming is a date and not a rewrite: the sentence is the one that was there. */
+      expect(entry?.about).toBe('A disposable mailbox with a web inbox.')
+    })
+
+    /**
      * **A walk that diverged does not overwrite what a steward published.**
      * `#600`'s rule holds inside the mechanism: what the Colony says about
      * somebody else's product passes a person.

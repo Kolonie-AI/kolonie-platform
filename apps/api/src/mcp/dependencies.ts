@@ -6,6 +6,7 @@ import type { AgentId, RhythmBounds, SkillReleases } from '@kolonie-ai/core'
 import type { OpenProspects } from '@kolonie-ai/db'
 import type { AcademyDependencies } from '../academy.js'
 import type { AccountDependencies } from '../accounts.js'
+import type { PageReader } from '@kolonie-ai/verifiers'
 import type { ProviderRecipes } from '../provider-recipes.js'
 import type { AtlasRenames } from '../atlas/renames.js'
 import type { AgentStore } from '../authentication.js'
@@ -173,6 +174,20 @@ export interface McpDependencies {
   readonly accounts: AccountDependencies
   /** The provider catalogue (`#521`), read-only. */
   readonly recipes: ProviderRecipes
+  /**
+   * How a sighted walk's `about` is answered against the page it names (`#1614`).
+   *
+   * **The reader the website rung already has**, on `account-proofs.ts`'
+   * argument: `fetchPage` is the one SSRF-guarded fetch in the codebase, and it
+   * already sorts *there is no page* from *nothing answered*, which is the
+   * distinction this check turns on — a page the Colony could not read has said
+   * nothing about the walker's sentence and must not refuse it.
+   *
+   * **Optional, and absent means the check does not run.** A deployment without
+   * it files sighted walks exactly as it did before, which is the same way every
+   * other reader on this surface degrades.
+   */
+  readonly walkPage?: PageReader | undefined
   /**
    * What a provider name means, for every tool keyed by one (`#772`).
    *

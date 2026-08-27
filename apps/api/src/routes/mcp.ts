@@ -25,6 +25,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
     suggested,
     catalogue,
     recipes,
+    walkPage,
     renames,
     submissions,
     guidance,
@@ -181,6 +182,12 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
           // The provider catalogue (`#521`), which `app.ts` has already resolved to
           // an empty one when nothing was wired.
           recipes,
+          /**
+           * The page a sighted walk's `about` is answered against (`#1614`).
+           * Absent in a deployment that wired no reader, and then the check
+           * simply does not run.
+           */
+          ...(walkPage === undefined ? {} : { walkPage }),
           /**
            * What a provider name means, for the tools keyed by one (`#772`).
            * Resolved in `app.ts` like the catalogue beside it.

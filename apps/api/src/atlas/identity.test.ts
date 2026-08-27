@@ -96,6 +96,29 @@ describe('what a provider page says it is', () => {
   })
 
   /**
+   * `0din.ai` was the one German `about` among 42 entries. The issue accepts it
+   * when the Atlas says which language it is in; the public page is one of the
+   * Atlas's two doors and cannot leave that fact only on the MCP side.
+   */
+  it('names a non-English about’s language on the public page', () => {
+    const html = page({
+      recipes: [
+        recipe({
+          about:
+            'Eine Plattform für die Meldung von Schwachstellen, bei der verifizierte ' +
+            'Exploits ausgezahlt werden und die meisten Einreichungen abgelehnt werden.',
+        }),
+      ] as AtlasEntry['recipes'],
+    })
+
+    expect(html).toContain('Written in German')
+  })
+
+  it('does not add a language label to the ordinary English about', () => {
+    expect(page()).not.toContain('Written in')
+  })
+
+  /**
    * **Decision 4, and the whole of what was left to build.** Silence reads as an
    * assertion: every other absence on these pages is labelled — `ATLAS_NOT_KNOWN`
    * in the criteria box, *nobody has walked this* on a status — because `#1105`

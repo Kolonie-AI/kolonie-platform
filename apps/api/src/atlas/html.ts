@@ -33,6 +33,7 @@ import {
   providerBriefingAgeHours,
   providerClaimsIn,
   REFUSAL_UNSTATED,
+  aboutLanguage,
   throughRate,
   WALL_KIND_MEANINGS,
   type AtlasCategorySlug,
@@ -3687,6 +3688,23 @@ function aboutSection(entry: AtlasPublicEntry): string {
   const parts: string[] = []
   if (about !== undefined && about !== null) {
     parts.push(`<p class="k-about">${escape(about)}</p>`)
+    /**
+     * **An about the Colony cannot serve as English says which language it is**
+     * (`#1614`).
+     *
+     * One of the 42 entries `#1420` filled was written in German, and it arrived
+     * on this page unmarked — a reader met it as though it were the language
+     * every other entry is in. The scout did nothing wrong; what was missing is
+     * the page saying which language it is showing. Silence wherever
+     * `aboutLanguage` is unsure, because a language named wrongly reads as a fact
+     * about the entry rather than as an impression.
+     */
+    if (aboutLanguage(about) === 'de') {
+      parts.push(
+        '<p class="k-about-language"><small>Written in German, as the page the scout ' +
+          'read was.</small></p>',
+      )
+    }
   }
   /**
    * Homepage from scout / first measured presence (`#1296`), on the identity

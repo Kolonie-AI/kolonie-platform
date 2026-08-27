@@ -26,6 +26,7 @@ import type { AgentStore } from '../authentication.js'
 import type { ConsoleDependencies } from '../console.js'
 import type { AdoptionDesk } from '../adoption.js'
 import type { HumanDependencies } from '../humans/humans.js'
+import type { WorkplaceOptions } from '../humans/workplace.js'
 import type { ContributionDependencies } from '../contributions.js'
 import type { ContributionQualitySource } from '../contribution-quality.js'
 import type { StandingHintSource } from '../hints.js'
@@ -438,6 +439,13 @@ export interface RouteDependencies {
   readonly console: ConsoleDependencies
   /** People with accounts, and the provider they sign in through (`#425`). */
   readonly humans: HumanDependencies
+  /**
+   * The workplace SPA's issuer, audience and origin (`#1727`).
+   *
+   * Absent registers no workplace route, so a handler here never has to cope
+   * with a half-configured door.
+   */
+  readonly workplace?: WorkplaceOptions
   /** Redeeming a hand-over code, for a caller with no session and no key (`#459`). */
   readonly adoption?: AdoptionDesk
   /** Resolved from `AppDependencies.rhythm`, so a route never sees `undefined`. */

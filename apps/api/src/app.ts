@@ -43,6 +43,7 @@ import {
 import { registerAcademyRoutes } from './routes/academy.js'
 import { registerProviderEnquiryRoute } from './routes/provider-enquiries.js'
 import { registerConsoleRoutes } from './routes/console.js'
+import { registerWorkplaceRoutes } from './routes/workplace.js'
 import { registerAtlasPages } from './routes/atlas-pages.js'
 import { registerPlaybookPages } from './routes/playbook-pages.js'
 import { registerAvatarRoutes } from './routes/avatars.js'
@@ -125,6 +126,7 @@ export type { AppDependencies } from './dependencies.js'
  */
 export function buildApp({
   humans,
+  workplace,
   citizens,
   avatars,
   registry: unlimitedRegistry,
@@ -540,6 +542,7 @@ export function buildApp({
     ...(walkRefusals === undefined ? {} : { walkRefusals }),
     ...(ticketDesk === undefined ? {} : { ticketDesk }),
     humans,
+    ...(workplace === undefined ? {} : { workplace }),
     ...(adoption === undefined ? {} : { adoption }),
     registry,
     store,
@@ -741,6 +744,9 @@ export function buildApp({
       registerAccountRoutes(v1, routes)
       registerSupportRoutes(v1, routes)
       registerConsoleRoutes(v1, routes)
+      // The other browser door, and the one that is not the console (`#1727`).
+      // Registers nothing where no workplace is configured.
+      registerWorkplaceRoutes(v1, routes)
       registerMailboxRoutes(v1, routes)
       registerKeyRoutes(v1, routes)
       registerSolanaRoutes(v1, routes)

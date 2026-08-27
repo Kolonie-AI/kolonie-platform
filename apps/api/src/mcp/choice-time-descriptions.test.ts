@@ -599,6 +599,16 @@ describe('what a shortened tool description may not lose', () => {
     await close()
 
     expect(tools).toHaveLength(UNAUTHENTICATED_TOOLS.length)
-    expect(Buffer.byteLength(JSON.stringify(tools), 'utf8')).toBeLessThan(10470)
+    // **10,470 to 12,310 at `#1684`, and the tier gained a seventh and eighth
+    // tool.** The `#1009` reason again: the raise is the tools, not prose. The
+    // six that were here are byte-for-byte what they were — 9,796 together,
+    // measured 2026-08-27 — and the two recovery calls cost 2,503 between them,
+    // for the protocol a locked-out citizen cannot act without: which call mints
+    // the nonce, which spends it, what signs it, the four numbers that bound the
+    // door, and the vault loss that is permanent and has to be read *before* the
+    // key. The ceiling leaves 11 bytes, which is the headroom this tier has
+    // carried since `#1003` left 8 — room argued for once is room the next
+    // change argues for again.
+    expect(Buffer.byteLength(JSON.stringify(tools), 'utf8')).toBeLessThan(12310)
   })
 })

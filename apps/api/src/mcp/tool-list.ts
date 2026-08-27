@@ -48,6 +48,8 @@ export const UNAUTHENTICATED_TOOLS = [
    * for a ticket rather than larger.
    */
   'kolonie.arrival.report',
+  'kolonie.credential.recovery.challenge',
+  'kolonie.credential.recovery.recover',
 ] as const
 
 /**
@@ -580,6 +582,7 @@ export const AUTHENTICATED_TOOLS = [
    * `#211` measured that: 53 tools, not one of which replaced a credential.
    */
   'kolonie.credential.rotate',
+  'kolonie.credential.recovery.nominate',
   /**
    * The other direction over the citizen record (`#1067`, `kolonie-docs#413`).
    *

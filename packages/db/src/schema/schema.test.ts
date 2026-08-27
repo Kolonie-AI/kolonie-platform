@@ -457,6 +457,13 @@ describe('schema', () => {
          */
         'contribution_verdicts',
         /**
+         * `#1684`. The citizen's private, permanent record that a recovery
+         * completed. Separate from credentials because a fresh key row should
+         * not publish why it was issued, and this history has two private
+         * readers: the citizen's record and `kolonie.wakeup`.
+         */
+        'credential_recoveries',
+        /**
          * `#1683`: the one-use, fifteen-minute pause before a live API key is
          * replaced. Bound to the credential rather than the citizen, because a
          * citizen may hold several keys and confirming one must not rotate another.
@@ -920,6 +927,14 @@ describe('schema', () => {
          * map, and whether the path somebody walked is fit to follow.
          */
         'recipe_moderations',
+        /**
+         * `#1684`. One nominated recovery factor, each nonce issued against it,
+         * and the citizen's private record of every completed recovery.
+         * Separate tables because their lifetimes differ: a nomination is
+         * replaced, challenges are spent, and a completed recovery is history.
+         */
+        'recovery_challenges',
+        'recovery_nominations',
         /**
          * `registration_confirmations` joined with the pause in front of the
          * front door (`#875`). Registration is two calls, and this is where the

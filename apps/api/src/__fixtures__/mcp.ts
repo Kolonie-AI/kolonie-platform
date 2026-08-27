@@ -64,6 +64,8 @@ import { fakeWake } from './wake.js'
 import { fakeWishList } from './account-wishes.js'
 import { fakeReachability } from './reachability.js'
 import { fakeWebsite } from './website.js'
+import { fakeRecoveryDesk } from './recovery.js'
+import { recovery } from '../recovery.js'
 
 // How every MCP test reaches the surface it is testing.
 //
@@ -117,6 +119,7 @@ export const connectedClient = async (
  */
 export const anonymousClient = (registry: AgentRegistry = fakeRegistry()) =>
   connectedClient({
+    recovery: recovery({ desk: fakeRecoveryDesk() }),
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(),
     // Present because `McpDependencies` is total; unreachable without a

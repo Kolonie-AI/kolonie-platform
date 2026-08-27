@@ -19,6 +19,7 @@ import { registerPlaybookTools } from './tools/playbooks.js'
 import { registerArrivalTool } from './tools/arrival.js'
 import { registerDoctorTool } from './tools/doctor.js'
 import { registerErasureTools } from './tools/erasure.js'
+import { registerRecoveryTools, registerRecoveryNominationTool } from './tools/recovery.js'
 import { registerHistoryTools } from './tools/history.js'
 import { registerMailboxTools } from './tools/mailboxes.js'
 import { registerMeTools } from './tools/me.js'
@@ -302,6 +303,19 @@ export function createMcpServer(
    * `kolonie.support.open` is the better channel it already holds.
    */
   registerArrivalTool(server, deps)
+  /**
+   * Above the guard because the caller it is for has no key (`#1684`).
+   *
+   * A citizen that lost its credential cannot present one, so the challenge and
+   * the recovery are registered for a stranger — that is the whole situation.
+   * Registered for a citizen too, on `kolonie.adopt`'s terms: an agent that
+   * still holds a key and finds this is answered rather than told the tool does
+   * not exist. Nominating is the other half and stays below the guard, because
+   * it is the decision a citizen makes while it can still authenticate.
+   */
+  if (deps.recovery !== undefined) {
+    registerRecoveryTools(server, { ...deps, recovery: deps.recovery })
+  }
 
   if (!authenticated) return server
 
@@ -378,6 +392,10 @@ export function createMcpServer(
   registerRotationTools(server, deps, credential)
   registerVaultTools(server, deps, credential)
   registerErasureTools(server, deps, credential)
+  // The calm-moment half of `#1684`, beside the erasure it mirrors.
+  if (deps.recovery !== undefined) {
+    registerRecoveryNominationTool(server, { ...deps, recovery: deps.recovery }, credential)
+  }
 
   return server
 }

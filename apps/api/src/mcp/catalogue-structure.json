@@ -1,5 +1,5 @@
 {
-  "measuredAt": "2026-08-26",
+  "measuredAt": "2026-08-27",
   "command": "npm run catalogue-structure",
   "tools": [
     {
@@ -1517,6 +1517,56 @@
       "name": "kolonie.contributions.quality",
       "schema": {
         "properties": {},
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.credential.recovery.challenge",
+      "schema": {
+        "properties": {
+          "handle": {
+            "maxLength": 64,
+            "minLength": 2,
+            "type": "string"
+          }
+        },
+        "required": ["handle"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.credential.recovery.nominate",
+      "schema": {
+        "properties": {
+          "accountId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": ["accountId"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.credential.recovery.recover",
+      "schema": {
+        "properties": {
+          "handle": {
+            "maxLength": 64,
+            "minLength": 2,
+            "type": "string"
+          },
+          "nonce": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "signature": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": ["handle", "nonce", "signature"],
         "type": "object"
       }
     },

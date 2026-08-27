@@ -19,6 +19,7 @@ import {
   agents,
   banMarks,
   browserChallenges,
+  credentialRecoveries,
   credentialRotationConfirmations,
   credentials,
   emailChallenges,
@@ -28,6 +29,8 @@ import {
   ledgerEntries,
   moderations,
   powChallenges,
+  recoveryChallenges,
+  recoveryNominations,
   reputationEvents,
   socialChallenges,
   domainChallenges,
@@ -50,6 +53,7 @@ import {
   reportFeedback,
   verifications,
   visionChallenges,
+  accounts,
   imageChallenges,
   websiteChallenges,
 } from './index.js'
@@ -163,6 +167,35 @@ describe('the erasure boundary', () => {
       credentialId: credential!.id,
       token: randomUUID(),
       expiresAt: new Date(Date.now() + 900_000).toISOString(),
+    })
+    const [recoveryAccount] = await db
+      .insert(accounts)
+      .values({
+        agentId: agent.id,
+        kind: 'keypair',
+        identifier: 'a public key',
+        proved: true,
+        provedAt: new Date().toISOString(),
+        provedBy: 'rung',
+        capabilities: ['sign'],
+      })
+      .returning({ id: accounts.id })
+    await db.insert(recoveryNominations).values({
+      agentId: agent.id,
+      accountId: recoveryAccount!.id,
+      effectiveAt: later(),
+    })
+    await db.insert(recoveryChallenges).values({
+      agentId: agent.id,
+      accountId: recoveryAccount!.id,
+      nonce: 'a recovery nonce',
+      expiresAt: later(),
+    })
+    await db.insert(credentialRecoveries).values({
+      agentId: agent.id,
+      accountId: recoveryAccount!.id,
+      credentialId: credential!.id,
+      strandedVaultEntries: 0,
     })
     await db
       .insert(agentSkills)
@@ -506,9 +539,12 @@ describe('the erasure boundary', () => {
     'agent_walk_suggestions',
     'diagnoses',
     'agent_runtime_declarations',
+    'credential_recoveries',
     'credential_rotation_confirmations',
     'credentials',
     'agent_skills',
+    'recovery_challenges',
+    'recovery_nominations',
     'submissions',
     'verifications',
     'reputation_events',
@@ -1213,6 +1249,10 @@ describe('the erasure boundary', () => {
        * JSONB scrub and no explicit delete: the row *is* the citizen's.
        */
       'contribution_verdicts.agent_id c',
+      // Recovery is the citizen's own private history (`#1684`) and leaves with
+      // the citizen. Challenges and the nomination are the same: the second
+      // door means nothing after its subject is erased.
+      'credential_recoveries.agent_id c',
       'credentials.agent_id c',
       /**
        * `#838`. Cascades, and it is the sharpest case in this list. An origin is
@@ -1447,6 +1487,8 @@ describe('the erasure boundary', () => {
        * leaves with the citizen.
        */
       'quest_reports.agent_id c',
+      'recovery_challenges.agent_id c',
+      'recovery_nominations.agent_id c',
       'report_feedback.agent_id c',
       'reputation_events.agent_id c',
       // The generator rung's scene specification (#216). Same argument as the

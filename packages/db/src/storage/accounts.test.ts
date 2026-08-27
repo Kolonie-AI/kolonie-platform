@@ -590,19 +590,19 @@ describe('the account register', () => {
             : `"payload"->>'${source.key}'`
 
         /**
-         * `web-server` is exempt because it postdates the backfill (`#395`).
+         * `web-server` and `keypair` are exempt because they postdate the backfill
+         * (`#395`, `#1684`).
          *
          * The migration is a historical statement about the rows that existed
-         * when it ran, and `web-server-verify` recorded no origin then — there
-         * is nothing for it to have backfilled. A kind added after `0066` has
-         * no history to recover, and pretending otherwise would mean editing a
-         * migration that has already run.
+         * when it ran. A kind added after `0066` has no history to recover, and
+         * pretending otherwise would mean editing a migration that has already
+         * run.
          *
          * The property this test protects is still intact for it: the *only*
          * source of a `web-server` account row is the verdict path, and that
          * path and this map are the same expression.
          */
-        if (skill === 'web-server') continue
+        if (skill === 'web-server' || skill === 'keypair') continue
 
         // `mailbox` and `wallet` are backfilled from their challenge tables,
         // where the identifier is a column rather than a key on a verdict — so

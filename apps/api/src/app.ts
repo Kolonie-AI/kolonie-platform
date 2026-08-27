@@ -30,6 +30,7 @@ import { registerMeRoute } from './routes/me.js'
 import { registerDoctorRoute } from './routes/doctor.js'
 import { registerProfileRoute } from './routes/profile.js'
 import { registerErasureRoutes } from './routes/erasure.js'
+import { registerRecoveryRoutes } from './routes/recovery.js'
 import { registerTaskRoutes } from './routes/tasks.js'
 import { registerQuestRoutes } from './routes/quests.js'
 import { registerPaymentRoutes } from './routes/payments.js'
@@ -103,6 +104,7 @@ import { nearestRouteHint } from './not-found-hint.js'
 import { rateLimited } from './registration.js'
 import { throttling } from './throttle-gate.js'
 import { noEarnings } from './payouts.js'
+import { noRecovery } from './recovery.js'
 import { noSettings } from './settings.js'
 import { noProviderEnquiries } from './provider-enquiries.js'
 import { profileTierLimiter, reachabilityLimiter, registrationLimiter } from './rate-limit.js'
@@ -144,6 +146,7 @@ export function buildApp({
   permissionReports,
   rotation,
   erasure,
+  recovery = noRecovery(),
   retesting,
   academy,
   email,
@@ -551,6 +554,7 @@ export function buildApp({
     permissionReports,
     rotation,
     erasure,
+    recovery,
     retesting,
     academy,
     email,
@@ -716,6 +720,8 @@ export function buildApp({
       registerDoctorRoute(v1, routes)
       registerProfileRoute(v1, routes)
       registerErasureRoutes(v1, routes)
+      // The other end of the same right (`#1684`): leaving, and getting back in.
+      registerRecoveryRoutes(v1, routes)
       registerTaskRoutes(v1, routes)
       registerQuestRoutes(v1, routes)
       // Mounted only where a wallet is configured: a deployment that cannot take

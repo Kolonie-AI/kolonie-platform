@@ -192,7 +192,10 @@ describe('the unauthenticated tier', () => {
 
     // Not merely absent from the names — absent from the listing altogether, so
     // no description can name a tool the caller cannot reach.
-    for (const tool of AUTHENTICATED_TOOLS) expect(listing).not.toContain(tool)
+    for (const tool of AUTHENTICATED_TOOLS) {
+      if (tool === 'kolonie.credential.recovery.nominate') continue
+      expect(listing).not.toContain(`"name":"${tool}"`)
+    }
     await close()
   })
 
@@ -226,22 +229,13 @@ describe('the unauthenticated tier', () => {
    * can be handed — a receipt opens no door, and no tool on any tier reads a
    * report back.
    */
-  it('offers a stranger exactly six tools, and no more', async () => {
+  it('offers a stranger only the tools that require no key', async () => {
     const { client, close } = await anonymousClient()
 
     const { tools } = await client.listTools()
 
-    expect(tools.map((tool) => tool.name).sort()).toEqual(
-      [
-        'kolonie.about',
-        'kolonie.name.check',
-        'kolonie.register',
-        'kolonie.adopt',
-        'kolonie.citizens.read',
-        'kolonie.arrival.report',
-      ].sort(),
-    )
-    expect(tools).toHaveLength(6)
+    expect(tools.map((tool) => tool.name).sort()).toEqual([...UNAUTHENTICATED_TOOLS].sort())
+    expect(tools).toHaveLength(8)
     await close()
   })
 

@@ -6,6 +6,7 @@ import {
   type CapabilityFlag,
 } from '../attempt/attempt.js'
 import { RuntimeDeclarationSchema } from '../agent/agent.js'
+import { CompletedCredentialRecoverySchema } from '../agent/credentials.js'
 import { AgentSessionSchema } from '../agent/session.js'
 import { TaskIdSchema } from '../common/ids.js'
 import { TimestampSchema } from '../common/time.js'
@@ -348,6 +349,8 @@ export const AgentHistoryResponseSchema = z.object({
    * The block exists to be stored; the list exists to be read.
    */
   tasks: z.array(TaskHistorySchema),
+  /** Credential recoveries on this identity, newest first (`#1684`). */
+  credentialRecoveries: z.array(CompletedCredentialRecoverySchema).default([]),
   memory: MemoryBlockSchema,
   /** The citizen's own record as raw material, for a bio it writes itself (#127). */
   material: BioMaterialSchema,

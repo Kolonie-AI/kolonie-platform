@@ -65,6 +65,7 @@ import { databaseOperatorPageMessages } from './operator-page-message.js'
 import { databasePermissionReportStore } from './permission-reports.js'
 import { databaseCredentialRotation } from './rotation.js'
 import { databaseErasureDesk, erasure } from './erasure.js'
+import { databaseRecoveryDesk, recovery } from './recovery.js'
 import { databaseRetesting } from './retest.js'
 import { databaseRegistry } from './registration.js'
 import { databaseChallenges, hcaptchaService } from './academy.js'
@@ -1595,6 +1596,7 @@ const app = buildApp({
    * means the process refuses to boot, in front of an operator watching a deploy.
    */
   erasure: erasure({ desk: databaseErasureDesk(db, marksKey) }),
+  recovery: recovery({ desk: databaseRecoveryDesk(db) }),
   retesting: databaseRetesting(db),
   // No configuration branch, because there is nothing to configure. The keypair
   // rung reads through nothing, so unlike every other Academy surface here it

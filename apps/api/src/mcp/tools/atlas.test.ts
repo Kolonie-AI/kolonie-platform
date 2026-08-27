@@ -50,7 +50,7 @@ describe('the Atlas over MCP', () => {
      * gained the figures, so the count is exactly what it was. Reported here per
      * `#388`'s practice.
      */
-    it('leaves the tool count explicit — 6 unauthenticated, 118 authenticated, 1 steward', () => {
+    it('leaves the tool count explicit — 8 unauthenticated, 119 authenticated, 1 steward', () => {
       // 6 since `#1009` added `kolonie.arrival.report`, the only write in front
       // of the guard: an agent that never got a key is exactly the caller whose
       // trouble the Colony could not otherwise hear about, and a receipt it can
@@ -61,7 +61,7 @@ describe('the Atlas over MCP', () => {
       // this tool existed an agent holding only MCP could not follow it. It is
       // in this tier rather than the one below because the route it wraps takes
       // no credential either.
-      expect(UNAUTHENTICATED_TOOLS.length).toBe(6)
+      expect(UNAUTHENTICATED_TOOLS.length).toBe(8)
       // 118 since `#1652` added `kolonie.academy.list`. **A tool bought to stop
       // paying for a list**: both Academy dispatchers published the live rung
       // vocabulary and a summary per rung, so every new rung grew every
@@ -295,7 +295,7 @@ describe('the Atlas over MCP', () => {
       // columns deliberately, and `archived: false` under a tool called *mark
       // read* would read as *unread*, which it is not. See
       // the-catalogue-encodes-grammar-never-vocabulary.
-      expect(AUTHENTICATED_TOOLS.length).toBe(118)
+      expect(AUTHENTICATED_TOOLS.length).toBe(119)
       // 5 since `#945` took `kolonie.support.notice` out — the one tool here
       // that was not about a quest, now a person's action on `/backend/tickets`
       // rather than a tool a model holds. What is left is quests, entirely.

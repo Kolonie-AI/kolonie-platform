@@ -66,6 +66,7 @@ const AT_THE_START: WakeupStanding = { skillsHeld: [], skillsGrantable: 0, reput
 
 const NOTHING: Changes = {
   accountRechecks: [],
+  credentialRecoveries: [],
   offerOutcomes: [],
   sponsoredQuests: [],
   tasksAdded: [],

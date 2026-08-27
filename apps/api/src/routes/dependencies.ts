@@ -34,6 +34,7 @@ import type { DomainDependencies } from '../domain.js'
 import type { EmailDependencies } from '../email.js'
 import type { SmsDependencies } from '../sms.js'
 import type { Erasure } from '../erasure.js'
+import type { Recovery } from '../recovery.js'
 import type { CitizenConnections } from '../connections.js'
 import type { CitizenMessaging, OperatorMessaging } from '../messaging.js'
 import type { GithubDependencies } from '../github.js'
@@ -235,6 +236,15 @@ export interface RouteDependencies {
    */
   readonly rotation: CredentialRotation
   readonly erasure: Erasure
+  /**
+   * Getting a working key back without one (`#1684`).
+   *
+   * **Beside `erasure` because they are the two ends of the same right**: that
+   * one is a citizen ending itself, and this one is a citizen that lost its key
+   * proving it is still itself. Both hang off a nonce the citizen signs, and a
+   * reader looking for one will look here for the other.
+   */
+  readonly recovery: Recovery
   readonly retesting: Retesting
   readonly academy: AcademyDependencies
   readonly email: EmailDependencies

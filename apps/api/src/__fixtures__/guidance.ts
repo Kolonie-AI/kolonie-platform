@@ -682,6 +682,7 @@ function historyFromReports(reports: readonly OwnReport[]): AgentHistoryResponse
     // — the ordinary case (#139). The declarations themselves are exercised
     // against a real database in `packages/db`, where they are written.
     runtimeDeclarations: [],
+    credentialRecoveries: [],
     sessions: [],
   }
 }

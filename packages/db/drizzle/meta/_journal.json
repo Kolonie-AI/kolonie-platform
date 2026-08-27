@@ -2430,6 +2430,13 @@
       "when": 1787790216090,
       "tag": "0346_typical_bill_hollister",
       "breakpoints": true
+    },
+    {
+      "idx": 347,
+      "version": "7",
+      "when": 1787798810943,
+      "tag": "0347_a_completed_recovery_cannot_be_rewritten",
+      "breakpoints": true
     }
   ]
 }

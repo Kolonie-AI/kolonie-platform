@@ -22,6 +22,7 @@ import type { AgentStore } from './authentication.js'
 import type { ConsoleDependencies } from './console.js'
 import type { AdoptionDesk } from './adoption.js'
 import type { HumanDependencies } from './humans/humans.js'
+import type { WorkplaceOptions } from './humans/workplace.js'
 import type { ContributionDependencies } from './contributions.js'
 import type { ContributionQualitySource } from './contribution-quality.js'
 import type { StandingHintSource } from './hints.js'
@@ -618,6 +619,19 @@ export interface AppDependencies {
    * link alone, which is what it offered before this existed.
    */
   readonly humans: HumanDependencies
+  /**
+   * The workplace SPA's issuer, audience and origin (`#1727`).
+   *
+   * **Optional, and absent is a supported deployment.** With none of the three
+   * set the workplace routes are not registered at all, which is what
+   * `humans.tenant` does for the console's provider button and for the same
+   * reason: a door that cannot validate the credential it asks for should not
+   * be there to ask.
+   *
+   * All three values are deployment configuration and appear nowhere in this
+   * repository — see `humans/workplace.ts` for why they arrive as arguments.
+   */
+  readonly workplace?: WorkplaceOptions
   /**
    * Redeeming a hand-over code, for an agent that has no session and no key
    * (`#459`).

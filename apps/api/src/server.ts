@@ -72,6 +72,7 @@ import { databaseChallenges, hcaptchaService } from './academy.js'
 import { SIGN_IN_CALLBACK_PATH, databaseConsoleStore } from './console.js'
 import { databaseHumanStore } from './humans/humans.js'
 import { auth0Tenant } from './humans/auth0.js'
+import { remoteJwks, type WorkplaceOptions } from './humans/workplace.js'
 import { operatorNoteLimiter, signInAddressLimiter, signInClientLimiter } from './rate-limit.js'
 import { cloudflareMailer, databaseEmailChallenges } from './email.js'
 import { databaseSmsChallenges } from './sms.js'
@@ -584,6 +585,50 @@ if (auth0 === undefined) {
   log.warn('signing in with a provider is disabled — AUTH0_* or CONSOLE_URL not set', {
     event: 'humans.provider.disabled',
     variables: 'AUTH0_DOMAIN,AUTH0_CONSOLE_CLIENT_ID,AUTH0_CONSOLE_CLIENT_SECRET,CONSOLE_URL',
+  })
+}
+
+/**
+ * The workplace SPA's door, or nothing at all (`#1727`).
+ *
+ * **All three or none**, on `auth0` above's reasoning and with one addition of
+ * its own: a half-configured door would validate a token against an issuer or
+ * an audience nobody meant, and the failure would look like *the SPA's token is
+ * wrong* rather than *this deployment was configured wrong*. With none of them
+ * set no workplace route is registered and a caller gets a `404`.
+ *
+ * **All three are configuration and none is in this repository** — that is
+ * `AGENTS.md` §3 and the decision record's own condition. The issuer and the
+ * audience are the tenant's; the origin is the host the workplace is served on,
+ * which `kolonie-infra#243` stood up and which this process is told rather than
+ * deriving from `CONSOLE_URL` — the two are deliberately different origins, and
+ * a default that reached for the console's would be the reflex the record
+ * refuses.
+ */
+const workplaceIssuer = (process.env['WORKPLACE_JWT_ISSUER'] ?? '').trim()
+const workplaceAudience = (process.env['WORKPLACE_JWT_AUDIENCE'] ?? '').trim()
+const workplaceOrigin = (process.env['WORKPLACE_ORIGIN'] ?? '').trim().replace(/\/+$/, '')
+
+const workplace: WorkplaceOptions | undefined =
+  workplaceIssuer !== '' && workplaceAudience !== '' && workplaceOrigin !== ''
+    ? {
+        issuer: workplaceIssuer,
+        audience: workplaceAudience,
+        origin: workplaceOrigin,
+        /**
+         * Built once here rather than per request: `jose` caches the key set
+         * inside this object and refetches on an unknown `kid`, so building it
+         * per call would turn every workplace request into a round trip to the
+         * tenant.
+         */
+        keys: remoteJwks(workplaceIssuer),
+      }
+    : undefined
+
+if (workplace === undefined) {
+  log.warn('the workplace door is disabled — WORKPLACE_* not set', {
+    event: 'workplace.disabled',
+    variables: 'WORKPLACE_JWT_ISSUER,WORKPLACE_JWT_AUDIENCE,WORKPLACE_ORIGIN',
   })
 }
 
@@ -2049,6 +2094,15 @@ const app = buildApp({
     store: databaseHumanStore(db),
     ...(auth0 === undefined ? {} : { tenant: auth0 }),
   },
+  /**
+   * The workplace SPA's bearer door (`#1727`), resolved above.
+   *
+   * Beside `humans` rather than inside it, because this is not a way of signing
+   * a person in — it validates a credential the tenant already issued to one,
+   * and the person is then resolved through `humans.store` like every other
+   * arrival.
+   */
+  ...(workplace === undefined ? {} : { workplace }),
   console: {
     store: databaseConsoleStore(db),
     // The operator-facing mailer, present on the same three variables the

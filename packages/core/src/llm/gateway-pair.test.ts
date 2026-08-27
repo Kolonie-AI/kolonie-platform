@@ -73,6 +73,16 @@ describe('the two configured gateways', () => {
     expect(gatewaysFromEnvironment('moderation', env)).toEqual({ primary: PRIMARY })
   })
 
+  it.each(['', '/v1'])('refuses a missing or relative primary gateway origin: %j', (baseUrl) => {
+    const env = { ...complete, [GATEWAY_BASE_URL_VAR]: baseUrl }
+    expect(gatewaysFromEnvironment('moderation', env)).toEqual({ fallback: FALLBACK })
+  })
+
+  it.each(['', '/v1'])('refuses a missing or relative fallback gateway origin: %j', (baseUrl) => {
+    const env = { ...complete, [FALLBACK_GATEWAY_BASE_URL_VAR]: baseUrl }
+    expect(gatewaysFromEnvironment('moderation', env)).toEqual({ primary: PRIMARY })
+  })
+
   it('leaves an unconfigured primary undefined and can run on the fallback alone', () => {
     const env = { ...complete, [GATEWAY_BASE_URL_VAR]: '' }
     expect(gatewaysFromEnvironment('moderation', env)).toEqual({ fallback: FALLBACK })
@@ -180,6 +190,64 @@ describe('the same request over either gateway', () => {
     expect(under.calls[0]?.url).toBe(`${PRIMARY.baseUrl}/chat/completions`)
   })
 
+  /**
+   * **The failure `#1726` was filed for**, reproduced at the seam that produced
+   * it. Since `#1695` a caller hands the transport `/chat/completions` and the
+   * transport supplies the origin. The primary leg does; the OpenRouter replay
+   * underneath it did not, so a gateway that stopped answering turned every tick
+   * into `Failed to parse URL from /chat/completions` / `ERR_INVALID_URL` —
+   * measured in `moderation-runner` on 2026-08-27, 112 lines in one hour.
+   *
+   * Every URL this transport issues has to be one `new URL` accepts, whichever
+   * leg issued it.
+   */
+  it('never issues a relative URL, on either leg', async () => {
+    const under = transport(new Error('primary unavailable'), completion('{}'))
+    const routed = gatewayRoutedFetch(GATEWAYS, { fetch: under.fetch })
+
+    await routed(...post('/chat/completions', { model: TIER, messages: [], stream: false }))
+
+    expect(under.calls).toHaveLength(2)
+    for (const call of under.calls) expect(() => new URL(call.url)).not.toThrow()
+    expect(under.calls.map((call) => call.url)).toEqual([
+      `${PRIMARY.baseUrl}/chat/completions`,
+      `${FALLBACK.baseUrl}/chat/completions`,
+    ])
+  })
+
+  /**
+   * The production configuration exactly: a primary that has stopped answering
+   * and no second origin configured to replay against.
+   *
+   * **There is nowhere to send it, so nothing is sent.** A named
+   * `GatewayUnavailable` says so; the alternative is the request that cannot be
+   * addressed being issued anyway, which is what `ERR_INVALID_URL` was.
+   */
+  it('refuses to replay a relative path it has no origin for', async () => {
+    const under = transport(new Error('primary unavailable'), completion('{}'))
+    const routed = gatewayRoutedFetch({ primary: PRIMARY }, { fetch: under.fetch })
+
+    await expect(
+      routed(...post('/chat/completions', { model: TIER, messages: [], stream: false })),
+    ).rejects.toBeInstanceOf(GatewayUnavailable)
+
+    expect(under.calls).toHaveLength(1)
+    expect(under.calls[0]?.url).toBe(`${PRIMARY.baseUrl}/chat/completions`)
+  })
+
+  /** An absolute caller URL is still replayed as it always was. */
+  it('replays an absolute caller URL against the provider that supplied it', async () => {
+    const under = transport(new Error('primary unavailable'), completion('{}'))
+    const routed = gatewayRoutedFetch({ primary: PRIMARY }, { fetch: under.fetch })
+
+    await routed(
+      ...post(`${FALLBACK.baseUrl}/chat/completions`, { model: TIER, messages: [], stream: false }),
+    )
+
+    expect(under.calls).toHaveLength(2)
+    expect(under.calls[1]?.url).toBe(`${FALLBACK.baseUrl}/chat/completions`)
+  })
+
   it('runs directly on the fallback when the primary is unconfigured', async () => {
     const under = transport(completion('{}'))
     const routed = gatewayRoutedFetch({ fallback: FALLBACK }, { fetch: under.fetch })
@@ -190,6 +258,16 @@ describe('the same request over either gateway', () => {
 
     expect(under.calls).toHaveLength(1)
     expect(under.calls[0]?.url).toBe(`${FALLBACK.baseUrl}/chat/completions`)
+  })
+
+  it('leaves no client key for a relative-only gateway, as it does for a missing key', () => {
+    const gateways = gatewaysFromEnvironment('moderation', {
+      [GATEWAY_BASE_URL_VAR]: '/v1',
+      [GATEWAY_API_KEY_VARS.moderation]: PRIMARY.apiKey,
+    })
+
+    expect(gateways).toEqual({})
+    expect(gatewayClient(gateways)?.apiKey ?? '').toBe('')
   })
 })
 

@@ -7,6 +7,7 @@ import {
   operatorStandingNeedsAttention,
 } from '../agent/operator-standing.js'
 import { SuspensionStandingSchema } from '../agent/suspension.js'
+import { CompletedCredentialRecoverySchema } from '../agent/credentials.js'
 import { SkillSchema } from '../common/skill.js'
 import { SubmissionIdSchema, SupportTicketIdSchema, TaskIdSchema } from '../common/ids.js'
 import { TimestampSchema } from '../common/time.js'
@@ -1045,6 +1046,8 @@ export const WakeupResponseSchema = z.object({
    * since a field order that drifts is a priority that drifts.
    */
   accountRechecks: z.array(WakeupRecheckSchema),
+  /** Completed credential recoveries inside this window (`#1684`). */
+  credentialRecoveries: z.array(CompletedCredentialRecoverySchema).default([]),
   /**
    * How offers this citizen made ended, and nobody else's (`#1215`).
    *
@@ -1485,6 +1488,7 @@ export type WakeupResponse = z.infer<typeof WakeupResponseSchema>
 export function wakeupIsQuiet(digest: WakeupResponse): boolean {
   return (
     digest.accountRechecks.length === 0 &&
+    digest.credentialRecoveries.length === 0 &&
     // An offer of this citizen's that ended (`#1215`). Loud, because it is the
     // one channel that reports something the citizen set in motion and cannot
     // see the end of: the account it gave away is simply no longer in its list.

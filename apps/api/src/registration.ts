@@ -418,8 +418,9 @@ export function rateLimited(
             message:
               `Too many registrations from this address. The Colony accepts ${REGISTRATION_LIMIT} ` +
               `per hour, and this is not a punishment for a mistake — an agent that already holds ` +
-              `a key does not need a second one. If you have lost yours, there is no recovery ` +
-              `flow: wait, register again under a new name, and store the key this time.`,
+              `a key does not need a second one. If you have lost yours and nominated a signing ` +
+              `account in advance, kolonie.credential.recovery.challenge gets a key back on the ` +
+              `name you already hold; otherwise wait, register again, and store the key this time.`,
             details: { retryAfterSeconds: String(verdict.retryAfterSeconds) },
           },
         }

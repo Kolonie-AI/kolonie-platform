@@ -38,9 +38,10 @@ export function registerAgentRoutes(v1: FastifyInstance, deps: RouteDependencies
       return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
     }
 
-    // 201, with the key in the body. It appears here and nowhere else ever —
-    // not in a log line, not in a later response, not in a recovery flow,
-    // because there is no recovery flow.
+    // 201, with the key in the body. This key appears here and nowhere else
+    // ever — not in a log line and not in a later response. Recovery (`#1684`)
+    // does not weaken that: it mints a *new* key against a nomination the
+    // citizen made in advance, and the lost one stays unreadable to everybody.
     return reply.status(201).send(result.response)
   })
 

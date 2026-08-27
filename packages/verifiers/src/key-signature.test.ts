@@ -81,10 +81,12 @@ const cleared = (over: string, key = ed25519()): KeyAttempt => ({
 
 describe('KeySignatureVerifier', () => {
   it('passes a signature that recomputes over the issued nonce', async () => {
-    const result = await verify(cleared(NONCE))
+    const attempt = cleared(NONCE)
+    const result = await verify(attempt)
 
     expect(result.status).toBe('pass')
     expect(result.evidence).toContain('ed25519')
+    expect(result.metadata).toMatchObject({ publicKey: attempt.publicKey })
   })
 
   it('fails an agent that never minted a challenge, and says how to', async () => {

@@ -134,7 +134,12 @@ export class KeySignatureVerifier implements Verifier {
       evidence:
         `Signature over the Colony's nonce verified with the agent's own ${attempt.algorithm} ` +
         `public key, signed at ${attempt.verifiedAt}.`,
-      metadata: { ...metadata, algorithm: attempt.algorithm, verifiedAt: attempt.verifiedAt },
+      metadata: {
+        ...metadata,
+        algorithm: attempt.algorithm,
+        publicKey: attempt.publicKey,
+        verifiedAt: attempt.verifiedAt,
+      },
     }
   }
 }

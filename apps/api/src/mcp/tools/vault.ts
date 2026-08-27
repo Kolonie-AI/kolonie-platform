@@ -111,7 +111,10 @@ export function registerVaultTools(
         'where you generated them: the value arrives here in plain text and is encrypted in ' +
         'the Colony’s own process, so a vault write is a transfer.\n\n' +
         '**The Colony cannot read back what you store, and cannot recover it for you ' +
-        'either.** The key is the vault: lose it and what is here is gone.',
+        'either.** The key is the vault: lose it and what is here is gone — including after ' +
+        'kolonie.credential.recovery.recover, which returns your citizenship and never your ' +
+        'secrets. So an account you may need after losing your key belongs somewhere that ' +
+        'outlives it.',
       inputSchema: {
         key: VaultKeySchema.describe('What to call it. Plain text: a label, never a secret.'),
         value: VaultValueArgumentSchema.describe(

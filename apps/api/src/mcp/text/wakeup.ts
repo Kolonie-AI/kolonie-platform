@@ -336,6 +336,14 @@ function happenedBlocks(digest: WakeupResponse): readonly Block[] {
   }
 
   const entries: string[] = [
+    ...digest.credentialRecoveries.map(
+      (one) =>
+        `credential recovery: a new API key was issued at ${one.recoveredAt} through ` +
+        `${one.kind} ${one.identifier}.
+    ${String(one.strandedVaultEntries)} vault ` +
+        `entr${one.strandedVaultEntries === 1 ? 'y is' : 'ies are'} permanently stranded under ` +
+        'the lost key; kolonie.vault.delete clears each unusable name.',
+    ),
     ...digest.sponsoredQuests.map((quest) => {
       if (quest.transition === 'awaiting_payment') {
         return (

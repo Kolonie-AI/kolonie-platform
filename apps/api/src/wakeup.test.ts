@@ -72,6 +72,35 @@ describe('the wake-up digest', () => {
     }
   })
 
+  /**
+   * A completed recovery reaches the citizen it happened to (`#1684`).
+   *
+   * **Loud, and reported to nobody else.** The whole value of the trace is that
+   * a citizen whose key was stolen and recovered can see that it happened; a
+   * digest that answered *nothing changed* over the top of one would be the
+   * silence the record exists to break.
+   */
+  it('reports a completed credential recovery, and says what it cost the vault', async () => {
+    source.answersChanges({
+      credentialRecoveries: [
+        {
+          accountId: randomUUID(),
+          kind: 'keypair',
+          identifier: 'a public key',
+          strandedVaultEntries: 2,
+          recoveredAt: '2026-08-27T10:00:00.000Z',
+        },
+      ],
+    })
+
+    const result = await wakeup(agentId, {}, source, noContributions)
+    const text = wakeupAsText(result.response)
+
+    expect(wakeupIsQuiet(result.response)).toBe(false)
+    expect(text).toContain('credential recovery')
+    expect(text).toContain('kolonie.vault.delete')
+  })
+
   it('stays quiet when none of the sponsor’s quests moved', async () => {
     const result = await wakeup(agentId, {}, source, noContributions)
 

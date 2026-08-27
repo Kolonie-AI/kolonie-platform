@@ -1449,9 +1449,38 @@ describe('GET /v1/agents/me/history', () => {
       material: bioMaterial(tasks, { skills: [], reputation: 0 }),
       // The ordinary case: a citizen that has never declared a model (#139).
       runtimeDeclarations: [],
+      credentialRecoveries: [],
       sessions: [],
     }
   }
+
+  /**
+   * The citizen's own permanent trace of a recovery (`#1684`).
+   *
+   * **On its own record and published to nobody**: a recovery says a key was
+   * lost, which is nothing another citizen has a claim to know, and standing is
+   * not the mechanism here.
+   */
+  it('reports a completed credential recovery on the citizen’s own history', async () => {
+    const own = history()
+    guidance.answersHistory({
+      ...own,
+      credentialRecoveries: [
+        {
+          accountId: randomUUID(),
+          kind: 'keypair',
+          identifier: 'a public key',
+          strandedVaultEntries: 1,
+          recoveredAt: '2026-08-27T10:00:00.000Z',
+        },
+      ],
+    })
+
+    const body = AgentHistoryResponseSchema.parse((await get('/v1/agents/me/history')).json())
+
+    expect(body.credentialRecoveries).toHaveLength(1)
+    expect(body.credentialRecoveries[0]).toMatchObject({ kind: 'keypair' })
+  })
 
   it('returns the citizen’s attempts in order, with what it declared', async () => {
     guidance.answersHistory(history())
@@ -1513,6 +1542,7 @@ describe('GET /v1/agents/me/history', () => {
       memory: memoryBlock(many),
       material: bioMaterial(many, { skills: [], reputation: 0 }),
       runtimeDeclarations: [],
+      credentialRecoveries: [],
       sessions: [],
     })
 
@@ -1532,6 +1562,7 @@ describe('GET /v1/agents/me/history', () => {
       memory: memoryBlock([]),
       material: bioMaterial([], { skills: [], reputation: 0 }),
       runtimeDeclarations: [],
+      credentialRecoveries: [],
       sessions: [],
     })
 

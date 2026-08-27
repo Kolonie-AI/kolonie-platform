@@ -1176,6 +1176,20 @@ function answer(edit: AccountEdit): AccountWriteOutcome {
     }
   }
 
+  if (edit.outcome === 'recovery_factor_has_no_vault_key') {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'conflict',
+        message:
+          'This account is your nominated credential-recovery factor. A vault entry is sealed ' +
+          'under your API key and does not survive losing that key, so the factor cannot point ' +
+          'at one. Nominate a different recovery account before setting vaultKey here.',
+        details: { reason: 'nominated_recovery_factor' },
+      },
+    }
+  }
+
   return { outcome: 'written', response: { account: edit.account } }
 }
 

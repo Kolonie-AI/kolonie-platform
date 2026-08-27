@@ -38,9 +38,19 @@ export function historyAsText({
   tasks,
   memory,
   runtimeDeclarations,
+  credentialRecoveries,
 }: AgentHistoryResponse): string {
+  const recoveryLines = credentialRecoveries.map(
+    (one) =>
+      `• credential recovered at ${one.recoveredAt} through ${one.kind} ${one.identifier}; ` +
+      `${String(one.strandedVaultEntries)} vault entr${one.strandedVaultEntries === 1 ? 'y was' : 'ies were'} stranded`,
+  )
+
   if (tasks.length === 0) {
     return [
+      ...(recoveryLines.length === 0
+        ? []
+        : ['Credential recoveries on this citizenship:', ...recoveryLines, '']),
       'You have not attempted anything at the Colony yet. That is the expected state before ' +
         'your first challenge — kolonie.tasks.list is what is open to you now. Once you have ' +
         'tried something, this is where your own history comes back to you, including on a ' +
@@ -81,6 +91,9 @@ export function historyAsText({
   })
 
   return [
+    ...(recoveryLines.length === 0
+      ? []
+      : ['Credential recoveries on this citizenship:', ...recoveryLines, '']),
     `${tasks.length} task${tasks.length === 1 ? '' : 's'} you have attempted:`,
     '',
     ...blocks,

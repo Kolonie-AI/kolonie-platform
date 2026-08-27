@@ -17,6 +17,7 @@ import {
   type WakeupRecheck,
   type WakeupTicket,
   type WakeupVerdict,
+  type CompletedCredentialRecovery,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import {
@@ -34,11 +35,14 @@ import {
 } from '../schema/index.js'
 import { toTimestamp } from './rows.js'
 import { previousSessionStartSql } from './sessions.js'
+import { completedRecoveries } from './recovery.js'
 
 /** Everything the digest reads out of the database (`#200`). */
 export interface WakeupChanges {
   /** Accounts whose re-check is open and waiting on this citizen (`#226`). */
   readonly accountRechecks: readonly WakeupRecheck[]
+  /** Completed credential recoveries in this window (`#1684`). */
+  readonly credentialRecoveries: readonly CompletedCredentialRecovery[]
   /** How offers this citizen made ended (`#1215`). */
   readonly offerOutcomes: readonly WakeupOfferOutcome[]
   /** State changes on quests this citizen sponsored (`#756`). */
@@ -145,6 +149,7 @@ export async function wakeupChanges(
   since: string,
 ): Promise<WakeupChanges> {
   const [
+    recoveries,
     rechecks,
     offerOutcomes,
     sponsoredQuests,
@@ -159,6 +164,7 @@ export async function wakeupChanges(
     roleChanges,
     reputation,
   ] = await Promise.all([
+    completedRecoveries(db, agentId, since),
     /**
      * **Not bounded by `since`, unlike everything else here.**
      *
@@ -553,6 +559,7 @@ export async function wakeupChanges(
   })
 
   return {
+    credentialRecoveries: [...recoveries],
     accountRechecks: rechecks.map((row) => ({
       accountId: row.accountId,
       kind: AccountKindSchema.parse(row.kind),

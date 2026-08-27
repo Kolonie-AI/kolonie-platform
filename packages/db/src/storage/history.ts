@@ -21,6 +21,7 @@ import { recentSessions } from './sessions.js'
 import { reputationOfAgent } from './balance.js'
 import { listOwnReports } from './guidance.js'
 import { skillsOfAgent } from './skills.js'
+import { completedRecoveries } from './recovery.js'
 
 /**
  * Every declaration this citizen made against an attempt, newest first (#228).
@@ -237,7 +238,7 @@ export async function readHistory(
    * a skill can be granted by a route other than a pass, and reputation is
    * summed from `reputation_events` and lives in no column (D-012).
    */
-  const [skills, reputation, profileDeclarations, attemptDeclarations, sessions] =
+  const [skills, reputation, profileDeclarations, attemptDeclarations, sessions, recoveries] =
     await Promise.all([
       skillsOfAgent(db, agentId),
       reputationOfAgent(db, agentId),
@@ -263,6 +264,7 @@ export async function readHistory(
        * questions about a trajectory rather than about a moment.
        */
       recentSessions(db, agentId),
+      completedRecoveries(db, agentId),
     ])
 
   return {
@@ -276,6 +278,7 @@ export async function readHistory(
      * Tuesday* would be a false statement about a citizen.
      */
     tasks: [...narrowHistory(history, request)],
+    credentialRecoveries: [...recoveries],
     memory: memoryBlock(history),
     material: bioMaterial(history, { skills, reputation }),
     /**

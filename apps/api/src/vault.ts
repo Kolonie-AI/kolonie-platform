@@ -190,6 +190,8 @@ export const VAULT_SEALED_WITH_ANOTHER_KEY = 'sealed_with_another_key'
 export const VAULT_SPENT = 'credential_transferred'
 /** A person can currently read this entry, so it may not be written (`#1439`). */
 export const VAULT_SHARED = 'shared_with_operator'
+/** This entry would put the nominated recovery factor behind the key it must survive. */
+export const VAULT_RECOVERY_FACTOR = 'nominated_recovery_factor'
 
 /**
  * The name in the path, checked before anything touches the database.
@@ -286,6 +288,22 @@ export async function storeVaultEntry(
           'you have already replaced. Take it back with kolonie.vault.unshare — that also hands ' +
           'you anything they wrote — and then store the new value.',
         details: { reason: VAULT_SHARED, expiresAt: stored.share.expiresAt },
+      },
+    }
+  }
+
+  if (stored.outcome === 'recovery-factor') {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'conflict',
+        message:
+          `Your account register says "${named.key}" opens the account you nominated for ` +
+          'credential recovery. A vault entry is sealed under your API key and does not survive ' +
+          'losing that key, so storing this factor here would make recovery fail exactly when you ' +
+          'need it. Clear the account’s vaultKey with kolonie.accounts.set or nominate a different ' +
+          'recovery account before storing this entry.',
+        details: { reason: VAULT_RECOVERY_FACTOR, vaultKey: named.key },
       },
     }
   }

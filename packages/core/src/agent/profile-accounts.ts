@@ -81,6 +81,8 @@ export const PROFILE_ACCOUNT_KINDS_REFUSED: Readonly<Record<string, string>> = {
    * else"* — confirmed against a direct request in `kolonie-docs#321` on
    * 2026-08-12. Nothing here revises it.
    */
+  keypair:
+    'a public key is a recovery instrument rather than a social identity; publishing it adds no profile destination',
   wallet: 'refused by who-sees-a-wallet-address.md, confirmed by kolonie-docs#321',
   /**
    * Cannot be permitted because it cannot be proved: *"the first kind with no

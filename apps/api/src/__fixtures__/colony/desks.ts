@@ -10,6 +10,7 @@ import { fakeHumans } from '../humans.js'
 import type { HumanDependencies } from '../../humans/humans.js'
 import { support as supportSurface, type Support } from '../../support.js'
 import { erasure as erasureSurface, type Erasure } from '../../erasure.js'
+import { recovery as recoverySurface, type Recovery } from '../../recovery.js'
 import {
   fakeAutonomy,
   fakeAutonomyStore,
@@ -29,6 +30,7 @@ import { fakeOperatorThreads, type FakeOperatorThreadStore } from '../operator-t
 import type { OperatorThreadDependencies } from '../../operator-threads.js'
 import type { PermissionReportDependencies } from '../../permission-reports.js'
 import { fakeErasureDesk, type FakeErasureDesk } from '../erasure.js'
+import { fakeRecoveryDesk, type FakeRecoveryDesk } from '../recovery.js'
 
 /**
  * The surfaces somebody sits behind: a steward, an operator, an account holder.
@@ -56,6 +58,9 @@ export interface FakeDesks {
    */
   readonly erasure: Erasure
   readonly erasureDesk: FakeErasureDesk
+  /** Recovery surface and its programmable desk (`#1684`). */
+  readonly recovery: Recovery
+  readonly recoveryDesk: FakeRecoveryDesk
   /** The account register, behind both surfaces. Overridable the same way (#150). */
   readonly accounts: AccountDependencies
   /**
@@ -118,6 +123,7 @@ export interface FakeDesks {
 export function fakeDesks(): FakeDesks {
   const desk = fakeSupportDesk()
   const erasureDesk = fakeErasureDesk()
+  const recoveryDesk = fakeRecoveryDesk()
   const accountOfferStore = fakeAccountOffers()
 
   const support = supportSurface({ desk })
@@ -154,6 +160,8 @@ export function fakeDesks(): FakeDesks {
     permissionReportStore: permissionReports.store,
     erasure: erasureSurface({ desk: erasureDesk }),
     erasureDesk,
+    recovery: recoverySurface({ desk: recoveryDesk }),
+    recoveryDesk,
     accounts: fakeAccounts(),
     accountOffers: { offers: accountOfferStore },
     accountOfferStore,

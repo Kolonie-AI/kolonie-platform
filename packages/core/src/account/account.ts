@@ -24,6 +24,14 @@ export const KNOWN_ACCOUNT_KINDS = [
   'website',
   'wallet',
   /**
+   * A public key the citizen proved it can sign with (`#1684`).
+   *
+   * It joins the register now because recovery nominates an account row, not a
+   * skill. The identifier is the PEM public key already stored as the rung's
+   * evidence; the private key never reaches the Colony or the vault.
+   */
+  'keypair',
+  /**
    * A phone number the citizen holds (`kolonie-platform#411`).
    *
    * **Several are ordinary, exactly as several mailboxes are.** One of them is

@@ -13,7 +13,7 @@ import type { Database, Transaction } from '../client.js'
 import { noteRecheck } from './account-threads.js'
 import { accountKindIsUnique, accounts } from '../schema/accounts.js'
 import { mailboxIdentity } from '../schema/email.js'
-import { submissions, verifications } from '../schema/index.js'
+import { submissions, verifications, recoveryNominations, agents } from '../schema/index.js'
 import { isUniqueViolation } from './errors.js'
 import { recordMeasuredProvider } from './provider-recipes.js'
 import { toTimestamp } from './rows.js'
@@ -294,6 +294,7 @@ export const ACCOUNT_FROM_SKILL: Readonly<
    */
   'web-server': { kind: 'web-server', from: 'metadata', key: 'origin', proves: ['control'] },
   wallet: { kind: 'wallet', from: 'metadata', key: 'address', proves: ['sign'] },
+  keypair: { kind: 'keypair', from: 'metadata', key: 'publicKey', proves: ['sign'] },
 }
 
 /**
@@ -399,6 +400,8 @@ export type AccountEdit =
   | { readonly outcome: 'not_found' }
   /** A preference was asked for on a mailbox, where the reach address decides. */
   | { readonly outcome: 'mail_has_no_preference' }
+  /** The account is the citizen's recovery factor, which must survive its API key. */
+  | { readonly outcome: 'recovery_factor_has_no_vault_key' }
 
 /**
  * Set the status of one of the caller's accounts.
@@ -681,7 +684,27 @@ export async function setAccountVaultKey(
   accountId: string,
   vaultKey: string | null,
 ): Promise<AccountEdit> {
-  return editOwn(db, agentId, accountId, { vaultKey })
+  if (vaultKey === null) return editOwn(db, agentId, accountId, { vaultKey })
+
+  return db.transaction(async (tx) => {
+    /**
+     * Serialize with nomination on the citizen row. A check followed by an
+     * update without this lock lets nomination and vault linking each see the
+     * old state and commit the forbidden pair together.
+     */
+    await tx.select({ id: agents.id }).from(agents).where(eq(agents.id, agentId)).for('update')
+
+    const [nomination] = await tx
+      .select({ accountId: recoveryNominations.accountId })
+      .from(recoveryNominations)
+      .where(
+        and(eq(recoveryNominations.agentId, agentId), eq(recoveryNominations.accountId, accountId)),
+      )
+      .limit(1)
+
+    if (nomination !== undefined) return { outcome: 'recovery_factor_has_no_vault_key' }
+    return editOwn(tx, agentId, accountId, { vaultKey })
+  })
 }
 
 /**
@@ -935,7 +958,7 @@ export async function accountOf(
 }
 
 async function editOwn(
-  db: Database,
+  db: Handle,
   agentId: AgentId,
   accountId: string,
   set: Partial<{

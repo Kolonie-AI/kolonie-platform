@@ -9,6 +9,7 @@ import type { Database, Transaction } from '../client.js'
 import { agentVault } from '../schema/vault.js'
 import { openVaultValue, sealVaultValue, vaultDescriptionScope } from '../vault-crypto.js'
 import { toTimestamp } from './rows.js'
+import { vaultKeyOpensNominatedAccount } from './recovery-nominations.js'
 import { openShareFor, openSharesFor, type VaultShareRow } from './vault-shares.js'
 
 /** One entry as the citizen sees it: its name, its description, and when it moved. */
@@ -77,6 +78,11 @@ export type SetVaultEntryOutcome =
    * this function can write under a share by not knowing about one.
    */
   | { readonly outcome: 'shared'; readonly share: VaultShareRow }
+  /**
+   * This name opens the account the citizen nominated as its recovery factor
+   * (`#1684`). Storing it here would make the factor die with the API key.
+   */
+  | { readonly outcome: 'recovery-factor' }
 
 /** What happened when a citizen asked for one back. */
 export type GetVaultEntryOutcome =
@@ -157,6 +163,21 @@ export async function setVaultEntry(
     .limit(1)
 
   const replacing = held.length > 0
+
+  /**
+   * The circular dependency, refused from the vault's side (`#1684`).
+   *
+   * **Before the share check and before anything is sealed**, because this is
+   * the one refusal that is about what the entry *would mean* rather than about
+   * the row: an entry opening the nominated account would be sealed under the
+   * API key the nomination exists to survive, so the factor would die at the
+   * same instant, by the same cause, as the key. `nominateRecoveryAccount`
+   * refuses the same pair from the other side; a citizen can otherwise reach the
+   * state by doing the two acts in the other order.
+   */
+  if (await vaultKeyOpensNominatedAccount(db, agentId, key)) {
+    return { outcome: 'recovery-factor' }
+  }
 
   /**
    * Checked before the quota and before anything is sealed, because a refusal

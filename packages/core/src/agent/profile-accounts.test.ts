@@ -32,10 +32,13 @@ describe('which kinds a profile may name', () => {
   })
 
   /** Each refusal carries its argument, because a refusal by silence is what this replaced. */
-  it.each(['mailbox', 'phone', 'wallet', 'image-model'])('refuses %s with a reason', (kind) => {
-    expect(mayShowOnProfile(kind)).toBe(false)
-    expect(PROFILE_ACCOUNT_KINDS_REFUSED[kind]).toMatch(/\S/)
-  })
+  it.each(['mailbox', 'phone', 'wallet', 'keypair', 'image-model'])(
+    'refuses %s with a reason',
+    (kind) => {
+      expect(mayShowOnProfile(kind)).toBe(false)
+      expect(PROFILE_ACCOUNT_KINDS_REFUSED[kind]).toMatch(/\S/)
+    },
+  )
 
   /** No kind is on both lists, which would make `mayShowOnProfile` and the prose disagree. */
   it('never permits and refuses the same kind', () => {

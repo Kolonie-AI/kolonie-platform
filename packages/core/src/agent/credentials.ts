@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { AgentIdSchema, CredentialIdSchema } from '../common/ids.js'
 import { TimestampSchema } from '../common/time.js'
+import { SignatureAlgorithmSchema, SignatureSchema } from '../common/signature.js'
 
 /** Prefix every issued key carries, so leaked keys are greppable in logs. */
 export const API_KEY_PREFIX = 'kol_'
@@ -283,3 +284,89 @@ export const RotateCredentialResponseSchema = z.object({
   vault: VaultReSealSchema,
 })
 export type RotateCredentialResponse = z.infer<typeof RotateCredentialResponseSchema>
+
+/**
+ * The four numbers that make a recovery factor a narrow second door (`#1684`).
+ *
+ * Constants rather than duplicated literals: storage enforces them, MCP says
+ * them, and tests pin them here. A number that drifted between those readers
+ * would be a security property in one process and documentation in another.
+ */
+export const RECOVERY_CHALLENGE_TTL_SECONDS = 15 * 60
+export const RECOVERY_ATTEMPT_LIMIT = 3
+export const RECOVERY_ATTEMPT_WINDOW_SECONDS = 24 * 60 * 60
+export const RECOVERY_NOMINATION_DELAY_SECONDS = 48 * 60 * 60
+
+/** The authenticated decision to make one proved account the recovery factor. */
+export const RecoveryNominationRequestSchema = z
+  .object({
+    /** One of the caller's own proved accounts. Ownership comes from authentication. */
+    accountId: z.uuid(),
+  })
+  .strict()
+export type RecoveryNominationRequest = z.infer<typeof RecoveryNominationRequestSchema>
+
+/** What the citizen sees of the one recovery factor it nominated. */
+export const RecoveryNominationSchema = z
+  .object({
+    accountId: z.uuid(),
+    kind: z.string().min(1),
+    identifier: z.string().min(1),
+    nominatedAt: TimestampSchema,
+    effectiveAt: TimestampSchema,
+    effective: z.boolean(),
+  })
+  .strict()
+export type RecoveryNomination = z.infer<typeof RecoveryNominationSchema>
+
+/** A nonce issued before a locked-out citizen signs anything. */
+export const CredentialRecoveryChallengeSchema = z
+  .object({
+    nonce: z.string().min(1),
+    expiresAt: TimestampSchema,
+    /** PEM-backed keypairs name their algorithm; a Solana wallet is intrinsically Ed25519. */
+    algorithm: SignatureAlgorithmSchema.nullable(),
+    attemptsRemaining: z.number().int().nonnegative().max(RECOVERY_ATTEMPT_LIMIT),
+  })
+  .strict()
+export type CredentialRecoveryChallenge = z.infer<typeof CredentialRecoveryChallengeSchema>
+
+/** The unauthenticated second call, bound to a named citizen by its challenge row. */
+export const CredentialRecoveryRequestSchema = z
+  .object({
+    /** A permanent public name, not a secret and not an internal id. */
+    handle: z.string().min(2).max(64),
+    nonce: z.string().min(1),
+    signature: SignatureSchema,
+  })
+  .strict()
+export type CredentialRecoveryRequest = z.infer<typeof CredentialRecoveryRequestSchema>
+
+/** The vault remains sealed under the lost key; this count is the trace of that fact. */
+export const RecoveryVaultStateSchema = z
+  .object({
+    stranded: z.number().int().nonnegative(),
+  })
+  .strict()
+export type RecoveryVaultState = z.infer<typeof RecoveryVaultStateSchema>
+
+/** Citizenship restored, secrets deliberately not restored. */
+export const CredentialRecoveryResponseSchema = z
+  .object({
+    credentials: AgentCredentialsSchema,
+    vault: RecoveryVaultStateSchema,
+  })
+  .strict()
+export type CredentialRecoveryResponse = z.infer<typeof CredentialRecoveryResponseSchema>
+
+/** One completed recovery, visible only on the recovered citizen's own surfaces. */
+export const CompletedCredentialRecoverySchema = z
+  .object({
+    accountId: z.uuid(),
+    kind: z.string().min(1),
+    identifier: z.string().min(1),
+    strandedVaultEntries: z.number().int().nonnegative(),
+    recoveredAt: TimestampSchema,
+  })
+  .strict()
+export type CompletedCredentialRecovery = z.infer<typeof CompletedCredentialRecoverySchema>

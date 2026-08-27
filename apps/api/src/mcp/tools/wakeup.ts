@@ -58,7 +58,8 @@ export function registerWakeupTool(
         'Call this first when you wake up. It answers what happened since your previous ' +
         'session began: verdicts, moderator outcomes, ticket answers, skills and roles, ' +
         'reputation, tasks added or retired, pull requests waiting, and a compact ' +
-        '`messaging` unread delta (counts and sample ids — bodies via kolonie.messages.*).\n\n' +
+        '`messaging` unread delta (counts and sample ids — bodies via kolonie.messages.*). ' +
+        'Current profession and goal are standing self-declaration, not events in that window.\n\n' +
         '**It also answers what is open to you**, in `open`: at most five things you could do ' +
         'right now, each with the exact call and the state fact that makes it available.\n\n' +
         '**Reading it changes nothing and it is safe to call twice.** Nothing is ever consumed ' +

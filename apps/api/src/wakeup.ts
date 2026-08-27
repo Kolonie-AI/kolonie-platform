@@ -9,6 +9,7 @@ import {
   WAKEUP_FINAL_LINE,
   type AgentId,
   type WakeupMessagingDelta,
+  type WakeupIdentity,
   type WakeupVaultSharesDelta,
   type WakeupOpen,
   type Task,
@@ -25,6 +26,7 @@ import {
 } from '@kolonie-ai/core'
 import {
   countWaitingOperatorReplies,
+  agentProfile,
   escalationFactsFor,
   messagingWakeupDelta,
   movedThreadFor,
@@ -108,6 +110,14 @@ export interface WakeupSource {
    * citizen that asked for a narrow window.
    */
   wantedAccounts(agentId: AgentId): Promise<readonly WakeupWantedAccount[]>
+  /**
+   * The citizen's current self-declared orientation (`#1740`).
+   *
+   * **Its own call rather than part of `changes`**, because neither profession
+   * nor goal is an event inside a window. Reading the current profile also keeps
+   * this private self-reading independent of the moderated publication copy.
+   */
+  identity(agentId: AgentId): Promise<WakeupIdentity>
   /**
    * Where the citizen stands (`#344`).
    *
@@ -222,6 +232,9 @@ export interface WakeupSource {
       | 'operatorStanding'
       | 'accountsWanted'
       | 'open'
+      // Read from the current profile on its own source call (`#1740`). Identity
+      // is standing self-declaration, not news inside the requested window.
+      | 'identity'
       | 'standing'
       | 'pays'
       // Computed in `wakeup` from `open` and the delta this port returned
@@ -343,6 +356,13 @@ export function databaseWakeup(db: Database, rechecks?: RecheckDependencies): Wa
         operatorNeed: row.operatorNeed,
         operatorNeedIsGuess: row.operatorNeedIsGuess,
       }))
+    },
+    identity: async (agentId) => {
+      const agent = await agentProfile(db, agentId)
+      return {
+        profession: agent?.profile.profession ?? null,
+        goal: agent?.profile.goal ?? null,
+      }
     },
     standing: (agentId) => wakeupStanding(db, agentId),
     recordAnswer: (agentId, fingerprint, quiet) =>
@@ -651,6 +671,7 @@ export async function wakeup(
     wakeChannel,
     operatorStanding,
     accountsWanted,
+    identity,
     standing,
     open,
     startableAdded,
@@ -664,6 +685,7 @@ export async function wakeup(
     source.wakeChannel(agentId),
     source.operatorStanding(agentId),
     source.wantedAccounts(agentId),
+    source.identity(agentId),
     source.standing(agentId),
     openings === undefined
       ? Promise.resolve(NOTHING_OPEN)
@@ -853,6 +875,7 @@ export async function wakeup(
     response: {
       since,
       firstSession,
+      identity,
       standing,
       open: escalated,
       actionableNow,

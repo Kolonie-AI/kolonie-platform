@@ -62,9 +62,12 @@ const CEILING_BYTES = 15_000
  * Moved again, on 2026-08-19, from 1,663 to 1,623 — **downwards, by forty**.
  * `#1287` trimmed the entry to name the compact `messaging` unread delta; the
  * fixture was not restamped with that commit. Restamped on tip after later trims.
+ * Moved on 2026-08-27 from 1,621 to 1,707 bytes. `#1740` deliberately adds
+ * current profession and goal as standing self-declaration, distinct from the
+ * window, so a client choosing this call knows the two orientation fields exist.
  */
-const WAKEUP_PROSE_BYTES = 1621
-const WAKEUP_PROSE_SHA256 = '05390899fdf5e2f34caa4c2b428ff1ce12272f717c405cf6d13982b43af1e4b1'
+const WAKEUP_PROSE_BYTES = 1707
+const WAKEUP_PROSE_SHA256 = 'e637588bd9e6b91bae435a40f4ebf936e70a9590012a78d4ff4041875d46e94f'
 
 /** The catalogue a connected citizen is handed — the tier the prose is paid for at. */
 const servedCatalogue = async (): Promise<readonly PublishedTool[]> => {

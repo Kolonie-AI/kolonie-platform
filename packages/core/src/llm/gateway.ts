@@ -264,6 +264,32 @@ function modelFromEnvironment(
   )
 }
 
+/**
+ * Whether an address can carry a request on its own (`#1726`).
+ *
+ * **A base URL that is not absolute is not configuration, it is a defect that
+ * survives to the first call.** Since `#1695` a caller hands the transport
+ * `/chat/completions` and the transport supplies the origin, so a relative base
+ * produces a relative request URL — and `fetch` answers that with
+ * `Failed to parse URL from /chat/completions` / `ERR_INVALID_URL`, on every
+ * tick, naming neither the variable nor the service. That is what
+ * `moderation-runner` logged 112 times in an hour on 2026-08-27.
+ *
+ * Refusing it here puts a half-set variable where a missing one already is: the
+ * gateway is `undefined`, the service degrades the way an absent key degrades,
+ * and the work waits for the deploy that fixes the value. **The check is on the
+ * shape and not on the host** — nothing here may know where a gateway of ours
+ * lives (D-141 §6).
+ */
+function isAbsoluteOrigin(baseUrl: string): boolean {
+  try {
+    const { protocol } = new URL(baseUrl)
+    return protocol === 'http:' || protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
 function configuredGateway(
   configuredBaseUrl: string | undefined,
   configuredApiKey: string | undefined,
@@ -272,6 +298,7 @@ function configuredGateway(
   const baseUrl = (configuredBaseUrl ?? '').trim()
   const apiKey = (configuredApiKey ?? '').trim()
   if (baseUrl === '' || apiKey === '' || configuredModel === '') return undefined
+  if (!isAbsoluteOrigin(baseUrl)) return undefined
   return { baseUrl: baseUrl.replace(/\/+$/, ''), apiKey, model: configuredModel }
 }
 
@@ -319,6 +346,16 @@ function relativePath(input: string): string | undefined {
     return new URL(input).pathname
   } catch {
     return undefined
+  }
+}
+
+function relativeInput(input: Parameters<typeof fetch>[0]): boolean {
+  if (typeof input !== 'string') return false
+  try {
+    new URL(input)
+    return false
+  } catch {
+    return true
   }
 }
 
@@ -395,10 +432,28 @@ export function gatewayRoutedFetch(
     })
 
     if (fallback === undefined) {
+      /**
+       * **The replay needs an origin, and a relative caller URL has none**
+       * (`#1726`). Since `#1695` a caller hands over `/chat/completions` and
+       * whichever gateway answers supplies the rest, so replaying the caller's
+       * own input here issued a relative URL and `fetch` rejected it with
+       * `ERR_INVALID_URL` — every tick, for as long as the gateway was down.
+       *
+       * There is nowhere to send it, so nothing is sent. The named failure is
+       * what {@link gatewayOnlyFetch} already throws and what every caller here
+       * already treats as *the provider did not answer*: the row stays in its
+       * queue and the next poll tries again. Issuing an unaddressable request
+       * instead bought a `TypeError` a reader traced to a URL rather than to a
+       * gateway that was not there.
+       */
+      if (relativeInput(input)) throw new GatewayUnavailable(attempt.reason, attempt.detail)
       return stamp(await underlying(input, init), 'openrouter', attempt.reason, attempt.detail)
     }
     const fallbackRequest = gatewayRequest(fallback, input, init)
-    if (fallbackRequest === undefined) return underlying(input, init)
+    if (fallbackRequest === undefined) {
+      if (relativeInput(input)) throw new GatewayUnavailable(attempt.reason, attempt.detail)
+      return underlying(input, init)
+    }
     return stamp(
       await underlying(fallbackRequest.url, fallbackRequest.init),
       'openrouter',

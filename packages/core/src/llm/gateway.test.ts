@@ -106,6 +106,18 @@ describe('reading the gateway out of the environment', () => {
       })?.baseUrl,
     ).toBe('https://gateway.invalid/v1')
   })
+
+  it.each(['/v1', 'gateway.invalid/v1', ''])(
+    'treats a missing or relative address like missing configuration: %j',
+    (baseUrl) => {
+      expect(
+        gatewayFromEnvironment('moderation', {
+          [GATEWAY_BASE_URL_VAR]: baseUrl,
+          [GATEWAY_API_KEY_VARS.moderation]: 'k',
+        }),
+      ).toBeUndefined()
+    },
+  )
 })
 
 describe('a chat completion with a gateway configured', () => {

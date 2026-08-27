@@ -73,10 +73,16 @@ export interface CitizenMessaging {
    *
    * `kind` narrows to one sort of thread (`#1288`) — `operator-human` is *what
    * did my operator say*, `citizen` is the DMs, and omitting it is everything.
+   * `idle` is the other axis (`#1560`): `true` is only idle threads, `false`
+   * excludes them, and omitting it returns both, idle last.
    */
   listThreads(
     agentId: AgentId,
-    options?: { readonly kind?: ConversationKind; readonly archived?: boolean },
+    options?: {
+      readonly kind?: ConversationKind
+      readonly archived?: boolean
+      readonly idle?: boolean
+    },
   ): Promise<readonly Conversation[]>
   /** One conversation's messages; refused to anybody who is not in it. */
   getThread(agentId: AgentId, conversationId: ConversationId): Promise<ThreadResponse>

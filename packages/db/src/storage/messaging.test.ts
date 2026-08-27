@@ -38,6 +38,7 @@ import {
   conversationsAboutAccount,
   blockSender,
   declineMessageRequest,
+  CONVERSATION_LIST_LIMIT,
   listConversations,
   listMessageRequests,
   listOperatorConversations,
@@ -644,6 +645,152 @@ describe('private messaging', () => {
   })
 
   describe('a citizen’s own inbox', () => {
+    describe('idle threads (#1560)', () => {
+      const ageConversation = async (conversationId: string, days: number): Promise<void> => {
+        await db
+          .update(messages)
+          .set({ createdAt: sql`now() - make_interval(days => ${days})` })
+          .where(eq(messages.conversationId, conversationId))
+      }
+
+      /** A subject, so that each open is its own thread rather than the same one. */
+      const aSubject = async (type: string): Promise<string> => {
+        const [row] = await db
+          .insert(tasks)
+          .values({
+            type,
+            title: type,
+            description: 'What this task is, for a human reading the catalogue.',
+            instructions: 'What the agent must actually do.',
+            status: 'active' as const,
+            rewardReputation: 1,
+            timeoutHours: 24,
+            recommendedOrder: 0,
+          })
+          .returning({ id: tasks.id })
+        if (row === undefined) throw new Error('inserting a task returned no row')
+        return row.id
+      }
+
+      it('sorts idle threads after fresh ones without changing recency inside either group', async () => {
+        const citizen = await anAgent('citizen')
+        const operator = await aPerson(citizen)
+        const fresh = await sendSystemMessage(db, 'doctor', citizen, 'Fresh.')
+        const oldestIdle = await sendOperatorMessage(db, operator, citizen, 'Oldest idle.', 'op')
+        const newestIdle = await sendSystemMessage(db, 'support', citizen, 'Newest idle.')
+        if (
+          oldestIdle.outcome !== 'delivered' ||
+          newestIdle.outcome !== 'delivered' ||
+          fresh.outcome !== 'delivered'
+        ) {
+          throw new Error('unreachable')
+        }
+        await ageConversation(oldestIdle.conversationId, 32)
+        await ageConversation(newestIdle.conversationId, 31)
+
+        expect((await listConversations(db, citizen)).map((thread) => thread.id)).toEqual([
+          fresh.conversationId,
+          newestIdle.conversationId,
+          oldestIdle.conversationId,
+        ])
+      })
+
+      it('filters idle and non-idle threads before applying the listing limit', async () => {
+        const citizen = await anAgent('citizen')
+        const operator = await aPerson(citizen)
+        const idle = await sendOperatorMessage(db, operator, citizen, 'Idle.', 'op')
+        const fresh = await sendSystemMessage(db, 'doctor', citizen, 'Fresh.')
+        if (idle.outcome !== 'delivered' || fresh.outcome !== 'delivered') {
+          throw new Error('unreachable')
+        }
+        await ageConversation(idle.conversationId, 31)
+
+        expect(
+          (await listConversations(db, citizen, { idle: true })).map((thread) => thread.id),
+        ).toEqual([idle.conversationId])
+        expect(
+          (await listConversations(db, citizen, { idle: false })).map((thread) => thread.id),
+        ).toEqual([fresh.conversationId])
+      })
+
+      /**
+       * **The filter is in the where clause, before the ceiling** — the reason
+       * `kindIs` and `archivedIs` are, restated for this one. A citizen holding
+       * a full page of idle threads *and* some fresh ones gets
+       * {@link CONVERSATION_LIST_LIMIT} idle threads when it asks for idle. A
+       * filter applied to the mapped rows would take the fresh ones inside the
+       * limit and hand back fewer than the limit, which is the failure a caller
+       * cannot see: the answer looks like *that is all you have*.
+       */
+      it('filters in SQL, so a full page of idle threads is not thinned by fresh ones', async () => {
+        const citizen = await anAgent('citizen')
+        const operator = await aPerson(citizen)
+        for (let index = 0; index < CONVERSATION_LIST_LIMIT; index += 1) {
+          const stale = await openOperatorHelpConversation(db, citizen, {
+            body: `Idle number ${index}.`,
+            provenance: { taskId: (await aSubject(`idle-${index}`)) as never, wishId: null },
+          })
+          if (stale.outcome !== 'delivered') throw new Error('unreachable')
+          await ageConversation(stale.conversationId, 31)
+        }
+        const fresh = await sendOperatorMessage(db, operator, citizen, 'Fresh.', 'op')
+        if (fresh.outcome !== 'delivered') throw new Error('unreachable')
+
+        const idleOnly = await listConversations(db, citizen, { idle: true })
+        expect(idleOnly).toHaveLength(CONVERSATION_LIST_LIMIT)
+        expect(idleOnly.map((thread) => thread.id)).not.toContain(fresh.conversationId)
+      })
+
+      it('stops treating a thread as idle on the next read after a fresh message', async () => {
+        const citizen = await anAgent('citizen')
+        const operator = await aPerson(citizen)
+        const thread = await sendOperatorMessage(db, operator, citizen, 'Old.', 'op')
+        if (thread.outcome !== 'delivered') throw new Error('unreachable')
+        await ageConversation(thread.conversationId, 31)
+        expect((await listConversations(db, citizen, { idle: true }))[0]?.id).toBe(
+          thread.conversationId,
+        )
+
+        await sendOperatorMessage(
+          db,
+          operator,
+          citizen,
+          'Fresh.',
+          'op',
+          undefined,
+          thread.conversationId,
+        )
+
+        expect(await listConversations(db, citizen, { idle: true })).toEqual([])
+        expect((await listConversations(db, citizen, { idle: false }))[0]?.id).toBe(
+          thread.conversationId,
+        )
+      })
+
+      it('keeps idle filtering orthogonal to archive state', async () => {
+        const citizen = await anAgent('citizen')
+        const operator = await aPerson(citizen)
+        const idle = await sendOperatorMessage(db, operator, citizen, 'Idle.', 'op')
+        const fresh = await sendSystemMessage(db, 'doctor', citizen, 'Fresh.')
+        if (idle.outcome !== 'delivered' || fresh.outcome !== 'delivered') {
+          throw new Error('unreachable')
+        }
+        await ageConversation(idle.conversationId, 31)
+        await archiveConversationForCitizen(db, citizen, idle.conversationId, true)
+
+        expect(await listConversations(db, citizen, { idle: true })).toEqual([])
+        expect(
+          (await listConversations(db, citizen, { archived: true, idle: true })).map(
+            (thread) => thread.id,
+          ),
+        ).toEqual([idle.conversationId])
+        expect(await listConversations(db, citizen, { archived: true, idle: false })).toEqual([])
+        expect((await listConversations(db, citizen)).map((thread) => thread.id)).toEqual([
+          fresh.conversationId,
+        ])
+      })
+    })
+
     it('tells an operator thread from a citizen DM, and narrows to either', async () => {
       const citizen = await anAgent('citizen')
       const other = await anAgent('other')

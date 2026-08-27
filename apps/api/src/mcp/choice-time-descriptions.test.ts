@@ -359,6 +359,9 @@ describe('what a shortened tool description may not lose', () => {
     const threads = await descriptionOf('kolonie.messages.list_threads')
     expect(threads).toMatch(/yours alone/i)
     expect(threads).toMatch(/threads you archived are left out/i)
+    // An idle thread sorting last rather than leaving decides whether a citizen
+    // reads the bottom of its own listing (`#1560`).
+    expect(threads).toMatch(/idle/i)
 
     // Untrusted content is on the tool that hands over whole bodies.
     expect(await descriptionOf('kolonie.messages.get_thread')).toMatch(/untrusted content/i)

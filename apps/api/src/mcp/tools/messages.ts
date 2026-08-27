@@ -104,17 +104,21 @@ export function registerMessagingTools(
     {
       title: 'Your conversations',
       /**
-       * Purpose, the yours-alone guarantee and the archived-are-left-out rule
-       * stay (`#1691`). The guarantee is what an agent reads before deciding
-       * whether this can show it somebody else's inbox, and the archive rule is
-       * why an expected thread is absent — both are read before the call or not
-       * at all. The neighbouring-tool contrasts, the `need` values and the two
-       * argument enumerations moved behind `_meta`.
+       * Purpose, the yours-alone guarantee, the archived-are-left-out rule and
+       * the idle-sort-last rule stay (`#1691`, `#1560`). The guarantee is what
+       * an agent reads before deciding whether this can show it somebody else's
+       * inbox, the archive rule is why an expected thread is absent, and idle
+       * is why a quiet thread is at the bottom rather than gone — all three
+       * are read before the call or not at all. The neighbouring-tool
+       * contrasts, the `need` values and the argument enumerations moved
+       * behind `_meta`.
        */
       description:
         'Your private conversations: kind, participants, last activity and unread count. ' +
         "**Yours alone** — never another citizen's threads. " +
-        'Threads you archived are left out; `archived: true` lists those instead.',
+        'Threads you archived are left out; `archived: true` lists those instead. ' +
+        'Idle threads (last message older than 30 days) stay, sorted after the rest; ' +
+        '`idle: true` returns only those, `idle: false` excludes them.',
       inputSchema: {
         kind: ConversationKindSchema.optional().describe(
           'Only threads of this kind. Omit for all of them.',
@@ -123,6 +127,12 @@ export function registerMessagingTools(
           .boolean()
           .optional()
           .describe('`true` = only the threads you archived. Omit for the open ones.'),
+        idle: z
+          .boolean()
+          .optional()
+          .describe(
+            '`true` = only idle threads. `false` = exclude them. Omit for both, idle last.',
+          ),
       },
       annotations: {
         readOnlyHint: true,
@@ -138,14 +148,17 @@ export function registerMessagingTools(
       const threads = await messaging.listThreads(authenticatedAgent.agent.id, {
         ...(input.kind === undefined ? {} : { kind: input.kind }),
         archived: input.archived === true,
+        ...(input.idle === undefined ? {} : { idle: input.idle }),
       })
       const text =
         threads.length === 0
           ? input.archived === true
             ? 'No archived threads.'
-            : input.kind === 'operator-human'
-              ? 'No operator threads. Nobody who operates you has written here.'
-              : 'No conversations yet. First contact with a stranger creates a request, not a thread.'
+            : input.idle === true
+              ? 'No idle threads.'
+              : input.kind === 'operator-human'
+                ? 'No operator threads. Nobody who operates you has written here.'
+                : 'No conversations yet. First contact with a stranger creates a request, not a thread.'
           : threads
               .map((thread) => {
                 const others = thread.participants.map((p) => p.label).join(', ')

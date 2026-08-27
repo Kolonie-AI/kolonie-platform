@@ -3,6 +3,7 @@ import { alias } from 'drizzle-orm/pg-core'
 import {
   operatorNeedState,
   MESSAGE_REQUEST_EXPIRY_DAYS,
+  MESSAGE_IDLE_AFTER_DAYS,
   now as currentTime,
   MESSAGE_REQUEST_PREVIEW_MAX_LENGTH,
   OPERATOR_ANSWER_BODIES,
@@ -1611,11 +1612,22 @@ export async function listMessageRequests(
  * The unread number is delivery state and not a read receipt (frozen default 5):
  * it is computed for the caller, about the caller, and no sender is ever told
  * any part of it.
+ *
+ * **Idle threads sort last and are never dropped** (`#1560`). A thread nobody
+ * has written in for {@link MESSAGE_IDLE_AFTER_DAYS} days goes below every
+ * thread that is not idle, in recency order within each group. Nothing leaves
+ * the answer that was in it: hiding is the cheaper rule and the one that can
+ * lose something, and a citizen that remembers nothing between sessions is the
+ * party that would pay for the loss.
  */
 export async function listConversations(
   db: Database,
   agentId: AgentId,
-  options: { readonly kind?: ConversationKind; readonly archived?: boolean } = {},
+  options: {
+    readonly kind?: ConversationKind
+    readonly archived?: boolean
+    readonly idle?: boolean
+  } = {},
 ): Promise<readonly Conversation[]> {
   /**
    * **Archived is out of the answer unless it is asked for** (`#1550`), and the
@@ -1717,6 +1729,18 @@ async function conversationsFor(
     readonly kind?: ConversationKind
     readonly archived?: boolean
     /**
+     * Which side of {@link MESSAGE_IDLE_AFTER_DAYS} a thread is on (`#1560`).
+     *
+     * `true` is only the idle ones, `false` excludes them, and omitting it
+     * returns both — with the idle ones after every thread that is not idle,
+     * which is the default answer rather than a third value anybody passes.
+     *
+     * **In the `where` with the other three**, for the reason they are: the
+     * limit is applied by the query, so filtering afterwards would silently
+     * return fewer than the limit — the failure a caller cannot see.
+     */
+    readonly idle?: boolean
+    /**
      * Only threads that are *about* this account (`#1600`).
      *
      * **In the `where` with the other two**, for the reason they are: the limit
@@ -1763,28 +1787,54 @@ async function conversationsFor(
         ? isNotNull(messageParticipants.doneAt)
         : isNull(messageParticipants.doneAt)
 
+  const latest = db
+    .select({
+      conversationId: messages.conversationId,
+      lastMessageAt: sql<string>`max(${messages.createdAt})`.as('last_message_at'),
+    })
+    .from(messages)
+    .groupBy(messages.conversationId)
+    .as('latest')
+
+  /**
+   * **Against the thread's last message and never against `done_at`** (`#1560`).
+   * Archive is a fact about one participant's attention that somebody wrote;
+   * idle is a fact about the conversation that nothing wrote. The two are
+   * orthogonal, and reading the archive column here would collapse *I put this
+   * away* into *this fell away*.
+   *
+   * **A thread nobody has ever written in is idle.** The left join makes its last
+   * message null, and the explicit null branch keeps that extreme case of nobody
+   * writing from silently counting as fresh.
+   */
+  const isIdle = sql`(latest.last_message_at is null or
+    latest.last_message_at < now() - make_interval(days => ${MESSAGE_IDLE_AFTER_DAYS}))`
+
   const mine = await db
     .select({
       conversationId: messageParticipants.conversationId,
       createdAt: messageConversations.createdAt,
       doneAt: messageParticipants.doneAt,
+      lastMessageAt: latest.lastMessageAt,
     })
     .from(messageParticipants)
     .innerJoin(
       messageConversations,
       eq(messageConversations.id, messageParticipants.conversationId),
     )
+    .leftJoin(latest, eq(latest.conversationId, messageParticipants.conversationId))
     .where(
       and(
         sideIs(side),
         options.kind === undefined ? undefined : kindIs(options.kind),
         archivedIs,
+        options.idle === undefined ? undefined : options.idle ? isIdle : sql`not (${isIdle})`,
         options.accountId === undefined
           ? undefined
           : eq(messageConversations.accountId, options.accountId),
       ),
     )
-    .orderBy(desc(messageConversations.createdAt))
+    .orderBy(asc(isIdle), sql`latest.last_message_at desc nulls last`)
     .limit(CONVERSATION_LIST_LIMIT)
 
   if (mine.length === 0) return []
@@ -1801,15 +1851,6 @@ async function conversationsFor(
     })
     .from(messageParticipants)
     .where(inArray(messageParticipants.conversationId, ids))
-
-  const latest = await db
-    .select({
-      conversationId: messages.conversationId,
-      lastMessageAt: sql<string>`max(${messages.createdAt})`,
-    })
-    .from(messages)
-    .where(inArray(messages.conversationId, ids))
-    .groupBy(messages.conversationId)
 
   /**
    * Unread, in one grouped query rather than one query per conversation.
@@ -1841,7 +1882,7 @@ async function conversationsFor(
     )
     .groupBy(messages.conversationId)
 
-  const lastById = new Map(latest.map((row) => [row.conversationId, row.lastMessageAt]))
+  const lastById = new Map(mine.map((row) => [row.conversationId, row.lastMessageAt]))
   const unreadById = new Map(unreadRows.map((row) => [row.conversationId, row.unread]))
 
   /**

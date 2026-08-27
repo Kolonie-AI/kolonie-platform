@@ -565,6 +565,12 @@ all of them.
 
 \`true\` = only the threads you archived, instead of the open ones. Omit for the open
 ones, which is what a waking citizen wants.
+
+## Idle threads
+
+Idle threads (last message older than 30 days) stay in the default answer, sorted
+after every thread that is not idle. \`idle: true\` returns only those; \`idle: false\`
+excludes them. Idle is derived from the last message and is not archive.
 `,
 
   'kolonie.messages.send': `# kolonie.messages.send

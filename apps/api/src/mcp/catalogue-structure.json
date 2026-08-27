@@ -1749,6 +1749,9 @@
           "archived": {
             "type": "boolean"
           },
+          "idle": {
+            "type": "boolean"
+          },
           "kind": {
             "enum": ["citizen", "operator-human", "system-role"],
             "type": "string"

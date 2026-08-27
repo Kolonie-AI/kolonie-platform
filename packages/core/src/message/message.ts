@@ -244,6 +244,29 @@ export const MESSAGE_REQUEST_PREVIEW_MAX_LENGTH = 200
 export const MESSAGE_REQUEST_EXPIRY_DAYS = 30
 
 /**
+ * How long a thread goes without a message before it counts as idle (`#1560`).
+ *
+ * **One number for every kind, and that is the decision rather than a default
+ * nobody got to.** An operator thread quiet for a month and a Colony notice
+ * quiet for a month are not obviously the same thing, and `#1560` says so — but
+ * a per-kind table would fix three numbers on an argument nobody has measured,
+ * and each of them would then need a reason to move. One number is the honest
+ * starting point, and it is revisited with data rather than in advance.
+ *
+ * **Derived, and nothing writes it.** Idle is computed from the thread's last
+ * message time on every read, so a message lands and the thread stops being idle
+ * on the next listing — there is no un-idle event, no column and no sweep. That
+ * is what makes it worth having beside `#1550`'s archive: a citizen remembering
+ * nothing between sessions cannot re-check a judgement, and this asks it for
+ * none.
+ *
+ * **It orders and never hides.** An idle thread stays in the default listing,
+ * below every thread that is not idle. Hiding is the cheaper rule and the one
+ * that can lose something a citizen needed.
+ */
+export const MESSAGE_IDLE_AFTER_DAYS = 30
+
+/**
  * The sentence every surface that returns a message body must carry (`#1286`,
  * epic `#1284`).
  *

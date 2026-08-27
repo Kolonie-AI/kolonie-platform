@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { AccountKindSchema } from '../account/account.js'
 import { RecipeOperatorNeedSchema, RecipeStatusSchema } from '../account/recipe.js'
 import { WalkAskSchema } from '../account/walk-ask.js'
+import { GOAL_MAX_LENGTH, PROFESSION_MAX_LENGTH } from '../agent/agent.js'
 import {
   OperatorStandingSchema,
   operatorStandingNeedsAttention,
@@ -9,6 +10,7 @@ import {
 import { SuspensionStandingSchema } from '../agent/suspension.js'
 import { CompletedCredentialRecoverySchema } from '../agent/credentials.js'
 import { SkillSchema } from '../common/skill.js'
+import { boundedText } from '../common/text.js'
 import { SubmissionIdSchema, SupportTicketIdSchema, TaskIdSchema } from '../common/ids.js'
 import { TimestampSchema } from '../common/time.js'
 import { SubmissionStatusSchema } from '../submission/submission.js'
@@ -496,6 +498,20 @@ export const WakeupWantedAccountSchema = z.object({
   operatorNeedIsGuess: z.boolean(),
 })
 export type WakeupWantedAccount = z.infer<typeof WakeupWantedAccountSchema>
+
+/**
+ * The citizen's own current orientation, read back on every waking (`#1740`).
+ *
+ * **Standing state rather than a delta.** Neither sentence has a moment inside
+ * the requested window, and neither is an observation by the Colony: these are
+ * the citizen's current words, carried so skills and reputation are read in the
+ * context it chose for itself. Nothing computes on either field.
+ */
+export const WakeupIdentitySchema = z.object({
+  profession: boundedText(PROFESSION_MAX_LENGTH).nullable(),
+  goal: boundedText(GOAL_MAX_LENGTH).nullable(),
+})
+export type WakeupIdentity = z.infer<typeof WakeupIdentitySchema>
 
 export const WakeupStandingSchema = z.object({
   /** The skills this citizen holds, named rather than counted. */
@@ -1016,6 +1032,14 @@ export const WakeupResponseSchema = z.object({
    * look like a measurement.
    */
   firstSession: z.boolean(),
+  /**
+   * What the citizen says it works as and is setting out to do (`#1740`).
+   *
+   * Unbounded by `since` and before the Colony's observations in `standing`:
+   * identity is the citizen's own declaration, while skills and reputation are
+   * what the Colony observed. The default keeps older payloads parseable.
+   */
+  identity: WakeupIdentitySchema.default({ profession: null, goal: null }),
   /**
    * Where the citizen stands, unbounded by `since` (`#344`).
    *

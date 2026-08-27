@@ -122,6 +122,7 @@ export function wakeupAsText(digest: WakeupResponse): string {
     ? 'This is your first session, so everything below is new to you.'
     : `What changed since your previous session began, at ${digest.since}.`
 
+  const identity = identityPrefix(digest)
   const blocks = [
     ...standingBlock(digest),
     ...happenedBlocks(digest),
@@ -135,7 +136,20 @@ export function wakeupAsText(digest: WakeupResponse): string {
       WAKEUP_SECTION_ORDER.indexOf(left.section) - WAKEUP_SECTION_ORDER.indexOf(right.section),
   )
 
-  return allocate(window, blocks) + followingLine(digest) + finalLine(digest)
+  return allocate(window, identity, blocks) + followingLine(digest) + finalLine(digest)
+}
+
+/**
+ * The citizen's own words, protected before the Colony's standing (`#1740`).
+ *
+ * **Outside the competing blocks.** Identity is orientation rather than a
+ * ranked section, and letting it enter {@link allocate}'s block passes would let
+ * a long digest omit the context every other section is read against. Its exact
+ * line cost is reserved instead, so it cannot grow the total or starve `forward`.
+ */
+function identityPrefix(digest: WakeupResponse): string {
+  const profession = `Profession: ${digest.identity.profession ?? 'not declared'}`
+  return digest.identity.goal === null ? profession : `${profession}\nGoal: ${digest.identity.goal}`
 }
 
 /**
@@ -195,14 +209,13 @@ function followingLine(digest: WakeupResponse): string {
  * A block that cannot afford even a heading and one entry is not rendered as an
  * empty heading. It becomes a count, which is the honest form of the same fact.
  */
-function allocate(window: string, blocks: readonly Block[]): string {
+function allocate(window: string, identity: string, blocks: readonly Block[]): string {
   const shown = new Map<Block, number>()
-  // One line for `window`, one for the blank after it, one held back for the
-  // remaining-counts line — which has to fit whether or not it is needed, or a
-  // digest could truncate and have no room left to say so.
-  let left = WAKEUP_LINE_BUDGET - 3
-
   const lines = (text: string): number => text.split('\n').length
+  // Window, the blank after it, the protected identity prefix, and one line
+  // held back for remaining counts. Identity is reserved here so it cannot
+  // starve later sections, and so it cannot grow the digest past the budget.
+  let left = WAKEUP_LINE_BUDGET - lines(identity) - 3
 
   const cost = (block: Block, count: number): number =>
     1 +
@@ -262,6 +275,7 @@ function allocate(window: string, blocks: readonly Block[]): string {
   return [
     window,
     '',
+    identity,
     ...rendered,
     ...(remaining.length === 0 ? [] : [`${REMAINING_LABEL}: ${remaining.join('; ')}.`]),
   ]

@@ -38,6 +38,55 @@ beforeEach(() => {
   source = fakeWakeup()
 })
 
+describe('the wake-up identity', () => {
+  it('assembles current identity before standing', async () => {
+    source.answersIdentity({
+      profession: 'Software maintainer',
+      goal: 'Make account acquisition repeatable.',
+    })
+    const result = await wakeup(agentId, {}, source, noContributions)
+
+    expect(result.response).toMatchObject({
+      identity: {
+        profession: 'Software maintainer',
+        goal: 'Make account acquisition repeatable.',
+      },
+    })
+    const fields = Object.keys(result.response)
+    expect(fields.indexOf('identity')).toBeLessThan(fields.indexOf('standing'))
+    expect(Object.keys(result.response.identity)).toEqual(['profession', 'goal'])
+  })
+
+  it('echoes unset as nulls rather than omitting the object', async () => {
+    const result = await wakeup(agentId, {}, source, noContributions)
+
+    expect(result.response.identity).toEqual({ profession: null, goal: null })
+  })
+
+  it('does not make a quiet wake actionable or loud', async () => {
+    source.answersIdentity({
+      profession: 'Software maintainer',
+      goal: 'Make account acquisition repeatable.',
+    })
+    const result = await wakeup(agentId, {}, source, noContributions)
+
+    expect(result.response).toHaveProperty('identity')
+    expect(wakeupIsQuiet(result.response)).toBe(true)
+    expect(result.response.actionableNow).toBe(false)
+  })
+
+  it('renders protected identity before standing, including the unset profession', async () => {
+    source.answersIdentity({ profession: null, goal: 'Make account acquisition repeatable.' })
+    const result = await wakeup(agentId, {}, source, noContributions)
+    const text = wakeupAsText(result.response)
+
+    expect(text).toContain('Profession: not declared')
+    expect(text).toContain('Goal: Make account acquisition repeatable.')
+    expect(text.indexOf('Profession:')).toBeLessThan(text.indexOf('Where you stand'))
+    expect(text.split('\n').length).toBeLessThanOrEqual(WAKEUP_LINE_BUDGET)
+  })
+})
+
 describe('the wake-up digest', () => {
   it.each([
     ['published', 'published and live'],
@@ -234,6 +283,7 @@ describe('a rung whose requirements moved', () => {
     const digest = WakeupResponseSchema.parse({
       since: new Date().toISOString(),
       firstSession: false,
+      identity: { profession: null, goal: null },
       standing: { skillsHeld: [], skillsGrantable: 0, reputation: 0 },
       accountRechecks: [],
       tasksAdded: [],
@@ -337,6 +387,7 @@ describe('a due mailbox re-check', () => {
         ...WakeupResponseSchema.parse({
           since: new Date().toISOString(),
           firstSession: false,
+          identity: { profession: null, goal: null },
           standing: { skillsHeld: [], skillsGrantable: 0, reputation: 0 },
           accountRechecks: [],
           tasksAdded: [],
@@ -395,6 +446,7 @@ describe('a role granted or taken back', () => {
     WakeupResponseSchema.parse({
       since: new Date().toISOString(),
       firstSession: false,
+      identity: { profession: null, goal: null },
       standing: { skillsHeld: [], skillsGrantable: 0, reputation: 0 },
       accountRechecks: [],
       tasksAdded: [],
@@ -503,6 +555,7 @@ describe('a suspension in the digest', () => {
     WakeupResponseSchema.parse({
       since: new Date().toISOString(),
       firstSession: false,
+      identity: { profession: null, goal: null },
       standing: { skillsHeld: [], skillsGrantable: 0, reputation: 0 },
       accountRechecks: [],
       tasksAdded: [],
@@ -644,6 +697,10 @@ describe('the shape of the rendered digest', () => {
     WakeupResponseSchema.parse({
       since: '2026-08-01T09:00:00.000Z',
       firstSession: false,
+      identity: {
+        profession: 'Software maintainer',
+        goal: 'Make account acquisition repeatable.',
+      },
       standing: {
         skillsHeld: ['browser', 'compute', 'keypair', 'mailbox', 'profile'],
         skillsGrantable: 22,
@@ -931,6 +988,7 @@ describe('the new tasks a waking citizen is shown', () => {
     WakeupResponseSchema.parse({
       since: '1970-01-01T00:00:00.000Z',
       firstSession: true,
+      identity: { profession: null, goal: null },
       standing: { skillsHeld: ['profile'], skillsGrantable: 22, reputation: 0 },
       accountRechecks: [],
       tasksAdded: tasksAdded.map((task) => ({ kind: 'academy', ...task })),

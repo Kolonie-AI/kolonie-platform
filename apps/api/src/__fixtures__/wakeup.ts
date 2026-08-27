@@ -2,6 +2,7 @@ import { CITIZEN_RAISED_WAKE_EVENTS, NO_OPERATOR_STANDING } from '@kolonie-ai/co
 import type {
   AgentId,
   OperatorStanding,
+  WakeupIdentity,
   WakeupMessagingDelta,
   WakeupResponse,
   WakeupStanding,
@@ -34,6 +35,8 @@ type Changes = Omit<
   // citizen that asked for a narrow window (`#581`).
   | 'accountsWanted'
   | 'open'
+  // Current self-declaration has its own standing-state source call (`#1740`).
+  | 'identity'
   | 'standing'
   | 'pays'
   // Computed in `wakeup` from `open` and the delta this port returned (`#1206`).
@@ -116,6 +119,8 @@ export interface FakeWakeup extends WakeupSource {
   readonly answersWantedAccounts: (wanted: readonly WakeupWantedAccount[]) => void
   /** What the previous session's start should answer. `null` is "first session". */
   readonly answersPreviousSession: (at: string | null) => void
+  /** Current profession and goal, unbounded by the digest window (`#1740`). */
+  readonly answersIdentity: (identity: WakeupIdentity) => void
   /** Where the citizen stands, for the section that says so (`#344`). */
   readonly answersStanding: (standing: WakeupStanding) => void
   readonly answersChanges: (changes: Partial<Changes>) => void
@@ -150,6 +155,7 @@ export function fakeWakeup(): FakeWakeup {
   // Nobody behind the citizen, which is the ordinary state (`#1013`).
   let operatorStanding: OperatorStanding = NO_OPERATOR_STANDING
   let wanted: readonly WakeupWantedAccount[] = []
+  let identity: WakeupIdentity = { profession: null, goal: null }
   let standing: WakeupStanding = AT_THE_START
   let walks: readonly { readonly kind: string; readonly provider: string }[] = []
   let walksThrow = false
@@ -162,6 +168,7 @@ export function fakeWakeup(): FakeWakeup {
     wakeChannel: async (_agentId: AgentId) => channel,
     operatorStanding: async (_agentId: AgentId) => operatorStanding,
     wantedAccounts: async (_agentId: AgentId) => wanted,
+    identity: async (_agentId: AgentId) => identity,
     standing: async (_agentId: AgentId) => standing,
     walksToAskAbout: async (_agentId: AgentId) => {
       if (walksThrow) throw new Error('the walk store is unhappy')
@@ -188,6 +195,9 @@ export function fakeWakeup(): FakeWakeup {
     },
     answersWantedAccounts: (next) => {
       wanted = next
+    },
+    answersIdentity: (next) => {
+      identity = next
     },
     answersStanding: (next) => {
       standing = next

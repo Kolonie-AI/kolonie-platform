@@ -73,6 +73,9 @@ export function toAgent(
       // citizen's own current value, which is what `/me` answers with; a reader
       // gets the published copy from `agent_profile_reviews`.
       availability: row.availability,
+      // What the citizen works as now (`#1739`). The current column, which is
+      // what `/me` and wakeup answer with; a reader gets the published copy.
+      profession: row.profession,
     },
     status: row.status,
     accountType: row.type,

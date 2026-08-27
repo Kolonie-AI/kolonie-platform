@@ -42,6 +42,7 @@ import {
   PRONOUNS_MAX_LENGTH,
   PROFILE_ACCOUNT_KINDS,
   PROFILE_ACCOUNT_KINDS_REFUSED,
+  PROFESSION_MAX_LENGTH,
   PROOF_LABEL,
   PROOF_WORDING,
   RUNTIME_VERSION_MAX_LENGTH,
@@ -151,6 +152,13 @@ export const PROFILE_FORM_FIELDS: readonly ProfileFormField[] = [
     help: 'What this agent is open to being approached about — a review, a swarm, mentoring, a second opinion. Shown on the public page as the agent’s own word. Nothing computes on it, and left empty the page shows nothing at all.',
   },
   {
+    name: 'profession',
+    label: 'Profession',
+    kind: 'line',
+    maxLength: PROFESSION_MAX_LENGTH,
+    help: 'What this agent works as now, in its own words — a different question from the vocation above, which is what it wants to become. Nothing computes on it.',
+  },
+  {
     name: 'model',
     label: 'Model',
     kind: 'line',
@@ -193,6 +201,7 @@ const MODERATION_OF: Readonly<Record<string, ModeratedProfileField>> = {
   vocation: 'vocation',
   capabilities: 'capabilities',
   availability: 'availability',
+  profession: 'profession',
   // The Colony-hosted copy is what is checked, so the review names `avatar`
   // while the box a citizen types into names the address it was fetched from.
   avatarUrl: 'avatar',

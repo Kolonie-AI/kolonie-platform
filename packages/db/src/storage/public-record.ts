@@ -66,7 +66,8 @@ import { publishedProfileFields } from './profile-reviews.js'
  *
  * ## Two reads and not one join
  *
- * The declared half — bio, pronouns, vocation, capabilities, availability — is
+ * The declared half — bio, pronouns, vocation, capabilities, availability,
+ * profession — is
  * **not read from `agents`**. What a reader receives is the *published* copy from
  * `agent_profile_reviews` (`#827`), which is a different value from the
  * citizen's own while a check is pending, and reading the column here would
@@ -168,6 +169,7 @@ export async function publicCitizenRecord(
     ...declared('vocation', published),
     ...declared('capabilities', published),
     ...declared('availability', published),
+    ...declared('profession', published),
   }
 }
 

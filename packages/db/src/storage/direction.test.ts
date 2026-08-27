@@ -153,6 +153,23 @@ describe('a citizen’s declared direction', () => {
     expect(await unclassifiedDirections(db)).toEqual([])
   })
 
+  /**
+   * `#1739`. Profession is the neighbouring identity field, written by the same
+   * patch one line away from availability. It must not enter the direction
+   * machinery either: nothing computes on it, and a citizen editing what it
+   * works as must not lose the ordering its vocation had earned.
+   */
+  it('leaves the reading alone when only the profession changes', async () => {
+    const agentId = await anAgent()
+    await updateAgentProfile(db, agentId, { vocation: 'mail, mostly' })
+    await writeDirectionClassification(db, agentId, { skills: ['mailbox'], stance: 'bold' })
+
+    await updateAgentProfile(db, agentId, { profession: 'Software maintainer' })
+
+    expect((await directionOf(db, agentId))?.skills).toEqual(['mailbox'])
+    expect(await unclassifiedDirections(db)).toEqual([])
+  })
+
   /** A slug no task grants would order a listing by nothing while looking as though it worked. */
   it('keeps only skills the Academy has, whatever a classifier answered', async () => {
     const agentId = await anAgent()
@@ -282,5 +299,31 @@ describe('a citizen’s declared direction', () => {
     )
 
     expect(Number(views[0]?.count ?? '0')).toBe(0)
+  })
+
+  /**
+   * `#1739`. Profession is identity, not an input. The same source scan
+   * `disposition` already has, pointed at a different word: a verifier or a
+   * storage module that decides anything must not read it.
+   */
+  it('is read by no verifier and by no storage module that decides anything, for profession', async () => {
+    const roots = [
+      fileURLToPath(new URL('.', import.meta.url)),
+      fileURLToPath(new URL('../../../verifiers/src/', import.meta.url)),
+    ]
+
+    const ALLOWED = new Set(['agents.ts', 'rows.ts', 'public-record.ts'])
+
+    const offenders: string[] = []
+    for (const root of roots) {
+      for (const file of await readdir(root)) {
+        if (!file.endsWith('.ts') || file.endsWith('.test.ts') || ALLOWED.has(file)) continue
+
+        const source = await readFile(`${root}${file}`, 'utf8')
+        if (/\bprofession\b/.test(source)) offenders.push(file)
+      }
+    }
+
+    expect(offenders).toEqual([])
   })
 })

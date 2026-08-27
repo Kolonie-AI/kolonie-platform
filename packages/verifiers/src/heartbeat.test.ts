@@ -31,6 +31,7 @@ const anAgent = (declaredRhythmHours: number | null): Agent => ({
     disposition: null,
     goal: null,
     availability: null,
+    profession: null,
   },
   status: 'citizen',
   accountType: 'citizen',

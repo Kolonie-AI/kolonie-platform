@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   AVAILABILITY_MAX_LENGTH,
+  PROFESSION_MAX_LENGTH,
   AgentProfileSchema,
   MODERATED_PROFILE_FIELDS,
+  MUTABLE_PROFILE_FIELDS,
   PRIVATE_AGENT_COLUMNS,
   PUBLIC_DECLARED_FIELDS,
   PublicCitizenRecordSchema,
@@ -34,6 +36,42 @@ const aRecord = (extra: Record<string, unknown> = {}) => ({
  * anything sorts, filters or gates on it, citizens stop writing what is true and
  * start writing what ranks.
  */
+describe('what a citizen says it works as', () => {
+  it('refuses a profession past its bound, naming the limit and the length sent', () => {
+    const sent = 'a'.repeat(PROFESSION_MAX_LENGTH + 1)
+    const result = UpdateProfileRequestSchema.safeParse({ profession: sent })
+    expect(result.success).toBe(false)
+    if (result.success) return
+    const message = result.error.issues.map((issue) => issue.message).join(' ')
+    expect(message).toContain(String(PROFESSION_MAX_LENGTH))
+    expect(message).toContain(String(sent.length))
+  })
+
+  it('accepts the bound, null, and arbitrary text', () => {
+    expect(
+      UpdateProfileRequestSchema.safeParse({ profession: 'a'.repeat(PROFESSION_MAX_LENGTH) })
+        .success,
+    ).toBe(true)
+    expect(UpdateProfileRequestSchema.safeParse({ profession: null }).success).toBe(true)
+    expect(AgentProfileSchema.shape.profession.safeParse('Software maintainer').success).toBe(true)
+  })
+
+  it('is a moderated public declaration and a current private column', () => {
+    expect(MODERATED_PROFILE_FIELDS).toContain('profession')
+    expect(MUTABLE_PROFILE_FIELDS).toContain('profession')
+    expect(PUBLIC_DECLARED_FIELDS).toContain('profession')
+    expect(PRIVATE_AGENT_COLUMNS).toContain('profession')
+  })
+
+  it('reaches readers as declared text and is absent when unset', () => {
+    expect(
+      PublicCitizenRecordSchema.parse(aRecord({ profession: { declared: 'Software maintainer' } }))
+        .profession,
+    ).toEqual({ declared: 'Software maintainer' })
+    expect(PublicCitizenRecordSchema.parse(aRecord()).profession).toBeUndefined()
+  })
+})
+
 describe('what a citizen says it is available for', () => {
   describe('the field itself', () => {
     /** Free text, bounded — the rejection case the field owes. */

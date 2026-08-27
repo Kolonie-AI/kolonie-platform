@@ -150,6 +150,7 @@ export function fakeStore(): FakeStore {
         disposition: null,
         goal: null,
         availability: null,
+        profession: null,
       },
       status: 'candidate',
       accountType: 'citizen',
@@ -459,6 +460,10 @@ export function fakeStore(): FakeStore {
           /** The one addressed to a reader rather than to the Colony (`#1066`). */
           case 'availability':
             profile.availability = request.availability ?? null
+            break
+          /** What the citizen works as now (`#1739`), stored as free text. */
+          case 'profession':
+            profile.profession = request.profession ?? null
             break
           /**
            * Not a profile field (`#818`): it is written through this patch but

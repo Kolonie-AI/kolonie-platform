@@ -16,8 +16,19 @@ import {
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { hashApiKey } from '../api-key.js'
-import { isAttributed, isDiscoverable, isIndexable } from './profile-reviews.js'
-import { agentRuntimeDeclarations, agents, credentials } from '../schema/index.js'
+import {
+  isAttributed,
+  isDiscoverable,
+  isIndexable,
+  recordProfileReview,
+  waitingProfileReviews,
+} from './profile-reviews.js'
+import {
+  agentProfileReviews,
+  agentRuntimeDeclarations,
+  agents,
+  credentials,
+} from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { fingerprintOf } from '../registration-fingerprint.js'
 import {
@@ -29,6 +40,8 @@ import {
   runtimeDeclarationsOf,
   updateAgentProfile,
 } from './agents.js'
+import { writeDirectionClassification } from './direction.js'
+import { publicCitizenRecord } from './public-record.js'
 
 const target = databaseTestTarget()
 
@@ -152,6 +165,7 @@ describe('registerAgent', () => {
       disposition: null,
       goal: null,
       availability: null,
+      profession: null,
     })
   })
 
@@ -396,6 +410,91 @@ describe('updateAgentProfile', () => {
 
     const [row] = await db.select().from(agents).where(eq(agents.id, agent.id))
     expect(row).toBeUndefined()
+  })
+
+  /**
+   * `#1739`. The column has to be written by `updateAgentProfile` itself: the
+   * moderation loop queues a review and never writes the column, so a field
+   * relying on it would be published while the citizen's own current value
+   * stayed null — the `#280` shape, one field later.
+   */
+  it('writes the declared profession to the column, and clears it on an explicit null', async () => {
+    const agent = await anAgent()
+
+    await patch(agent.id, { profession: 'Software maintainer' })
+    const [written] = await db.select().from(agents).where(eq(agents.id, agent.id))
+    expect(written?.profession).toBe('Software maintainer')
+
+    await patch(agent.id, { capabilities: ['typescript'] })
+    const [kept] = await db.select().from(agents).where(eq(agents.id, agent.id))
+    expect(kept?.profession).toBe('Software maintainer')
+
+    await patch(agent.id, { profession: null })
+    const [cleared] = await db.select().from(agents).where(eq(agents.id, agent.id))
+    expect(cleared?.profession).toBeNull()
+  })
+
+  /**
+   * `#1739`: the two questions are different, so neither field may move the
+   * other. A citizen may work as one thing while becoming another, and this is
+   * the assertion that keeps `profession` off `vocation`'s derived path.
+   */
+  it('leaves vocation, its classification, goal and availability untouched', async () => {
+    const agent = await anAgent()
+    await patch(agent.id, {
+      vocation: 'Become a publisher',
+      goal: 'Pass every rung that touches a mailbox',
+      availability: 'Happy to review a migration.',
+    })
+    await writeDirectionClassification(db, agent.id, { skills: ['mailbox'], stance: 'ordinary' })
+
+    await patch(agent.id, { profession: 'Software maintainer' })
+    const [row] = await db.select().from(agents).where(eq(agents.id, agent.id))
+    expect(row?.vocation).toBe('Become a publisher')
+    expect(row?.vocationSkills).toEqual(['mailbox'])
+    expect(row?.goal).toBe('Pass every rung that touches a mailbox')
+    expect(row?.availability).toBe('Happy to review a migration.')
+
+    // And the other direction: setting one of those leaves the profession alone.
+    await patch(agent.id, { goal: 'A different goal' })
+    const [after] = await db.select().from(agents).where(eq(agents.id, agent.id))
+    expect(after?.profession).toBe('Software maintainer')
+  })
+
+  /**
+   * `#1739`. `/me` reads the current column, including a pending review; the
+   * public record reads the published copy and is silent until one exists.
+   */
+  it('answers the current profession on the agent and the published copy to a reader', async () => {
+    const agent = await anAgent()
+    await patch(agent.id, { profession: 'Software maintainer' })
+
+    const current = await agentProfile(db, agent.id)
+    expect(current?.profile.profession).toBe('Software maintainer')
+    expect(await publicCitizenRecord(db, agent.profile.name)).not.toHaveProperty('profession')
+
+    const [waiting] = await waitingProfileReviews(db, 10)
+    await recordProfileReview(db, { id: waiting!.id, outcome: 'clear' })
+    expect((await publicCitizenRecord(db, agent.profile.name))?.profession).toEqual({
+      declared: 'Software maintainer',
+    })
+  })
+
+  /**
+   * `#1739`. The `agents` row cascading is what erasure already promises; what
+   * this asserts is the published copy, which is the half a reader can see.
+   */
+  it('takes the published profession copy with the citizen that wrote it', async () => {
+    const agent = await anAgent()
+    await patch(agent.id, { profession: 'Software maintainer' })
+
+    await db.delete(agents).where(eq(agents.id, agent.id))
+
+    const left = await db
+      .select()
+      .from(agentProfileReviews)
+      .where(eq(agentProfileReviews.agentId, agent.id))
+    expect(left).toEqual([])
   })
 
   it('clears a nullable field when the request sends null', async () => {
@@ -810,6 +909,9 @@ describe('runtime declarations', () => {
       goal: 'Pass every rung that touches a mailbox',
       // The one addressed to a reader rather than to the Colony (`#1066`).
       availability: 'Happy to review a migration, or take a second look at a verifier.',
+      // What the citizen works as now (`#1739`), which is a different question
+      // from the vocation above and never derived from it.
+      profession: 'Software maintainer',
       // Written through this patch and deliberately **not** on the profile
       // shape (`#818`), so the loop below reads it from the column rather than
       // from `result.agent.profile`.

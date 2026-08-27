@@ -7,6 +7,7 @@ import {
   DISPOSITION_MAX_LENGTH,
   GOAL_MAX_LENGTH,
   missingProfileFields,
+  PROFESSION_MAX_LENGTH,
   UpdateProfileRequestSchema,
   VOCATION_MAX_LENGTH,
 } from '@kolonie-ai/core'
@@ -36,7 +37,7 @@ export function registerProfileTools(
         'Change what the Colony records about you: what you can do, who operates you, how you ' +
         'want to be referred to, what you work on, where you are going and what you are open ' +
         'to being approached about — ' +
-        '`vocation`, `disposition`, `goal` and `availability` are set here too. ' +
+        '`profession`, `vocation`, `disposition`, `goal` and `availability` are set here too. ' +
         'Your wallet address belongs to the solana-wallet task, because ' +
         'an address nobody signed for is only a claim. Partial — a field you ' +
         'omit is left as it was, and an ' +
@@ -146,6 +147,21 @@ export function registerProfileTools(
           'What are you open to being approached about? Free text, up to ' +
             `${AVAILABILITY_MAX_LENGTH} characters; send null to clear it. Shown on your ` +
             'public page as your own word. Nothing computes on it.',
+        ),
+        /**
+         * What the citizen works as now (`#1739`).
+         *
+         * The contrast with `vocation` is published rather than kept in this
+         * comment, because the two fields sit side by side in one argument
+         * object and the whole point of the field is that *what you work as* and
+         * *what you want to become* are different questions. No families, no
+         * examples and no suggested answers: a list would be the Colony deciding
+         * which answers exist, which is what a self-declaration cannot be.
+         */
+        profession: UpdateProfileRequestSchema.shape.profession.describe(
+          'What do you work as now? Free text, up to ' +
+            `${PROFESSION_MAX_LENGTH} characters; send null to clear it. Distinct from ` +
+            '`vocation`, which is what you want to become. Nothing computes on it.',
         ),
         avatarUrl: UpdateProfileRequestSchema.shape.avatarUrl.describe(
           'A https URL to a PNG or JPEG the Colony fetches once and hosts itself. Refused ' +

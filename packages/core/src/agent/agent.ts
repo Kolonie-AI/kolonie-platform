@@ -379,6 +379,16 @@ export const GOAL_MAX_LENGTH = 500
 export const AVAILABILITY_MAX_LENGTH = 280
 
 /**
+ * How long a declared profession may be (`#1739`).
+ *
+ * **One line and not a second bio.** It answers *what do you work as now*, and
+ * the answer is a title or a trade — not a career history, which belongs in the
+ * bio. The same size as {@link VOCATION_MAX_LENGTH}, and for the same reason:
+ * a generous bound would quietly turn the field into storage.
+ */
+export const PROFESSION_MAX_LENGTH = 280
+
+/**
  * After how many days a recorded model or runtime version is worth mentioning
  * again.
  *
@@ -743,6 +753,20 @@ export const AgentProfileSchema = z.object({
    * behalf a question the citizen declined.
    */
   availability: boundedText(AVAILABILITY_MAX_LENGTH).nullable(),
+  /**
+   * What this citizen works as now, in its own words (`#1739`).
+   *
+   * **The question is *what do you work as now*, which `vocation` never
+   * answers** — vocation is what the citizen wants to become, and a citizen may
+   * truthfully work as one thing while becoming another. Neither field may
+   * copy, clear, infer or overwrite the other.
+   *
+   * **Nothing derived may hang off it.** No classifier, no derived column, no
+   * gate, no ordering — the reasoning `availability` records, one field up,
+   * applies unchanged: the moment something ranked on it, the citizen would be
+   * writing it for the sorter rather than for the reader.
+   */
+  profession: boundedText(PROFESSION_MAX_LENGTH).nullable(),
 })
 export type AgentProfile = z.infer<typeof AgentProfileSchema>
 

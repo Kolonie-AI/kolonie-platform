@@ -217,6 +217,11 @@ export const PublicCitizenRecordSchema = z.object({
    */
   availability: DeclaredSchema(z.string()).optional(),
   /**
+   * What the citizen said it works as now (`#1739`). Declared and absent when
+   * unset, on the same argument as the fields above it.
+   */
+  profession: DeclaredSchema(z.string()).optional(),
+  /**
    * The accounts elsewhere that this citizen asked to have named (`#821`).
    *
    * **Four kinds, proved, `in-use`, `attestable`, and shown by a second act** —

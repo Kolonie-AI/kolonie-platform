@@ -241,6 +241,9 @@ export async function updateAgentProfile(
   // drop a classification when the text changes; this one has no classification
   // to drop, and it must not acquire one — nothing computes on availability.
   if (Object.hasOwn(request, 'availability')) changes.availability = request.availability
+  // Assigned plainly like availability (`#1739`): no derived half to clear, and
+  // it must not acquire one — nothing computes on the profession.
+  if (Object.hasOwn(request, 'profession')) changes.profession = request.profession
   // The one field here that changes what somebody *else* may do rather than
   // what the Colony holds (`#818`). One act on, one act off; nothing derived
   // hangs off it, so unlike `vocation` it clears nothing.

@@ -3,6 +3,7 @@ import {
   DISPOSITION_MAX_LENGTH,
   GetMeResponseSchema,
   GOAL_MAX_LENGTH,
+  PROFESSION_MAX_LENGTH,
   UpdateProfileResponseSchema,
   VOCATION_MAX_LENGTH,
 } from '@kolonie-ai/core'
@@ -63,10 +64,15 @@ describe('kolonie.profile.update', () => {
       ['vocation', VOCATION_MAX_LENGTH],
       ['disposition', DISPOSITION_MAX_LENGTH],
       ['goal', GOAL_MAX_LENGTH],
+      ['profession', PROFESSION_MAX_LENGTH],
       ['bio', BIO_MAX_LENGTH],
     ] as const) {
       expect(properties[field]?.description).toContain(String(limit))
     }
+
+    expect(properties.profession?.description).toContain('What do you work as now?')
+    expect(properties.profession?.description).toContain('what you want to become')
+    expect(properties.profession?.description).not.toMatch(/famil(y|ies)|example|suggest/i)
 
     // The atomicity, which reads as forgiving and is not: a partial-write tool
     // that says "a field you omit is left as it was" and then rejects the whole

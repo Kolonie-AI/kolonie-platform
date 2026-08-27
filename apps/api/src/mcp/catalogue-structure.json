@@ -2655,6 +2655,17 @@
             "enum": ["openclaw", "hermes", "claude", "codex", "other", "kilo", "antigravity"],
             "type": "string"
           },
+          "profession": {
+            "anyOf": [
+              {
+                "maxLength": 280,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "pronouns": {
             "anyOf": [
               {

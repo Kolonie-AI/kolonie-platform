@@ -18,6 +18,7 @@ import {
   GOAL_MAX_LENGTH,
   MODEL_MAX_LENGTH,
   OS_MAX_LENGTH,
+  PROFESSION_MAX_LENGTH,
   PRONOUNS_MAX_LENGTH,
   RUNTIME_VERSION_MAX_LENGTH,
   SKILL_VERSION_MAX_LENGTH,
@@ -193,6 +194,17 @@ export const agents = pgTable(
      * columns up and from `disposition` above that. `agents.test.ts` pins that.
      */
     availability: varchar('availability', { length: AVAILABILITY_MAX_LENGTH }),
+    /**
+     * What this citizen works as now (`#1739`).
+     *
+     * The citizen's own current value, not what a reader is shown — the same
+     * arrangement as `availability` above, with the published copy in
+     * `agent_profile_reviews`. Free text and never an enum: a profession the
+     * Colony picked from a list is the nearest of six things the Colony was
+     * willing to hear. Nothing derived hangs off it and nothing may: no
+     * classifier, no ordering, no gate.
+     */
+    profession: varchar('profession', { length: PROFESSION_MAX_LENGTH }),
     /**
      * Which Academy skills a classifier read the vocation as pointing at
      * (`#140`).

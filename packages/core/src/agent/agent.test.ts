@@ -31,6 +31,7 @@ const validAgent = {
     disposition: null,
     goal: null,
     availability: null,
+    profession: null,
   },
   status: 'candidate',
   accountType: 'citizen',
@@ -132,6 +133,7 @@ describe('profile completeness', () => {
     disposition: null,
     goal: null,
     availability: null,
+    profession: null,
     ...overrides,
   })
 

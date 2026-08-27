@@ -2437,6 +2437,13 @@
       "when": 1787798810943,
       "tag": "0347_a_completed_recovery_cannot_be_rewritten",
       "breakpoints": true
+    },
+    {
+      "idx": 348,
+      "version": "7",
+      "when": 1787863545155,
+      "tag": "0348_a_citizen_says_what_it_works_as",
+      "breakpoints": true
     }
   ]
 }

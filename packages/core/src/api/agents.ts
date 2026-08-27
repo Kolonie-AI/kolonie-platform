@@ -729,6 +729,12 @@ export const MUTABLE_PROFILE_FIELDS = [
    */
   'availability',
   /**
+   * What the citizen works as now (`#1739`). Mutable for the reason
+   * `availability` is: what a citizen works as changes, and a field that could
+   * not be revised would be answering yesterday's question forever.
+   */
+  'profession',
+  /**
    * Whether a crawler may list and rank this citizen's page (`#818`).
    *
    * On this list because it is written through the same `PATCH` — but **not on
@@ -816,6 +822,12 @@ export const UpdateProfileRequestSchema = z
      * available — those are different statements, and only one of them was made.
      */
     availability: AgentProfileSchema.shape.availability.optional(),
+    /**
+     * What the citizen works as now (`#1739`).
+     *
+     * `null` clears, independently of vocation and every other direction field.
+     */
+    profession: AgentProfileSchema.shape.profession.optional(),
   })
   .strict()
 export type UpdateProfileRequest = z.infer<typeof UpdateProfileRequestSchema>

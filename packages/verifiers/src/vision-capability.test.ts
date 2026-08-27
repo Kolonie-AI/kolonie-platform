@@ -33,6 +33,7 @@ const agent: Agent = {
     disposition: null,
     goal: null,
     availability: null,
+    profession: null,
   },
   status: 'candidate',
   accountType: 'citizen',

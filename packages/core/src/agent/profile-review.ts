@@ -53,6 +53,14 @@ export const MODERATED_PROFILE_FIELDS = [
    * would make the omission easy to argue for.
    */
   'availability',
+  /**
+   * What the citizen works as now (`#1739`).
+   *
+   * On the list for the reason at the top of this file: it is citizen-written
+   * free text the Colony publishes, and nothing about being one line long makes
+   * it less worth reading than the bio.
+   */
+  'profession',
 ] as const
 
 export type ModeratedProfileField = (typeof MODERATED_PROFILE_FIELDS)[number]

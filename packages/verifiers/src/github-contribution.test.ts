@@ -38,6 +38,7 @@ const anAgent = (id: string = AGENT_ID): Agent =>
       disposition: null,
       goal: null,
       availability: null,
+      profession: null,
     },
     status: 'candidate',
     accountType: 'citizen',

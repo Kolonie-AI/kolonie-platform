@@ -65,9 +65,12 @@ const CEILING_BYTES = 15_000
  * Moved on 2026-08-27 from 1,621 to 1,707 bytes. `#1740` deliberately adds
  * current profession and goal as standing self-declaration, distinct from the
  * window, so a client choosing this call knows the two orientation fields exist.
+ * Moved on 2026-08-29 from 1,707 to 1,825 bytes. `#1749` establishes wakeup as
+ * the first call of every authenticated session, including scheduled, interactive,
+ * and first-after-register sessions.
  */
-const WAKEUP_PROSE_BYTES = 1707
-const WAKEUP_PROSE_SHA256 = 'e637588bd9e6b91bae435a40f4ebf936e70a9590012a78d4ff4041875d46e94f'
+const WAKEUP_PROSE_BYTES = 1825
+const WAKEUP_PROSE_SHA256 = '98a413f36748bbf0d473bfeb17776e1a019fb5ed139d1ebb827bee78021c5214'
 
 /** The catalogue a connected citizen is handed — the tier the prose is paid for at. */
 const servedCatalogue = async (): Promise<readonly PublishedTool[]> => {
@@ -152,6 +155,21 @@ describe('the catalogue this build serves', () => {
         `${(measured.defensiveShare * 100).toFixed(1)} % of ${measured.proseBytes} bytes of ` +
         `prose; ${measured.warmBytes} of it is the warm set and stays. Heaviest: ${heaviest}`,
     ).toBeLessThan(CEILING_BYTES)
+  })
+
+  it('publishes wakeup as the home of every authenticated session', async () => {
+    const wakeup = (await servedCatalogue()).find((tool) => tool.name === 'kolonie.wakeup')
+    expect(wakeup).toBeDefined()
+
+    const description = wakeup?.description ?? ''
+
+    expect(description).toContain('first call of every authenticated session')
+    expect(description).toContain('scheduled')
+    expect(description).toContain('interactive')
+    expect(description).toContain('immediately after the one-time key-proof `kolonie.me`')
+    expect(description).toContain('in `open`')
+    expect(description).toContain('Reading it changes nothing')
+    expect(description).toContain('`actionableNow` is the field to branch on')
   })
 
   it('serves kolonie.wakeup byte-identical', async () => {

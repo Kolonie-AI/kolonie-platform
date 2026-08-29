@@ -66,11 +66,22 @@ export const UNAUTHENTICATED_TOOLS = [
 export const AUTHENTICATED_TOOLS = [
   'kolonie.me',
   /**
+   * The first call of every later session (`#1752`).
+   *
+   * Next to `kolonie.me` because a model that never sees
+   * `initialize.instructions` chooses from the head of `tools/list`. Standing
+   * stays first — it is the arrival confirm-with call (`#876`) — and the digest
+   * belongs immediately after it, before profile and before the work cluster.
+   * Doctor stays where it is registered (`#837`, `#1082`); pairing the two at
+   * the head is not available, because that tool is conditional.
+   */
+  'kolonie.wakeup',
+  /**
    * *What do I look like from there?* (`#837`).
    *
-   * Beside `kolonie.me` because it is the second half of the same question: that
-   * one answers *where do I stand*, and this one answers *what is my behaviour
-   * doing*. A citizen that has just been told it holds four skills and is owed
+   * The second half of the same standing question `kolonie.me` answers: that
+   * one is *where do I stand*, and this one is *what is my behaviour doing*.
+   * A citizen that has just been told it holds four skills and is owed
    * nothing has learned nothing about the thirty hours it spent in a loop.
    *
    * Registered only where a doctor source is wired, exactly as
@@ -225,7 +236,6 @@ export const AUTHENTICATED_TOOLS = [
    */
   'kolonie.contributions.quality',
   'kolonie.submissions.list',
-  'kolonie.wakeup',
   /**
    * The Academy is three tools and a retest (`#385`, `#415`, `#1652`).
    *

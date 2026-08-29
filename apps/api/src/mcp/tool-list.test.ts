@@ -252,4 +252,57 @@ describe('the unauthenticated tier', () => {
   })
 })
 
+/**
+ * The session home sits at the head of the served list (`#1752`).
+ *
+ * Models that never see `initialize.instructions` choose from names at the top
+ * of `tools/list`. Leaving `kolonie.wakeup` after `contributions.list` is how a
+ * no-skill citizen starts at `tasks.list`. The assertion is unsorted: the
+ * catalogue-structure fingerprint sorts by name and would not catch this, and
+ * an assertion over `AUTHENTICATED_TOOLS` alone would pass a branch that only
+ * moved the string.
+ *
+ * Doctor stays where it is registered (`#837`, `#1082`) and no longer sits
+ * between `me` and `wakeup`, wired or not.
+ */
+describe('the served order of the session home', () => {
+  const assertHomeAtTheHead = (names: readonly string[]) => {
+    const me = names.indexOf('kolonie.me')
+    const wakeup = names.indexOf('kolonie.wakeup')
+    const profile = names.indexOf('kolonie.profile.update')
+    const tasks = names.indexOf('kolonie.tasks.list')
+    const contributions = names.indexOf('kolonie.contributions.list')
+
+    expect(me).toBeGreaterThanOrEqual(0)
+    expect(wakeup).toBe(me + 1)
+    expect(wakeup).toBeLessThan(profile)
+    expect(wakeup).toBeLessThan(tasks)
+    expect(wakeup).toBeLessThan(contributions)
+  }
+
+  it('puts wakeup immediately after me, before profile and tasks, with the doctor wired', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const names = (await client.listTools()).tools.map((tool) => tool.name)
+
+    expect(names).toContain('kolonie.doctor')
+    assertHomeAtTheHead(names)
+    await close()
+  })
+
+  it('puts wakeup immediately after me when no doctor source is wired', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { doctor: _unwired, ...withoutADoctor } = colony
+    const { client, close } = await connectedClient(withoutADoctor, `Bearer ${apiKey}`)
+
+    const names = (await client.listTools()).tools.map((tool) => tool.name)
+
+    expect(names).not.toContain('kolonie.doctor')
+    expect(names).not.toContain('kolonie.doctor.feedback')
+    assertHomeAtTheHead(names)
+    await close()
+  })
+})
+
 /** A narrative with one field answered — see the db fixtures for why `broke`. */

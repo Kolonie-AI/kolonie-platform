@@ -20,7 +20,9 @@ import {
 } from '../text/me.js'
 
 /**
- * Where a citizen stands, as the first call of every session.
+ * Where a citizen stands — the one-time key proof and the follow-up standing
+ * lookup, not the session home. Every authenticated session begins with
+ * `kolonie.wakeup`; this is what a citizen calls when the digest is not enough.
  *
  * Separate from `kolonie.profile.update` — which the tier list files next to it —
  * because reading a standing and writing a profile fail differently and are read

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { AgentIdSchema, TaskIdSchema } from './ids.js'
+import {
+  AgentIdSchema,
+  TaskIdSchema,
+  WorkplaceBoardIdSchema,
+  WorkplaceCardIdSchema,
+} from './ids.js'
 
 const VALID_UUID = '3f1e0a4e-6d2b-4c3a-9f5e-1a2b3c4d5e6f'
 
@@ -17,6 +22,18 @@ describe('entity ids', () => {
   it('validates every id type the same way', () => {
     expect(TaskIdSchema.safeParse(VALID_UUID).success).toBe(true)
     expect(TaskIdSchema.safeParse('not-a-uuid').success).toBe(false)
+  })
+
+  it('keeps Workplace boards and cards distinct from each other and Academy tasks', () => {
+    const boardId = WorkplaceBoardIdSchema.parse(VALID_UUID)
+    const cardId = WorkplaceCardIdSchema.parse(VALID_UUID)
+
+    // @ts-expect-error a WorkplaceBoardId is not assignable to a WorkplaceCardId
+    const wrongCard: ReturnType<typeof WorkplaceCardIdSchema.parse> = boardId
+    // @ts-expect-error a WorkplaceCardId is not assignable to an Academy TaskId
+    const wrongTask: ReturnType<typeof TaskIdSchema.parse> = cardId
+    expect(wrongCard).toBe(VALID_UUID)
+    expect(wrongTask).toBe(VALID_UUID)
   })
 
   it('keeps branded ids distinct at the type level', () => {

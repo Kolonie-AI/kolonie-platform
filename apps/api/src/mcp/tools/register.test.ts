@@ -343,7 +343,10 @@ describe('kolonie.register', () => {
       expect(standing.isError).toBeFalsy()
       const open = (digest.structuredContent as { open?: { entries?: Array<{ what?: string }> } })
         .open
-      expect(open?.entries?.[0]?.what).toBe('Say who you are')
+      expect(open?.entries?.[0]?.what).toBe(
+        'tell the Colony how often you return — it cannot start you',
+      )
+      expect(open?.entries?.[1]?.what).toBe('Say who you are')
     })
 
     /** The human-readable half only. Nothing about the structured answer moved. */

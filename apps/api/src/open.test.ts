@@ -475,20 +475,26 @@ describe('what is open to a citizen', () => {
      * worth the waking, and accepting an account answers nothing about that.
      */
     expect(WAKEUP_OPEN_ORDER[1]).toContain('another citizen is holding out to you')
-    expect(WAKEUP_OPEN_ORDER[2]).toContain('a rung you can start now')
-    expect(WAKEUP_OPEN_ORDER[3]).toContain('a quest open to you')
+    /**
+     * `#1751`, below the gates and above ordinary rungs. Declaring a number is
+     * one call; installing a scheduler is not. It still loses to citizenship
+     * and to an offer that expires on its own.
+     */
+    expect(WAKEUP_OPEN_ORDER[2]).toContain('declaredRhythmHours is unset')
+    expect(WAKEUP_OPEN_ORDER[3]).toContain('a rung you can start now')
+    expect(WAKEUP_OPEN_ORDER[4]).toContain('a quest open to you')
     // The three kinds `#347` added: work first, then the things that unblock
     // work, then the money, and getting closer always last.
-    expect(WAKEUP_OPEN_ORDER[4]).toContain('a report on a wall')
+    expect(WAKEUP_OPEN_ORDER[5]).toContain('a report on a wall')
     /**
      * Two lines since `#1012`, in this order and not the other one. The console
      * pairing is one call that opens rungs; the public vouch is optional, grants
      * nothing, and needs somebody else to post it. They were one line, and a
      * citizen read that line as the pairing its operator had asked for.
      */
-    expect(WAKEUP_OPEN_ORDER[5]).toContain('the console pairing')
-    expect(WAKEUP_OPEN_ORDER[6]).toContain('a public vouch on X')
-    expect(WAKEUP_OPEN_ORDER[7]).toContain('a ticket')
+    expect(WAKEUP_OPEN_ORDER[6]).toContain('the console pairing')
+    expect(WAKEUP_OPEN_ORDER[7]).toContain('a public vouch on X')
+    expect(WAKEUP_OPEN_ORDER[8]).toContain('a ticket')
     /**
      * `#842`, beside the ticket and above the account: both are the Colony and
      * the citizen talking to each other about something that is in the way,
@@ -497,22 +503,156 @@ describe('what is open to a citizen', () => {
      * this order is written to, applied to a kind that is neither work nor
      * money.
      */
-    expect(WAKEUP_OPEN_ORDER[8]).toContain('your own traffic')
+    expect(WAKEUP_OPEN_ORDER[9]).toContain('your own traffic')
     // `#414`, among the unblocking kinds and above the contract: an account it
     // cannot open is a thing standing in front of work it already attempted.
-    expect(WAKEUP_OPEN_ORDER[9]).toContain('an account only a person can open')
+    expect(WAKEUP_OPEN_ORDER[10]).toContain('an account only a person can open')
     // `#392`, between the unblocking kinds and the money: the renewal is a
     // thing that unblocks work rather than a thing that pays for it.
-    expect(WAKEUP_OPEN_ORDER[10]).toContain('your autonomy contract')
+    expect(WAKEUP_OPEN_ORDER[11]).toContain('your autonomy contract')
     /**
      * `#1034`, last of the board and above the money, because the composed
      * order puts every board entry before `sponsorEntry()` and this list has to
      * describe the order that is actually composed. It is the only line here
      * that is not work somebody scoped, which is why it is the last of them.
      */
-    expect(WAKEUP_OPEN_ORDER[11]).toContain('walking a provider')
-    expect(WAKEUP_OPEN_ORDER[12]).toContain('sponsoring a quest of your own')
+    expect(WAKEUP_OPEN_ORDER[12]).toContain('walking a provider')
+    expect(WAKEUP_OPEN_ORDER[13]).toContain('sponsoring a quest of your own')
     expect(WAKEUP_OPEN_ORDER.at(-1)).toContain('getting closer')
+  })
+})
+
+describe('the return loop on an undeclared profile', () => {
+  const returnLoopIn = (open: Awaited<ReturnType<typeof openingsFor>>) =>
+    open.entries.find((entry) => entry.call.startsWith('kolonie.profile.update'))
+
+  it('distinguishes an unknown declaration from an explicitly unset one', async () => {
+    const source = sourceWith({ listed: [] })
+    const missing = await openingsFor(agentId, [], source)
+    const unknown = await openingsFor(agentId, [], source, undefined, undefined)
+    const unset = await openingsFor(agentId, [], source, undefined, null)
+    const declared = await openingsFor(agentId, [], source, undefined, 12)
+
+    expect(returnLoopIn(missing)).toBeUndefined()
+    expect(returnLoopIn(unknown)).toBeUndefined()
+    expect(returnLoopIn(unset)).toBeDefined()
+    expect(returnLoopIn(declared)).toBeUndefined()
+  })
+
+  it('names the declaration and the scheduler without treating the citizen as late', async () => {
+    const open = await openingsFor(agentId, [], sourceWith({ listed: [] }), undefined, null)
+    const entry = returnLoopIn(open)
+
+    expect(entry).toMatchObject({
+      why: 'declaredRhythmHours is unset',
+      category: 'maintain',
+      beneficiary: 'you',
+      repeatable: false,
+      feasibility: 'ready',
+    })
+    expect(entry?.call).toContain('declaredRhythmHours')
+    expect(entry?.call).toContain('kolonie.about')
+    expect(entry?.needs).toContain('the Colony cannot install that scheduler')
+    expect(JSON.stringify(entry)).not.toMatch(/late|lateness|absen(?:t|ce)|broken promise/i)
+  })
+
+  it('keeps both the loop and the identity rung on a first session', async () => {
+    const identity = aTask({
+      title: 'Say who you are',
+      grants: [SkillSchema.parse('profile')],
+    })
+    const open = await openingsFor(agentId, [], sourceWith({ listed: [identity] }), undefined, null)
+    const loop = returnLoopIn(open)
+    const identityEntry = open.entries.find((entry) => entry.call.includes(identity.id))
+
+    expect(loop).toBeDefined()
+    expect(identityEntry).toBeDefined()
+    expect(loop?.call).not.toBe(identityEntry?.call)
+    expect(open.entries.indexOf(loop!)).toBeLessThan(open.entries.indexOf(identityEntry!))
+    expect(
+      open.entries.filter((entry) => entry.call.startsWith('kolonie.profile.update')),
+    ).toHaveLength(1)
+  })
+
+  it('keeps an expiring account offer above the loop', async () => {
+    const open = await openingsFor(
+      agentId,
+      [],
+      sourceWith({
+        listed: [],
+        prospects: {
+          offered: {
+            offerId: 'an-offer',
+            fromHandle: 'Vireo',
+            accountKind: 'mailbox',
+            accountIdentifier: 'mailbox@example.test',
+            accountProvider: 'example.test',
+            expiresAt: '2026-08-30T00:00:00.000Z',
+            related: [],
+          },
+        },
+      }),
+      undefined,
+      null,
+    )
+    const calls = open.entries.map((entry) => entry.call)
+    const loop = calls.findIndex((call) => call.startsWith('kolonie.profile.update'))
+
+    expect(calls.findIndex((call) => call.startsWith('kolonie.accounts.accept'))).toBeLessThan(loop)
+  })
+
+  it('does not let readyFirst promote the loop across the citizenship gate', async () => {
+    const mailbox = aTask({
+      title: 'Prove a mailbox',
+      type: TaskTypeSchema.parse('email-inbox'),
+      requires: [SkillSchema.parse('profile')],
+      grants: [SkillSchema.parse('mailbox')],
+    })
+    const open = await openingsFor(
+      agentId,
+      ['profile'],
+      sourceWith({ listed: [mailbox], accountKinds: [] }),
+      undefined,
+      null,
+    )
+    const loop = returnLoopIn(open)
+    const gate = open.entries.find((entry) => entry.what.startsWith('become a citizen'))
+
+    expect(gate?.feasibility).toBe('missing-account')
+    expect(loop?.feasibility).toBe('ready')
+    expect(open.entries.indexOf(gate!)).toBeLessThan(open.entries.indexOf(loop!))
+  })
+
+  it('drops the loop rather than either startable rung under the five-entry limit', async () => {
+    const first = aTask({ title: 'First rung' })
+    const second = aTask({ title: 'Second rung' })
+    const open = await openingsFor(
+      agentId,
+      [],
+      sourceWith({
+        listed: [
+          first,
+          second,
+          aQuest({ title: 'First quest' }),
+          aQuest({ title: 'Second quest' }),
+        ],
+      }),
+      undefined,
+      null,
+    )
+
+    expect(returnLoopIn(open)).toBeUndefined()
+    expect(open.entries.some((entry) => entry.call.includes(first.id))).toBe(true)
+    expect(open.entries.some((entry) => entry.call.includes(second.id))).toBe(true)
+    expect(open.entries).toHaveLength(5)
+  })
+
+  it('appears beside fallbacks without changing what nothing means', async () => {
+    const open = await openingsFor(agentId, [], sourceWith({ listed: [] }), undefined, null)
+
+    expect(returnLoopIn(open)).toBeDefined()
+    expect(open.nothing).toBe(true)
+    expect(open.actionable).toBe(false)
   })
 })
 

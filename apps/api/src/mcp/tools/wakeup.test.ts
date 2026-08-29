@@ -209,3 +209,18 @@ describe('the session a wakeup-first citizen declares', () => {
     await close()
   })
 })
+
+describe('the return loop in the authenticated profile', () => {
+  it('is absent after the citizen declares a rhythm', async () => {
+    const { colony, agent, apiKey } = await registeredCitizen()
+    await colony.store.updateProfile(agent.id, { declaredRhythmHours: 12 })
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.wakeup', arguments: {} })
+    const entries = (result.structuredContent as { open: { entries: Array<{ call: string }> } })
+      .open.entries
+
+    expect(entries.some((entry) => entry.call.startsWith('kolonie.profile.update'))).toBe(false)
+    await close()
+  })
+})

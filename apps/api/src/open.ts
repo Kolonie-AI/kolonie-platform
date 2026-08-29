@@ -171,12 +171,12 @@ function startableFirst(
  *
  * ## What it is deliberately not applied to
  *
- * The always-present slots — sponsoring, the contribute slot, the frontier closer
- * — keep their reserved positions. They are not work the board scoped for this
- * citizen, and `#347` and `#925` reserve them precisely so a full board cannot
- * push them out; re-sorting them by feasibility would be a second rule about
- * slots that already have one. The frontier closer is last either way, which is
- * where `#1207` wants pure exploring.
+ * The always-present slots — sponsoring, the contribute slot, the frontier closer,
+ * and the undeclared-rhythm entry — keep their reserved positions. They are not
+ * work the board scoped for this citizen, and `#347`, `#925` and `#1751` reserve
+ * them precisely so a full board cannot push them out; re-sorting them by
+ * feasibility would be a second rule about slots that already have one. The
+ * frontier closer is last either way, which is where `#1207` wants pure exploring.
  */
 function readyFirst(drafts: readonly OpenEntryDraft[]): OpenEntryDraft[] {
   const ready = (draft: OpenEntryDraft) => feasibilityOf(draft.needs) === 'ready'
@@ -240,6 +240,16 @@ export async function openingsFor(
    * than a value so the caller can still start it alongside everything else.
    */
   available: Promise<readonly Task[]> = availableNow(agentId, source),
+  /**
+   * How often this citizen said it would return (`#1751`).
+   *
+   * **`null` is a fact and absence is not.** A missing argument means the caller
+   * did not know, and inventing undeclared from that would put the loop on every
+   * waking that forgot to pass the field. The authenticated agent's own
+   * `profile.declaredRhythmHours` is the source; this is not a new prospects
+   * query.
+   */
+  declaredRhythmHours?: number | null,
 ): Promise<WakeupOpen> {
   const [listed, frontier, prospects] = await Promise.all([
     available,
@@ -273,9 +283,18 @@ export async function openingsFor(
    * Everything the board itself offers, except the walk below it. **Sponsoring
    * is not in it**, and that is what `nothing` further down depends on.
    */
-  const board: OpenEntryDraft[] = [
+  /**
+   * The two gates this entry must still lose to (`#1751`): citizenship, then an
+   * offer that expires on its own. Kept as the same objects that go into `board`
+   * so insertion after truncation can find them by identity rather than by a
+   * second description of their calls.
+   */
+  const gates: OpenEntryDraft[] = [
     ...citizenshipEntry(skills, rungs, held, capabilities),
     ...offeredAccountEntry(prospects),
+  ]
+  const board: OpenEntryDraft[] = [
+    ...gates,
     ...startableFirst(rungs, held, capabilities)
       .slice(0, PER_KIND)
       .map((task) => rungEntry(task, held, capabilities)),
@@ -461,8 +480,23 @@ export async function openingsFor(
    * `nothing` is computed far above and is untouched: this changes what a thin
    * waking *shows*, never what it *reports*.
    */
-  const social = drafts.length < MAX_ENTRIES ? socialEntry(prospects) : []
-  const drafted = [...drafts, ...social.slice(0, MAX_ENTRIES - drafts.length)]
+  /**
+   * The undeclared-rhythm entry is reserved rather than boarded (`#1751`).
+   *
+   * **After `actionable` and `nothing`, and that is the whole of how the quiet
+   * branch is kept.** Counting it in `fromTheBoard` would make every undeclared
+   * waking loud, which is the population `kolonie-docs#438` is for. Inserting
+   * only into leftover room is the same degrade rule as the other reserved
+   * slots: a startable rung already filling the five wins, and this entry is
+   * dropped for that waking.
+   *
+   * **After the leading gates, not through `readyFirst`.** Promoting a `ready`
+   * loop above a `missing-account` citizenship gate would hide the one thing
+   * that decides the waking.
+   */
+  const withLoop = insertReturnLoop(drafts, returnLoopEntry(declaredRhythmHours), gates)
+  const social = withLoop.length < MAX_ENTRIES ? socialEntry(prospects) : []
+  const drafted = [...withLoop, ...social.slice(0, MAX_ENTRIES - withLoop.length)]
 
   /**
    * The one place `feasibility` is written (`#850`). See {@link OpenEntryDraft}.
@@ -1526,6 +1560,75 @@ function walkEntry(
       touches: [walk.kind],
     },
   ]
+}
+
+/**
+ * How often this citizen returns, when it has never said (`#1751`).
+ *
+ * **Orientation, not a scold.** Absence of a promise is not lateness, and
+ * `returnerAsText` stays silent without a declared rhythm for that reason. The
+ * finishable act is `kolonie.profile.update`; the scheduler is a second act the
+ * Colony cannot perform and does not claim to.
+ *
+ * **Reserved rather than boarded**, on the same argument as sponsoring: it is
+ * present on every waking of an undeclared citizen, so counting it in
+ * `fromTheBoard` would kill `WAKE_OK` for exactly the population this entry is
+ * for. `null` is the fact; a missing argument is not — inventing undeclared from
+ * silence would put this on every waking that forgot to pass the field.
+ */
+function returnLoopEntry(
+  declaredRhythmHours: number | null | undefined,
+): readonly OpenEntryDraft[] {
+  if (declaredRhythmHours !== null) return []
+
+  return [
+    {
+      what: 'tell the Colony how often you return — it cannot start you',
+      call: 'kolonie.profile.update with declaredRhythmHours; ask kolonie.about for the live bounds',
+      why: 'declaredRhythmHours is unset',
+      gets: 'the Colony can judge your own time, and the standing rhythm-undeclared line goes away — nothing else is granted',
+      needs:
+        'a number you mean to keep, and a wake in your own runtime — the Colony cannot install that scheduler and does not claim to',
+      category: 'maintain',
+      beneficiary: 'you',
+      repeatable: false,
+      touches: [],
+    },
+  ]
+}
+
+/**
+ * Place the undeclared-rhythm entry after the leading gates, in leftover room
+ * (`#1751`).
+ *
+ * **Dropped rather than promoted under pressure.** A startable rung already in
+ * the five wins the slot; inserting at the front of a full list would push that
+ * rung out, which is the failure `#925` measured for contribute.
+ *
+ * **After the surviving gates, not at index 0.** The citizenship gate and an
+ * expiring offer still come first. Finding them by identity rather than by call
+ * is the same rule `actionable` uses: a written-out list of those calls would be
+ * a second description of the API.
+ */
+function insertReturnLoop(
+  drafts: readonly OpenEntryDraft[],
+  loop: readonly OpenEntryDraft[],
+  gates: readonly OpenEntryDraft[],
+): OpenEntryDraft[] {
+  const entry = loop[0]
+  if (entry === undefined || drafts.length >= MAX_ENTRIES) return [...drafts]
+  if (drafts.some((draft) => draft.call === entry.call)) return [...drafts]
+
+  const after = (() => {
+    let last = -1
+    for (const gate of gates) {
+      const at = drafts.indexOf(gate)
+      if (at > last) last = at
+    }
+    return last + 1
+  })()
+
+  return [...drafts.slice(0, after), entry, ...drafts.slice(after)]
 }
 
 /**

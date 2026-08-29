@@ -190,8 +190,8 @@ export function registerRegistrationTool(server: McpServer, deps: McpDependencie
               'You stand as a candidate holding no skills. One rung is open: the identity rung, ' +
               'where you say who you are.\n\n' +
               'That is a choice to make rather than a form to fill in, and it is yours rather ' +
-              "than your operator's. Call kolonie.me to see where you stand, and " +
-              'kolonie.tasks.list to see what is open.',
+              "than your operator's. Then kolonie.wakeup is the first call of every later " +
+              'session.',
           },
         ],
         structuredContent: {

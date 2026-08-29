@@ -1,12 +1,17 @@
 import { fakeHumans } from '../../__fixtures__/humans.js'
 import { fakeArtefactChallenges } from '../../__fixtures__/artefact.js'
-import { API_KEY_PREFIX, RegisterAgentResponseSchema, type ApiError } from '@kolonie-ai/core'
+import {
+  API_KEY_PREFIX,
+  RegisterAgentResponseSchema,
+  SkillSchema,
+  type ApiError,
+} from '@kolonie-ai/core'
 import { describe, expect, it } from 'vitest'
 import { fakeAcademy } from '../../__fixtures__/academy.js'
 import { fakeAccounts } from '../../__fixtures__/accounts.js'
 import { fakeAccountOffers } from '../../__fixtures__/account-offers.js'
 import { fakeConsole } from '../../__fixtures__/console.js'
-import { fakeCatalogue } from '../../__fixtures__/catalogue.js'
+import { fakeCatalogue, aTask } from '../../__fixtures__/catalogue.js'
 import { fakeQuests } from '../../__fixtures__/quests.js'
 import { fakeDomain } from '../../__fixtures__/domain.js'
 import { fakeEmail } from '../../__fixtures__/email.js'
@@ -21,7 +26,7 @@ import { fakeInjection } from '../../__fixtures__/injection.js'
 import { fakeVetting } from '../../__fixtures__/vetting.js'
 import { fakeAuthenticator } from '../../__fixtures__/authenticator.js'
 import { fakeKeys } from '../../__fixtures__/keys.js'
-import { anonymousClient } from '../../__fixtures__/mcp.js'
+import { anonymousClient, connectedClient } from '../../__fixtures__/mcp.js'
 import { fakePow } from '../../__fixtures__/proof-of-work.js'
 import { fakeMemory } from '../../__fixtures__/memory.js'
 import { fakeRegistry } from '../../__fixtures__/registry.js'
@@ -49,6 +54,7 @@ import { erasure } from '../../erasure.js'
 import { support } from '../../support.js'
 import { arrivalReports } from '../../arrival-reports.js'
 import { fakeArrivalDesk } from '../../__fixtures__/arrivals.js'
+import { fakeColony } from '../../__fixtures__/colony/index.js'
 
 type Client = Awaited<ReturnType<typeof anonymousClient>>['client']
 
@@ -266,6 +272,29 @@ describe('kolonie.register', () => {
       expect(text).toMatch(/identity rung/i)
     })
 
+    it('hands the proved key to wakeup as the permanent session home', async () => {
+      const text = await arrival()
+      const proof = 'If it answers, the key landed.'
+
+      expect(text).toContain(proof)
+      expect(text.indexOf(API_KEY_PREFIX)).toBeLessThan(text.indexOf('kolonie.me'))
+      expect(text.indexOf('kolonie.me')).toBeLessThan(text.indexOf(proof))
+      expect(text.indexOf(proof)).toBeLessThan(text.indexOf('kolonie.wakeup'))
+      expect(text).toContain('first call of every later session')
+      expect(text).not.toContain('kolonie.tasks.list')
+      expect(text.slice(text.indexOf(proof)).toLowerCase()).not.toContain('kolonie.me')
+    })
+
+    it('stays under the cap at the name boundary with a real issued key', async () => {
+      const { client, close } = await anonymousClient()
+      const result = await join(client, { name: 'n'.repeat(64), platform: 'openclaw' })
+      const text = (result.content as Array<{ text: string }>)[0]?.text ?? ''
+
+      expect(text).toContain(API_KEY_PREFIX)
+      expect(text.length).toBeLessThan(800)
+      await close()
+    })
+
     /** Named as a choice to make, not a form to complete — the whole point of #137. */
     it('frames the next step as the agent’s own choice', async () => {
       const text = await arrival()
@@ -286,6 +315,35 @@ describe('kolonie.register', () => {
 
       expect(text.length).toBeLessThan(800)
       expect(text).not.toMatch(/red line/i)
+    })
+
+    it('opens the identity rung on the first wakeup after the key-proof', async () => {
+      const catalogue = fakeCatalogue()
+      catalogue.answers({
+        outcome: 'listed',
+        page: {
+          items: [aTask({ title: 'Say who you are', grants: [SkillSchema.parse('profile')] })],
+          nextCursor: null,
+        },
+      })
+      const colony = fakeColony()
+      Object.assign(colony, { catalogue })
+      const stranger = await connectedClient(colony)
+      const registered = await join(stranger.client, { name: 'canary', platform: 'openclaw' })
+      await stranger.close()
+      if (registered.isError) throw new Error('expected a registration')
+      const apiKey = (registered.structuredContent as { credentials: { apiKey: string } })
+        .credentials.apiKey
+
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+      const standing = await client.callTool({ name: 'kolonie.me', arguments: {} })
+      const digest = await client.callTool({ name: 'kolonie.wakeup', arguments: {} })
+      await close()
+
+      expect(standing.isError).toBeFalsy()
+      const open = (digest.structuredContent as { open?: { entries?: Array<{ what?: string }> } })
+        .open
+      expect(open?.entries?.[0]?.what).toBe('Say who you are')
     })
 
     /** The human-readable half only. Nothing about the structured answer moved. */

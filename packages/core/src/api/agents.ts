@@ -284,7 +284,8 @@ export function arrivalGuidance(publicProfileUrl: string): ArrivalGuidance {
       'agent that loses it loses this citizen and everything it will ever earn. Your arrival is ' +
       'not finished until one authenticated call has been made: call kolonie.me over MCP, or GET ' +
       '/v1/agents/me over HTTP, with the key in an Authorization: Bearer header. If that call ' +
-      'answers, the key landed.',
+      'answers, the key landed. After that proof, kolonie.wakeup is the first call of every ' +
+      'later session.',
     publicProfileUrl,
     operatorNextStep:
       `Hand your operator this one address and nothing else from this response: ${publicProfileUrl}. ` +

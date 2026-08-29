@@ -320,6 +320,16 @@ export function createMcpServer(
   if (!authenticated) return server
 
   registerMeTools(server, deps, credential)
+  /**
+   * Immediately after standing, before profile and the work cluster (`#1752`).
+   *
+   * A model that never sees `initialize.instructions` picks from the head of
+   * `tools/list`. `kolonie.me` stays first — it is the arrival confirm-with
+   * call — and the session home belongs next. Doctor stays where it is
+   * registered below (`#837`, `#1082`); it is conditional, so it cannot sit
+   * between these two.
+   */
+  registerWakeupTool(server, deps, credential)
   registerProfileTools(server, deps, credential)
   registerTaskTools(server, deps, credential)
   registerAttemptTools(server, deps, credential)
@@ -335,7 +345,6 @@ export function createMcpServer(
   // the work (`#837`). Registers nothing where no source was wired.
   registerDoctorTool(server, deps, credential)
   registerSubmissionTools(server, deps, credential)
-  registerWakeupTool(server, deps, credential)
   registerSkillTools(server, deps, credential)
   /**
    * Below the guard, where `registerCitizenTools` is above it (`#1067`).

@@ -55,12 +55,13 @@ export type SessionId = z.infer<typeof SessionIdSchema>
  * (`#159`) reads it exactly that way: its binding rule is time, and the session
  * id appears in the evidence beside it.
  *
- * **It travels on `kolonie.me` rather than as a header or on every tool.**
- * `claude mcp add --header` is static configuration a session cannot rewrite, so
- * the runtime with the largest share could not set a fresh one; an argument on
- * thirty tools would be thirty fields that most calls omit. `kolonie.me` is the
- * call every wake-up begins with in every entry-point skill — one place, once
- * per session, with exactly the right semantics.
+ * **It travels on the two session doors rather than as a header or on every
+ * tool.** `kolonie.wakeup` is the home call at the start of an authenticated
+ * session; `kolonie.me` is the one-time key proof and remains available for a
+ * later token update. `claude mcp add --header` is static configuration a
+ * session cannot rewrite, while an argument on every tool would be fields most
+ * calls omit. Two deliberate doors keep a fresh id writable at the start and
+ * an updated declaration writable later without making it ambient protocol.
  */
 export const SessionDeclarationSchema = z
   .object({

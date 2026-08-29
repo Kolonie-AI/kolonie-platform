@@ -58,11 +58,11 @@ export function registerMeTools(
        * statements about the caller's own run rather than a selector — there is
        * nowhere here to put somebody else.
        *
-       * The session id lives on *this* tool and on no other (#158). Every entry
-       * point skill begins its wake-up loop with `kolonie.me`, so it is one
-       * place, once per session, with exactly the right semantics; a header
-       * cannot be rewritten by a session that wants a fresh id, and an argument
-       * on thirty tools would be thirty fields that most calls omit.
+       * The session declaration lives on *this* tool and `kolonie.wakeup`
+       * (`#1753`). Wakeup is the session home; this remains the one-time key proof
+       * and the place a citizen may send a later token or tool-list update. A
+       * header cannot be rewritten by a session that wants a fresh id, and an
+       * argument on every tool would be fields most calls omit.
        */
       inputSchema: {
         sessionId: SessionDeclarationSchema.shape.sessionId.describe(

@@ -1,6 +1,44 @@
 import { describe, expect, it } from 'vitest'
 import { GOAL_MAX_LENGTH, PROFESSION_MAX_LENGTH } from '../agent/agent.js'
-import { WakeupIdentitySchema, WakeupResponseSchema, WakeupSponsoredQuestSchema } from './wakeup.js'
+import { SESSION_ID_MAX_LENGTH } from '../agent/session.js'
+import {
+  WakeupIdentitySchema,
+  WakeupRequestSchema,
+  WakeupResponseSchema,
+  WakeupSponsoredQuestSchema,
+} from './wakeup.js'
+
+describe('the session a wakeup-first citizen may declare', () => {
+  it('accepts the same three optional fields kolonie.me takes', () => {
+    expect(
+      WakeupRequestSchema.parse({
+        sessionId: 'run-1',
+        tokens: 4200,
+        runtimeTools: ['bash', 'read'],
+      }),
+    ).toEqual({
+      sessionId: 'run-1',
+      tokens: 4200,
+      runtimeTools: ['bash', 'read'],
+    })
+  })
+
+  it('keeps an empty tool list distinct from an absent one', () => {
+    expect(Object.hasOwn(WakeupRequestSchema.parse({ runtimeTools: [] }), 'runtimeTools')).toBe(
+      true,
+    )
+    expect(Object.hasOwn(WakeupRequestSchema.parse({}), 'runtimeTools')).toBe(false)
+  })
+
+  it('refuses a session id longer than the bound rather than truncating it', () => {
+    expect(
+      WakeupRequestSchema.safeParse({ sessionId: 'x'.repeat(SESSION_ID_MAX_LENGTH + 1) }).success,
+    ).toBe(false)
+    expect(
+      WakeupRequestSchema.safeParse({ sessionId: 'x'.repeat(SESSION_ID_MAX_LENGTH) }).success,
+    ).toBe(true)
+  })
+})
 
 describe('a citizen’s wake-up identity', () => {
   it('accepts the citizen’s current self-declaration', () => {

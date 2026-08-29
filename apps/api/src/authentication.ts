@@ -128,9 +128,9 @@ export interface AgentStore extends ProfileStore {
   /**
    * Record the run the citizen says it is in, and any token count it sent (#158).
    *
-   * On this interface because `kolonie.me` is where a session is named — the
-   * call every wake-up begins with, which is one place rather than an argument
-   * on thirty tools. It never throws and nothing depends on its answer: a
+   * On this interface because the two session doors — `kolonie.wakeup` and
+   * `kolonie.me` — are where a session is named, rather than an argument on
+   * every tool (`#1753`). It never throws and nothing depends on its answer: a
    * citizen whose session could not be recorded has thinner evidence, not a
    * failed call.
    */

@@ -26,6 +26,7 @@ import {
   solanaWalletChallenges,
   taskBriefings,
 } from '../schema/index.js'
+import { releaseWorkplaceOwnership } from './workplace.js'
 
 /** What happened when a citizen asked to be erased. */
 export type EraseAgentResult =
@@ -334,6 +335,13 @@ export async function eraseAgent(
      * canonical place; the departing citizen's text goes with the citizen.
      */
     const promoted = await promoteDuplicatesOf(tx, command.agentId)
+
+    /**
+     * Workplace cards this citizen owned on a *foreign* board (`#1757`).
+     * `in_progress` cannot become ownerless, so the rewrite to `ready`
+     * has to happen before the agent row goes and `set null` fires.
+     */
+    await releaseWorkplaceOwnership(tx, command.agentId)
 
     // Everything else goes with this row, by the cascades #90 established.
     await tx.delete(agents).where(eq(agents.id, command.agentId))

@@ -1640,6 +1640,40 @@ describe('the erasure boundary', () => {
        */
       'website_attributions.agent_id c',
       'website_challenges.agent_id c',
+      /**
+       * `#1757`. Activity names who did it; the row is the citizen's and
+       * goes. A linked human on the same row is `set null` on *their*
+       * erasure, which is a different parent and is not in this list.
+       */
+      'workplace_activity.actor_id c',
+      /**
+       * Membership is access, not a public fact. Cascades from both ends:
+       * the board going takes its roster, and a citizen leaving drops
+       * every seat they held on somebody else's board.
+       */
+      'workplace_board_memberships.citizen_id c',
+      /**
+       * A board is that citizen's. Cascades: drafts, additional boards
+       * and the default board all go, and every card on them with them.
+       */
+      'workplace_boards.owner_id c',
+      /**
+       * Card ownership is not board membership (D-146). `set null` so a
+       * card on a *foreign* board survives the owner leaving. Storage
+       * rewrites `in_progress|blocked|review` to `ready` in the same
+       * erasure transaction first — the check on `in_progress` would
+       * otherwise refuse the null.
+       */
+      'workplace_cards.owner_id n',
+      /** A comment is writing. It leaves with the author. */
+      'workplace_comments.author_id c',
+      /**
+       * A handover is structured writing by `from_id` about a named
+       * `to_id`. Both ends cascade: strip either name and the row is
+       * not evidence of a transfer any more.
+       */
+      'workplace_handovers.from_id c',
+      'workplace_handovers.to_id c',
     ])
   })
 })

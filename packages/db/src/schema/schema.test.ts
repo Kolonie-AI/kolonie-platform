@@ -24,6 +24,10 @@ import {
   solanaWalletChallenges,
   submissions,
   tasks,
+  workplaceBoards,
+  workplaceCardLabels,
+  workplaceCards,
+  workplaceLabels,
 } from './index.js'
 
 const target = databaseTestTarget()
@@ -1176,6 +1180,23 @@ describe('schema', () => {
          */
         'website_attributions',
         'website_challenges',
+        /**
+         * The Colony Workplace (`#1757`). Private boards, not Academy `tasks`.
+         * A list is `workplace_cards.status` — there is no `workplace_lists`.
+         */
+        'workplace_activity',
+        'workplace_board_memberships',
+        'workplace_boards',
+        'workplace_card_labels',
+        'workplace_cards',
+        'workplace_checklist_items',
+        'workplace_checklists',
+        'workplace_comments',
+        'workplace_handovers',
+        'workplace_idempotency',
+        'workplace_labels',
+        'workplace_recurrence_occurrences',
+        'workplace_recurrence_rules',
       ])
     })
 
@@ -1727,6 +1748,126 @@ describe('schema', () => {
       )
       expect(mint!.balance).toBe('-80')
       expect(held!.balance).toBe('80')
+    })
+  })
+
+  describe('workplace', () => {
+    const aBoard = async (
+      ownerId: string,
+      overrides: Partial<typeof workplaceBoards.$inferInsert> = {},
+    ) => {
+      const [row] = await db
+        .insert(workplaceBoards)
+        .values({ ownerId, title: 'Default board', kind: 'default', ...overrides })
+        .returning()
+      return row!
+    }
+
+    it('refuses a second live default board for the same owner', async () => {
+      const agent = await anAgent()
+      await aBoard(agent.id)
+      await expectRejection(() => aBoard(agent.id), /workplace_boards_one_live_default/)
+    })
+
+    it('refuses a seventh status, including todo', async () => {
+      const agent = await anAgent()
+      const board = await aBoard(agent.id)
+      await expectRejection(
+        () =>
+          db.insert(workplaceCards).values({
+            boardId: board.id,
+            status: 'todo',
+            title: 'A card that must not exist',
+            ownerId: agent.id,
+            position: 1000,
+          }),
+        /workplace_cards_status_is_known/,
+      )
+    })
+
+    it('refuses in_progress without an owner', async () => {
+      const agent = await anAgent()
+      const board = await aBoard(agent.id)
+      await expectRejection(
+        () =>
+          db.insert(workplaceCards).values({
+            boardId: board.id,
+            status: 'in_progress',
+            title: 'Unowned work',
+            position: 1000,
+          }),
+        /workplace_cards_active_has_owner/,
+      )
+    })
+
+    it('refuses blocked without the blocker sentences', async () => {
+      const agent = await anAgent()
+      const board = await aBoard(agent.id)
+      await expectRejection(
+        () =>
+          db.insert(workplaceCards).values({
+            boardId: board.id,
+            status: 'blocked',
+            title: 'Stuck',
+            ownerId: agent.id,
+            position: 1000,
+          }),
+        /workplace_cards_blocked_is_explained/,
+      )
+    })
+
+    it('refuses done without an outcome', async () => {
+      const agent = await anAgent()
+      const board = await aBoard(agent.id)
+      await expectRejection(
+        () =>
+          db.insert(workplaceCards).values({
+            boardId: board.id,
+            status: 'done',
+            title: 'Finished, allegedly',
+            ownerId: agent.id,
+            position: 1000,
+          }),
+        /workplace_cards_done_has_outcome/,
+      )
+    })
+
+    it('refuses attaching a label from another board', async () => {
+      const agent = await anAgent()
+      const home = await aBoard(agent.id)
+      const away = await aBoard(agent.id, { kind: 'additional', title: 'Other' })
+      const [card] = await db
+        .insert(workplaceCards)
+        .values({ boardId: home.id, status: 'inbox', title: 'Home card', position: 1000 })
+        .returning()
+      const [label] = await db
+        .insert(workplaceLabels)
+        .values({ boardId: away.id, slug: 'colony', name: 'Colony', colour: '#336699' })
+        .returning()
+      await expectRejection(
+        () =>
+          db.insert(workplaceCardLabels).values({
+            cardId: card!.id,
+            labelId: label!.id,
+            boardId: home.id,
+          }),
+        /workplace_card_labels_label_board_fk/,
+      )
+    })
+
+    it('does not create a workplace_lists table, and does not alter tasks', async () => {
+      const extra = await db.execute<{ table_name: string }>(
+        sql`select table_name from information_schema.tables
+             where table_schema = 'public' and table_name = 'workplace_lists'`,
+      )
+      expect(extra).toEqual([])
+
+      const altered = await db.execute<{ count: string }>(
+        sql`select count(*)::text as count from information_schema.columns
+             where table_schema = 'public' and table_name = 'tasks'
+               and column_name like 'workplace%'`,
+      )
+      expect(altered[0]?.count).toBe('0')
     })
   })
 })

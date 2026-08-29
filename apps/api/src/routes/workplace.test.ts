@@ -1,10 +1,18 @@
+import { randomUUID } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
+import type { InjectOptions, Response as InjectResponse } from 'light-my-request'
 import { SignJWT, createLocalJWKSet, exportJWK, generateKeyPair } from 'jose'
 import type { JWK, JWTVerifyGetKey, KeyObject } from 'jose'
-import { ERROR_STATUS, WORKPLACE_CITIZEN_HEADER } from '@kolonie-ai/core'
+import {
+  ERROR_STATUS,
+  WorkplaceBoardIdSchema,
+  WORKPLACE_CITIZEN_HEADER,
+  type AgentId,
+  type WorkplaceBoard,
+} from '@kolonie-ai/core'
 import { buildApp } from '../app.js'
-import { fakeColony } from '../__fixtures__/colony/index.js'
+import { FAKE_CALLER_IP, fakeColony, type FakeColony } from '../__fixtures__/colony/index.js'
 import { anAgent, fakeHumanStore, type FakeHumanStore } from '../__fixtures__/humans.js'
 import { SESSION_COOKIE } from './console.js'
 
@@ -38,12 +46,14 @@ const OTHER_ORIGIN = 'https://not-the-workplace.example.test'
 
 const ME = '/v1/workplace/me'
 const ACTOR = '/v1/workplace/actor'
+const BOARDS = '/v1/workplace/boards'
 
 /** The `sub` a tenant mints: `<strategy>|<subject>`, as `auth0.ts` records. */
 const SUBJECT = 'github|4815162342'
 
 let app: FastifyInstance
 let humans: FakeHumanStore
+let colony: FakeColony
 
 /** The key the Colony trusts, and one it has never heard of. */
 let signing: { privateKey: KeyObject; publicJwk: JWK }
@@ -87,7 +97,7 @@ const aToken = async (
 
 const build = (configured = true) => {
   humans = fakeHumanStore()
-  const colony = fakeColony()
+  colony = fakeColony()
   return buildApp({
     ...colony,
     console: { ...colony.console, consoleUrl: CONSOLE_URL },
@@ -537,13 +547,22 @@ describe('the workplace door', () => {
     })
 
     /**
-     * No issuer, no audience, no origin: no route. A `401` here would read as
-     * *your token is wrong* about a door that was never built.
+     * No issuer, no audience, no origin: no SPA door. A `401` here would read as
+     * *your token is wrong* about a door that was never built. Board routes
+     * still mount for an API-key caller (`#1759`).
      */
-    it('serves no workplace route at all', async () => {
+    it('serves no SPA workplace route', async () => {
       expect(app.hasRoute({ method: 'GET', url: ME })).toBe(false)
       expect(app.hasRoute({ method: 'GET', url: ACTOR })).toBe(false)
       expect((await asWorkplace(await aToken())).statusCode).toBe(ERROR_STATUS.not_found)
+    })
+
+    it('still serves the board collection to an API-key caller', async () => {
+      expect(app.hasRoute({ method: 'GET', url: BOARDS })).toBe(true)
+      const { apiKey } = await aCitizen()
+      const response = await asKey('GET', BOARDS, apiKey)
+      expect(response.statusCode).toBe(200)
+      expect(response.json()).toEqual({ items: [], nextCursor: null })
     })
   })
 
@@ -587,5 +606,259 @@ describe('the workplace door', () => {
 
       expect(response.statusCode).toBe(ERROR_STATUS.unauthorized)
     })
+  })
+})
+
+const aCitizen = async (name = 'canary') => {
+  const registered = await colony.registry.register(
+    { name, platform: 'openclaw' },
+    { ip: FAKE_CALLER_IP },
+  )
+  if (registered.outcome !== 'registered') throw new Error('fixture failed to register')
+  return {
+    apiKey: registered.response.credentials.apiKey,
+    agent: registered.response.agent,
+  }
+}
+
+const asKey = (
+  method: InjectOptions['method'],
+  url: string,
+  apiKey: string,
+  over: { payload?: InjectOptions['payload']; headers?: Record<string, string> } = {},
+): Promise<InjectResponse> =>
+  app.inject({
+    method,
+    url,
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      ...(over.payload === undefined ? {} : { 'content-type': 'application/json' }),
+      ...over.headers,
+    },
+    payload: over.payload,
+  })
+
+const asSpa = (
+  method: InjectOptions['method'],
+  url: string,
+  token: string,
+  citizen: string,
+  over: {
+    payload?: InjectOptions['payload']
+    headers?: Record<string, string>
+    origin?: string
+  } = {},
+): Promise<InjectResponse> =>
+  app.inject({
+    method,
+    url,
+    headers: {
+      authorization: `Bearer ${token}`,
+      [WORKPLACE_CITIZEN_HEADER]: citizen,
+      origin: over.origin ?? WORKPLACE_ORIGIN,
+      ...(over.payload === undefined ? {} : { 'content-type': 'application/json' }),
+      ...over.headers,
+    },
+    payload: over.payload,
+  })
+
+const aBoard = (
+  ownerId: AgentId,
+  over: { title?: string; kind?: 'default' | 'additional'; version?: number } = {},
+): WorkplaceBoard => {
+  const now = new Date().toISOString()
+  return {
+    id: WorkplaceBoardIdSchema.parse(randomUUID()),
+    ownerId,
+    title: over.title ?? 'Inbox',
+    kind: over.kind ?? 'additional',
+    archivedAt: null,
+    version: over.version ?? 1,
+    createdAt: now,
+    updatedAt: now,
+  }
+}
+
+describe('workplace boards (#1759)', () => {
+  describe('an API-key caller', () => {
+    it('creates a board and lists it as owner', async () => {
+      const { apiKey, agent } = await aCitizen()
+      const created = await asKey('POST', BOARDS, apiKey, { payload: { title: 'Shared' } })
+
+      expect(created.statusCode).toBe(201)
+      const board = created.json() as WorkplaceBoard
+      expect(board.title).toBe('Shared')
+      expect(board.kind).toBe('additional')
+      expect(board.ownerId).toBe(agent.id)
+      expect(created.headers.etag).toBe(String(board.version))
+
+      const listed = await asKey('GET', BOARDS, apiKey)
+      expect(listed.statusCode).toBe(200)
+      expect(listed.json()).toEqual({ items: [board], nextCursor: null })
+    })
+
+    it('reads a board it sits on, with members named', async () => {
+      const { apiKey, agent } = await aCitizen('owner-one')
+      const board = aBoard(agent.id)
+      colony.boards.plant(board, [{ boardId: board.id, citizenId: agent.id, role: 'owner' }])
+      colony.boards.named(agent.profile.name, agent.id)
+
+      const response = await asKey('GET', `${BOARDS}/${board.id}`, apiKey)
+      expect(response.statusCode).toBe(200)
+      expect(response.json()).toEqual({
+        board,
+        members: [
+          { boardId: board.id, citizenId: agent.id, role: 'owner', handle: agent.profile.name },
+        ],
+      })
+      expect(response.headers.etag).toBe('1')
+    })
+
+    it('answers 404 for a board it is not on, the same as a missing one', async () => {
+      const { apiKey } = await aCitizen('owner-two')
+      const { apiKey: strangerKey } = await aCitizen('stranger')
+      const created = await asKey('POST', BOARDS, apiKey, { payload: { title: 'Hidden' } })
+      const board = created.json() as WorkplaceBoard
+
+      const hidden = await asKey('GET', `${BOARDS}/${board.id}`, strangerKey)
+      const missing = await asKey('GET', `${BOARDS}/${randomUUID()}`, strangerKey)
+      expect(hidden.statusCode).toBe(ERROR_STATUS.not_found)
+      expect(hidden.body).toBe(missing.body)
+    })
+
+    it('renames on a matching If-Match and refuses a stale one', async () => {
+      const { apiKey } = await aCitizen('renamer')
+      const created = await asKey('POST', BOARDS, apiKey, { payload: { title: 'Old' } })
+      const board = created.json() as WorkplaceBoard
+
+      const stale = await asKey('PATCH', `${BOARDS}/${board.id}`, apiKey, {
+        payload: { title: 'Too late' },
+        headers: { 'if-match': '99' },
+      })
+      expect(stale.statusCode).toBe(ERROR_STATUS.conflict)
+
+      const renamed = await asKey('PATCH', `${BOARDS}/${board.id}`, apiKey, {
+        payload: { title: 'New' },
+        headers: { 'if-match': String(board.version) },
+      })
+      expect(renamed.statusCode).toBe(200)
+      expect((renamed.json() as WorkplaceBoard).title).toBe('New')
+      expect((renamed.json() as WorkplaceBoard).version).toBe(board.version + 1)
+    })
+
+    it('refuses to archive the default board', async () => {
+      const { apiKey, agent } = await aCitizen('keeper')
+      const board = aBoard(agent.id, { kind: 'default', title: 'My board' })
+      colony.boards.plant(board, [{ boardId: board.id, citizenId: agent.id, role: 'owner' }])
+
+      const response = await asKey('POST', `${BOARDS}/${board.id}/archive`, apiKey, {
+        headers: { 'if-match': '1' },
+      })
+      expect(response.statusCode).toBe(ERROR_STATUS.workplace_default_board_protected)
+      expect(response.json()).toMatchObject({ code: 'workplace_default_board_protected' })
+    })
+
+    it('adds a member by handle', async () => {
+      const { apiKey, agent } = await aCitizen('host')
+      const { agent: guest } = await aCitizen('guest-handle')
+      const created = await asKey('POST', BOARDS, apiKey, { payload: { title: 'Team' } })
+      const board = created.json() as WorkplaceBoard
+      colony.boards.named(guest.profile.name, guest.id)
+      colony.boards.named(agent.profile.name, agent.id)
+
+      const added = await asKey('POST', `${BOARDS}/${board.id}/members`, apiKey, {
+        payload: { citizenId: guest.profile.name },
+      })
+      expect(added.statusCode).toBe(201)
+      expect(added.json()).toEqual({
+        boardId: board.id,
+        citizenId: guest.id,
+        role: 'member',
+        handle: guest.profile.name,
+      })
+    })
+
+    it('refuses a member who is not the owner with 403, after they can see the board', async () => {
+      const { agent } = await aCitizen('chair')
+      const { apiKey: memberKey, agent: member } = await aCitizen('sitter')
+      const board = aBoard(agent.id)
+      colony.boards.plant(board, [
+        { boardId: board.id, citizenId: agent.id, role: 'owner' },
+        { boardId: board.id, citizenId: member.id, role: 'member' },
+      ])
+
+      const response = await asKey('PATCH', `${BOARDS}/${board.id}`, memberKey, {
+        payload: { title: 'Hijack' },
+        headers: { 'if-match': '1' },
+      })
+      expect(response.statusCode).toBe(ERROR_STATUS.workplace_not_member)
+    })
+
+    it('cannot remove the owner', async () => {
+      const { apiKey, agent } = await aCitizen('rooted')
+      const created = await asKey('POST', BOARDS, apiKey, { payload: { title: 'Mine' } })
+      const board = created.json() as WorkplaceBoard
+
+      const response = await asKey('DELETE', `${BOARDS}/${board.id}/members/${agent.id}`, apiKey)
+      expect(response.statusCode).toBe(ERROR_STATUS.workplace_default_board_protected)
+    })
+  })
+
+  describe('a workplace JWT plus citizen header', () => {
+    it("lists the named citizen's boards, not the human's", async () => {
+      const person = humans.holdsIdentity({
+        provider: 'github',
+        subject: '4815162342',
+        email: 'someone@example.test',
+      })
+      const agent = anAgent({ name: 'colette', status: 'citizen' })
+      humans.operatesAgent(person.id, agent)
+      const board = aBoard(agent.id, { title: 'Colette inbox' })
+      colony.boards.plant(board, [{ boardId: board.id, citizenId: agent.id, role: 'owner' }])
+
+      const response = await asSpa('GET', BOARDS, await aToken(), agent.id)
+      expect(response.statusCode).toBe(200)
+      expect(response.json()).toEqual({ items: [board], nextCursor: null })
+      expect(response.headers['access-control-allow-origin']).toBe(WORKPLACE_ORIGIN)
+    })
+
+    it('refuses a missing citizen header with 400', async () => {
+      humans.holdsIdentity({
+        provider: 'github',
+        subject: '4815162342',
+        email: 'someone@example.test',
+      })
+      const response = await app.inject({
+        method: 'GET',
+        url: BOARDS,
+        headers: { authorization: `Bearer ${await aToken()}`, origin: WORKPLACE_ORIGIN },
+      })
+      expect(response.statusCode).toBe(400)
+    })
+
+    it('ignores X-Kolonie-Citizen on an API-key call', async () => {
+      const { apiKey, agent } = await aCitizen('keyed')
+      const { agent: other } = await aCitizen('other-one')
+      const board = aBoard(other.id)
+      colony.boards.plant(board, [{ boardId: board.id, citizenId: other.id, role: 'owner' }])
+
+      const response = await asKey('GET', `${BOARDS}/${board.id}`, apiKey, {
+        headers: { [WORKPLACE_CITIZEN_HEADER]: other.id },
+      })
+      expect(response.statusCode).toBe(ERROR_STATUS.not_found)
+      expect(agent.id).not.toBe(other.id)
+    })
+  })
+
+  it('describes the collection from the core schema', async () => {
+    const document = (await app.inject({ method: 'GET', url: '/openapi.json' })).json() as {
+      paths: Record<string, { get?: { responses?: Record<string, { content?: unknown }> } }>
+    }
+    const schema = (
+      document.paths['/v1/workplace/boards']?.get?.responses?.['200'] as {
+        content?: { 'application/json'?: { schema?: { properties?: Record<string, unknown> } } }
+      }
+    )?.content?.['application/json']?.schema
+    expect(Object.keys(schema?.properties ?? {}).sort()).toEqual(['items', 'nextCursor'])
   })
 })

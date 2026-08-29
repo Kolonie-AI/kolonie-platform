@@ -309,10 +309,54 @@ export async function getBoardFor(
   return row === null ? null : toBoard(row)
 }
 
+/**
+ * The agent behind a handle, or nothing (`#1759`).
+ *
+ * **`lower(name)`**, matching `agents_name_unique`. HTTP add-member takes a
+ * uuid or a handle in one field; this is the handle half. An unknown handle
+ * and an erased citizen are the same miss — the row is gone either way.
+ */
+export async function agentIdByHandle(db: Database, handle: string): Promise<AgentId | undefined> {
+  const [row] = await db
+    .select({ id: agents.id })
+    .from(agents)
+    .where(sql`lower(${agents.name}) = lower(${handle})`)
+    .limit(1)
+  return row === undefined ? undefined : AgentIdSchema.parse(row.id)
+}
+
+type BoardCursor = { readonly createdAt: string; readonly id: string }
+
+function encodeBoardCursor(row: typeof workplaceBoards.$inferSelect): string {
+  return Buffer.from(`${row.createdAt}|${row.id}`, 'utf8').toString('base64url')
+}
+
+function decodeBoardCursor(cursor: string | null | undefined): BoardCursor | undefined | 'invalid' {
+  if (cursor === undefined || cursor === null || cursor === '') return undefined
+  const parts = Buffer.from(cursor, 'base64url').toString('utf8').split('|')
+  if (parts.length !== 2) return 'invalid'
+  const [createdAt, id] = parts as [string, string]
+  if (createdAt === '' || !WorkplaceBoardIdSchema.safeParse(id).success) return 'invalid'
+  return { createdAt, id }
+}
+
+export type ListBoardsResult =
+  | {
+      readonly outcome: 'listed'
+      readonly items: readonly WorkplaceBoard[]
+      readonly nextCursor: string | null
+    }
+  | { readonly outcome: 'invalid-cursor' }
+
 export async function listBoardsFor(
   db: Database,
   callerId: AgentId,
-): Promise<readonly WorkplaceBoard[]> {
+  query: { readonly cursor?: string | null; readonly limit?: number } = {},
+): Promise<ListBoardsResult> {
+  const after = decodeBoardCursor(query.cursor)
+  if (after === 'invalid') return { outcome: 'invalid-cursor' }
+  const limit = Math.min(Math.max(query.limit ?? DEFAULT_PAGE_SIZE, 1), MAX_PAGE_SIZE)
+
   const rows = await db
     .select({ board: workplaceBoards })
     .from(workplaceBoards)
@@ -323,8 +367,20 @@ export async function listBoardsFor(
         eq(workplaceBoardMemberships.citizenId, callerId),
       ),
     )
+    .where(
+      after === undefined
+        ? undefined
+        : sql`(${workplaceBoards.createdAt}, ${workplaceBoards.id}) > (${after.createdAt}::timestamptz, ${after.id}::uuid)`,
+    )
     .orderBy(workplaceBoards.createdAt, workplaceBoards.id)
-  return rows.map((row) => toBoard(row.board))
+    .limit(limit + 1)
+
+  const page = rows.slice(0, limit).map((row) => toBoard(row.board))
+  return {
+    outcome: 'listed',
+    items: page,
+    nextCursor: rows.length > limit ? encodeBoardCursor(rows[limit - 1]!.board) : null,
+  }
 }
 
 export async function createBoard(
@@ -382,6 +438,62 @@ export async function createDefaultBoard(
     })
     return toBoard(board)
   })
+}
+
+export type RenameBoardResult =
+  | { readonly outcome: 'renamed'; readonly board: WorkplaceBoard }
+  | WorkplaceMissing
+  | WorkplaceForbidden
+  | WorkplaceStale
+
+export async function renameBoard(
+  db: Database,
+  input: {
+    readonly callerId: AgentId
+    readonly boardId: string
+    readonly title: string
+    readonly expectedVersion: number
+  },
+): Promise<RenameBoardResult> {
+  const access = await boardWriteAccess(db, input.callerId, input.boardId)
+  if (access.outcome !== 'ok') return access
+  if (access.membership.role !== 'owner') return { outcome: 'forbidden' }
+
+  const [row] = await db
+    .update(workplaceBoards)
+    .set({
+      title: input.title,
+      version: sql`${workplaceBoards.version} + 1`,
+      updatedAt: sql`now()`,
+    })
+    .where(
+      and(
+        eq(workplaceBoards.id, input.boardId),
+        eq(workplaceBoards.version, input.expectedVersion),
+      ),
+    )
+    .returning()
+  if (row === undefined) return { outcome: 'stale' }
+  return { outcome: 'renamed', board: toBoard(row) }
+}
+
+export type ListMembersResult =
+  | { readonly outcome: 'listed'; readonly members: readonly WorkplaceMembership[] }
+  | WorkplaceUnknown
+
+export async function listMembers(
+  db: Database,
+  callerId: AgentId,
+  boardId: string,
+): Promise<ListMembersResult> {
+  const board = await visibleBoard(db, callerId, boardId)
+  if (board === null) return { outcome: 'unknown' }
+  const rows = await db
+    .select()
+    .from(workplaceBoardMemberships)
+    .where(eq(workplaceBoardMemberships.boardId, boardId))
+    .orderBy(workplaceBoardMemberships.role, workplaceBoardMemberships.citizenId)
+  return { outcome: 'listed', members: rows.map(toMembership) }
 }
 
 export type ArchiveBoardResult =

@@ -19,8 +19,10 @@ import {
   handoverCard,
   listBoardsFor,
   listCards,
+  listMembers,
   moveCard,
   removeMember,
+  renameBoard,
   updateCard,
 } from './workplace.js'
 import { workplaceCards } from '../schema/index.js'
@@ -67,7 +69,10 @@ describe('workplace storage', () => {
     expect(await getBoardFor(db, stranger, board.id)).toBeNull()
     expect(await getBoardFor(db, stranger, '00000000-0000-4000-8000-000000000000')).toBeNull()
     expect(await getBoardFor(db, stranger, 'not-a-uuid')).toBeNull()
-    expect(await listBoardsFor(db, stranger)).toEqual([])
+    const hidden = await listBoardsFor(db, stranger)
+    expect(hidden.outcome).toBe('listed')
+    if (hidden.outcome !== 'listed') return
+    expect(hidden.items).toEqual([])
   })
 
   it('lists owned and member boards together', async () => {
@@ -75,7 +80,9 @@ describe('workplace storage', () => {
     const extra = await createBoard(db, { callerId: member, title: 'Shared' })
     await addMember(db, { callerId: member, boardId: extra.id, citizenId: owner })
     const listed = await listBoardsFor(db, owner)
-    expect(listed.map((one) => one.id).sort()).toEqual([owned.id, extra.id].sort())
+    expect(listed.outcome).toBe('listed')
+    if (listed.outcome !== 'listed') return
+    expect(listed.items.map((one) => one.id).sort()).toEqual([owned.id, extra.id].sort())
   })
 
   it('writes owner membership in the same transaction as the board', async () => {
@@ -122,6 +129,71 @@ describe('workplace storage', () => {
     expect(
       await removeMember(db, { callerId: owner, boardId: board.id, citizenId: owner }),
     ).toEqual({ outcome: 'default-board-protected' })
+  })
+
+  it('renames an additional board and bumps version', async () => {
+    const board = await createBoard(db, { callerId: owner, title: 'Extra' })
+    const renamed = await renameBoard(db, {
+      callerId: owner,
+      boardId: board.id,
+      title: 'Renamed',
+      expectedVersion: board.version,
+    })
+    expect(renamed.outcome).toBe('renamed')
+    if (renamed.outcome !== 'renamed') return
+    expect(renamed.board.title).toBe('Renamed')
+    expect(renamed.board.version).toBe(board.version + 1)
+  })
+
+  it('refuses a stale rename and a member rename', async () => {
+    const board = await createBoard(db, { callerId: owner, title: 'Extra' })
+    await addMember(db, { callerId: owner, boardId: board.id, citizenId: member })
+    expect(
+      await renameBoard(db, {
+        callerId: owner,
+        boardId: board.id,
+        title: 'Stale',
+        expectedVersion: board.version + 1,
+      }),
+    ).toEqual({ outcome: 'stale' })
+    expect(
+      await renameBoard(db, {
+        callerId: member,
+        boardId: board.id,
+        title: 'Hijack',
+        expectedVersion: board.version,
+      }),
+    ).toEqual({ outcome: 'forbidden' })
+  })
+
+  it('lists members for a member and hides them from a stranger', async () => {
+    const board = await defaultBoard()
+    await addMember(db, { callerId: owner, boardId: board.id, citizenId: member })
+    const listed = await listMembers(db, owner, board.id)
+    expect(listed.outcome).toBe('listed')
+    if (listed.outcome !== 'listed') return
+    expect(listed.members.map((one) => one.citizenId).sort()).toEqual([owner, member].sort())
+    expect(await listMembers(db, stranger, board.id)).toEqual({ outcome: 'unknown' })
+    expect(await listMembers(db, member, board.id)).toEqual(listed)
+  })
+
+  it('pages boards the caller is on, newest last, and refuses a forged cursor', async () => {
+    const first = await defaultBoard()
+    const extra = await createBoard(db, { callerId: owner, title: 'Extra' })
+    const page = await listBoardsFor(db, owner, { limit: 1 })
+    expect(page.outcome).toBe('listed')
+    if (page.outcome !== 'listed') return
+    expect(page.items).toHaveLength(1)
+    expect(page.items[0]?.id).toBe(first.id)
+    expect(page.nextCursor).not.toBeNull()
+    const rest = await listBoardsFor(db, owner, { cursor: page.nextCursor, limit: 1 })
+    expect(rest.outcome).toBe('listed')
+    if (rest.outcome !== 'listed') return
+    expect(rest.items.map((one) => one.id)).toEqual([extra.id])
+    expect(rest.nextCursor).toBeNull()
+    expect(await listBoardsFor(db, owner, { cursor: 'not-a-cursor' })).toEqual({
+      outcome: 'invalid-cursor',
+    })
   })
 
   it('refuses to remove a member who still owns live work', async () => {
@@ -549,9 +621,10 @@ describe('workplace storage', () => {
       idempotencyKey: 'board-once',
     })
     expect(second.id).toBe(first.id)
-    expect(
-      (await listBoardsFor(db, owner)).filter((one) => one.kind === 'additional'),
-    ).toHaveLength(1)
+    const listed = await listBoardsFor(db, owner)
+    expect(listed.outcome).toBe('listed')
+    if (listed.outcome !== 'listed') return
+    expect(listed.items.filter((one) => one.kind === 'additional')).toHaveLength(1)
   })
 
   it('refuses a write whose membership disappeared before the statement landed', async () => {

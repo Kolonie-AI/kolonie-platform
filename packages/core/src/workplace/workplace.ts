@@ -258,6 +258,73 @@ export const WorkplaceMembershipSchema = z
   .strict()
 export type WorkplaceMembership = z.infer<typeof WorkplaceMembershipSchema>
 
+/**
+ * HTTP create (`#1759`). Title only: the actor becomes owner and the kind is
+ * always `additional`. Naming `kind` here would be how a caller minted a
+ * second default board.
+ */
+export const WorkplaceCreateBoardRequestSchema = z
+  .object({
+    title: workplaceText(WORKPLACE_TITLE_MAX_LENGTH),
+  })
+  .strict()
+export type WorkplaceCreateBoardRequest = z.infer<typeof WorkplaceCreateBoardRequestSchema>
+
+/**
+ * HTTP rename (`#1759`). Title only, and `.strict()` so a body that mentions
+ * lists or statuses is refused rather than ignored — those are not fields a
+ * board has.
+ */
+export const WorkplaceRenameBoardRequestSchema = z
+  .object({
+    title: workplaceText(WORKPLACE_TITLE_MAX_LENGTH),
+  })
+  .strict()
+export type WorkplaceRenameBoardRequest = z.infer<typeof WorkplaceRenameBoardRequestSchema>
+
+/**
+ * HTTP add-member (`#1759`). `citizenId` is either an agent uuid or a handle:
+ * the route decides which, because a uuid-shaped handle is a real handle and
+ * the schema cannot tell them apart. Empty is refused so the route does not
+ * have to.
+ */
+export const WorkplaceAddMemberRequestSchema = z
+  .object({
+    citizenId: z.string().trim().min(1).max(64),
+  })
+  .strict()
+export type WorkplaceAddMemberRequest = z.infer<typeof WorkplaceAddMemberRequestSchema>
+
+/**
+ * A membership as HTTP returns it (`#1759`).
+ *
+ * **Handle is required.** The SPA shows names, not uuids, and minting the
+ * field here is what stops a later route answering with the storage row
+ * alone. Storage still returns {@link WorkplaceMembership}; the route joins
+ * the handle.
+ */
+export const WorkplaceMemberSchema = WorkplaceMembershipSchema.extend({
+  handle: z.string().min(2).max(64),
+}).strict()
+export type WorkplaceMember = z.infer<typeof WorkplaceMemberSchema>
+
+/** One board plus the members a caller may see (`#1759`). */
+export const WorkplaceBoardDetailSchema = z
+  .object({
+    board: WorkplaceBoardSchema,
+    members: z.array(WorkplaceMemberSchema),
+  })
+  .strict()
+export type WorkplaceBoardDetail = z.infer<typeof WorkplaceBoardDetailSchema>
+
+/** `GET /v1/workplace/boards/:boardId/members` (`#1759`). */
+export const WorkplaceMembersResponseSchema = z
+  .object({
+    members: z.array(WorkplaceMemberSchema),
+  })
+  .strict()
+export type WorkplaceMembersResponse = z.infer<typeof WorkplaceMembersResponseSchema>
+
 export const WorkplaceLabelSchema = z
   .object({
     id: WorkplaceLabelIdSchema,

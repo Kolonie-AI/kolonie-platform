@@ -27,6 +27,7 @@ import type { ConsoleDependencies } from '../console.js'
 import type { AdoptionDesk } from '../adoption.js'
 import type { HumanDependencies } from '../humans/humans.js'
 import type { WorkplaceOptions } from '../humans/workplace.js'
+import type { WorkplaceBoards } from '../workplace-boards.js'
 import type { ContributionDependencies } from '../contributions.js'
 import type { ContributionQualitySource } from '../contribution-quality.js'
 import type { StandingHintSource } from '../hints.js'
@@ -550,6 +551,15 @@ export interface RouteDependencies {
    * reaching. Appended, per the house rule on `citizens`.
    */
   readonly arrivals: ArrivalReports
+  /**
+   * Private Workplace boards (`#1759`).
+   *
+   * **Optional, and absent is a supported deployment.** Board HTTP still
+   * mounts for an API-key caller when this is wired and the SPA tenant is
+   * not; the other way around, `/me` and `/actor` exist and the collection
+   * does not. Appended, per the house rule on `citizens`.
+   */
+  readonly boards?: WorkplaceBoards
   /**
    * A verified operator writing to the citizen it answers for (`#1288`).
    *

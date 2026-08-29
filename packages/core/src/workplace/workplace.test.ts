@@ -18,6 +18,11 @@ import {
   WorkplaceRecurrenceSchema,
   WorkplaceMcpInputSchema,
   WorkplaceMeResponseSchema,
+  WorkplaceCreateBoardRequestSchema,
+  WorkplaceRenameBoardRequestSchema,
+  WorkplaceAddMemberRequestSchema,
+  WorkplaceBoardDetailSchema,
+  WorkplaceMemberSchema,
   WorkplaceSubjectSchema,
   WORKPLACE_CITIZEN_HEADER,
   WORKPLACE_TRANSITIONS,
@@ -575,6 +580,63 @@ describe('the workplace human actor (#1764)', () => {
 
   it('names the citizen header in lower case, once', () => {
     expect(WORKPLACE_CITIZEN_HEADER).toBe('x-kolonie-citizen')
+  })
+})
+
+describe('board HTTP envelopes (#1759)', () => {
+  it('creates an additional board from a title alone', () => {
+    expect(WorkplaceCreateBoardRequestSchema.parse({ title: 'Shared' })).toEqual({
+      title: 'Shared',
+    })
+  })
+
+  it('refuses minting a default board, and any extra field', () => {
+    expect(
+      WorkplaceCreateBoardRequestSchema.safeParse({ title: 'Shared', kind: 'default' }).success,
+    ).toBe(false)
+    expect(WorkplaceCreateBoardRequestSchema.safeParse({ title: '' }).success).toBe(false)
+  })
+
+  it('renames from a title and refuses lists or statuses on the body', () => {
+    expect(WorkplaceRenameBoardRequestSchema.parse({ title: 'Renamed' }).title).toBe('Renamed')
+    expect(
+      WorkplaceRenameBoardRequestSchema.safeParse({
+        title: 'Renamed',
+        lists: [{ id: 'ready' }],
+      }).success,
+    ).toBe(false)
+    expect(
+      WorkplaceRenameBoardRequestSchema.safeParse({ title: 'Renamed', status: 'ready' }).success,
+    ).toBe(false)
+  })
+
+  it('adds a member by agent uuid or by handle', () => {
+    expect(WorkplaceAddMemberRequestSchema.parse({ citizenId: CITIZEN }).citizenId).toBe(CITIZEN)
+    expect(WorkplaceAddMemberRequestSchema.parse({ citizenId: 'Colette' }).citizenId).toBe(
+      'Colette',
+    )
+  })
+
+  it('refuses an empty member id and an extra field', () => {
+    expect(WorkplaceAddMemberRequestSchema.safeParse({ citizenId: '' }).success).toBe(false)
+    expect(
+      WorkplaceAddMemberRequestSchema.safeParse({ citizenId: CITIZEN, role: 'owner' }).success,
+    ).toBe(false)
+  })
+
+  it('parses a board detail with members named by handle', () => {
+    const detail = WorkplaceBoardDetailSchema.parse({
+      board: board(),
+      members: [{ boardId: BOARD, citizenId: CITIZEN, role: 'owner', handle: 'colette' }],
+    })
+    expect(detail.members[0]?.handle).toBe('colette')
+  })
+
+  it('refuses a member without a handle — the id alone is not what the SPA shows', () => {
+    expect(
+      WorkplaceMemberSchema.safeParse({ boardId: BOARD, citizenId: CITIZEN, role: 'owner' })
+        .success,
+    ).toBe(false)
   })
 })
 

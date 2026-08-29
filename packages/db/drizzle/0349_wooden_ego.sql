@@ -63,7 +63,7 @@ CREATE TABLE "workplace_cards" (
 	CONSTRAINT "workplace_cards_title_is_bounded" CHECK (char_length("workplace_cards"."title") between 1 and 120),
 	CONSTRAINT "workplace_cards_description_is_bounded" CHECK ("workplace_cards"."description" is null or char_length("workplace_cards"."description") <= 2000),
 	CONSTRAINT "workplace_cards_priority_is_a_token" CHECK ("workplace_cards"."priority" ~ '^[a-z][a-z0-9_-]*$'),
-	CONSTRAINT "workplace_cards_active_has_owner" CHECK ("workplace_cards"."status" in ('inbox', 'ready') or "workplace_cards"."owner_id" is not null),
+	CONSTRAINT "workplace_cards_active_has_owner" CHECK ("workplace_cards"."status" in ('inbox', 'ready', 'done') or "workplace_cards"."owner_id" is not null),
 	CONSTRAINT "workplace_cards_blocked_is_explained" CHECK ("workplace_cards"."status" <> 'blocked'
         or ("workplace_cards"."blocked_by" is not null and "workplace_cards"."unblock_when" is not null)),
 	CONSTRAINT "workplace_cards_done_has_outcome" CHECK ("workplace_cards"."status" <> 'done' or "workplace_cards"."outcome" is not null),

@@ -21633,7 +21633,7 @@
         },
         "workplace_cards_active_has_owner": {
           "name": "workplace_cards_active_has_owner",
-          "value": "\"workplace_cards\".\"status\" in ('inbox', 'ready') or \"workplace_cards\".\"owner_id\" is not null"
+          "value": "\"workplace_cards\".\"status\" in ('inbox', 'ready', 'done') or \"workplace_cards\".\"owner_id\" is not null"
         },
         "workplace_cards_blocked_is_explained": {
           "name": "workplace_cards_blocked_is_explained",

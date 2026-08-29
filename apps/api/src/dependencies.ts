@@ -23,6 +23,7 @@ import type { ConsoleDependencies } from './console.js'
 import type { AdoptionDesk } from './adoption.js'
 import type { HumanDependencies } from './humans/humans.js'
 import type { WorkplaceOptions } from './humans/workplace.js'
+import type { WorkplaceBoards } from './workplace-boards.js'
 import type { ContributionDependencies } from './contributions.js'
 import type { ContributionQualitySource } from './contribution-quality.js'
 import type { StandingHintSource } from './hints.js'
@@ -623,10 +624,11 @@ export interface AppDependencies {
    * The workplace SPA's issuer, audience and origin (`#1727`).
    *
    * **Optional, and absent is a supported deployment.** With none of the three
-   * set the workplace routes are not registered at all, which is what
-   * `humans.tenant` does for the console's provider button and for the same
-   * reason: a door that cannot validate the credential it asks for should not
-   * be there to ask.
+   * set `/me` and `/actor` are not registered, which is what `humans.tenant`
+   * does for the console's provider button and for the same reason: a door
+   * that cannot validate the credential it asks for should not be there to
+   * ask. Board routes (`#1759`) still mount when `boards` is wired, for an
+   * API-key caller.
    *
    * All three values are deployment configuration and appear nowhere in this
    * repository — see `humans/workplace.ts` for why they arrive as arguments.
@@ -730,4 +732,10 @@ export interface AppDependencies {
    * an absence here would produce. Appended, per the house rule on `citizens`.
    */
   readonly arrivals: ArrivalReports
+  /**
+   * Private Workplace boards (`#1759`). Optional: a deployment that wires
+   * none serves `/me` (when the SPA tenant is set) and no collection.
+   * Appended, per the house rule on `citizens`.
+   */
+  readonly boards?: WorkplaceBoards
 }

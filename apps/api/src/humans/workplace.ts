@@ -286,7 +286,10 @@ export function originHeader(value: string | string[] | undefined): string | und
  * request this API answers at another origin.
  */
 export function corsHeaders(reply: FastifyReply, allowed: string): FastifyReply {
-  return reply.header('access-control-allow-origin', allowed).header('vary', 'Origin')
+  return reply
+    .header('access-control-allow-origin', allowed)
+    .header('vary', 'Origin')
+    .header('access-control-expose-headers', 'etag')
 }
 
 /**

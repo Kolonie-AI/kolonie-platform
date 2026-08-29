@@ -127,6 +127,7 @@ export type { AppDependencies } from './dependencies.js'
 export function buildApp({
   humans,
   workplace,
+  boards,
   citizens,
   avatars,
   registry: unlimitedRegistry,
@@ -543,6 +544,7 @@ export function buildApp({
     ...(ticketDesk === undefined ? {} : { ticketDesk }),
     humans,
     ...(workplace === undefined ? {} : { workplace }),
+    ...(boards === undefined ? {} : { boards }),
     ...(adoption === undefined ? {} : { adoption }),
     registry,
     store,
@@ -744,8 +746,10 @@ export function buildApp({
       registerAccountRoutes(v1, routes)
       registerSupportRoutes(v1, routes)
       registerConsoleRoutes(v1, routes)
-      // The other browser door, and the one that is not the console (`#1727`).
-      // Registers nothing where no workplace is configured.
+      // The other browser door, and the one that is not the console (`#1727`,
+      // `#1759`). `/me` and `/actor` register only where the SPA tenant is
+      // set; board routes register whenever `boards` is wired, including for
+      // an API-key caller with no tenant.
       registerWorkplaceRoutes(v1, routes)
       registerMailboxRoutes(v1, routes)
       registerKeyRoutes(v1, routes)

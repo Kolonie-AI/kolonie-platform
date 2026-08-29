@@ -8,6 +8,7 @@ import type { AccountOfferDependencies } from '../../account-offers.js'
 import { fakeAccountOffers, type FakeAccountOffers } from '../account-offers.js'
 import { fakeHumans } from '../humans.js'
 import type { HumanDependencies } from '../../humans/humans.js'
+import { fakeWorkplaceBoards, type FakeWorkplaceBoards } from '../workplace-boards.js'
 import { support as supportSurface, type Support } from '../../support.js'
 import { erasure as erasureSurface, type Erasure } from '../../erasure.js'
 import { recovery as recoverySurface, type Recovery } from '../../recovery.js'
@@ -118,6 +119,12 @@ export interface FakeDesks {
    * It is the object **both** `autonomy` and `permissionReports` hold.
    */
   readonly autonomyStore: FakeAutonomyStore
+  /**
+   * Private Workplace boards (`#1759`). Wired by default so a route test
+   * that is not about boards still describes the server production runs.
+   * Appended, per the house rule on `citizens`.
+   */
+  readonly boards: FakeWorkplaceBoards
 }
 
 export function fakeDesks(): FakeDesks {
@@ -171,5 +178,6 @@ export function fakeDesks(): FakeDesks {
     operatorClaim: fakeOperatorClaim(),
     autonomy: fakeAutonomy(pages, autonomyStore),
     autonomyStore,
+    boards: fakeWorkplaceBoards(),
   }
 }

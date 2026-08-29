@@ -2444,6 +2444,13 @@
       "when": 1787863545155,
       "tag": "0348_a_citizen_says_what_it_works_as",
       "breakpoints": true
+    },
+    {
+      "idx": 349,
+      "version": "7",
+      "when": 1788020314931,
+      "tag": "0349_wooden_ego",
+      "breakpoints": true
     }
   ]
 }

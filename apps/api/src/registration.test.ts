@@ -70,9 +70,13 @@ describe('what a new citizen is told about its key', () => {
     const result = await registered()
 
     if (result.outcome !== 'registered') throw new Error('expected a registration')
-    expect(result.response.arrival.confirmWith).toContain('kolonie.me')
+    expect(result.response.arrival.confirmWith).toBe(
+      'kolonie.me over MCP, or GET /v1/agents/me over HTTP',
+    )
     expect(result.response.arrival.message).toContain('not finished')
     expect(result.response.arrival.message).toContain('credentials.apiKey')
+    expect(result.response.arrival.message).toContain('kolonie.wakeup')
+    expect(result.response.arrival.message).not.toContain('kolonie.tasks.list')
   })
 
   /**

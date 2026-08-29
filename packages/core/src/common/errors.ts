@@ -205,6 +205,67 @@ export const ErrorCodeSchema = z.enum([
    * generated, and a vault entry does not survive loss of the API key.
    */
   'key_material_refused',
+  /**
+   * The caller is not a member of this Workplace board (`#1756`).
+   *
+   * **Its own code rather than `forbidden` or `not_participant`.** Those two
+   * already mean something else — a catch-all, and a messaging membership —
+   * and an agent branching on either cannot tell *you are not on this board*
+   * from *this card does not exist*. Storage answers the same 404-shaped miss
+   * for a hidden board; this code is the 403 when membership is the fact we
+   * can name (a write the caller was a member for, against a board they left).
+   */
+  'workplace_not_member',
+  /**
+   * A second claim lost the race (`#1756`, D-146).
+   *
+   * **409 rather than a silent overwrite**, and rather than `conflict` as a
+   * catch-all: the remedy is to read the card and handover, not to retry the
+   * same claim. Double-claim is the one Workplace write that must be one
+   * statement in storage; this code is what the loser of that statement sees.
+   */
+  'workplace_claim_conflict',
+  /**
+   * The card already has an owner, and the caller is not transferring through
+   * a handover (`#1756`, D-146).
+   *
+   * Distinct from `workplace_claim_conflict` (two claims at once) and from
+   * `workplace_invalid_transition` (the lane is wrong): the lane is legal and
+   * there was no race — the owner has to name the next member.
+   */
+  'workplace_handover_required',
+  /**
+   * This status pair is not in the D-146 matrix (`#1756`).
+   *
+   * **422 rather than 409**: nothing about the card has to change first; the
+   * request named a move the lifecycle does not have. `inbox → in_progress`
+   * and `done → ready` are this, not a conflict.
+   */
+  'workplace_invalid_transition',
+  /**
+   * The default board cannot be archived or have its owner membership removed
+   * (`#1756`, `#1758`).
+   *
+   * **403 rather than 422**: the request is well-formed and the Colony will
+   * not do it. A citizen told `validation_failed` looks for a field; a citizen
+   * told this knows the default board is the one thing they cannot put away.
+   */
+  'workplace_default_board_protected',
+  /**
+   * No citizen matches the handle or id the caller named (`#1756`).
+   *
+   * Membership adds and handovers name a citizen. `not_found` would invite a
+   * spelling check on the *board*; this says the *person* is what missed.
+   */
+  'workplace_unknown_citizen',
+  /**
+   * A typed link exists and this caller may not see the target (`#1765`).
+   *
+   * Minted with the domain so later issues do not invent a parallel code. 422
+   * because the request is well-formed and the Colony will not resolve a
+   * foreign holding — not 404, which would look like the link was missing.
+   */
+  'workplace_link_unresolvable',
   'internal',
 ])
 export type ErrorCode = z.infer<typeof ErrorCodeSchema>
@@ -276,5 +337,19 @@ export const ERROR_STATUS: Readonly<Record<ErrorCode, number>> = {
   // 400 — nothing is malformed; the remedy is to keep the key where it was
   // generated, not to fix a field.
   key_material_refused: 422,
+  // 403: membership is the fact we can name. Distinct from a hidden miss.
+  workplace_not_member: 403,
+  // 409: the other claim landed; retrying this one cannot win.
+  workplace_claim_conflict: 409,
+  // 409: the owner has to change (handover) before this write can succeed.
+  workplace_handover_required: 409,
+  // 422: the lifecycle does not have this move.
+  workplace_invalid_transition: 422,
+  // 403: the Colony understood the request and will not archive the default.
+  workplace_default_board_protected: 403,
+  // 404: the named citizen is what missed, not the board.
+  workplace_unknown_citizen: 404,
+  // 422: the link is there and will not be resolved for this caller.
+  workplace_link_unresolvable: 422,
   internal: 500,
 }

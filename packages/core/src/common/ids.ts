@@ -176,3 +176,42 @@ export type MessageId = z.infer<typeof MessageIdSchema>
 /** One first contact awaiting an answer (`#1285`). */
 export const MessageRequestIdSchema = z.uuid().brand<'MessageRequestId'>()
 export type MessageRequestId = z.infer<typeof MessageRequestIdSchema>
+
+/**
+ * One Workplace board (`#1756`).
+ *
+ * **Branded apart from every other uuid, and from Academy `TaskId` on
+ * purpose.** Mixing a board with a task is the collision `#1754` exists to
+ * prevent; the compiler refusing the substitution is cheaper than a reviewer
+ * noticing a `tasks` join.
+ */
+export const WorkplaceBoardIdSchema = z.uuid().brand<'WorkplaceBoardId'>()
+export type WorkplaceBoardId = z.infer<typeof WorkplaceBoardIdSchema>
+
+/** One Workplace card (`#1756`). Not a task, not a work item. */
+export const WorkplaceCardIdSchema = z.uuid().brand<'WorkplaceCardId'>()
+export type WorkplaceCardId = z.infer<typeof WorkplaceCardIdSchema>
+
+/** One board-scoped label (`#1756`). */
+export const WorkplaceLabelIdSchema = z.uuid().brand<'WorkplaceLabelId'>()
+export type WorkplaceLabelId = z.infer<typeof WorkplaceLabelIdSchema>
+
+/** One named checklist hanging off a card (`#1756`). */
+export const WorkplaceChecklistIdSchema = z.uuid().brand<'WorkplaceChecklistId'>()
+export type WorkplaceChecklistId = z.infer<typeof WorkplaceChecklistIdSchema>
+
+/** One item on a checklist (`#1756`). */
+export const WorkplaceChecklistItemIdSchema = z.uuid().brand<'WorkplaceChecklistItemId'>()
+export type WorkplaceChecklistItemId = z.infer<typeof WorkplaceChecklistItemIdSchema>
+
+/** One comment on a card (`#1756`). */
+export const WorkplaceCommentIdSchema = z.uuid().brand<'WorkplaceCommentId'>()
+export type WorkplaceCommentId = z.infer<typeof WorkplaceCommentIdSchema>
+
+/** One structured handover of a card (`#1756`). */
+export const WorkplaceHandoverIdSchema = z.uuid().brand<'WorkplaceHandoverId'>()
+export type WorkplaceHandoverId = z.infer<typeof WorkplaceHandoverIdSchema>
+
+/** One recurrence rule for a template card (`#1756`). */
+export const WorkplaceRecurrenceIdSchema = z.uuid().brand<'WorkplaceRecurrenceId'>()
+export type WorkplaceRecurrenceId = z.infer<typeof WorkplaceRecurrenceIdSchema>

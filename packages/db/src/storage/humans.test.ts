@@ -11,6 +11,7 @@ import {
   endAllHumanSessions,
   endHumanSession,
   endHumanSessionById,
+  findHumanByIdentity,
   findOrCreateHuman,
   listHumanSessions,
   openHumanSession,
@@ -52,6 +53,26 @@ describe('a person with an account', () => {
   })
 
   describe('arriving', () => {
+    it('looks a pair up without writing one (#1764)', async () => {
+      expect(await findHumanByIdentity(db, anIdentity())).toBeUndefined()
+      expect(await db.select({ id: humans.id }).from(humans)).toHaveLength(0)
+
+      const created = await findOrCreateHuman(db, anIdentity())
+      const found = await findHumanByIdentity(db, anIdentity())
+
+      expect(found?.id).toBe(created.human?.id)
+      expect(
+        await findHumanByIdentity(db, { provider: 'github', subject: 'not-this-person' }),
+      ).toBeUndefined()
+    })
+
+    it('does not attach an unknown pair by address', async () => {
+      await findOrCreateHuman(db, anIdentity())
+
+      expect(await findHumanByIdentity(db, { provider: 'google', subject: '9999' })).toBeUndefined()
+      expect(await db.select({ id: humanIdentities.id }).from(humanIdentities)).toHaveLength(1)
+    })
+
     it('creates an account the first time and finds it the second', async () => {
       const first = await findOrCreateHuman(db, anIdentity())
       const second = await findOrCreateHuman(db, anIdentity())

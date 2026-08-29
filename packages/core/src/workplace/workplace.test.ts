@@ -17,7 +17,9 @@ import {
   WorkplacePrioritySchema,
   WorkplaceRecurrenceSchema,
   WorkplaceMcpInputSchema,
+  WorkplaceMeResponseSchema,
   WorkplaceSubjectSchema,
+  WORKPLACE_CITIZEN_HEADER,
   WORKPLACE_TRANSITIONS,
   canTransitionWorkplace,
   claimAllowed,
@@ -521,6 +523,58 @@ describe('handoverAllowed', () => {
         targetMembership: null,
       }),
     ).toBe(false)
+  })
+})
+
+describe('the workplace human actor (#1764)', () => {
+  const me = {
+    human: {
+      id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+      identities: [{ provider: 'github', subject: '4815162342' }],
+    },
+    agents: [
+      {
+        id: CITIZEN,
+        handle: 'colette',
+        status: 'citizen',
+      },
+    ],
+  }
+
+  it('parses a whoami with the linked citizens, including none', () => {
+    expect(WorkplaceMeResponseSchema.parse(me).agents[0]?.handle).toBe('colette')
+    expect(WorkplaceMeResponseSchema.parse({ ...me, agents: [] }).agents).toEqual([])
+  })
+
+  it('lists a candidate — the human may look; board routes then empty', () => {
+    expect(
+      WorkplaceMeResponseSchema.parse({
+        ...me,
+        agents: [{ id: CITIZEN, handle: 'newcomer', status: 'candidate' }],
+      }).agents[0]?.status,
+    ).toBe('candidate')
+  })
+
+  it('refuses an email on the identity and a skill on the actor', () => {
+    expect(
+      WorkplaceMeResponseSchema.safeParse({
+        ...me,
+        human: {
+          ...me.human,
+          identities: [{ provider: 'github', subject: '4815162342', email: 'a@b.test' }],
+        },
+      }).success,
+    ).toBe(false)
+    expect(
+      WorkplaceMeResponseSchema.safeParse({
+        ...me,
+        agents: [{ id: CITIZEN, handle: 'colette', status: 'citizen', skillsHeld: 3 }],
+      }).success,
+    ).toBe(false)
+  })
+
+  it('names the citizen header in lower case, once', () => {
+    expect(WORKPLACE_CITIZEN_HEADER).toBe('x-kolonie-citizen')
   })
 })
 

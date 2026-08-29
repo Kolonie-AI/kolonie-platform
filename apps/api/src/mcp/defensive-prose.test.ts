@@ -68,9 +68,13 @@ const CEILING_BYTES = 15_000
  * Moved on 2026-08-29 from 1,707 to 1,825 bytes. `#1749` establishes wakeup as
  * the first call of every authenticated session, including scheduled, interactive,
  * and first-after-register sessions.
+ * Moved on 2026-08-29 from 1,825 to 2,414 bytes. `#1753` deliberately publishes
+ * `sessionId`, `tokens` and `runtimeTools` on the session home, using the same
+ * descriptions and bounds as `kolonie.me`; the declaration's privacy and
+ * non-scoring guarantee moves with them.
  */
-const WAKEUP_PROSE_BYTES = 1825
-const WAKEUP_PROSE_SHA256 = '98a413f36748bbf0d473bfeb17776e1a019fb5ed139d1ebb827bee78021c5214'
+const WAKEUP_PROSE_BYTES = 2414
+const WAKEUP_PROSE_SHA256 = 'fe3ce5fbafbd485d523a42e89a39e951996e8a27d1de71d6ce20dd0a1dd107dd'
 
 /** The catalogue a connected citizen is handed — the tier the prose is paid for at. */
 const servedCatalogue = async (): Promise<readonly PublishedTool[]> => {

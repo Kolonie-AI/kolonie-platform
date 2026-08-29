@@ -1,4 +1,4 @@
-import { WakeupRequestSchema } from '@kolonie-ai/core'
+import { SessionDeclarationSchema, WakeupRequestSchema } from '@kolonie-ai/core'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { authenticate } from '../../authentication.js'
 import { wakeup } from '../../wakeup.js'
@@ -62,6 +62,8 @@ export function registerWakeupTool(
         'waiting, and a compact ' +
         '`messaging` unread delta (counts and sample ids — bodies via kolonie.messages.*). ' +
         'Current profession and goal are standing self-declaration, not events in that window.\n\n' +
+        'Nothing you declare about your session is checked, compared with other citizens or ' +
+        'shown to anybody else, and nothing is ranked, gated or rewarded on it.\n\n' +
         '**It also answers what is open to you**, in `open`: at most five things you could do ' +
         'right now, each with the exact call and the state fact that makes it available.\n\n' +
         '**Reading it changes nothing and it is safe to call twice.** Nothing is ever consumed ' +
@@ -72,6 +74,19 @@ export function registerWakeupTool(
         'false means nothing is startable alone and the turn may end — it does not mean *do ' +
         'not ever work*. Pending requests or unread threads make it true.',
       inputSchema: {
+        sessionId: SessionDeclarationSchema.shape.sessionId.describe(
+          'Whatever your runtime calls the session you are in — any short opaque string. ' +
+            'Send the same id again later in the run to update the rest; a new one when you ' +
+            'wake up again.',
+        ),
+        tokens: SessionDeclarationSchema.shape.tokens.describe(
+          'Roughly how many tokens this session has consumed, if you know. Optional, and the ' +
+            'most recent value wins.',
+        ),
+        runtimeTools: SessionDeclarationSchema.shape.runtimeTools.describe(
+          'Which tools this run used — just their names, however your runtime names them. ' +
+            'Optional; the most recent list replaces the last. An empty list means none.',
+        ),
         since: WakeupRequestSchema.shape.since.describe(
           'Measure from this moment instead, as an ISO 8601 timestamp. Omit it and the ' +
             'window is the gap you were away for — the start of the run before this one, ' +
@@ -99,6 +114,29 @@ export function registerWakeupTool(
     async (input) => {
       const authenticatedAgent = await authenticate(credential, deps.store)
       if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      /**
+       * Name this run before the digest asks for the previous one (`#1753`).
+       *
+       * The ordering is the behaviour: production's `previousSessionStart`
+       * excludes the current row, so writing after `wakeup()` would make this run
+       * invisible now and make the next run measure from the wrong boundary.
+       *
+       * Build the declaration key by key so absence remains absence and
+       * `runtimeTools: []` remains a report. `nameSession` is instrumentation and
+       * is specified never to throw; the catch keeps that promise at this
+       * boundary even when an injected or future store violates it.
+       */
+      const declaration = SessionDeclarationSchema.parse({
+        ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
+        ...(input.tokens === undefined ? {} : { tokens: input.tokens }),
+        ...(input.runtimeTools === undefined ? {} : { runtimeTools: input.runtimeTools }),
+      })
+      if (Object.keys(declaration).length > 0) {
+        await deps.store
+          .nameSession(authenticatedAgent.agent.id, declaration)
+          .catch(() => undefined)
+      }
 
       const result = await wakeup(
         authenticatedAgent.agent.id,

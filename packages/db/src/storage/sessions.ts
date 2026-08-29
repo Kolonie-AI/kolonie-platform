@@ -119,10 +119,10 @@ export type SessionOutcome =
  * one (#158).
  *
  * **It never throws**, on the same terms as `recordContact`: this rides on
- * `kolonie.me`, the call every wake-up begins with, and instrumentation that can
- * refuse a citizen its rung is worse than no instrumentation. A citizen whose
- * session could not be recorded is a citizen whose evidence is thinner, never
- * one whose call failed.
+ * `kolonie.wakeup` and `kolonie.me`, and instrumentation that can refuse a
+ * citizen its digest is worse than no instrumentation. A citizen whose session
+ * could not be recorded is a citizen whose evidence is thinner, never one
+ * whose call failed.
  *
  * **The same id resumes.** `on conflict` updates rather than inserting, so a
  * citizen that names one id forever has one long session and a citizen that

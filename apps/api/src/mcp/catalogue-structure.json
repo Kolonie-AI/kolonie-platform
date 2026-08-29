@@ -1,5 +1,5 @@
 {
-  "measuredAt": "2026-08-27",
+  "measuredAt": "2026-08-29",
   "command": "npm run catalogue-structure",
   "tools": [
     {
@@ -4070,9 +4070,28 @@
           "following": {
             "type": "boolean"
           },
+          "runtimeTools": {
+            "items": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 64,
+            "type": "array"
+          },
+          "sessionId": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
           "since": {
             "format": "date-time",
             "type": "string"
+          },
+          "tokens": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
           }
         },
         "type": "object"

@@ -8,6 +8,7 @@ import {
   operatorStandingNeedsAttention,
 } from '../agent/operator-standing.js'
 import { SuspensionStandingSchema } from '../agent/suspension.js'
+import { SessionDeclarationSchema } from '../agent/session.js'
 import { CompletedCredentialRecoverySchema } from '../agent/credentials.js'
 import { SkillSchema } from '../common/skill.js'
 import { boundedText } from '../common/text.js'
@@ -634,6 +635,18 @@ export type WakeupQuest = z.infer<typeof WakeupQuestSchema>
  */
 
 export const WakeupRequestSchema = z.object({
+  /**
+   * The same optional declaration `kolonie.me` accepts (`#1753`).
+   *
+   * **It belongs on both doors.** `kolonie.wakeup` is the authenticated session
+   * home, while `kolonie.me` remains the one-time key proof and the place for a
+   * later token update. Removing the declaration from either would make one of
+   * those ordinary paths unable to name the run it is serving.
+   *
+   * Spread from the shared schema rather than restated here, so its bounds and
+   * the distinction between an absent tool list and an empty one cannot drift.
+   */
+  ...SessionDeclarationSchema.shape,
   /**
    * What to measure from. Defaults to the start of the caller's previous
    * session.

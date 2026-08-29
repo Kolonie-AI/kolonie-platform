@@ -62,6 +62,9 @@ const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000
 const RANK_GAP = 1000
 
 export type WorkplaceUnknown = { readonly outcome: 'unknown' }
+export type WorkplaceMissing = { readonly outcome: 'missing' }
+export type WorkplaceForbidden = { readonly outcome: 'forbidden' }
+export type WorkplaceEmpty = { readonly outcome: 'empty' }
 export type WorkplaceStale = { readonly outcome: 'stale' }
 export type WorkplaceConflict = { readonly outcome: 'conflict' }
 export type WorkplaceInvalidTransition = { readonly outcome: 'invalid-transition' }
@@ -207,6 +210,96 @@ async function visibleCard(
   return row?.card ?? null
 }
 
+/**
+ * Membership in the write statement, not a pre-read. Under READ COMMITTED a
+ * `visibleCard` check can succeed and the membership then vanish before the
+ * UPDATE lands; putting the join in `WHERE` is what closes that.
+ */
+function callerIsMember(callerId: AgentId) {
+  return sql`exists (select 1 from workplace_board_memberships m
+        where m.board_id = ${workplaceCards.boardId}
+          and m.citizen_id = ${callerId})`
+}
+
+/**
+ * Lock the card, then the caller's membership, then decide. An EXISTS in the
+ * UPDATE `WHERE` is not enough: EvalPlanQual rechecks the target row after a
+ * wait and does not reliably re-run that subquery, so a membership deleted
+ * while we waited would still match. Taking the card lock first means the
+ * membership read sees whatever committed during the wait.
+ */
+async function lockCardForWrite(
+  tx: Transaction,
+  callerId: AgentId,
+  cardId: string,
+): Promise<
+  | { readonly outcome: 'ok'; readonly card: typeof workplaceCards.$inferSelect }
+  | WorkplaceMissing
+  | WorkplaceForbidden
+> {
+  if (!isUuid(cardId)) return { outcome: 'missing' }
+  const [card] = await tx
+    .select()
+    .from(workplaceCards)
+    .where(eq(workplaceCards.id, cardId))
+    .for('update')
+  if (card === undefined) return { outcome: 'missing' }
+  const [member] = await tx
+    .select({ citizenId: workplaceBoardMemberships.citizenId })
+    .from(workplaceBoardMemberships)
+    .where(
+      and(
+        eq(workplaceBoardMemberships.boardId, card.boardId),
+        eq(workplaceBoardMemberships.citizenId, callerId),
+      ),
+    )
+    .for('update')
+    .limit(1)
+  if (member === undefined) return { outcome: 'forbidden' }
+  return { outcome: 'ok', card }
+}
+
+async function diagnoseCardWrite(
+  db: Database | Transaction,
+  callerId: AgentId,
+  cardId: string,
+): Promise<WorkplaceMissing | WorkplaceForbidden | WorkplaceStale> {
+  if (!isUuid(cardId)) return { outcome: 'missing' }
+  const [card] = await db
+    .select({ id: workplaceCards.id, boardId: workplaceCards.boardId })
+    .from(workplaceCards)
+    .where(eq(workplaceCards.id, cardId))
+    .limit(1)
+  if (card === undefined) return { outcome: 'missing' }
+  if ((await membershipOf(db, callerId, card.boardId)) === null) return { outcome: 'forbidden' }
+  return { outcome: 'stale' }
+}
+
+async function boardWriteAccess(
+  db: Database | Transaction,
+  callerId: AgentId,
+  boardId: string,
+): Promise<
+  | {
+      readonly outcome: 'ok'
+      readonly board: typeof workplaceBoards.$inferSelect
+      readonly membership: WorkplaceMembership
+    }
+  | WorkplaceMissing
+  | WorkplaceForbidden
+> {
+  if (!isUuid(boardId)) return { outcome: 'missing' }
+  const [board] = await db
+    .select()
+    .from(workplaceBoards)
+    .where(eq(workplaceBoards.id, boardId))
+    .limit(1)
+  if (board === undefined) return { outcome: 'missing' }
+  const membership = await membershipOf(db, callerId, boardId)
+  if (membership === null) return { outcome: 'forbidden' }
+  return { outcome: 'ok', board, membership }
+}
+
 export async function getBoardFor(
   db: Database,
   callerId: AgentId,
@@ -236,20 +329,34 @@ export async function listBoardsFor(
 
 export async function createBoard(
   db: Database,
-  input: { readonly callerId: AgentId; readonly title: string },
+  input: {
+    readonly callerId: AgentId
+    readonly title: string
+    readonly idempotencyKey?: string
+  },
 ): Promise<WorkplaceBoard> {
   return db.transaction(async (tx) => {
-    const [board] = await tx
-      .insert(workplaceBoards)
-      .values({ ownerId: input.callerId, title: input.title, kind: 'additional' })
-      .returning()
-    if (board === undefined) throw new Error('workplace board insert returned no row')
-    await tx.insert(workplaceBoardMemberships).values({
-      boardId: board.id,
-      citizenId: input.callerId,
-      role: 'owner',
+    const stored = await replayOrStore(tx, {
+      callerId: input.callerId,
+      idempotencyKey: input.idempotencyKey,
+      run: async () => {
+        const [board] = await tx
+          .insert(workplaceBoards)
+          .values({ ownerId: input.callerId, title: input.title, kind: 'additional' })
+          .returning()
+        if (board === undefined) throw new Error('workplace board insert returned no row')
+        await tx.insert(workplaceBoardMemberships).values({
+          boardId: board.id,
+          citizenId: input.callerId,
+          role: 'owner',
+        })
+        return toBoard(board)
+      },
     })
-    return toBoard(board)
+    if (typeof stored === 'object' && stored !== null && 'replayed' in stored) {
+      return WorkplaceBoardSchema.parse(stored.value)
+    }
+    return stored
   })
 }
 
@@ -279,7 +386,8 @@ export async function createDefaultBoard(
 
 export type ArchiveBoardResult =
   | { readonly outcome: 'archived'; readonly board: WorkplaceBoard }
-  | WorkplaceUnknown
+  | WorkplaceMissing
+  | WorkplaceForbidden
   | WorkplaceDefaultProtected
   | WorkplaceStale
 
@@ -291,11 +399,10 @@ export async function archiveBoard(
     readonly expectedVersion: number
   },
 ): Promise<ArchiveBoardResult> {
-  const membership = await membershipOf(db, input.callerId, input.boardId)
-  if (membership === null || membership.role !== 'owner') return { outcome: 'unknown' }
-  const existing = await visibleBoard(db, input.callerId, input.boardId)
-  if (existing === null) return { outcome: 'unknown' }
-  if (existing.kind === 'default') return { outcome: 'default-board-protected' }
+  const access = await boardWriteAccess(db, input.callerId, input.boardId)
+  if (access.outcome !== 'ok') return access
+  if (access.membership.role !== 'owner') return { outcome: 'forbidden' }
+  if (access.board.kind === 'default') return { outcome: 'default-board-protected' }
 
   const [row] = await db
     .update(workplaceBoards)
@@ -317,15 +424,17 @@ export async function archiveBoard(
 
 export type AddMemberResult =
   | { readonly outcome: 'added'; readonly membership: WorkplaceMembership }
-  | WorkplaceUnknown
+  | WorkplaceMissing
+  | WorkplaceForbidden
   | WorkplaceUnknownCitizen
 
 export async function addMember(
   db: Database,
   input: { readonly callerId: AgentId; readonly boardId: string; readonly citizenId: string },
 ): Promise<AddMemberResult> {
-  const membership = await membershipOf(db, input.callerId, input.boardId)
-  if (membership === null || membership.role !== 'owner') return { outcome: 'unknown' }
+  const access = await boardWriteAccess(db, input.callerId, input.boardId)
+  if (access.outcome !== 'ok') return access
+  if (access.membership.role !== 'owner') return { outcome: 'forbidden' }
   if (!isUuid(input.citizenId)) return { outcome: 'unknown-citizen' }
   const citizenId = AgentIdSchema.safeParse(input.citizenId)
   if (!citizenId.success) return { outcome: 'unknown-citizen' }
@@ -344,7 +453,7 @@ export async function addMember(
     .returning()
   if (row === undefined) {
     const already = await membershipOf(db, citizenId.data, input.boardId)
-    if (already === null) return { outcome: 'unknown' }
+    if (already === null) return { outcome: 'missing' }
     return { outcome: 'added', membership: already }
   }
   return { outcome: 'added', membership: toMembership(row) }
@@ -352,7 +461,8 @@ export async function addMember(
 
 export type RemoveMemberResult =
   | { readonly outcome: 'removed' }
-  | WorkplaceUnknown
+  | WorkplaceMissing
+  | WorkplaceForbidden
   | WorkplaceDefaultProtected
   | WorkplaceHandoverRequired
 
@@ -360,12 +470,13 @@ export async function removeMember(
   db: Database,
   input: { readonly callerId: AgentId; readonly boardId: string; readonly citizenId: string },
 ): Promise<RemoveMemberResult> {
-  const membership = await membershipOf(db, input.callerId, input.boardId)
-  if (membership === null || membership.role !== 'owner') return { outcome: 'unknown' }
-  if (!isUuid(input.citizenId)) return { outcome: 'unknown' }
+  const access = await boardWriteAccess(db, input.callerId, input.boardId)
+  if (access.outcome !== 'ok') return access
+  if (access.membership.role !== 'owner') return { outcome: 'forbidden' }
+  if (!isUuid(input.citizenId)) return { outcome: 'missing' }
 
   const target = await membershipOf(db, AgentIdSchema.parse(input.citizenId), input.boardId)
-  if (target === null) return { outcome: 'unknown' }
+  if (target === null) return { outcome: 'missing' }
   if (target.role === 'owner') return { outcome: 'default-board-protected' }
 
   const held = await db
@@ -417,6 +528,7 @@ export type ListCardsResult =
       readonly items: readonly WorkplaceCardSummary[]
       readonly nextCursor: string | null
     }
+  | WorkplaceEmpty
   | { readonly outcome: 'invalid-cursor' }
   | WorkplaceUnknown
 
@@ -476,6 +588,8 @@ export async function listCards(
            )})
         `)
   const byId = new Map(counts.map((row) => [row.card_id, row]))
+
+  if (page.length === 0 && after === undefined) return { outcome: 'empty' }
 
   return {
     outcome: 'listed',
@@ -629,7 +743,10 @@ async function replayOrStore<T>(
 }
 
 export type CreateCardResult =
-  { readonly outcome: 'created'; readonly card: WorkplaceCard } | WorkplaceUnknown
+  | { readonly outcome: 'created'; readonly card: WorkplaceCard }
+  | WorkplaceMissing
+  | WorkplaceForbidden
+  | WorkplaceInvalidTransition
 
 export async function createCard(
   db: Database,
@@ -644,10 +761,10 @@ export async function createCard(
   },
 ): Promise<CreateCardResult> {
   return db.transaction(async (tx) => {
-    const board = await visibleBoard(tx, input.callerId, input.boardId)
-    if (board === null) return { outcome: 'unknown' }
+    const access = await boardWriteAccess(tx, input.callerId, input.boardId)
+    if (access.outcome !== 'ok') return access
     const status = input.status ?? 'inbox'
-    if (mustHaveOwner(status)) return { outcome: 'unknown' }
+    if (status !== 'inbox' && status !== 'ready') return { outcome: 'invalid-transition' }
 
     const stored = await replayOrStore(tx, {
       callerId: input.callerId,
@@ -677,7 +794,10 @@ export async function createCard(
 }
 
 export type UpdateCardResult =
-  { readonly outcome: 'updated'; readonly card: WorkplaceCard } | WorkplaceUnknown | WorkplaceStale
+  | { readonly outcome: 'updated'; readonly card: WorkplaceCard }
+  | WorkplaceMissing
+  | WorkplaceForbidden
+  | WorkplaceStale
 
 export async function updateCard(
   db: Database,
@@ -692,31 +812,37 @@ export async function updateCard(
     readonly coverColour?: string | null
   },
 ): Promise<UpdateCardResult> {
-  const existing = await visibleCard(db, input.callerId, input.cardId)
-  if (existing === null) return { outcome: 'unknown' }
-
-  const [row] = await db
-    .update(workplaceCards)
-    .set({
-      ...(input.title === undefined ? {} : { title: input.title }),
-      ...(input.description === undefined ? {} : { description: input.description }),
-      ...(input.priority === undefined ? {} : { priority: input.priority }),
-      ...(input.dueAt === undefined ? {} : { dueAt: input.dueAt }),
-      ...(input.coverColour === undefined ? {} : { coverColour: input.coverColour }),
-      version: sql`${workplaceCards.version} + 1`,
-      updatedAt: sql`now()`,
-    })
-    .where(
-      and(eq(workplaceCards.id, input.cardId), eq(workplaceCards.version, input.expectedVersion)),
-    )
-    .returning()
-  if (row === undefined) return { outcome: 'stale' }
-  return { outcome: 'updated', card: toCard(row) }
+  return db.transaction(async (tx) => {
+    const locked = await lockCardForWrite(tx, input.callerId, input.cardId)
+    if (locked.outcome !== 'ok') return locked
+    const [row] = await tx
+      .update(workplaceCards)
+      .set({
+        ...(input.title === undefined ? {} : { title: input.title }),
+        ...(input.description === undefined ? {} : { description: input.description }),
+        ...(input.priority === undefined ? {} : { priority: input.priority }),
+        ...(input.dueAt === undefined ? {} : { dueAt: input.dueAt }),
+        ...(input.coverColour === undefined ? {} : { coverColour: input.coverColour }),
+        version: sql`${workplaceCards.version} + 1`,
+        updatedAt: sql`now()`,
+      })
+      .where(
+        and(
+          eq(workplaceCards.id, input.cardId),
+          eq(workplaceCards.version, input.expectedVersion),
+          callerIsMember(input.callerId),
+        ),
+      )
+      .returning()
+    if (row === undefined) return { outcome: 'stale' }
+    return { outcome: 'updated', card: toCard(row) }
+  })
 }
 
 export type MoveCardResult =
   | { readonly outcome: 'moved'; readonly card: WorkplaceCard }
-  | WorkplaceUnknown
+  | WorkplaceMissing
+  | WorkplaceForbidden
   | WorkplaceStale
   | WorkplaceInvalidTransition
 
@@ -730,43 +856,53 @@ export async function moveCard(
     readonly position?: number
   },
 ): Promise<MoveCardResult> {
-  const existing = await visibleCard(db, input.callerId, input.cardId)
-  if (existing === null) return { outcome: 'unknown' }
-  const from = WorkplaceLaneSchema.parse(existing.status)
-  if (!canTransitionWorkplace(from, input.status)) return { outcome: 'invalid-transition' }
-  if (mustHaveOwner(input.status) && existing.ownerId === null) {
-    return { outcome: 'invalid-transition' }
-  }
-  if (
-    input.status === 'blocked' &&
-    (existing.blockedBy === null || existing.unblockWhen === null)
-  ) {
-    return { outcome: 'invalid-transition' }
-  }
-  if (input.status === 'done' && existing.outcome === null) {
-    return { outcome: 'invalid-transition' }
-  }
+  return db.transaction(async (tx) => {
+    const locked = await lockCardForWrite(tx, input.callerId, input.cardId)
+    if (locked.outcome !== 'ok') return locked
+    const existing = locked.card
+    const from = WorkplaceLaneSchema.parse(existing.status)
+    if (!canTransitionWorkplace(from, input.status)) return { outcome: 'invalid-transition' }
+    if (mustHaveOwner(input.status) && existing.ownerId === null) {
+      return { outcome: 'invalid-transition' }
+    }
+    if (
+      input.status === 'blocked' &&
+      (existing.blockedBy === null || existing.unblockWhen === null)
+    ) {
+      return { outcome: 'invalid-transition' }
+    }
+    if (input.status === 'done' && existing.outcome === null) {
+      return { outcome: 'invalid-transition' }
+    }
 
-  const position = input.position ?? (await nextPosition(db, existing.boardId, input.status))
-  const [row] = await db
-    .update(workplaceCards)
-    .set({
-      status: input.status,
-      position,
-      version: sql`${workplaceCards.version} + 1`,
-      updatedAt: sql`now()`,
-    })
-    .where(
-      and(eq(workplaceCards.id, input.cardId), eq(workplaceCards.version, input.expectedVersion)),
-    )
-    .returning()
-  if (row === undefined) return { outcome: 'stale' }
-  return { outcome: 'moved', card: toCard(row) }
+    const position = input.position ?? (await nextPosition(tx, existing.boardId, input.status))
+    const unclaim = from === 'in_progress' && input.status === 'ready'
+    const [row] = await tx
+      .update(workplaceCards)
+      .set({
+        status: input.status,
+        position,
+        ...(unclaim ? { ownerId: null } : {}),
+        version: sql`${workplaceCards.version} + 1`,
+        updatedAt: sql`now()`,
+      })
+      .where(
+        and(
+          eq(workplaceCards.id, input.cardId),
+          eq(workplaceCards.version, input.expectedVersion),
+          callerIsMember(input.callerId),
+        ),
+      )
+      .returning()
+    if (row === undefined) return { outcome: 'stale' }
+    return { outcome: 'moved', card: toCard(row) }
+  })
 }
 
 export type ClaimCardResult =
   | { readonly outcome: 'claimed'; readonly card: WorkplaceCard }
-  | WorkplaceUnknown
+  | WorkplaceMissing
+  | WorkplaceForbidden
   | WorkplaceConflict
 
 export async function claimCard(
@@ -804,14 +940,16 @@ async function claimCardOnce(
   },
 ): Promise<ClaimCardResult> {
   return db.transaction(async (tx) => {
+    const locked = await lockCardForWrite(tx, input.callerId, input.cardId)
+    if (locked.outcome !== 'ok') return locked
     const stored = await replayOrStore(tx, {
       callerId: input.callerId,
       idempotencyKey: input.idempotencyKey,
       run: async () => {
         /**
-         * One statement. Membership is in the `WHERE`, so a non-member and a
-         * lost race both match zero rows; the follow-up read is only there to
-         * name which, never to decide the write.
+         * One statement after the lock. `owner_id is null` serialises two
+         * claimants; membership was re-read after the wait so a concurrent
+         * removal is `forbidden` rather than a successful claim.
          */
         const [row] = await tx
           .update(workplaceCards)
@@ -833,9 +971,7 @@ async function claimCardOnce(
               isNull(workplaceCards.ownerId),
               eq(workplaceCards.status, 'ready'),
               isNull(workplaceCards.archivedAt),
-              sql`exists (select 1 from workplace_board_memberships m
-                    where m.board_id = ${workplaceCards.boardId}
-                      and m.citizen_id = ${input.callerId})`,
+              callerIsMember(input.callerId),
             ),
           )
           .returning()
@@ -850,7 +986,10 @@ async function claimCardOnce(
     if (stored !== null) return { outcome: 'claimed', card: stored }
 
     const visible = await visibleCard(tx, input.callerId, input.cardId)
-    if (visible === null) return { outcome: 'unknown' }
+    if (visible === null) {
+      const diagnosed = await diagnoseCardWrite(tx, input.callerId, input.cardId)
+      return diagnosed.outcome === 'stale' ? { outcome: 'conflict' } : diagnosed
+    }
     const membership = await membershipOf(tx, input.callerId, visible.boardId)
     if (
       !claimAllowed({
@@ -871,7 +1010,8 @@ export type HandoverCardResult =
       readonly card: WorkplaceCard
       readonly handover: WorkplaceHandover
     }
-  | WorkplaceUnknown
+  | WorkplaceMissing
+  | WorkplaceForbidden
   | WorkplaceStale
   | WorkplaceUnknownCitizen
   | WorkplaceHandoverRequired
@@ -892,12 +1032,24 @@ export async function handoverCard(
   },
 ): Promise<HandoverCardResult> {
   return db.transaction(async (tx) => {
-    const existing = await visibleCard(tx, input.callerId, input.cardId)
-    if (existing === null) return { outcome: 'unknown' }
+    const locked = await lockCardForWrite(tx, input.callerId, input.cardId)
+    if (locked.outcome !== 'ok') return locked
+    const existing = locked.card
     if (!isUuid(input.to)) return { outcome: 'unknown-citizen' }
     const to = AgentIdSchema.parse(input.to)
     const callerMembership = await membershipOf(tx, input.callerId, existing.boardId)
-    const targetMembership = await membershipOf(tx, to, existing.boardId)
+    const [targetRow] = await tx
+      .select()
+      .from(workplaceBoardMemberships)
+      .where(
+        and(
+          eq(workplaceBoardMemberships.boardId, existing.boardId),
+          eq(workplaceBoardMemberships.citizenId, to),
+        ),
+      )
+      .for('update')
+      .limit(1)
+    const targetMembership = targetRow === undefined ? null : toMembership(targetRow)
     if (targetMembership === null) return { outcome: 'unknown-citizen' }
     if (
       !handoverAllowed({
@@ -926,6 +1078,10 @@ export async function handoverCard(
             and(
               eq(workplaceCards.id, input.cardId),
               eq(workplaceCards.version, input.expectedVersion),
+              callerIsMember(input.callerId),
+              sql`exists (select 1 from workplace_board_memberships m
+                    where m.board_id = ${workplaceCards.boardId}
+                      and m.citizen_id = ${to})`,
             ),
           )
           .returning()
@@ -971,7 +1127,8 @@ export async function handoverCard(
 
 export type CompleteCardResult =
   | { readonly outcome: 'completed'; readonly card: WorkplaceCard }
-  | WorkplaceUnknown
+  | WorkplaceMissing
+  | WorkplaceForbidden
   | WorkplaceStale
   | WorkplaceInvalidTransition
 
@@ -984,33 +1141,41 @@ export async function completeCard(
     readonly outcome: string
   },
 ): Promise<CompleteCardResult> {
-  const existing = await visibleCard(db, input.callerId, input.cardId)
-  if (existing === null) return { outcome: 'unknown' }
-  const from = WorkplaceLaneSchema.parse(existing.status)
-  if (!canTransitionWorkplace(from, 'done')) return { outcome: 'invalid-transition' }
-  if (existing.ownerId === null) return { outcome: 'invalid-transition' }
+  return db.transaction(async (tx) => {
+    const locked = await lockCardForWrite(tx, input.callerId, input.cardId)
+    if (locked.outcome !== 'ok') return locked
+    const existing = locked.card
+    const from = WorkplaceLaneSchema.parse(existing.status)
+    if (!canTransitionWorkplace(from, 'done')) return { outcome: 'invalid-transition' }
+    if (existing.ownerId === null) return { outcome: 'invalid-transition' }
 
-  const position = await nextPosition(db, existing.boardId, 'done')
-  const [row] = await db
-    .update(workplaceCards)
-    .set({
-      status: 'done',
-      outcome: input.outcome,
-      position,
-      version: sql`${workplaceCards.version} + 1`,
-      updatedAt: sql`now()`,
-    })
-    .where(
-      and(eq(workplaceCards.id, input.cardId), eq(workplaceCards.version, input.expectedVersion)),
-    )
-    .returning()
-  if (row === undefined) return { outcome: 'stale' }
-  return { outcome: 'completed', card: toCard(row) }
+    const position = await nextPosition(tx, existing.boardId, 'done')
+    const [row] = await tx
+      .update(workplaceCards)
+      .set({
+        status: 'done',
+        outcome: input.outcome,
+        position,
+        version: sql`${workplaceCards.version} + 1`,
+        updatedAt: sql`now()`,
+      })
+      .where(
+        and(
+          eq(workplaceCards.id, input.cardId),
+          eq(workplaceCards.version, input.expectedVersion),
+          callerIsMember(input.callerId),
+        ),
+      )
+      .returning()
+    if (row === undefined) return { outcome: 'stale' }
+    return { outcome: 'completed', card: toCard(row) }
+  })
 }
 
 export type BlockCardResult =
   | { readonly outcome: 'blocked'; readonly card: WorkplaceCard }
-  | WorkplaceUnknown
+  | WorkplaceMissing
+  | WorkplaceForbidden
   | WorkplaceStale
   | WorkplaceInvalidTransition
 
@@ -1024,36 +1189,44 @@ export async function blockCard(
     readonly unblockWhen: string
   },
 ): Promise<BlockCardResult> {
-  const existing = await visibleCard(db, input.callerId, input.cardId)
-  if (existing === null) return { outcome: 'unknown' }
-  const from = WorkplaceLaneSchema.parse(existing.status)
-  if (!canTransitionWorkplace(from, 'blocked')) return { outcome: 'invalid-transition' }
-  if (existing.ownerId === null) return { outcome: 'invalid-transition' }
+  return db.transaction(async (tx) => {
+    const locked = await lockCardForWrite(tx, input.callerId, input.cardId)
+    if (locked.outcome !== 'ok') return locked
+    const existing = locked.card
+    const from = WorkplaceLaneSchema.parse(existing.status)
+    if (!canTransitionWorkplace(from, 'blocked')) return { outcome: 'invalid-transition' }
+    if (existing.ownerId === null) return { outcome: 'invalid-transition' }
 
-  const position = await nextPosition(db, existing.boardId, 'blocked')
-  const [row] = await db
-    .update(workplaceCards)
-    .set({
-      status: 'blocked',
-      blockedBy: input.blockedBy,
-      unblockWhen: input.unblockWhen,
-      position,
-      version: sql`${workplaceCards.version} + 1`,
-      updatedAt: sql`now()`,
-    })
-    .where(
-      and(eq(workplaceCards.id, input.cardId), eq(workplaceCards.version, input.expectedVersion)),
-    )
-    .returning()
-  if (row === undefined) return { outcome: 'stale' }
-  return { outcome: 'blocked', card: toCard(row) }
+    const position = await nextPosition(tx, existing.boardId, 'blocked')
+    const [row] = await tx
+      .update(workplaceCards)
+      .set({
+        status: 'blocked',
+        blockedBy: input.blockedBy,
+        unblockWhen: input.unblockWhen,
+        position,
+        version: sql`${workplaceCards.version} + 1`,
+        updatedAt: sql`now()`,
+      })
+      .where(
+        and(
+          eq(workplaceCards.id, input.cardId),
+          eq(workplaceCards.version, input.expectedVersion),
+          callerIsMember(input.callerId),
+        ),
+      )
+      .returning()
+    if (row === undefined) return { outcome: 'stale' }
+    return { outcome: 'blocked', card: toCard(row) }
+  })
 }
 
 /**
  * Before the agent row goes. Cards on boards this citizen owns cascade with
- * the board; cards they owned on somebody else's board must become ownerless
- * Ready in the same transaction, or the `active_has_owner` check refuses the
- * `set null` that follows the delete.
+ * the board. Live work they owned on somebody else's board becomes ownerless
+ * Ready in the same transaction; `done` stays `done` with its outcome, and
+ * only the owner is dropped. Ownerless `done` is what `active_has_owner`
+ * now permits, so the `set null` that follows the delete is not refused.
  */
 export async function releaseWorkplaceOwnership(tx: Transaction, agentId: AgentId): Promise<void> {
   await tx.execute(sql`
@@ -1075,7 +1248,7 @@ export async function releaseWorkplaceOwnership(tx: Transaction, agentId: AgentI
     ranked as (
       select f.id,
              case
-               when f.status in ('in_progress', 'blocked', 'review', 'done')
+               when f.status in ('in_progress', 'blocked', 'review')
                then coalesce(r.max_pos, 0)
                     + ${RANK_GAP} * row_number() over (
                         partition by f.board_id
@@ -1089,7 +1262,7 @@ export async function releaseWorkplaceOwnership(tx: Transaction, agentId: AgentI
     update workplace_cards c
        set owner_id = null,
            status = case
-             when c.status in ('in_progress', 'blocked', 'review', 'done') then 'ready'
+             when c.status in ('in_progress', 'blocked', 'review') then 'ready'
              else c.status
            end,
            blocked_by = case when c.status = 'blocked' then null else c.blocked_by end,

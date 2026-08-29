@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { type AgentId } from '@kolonie-ai/core'
-import type { Database } from '../client.js'
+import { createDatabase, type Database } from '../client.js'
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
 import { eraseAgent } from './erasure.js'
@@ -107,14 +107,14 @@ describe('workplace storage', () => {
     expect(archived.board.archivedAt).not.toBeNull()
   })
 
-  it('refuses a non-member write', async () => {
+  it('refuses a non-member write as forbidden, not as missing', async () => {
     const board = await defaultBoard()
     expect(await createCard(db, { callerId: stranger, boardId: board.id, title: 'Nope' })).toEqual({
-      outcome: 'unknown',
+      outcome: 'forbidden',
     })
     expect(
       await addMember(db, { callerId: stranger, boardId: board.id, citizenId: member }),
-    ).toEqual({ outcome: 'unknown' })
+    ).toEqual({ outcome: 'forbidden' })
   })
 
   it('cannot remove the owner membership', async () => {
@@ -370,6 +370,251 @@ describe('workplace storage', () => {
     const remaining = await getCard(db, owner, claimed.card.id)
     expect(remaining?.card.ownerId).toBeNull()
     expect(remaining?.card.status).toBe('ready')
+  })
+
+  it('clears the owner atomically on in_progress → ready, and not on blocked or review', async () => {
+    const board = await defaultBoard()
+    const created = await createCard(db, {
+      callerId: owner,
+      boardId: board.id,
+      title: 'Unclaim me',
+      status: 'ready',
+    })
+    if (created.outcome !== 'created') throw new Error('card missing')
+    const claimed = await claimCard(db, {
+      callerId: owner,
+      cardId: created.card.id,
+      expectedVersion: created.card.version,
+    })
+    if (claimed.outcome !== 'claimed') throw new Error('claim failed')
+
+    const unclaimed = await moveCard(db, {
+      callerId: owner,
+      cardId: claimed.card.id,
+      expectedVersion: claimed.card.version,
+      status: 'ready',
+    })
+    expect(unclaimed.outcome).toBe('moved')
+    if (unclaimed.outcome !== 'moved') return
+    expect(unclaimed.card.status).toBe('ready')
+    expect(unclaimed.card.ownerId).toBeNull()
+
+    const reclaimed = await claimCard(db, {
+      callerId: owner,
+      cardId: unclaimed.card.id,
+      expectedVersion: unclaimed.card.version,
+    })
+    if (reclaimed.outcome !== 'claimed') throw new Error('reclaim failed')
+    const blocked = await blockCard(db, {
+      callerId: owner,
+      cardId: reclaimed.card.id,
+      expectedVersion: reclaimed.card.version,
+      blockedBy: 'Waiting on a number.',
+      unblockWhen: 'The operator has sent one.',
+    })
+    if (blocked.outcome !== 'blocked') throw new Error('block failed')
+    const fromBlocked = await moveCard(db, {
+      callerId: owner,
+      cardId: blocked.card.id,
+      expectedVersion: blocked.card.version,
+      status: 'ready',
+    })
+    expect(fromBlocked.outcome).toBe('moved')
+    if (fromBlocked.outcome !== 'moved') return
+    expect(fromBlocked.card.ownerId).toBe(owner)
+
+    const restarted = await moveCard(db, {
+      callerId: owner,
+      cardId: fromBlocked.card.id,
+      expectedVersion: fromBlocked.card.version,
+      status: 'in_progress',
+    })
+    if (restarted.outcome !== 'moved') throw new Error('could not restart')
+    const inReview = await moveCard(db, {
+      callerId: owner,
+      cardId: restarted.card.id,
+      expectedVersion: restarted.card.version,
+      status: 'review',
+    })
+    if (inReview.outcome !== 'moved') throw new Error('review failed')
+    const fromReview = await moveCard(db, {
+      callerId: owner,
+      cardId: inReview.card.id,
+      expectedVersion: inReview.card.version,
+      status: 'ready',
+    })
+    expect(fromReview.outcome).toBe('moved')
+    if (fromReview.outcome !== 'moved') return
+    expect(fromReview.card.ownerId).toBe(owner)
+  })
+
+  it('leaves a foreign done card done, with its outcome, when its owner is erased', async () => {
+    const board = await defaultBoard()
+    await addMember(db, { callerId: owner, boardId: board.id, citizenId: member })
+    const created = await createCard(db, {
+      callerId: owner,
+      boardId: board.id,
+      title: 'Finished work',
+      status: 'ready',
+    })
+    if (created.outcome !== 'created') throw new Error('card missing')
+    const claimed = await claimCard(db, {
+      callerId: member,
+      cardId: created.card.id,
+      expectedVersion: created.card.version,
+    })
+    if (claimed.outcome !== 'claimed') throw new Error('claim failed')
+    const done = await completeCard(db, {
+      callerId: member,
+      cardId: claimed.card.id,
+      expectedVersion: claimed.card.version,
+      outcome: 'The walk is filed.',
+    })
+    if (done.outcome !== 'completed') throw new Error('complete failed')
+
+    const erased = await eraseAgent(db, { agentId: member, banSalt: SALT })
+    expect(erased.outcome).toBe('erased')
+
+    const remaining = await getCard(db, owner, done.card.id)
+    expect(remaining?.card.ownerId).toBeNull()
+    expect(remaining?.card.status).toBe('done')
+    expect(remaining?.card.outcome).toBe('The walk is filed.')
+  })
+
+  it('names missing, empty, forbidden and conflict as distinct write outcomes', async () => {
+    const board = await defaultBoard()
+    const missingId = '00000000-0000-4000-8000-000000000000'
+    expect(
+      await updateCard(db, {
+        callerId: owner,
+        cardId: missingId,
+        expectedVersion: 1,
+        title: 'Ghost',
+      }),
+    ).toEqual({ outcome: 'missing' })
+    expect(await listCards(db, owner, board.id)).toEqual({ outcome: 'empty' })
+    expect(await listCards(db, stranger, board.id)).toEqual({ outcome: 'unknown' })
+    expect(await getCard(db, stranger, missingId)).toBeNull()
+
+    const created = await createCard(db, {
+      callerId: owner,
+      boardId: board.id,
+      title: 'Live',
+      status: 'ready',
+    })
+    if (created.outcome !== 'created') throw new Error('card missing')
+    expect(
+      await updateCard(db, {
+        callerId: stranger,
+        cardId: created.card.id,
+        expectedVersion: created.card.version,
+        title: 'Stolen',
+      }),
+    ).toEqual({ outcome: 'forbidden' })
+    expect(await getCard(db, stranger, created.card.id)).toBeNull()
+
+    await addMember(db, { callerId: owner, boardId: board.id, citizenId: member })
+    const claimed = await claimCard(db, {
+      callerId: owner,
+      cardId: created.card.id,
+      expectedVersion: created.card.version,
+    })
+    if (claimed.outcome !== 'claimed') throw new Error('claim failed')
+    expect(
+      await claimCard(db, {
+        callerId: member,
+        cardId: claimed.card.id,
+        expectedVersion: claimed.card.version,
+      }),
+    ).toEqual({ outcome: 'conflict' })
+    expect(
+      await moveCard(db, {
+        callerId: owner,
+        cardId: claimed.card.id,
+        expectedVersion: claimed.card.version,
+        status: 'inbox',
+      }),
+    ).toEqual({ outcome: 'invalid-transition' })
+  })
+
+  it('replays createBoard against the same idempotency key without a second board', async () => {
+    const first = await createBoard(db, {
+      callerId: owner,
+      title: 'Once',
+      idempotencyKey: 'board-once',
+    })
+    const second = await createBoard(db, {
+      callerId: owner,
+      title: 'Once',
+      idempotencyKey: 'board-once',
+    })
+    expect(second.id).toBe(first.id)
+    expect(
+      (await listBoardsFor(db, owner)).filter((one) => one.kind === 'additional'),
+    ).toHaveLength(1)
+  })
+
+  it('refuses a write whose membership disappeared before the statement landed', async () => {
+    const board = await defaultBoard()
+    await addMember(db, { callerId: owner, boardId: board.id, citizenId: member })
+    const created = await createCard(db, {
+      callerId: owner,
+      boardId: board.id,
+      title: 'Race',
+      status: 'ready',
+    })
+    if (created.outcome !== 'created') throw new Error('card missing')
+
+    const locker = createDatabase(target.url, { max: 1, onnotice: () => {} })
+    const watcher = createDatabase(target.url, { max: 1, onnotice: () => {} })
+    let release = (): void => {}
+    const lockTaken = new Promise<void>((resolve) => {
+      void locker.transaction(async (tx) => {
+        await tx
+          .update(workplaceCards)
+          .set({ title: sql`${workplaceCards.title}` })
+          .where(eq(workplaceCards.id, created.card.id))
+        resolve()
+        await new Promise<void>((done) => {
+          release = done
+        })
+      })
+    })
+
+    try {
+      await lockTaken
+      const write = updateCard(db, {
+        callerId: member,
+        cardId: created.card.id,
+        expectedVersion: created.card.version,
+        title: 'Stolen mid-write',
+      })
+      for (let attempt = 0; attempt < 50; attempt += 1) {
+        const waiting = await watcher.execute<{ n: string }>(sql`
+          select count(*)::text as n
+            from pg_stat_activity
+           where datname = current_database()
+             and wait_event_type = 'Lock'
+             and state = 'active'
+        `)
+        if (Number(waiting[0]?.n ?? 0) > 0) break
+        if (attempt === 49) throw new Error('writer never blocked on the card lock')
+        await new Promise((resolve) => setTimeout(resolve, 20))
+      }
+      expect(
+        await removeMember(watcher, {
+          callerId: owner,
+          boardId: board.id,
+          citizenId: member,
+        }),
+      ).toEqual({ outcome: 'removed' })
+      release()
+      expect(await write).toEqual({ outcome: 'forbidden' })
+    } finally {
+      release()
+      await locker.close()
+      await watcher.close()
+    }
   })
 
   it('does not let storage write in_progress without an owner either', async () => {

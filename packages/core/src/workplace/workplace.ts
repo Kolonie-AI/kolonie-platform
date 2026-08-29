@@ -90,11 +90,13 @@ export function canTransitionWorkplace(
 }
 
 /**
- * Inbox and Ready may be ownerless. Everything from In Progress on may not
- * (D-146). Done keeps the owner as historical accountability.
+ * Inbox and Ready may be ownerless. Live work (`in_progress`, `blocked`,
+ * `review`) may not (D-146). Done keeps the owner as historical
+ * accountability while they exist, and must stay a valid row when erasure
+ * drops that owner — so it does not require one.
  */
 export function mustHaveOwner(status: WorkplaceLane): boolean {
-  return status !== 'inbox' && status !== 'ready'
+  return status === 'in_progress' || status === 'blocked' || status === 'review'
 }
 
 /** How long a board or card title may be. One line, not a paragraph. */
@@ -273,7 +275,8 @@ export type WorkplaceLabel = z.infer<typeof WorkplaceLabelSchema>
  *
  * `in_progress` without an owner, `blocked` without `blockedBy`/`unblockWhen`,
  * and `done` without `outcome` are refused here so HTTP and storage cannot
- * disagree about the same row.
+ * disagree about the same row. Ownerless `done` is valid: erasure drops the
+ * owner and must not reopen the card.
  */
 export const WorkplaceCardSchema = z
   .object({

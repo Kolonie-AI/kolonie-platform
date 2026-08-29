@@ -158,6 +158,14 @@ describe('WorkplaceCardSchema', () => {
     expect(parsed.ownerId).toBe(CITIZEN)
   })
 
+  it('parses ownerless done with an outcome, so erasure can drop the owner', () => {
+    const parsed = WorkplaceCardSchema.parse(
+      card({ status: 'done', ownerId: null, outcome: 'Walked and proved the account' }),
+    )
+    expect(parsed.ownerId).toBeNull()
+    expect(parsed.outcome).toBe('Walked and proved the account')
+  })
+
   it('keeps priority a bounded token rather than copying the SPA fixture enum', () => {
     expect(WorkplacePrioritySchema.parse('do_now')).toBe('do_now')
     expect(WorkplacePrioritySchema.parse('later')).toBe('later')
@@ -358,13 +366,13 @@ describe('MCP grammar', () => {
 })
 
 describe('mustHaveOwner', () => {
-  it('allows inbox and ready to be ownerless, and requires an owner from in_progress on', () => {
+  it('allows inbox, ready and done to be ownerless; live work may not', () => {
     expect(mustHaveOwner('inbox')).toBe(false)
     expect(mustHaveOwner('ready')).toBe(false)
     expect(mustHaveOwner('in_progress')).toBe(true)
     expect(mustHaveOwner('blocked')).toBe(true)
     expect(mustHaveOwner('review')).toBe(true)
-    expect(mustHaveOwner('done')).toBe(true)
+    expect(mustHaveOwner('done')).toBe(false)
   })
 })
 

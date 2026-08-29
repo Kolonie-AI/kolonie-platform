@@ -2451,6 +2451,13 @@
       "when": 1788020314931,
       "tag": "0349_wooden_ego",
       "breakpoints": true
+    },
+    {
+      "idx": 350,
+      "version": "7",
+      "when": 1788027796617,
+      "tag": "0350_conscious_tyrannus",
+      "breakpoints": true
     }
   ]
 }

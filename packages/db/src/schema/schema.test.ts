@@ -1816,6 +1816,23 @@ describe('schema', () => {
       )
     })
 
+    it('accepts ownerless done when an outcome is recorded', async () => {
+      const agent = await anAgent()
+      const board = await aBoard(agent.id)
+      const [row] = await db
+        .insert(workplaceCards)
+        .values({
+          boardId: board.id,
+          status: 'done',
+          title: 'Finished, owner gone',
+          outcome: 'The walk is filed.',
+          position: 1000,
+        })
+        .returning()
+      expect(row?.ownerId).toBeNull()
+      expect(row?.status).toBe('done')
+    })
+
     it('refuses done without an outcome', async () => {
       const agent = await anAgent()
       const board = await aBoard(agent.id)

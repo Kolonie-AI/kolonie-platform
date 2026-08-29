@@ -1,0 +1,2 @@
+ALTER TABLE "workplace_cards" DROP CONSTRAINT "workplace_cards_active_has_owner";--> statement-breakpoint
+ALTER TABLE "workplace_cards" ADD CONSTRAINT "workplace_cards_active_has_owner" CHECK ("workplace_cards"."status" in ('inbox', 'ready', 'done') or "workplace_cards"."owner_id" is not null);

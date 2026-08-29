@@ -226,13 +226,14 @@ export const workplaceCards = pgTable(
     ),
     check('workplace_cards_priority_is_a_token', sql`${table.priority} ~ '^[a-z][a-z0-9_-]*$'`),
     /**
-     * Inbox and Ready may be ownerless. Everything from In Progress on may not
-     * (D-146). One check rather than four, so a new lane that needs an owner
+     * Inbox, Ready and Done may be ownerless. Live work may not (D-146).
+     * Done is ownerless after the accountable citizen is erased; the
+     * outcome stays. One check rather than four, so a new live lane
      * cannot be added to the status list without failing this.
      */
     check(
       'workplace_cards_active_has_owner',
-      sql`${table.status} in ('inbox', 'ready') or ${table.ownerId} is not null`,
+      sql`${table.status} in ('inbox', 'ready', 'done') or ${table.ownerId} is not null`,
     ),
     check(
       'workplace_cards_blocked_is_explained',

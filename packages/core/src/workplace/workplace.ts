@@ -1,7 +1,9 @@
 import { z } from 'zod'
+import { CitizenshipStatusSchema } from '../agent/agent.js'
 import {
   AgentIdSchema,
   type AgentId,
+  HumanIdSchema,
   WorkplaceBoardIdSchema,
   WorkplaceCardIdSchema,
   WorkplaceChecklistIdSchema,
@@ -11,6 +13,7 @@ import {
   WorkplaceLabelIdSchema,
   WorkplaceRecurrenceIdSchema,
 } from '../common/ids.js'
+import { IdentityProviderSchema } from '../human/human.js'
 import { MAX_PAGE_SIZE, pageOf } from '../common/pagination.js'
 import { TimestampSchema } from '../common/time.js'
 import { boundedText } from '../common/text.js'
@@ -482,3 +485,74 @@ export function handoverAllowed({
   const isBoardOwner = callerMembership.role === 'owner'
   return isCardOwner || isBoardOwner
 }
+
+/**
+ * The header that names which citizen a workplace human is acting as (`#1764`).
+ *
+ * **Lower-case on the wire**, which is how HTTP headers compare. Fastify
+ * already folds incoming names; this constant is what later routes look up
+ * and what CORS advertises, so a second spelling cannot appear.
+ *
+ * MCP never sends it: an API key is already one citizen. A body field of the
+ * same name is refused by those routes being header-only.
+ */
+export const WORKPLACE_CITIZEN_HEADER = 'x-kolonie-citizen'
+
+/**
+ * One citizen as a workplace human sees it on `/v1/workplace/me` (`#1764`).
+ *
+ * **Thin on purpose.** The console's `LinkedAgent` carries skills, last
+ * earned, waiting-on — a fleet page. The SPA needs to pick an actor and then
+ * send that id on every later call. `handle` is `agents.name`: the
+ * permanent public name, not a second identifier.
+ *
+ * A candidate is listed. Board routes then 404 or empty because candidates
+ * have no board (`#1758`); hiding them here would make a first-time operator
+ * think the link had failed.
+ */
+export const WorkplaceActorSchema = z
+  .object({
+    id: AgentIdSchema,
+    handle: z.string().min(2).max(64),
+    status: CitizenshipStatusSchema,
+  })
+  .strict()
+export type WorkplaceActor = z.infer<typeof WorkplaceActorSchema>
+
+/**
+ * The person `/v1/workplace/me` returns, and deliberately little of them.
+ *
+ * No roles, no address, no session: this is *who am I* for a browser, and a
+ * field added here is a field served on every workplace page load. Identities
+ * drop `email` for the same reason the existing whoami did.
+ */
+export const WorkplaceMeHumanSchema = z
+  .object({
+    id: HumanIdSchema,
+    identities: z.array(
+      z
+        .object({
+          provider: IdentityProviderSchema,
+          subject: z.string().min(1).max(255),
+        })
+        .strict(),
+    ),
+  })
+  .strict()
+export type WorkplaceMeHuman = z.infer<typeof WorkplaceMeHumanSchema>
+
+/**
+ * `GET /v1/workplace/me` (`#1764`).
+ *
+ * `agents` is the citizens in `human_agents` for this human. Empty is a
+ * valid answer — a person may hold a workplace login and operate nobody yet.
+ * This route does not mint an agent and does not require
+ * {@link WORKPLACE_CITIZEN_HEADER}; it is how the SPA learns the list.
+ */
+export const WorkplaceMeResponseSchema = z
+  .object({
+    human: WorkplaceMeHumanSchema,
+    agents: z.array(WorkplaceActorSchema),
+  })
+  .strict()
+export type WorkplaceMeResponse = z.infer<typeof WorkplaceMeResponseSchema>

@@ -1,5 +1,13 @@
 import { createRemoteJWKSet, jwtVerify, type JWTPayload, type JWTVerifyGetKey } from 'jose'
-import { IdentityProviderSchema, type Human } from '@kolonie-ai/core'
+import {
+  AgentIdSchema,
+  ERROR_STATUS,
+  IdentityProviderSchema,
+  WORKPLACE_CITIZEN_HEADER,
+  type AgentId,
+  type Human,
+} from '@kolonie-ai/core'
+import type { FastifyReply, FastifyRequest } from 'fastify'
 import type { HumanStore } from './humans.js'
 import type { ResolvedIdentity } from './auth0.js'
 
@@ -28,10 +36,10 @@ import type { ResolvedIdentity } from './auth0.js'
  * ## Why the pair and never the token's own identity
  *
  * A validated token yields `(provider, subject)`, which is what
- * `findOrCreateHuman` already matches a person on. Nothing here invents a
+ * `findHumanByIdentity` matches a person on. Nothing here invents a
  * SPA-specific human, keys a person on a client identifier, or writes an
- * identity the console could not also have written — the two doors resolve to
- * one person by construction.
+ * identity — the console remains the path that creates (`#1764`). The two
+ * doors still resolve to one person, because they match the same pair.
  */
 
 /** The scheme this door accepts, as it appears in the header and in `WWW-Authenticate`. */
@@ -153,16 +161,15 @@ export async function authenticateWorkplace(
   const identity = identityFrom(claims)
   if (identity === undefined) return { outcome: 'rejected' }
 
-  const arrival = await store.findOrCreate(identity)
   /**
-   * `ambiguous` carries no person, and this door refuses it exactly as the
-   * console does. One address reaching two people is a state the Colony can be
-   * in, and signing somebody into whichever row came back first is the one
-   * outcome that hands over an account.
+   * **Lookup only (`#1764`).** The SPA never creates a Colony human. An
+   * unknown pair is the same `rejected` as a bad token — no oracle, no
+   * `findOrCreate`. The console remains the path that writes a person.
    */
-  if (arrival.human === undefined) return { outcome: 'rejected' }
+  const human = await store.findByIdentity(identity)
+  if (human === undefined) return { outcome: 'rejected' }
 
-  return { outcome: 'authenticated', human: arrival.human }
+  return { outcome: 'authenticated', human }
 }
 
 /**
@@ -250,4 +257,145 @@ function strategyToProvider(strategy: string): string {
 export function originAllowed(origin: string | undefined, allowed: string): boolean {
   if (origin === undefined) return true
   return origin === allowed
+}
+
+/**
+ * The `Origin` header as one string, or nothing.
+ *
+ * A header sent twice arrives as an array, and a browser never does that — so
+ * an array is a client that is not a browser and gets the same answer as one
+ * that sent nothing: the credential decides, and no cross-origin read is
+ * permitted on the strength of it.
+ */
+export function originHeader(value: string | string[] | undefined): string | undefined {
+  if (typeof value !== 'string' || value === '') return undefined
+  return value
+}
+
+/**
+ * The two headers a browser needs to read a cross-origin answer.
+ *
+ * **`Vary: Origin` is not optional here.** This API is served through a cache,
+ * and a response whose `Access-Control-Allow-Origin` depends on the request's
+ * `Origin` must say so, or the cache serves one origin's answer — allowed or
+ * refused — to the next origin that asks.
+ *
+ * **`Access-Control-Allow-Credentials` is deliberately absent.** The SPA sends a
+ * bearer token and no cookie, so nothing here needs credentialed CORS, and
+ * setting it would be inviting a browser to attach the console's cookies to a
+ * request this API answers at another origin.
+ */
+export function corsHeaders(reply: FastifyReply, allowed: string): FastifyReply {
+  return reply.header('access-control-allow-origin', allowed).header('vary', 'Origin')
+}
+
+/**
+ * Methods and headers a later board/card route is allowed to preflight
+ * (`#1764`).
+ *
+ * **One list**, so `/me` and `/actor` and every route `#1759` adds advertise
+ * the same set rather than rediscovering CORS per path. `x-kolonie-citizen`
+ * is here because citizen-scoped writes send it; `if-match` and
+ * `idempotency-key` are what those writes will need.
+ */
+export const WORKPLACE_CORS_METHODS = 'GET, POST, PATCH, DELETE, OPTIONS'
+export const WORKPLACE_CORS_HEADERS =
+  'authorization, content-type, if-match, x-kolonie-citizen, idempotency-key'
+
+export function workplacePreflight(reply: FastifyReply, allowed: string): FastifyReply {
+  return corsHeaders(reply, allowed)
+    .status(204)
+    .header('access-control-allow-methods', WORKPLACE_CORS_METHODS)
+    .header('access-control-allow-headers', WORKPLACE_CORS_HEADERS)
+    .header('access-control-max-age', '86400')
+}
+
+/**
+ * The `401`, in one place so that no path out of this door can be the one that
+ * forgets `WWW-Authenticate`.
+ */
+export function unauthorizedWorkplace(
+  reply: FastifyReply,
+  allowed: string,
+  origin: string | undefined,
+) {
+  if (origin !== undefined) corsHeaders(reply, allowed)
+  return reply
+    .status(ERROR_STATUS.unauthorized)
+    .header('www-authenticate', WORKPLACE_SCHEME)
+    .send({
+      code: 'unauthorized',
+      message:
+        `Present a workplace access token as \`Authorization: ${WORKPLACE_SCHEME} <token>\`. ` +
+        'Sign in again to obtain one.',
+    })
+}
+
+export function forbiddenWorkplaceOrigin(reply: FastifyReply) {
+  return reply.status(ERROR_STATUS.forbidden).send({
+    code: 'forbidden',
+    message: 'This API answers the workplace at one configured origin and at no other.',
+  })
+}
+
+export type WorkplaceActorResult = {
+  readonly human: Human
+  readonly citizenId: AgentId
+  readonly origin: string | undefined
+}
+
+/**
+ * Origin, bearer, then the citizen header (`#1764`).
+ *
+ * **The actor on Workplace HTTP is a citizen, named explicitly.** `/me` does
+ * not use this — it is how the SPA learns the list. Every later citizen-scoped
+ * route does. A missing header is `400`; an unlinked or unparseable id is
+ * `workplace_unknown_citizen` and does not say whether the agent exists.
+ *
+ * **Writes the refusal itself** so a board route cannot forget CORS, the
+ * `WWW-Authenticate` header, or the origin-before-JWT order. `undefined`
+ * means the reply is already on its way.
+ */
+export async function workplaceActorFor(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  store: HumanStore,
+  options: WorkplaceOptions,
+): Promise<WorkplaceActorResult | undefined> {
+  const origin = originHeader(request.headers.origin)
+
+  if (!originAllowed(origin, options.origin)) {
+    forbiddenWorkplaceOrigin(reply)
+    return undefined
+  }
+
+  const outcome = await authenticateWorkplace(request.headers.authorization, store, options)
+  if (outcome.outcome === 'rejected') {
+    unauthorizedWorkplace(reply, options.origin, origin)
+    return undefined
+  }
+
+  const raw = request.headers[WORKPLACE_CITIZEN_HEADER]
+  const presented = typeof raw === 'string' ? raw.trim() : undefined
+  if (presented === undefined || presented === '') {
+    if (origin !== undefined) corsHeaders(reply, options.origin)
+    reply.status(400).send({
+      code: 'validation_failed',
+      message: `Name the citizen you are acting as in \`${WORKPLACE_CITIZEN_HEADER}\`.`,
+      details: { [WORKPLACE_CITIZEN_HEADER]: 'required' },
+    })
+    return undefined
+  }
+
+  const parsed = AgentIdSchema.safeParse(presented)
+  if (!parsed.success || !(await store.operates(outcome.human.id, parsed.data))) {
+    if (origin !== undefined) corsHeaders(reply, options.origin)
+    reply.status(ERROR_STATUS.workplace_unknown_citizen).send({
+      code: 'workplace_unknown_citizen',
+      message: 'No citizen matches the id you named.',
+    })
+    return undefined
+  }
+
+  return { human: outcome.human, citizenId: parsed.data, origin }
 }

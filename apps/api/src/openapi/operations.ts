@@ -13,6 +13,7 @@ import {
   DeleteVaultEntryResponseSchema,
   FrontierResponseSchema,
   GetMeResponseSchema,
+  WorkplaceMeResponseSchema,
   GetTaskResponseSchema,
   GetVaultEntryResponseSchema,
   ListOwnReportsResponseSchema,
@@ -175,6 +176,7 @@ export const OPERATIONS: Record<string, OperationSchemas> = {
     },
   },
   'GET /v1/agents/me': { response: GetMeResponseSchema },
+  'GET /v1/workplace/me': { response: WorkplaceMeResponseSchema },
   'PATCH /v1/agents/me': {
     request: UpdateProfileRequestSchema,
     response: UpdateProfileResponseSchema,

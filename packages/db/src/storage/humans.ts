@@ -146,6 +146,34 @@ export type IdentityArrival =
  * callbacks arriving at once for a new person is a race the unique index would
  * otherwise turn into a 500 for whichever lost.
  */
+/**
+ * The person this pair already belongs to, or nobody (`#1764`).
+ *
+ * **Lookup only.** The workplace SPA must not mint a Colony human on first
+ * visit — unknown `(provider, subject)` is the same answer as a bad token, so
+ * this function writes nothing, attaches nothing by address, and does not
+ * refresh `lastSeenAt`. The console's {@link findOrCreateHuman} remains the
+ * path that creates.
+ */
+export async function findHumanByIdentity(
+  db: Database,
+  identity: Pick<ProviderIdentity, 'provider' | 'subject'>,
+): Promise<Human | undefined> {
+  const [existing] = await db
+    .select({ humanId: humanIdentities.humanId })
+    .from(humanIdentities)
+    .where(
+      and(
+        eq(humanIdentities.provider, identity.provider),
+        eq(humanIdentities.subject, identity.subject),
+      ),
+    )
+    .limit(1)
+
+  if (existing === undefined) return undefined
+  return await readHuman(db, HumanIdSchema.parse(existing.humanId))
+}
+
 export async function findOrCreateHuman(
   db: Database,
   identity: ProviderIdentity,

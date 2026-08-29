@@ -93,7 +93,8 @@ export function fakeHumanStore(): FakeHumanStore {
    */
   const adoptionCodes = new Map<AgentId, { code: string; expiresAt: string }>()
 
-  const key = (identity: ProviderIdentity) => `${identity.provider}|${identity.subject}`
+  const key = (identity: Pick<ProviderIdentity, 'provider' | 'subject'>) =>
+    `${identity.provider}|${identity.subject}`
 
   /**
    * Swap a person for an updated copy, everywhere this fixture holds one
@@ -171,7 +172,7 @@ export function fakeHumanStore(): FakeHumanStore {
         .map(([agentId]) => ({
           id: agentId,
           name: agentsById.get(agentId)?.profile.name ?? `agent-${agentId.slice(0, 4)}`,
-          citizenship: 'candidate',
+          citizenship: agentsById.get(agentId)?.status ?? 'candidate',
           skillsHeld: 0,
           lastSeenAt: null,
           linkedAt: new Date().toISOString(),
@@ -331,6 +332,8 @@ export function fakeHumanStore(): FakeHumanStore {
      * What is *not* modelled is the transaction — that is `packages/db`'s, and
      * its tests run against a real PostgreSQL.
      */
+    findByIdentity: async (identity) => byIdentity.get(key(identity)),
+
     findOrCreate: async (identity) => {
       const existing = byIdentity.get(key(identity))
       if (existing !== undefined) return { outcome: 'returning', human: existing }
@@ -590,7 +593,9 @@ export function refusingTenant(): FakeTenant {
  * that used any other pair would let a route test pass against an identity the
  * platform cannot produce.
  */
-export function anAgent(overrides: { id?: AgentId; name?: string } = {}): Agent {
+export function anAgent(
+  overrides: { id?: AgentId; name?: string; status?: Agent['status'] } = {},
+): Agent {
   const id = overrides.id ?? AgentIdSchema.parse(randomUUID())
   return AgentSchema.parse({
     id,
@@ -613,7 +618,7 @@ export function anAgent(overrides: { id?: AgentId; name?: string } = {}): Agent 
       availability: null,
       profession: null,
     },
-    status: 'candidate',
+    status: overrides.status ?? 'candidate',
     accountType: 'citizen',
     roles: [],
     skills: [],

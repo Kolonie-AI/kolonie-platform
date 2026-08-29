@@ -17,6 +17,7 @@ import {
   endHumanSessionById,
   agentsOperatedBy,
   connectIdentity,
+  findHumanByIdentity,
   findOrCreateHuman,
   issueCodeForAgent,
   identityHoldsKey,
@@ -68,6 +69,15 @@ export interface HumanStore {
   /** Whether this person operates this agent — the check `#428` authorises on. */
   operates(humanId: Human['id'], agentId: AgentId): Promise<boolean>
   findOrCreate(identity: ProviderIdentity): Promise<IdentityArrival>
+  /**
+   * The person this pair already belongs to, or nobody (`#1764`).
+   *
+   * **Lookup only** — the workplace door must not mint a human. Unknown pair
+   * is the same answer as a bad token.
+   */
+  findByIdentity(
+    identity: Pick<ProviderIdentity, 'provider' | 'subject'>,
+  ): Promise<Human | undefined>
   /**
    * Attach a provider to the person already signed in (`#574`).
    *
@@ -267,6 +277,7 @@ export const OFFERED_PROVIDERS: readonly IdentityProvider[] = ['github', 'google
 export function databaseHumanStore(db: Database): HumanStore {
   return {
     findOrCreate: (identity) => findOrCreateHuman(db, identity),
+    findByIdentity: (identity) => findHumanByIdentity(db, identity),
     connect: (humanId, identity) => connectIdentity(db, humanId, identity),
     issueCodeForHuman: (humanId) => issueCodeForHuman(db, humanId),
     liveCode: (humanId) => liveCodeForHuman(db, humanId),

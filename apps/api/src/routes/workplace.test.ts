@@ -2,10 +2,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { SignJWT, createLocalJWKSet, exportJWK, generateKeyPair } from 'jose'
 import type { JWK, JWTVerifyGetKey, KeyObject } from 'jose'
-import { ERROR_STATUS } from '@kolonie-ai/core'
+import { ERROR_STATUS, WORKPLACE_CITIZEN_HEADER } from '@kolonie-ai/core'
 import { buildApp } from '../app.js'
 import { fakeColony } from '../__fixtures__/colony/index.js'
-import { fakeHumanStore, type FakeHumanStore } from '../__fixtures__/humans.js'
+import { anAgent, fakeHumanStore, type FakeHumanStore } from '../__fixtures__/humans.js'
 import { SESSION_COOKIE } from './console.js'
 
 /**
@@ -37,6 +37,7 @@ const CONSOLE_URL = 'https://console.example.test'
 const OTHER_ORIGIN = 'https://not-the-workplace.example.test'
 
 const ME = '/v1/workplace/me'
+const ACTOR = '/v1/workplace/actor'
 
 /** The `sub` a tenant mints: `<strategy>|<subject>`, as `auth0.ts` records. */
 const SUBJECT = 'github|4815162342'
@@ -139,37 +140,25 @@ describe('the workplace door', () => {
       expect(response.statusCode).toBe(200)
       const body = response.json() as {
         human: { id: string; identities: { provider: string; subject: string }[] }
+        agents: unknown[]
       }
       expect(body.human.identities).toEqual([{ provider: 'github', subject: '4815162342' }])
       expect(body.human.id).toEqual(expect.any(String))
+      expect(body.agents).toEqual([])
     })
 
     /**
-     * **A first workplace arrival lands on the shared arrival path**, which is
-     * the console's own, rather than on one of this door's making.
-     *
-     * The assertion is that the console afterwards finds *that* person: a door
-     * that wrote a SPA-shaped human would also answer `200` here, and only
-     * arriving through the other door can tell the two apart. Whether such a
-     * person may be created at all is the tenant's decision rather than this
-     * route's — it mints a token for whoever it signed in, and both doors take
-     * the same answer, which is the whole of *no SPA-specific human identity*.
+     * **Lookup only (`#1764`).** An unknown pair is the same 401 as a bad
+     * token — the SPA never mints a Colony human. The console remains the
+     * path that writes a person.
      */
-    it('puts a first arrival on the one human the console also resolves', async () => {
-      const first = await asWorkplace(await aToken())
-      expect(first.statusCode).toBe(200)
+    it('refuses an unknown pair the same way it refuses a bad token', async () => {
+      const unknown = await asWorkplace(await aToken())
+      const bad = await asWorkplace(undefined)
 
-      const throughTheConsole = await humans.findOrCreate({
-        provider: 'github',
-        subject: '4815162342',
-        email: null,
-      })
-
-      expect(throughTheConsole.outcome).toBe('returning')
-      expect(String(throughTheConsole.human?.id)).toBe(
-        (first.json() as { human: { id: string } }).human.id,
-      )
-      expect(humans.people()).toHaveLength(1)
+      expect(unknown.statusCode).toBe(ERROR_STATUS.unauthorized)
+      expect(unknown.body).toBe(bad.body)
+      expect(humans.people()).toHaveLength(0)
     })
 
     it('resolves the person the console already knows, and creates no second one', async () => {
@@ -203,6 +192,152 @@ describe('the workplace door', () => {
       const body = response.json() as { human: { id: string; identities: { provider: string }[] } }
       expect(body.human.id).toBe(human.id)
       expect(body.human.identities[0]?.provider).toBe(provider)
+    })
+  })
+
+  describe('the linked citizens (#1764)', () => {
+    const hold = () =>
+      humans.holdsIdentity({
+        provider: 'github',
+        subject: '4815162342',
+        email: 'someone@example.test',
+      })
+
+    it('answers with an empty list when the human operates nobody', async () => {
+      hold()
+      const body = (await asWorkplace(await aToken())).json() as { agents: unknown[] }
+      expect(body.agents).toEqual([])
+    })
+
+    it('lists one linked citizen by id, handle and status', async () => {
+      const person = hold()
+      const agent = anAgent({ name: 'colette', status: 'citizen' })
+      humans.operatesAgent(person.id, agent)
+
+      const body = (await asWorkplace(await aToken())).json() as {
+        agents: { id: string; handle: string; status: string }[]
+      }
+      expect(body.agents).toEqual([{ id: agent.id, handle: 'colette', status: 'citizen' }])
+    })
+
+    it('lists two, and never a citizen this human does not operate', async () => {
+      const person = hold()
+      const first = anAgent({ name: 'alpha', status: 'citizen' })
+      const second = anAgent({ name: 'beta', status: 'candidate' })
+      const stranger = anAgent({ name: 'gamma', status: 'citizen' })
+      humans.operatesAgent(person.id, first)
+      humans.operatesAgent(person.id, second)
+      const other = humans.holdsIdentity({
+        provider: 'google',
+        subject: '99',
+        email: null,
+      })
+      humans.operatesAgent(other.id, stranger)
+
+      const body = (await asWorkplace(await aToken())).json() as {
+        agents: { handle: string }[]
+      }
+      expect(body.agents.map((row) => row.handle).sort()).toEqual(['alpha', 'beta'])
+    })
+
+    it('lists a candidate — the human may look; board routes then empty', async () => {
+      const person = hold()
+      humans.operatesAgent(person.id, anAgent({ name: 'newcomer', status: 'candidate' }))
+
+      const body = (await asWorkplace(await aToken())).json() as {
+        agents: { status: string }[]
+      }
+      expect(body.agents[0]?.status).toBe('candidate')
+    })
+
+    it('does not require the citizen header', async () => {
+      hold()
+      const response = await asWorkplace(await aToken())
+      expect(response.statusCode).toBe(200)
+    })
+
+    it('describes /v1/workplace/me from the core schema, not a parallel spec', async () => {
+      const document = (await app.inject({ method: 'GET', url: '/openapi.json' })).json() as {
+        paths: Record<string, { get?: { responses?: Record<string, { content?: unknown }> } }>
+      }
+      const schema = (
+        document.paths['/v1/workplace/me']?.get?.responses?.['200'] as {
+          content?: { 'application/json'?: { schema?: { properties?: Record<string, unknown> } } }
+        }
+      )?.content?.['application/json']?.schema
+      expect(Object.keys(schema?.properties ?? {}).sort()).toEqual(['agents', 'human'])
+    })
+  })
+
+  describe('the authorised probe (#1764)', () => {
+    const hold = () =>
+      humans.holdsIdentity({
+        provider: 'github',
+        subject: '4815162342',
+        email: 'someone@example.test',
+      })
+
+    const asActor = (
+      token: string | undefined,
+      citizen?: string,
+      origin: string | undefined = WORKPLACE_ORIGIN,
+    ) =>
+      app.inject({
+        method: 'GET',
+        url: ACTOR,
+        headers: {
+          ...(token === undefined ? {} : { authorization: `Bearer ${token}` }),
+          ...(origin === undefined ? {} : { origin }),
+          ...(citizen === undefined ? {} : { [WORKPLACE_CITIZEN_HEADER]: citizen }),
+        },
+      })
+
+    it('accepts a linked citizen and names them', async () => {
+      const person = hold()
+      const agent = anAgent({ name: 'colette', status: 'citizen' })
+      humans.operatesAgent(person.id, agent)
+
+      const response = await asActor(await aToken(), agent.id)
+      expect(response.statusCode).toBe(200)
+      expect(response.json()).toEqual({ humanId: person.id, citizenId: agent.id })
+    })
+
+    it('refuses a missing header as 400, not as an unknown citizen', async () => {
+      hold()
+      const response = await asActor(await aToken())
+      expect(response.statusCode).toBe(400)
+      expect(response.json()).toMatchObject({ code: 'validation_failed' })
+    })
+
+    it('refuses an unlinked citizen without saying whether the agent exists', async () => {
+      const person = hold()
+      const linked = anAgent({ name: 'ours' })
+      const foreign = anAgent({ name: 'theirs' })
+      humans.operatesAgent(person.id, linked)
+      const other = humans.holdsIdentity({
+        provider: 'google',
+        subject: '99',
+        email: null,
+      })
+      humans.operatesAgent(other.id, foreign)
+
+      const unlinked = await asActor(await aToken(), foreign.id)
+      const invented = await asActor(await aToken(), 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee')
+
+      expect(unlinked.statusCode).toBe(ERROR_STATUS.workplace_unknown_citizen)
+      expect(unlinked.json()).toMatchObject({ code: 'workplace_unknown_citizen' })
+      expect(unlinked.body).toBe(invented.body)
+    })
+
+    it('still requires the header when the human operates exactly one citizen', async () => {
+      const person = hold()
+      humans.operatesAgent(person.id, anAgent({ name: 'only' }))
+      expect((await asActor(await aToken())).statusCode).toBe(400)
+    })
+
+    it('refuses a disallowed origin before it looks at the credential or the header', async () => {
+      const response = await asActor(undefined, undefined, OTHER_ORIGIN)
+      expect(response.statusCode).toBe(ERROR_STATUS.forbidden)
     })
   })
 
@@ -275,6 +410,11 @@ describe('the workplace door', () => {
 
     /** The scheme is case-insensitive in RFC 7235, so a client reading it is not wrong. */
     it('accepts the scheme in any case', async () => {
+      humans.holdsIdentity({
+        provider: 'github',
+        subject: '4815162342',
+        email: 'someone@example.test',
+      })
       const response = await app.inject({
         method: 'GET',
         url: ME,
@@ -287,6 +427,11 @@ describe('the workplace door', () => {
 
   describe('the origin', () => {
     it('permits exactly the configured workplace origin', async () => {
+      humans.holdsIdentity({
+        provider: 'github',
+        subject: '4815162342',
+        email: 'someone@example.test',
+      })
       const response = await asWorkplace(await aToken())
 
       expect(response.statusCode).toBe(200)
@@ -336,6 +481,11 @@ describe('the workplace door', () => {
      * the browser decides.
      */
     it('answers a request carrying no Origin on the credential alone', async () => {
+      humans.holdsIdentity({
+        provider: 'github',
+        subject: '4815162342',
+        email: 'someone@example.test',
+      })
       expect((await asWorkplace(await aToken(), undefined)).statusCode).toBe(200)
       expect((await asWorkplace(undefined, undefined)).statusCode).toBe(ERROR_STATUS.unauthorized)
     })
@@ -354,6 +504,10 @@ describe('the workplace door', () => {
         expect(response.statusCode).toBe(204)
         expect(response.headers['access-control-allow-origin']).toBe(WORKPLACE_ORIGIN)
         expect(response.headers['access-control-allow-headers']).toContain('authorization')
+        expect(response.headers['access-control-allow-headers']).toContain('x-kolonie-citizen')
+        expect(response.headers['access-control-allow-methods']).toContain('POST')
+        expect(response.headers['access-control-allow-methods']).toContain('PATCH')
+        expect(response.headers['access-control-allow-methods']).toContain('DELETE')
       })
 
       it('refuses any other origin, and answers no wildcard', async () => {
@@ -388,6 +542,7 @@ describe('the workplace door', () => {
      */
     it('serves no workplace route at all', async () => {
       expect(app.hasRoute({ method: 'GET', url: ME })).toBe(false)
+      expect(app.hasRoute({ method: 'GET', url: ACTOR })).toBe(false)
       expect((await asWorkplace(await aToken())).statusCode).toBe(ERROR_STATUS.not_found)
     })
   })
@@ -400,6 +555,11 @@ describe('the workplace door', () => {
    */
   describe('the console session', () => {
     it('is neither read nor written by this door', async () => {
+      humans.holdsIdentity({
+        provider: 'github',
+        subject: '4815162342',
+        email: 'someone@example.test',
+      })
       const response = await app.inject({
         method: 'GET',
         url: ME,

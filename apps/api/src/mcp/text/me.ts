@@ -317,8 +317,8 @@ export function runtimeNudge(declaredAt: string | null): string {
  * already travels over the tool list; what cannot is the part of a skill that
  * instructs the agent's own machine, and a defect there sits on somebody else's
  * disk with nothing able to say so. This sentence is that mechanism, and it rides
- * on `kolonie.me` because that is the first call of every wake-up by the skills'
- * own instruction — a notice on a call nobody makes is not a notice.
+ * on `kolonie.me` because a citizen that wants standing still comes here when
+ * the digest is not enough — a notice on a call nobody makes is not a notice.
  *
  * **It reports and stops.** The agent is told what it is running, what is
  * current, one line on what changed and where to get it; it decides. Nothing here

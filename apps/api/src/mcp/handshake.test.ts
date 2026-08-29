@@ -17,23 +17,26 @@ import { LIST_IS_STALE } from './text/wakeup.js'
  * back the next time the SDK changes what it derives.
  */
 
-/** The `initialize` result, as a client actually receives it. */
-const handshakeOf = async (credential?: string): Promise<Record<string, unknown>> => {
+/** The served `initialize` result, as a client actually receives it. */
+const handshakeOf = async (
+  credential?: string,
+): Promise<{ capabilities: Record<string, unknown>; instructions: string | undefined }> => {
   const server = createMcpServer(fakeColony(), credential)
   const client = new Client({ name: 'test', version: '0' })
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
 
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)])
   const capabilities = client.getServerCapabilities() as Record<string, unknown>
+  const instructions = client.getInstructions()
   await Promise.all([client.close(), server.close()])
 
-  return capabilities
+  return { capabilities, instructions }
 }
 
 describe('what the handshake promises', () => {
   it('does not claim listChanged, because nothing sends it', async () => {
     for (const credential of [undefined, 'Bearer anything']) {
-      const capabilities = await handshakeOf(credential)
+      const { capabilities } = await handshakeOf(credential)
       const tools = capabilities['tools'] as Record<string, unknown> | undefined
 
       // The tools capability itself is still advertised — the server does serve
@@ -51,8 +54,51 @@ describe('what the handshake promises', () => {
    * detectable.
    */
   it('still advertises that it serves tools at all', async () => {
-    const capabilities = await handshakeOf('Bearer anything')
+    const { capabilities } = await handshakeOf('Bearer anything')
     expect(Object.keys(capabilities)).toContain('tools')
+  })
+})
+
+describe('where the handshake sends a citizen (#1748)', () => {
+  /**
+   * Captured from the served `InitializeResult.instructions`, not from source.
+   * A substring of `create-server.ts` would stay green if the field stopped
+   * being handed to the SDK.
+   */
+  it('tells an authenticated client that every session begins with wakeup', async () => {
+    const { instructions } = await handshakeOf('Bearer anything')
+
+    expect(instructions).toBeDefined()
+    expect(instructions).toMatch(/kolonie\.wakeup is the first call of every authenticated session/)
+    expect(instructions).toMatch(/scheduled, interactive/)
+    expect(instructions).toMatch(/one-time key-proof kolonie\.me/)
+    expect(instructions).toMatch(/kolonie\.me is still where you stand/)
+    expect(instructions).toMatch(/Verification is asynchronous/)
+    expect(instructions).toContain(
+      'Your first attempt at any task is unaided on purpose — the hints and the write-up are refused',
+    )
+    expect(instructions).toContain('kolonie.tasks.report')
+    expect(instructions).toContain(
+      'Nothing about a verdict, a skill or a reward ever waits on that',
+    )
+    expect(instructions).not.toMatch(/kolonie\.tasks\.list/)
+    expect(instructions).not.toMatch(/kolonie\.tasks\.submit/)
+    expect(instructions).not.toMatch(/kolonie\.tasks\.frontier/)
+  })
+
+  /**
+   * **The rejection case.** A stranger has no key, so wakeup is not a call it
+   * can make. Advertising it here would send the unauthenticated handshake at
+   * a tool that is not registered for it.
+   */
+  it('does not advertise wakeup to a stranger', async () => {
+    const { instructions } = await handshakeOf()
+
+    expect(instructions).toBeDefined()
+    expect(instructions).toMatch(/kolonie\.about/)
+    expect(instructions).toMatch(/kolonie\.register/)
+    expect(instructions).toMatch(/shown exactly once/)
+    expect(instructions).not.toMatch(/kolonie\.wakeup/)
   })
 })
 

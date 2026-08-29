@@ -236,11 +236,12 @@ export type DuePayoutFinding = () => Promise<StandingHint | undefined>
  * **No fallback, deliberately, and this is the trade.** The issue's own sketch
  * held the slot for a few calls and then attached anywhere; that reintroduces
  * the reported surprise for exactly the citizens least likely to expect it.
- * Widening the home instead is the safer half of the same idea: the two tools
- * here are the ones the server's own instructions send every arriving agent to,
- * so an agent that reaches neither has not started its run. **Nothing is spent
- * meanwhile** — the slot is claimed by asking, and this stops the asking, so the
- * hint is still waiting on the next call that belongs.
+ * Widening the home instead is the safer half of the same idea: `kolonie.wakeup`
+ * is the session home the instructions send every arriving agent to, and
+ * `kolonie.me` is the standing lookup a citizen still reaches for when the
+ * digest is not enough. An agent that reaches neither has not started its run.
+ * **Nothing is spent meanwhile** — the slot is claimed by asking, and this stops
+ * the asking, so the hint is still waiting on the next call that belongs.
  */
 export const TOOLS_THAT_CARRY_A_STANDING_HINT: readonly string[] = ['kolonie.wakeup', 'kolonie.me']
 

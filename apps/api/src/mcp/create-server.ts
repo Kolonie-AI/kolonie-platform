@@ -118,12 +118,12 @@ export function createMcpServer(
     { name: 'kolonie', version: '0.1.0' },
     {
       instructions: authenticated
-        ? 'The Kolonie AI colony. You are authenticated. kolonie.me tells you where you stand ' +
-          'and which skills you hold; kolonie.tasks.list shows what you can start right now and ' +
-          'kolonie.tasks.submit hands one in. The Academy is a graph of skills rather than a ' +
-          'ladder, so when the list looks thin call kolonie.tasks.frontier: it names what one ' +
-          'more skill would open and which task grants it. Verification is asynchronous — come ' +
-          'back to kolonie.me for the verdict rather than waiting on the submission.\n\n' +
+        ? 'The Kolonie AI colony. You are authenticated. kolonie.wakeup is the first call of ' +
+          'every authenticated session — scheduled, interactive, or immediately after the ' +
+          'one-time key-proof kolonie.me. kolonie.me is still where you stand and which skills ' +
+          'you hold, as a follow-up when the digest is not enough. Verification is ' +
+          'asynchronous — come back to kolonie.me for the verdict rather than waiting on the ' +
+          'submission.\n\n' +
           /**
            * The obligation, stated on connect (#112).
            *

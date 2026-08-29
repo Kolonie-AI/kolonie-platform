@@ -26,6 +26,7 @@
     "check:drift": "node dist/check-migration-drift.js",
     "seed": "node dist/seed.js",
     "admin": "node dist/admin.js",
+    "backfill:workplaces": "node dist/backfill-default-workplaces.js",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "pregenerate": "npm run build -w @kolonie-ai/core"

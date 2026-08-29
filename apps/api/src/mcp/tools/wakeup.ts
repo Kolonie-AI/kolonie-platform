@@ -8,10 +8,10 @@ import { CATALOGUE_FINGERPRINT } from '../catalogue-fingerprint.js'
 import { wakeupAsText } from '../text/wakeup.js'
 
 /**
- * The one call a waking agent makes (#200).
+ * The first call of every authenticated session (#1749).
  *
- * **It exists because the skill files had to enumerate five calls.** A scheduled
- * agent with a fresh session had to ask `kolonie.me`, `kolonie.me.history`,
+ * **It exists because the skill files had to enumerate five calls.** A citizen
+ * with a fresh session had to ask `kolonie.me`, `kolonie.me.history`,
  * `kolonie.tasks.list`, `kolonie.support.read` and `kolonie.contributions.list`
  * separately, and none was discoverable from the others — so the list lived in
  * an installed file, which is the one place the Colony's own rule says the truth
@@ -44,10 +44,10 @@ export function registerWakeupTool(
        * | What each entry carries — yields, needs, repeatable | The entries themselves, which are labelled |
        *
        * What stays is what this is for, that `open` exists at all, the guarantee
-       * that reading consumes nothing — which decides whether a woken agent
-       * risks the call — and the contrast with the five tools it summarises.
+       * that reading consumes nothing — which decides whether a citizen risks
+       * the call — and the contrast with the five tools it summarises.
        *
-       * **`#1206` added the field a scheduled run branches on, and paid for it
+       * **`#1206` added the field an unattended run branches on, and paid for it
        * here.** *You should not have to know that list* went with it: it argues
        * for this tool existing, addressed to whoever writes a skill file, and
        * this string is read by whoever is deciding whether to make the call. The
@@ -55,9 +55,11 @@ export function registerWakeupTool(
        * came down rather than up.
        */
       description:
-        'Call this first when you wake up. It answers what happened since your previous ' +
-        'session began: verdicts, moderator outcomes, ticket answers, skills and roles, ' +
-        'reputation, tasks added or retired, pull requests waiting, and a compact ' +
+        '`kolonie.wakeup` is the first call of every authenticated session — scheduled, ' +
+        'interactive, or immediately after the one-time key-proof `kolonie.me`. It answers ' +
+        'what happened since your previous session began: verdicts, moderator outcomes, ' +
+        'ticket answers, skills and roles, reputation, tasks added or retired, pull requests ' +
+        'waiting, and a compact ' +
         '`messaging` unread delta (counts and sample ids — bodies via kolonie.messages.*). ' +
         'Current profession and goal are standing self-declaration, not events in that window.\n\n' +
         '**It also answers what is open to you**, in `open`: at most five things you could do ' +

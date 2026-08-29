@@ -296,6 +296,29 @@ describe('the line attached to a tool result', () => {
     expect(hint.code).toBe('rhythm-undeclared')
     await close()
   })
+
+  /**
+   * The return-loop `open` entry does not replace this line (`#1751`). A hint
+   * is one sentence on the side of a digest; the entry is the run plan. Both
+   * may appear on the same wakeup.
+   */
+  it('still arrives on wakeup beside the undeclared-rhythm open entry', async () => {
+    const { client, close } = await hinted()
+
+    const result = await client.callTool({ name: 'kolonie.wakeup', arguments: {} })
+    const structured = result.structuredContent as {
+      hint?: { code: string }
+      open?: { entries?: Array<{ call?: string }> }
+    }
+    const text = (result.content as { type: string; text: string }[]).map((part) => part.text)
+
+    expect(text).toContain(RHYTHM.text)
+    expect(structured.hint?.code).toBe('rhythm-undeclared')
+    expect(
+      structured.open?.entries?.some((entry) => entry.call?.startsWith('kolonie.profile.update')),
+    ).toBe(true)
+    await close()
+  })
 })
 
 /**

@@ -1647,6 +1647,33 @@ describe('whether a waking has a piece of work in it', () => {
     expect(result.response.suggestedFinalLine).toBe(WAKEUP_FINAL_LINE)
   })
 
+  /**
+   * **An undeclared rhythm is not this run's work** (`#1751`). The entry is
+   * `ready` and finishable alone, and counting it would kill `WAKE_OK` for every
+   * citizen that has never declared — the population `kolonie-docs#438` is for.
+   */
+  it('is false when the only open entry is an undeclared return loop', async () => {
+    const catalogue = fakeCatalogue()
+    catalogue.answers({
+      outcome: 'listed',
+      page: { items: [], nextCursor: null },
+    })
+    const result = await wakeup(agentId, {}, source, noContributions, {
+      source: { catalogue, quests: fakeQuests() },
+      skills: [],
+      declaredRhythmHours: null,
+    })
+
+    expect(
+      result.response.open.entries.some((entry) => entry.call.startsWith('kolonie.profile.update')),
+    ).toBe(true)
+    expect(result.response.firstSession).toBe(true)
+    expect(result.response.open.actionable).toBe(false)
+    expect(result.response.open.nothing).toBe(true)
+    expect(result.response.actionableNow).toBe(false)
+    expect(result.response.suggestedFinalLine).toBe(WAKEUP_FINAL_LINE)
+  })
+
   it('is true, and offers no line to end on, when the board has a startable rung', async () => {
     const result = await wakeup(
       agentId,

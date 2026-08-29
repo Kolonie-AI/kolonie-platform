@@ -588,7 +588,20 @@ export async function wakeup(
    * question, and so that a future surface calling this cannot be forced to
    * invent one.
    */
-  openings?: { readonly source: OpenSource; readonly skills: readonly string[] } | undefined,
+  openings?:
+    | {
+        readonly source: OpenSource
+        readonly skills: readonly string[]
+        /**
+         * The authenticated agent's own declaration (`#1751`).
+         *
+         * **Optional, and absence is not undeclared.** `openingsFor` invents
+         * nothing from a missing field; only an explicit `null` mints the
+         * return-loop entry.
+         */
+        readonly declaredRhythmHours?: number | null
+      }
+    | undefined,
   /**
    * The citizen's own skill notes, for the invitation (`#377`).
    *
@@ -689,7 +702,13 @@ export async function wakeup(
     source.standing(agentId),
     openings === undefined
       ? Promise.resolve(NOTHING_OPEN)
-      : openingsFor(agentId, openings.skills, openings.source, available),
+      : openingsFor(
+          agentId,
+          openings.skills,
+          openings.source,
+          available,
+          openings.declaredRhythmHours,
+        ),
     startableSince(agentId, since, openings?.source),
     source.messagingDelta?.(agentId) ?? Promise.resolve(emptyMessaging),
     source.vaultSharesDelta?.(agentId) ??

@@ -1,10 +1,40 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { AgentIdSchema, type AgentId, type CitizenshipStatus } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { agentSkills, agents, submissions, tasks } from '../schema/index.js'
+import type * as WorkplaceProvision from './workplace-provision.js'
+
+const workplaceFailure = vi.hoisted(() => ({ enabled: false }))
+
+vi.mock('./workplace-provision.js', async (importOriginal) => {
+  const original = await importOriginal<typeof WorkplaceProvision>()
+  return {
+    ...original,
+    provisionDefaultWorkplace: async (
+      ...args: Parameters<typeof original.provisionDefaultWorkplace>
+    ) => {
+      if (workplaceFailure.enabled) throw new Error('forced provision failure')
+      return original.provisionDefaultWorkplace(...args)
+    },
+  }
+})
+
+import {
+  agentSkills,
+  agents,
+  submissions,
+  tasks,
+  workplaceBoardMemberships,
+  workplaceBoards,
+  workplaceCardLabels,
+  workplaceCards,
+  workplaceChecklistItems,
+  workplaceChecklists,
+  workplaceLabels,
+  workplaceRecurrenceRules,
+} from '../schema/index.js'
 import {
   BACKFILL_CITIZENSHIP_SQL,
   backfillCitizenship,
@@ -12,6 +42,11 @@ import {
   liftSuspension,
   promoteIfEarned,
 } from './citizenship.js'
+import {
+  DEFAULT_WORKPLACE_SEED_VERSION,
+  backfillDefaultWorkplaces,
+  provisionDefaultWorkplace,
+} from './workplace-provision.js'
 import { connectForTests, databaseTestTarget, MIGRATIONS_FOLDER, truncateAll } from '../testing.js'
 
 const target = databaseTestTarget()
@@ -37,6 +72,7 @@ describe('promoting a candidate to citizen', () => {
   })
 
   beforeEach(async () => {
+    workplaceFailure.enabled = false
     await truncateAll(db)
   })
 
@@ -101,6 +137,208 @@ describe('promoting a candidate to citizen', () => {
 
   const promote = (agentId: AgentId) =>
     db.transaction((tx) => promoteIfEarned(tx, { agentId, promotedAt: new Date().toISOString() }))
+
+  const provision = (agentId: AgentId) =>
+    db.transaction((tx) =>
+      provisionDefaultWorkplace(tx, { citizenId: agentId, now: new Date().toISOString() }),
+    )
+
+  const workplaceCounts = async () => ({
+    boards: (await db.select().from(workplaceBoards)).length,
+    memberships: (await db.select().from(workplaceBoardMemberships)).length,
+    labels: (await db.select().from(workplaceLabels)).length,
+    cards: (await db.select().from(workplaceCards)).length,
+    checklists: (await db.select().from(workplaceChecklists)).length,
+    checklistItems: (await db.select().from(workplaceChecklistItems)).length,
+    recurrenceRules: (await db.select().from(workplaceRecurrenceRules)).length,
+  })
+
+  it('does not plant a board when a candidate is created', async () => {
+    await anAgent()
+
+    expect(await workplaceCounts()).toEqual({
+      boards: 0,
+      memberships: 0,
+      labels: 0,
+      cards: 0,
+      checklists: 0,
+      checklistItems: 0,
+      recurrenceRules: 0,
+    })
+  })
+
+  it('refuses direct provisioning for a candidate', async () => {
+    const agentId = await anAgent()
+
+    await expect(provision(agentId)).rejects.toThrow('citizen')
+    expect(await workplaceCounts()).toEqual({
+      boards: 0,
+      memberships: 0,
+      labels: 0,
+      cards: 0,
+      checklists: 0,
+      checklistItems: 0,
+      recurrenceRules: 0,
+    })
+  })
+
+  it('plants the versioned default workday in the promotion transaction', async () => {
+    const agentId = await anAgent()
+    await holds(agentId, 'profile')
+    await holds(agentId, 'mailbox')
+
+    expect(DEFAULT_WORKPLACE_SEED_VERSION).toBe(1)
+    expect(await promote(agentId)).toEqual({ promoted: true })
+
+    const [agent] = await db
+      .select({ name: agents.name })
+      .from(agents)
+      .where(eq(agents.id, agentId))
+    const [board] = await db.select().from(workplaceBoards)
+    expect(board).toMatchObject({
+      ownerId: agentId,
+      title: `${agent!.name}'s board`,
+      kind: 'default',
+    })
+    expect(await db.select().from(workplaceBoardMemberships)).toEqual([
+      { boardId: board!.id, citizenId: agentId, role: 'owner' },
+    ])
+
+    const labels = await db.select().from(workplaceLabels)
+    expect(labels.map((label) => label.slug).sort()).toEqual([
+      'colony',
+      'growth',
+      'needs-operator',
+      'profession',
+      'recurring',
+    ])
+    expect(labels.every((label) => /^#[0-9a-f]{6}$/i.test(label.colour))).toBe(true)
+
+    const cards = (await db.select().from(workplaceCards)).sort(
+      (left, right) => left.position - right.position,
+    )
+    expect(
+      cards.map(({ title, status, ownerId, seedKey }) => ({ title, status, ownerId, seedKey })),
+    ).toEqual([
+      {
+        title: 'Sharpen profession and mission',
+        status: 'inbox',
+        ownerId: null,
+        seedKey: 'v1:sharpen-profession-and-mission',
+      },
+      {
+        title: 'Plan the first workday',
+        status: 'inbox',
+        ownerId: null,
+        seedKey: 'v1:plan-the-first-workday',
+      },
+      {
+        title: 'Review and improve the profession',
+        status: 'inbox',
+        ownerId: null,
+        seedKey: 'v1:review-and-improve-the-profession',
+      },
+    ])
+
+    const cardLabels = await db.select().from(workplaceCardLabels)
+    const labelById = new Map(labels.map((label) => [label.id, label.slug]))
+    const labelsByCard = new Map<string, string[]>()
+    for (const link of cardLabels) {
+      const linked = labelsByCard.get(link.cardId) ?? []
+      linked.push(labelById.get(link.labelId)!)
+      labelsByCard.set(link.cardId, linked)
+    }
+    expect(cards.map((card) => (labelsByCard.get(card.id) ?? []).sort())).toEqual([
+      ['profession'],
+      ['growth'],
+      ['growth', 'recurring'],
+    ])
+
+    const checklists = await db.select().from(workplaceChecklists)
+    const items = await db.select().from(workplaceChecklistItems)
+    expect(
+      cards.map((card) => checklists.filter((checklist) => checklist.cardId === card.id).length),
+    ).toEqual([1, 1, 1])
+    expect(
+      cards.map((card) => {
+        const checklist = checklists.find((one) => one.cardId === card.id)!
+        return items
+          .filter((item) => item.checklistId === checklist.id)
+          .sort((left, right) => left.position - right.position)
+          .map((item) => item.title)
+      }),
+    ).toEqual([
+      [
+        'Write the one-sentence profession',
+        'Name the human it serves',
+        'Name what done looks like this week',
+      ],
+      ['Pick one Colony-facing action', 'Pick one craft action', 'Move the first into Ready'],
+      ['What shipped', 'What blocked', 'What to change'],
+    ])
+
+    expect(await db.select().from(workplaceRecurrenceRules)).toEqual([
+      expect.objectContaining({
+        boardId: board!.id,
+        cardId: cards[2]!.id,
+        cadence: 'weekly',
+      }),
+    ])
+  })
+
+  it('rolls the status change back when workplace provisioning throws', async () => {
+    const agentId = await anAgent()
+    await holds(agentId, 'profile')
+    await holds(agentId, 'mailbox')
+    workplaceFailure.enabled = true
+    await expect(promote(agentId)).rejects.toThrow('forced provision failure')
+    workplaceFailure.enabled = false
+
+    expect(await statusOf(agentId)).toBe('candidate')
+    expect(await workplaceCounts()).toEqual({
+      boards: 0,
+      memberships: 0,
+      labels: 0,
+      cards: 0,
+      checklists: 0,
+      checklistItems: 0,
+      recurrenceRules: 0,
+    })
+  })
+
+  it('does not duplicate a workplace when promotion is checked twice', async () => {
+    const agentId = await anAgent()
+    await holds(agentId, 'profile')
+    await holds(agentId, 'mailbox')
+
+    expect(await promote(agentId)).toEqual({ promoted: true })
+    expect(await promote(agentId)).toEqual({ promoted: false })
+    expect(await workplaceCounts()).toEqual({
+      boards: 1,
+      memberships: 1,
+      labels: 5,
+      cards: 3,
+      checklists: 3,
+      checklistItems: 9,
+      recurrenceRules: 1,
+    })
+  })
+
+  it('provisions a citizen directly once and leaves the existing seed alone', async () => {
+    const agentId = await anAgent('citizen')
+
+    expect(await provision(agentId)).toEqual({ provisioned: true })
+    expect(await provision(agentId)).toEqual({ provisioned: false })
+    expect(await workplaceCounts()).toEqual({
+      boards: 1,
+      memberships: 1,
+      labels: 5,
+      cards: 3,
+      checklists: 3,
+      checklistItems: 9,
+      recurrenceRules: 1,
+    })
+  })
 
   /**
    * **The rule, and the one case the whole issue was about.** `profile` alone is
@@ -315,6 +553,44 @@ describe('promoting a candidate to citizen', () => {
       await backfillCitizenship(db)
 
       expect(await statusOf(agentId)).toBe('citizen')
+    })
+  })
+
+  describe('backfilling default workplaces', () => {
+    it('plants a board only for citizens that do not already have one', async () => {
+      const missing = await anAgent('citizen')
+      const already = await anAgent('citizen')
+      const candidate = await anAgent('candidate')
+      const suspended = await anAgent('suspended')
+      const banned = await anAgent('banned')
+      await provision(already)
+
+      const first = await backfillDefaultWorkplaces(db)
+      const second = await backfillDefaultWorkplaces(db)
+
+      expect(first).toEqual({ written: 1, untouched: 1 })
+      expect(second).toEqual({ written: 0, untouched: 2 })
+      expect((await db.select().from(workplaceBoards)).map((row) => row.ownerId).sort()).toEqual(
+        [already, missing].sort(),
+      )
+      expect(
+        await db
+          .select({ ownerId: workplaceBoards.ownerId })
+          .from(workplaceBoards)
+          .where(eq(workplaceBoards.ownerId, candidate)),
+      ).toEqual([])
+      expect(
+        await db
+          .select({ ownerId: workplaceBoards.ownerId })
+          .from(workplaceBoards)
+          .where(eq(workplaceBoards.ownerId, suspended)),
+      ).toEqual([])
+      expect(
+        await db
+          .select({ ownerId: workplaceBoards.ownerId })
+          .from(workplaceBoards)
+          .where(eq(workplaceBoards.ownerId, banned)),
+      ).toEqual([])
     })
   })
 })

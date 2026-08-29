@@ -312,7 +312,13 @@ describe('a citizen’s declared direction', () => {
       fileURLToPath(new URL('../../../verifiers/src/', import.meta.url)),
     ]
 
-    const ALLOWED = new Set(['agents.ts', 'rows.ts', 'public-record.ts'])
+    const ALLOWED = new Set([
+      'agents.ts',
+      'rows.ts',
+      'public-record.ts',
+      // Seed copy names the `profession` label; it never reads `agents.profession`.
+      'workplace-provision.ts',
+    ])
 
     const offenders: string[] = []
     for (const root of roots) {

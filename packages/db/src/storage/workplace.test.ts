@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { eq, sql } from 'drizzle-orm'
 import { AccountKindSchema, type AccountCapability, type AgentId } from '@kolonie-ai/core'
 import { createDatabase, type Database } from '../client.js'
@@ -6,6 +6,7 @@ import { connectForTests, databaseTestTarget, expectRejection, truncateAll } fro
 import { registerAgent } from './agents.js'
 import { declareAccount, recordProvedAccount } from './accounts.js'
 import { listAtlasProvider } from './provider-recipes.js'
+import * as vaultStorage from './vault.js'
 import { setVaultEntry } from './vault.js'
 import { eraseAgent } from './erasure.js'
 import {
@@ -32,6 +33,7 @@ import {
   listComments,
   listLinks,
   listMembers,
+  materialiseDue,
   moveCard,
   removeLink,
   removeMember,
@@ -39,12 +41,18 @@ import {
   requestReview,
   updateCard,
 } from './workplace.js'
+import { toTimestamp } from './rows.js'
 import {
+  agents,
   playbooks,
   tasks,
+  workplaceActivity,
   workplaceCardLinks,
   workplaceCards,
+  workplaceChecklistItems,
   workplaceLabels,
+  workplaceRecurrenceOccurrences,
+  workplaceRecurrenceRules,
 } from '../schema/index.js'
 
 const target = databaseTestTarget()
@@ -1242,5 +1250,319 @@ describe('workplace storage', () => {
         ref: 'mail.tm',
       }),
     ).toEqual({ outcome: 'unresolvable' })
+  })
+})
+
+describe('materialiseDue', () => {
+  let db: Database
+  let owner: AgentId
+  const keys = new Map<AgentId, string>()
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+    owner = await citizen('owner')
+  })
+
+  const citizen = async (name: string): Promise<AgentId> => {
+    const registered = await registerAgent(db, {
+      name,
+      platform: 'openclaw',
+      operator: null,
+    })
+    if (registered.outcome !== 'registered') throw new Error(`could not register ${name}`)
+    keys.set(registered.agent.id, String(registered.credentials.apiKey))
+    await db.update(agents).set({ status: 'citizen' }).where(eq(agents.id, registered.agent.id))
+    return registered.agent.id
+  }
+
+  const plantRule = async (input: {
+    readonly boardId: string
+    readonly cardId: string
+    readonly cadence?: 'weekly' | 'daily'
+    readonly nextDueAt?: string
+  }) => {
+    const [rule] = await db
+      .insert(workplaceRecurrenceRules)
+      .values({
+        boardId: input.boardId,
+        cardId: input.cardId,
+        cadence: input.cadence ?? 'weekly',
+        nextDueAt: input.nextDueAt ?? '2026-08-24T00:00:00.000Z',
+      })
+      .returning()
+    if (rule === undefined) throw new Error('rule missing')
+    return rule
+  }
+
+  const occurrenceCards = async (
+    citizenId: AgentId,
+    boardId: string,
+    title: string,
+    templateId: string,
+  ) => {
+    const listed = await listCards(db, citizenId, boardId)
+    if (listed.outcome !== 'listed' && listed.outcome !== 'empty') {
+      throw new Error(`could not list cards: ${listed.outcome}`)
+    }
+    const items = listed.outcome === 'listed' ? listed.items : []
+    return items.filter((one) => one.title === title && one.id !== templateId)
+  }
+
+  it('creates one ownerless inbox card for two ticks in the same period', async () => {
+    const board = await createDefaultBoard(db, { callerId: owner, title: 'Default board' })
+    const template = await createCard(db, {
+      callerId: owner,
+      boardId: board.id,
+      title: 'Review and improve the profession',
+    })
+    if (template.outcome !== 'created') throw new Error('template missing')
+    await plantRule({ boardId: board.id, cardId: template.card.id })
+
+    const first = await materialiseDue(db, owner, '2026-08-30T15:04:05.000Z')
+    const second = await materialiseDue(db, owner, '2026-08-30T22:00:00.000Z')
+    expect(first.created).toBe(1)
+    expect(second.created).toBe(0)
+
+    const copies = await occurrenceCards(
+      owner,
+      board.id,
+      'Review and improve the profession',
+      template.card.id,
+    )
+    expect(copies).toHaveLength(1)
+    expect(copies[0]?.status).toBe('inbox')
+    expect(copies[0]?.ownerId).toBeNull()
+    expect(copies[0]?.title).toBe('Review and improve the profession')
+    expect(copies[0]?.title).not.toMatch(/\d{4}/)
+
+    const rows = await db.select().from(workplaceRecurrenceOccurrences)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.cardId).toBe(copies[0]?.id)
+    expect(toTimestamp(rows[0]!.periodStart)).toBe('2026-08-24T00:00:00.000Z')
+  })
+
+  it('skips a new period while the previous occurrence is unfinished and records it', async () => {
+    const board = await createDefaultBoard(db, { callerId: owner, title: 'Default board' })
+    const template = await createCard(db, {
+      callerId: owner,
+      boardId: board.id,
+      title: 'Weekly review',
+    })
+    if (template.outcome !== 'created') throw new Error('template missing')
+    await plantRule({ boardId: board.id, cardId: template.card.id })
+
+    await materialiseDue(db, owner, '2026-08-30T12:00:00.000Z')
+    const skipped = await materialiseDue(db, owner, '2026-09-07T12:00:00.000Z')
+    expect(skipped.created).toBe(0)
+    expect(skipped.skipped).toBe(1)
+
+    const copies = await occurrenceCards(owner, board.id, 'Weekly review', template.card.id)
+    expect(copies).toHaveLength(1)
+
+    const rows = await db
+      .select()
+      .from(workplaceRecurrenceOccurrences)
+      .orderBy(workplaceRecurrenceOccurrences.periodStart)
+    expect(rows).toHaveLength(2)
+    expect(toTimestamp(rows[1]!.periodStart)).toBe('2026-09-07T00:00:00.000Z')
+    expect(rows[1]?.cardId).toBeNull()
+
+    const activity = await db.select().from(workplaceActivity)
+    expect(activity).toHaveLength(1)
+    expect(activity[0]?.verb).toBe('recurrence.skipped')
+    expect(activity[0]?.actorId).toBe(owner)
+    expect(activity[0]?.boardId).toBe(board.id)
+  })
+
+  it('creates the next period after the previous occurrence is completed', async () => {
+    const board = await createDefaultBoard(db, { callerId: owner, title: 'Default board' })
+    const template = await createCard(db, {
+      callerId: owner,
+      boardId: board.id,
+      title: 'Weekly review',
+      status: 'ready',
+    })
+    if (template.outcome !== 'created') throw new Error('template missing')
+    await plantRule({ boardId: board.id, cardId: template.card.id })
+
+    await materialiseDue(db, owner, '2026-08-30T12:00:00.000Z')
+    const copies = await occurrenceCards(owner, board.id, 'Weekly review', template.card.id)
+    const open = copies[0]
+    if (open === undefined) throw new Error('occurrence missing')
+    const ready = await moveCard(db, {
+      callerId: owner,
+      cardId: open.id,
+      expectedVersion: open.version,
+      status: 'ready',
+    })
+    if (ready.outcome !== 'moved') throw new Error('could not ready')
+    const claimed = await claimCard(db, {
+      callerId: owner,
+      cardId: ready.card.id,
+      expectedVersion: ready.card.version,
+    })
+    if (claimed.outcome !== 'claimed') throw new Error('claim failed')
+    const done = await completeCard(db, {
+      callerId: owner,
+      cardId: claimed.card.id,
+      expectedVersion: claimed.card.version,
+      outcome: 'The week is filed.',
+    })
+    expect(done.outcome).toBe('completed')
+
+    const next = await materialiseDue(db, owner, '2026-09-07T12:00:00.000Z')
+    expect(next.created).toBe(1)
+    expect(await occurrenceCards(owner, board.id, 'Weekly review', template.card.id)).toHaveLength(
+      2,
+    )
+  })
+
+  it('copies labels, unchecked checklists and typed links without decrypting a vault value', async () => {
+    const board = await createDefaultBoard(db, { callerId: owner, title: 'Default board' })
+    const template = await createCard(db, {
+      callerId: owner,
+      boardId: board.id,
+      title: 'Walk the provider',
+    })
+    if (template.outcome !== 'created') throw new Error('template missing')
+    const [label] = await db
+      .insert(workplaceLabels)
+      .values({ boardId: board.id, slug: 'growth', name: 'growth', colour: '#336699' })
+      .returning()
+    if (label === undefined) throw new Error('label missing')
+    await attachLabel(db, { callerId: owner, cardId: template.card.id, labelId: label.id })
+    const listed = await createChecklist(db, {
+      callerId: owner,
+      cardId: template.card.id,
+      title: 'Prove it',
+    })
+    if (listed.outcome !== 'created') throw new Error('checklist missing')
+    const item = await createChecklistItem(db, {
+      callerId: owner,
+      checklistId: listed.checklist.id,
+      title: 'Mint the challenge',
+    })
+    if (item.outcome !== 'created') throw new Error('item missing')
+    await db
+      .update(workplaceChecklistItems)
+      .set({ doneAt: '2026-08-29T12:00:00.000Z' })
+      .where(eq(workplaceChecklistItems.id, item.item.id))
+
+    const apiKey = keys.get(owner)
+    if (apiKey === undefined) throw new Error('owner has no key')
+    await setVaultEntry(db, apiKey, owner, 'mail.tm', 'a mailbox password')
+    const vault = await addLink(db, {
+      callerId: owner,
+      cardId: template.card.id,
+      kind: 'vault',
+      ref: 'mail.tm',
+    })
+    expect(vault.outcome).toBe('created')
+    await addLink(db, {
+      callerId: owner,
+      cardId: template.card.id,
+      kind: 'url',
+      ref: 'https://example.com/walk',
+    })
+    await plantRule({ boardId: board.id, cardId: template.card.id, cadence: 'daily' })
+
+    const decrypt = vi.spyOn(vaultStorage, 'getVaultEntry')
+    await materialiseDue(db, owner, '2026-08-30T15:04:05.000Z')
+    expect(decrypt).not.toHaveBeenCalled()
+    decrypt.mockRestore()
+
+    const copies = await occurrenceCards(owner, board.id, 'Walk the provider', template.card.id)
+    expect(copies).toHaveLength(1)
+    const copyId = copies[0]?.id
+    if (copyId === undefined) throw new Error('copy missing')
+    const detail = await getCard(db, owner, copyId)
+    expect(detail?.labels.map((one) => one.name)).toEqual(['growth'])
+    expect(detail?.checklists[0]?.checklist.title).toBe('Prove it')
+    expect(detail?.checklists[0]?.items[0]?.title).toBe('Mint the challenge')
+    expect(detail?.checklists[0]?.items[0]?.doneAt).toBeNull()
+    expect(detail?.links.map((one) => one.kind).sort()).toEqual(['url', 'vault'])
+    const vaultLink = detail?.links.find((one) => one.kind === 'vault')
+    expect(vaultLink?.ref).toBe('mail.tm')
+    expect(JSON.stringify(detail)).not.toContain('a mailbox password')
+  })
+
+  it('does not fire for a candidate, a suspended agent, a banned agent or an archived board', async () => {
+    const candidate = await registerAgent(db, {
+      name: 'candidate',
+      platform: 'openclaw',
+      operator: null,
+    })
+    if (candidate.outcome !== 'registered') throw new Error('candidate missing')
+    const candidateBoard = await createDefaultBoard(db, {
+      callerId: candidate.agent.id,
+      title: 'Candidate board',
+    })
+    const candidateCard = await createCard(db, {
+      callerId: candidate.agent.id,
+      boardId: candidateBoard.id,
+      title: 'Candidate review',
+    })
+    if (candidateCard.outcome !== 'created') throw new Error('candidate card missing')
+    await plantRule({ boardId: candidateBoard.id, cardId: candidateCard.card.id })
+    expect(await materialiseDue(db, candidate.agent.id, '2026-08-30T12:00:00.000Z')).toEqual({
+      created: 0,
+      skipped: 0,
+    })
+
+    const suspended = await citizen('suspended')
+    await db.update(agents).set({ status: 'suspended' }).where(eq(agents.id, suspended))
+    const suspendedBoard = await createDefaultBoard(db, {
+      callerId: suspended,
+      title: 'Suspended board',
+    })
+    const suspendedCard = await createCard(db, {
+      callerId: suspended,
+      boardId: suspendedBoard.id,
+      title: 'Suspended review',
+    })
+    if (suspendedCard.outcome !== 'created') throw new Error('suspended card missing')
+    await plantRule({ boardId: suspendedBoard.id, cardId: suspendedCard.card.id })
+    expect(await materialiseDue(db, suspended, '2026-08-30T12:00:00.000Z')).toEqual({
+      created: 0,
+      skipped: 0,
+    })
+
+    const banned = await citizen('banned')
+    await db.update(agents).set({ status: 'banned' }).where(eq(agents.id, banned))
+    const bannedBoard = await createDefaultBoard(db, { callerId: banned, title: 'Banned board' })
+    const bannedCard = await createCard(db, {
+      callerId: banned,
+      boardId: bannedBoard.id,
+      title: 'Banned review',
+    })
+    if (bannedCard.outcome !== 'created') throw new Error('banned card missing')
+    await plantRule({ boardId: bannedBoard.id, cardId: bannedCard.card.id })
+    expect(await materialiseDue(db, banned, '2026-08-30T12:00:00.000Z')).toEqual({
+      created: 0,
+      skipped: 0,
+    })
+
+    const extra = await createBoard(db, { callerId: owner, title: 'Extra' })
+    const extraCard = await createCard(db, {
+      callerId: owner,
+      boardId: extra.id,
+      title: 'Archived review',
+    })
+    if (extraCard.outcome !== 'created') throw new Error('extra card missing')
+    await plantRule({ boardId: extra.id, cardId: extraCard.card.id })
+    await archiveBoard(db, { callerId: owner, boardId: extra.id, expectedVersion: extra.version })
+    expect(await materialiseDue(db, owner, '2026-08-30T12:00:00.000Z')).toEqual({
+      created: 0,
+      skipped: 0,
+    })
+    expect(await db.select().from(workplaceRecurrenceOccurrences)).toEqual([])
   })
 })

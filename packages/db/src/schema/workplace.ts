@@ -21,6 +21,8 @@ import {
   WORKPLACE_BODY_MAX_LENGTH,
   WORKPLACE_CADENCES,
   WORKPLACE_LANES,
+  WORKPLACE_LINK_KINDS,
+  WORKPLACE_LINK_REF_MAX_LENGTH,
   WORKPLACE_MEMBERSHIP_ROLES,
   WORKPLACE_SENTENCE_MAX_LENGTH,
   WORKPLACE_TITLE_MAX_LENGTH,
@@ -43,6 +45,7 @@ const oneOf = (values: readonly string[]) => sql.raw(values.map((one) => `'${one
 const TITLE_MAX = sql.raw(String(WORKPLACE_TITLE_MAX_LENGTH))
 const BODY_MAX = sql.raw(String(WORKPLACE_BODY_MAX_LENGTH))
 const SENTENCE_MAX = sql.raw(String(WORKPLACE_SENTENCE_MAX_LENGTH))
+const LINK_REF_MAX = sql.raw(String(WORKPLACE_LINK_REF_MAX_LENGTH))
 
 /**
  * One board. Exactly one citizen owns it (D-146): they created it, or it is
@@ -355,6 +358,50 @@ export const workplaceComments = pgTable(
     check(
       'workplace_comments_body_is_bounded',
       sql`char_length(${table.body}) between 1 and ${BODY_MAX}`,
+    ),
+  ],
+)
+
+/**
+ * A typed pointer on a card (`#1765`).
+ *
+ * **No foreign keys onto the target.** An account, a vault name, a task, a
+ * playbook or a URL may go away; the pointer stays. Linking does not grant
+ * access. Vault stores the entry **name** in `ref`, never the value.
+ *
+ * Unique on `(card_id, kind, ref)` so POST is idempotent. Cascade from the
+ * card; no `agent_id` — erasure of a citizen takes the link only when it
+ * takes the card.
+ */
+export const workplaceCardLinks = pgTable(
+  'workplace_card_links',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    cardId: uuid('card_id')
+      .notNull()
+      .references(() => workplaceCards.id, { onDelete: 'cascade' }),
+    kind: varchar('kind', { length: 16 }).notNull(),
+    ref: text('ref').notNull(),
+    note: varchar('note', { length: WORKPLACE_SENTENCE_MAX_LENGTH }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('workplace_card_links_card_kind_ref').on(table.cardId, table.kind, table.ref),
+    index('workplace_card_links_card_idx').on(table.cardId, table.createdAt),
+    index('workplace_card_links_kind_ref').on(table.kind, table.ref),
+    check(
+      'workplace_card_links_kind_is_known',
+      sql`${table.kind} in (${oneOf(WORKPLACE_LINK_KINDS)})`,
+    ),
+    check(
+      'workplace_card_links_ref_is_bounded',
+      sql`char_length(${table.ref}) between 1 and ${LINK_REF_MAX}`,
+    ),
+    check(
+      'workplace_card_links_note_is_bounded',
+      sql`${table.note} is null or char_length(${table.note}) between 1 and ${SENTENCE_MAX}`,
     ),
   ],
 )

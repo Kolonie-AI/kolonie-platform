@@ -2,10 +2,12 @@ import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
 import {
   AgentIdSchema,
   DEFAULT_PAGE_SIZE,
+  EMPTY_WORKPLACE_LINK_COUNTS,
   MAX_PAGE_SIZE,
   WorkplaceBoardIdSchema,
   WorkplaceBoardSchema,
   WorkplaceCardIdSchema,
+  WorkplaceCardLinkSchema,
   WorkplaceCardSchema,
   WorkplaceChecklistItemSchema,
   WorkplaceChecklistSchema,
@@ -14,6 +16,8 @@ import {
   WorkplaceLabelSchema,
   WorkplaceLaneSchema,
   WorkplaceCardSummarySchema,
+  WorkplaceResolvedLinkSchema,
+  PlaybookStatusSchema,
   canTransitionWorkplace,
   claimAllowed,
   handoverAllowed,
@@ -22,6 +26,7 @@ import {
   type WorkplaceBoard,
   type WorkplaceCard,
   type WorkplaceCardDetail,
+  type WorkplaceCardLink,
   type WorkplaceCardSummary,
   type WorkplaceChecklist,
   type WorkplaceChecklistItem,
@@ -29,14 +34,23 @@ import {
   type WorkplaceHandover,
   type WorkplaceLabel,
   type WorkplaceLane,
+  type WorkplaceLinkCounts,
+  type WorkplaceLinkKind,
+  type WorkplaceLinkTarget,
   type WorkplaceMembership,
+  type WorkplaceResolvedLink,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 import {
+  accounts,
   agents,
+  playbooks,
+  providerRecipes,
+  tasks,
   workplaceBoardMemberships,
   workplaceBoards,
   workplaceCardLabels,
+  workplaceCardLinks,
   workplaceCards,
   workplaceChecklists,
   workplaceChecklistItems,
@@ -47,6 +61,7 @@ import {
 } from '../schema/index.js'
 import { isUniqueViolation, isUuid } from './errors.js'
 import { toTimestamp } from './rows.js'
+import { vaultHoldsKey } from './vault.js'
 
 /**
  * Reading and writing Workplace boards (`#1757`).
@@ -113,7 +128,12 @@ function toCard(row: typeof workplaceCards.$inferSelect): WorkplaceCard {
 
 function toSummary(
   card: WorkplaceCard,
-  counts: { readonly labels: number; readonly checklists: number; readonly comments: number },
+  counts: {
+    readonly labels: number
+    readonly checklists: number
+    readonly comments: number
+    readonly links: WorkplaceLinkCounts
+  },
 ): WorkplaceCardSummary {
   return WorkplaceCardSummarySchema.parse({
     id: card.id,
@@ -129,8 +149,174 @@ function toSummary(
     labelCount: counts.labels,
     checklistCount: counts.checklists,
     commentCount: counts.comments,
-    linkCount: 0,
+    linkCount:
+      counts.links.account +
+      counts.links.provider +
+      counts.links.vault +
+      counts.links.task +
+      counts.links.playbook +
+      counts.links.url,
+    linkCounts: counts.links,
   })
+}
+
+function toCardLink(row: typeof workplaceCardLinks.$inferSelect): WorkplaceCardLink {
+  return WorkplaceCardLinkSchema.parse({
+    id: row.id,
+    cardId: row.cardId,
+    kind: row.kind,
+    ref: row.ref,
+    ...(row.note === null ? {} : { note: row.note }),
+  })
+}
+
+function unresolvable(kind: WorkplaceLinkKind): WorkplaceLinkTarget {
+  return { state: 'unresolvable', kind }
+}
+
+async function resolveOneLink(
+  db: Database | Transaction,
+  callerId: AgentId,
+  row: typeof workplaceCardLinks.$inferSelect,
+): Promise<WorkplaceResolvedLink> {
+  const stored = toCardLink(row)
+  const kind = stored.kind
+  let target: WorkplaceLinkTarget = unresolvable(kind)
+
+  if (kind === 'account') {
+    if (isUuid(stored.ref)) {
+      const [own] = await db
+        .select({
+          provider: accounts.provider,
+          identifier: accounts.identifier,
+          proved: accounts.proved,
+        })
+        .from(accounts)
+        .where(and(eq(accounts.id, stored.ref), eq(accounts.agentId, callerId)))
+        .limit(1)
+      if (own !== undefined) {
+        target = {
+          state: 'resolved',
+          kind: 'account',
+          provider: own.provider,
+          identifier: own.identifier,
+          proved: own.proved,
+        }
+      }
+    }
+  } else if (kind === 'provider') {
+    const [recipe] = await db
+      .select({ title: providerRecipes.title, category: providerRecipes.category })
+      .from(providerRecipes)
+      .where(eq(providerRecipes.provider, stored.ref))
+      .limit(1)
+    if (recipe !== undefined) {
+      target = {
+        state: 'resolved',
+        kind: 'provider',
+        title: recipe.title,
+        category: recipe.category,
+      }
+    }
+  } else if (kind === 'vault') {
+    target = {
+      state: 'resolved',
+      kind: 'vault',
+      name: stored.ref,
+      held: await vaultHoldsKey(db, callerId, stored.ref),
+    }
+  } else if (kind === 'task') {
+    if (isUuid(stored.ref)) {
+      const [task] = await db
+        .select({ title: tasks.title, status: tasks.status })
+        .from(tasks)
+        .where(eq(tasks.id, stored.ref))
+        .limit(1)
+      if (task !== undefined) {
+        target = { state: 'resolved', kind: 'task', title: task.title, status: task.status }
+      }
+    }
+  } else if (kind === 'playbook') {
+    if (isUuid(stored.ref)) {
+      const [playbook] = await db
+        .select({ title: playbooks.title, status: playbooks.status })
+        .from(playbooks)
+        .where(eq(playbooks.id, stored.ref))
+        .limit(1)
+      if (playbook !== undefined) {
+        const status = PlaybookStatusSchema.safeParse(playbook.status)
+        if (status.success) {
+          target = {
+            state: 'resolved',
+            kind: 'playbook',
+            title: playbook.title,
+            status: status.data,
+          }
+        }
+      }
+    }
+  } else {
+    target = { state: 'resolved', kind: 'url' }
+  }
+
+  return WorkplaceResolvedLinkSchema.parse({ ...stored, target })
+}
+
+async function resolveLinks(
+  db: Database | Transaction,
+  callerId: AgentId,
+  rows: readonly (typeof workplaceCardLinks.$inferSelect)[],
+): Promise<readonly WorkplaceResolvedLink[]> {
+  const resolved: WorkplaceResolvedLink[] = []
+  for (const row of rows) {
+    resolved.push(await resolveOneLink(db, callerId, row))
+  }
+  return resolved
+}
+
+async function linkTargetExists(
+  db: Transaction,
+  boardOwnerId: AgentId,
+  kind: WorkplaceLinkKind,
+  ref: string,
+): Promise<boolean> {
+  if (kind === 'url') return true
+  if (kind === 'vault') return vaultHoldsKey(db, boardOwnerId, ref)
+  if (kind === 'provider') {
+    const [row] = await db
+      .select({ id: providerRecipes.id })
+      .from(providerRecipes)
+      .where(eq(providerRecipes.provider, ref))
+      .limit(1)
+    return row !== undefined
+  }
+  if (!isUuid(ref)) return false
+  if (kind === 'account') {
+    const [row] = await db
+      .select({ id: accounts.id })
+      .from(accounts)
+      .where(and(eq(accounts.id, ref), eq(accounts.agentId, boardOwnerId)))
+      .limit(1)
+    return row !== undefined
+  }
+  if (kind === 'task') {
+    const [row] = await db.select({ id: tasks.id }).from(tasks).where(eq(tasks.id, ref)).limit(1)
+    return row !== undefined
+  }
+  const [row] = await db
+    .select({ id: playbooks.id })
+    .from(playbooks)
+    .where(eq(playbooks.id, ref))
+    .limit(1)
+  return row !== undefined
+}
+
+function mayWriteLink(
+  membership: WorkplaceMembership,
+  card: typeof workplaceCards.$inferSelect,
+  callerId: AgentId,
+): boolean {
+  return membership.role === 'owner' || card.ownerId === callerId
 }
 
 function toHandover(row: typeof workplaceHandovers.$inferSelect): WorkplaceHandover {
@@ -696,11 +882,23 @@ export async function listCards(
           labels: string
           checklists: string
           comments: string
+          links_account: string
+          links_provider: string
+          links_vault: string
+          links_task: string
+          links_playbook: string
+          links_url: string
         }>(sql`
           select c.id as card_id,
                  (select count(*)::text from workplace_card_labels l where l.card_id = c.id) as labels,
                  (select count(*)::text from workplace_checklists k where k.card_id = c.id) as checklists,
-                 (select count(*)::text from workplace_comments m where m.card_id = c.id) as comments
+                 (select count(*)::text from workplace_comments m where m.card_id = c.id) as comments,
+                 (select count(*)::text from workplace_card_links x where x.card_id = c.id and x.kind = 'account') as links_account,
+                 (select count(*)::text from workplace_card_links x where x.card_id = c.id and x.kind = 'provider') as links_provider,
+                 (select count(*)::text from workplace_card_links x where x.card_id = c.id and x.kind = 'vault') as links_vault,
+                 (select count(*)::text from workplace_card_links x where x.card_id = c.id and x.kind = 'task') as links_task,
+                 (select count(*)::text from workplace_card_links x where x.card_id = c.id and x.kind = 'playbook') as links_playbook,
+                 (select count(*)::text from workplace_card_links x where x.card_id = c.id and x.kind = 'url') as links_url
             from workplace_cards c
            where c.id in (${sql.join(
              ids.map((id) => sql`${id}::uuid`),
@@ -719,6 +917,17 @@ export async function listCards(
         labels: Number(extra?.labels ?? 0),
         checklists: Number(extra?.checklists ?? 0),
         comments: Number(extra?.comments ?? 0),
+        links:
+          extra === undefined
+            ? EMPTY_WORKPLACE_LINK_COUNTS
+            : {
+                account: Number(extra.links_account),
+                provider: Number(extra.links_provider),
+                vault: Number(extra.links_vault),
+                task: Number(extra.links_task),
+                playbook: Number(extra.links_playbook),
+                url: Number(extra.links_url),
+              },
       })
     }),
     nextCursor: rows.length > limit ? encodeCardCursor(page[page.length - 1]!) : null,
@@ -733,7 +942,7 @@ export async function getCard(
   const row = await visibleCard(db, callerId, cardId)
   if (row === null) return null
 
-  const [labelRows, checklistRows, commentRows, handoverRows] = await Promise.all([
+  const [labelRows, checklistRows, commentRows, handoverRows, linkRows] = await Promise.all([
     db
       .select({ label: workplaceLabels })
       .from(workplaceLabels)
@@ -750,6 +959,11 @@ export async function getCard(
       .from(workplaceHandovers)
       .where(and(eq(workplaceHandovers.cardId, row.id), eq(workplaceHandovers.isCurrent, true)))
       .limit(1),
+    db
+      .select()
+      .from(workplaceCardLinks)
+      .where(eq(workplaceCardLinks.cardId, row.id))
+      .orderBy(workplaceCardLinks.createdAt, workplaceCardLinks.id),
   ])
 
   const checklistIds = checklistRows.map((one) => one.id)
@@ -800,6 +1014,7 @@ export async function getCard(
         updatedAt: toTimestamp(comment.updatedAt),
       }),
     ),
+    links: [...(await resolveLinks(db, callerId, linkRows))],
     handover: handoverRows[0] === undefined ? null : toHandover(handoverRows[0]),
   }
 }
@@ -1832,6 +2047,114 @@ export async function createComment(
         updatedAt: toTimestamp(row.updatedAt),
       }),
     }
+  })
+}
+
+export type ListLinksResult =
+  | { readonly outcome: 'listed'; readonly items: readonly WorkplaceResolvedLink[] }
+  | WorkplaceEmpty
+  | WorkplaceUnknown
+
+export async function listLinks(
+  db: Database,
+  callerId: AgentId,
+  cardId: string,
+): Promise<ListLinksResult> {
+  const card = await visibleCard(db, callerId, cardId)
+  if (card === null) return { outcome: 'unknown' }
+  const rows = await db
+    .select()
+    .from(workplaceCardLinks)
+    .where(eq(workplaceCardLinks.cardId, cardId))
+    .orderBy(workplaceCardLinks.createdAt, workplaceCardLinks.id)
+  if (rows.length === 0) return { outcome: 'empty' }
+  return { outcome: 'listed', items: await resolveLinks(db, callerId, rows) }
+}
+
+export type AddLinkResult =
+  | { readonly outcome: 'created'; readonly link: WorkplaceResolvedLink }
+  | WorkplaceMissing
+  | WorkplaceForbidden
+  | { readonly outcome: 'unresolvable' }
+
+export async function addLink(
+  db: Database,
+  input: {
+    readonly callerId: AgentId
+    readonly cardId: string
+    readonly kind: WorkplaceLinkKind
+    readonly ref: string
+    readonly note?: string
+  },
+): Promise<AddLinkResult> {
+  return db.transaction(async (tx) => {
+    const locked = await lockCardForWrite(tx, input.callerId, input.cardId)
+    if (locked.outcome !== 'ok') return locked
+    const membership = await membershipOf(tx, input.callerId, locked.card.boardId)
+    if (membership === null) return { outcome: 'forbidden' }
+    if (!mayWriteLink(membership, locked.card, input.callerId)) return { outcome: 'forbidden' }
+
+    const [board] = await tx
+      .select({ ownerId: workplaceBoards.ownerId })
+      .from(workplaceBoards)
+      .where(eq(workplaceBoards.id, locked.card.boardId))
+      .limit(1)
+    if (board === undefined) return { outcome: 'missing' }
+    if (!(await linkTargetExists(tx, AgentIdSchema.parse(board.ownerId), input.kind, input.ref))) {
+      return { outcome: 'unresolvable' }
+    }
+
+    const [existing] = await tx
+      .select()
+      .from(workplaceCardLinks)
+      .where(
+        and(
+          eq(workplaceCardLinks.cardId, input.cardId),
+          eq(workplaceCardLinks.kind, input.kind),
+          eq(workplaceCardLinks.ref, input.ref),
+        ),
+      )
+      .limit(1)
+    if (existing !== undefined) {
+      return { outcome: 'created', link: await resolveOneLink(tx, input.callerId, existing) }
+    }
+
+    const [row] = await tx
+      .insert(workplaceCardLinks)
+      .values({
+        cardId: input.cardId,
+        kind: input.kind,
+        ref: input.ref,
+        note: input.note,
+      })
+      .returning()
+    if (row === undefined) throw new Error('workplace link insert returned no row')
+    return { outcome: 'created', link: await resolveOneLink(tx, input.callerId, row) }
+  })
+}
+
+export type RemoveLinkResult =
+  { readonly outcome: 'removed' } | WorkplaceMissing | WorkplaceForbidden
+
+export async function removeLink(
+  db: Database,
+  input: { readonly callerId: AgentId; readonly linkId: string },
+): Promise<RemoveLinkResult> {
+  return db.transaction(async (tx) => {
+    if (!isUuid(input.linkId)) return { outcome: 'missing' }
+    const [link] = await tx
+      .select()
+      .from(workplaceCardLinks)
+      .where(eq(workplaceCardLinks.id, input.linkId))
+      .limit(1)
+    if (link === undefined) return { outcome: 'missing' }
+    const locked = await lockCardForWrite(tx, input.callerId, link.cardId)
+    if (locked.outcome !== 'ok') return { outcome: 'missing' }
+    const membership = await membershipOf(tx, input.callerId, locked.card.boardId)
+    if (membership === null) return { outcome: 'missing' }
+    if (!mayWriteLink(membership, locked.card, input.callerId)) return { outcome: 'forbidden' }
+    await tx.delete(workplaceCardLinks).where(eq(workplaceCardLinks.id, input.linkId))
+    return { outcome: 'removed' }
   })
 }
 

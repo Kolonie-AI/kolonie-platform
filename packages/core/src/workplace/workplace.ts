@@ -1,9 +1,13 @@
 import { z } from 'zod'
+import { AccountProviderSchema } from '../account/account.js'
+import { AtlasCategorySlugSchema } from '../account/recipe.js'
+import { VaultKeySchema } from '../api/vault.js'
 import { CitizenshipStatusSchema } from '../agent/agent.js'
 import {
   AgentIdSchema,
   type AgentId,
   HumanIdSchema,
+  TaskIdSchema,
   WorkplaceBoardIdSchema,
   WorkplaceCardIdSchema,
   WorkplaceChecklistIdSchema,
@@ -11,8 +15,11 @@ import {
   WorkplaceCommentIdSchema,
   WorkplaceHandoverIdSchema,
   WorkplaceLabelIdSchema,
+  WorkplaceLinkIdSchema,
   WorkplaceRecurrenceIdSchema,
 } from '../common/ids.js'
+import { PLAYBOOK_TITLE_MAX_LENGTH, PlaybookStatusSchema } from '../playbook/playbook.js'
+import { TaskStatusSchema } from '../task/task.js'
 import { IdentityProviderSchema } from '../human/human.js'
 import { MAX_PAGE_SIZE, PageRequestSchema, pageOf } from '../common/pagination.js'
 import { TimestampSchema } from '../common/time.js'
@@ -186,6 +193,187 @@ export type WorkplaceMembershipRole = z.infer<typeof WorkplaceMembershipRoleSche
 export const WORKPLACE_CADENCES = ['weekly', 'daily'] as const
 export const WorkplaceCadenceSchema = z.enum(WORKPLACE_CADENCES)
 export type WorkplaceCadence = z.infer<typeof WorkplaceCadenceSchema>
+
+/**
+ * Closed link kinds V1 (`#1765`). A seventh kind is a schema change with
+ * its own issue, not a free-text `type` column.
+ *
+ * A link is a typed pointer, never a copy, never a secret, never a
+ * permission. Vault stores the entry **name** only.
+ */
+export const WORKPLACE_LINK_KINDS = [
+  'account',
+  'provider',
+  'vault',
+  'task',
+  'playbook',
+  'url',
+] as const
+export const WorkplaceLinkKindSchema = z.enum(WORKPLACE_LINK_KINDS)
+export type WorkplaceLinkKind = z.infer<typeof WorkplaceLinkKindSchema>
+
+/** How long a stored `ref` may be. Sized for an https URL, not a body. */
+export const WORKPLACE_LINK_REF_MAX_LENGTH = 2048
+
+const workplaceLinkNote = workplaceText(WORKPLACE_SENTENCE_MAX_LENGTH).optional()
+
+/**
+ * A typed pointer as it is stored (`#1765`).
+ *
+ * **`ref` is an identifier, never a body and never a secret.** Vault stores
+ * the entry name; the value never lands here. No target foreign keys — a
+ * dangling pointer stays on the card rather than disappearing.
+ */
+export const WorkplaceCardLinkSchema = z
+  .object({
+    id: WorkplaceLinkIdSchema,
+    cardId: WorkplaceCardIdSchema,
+    kind: WorkplaceLinkKindSchema,
+    ref: workplaceText(WORKPLACE_LINK_REF_MAX_LENGTH),
+    note: workplaceLinkNote,
+  })
+  .strict()
+export type WorkplaceCardLink = z.infer<typeof WorkplaceCardLinkSchema>
+
+/**
+ * HTTP create (`#1765`). Kind closes the six; `ref` is validated per kind
+ * so a non-uuid account id is `validation_failed`, not
+ * `workplace_link_unresolvable`. Existence of the target is a write-time
+ * storage check, not a schema one.
+ */
+export const WorkplaceCreateLinkRequestSchema = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('account'),
+      ref: z.uuid(),
+      note: workplaceLinkNote,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('provider'),
+      ref: AccountProviderSchema,
+      note: workplaceLinkNote,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('vault'),
+      ref: VaultKeySchema,
+      note: workplaceLinkNote,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('task'),
+      ref: TaskIdSchema,
+      note: workplaceLinkNote,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('playbook'),
+      ref: z.uuid(),
+      note: workplaceLinkNote,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('url'),
+      ref: z.url(),
+      note: workplaceLinkNote,
+    })
+    .strict(),
+])
+export type WorkplaceCreateLinkRequest = z.infer<typeof WorkplaceCreateLinkRequestSchema>
+
+/**
+ * What GET attaches to a stored link (`#1765`).
+ *
+ * **Resolved is a compact projection, never the target row.** Vault answers
+ * `held` and never the value. Unresolvable is a state on the pointer, not a
+ * 422 — GET never deletes a dangling link. URL has no extra fields: the
+ * href is `ref`, and it is untrusted the same way a comment body is.
+ */
+export const WorkplaceLinkTargetSchema = z.union([
+  z
+    .object({
+      state: z.literal('resolved'),
+      kind: z.literal('account'),
+      provider: AccountProviderSchema.nullable(),
+      identifier: z.string().min(1).max(320),
+      proved: z.boolean(),
+    })
+    .strict(),
+  z
+    .object({
+      state: z.literal('resolved'),
+      kind: z.literal('provider'),
+      title: workplaceText(120),
+      category: AtlasCategorySlugSchema,
+    })
+    .strict(),
+  z
+    .object({
+      state: z.literal('resolved'),
+      kind: z.literal('vault'),
+      name: VaultKeySchema,
+      held: z.boolean(),
+    })
+    .strict(),
+  z
+    .object({
+      state: z.literal('resolved'),
+      kind: z.literal('task'),
+      title: workplaceText(120),
+      status: TaskStatusSchema,
+    })
+    .strict(),
+  z
+    .object({
+      state: z.literal('resolved'),
+      kind: z.literal('playbook'),
+      title: workplaceText(PLAYBOOK_TITLE_MAX_LENGTH),
+      status: PlaybookStatusSchema,
+    })
+    .strict(),
+  z
+    .object({
+      state: z.literal('resolved'),
+      kind: z.literal('url'),
+    })
+    .strict(),
+  z
+    .object({
+      state: z.literal('unresolvable'),
+      kind: WorkplaceLinkKindSchema,
+    })
+    .strict(),
+])
+export type WorkplaceLinkTarget = z.infer<typeof WorkplaceLinkTargetSchema>
+
+/**
+ * A stored link plus what GET resolved (`#1765`). The target's `kind`
+ * must match the pointer — a vault resolution on an account link is how
+ * a caller would start reading the wrong row.
+ */
+export const WorkplaceResolvedLinkSchema = WorkplaceCardLinkSchema.extend({
+  target: WorkplaceLinkTargetSchema,
+})
+  .strict()
+  .refine((link) => link.target.kind === link.kind, {
+    message: 'target kind must match the link',
+    path: ['target', 'kind'],
+  })
+export type WorkplaceResolvedLink = z.infer<typeof WorkplaceResolvedLinkSchema>
+
+/** `GET /v1/workplace/cards/:cardId/links` (`#1765`). No page — a card holds a handful. */
+export const WorkplaceCardLinkListSchema = z
+  .object({
+    items: z.array(WorkplaceResolvedLinkSchema),
+  })
+  .strict()
+export type WorkplaceCardLinkList = z.infer<typeof WorkplaceCardLinkListSchema>
 
 /**
  * MCP grammar (`#1761`). Nested membership/label/checklist/comment/block/
@@ -417,10 +605,31 @@ export type WorkplaceBoardPage = z.infer<typeof WorkplaceBoardPageSchema>
  *
  * **Counts, never bodies.** Description, comment text, checklist item titles
  * and resolved links stay on the detail. Putting any of them here is how a
- * board list becomes an activity dump. `linkCount` is always 0 until `#1765`
- * stores typed links; minting the field now is what stops that issue inventing
- * a second list shape.
+ * board list becomes an activity dump. `linkCount` is the total; `linkCounts`
+ * is per kind (`#1765`) so a list never resolves N accounts per card.
  */
+export const WorkplaceLinkCountsSchema = z
+  .object({
+    account: z.int().min(0),
+    provider: z.int().min(0),
+    vault: z.int().min(0),
+    task: z.int().min(0),
+    playbook: z.int().min(0),
+    url: z.int().min(0),
+  })
+  .strict()
+export type WorkplaceLinkCounts = z.infer<typeof WorkplaceLinkCountsSchema>
+
+/** Zero of every kind. List rows mint this rather than omitting the object. */
+export const EMPTY_WORKPLACE_LINK_COUNTS: WorkplaceLinkCounts = {
+  account: 0,
+  provider: 0,
+  vault: 0,
+  task: 0,
+  playbook: 0,
+  url: 0,
+}
+
 export const WorkplaceCardSummarySchema = z
   .object({
     id: WorkplaceCardIdSchema,
@@ -437,6 +646,7 @@ export const WorkplaceCardSummarySchema = z
     checklistCount: z.int().min(0),
     commentCount: z.int().min(0),
     linkCount: z.int().min(0),
+    linkCounts: WorkplaceLinkCountsSchema,
   })
   .strict()
 export type WorkplaceCardSummary = z.infer<typeof WorkplaceCardSummarySchema>
@@ -641,9 +851,10 @@ export type WorkplaceHandover = z.infer<typeof WorkplaceHandoverSchema>
 /**
  * A card as HTTP returns it (`#1760`).
  *
- * Labels, checklists with items, comments, and the current compact handover
- * — activity history is not here. Same 404 for missing and not-a-member is
- * a route fact, not a schema one.
+ * Labels, checklists with items, comments, resolved links, and the current
+ * compact handover — activity history is not here. Same 404 for missing
+ * and not-a-member is a route fact, not a schema one. Links here are
+ * resolved; the list row only counts them (`#1765`).
  */
 export const WorkplaceCardDetailSchema = z
   .object({
@@ -658,6 +869,7 @@ export const WorkplaceCardDetailSchema = z
         .strict(),
     ),
     comments: z.array(WorkplaceCommentSchema),
+    links: z.array(WorkplaceResolvedLinkSchema),
     handover: WorkplaceHandoverSchema.nullable(),
   })
   .strict()

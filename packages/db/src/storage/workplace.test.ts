@@ -1,11 +1,15 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq, sql } from 'drizzle-orm'
-import { type AgentId } from '@kolonie-ai/core'
+import { AccountKindSchema, type AccountCapability, type AgentId } from '@kolonie-ai/core'
 import { createDatabase, type Database } from '../client.js'
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
+import { declareAccount, recordProvedAccount } from './accounts.js'
+import { listAtlasProvider } from './provider-recipes.js'
+import { setVaultEntry } from './vault.js'
 import { eraseAgent } from './erasure.js'
 import {
+  addLink,
   addMember,
   archiveBoard,
   archiveCard,
@@ -26,14 +30,22 @@ import {
   listBoardsFor,
   listCards,
   listComments,
+  listLinks,
   listMembers,
   moveCard,
+  removeLink,
   removeMember,
   renameBoard,
   requestReview,
   updateCard,
 } from './workplace.js'
-import { workplaceCards, workplaceLabels } from '../schema/index.js'
+import {
+  playbooks,
+  tasks,
+  workplaceCardLinks,
+  workplaceCards,
+  workplaceLabels,
+} from '../schema/index.js'
 
 const target = databaseTestTarget()
 const SALT = 'a'.repeat(32)
@@ -59,6 +71,8 @@ describe('workplace storage', () => {
     stranger = await citizen('stranger')
   })
 
+  const keys = new Map<AgentId, string>()
+
   const citizen = async (name: string): Promise<AgentId> => {
     const registered = await registerAgent(db, {
       name,
@@ -66,6 +80,7 @@ describe('workplace storage', () => {
       operator: null,
     })
     if (registered.outcome !== 'registered') throw new Error(`could not register ${name}`)
+    keys.set(registered.agent.id, String(registered.credentials.apiKey))
     return registered.agent.id
   }
 
@@ -235,6 +250,14 @@ describe('workplace storage', () => {
     expect(listed.items[0]?.title).toBe('One')
     expect(listed.items[0]?.commentCount).toBe(0)
     expect(listed.items[0]?.linkCount).toBe(0)
+    expect(listed.items[0]?.linkCounts).toEqual({
+      account: 0,
+      provider: 0,
+      vault: 0,
+      task: 0,
+      playbook: 0,
+      url: 0,
+    })
     expect(listed.items[0]).not.toHaveProperty('comments')
     expect(listed.items[0]).not.toHaveProperty('description')
   })
@@ -897,5 +920,327 @@ describe('workplace storage', () => {
     expect(
       await deleteChecklist(db, { callerId: stranger, checklistId: listed.checklist.id }),
     ).toEqual({ outcome: 'forbidden' })
+  })
+
+  it('adds, lists and removes a url link; a second POST of the same kind and ref is the same row', async () => {
+    const board = await defaultBoard()
+    const created = await createCard(db, { callerId: owner, boardId: board.id, title: 'Walk' })
+    if (created.outcome !== 'created') throw new Error('card missing')
+
+    const first = await addLink(db, {
+      callerId: owner,
+      cardId: created.card.id,
+      kind: 'url',
+      ref: 'https://example.com/walk',
+      note: 'the walk page',
+    })
+    expect(first.outcome).toBe('created')
+    if (first.outcome !== 'created') return
+    expect(first.link.kind).toBe('url')
+    expect(first.link.ref).toBe('https://example.com/walk')
+    expect(first.link.note).toBe('the walk page')
+    expect(first.link.target).toEqual({ state: 'resolved', kind: 'url' })
+
+    const again = await addLink(db, {
+      callerId: owner,
+      cardId: created.card.id,
+      kind: 'url',
+      ref: 'https://example.com/walk',
+    })
+    expect(again.outcome).toBe('created')
+    if (again.outcome !== 'created') return
+    expect(again.link.id).toBe(first.link.id)
+
+    const listed = await listLinks(db, owner, created.card.id)
+    expect(listed.outcome).toBe('listed')
+    if (listed.outcome !== 'listed') return
+    expect(listed.items).toHaveLength(1)
+
+    const summaries = await listCards(db, owner, board.id)
+    expect(summaries.outcome).toBe('listed')
+    if (summaries.outcome !== 'listed') return
+    expect(summaries.items[0]?.linkCount).toBe(1)
+    expect(summaries.items[0]?.linkCounts.url).toBe(1)
+    expect(summaries.items[0]?.linkCounts.account).toBe(0)
+
+    const removed = await removeLink(db, { callerId: owner, linkId: first.link.id })
+    expect(removed).toEqual({ outcome: 'removed' })
+    expect(await listLinks(db, owner, created.card.id)).toEqual({ outcome: 'empty' })
+  })
+
+  it('resolves an account the caller holds and leaves a stranger as unknown', async () => {
+    const board = await defaultBoard()
+    const created = await createCard(db, { callerId: owner, boardId: board.id, title: 'Mailbox' })
+    if (created.outcome !== 'created') throw new Error('card missing')
+    const declared = await declareAccount(db, owner, {
+      kind: AccountKindSchema.parse('mailbox'),
+      identifier: 'owner@example.test',
+      provider: 'mail.tm',
+    })
+    if (declared.outcome !== 'declared') throw new Error(declared.outcome)
+    await recordProvedAccount(db, owner, {
+      kind: AccountKindSchema.parse('mailbox'),
+      identifier: 'owner@example.test',
+      capabilities: ['receive'] as unknown as readonly AccountCapability[],
+      provedAt: new Date().toISOString(),
+    })
+
+    const added = await addLink(db, {
+      callerId: owner,
+      cardId: created.card.id,
+      kind: 'account',
+      ref: declared.account.id,
+    })
+    expect(added.outcome).toBe('created')
+    if (added.outcome !== 'created') return
+    expect(added.link.target).toEqual({
+      state: 'resolved',
+      kind: 'account',
+      provider: 'mail.tm',
+      identifier: 'owner@example.test',
+      proved: true,
+    })
+
+    expect(await listLinks(db, stranger, created.card.id)).toEqual({ outcome: 'unknown' })
+    expect(await getCard(db, stranger, created.card.id)).toBeNull()
+  })
+
+  it('refuses an account that is not the board owner’s as unresolvable', async () => {
+    const board = await defaultBoard()
+    await addMember(db, { callerId: owner, boardId: board.id, citizenId: member })
+    const created = await createCard(db, { callerId: owner, boardId: board.id, title: 'Foreign' })
+    if (created.outcome !== 'created') throw new Error('card missing')
+    const foreign = await declareAccount(db, member, {
+      kind: AccountKindSchema.parse('mailbox'),
+      identifier: 'member@example.test',
+      provider: 'mail.tm',
+    })
+    if (foreign.outcome !== 'declared') throw new Error(foreign.outcome)
+
+    expect(
+      await addLink(db, {
+        callerId: owner,
+        cardId: created.card.id,
+        kind: 'account',
+        ref: foreign.account.id,
+      }),
+    ).toEqual({ outcome: 'unresolvable' })
+  })
+
+  it('resolves a provider by token, a task and a playbook, and a vault name without the value', async () => {
+    const board = await defaultBoard()
+    const created = await createCard(db, { callerId: owner, boardId: board.id, title: 'Linked' })
+    if (created.outcome !== 'created') throw new Error('card missing')
+
+    await listAtlasProvider(db, {
+      kind: AccountKindSchema.parse('mailbox'),
+      provider: 'mail.tm',
+      title: 'mail.tm',
+      category: 'mailbox',
+    })
+    const [task] = await db
+      .insert(tasks)
+      .values({
+        type: 'email-create',
+        title: 'Create an email address',
+        description: 'Prove you can operate your own mailbox.',
+        instructions: 'Create an address and send a mail to the given recipient.',
+        rewardReputation: 5,
+        timeoutHours: 24,
+        status: 'active',
+      })
+      .returning({ id: tasks.id, title: tasks.title, status: tasks.status })
+    if (task === undefined) throw new Error('task missing')
+    const [playbook] = await db
+      .insert(playbooks)
+      .values({
+        slug: 'weekly-inbox',
+        authorAgentId: owner,
+        title: 'Weekly inbox triage',
+        summary: 'Read what nobody has answered and write one reply.',
+        steps: [{ title: 'Read the open tickets' }],
+        status: 'open',
+        publishedAt: '2026-08-01T12:00:00.000Z',
+      })
+      .returning({ id: playbooks.id })
+    if (playbook === undefined) throw new Error('playbook missing')
+    const apiKey = keys.get(owner)
+    if (apiKey === undefined) throw new Error('owner has no key')
+    await setVaultEntry(db, apiKey, owner, 'mail.tm', 'a mailbox password')
+
+    const provider = await addLink(db, {
+      callerId: owner,
+      cardId: created.card.id,
+      kind: 'provider',
+      ref: 'mail.tm',
+    })
+    expect(provider.outcome).toBe('created')
+    if (provider.outcome !== 'created') return
+    expect(provider.link.target).toEqual({
+      state: 'resolved',
+      kind: 'provider',
+      title: 'mail.tm',
+      category: 'mailbox',
+    })
+
+    const academy = await addLink(db, {
+      callerId: owner,
+      cardId: created.card.id,
+      kind: 'task',
+      ref: task.id,
+    })
+    expect(academy.outcome).toBe('created')
+    if (academy.outcome !== 'created') return
+    expect(academy.link.target).toEqual({
+      state: 'resolved',
+      kind: 'task',
+      title: task.title,
+      status: task.status,
+    })
+
+    const pipeline = await addLink(db, {
+      callerId: owner,
+      cardId: created.card.id,
+      kind: 'playbook',
+      ref: playbook.id,
+    })
+    expect(pipeline.outcome).toBe('created')
+    if (pipeline.outcome !== 'created') return
+    expect(pipeline.link.target).toMatchObject({
+      state: 'resolved',
+      kind: 'playbook',
+      title: 'Weekly inbox triage',
+      status: 'open',
+    })
+
+    const vault = await addLink(db, {
+      callerId: owner,
+      cardId: created.card.id,
+      kind: 'vault',
+      ref: 'mail.tm',
+    })
+    expect(vault.outcome).toBe('created')
+    if (vault.outcome !== 'created') return
+    expect(vault.link.target).toEqual({
+      state: 'resolved',
+      kind: 'vault',
+      name: 'mail.tm',
+      held: true,
+    })
+    expect(JSON.stringify(vault.link)).not.toContain('a mailbox password')
+
+    await addMember(db, { callerId: owner, boardId: board.id, citizenId: member })
+    const asMember = await listLinks(db, member, created.card.id)
+    expect(asMember.outcome).toBe('listed')
+    if (asMember.outcome !== 'listed') return
+    const vaultForMember = asMember.items.find((one) => one.kind === 'vault')
+    expect(vaultForMember?.target).toEqual({
+      state: 'resolved',
+      kind: 'vault',
+      name: 'mail.tm',
+      held: false,
+    })
+
+    const summaries = await listCards(db, owner, board.id)
+    expect(summaries.outcome).toBe('listed')
+    if (summaries.outcome !== 'listed') return
+    expect(summaries.items[0]?.linkCount).toBe(4)
+    expect(summaries.items[0]?.linkCounts).toEqual({
+      account: 0,
+      provider: 1,
+      vault: 1,
+      task: 1,
+      playbook: 1,
+      url: 0,
+    })
+  })
+
+  it('keeps a dangling pointer as unresolvable on GET and never 422s it', async () => {
+    const board = await defaultBoard()
+    const created = await createCard(db, { callerId: owner, boardId: board.id, title: 'Dangling' })
+    if (created.outcome !== 'created') throw new Error('card missing')
+    await db.insert(workplaceCardLinks).values({
+      cardId: created.card.id,
+      kind: 'account',
+      ref: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    })
+
+    const listed = await listLinks(db, owner, created.card.id)
+    expect(listed.outcome).toBe('listed')
+    if (listed.outcome !== 'listed') return
+    expect(listed.items[0]?.target).toEqual({ state: 'unresolvable', kind: 'account' })
+
+    const detail = await getCard(db, owner, created.card.id)
+    expect(detail?.links[0]?.target).toEqual({ state: 'unresolvable', kind: 'account' })
+  })
+
+  it('lets the card owner write a link; a member who does not own the card is forbidden', async () => {
+    const board = await defaultBoard()
+    await addMember(db, { callerId: owner, boardId: board.id, citizenId: member })
+    const created = await createCard(db, {
+      callerId: owner,
+      boardId: board.id,
+      title: 'Claimed',
+      status: 'ready',
+    })
+    if (created.outcome !== 'created') throw new Error('card missing')
+    const claimed = await claimCard(db, {
+      callerId: member,
+      cardId: created.card.id,
+      expectedVersion: created.card.version,
+    })
+    expect(claimed.outcome).toBe('claimed')
+
+    const byOwner = await addLink(db, {
+      callerId: owner,
+      cardId: created.card.id,
+      kind: 'url',
+      ref: 'https://example.com/owner',
+    })
+    expect(byOwner.outcome).toBe('created')
+
+    const byCardOwner = await addLink(db, {
+      callerId: member,
+      cardId: created.card.id,
+      kind: 'url',
+      ref: 'https://example.com/member',
+    })
+    expect(byCardOwner.outcome).toBe('created')
+
+    const idle = await citizen('idle')
+    await addMember(db, { callerId: owner, boardId: board.id, citizenId: idle })
+    expect(
+      await addLink(db, {
+        callerId: idle,
+        cardId: created.card.id,
+        kind: 'url',
+        ref: 'https://example.com/idle',
+      }),
+    ).toEqual({ outcome: 'forbidden' })
+    if (byCardOwner.outcome !== 'created') return
+    expect(await removeLink(db, { callerId: idle, linkId: byCardOwner.link.id })).toEqual({
+      outcome: 'forbidden',
+    })
+    expect(await removeLink(db, { callerId: stranger, linkId: byCardOwner.link.id })).toEqual({
+      outcome: 'missing',
+    })
+  })
+
+  it('answers missing for a vault the board owner does not hold', async () => {
+    const board = await defaultBoard()
+    const created = await createCard(db, {
+      callerId: owner,
+      boardId: board.id,
+      title: 'Empty vault',
+    })
+    if (created.outcome !== 'created') throw new Error('card missing')
+    expect(
+      await addLink(db, {
+        callerId: owner,
+        cardId: created.card.id,
+        kind: 'vault',
+        ref: 'mail.tm',
+      }),
+    ).toEqual({ outcome: 'unresolvable' })
   })
 })

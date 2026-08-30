@@ -212,6 +212,16 @@ export type WorkplaceCommentId = z.infer<typeof WorkplaceCommentIdSchema>
 export const WorkplaceHandoverIdSchema = z.uuid().brand<'WorkplaceHandoverId'>()
 export type WorkplaceHandoverId = z.infer<typeof WorkplaceHandoverIdSchema>
 
+/**
+ * One typed pointer on a Workplace card (`#1765`).
+ *
+ * **Branded apart from the card and from every target id.** A link is not
+ * an account, a task, or a vault entry — mixing those at the type level is
+ * how a resolver would start returning the target row under the link's id.
+ */
+export const WorkplaceLinkIdSchema = z.uuid().brand<'WorkplaceLinkId'>()
+export type WorkplaceLinkId = z.infer<typeof WorkplaceLinkIdSchema>
+
 /** One recurrence rule for a template card (`#1756`). */
 export const WorkplaceRecurrenceIdSchema = z.uuid().brand<'WorkplaceRecurrenceId'>()
 export type WorkplaceRecurrenceId = z.infer<typeof WorkplaceRecurrenceIdSchema>

@@ -33,6 +33,9 @@ import {
   WorkplaceCreateChecklistItemRequestSchema,
   WorkplaceCreateChecklistRequestSchema,
   WorkplaceCreateCommentRequestSchema,
+  WorkplaceCreateLinkRequestSchema,
+  WorkplaceCardLinkListSchema,
+  WorkplaceResolvedLinkSchema,
   WorkplaceHandoverCardRequestSchema,
   WorkplaceLabelSchema,
   WorkplaceMemberSchema,
@@ -269,6 +272,11 @@ export const OPERATIONS: Record<string, OperationSchemas> = {
   'POST /v1/workplace/cards/:cardId/comments': {
     request: WorkplaceCreateCommentRequestSchema,
     response: WorkplaceCommentSchema,
+  },
+  'GET /v1/workplace/cards/:cardId/links': { response: WorkplaceCardLinkListSchema },
+  'POST /v1/workplace/cards/:cardId/links': {
+    request: WorkplaceCreateLinkRequestSchema,
+    response: WorkplaceResolvedLinkSchema,
   },
   'PATCH /v1/agents/me': {
     request: UpdateProfileRequestSchema,

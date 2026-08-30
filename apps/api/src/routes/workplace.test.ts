@@ -7,9 +7,15 @@ import type { JWK, JWTVerifyGetKey, KeyObject } from 'jose'
 import {
   ERROR_STATUS,
   WorkplaceBoardIdSchema,
+  WorkplaceCardIdSchema,
+  WorkplaceLabelIdSchema,
   WORKPLACE_CITIZEN_HEADER,
   type AgentId,
   type WorkplaceBoard,
+  type WorkplaceCard,
+  type WorkplaceCardDetail,
+  type WorkplaceCardSummary,
+  type WorkplaceLabel,
 } from '@kolonie-ai/core'
 import { buildApp } from '../app.js'
 import { FAKE_CALLER_IP, fakeColony, type FakeColony } from '../__fixtures__/colony/index.js'
@@ -47,6 +53,7 @@ const OTHER_ORIGIN = 'https://not-the-workplace.example.test'
 const ME = '/v1/workplace/me'
 const ACTOR = '/v1/workplace/actor'
 const BOARDS = '/v1/workplace/boards'
+const CARDS = '/v1/workplace/cards'
 
 /** The `sub` a tenant mints: `<strategy>|<subject>`, as `auth0.ts` records. */
 const SUBJECT = 'github|4815162342'
@@ -856,6 +863,491 @@ describe('workplace boards (#1759)', () => {
     }
     const schema = (
       document.paths['/v1/workplace/boards']?.get?.responses?.['200'] as {
+        content?: { 'application/json'?: { schema?: { properties?: Record<string, unknown> } } }
+      }
+    )?.content?.['application/json']?.schema
+    expect(Object.keys(schema?.properties ?? {}).sort()).toEqual(['items', 'nextCursor'])
+  })
+})
+
+const aCard = (boardId: WorkplaceBoard['id'], over: Partial<WorkplaceCard> = {}): WorkplaceCard => {
+  const now = new Date().toISOString()
+  return {
+    id: WorkplaceCardIdSchema.parse(randomUUID()),
+    boardId,
+    status: 'inbox',
+    title: 'Walk a provider',
+    description: null,
+    ownerId: null,
+    position: 1000,
+    priority: 'unset',
+    dueAt: null,
+    blockedBy: null,
+    unblockWhen: null,
+    outcome: null,
+    version: 1,
+    coverColour: null,
+    seedKey: null,
+    archivedAt: null,
+    createdAt: now,
+    updatedAt: now,
+    ...over,
+  }
+}
+
+const aLabel = (boardId: WorkplaceBoard['id'], name = 'growth'): WorkplaceLabel => ({
+  id: WorkplaceLabelIdSchema.parse(randomUUID()),
+  boardId,
+  name,
+  colour: '#336699',
+})
+
+const seat = (board: WorkplaceBoard, citizenId: AgentId, role: 'owner' | 'member' = 'owner') => ({
+  boardId: board.id,
+  citizenId,
+  role,
+})
+
+describe('workplace cards (#1760)', () => {
+  describe('an API-key caller', () => {
+    it('creates a card in inbox and lists it as a summary', async () => {
+      const { apiKey, agent } = await aCitizen('card-owner')
+      const board = aBoard(agent.id)
+      colony.boards.plant(board, [seat(board, agent.id)])
+      colony.cards.plantBoard(board.id, [seat(board, agent.id)])
+
+      const created = await asKey('POST', `${BOARDS}/${board.id}/cards`, apiKey, {
+        payload: { title: 'Walk a provider' },
+      })
+      expect(created.statusCode).toBe(201)
+      const card = created.json() as WorkplaceCard
+      expect(card.title).toBe('Walk a provider')
+      expect(card.status).toBe('inbox')
+      expect(card.ownerId).toBeNull()
+      expect(created.headers.etag).toBe(String(card.version))
+
+      const listed = await asKey('GET', `${BOARDS}/${board.id}/cards`, apiKey)
+      expect(listed.statusCode).toBe(200)
+      const page = listed.json() as { items: WorkplaceCardSummary[]; nextCursor: string | null }
+      expect(page.items).toHaveLength(1)
+      expect(page.items[0]?.title).toBe('Walk a provider')
+      expect(page.items[0]).not.toHaveProperty('description')
+      expect(page.items[0]?.linkCount).toBe(0)
+      expect(page.nextCursor).toBeNull()
+    })
+
+    it('creates in ready when named, and refuses a live lane', async () => {
+      const { apiKey, agent } = await aCitizen('ready-maker')
+      const board = aBoard(agent.id)
+      colony.boards.plant(board, [seat(board, agent.id)])
+      colony.cards.plantBoard(board.id, [seat(board, agent.id)])
+
+      const ready = await asKey('POST', `${BOARDS}/${board.id}/cards`, apiKey, {
+        payload: { title: 'Ready work', status: 'ready' },
+      })
+      expect(ready.statusCode).toBe(201)
+      expect((ready.json() as WorkplaceCard).status).toBe('ready')
+
+      const live = await asKey('POST', `${BOARDS}/${board.id}/cards`, apiKey, {
+        payload: { title: 'Skip claim', status: 'in_progress' },
+      })
+      expect(live.statusCode).toBe(ERROR_STATUS.validation_failed)
+    })
+
+    it('answers 404 for a board it is not on, the same as a missing one', async () => {
+      const { agent } = await aCitizen('host-cards')
+      const { apiKey: strangerKey } = await aCitizen('stranger-cards')
+      const board = aBoard(agent.id)
+      colony.boards.plant(board, [seat(board, agent.id)])
+      colony.cards.plantBoard(board.id, [seat(board, agent.id)])
+
+      const hidden = await asKey('GET', `${BOARDS}/${board.id}/cards`, strangerKey)
+      const missing = await asKey('GET', `${BOARDS}/${randomUUID()}/cards`, strangerKey)
+      expect(hidden.statusCode).toBe(ERROR_STATUS.not_found)
+      expect(hidden.body).toBe(missing.body)
+    })
+
+    it('reads a card it sits on, with empty nested collections', async () => {
+      const { apiKey, agent } = await aCitizen('reader')
+      const board = aBoard(agent.id)
+      const card = aCard(board.id)
+      colony.boards.plant(board, [seat(board, agent.id)])
+      colony.cards.plantBoard(board.id, [seat(board, agent.id)])
+      colony.cards.plantCard(card)
+
+      const response = await asKey('GET', `${CARDS}/${card.id}`, apiKey)
+      expect(response.statusCode).toBe(200)
+      const detail = response.json() as WorkplaceCardDetail
+      expect(detail.card.id).toBe(card.id)
+      expect(detail.labels).toEqual([])
+      expect(detail.checklists).toEqual([])
+      expect(detail.comments).toEqual([])
+      expect(detail.handover).toBeNull()
+      expect(response.headers.etag).toBe('1')
+    })
+
+    it('answers 404 for a card it is not on, the same as a missing one', async () => {
+      const { agent } = await aCitizen('owner-card')
+      const { apiKey: strangerKey } = await aCitizen('stranger-card')
+      const board = aBoard(agent.id)
+      const card = aCard(board.id)
+      colony.boards.plant(board, [seat(board, agent.id)])
+      colony.cards.plantBoard(board.id, [seat(board, agent.id)])
+      colony.cards.plantCard(card)
+
+      const hidden = await asKey('GET', `${CARDS}/${card.id}`, strangerKey)
+      const missing = await asKey('GET', `${CARDS}/${randomUUID()}`, strangerKey)
+      expect(hidden.statusCode).toBe(ERROR_STATUS.not_found)
+      expect(hidden.body).toBe(missing.body)
+    })
+
+    it('patches title on a matching If-Match and refuses a stale one', async () => {
+      const { apiKey, agent } = await aCitizen('patcher')
+      const board = aBoard(agent.id)
+      colony.boards.plant(board, [seat(board, agent.id)])
+      colony.cards.plantBoard(board.id, [seat(board, agent.id)])
+      const created = await asKey('POST', `${BOARDS}/${board.id}/cards`, apiKey, {
+        payload: { title: 'Old' },
+      })
+      const card = created.json() as WorkplaceCard
+
+      const stale = await asKey('PATCH', `${CARDS}/${card.id}`, apiKey, {
+        payload: { title: 'Too late' },
+        headers: { 'if-match': '99' },
+      })
+      expect(stale.statusCode).toBe(ERROR_STATUS.conflict)
+
+      const patched = await asKey('PATCH', `${CARDS}/${card.id}`, apiKey, {
+        payload: { title: 'New' },
+        headers: { 'if-match': String(card.version) },
+      })
+      expect(patched.statusCode).toBe(200)
+      expect((patched.json() as WorkplaceCard).title).toBe('New')
+      expect((patched.json() as WorkplaceCard).version).toBe(card.version + 1)
+    })
+
+    it('refuses status on PATCH', async () => {
+      const { apiKey, agent } = await aCitizen('no-status')
+      const board = aBoard(agent.id)
+      colony.boards.plant(board, [seat(board, agent.id)])
+      colony.cards.plantBoard(board.id, [seat(board, agent.id)])
+      const created = await asKey('POST', `${BOARDS}/${board.id}/cards`, apiKey, {
+        payload: { title: 'Stay' },
+      })
+      const card = created.json() as WorkplaceCard
+
+      const response = await asKey('PATCH', `${CARDS}/${card.id}`, apiKey, {
+        payload: { title: 'Stay', status: 'ready' },
+        headers: { 'if-match': String(card.version) },
+      })
+      expect(response.statusCode).toBe(ERROR_STATUS.validation_failed)
+    })
+
+    it('claims a ready card into in_progress', async () => {
+      const { apiKey, agent } = await aCitizen('claimer')
+      const board = aBoard(agent.id)
+      colony.boards.plant(board, [seat(board, agent.id)])
+      colony.cards.plantBoard(board.id, [seat(board, agent.id)])
+      const created = await asKey('POST', `${BOARDS}/${board.id}/cards`, apiKey, {
+        payload: { title: 'Take this', status: 'ready' },
+      })
+      const card = created.json() as WorkplaceCard
+
+      const claimed = await asKey('POST', `${CARDS}/${card.id}/claim`, apiKey, {
+        headers: { 'if-match': String(card.version) },
+      })
+      expect(claimed.statusCode).toBe(200)
+      const body = claimed.json() as WorkplaceCard
+      expect(body.status).toBe('in_progress')
+      expect(body.ownerId).toBe(agent.id)
+    })
+
+    it('refuses a second claim as workplace_claim_conflict', async () => {
+      const { agent } = await aCitizen('chair-claim')
+      const { apiKey: memberKey, agent: member } = await aCitizen('sitter-claim')
+      const board = aBoard(agent.id)
+      const card = aCard(board.id, { status: 'ready', ownerId: agent.id })
+      colony.boards.plant(board, [seat(board, agent.id), seat(board, member.id, 'member')])
+      colony.cards.plantBoard(board.id, [seat(board, agent.id), seat(board, member.id, 'member')])
+      colony.cards.plantCard(card)
+
+      const response = await asKey('POST', `${CARDS}/${card.id}/claim`, memberKey, {
+        headers: { 'if-match': '1' },
+      })
+      expect(response.statusCode).toBe(ERROR_STATUS.workplace_claim_conflict)
+      expect(response.json()).toMatchObject({ code: 'workplace_claim_conflict' })
+    })
+
+    it('moves inbox to ready, and auto-claims an ownerless move into in_progress', async () => {
+      const { apiKey, agent } = await aCitizen('mover')
+      const board = aBoard(agent.id)
+      colony.boards.plant(board, [seat(board, agent.id)])
+      colony.cards.plantBoard(board.id, [seat(board, agent.id)])
+      const created = await asKey('POST', `${BOARDS}/${board.id}/cards`, apiKey, {
+        payload: { title: 'Move me' },
+      })
+      const card = created.json() as WorkplaceCard
+
+      const ready = await asKey('POST', `${CARDS}/${card.id}/move`, apiKey, {
+        payload: { status: 'ready' },
+        headers: { 'if-match': String(card.version) },
+      })
+      expect(ready.statusCode).toBe(200)
+      const atReady = ready.json() as WorkplaceCard
+      expect(atReady.status).toBe('ready')
+      expect(atReady.ownerId).toBeNull()
+
+      const live = await asKey('POST', `${CARDS}/${atReady.id}/move`, apiKey, {
+        payload: { status: 'in_progress' },
+        headers: { 'if-match': String(atReady.version) },
+      })
+      expect(live.statusCode).toBe(200)
+      expect((live.json() as WorkplaceCard).ownerId).toBe(agent.id)
+      expect((live.json() as WorkplaceCard).status).toBe('in_progress')
+    })
+
+    it("refuses a move that would steal another member's live card", async () => {
+      const { agent } = await aCitizen('held-by')
+      const { apiKey: otherKey, agent: other } = await aCitizen('would-steal')
+      const board = aBoard(agent.id)
+      const card = aCard(board.id, { status: 'ready', ownerId: agent.id })
+      colony.boards.plant(board, [seat(board, agent.id), seat(board, other.id, 'member')])
+      colony.cards.plantBoard(board.id, [seat(board, agent.id), seat(board, other.id, 'member')])
+      colony.cards.plantCard(card)
+
+      const response = await asKey('POST', `${CARDS}/${card.id}/move`, otherKey, {
+        payload: { status: 'in_progress' },
+        headers: { 'if-match': '1' },
+      })
+      expect(response.statusCode).toBe(ERROR_STATUS.workplace_handover_required)
+    })
+
+    it('blocks, reviews and completes through named verbs', async () => {
+      const { apiKey, agent } = await aCitizen('lifecycle')
+      const board = aBoard(agent.id)
+      const card = aCard(board.id, { status: 'in_progress', ownerId: agent.id })
+      colony.boards.plant(board, [seat(board, agent.id)])
+      colony.cards.plantBoard(board.id, [seat(board, agent.id)])
+      colony.cards.plantCard(card)
+
+      const blocked = await asKey('POST', `${CARDS}/${card.id}/block`, apiKey, {
+        payload: {
+          blockedBy: 'Waiting on a phone number.',
+          unblockWhen: 'The operator has sent one.',
+        },
+        headers: { 'if-match': '1' },
+      })
+      expect(blocked.statusCode).toBe(200)
+      expect((blocked.json() as WorkplaceCard).status).toBe('blocked')
+
+      const atBlocked = blocked.json() as WorkplaceCard
+      const reviewed = await asKey('POST', `${CARDS}/${card.id}/request-review`, apiKey, {
+        headers: { 'if-match': String(atBlocked.version) },
+      })
+      expect(reviewed.statusCode).toBe(ERROR_STATUS.workplace_invalid_transition)
+
+      const unblocked = await asKey('POST', `${CARDS}/${card.id}/move`, apiKey, {
+        payload: { status: 'in_progress' },
+        headers: { 'if-match': String(atBlocked.version) },
+      })
+      expect(unblocked.statusCode).toBe(200)
+      const live = unblocked.json() as WorkplaceCard
+
+      const inReview = await asKey('POST', `${CARDS}/${card.id}/request-review`, apiKey, {
+        headers: { 'if-match': String(live.version) },
+      })
+      expect(inReview.statusCode).toBe(200)
+      expect((inReview.json() as WorkplaceCard).status).toBe('review')
+
+      const done = await asKey('POST', `${CARDS}/${card.id}/complete`, apiKey, {
+        payload: { outcome: 'The walk is filed.' },
+        headers: { 'if-match': String((inReview.json() as WorkplaceCard).version) },
+      })
+      expect(done.statusCode).toBe(200)
+      expect((done.json() as WorkplaceCard).status).toBe('done')
+      expect((done.json() as WorkplaceCard).outcome).toBe('The walk is filed.')
+    })
+
+    it('hands a live card over with the structured fields', async () => {
+      const { apiKey, agent } = await aCitizen('from-hand')
+      const { agent: guest } = await aCitizen('to-hand')
+      const board = aBoard(agent.id)
+      const card = aCard(board.id, { status: 'in_progress', ownerId: agent.id })
+      colony.boards.plant(board, [seat(board, agent.id), seat(board, guest.id, 'member')])
+      colony.cards.plantBoard(board.id, [seat(board, agent.id), seat(board, guest.id, 'member')])
+      colony.cards.plantCard(card)
+
+      const handed = await asKey('POST', `${CARDS}/${card.id}/handover`, apiKey, {
+        payload: {
+          toCitizenId: guest.id,
+          done: 'Walked the first two steps.',
+          learned: 'The form asks for a phone.',
+          next: 'Ask the operator for the number.',
+          evidenceLinks: [],
+        },
+        headers: { 'if-match': '1' },
+      })
+      expect(handed.statusCode).toBe(200)
+      const body = handed.json() as { card: WorkplaceCard; handover: { to: string; from: string } }
+      expect(body.card.ownerId).toBe(guest.id)
+      expect(body.handover.to).toBe(guest.id)
+      expect(body.handover.from).toBe(agent.id)
+    })
+
+    it('archives a done card as the board owner, and refuses a member', async () => {
+      const { apiKey, agent } = await aCitizen('archiver')
+      const { apiKey: memberKey, agent: member } = await aCitizen('member-archiver')
+      const board = aBoard(agent.id)
+      const card = aCard(board.id, {
+        status: 'done',
+        ownerId: agent.id,
+        outcome: 'Shipped.',
+      })
+      colony.boards.plant(board, [seat(board, agent.id), seat(board, member.id, 'member')])
+      colony.cards.plantBoard(board.id, [seat(board, agent.id), seat(board, member.id, 'member')])
+      colony.cards.plantCard(card)
+
+      const refused = await asKey('POST', `${CARDS}/${card.id}/archive`, memberKey, {
+        headers: { 'if-match': '1' },
+      })
+      expect(refused.statusCode).toBe(ERROR_STATUS.workplace_not_member)
+
+      const archived = await asKey('POST', `${CARDS}/${card.id}/archive`, apiKey, {
+        headers: { 'if-match': '1' },
+      })
+      expect(archived.statusCode).toBe(200)
+      expect((archived.json() as WorkplaceCard).archivedAt).not.toBeNull()
+    })
+
+    it('attaches and detaches a planted label', async () => {
+      const { apiKey, agent } = await aCitizen('labeller')
+      const board = aBoard(agent.id)
+      const card = aCard(board.id)
+      const label = aLabel(board.id)
+      colony.boards.plant(board, [seat(board, agent.id)])
+      colony.cards.plantBoard(board.id, [seat(board, agent.id)])
+      colony.cards.plantCard(card)
+      colony.cards.plantLabel(label)
+
+      const attached = await asKey('PUT', `${CARDS}/${card.id}/labels/${label.id}`, apiKey)
+      expect(attached.statusCode).toBe(201)
+      expect(attached.json()).toEqual(label)
+
+      const detail = await asKey('GET', `${CARDS}/${card.id}`, apiKey)
+      expect((detail.json() as WorkplaceCardDetail).labels).toEqual([label])
+
+      const detached = await asKey('DELETE', `${CARDS}/${card.id}/labels/${label.id}`, apiKey)
+      expect(detached.statusCode).toBe(204)
+    })
+
+    it('creates, updates and deletes a checklist and an item', async () => {
+      const { apiKey, agent } = await aCitizen('lister')
+      const board = aBoard(agent.id)
+      const card = aCard(board.id)
+      colony.boards.plant(board, [seat(board, agent.id)])
+      colony.cards.plantBoard(board.id, [seat(board, agent.id)])
+      colony.cards.plantCard(card)
+
+      const list = await asKey('POST', `${CARDS}/${card.id}/checklists`, apiKey, {
+        payload: { title: 'Prove the account' },
+      })
+      expect(list.statusCode).toBe(201)
+      const checklist = list.json() as { id: string; title: string }
+      expect(checklist.title).toBe('Prove the account')
+
+      const item = await asKey('POST', `/v1/workplace/checklists/${checklist.id}/items`, apiKey, {
+        payload: { title: 'Mint the challenge' },
+      })
+      expect(item.statusCode).toBe(201)
+      const created = item.json() as { id: string; title: string; doneAt: string | null }
+      expect(created.title).toBe('Mint the challenge')
+      expect(created.doneAt).toBeNull()
+
+      const ticked = await asKey('PATCH', `/v1/workplace/checklist-items/${created.id}`, apiKey, {
+        payload: { doneAt: new Date().toISOString() },
+      })
+      expect(ticked.statusCode).toBe(200)
+      expect((ticked.json() as { doneAt: string | null }).doneAt).not.toBeNull()
+
+      const droppedItem = await asKey(
+        'DELETE',
+        `/v1/workplace/checklist-items/${created.id}`,
+        apiKey,
+      )
+      expect(droppedItem.statusCode).toBe(204)
+
+      const droppedList = await asKey('DELETE', `/v1/workplace/checklists/${checklist.id}`, apiKey)
+      expect(droppedList.statusCode).toBe(204)
+    })
+
+    it('creates a comment and lists it without leaking another card', async () => {
+      const { apiKey, agent } = await aCitizen('commenter')
+      const board = aBoard(agent.id)
+      const card = aCard(board.id)
+      colony.boards.plant(board, [seat(board, agent.id)])
+      colony.cards.plantBoard(board.id, [seat(board, agent.id)])
+      colony.cards.plantCard(card)
+
+      const posted = await asKey('POST', `${CARDS}/${card.id}/comments`, apiKey, {
+        payload: { body: 'Started the walk.' },
+      })
+      expect(posted.statusCode).toBe(201)
+      expect((posted.json() as { body: string; authorId: string }).body).toBe('Started the walk.')
+      expect((posted.json() as { authorId: string }).authorId).toBe(agent.id)
+
+      const listed = await asKey('GET', `${CARDS}/${card.id}/comments`, apiKey)
+      expect(listed.statusCode).toBe(200)
+      const page = listed.json() as { items: { body: string }[]; nextCursor: string | null }
+      expect(page.items).toHaveLength(1)
+      expect(page.items[0]?.body).toBe('Started the walk.')
+    })
+  })
+
+  describe('a workplace JWT plus citizen header', () => {
+    it("lists the named citizen's cards, not the human's", async () => {
+      const person = humans.holdsIdentity({
+        provider: 'github',
+        subject: '4815162342',
+        email: 'someone@example.test',
+      })
+      const agent = anAgent({ name: 'colette', status: 'citizen' })
+      humans.operatesAgent(person.id, agent)
+      const board = aBoard(agent.id)
+      const card = aCard(board.id, { title: 'Colette work' })
+      colony.boards.plant(board, [seat(board, agent.id)])
+      colony.cards.plantBoard(board.id, [seat(board, agent.id)])
+      colony.cards.plantCard(card)
+
+      const response = await asSpa('GET', `${BOARDS}/${board.id}/cards`, await aToken(), agent.id)
+      expect(response.statusCode).toBe(200)
+      const page = response.json() as { items: WorkplaceCardSummary[] }
+      expect(page.items[0]?.title).toBe('Colette work')
+      expect(response.headers['access-control-allow-origin']).toBe(WORKPLACE_ORIGIN)
+    })
+
+    it('ignores X-Kolonie-Citizen on an API-key call', async () => {
+      const { apiKey, agent } = await aCitizen('keyed-card')
+      const { agent: other } = await aCitizen('other-card')
+      const board = aBoard(other.id)
+      const card = aCard(board.id)
+      colony.boards.plant(board, [seat(board, other.id)])
+      colony.cards.plantBoard(board.id, [seat(board, other.id)])
+      colony.cards.plantCard(card)
+
+      const response = await asKey('GET', `${CARDS}/${card.id}`, apiKey, {
+        headers: { [WORKPLACE_CITIZEN_HEADER]: other.id },
+      })
+      expect(response.statusCode).toBe(ERROR_STATUS.not_found)
+      expect(agent.id).not.toBe(other.id)
+    })
+  })
+
+  it('describes the collection from the core schema', async () => {
+    const document = (await app.inject({ method: 'GET', url: '/openapi.json' })).json() as {
+      paths: Record<string, { get?: { responses?: Record<string, { content?: unknown }> } }>
+    }
+    const schema = (
+      document.paths['/v1/workplace/boards/{boardId}/cards']?.get?.responses?.['200'] as {
         content?: { 'application/json'?: { schema?: { properties?: Record<string, unknown> } } }
       }
     )?.content?.['application/json']?.schema

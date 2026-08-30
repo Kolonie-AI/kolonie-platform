@@ -301,7 +301,7 @@ export function corsHeaders(reply: FastifyReply, allowed: string): FastifyReply 
  * is here because citizen-scoped writes send it; `if-match` and
  * `idempotency-key` are what those writes will need.
  */
-export const WORKPLACE_CORS_METHODS = 'GET, POST, PATCH, DELETE, OPTIONS'
+export const WORKPLACE_CORS_METHODS = 'GET, POST, PUT, PATCH, DELETE, OPTIONS'
 export const WORKPLACE_CORS_HEADERS =
   'authorization, content-type, if-match, x-kolonie-citizen, idempotency-key'
 

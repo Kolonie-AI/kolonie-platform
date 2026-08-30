@@ -4,6 +4,8 @@ import { ERROR_STATUS, ErrorCodeSchema } from '../common/errors.js'
 import {
   WORKPLACE_DEFAULT_LABELS,
   WORKPLACE_LANES,
+  WORKPLACE_LINK_KINDS,
+  EMPTY_WORKPLACE_LINK_COUNTS,
   WorkplaceActSchema,
   WorkplaceBoardSchema,
   WorkplaceCardSchema,
@@ -38,6 +40,11 @@ import {
   WorkplaceCreateChecklistItemRequestSchema,
   WorkplaceUpdateChecklistItemRequestSchema,
   WorkplaceCreateCommentRequestSchema,
+  WorkplaceCardLinkSchema,
+  WorkplaceCreateLinkRequestSchema,
+  WorkplaceResolvedLinkSchema,
+  WorkplaceLinkKindSchema,
+  WorkplaceLinkTargetSchema,
   WORKPLACE_CITIZEN_HEADER,
   WORKPLACE_TRANSITIONS,
   canTransitionWorkplace,
@@ -670,6 +677,7 @@ describe('card HTTP envelopes (#1760)', () => {
     checklistCount: 0,
     commentCount: 0,
     linkCount: 0,
+    linkCounts: EMPTY_WORKPLACE_LINK_COUNTS,
     ...over,
   })
 
@@ -677,9 +685,11 @@ describe('card HTTP envelopes (#1760)', () => {
     const parsed = WorkplaceCardSummarySchema.parse(summary({ labelCount: 2, commentCount: 3 }))
     expect(parsed.labelCount).toBe(2)
     expect(parsed.commentCount).toBe(3)
+    expect(parsed.linkCounts).toEqual(EMPTY_WORKPLACE_LINK_COUNTS)
     expect(parsed).not.toHaveProperty('description')
     expect(parsed).not.toHaveProperty('comments')
     expect(parsed).not.toHaveProperty('blockedBy')
+    expect(parsed).not.toHaveProperty('links')
   })
 
   it('refuses a summary that carries a description or comment bodies', () => {
@@ -816,10 +826,12 @@ describe('card HTTP envelopes (#1760)', () => {
           updatedAt: NOW,
         },
       ],
+      links: [],
       handover: null,
     })
     expect(detail.labels).toHaveLength(1)
     expect(detail.checklists[0]?.items[0]?.title).toBe('Mint the challenge')
+    expect(detail.links).toEqual([])
     expect(detail.handover).toBeNull()
   })
 
@@ -841,6 +853,183 @@ describe('card HTTP envelopes (#1760)', () => {
       WorkplaceUpdateChecklistRequestSchema.safeParse({ title: 'Prove it', cardId: CARD }).success,
     ).toBe(false)
     expect(WorkplaceUpdateChecklistItemRequestSchema.parse({ doneAt: NOW }).doneAt).toBe(NOW)
+  })
+})
+
+describe('typed card links (#1765)', () => {
+  const LINK = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+  const stored = (over: Record<string, unknown> = {}) => ({
+    id: LINK,
+    cardId: CARD,
+    kind: 'url',
+    ref: 'https://example.com/walk',
+    ...over,
+  })
+  const listRow = (over: Record<string, unknown> = {}) => ({
+    id: CARD,
+    boardId: BOARD,
+    status: 'ready',
+    title: 'Walk a provider',
+    ownerId: null,
+    position: 1000,
+    priority: 'unset',
+    dueAt: null,
+    version: 1,
+    coverColour: null,
+    labelCount: 0,
+    checklistCount: 0,
+    commentCount: 0,
+    linkCount: 0,
+    linkCounts: EMPTY_WORKPLACE_LINK_COUNTS,
+    ...over,
+  })
+
+  it('closes the six kinds and refuses a seventh', () => {
+    expect(WORKPLACE_LINK_KINDS).toEqual([
+      'account',
+      'provider',
+      'vault',
+      'task',
+      'playbook',
+      'url',
+    ])
+    for (const kind of WORKPLACE_LINK_KINDS) {
+      expect(WorkplaceLinkKindSchema.parse(kind)).toBe(kind)
+    }
+    expect(WorkplaceLinkKindSchema.safeParse('secret').success).toBe(false)
+    expect(WorkplaceLinkKindSchema.safeParse('attachment').success).toBe(false)
+  })
+
+  it('parses a stored pointer without a resolved body', () => {
+    const parsed = WorkplaceCardLinkSchema.parse(stored({ note: 'the walk page' }))
+    expect(parsed.kind).toBe('url')
+    expect(parsed).not.toHaveProperty('target')
+    expect(parsed).not.toHaveProperty('value')
+  })
+
+  it('refuses a stored pointer that carries a vault value', () => {
+    expect(
+      WorkplaceCardLinkSchema.safeParse(stored({ kind: 'vault', ref: 'mail.tm', value: 's3cret' }))
+        .success,
+    ).toBe(false)
+  })
+
+  it('creates with a kind-shaped ref and refuses a free-text kind', () => {
+    expect(
+      WorkplaceCreateLinkRequestSchema.parse({
+        kind: 'account',
+        ref: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      }).kind,
+    ).toBe('account')
+    expect(WorkplaceCreateLinkRequestSchema.parse({ kind: 'provider', ref: 'mail.tm' }).ref).toBe(
+      'mail.tm',
+    )
+    expect(WorkplaceCreateLinkRequestSchema.parse({ kind: 'vault', ref: 'mail.tm' }).ref).toBe(
+      'mail.tm',
+    )
+    expect(
+      WorkplaceCreateLinkRequestSchema.parse({
+        kind: 'task',
+        ref: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      }).kind,
+    ).toBe('task')
+    expect(
+      WorkplaceCreateLinkRequestSchema.parse({
+        kind: 'playbook',
+        ref: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      }).kind,
+    ).toBe('playbook')
+    expect(
+      WorkplaceCreateLinkRequestSchema.parse({ kind: 'url', ref: 'https://example.com' }).ref,
+    ).toBe('https://example.com')
+    expect(
+      WorkplaceCreateLinkRequestSchema.safeParse({ kind: 'secret', ref: 'anything' }).success,
+    ).toBe(false)
+    expect(
+      WorkplaceCreateLinkRequestSchema.safeParse({ kind: 'account', ref: 'not-a-uuid' }).success,
+    ).toBe(false)
+    expect(
+      WorkplaceCreateLinkRequestSchema.safeParse({ kind: 'url', ref: 'not-a-url' }).success,
+    ).toBe(false)
+    expect(
+      WorkplaceCreateLinkRequestSchema.safeParse({
+        kind: 'vault',
+        ref: 'mail.tm',
+        value: 'never-the-secret',
+      }).success,
+    ).toBe(false)
+  })
+
+  it('resolves a compact projection and keeps an unresolvable pointer on the card', () => {
+    const account = WorkplaceResolvedLinkSchema.parse(
+      stored({
+        kind: 'account',
+        ref: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        target: {
+          state: 'resolved',
+          kind: 'account',
+          provider: 'mail.tm',
+          identifier: 'agent@example.com',
+          proved: true,
+        },
+      }),
+    )
+    expect(account.target.state).toBe('resolved')
+    if (account.target.state === 'resolved' && account.target.kind === 'account') {
+      expect(account.target.identifier).toBe('agent@example.com')
+    }
+
+    const vault = WorkplaceResolvedLinkSchema.parse(
+      stored({
+        kind: 'vault',
+        ref: 'mail.tm',
+        target: { state: 'resolved', kind: 'vault', name: 'mail.tm', held: true },
+      }),
+    )
+    expect(vault.target).not.toHaveProperty('value')
+
+    const dangling = WorkplaceResolvedLinkSchema.parse(
+      stored({
+        kind: 'task',
+        ref: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        target: { state: 'unresolvable', kind: 'task' },
+      }),
+    )
+    expect(dangling.target.state).toBe('unresolvable')
+  })
+
+  it('refuses a resolved vault that carries the secret, and a mismatched target kind', () => {
+    expect(
+      WorkplaceLinkTargetSchema.safeParse({
+        state: 'resolved',
+        kind: 'vault',
+        name: 'mail.tm',
+        held: true,
+        value: 's3cret',
+      }).success,
+    ).toBe(false)
+    expect(
+      WorkplaceResolvedLinkSchema.safeParse(
+        stored({
+          kind: 'account',
+          ref: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          target: { state: 'resolved', kind: 'vault', name: 'mail.tm', held: true },
+        }),
+      ).success,
+    ).toBe(false)
+  })
+
+  it('counts links per kind on a summary and never puts resolved bodies there', () => {
+    const parsed = WorkplaceCardSummarySchema.parse(
+      listRow({ linkCount: 2, linkCounts: { ...EMPTY_WORKPLACE_LINK_COUNTS, url: 2 } }),
+    )
+    expect(parsed.linkCount).toBe(2)
+    expect(parsed.linkCounts.url).toBe(2)
+    expect(parsed).not.toHaveProperty('links')
+    expect(WorkplaceCardSummarySchema.safeParse(listRow({ links: [stored()] })).success).toBe(false)
+    expect(WorkplaceCardSummarySchema.safeParse(listRow({ linkCounts: undefined })).success).toBe(
+      false,
+    )
   })
 })
 

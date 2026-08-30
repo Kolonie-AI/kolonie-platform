@@ -933,6 +933,14 @@ describe('workplace cards (#1760)', () => {
       expect(page.items[0]?.title).toBe('Walk a provider')
       expect(page.items[0]).not.toHaveProperty('description')
       expect(page.items[0]?.linkCount).toBe(0)
+      expect(page.items[0]?.linkCounts).toEqual({
+        account: 0,
+        provider: 0,
+        vault: 0,
+        task: 0,
+        playbook: 0,
+        url: 0,
+      })
       expect(page.nextCursor).toBeNull()
     })
 
@@ -982,6 +990,7 @@ describe('workplace cards (#1760)', () => {
       expect(detail.labels).toEqual([])
       expect(detail.checklists).toEqual([])
       expect(detail.comments).toEqual([])
+      expect(detail.links).toEqual([])
       expect(detail.handover).toBeNull()
       expect(response.headers.etag).toBe('1')
     })
@@ -1301,6 +1310,103 @@ describe('workplace cards (#1760)', () => {
       expect(page.items).toHaveLength(1)
       expect(page.items[0]?.body).toBe('Started the walk.')
     })
+
+    it('attaches a url link, lists it, and a second POST of the same kind and ref is the same row', async () => {
+      const { apiKey, agent } = await aCitizen('linker')
+      const board = aBoard(agent.id)
+      const card = aCard(board.id)
+      colony.boards.plant(board, [seat(board, agent.id)])
+      colony.cards.plantBoard(board.id, [seat(board, agent.id)])
+      colony.cards.plantCard(card)
+
+      const posted = await asKey('POST', `${CARDS}/${card.id}/links`, apiKey, {
+        payload: { kind: 'url', ref: 'https://example.com/walk' },
+      })
+      expect(posted.statusCode).toBe(201)
+      const link = posted.json() as {
+        id: string
+        kind: string
+        ref: string
+        target: { state: string }
+      }
+      expect(link.kind).toBe('url')
+      expect(link.ref).toBe('https://example.com/walk')
+      expect(link.target).toEqual({ state: 'resolved', kind: 'url' })
+
+      const again = await asKey('POST', `${CARDS}/${card.id}/links`, apiKey, {
+        payload: { kind: 'url', ref: 'https://example.com/walk' },
+      })
+      expect(again.statusCode).toBe(201)
+      expect((again.json() as { id: string }).id).toBe(link.id)
+
+      const listed = await asKey('GET', `${CARDS}/${card.id}/links`, apiKey)
+      expect(listed.statusCode).toBe(200)
+      expect((listed.json() as { items: unknown[] }).items).toHaveLength(1)
+
+      const detail = await asKey('GET', `${CARDS}/${card.id}`, apiKey)
+      expect((detail.json() as WorkplaceCardDetail).links).toHaveLength(1)
+
+      const dropped = await asKey('DELETE', `/v1/workplace/links/${link.id}`, apiKey)
+      expect(dropped.statusCode).toBe(204)
+    })
+
+    it('422s a vault the board owner does not hold, and 400s a seventh kind', async () => {
+      const { apiKey, agent } = await aCitizen('unresolvable')
+      const board = aBoard(agent.id)
+      const card = aCard(board.id)
+      colony.boards.plant(board, [seat(board, agent.id)])
+      colony.cards.plantBoard(board.id, [seat(board, agent.id)])
+      colony.cards.plantCard(card)
+
+      const missing = await asKey('POST', `${CARDS}/${card.id}/links`, apiKey, {
+        payload: { kind: 'vault', ref: 'mail.tm' },
+      })
+      expect(missing.statusCode).toBe(ERROR_STATUS.workplace_link_unresolvable)
+      expect(missing.json()).toMatchObject({ code: 'workplace_link_unresolvable' })
+
+      const invalid = await asKey('POST', `${CARDS}/${card.id}/links`, apiKey, {
+        payload: { kind: 'secret', ref: 'anything' },
+      })
+      expect(invalid.statusCode).toBe(ERROR_STATUS.validation_failed)
+    })
+
+    it('hides a card a stranger is not on, the same as a missing one, including its links', async () => {
+      const { agent } = await aCitizen('owner-links')
+      const { apiKey: strangerKey } = await aCitizen('stranger-links')
+      const board = aBoard(agent.id)
+      const card = aCard(board.id)
+      colony.boards.plant(board, [seat(board, agent.id)])
+      colony.cards.plantBoard(board.id, [seat(board, agent.id)])
+      colony.cards.plantCard(card)
+
+      const hidden = await asKey('GET', `${CARDS}/${card.id}/links`, strangerKey)
+      const missing = await asKey('GET', `${CARDS}/${randomUUID()}/links`, strangerKey)
+      expect(hidden.statusCode).toBe(ERROR_STATUS.not_found)
+      expect(hidden.body).toBe(missing.body)
+    })
+
+    it('lets the board owner attach a planted vault; a member who does not own the card is 403', async () => {
+      const { apiKey, agent } = await aCitizen('board-owner')
+      const { apiKey: memberKey, agent: seated } = await aCitizen('seated')
+      const board = aBoard(agent.id)
+      const card = aCard(board.id)
+      colony.boards.plant(board, [seat(board, agent.id), seat(board, seated.id, 'member')])
+      colony.cards.plantBoard(board.id, [seat(board, agent.id), seat(board, seated.id, 'member')])
+      colony.cards.plantCard(card)
+      colony.cards.plantResolvable('vault', 'mail.tm')
+
+      const attached = await asKey('POST', `${CARDS}/${card.id}/links`, apiKey, {
+        payload: { kind: 'vault', ref: 'mail.tm' },
+      })
+      expect(attached.statusCode).toBe(201)
+      expect((attached.json() as { target: { held: boolean } }).target.held).toBe(true)
+      expect(JSON.stringify(attached.json())).not.toContain('password')
+
+      const refused = await asKey('POST', `${CARDS}/${card.id}/links`, memberKey, {
+        payload: { kind: 'url', ref: 'https://example.com/idle' },
+      })
+      expect(refused.statusCode).toBe(ERROR_STATUS.workplace_not_member)
+    })
   })
 
   describe('a workplace JWT plus citizen header', () => {
@@ -1352,5 +1458,17 @@ describe('workplace cards (#1760)', () => {
       }
     )?.content?.['application/json']?.schema
     expect(Object.keys(schema?.properties ?? {}).sort()).toEqual(['items', 'nextCursor'])
+  })
+
+  it('describes the link collection from the core schema', async () => {
+    const document = (await app.inject({ method: 'GET', url: '/openapi.json' })).json() as {
+      paths: Record<string, { get?: { responses?: Record<string, unknown> } }>
+    }
+    const schema = (
+      document.paths['/v1/workplace/cards/{cardId}/links']?.get?.responses?.['200'] as {
+        content?: { 'application/json'?: { schema?: { properties?: Record<string, unknown> } } }
+      }
+    )?.content?.['application/json']?.schema
+    expect(Object.keys(schema?.properties ?? {}).sort()).toEqual(['items'])
   })
 })

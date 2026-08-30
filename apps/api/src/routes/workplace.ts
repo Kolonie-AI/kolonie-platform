@@ -12,6 +12,7 @@ import {
   WorkplaceCreateChecklistItemRequestSchema,
   WorkplaceCreateChecklistRequestSchema,
   WorkplaceCreateCommentRequestSchema,
+  WorkplaceCreateLinkRequestSchema,
   WorkplaceHandoverCardRequestSchema,
   WorkplaceListCardsQuerySchema,
   WorkplaceMemberSchema,
@@ -164,6 +165,8 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
       v1.options('/workplace/checklists/:checklistId/items', preflight)
       v1.options('/workplace/checklist-items/:itemId', preflight)
       v1.options('/workplace/cards/:cardId/comments', preflight)
+      v1.options('/workplace/cards/:cardId/links', preflight)
+      v1.options('/workplace/links/:linkId', preflight)
     }
   }
 
@@ -1137,6 +1140,80 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
     })
     if (created.outcome !== 'created') return missingCard(reply, actor.origin)
     return finish(reply, actor.origin).status(201).send(created.comment)
+  })
+
+  v1.get('/workplace/cards/:cardId/links', async (request, reply) => {
+    const actor = await citizenFor(request, reply)
+    if (actor === undefined) return
+    const { cardId } = request.params as { cardId: string }
+    const listed = await cards.listLinks(actor.citizenId, cardId)
+    if (listed.outcome === 'unknown') return missingCard(reply, actor.origin)
+    if (listed.outcome === 'empty') {
+      return finish(reply, actor.origin).status(200).send({ items: [] })
+    }
+    return finish(reply, actor.origin).status(200).send({ items: listed.items })
+  })
+
+  v1.post('/workplace/cards/:cardId/links', async (request, reply) => {
+    const actor = await citizenFor(request, reply)
+    if (actor === undefined) return
+    const parsed = WorkplaceCreateLinkRequestSchema.safeParse(request.body)
+    if (!parsed.success) {
+      return finish(reply, actor.origin)
+        .status(ERROR_STATUS.validation_failed)
+        .send({
+          code: 'validation_failed',
+          message: 'A link takes a kind and a matching ref.',
+          details: fieldErrors(parsed.error),
+        })
+    }
+    const { cardId } = request.params as { cardId: string }
+    if ((await cards.get(actor.citizenId, cardId)) === null) {
+      return missingCard(reply, actor.origin)
+    }
+    const created = await cards.addLink({
+      callerId: actor.citizenId,
+      cardId,
+      kind: parsed.data.kind,
+      ref: parsed.data.ref,
+      ...(parsed.data.note === undefined ? {} : { note: parsed.data.note }),
+    })
+    if (created.outcome === 'unresolvable') {
+      return finish(reply, actor.origin).status(ERROR_STATUS.workplace_link_unresolvable).send({
+        code: 'workplace_link_unresolvable',
+        message: 'Nothing matches that kind and ref.',
+      })
+    }
+    if (created.outcome === 'forbidden') {
+      return finish(reply, actor.origin).status(ERROR_STATUS.workplace_not_member).send({
+        code: 'workplace_not_member',
+        message: 'Only the board owner or the card owner can attach a link.',
+      })
+    }
+    if (created.outcome !== 'created') return missingCard(reply, actor.origin)
+    return finish(reply, actor.origin).status(201).send(created.link)
+  })
+
+  v1.delete('/workplace/links/:linkId', async (request, reply) => {
+    const actor = await citizenFor(request, reply)
+    if (actor === undefined) return
+    const { linkId } = request.params as { linkId: string }
+    const removed = await cards.removeLink({
+      callerId: actor.citizenId,
+      linkId,
+    })
+    if (removed.outcome === 'forbidden') {
+      return finish(reply, actor.origin).status(ERROR_STATUS.workplace_not_member).send({
+        code: 'workplace_not_member',
+        message: 'Only the board owner or the card owner can detach a link.',
+      })
+    }
+    if (removed.outcome !== 'removed') {
+      return finish(reply, actor.origin)
+        .status(ERROR_STATUS.not_found)
+        .send({ code: 'not_found', message: 'No link matches the id you named.' })
+    }
+    return finish(reply, actor.origin).status(204).send()
   })
 }
 

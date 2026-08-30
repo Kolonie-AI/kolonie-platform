@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import {
+  EMPTY_WORKPLACE_LINK_COUNTS,
   WorkplaceCardIdSchema,
   WorkplaceChecklistIdSchema,
   WorkplaceChecklistItemIdSchema,
   WorkplaceCommentIdSchema,
   WorkplaceHandoverIdSchema,
+  WorkplaceLinkIdSchema,
   canTransitionWorkplace,
   claimAllowed,
   handoverAllowed,
@@ -19,10 +21,14 @@ import {
   type WorkplaceHandover,
   type WorkplaceLabel,
   type WorkplaceLane,
+  type WorkplaceLinkCounts,
+  type WorkplaceLinkKind,
   type WorkplaceMembership,
+  type WorkplaceResolvedLink,
 } from '@kolonie-ai/core'
 import type { WorkplaceCards } from '../workplace-cards.js'
 import type {
+  AddLinkResult,
   ArchiveCardResult,
   AttachLabelResult,
   BlockCardResult,
@@ -38,7 +44,9 @@ import type {
   HandoverCardResult,
   ListCardsResult,
   ListCommentsResult,
+  ListLinksResult,
   MoveCardResult,
+  RemoveLinkResult,
   RequestReviewResult,
   UpdateCardResult,
   UpdateChecklistItemResult,
@@ -57,6 +65,7 @@ export interface FakeWorkplaceCards extends WorkplaceCards {
   readonly plantBoard: (boardId: string, members: readonly WorkplaceMembership[]) => void
   readonly plantCard: (card: WorkplaceCard) => void
   readonly plantLabel: (label: WorkplaceLabel) => void
+  readonly plantResolvable: (kind: WorkplaceLinkKind, ref: string) => void
 }
 
 const RANK_GAP = 1000
@@ -67,6 +76,7 @@ const toSummary = (
     readonly labels: number
     readonly checklists: number
     readonly comments: number
+    readonly links: WorkplaceLinkCounts
   },
 ): WorkplaceCardSummary => ({
   id: card.id,
@@ -82,7 +92,14 @@ const toSummary = (
   labelCount: extra.labels,
   checklistCount: extra.checklists,
   commentCount: extra.comments,
-  linkCount: 0,
+  linkCount:
+    extra.links.account +
+    extra.links.provider +
+    extra.links.vault +
+    extra.links.task +
+    extra.links.playbook +
+    extra.links.url,
+  linkCounts: extra.links,
 })
 
 export function fakeWorkplaceCards(): FakeWorkplaceCards {
@@ -94,6 +111,8 @@ export function fakeWorkplaceCards(): FakeWorkplaceCards {
   const items = new Map<string, WorkplaceChecklistItem>()
   const comments = new Map<string, WorkplaceComment>()
   const handovers = new Map<string, WorkplaceHandover>()
+  const links = new Map<string, WorkplaceResolvedLink>()
+  const resolvable = new Set<string>()
 
   const membershipOf = (callerId: AgentId, boardId: string) =>
     (seats.get(boardId) ?? []).find((one) => one.citizenId === callerId)
@@ -112,11 +131,49 @@ export function fakeWorkplaceCards(): FakeWorkplaceCards {
     updatedAt: new Date().toISOString(),
   })
 
-  const countsOf = (cardId: string) => ({
-    labels: cardLabels.get(cardId)?.size ?? 0,
-    checklists: [...checklists.values()].filter((one) => one.cardId === cardId).length,
-    comments: [...comments.values()].filter((one) => one.cardId === cardId).length,
-  })
+  const countsOf = (cardId: string) => {
+    const ofCard = [...links.values()].filter((one) => one.cardId === cardId)
+    const linkCounts: WorkplaceLinkCounts = { ...EMPTY_WORKPLACE_LINK_COUNTS }
+    for (const link of ofCard) {
+      linkCounts[link.kind] += 1
+    }
+    return {
+      labels: cardLabels.get(cardId)?.size ?? 0,
+      checklists: [...checklists.values()].filter((one) => one.cardId === cardId).length,
+      comments: [...comments.values()].filter((one) => one.cardId === cardId).length,
+      links: linkCounts,
+    }
+  }
+
+  const mayWriteLink = (callerId: AgentId, card: WorkplaceCard) => {
+    const membership = membershipOf(callerId, card.boardId)
+    if (membership === undefined) return false
+    return membership.role === 'owner' || card.ownerId === callerId
+  }
+
+  const resolvedOf = (kind: WorkplaceLinkKind, ref: string): WorkplaceResolvedLink['target'] => {
+    if (kind === 'url') return { state: 'resolved', kind: 'url' }
+    if (kind === 'vault') {
+      return { state: 'resolved', kind: 'vault', name: ref, held: resolvable.has(`vault:${ref}`) }
+    }
+    if (!resolvable.has(`${kind}:${ref}`)) return { state: 'unresolvable', kind }
+    if (kind === 'account') {
+      return {
+        state: 'resolved',
+        kind: 'account',
+        provider: 'mail.tm',
+        identifier: 'owner@example.test',
+        proved: true,
+      }
+    }
+    if (kind === 'provider') {
+      return { state: 'resolved', kind: 'provider', title: ref, category: 'mailbox' }
+    }
+    if (kind === 'task') {
+      return { state: 'resolved', kind: 'task', title: 'Create an email address', status: 'active' }
+    }
+    return { state: 'resolved', kind: 'playbook', title: 'Weekly inbox triage', status: 'open' }
+  }
 
   const nextPosition = (boardId: string, status: WorkplaceLane): number => {
     const max = [...cards.values()]
@@ -134,6 +191,9 @@ export function fakeWorkplaceCards(): FakeWorkplaceCards {
     },
     plantLabel: (label) => {
       labels.set(label.id, label)
+    },
+    plantResolvable: (kind: WorkplaceLinkKind, ref: string) => {
+      resolvable.add(`${kind}:${ref}`)
     },
 
     list: async (callerId, boardId, query = {}) => {
@@ -196,6 +256,9 @@ export function fakeWorkplaceCards(): FakeWorkplaceCards {
         comments: [...comments.values()]
           .filter((one) => one.cardId === cardId)
           .sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+        links: [...links.values()]
+          .filter((one) => one.cardId === cardId)
+          .sort((a, b) => a.id.localeCompare(b.id)),
         handover:
           [...handovers.values()].find((one) => one.cardId === cardId && one.isCurrent) ?? null,
       } satisfies WorkplaceCardDetail
@@ -564,6 +627,52 @@ export function fakeWorkplaceCards(): FakeWorkplaceCards {
       }
       comments.set(comment.id, comment)
       return { outcome: 'created', comment }
+    },
+
+    listLinks: async (callerId, cardId) => {
+      if (visible(callerId, cardId) === null) return { outcome: 'unknown' }
+      const items = [...links.values()]
+        .filter((one) => one.cardId === cardId)
+        .sort((a, b) => a.id.localeCompare(b.id))
+      if (items.length === 0) return { outcome: 'empty' }
+      return { outcome: 'listed', items } satisfies ListLinksResult
+    },
+
+    addLink: async (input) => {
+      const card = cards.get(input.cardId)
+      if (card === undefined) return { outcome: 'missing' } satisfies AddLinkResult
+      if (membershipOf(input.callerId, card.boardId) === undefined) {
+        return { outcome: 'forbidden' }
+      }
+      if (!mayWriteLink(input.callerId, card)) return { outcome: 'forbidden' }
+      if (input.kind !== 'url' && !resolvable.has(`${input.kind}:${input.ref}`)) {
+        return { outcome: 'unresolvable' }
+      }
+      const existing = [...links.values()].find(
+        (one) => one.cardId === input.cardId && one.kind === input.kind && one.ref === input.ref,
+      )
+      if (existing !== undefined) return { outcome: 'created', link: existing }
+      const link: WorkplaceResolvedLink = {
+        id: WorkplaceLinkIdSchema.parse(randomUUID()),
+        cardId: card.id,
+        kind: input.kind,
+        ref: input.ref,
+        ...(input.note === undefined ? {} : { note: input.note }),
+        target: resolvedOf(input.kind, input.ref),
+      }
+      links.set(link.id, link)
+      return { outcome: 'created', link }
+    },
+
+    removeLink: async (input) => {
+      const link = links.get(input.linkId)
+      if (link === undefined) return { outcome: 'missing' } satisfies RemoveLinkResult
+      const card = cards.get(link.cardId)
+      if (card === undefined) return { outcome: 'missing' }
+      if (membershipOf(input.callerId, card.boardId) === undefined) return { outcome: 'missing' }
+      if (!mayWriteLink(input.callerId, card)) return { outcome: 'forbidden' }
+      links.delete(input.linkId)
+      return { outcome: 'removed' }
     },
   }
 }

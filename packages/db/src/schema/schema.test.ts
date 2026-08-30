@@ -26,6 +26,7 @@ import {
   tasks,
   workplaceBoards,
   workplaceCardLabels,
+  workplaceCardLinks,
   workplaceCards,
   workplaceLabels,
 } from './index.js'
@@ -1188,6 +1189,7 @@ describe('schema', () => {
         'workplace_board_memberships',
         'workplace_boards',
         'workplace_card_labels',
+        'workplace_card_links',
         'workplace_cards',
         'workplace_checklist_items',
         'workplace_checklists',
@@ -1870,6 +1872,75 @@ describe('schema', () => {
           }),
         /workplace_card_labels_label_board_fk/,
       )
+    })
+
+    it('refuses a seventh link kind, including secret', async () => {
+      const agent = await anAgent()
+      const board = await aBoard(agent.id)
+      const [card] = await db
+        .insert(workplaceCards)
+        .values({ boardId: board.id, status: 'inbox', title: 'Home card', position: 1000 })
+        .returning()
+      await expectRejection(
+        () =>
+          db.insert(workplaceCardLinks).values({
+            cardId: card!.id,
+            kind: 'secret',
+            ref: 'mail.tm',
+          }),
+        /workplace_card_links_kind_is_known/,
+      )
+    })
+
+    it('refuses the same kind and ref twice on one card', async () => {
+      const agent = await anAgent()
+      const board = await aBoard(agent.id)
+      const [card] = await db
+        .insert(workplaceCards)
+        .values({ boardId: board.id, status: 'inbox', title: 'Home card', position: 1000 })
+        .returning()
+      await db.insert(workplaceCardLinks).values({
+        cardId: card!.id,
+        kind: 'url',
+        ref: 'https://example.com/walk',
+      })
+      await expectRejection(
+        () =>
+          db.insert(workplaceCardLinks).values({
+            cardId: card!.id,
+            kind: 'url',
+            ref: 'https://example.com/walk',
+          }),
+        /workplace_card_links_card_kind_ref/,
+      )
+    })
+
+    it('stores a dangling target with no foreign key onto accounts, tasks or playbooks', async () => {
+      const agent = await anAgent()
+      const board = await aBoard(agent.id)
+      const [card] = await db
+        .insert(workplaceCards)
+        .values({ boardId: board.id, status: 'inbox', title: 'Home card', position: 1000 })
+        .returning()
+      const [row] = await db
+        .insert(workplaceCardLinks)
+        .values({
+          cardId: card!.id,
+          kind: 'account',
+          ref: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        })
+        .returning()
+      expect(row?.kind).toBe('account')
+      expect(row?.ref).toBe('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')
+
+      const fks = await db.execute<{ constraint_name: string }>(
+        sql`select constraint_name from information_schema.table_constraints
+             where table_schema = 'public' and table_name = 'workplace_card_links'
+               and constraint_type = 'FOREIGN KEY'`,
+      )
+      expect(fks.map((r) => r.constraint_name)).toEqual([
+        'workplace_card_links_card_id_workplace_cards_id_fk',
+      ])
     })
 
     it('does not create a workplace_lists table, and does not alter tasks', async () => {

@@ -7,8 +7,10 @@ import type {
   WorkplaceComment,
   WorkplaceLabel,
   WorkplaceLane,
+  WorkplaceLinkKind,
 } from '@kolonie-ai/core'
 import {
+  addLink,
   archiveCard,
   attachLabel,
   blockCard,
@@ -25,11 +27,14 @@ import {
   handoverCard,
   listCards,
   listComments,
+  listLinks,
   moveCard,
+  removeLink,
   requestReview,
   updateCard,
   updateChecklist,
   updateChecklistItem,
+  type AddLinkResult,
   type ArchiveCardResult,
   type AttachLabelResult,
   type BlockCardResult,
@@ -46,7 +51,9 @@ import {
   type HandoverCardResult,
   type ListCardsResult,
   type ListCommentsResult,
+  type ListLinksResult,
   type MoveCardResult,
+  type RemoveLinkResult,
   type RequestReviewResult,
   type UpdateCardResult,
   type UpdateChecklistItemResult,
@@ -192,6 +199,18 @@ export interface WorkplaceCards {
     readonly cardId: string
     readonly body: string
   }): Promise<CreateCommentResult>
+  listLinks(callerId: AgentId, cardId: string): Promise<ListLinksResult>
+  addLink(input: {
+    readonly callerId: AgentId
+    readonly cardId: string
+    readonly kind: WorkplaceLinkKind
+    readonly ref: string
+    readonly note?: string
+  }): Promise<AddLinkResult>
+  removeLink(input: {
+    readonly callerId: AgentId
+    readonly linkId: string
+  }): Promise<RemoveLinkResult>
 }
 
 export function databaseWorkplaceCards(db: Database): WorkplaceCards {
@@ -217,6 +236,9 @@ export function databaseWorkplaceCards(db: Database): WorkplaceCards {
     deleteChecklistItem: (input) => deleteChecklistItem(db, input),
     listComments: (callerId, cardId, query) => listComments(db, callerId, cardId, query),
     createComment: (input) => createComment(db, input),
+    listLinks: (callerId, cardId) => listLinks(db, callerId, cardId),
+    addLink: (input) => addLink(db, input),
+    removeLink: (input) => removeLink(db, input),
   }
 }
 

@@ -38,6 +38,7 @@ function fakeLogs(signatures: readonly LogSignature[], over: Partial<Logs> = {})
   return {
     available: true,
     signatures: async () => signatures,
+    countExact: async () => 0,
     evidence: async () => EVIDENCE,
     lastStart: async () => '2026-08-05T13:15:37.000Z',
     ...over,
@@ -49,21 +50,26 @@ type Filed = { issue: NewIssue }
 function fakeIssues(over: Partial<Issues> = {}): Issues & {
   filed: () => readonly Filed[]
   comments: () => readonly string[]
-  closes: () => readonly string[]
+  closes: () => readonly { url: string; comment: string }[]
+  reopened: () => readonly { url: string; comment: string }[]
 } {
   const filed: Filed[] = []
   const comments: string[] = []
-  const closes: string[] = []
+  const closes: { url: string; comment: string }[] = []
+  const reopens: { url: string; comment: string }[] = []
 
   return {
     available: true,
     open: async () => ({ issues: [], unreadable: [] }),
     closed: async () => [],
-    close: async (url) => {
-      closes.push(url)
+    close: async (url, comment) => {
+      closes.push({ url, comment })
       return true
     },
-    reopen: async () => true,
+    reopen: async (url, comment) => {
+      reopens.push({ url, comment })
+      return true
+    },
     create: async (issue) => {
       filed.push({ issue })
       return `https://github.com/${issue.repository}/issues/${filed.length}`
@@ -77,28 +83,45 @@ function fakeIssues(over: Partial<Issues> = {}): Issues & {
     filed: () => filed,
     comments: () => comments,
     closes: () => closes,
+    reopened: () => reopens,
   }
 }
 
 function fakeStore(
   known: Record<string, NonNullable<Parameters<typeof decide>[0]['known']>> = {},
   filedToday = 0,
-): DefectStore & { recorded: () => readonly string[]; noted: () => readonly string[] } {
+): DefectStore & {
+  recorded: () => readonly string[]
+  noted: () => readonly string[]
+  settled: () => readonly string[]
+  resumed: () => readonly string[]
+} {
   const recorded: string[] = []
   const noted: string[] = []
+  const settled: string[] = []
+  const resumed: string[] = []
 
   return {
     seen: async (defects) =>
       new Map(defects.map((defect) => [defect.signature, known[defect.signature]])),
+    find: async (signature) => known[signature],
     filed: async (signature) => {
       recorded.push(signature)
     },
     commented: async (signature) => {
       noted.push(signature)
     },
+    quietClosed: async (signature) => {
+      settled.push(signature)
+    },
+    reopened: async (signature) => {
+      resumed.push(signature)
+    },
     filedSince: async () => filedToday,
     recorded: () => recorded,
     noted: () => noted,
+    settled: () => settled,
+    resumed: () => resumed,
   }
 }
 
@@ -293,8 +316,10 @@ describe('the log defect detector', () => {
         [signature]: {
           issueUrl: 'https://github.com/Kolonie-AI/kolonie-platform/issues/42',
           firstSeenAt: '2026-08-01T00:00:00.000Z',
+          lastSeenAt: '2026-08-05T13:59:00.000Z',
           occurrences: 900,
           lastCommentAt: new Date(NOW - COMMENT_INTERVAL_MS / 2).toISOString(),
+          quietClosedAt: null,
           regressions: 0,
         },
       }),
@@ -322,8 +347,10 @@ describe('the log defect detector', () => {
         [signature]: {
           issueUrl: 'https://github.com/Kolonie-AI/kolonie-platform/issues/7',
           firstSeenAt: '2026-07-30T00:00:00.000Z',
+          lastSeenAt: '2026-08-05T13:59:00.000Z',
           occurrences: 40,
           lastCommentAt: null,
+          quietClosedAt: null,
           regressions: 0,
         },
       }),
@@ -454,7 +481,220 @@ describe('the log defect detector', () => {
    * regression against a closed issue — free to acquire a `close` unnoticed,
    * which is exactly the shape of change this guards against.
    */
-  it('never closes anything, in any branch it has', async () => {
+  it('closes an open signature issue exactly after fourteen quiet days', async () => {
+    const signature = signatureOf('api', 'poll.failed')
+    const issue = openIssue(signature)
+    const countExact = vi.fn(async () => 0)
+    issues = fakeIssues({ open: async () => ({ issues: [issue], unreadable: [] }) })
+    const quietSince = new Date(NOW - 14 * 86_400_000).toISOString()
+
+    const outcome = await watchLogs({
+      logs: fakeLogs([], { countExact }),
+      issues,
+      store: fakeStore({
+        [signature]: {
+          issueUrl: issue.url,
+          firstSeenAt: '2026-07-01T00:00:00.000Z',
+          lastSeenAt: quietSince,
+          occurrences: 12,
+          lastCommentAt: null,
+          quietClosedAt: null,
+          regressions: 0,
+        },
+      }),
+      writer: noWriter,
+      now: () => NOW,
+    })
+
+    expect(countExact).toHaveBeenCalledWith(signature, 14 * 86_400)
+    expect(issues.comments()).toEqual([])
+    expect(issues.closes()).toEqual([
+      {
+        url: issue.url,
+        comment: expect.stringContaining('quiet for 14 consecutive days; closing'),
+      },
+    ])
+    expect(outcome.closed).toBe(1)
+  })
+
+  it('does not close one instant before fourteen quiet days', async () => {
+    const signature = signatureOf('api', 'poll.failed')
+    const issue = openIssue(signature)
+    issues = fakeIssues({ open: async () => ({ issues: [issue], unreadable: [] }) })
+
+    const outcome = await watchLogs({
+      logs: fakeLogs([], { countExact: async () => 0 }),
+      issues,
+      store: fakeStore({
+        [signature]: {
+          issueUrl: issue.url,
+          firstSeenAt: '2026-07-01T00:00:00.000Z',
+          lastSeenAt: new Date(NOW - 14 * 86_400_000 + 1).toISOString(),
+          occurrences: 12,
+          lastCommentAt: null,
+          quietClosedAt: null,
+          regressions: 0,
+        },
+      }),
+      writer: noWriter,
+      now: () => NOW,
+    })
+
+    expect(issues.comments()).toEqual([])
+    expect(issues.closes()).toEqual([])
+    expect(outcome.closed).toBe(0)
+  })
+
+  it('does not close while the live source still has a matching line', async () => {
+    const signature = signatureOf('api', 'poll.failed')
+    const issue = openIssue(signature)
+    issues = fakeIssues({ open: async () => ({ issues: [issue], unreadable: [] }) })
+
+    const outcome = await watchLogs({
+      logs: fakeLogs([], { countExact: async () => 1 }),
+      issues,
+      store: fakeStore({
+        [signature]: {
+          issueUrl: issue.url,
+          firstSeenAt: '2026-07-01T00:00:00.000Z',
+          lastSeenAt: new Date(NOW - 30 * 86_400_000).toISOString(),
+          occurrences: 12,
+          lastCommentAt: null,
+          quietClosedAt: null,
+          regressions: 0,
+        },
+      }),
+      writer: noWriter,
+      now: () => NOW,
+    })
+
+    expect(issues.closes()).toEqual([])
+    expect(outcome.closed).toBe(0)
+  })
+
+  it('never closes when the exact-signature evidence is unreadable', async () => {
+    const signature = signatureOf('api', 'poll.failed')
+    const issue = openIssue(signature)
+    issues = fakeIssues({ open: async () => ({ issues: [issue], unreadable: [] }) })
+
+    await expect(
+      watchLogs({
+        logs: fakeLogs([], {
+          countExact: async () => {
+            throw new Error('the log source returned a partial response')
+          },
+        }),
+        issues,
+        store: fakeStore(),
+        writer: noWriter,
+        now: () => NOW,
+      }),
+    ).rejects.toThrow('partial response')
+
+    expect(issues.comments()).toEqual([])
+    expect(issues.closes()).toEqual([])
+  })
+
+  it('comments and closes a quiet signature only once', async () => {
+    const signature = signatureOf('api', 'poll.failed')
+    const issue = openIssue(signature)
+    const state = { open: true }
+    issues = fakeIssues({
+      open: async () => ({ issues: state.open ? [issue] : [], unreadable: [] }),
+    })
+    const dependencies = {
+      logs: fakeLogs([], { countExact: async () => 0 }),
+      issues,
+      store: fakeStore({
+        [signature]: {
+          issueUrl: issue.url,
+          firstSeenAt: '2026-07-01T00:00:00.000Z',
+          lastSeenAt: new Date(NOW - 15 * 86_400_000).toISOString(),
+          occurrences: 12,
+          lastCommentAt: null,
+          quietClosedAt: null,
+          regressions: 0,
+        },
+      }),
+      writer: noWriter,
+      now: () => NOW,
+    }
+
+    await watchLogs(dependencies)
+    state.open = false
+    await watchLogs(dependencies)
+
+    expect(issues.comments()).toHaveLength(0)
+    expect(issues.closes()).toHaveLength(1)
+  })
+
+  it('reopens the same identity when a quiet-closed signature returns', async () => {
+    const signature = signatureOf('api', 'poll.failed')
+    const closed = closedIssue(signature, {
+      body: bodyMarker(signature),
+      closedAt: '2026-08-05T12:00:00.000Z',
+    })
+    issues = fakeIssues({ closed: async () => [closed] })
+    const store = fakeStore({
+      [signature]: {
+        issueUrl: closed.url,
+        firstSeenAt: '2026-07-01T00:00:00.000Z',
+        lastSeenAt: '2026-07-22T00:00:00.000Z',
+        occurrences: 12,
+        lastCommentAt: null,
+        quietClosedAt: '2026-08-05T12:00:00.000Z',
+        regressions: 0,
+      },
+    })
+
+    const outcome = await watchLogs({
+      logs: fakeLogs([aSignature()]),
+      issues,
+      store,
+      writer: noWriter,
+      now: () => NOW,
+    })
+
+    expect(issues.reopened()).toEqual([
+      { url: closed.url, comment: expect.stringContaining('returned after its quiet close') },
+    ])
+    expect(store.resumed()).toEqual([signature])
+    expect(issues.filed()).toHaveLength(0)
+    expect(outcome.reopened).toBe(1)
+  })
+
+  it('reopens the stored identity even when the closed corpus no longer lists it', async () => {
+    const signature = signatureOf('api', 'poll.failed')
+    const url = 'https://github.com/Kolonie-AI/kolonie-platform/issues/7'
+    issues = fakeIssues()
+    const store = fakeStore({
+      [signature]: {
+        issueUrl: url,
+        firstSeenAt: '2026-07-01T00:00:00.000Z',
+        lastSeenAt: '2026-07-22T00:00:00.000Z',
+        occurrences: 12,
+        lastCommentAt: null,
+        quietClosedAt: '2026-08-05T12:00:00.000Z',
+        regressions: 0,
+      },
+    })
+
+    const outcome = await watchLogs({
+      logs: fakeLogs([aSignature()]),
+      issues,
+      store,
+      writer: noWriter,
+      now: () => NOW,
+    })
+
+    expect(issues.reopened()).toEqual([
+      { url, comment: expect.stringContaining('returned after its quiet close') },
+    ])
+    expect(issues.filed()).toHaveLength(0)
+    expect(outcome.reopened).toBe(1)
+  })
+
+  it('does not close a first filing, a live recurrence, or an ordinary regression', async () => {
     const anOpenIssue: KnownIssue = {
       repository: 'Kolonie-AI/kolonie-platform',
       number: 1,
@@ -574,6 +814,29 @@ describe('a closed issue and lines older than the closure', () => {
     })
   })
 
+  it('reopens on exact identity when a quiet-closed issue recurs', () => {
+    expect(
+      decide(
+        history({
+          known: {
+            issueUrl: 'https://github.com/Kolonie-AI/kolonie-platform/issues/7',
+            firstSeenAt: '2026-07-01T00:00:00.000Z',
+            lastSeenAt: '2026-07-22T00:00:00.000Z',
+            occurrences: 12,
+            lastCommentAt: null,
+            quietClosedAt: '2026-08-05T12:00:00.000Z',
+            regressions: 0,
+          },
+          closedIssue: closedIssue(signature, { closedAt: '2026-08-05T12:00:00.000Z' }),
+          lastSeenAt: AFTER_THE_FIX,
+        }),
+      ),
+    ).toEqual({
+      kind: 'reopen',
+      issue: closedIssue(signature, { closedAt: '2026-08-05T12:00:00.000Z' }),
+    })
+  })
+
   it('files when no line could be read at all', () => {
     expect(decide(history({ lastSeenAt: null }))).toEqual({
       kind: 'file',
@@ -608,10 +871,9 @@ describe('a closed issue and lines older than the closure', () => {
       writer: noWriter,
     })
 
-    expect(issues.filed()).toHaveLength(0)
-    expect(issues.comments()).toHaveLength(0)
-    expect(outcome.quiet).toBe(1)
     expect(outcome.regressions).toBe(0)
+    expect(issues.reopened()).toEqual([])
+    expect(issues.filed()).toHaveLength(0)
   })
 })
 

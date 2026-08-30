@@ -1,0 +1,1 @@
+ALTER TABLE "log_defects" ADD COLUMN "quiet_closed_at" timestamp with time zone;

@@ -6,6 +6,7 @@ import {
   DEFECT_WINDOW_SECONDS,
   MAX_ISSUES_PER_DAY,
   MAX_ISSUES_PER_RUN,
+  QUIET_CLOSE_WINDOW_SECONDS,
   closedIssueFor,
   decide,
   defectIssue,
@@ -33,8 +34,11 @@ import {
  * so a bad afternoon at GitHub would produce a board full of duplicates about a
  * Colony that was fine.
  *
- * **It never closes anything.** Whether a defect is dealt with is a person's
- * call. That half of the Watch Agent's design is right and is kept verbatim.
+ * **It closes only its own measured quiet condition.** Whether an error was
+ * dealt with remains a person's call; after fourteen consecutive days with no
+ * exact matching line, the detector can say only the measurable thing — the
+ * signature is quiet — and close the issue it filed. A later matching line
+ * reopens that same identity.
  *
  * **It files into Inbox, by not asking for anything else.** A machine's finding
  * is a finding, not a specification; the board's own automation puts a new issue
@@ -57,6 +61,12 @@ export interface DefectStore {
   filed(signature: string, issueUrl: string, regression: boolean): Promise<void>
   /** Say a recurrence was noted, so the next one waits a day. */
   commented(signature: string): Promise<void>
+  /** Read one signature without touching its last-seen timestamp. */
+  find(signature: string): Promise<DefectHistory['known']>
+  /** Record that this detector closed the issue after the quiet window. */
+  quietClosed(signature: string): Promise<void>
+  /** Clear that marker after the same issue was reopened. */
+  reopened(signature: string): Promise<void>
   /** How many issues this detector filed since a moment. The per-day cap reads it. */
   filedSince(since: string): Promise<number>
 }
@@ -75,6 +85,10 @@ export interface WatchOutcome {
   readonly seen: number
   readonly filed: number
   readonly commented: number
+  /** Issues closed because their exact signature was quiet for fourteen days. */
+  readonly closed: number
+  /** Quiet-closed issues brought back under the same signature identity. */
+  readonly reopened: number
   /** Known, still failing, and already said today. Nothing new to report. */
   readonly quiet: number
   readonly regressions: number
@@ -102,6 +116,8 @@ export async function watchLogs(deps: WatchDependencies): Promise<WatchOutcome> 
     seen: 0,
     filed: 0,
     commented: 0,
+    closed: 0,
+    reopened: 0,
     quiet: 0,
     regressions: 0,
     withheld: 0,
@@ -125,22 +141,56 @@ export async function watchLogs(deps: WatchDependencies): Promise<WatchOutcome> 
   }
 
   const signatures = await deps.logs.signatures(DEFECT_WINDOW_SECONDS)
-  if (signatures.length === 0) return empty
+
+  /**
+   * **Settlement reads the live source even when the ordinary hour is empty**
+   * (`kolonie-docs#561`, frozen decision 1). Returning on an empty current
+   * window was correct while this pass only filed; it would make a quiet issue
+   * impossible to close. Open log-signature issues are the bounded set worth
+   * measuring, and each is counted by its exact first-line identity across the
+   * whole fourteen-day window. A failed or partial Loki read throws before
+   * `Issues.close`, so absence of evidence can never become evidence of absence.
+   */
+  const [corpus, closed] = await Promise.all([deps.issues.open(), deps.issues.closed()])
+  const open = corpus.issues
+  let quietClosed = 0
+  for (const issue of open) {
+    const signature = logSignatureFrom(issue)
+    if (signature === undefined) continue
+    if (corpus.unreadable.includes(issue.repository)) continue
+
+    const count = await deps.logs.countExact(signature, QUIET_CLOSE_WINDOW_SECONDS)
+    if (count !== 0) continue
+
+    const known = await deps.store.find(signature)
+    if (known === undefined || known.issueUrl !== issue.url) continue
+    const lastSeen = Date.parse(known.lastSeenAt)
+    if (!Number.isFinite(lastSeen) || now() - lastSeen < QUIET_CLOSE_WINDOW_SECONDS * 1_000) {
+      continue
+    }
+
+    const didClose = await deps.issues.close(issue.url, quietClosingComment(signature))
+    if (didClose) {
+      await deps.store.quietClosed(signature)
+      quietClosed++
+    }
+  }
+
+  if (signatures.length === 0) return { ...empty, closed: quietClosed }
 
   const knownBefore = await deps.store.seen(
     signatures.map((s) => ({ signature: s.signature, service: s.service, occurrences: s.count })),
   )
 
-  const [corpus, closed] = await Promise.all([deps.issues.open(), deps.issues.closed()])
-  const open = corpus.issues
-
   const dayAgo = new Date(now() - 86_400_000).toISOString()
   const filedToday = await deps.store.filedSince(dayAgo)
 
-  const counts = { ...empty, seen: signatures.length } as {
+  const counts = { ...empty, seen: signatures.length, closed: quietClosed } as {
     seen: number
     filed: number
     commented: number
+    closed: number
+    reopened: number
     quiet: number
     regressions: number
     withheld: number
@@ -211,6 +261,16 @@ export async function watchLogs(deps: WatchDependencies): Promise<WatchOutcome> 
       continue
     }
 
+    if (action.kind === 'reopen') {
+      const report = await assemble(signature, history, deps, evidence)
+      const back = await deps.issues.reopen(action.issue.url, quietReopeningComment(report))
+      if (back) {
+        await deps.store.reopened(signature.signature)
+        counts.reopened++
+      }
+      continue
+    }
+
     // The caps, and they are checked here rather than before the loop so that a
     // recurrence — which writes a comment and not an issue — is never withheld.
     if (counts.filed >= MAX_ISSUES_PER_RUN || filedToday + counts.filed >= MAX_ISSUES_PER_DAY) {
@@ -266,6 +326,33 @@ export async function watchLogs(deps: WatchDependencies): Promise<WatchOutcome> 
   }
 
   return counts
+}
+
+function logSignatureFrom(issue: { readonly body: string }): string | undefined {
+  const first = issue.body.split('\n', 1)[0]?.trim()
+  if (first === undefined) return undefined
+  const match = /^<!-- log-signature: (.+) -->$/.exec(first)
+  return match?.[1]
+}
+
+function quietClosingComment(signature: string): string {
+  return [
+    `\`${signature}\` has been quiet for 14 consecutive days; closing.`,
+    '',
+    'The live log source contained exactly zero matching lines across that whole window. ' +
+      'This is the detector settling its own measured condition, not a judgement that the issue was fixed.',
+    '',
+    'If the exact signature returns, this issue is reopened under the same identity rather than filed again.',
+  ].join('\n')
+}
+
+function quietReopeningComment(report: DefectReport): string {
+  return [
+    `\`${report.signature.signature}\` returned after its quiet close: **${report.signature.count}** ` +
+      `line(s) in the last hour, most recently at ${report.evidence.lastAt ?? 'an unrecorded moment'}.`,
+    '',
+    'This is the same exact log-signature identity. Reopening this issue keeps the recurrence history together.',
+  ].join('\n')
 }
 
 /**

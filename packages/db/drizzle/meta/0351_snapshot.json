@@ -1,5 +1,5 @@
 {
-  "id": "02439712-1ea8-459f-962e-0156ac7143dd",
+  "id": "daba594f-4bbd-4cab-951d-e842ca1a486a",
   "prevId": "51b93d27-62fa-4474-b94f-b2824e8be841",
   "version": "7",
   "dialect": "postgresql",
@@ -21440,6 +21440,27 @@
             },
             {
               "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "workplace_card_links_kind_ref": {
+          "name": "workplace_card_links_kind_ref",
+          "columns": [
+            {
+              "expression": "kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "ref",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

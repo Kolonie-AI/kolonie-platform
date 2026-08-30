@@ -12,4 +12,5 @@ CREATE TABLE "workplace_card_links" (
 --> statement-breakpoint
 ALTER TABLE "workplace_card_links" ADD CONSTRAINT "workplace_card_links_card_id_workplace_cards_id_fk" FOREIGN KEY ("card_id") REFERENCES "public"."workplace_cards"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "workplace_card_links_card_kind_ref" ON "workplace_card_links" USING btree ("card_id","kind","ref");--> statement-breakpoint
-CREATE INDEX "workplace_card_links_card_idx" ON "workplace_card_links" USING btree ("card_id","created_at");
+CREATE INDEX "workplace_card_links_card_idx" ON "workplace_card_links" USING btree ("card_id","created_at");--> statement-breakpoint
+CREATE INDEX "workplace_card_links_kind_ref" ON "workplace_card_links" USING btree ("kind","ref");

@@ -1943,6 +1943,16 @@ describe('schema', () => {
       ])
     })
 
+    it('indexes (kind, ref) so cards referencing a target are findable without a scan', async () => {
+      const indexes = await db.execute<{ indexname: string }>(
+        sql`select indexname from pg_indexes
+             where schemaname = 'public' and tablename = 'workplace_card_links'`,
+      )
+      expect(indexes.map((r) => r.indexname)).toEqual(
+        expect.arrayContaining(['workplace_card_links_kind_ref']),
+      )
+    })
+
     it('does not create a workplace_lists table, and does not alter tasks', async () => {
       const extra = await db.execute<{ table_name: string }>(
         sql`select table_name from information_schema.tables

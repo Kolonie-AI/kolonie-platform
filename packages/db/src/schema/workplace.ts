@@ -390,6 +390,7 @@ export const workplaceCardLinks = pgTable(
   (table) => [
     uniqueIndex('workplace_card_links_card_kind_ref').on(table.cardId, table.kind, table.ref),
     index('workplace_card_links_card_idx').on(table.cardId, table.createdAt),
+    index('workplace_card_links_kind_ref').on(table.kind, table.ref),
     check(
       'workplace_card_links_kind_is_known',
       sql`${table.kind} in (${oneOf(WORKPLACE_LINK_KINDS)})`,

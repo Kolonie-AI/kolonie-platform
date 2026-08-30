@@ -54,6 +54,8 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
     connections,
     messaging,
     playbooks,
+    boards,
+    cards,
     website,
     webServer,
     wake,
@@ -274,6 +276,11 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
           // tool at all, which is how eight of them went missing from a
           // production door that reported the revision that built them.
           ...(playbooks === undefined ? {} : { playbooks }),
+          // The Workplace ports (`#1761`). Absent registers no
+          // `kolonie.workplace` at all — the same class of omission `#1174`
+          // caught for playbooks.
+          ...(boards === undefined ? {} : { boards }),
+          ...(cards === undefined ? {} : { cards }),
           website,
           webServer,
           wake,

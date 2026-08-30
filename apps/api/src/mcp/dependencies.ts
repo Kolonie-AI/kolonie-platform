@@ -19,6 +19,8 @@ import type { Following } from '../following.js'
 import type { CitizenConnections } from '../connections.js'
 import type { CitizenMessaging } from '../messaging.js'
 import type { PlaybookDependencies } from '../playbooks.js'
+import type { WorkplaceBoards } from '../workplace-boards.js'
+import type { WorkplaceCards } from '../workplace-cards.js'
 import type { SkillNotes } from '../skills.js'
 import type { WakeupSource } from '../wakeup.js'
 import type { ArtefactDependencies } from '../artefact.js'
@@ -284,6 +286,18 @@ export interface McpDependencies {
    * offer nothing rather than an empty promise.
    */
   readonly playbooks?: PlaybookDependencies
+  /**
+   * Private Workplace boards (`#1761`). Optional with `cards`: a deployment
+   * that wired none registers no `kolonie.workplace`, which is D-013's way of
+   * switching a surface off. The same ports `routes/workplace.ts` holds — this
+   * tool is an adapter, not a second implementation.
+   */
+  readonly boards?: WorkplaceBoards
+  /**
+   * Private Workplace cards (`#1761`). Optional with `boards`. Appended, per
+   * the house rule on `citizens`.
+   */
+  readonly cards?: WorkplaceCards
   /**
    * The one line a citizen did not ask for — see `hints.ts` (`#231`).
    *

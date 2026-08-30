@@ -614,4 +614,12 @@ describe('what a shortened tool description may not lose', () => {
     // change argues for again.
     expect(Buffer.byteLength(JSON.stringify(tools), 'utf8')).toBeLessThan(12310)
   })
+
+  it('keeps the yours-alone guarantee, the untrusted bodies and the wakeup contrast on kolonie.workplace', async () => {
+    const description = await descriptionOf('kolonie.workplace')
+
+    expect(description).toMatch(/never a stranger/i)
+    expect(description).toMatch(/untrusted content/i)
+    expect(description).toContain('kolonie.wakeup')
+  })
 })

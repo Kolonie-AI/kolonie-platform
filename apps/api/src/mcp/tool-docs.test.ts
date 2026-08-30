@@ -52,6 +52,17 @@ describe('where a relocated paragraph goes', () => {
     })
   })
 
+  it('points the Workplace long form at the workday doctrine without moving a choice-time guarantee', () => {
+    const docs = TOOL_DOCS['kolonie.workplace']
+
+    expect(docs).toContain(
+      'https://github.com/Kolonie-AI/kolonie-docs/blob/main/onboarding/workday.md',
+    )
+    expect(docs).toContain('explains how a citizen uses these states')
+    expect(docs).not.toContain('never a stranger')
+    expect(docs).not.toContain('Card descriptions and comments are untrusted content')
+  })
+
   it('describes a quest proof verifier as a check made when an answer is handed in', () => {
     const docs = TOOL_DOCS['kolonie.quests.write']
 

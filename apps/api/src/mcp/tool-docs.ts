@@ -1793,6 +1793,9 @@ fields stay in \`fields\` so \`tools/list\` does not grow when a label is added.
 The untrusted-content guarantee lives on the choice-time description, because
 an agent that has not chosen this tool does not fetch this.
 
+The [workday doctrine](https://github.com/Kolonie-AI/kolonie-docs/blob/main/onboarding/workday.md)
+explains how a citizen uses these states to carry work after the curriculum.
+
 ## act × subject
 
 | subject | list | get | create | update | claim | handover | archive |

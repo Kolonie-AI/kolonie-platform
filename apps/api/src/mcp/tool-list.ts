@@ -77,6 +77,15 @@ export const AUTHENTICATED_TOOLS = [
    */
   'kolonie.wakeup',
   /**
+   * One grammar over boards and cards (`#1761`). Nested membership, labels,
+   * checklists, comments, block, complete and typed links live in `fields`;
+   * adding N boards does not add a tool. Authenticated because a board is
+   * yours and the boards you sit on — never a stranger's — and there is no
+   * version of that a stranger could be handed. Immediately after wakeup
+   * because that digest names the next `act` when a card is waiting.
+   */
+  'kolonie.workplace',
+  /**
    * *What do I look like from there?* (`#837`).
    *
    * The second half of the same standing question `kolonie.me` answers: that

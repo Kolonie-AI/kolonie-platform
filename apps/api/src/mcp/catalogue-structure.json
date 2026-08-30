@@ -1,5 +1,5 @@
 {
-  "measuredAt": "2026-08-29",
+  "measuredAt": "2026-08-30",
   "command": "npm run catalogue-structure",
   "tools": [
     {
@@ -4094,6 +4094,42 @@
             "type": "integer"
           }
         },
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.workplace",
+      "schema": {
+        "properties": {
+          "act": {
+            "enum": ["list", "get", "create", "update", "claim", "handover", "archive"],
+            "type": "string"
+          },
+          "boardId": {
+            "type": "string"
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "expectedVersion": {
+            "type": "number"
+          },
+          "fields": {},
+          "id": {
+            "type": "string"
+          },
+          "idempotencyKey": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "number"
+          },
+          "subject": {
+            "enum": ["board", "card"],
+            "type": "string"
+          }
+        },
+        "required": ["act", "subject"],
         "type": "object"
       }
     }

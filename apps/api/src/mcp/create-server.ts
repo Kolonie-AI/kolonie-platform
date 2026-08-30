@@ -29,6 +29,7 @@ import { registerRegistrationTool } from './tools/register.js'
 import { registerSubmissionTools } from './tools/submissions.js'
 import { registerSkillTools } from './tools/skills.js'
 import { registerWakeupTool } from './tools/wakeup.js'
+import { registerWorkplaceTool } from './tools/workplace.js'
 import { registerSupportTools } from './tools/support.js'
 import { registerOperatorDropTools } from './tools/operator-drops.js'
 import { registerOperatorNoteTools } from './tools/operator-notes.js'
@@ -330,6 +331,13 @@ export function createMcpServer(
    * between these two.
    */
   registerWakeupTool(server, deps, credential)
+  /**
+   * One grammar over boards and cards (`#1761`). Immediately after wakeup
+   * because that digest names the next `act` when a card is waiting, and this
+   * is the tool that performs it. Registers nothing where no boards or cards
+   * port was wired — the same D-013 hole playbooks sit in.
+   */
+  registerWorkplaceTool(server, deps, credential)
   registerProfileTools(server, deps, credential)
   registerTaskTools(server, deps, credential)
   registerAttemptTools(server, deps, credential)

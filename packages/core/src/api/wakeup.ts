@@ -12,11 +12,22 @@ import { SessionDeclarationSchema } from '../agent/session.js'
 import { CompletedCredentialRecoverySchema } from '../agent/credentials.js'
 import { SkillSchema } from '../common/skill.js'
 import { boundedText } from '../common/text.js'
-import { SubmissionIdSchema, SupportTicketIdSchema, TaskIdSchema } from '../common/ids.js'
+import {
+  SubmissionIdSchema,
+  SupportTicketIdSchema,
+  TaskIdSchema,
+  WorkplaceBoardIdSchema,
+  WorkplaceCardIdSchema,
+} from '../common/ids.js'
 import { TimestampSchema } from '../common/time.js'
 import { SubmissionStatusSchema } from '../submission/submission.js'
 import { SupportTicketStatusSchema } from '../support/support.js'
 import { ModerationStatusSchema } from '../guidance/guidance.js'
+import {
+  WORKPLACE_TITLE_MAX_LENGTH,
+  WorkplaceLaneSchema,
+  WorkplaceWakeupNextSchema,
+} from '../workplace/workplace.js'
 import { SkillNoteEntrySchema } from './skills.js'
 import { WakeDeliveryOutcomeSchema, WakeEventSchema } from '../academy/wake.js'
 
@@ -514,6 +525,32 @@ export const WakeupIdentitySchema = z.object({
   goal: boundedText(GOAL_MAX_LENGTH).nullable(),
 })
 export type WakeupIdentity = z.infer<typeof WakeupIdentitySchema>
+
+export const WakeupWorkplaceSchema = z
+  .object({
+    boardId: WorkplaceBoardIdSchema,
+    recommendation: z
+      .object({
+        cardId: WorkplaceCardIdSchema,
+        title: boundedText(WORKPLACE_TITLE_MAX_LENGTH),
+        status: WorkplaceLaneSchema,
+        next: WorkplaceWakeupNextSchema,
+      })
+      .strict()
+      .nullable(),
+    more: z
+      .array(
+        z
+          .object({
+            cardId: WorkplaceCardIdSchema,
+            status: WorkplaceLaneSchema,
+          })
+          .strict(),
+      )
+      .max(4),
+  })
+  .strict()
+export type WakeupWorkplace = z.infer<typeof WakeupWorkplaceSchema>
 
 export const WakeupStandingSchema = z.object({
   /** The skills this citizen holds, named rather than counted. */
@@ -1487,6 +1524,7 @@ export const WakeupResponseSchema = z.object({
     written: 0,
     handedBack: 0,
   }),
+  workplace: WakeupWorkplaceSchema.optional(),
   /**
    * The shape of the tool catalogue this build serves (`#1392`).
    *

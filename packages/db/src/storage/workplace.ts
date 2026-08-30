@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, lte, ne, sql } from 'drizzle-orm'
+import { and, eq, inArray, isNull, lte, ne, or, sql } from 'drizzle-orm'
 import {
   AgentIdSchema,
   DEFAULT_PAGE_SIZE,
@@ -42,6 +42,7 @@ import {
   type WorkplaceLinkTarget,
   type WorkplaceMembership,
   type WorkplaceResolvedLink,
+  type WakeupWorkplace,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 import {
@@ -580,6 +581,85 @@ export async function listBoardsFor(
     outcome: 'listed',
     items: page,
     nextCursor: rows.length > limit ? encodeBoardCursor(rows[limit - 1]!.board) : null,
+  }
+}
+
+export async function workplaceWakeup(
+  db: Database,
+  callerId: AgentId,
+): Promise<WakeupWorkplace | undefined> {
+  const [board] = await db
+    .select({ id: workplaceBoards.id })
+    .from(workplaceBoards)
+    .innerJoin(agents, eq(agents.id, workplaceBoards.ownerId))
+    .where(
+      and(
+        eq(agents.status, 'citizen'),
+        eq(workplaceBoards.ownerId, callerId),
+        eq(workplaceBoards.kind, 'default'),
+        isNull(workplaceBoards.archivedAt),
+      ),
+    )
+    .limit(1)
+  if (board === undefined) return undefined
+
+  const rank = sql<number>`case
+    when ${workplaceCards.status} = 'in_progress' and ${workplaceCards.ownerId} = ${callerId} then 0
+    when ${workplaceCards.status} = 'ready' then 1
+    when ${workplaceCards.status} = 'blocked' and ${workplaceCards.ownerId} = ${callerId} then 2
+    else 3
+  end`
+  const cards = await db
+    .select({
+      id: workplaceCards.id,
+      title: workplaceCards.title,
+      status: workplaceCards.status,
+      ownerId: workplaceCards.ownerId,
+      seedKey: workplaceCards.seedKey,
+      position: workplaceCards.position,
+      createdAt: workplaceCards.createdAt,
+    })
+    .from(workplaceCards)
+    .where(
+      and(
+        eq(workplaceCards.boardId, board.id),
+        isNull(workplaceCards.archivedAt),
+        or(
+          and(eq(workplaceCards.status, 'in_progress'), eq(workplaceCards.ownerId, callerId)),
+          eq(workplaceCards.status, 'ready'),
+          and(eq(workplaceCards.status, 'blocked'), eq(workplaceCards.ownerId, callerId)),
+          and(eq(workplaceCards.status, 'inbox'), sql`${workplaceCards.seedKey} is not null`),
+        ),
+      ),
+    )
+    .orderBy(rank, workplaceCards.createdAt, workplaceCards.position, workplaceCards.id)
+    .limit(5)
+
+  const first = cards[0]
+  return {
+    boardId: WorkplaceBoardIdSchema.parse(board.id),
+    recommendation:
+      first === undefined
+        ? null
+        : {
+            cardId: WorkplaceCardIdSchema.parse(first.id),
+            title: first.title,
+            status: WorkplaceLaneSchema.parse(first.status),
+            next: {
+              tool: 'kolonie.workplace',
+              arguments: { act: 'get', subject: 'card', id: first.id },
+            },
+          },
+    more: cards
+      .slice(1, 5)
+      .filter(
+        (card) =>
+          card.status === 'ready' || card.status === 'in_progress' || card.status === 'blocked',
+      )
+      .map((card) => ({
+        cardId: WorkplaceCardIdSchema.parse(card.id),
+        status: WorkplaceLaneSchema.parse(card.status),
+      })),
   }
 }
 

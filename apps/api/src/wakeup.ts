@@ -6,6 +6,7 @@ import {
   walkAsk,
   wakeupHasUrgentDelta,
   wakeupMessagingNextAction,
+  silentLog,
   WAKEUP_FINAL_LINE,
   type AgentId,
   type WakeupMessagingDelta,
@@ -23,11 +24,13 @@ import {
   unrecordedSuspensionStanding,
   type WakeupWakeChannel,
   type WakeupWantedAccount,
+  type WakeupWorkplace,
 } from '@kolonie-ai/core'
 import {
   countWaitingOperatorReplies,
   agentProfile,
   escalationFactsFor,
+  materialiseDue,
   messagingWakeupDelta,
   movedThreadFor,
   vaultSharesWakeupDelta,
@@ -40,6 +43,7 @@ import {
   wakeupStanding,
   suspensionStandingOf,
   wantedAccountsFor,
+  workplaceWakeup,
   type Database,
 } from '@kolonie-ai/db'
 import { databaseContributionQuality } from './contribution-quality.js'
@@ -127,6 +131,7 @@ export interface WakeupSource {
    * position as though it were a movement.
    */
   standing(agentId: AgentId): Promise<WakeupStanding>
+  prepareWorkplace?(agentId: AgentId, now: string): Promise<WakeupWorkplace | undefined>
   /**
    * The abusive-contribution early warning, or `null` (`#1262`).
    *
@@ -236,6 +241,7 @@ export interface WakeupSource {
       // is standing self-declaration, not news inside the requested window.
       | 'identity'
       | 'standing'
+      | 'workplace'
       | 'pays'
       // Computed in `wakeup` from `open` and the delta this port returned
       // (`#1206`). A source that answered it would be answering about the board
@@ -293,6 +299,7 @@ const NOTHING_OPEN: WakeupOpen = {
 /** Wire the digest to a real database. */
 export function databaseWakeup(db: Database, rechecks?: RecheckDependencies): WakeupSource {
   const quality = databaseContributionQuality(db)
+  const log = rechecks?.log ?? silentLog
   return {
     previousSessionStart: (agentId) => previousSessionStart(db, agentId),
     waitingOperatorReplies: (agentId) => countWaitingOperatorReplies(db, agentId),
@@ -365,6 +372,18 @@ export function databaseWakeup(db: Database, rechecks?: RecheckDependencies): Wa
       }
     },
     standing: (agentId) => wakeupStanding(db, agentId),
+    prepareWorkplace: async (agentId, now) => {
+      try {
+        await materialiseDue(db, agentId, now)
+        return await workplaceWakeup(db, agentId)
+      } catch (error) {
+        log.error('Could not prepare the Workplace wakeup handoff.', error, {
+          event: 'workplace.wakeup.failed',
+          agentId,
+        })
+        return undefined
+      }
+    },
     recordAnswer: (agentId, fingerprint, quiet) =>
       recordWakeupAnswer(db, agentId, fingerprint, quiet),
     escalationFacts: (agentId) => escalationFactsFor(db, agentId),
@@ -648,6 +667,15 @@ export async function wakeup(
    * due account is an open obligation rather than news — so the two cannot race.
    */
   await source.startDueRechecks?.(agentId)
+
+  /**
+   * Recurrence fires before the recommendation is computed (`#1763`, `#1762`),
+   * so a card due this morning is one the citizen is offered this morning
+   * rather than at its next waking. `prepareWorkplace` swallows its own
+   * failures: a board the Colony could not read costs the citizen nothing but
+   * the handoff, and never the digest it came for.
+   */
+  const workplace = await source.prepareWorkplace?.(agentId, new Date().toISOString())
 
   const previous = await source.previousSessionStart(agentId)
 
@@ -991,6 +1019,7 @@ export async function wakeup(
        */
       ...(followingNew === undefined ? {} : { followingNew }),
       contributionQualityWarning,
+      ...(workplace === undefined ? {} : { workplace }),
     },
   }
 }

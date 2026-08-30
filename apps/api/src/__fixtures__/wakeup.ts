@@ -38,6 +38,7 @@ type Changes = Omit<
   // Current self-declaration has its own standing-state source call (`#1740`).
   | 'identity'
   | 'standing'
+  | 'workplace'
   | 'pays'
   // Computed in `wakeup` from `open` and the delta this port returned (`#1206`).
   // A source that answered it would be answering about the board as well, which

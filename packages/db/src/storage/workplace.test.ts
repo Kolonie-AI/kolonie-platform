@@ -40,6 +40,7 @@ import {
   renameBoard,
   requestReview,
   updateCard,
+  workplaceWakeup,
 } from './workplace.js'
 import { toTimestamp } from './rows.js'
 import {
@@ -1250,6 +1251,97 @@ describe('workplace storage', () => {
         ref: 'mail.tm',
       }),
     ).toEqual({ outcome: 'unresolvable' })
+  })
+})
+
+describe('workplace wakeup recommendation', () => {
+  let db: Database
+  let citizenId: AgentId
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+    const registered = await registerAgent(db, {
+      name: 'wakeup-citizen',
+      platform: 'openclaw',
+      operator: null,
+    })
+    if (registered.outcome !== 'registered') throw new Error('citizen missing')
+    citizenId = registered.agent.id
+    await db.update(agents).set({ status: 'citizen' }).where(eq(agents.id, citizenId))
+  })
+
+  it('ranks owned in-progress above ready and returns a ready-to-send get call', async () => {
+    const board = await createDefaultBoard(db, { callerId: citizenId, title: 'Default board' })
+    const ready = await createCard(db, {
+      callerId: citizenId,
+      boardId: board.id,
+      title: 'Old ready',
+      status: 'ready',
+    })
+    const live = await createCard(db, {
+      callerId: citizenId,
+      boardId: board.id,
+      title: 'Live work',
+      status: 'ready',
+    })
+    if (ready.outcome !== 'created' || live.outcome !== 'created') throw new Error('card missing')
+    const claimed = await claimCard(db, {
+      callerId: citizenId,
+      cardId: live.card.id,
+      expectedVersion: live.card.version,
+    })
+    if (claimed.outcome !== 'claimed') throw new Error('claim failed')
+
+    expect(await workplaceWakeup(db, citizenId)).toEqual({
+      boardId: board.id,
+      recommendation: {
+        cardId: live.card.id,
+        title: 'Live work',
+        status: 'in_progress',
+        next: {
+          tool: 'kolonie.workplace',
+          arguments: { act: 'get', subject: 'card', id: live.card.id },
+        },
+      },
+      more: [{ cardId: ready.card.id, status: 'ready' }],
+    })
+  })
+
+  it('bounds fifty ready cards to one recommendation and four ids', async () => {
+    const board = await createDefaultBoard(db, { callerId: citizenId, title: 'Default board' })
+    for (let index = 0; index < 50; index += 1) {
+      await createCard(db, {
+        callerId: citizenId,
+        boardId: board.id,
+        title: `Ready ${index}`,
+        status: 'ready',
+      })
+    }
+
+    const result = await workplaceWakeup(db, citizenId)
+    expect(result?.recommendation?.title).toBe('Ready 0')
+    expect(result?.more).toHaveLength(4)
+  })
+
+  it('omits candidates even if a default board exists', async () => {
+    const board = await createDefaultBoard(db, { callerId: citizenId, title: 'Default board' })
+    await createCard(db, {
+      callerId: citizenId,
+      boardId: board.id,
+      title: 'Ready',
+      status: 'ready',
+    })
+    await db.update(agents).set({ status: 'candidate' }).where(eq(agents.id, citizenId))
+
+    expect(await workplaceWakeup(db, citizenId)).toBeUndefined()
   })
 })
 

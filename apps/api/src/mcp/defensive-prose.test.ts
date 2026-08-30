@@ -72,9 +72,12 @@ const CEILING_BYTES = 15_000
  * `sessionId`, `tokens` and `runtimeTools` on the session home, using the same
  * descriptions and bounds as `kolonie.me`; the declaration's privacy and
  * non-scoring guarantee moves with them.
+ * Moved on 2026-08-30 from 2,414 to 2,493 bytes. `#1763` adds one sentence so
+ * a citizen choosing this call knows `workplace` names at most one next
+ * `kolonie.workplace` call, and nothing else about the Workplace grammar.
  */
-const WAKEUP_PROSE_BYTES = 2414
-const WAKEUP_PROSE_SHA256 = 'fe3ce5fbafbd485d523a42e89a39e951996e8a27d1de71d6ce20dd0a1dd107dd'
+const WAKEUP_PROSE_BYTES = 2493
+const WAKEUP_PROSE_SHA256 = 'e7bd5bc3c2a278657e31ae9eccfdbac18af3ded4bd5d30796cf92e1e47220a2b'
 
 /** The catalogue a connected citizen is handed — the tier the prose is paid for at. */
 const servedCatalogue = async (): Promise<readonly PublishedTool[]> => {
@@ -174,6 +177,9 @@ describe('the catalogue this build serves', () => {
     expect(description).toContain('in `open`')
     expect(description).toContain('Reading it changes nothing')
     expect(description).toContain('`actionableNow` is the field to branch on')
+    expect(description).toContain(
+      '`workplace` field names at most one next `kolonie.workplace` call',
+    )
   })
 
   it('serves kolonie.wakeup byte-identical', async () => {

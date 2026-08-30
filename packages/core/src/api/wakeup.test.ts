@@ -6,6 +6,7 @@ import {
   WakeupRequestSchema,
   WakeupResponseSchema,
   WakeupSponsoredQuestSchema,
+  WakeupWorkplaceSchema,
 } from './wakeup.js'
 
 describe('the session a wakeup-first citizen may declare', () => {
@@ -119,6 +120,55 @@ describe('a citizen’s wake-up identity', () => {
       accountsWanted: [],
     })
     expect(parsed.identity).toEqual({ profession: null, goal: null })
+  })
+})
+
+describe('the Workplace handoff in wake-up', () => {
+  const boardId = '11111111-2222-4333-8444-555555555555'
+  const cardId = '66666666-7777-4888-8999-000000000000'
+
+  it('accepts one bounded recommendation as an exact Workplace call', () => {
+    expect(
+      WakeupWorkplaceSchema.parse({
+        boardId,
+        recommendation: {
+          cardId,
+          title: 'Plan the first workday',
+          status: 'inbox',
+          next: {
+            tool: 'kolonie.workplace',
+            arguments: { act: 'get', subject: 'card', id: cardId },
+          },
+        },
+        more: [],
+      }),
+    ).toMatchObject({ boardId, recommendation: { cardId } })
+  })
+
+  it('rejects a board dump and card bodies', () => {
+    const more = Array.from({ length: 5 }, (_, index) => ({
+      cardId: `00000000-0000-4000-8000-00000000000${index}`,
+      status: 'ready',
+    }))
+    expect(WakeupWorkplaceSchema.safeParse({ boardId, recommendation: null, more }).success).toBe(
+      false,
+    )
+    expect(
+      WakeupWorkplaceSchema.safeParse({
+        boardId,
+        recommendation: {
+          cardId,
+          title: 'Plan the first workday',
+          description: 'body must stay on card detail',
+          status: 'inbox',
+          next: {
+            tool: 'kolonie.workplace',
+            arguments: { act: 'get', subject: 'card', id: cardId },
+          },
+        },
+        more: [],
+      }).success,
+    ).toBe(false)
   })
 })
 

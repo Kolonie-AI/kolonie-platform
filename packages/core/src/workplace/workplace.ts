@@ -460,6 +460,19 @@ export const WorkplaceMcpInputSchema = z
   .strict()
 export type WorkplaceMcpInput = z.infer<typeof WorkplaceMcpInputSchema>
 
+export const WorkplaceWakeupNextSchema = z
+  .object({
+    tool: z.literal('kolonie.workplace'),
+    arguments: WorkplaceMcpInputSchema.pick({
+      act: true,
+      subject: true,
+      id: true,
+      boardId: true,
+    }),
+  })
+  .strict()
+export type WorkplaceWakeupNext = z.infer<typeof WorkplaceWakeupNextSchema>
+
 export const WorkplaceBoardSchema = z
   .object({
     id: WorkplaceBoardIdSchema,

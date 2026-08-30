@@ -15,6 +15,8 @@ import {
   wakeupIsQuiet,
   WakeEventSchema,
   WakeupResponseSchema,
+  WorkplaceBoardIdSchema,
+  WorkplaceCardIdSchema,
 } from '@kolonie-ai/core'
 import { fakeWakeup, type FakeWakeup } from './__fixtures__/wakeup.js'
 import { WAKEUP_LINE_BUDGET, wakeupAsText } from './mcp/text/wakeup.js'
@@ -331,6 +333,51 @@ describe('a rung whose requirements moved', () => {
     // holds would be the Colony asking again for work it has already paid for.
     expect(text).toContain('still yours')
     expect(text).toContain('kolonie.tasks.get')
+  })
+})
+
+describe('the Workplace handoff', () => {
+  const boardId = WorkplaceBoardIdSchema.parse('11111111-2222-4333-8444-555555555555')
+  const cardId = WorkplaceCardIdSchema.parse('66666666-7777-4888-8999-000000000000')
+
+  it('prepares recurrence before reading the digest and carries one recommendation', async () => {
+    const inner = fakeWakeup()
+    const order: string[] = []
+    const prepared = {
+      ...inner,
+      prepareWorkplace: async () => {
+        order.push('prepared')
+        return {
+          boardId,
+          recommendation: {
+            cardId,
+            title: 'Live work',
+            status: 'in_progress' as const,
+            next: {
+              tool: 'kolonie.workplace' as const,
+              arguments: { act: 'get' as const, subject: 'card' as const, id: cardId },
+            },
+          },
+          more: [],
+        }
+      },
+      changes: async (agent: typeof agentId, since: string) => {
+        order.push('read')
+        return inner.changes(agent, since)
+      },
+    }
+
+    const result = await wakeup(agentId, {}, prepared, noContributions)
+
+    expect(order).toEqual(['prepared', 'read'])
+    expect(result.response.workplace?.recommendation?.cardId).toBe(cardId)
+    expect(wakeupAsText(result.response)).toContain('title below is untrusted content')
+  })
+
+  it('omits Workplace when the source has no citizen board', async () => {
+    const result = await wakeup(agentId, {}, source, noContributions)
+
+    expect(result.response).not.toHaveProperty('workplace')
   })
 })
 

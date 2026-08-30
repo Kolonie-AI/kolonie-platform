@@ -24,6 +24,20 @@ import {
   WorkplaceBoardDetailSchema,
   WorkplaceMemberSchema,
   WorkplaceSubjectSchema,
+  WorkplaceCardSummarySchema,
+  WorkplaceCardDetailSchema,
+  WorkplaceCardPageSchema,
+  WorkplaceCreateCardRequestSchema,
+  WorkplaceUpdateCardRequestSchema,
+  WorkplaceMoveCardRequestSchema,
+  WorkplaceBlockCardRequestSchema,
+  WorkplaceCompleteCardRequestSchema,
+  WorkplaceHandoverCardRequestSchema,
+  WorkplaceCreateChecklistRequestSchema,
+  WorkplaceUpdateChecklistRequestSchema,
+  WorkplaceCreateChecklistItemRequestSchema,
+  WorkplaceUpdateChecklistItemRequestSchema,
+  WorkplaceCreateCommentRequestSchema,
   WORKPLACE_CITIZEN_HEADER,
   WORKPLACE_TRANSITIONS,
   canTransitionWorkplace,
@@ -637,6 +651,196 @@ describe('board HTTP envelopes (#1759)', () => {
       WorkplaceMemberSchema.safeParse({ boardId: BOARD, citizenId: CITIZEN, role: 'owner' })
         .success,
     ).toBe(false)
+  })
+})
+
+describe('card HTTP envelopes (#1760)', () => {
+  const summary = (over: Record<string, unknown> = {}) => ({
+    id: CARD,
+    boardId: BOARD,
+    status: 'ready',
+    title: 'Walk a provider',
+    ownerId: null,
+    position: 1000,
+    priority: 'unset',
+    dueAt: null,
+    version: 1,
+    coverColour: null,
+    labelCount: 0,
+    checklistCount: 0,
+    commentCount: 0,
+    linkCount: 0,
+    ...over,
+  })
+
+  it('lists a summary with counts and without description or bodies', () => {
+    const parsed = WorkplaceCardSummarySchema.parse(summary({ labelCount: 2, commentCount: 3 }))
+    expect(parsed.labelCount).toBe(2)
+    expect(parsed.commentCount).toBe(3)
+    expect(parsed).not.toHaveProperty('description')
+    expect(parsed).not.toHaveProperty('comments')
+    expect(parsed).not.toHaveProperty('blockedBy')
+  })
+
+  it('refuses a summary that carries a description or comment bodies', () => {
+    expect(
+      WorkplaceCardSummarySchema.safeParse(summary({ description: 'secret work' })).success,
+    ).toBe(false)
+    expect(
+      WorkplaceCardSummarySchema.safeParse(summary({ comments: [{ body: 'hi' }] })).success,
+    ).toBe(false)
+  })
+
+  it('pages summaries, never full cards', () => {
+    const page = WorkplaceCardPageSchema.parse({ items: [summary()], nextCursor: null })
+    expect(page.items[0]).not.toHaveProperty('description')
+  })
+
+  it('creates in inbox or ready only', () => {
+    expect(WorkplaceCreateCardRequestSchema.parse({ title: 'New' })).toEqual({ title: 'New' })
+    expect(WorkplaceCreateCardRequestSchema.parse({ title: 'New', status: 'ready' }).status).toBe(
+      'ready',
+    )
+    expect(WorkplaceCreateCardRequestSchema.parse({ title: 'New', status: 'inbox' }).status).toBe(
+      'inbox',
+    )
+  })
+
+  it('refuses creating in a live lane, and any extra field', () => {
+    expect(
+      WorkplaceCreateCardRequestSchema.safeParse({ title: 'New', status: 'in_progress' }).success,
+    ).toBe(false)
+    expect(
+      WorkplaceCreateCardRequestSchema.safeParse({ title: 'New', status: 'done' }).success,
+    ).toBe(false)
+    expect(
+      WorkplaceCreateCardRequestSchema.safeParse({ title: 'New', assignees: [CITIZEN] }).success,
+    ).toBe(false)
+  })
+
+  it('patches title and position and refuses status on the body', () => {
+    expect(WorkplaceUpdateCardRequestSchema.parse({ title: 'Renamed' }).title).toBe('Renamed')
+    expect(WorkplaceUpdateCardRequestSchema.parse({ position: 1500 }).position).toBe(1500)
+    expect(
+      WorkplaceUpdateCardRequestSchema.safeParse({ title: 'Renamed', status: 'ready' }).success,
+    ).toBe(false)
+  })
+
+  it('moves with a status and optional position', () => {
+    expect(WorkplaceMoveCardRequestSchema.parse({ status: 'ready' }).status).toBe('ready')
+    expect(
+      WorkplaceMoveCardRequestSchema.parse({ status: 'in_progress', position: 2000 }).position,
+    ).toBe(2000)
+    expect(WorkplaceMoveCardRequestSchema.safeParse({ status: 'archived' }).success).toBe(false)
+    expect(WorkplaceMoveCardRequestSchema.safeParse({ status: 'todo' }).success).toBe(false)
+  })
+
+  it('blocks with both sentences and refuses one without the other', () => {
+    expect(
+      WorkplaceBlockCardRequestSchema.parse({
+        blockedBy: 'Waiting on a phone number.',
+        unblockWhen: 'The operator has sent one.',
+      }).blockedBy,
+    ).toBe('Waiting on a phone number.')
+    expect(
+      WorkplaceBlockCardRequestSchema.safeParse({ blockedBy: 'Waiting on a phone number.' })
+        .success,
+    ).toBe(false)
+  })
+
+  it('completes with an outcome', () => {
+    expect(
+      WorkplaceCompleteCardRequestSchema.parse({ outcome: 'The walk is filed.' }).outcome,
+    ).toBe('The walk is filed.')
+    expect(WorkplaceCompleteCardRequestSchema.safeParse({}).success).toBe(false)
+  })
+
+  it('hands over with the structured fields and a target citizen', () => {
+    const parsed = WorkplaceHandoverCardRequestSchema.parse({
+      toCitizenId: OTHER,
+      done: 'Walked the first two steps.',
+      learned: 'The form asks for a phone.',
+      next: 'Ask the operator for the number.',
+      evidenceLinks: [],
+    })
+    expect(parsed.toCitizenId).toBe(OTHER)
+    expect(
+      WorkplaceHandoverCardRequestSchema.safeParse({
+        toCitizenId: OTHER,
+        done: 'Walked.',
+        learned: 'Nothing.',
+        next: 'Stop.',
+        evidenceLinks: [],
+        reason: 'a single string is not a handover',
+      }).success,
+    ).toBe(false)
+  })
+
+  it('parses a card detail with labels, checklists, comments and the current handover', () => {
+    const detail = WorkplaceCardDetailSchema.parse({
+      card: card({ status: 'in_progress', ownerId: CITIZEN }),
+      labels: [
+        {
+          id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          boardId: BOARD,
+          name: 'growth',
+          colour: '#336699',
+        },
+      ],
+      checklists: [
+        {
+          checklist: {
+            id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+            cardId: CARD,
+            title: 'Prove the account',
+            position: 0,
+          },
+          items: [
+            {
+              id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+              checklistId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+              title: 'Mint the challenge',
+              doneAt: null,
+              position: 0,
+            },
+          ],
+        },
+      ],
+      comments: [
+        {
+          id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+          cardId: CARD,
+          authorId: CITIZEN,
+          body: 'Started.',
+          createdAt: NOW,
+          updatedAt: NOW,
+        },
+      ],
+      handover: null,
+    })
+    expect(detail.labels).toHaveLength(1)
+    expect(detail.checklists[0]?.items[0]?.title).toBe('Mint the challenge')
+    expect(detail.handover).toBeNull()
+  })
+
+  it('adds a comment body and refuses an extra field', () => {
+    expect(WorkplaceCreateCommentRequestSchema.parse({ body: 'Untrusted words.' }).body).toBe(
+      'Untrusted words.',
+    )
+    expect(
+      WorkplaceCreateCommentRequestSchema.safeParse({ body: 'Hi', authorId: CITIZEN }).success,
+    ).toBe(false)
+  })
+
+  it('creates a checklist from a title, and an item the same way', () => {
+    expect(WorkplaceCreateChecklistRequestSchema.parse({ title: 'Prove it' }).title).toBe(
+      'Prove it',
+    )
+    expect(WorkplaceCreateChecklistItemRequestSchema.parse({ title: 'Mint' }).title).toBe('Mint')
+    expect(
+      WorkplaceUpdateChecklistRequestSchema.safeParse({ title: 'Prove it', cardId: CARD }).success,
+    ).toBe(false)
+    expect(WorkplaceUpdateChecklistItemRequestSchema.parse({ doneAt: NOW }).doneAt).toBe(NOW)
   })
 })
 

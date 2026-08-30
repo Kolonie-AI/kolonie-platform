@@ -8,24 +8,32 @@ import { eraseAgent } from './erasure.js'
 import {
   addMember,
   archiveBoard,
+  archiveCard,
+  attachLabel,
   blockCard,
   claimCard,
   completeCard,
   createBoard,
   createCard,
+  createChecklist,
+  createChecklistItem,
+  createComment,
   createDefaultBoard,
+  deleteChecklist,
   getBoardFor,
   getCard,
   handoverCard,
   listBoardsFor,
   listCards,
+  listComments,
   listMembers,
   moveCard,
   removeMember,
   renameBoard,
+  requestReview,
   updateCard,
 } from './workplace.js'
-import { workplaceCards } from '../schema/index.js'
+import { workplaceCards, workplaceLabels } from '../schema/index.js'
 
 const target = databaseTestTarget()
 const SALT = 'a'.repeat(32)
@@ -226,7 +234,9 @@ describe('workplace storage', () => {
     expect(listed.items).toHaveLength(1)
     expect(listed.items[0]?.title).toBe('One')
     expect(listed.items[0]?.commentCount).toBe(0)
+    expect(listed.items[0]?.linkCount).toBe(0)
     expect(listed.items[0]).not.toHaveProperty('comments')
+    expect(listed.items[0]).not.toHaveProperty('description')
   })
 
   it('claims with one statement: two concurrent claims, exactly one wins', async () => {
@@ -707,5 +717,185 @@ describe('workplace storage', () => {
           .where(eq(workplaceCards.id, created.card.id)),
       /workplace_cards_active_has_owner/,
     )
+  })
+
+  it('moves an ownerless ready card into in_progress by claiming it', async () => {
+    const board = await defaultBoard()
+    const created = await createCard(db, {
+      callerId: owner,
+      boardId: board.id,
+      title: 'Claim by move',
+      status: 'ready',
+    })
+    if (created.outcome !== 'created') throw new Error('card missing')
+    const moved = await moveCard(db, {
+      callerId: owner,
+      cardId: created.card.id,
+      expectedVersion: created.card.version,
+      status: 'in_progress',
+    })
+    expect(moved.outcome).toBe('moved')
+    if (moved.outcome !== 'moved') return
+    expect(moved.card.ownerId).toBe(owner)
+    expect(moved.card.status).toBe('in_progress')
+  })
+
+  it('refuses a move into in_progress when somebody else already owns it', async () => {
+    const board = await defaultBoard()
+    await addMember(db, { callerId: owner, boardId: board.id, citizenId: member })
+    const created = await createCard(db, {
+      callerId: owner,
+      boardId: board.id,
+      title: 'Owned',
+      status: 'ready',
+    })
+    if (created.outcome !== 'created') throw new Error('card missing')
+    const claimed = await claimCard(db, {
+      callerId: owner,
+      cardId: created.card.id,
+      expectedVersion: created.card.version,
+    })
+    if (claimed.outcome !== 'claimed') throw new Error('claim failed')
+    const blocked = await blockCard(db, {
+      callerId: owner,
+      cardId: claimed.card.id,
+      expectedVersion: claimed.card.version,
+      blockedBy: 'Waiting on a phone number.',
+      unblockWhen: 'The operator has sent one.',
+    })
+    if (blocked.outcome !== 'blocked') throw new Error('block failed')
+    const ready = await moveCard(db, {
+      callerId: owner,
+      cardId: blocked.card.id,
+      expectedVersion: blocked.card.version,
+      status: 'ready',
+    })
+    if (ready.outcome !== 'moved') throw new Error('could not return to ready')
+    expect(ready.card.ownerId).toBe(owner)
+    expect(
+      await moveCard(db, {
+        callerId: member,
+        cardId: ready.card.id,
+        expectedVersion: ready.card.version,
+        status: 'in_progress',
+      }),
+    ).toEqual({ outcome: 'handover-required' })
+  })
+
+  it('requests review and archives as the board owner, never from done', async () => {
+    const board = await defaultBoard()
+    const created = await createCard(db, {
+      callerId: owner,
+      boardId: board.id,
+      title: 'Review me',
+      status: 'ready',
+    })
+    if (created.outcome !== 'created') throw new Error('card missing')
+    const claimed = await claimCard(db, {
+      callerId: owner,
+      cardId: created.card.id,
+      expectedVersion: created.card.version,
+    })
+    if (claimed.outcome !== 'claimed') throw new Error('claim failed')
+    const reviewed = await requestReview(db, {
+      callerId: owner,
+      cardId: claimed.card.id,
+      expectedVersion: claimed.card.version,
+    })
+    expect(reviewed.outcome).toBe('reviewed')
+    if (reviewed.outcome !== 'reviewed') return
+    expect(reviewed.card.status).toBe('review')
+
+    const archived = await archiveCard(db, {
+      callerId: owner,
+      cardId: reviewed.card.id,
+      expectedVersion: reviewed.card.version,
+    })
+    expect(archived.outcome).toBe('invalid-transition')
+
+    const back = await moveCard(db, {
+      callerId: owner,
+      cardId: reviewed.card.id,
+      expectedVersion: reviewed.card.version,
+      status: 'ready',
+    })
+    if (back.outcome !== 'moved') throw new Error('could not unclaim')
+    const putAway = await archiveCard(db, {
+      callerId: owner,
+      cardId: back.card.id,
+      expectedVersion: back.card.version,
+    })
+    expect(putAway.outcome).toBe('archived')
+    if (putAway.outcome !== 'archived') return
+    expect(putAway.card.archivedAt).not.toBeNull()
+    expect(putAway.card.status).toBe('ready')
+  })
+
+  it('refuses a member who is not the board owner from archiving', async () => {
+    const board = await defaultBoard()
+    await addMember(db, { callerId: owner, boardId: board.id, citizenId: member })
+    const created = await createCard(db, {
+      callerId: owner,
+      boardId: board.id,
+      title: 'Keep',
+      status: 'inbox',
+    })
+    if (created.outcome !== 'created') throw new Error('card missing')
+    expect(
+      await archiveCard(db, {
+        callerId: member,
+        cardId: created.card.id,
+        expectedVersion: created.card.version,
+      }),
+    ).toEqual({ outcome: 'forbidden' })
+  })
+
+  it('attaches a board label, comments and a checklist, and hides them from a stranger', async () => {
+    const board = await defaultBoard()
+    const created = await createCard(db, { callerId: owner, boardId: board.id, title: 'Tagged' })
+    if (created.outcome !== 'created') throw new Error('card missing')
+    const [label] = await db
+      .insert(workplaceLabels)
+      .values({ boardId: board.id, slug: 'growth', name: 'growth', colour: '#336699' })
+      .returning()
+    if (label === undefined) throw new Error('could not plant a label')
+
+    const attached = await attachLabel(db, {
+      callerId: owner,
+      cardId: created.card.id,
+      labelId: label.id,
+    })
+    expect(attached.outcome).toBe('attached')
+
+    const listed = await createChecklist(db, {
+      callerId: owner,
+      cardId: created.card.id,
+      title: 'Prove it',
+    })
+    expect(listed.outcome).toBe('created')
+    if (listed.outcome !== 'created') return
+    const item = await createChecklistItem(db, {
+      callerId: owner,
+      checklistId: listed.checklist.id,
+      title: 'Mint the challenge',
+    })
+    expect(item.outcome).toBe('created')
+
+    const commented = await createComment(db, {
+      callerId: owner,
+      cardId: created.card.id,
+      body: 'Started.',
+    })
+    expect(commented.outcome).toBe('created')
+
+    const detail = await getCard(db, owner, created.card.id)
+    expect(detail?.labels).toHaveLength(1)
+    expect(detail?.checklists[0]?.items).toHaveLength(1)
+    expect(detail?.comments[0]?.body).toBe('Started.')
+    expect(await getCard(db, stranger, created.card.id)).toBeNull()
+    expect(await listComments(db, stranger, created.card.id)).toEqual({ outcome: 'unknown' })
+    expect(
+      await deleteChecklist(db, { callerId: stranger, checklistId: listed.checklist.id }),
+    ).toEqual({ outcome: 'forbidden' })
   })
 })

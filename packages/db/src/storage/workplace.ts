@@ -13,6 +13,7 @@ import {
   WorkplaceHandoverSchema,
   WorkplaceLabelSchema,
   WorkplaceLaneSchema,
+  WorkplaceCardSummarySchema,
   canTransitionWorkplace,
   claimAllowed,
   handoverAllowed,
@@ -20,6 +21,8 @@ import {
   type AgentId,
   type WorkplaceBoard,
   type WorkplaceCard,
+  type WorkplaceCardDetail,
+  type WorkplaceCardSummary,
   type WorkplaceChecklist,
   type WorkplaceChecklistItem,
   type WorkplaceComment,
@@ -72,23 +75,6 @@ export type WorkplaceHandoverRequired = { readonly outcome: 'handover-required' 
 export type WorkplaceDefaultProtected = { readonly outcome: 'default-board-protected' }
 export type WorkplaceUnknownCitizen = { readonly outcome: 'unknown-citizen' }
 
-export type WorkplaceCardSummary = WorkplaceCard & {
-  readonly labelCount: number
-  readonly checklistCount: number
-  readonly commentCount: number
-}
-
-export type WorkplaceCardDetail = {
-  readonly card: WorkplaceCard
-  readonly labels: readonly WorkplaceLabel[]
-  readonly checklists: readonly {
-    readonly checklist: WorkplaceChecklist
-    readonly items: readonly WorkplaceChecklistItem[]
-  }[]
-  readonly comments: readonly WorkplaceComment[]
-  readonly handover: WorkplaceHandover | null
-}
-
 function toBoard(row: typeof workplaceBoards.$inferSelect): WorkplaceBoard {
   return WorkplaceBoardSchema.parse({
     id: row.id,
@@ -122,6 +108,28 @@ function toCard(row: typeof workplaceCards.$inferSelect): WorkplaceCard {
     archivedAt: row.archivedAt === null ? null : toTimestamp(row.archivedAt),
     createdAt: toTimestamp(row.createdAt),
     updatedAt: toTimestamp(row.updatedAt),
+  })
+}
+
+function toSummary(
+  card: WorkplaceCard,
+  counts: { readonly labels: number; readonly checklists: number; readonly comments: number },
+): WorkplaceCardSummary {
+  return WorkplaceCardSummarySchema.parse({
+    id: card.id,
+    boardId: card.boardId,
+    status: card.status,
+    title: card.title,
+    ownerId: card.ownerId,
+    position: card.position,
+    priority: card.priority,
+    dueAt: card.dueAt,
+    version: card.version,
+    coverColour: card.coverColour ?? null,
+    labelCount: counts.labels,
+    checklistCount: counts.checklists,
+    commentCount: counts.comments,
+    linkCount: 0,
   })
 }
 
@@ -707,12 +715,11 @@ export async function listCards(
     outcome: 'listed',
     items: page.map((row) => {
       const extra = byId.get(row.id)
-      return {
-        ...toCard(row),
-        labelCount: Number(extra?.labels ?? 0),
-        checklistCount: Number(extra?.checklists ?? 0),
-        commentCount: Number(extra?.comments ?? 0),
-      }
+      return toSummary(toCard(row), {
+        labels: Number(extra?.labels ?? 0),
+        checklists: Number(extra?.checklists ?? 0),
+        comments: Number(extra?.comments ?? 0),
+      })
     }),
     nextCursor: rows.length > limit ? encodeCardCursor(page[page.length - 1]!) : null,
   }
@@ -869,6 +876,8 @@ export async function createCard(
     readonly description?: string | null
     readonly status?: WorkplaceLane
     readonly priority?: string
+    readonly dueAt?: string | null
+    readonly coverColour?: string | null
     readonly idempotencyKey?: string
   },
 ): Promise<CreateCardResult> {
@@ -892,6 +901,8 @@ export async function createCard(
             description: input.description ?? null,
             position,
             priority: input.priority ?? 'unset',
+            dueAt: input.dueAt ?? null,
+            coverColour: input.coverColour ?? null,
           })
           .returning()
         if (row === undefined) throw new Error('workplace card insert returned no row')
@@ -922,6 +933,7 @@ export async function updateCard(
     readonly priority?: string
     readonly dueAt?: string | null
     readonly coverColour?: string | null
+    readonly position?: number
   },
 ): Promise<UpdateCardResult> {
   return db.transaction(async (tx) => {
@@ -935,6 +947,7 @@ export async function updateCard(
         ...(input.priority === undefined ? {} : { priority: input.priority }),
         ...(input.dueAt === undefined ? {} : { dueAt: input.dueAt }),
         ...(input.coverColour === undefined ? {} : { coverColour: input.coverColour }),
+        ...(input.position === undefined ? {} : { position: input.position }),
         version: sql`${workplaceCards.version} + 1`,
         updatedAt: sql`now()`,
       })
@@ -957,6 +970,8 @@ export type MoveCardResult =
   | WorkplaceForbidden
   | WorkplaceStale
   | WorkplaceInvalidTransition
+  | WorkplaceHandoverRequired
+  | WorkplaceConflict
 
 export async function moveCard(
   db: Database,
@@ -974,7 +989,16 @@ export async function moveCard(
     const existing = locked.card
     const from = WorkplaceLaneSchema.parse(existing.status)
     if (!canTransitionWorkplace(from, input.status)) return { outcome: 'invalid-transition' }
-    if (mustHaveOwner(input.status) && existing.ownerId === null) {
+    /**
+     * Entering `in_progress` claims if the card is ownerless. A live owner
+     * who is not the caller is a handover, not a steal (D-146, `#1760`).
+     */
+    let ownerId = existing.ownerId
+    if (input.status === 'in_progress' && existing.ownerId === null) {
+      ownerId = input.callerId
+    } else if (input.status === 'in_progress' && existing.ownerId !== input.callerId) {
+      return { outcome: 'handover-required' }
+    } else if (mustHaveOwner(input.status) && existing.ownerId === null) {
       return { outcome: 'invalid-transition' }
     }
     if (
@@ -994,7 +1018,7 @@ export async function moveCard(
       .set({
         status: input.status,
         position,
-        ...(unclaim ? { ownerId: null } : {}),
+        ...(unclaim ? { ownerId: null } : ownerId !== existing.ownerId ? { ownerId } : {}),
         version: sql`${workplaceCards.version} + 1`,
         updatedAt: sql`now()`,
       })
@@ -1330,6 +1354,484 @@ export async function blockCard(
       .returning()
     if (row === undefined) return { outcome: 'stale' }
     return { outcome: 'blocked', card: toCard(row) }
+  })
+}
+
+export type RequestReviewResult =
+  | { readonly outcome: 'reviewed'; readonly card: WorkplaceCard }
+  | WorkplaceMissing
+  | WorkplaceForbidden
+  | WorkplaceStale
+  | WorkplaceInvalidTransition
+
+export async function requestReview(
+  db: Database,
+  input: {
+    readonly callerId: AgentId
+    readonly cardId: string
+    readonly expectedVersion: number
+  },
+): Promise<RequestReviewResult> {
+  return db.transaction(async (tx) => {
+    const locked = await lockCardForWrite(tx, input.callerId, input.cardId)
+    if (locked.outcome !== 'ok') return locked
+    const existing = locked.card
+    const from = WorkplaceLaneSchema.parse(existing.status)
+    if (!canTransitionWorkplace(from, 'review')) return { outcome: 'invalid-transition' }
+    if (existing.ownerId === null) return { outcome: 'invalid-transition' }
+
+    const position = await nextPosition(tx, existing.boardId, 'review')
+    const [row] = await tx
+      .update(workplaceCards)
+      .set({
+        status: 'review',
+        position,
+        version: sql`${workplaceCards.version} + 1`,
+        updatedAt: sql`now()`,
+      })
+      .where(
+        and(
+          eq(workplaceCards.id, input.cardId),
+          eq(workplaceCards.version, input.expectedVersion),
+          callerIsMember(input.callerId),
+        ),
+      )
+      .returning()
+    if (row === undefined) return { outcome: 'stale' }
+    return { outcome: 'reviewed', card: toCard(row) }
+  })
+}
+
+export type ArchiveCardResult =
+  | { readonly outcome: 'archived'; readonly card: WorkplaceCard }
+  | WorkplaceMissing
+  | WorkplaceForbidden
+  | WorkplaceStale
+  | WorkplaceInvalidTransition
+
+export async function archiveCard(
+  db: Database,
+  input: {
+    readonly callerId: AgentId
+    readonly cardId: string
+    readonly expectedVersion: number
+  },
+): Promise<ArchiveCardResult> {
+  return db.transaction(async (tx) => {
+    const locked = await lockCardForWrite(tx, input.callerId, input.cardId)
+    if (locked.outcome !== 'ok') return locked
+    const existing = locked.card
+    const from = WorkplaceLaneSchema.parse(existing.status)
+    if (!canTransitionWorkplace(from, 'archived')) return { outcome: 'invalid-transition' }
+    const membership = await membershipOf(tx, input.callerId, existing.boardId)
+    if (membership === null) return { outcome: 'forbidden' }
+    if (membership.role !== 'owner') return { outcome: 'forbidden' }
+
+    const [row] = await tx
+      .update(workplaceCards)
+      .set({
+        archivedAt: sql`now()`,
+        version: sql`${workplaceCards.version} + 1`,
+        updatedAt: sql`now()`,
+      })
+      .where(
+        and(
+          eq(workplaceCards.id, input.cardId),
+          eq(workplaceCards.version, input.expectedVersion),
+          callerIsMember(input.callerId),
+        ),
+      )
+      .returning()
+    if (row === undefined) return { outcome: 'stale' }
+    return { outcome: 'archived', card: toCard(row) }
+  })
+}
+
+export type AttachLabelResult =
+  | { readonly outcome: 'attached'; readonly label: WorkplaceLabel }
+  | WorkplaceMissing
+  | WorkplaceForbidden
+
+export async function attachLabel(
+  db: Database,
+  input: { readonly callerId: AgentId; readonly cardId: string; readonly labelId: string },
+): Promise<AttachLabelResult> {
+  return db.transaction(async (tx) => {
+    const locked = await lockCardForWrite(tx, input.callerId, input.cardId)
+    if (locked.outcome !== 'ok') return locked
+    if (!isUuid(input.labelId)) return { outcome: 'missing' }
+    const [label] = await tx
+      .select()
+      .from(workplaceLabels)
+      .where(
+        and(
+          eq(workplaceLabels.id, input.labelId),
+          eq(workplaceLabels.boardId, locked.card.boardId),
+        ),
+      )
+      .limit(1)
+    if (label === undefined) return { outcome: 'missing' }
+    await tx
+      .insert(workplaceCardLabels)
+      .values({
+        cardId: input.cardId,
+        labelId: input.labelId,
+        boardId: locked.card.boardId,
+      })
+      .onConflictDoNothing()
+    return {
+      outcome: 'attached',
+      label: WorkplaceLabelSchema.parse({
+        id: label.id,
+        boardId: label.boardId,
+        name: label.name,
+        colour: label.colour,
+      }),
+    }
+  })
+}
+
+export type DetachLabelResult =
+  { readonly outcome: 'detached' } | WorkplaceMissing | WorkplaceForbidden
+
+export async function detachLabel(
+  db: Database,
+  input: { readonly callerId: AgentId; readonly cardId: string; readonly labelId: string },
+): Promise<DetachLabelResult> {
+  return db.transaction(async (tx) => {
+    const locked = await lockCardForWrite(tx, input.callerId, input.cardId)
+    if (locked.outcome !== 'ok') return locked
+    if (!isUuid(input.labelId)) return { outcome: 'missing' }
+    await tx
+      .delete(workplaceCardLabels)
+      .where(
+        and(
+          eq(workplaceCardLabels.cardId, input.cardId),
+          eq(workplaceCardLabels.labelId, input.labelId),
+        ),
+      )
+    return { outcome: 'detached' }
+  })
+}
+
+export type CreateChecklistResult =
+  | { readonly outcome: 'created'; readonly checklist: WorkplaceChecklist }
+  | WorkplaceMissing
+  | WorkplaceForbidden
+
+export async function createChecklist(
+  db: Database,
+  input: { readonly callerId: AgentId; readonly cardId: string; readonly title: string },
+): Promise<CreateChecklistResult> {
+  return db.transaction(async (tx) => {
+    const locked = await lockCardForWrite(tx, input.callerId, input.cardId)
+    if (locked.outcome !== 'ok') return locked
+    const [max] = await tx
+      .select({ max: sql<number>`coalesce(max(${workplaceChecklists.position}), -1)` })
+      .from(workplaceChecklists)
+      .where(eq(workplaceChecklists.cardId, input.cardId))
+    const [row] = await tx
+      .insert(workplaceChecklists)
+      .values({
+        cardId: input.cardId,
+        title: input.title,
+        position: Number(max?.max ?? -1) + 1,
+      })
+      .returning()
+    if (row === undefined) throw new Error('workplace checklist insert returned no row')
+    return {
+      outcome: 'created',
+      checklist: WorkplaceChecklistSchema.parse({
+        id: row.id,
+        cardId: row.cardId,
+        title: row.title,
+        position: row.position,
+      }),
+    }
+  })
+}
+
+export type UpdateChecklistResult =
+  | { readonly outcome: 'updated'; readonly checklist: WorkplaceChecklist }
+  | WorkplaceMissing
+  | WorkplaceForbidden
+
+export async function updateChecklist(
+  db: Database,
+  input: {
+    readonly callerId: AgentId
+    readonly checklistId: string
+    readonly title?: string
+    readonly position?: number
+  },
+): Promise<UpdateChecklistResult> {
+  return db.transaction(async (tx) => {
+    if (!isUuid(input.checklistId)) return { outcome: 'missing' }
+    const [existing] = await tx
+      .select()
+      .from(workplaceChecklists)
+      .where(eq(workplaceChecklists.id, input.checklistId))
+      .limit(1)
+    if (existing === undefined) return { outcome: 'missing' }
+    const locked = await lockCardForWrite(tx, input.callerId, existing.cardId)
+    if (locked.outcome !== 'ok') return locked
+    const [row] = await tx
+      .update(workplaceChecklists)
+      .set({
+        ...(input.title === undefined ? {} : { title: input.title }),
+        ...(input.position === undefined ? {} : { position: input.position }),
+      })
+      .where(eq(workplaceChecklists.id, input.checklistId))
+      .returning()
+    if (row === undefined) return { outcome: 'missing' }
+    return {
+      outcome: 'updated',
+      checklist: WorkplaceChecklistSchema.parse({
+        id: row.id,
+        cardId: row.cardId,
+        title: row.title,
+        position: row.position,
+      }),
+    }
+  })
+}
+
+export type DeleteChecklistResult =
+  { readonly outcome: 'deleted' } | WorkplaceMissing | WorkplaceForbidden
+
+export async function deleteChecklist(
+  db: Database,
+  input: { readonly callerId: AgentId; readonly checklistId: string },
+): Promise<DeleteChecklistResult> {
+  return db.transaction(async (tx) => {
+    if (!isUuid(input.checklistId)) return { outcome: 'missing' }
+    const [existing] = await tx
+      .select()
+      .from(workplaceChecklists)
+      .where(eq(workplaceChecklists.id, input.checklistId))
+      .limit(1)
+    if (existing === undefined) return { outcome: 'missing' }
+    const locked = await lockCardForWrite(tx, input.callerId, existing.cardId)
+    if (locked.outcome !== 'ok') return locked
+    await tx.delete(workplaceChecklists).where(eq(workplaceChecklists.id, input.checklistId))
+    return { outcome: 'deleted' }
+  })
+}
+
+export type CreateChecklistItemResult =
+  | { readonly outcome: 'created'; readonly item: WorkplaceChecklistItem }
+  | WorkplaceMissing
+  | WorkplaceForbidden
+
+export async function createChecklistItem(
+  db: Database,
+  input: { readonly callerId: AgentId; readonly checklistId: string; readonly title: string },
+): Promise<CreateChecklistItemResult> {
+  return db.transaction(async (tx) => {
+    if (!isUuid(input.checklistId)) return { outcome: 'missing' }
+    const [list] = await tx
+      .select()
+      .from(workplaceChecklists)
+      .where(eq(workplaceChecklists.id, input.checklistId))
+      .limit(1)
+    if (list === undefined) return { outcome: 'missing' }
+    const locked = await lockCardForWrite(tx, input.callerId, list.cardId)
+    if (locked.outcome !== 'ok') return locked
+    const [max] = await tx
+      .select({ max: sql<number>`coalesce(max(${workplaceChecklistItems.position}), -1)` })
+      .from(workplaceChecklistItems)
+      .where(eq(workplaceChecklistItems.checklistId, input.checklistId))
+    const [row] = await tx
+      .insert(workplaceChecklistItems)
+      .values({
+        checklistId: input.checklistId,
+        title: input.title,
+        position: Number(max?.max ?? -1) + 1,
+      })
+      .returning()
+    if (row === undefined) throw new Error('workplace checklist item insert returned no row')
+    return {
+      outcome: 'created',
+      item: WorkplaceChecklistItemSchema.parse({
+        id: row.id,
+        checklistId: row.checklistId,
+        title: row.title,
+        doneAt: row.doneAt === null ? null : toTimestamp(row.doneAt),
+        position: row.position,
+      }),
+    }
+  })
+}
+
+export type UpdateChecklistItemResult =
+  | { readonly outcome: 'updated'; readonly item: WorkplaceChecklistItem }
+  | WorkplaceMissing
+  | WorkplaceForbidden
+
+export async function updateChecklistItem(
+  db: Database,
+  input: {
+    readonly callerId: AgentId
+    readonly itemId: string
+    readonly title?: string
+    readonly doneAt?: string | null
+    readonly position?: number
+  },
+): Promise<UpdateChecklistItemResult> {
+  return db.transaction(async (tx) => {
+    if (!isUuid(input.itemId)) return { outcome: 'missing' }
+    const [existing] = await tx
+      .select({
+        item: workplaceChecklistItems,
+        cardId: workplaceChecklists.cardId,
+      })
+      .from(workplaceChecklistItems)
+      .innerJoin(
+        workplaceChecklists,
+        eq(workplaceChecklists.id, workplaceChecklistItems.checklistId),
+      )
+      .where(eq(workplaceChecklistItems.id, input.itemId))
+      .limit(1)
+    if (existing === undefined) return { outcome: 'missing' }
+    const locked = await lockCardForWrite(tx, input.callerId, existing.cardId)
+    if (locked.outcome !== 'ok') return locked
+    const [row] = await tx
+      .update(workplaceChecklistItems)
+      .set({
+        ...(input.title === undefined ? {} : { title: input.title }),
+        ...(input.doneAt === undefined ? {} : { doneAt: input.doneAt }),
+        ...(input.position === undefined ? {} : { position: input.position }),
+      })
+      .where(eq(workplaceChecklistItems.id, input.itemId))
+      .returning()
+    if (row === undefined) return { outcome: 'missing' }
+    return {
+      outcome: 'updated',
+      item: WorkplaceChecklistItemSchema.parse({
+        id: row.id,
+        checklistId: row.checklistId,
+        title: row.title,
+        doneAt: row.doneAt === null ? null : toTimestamp(row.doneAt),
+        position: row.position,
+      }),
+    }
+  })
+}
+
+export type DeleteChecklistItemResult =
+  { readonly outcome: 'deleted' } | WorkplaceMissing | WorkplaceForbidden
+
+export async function deleteChecklistItem(
+  db: Database,
+  input: { readonly callerId: AgentId; readonly itemId: string },
+): Promise<DeleteChecklistItemResult> {
+  return db.transaction(async (tx) => {
+    if (!isUuid(input.itemId)) return { outcome: 'missing' }
+    const [existing] = await tx
+      .select({
+        item: workplaceChecklistItems,
+        cardId: workplaceChecklists.cardId,
+      })
+      .from(workplaceChecklistItems)
+      .innerJoin(
+        workplaceChecklists,
+        eq(workplaceChecklists.id, workplaceChecklistItems.checklistId),
+      )
+      .where(eq(workplaceChecklistItems.id, input.itemId))
+      .limit(1)
+    if (existing === undefined) return { outcome: 'missing' }
+    const locked = await lockCardForWrite(tx, input.callerId, existing.cardId)
+    if (locked.outcome !== 'ok') return locked
+    await tx.delete(workplaceChecklistItems).where(eq(workplaceChecklistItems.id, input.itemId))
+    return { outcome: 'deleted' }
+  })
+}
+
+export type ListCommentsResult =
+  | {
+      readonly outcome: 'listed'
+      readonly items: readonly WorkplaceComment[]
+      readonly nextCursor: string | null
+    }
+  | WorkplaceEmpty
+  | { readonly outcome: 'invalid-cursor' }
+  | WorkplaceUnknown
+
+export async function listComments(
+  db: Database,
+  callerId: AgentId,
+  cardId: string,
+  query: { readonly cursor?: string | null; readonly limit?: number } = {},
+): Promise<ListCommentsResult> {
+  const card = await visibleCard(db, callerId, cardId)
+  if (card === null) return { outcome: 'unknown' }
+  const limit = Math.min(Math.max(query.limit ?? DEFAULT_PAGE_SIZE, 1), MAX_PAGE_SIZE)
+  const after =
+    query.cursor === undefined || query.cursor === null || query.cursor === ''
+      ? undefined
+      : query.cursor
+  if (after !== undefined && !isUuid(after)) return { outcome: 'invalid-cursor' }
+
+  const conditions = [
+    eq(workplaceComments.cardId, cardId),
+    ...(after === undefined ? [] : [sql`${workplaceComments.id} > ${after}::uuid`]),
+  ]
+  const rows = await db
+    .select()
+    .from(workplaceComments)
+    .where(and(...conditions))
+    .orderBy(workplaceComments.createdAt, workplaceComments.id)
+    .limit(limit + 1)
+  const page = rows.slice(0, limit)
+  if (page.length === 0 && after === undefined) return { outcome: 'empty' }
+  return {
+    outcome: 'listed',
+    items: page.map((comment) =>
+      WorkplaceCommentSchema.parse({
+        id: comment.id,
+        cardId: comment.cardId,
+        authorId: comment.authorId,
+        body: comment.body,
+        createdAt: toTimestamp(comment.createdAt),
+        updatedAt: toTimestamp(comment.updatedAt),
+      }),
+    ),
+    nextCursor: rows.length > limit ? page[page.length - 1]!.id : null,
+  }
+}
+
+export type CreateCommentResult =
+  | { readonly outcome: 'created'; readonly comment: WorkplaceComment }
+  | WorkplaceMissing
+  | WorkplaceForbidden
+
+export async function createComment(
+  db: Database,
+  input: { readonly callerId: AgentId; readonly cardId: string; readonly body: string },
+): Promise<CreateCommentResult> {
+  return db.transaction(async (tx) => {
+    const locked = await lockCardForWrite(tx, input.callerId, input.cardId)
+    if (locked.outcome !== 'ok') return locked
+    const [row] = await tx
+      .insert(workplaceComments)
+      .values({
+        cardId: input.cardId,
+        authorId: input.callerId,
+        body: input.body,
+      })
+      .returning()
+    if (row === undefined) throw new Error('workplace comment insert returned no row')
+    return {
+      outcome: 'created',
+      comment: WorkplaceCommentSchema.parse({
+        id: row.id,
+        cardId: row.cardId,
+        authorId: row.authorId,
+        body: row.body,
+        createdAt: toTimestamp(row.createdAt),
+        updatedAt: toTimestamp(row.updatedAt),
+      }),
+    }
   })
 }
 

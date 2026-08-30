@@ -14,7 +14,7 @@ import {
   WorkplaceRecurrenceIdSchema,
 } from '../common/ids.js'
 import { IdentityProviderSchema } from '../human/human.js'
-import { MAX_PAGE_SIZE, pageOf } from '../common/pagination.js'
+import { MAX_PAGE_SIZE, PageRequestSchema, pageOf } from '../common/pagination.js'
 import { TimestampSchema } from '../common/time.js'
 import { boundedText } from '../common/text.js'
 
@@ -412,9 +412,166 @@ export type WorkplaceCard = z.infer<typeof WorkplaceCardSchema>
 export const WorkplaceBoardPageSchema = pageOf(WorkplaceBoardSchema)
 export type WorkplaceBoardPage = z.infer<typeof WorkplaceBoardPageSchema>
 
-/** Paginated card list — summaries later; the envelope is the same. */
-export const WorkplaceCardPageSchema = pageOf(WorkplaceCardSchema)
+/**
+ * A card as a list row (`#1760`).
+ *
+ * **Counts, never bodies.** Description, comment text, checklist item titles
+ * and resolved links stay on the detail. Putting any of them here is how a
+ * board list becomes an activity dump. `linkCount` is always 0 until `#1765`
+ * stores typed links; minting the field now is what stops that issue inventing
+ * a second list shape.
+ */
+export const WorkplaceCardSummarySchema = z
+  .object({
+    id: WorkplaceCardIdSchema,
+    boardId: WorkplaceBoardIdSchema,
+    status: WorkplaceLaneSchema,
+    title: workplaceText(WORKPLACE_TITLE_MAX_LENGTH),
+    ownerId: AgentIdSchema.nullable(),
+    position: z.number(),
+    priority: WorkplacePrioritySchema,
+    dueAt: TimestampSchema.nullable(),
+    version: z.int().min(1),
+    coverColour: WorkplaceColourSchema.nullable().optional(),
+    labelCount: z.int().min(0),
+    checklistCount: z.int().min(0),
+    commentCount: z.int().min(0),
+    linkCount: z.int().min(0),
+  })
+  .strict()
+export type WorkplaceCardSummary = z.infer<typeof WorkplaceCardSummarySchema>
+
+/** Paginated card list — summaries, not full cards (`#1760`). */
+export const WorkplaceCardPageSchema = pageOf(WorkplaceCardSummarySchema)
 export type WorkplaceCardPage = z.infer<typeof WorkplaceCardPageSchema>
+
+/** `GET /v1/workplace/boards/:boardId/cards` query (`#1760`). */
+export const WorkplaceListCardsQuerySchema = PageRequestSchema.extend({
+  status: WorkplaceLaneSchema.optional(),
+})
+export type WorkplaceListCardsQuery = z.infer<typeof WorkplaceListCardsQuerySchema>
+
+/**
+ * HTTP create (`#1760`). Title is required. Status is `inbox` unless the
+ * caller names `ready`; a live lane here is how `inbox → in_progress` would
+ * sneak past claim. Owner is not a field: claiming is a verb.
+ */
+export const WorkplaceCreateCardRequestSchema = z
+  .object({
+    title: workplaceText(WORKPLACE_TITLE_MAX_LENGTH),
+    description: boundedText(WORKPLACE_BODY_MAX_LENGTH).nullable().optional(),
+    status: z.enum(['inbox', 'ready']).optional(),
+    priority: WorkplacePrioritySchema.optional(),
+    dueAt: TimestampSchema.nullable().optional(),
+    coverColour: WorkplaceColourSchema.nullable().optional(),
+  })
+  .strict()
+export type WorkplaceCreateCardRequest = z.infer<typeof WorkplaceCreateCardRequestSchema>
+
+/**
+ * HTTP patch (`#1760`). Title, description, priority, due, coverColour,
+ * position. **Not status** — the verbs below are what move a card, and
+ * `.strict()` is what refuses a body that mentions one.
+ */
+export const WorkplaceUpdateCardRequestSchema = z
+  .object({
+    title: workplaceText(WORKPLACE_TITLE_MAX_LENGTH).optional(),
+    description: boundedText(WORKPLACE_BODY_MAX_LENGTH).nullable().optional(),
+    priority: WorkplacePrioritySchema.optional(),
+    dueAt: TimestampSchema.nullable().optional(),
+    coverColour: WorkplaceColourSchema.nullable().optional(),
+    position: z.number().optional(),
+  })
+  .strict()
+export type WorkplaceUpdateCardRequest = z.infer<typeof WorkplaceUpdateCardRequestSchema>
+
+/**
+ * HTTP move (`#1760`). Status is a lane, never `archived` — archive is its
+ * own verb and a timestamp, not a seventh status.
+ */
+export const WorkplaceMoveCardRequestSchema = z
+  .object({
+    status: WorkplaceLaneSchema,
+    position: z.number().optional(),
+  })
+  .strict()
+export type WorkplaceMoveCardRequest = z.infer<typeof WorkplaceMoveCardRequestSchema>
+
+/** HTTP block (`#1760`). Both sentences, because a blocked card without one is invalid. */
+export const WorkplaceBlockCardRequestSchema = z
+  .object({
+    blockedBy: workplaceText(WORKPLACE_SENTENCE_MAX_LENGTH),
+    unblockWhen: workplaceText(WORKPLACE_SENTENCE_MAX_LENGTH),
+  })
+  .strict()
+export type WorkplaceBlockCardRequest = z.infer<typeof WorkplaceBlockCardRequestSchema>
+
+/** HTTP complete (`#1760`). Outcome is what Done records. */
+export const WorkplaceCompleteCardRequestSchema = z
+  .object({
+    outcome: workplaceText(WORKPLACE_SENTENCE_MAX_LENGTH),
+  })
+  .strict()
+export type WorkplaceCompleteCardRequest = z.infer<typeof WorkplaceCompleteCardRequestSchema>
+
+/**
+ * HTTP handover (`#1760`). Structured fields, not a reason string (D-146).
+ * `toCitizenId` is an agent uuid; the route does not look a handle up here
+ * because a handover names a member already on the board.
+ */
+export const WorkplaceHandoverCardRequestSchema = z
+  .object({
+    toCitizenId: AgentIdSchema,
+    done: workplaceText(WORKPLACE_BODY_MAX_LENGTH),
+    learned: workplaceText(WORKPLACE_BODY_MAX_LENGTH),
+    next: workplaceText(WORKPLACE_BODY_MAX_LENGTH),
+    blocked: workplaceText(WORKPLACE_BODY_MAX_LENGTH).nullable().optional(),
+    evidenceLinks: z.array(z.url()).max(20),
+  })
+  .strict()
+export type WorkplaceHandoverCardRequest = z.infer<typeof WorkplaceHandoverCardRequestSchema>
+
+export const WorkplaceCreateChecklistRequestSchema = z
+  .object({
+    title: workplaceText(WORKPLACE_TITLE_MAX_LENGTH),
+  })
+  .strict()
+export type WorkplaceCreateChecklistRequest = z.infer<typeof WorkplaceCreateChecklistRequestSchema>
+
+export const WorkplaceUpdateChecklistRequestSchema = z
+  .object({
+    title: workplaceText(WORKPLACE_TITLE_MAX_LENGTH).optional(),
+    position: z.int().min(0).optional(),
+  })
+  .strict()
+export type WorkplaceUpdateChecklistRequest = z.infer<typeof WorkplaceUpdateChecklistRequestSchema>
+
+export const WorkplaceCreateChecklistItemRequestSchema = z
+  .object({
+    title: workplaceText(WORKPLACE_TITLE_MAX_LENGTH),
+  })
+  .strict()
+export type WorkplaceCreateChecklistItemRequest = z.infer<
+  typeof WorkplaceCreateChecklistItemRequestSchema
+>
+
+export const WorkplaceUpdateChecklistItemRequestSchema = z
+  .object({
+    title: workplaceText(WORKPLACE_TITLE_MAX_LENGTH).optional(),
+    doneAt: TimestampSchema.nullable().optional(),
+    position: z.int().min(0).optional(),
+  })
+  .strict()
+export type WorkplaceUpdateChecklistItemRequest = z.infer<
+  typeof WorkplaceUpdateChecklistItemRequestSchema
+>
+
+export const WorkplaceCreateCommentRequestSchema = z
+  .object({
+    body: workplaceText(WORKPLACE_BODY_MAX_LENGTH),
+  })
+  .strict()
+export type WorkplaceCreateCommentRequest = z.infer<typeof WorkplaceCreateCommentRequestSchema>
 
 export const WorkplaceChecklistSchema = z
   .object({
@@ -453,6 +610,10 @@ export const WorkplaceCommentSchema = z
   .strict()
 export type WorkplaceComment = z.infer<typeof WorkplaceCommentSchema>
 
+/** Paginated comments, newest last (`#1760`). */
+export const WorkplaceCommentPageSchema = pageOf(WorkplaceCommentSchema)
+export type WorkplaceCommentPage = z.infer<typeof WorkplaceCommentPageSchema>
+
 /**
  * A structured handover, not a reason string (D-146, `#1760`).
  *
@@ -476,6 +637,31 @@ export const WorkplaceHandoverSchema = z
   })
   .strict()
 export type WorkplaceHandover = z.infer<typeof WorkplaceHandoverSchema>
+
+/**
+ * A card as HTTP returns it (`#1760`).
+ *
+ * Labels, checklists with items, comments, and the current compact handover
+ * — activity history is not here. Same 404 for missing and not-a-member is
+ * a route fact, not a schema one.
+ */
+export const WorkplaceCardDetailSchema = z
+  .object({
+    card: WorkplaceCardSchema,
+    labels: z.array(WorkplaceLabelSchema),
+    checklists: z.array(
+      z
+        .object({
+          checklist: WorkplaceChecklistSchema,
+          items: z.array(WorkplaceChecklistItemSchema),
+        })
+        .strict(),
+    ),
+    comments: z.array(WorkplaceCommentSchema),
+    handover: WorkplaceHandoverSchema.nullable(),
+  })
+  .strict()
+export type WorkplaceCardDetail = z.infer<typeof WorkplaceCardDetailSchema>
 
 /**
  * A recurrence rule for a template card (`#1762`).

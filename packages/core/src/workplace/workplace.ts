@@ -22,7 +22,7 @@ import { PLAYBOOK_TITLE_MAX_LENGTH, PlaybookStatusSchema } from '../playbook/pla
 import { TaskStatusSchema } from '../task/task.js'
 import { IdentityProviderSchema } from '../human/human.js'
 import { MAX_PAGE_SIZE, PageRequestSchema, pageOf } from '../common/pagination.js'
-import { TimestampSchema } from '../common/time.js'
+import { TimestampSchema, type Timestamp } from '../common/time.js'
 import { boundedText } from '../common/text.js'
 
 const workplaceText = (max: number) => boundedText(max).trim().min(1)
@@ -193,6 +193,47 @@ export type WorkplaceMembershipRole = z.infer<typeof WorkplaceMembershipRoleSche
 export const WORKPLACE_CADENCES = ['weekly', 'daily'] as const
 export const WorkplaceCadenceSchema = z.enum(WORKPLACE_CADENCES)
 export type WorkplaceCadence = z.infer<typeof WorkplaceCadenceSchema>
+
+/**
+ * UTC start of the cadence period that contains `now` (`#1762`).
+ *
+ * **Daily is midnight of that UTC day; weekly is midnight of that ISO-week
+ * Monday.** Cron is out of V1, so the period is a function of the cadence
+ * and the clock, not of a stored timezone. Storage keys occurrences on
+ * this instant; putting the arithmetic in core is what stops HTTP, MCP
+ * and a later wakeup from computing three different Mondays.
+ */
+export function workplacePeriodStart(cadence: WorkplaceCadence, now: string): Timestamp {
+  const instant = new Date(now)
+  if (Number.isNaN(instant.getTime())) {
+    throw new Error('workplace period now is not a timestamp')
+  }
+  instant.setUTCHours(0, 0, 0, 0)
+  if (cadence === 'weekly') {
+    const daysFromMonday = (instant.getUTCDay() + 6) % 7
+    instant.setUTCDate(instant.getUTCDate() - daysFromMonday)
+  }
+  return TimestampSchema.parse(instant.toISOString())
+}
+
+/**
+ * UTC start of the period after `periodStart` (`#1762`).
+ *
+ * Used to advance `nextDueAt` once a tick has claimed the current
+ * period, so a later wakeup in the same period is a no-op on the due
+ * index as well as on the unique occurrence key.
+ */
+export function workplaceNextPeriodStart(
+  cadence: WorkplaceCadence,
+  periodStart: string,
+): Timestamp {
+  const instant = new Date(periodStart)
+  if (Number.isNaN(instant.getTime())) {
+    throw new Error('workplace period start is not a timestamp')
+  }
+  instant.setUTCDate(instant.getUTCDate() + (cadence === 'daily' ? 1 : 7))
+  return TimestampSchema.parse(instant.toISOString())
+}
 
 /**
  * Closed link kinds V1 (`#1765`). A seventh kind is a schema change with

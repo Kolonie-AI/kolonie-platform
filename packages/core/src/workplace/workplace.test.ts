@@ -5,6 +5,7 @@ import {
   WORKPLACE_DEFAULT_LABELS,
   WORKPLACE_LANES,
   WORKPLACE_LINK_KINDS,
+  WorkplaceCadenceSchema,
   EMPTY_WORKPLACE_LINK_COUNTS,
   WorkplaceActSchema,
   WorkplaceBoardSchema,
@@ -51,6 +52,8 @@ import {
   claimAllowed,
   handoverAllowed,
   mustHaveOwner,
+  workplaceNextPeriodStart,
+  workplacePeriodStart,
 } from './index.js'
 
 const CITIZEN = AgentIdSchema.parse('3f1e0a4e-6d2b-4c3a-9f5e-1a2b3c4d5e6f')
@@ -345,6 +348,31 @@ describe('membership, label, checklist, comment, handover, recurrence', () => {
     expect(WorkplaceRecurrenceSchema.safeParse({ ...parsed, instances: [CARD] }).success).toBe(
       false,
     )
+  })
+
+  it('starts a daily period at UTC midnight and a weekly period on the ISO Monday', () => {
+    expect(workplacePeriodStart('daily', '2026-08-30T15:04:05.000Z')).toBe(
+      '2026-08-30T00:00:00.000Z',
+    )
+    expect(workplacePeriodStart('weekly', '2026-08-30T15:04:05.000Z')).toBe(
+      '2026-08-24T00:00:00.000Z',
+    )
+    expect(workplacePeriodStart('weekly', '2026-08-24T00:00:00.000Z')).toBe(
+      '2026-08-24T00:00:00.000Z',
+    )
+    expect(workplacePeriodStart('weekly', '2027-01-03T12:00:00.000Z')).toBe(
+      '2026-12-28T00:00:00.000Z',
+    )
+  })
+
+  it('advances to the next UTC day or ISO week and rejects a cron cadence', () => {
+    expect(workplaceNextPeriodStart('daily', '2026-08-30T00:00:00.000Z')).toBe(
+      '2026-08-31T00:00:00.000Z',
+    )
+    expect(workplaceNextPeriodStart('weekly', '2026-08-24T00:00:00.000Z')).toBe(
+      '2026-08-31T00:00:00.000Z',
+    )
+    expect(WorkplaceCadenceSchema.safeParse('0 9 * * 1').success).toBe(false)
   })
 })
 

@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
+import { and, eq, inArray, isNull, lte, ne, sql } from 'drizzle-orm'
 import {
   AgentIdSchema,
   DEFAULT_PAGE_SIZE,
@@ -6,6 +6,7 @@ import {
   MAX_PAGE_SIZE,
   WorkplaceBoardIdSchema,
   WorkplaceBoardSchema,
+  WorkplaceCadenceSchema,
   WorkplaceCardIdSchema,
   WorkplaceCardLinkSchema,
   WorkplaceCardSchema,
@@ -22,6 +23,8 @@ import {
   claimAllowed,
   handoverAllowed,
   mustHaveOwner,
+  workplaceNextPeriodStart,
+  workplacePeriodStart,
   type AgentId,
   type WorkplaceBoard,
   type WorkplaceCard,
@@ -54,10 +57,13 @@ import {
   workplaceCards,
   workplaceChecklists,
   workplaceChecklistItems,
+  workplaceActivity,
   workplaceComments,
   workplaceHandovers,
   workplaceIdempotency,
   workplaceLabels,
+  workplaceRecurrenceOccurrences,
+  workplaceRecurrenceRules,
 } from '../schema/index.js'
 import { isUniqueViolation, isUuid } from './errors.js'
 import { toTimestamp } from './rows.js'
@@ -2156,6 +2162,205 @@ export async function removeLink(
     await tx.delete(workplaceCardLinks).where(eq(workplaceCardLinks.id, input.linkId))
     return { outcome: 'removed' }
   })
+}
+
+export type MaterialiseDueResult = {
+  readonly created: number
+  readonly skipped: number
+}
+
+/**
+ * Clone due template cards into the current period (`#1762`).
+ *
+ * **Idempotent on `(ruleId, periodStart)`.** A second tick in the same
+ * period is a no-op rather than a second inbox card. An unfinished
+ * previous occurrence blocks a new card and is recorded on the activity
+ * log with `card_id` null, so it does not stack. Citizens only — a
+ * candidate, a suspended agent and a banned agent are a zero. Links are
+ * copied as stored `(kind, ref)` and never resolved, so a vault pointer
+ * cannot decrypt on the way through.
+ */
+export async function materialiseDue(
+  db: Database,
+  citizenId: AgentId,
+  now: string,
+): Promise<MaterialiseDueResult> {
+  const [agent] = await db
+    .select({ status: agents.status })
+    .from(agents)
+    .where(eq(agents.id, citizenId))
+    .limit(1)
+  if (agent === undefined || agent.status !== 'citizen') {
+    return { created: 0, skipped: 0 }
+  }
+
+  const due = await db
+    .select({
+      rule: workplaceRecurrenceRules,
+      template: workplaceCards,
+    })
+    .from(workplaceRecurrenceRules)
+    .innerJoin(workplaceBoards, eq(workplaceBoards.id, workplaceRecurrenceRules.boardId))
+    .innerJoin(workplaceCards, eq(workplaceCards.id, workplaceRecurrenceRules.cardId))
+    .where(
+      and(
+        eq(workplaceBoards.ownerId, citizenId),
+        isNull(workplaceBoards.archivedAt),
+        isNull(workplaceCards.archivedAt),
+        lte(workplaceRecurrenceRules.nextDueAt, now),
+      ),
+    )
+
+  let created = 0
+  let skipped = 0
+  for (const row of due) {
+    const result = await materialiseOneRule(db, citizenId, row.rule, row.template, now)
+    created += result.created
+    skipped += result.skipped
+  }
+  return { created, skipped }
+}
+
+async function materialiseOneRule(
+  db: Database,
+  citizenId: AgentId,
+  rule: typeof workplaceRecurrenceRules.$inferSelect,
+  template: typeof workplaceCards.$inferSelect,
+  now: string,
+): Promise<MaterialiseDueResult> {
+  const cadence = WorkplaceCadenceSchema.safeParse(rule.cadence)
+  if (!cadence.success) return { created: 0, skipped: 0 }
+  const periodStart = workplacePeriodStart(cadence.data, now)
+  const nextDueAt = workplaceNextPeriodStart(cadence.data, periodStart)
+
+  return db.transaction(async (tx) => {
+    const [claimed] = await tx
+      .insert(workplaceRecurrenceOccurrences)
+      .values({ ruleId: rule.id, periodStart, cardId: null })
+      .onConflictDoNothing({
+        target: [workplaceRecurrenceOccurrences.ruleId, workplaceRecurrenceOccurrences.periodStart],
+      })
+      .returning({ id: workplaceRecurrenceOccurrences.id })
+    if (claimed === undefined) return { created: 0, skipped: 0 }
+
+    const live = await tx
+      .select({ id: workplaceCards.id })
+      .from(workplaceRecurrenceOccurrences)
+      .innerJoin(workplaceCards, eq(workplaceCards.id, workplaceRecurrenceOccurrences.cardId))
+      .where(
+        and(
+          eq(workplaceRecurrenceOccurrences.ruleId, rule.id),
+          ne(workplaceRecurrenceOccurrences.id, claimed.id),
+          ne(workplaceCards.status, 'done'),
+          isNull(workplaceCards.archivedAt),
+        ),
+      )
+      .limit(1)
+
+    if (live[0] !== undefined) {
+      await tx.insert(workplaceActivity).values({
+        boardId: rule.boardId,
+        cardId: live[0].id,
+        actorId: citizenId,
+        verb: 'recurrence.skipped',
+        payload: { ruleId: rule.id, periodStart, previousCardId: live[0].id },
+      })
+      await tx
+        .update(workplaceRecurrenceRules)
+        .set({ nextDueAt, updatedAt: sql`now()` })
+        .where(eq(workplaceRecurrenceRules.id, rule.id))
+      return { created: 0, skipped: 1 }
+    }
+
+    const card = await cloneTemplateCard(tx, template)
+    await tx
+      .update(workplaceRecurrenceOccurrences)
+      .set({ cardId: card.id })
+      .where(eq(workplaceRecurrenceOccurrences.id, claimed.id))
+    await tx
+      .update(workplaceRecurrenceRules)
+      .set({ nextDueAt, updatedAt: sql`now()` })
+      .where(eq(workplaceRecurrenceRules.id, rule.id))
+    return { created: 1, skipped: 0 }
+  })
+}
+
+async function cloneTemplateCard(
+  tx: Transaction,
+  template: typeof workplaceCards.$inferSelect,
+): Promise<typeof workplaceCards.$inferSelect> {
+  const position = await nextPosition(tx, template.boardId, 'inbox')
+  const [row] = await tx
+    .insert(workplaceCards)
+    .values({
+      boardId: template.boardId,
+      status: 'inbox',
+      title: template.title,
+      description: template.description,
+      position,
+      priority: template.priority,
+      coverColour: template.coverColour,
+    })
+    .returning()
+  if (row === undefined) throw new Error('workplace recurrence clone returned no row')
+
+  const labels = await tx
+    .select()
+    .from(workplaceCardLabels)
+    .where(eq(workplaceCardLabels.cardId, template.id))
+  if (labels.length > 0) {
+    await tx.insert(workplaceCardLabels).values(
+      labels.map((one) => ({
+        cardId: row.id,
+        labelId: one.labelId,
+        boardId: one.boardId,
+      })),
+    )
+  }
+
+  const lists = await tx
+    .select()
+    .from(workplaceChecklists)
+    .where(eq(workplaceChecklists.cardId, template.id))
+  for (const list of lists) {
+    const [cloned] = await tx
+      .insert(workplaceChecklists)
+      .values({ cardId: row.id, title: list.title, position: list.position })
+      .returning({ id: workplaceChecklists.id })
+    if (cloned === undefined)
+      throw new Error('workplace recurrence checklist clone returned no row')
+    const items = await tx
+      .select()
+      .from(workplaceChecklistItems)
+      .where(eq(workplaceChecklistItems.checklistId, list.id))
+    if (items.length > 0) {
+      await tx.insert(workplaceChecklistItems).values(
+        items.map((item) => ({
+          checklistId: cloned.id,
+          title: item.title,
+          position: item.position,
+          doneAt: null,
+        })),
+      )
+    }
+  }
+
+  const links = await tx
+    .select()
+    .from(workplaceCardLinks)
+    .where(eq(workplaceCardLinks.cardId, template.id))
+  if (links.length > 0) {
+    await tx.insert(workplaceCardLinks).values(
+      links.map((link) => ({
+        cardId: row.id,
+        kind: link.kind,
+        ref: link.ref,
+        note: link.note,
+      })),
+    )
+  }
+
+  return row
 }
 
 /**

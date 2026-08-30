@@ -21,13 +21,13 @@ import { carryingMarker, type ClosedIssue, type Issues, type KnownIssue } from '
  *
  * ## Why it lives here and not in the log detector
  *
- * The detector next door reads Loki and **never closes an issue**, deliberately:
- * a model's reading of an error line is a finding, and whether a finding is dealt
- * with is a person's call. This is a different class of thing. The condition is
- * one SQL query with a precise end — *nothing is outstanding past the threshold*
- * — so it can close itself, which is the shape Health Watch already has in
- * `kolonie-infra`. It shares the runner's GitHub App and its half-hour tick and
- * nothing else.
+ * The detector next door closes only one measured condition: **fourteen days
+ * with no exact matching line** (`kolonie-docs#561`). It still never decides a
+ * defect was dealt with, which remains a person's call. This watcher is the
+ * same class of arithmetic over a different source: one SQL query with a
+ * precise end — *nothing is outstanding past the threshold* — so it can close
+ * itself, which is the shape Health Watch already has in `kolonie-infra`. It
+ * shares the runner's GitHub App and its half-hour tick and nothing else.
  *
  * ## Why it is not `#719` again
  *

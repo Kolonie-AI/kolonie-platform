@@ -248,13 +248,13 @@ export interface Issues {
   /**
    * Close one, saying why (`#720`).
    *
-   * **The log detector must never call this and does not**, and the rule it
-   * follows is unchanged: whether a defect in the logs is dealt with is a
-   * person's call, because a model's reading of an error is a finding rather
-   * than a measurement. What may close itself is an alarm whose **condition** is
-   * measured and has a precise end — the shape Health Watch already has in
-   * `kolonie-infra`, where an issue about unhealthy containers closes when the
-   * host reports every container healthy again.
+   * **The log detector calls this only for its measured quiet condition**, and
+   * not because it has judged a defect fixed (`kolonie-docs#561`). What may close
+   * itself is an alarm whose **condition** is measured and has a precise end —
+   * the shape Health Watch already has in `kolonie-infra`, where an issue about
+   * unhealthy containers closes when the host reports every container healthy
+   * again. Fourteen consecutive days with no exact matching line is the log
+   * detector's one such condition; a matching line reopens the same identity.
    *
    * The comment goes first and the close second, so an issue never ends without
    * saying what ended it.
@@ -270,10 +270,12 @@ export interface Issues {
    * the next pass asked *is anything open* and heard no, and filed `#867` —
    * which a person then had to notice, read and close by hand.
    *
-   * **An event may not use this.** A defect signature that returned is a new
-   * occurrence and gets its own issue (`defects.ts`), and a red line upheld on a
-   * date cannot stop holding, so reopening its issue would be reopening a
-   * settled argument. Only something re-measurable belongs here.
+   * **An event may not use this unless this runner closed its measured quiet
+   * condition.** A defect signature whose issue a person closed returns as a new
+   * occurrence and gets its own issue (`defects.ts`); one this detector closed
+   * after fourteen quiet days reopens the same identity. A red line upheld on a
+   * date cannot stop holding, so reopening its issue would be reopening a settled
+   * argument. Only something re-measurable belongs here.
    *
    * The comment goes first and the reopen second, mirroring `close`: an issue
    * never comes back without saying what brought it back.

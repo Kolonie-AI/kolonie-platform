@@ -109,6 +109,8 @@ export interface Logs {
   readonly available: boolean
   /** Error signatures in the window, with a count each. */
   signatures(windowSeconds: number): Promise<readonly LogSignature[]>
+  /** Count one exact signature across a settlement window. */
+  countExact(signature: string, windowSeconds: number): Promise<number>
   /** The evidence for one signature: when, and a few lines of what. */
   evidence(signature: LogSignature, windowSeconds: number): Promise<DefectEvidence>
   /**
@@ -130,6 +132,9 @@ export interface Logs {
 export const noLogs: Logs = {
   available: false,
   signatures: async () => [],
+  countExact: async () => {
+    throw new Error('no log store is configured')
+  },
   evidence: async () => ({ firstAt: null, lastAt: null, samples: [], causes: [] }),
   lastStart: async () => null,
 }
@@ -399,6 +404,36 @@ export function lokiLogs(options: LokiOptions): Logs {
 
       void start
       return found
+    },
+
+    countExact: async (signature, windowSeconds) => {
+      const split = signature.indexOf('/')
+      if (split < 1) throw new Error(`invalid log signature: ${signature}`)
+      const service = signature.slice(0, split)
+      const eventAndRoute = signature.slice(split + 1)
+      const routeAt = eventAndRoute.indexOf(' ')
+      const event = routeAt < 0 ? eventAndRoute : eventAndRoute.slice(0, routeAt)
+      const route = routeAt < 0 ? null : eventAndRoute.slice(routeAt + 1)
+      const routeFilter = route === null ? ' | route=""' : ` | route=${JSON.stringify(route)}`
+      const eventFilter =
+        event === '«no event field»' ? ' | event=""' : ` | event=${JSON.stringify(event)}`
+      const end = Math.floor(now() / 1000)
+      const counted = (await query('/loki/api/v1/query', {
+        query:
+          `sum(count_over_time({job="containers", service=${JSON.stringify(service)}, level="error"}` +
+          ` | json | __error__=""${eventFilter}${routeFilter} [${windowSeconds}s]))`,
+        time: String(end),
+      })) as { data?: { result?: ReadonlyArray<{ value?: [number, string] }> } } | undefined
+
+      const values = counted?.data?.result
+      if (!Array.isArray(values)) {
+        throw new Error(`the log store returned no complete count for ${signature}`)
+      }
+      const numbers = values.map((row) => Number(row.value?.[1]))
+      if (numbers.some((value) => !Number.isFinite(value))) {
+        throw new Error(`the log store returned no complete count for ${signature}`)
+      }
+      return numbers.reduce((total, value) => total + value, 0)
     },
 
     evidence: async (signature, windowSeconds) => {

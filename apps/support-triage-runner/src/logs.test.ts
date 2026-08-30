@@ -89,6 +89,7 @@ describe('every query that parses JSON skips the lines it cannot parse', () => {
     const logs = lokiLogs(options(fetchImpl))
 
     await logs.signatures(3600)
+    await logs.countExact(signatureOf('api', 'poll.failed'), 3600)
     await logs.evidence(
       {
         signature: signatureOf('api', 'poll.failed'),
@@ -143,6 +144,50 @@ describe('every query that parses JSON skips the lines it cannot parse', () => {
       ),
     ).toEqual({ firstAt: null, lastAt: null, samples: [], causes: [] })
     expect(await logs.lastStart('api', '2026-08-06T11:00:00.000Z')).toBeNull()
+  })
+
+  it('the exact-signature settlement query preserves service, event, route, and window', async () => {
+    const { queries, fetchImpl } = capturing({
+      data: { result: [{ value: [0, '0'] }] },
+    })
+
+    const count = await lokiLogs(options(fetchImpl)).countExact(
+      signatureOf('api', 'request.failed', '/v1/tasks/:id'),
+      14 * 86_400,
+    )
+
+    expect(count).toBe(0)
+    expect(queries).toHaveLength(1)
+    expect(queries[0]).toContain('service="api"')
+    expect(queries[0]).toContain('event="request.failed"')
+    expect(queries[0]).toContain('route="/v1/tasks/:id"')
+    expect(queries[0]).toContain('[1209600s]')
+  })
+
+  it('the exact signature with no route does not absorb routed failures', async () => {
+    const { queries, fetchImpl } = capturing({ data: { result: [] } })
+
+    expect(
+      await lokiLogs(options(fetchImpl)).countExact(signatureOf('api', 'poll.failed'), 14 * 86_400),
+    ).toBe(0)
+    expect(queries[0]).toContain('event="poll.failed"')
+    expect(queries[0]).toContain('route=""')
+  })
+
+  it('the exact-signature settlement query refuses a partial response', async () => {
+    const { fetchImpl } = capturing({})
+
+    await expect(
+      lokiLogs(options(fetchImpl)).countExact(signatureOf('api', 'poll.failed'), 14 * 86_400),
+    ).rejects.toThrow('complete count')
+  })
+
+  it('the exact-signature settlement query refuses an unreadable response', async () => {
+    const refusing = (async () => new Response('', { status: 503 })) as unknown as typeof fetch
+
+    await expect(
+      lokiLogs(options(refusing)).countExact(signatureOf('api', 'poll.failed'), 14 * 86_400),
+    ).rejects.toThrow('complete count')
   })
 
   it('the evidence query asks for no more lines than it will show', async () => {

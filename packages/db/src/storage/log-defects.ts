@@ -22,6 +22,7 @@ export interface KnownDefect {
   readonly issueUrl: string | null
   readonly issueFiledAt: string | null
   readonly lastCommentAt: string | null
+  readonly quietClosedAt: string | null
   readonly regressions: number
 }
 
@@ -118,6 +119,37 @@ export async function recordDefectComment(db: Database, signature: string): Prom
 }
 
 /**
+ * Say the detector closed this signature's issue after the quiet window
+ * (`kolonie-docs#561`).
+ *
+ * **Written after GitHub confirmed the close, never before** — the same rule
+ * `recordDefectIssue` follows, for the same reason: a row claiming a closure
+ * that did not happen would send the next recurrence down the reopen path
+ * against an issue that is still open.
+ */
+export async function recordDefectQuietClosed(db: Database, signature: string): Promise<void> {
+  await db
+    .update(logDefects)
+    .set({ quietClosedAt: sql`now()` })
+    .where(eq(logDefects.signature, signature))
+}
+
+/**
+ * Clear the quiet-close marker after the same issue was reopened.
+ *
+ * **Only this and nothing else.** The issue URL does not change on a reopen —
+ * that is the whole point of holding the identity — and `lastCommentAt` is not
+ * touched, because the reopen comment is not a recurrence note on an open
+ * issue; the two counters answer different questions.
+ */
+export async function recordDefectReopened(db: Database, signature: string): Promise<void> {
+  await db
+    .update(logDefects)
+    .set({ quietClosedAt: null })
+    .where(eq(logDefects.signature, signature))
+}
+
+/**
  * How many issues this detector has filed in the last day.
  *
  * The per-day cap reads this. On the row rather than in the process, for
@@ -165,6 +197,7 @@ function asKnown(row: typeof logDefects.$inferSelect): KnownDefect {
     issueUrl: row.issueUrl,
     issueFiledAt: row.issueFiledAt,
     lastCommentAt: row.lastCommentAt,
+    quietClosedAt: row.quietClosedAt,
     regressions: row.regressions,
   }
 }

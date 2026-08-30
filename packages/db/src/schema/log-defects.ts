@@ -25,9 +25,10 @@ import { bigint, check, index, integer, pgTable, text, timestamp } from 'drizzle
  * a second store of log text here would be a second retention policy nobody
  * remembers to enforce.
  *
- * **Not a state machine.** Nothing here records whether a defect was fixed.
- * Whether a defect is dealt with is decided on the issue, by a person, and the
- * runner never closes one.
+ * **Not a fix state machine.** `quiet_closed_at` records one act this detector
+ * can undo: settling its own exact-signature quiet condition. It says nothing
+ * about whether a defect was fixed. A closure by a person is still decided on
+ * the issue and writes nothing here.
  */
 export const logDefects = pgTable(
   'log_defects',
@@ -76,6 +77,18 @@ export const logDefects = pgTable(
      * enough to read.
      */
     lastCommentAt: timestamp('last_comment_at', { withTimezone: true, mode: 'string' }),
+    /**
+     * When the detector closed this signature's issue for being quiet
+     * (`kolonie-docs#561`), or `null`.
+     *
+     * **A marker, not a state machine, and one column for one fact.** A person
+     * closing the issue writes nothing here, so `#560`'s rule — lines newer
+     * than a closure are a regression with a new issue — is untouched. Only
+     * the detector's own settlement sets it, and only the detector's reopen of
+     * the same identity clears it, which is what keeps recurrence history on
+     * one issue instead of a new one every fourteen quiet days.
+     */
+    quietClosedAt: timestamp('quiet_closed_at', { withTimezone: true, mode: 'string' }),
     /**
      * How many times this has come back after its issue was closed.
      *

@@ -17,8 +17,11 @@ import {
   ticketsAwaitingTheirIssue,
   triagedTickets,
   defectIssuesFiledSince,
+  readDefect,
   recordDefectComment,
   recordDefectIssue,
+  recordDefectQuietClosed,
+  recordDefectReopened,
   recordSeenDefects,
   escalatableDiagnoses,
   outstandingDebt,
@@ -203,9 +206,25 @@ if (logs === noLogs) {
 
 const defects: DefectStore = {
   seen: (found) => recordSeenDefects(db, found),
+  find: (signature) =>
+    readDefect(db, signature).then((row) =>
+      row === undefined
+        ? undefined
+        : {
+            issueUrl: row.issueUrl,
+            firstSeenAt: row.firstSeenAt,
+            lastSeenAt: row.lastSeenAt,
+            occurrences: row.occurrences,
+            lastCommentAt: row.lastCommentAt,
+            quietClosedAt: row.quietClosedAt,
+            regressions: row.regressions,
+          },
+    ),
   filed: (signature, issueUrl, regression) =>
     recordDefectIssue(db, signature, issueUrl, regression),
   commented: (signature) => recordDefectComment(db, signature),
+  quietClosed: (signature) => recordDefectQuietClosed(db, signature),
+  reopened: (signature) => recordDefectReopened(db, signature),
   filedSince: (since) => defectIssuesFiledSince(db, since),
 }
 

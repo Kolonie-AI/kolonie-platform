@@ -472,10 +472,11 @@ export async function tick(deps: LoopDependencies, batchSize: number): Promise<T
   if (deps.watch !== undefined) {
     try {
       const found = await watchLogs(deps.watch)
-      if (found.skipped === undefined && found.seen > 0) {
+      if (found.skipped === undefined && found.seen + found.closed + found.reopened > 0) {
         log.info(
           `log pass: ${found.seen} signature(s), ${found.filed} filed, ` +
-            `${found.commented} commented, ${found.quiet} already said, ` +
+            `${found.commented} commented, ${found.closed} quiet-closed, ` +
+            `${found.reopened} reopened, ${found.quiet} already said, ` +
             `${found.withheld} withheld by the cap`,
           { event: 'defects.pass.done', ...found },
         )

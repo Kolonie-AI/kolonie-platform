@@ -6,6 +6,8 @@ import {
   readDefect,
   recordDefectComment,
   recordDefectIssue,
+  recordDefectQuietClosed,
+  recordDefectReopened,
   recordSeenDefects,
 } from './log-defects.js'
 
@@ -115,6 +117,17 @@ describe('the log defect register', () => {
     await recordDefectComment(db, 'api/x')
 
     expect((await readDefect(db, 'api/x'))?.lastCommentAt).not.toBeNull()
+  })
+
+  it('remembers when an issue was quiet-closed and clears it on reopen', async () => {
+    await recordSeenDefects(db, [{ signature: 'api/x', service: 'api', occurrences: 1 }])
+    expect((await readDefect(db, 'api/x'))?.quietClosedAt).toBeNull()
+
+    await recordDefectQuietClosed(db, 'api/x')
+    expect((await readDefect(db, 'api/x'))?.quietClosedAt).not.toBeNull()
+
+    await recordDefectReopened(db, 'api/x')
+    expect((await readDefect(db, 'api/x'))?.quietClosedAt).toBeNull()
   })
 
   it('takes a windowful of signatures in one statement', async () => {

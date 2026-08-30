@@ -13,10 +13,10 @@ import { modelCallLine } from './triage.js'
  * The Watch Agent reads the logs once a day and matches on **one fixed title**,
  * so there is exactly one Watch Agent issue, ever, and every finding is a
  * comment on it — unrelated defects, weeks apart, on a thread that never closes.
- * Its own footer states the consequence: *"It never closes one: whether this is
- * dealt with is a person's call, not a workflow's."* That is right about closing
- * and wrong about filing. Nothing can pick anything up, because a chronicle is
- * not a piece of work.
+ * Its own footer stated the consequence: *"It never closes one: whether this is
+ * dealt with is a person's call, not a workflow's."* That remains right about a
+ * fix. `kolonie-docs#561` adds one narrower end: fourteen days with no exact
+ * matching line is a measured quiet condition the detector can settle itself.
  *
  * What it cost, measured: a `ZodError` broke `kolonie.tasks.get` for any citizen
  * holding an attempt-less report (`#404`), first appearing at 13:18:12Z, three
@@ -104,8 +104,19 @@ export interface DefectHistory {
     | {
         readonly issueUrl: string | null
         readonly firstSeenAt: string
+        readonly lastSeenAt: string
         readonly occurrences: number
         readonly lastCommentAt: string | null
+        /**
+         * When this signature's issue was closed for being quiet, or `null`.
+         *
+         * **The one field that distinguishes a settled finding from a fixed
+         * one** (`kolonie-docs#561`). A quiet close is the detector's own act
+         * and it is undone by the detector: the same issue is reopened rather
+         * than a second one filed, so how often a signature comes back stays
+         * readable in one place.
+         */
+        readonly quietClosedAt: string | null
         readonly regressions: number
       }
     | undefined
@@ -134,6 +145,22 @@ export type DefectAction =
   | { readonly kind: 'file'; readonly regression: true; readonly closed: ClosedIssue }
   /** Say on the open issue that it happened again, and how often. */
   | { readonly kind: 'comment'; readonly issue: KnownIssue }
+  /** Bring back the issue this detector closed for being quiet. */
+  | { readonly kind: 'reopen'; readonly issue: ClosedIssue }
+
+/**
+ * How long a signature must be silent before its issue is closed
+ * (`kolonie-docs#561`, frozen decision 1).
+ *
+ * **Fourteen consecutive days, measured against the live log source and never
+ * against this row.** The store says when the Colony last recorded the
+ * signature; the log source says whether anything matched since. Only the
+ * second can distinguish *nothing happened* from *nothing was read*, which is
+ * why the count is taken rather than inferred.
+ */
+export const QUIET_CLOSE_DAYS = 14
+
+export const QUIET_CLOSE_WINDOW_SECONDS = QUIET_CLOSE_DAYS * 86_400
 
 /** At most one recurrence note a day, per signature. See {@link decide}. */
 export const COMMENT_INTERVAL_MS = 86_400_000
@@ -173,6 +200,29 @@ export function decide(history: DefectHistory, now: number = Date.now()): Defect
       return { kind: 'quiet' }
     }
     return { kind: 'comment', issue: history.openIssue }
+  }
+
+  /**
+   * **A quiet close is this detector's own act, and it is undone rather than
+   * re-filed** (`kolonie-docs#561`, frozen decision 1). The stored URL is the
+   * durable identity: GitHub's closed corpus is one page and an older quiet
+   * close eventually falls off it, but that must not turn a recurrence into a
+   * second issue. A closure by anybody else writes no marker and keeps the
+   * regression path below, which is what `#560` settled.
+   */
+  if (history.known?.quietClosedAt != null && history.known.issueUrl !== null) {
+    return {
+      kind: 'reopen',
+      issue:
+        history.closedIssue ??
+        ({
+          url: history.known.issueUrl,
+          title: '',
+          body: '',
+          reason: null,
+          closedAt: history.known.quietClosedAt,
+        } satisfies ClosedIssue),
+    }
   }
 
   if (history.closedIssue !== undefined) {
@@ -322,9 +372,11 @@ export function defectBody(report: DefectReport): string {
   lines.push('')
   lines.push(
     'Filed by the log detector in `apps/support-triage-runner`, which reads errors out of Loki ' +
-      'every half hour and files one issue per signature (`#407`). **It never closes one**: ' +
-      'whether this is dealt with is a person’s call, not a runner’s. It is in Inbox ' +
-      'rather than Ready because a machine’s finding is a finding, not a specification.',
+      'every half hour and files one issue per signature (`#407`). It closes only after **14 ' +
+      'consecutive quiet days measured against this exact signature**; that says the condition ' +
+      'ended, not that a person judged the defect fixed. A returning line reopens this same ' +
+      'identity. The issue is in Inbox rather than Ready because a machine’s finding is a ' +
+      'finding, not a specification.',
   )
 
   return lines.join('\n')

@@ -54,12 +54,12 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@fortawesome/fontawesome-free": "^7.3.1",
-    "@types/node": "^26.2.0",
+    "@types/node": "^26.4.0",
     "ajv": "^8.20.0",
-    "eslint": "^10.8.1",
+    "eslint": "^10.9.1",
     "prettier": "^3.9.6",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.67.0",
+    "typescript-eslint": "^8.68.0",
     "vitest": "^4.1.11"
   }
 }

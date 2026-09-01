@@ -1,0 +1,5 @@
+ALTER TABLE "workplace_activity" ADD COLUMN "subject_agent_id" uuid;--> statement-breakpoint
+ALTER TABLE "workplace_activity" ADD COLUMN "delegation_id" uuid;--> statement-breakpoint
+ALTER TABLE "workplace_activity" ADD CONSTRAINT "workplace_activity_subject_agent_id_agents_id_fk" FOREIGN KEY ("subject_agent_id") REFERENCES "public"."agents"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "workplace_activity" ADD CONSTRAINT "workplace_activity_delegation_id_agent_operator_delegations_id_fk" FOREIGN KEY ("delegation_id") REFERENCES "public"."agent_operator_delegations"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "workplace_activity" ADD CONSTRAINT "workplace_activity_delegation_is_whole" CHECK (("workplace_activity"."subject_agent_id" is null) = ("workplace_activity"."delegation_id" is null));

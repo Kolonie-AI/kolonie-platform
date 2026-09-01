@@ -1,5 +1,7 @@
 import {
   AgentIdSchema,
+  AgentOperatorDelegationIdSchema,
+  DELEGATION_REFUSAL_CODES,
   WORKPLACE_UNTRUSTED_CONTENT,
   WorkplaceActSchema,
   WorkplaceAddMemberRequestSchema,
@@ -20,6 +22,9 @@ import {
   WorkplaceUpdateChecklistItemRequestSchema,
   WorkplaceUpdateChecklistRequestSchema,
   type ApiError,
+  type AgentId,
+  type AgentOperatorCapability,
+  type DelegatedAuthorization,
   type WorkplaceAct,
   type WorkplaceBoard,
   type WorkplaceCard,
@@ -189,6 +194,10 @@ export function registerWorkplaceTool(
         limit: z.number().optional(),
         expectedVersion: z.number().optional(),
         idempotencyKey: z.string().optional(),
+        delegationId: z
+          .string()
+          .optional()
+          .describe('A delegation the subject accepted. Omit for your own Workplace.'),
       },
       annotations: {
         readOnlyHint: false,
@@ -206,6 +215,78 @@ export function registerWorkplaceTool(
       const subject = input.subject
       if (!ALLOWED[subject].includes(act)) return invalidPair(subject)
 
+      /**
+       * The delegated path (`#1797`).
+       *
+       * The subject is resolved from the delegation and never from an
+       * argument, so there is no `actingAgentId` a caller could aim anywhere.
+       * Reads need `workplace-read`, ordinary mutations `workplace-write`, and
+       * an ownership move `handover` on top of that; Workplace's own
+       * membership and ownership rules then apply unchanged to the subject.
+       */
+      if (input.delegationId !== undefined) {
+        const lifecycle = deps.agentOperatorDelegations
+        if (lifecycle === undefined) {
+          return toolError({
+            code: 'delegation_not_found',
+            message: 'This Colony serves no citizen delegations.',
+          })
+        }
+        const parsedId = AgentOperatorDelegationIdSchema.safeParse(input.delegationId)
+        if (!parsedId.success) {
+          return toolError({
+            code: 'delegation_not_found',
+            message: 'No delegation matches the id you named.',
+          })
+        }
+        let attribution:
+          | {
+              readonly actorAgentId: AgentId
+              readonly subjectAgentId: AgentId
+              readonly delegationId: string
+            }
+          | undefined
+        for (const capability of capabilitiesFor(act, subject, input)) {
+          const decided = await lifecycle.authorize({
+            operatorAgentId: callerId,
+            delegationId: parsedId.data,
+            capability,
+          })
+          if (decided.outcome !== 'authorized') {
+            return toolError(delegationRefusal(decided.outcome, capability))
+          }
+          attribution = {
+            actorAgentId: decided.actorAgentId,
+            subjectAgentId: decided.subjectAgentId,
+            delegationId: decided.delegationId,
+          }
+        }
+        if (attribution === undefined) {
+          return toolError({
+            code: 'delegation_missing_capability',
+            message: 'That act names no delegated capability.',
+          })
+        }
+        const result =
+          subject === 'board'
+            ? await dispatchBoard(act, input, attribution.subjectAgentId, boards)
+            : await dispatchCard(act, input, attribution.subjectAgentId, cards)
+        if (result.isError !== true && lifecycle.recordAct !== undefined) {
+          const boardId = boardIdOf(result, input)
+          if (boardId !== undefined) {
+            await lifecycle.recordAct({
+              boardId,
+              ...(cardIdOf(result) === undefined ? {} : { cardId: cardIdOf(result) as string }),
+              actorAgentId: attribution.actorAgentId,
+              subjectAgentId: attribution.subjectAgentId,
+              delegationId: AgentOperatorDelegationIdSchema.parse(attribution.delegationId),
+              verb: `${subject}.${act}`,
+            })
+          }
+        }
+        return withDelegation(result, attribution)
+      }
+
       if (subject === 'board') {
         return dispatchBoard(act, input, callerId, boards)
       }
@@ -213,6 +294,66 @@ export function registerWorkplaceTool(
     },
   )
 }
+
+/**
+ * Which capabilities one act needs, in the order they are checked.
+ *
+ * An ownership move needs `handover` **in addition to** `workplace-write`, so
+ * a grant that carries only the write cannot move accountability.
+ */
+function capabilitiesFor(
+  act: WorkplaceAct,
+  subject: WorkplaceSubject,
+  input: { readonly fields?: unknown },
+): readonly AgentOperatorCapability[] {
+  if (act === 'list' || act === 'get') return ['workplace-read']
+  if (act === 'handover' || act === 'claim') return ['workplace-write', 'handover']
+  if (subject === 'board' && act === 'update' && asObject(asObject(input.fields)?.['members'])) {
+    return ['workplace-write', 'handover']
+  }
+  return ['workplace-write']
+}
+
+const delegationRefusal = (
+  outcome: Exclude<DelegatedAuthorization['outcome'], 'authorized'>,
+  capability: AgentOperatorCapability,
+): ApiError => ({
+  code: DELEGATION_REFUSAL_CODES[outcome],
+  message:
+    outcome === 'missing-capability'
+      ? `This delegation does not carry ${capability}.`
+      : outcome === 'pending'
+        ? 'The subject has not accepted this delegation yet.'
+        : outcome === 'revoked'
+          ? 'This delegation was revoked, so no new delegated write is authorized.'
+          : outcome === 'wrong-actor'
+            ? 'This delegation does not name you as its operator.'
+            : 'No delegation matches the id you named.',
+})
+
+/** Which board a delegated answer touched, for the activity row. */
+const boardIdOf = (result: CallToolResult, input: Input): string | undefined => {
+  const structured = result.structuredContent
+  const board = asObject(structured?.['board'])
+  const card = asObject(structured?.['card'])
+  return stringOf(board?.['id']) ?? stringOf(card?.['boardId']) ?? input.boardId
+}
+
+const cardIdOf = (result: CallToolResult): string | undefined =>
+  stringOf(asObject(result.structuredContent?.['card'])?.['id'])
+
+/** Name actor, subject and delegation on every delegated answer. */
+const withDelegation = (
+  result: CallToolResult,
+  delegation: {
+    readonly actorAgentId: string
+    readonly subjectAgentId: string
+    readonly delegationId: string
+  },
+): CallToolResult =>
+  result.isError === true || result.structuredContent === undefined
+    ? result
+    : { ...result, structuredContent: { ...result.structuredContent, delegation } }
 
 type Input = {
   readonly act: WorkplaceAct
@@ -224,6 +365,7 @@ type Input = {
   readonly limit?: number
   readonly expectedVersion?: number
   readonly idempotencyKey?: string
+  readonly delegationId?: string
 }
 
 const fieldsOf = (input: Input): Record<string, unknown> => asObject(input.fields) ?? {}

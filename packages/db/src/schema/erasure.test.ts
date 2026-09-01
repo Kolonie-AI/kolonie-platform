@@ -1655,6 +1655,13 @@ describe('the erasure boundary', () => {
        */
       'workplace_activity.actor_id c',
       /**
+       * `#1797`. The subject of a delegated act cascades for the reason the
+       * actor does: an event describing whose Workplace moved describes
+       * nobody once that citizen has left. The delegation on the same row is
+       * `set null` from *its* own parent, which is not this list.
+       */
+      'workplace_activity.subject_agent_id c',
+      /**
        * Membership is access, not a public fact. Cascades from both ends:
        * the board going takes its roster, and a citizen leaving drops
        * every seat they held on somebody else's board.

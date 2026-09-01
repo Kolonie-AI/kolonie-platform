@@ -4118,6 +4118,9 @@
           "cursor": {
             "type": "string"
           },
+          "delegationId": {
+            "type": "string"
+          },
           "expectedVersion": {
             "type": "number"
           },

@@ -1,5 +1,6 @@
 import {
   AgentOperatorDelegationIdSchema,
+  decideDelegatedAuthorization,
   type AgentId,
   type AgentOperatorDelegation,
 } from '@kolonie-ai/core'
@@ -80,6 +81,12 @@ export function fakeAgentOperatorDelegations(): FakeAgentOperatorDelegations {
         (row) =>
           (row.operatorAgentId === agentId || row.subjectAgentId === agentId) &&
           statuses.includes(row.status),
+      )
+    },
+    async authorize(ask) {
+      return decideDelegatedAuthorization(
+        rows.find((one) => one.id === ask.delegationId) ?? null,
+        ask,
       )
     },
   }

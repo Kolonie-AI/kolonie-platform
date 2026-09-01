@@ -1,5 +1,6 @@
 export * from './agent.js'
 export * from './operator-delegation.js'
+export * from './operator-delegation-authorization.js'
 export * from './direction.js'
 export * from './autonomy.js'
 export * from './contact.js'

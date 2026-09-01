@@ -1140,6 +1140,14 @@ describe('the erasure boundary', () => {
        */
       'agent_follows.followed_id c',
       'agent_follows.follower_id c',
+      /**
+       * `#1794`. All three cascade: an erased citizen takes the delegations it
+       * operated, the ones it was the subject of, and its own revocation
+       * attribution with it, so no row is left naming an agent that is gone.
+       */
+      'agent_operator_delegations.operator_agent_id c',
+      'agent_operator_delegations.revoked_by_agent_id c',
+      'agent_operator_delegations.subject_agent_id c',
       // #139. Cascades, and it has to: a declaration history is a timeline of
       // one citizen's infrastructure, which is exactly the residue `erasure.md`
       // §4 rules out. Nothing about it is anonymous — every row names the agent

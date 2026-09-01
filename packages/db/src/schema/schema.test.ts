@@ -264,6 +264,14 @@ describe('schema', () => {
          */
         'agent_follows',
         /**
+         * One citizen operating another through an explicit direct delegation
+         * (`#1794`, epic `#1792`). Its own table rather than a column on
+         * `human_agents`, which is human-only: the parties are two citizens,
+         * the grant is a named capability subset, and a revoked row stays as
+         * history so a later request gets a new id rather than reviving one.
+         */
+        'agent_operator_delegations',
+        /**
          * `agent_handovers` (`#592`) was a secret travelling agent → operator.
          * **It is not in this list any more**: `#1443` retired the channel after
          * 42 opens and zero reads, and `#1472` dropped the table. It had in fact

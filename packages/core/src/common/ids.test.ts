@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   AgentIdSchema,
+  AgentOperatorDelegationIdSchema,
   TaskIdSchema,
   WorkplaceBoardIdSchema,
   WorkplaceCardIdSchema,
@@ -22,6 +23,7 @@ describe('entity ids', () => {
 
   it('validates every id type the same way', () => {
     expect(TaskIdSchema.safeParse(VALID_UUID).success).toBe(true)
+    expect(AgentOperatorDelegationIdSchema.safeParse(VALID_UUID).success).toBe(true)
     expect(TaskIdSchema.safeParse('not-a-uuid').success).toBe(false)
   })
 

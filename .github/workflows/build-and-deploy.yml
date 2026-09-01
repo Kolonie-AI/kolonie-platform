@@ -537,7 +537,8 @@ jobs:
           node scripts/smoke-deploy.mjs \
             --revision "${{ github.sha }}" \
             --issue smoke-issue.json \
-            --delivery delivery.md
+            --delivery delivery.md \
+            --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
       # One issue per revision, carrying the marker on its **first line** —
       # `#1161`'s convention, and `#946` is why the first line rather than
@@ -569,6 +570,34 @@ jobs:
               --body-file smoke-issue.md \
               --label 'from:watcher' --label 'area:platform' --label 'p1'
           fi
+
+      # **A commit-keyed finding has to be able to end** (`#1790`).
+      #
+      # `#1789` was filed for deploy `418dfea9` after six MCP calls met transient
+      # Cloudflare origin 502s. The deploy that followed it deployed green and
+      # smoked green against the same endpoint, and the finding stayed Ready
+      # until somebody closed it by hand — this run held every piece of the
+      # clearing evidence and had no step that read it.
+      #
+      # **Both halves, and no third.** The condition is this job's `needs` on a
+      # successful deploy *and* this run's own green smoke. `/health` says a
+      # process is listening, which was true throughout `#1789`; only a green
+      # MCP smoke answers the claim the finding actually made.
+      #
+      # Nothing here rolls back, re-runs or suppresses anything: a revision that
+      # goes red after this files its own commit-keyed finding, as before.
+      - name: settle the smoke findings this deploy cleared
+        if: needs.deploy.result == 'success' && steps.smoke.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          node scripts/settle-smoke-findings.mjs \
+            --revision "${{ github.sha }}" \
+            --run-id "${{ github.run_id }}" \
+            --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --deploy-job 'deploy to the VPS' \
+            --smoke-job 'smoke the deployed MCP surface'
 
       # **What turns throughput into delivery** (`#1160`). A pull request that
       # says `Closes #1067` closes its issue on merge, which records that a

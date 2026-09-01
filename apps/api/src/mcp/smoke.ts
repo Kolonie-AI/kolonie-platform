@@ -382,7 +382,10 @@ export function renderSmokeReport(result: SmokeResult): string {
  * label is how `needs-triage` went on being applied after it was deleted
  * (`#687`). One source of truth, in the place the check can reach.
  */
-export function smokeIssue(result: SmokeResult): {
+export function smokeIssue(
+  result: SmokeResult,
+  run?: SmokeRun,
+): {
   title: string
   body: string
 } {
@@ -393,6 +396,10 @@ export function smokeIssue(result: SmokeResult): {
       // The first line and nothing above it: `#1161`'s rule, so the next red
       // deploy reopens this rather than filing a second one.
       smokeMarker(result.revision),
+      // The run that filed it, on the second line, so a later green deploy can
+      // name it when it settles this (`#1790`). A settlement that could only say
+      // *some earlier run* sends the reader looking for evidence nobody kept.
+      ...(run === undefined ? [] : [smokeRunMarker(run)]),
       '',
       renderSmokeReport(result),
       '',
@@ -406,6 +413,122 @@ export function smokeIssue(result: SmokeResult): {
 /** What the next red deploy reads to recognise its own issue (`#1161`). */
 export function smokeMarker(revision: string): string {
   return `<!-- watch-finding: smoke-${revision} -->`
+}
+
+/** One GitHub Actions run, named so a verdict can be traced to it. */
+export interface SmokeRun {
+  readonly id: string
+  readonly url: string
+}
+
+/** Where a finding records the run that filed it (`#1790`). */
+export function smokeRunMarker(run: SmokeRun): string {
+  return `<!-- smoke-run: ${run.url} -->`
+}
+
+/** An open issue as the workflow listed it: its number and its body. */
+export interface OpenFinding {
+  readonly number: number
+  readonly body: string
+}
+
+/** A finding this deploy's evidence clears, with what the finding itself recorded. */
+export interface SettledFinding {
+  readonly number: number
+  readonly revision: string
+  readonly run?: SmokeRun
+}
+
+const SMOKE_MARKER = /^<!-- watch-finding: smoke-([0-9a-f]{7,40}) -->$/
+const SMOKE_RUN_MARKER = /^<!-- smoke-run: (\S+) -->$/
+
+/**
+ * Which commit-keyed findings a green deploy has cleared (`#1790`).
+ *
+ * ## The state this ends
+ *
+ * `#1789` was filed for deploy `418dfea9` after six MCP calls met transient
+ * Cloudflare origin 502s. The next deploy, `b8bb30d7`, deployed green and smoked
+ * green against the same endpoint, and the finding stayed open — the workflow
+ * held every piece of clearing evidence and had no rule that read it. A finding
+ * nobody can close except by hand is one that stops being read.
+ *
+ * ## Why both halves of the evidence, and no third
+ *
+ * **Health alone is refused.** `/health` says a process is listening, which was
+ * true throughout `#1789`; the claim the finding makes is about the surface a
+ * citizen speaks to, and only a green MCP smoke answers that claim. So a
+ * settlement needs a successful deploy *and* a successful smoke, and a
+ * deploy-green/smoke-red run settles nothing.
+ *
+ * **The identity stays the commit key.** A later red revision files its own
+ * issue under its own marker; nothing here merges two revisions into one
+ * standing finding, and nothing here reopens, retries or rolls anything back.
+ *
+ * **Recognised on the first line only** (`#946`): an issue that quotes a marker
+ * in a discussion is not that finding.
+ */
+export function smokeFindingsToSettle(evidence: {
+  readonly deployOk: boolean
+  readonly smokeOk: boolean
+  readonly revision: string
+  readonly open: readonly OpenFinding[]
+}): readonly SettledFinding[] {
+  if (!evidence.deployOk || !evidence.smokeOk) return []
+
+  const settled: SettledFinding[] = []
+  for (const finding of evidence.open) {
+    const [first, second] = finding.body.split('\n')
+    const marker = SMOKE_MARKER.exec(first ?? '')
+    if (marker === null) continue
+
+    const runMarker = SMOKE_RUN_MARKER.exec(second ?? '')
+    settled.push({
+      number: finding.number,
+      revision: marker[1]!,
+      ...(runMarker === null ? {} : { run: { id: runMarker[1]!, url: runMarker[1]! } }),
+    })
+  }
+  return settled
+}
+
+/**
+ * What one settled finding is closed with — deterministic, and naming both ends.
+ *
+ * A reader arriving at a closed finding has to be able to check it without a
+ * workflow log: which revision and run were red, which revision and run are
+ * green, and which two jobs carried that verdict. Where the finding recorded no
+ * run of its own, the comment says so rather than leaving a reader to assume one
+ * was hidden.
+ */
+export function smokeSettlementComment(
+  settled: SettledFinding,
+  healthy: {
+    readonly revision: string
+    readonly run: SmokeRun
+    readonly deployJob: string
+    readonly smokeJob: string
+  },
+): string {
+  return [
+    '### Post-deploy smoke — settled by a later deploy',
+    '',
+    `This finding was filed for revision \`${settled.revision.slice(0, 8)}\`, ` +
+      (settled.run === undefined
+        ? 'which recorded no run of its own.'
+        : `filed by run ${settled.run.url}.`),
+    '',
+    `Revision \`${healthy.revision.slice(0, 8)}\` has since deployed and smoked green in run ` +
+      `${healthy.run.url}: job \`${healthy.deployJob}\` succeeded and job \`${healthy.smokeJob}\` ` +
+      'succeeded against the same surface.',
+    '',
+    'Both halves are required. A health check says a process is listening; only a green MCP ' +
+      'smoke says the surface a citizen speaks to answers, which is what this finding claimed ' +
+      'it did not.',
+    '',
+    'Nothing was rolled back, retried or suppressed: a later revision was deployed and its own ' +
+      'smoke was green. A revision that goes red after this files its own commit-keyed finding.',
+  ].join('\n')
 }
 
 /**

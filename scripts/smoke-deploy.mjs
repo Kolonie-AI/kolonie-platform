@@ -141,7 +141,18 @@ const main = async () => {
 
   const issue = option('issue')
   if (issue !== undefined && !result.ok) {
-    await writeFile(issue, JSON.stringify(smokeIssue(result), null, 2), 'utf8')
+    // The run that filed it, recorded on the issue, so a later green deploy can
+    // name it when it settles this (`#1790`).
+    const runUrl = option('run-url')
+    await writeFile(
+      issue,
+      JSON.stringify(
+        runUrl === undefined ? smokeIssue(result) : smokeIssue(result, { id: runUrl, url: runUrl }),
+        null,
+        2,
+      ),
+      'utf8',
+    )
   }
 
   // Written whether the verdict is green or red: the issues this deploy shipped

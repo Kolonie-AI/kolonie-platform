@@ -9,8 +9,11 @@ import {
   renderSmokeReport,
   runSmoke,
   smokeDelivery,
+  smokeFindingsToSettle,
   smokeIssue,
   smokeMarker,
+  smokeSettlementComment,
+  type OpenFinding,
   type ProbeResponse,
   type PublishedTool,
   type SmokeProbe,
@@ -509,5 +512,250 @@ describe('the verdict, where somebody will read it', () => {
     expect(smokeDelivery({ ...red, ok: true, assertions: [red.assertions[0]!] })).toMatch(
       /nothing about whether this issue’s own acceptance criteria are met/i,
     )
+  })
+})
+
+/**
+ * **A commit-keyed finding has to be able to end** (`#1790`).
+ *
+ * `#1789` was filed for deploy `418dfea9` after six MCP calls hit transient
+ * origin 502s. The very next deploy, `b8bb30d7`, deployed green and smoked
+ * green against the same surface — and the finding stayed Ready until somebody
+ * closed it by hand, because the workflow held the clearing evidence and had no
+ * rule that read it.
+ *
+ * The evidence is deliberately both halves. Health alone says a process is
+ * listening; only a green MCP smoke says the surface a citizen speaks to
+ * answers, and that is the claim the finding made falsely.
+ */
+describe('settling an earlier revision’s smoke finding', () => {
+  const older = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+  const healthyRevision = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+
+  const finding = (revision: string, run?: string): OpenFinding => ({
+    number: 1789,
+    body: [
+      smokeMarker(revision),
+      ...(run === undefined ? [] : [`<!-- smoke-run: ${run} -->`]),
+    ].join('\n'),
+  })
+
+  const healthy = {
+    revision: healthyRevision,
+    run: { id: '33362034880', url: 'urn:kolonie:run:33362034880' },
+    deployJob: 'deploy to the VPS',
+    smokeJob: 'smoke the deployed MCP surface',
+  }
+
+  it('closes an earlier revision’s finding once a later deploy and smoke are both green', () => {
+    const settled = smokeFindingsToSettle({
+      deployOk: true,
+      smokeOk: true,
+      revision: healthyRevision,
+      open: [finding(older)],
+    })
+
+    expect(settled.map((one) => one.number)).toEqual([1789])
+    expect(settled[0]?.revision).toBe(older)
+  })
+
+  /**
+   * **Never on health alone, and never on a red smoke.** A deploy that shipped
+   * and left the surface not answering is the exact state the finding records,
+   * so a deploy-green/smoke-red run must leave it open.
+   */
+  it('keeps the finding when the later deploy is green and its smoke is red', () => {
+    expect(
+      smokeFindingsToSettle({
+        deployOk: true,
+        smokeOk: false,
+        revision: healthyRevision,
+        open: [finding(older)],
+      }),
+    ).toEqual([])
+  })
+
+  it('keeps the finding when the smoke is green and the deploy is not', () => {
+    expect(
+      smokeFindingsToSettle({
+        deployOk: false,
+        smokeOk: true,
+        revision: healthyRevision,
+        open: [finding(older)],
+      }),
+    ).toEqual([])
+  })
+
+  /**
+   * The identity is the commit key and nothing looser. A watch finding about
+   * something else is not this workflow's to close, whatever colour today's
+   * deploy is.
+   */
+  it('leaves an unrelated watch finding untouched', () => {
+    const unrelated: OpenFinding = {
+      number: 1234,
+      body: '<!-- watch-finding: smoke-unconfigured -->',
+    }
+    const other: OpenFinding = {
+      number: 1235,
+      body: '<!-- watch-finding: main-workflow-red:ci -->',
+    }
+
+    expect(
+      smokeFindingsToSettle({
+        deployOk: true,
+        smokeOk: true,
+        revision: healthyRevision,
+        open: [unrelated, other, finding(older)],
+      }).map((one) => one.number),
+    ).toEqual([1789])
+  })
+
+  /** A body whose first line is not the marker is never adopted (`#946`). */
+  it('does not adopt an issue that merely quotes a marker', () => {
+    expect(
+      smokeFindingsToSettle({
+        deployOk: true,
+        smokeOk: true,
+        revision: healthyRevision,
+        open: [{ number: 42, body: `discussion of ${smokeMarker(older)}` }],
+      }),
+    ).toEqual([])
+  })
+
+  /**
+   * A green run with nothing open settles nothing, so running the same green
+   * deploy twice writes once and then says nothing — the idempotence the
+   * workflow depends on rather than a counter it keeps.
+   */
+  it('settles nothing when no commit-keyed finding is open', () => {
+    expect(
+      smokeFindingsToSettle({
+        deployOk: true,
+        smokeOk: true,
+        revision: healthyRevision,
+        open: [],
+      }),
+    ).toEqual([])
+  })
+
+  /**
+   * The current revision's own finding is settled only by its own green smoke,
+   * which is the state this branch is in: the smoke that just passed is this
+   * revision's.
+   */
+  it('settles the current revision’s own finding when its own smoke is green', () => {
+    expect(
+      smokeFindingsToSettle({
+        deployOk: true,
+        smokeOk: true,
+        revision: healthyRevision,
+        open: [finding(healthyRevision)],
+      }).map((one) => one.revision),
+    ).toEqual([healthyRevision])
+  })
+
+  it('carries the run recorded on the finding, where it recorded one', () => {
+    const settled = smokeFindingsToSettle({
+      deployOk: true,
+      smokeOk: true,
+      revision: healthyRevision,
+      open: [finding(older, 'urn:kolonie:run:33330000000')],
+    })
+
+    expect(settled[0]?.run?.url).toBe('urn:kolonie:run:33330000000')
+  })
+
+  describe('the comment it closes with', () => {
+    it('names the old revision and run, and the new revision and run', () => {
+      const [settled] = smokeFindingsToSettle({
+        deployOk: true,
+        smokeOk: true,
+        revision: healthyRevision,
+        open: [finding(older, 'urn:kolonie:run:33330000000')],
+      })
+
+      const comment = smokeSettlementComment(settled!, healthy)
+
+      expect(comment).toContain(older.slice(0, 8))
+      expect(comment).toContain('urn:kolonie:run:33330000000')
+      expect(comment).toContain(healthyRevision.slice(0, 8))
+      expect(comment).toContain(healthy.run.url)
+    })
+
+    it('names the deploy job and the smoke job that carried the evidence', () => {
+      const [settled] = smokeFindingsToSettle({
+        deployOk: true,
+        smokeOk: true,
+        revision: healthyRevision,
+        open: [finding(older)],
+      })
+
+      const comment = smokeSettlementComment(settled!, healthy)
+
+      expect(comment).toContain('deploy to the VPS')
+      expect(comment).toContain('smoke the deployed MCP surface')
+    })
+
+    /** Deterministic: the same inputs render the same sentence, every run. */
+    it('renders the same text for the same evidence', () => {
+      const [settled] = smokeFindingsToSettle({
+        deployOk: true,
+        smokeOk: true,
+        revision: healthyRevision,
+        open: [finding(older)],
+      })
+
+      expect(smokeSettlementComment(settled!, healthy)).toBe(
+        smokeSettlementComment(settled!, healthy),
+      )
+    })
+
+    /** Nothing here is a rollback, and the comment must not read as one. */
+    it('says the deploy that cleared it was a later one, not a revert', () => {
+      const [settled] = smokeFindingsToSettle({
+        deployOk: true,
+        smokeOk: true,
+        revision: healthyRevision,
+        open: [finding(older)],
+      })
+
+      expect(smokeSettlementComment(settled!, healthy)).toMatch(/nothing was rolled back/i)
+    })
+
+    it('says which run could not be named when the finding recorded none', () => {
+      const [settled] = smokeFindingsToSettle({
+        deployOk: true,
+        smokeOk: true,
+        revision: healthyRevision,
+        open: [finding(older)],
+      })
+
+      expect(smokeSettlementComment(settled!, healthy)).toMatch(/recorded no run/i)
+    })
+  })
+})
+
+/**
+ * The run that filed a finding has to be recorded on it, or a later settlement
+ * cannot name it (`#1790`).
+ */
+describe('the finding records the run that filed it', () => {
+  const red: SmokeResult = {
+    ...at,
+    ok: false,
+    assertions: [{ name: 'the tool list answers', ok: false, detail: 'origin 502' }],
+  }
+
+  it('carries the run marker under the finding marker', () => {
+    const issue = smokeIssue(red, { id: '1', url: 'urn:kolonie:run:1' })
+    const [first, second] = issue.body.split('\n')
+
+    expect(first).toBe(smokeMarker(at.revision))
+    expect(second).toBe('<!-- smoke-run: urn:kolonie:run:1 -->')
+  })
+
+  it('files exactly as before when no run is given', () => {
+    expect(smokeIssue(red).body.split('\n')[1]).toBe('')
   })
 })

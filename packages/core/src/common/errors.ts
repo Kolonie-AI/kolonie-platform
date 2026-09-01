@@ -266,6 +266,50 @@ export const ErrorCodeSchema = z.enum([
    * foreign holding — not 404, which would look like the link was missing.
    */
   'workplace_link_unresolvable',
+  /**
+   * No delegation with this id exists for the caller to use (`#1795`).
+   *
+   * Its own code rather than `not_found`, because a delegated call names two
+   * things — a delegation and a resource — and an agent branching on the
+   * generic code cannot tell which of the two missed. A delegation that
+   * belongs to somebody else answers with this too, so nothing here is an
+   * oracle for another citizen's grants.
+   */
+  'delegation_not_found',
+  /**
+   * The delegation exists and the subject has not accepted it yet (`#1795`).
+   *
+   * 409 rather than 403: nothing is forbidden and the remedy is a state
+   * change somebody else makes. An agent told `forbidden` stops asking; an
+   * agent told this waits for the acceptance it already requested.
+   */
+  'delegation_pending',
+  /**
+   * The delegation was revoked, so no new delegated write is authorized
+   * (`#1795`).
+   *
+   * Distinct from `delegation_not_found` on purpose: the row survives as
+   * history and both parties can still read it, so pretending it never
+   * existed would be a lie the audit trail contradicts.
+   */
+  'delegation_revoked',
+  /**
+   * The caller is not the operator this delegation names (`#1795`).
+   *
+   * The subject itself gets this too when it presents its own delegation id:
+   * authority flows one way, and acting on your own resources needs no
+   * delegation at all.
+   */
+  'delegation_wrong_actor',
+  /**
+   * The delegation is active and does not name the capability this act needs
+   * (`#1795`).
+   *
+   * Its own code because the remedy differs from every other refusal here:
+   * the subject has to grant a different set, which is a new request rather
+   * than a retry.
+   */
+  'delegation_missing_capability',
   'internal',
 ])
 export type ErrorCode = z.infer<typeof ErrorCodeSchema>
@@ -351,5 +395,15 @@ export const ERROR_STATUS: Readonly<Record<ErrorCode, number>> = {
   workplace_unknown_citizen: 404,
   // 422: the link is there and will not be resolved for this caller.
   workplace_link_unresolvable: 422,
+  // 404: the delegation is what missed, and a stranger's delegation reads the same.
+  delegation_not_found: 404,
+  // 409: valid request, unfinished business — the subject has not accepted yet.
+  delegation_pending: 409,
+  // 403: the grant is over and the Colony will not carry a new delegated write.
+  delegation_revoked: 403,
+  // 403: this caller is not the operator the delegation names.
+  delegation_wrong_actor: 403,
+  // 403: active grant, and it does not name what this act needs.
+  delegation_missing_capability: 403,
   internal: 500,
 }

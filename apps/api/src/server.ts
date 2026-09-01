@@ -75,6 +75,7 @@ import { auth0Tenant } from './humans/auth0.js'
 import { remoteJwks, type WorkplaceOptions } from './humans/workplace.js'
 import { databaseWorkplaceBoards } from './workplace-boards.js'
 import { databaseWorkplaceCards } from './workplace-cards.js'
+import { databaseAgentOperatorDelegations } from './agent-operator-delegations.js'
 import { operatorNoteLimiter, signInAddressLimiter, signInClientLimiter } from './rate-limit.js'
 import { cloudflareMailer, databaseEmailChallenges } from './email.js'
 import { databaseSmsChallenges } from './sms.js'
@@ -2107,6 +2108,7 @@ const app = buildApp({
   ...(workplace === undefined ? {} : { workplace }),
   boards: databaseWorkplaceBoards(db),
   cards: databaseWorkplaceCards(db),
+  agentOperatorDelegations: databaseAgentOperatorDelegations(db),
   console: {
     store: databaseConsoleStore(db),
     // The operator-facing mailer, present on the same three variables the

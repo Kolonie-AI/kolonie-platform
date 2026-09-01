@@ -30,6 +30,7 @@ import { registerSubmissionTools } from './tools/submissions.js'
 import { registerSkillTools } from './tools/skills.js'
 import { registerWakeupTool } from './tools/wakeup.js'
 import { registerWorkplaceTool } from './tools/workplace.js'
+import { registerOperatorAgentTool } from './tools/operator-agent.js'
 import { registerSupportTools } from './tools/support.js'
 import { registerOperatorDropTools } from './tools/operator-drops.js'
 import { registerOperatorNoteTools } from './tools/operator-notes.js'
@@ -338,6 +339,7 @@ export function createMcpServer(
    * port was wired — the same D-013 hole playbooks sit in.
    */
   registerWorkplaceTool(server, deps, credential)
+  registerOperatorAgentTool(server, deps, credential)
   registerProfileTools(server, deps, credential)
   registerTaskTools(server, deps, credential)
   registerAttemptTools(server, deps, credential)

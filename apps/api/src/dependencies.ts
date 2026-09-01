@@ -25,6 +25,7 @@ import type { HumanDependencies } from './humans/humans.js'
 import type { WorkplaceOptions } from './humans/workplace.js'
 import type { WorkplaceBoards } from './workplace-boards.js'
 import type { WorkplaceCards } from './workplace-cards.js'
+import type { AgentOperatorDelegations } from './agent-operator-delegations.js'
 import type { ContributionDependencies } from './contributions.js'
 import type { ContributionQualitySource } from './contribution-quality.js'
 import type { StandingHintSource } from './hints.js'
@@ -744,4 +745,6 @@ export interface AppDependencies {
    * per the house rule on `citizens`.
    */
   readonly cards?: WorkplaceCards
+  /** Direct citizen delegation lifecycle, shared by MCP and delegated services. */
+  readonly agentOperatorDelegations?: AgentOperatorDelegations
 }

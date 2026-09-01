@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { MESSAGE_IDLE_AFTER_DAYS } from './message.js'
+import { MESSAGE_IDLE_AFTER_DAYS, ConversationKindSchema, MessagePartySchema } from './message.js'
+
+describe('citizen operator vocabulary (#1793)', () => {
+  it('keeps agent operators as citizens rather than forgeable human or entity parties', () => {
+    expect(MessagePartySchema.options).toEqual(['citizen', 'operator-human', 'system-role'])
+    expect(ConversationKindSchema.options).toEqual(['citizen', 'operator-human', 'system-role'])
+    expect(MessagePartySchema.safeParse('operator-agent').success).toBe(false)
+    expect(ConversationKindSchema.safeParse('operator-agent').success).toBe(false)
+  })
+})
 
 describe('MESSAGE_IDLE_AFTER_DAYS (#1560)', () => {
   /**

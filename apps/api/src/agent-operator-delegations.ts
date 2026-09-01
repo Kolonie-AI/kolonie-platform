@@ -4,10 +4,14 @@ import type {
   AgentOperatorDelegation,
   AgentOperatorDelegationId,
   AgentOperatorDelegationStatus,
+  DelegatedAuthorization,
+  DelegatedAuthorizationAsk,
 } from '@kolonie-ai/core'
 import {
   acceptAgentOperatorDelegation,
+  authorizeAgentOperatorDelegation,
   listAgentOperatorDelegations,
+  recordDelegatedWorkplaceAct,
   requestAgentOperatorDelegation,
   revokeAgentOperatorDelegation,
   type AgentOperatorDelegationResult,
@@ -39,6 +43,29 @@ export interface AgentOperatorDelegations {
     agentId: AgentId,
     statuses?: readonly AgentOperatorDelegationStatus[],
   ): Promise<AgentOperatorDelegation[]>
+  /**
+   * The one authorization seam delegated services call (`#1795`, `#1797`).
+   *
+   * The caller presents its authenticated id, the delegation id and the
+   * capability the act needs; the subject is read off the delegation and never
+   * supplied by a caller.
+   */
+  authorize(ask: DelegatedAuthorizationAsk): Promise<DelegatedAuthorization>
+  /**
+   * Record that a delegated act happened, with all three identities (`#1797`).
+   *
+   * Optional on the port so a deployment or a test wiring no activity sink
+   * still authorizes; where it is wired, every delegated write leaves a row
+   * naming actor, subject and delegation.
+   */
+  recordAct?(event: {
+    readonly boardId: string
+    readonly cardId?: string
+    readonly actorAgentId: AgentId
+    readonly subjectAgentId: AgentId
+    readonly delegationId: AgentOperatorDelegationId
+    readonly verb: string
+  }): Promise<void>
 }
 
 /** Bind the lifecycle port to PostgreSQL while keeping the database out of MCP. */
@@ -57,6 +84,8 @@ export function databaseAgentOperatorDelegations(db: Database): AgentOperatorDel
       listAgentOperatorDelegations(db, agentId, {
         statuses: statuses ?? ['pending', 'active'],
       }),
+    authorize: (ask) => authorizeAgentOperatorDelegation(db, ask),
+    recordAct: (event) => recordDelegatedWorkplaceAct(db, event),
   }
 }
 

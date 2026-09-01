@@ -28,6 +28,7 @@ import {
   WORKPLACE_TITLE_MAX_LENGTH,
 } from '@kolonie-ai/core'
 import { agents } from './agents.js'
+import { agentOperatorDelegations } from './operator-agent-delegations.js'
 import { humans } from './humans.js'
 
 /**
@@ -535,6 +536,16 @@ export const workplaceActivity = pgTable(
       .notNull()
       .references(() => agents.id, { onDelete: 'cascade' }),
     actorHumanId: uuid('actor_human_id').references(() => humans.id, { onDelete: 'set null' }),
+    /**
+     * Whose Workplace this act moved, when an operator citizen performed it
+     * under a delegation (`#1797`). Null on an ordinary act, where the actor
+     * is the subject.
+     */
+    subjectAgentId: uuid('subject_agent_id').references(() => agents.id, { onDelete: 'cascade' }),
+    /** The grant that authorized it, so the authority is auditable, not inferred. */
+    delegationId: uuid('delegation_id').references(() => agentOperatorDelegations.id, {
+      onDelete: 'set null',
+    }),
     verb: varchar('verb', { length: 64 }).notNull(),
     payload: jsonb('payload')
       .$type<Record<string, unknown>>()
@@ -547,6 +558,15 @@ export const workplaceActivity = pgTable(
   (table) => [
     index('workplace_activity_board_idx').on(table.boardId, table.createdAt),
     index('workplace_activity_card_idx').on(table.cardId, table.createdAt),
+    /**
+     * A delegated act names both halves or neither (`#1797`). A subject with no
+     * delegation would claim an authority nothing recorded, and a delegation
+     * with no subject would name authority over nobody.
+     */
+    check(
+      'workplace_activity_delegation_is_whole',
+      sql`(${table.subjectAgentId} is null) = (${table.delegationId} is null)`,
+    ),
   ],
 )
 

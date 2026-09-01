@@ -1,5 +1,5 @@
 {
-  "measuredAt": "2026-08-30",
+  "measuredAt": "2026-09-01",
   "command": "npm run catalogue-structure",
   "tools": [
     {
@@ -1922,6 +1922,13 @@
           }
         },
         "required": ["name"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.operator.agent",
+      "schema": {
+        "properties": {},
         "type": "object"
       }
     },

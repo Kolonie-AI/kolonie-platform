@@ -69,6 +69,7 @@ import type { WakeDependencies } from '../wake.js'
 import type { ArrivalReports } from '../arrival-reports.js'
 import type { ReachabilityDependencies } from '../reachability.js'
 import type { WebsiteDependencies } from '../website.js'
+import type { AgentOperatorDelegations } from '../agent-operator-delegations.js'
 
 /**
  * Everything the MCP surface needs from the outside world.
@@ -298,6 +299,8 @@ export interface McpDependencies {
    * the house rule on `citizens`.
    */
   readonly cards?: WorkplaceCards
+  /** Direct citizen delegation lifecycle; absent means the single lifecycle tool is not served. */
+  readonly agentOperatorDelegations?: AgentOperatorDelegations
   /**
    * The one line a citizen did not ask for — see `hints.ts` (`#231`).
    *

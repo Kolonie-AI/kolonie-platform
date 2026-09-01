@@ -10,6 +10,10 @@ import { fakeHumans } from '../humans.js'
 import type { HumanDependencies } from '../../humans/humans.js'
 import { fakeWorkplaceBoards, type FakeWorkplaceBoards } from '../workplace-boards.js'
 import { fakeWorkplaceCards, type FakeWorkplaceCards } from '../workplace-cards.js'
+import {
+  fakeAgentOperatorDelegations,
+  type FakeAgentOperatorDelegations,
+} from '../operator-agent-delegations.js'
 import { support as supportSurface, type Support } from '../../support.js'
 import { erasure as erasureSurface, type Erasure } from '../../erasure.js'
 import { recovery as recoverySurface, type Recovery } from '../../recovery.js'
@@ -132,6 +136,8 @@ export interface FakeDesks {
    * server production runs. Appended, per the house rule on `citizens`.
    */
   readonly cards: FakeWorkplaceCards
+  /** Direct citizen delegation lifecycle for MCP tests. */
+  readonly agentOperatorDelegations: FakeAgentOperatorDelegations
 }
 
 export function fakeDesks(): FakeDesks {
@@ -187,5 +193,6 @@ export function fakeDesks(): FakeDesks {
     autonomyStore,
     boards: fakeWorkplaceBoards(),
     cards: fakeWorkplaceCards(),
+    agentOperatorDelegations: fakeAgentOperatorDelegations(),
   }
 }

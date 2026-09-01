@@ -85,6 +85,8 @@ export const AUTHENTICATED_TOOLS = [
    * because that digest names the next `act` when a card is waiting.
    */
   'kolonie.workplace',
+  /** One compact grammar for direct citizen delegation lifecycle (`#1796`). */
+  'kolonie.operator.agent',
   /**
    * *What do I look like from there?* (`#837`).
    *

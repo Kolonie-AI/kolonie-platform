@@ -324,6 +324,19 @@ export function gatewaysFromEnvironment(
   }
 }
 
+/**
+ * Override both configured legs with one typed tier.
+ *
+ * A caller-specific tier must replace the service default on both legs together;
+ * changing only the primary would make failover silently ask for another capability.
+ */
+export function gatewaysWithTier(gateways: GatewaySet, model: CapabilityTier): GatewaySet {
+  return {
+    ...(gateways.primary === undefined ? {} : { primary: { ...gateways.primary, model } }),
+    ...(gateways.fallback === undefined ? {} : { fallback: { ...gateways.fallback, model } }),
+  }
+}
+
 /** The gateway a direct model caller should use when it cannot route itself. */
 export function gatewayClient(gateways: GatewaySet): Gateway | undefined {
   return gateways.fallback ?? gateways.primary

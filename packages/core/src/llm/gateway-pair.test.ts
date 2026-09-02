@@ -14,6 +14,7 @@ import {
   gatewayOnlyFetch,
   gatewayRoutedFetch,
   gatewaysFromEnvironment,
+  gatewaysWithTier,
   type GatewaySet,
 } from './gateway.js'
 import { CAPABILITY_TIERS, SERVICE_TIERS } from './tier.js'
@@ -64,6 +65,13 @@ describe('the two configured gateways', () => {
     [FALLBACK_GATEWAY_API_KEY_VARS.moderation]: FALLBACK.apiKey,
     [GATEWAY_MODEL_VARS.moderation]: TIER,
   }
+
+  it('fixes both vision legs to tier 1', () => {
+    const gateways = gatewaysWithTier(GATEWAYS, '@preset/tier-1')
+
+    expect(gateways.primary?.model).toBe('@preset/tier-1')
+    expect(gateways.fallback?.model).toBe('@preset/tier-1')
+  })
 
   it('builds primary and fallback from the environment only', () => {
     expect(gatewaysFromEnvironment('moderation', complete)).toEqual(GATEWAYS)
@@ -189,6 +197,31 @@ describe('the two configured gateways', () => {
 })
 
 describe('the same request over either gateway', () => {
+  it('sends image requests through primary then fallback with tier 1', async () => {
+    const under = transport(new Error('primary unavailable'), completion('{"ok":true}'))
+    const routed = gatewayRoutedFetch(gatewaysWithTier(GATEWAYS, '@preset/tier-1'), {
+      fetch: under.fetch,
+    })
+
+    await routed(
+      ...post('/chat/completions', {
+        model: '@preset/tier-1',
+        messages: [
+          {
+            role: 'user',
+            content: [{ type: 'image_url', image_url: { url: 'data:image/png;base64,AA==' } }],
+          },
+        ],
+      }),
+    )
+
+    expect(under.calls).toHaveLength(2)
+    expect(under.calls.map((call) => JSON.parse(String(call.init?.body))['model'])).toEqual([
+      '@preset/tier-1',
+      '@preset/tier-1',
+    ])
+  })
+
   it('sends the tier unchanged to the primary', async () => {
     const under = transport(completion('{"ok":true}'))
     const routed = gatewayRoutedFetch(GATEWAYS, { fetch: under.fetch })

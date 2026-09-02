@@ -205,12 +205,6 @@ export const SETTINGS: readonly SettingDefinition[] = [
     schema: modelReference,
   },
   {
-    name: 'SCENE_VISION_MODEL',
-    group: 'model',
-    describes: 'The model the scene rung is verified with.',
-    schema: modelReference,
-  },
-  {
     name: 'OPENROUTER_EMBEDDING_MODEL',
     group: 'model',
     describes: 'The embedding model used where the Colony compares text to text.',

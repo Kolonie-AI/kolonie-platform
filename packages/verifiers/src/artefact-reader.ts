@@ -1,7 +1,7 @@
 import { chatRequestBody, throwIfTruncated, type Log } from '@kolonie-ai/core'
 import type { ArtefactCodeReader, ArtefactReadResult } from './artefact-publish.js'
 import { isPermanentVendorStatus, readVendorRejection } from './vendor.js'
-import { DEFAULT_VISION_TIER, OPENROUTER_API_KEY_VAR } from './vision-model.js'
+import { OPENROUTER_API_KEY_VAR, VISION_TIER } from './vision-model.js'
 import { recordOpenRouterCall } from './model-call.js'
 
 /**
@@ -39,13 +39,12 @@ export const ARTEFACT_READ_PROMPT =
 
 export function openRouterArtefactReader(
   apiKey: string | undefined,
-  model: string | undefined = DEFAULT_VISION_TIER,
   fetchImpl: typeof fetch = fetch,
   log?: Log,
   /** The operator's ceiling, or nothing — the ordinary state (`#1694`). */
   maxTokens?: number,
 ): ArtefactCodeReader {
-  const chosen = model === undefined || model.trim() === '' ? DEFAULT_VISION_TIER : model
+  const chosen = VISION_TIER
 
   return {
     read: async ({ image, format }): Promise<ArtefactReadResult> => {

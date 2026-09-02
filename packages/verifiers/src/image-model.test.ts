@@ -3,6 +3,7 @@ import {
   AgentIdSchema,
   drawSceneConstraints,
   sceneBindingPhrase,
+  TIER_1,
   SubmissionIdSchema,
   TaskIdSchema,
   type Agent,
@@ -378,7 +379,7 @@ describe('the scene judge', () => {
     }
   })
 
-  it('sends the prompt and the image to the model it was configured with', async () => {
+  it('sends the prompt and image with the tier-1 vision contract', async () => {
     // Typed as `fetch` rather than as a bare async function, so the recorded
     // call carries its arguments — the request body is what this test is about.
     const fetchImpl = vi.fn<typeof fetch>(
@@ -393,7 +394,7 @@ describe('the scene judge', () => {
         ),
     )
 
-    const checker = openRouterSceneVision('a-key', 'a-vendor/a-model', fetchImpl)
+    const checker = openRouterSceneVision('a-key', fetchImpl)
     const result = await checker.check({
       image: new Uint8Array(png()),
       format: 'image/png',
@@ -406,7 +407,7 @@ describe('the scene judge', () => {
       model: string
       messages: Array<{ content: Array<{ type: string; text?: string }> }>
     }
-    expect(body.model).toBe('a-vendor/a-model')
+    expect(body.model).toBe(TIER_1)
     expect(body.messages[0]?.content[0]?.text).toContain('exactly 3')
   })
 
@@ -436,13 +437,11 @@ describe('the scene judge', () => {
         ),
     )
 
-    const result = await openRouterSceneVision('a-key', undefined, fetchImpl as typeof fetch).check(
-      {
-        image: new Uint8Array(png()),
-        format: 'image/png',
-        constraints: CONSTRAINTS,
-      },
-    )
+    const result = await openRouterSceneVision('a-key', fetchImpl as typeof fetch).check({
+      image: new Uint8Array(png()),
+      format: 'image/png',
+      constraints: CONSTRAINTS,
+    })
 
     expect(result.outcome).toBe('unavailable')
   })
@@ -458,13 +457,11 @@ describe('the scene judge', () => {
         new Response(JSON.stringify({ error: { message: 'invalid image' } }), { status: 400 }),
     )
 
-    const result = await openRouterSceneVision('a-key', undefined, fetchImpl as typeof fetch).check(
-      {
-        image: new Uint8Array(png()),
-        format: 'image/png',
-        constraints: CONSTRAINTS,
-      },
-    )
+    const result = await openRouterSceneVision('a-key', fetchImpl as typeof fetch).check({
+      image: new Uint8Array(png()),
+      format: 'image/png',
+      constraints: CONSTRAINTS,
+    })
 
     expect(result).toMatchObject({ outcome: 'rejected', status: 400 })
   })
@@ -477,7 +474,7 @@ describe('the scene judge', () => {
       return new Response(JSON.stringify({ error: { message: `bad key ${key}` } }), { status: 401 })
     }) as unknown as typeof fetch
 
-    const result = await openRouterSceneVision(key, undefined, fetchImpl).check({
+    const result = await openRouterSceneVision(key, fetchImpl).check({
       image: new Uint8Array(png()),
       format: 'image/png',
       constraints: CONSTRAINTS,

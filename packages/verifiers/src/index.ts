@@ -441,18 +441,12 @@ export {
   type VisionAssetMetadata,
 } from './vision-assets.js'
 export {
-  DEFAULT_VISION_TIER,
+  VISION_TIER,
   openRouterVision,
   OPENROUTER_API_KEY_VAR,
   visionPromptFor,
-  VISION_MODEL_VAR,
 } from './vision-model.js'
-export {
-  DEFAULT_SCENE_VISION_TIER,
-  openRouterSceneVision,
-  scenePromptForModel,
-  SCENE_VISION_MODEL_VAR,
-} from './scene-vision-model.js'
+export { openRouterSceneVision, scenePromptForModel } from './scene-vision-model.js'
 export { hasMarkerLine, isMarkerLine } from './marker.js'
 export {
   CodeContributionVerifier,
@@ -639,10 +633,9 @@ export interface VerifierDependencies {
   /**
    * Looks at an image and answers about six scene properties.
    *
-   * Its own port rather than a method on `visionModel`, and the separation is
-   * the same one that keeps `SCENE_VISION_MODEL` a separate variable: the two
-   * rungs ask a different question of a differently-priced model. A shared port
-   * would make the wiring decide which rung got the stronger judge, silently.
+   * Its own port rather than a method on `visionModel`: the two rungs keep
+   * separate prompts, schemas, and verdict types even though vision tier 1 now
+   * serves both. A shared port could grade one rung against the other's contract.
    */
   readonly sceneVision?: SceneChecker
   /**

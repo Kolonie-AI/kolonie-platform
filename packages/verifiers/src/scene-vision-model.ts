@@ -1,49 +1,16 @@
 import {
   SceneCheckSchema,
   SCENE_PROHIBITION,
-  TIER_2,
   chatRequestBody,
   sceneBindingPhrase,
   throwIfTruncated,
-  type CapabilityTier,
   type SceneConstraints,
   type Log,
 } from '@kolonie-ai/core'
 import type { SceneChecker, SceneCheckResult } from './image-model.js'
-import { OPENROUTER_API_KEY_VAR } from './vision-model.js'
+import { OPENROUTER_API_KEY_VAR, VISION_TIER } from './vision-model.js'
 import { isPermanentVendorStatus, readVendorRejection } from './vendor.js'
 import { recordOpenRouterCall } from './model-call.js'
-
-/**
- * Which model judges a scene. Its own variable, so the two image rungs are tuned
- * independently.
- *
- * **Not a shared `VISION_MODEL` with the `raster` rung**, and the reason is the
- * count property: asked how many otters are in a picture, a small vision model
- * is wrong often enough to fail work that was right. `raster` asks five
- * questions a cheap model answers well — is the background blue, is the shape a
- * circle — and paying a stronger model for those on every submission buys
- * nothing. One variable would force the Colony to price both rungs at whichever
- * is more demanding.
- */
-export const SCENE_VISION_MODEL_VAR = 'SCENE_VISION_MODEL'
-
-/**
- * The tier that judges a scene (`#1694`).
- *
- * It has to accept an image *and* return a structured object, for the reason
- * `DEFAULT_VISION_TIER` records — a verdict extracted from prose with a regular
- * expression eventually passes an image because the model wrote the word
- * "correct" in an explanation.
- *
- * **And it has to count.** That is the requirement this tier is chosen for and
- * the one that rules out `tier-3`: a judge that miscounts four objects fails a
- * citizen who did exactly what was asked, on a rung whose attempts cost that
- * citizen money. Which model serves `tier-2` is settled at the gateway against
- * real submissions — that is what the tier bought, and the variable below is
- * still there for pinning one during an incident.
- */
-export const DEFAULT_SCENE_VISION_TIER: CapabilityTier = TIER_2
 
 /**
  * The six questions, as a schema the model must answer in.
@@ -114,19 +81,12 @@ export function scenePromptForModel(constraints: SceneConstraints): string {
  */
 export function openRouterSceneVision(
   apiKey: string | undefined,
-  model: string | undefined = DEFAULT_SCENE_VISION_TIER,
   fetchImpl: typeof fetch = fetch,
   log?: Log,
   /** The operator's ceiling, or nothing — the ordinary state (`#1694`). */
   maxTokens?: number,
 ): SceneChecker {
-  /**
-   * A blank model name is an unset one, and a default parameter would not catch
-   * it: `docker-compose.yml` writes `SCENE_VISION_MODEL: ${SCENE_VISION_MODEL:-}`
-   * so a missing variable degrades the runner rather than refusing to start it,
-   * and what that hands the process is an empty string.
-   */
-  const chosen = model === undefined || model.trim() === '' ? DEFAULT_SCENE_VISION_TIER : model
+  const chosen = VISION_TIER
 
   return {
     check: async ({ image, format, constraints }): Promise<SceneCheckResult> => {

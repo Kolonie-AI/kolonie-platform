@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { ImageConstraints } from '@kolonie-ai/core'
+import { TIER_1, type ImageConstraints } from '@kolonie-ai/core'
 
 /** Only the parts of the request body these tests assert on. */
 interface OpenRouterBody {
@@ -8,12 +8,14 @@ interface OpenRouterBody {
   readonly response_format: { readonly json_schema: { readonly strict: boolean } }
   readonly messages: ReadonlyArray<{
     readonly content: ReadonlyArray<{
+      readonly type?: string
       readonly text?: string
       readonly image_url?: { readonly url: string }
     }>
   }>
 }
-import { DEFAULT_VISION_TIER, openRouterVision, visionPromptFor } from './vision-model.js'
+import { VISION_TIER, openRouterVision, visionPromptFor } from './vision-model.js'
+import { openRouterArtefactReader } from './artefact-reader.js'
 
 const CONSTRAINTS: ImageConstraints = {
   background: 'green',
@@ -46,7 +48,7 @@ function endpoint(body: unknown, status = 200) {
 }
 
 const answered = (content: unknown) => ({
-  model: DEFAULT_VISION_TIER,
+  model: VISION_TIER,
   usage: { prompt_tokens: 308, completion_tokens: 5, total_tokens: 313 },
   choices: [{ message: { content: JSON.stringify(content) } }],
 })
@@ -61,7 +63,7 @@ const allTrue = {
 }
 
 const check = (impl: typeof fetch, options: { readonly key?: string | undefined } = {}) =>
-  openRouterVision('key' in options ? options.key : 'a-key', DEFAULT_VISION_TIER, impl).check({
+  openRouterVision('key' in options ? options.key : 'a-key', impl).check({
     image: IMAGE,
     format: 'image/png',
     constraints: CONSTRAINTS,
@@ -73,7 +75,7 @@ describe('openRouterVision', () => {
 
     expect(await check(impl)).toMatchObject({
       outcome: 'checked',
-      model: DEFAULT_VISION_TIER,
+      model: VISION_TIER,
       check: { backgroundCorrect: true, secondaryCorrect: true },
     })
   })
@@ -160,7 +162,7 @@ describe('openRouterVision', () => {
     const key = 'sk-or-v1-0123456789abcdef'
     const { impl, calls } = endpoint({ error: { message: `bad key ${key}` } }, 401)
 
-    const result = await openRouterVision(key, DEFAULT_VISION_TIER, impl).check({
+    const result = await openRouterVision(key, impl).check({
       image: IMAGE,
       format: 'image/png',
       constraints: CONSTRAINTS,
@@ -203,39 +205,26 @@ describe('openRouterVision', () => {
 })
 
 describe('the model it asks', () => {
-  /**
-   * Same hazard as the RPC endpoint, one variable over: Compose writes
-   * `VISION_MODEL: ${VISION_MODEL:-}`, which is an empty string rather than
-   * `undefined`, and a default parameter does not fire on it. Without this the
-   * Colony would ask OpenRouter for a model called `""` on every submission.
-   */
-  it.each([
-    ['undefined', undefined],
-    ['empty', ''],
-    ['blank', '   '],
-  ])('falls back to the default when the name is %s', async (_case, model) => {
+  it('uses tier 1 for every image-understanding client', async () => {
     const { impl, calls } = endpoint(answered(allTrue))
+    const artefactEndpoint = endpoint({
+      model: VISION_TIER,
+      choices: [{ message: { content: '{"text":"KOL-ABCDEFGH"}' } }],
+    })
 
-    const result = await openRouterVision('a-key', model, impl).check({
+    const result = await openRouterVision('a-key', impl).check({
       image: IMAGE,
       format: 'image/png',
       constraints: CONSTRAINTS,
     })
-
-    expect(calls[0]?.body.model).toBe(DEFAULT_VISION_TIER)
-    expect(result).toMatchObject({ outcome: 'checked', model: DEFAULT_VISION_TIER })
-  })
-
-  it('uses a model it was actually given', async () => {
-    const { impl, calls } = endpoint(answered(allTrue))
-
-    await openRouterVision('a-key', 'some/other-model', impl).check({
+    await openRouterArtefactReader('a-key', artefactEndpoint.impl).read({
       image: IMAGE,
       format: 'image/png',
-      constraints: CONSTRAINTS,
     })
 
-    expect(calls[0]?.body.model).toBe('some/other-model')
+    expect(calls[0]?.body.model).toBe(TIER_1)
+    expect(artefactEndpoint.calls[0]?.body.model).toBe(TIER_1)
+    expect(result).toMatchObject({ outcome: 'checked', model: VISION_TIER })
   })
 })
 

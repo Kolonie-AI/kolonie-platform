@@ -10,6 +10,7 @@ import {
   WAKEUP_FINAL_LINE,
   type AgentId,
   type WakeupMessagingDelta,
+  type WakeupDelegation,
   type WakeupIdentity,
   type WakeupVaultSharesDelta,
   type WakeupOpen,
@@ -32,6 +33,7 @@ import {
   escalationFactsFor,
   materialiseDue,
   messagingWakeupDelta,
+  delegationWakeupSummary,
   movedThreadFor,
   vaultSharesWakeupDelta,
   walksToAskAbout,
@@ -154,6 +156,13 @@ export interface WakeupSource {
    */
   messagingDelta?(agentId: AgentId): Promise<WakeupMessagingDelta>
   /**
+   * Compact direct-delegation standing (`#1798`, epic `#1792`).
+   *
+   * Optional like messaging: an unwired deployment answers the quiet zero state.
+   * Counts and at most one action, never a body or board history.
+   */
+  delegationStanding?(agentId: AgentId): Promise<WakeupDelegation>
+  /**
    * What has moved on this citizen's shared vault entries (`#1440`).
    *
    * Optional like `messagingDelta` beside it, and for the same reason: a
@@ -271,6 +280,7 @@ export interface WakeupSource {
       // Read by `messagingDelta` on the source (`#1287`), not by `changes`.
       // Unread and pending are obligations rather than news inside a window.
       | 'messaging'
+      | 'delegation'
       | 'vaultShares'
     >
   >
@@ -305,6 +315,7 @@ export function databaseWakeup(db: Database, rechecks?: RecheckDependencies): Wa
     waitingOperatorReplies: (agentId) => countWaitingOperatorReplies(db, agentId),
     contributionQualityWarning: (agentId, now) => quality.warningFor(agentId, now),
     messagingDelta: (agentId) => messagingWakeupDelta(db, agentId),
+    delegationStanding: (agentId) => delegationWakeupSummary(db, agentId),
     vaultSharesDelta: async (agentId) => {
       const [counts, moved] = await Promise.all([
         vaultSharesWakeupDelta(db, agentId),
@@ -704,6 +715,12 @@ export async function wakeup(
     pendingRequests: 0,
     highPriority: 0,
   }
+  const emptyDelegation: WakeupDelegation = {
+    operating: 0,
+    operatedBy: 0,
+    pendingIn: 0,
+    pendingOut: 0,
+  }
 
   const [
     changes,
@@ -717,6 +734,7 @@ export async function wakeup(
     open,
     startableAdded,
     messagingCounts,
+    delegation,
     vaultShares,
     suspension,
   ] = await Promise.all([
@@ -739,6 +757,7 @@ export async function wakeup(
         ),
     startableSince(agentId, since, openings?.source),
     source.messagingDelta?.(agentId) ?? Promise.resolve(emptyMessaging),
+    source.delegationStanding?.(agentId) ?? Promise.resolve(emptyDelegation),
     source.vaultSharesDelta?.(agentId) ??
       Promise.resolve({ open: 0, read: 0, written: 0, handedBack: 0 }),
     source.suspension?.(agentId) ?? Promise.resolve(null),
@@ -916,6 +935,7 @@ export async function wakeup(
       operatorRepliesWaiting,
       wakeChannel,
       messaging,
+      delegation,
     })
 
   return {
@@ -989,6 +1009,7 @@ export async function wakeup(
        * stay on `kolonie.messages.*`, so a waking never embeds private words.
        */
       messaging,
+      delegation,
       /**
        * What has moved on the entries this citizen is sharing (`#1440`).
        *

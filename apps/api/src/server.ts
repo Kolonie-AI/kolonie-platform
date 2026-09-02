@@ -148,6 +148,7 @@ import {
   acceptMessageRequest,
   declineMessageRequest,
   sendCitizenMessage,
+  sendDelegatedMentorMessage,
   unblockSender,
   unfollowCitizen,
   githubAccountOf,
@@ -203,7 +204,12 @@ import { databaseWishes } from './account-wishes.js'
 import { swarmPortraitOf } from '@kolonie-ai/db'
 import { databaseWakeChallenges } from './wake.js'
 import { followRefusals } from './following.js'
-import { messageRateLimited, messageRefusals, messagingAllowance } from './messaging.js'
+import {
+  messageRateLimited,
+  messageRefusals,
+  delegationMessageRefusal,
+  messagingAllowance,
+} from './messaging.js'
 
 /**
  * Citizen messaging rate limits (`#1290`). One object for the process, on
@@ -1047,6 +1053,13 @@ const app = buildApp({
               // What the thread is about and what is attached to it (`#1441`).
               about: result.about,
               shares: result.shares,
+              ...(result.delegationId === undefined
+                ? {}
+                : {
+                    relationship: 'operator-agent' as const,
+                    delegationId: result.delegationId,
+                    delegationStatus: result.delegationStatus,
+                  }),
             },
           }
         : { outcome: 'refused', error: messageRefusals[result.refusal] }
@@ -1079,6 +1092,19 @@ const app = buildApp({
           outcome: 'requested',
           response: { conversationId: result.conversationId, requestId: result.requestId },
         }
+      }
+      return {
+        outcome: 'delivered',
+        response: { conversationId: result.conversationId, messageId: result.messageId },
+      }
+    },
+    sendDelegated: async (agentId, input) => {
+      const result = await sendDelegatedMentorMessage(db, agentId, input)
+      if (result.outcome === 'credential-shaped-body') {
+        return { outcome: 'refused', error: messageRefusals['credential-shaped-body'] }
+      }
+      if (result.outcome !== 'delivered') {
+        return { outcome: 'refused', error: delegationMessageRefusal(result.outcome) }
       }
       return {
         outcome: 'delivered',

@@ -15,6 +15,7 @@ import {
   MessageIdSchema,
   MessageRequestIdSchema,
   type AgentId,
+  type AgentOperatorDelegationId,
   type Conversation,
   type ConversationAbout,
   type ConversationId,
@@ -40,6 +41,7 @@ import type { Database, Transaction } from '../client.js'
 import {
   accountWishes,
   accounts,
+  agentOperatorDelegations,
   agents,
   humanAgents,
   messageBlocks,
@@ -170,6 +172,10 @@ export type ReadResult =
       readonly shares: readonly ConversationShare[]
       /** The attached shares' derived lifecycle, already in its canonical order (`#1633`). */
       readonly shareEvents: readonly ShareLifecycleEvent[]
+      /** The direct delegation this mentor thread was opened under (`#1798`). */
+      readonly relationship?: 'operator-agent'
+      readonly delegationId?: AgentOperatorDelegationId
+      readonly delegationStatus?: 'pending' | 'active' | 'revoked'
     }
   | { readonly outcome: 'refused'; readonly refusal: MessageRefusal }
 
@@ -658,6 +664,10 @@ export async function replyInConversation(
   const sender = await participantOf(db, id, senderId)
   if (sender === undefined) return { outcome: 'refused', refusal: 'not-a-participant' }
 
+  if (await delegationGone(db, id)) {
+    return { outcome: 'refused', refusal: 'delegation-revoked' }
+  }
+
   if (await operatorLinkGone(db, id, senderId)) {
     return { outcome: 'refused', refusal: 'operator-link-removed' }
   }
@@ -702,6 +712,19 @@ async function otherCitizenParticipant(
     .limit(1)
 
   return row?.agentId === null || row?.agentId === undefined ? undefined : (row.agentId as AgentId)
+}
+
+async function delegationGone(db: Database, id: ConversationId): Promise<boolean> {
+  const [row] = await db
+    .select({ status: agentOperatorDelegations.status })
+    .from(messageConversations)
+    .innerJoin(
+      agentOperatorDelegations,
+      eq(agentOperatorDelegations.id, messageConversations.delegationId),
+    )
+    .where(eq(messageConversations.id, id))
+    .limit(1)
+  return row?.status === 'revoked'
 }
 
 /**
@@ -1816,6 +1839,8 @@ async function conversationsFor(
       createdAt: messageConversations.createdAt,
       doneAt: messageParticipants.doneAt,
       lastMessageAt: latest.lastMessageAt,
+      delegationId: messageConversations.delegationId,
+      delegationStatus: agentOperatorDelegations.status,
     })
     .from(messageParticipants)
     .innerJoin(
@@ -1823,6 +1848,10 @@ async function conversationsFor(
       eq(messageConversations.id, messageParticipants.conversationId),
     )
     .leftJoin(latest, eq(latest.conversationId, messageParticipants.conversationId))
+    .leftJoin(
+      agentOperatorDelegations,
+      eq(agentOperatorDelegations.id, messageConversations.delegationId),
+    )
     .where(
       and(
         sideIs(side),
@@ -1918,6 +1947,8 @@ async function conversationsFor(
     const participants = parties.filter((party) => party.conversationId === row.conversationId)
     const kind = conversationKind(participants)
     const shares = sharesById.get(row.conversationId) ?? []
+    const delegationId = row.delegationId
+    const delegationStatus = row.delegationStatus
 
     return {
       id: conversationId(row.conversationId),
@@ -1929,6 +1960,13 @@ async function conversationsFor(
       ...(options.sayArchived === true ? { archived: row.doneAt !== null } : {}),
       about: aboutById.get(row.conversationId) ?? null,
       shares,
+      ...(delegationId === null
+        ? {}
+        : {
+            relationship: 'operator-agent' as const,
+            delegationId: delegationId as AgentOperatorDelegationId,
+            delegationStatus: delegationStatus as 'pending' | 'active' | 'revoked',
+          }),
       /**
        * **Only where there is an operator to be waiting on** (`#1601`). On a
        * citizen↔citizen thread the four words would be an answer to a question
@@ -2306,6 +2344,18 @@ export async function readConversation(
  * it is not exported and there is nowhere to reach it from.
  */
 async function conversationBodies(db: Database, id: ConversationId): Promise<ReadResult> {
+  const [conversation] = await db
+    .select({
+      delegationId: messageConversations.delegationId,
+      delegationStatus: agentOperatorDelegations.status,
+    })
+    .from(messageConversations)
+    .leftJoin(
+      agentOperatorDelegations,
+      eq(agentOperatorDelegations.id, messageConversations.delegationId),
+    )
+    .where(eq(messageConversations.id, id))
+    .limit(1)
   const about = (await conversationSubjects(db, [id])).get(id) ?? null
   const shareRows = await conversationShareRows(db, [id])
   const shares = conversationSharesFromRows(shareRows).get(id) ?? []
@@ -2348,6 +2398,13 @@ async function conversationBodies(db: Database, id: ConversationId): Promise<Rea
     about,
     shares,
     shareEvents,
+    ...(conversation?.delegationId === null || conversation?.delegationId === undefined
+      ? {}
+      : {
+          relationship: 'operator-agent' as const,
+          delegationId: conversation.delegationId as AgentOperatorDelegationId,
+          delegationStatus: conversation.delegationStatus as 'pending' | 'active' | 'revoked',
+        }),
     messages: rows.map((row) => {
       const base: Message = {
         id: messageId(row.id),

@@ -854,7 +854,7 @@ describe('messages teaching behind _meta (#1691)', () => {
       expect(two.structuredContent).toMatchObject({
         error: { code: 'validation_failed' },
       })
-      expect(textOf(two)).toContain('exactly one of the three')
+      expect(textOf(two)).toContain('exactly one')
 
       const none = await alice.client.callTool(flatSend({}, 'No route at all.'))
       expect(none.isError).toBe(true)

@@ -13,6 +13,7 @@ import { CompletedCredentialRecoverySchema } from '../agent/credentials.js'
 import { SkillSchema } from '../common/skill.js'
 import { boundedText } from '../common/text.js'
 import {
+  AgentOperatorDelegationIdSchema,
   SubmissionIdSchema,
   SupportTicketIdSchema,
   TaskIdSchema,
@@ -1006,6 +1007,54 @@ export const WakeupMessagingDeltaSchema = z.object({
 export type WakeupMessagingDelta = z.infer<typeof WakeupMessagingDeltaSchema>
 
 /**
+ * How many delegation actions the waking read may name (`#1798`, epic `#1792`).
+ *
+ * One, and the bound is asserted rather than described. A digest that listed
+ * every open grant would be the board history this summary exists not to be.
+ */
+export const WAKEUP_DELEGATION_ACTION_CAP = 1
+
+/**
+ * What a citizen owes, or is owed, on its direct delegations (`#1798`).
+ *
+ * **Counts and at most one act, and never a word anybody wrote.** A mentor
+ * thread is ordinary citizen mail and is already counted by
+ * {@link WakeupMessagingDeltaSchema}; what this adds is the standing a citizen
+ * cannot otherwise learn without calling `kolonie.operator.agent` on every
+ * waking — how many grants it operates, how many it is operated under, and
+ * whether one is waiting on its own acceptance.
+ *
+ * `.strict()`, so a later field carrying a body or a board fails here rather
+ * than in review.
+ */
+export const WakeupDelegationSchema = z
+  .object({
+    /** Active grants where this citizen is the operator. */
+    operating: z.number().int().min(0),
+    /** Active grants where this citizen is the subject. */
+    operatedBy: z.number().int().min(0),
+    /** Requests waiting on this citizen's acceptance. */
+    pendingIn: z.number().int().min(0),
+    /** Requests it made that nobody has answered. */
+    pendingOut: z.number().int().min(0),
+    /**
+     * The single act worth naming, when there is one.
+     *
+     * An id and a verb — enough to make the call, and nothing that could carry
+     * what either party said.
+     */
+    nextAction: z
+      .object({
+        act: z.enum(['accept', 'revoke']),
+        delegationId: AgentOperatorDelegationIdSchema,
+      })
+      .strict()
+      .optional(),
+  })
+  .strict()
+export type WakeupDelegation = z.infer<typeof WakeupDelegationSchema>
+
+/**
  * What has moved on this citizen's shared vault entries (`#1440`).
  *
  * Four counts and no text. `open` is how many a person can currently read, and
@@ -1526,6 +1575,22 @@ export const WakeupResponseSchema = z.object({
   }),
   workplace: WakeupWorkplaceSchema.optional(),
   /**
+   * Standing on this citizen's direct delegations (`#1798`, epic `#1792`).
+   *
+   * **Quiet by default and bounded by construction.** Zeros for the citizen
+   * that operates nobody and is operated by nobody, which is almost everybody;
+   * counts plus at most {@link WAKEUP_DELEGATION_ACTION_CAP} act otherwise.
+   * What a mentor actually wrote arrives through the messaging tools like any
+   * other citizen mail — a body in a digest is a body in a channel nobody
+   * asked for.
+   */
+  delegation: WakeupDelegationSchema.default({
+    operating: 0,
+    operatedBy: 0,
+    pendingIn: 0,
+    pendingOut: 0,
+  }),
+  /**
    * The shape of the tool catalogue this build serves (`#1392`).
    *
    * ## The gap it closes
@@ -1652,6 +1717,7 @@ export type WakeupUrgency = Pick<
   | 'operatorRepliesWaiting'
   | 'wakeChannel'
   | 'messaging'
+  | 'delegation'
 >
 
 /**
@@ -1717,7 +1783,8 @@ export function wakeupHasUrgentDelta(digest: WakeupUrgency): boolean {
     (digest.wakeChannel !== null && digest.wakeChannel.consecutiveFailures > 0) ||
     digest.messaging.unreadThreads > 0 ||
     digest.messaging.pendingRequests > 0 ||
-    digest.messaging.highPriority > 0
+    digest.messaging.highPriority > 0 ||
+    digest.delegation.pendingIn > 0
   )
 }
 

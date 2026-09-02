@@ -23,6 +23,7 @@ import {
 import { accountWishes } from './account-wishes.js'
 import { accounts } from './accounts.js'
 import { agents } from './agents.js'
+import { agentOperatorDelegations } from './operator-agent-delegations.js'
 import {
   messageParty,
   messagePriority,
@@ -132,6 +133,24 @@ export const messageConversations = pgTable(
      */
     accountId: uuid('account_id').references(() => accounts.id, { onDelete: 'cascade' }),
 
+    /**
+     * The delegation this mentor thread hangs on (`#1798`, epic `#1792`).
+     *
+     * **A link and not a fourth subject**, which is why it is outside the
+     * provenance count above: a thread about a task is about a *thing*, and this
+     * says under whose authority two citizens are talking. Both parties are
+     * ordinary `citizen` rows either way — the epic refused a fourth party kind
+     * precisely so that `operator-human` stays unforgeable — so this column is
+     * the whole of what makes a mentor thread distinguishable from a DM.
+     *
+     * `restrict`: a mentor thread is evidence belonging to both parties, so the
+     * delegation row it names must not be removed underneath it. Revocation is a
+     * status transition and preserves both rows.
+     */
+    delegationId: uuid('delegation_id').references(() => agentOperatorDelegations.id, {
+      onDelete: 'restrict',
+    }),
+
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),
@@ -157,6 +176,11 @@ export const messageConversations = pgTable(
       sql`(${table.taskId} is not null)::int + (${table.wishId} is not null)::int
           + (${table.accountId} is not null)::int <= 1`,
     ),
+    check(
+      'message_conversations_delegation_has_no_human_provenance',
+      sql`${table.delegationId} is null or
+          (${table.taskId} is null and ${table.wishId} is null and ${table.accountId} is null)`,
+    ),
     /** *What is this operator being asked about* — read per task, when it is read. */
     index('message_conversations_task_idx').on(table.taskId),
     /**
@@ -165,6 +189,15 @@ export const messageConversations = pgTable(
      * thread **from** the account, not only the account from the thread.
      */
     index('message_conversations_account_idx').on(table.accountId),
+    /**
+     * Exactly one durable mentor thread belongs to one grant (`#1798`).
+     *
+     * Unpartitioned on purpose: Postgres treats nulls as distinct, so every
+     * ordinary thread is unaffected, and an unqualified index is the one
+     * `on conflict` can infer — which is what makes the first send idempotent
+     * under concurrency rather than racing two threads onto one delegation.
+     */
+    uniqueIndex('message_conversations_delegation_unique').on(table.delegationId),
   ],
 )
 

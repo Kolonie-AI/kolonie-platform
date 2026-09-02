@@ -8,6 +8,7 @@ import {
   type ConversationId,
   type Message,
   type MessageId,
+  type AgentOperatorDelegationId,
   type MessageRequest,
   type MessageRequestId,
 } from '@kolonie-ai/core'
@@ -106,6 +107,8 @@ type ConversationRow = {
    * (`#1319`). Absent on the plain thread, which is a subject of its own.
    */
   operatorSubject?: string
+  /** The direct delegation this mentor thread is attached to (`#1798`). */
+  delegationId?: AgentOperatorDelegationId
   messages: {
     id: string
     senderParticipantId: string
@@ -375,7 +378,25 @@ export function fakeMessaging(): FakeMessaging {
       // The fake carries no subject and no attachments (`#1441`): both are joins
       // the database makes, and a fixture that invented one would let a surface
       // test pass against an assembly nothing produces.
-      return { outcome: 'read', response: { messages, about: null, shares: [] } }
+      return {
+        outcome: 'read',
+        response: {
+          messages,
+          about: null,
+          shares: [],
+          ...(row!.delegationId === undefined
+            ? {}
+            : {
+                relationship: 'operator-agent' as const,
+                delegationId: row!.delegationId,
+                delegationStatus: 'active' as const,
+              }),
+        },
+      }
+    },
+
+    async sendDelegated(_agentId, _input) {
+      return refused('not-a-participant')
     },
 
     // @mirrors packages/db/src/storage/messaging.ts sendCitizenMessage / replyInConversation

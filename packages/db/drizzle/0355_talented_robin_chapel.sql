@@ -1,0 +1,5 @@
+ALTER TABLE "message_conversations" ADD COLUMN "delegation_id" uuid;--> statement-breakpoint
+ALTER TABLE "message_conversations" ADD CONSTRAINT "message_conversations_delegation_id_agent_operator_delegations_id_fk" FOREIGN KEY ("delegation_id") REFERENCES "public"."agent_operator_delegations"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+CREATE UNIQUE INDEX "message_conversations_delegation_unique" ON "message_conversations" USING btree ("delegation_id");--> statement-breakpoint
+ALTER TABLE "message_conversations" ADD CONSTRAINT "message_conversations_delegation_has_no_human_provenance" CHECK ("message_conversations"."delegation_id" is null or
+          ("message_conversations"."task_id" is null and "message_conversations"."wish_id" is null and "message_conversations"."account_id" is null));

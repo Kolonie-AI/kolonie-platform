@@ -2,7 +2,8 @@ import {
   GATEWAY_API_KEY_VARS,
   GATEWAY_MODEL_VARS,
   createLog,
-  gatewayFromEnvironment,
+  gatewayClient,
+  gatewaysFromEnvironment,
   maxTokensFromEnvironment,
 } from '@kolonie-ai/core'
 import {
@@ -134,20 +135,21 @@ const store: DoctorStore = {
 /**
  * Who writes the sentences, or nobody (`#840`).
  *
- * **The gateway and nothing else.** `gatewayFromEnvironment` answers `undefined`
- * unless the base URL, this service's key and a model are all set — so the
- * ordinary state of a deployment that has not configured one is no prose at all,
- * with every diagnosis stored complete and silent.
+ * **The gateway and nothing else.** `gatewaysFromEnvironment` answers an empty
+ * primary unless the base URL, this service's key and a capability tier are all
+ * set — so the ordinary state of a deployment that has not configured one is no
+ * prose at all, with every diagnosis stored complete and silent.
  *
- * **No model name in this file and none in any other** (`#207`): the slug arrives
- * in `LLM_GATEWAY_MODEL_DOCTOR`, is written onto the diagnosis row for audit, and
- * appears nowhere in the repository.
+ * **No provider model name in this file or any other.** The service's capability
+ * tier is resolved from `LLM_GATEWAY_MODEL_DOCTOR` and the shared fallback,
+ * written onto the diagnosis row for audit, and chosen behind the gateway.
  */
-const gateway = gatewayFromEnvironment('doctor')
+const gateways = gatewaysFromEnvironment('doctor')
+const gateway = gatewayClient(gateways)
 const prose =
   gateway === undefined
     ? noProse
-    : gatewayProse(gateway, {
+    : gatewayProse(gateways, {
         log,
         // The operator's ceiling, or nothing — the ordinary state (`#1694`).
         ...(maxTokensFromEnvironment('doctor') !== undefined && {

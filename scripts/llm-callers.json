@@ -1,0 +1,128 @@
+{
+  "chatClients": [
+    {
+      "file": "apps/doctor-runner/src/prose.ts",
+      "symbol": "gatewayProse",
+      "routes": ["doctor"]
+    },
+    {
+      "file": "apps/moderation-runner/src/llm.ts",
+      "symbol": "openRouterModel",
+      "routes": ["moderation", "quest-primary-only"]
+    },
+    {
+      "file": "apps/support-triage-runner/src/llm.ts",
+      "symbol": "openRouterModel",
+      "routes": ["triage"]
+    },
+    {
+      "file": "apps/support-triage-runner/src/llm.ts",
+      "symbol": "openRouterDefectWriter",
+      "routes": ["triage"]
+    },
+    {
+      "file": "packages/verifiers/src/artefact-reader.ts",
+      "symbol": "openRouterArtefactReader",
+      "routes": ["verifier-vision"]
+    },
+    {
+      "file": "packages/verifiers/src/bio-judge.ts",
+      "symbol": "openRouterBioJudge",
+      "routes": ["verifier"]
+    },
+    {
+      "file": "packages/verifiers/src/direction-classifier.ts",
+      "symbol": "openRouterDirectionClassifier",
+      "routes": ["moderation"]
+    },
+    {
+      "file": "packages/verifiers/src/quest-report.ts",
+      "symbol": "openRouterQuestJudge",
+      "routes": ["verifier"]
+    },
+    {
+      "file": "packages/verifiers/src/scene-vision-model.ts",
+      "symbol": "openRouterSceneVision",
+      "routes": ["verifier-vision"]
+    },
+    {
+      "file": "packages/verifiers/src/vision-model.ts",
+      "symbol": "openRouterVision",
+      "routes": ["verifier-vision"]
+    }
+  ],
+  "embeddingClients": [
+    {
+      "file": "apps/moderation-runner/src/llm.ts",
+      "symbol": "openRouterModel"
+    }
+  ],
+  "modelReaders": [
+    {
+      "file": "packages/core/src/llm/gateway.ts",
+      "symbol": "modelFromEnvironment",
+      "variable": "GATEWAY_MODEL_VARS[service]",
+      "kind": "chat-tier-resolver"
+    },
+    {
+      "file": "packages/core/src/llm/gateway.ts",
+      "symbol": "modelFromEnvironment",
+      "variable": "GATEWAY_MODEL_VAR",
+      "kind": "chat-tier-resolver"
+    },
+    {
+      "file": "apps/moderation-runner/src/main.ts",
+      "symbol": "model",
+      "variable": "EMBEDDING_MODEL_VAR",
+      "kind": "embedding-only",
+      "client": "apps/moderation-runner/src/llm.ts:openRouterModel"
+    }
+  ],
+  "routes": [
+    {
+      "id": "doctor",
+      "mode": "primary-only",
+      "file": "apps/doctor-runner/src/prose.ts",
+      "symbol": "doFetch",
+      "helper": "gatewayOnlyFetch",
+      "decision": "docs/decisions/D-122-what-the-llm-gateway-routes-what-it-never-routes-and-where.md"
+    },
+    {
+      "id": "moderation",
+      "mode": "primary-fallback",
+      "file": "apps/moderation-runner/src/main.ts",
+      "symbol": "modelFetch",
+      "helper": "gatewayRoutedFetch"
+    },
+    {
+      "id": "quest-primary-only",
+      "mode": "primary-only",
+      "file": "apps/moderation-runner/src/main.ts",
+      "symbol": "questModel",
+      "helper": "gatewayOnlyFetch",
+      "decision": "docs/decisions/D-122-what-the-llm-gateway-routes-what-it-never-routes-and-where.md"
+    },
+    {
+      "id": "triage",
+      "mode": "primary-fallback",
+      "file": "apps/support-triage-runner/src/main.ts",
+      "symbol": "modelFetch",
+      "helper": "gatewayRoutedFetch"
+    },
+    {
+      "id": "verifier",
+      "mode": "primary-fallback",
+      "file": "apps/verifier-runner/src/main.ts",
+      "symbol": "modelFetch",
+      "helper": "gatewayRoutedFetch"
+    },
+    {
+      "id": "verifier-vision",
+      "mode": "primary-fallback",
+      "file": "apps/verifier-runner/src/main.ts",
+      "symbol": "visionFetch",
+      "helper": "gatewayRoutedFetch",
+      "tier": "tier-1"
+    }
+  ]
+}

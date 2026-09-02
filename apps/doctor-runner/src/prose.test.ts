@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { Finding, Gateway, Log } from '@kolonie-ai/core'
+import type { Finding, Gateway, GatewaySet, Log } from '@kolonie-ai/core'
 import { PROSE_MAX_LENGTH, gatewayProse, noProse, promptFor } from './prose.js'
 
 /**
@@ -15,6 +15,8 @@ const GATEWAY: Gateway = {
   apiKey: 'not-a-key',
   model: 'a-model-the-repository-does-not-name',
 }
+
+const GATEWAYS: GatewaySet = { primary: GATEWAY }
 
 const answering = (text: string | null, status = 200) =>
   vi.fn(async () =>
@@ -55,7 +57,7 @@ const aFinding = (overrides: Partial<Finding> = {}): Finding => ({
 describe('the doctor’s prose', () => {
   it('asks the gateway and returns what it said', async () => {
     const fetchImpl = answering('You are calling one route every twelve seconds.')
-    const writer = gatewayProse(GATEWAY, { fetchImpl })
+    const writer = gatewayProse(GATEWAYS, { fetchImpl })
 
     expect(await writer.describe(aFinding())).toBe(
       'You are calling one route every twelve seconds.',
@@ -107,7 +109,7 @@ describe('the doctor’s prose', () => {
      */
     it('answers with no sentence and logs the status and nothing else', async () => {
       const warn = vi.fn<(message: string, fields?: Record<string, unknown>) => void>()
-      const writer = gatewayProse(GATEWAY, { fetchImpl: answering(null, 500), log: logWith(warn) })
+      const writer = gatewayProse(GATEWAYS, { fetchImpl: answering(null, 500), log: logWith(warn) })
 
       expect(await writer.describe(aFinding())).toBeNull()
 
@@ -122,7 +124,7 @@ describe('the doctor’s prose', () => {
     })
 
     it('answers with no sentence when the transport fails', async () => {
-      const writer = gatewayProse(GATEWAY, {
+      const writer = gatewayProse(GATEWAYS, {
         fetchImpl: vi.fn(async () => {
           throw new Error('econnrefused')
         }),
@@ -140,13 +142,13 @@ describe('the doctor’s prose', () => {
    */
   describe('what is not worth storing', () => {
     it('refuses an empty completion', async () => {
-      const writer = gatewayProse(GATEWAY, { fetchImpl: answering('   ') })
+      const writer = gatewayProse(GATEWAYS, { fetchImpl: answering('   ') })
 
       expect(await writer.describe(aFinding())).toBeNull()
     })
 
     it('refuses an over-long one rather than truncating it', async () => {
-      const writer = gatewayProse(GATEWAY, {
+      const writer = gatewayProse(GATEWAYS, {
         fetchImpl: answering('x'.repeat(PROSE_MAX_LENGTH + 1)),
       })
 
@@ -154,7 +156,7 @@ describe('the doctor’s prose', () => {
     })
 
     it('accepts one exactly at the bound', async () => {
-      const writer = gatewayProse(GATEWAY, { fetchImpl: answering('x'.repeat(PROSE_MAX_LENGTH)) })
+      const writer = gatewayProse(GATEWAYS, { fetchImpl: answering('x'.repeat(PROSE_MAX_LENGTH)) })
 
       expect((await writer.describe(aFinding()))?.length).toBe(PROSE_MAX_LENGTH)
     })

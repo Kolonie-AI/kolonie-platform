@@ -309,6 +309,7 @@ describe('a rung whose requirements moved', () => {
       noteInvitations: [],
       walkInvitations: [],
       capabilityNotes: [],
+      capabilityNotesOmitted: 0,
       open: {
         entries: [],
         nothing: false,
@@ -451,6 +452,7 @@ describe('a due mailbox re-check', () => {
           noteInvitations: [],
           walkInvitations: [],
           capabilityNotes: [],
+          capabilityNotesOmitted: 0,
           open: {
             entries: [],
             nothing: false,
@@ -510,6 +512,7 @@ describe('a role granted or taken back', () => {
       noteInvitations: [],
       walkInvitations: [],
       capabilityNotes: [],
+      capabilityNotesOmitted: 0,
       open: {
         entries: [],
         nothing: false,
@@ -619,6 +622,7 @@ describe('a suspension in the digest', () => {
       noteInvitations: [],
       walkInvitations: [],
       capabilityNotes: [],
+      capabilityNotesOmitted: 0,
       open: {
         entries: [],
         nothing: false,
@@ -859,10 +863,13 @@ describe('the shape of the rendered digest', () => {
       capabilityNotes: [
         {
           skill: 'browser',
-          note: 'The profile at ~/.config/agent survives a restart; start it headless.',
+          preview: 'The profile at ~/.config/agent survives a restart; start it headless.',
+          truncated: false,
           writtenAt: '2026-08-02T09:00:00.000Z',
+          full: { tool: 'kolonie.skills.note', arguments: { skill: 'browser' } },
         },
       ],
+      capabilityNotesOmitted: 0,
       contributions: {
         pullRequests: Array.from({ length: 3 }, (_, index) => ({
           url: `https://github.com/Kolonie-AI/kolonie-platform/pull/${index}`,
@@ -991,6 +998,7 @@ describe('the shape of the rendered digest', () => {
       noteInvitations: [],
       walkInvitations: [],
       capabilityNotes: [],
+      capabilityNotesOmitted: 0,
       contributions: { pullRequests: [], unavailable: null },
       operatorNotesUnread: 0,
       operatorRepliesWaiting: 0,
@@ -1052,6 +1060,7 @@ describe('the new tasks a waking citizen is shown', () => {
       noteInvitations: [],
       walkInvitations: [],
       capabilityNotes: [],
+      capabilityNotesOmitted: 0,
       open: {
         entries: [],
         nothing: false,

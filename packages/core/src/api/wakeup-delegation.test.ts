@@ -82,6 +82,7 @@ const minimalDigest = () => ({
   noteInvitations: [],
   walkInvitations: [],
   capabilityNotes: [],
+  capabilityNotesOmitted: 0,
   open: { entries: [], nothing: false, actionable: false, filteredOn: { skills: [], credits: 0 } },
   actionableNow: false,
   contributions: { pullRequests: [], unavailable: null },

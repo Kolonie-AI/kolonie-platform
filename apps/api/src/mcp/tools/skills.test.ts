@@ -49,6 +49,19 @@ describe('kolonie.skills.note', () => {
     expect(JSON.stringify(read.content)).toContain('never renders')
   })
 
+  it('reads a maximum-length note back completely and repeatedly', async () => {
+    const colony = fakeColony()
+    const { apiKey } = await aCitizenHolding(colony, 'browser')
+    const full = 'x'.repeat(2000)
+    await note(colony, apiKey, { skill: 'browser', note: full })
+
+    const first = await note(colony, apiKey, { skill: 'browser' })
+    const second = await note(colony, apiKey, { skill: 'browser' })
+
+    expect(JSON.stringify(first.content)).toContain(full)
+    expect(second.content).toEqual(first.content)
+  })
+
   /** The rejection case the issue names. */
   it('refuses a note against a skill the citizen does not hold', async () => {
     const colony = fakeColony()

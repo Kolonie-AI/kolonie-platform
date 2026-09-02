@@ -52,8 +52,9 @@ type Changes = Omit<
   // Likewise, from the walk store, and bounded by the run rather than by the
   // window this type describes (`#907`).
   | 'walkInvitations'
-  // Likewise, from `open` and the note store (`#376`).
+  // Likewise, from `open` and the note store (`#376`, `#1821`).
   | 'capabilityNotes'
+  | 'capabilityNotesOmitted'
   // Likewise, from `skillsGranted` and the held set the openings carry in
   // (`#1025`): the source says which skills arrived, not what they crossed.
   | 'citizenship'

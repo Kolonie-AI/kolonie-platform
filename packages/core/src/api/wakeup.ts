@@ -29,8 +29,76 @@ import {
   WorkplaceLaneSchema,
   WorkplaceWakeupNextSchema,
 } from '../workplace/workplace.js'
-import { SkillNoteEntrySchema } from './skills.js'
 import { WakeDeliveryOutcomeSchema, WakeEventSchema } from '../academy/wake.js'
+
+/**
+ * A pushed skill-note preview is small enough to orient a waking without replacing the
+ * explicit private read (`#1821`).
+ */
+export const SKILL_NOTE_PREVIEW_MAX_LENGTH = 240
+
+/**
+ * The combined preview budget prevents several relevant notes from recreating one overgrown note's
+ * context cost (`#1821`).
+ */
+export const SKILL_NOTES_PREVIEW_TOTAL_MAX_LENGTH = 720
+
+const skillNoteGraphemes = (value: string): readonly string[] =>
+  [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(value)].map(
+    ({ segment }) => segment,
+  )
+
+/** The Unicode code-point count used by both per-note and aggregate wakeup budgets. */
+export const skillNoteCharacterLength = (value: string): number => [...value].length
+
+/**
+ * Mechanically projects a private note without interpreting, rewriting or changing its stored body.
+ */
+export function skillNotePreview(note: string): {
+  readonly preview: string
+  readonly truncated: boolean
+} {
+  const preview: string[] = []
+  let used = 0
+  for (const grapheme of skillNoteGraphemes(note)) {
+    const length = skillNoteCharacterLength(grapheme)
+    if (used + length > SKILL_NOTE_PREVIEW_MAX_LENGTH) break
+    preview.push(grapheme)
+    used += length
+  }
+
+  return {
+    preview: preview.join(''),
+    truncated: used < skillNoteCharacterLength(note),
+  }
+}
+
+/** A bounded orientation to a private skill note, with the exact call that reads its full body. */
+export const WakeupCapabilityNoteSchema = z
+  .object({
+    skill: SkillSchema,
+    preview: z
+      .string()
+      .min(1)
+      .refine(
+        (value) => skillNoteCharacterLength(value) <= SKILL_NOTE_PREVIEW_MAX_LENGTH,
+        `must be at most ${SKILL_NOTE_PREVIEW_MAX_LENGTH} Unicode characters`,
+      ),
+    truncated: z.boolean(),
+    writtenAt: TimestampSchema,
+    full: z
+      .object({
+        tool: z.literal('kolonie.skills.note'),
+        arguments: z.object({ skill: SkillSchema }).strict(),
+      })
+      .strict(),
+  })
+  .strict()
+  .refine((entry) => entry.skill === entry.full.arguments.skill, {
+    message: 'full read arguments must name the projected skill',
+    path: ['full', 'arguments', 'skill'],
+  })
+export type WakeupCapabilityNote = z.infer<typeof WakeupCapabilityNoteSchema>
 
 /**
  * What changed while a citizen was not running (`#200`).
@@ -1280,11 +1348,26 @@ export const WakeupResponseSchema = z.object({
    * citizen holding twelve skills with a note on each is not handed twelve notes
    * because it holds them; it is handed the ones the offered work needs.
    *
+   * **Bounded twice, because the storage guard is not a push-context budget**
+   * (`#1821`). Each entry carries at most 240 Unicode graphemes and all entries
+   * together carry at most 720. The full private body remains on
+   * `kolonie.skills.note`; this projection gives the exact read call and never
+   * changes what was stored.
+   *
    * Empty when it has written none, when none of them is touched by what is on
    * offer, or when the caller supplied no note store — and the rendering says
    * nothing at all rather than printing an empty heading.
    */
-  capabilityNotes: z.array(SkillNoteEntrySchema),
+  capabilityNotes: z
+    .array(WakeupCapabilityNoteSchema)
+    .refine(
+      (entries) =>
+        entries.reduce((total, entry) => total + skillNoteCharacterLength(entry.preview), 0) <=
+        SKILL_NOTES_PREVIEW_TOTAL_MAX_LENGTH,
+      `combined previews must be at most ${SKILL_NOTES_PREVIEW_TOTAL_MAX_LENGTH} Unicode characters`,
+    ),
+  /** Relevant notes omitted after the aggregate preview budget was exhausted. */
+  capabilityNotesOmitted: z.int().nonnegative(),
   /**
    * Roles granted and roles taken away over the window (`#330`).
    *

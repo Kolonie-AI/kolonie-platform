@@ -12,6 +12,7 @@ import {
   gatewayRoutedFetch,
   routeOf,
 } from './gateway.js'
+import { CAPABILITY_TIERS, SERVICE_TIERS } from './tier.js'
 
 const GATEWAY = { baseUrl: 'https://gateway.invalid/v1', apiKey: 'gw-key', model: 'gateway-model' }
 
@@ -65,13 +66,13 @@ describe('reading the gateway out of the environment', () => {
     const complete = {
       [GATEWAY_BASE_URL_VAR]: 'https://gateway.invalid/v1',
       LLM_GATEWAY_API_KEY_MODERATION: 'k',
-      [GATEWAY_MODEL_VAR]: 'm',
+      [GATEWAY_MODEL_VAR]: '@preset/tier-2',
     }
 
     expect(gatewayFromEnvironment('moderation', complete)).toEqual({
       baseUrl: 'https://gateway.invalid/v1',
       apiKey: 'k',
-      model: 'm',
+      model: '@preset/tier-2',
     })
 
     for (const missing of [GATEWAY_BASE_URL_VAR, GATEWAY_API_KEY_VARS.moderation]) {
@@ -89,7 +90,7 @@ describe('reading the gateway out of the environment', () => {
   it('is not configured when only that service’s key is removed', () => {
     const env = {
       [GATEWAY_BASE_URL_VAR]: 'https://gateway.invalid/v1',
-      [GATEWAY_MODEL_VAR]: 'm',
+      [GATEWAY_MODEL_VAR]: '@preset/tier-2',
       LLM_GATEWAY_API_KEY_MODERATION: 'k',
     }
 
@@ -101,7 +102,7 @@ describe('reading the gateway out of the environment', () => {
     expect(
       gatewayFromEnvironment('moderation', {
         [GATEWAY_BASE_URL_VAR]: 'https://gateway.invalid/v1/',
-        [GATEWAY_MODEL_VAR]: 'm',
+        [GATEWAY_MODEL_VAR]: '@preset/tier-2',
         LLM_GATEWAY_API_KEY_MODERATION: 'k',
       })?.baseUrl,
     ).toBe('https://gateway.invalid/v1')
@@ -360,49 +361,53 @@ describe('what a response says about the route that produced it', () => {
 })
 
 /**
- * One model per service (`#726`).
+ * One capability tier per service (`#726`, `#1810`).
  *
- * The defect being closed is that one variable steered four services: the
- * moderation runner wants the strongest model the Colony has because its verdict
- * publishes a quest, and the verifier reads images and would have been sent to a
- * text model by the same variable.
+ * The service variable has precedence over the shared variable, but both are
+ * constrained to the same closed capability-tier set.
  */
-describe('a model chosen per service', () => {
+describe('a capability tier chosen per service', () => {
   const base = {
     [GATEWAY_BASE_URL_VAR]: 'https://gateway.invalid/v1',
     LLM_GATEWAY_API_KEY_MODERATION: 'k',
     LLM_GATEWAY_API_KEY_VERIFIER: 'k',
   }
 
-  it('sends one service to its own model and everything else to the shared one', () => {
+  it('sends one service to its own tier and everything else to the shared tier', () => {
     const env = {
       ...base,
-      [GATEWAY_MODEL_VAR]: 'gpt-5.6-terra',
-      [GATEWAY_MODEL_VARS.moderation]: 'gpt-5.6-sol',
+      [GATEWAY_MODEL_VAR]: '@preset/tier-2',
+      [GATEWAY_MODEL_VARS.moderation]: '@preset/tier-3',
     }
 
-    expect(gatewayFromEnvironment('moderation', env)?.model).toBe('gpt-5.6-sol')
-    expect(gatewayFromEnvironment('verifier', env)?.model).toBe('gpt-5.6-terra')
-  })
-
-  it('behaves exactly as before when no per-service variable is set', () => {
-    const env = { ...base, [GATEWAY_MODEL_VAR]: 'gpt-5.6-terra' }
-
-    expect(gatewayFromEnvironment('moderation', env)?.model).toBe('gpt-5.6-terra')
-    expect(gatewayFromEnvironment('verifier', env)?.model).toBe('gpt-5.6-terra')
-  })
-
-  /**
-   * The order the deploy can land in. `kolonie-infra#131` may set the
-   * per-service variable before or after this ships; a variable nothing reads is
-   * inert, and a variable read with no shared fallback still configures a
-   * gateway rather than switching it off.
-   */
-  it('configures a gateway from the per-service model alone', () => {
-    const env = { ...base, [GATEWAY_MODEL_VARS.moderation]: 'gpt-5.6-sol' }
-
-    expect(gatewayFromEnvironment('moderation', env)?.model).toBe('gpt-5.6-sol')
+    expect(gatewayFromEnvironment('moderation', env)?.model).toBe('@preset/tier-3')
     expect(gatewayFromEnvironment('verifier', env)?.model).toBe('@preset/tier-2')
+  })
+
+  it('ignores arbitrary and provider-specific overrides', () => {
+    for (const configured of ['', 'tier-1', 'model-v1', 'provider/model-v1']) {
+      expect(
+        gatewayFromEnvironment('moderation', {
+          ...base,
+          [GATEWAY_MODEL_VAR]: configured,
+          [GATEWAY_MODEL_VARS.moderation]: configured,
+        })?.model,
+      ).toBe(SERVICE_TIERS.moderation)
+    }
+  })
+
+  it.each(CAPABILITY_TIERS)('preserves canonical tier %s', (tier) => {
+    expect(
+      gatewayFromEnvironment('moderation', {
+        ...base,
+        [GATEWAY_MODEL_VARS.moderation]: tier,
+      })?.model,
+    ).toBe(tier)
+  })
+
+  it('uses the service tier when no override is set', () => {
+    expect(gatewayFromEnvironment('moderation', base)?.model).toBe(SERVICE_TIERS.moderation)
+    expect(gatewayFromEnvironment('verifier', base)?.model).toBe(SERVICE_TIERS.verifier)
   })
 
   it('names a model variable for every service that has a key variable', () => {

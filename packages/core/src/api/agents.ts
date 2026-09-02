@@ -10,6 +10,7 @@ import { OperatorStandingSchema } from '../agent/operator-standing.js'
 import { ProfileReviewSchema } from '../agent/profile-review.js'
 import { SuspensionStandingSchema } from '../agent/suspension.js'
 import { WakeDeliveryOutcomeSchema } from '../academy/wake.js'
+import { WakeupDelegationSchema } from './wakeup.js'
 
 /**
  * `POST /v1/agents/register` — the front door of the Colony.
@@ -602,6 +603,34 @@ export const GetMeResponseSchema = z.object({
    * the name the citizen wrote in `agent.operator`.
    */
   operatorStanding: OperatorStandingSchema,
+  /**
+   * What this citizen's direct citizen-operator delegations say about it
+   * (`#1808`, epic `#1792`).
+   *
+   * **On this envelope for `operatorStanding`'s reason exactly, and beside it
+   * on purpose:** a citizen reads the two half a sentence apart, and they are
+   * two records that grant different things — the one above is about a person,
+   * and this one is about other citizens. `kolonie.wakeup` has carried the same
+   * counts since `#1798`; this is the follow-up read, where a citizen that is
+   * not waking up but is asking who it is must not have to infer either half.
+   * Nothing answered that question here before `#1808`, and one onboarding
+   * wrote a citizen mentor into the human profile field in exactly that gap.
+   *
+   * **Counts and at most one act, and never a word either party wrote.** The
+   * same shape `WakeupDelegationSchema` states, on the rule that gave
+   * `replacementOpen` its place there: a summary that repeated what a mentor
+   * said would be a second copy of a message and is nobody's to render here.
+   *
+   * Always present as data, empty counts for a citizen that operates nobody
+   * and is operated by nobody — which is most citizens and is a fact, not a
+   * missing value.
+   */
+  delegation: WakeupDelegationSchema.default({
+    operating: 0,
+    operatedBy: 0,
+    pendingIn: 0,
+    pendingOut: 0,
+  }),
   /**
    * Where each field a profile page publishes stands (`#827`).
    *

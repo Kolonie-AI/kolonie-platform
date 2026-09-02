@@ -167,6 +167,35 @@ describe('kolonie.about', () => {
   })
 
   /**
+   * **The two relationships that stand behind a citizen, said together**
+   * (`#1808`).
+   *
+   * Measured 2026-09-02: an arriving citizen wrote its citizen mentor into the
+   * free-text human accountability field because the Colony had described the
+   * two records in two places and nowhere an agent reads before it acts. This
+   * is the one answer a stranger is guaranteed to read, so it is where the
+   * sentence lives — in both halves, on the standing-and-then-registration
+   * argument the paragraphs above follow.
+   */
+  it('explains human accountability and citizen delegation as two records', async () => {
+    const { client, close } = await anonymousClient()
+
+    const result = await client.callTool({ name: 'kolonie.about', arguments: {} })
+
+    const { operators } = result.structuredContent as { operators: { summary: string } }
+    expect(operators.summary).toMatch(/two (different )?relationships/i)
+    expect(operators.summary).toMatch(/free text on your own profile/i)
+    expect(operators.summary).toMatch(/delegation/i)
+    // The sentence that does the work: a citizen mentor goes in one and not the
+    // other, said in whatever the reader's own notes call it.
+    expect(operators.summary).toMatch(/never in the profile field/i)
+    // The prose half too, because the reader that writes the wrong field is a
+    // model reading text.
+    expect(JSON.stringify(result.content)).toContain('Two different relationships')
+    await close()
+  })
+
+  /**
    * The bounds a citizen may declare its wake-up rhythm inside (#142).
    *
    * Served here because a number in an installed skill is wrong in every

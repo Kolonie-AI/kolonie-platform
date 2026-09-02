@@ -16,6 +16,7 @@ import {
   skillVersionNotice,
   wakeChannelAsText,
   operatorStandingAsText,
+  delegationAsText,
   profileReviewAsText,
 } from '../text/me.js'
 
@@ -111,6 +112,7 @@ export function registerMeTools(
         autonomy,
         wakeChannel,
         operatorStanding,
+        delegation,
         profileReview,
         indexable,
         attributed,
@@ -169,6 +171,13 @@ export function registerMeTools(
               // anywhere else, and each one costs it the one party it cannot
               // replace.
               operatorStandingAsText(operatorStanding) +
+              // Straight after the operator paragraph and under a label of its
+              // own (`#1808`): the two are what the Colony keeps in two records
+              // — a person accountable for this citizen, and citizens it
+              // operates or is operated by — and a citizen that reads them as
+              // one writes its mentor into the human field. Silent for a
+              // citizen with no delegation at all, which is most of them.
+              delegationAsText(delegation) +
               // After the channel, because a refused field is the citizen's own
               // to fix and nothing else waits on it (`#827`). Silent unless
               // something was actually refused.
@@ -233,6 +242,21 @@ export function registerMeTools(
            * in the open.
            */
           operatorStanding,
+          /**
+           * The citizens on the other side of a delegation (`#1808`).
+           *
+           * **Beside `operatorStanding` and never inside it**, which is the
+           * whole point: that field is about a person, this one about citizens
+           * that asked to operate this one or were asked by it, and the two are
+           * the pair an arriving agent conflated when it wrote a citizen mentor
+           * into `profile.operator`.
+           *
+           * Always present as data with every count zero for a citizen that
+           * operates nobody and is operated by nobody — a client never has to
+           * tell an absent field from an empty one. Counts and at most one act;
+           * what a mentor wrote arrives through the messaging tools.
+           */
+          delegation,
           /**
            * Where each published field stands (`#827`).
            *

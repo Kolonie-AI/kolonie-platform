@@ -5,7 +5,7 @@ import {
   silentLog,
   throwIfTruncated,
   type Finding,
-  type Gateway,
+  type GatewaySet,
   type Log,
 } from '@kolonie-ai/core'
 
@@ -158,9 +158,11 @@ export const noProse: ProseWriter = {
  * of a sentence. So there is one endpoint, and when it is down there is no
  * sentence.
  */
-export function gatewayProse(gateway: Gateway, options: ProseOptions = {}): ProseWriter {
+export function gatewayProse(gateways: GatewaySet, options: ProseOptions = {}): ProseWriter {
   const log = options.log ?? silentLog
-  const doFetch = gatewayOnlyFetch(gateway, { fetch: options.fetchImpl ?? fetch, log })
+  const gateway = gateways.primary
+  if (gateway === undefined) return noProse
+  const doFetch = gatewayOnlyFetch(gateways, { fetch: options.fetchImpl ?? fetch, log })
   const ceiling = ceilingFor(options)
 
   return {

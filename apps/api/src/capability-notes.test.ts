@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { randomUUID } from 'node:crypto'
-import { AgentIdSchema } from '@kolonie-ai/core'
+import {
+  AgentIdSchema,
+  SKILL_NOTE_PREVIEW_MAX_LENGTH,
+  SKILL_NOTES_PREVIEW_TOTAL_MAX_LENGTH,
+  wakeupIsQuiet,
+} from '@kolonie-ai/core'
 import { fakeWakeup, type FakeWakeup } from './__fixtures__/wakeup.js'
 import { fakeSkillNotes, type FakeSkillNotes } from './__fixtures__/skill-notes.js'
 import { aTask, fakeCatalogue } from './__fixtures__/catalogue.js'
@@ -65,8 +70,15 @@ describe('the notes the wake-up lays in front of a citizen', () => {
       aTask({ title: 'Drive a browser', requires: ['browser'] as never }),
     ])
 
-    expect(response.capabilityNotes.map((entry) => entry.skill)).toEqual(['browser'])
-    expect(response.capabilityNotes[0]?.note).toContain('headless')
+    expect(response.capabilityNotes).toEqual([
+      {
+        skill: 'browser',
+        preview: 'Start it headless or the captcha page will not render.',
+        truncated: false,
+        writtenAt: '2026-08-05T09:00:00.000Z',
+        full: { tool: 'kolonie.skills.note', arguments: { skill: 'browser' } },
+      },
+    ])
   })
 
   /**
@@ -103,6 +115,18 @@ describe('the notes the wake-up lays in front of a citizen', () => {
     ])
 
     expect(response.capabilityNotes).toEqual([])
+  })
+
+  it('does not return any of ten held notes when bounded open work touches none', async () => {
+    const untouched = Array.from({ length: 10 }, (_, index) => `untouched-${index}`)
+    for (const skill of untouched) await withNoteOn(skill, `How I use ${skill}.`)
+
+    const response = await waking([
+      aTask({ title: 'Drive a browser', requires: ['browser'] as never }),
+    ])
+
+    expect(response.capabilityNotes).toEqual([])
+    expect(response.capabilityNotesOmitted).toBe(0)
   })
 
   it('carries only the touched one when the citizen has notes on both', async () => {
@@ -153,6 +177,58 @@ describe('the notes the wake-up lays in front of a citizen', () => {
     expect(second.capabilityNotes).toEqual(first.capabilityNotes)
   })
 
+  it('bounds a maximum-length note without changing the stored note', async () => {
+    const full = 'x'.repeat(2000)
+    await withNoteOn('browser', full)
+
+    const response = await waking([
+      aTask({ title: 'Drive a browser', requires: ['browser'] as never }),
+    ])
+
+    expect(response.capabilityNotes[0]).toMatchObject({
+      preview: 'x'.repeat(SKILL_NOTE_PREVIEW_MAX_LENGTH),
+      truncated: true,
+    })
+    expect(JSON.stringify(response)).not.toContain('x'.repeat(SKILL_NOTE_PREVIEW_MAX_LENGTH + 1))
+    expect((await notes.read(agentId, 'browser'))?.note).toBe(full)
+  })
+
+  it('preserves ranked-work order and omits previews past the aggregate bound', async () => {
+    const skills = ['github', 'browser', 'mailbox', 'profile']
+    for (const skill of skills) await withNoteOn(skill, skill.repeat(240).slice(0, 240))
+
+    const response = await waking([
+      aTask({ title: 'First work', requires: ['github', 'browser'] as never }),
+      aTask({ title: 'Second work', requires: ['mailbox', 'profile'] as never }),
+    ])
+
+    expect(response.capabilityNotes.map((entry) => entry.skill)).toEqual([
+      'github',
+      'browser',
+      'mailbox',
+    ])
+    expect(response.capabilityNotesOmitted).toBe(1)
+    expect(
+      response.capabilityNotes.reduce((sum, entry) => sum + [...entry.preview].length, 0),
+    ).toBe(SKILL_NOTES_PREVIEW_TOTAL_MAX_LENGTH)
+  })
+
+  it('does not make a quiet waking loud or actionable', async () => {
+    await withNoteOn('browser', 'How I drive it.')
+
+    const response = await waking([
+      aTask({ title: 'Drive a browser', requires: ['browser'] as never }),
+    ])
+    const withoutOpenWork = {
+      ...response,
+      open: { ...response.open, actionable: false },
+      actionableNow: false,
+    }
+
+    expect(wakeupIsQuiet(withoutOpenWork)).toBe(true)
+    expect(withoutOpenWork.actionableNow).toBe(false)
+  })
+
   describe('what the citizen actually reads', () => {
     it('carries the note in the text, not only in the structured half', async () => {
       await withNoteOn('browser', 'Start it headless or the captcha page will not render.')
@@ -165,18 +241,30 @@ describe('the notes the wake-up lays in front of a citizen', () => {
       expect(text).toContain('browser: Start it headless')
     })
 
-    /**
-     * A model that read its own memory as an instruction from the Colony would
-     * be a different failure, and one line of attribution prevents it.
-     */
-    it('marks it as the citizen’s own text', async () => {
-      await withNoteOn('browser', 'How I drive it.')
+    it('marks previews as untrusted private words and names the full-read call', async () => {
+      await withNoteOn('browser', 'How I drive it.'.repeat(30))
 
       const text = wakeupAsText(
         await waking([aTask({ title: 'Drive a browser', requires: ['browser'] as never })]),
       )
 
-      expect(text).toContain('in your words and read by nobody else')
+      expect(text).toContain('Your untrusted private note previews')
+      expect(text).toContain('kolonie.skills.note with skill: browser and no note argument')
+    })
+
+    it('reports note previews omitted by the aggregate bound', async () => {
+      const skills = ['github', 'browser', 'mailbox', 'profile']
+      for (const skill of skills) await withNoteOn(skill, skill.repeat(240).slice(0, 240))
+
+      const text = wakeupAsText(
+        await waking([
+          aTask({ title: 'First work', requires: ['github', 'browser'] as never }),
+          aTask({ title: 'Second work', requires: ['mailbox', 'profile'] as never }),
+        ]),
+      )
+
+      expect(text).toContain('1 more notes you wrote on capabilities in play')
+      expect(text).toContain('kolonie.skills.note reads any of them back')
     })
 
     it('prints no heading at all when there is no note to lay down', async () => {

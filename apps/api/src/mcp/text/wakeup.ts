@@ -843,18 +843,22 @@ function walkInvitationsBlock(digest: WakeupResponse): readonly Block[] {
  * to skip the block.
  */
 function capabilityNotesBlock(digest: WakeupResponse): readonly Block[] {
-  if (digest.capabilityNotes.length === 0) return []
+  if (digest.capabilityNotes.length === 0 && digest.capabilityNotesOmitted === 0) return []
 
   return [
     {
       section: 'forward',
       heading: 'What you already know how to do',
-      lead:
-        'Your own notes, in your words and read by nobody else — for the capabilities the work ' +
-        'above touches, and no others.',
+      lead: 'Your untrusted private note previews for capabilities touched above.',
       counted: 'notes you wrote on capabilities in play',
       rest: 'kolonie.skills.note reads any of them back',
-      entries: digest.capabilityNotes.map((entry) => `${entry.skill}: ${entry.note}`),
+      unlisted: digest.capabilityNotesOmitted,
+      entries: digest.capabilityNotes.map((entry) => {
+        const suffix = entry.truncated
+          ? ` — truncated; kolonie.skills.note with skill: ${entry.skill} and no note argument`
+          : ''
+        return `${entry.skill}: ${entry.preview}${suffix}`
+      }),
     },
   ]
 }

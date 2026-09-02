@@ -8,6 +8,9 @@ import {
   wakeupMessagingNextAction,
   silentLog,
   WAKEUP_FINAL_LINE,
+  SKILL_NOTES_PREVIEW_TOTAL_MAX_LENGTH,
+  skillNoteCharacterLength,
+  skillNotePreview,
   type AgentId,
   type WakeupMessagingDelta,
   type WakeupDelegation,
@@ -16,7 +19,7 @@ import {
   type WakeupOpen,
   type Task,
   type WakeupResponse,
-  type SkillNoteEntry,
+  type WakeupCapabilityNote,
   type WalkAsk,
   type WakeupNoteInvitation,
   type OperatorStanding,
@@ -269,6 +272,7 @@ export interface WakeupSource {
       // Computed in `wakeup` from `open` and the note store (`#376`), for the
       // reason above it: the source answers what changed, and this is not that.
       | 'capabilityNotes'
+      | 'capabilityNotesOmitted'
       // Computed in `wakeup` from `skillsGranted` and the held set (`#1025`),
       // for the reason above it. The source answers which skills arrived; that
       // one of them crossed a threshold is a fact about the skills the citizen
@@ -582,6 +586,13 @@ async function walkInvitationsFor(
  * `kolonie-docs#159` states that as the rule: what is pushed scales with the
  * work being offered, not with what the citizen happens to have.
  *
+ * **Pushed as a bounded preview, not as the stored body** (`#1821`). The
+ * 2,000-character write limit is a storage/input guard. Each preview is at most
+ * 240 Unicode graphemes and the collection is at most 720, preserving ranked
+ * open-work order. Omitted later notes are counted rather than truncated
+ * silently. The stored body is unchanged and still returned in full by
+ * `kolonie.skills.note`.
+ *
  * **Held is not asked for separately.** A note only ever exists against a skill
  * the citizen proved — `kolonie.skills.note` refuses one otherwise — so reading
  * the notes for the touched capabilities returns exactly the intersection
@@ -595,13 +606,49 @@ async function capabilityNotesFor(
   agentId: AgentId,
   open: WakeupOpen,
   notes: SkillNotes | undefined,
-): Promise<readonly SkillNoteEntry[]> {
-  if (notes === undefined) return []
+): Promise<{
+  readonly notes: readonly WakeupCapabilityNote[]
+  readonly omitted: number
+}> {
+  if (notes === undefined) return { notes: [], omitted: 0 }
 
-  const touched = [...new Set(open.entries.flatMap((entry) => entry.touches))]
-  if (touched.length === 0) return []
+  const seen = new Set<string>()
+  const touched: string[] = []
+  for (const entry of open.entries) {
+    for (const skill of entry.touches) {
+      if (seen.has(skill)) continue
+      seen.add(skill)
+      touched.push(skill)
+    }
+  }
+  if (touched.length === 0) return { notes: [], omitted: 0 }
 
-  return notes.readMany(agentId, touched).catch(() => [])
+  const stored = await notes.readMany(agentId, touched).catch(() => [])
+  const bySkill = new Map(stored.map((entry) => [String(entry.skill), entry]))
+  const projected: WakeupCapabilityNote[] = []
+  let omitted = 0
+  let used = 0
+
+  for (const skill of touched) {
+    const entry = bySkill.get(skill)
+    if (entry === undefined) continue
+    const { preview, truncated } = skillNotePreview(entry.note)
+    const cost = skillNoteCharacterLength(preview)
+    if (used + cost > SKILL_NOTES_PREVIEW_TOTAL_MAX_LENGTH) {
+      omitted += 1
+      continue
+    }
+    used += cost
+    projected.push({
+      skill: entry.skill,
+      preview,
+      truncated,
+      writtenAt: entry.writtenAt,
+      full: { tool: 'kolonie.skills.note', arguments: { skill: entry.skill } },
+    })
+  }
+
+  return { notes: projected, omitted }
 }
 
 export async function wakeup(
@@ -938,6 +985,8 @@ export async function wakeup(
       delegation,
     })
 
+  const capabilityNoteProjection = await capabilityNotesFor(agentId, escalated, notes)
+
   return {
     response: {
       since,
@@ -973,7 +1022,8 @@ export async function wakeup(
         openings === undefined ? null : citizenshipEarnedBy(openings.skills, changes.skillsGranted),
       noteInvitations: [...(await noteInvitationsFor(agentId, changes.skillsGranted, notes))],
       walkInvitations: [...(await walkInvitationsFor(agentId, source))],
-      capabilityNotes: [...(await capabilityNotesFor(agentId, escalated, notes))],
+      capabilityNotes: [...capabilityNoteProjection.notes],
+      capabilityNotesOmitted: capabilityNoteProjection.omitted,
       /**
        * **A first waking says *everything is new to you* rather than shipping
        * the proof of it** (`#885`).

@@ -1026,6 +1026,28 @@ function messagingDeltaLine(messaging: WakeupResponse['messaging']): string | nu
   )
 }
 
+function delegationLine(delegation: WakeupResponse['delegation']): string | null {
+  if (
+    delegation.operating === 0 &&
+    delegation.operatedBy === 0 &&
+    delegation.pendingIn === 0 &&
+    delegation.pendingOut === 0
+  ) {
+    return null
+  }
+  const counts = [
+    delegation.operating === 0 ? null : `${delegation.operating} operating`,
+    delegation.operatedBy === 0 ? null : `${delegation.operatedBy} operated by another citizen`,
+    delegation.pendingIn === 0 ? null : `${delegation.pendingIn} awaiting your acceptance`,
+    delegation.pendingOut === 0 ? null : `${delegation.pendingOut} awaiting the subject`,
+  ].filter((value): value is string => value !== null)
+  const next =
+    delegation.nextAction === undefined
+      ? ''
+      : ` Next: kolonie.operator.agent with act ${delegation.nextAction.act} and delegationId ${delegation.nextAction.delegationId}.`
+  return `Direct delegation standing: ${counts.join(', ')}.${next}`
+}
+
 /**
  * What has moved on the entries this citizen is sharing (`#1440`).
  *
@@ -1089,12 +1111,14 @@ const MOVED_WORDS: Record<'reply' | 'read' | 'addition' | 'handed-back', string>
 
 function owedBlocks(digest: WakeupResponse): readonly Block[] {
   const messagingLine = messagingDeltaLine(digest.messaging)
+  const directDelegationLine = delegationLine(digest.delegation)
   const sharesLine = vaultSharesLine(digest.vaultShares)
   const entries: string[] = [
     ...(digest.operatorRepliesWaiting === 0
       ? []
       : [waitingRepliesLine(digest.operatorRepliesWaiting)]),
     ...(messagingLine === null ? [] : [messagingLine]),
+    ...(directDelegationLine === null ? [] : [directDelegationLine]),
     ...(sharesLine === null ? [] : [sharesLine]),
     ...(digest.wakeChannel === null || digest.wakeChannel.consecutiveFailures === 0
       ? []

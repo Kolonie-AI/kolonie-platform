@@ -4,6 +4,7 @@ import type {
   OperatorStanding,
   WakeupIdentity,
   WakeupMessagingDelta,
+  WakeupDelegation,
   WakeupResponse,
   WakeupStanding,
   WakeupWakeChannel,
@@ -60,6 +61,7 @@ type Changes = Omit<
   | 'contributionQualityWarning'
   // Its own call on the source (`#1287`): unread and pending are obligations.
   | 'messaging'
+  | 'delegation'
   // Likewise (`#1440`): a share somebody has not opened is an obligation the
   // citizen set in motion, not news that arrived while it slept.
   | 'vaultShares'
@@ -95,6 +97,7 @@ export interface FakeWakeup extends WakeupSource {
   readonly answersWaitingReplies: (count: number) => void
   /** Compact messaging delta the digest should report (`#1287`). */
   readonly answersMessaging: (delta: WakeupMessagingDelta) => void
+  readonly answersDelegation: (standing: WakeupDelegation) => void
   /**
    * The wake channel's health, or `null` for a citizen that proved none (`#683`).
    *
@@ -151,6 +154,12 @@ export function fakeWakeup(): FakeWakeup {
     pendingRequests: 0,
     highPriority: 0,
   }
+  let delegation: WakeupDelegation = {
+    operating: 0,
+    operatedBy: 0,
+    pendingIn: 0,
+    pendingOut: 0,
+  }
   // `null` is the ordinary state: most citizens have not cleared the `wake` rung.
   let channel: WakeupWakeChannel | null = null
   // Nobody behind the citizen, which is the ordinary state (`#1013`).
@@ -166,6 +175,7 @@ export function fakeWakeup(): FakeWakeup {
     previousSessionStart: async (_agentId: AgentId) => previousSession,
     waitingOperatorReplies: async (_agentId: AgentId) => waitingReplies,
     messagingDelta: async (_agentId: AgentId) => messaging,
+    delegationStanding: async (_agentId: AgentId) => delegation,
     wakeChannel: async (_agentId: AgentId) => channel,
     operatorStanding: async (_agentId: AgentId) => operatorStanding,
     wantedAccounts: async (_agentId: AgentId) => wanted,
@@ -187,6 +197,9 @@ export function fakeWakeup(): FakeWakeup {
     },
     answersMessaging: (delta) => {
       messaging = delta
+    },
+    answersDelegation: (next) => {
+      delegation = next
     },
     answersWakeChannel: (next) => {
       channel = next === null ? null : { activatedBy: [...CITIZEN_RAISED_WAKE_EVENTS], ...next }

@@ -1,7 +1,11 @@
 import {
+  DELEGATION_REFUSAL_CODES,
   MESSAGE_BODY_MAX_LENGTH,
   MESSAGE_BODY_MIN_LENGTH,
   type AgentId,
+  type AgentOperatorDelegationId,
+  type AgentOperatorDelegationStatus,
+  type DelegatedAuthorization,
   type ApiError,
   type Conversation,
   type ConversationAbout,
@@ -91,6 +95,14 @@ export interface CitizenMessaging {
    * id (reply). Answers `delivered`, `requested`, or a refusal.
    */
   send(agentId: AgentId, input: MessageSendInput): Promise<SendResponse>
+  /**
+   * Write as a citizen into the mentor thread of one active direct delegation.
+   * The subject is derived from the row; the caller never supplies one.
+   */
+  sendDelegated?(
+    agentId: AgentId,
+    input: { readonly delegationId: AgentOperatorDelegationId; readonly body: string },
+  ): Promise<SendResponse>
   /**
    * The Colony's own sentence, into this citizen's operator thread (`#1445`).
    *
@@ -292,6 +304,8 @@ export interface OperatorMessaging {
        * a set-aside clears.
        */
       readonly conversationId?: ConversationId
+      /** Start or reuse the active mentor thread for a direct delegation (`#1798`). */
+      readonly delegationId?: AgentOperatorDelegationId
       /**
        * The account a **newly opened** thread is about (`#1452`, `#1441`).
        *
@@ -387,6 +401,10 @@ export type ThreadResponse =
         readonly about: ConversationAbout | null
         /** The vault entries currently shared onto it (`#1441`). Never a value. */
         readonly shares: readonly ConversationShare[]
+        /** Present on a mentor thread; both senders remain citizen parties (`#1798`). */
+        readonly relationship?: 'operator-agent'
+        readonly delegationId?: AgentOperatorDelegationId
+        readonly delegationStatus?: AgentOperatorDelegationStatus
       }
     }
   | { readonly outcome: 'refused'; readonly error: ApiError }
@@ -570,6 +588,12 @@ export const messageRefusals = {
       'read-only. Everything in it is still readable by both sides; nothing more can be ' +
       'written to it. A new operator writes in a thread of their own.',
   },
+  'delegation-revoked': {
+    code: 'delegation_revoked',
+    message:
+      'This delegation was revoked, so its mentor thread is read-only. Both participants keep ' +
+      'the complete history.',
+  },
   'nothing-to-acknowledge': {
     code: 'not_found',
     message:
@@ -595,6 +619,22 @@ export const messageRefusals = {
   },
 } as const satisfies Record<MessageRefusal, ApiError>
 
+export const delegationMessageRefusal = (
+  outcome: Exclude<DelegatedAuthorization['outcome'], 'authorized'>,
+): ApiError => ({
+  code: DELEGATION_REFUSAL_CODES[outcome],
+  message:
+    outcome === 'missing-capability'
+      ? 'This delegation does not carry message.'
+      : outcome === 'pending'
+        ? 'The subject has not accepted this delegation yet.'
+        : outcome === 'revoked'
+          ? 'This delegation was revoked. Its thread remains readable and accepts no new message.'
+          : outcome === 'wrong-actor'
+            ? 'This delegation does not name you as its operator.'
+            : 'No delegation matches the id you named.',
+})
+
 /** Body length, named for the tool that validates before storage sees it. */
 export const messageBodyError: ApiError = {
   code: 'validation_failed',
@@ -607,9 +647,10 @@ export const messageBodyError: ApiError = {
 export const messageDestinationError: ApiError = {
   code: 'validation_failed',
   message:
-    'Say who to write to with `to` (a handle), `conversationId` (a thread you are in) or ' +
-    '`operator: true` (the person who answers for you), exactly one of the three. First ' +
-    'contact by handle creates a request rather than an inbox message when you are strangers. ' +
+    'Say who to write to with `to` (a handle), `conversationId` (a thread you are in), ' +
+    '`delegationId` (an active direct delegation you operate) or `operator: true` (the person who ' +
+    'answers for you), exactly one. ' +
+    'First contact by handle creates a request rather than an inbox message when you are strangers. ' +
     '`taskId`, `wishId` and `accountId` say what an operator thread is about, at most one of ' +
     'the three, and belong only to an `operator: true` open.',
 }

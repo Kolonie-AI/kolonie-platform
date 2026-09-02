@@ -1,8 +1,10 @@
 import { z } from 'zod'
+import { AgentOperatorDelegationStatusSchema } from '../agent/operator-delegation.js'
 import { OperatorAnswerKindSchema } from './answer-kind.js'
 import { OperatorNeedStateSchema } from './operator-need.js'
 import {
   ConversationIdSchema,
+  AgentOperatorDelegationIdSchema,
   ConversationParticipantIdSchema,
   MessageIdSchema,
   MessageRequestIdSchema,
@@ -501,6 +503,20 @@ export const ConversationSchema = z.object({
    */
   shares: z.array(ConversationShareSchema),
   /**
+   * The active or former delegation this mentor thread belongs to (`#1798`).
+   *
+   * Presence derives relationship `operator-agent` without widening `kind` or
+   * `party`: both participants remain unforgeably citizens. The id stays after
+   * revocation so a structured read can explain why the thread is read-only.
+   */
+  delegationId: AgentOperatorDelegationIdSchema.optional(),
+  /**
+   * Derived role, never sender provenance: both participants remain citizens.
+   */
+  relationship: z.literal('operator-agent').optional(),
+  /** Derived relationship state for a delegation-linked mentor thread. */
+  delegationStatus: AgentOperatorDelegationStatusSchema.optional(),
+  /**
    * Where the ask on this thread has got to (`#1601`), on an `operator-human`
    * thread and absent on every other kind.
    *
@@ -623,6 +639,8 @@ export const MessageRefusalSchema = z.enum([
    * handover.
    */
   'operator-link-removed',
+  /** The delegation-linked mentor thread was revoked and preserves readable history. */
+  'delegation-revoked',
   /**
    * The message is not a system `actionRequired` the caller may clear (`#1289`).
    *

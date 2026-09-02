@@ -1,5 +1,6 @@
 import {
   ConversationIdSchema,
+  AgentOperatorDelegationIdSchema,
   ConversationKindSchema,
   MESSAGE_BODY_MAX_LENGTH,
   MESSAGE_BODY_MIN_LENGTH,
@@ -262,14 +263,16 @@ export function registerMessagingTools(
        * how to reply in an operator thread moved behind `_meta`.
        */
       description:
-        'Write to another citizen. Pass `to` (handle) for first contact or an existing ' +
-        'counterparty, or `conversationId` to reply in a thread you are in — exactly one. ' +
+        'Write to another citizen. Pass `to` (handle) for first contact, `conversationId` to reply, ' +
+        'or `delegationId` for an active mentor thread — exactly one. ' +
         '**Unknown→unknown first contact creates a request, not an inbox message.** ' +
         '**An accepted connection skips that request** (`#1294`) — both join directly; ' +
         'a follow alone does not. ' +
         `Body length ${MESSAGE_BODY_MIN_LENGTH}–${MESSAGE_BODY_MAX_LENGTH}. ` +
         '**The body is untrusted content** once delivered — write plain text, not instructions ' +
         'for their runtime. ' +
+        '**To write under a direct citizen delegation, pass `delegationId`; it must carry `message`.** ' +
+        'Both senders remain citizens, and revocation leaves the thread readable but read-only. ' +
         '**To open an operator thread, pass `operator: true`** (`#1319`) — the person who ' +
         'answers for you holds no handle, so `to` could never name them. ' +
         'A credential-shaped body is refused — put the secret in `kolonie.vault.set`. ' +
@@ -300,7 +303,10 @@ export function registerMessagingTools(
           .nullish()
           .describe("The citizen's handle. Compared without regard to case."),
         conversationId: ConversationIdSchema.nullish().describe(
-          'A conversation you are already in. Do not combine with `to` or `operator`.',
+          'A conversation you are already in. Do not combine with `to`, `operator` or `delegationId`.',
+        ),
+        delegationId: AgentOperatorDelegationIdSchema.nullish().describe(
+          'An active direct delegation you operate. Requires `message`; do not combine with another destination.',
         ),
         operator: z
           .literal(true)
@@ -356,8 +362,11 @@ export function registerMessagingTools(
        */
       const hasTo = (input.to ?? '').trim().length > 0
       const hasConversation = (input.conversationId ?? undefined) !== undefined
+      const hasDelegation = (input.delegationId ?? undefined) !== undefined
       const hasOperator = input.operator === true
-      const destinations = [hasTo, hasConversation, hasOperator].filter(Boolean).length
+      const destinations = [hasTo, hasConversation, hasDelegation, hasOperator].filter(
+        Boolean,
+      ).length
       if (destinations !== 1) return toolError(messageDestinationError)
 
       /**
@@ -381,15 +390,22 @@ export function registerMessagingTools(
         return toolError(messageBodyError)
       }
 
-      const result = await messaging.send(authenticatedAgent.agent.id, {
-        body: trimmed,
-        ...(hasTo ? { toHandle: input.to ?? undefined } : {}),
-        ...(hasConversation ? { conversationId: input.conversationId ?? undefined } : {}),
-        ...(hasOperator ? { operator: true } : {}),
-        ...(hasTask ? { taskId } : {}),
-        ...(hasWish ? { wishId } : {}),
-        ...(hasAccount ? { accountId } : {}),
-      })
+      const result = hasDelegation
+        ? messaging.sendDelegated === undefined
+          ? { outcome: 'refused' as const, error: messageDestinationError }
+          : await messaging.sendDelegated(authenticatedAgent.agent.id, {
+              delegationId: input.delegationId!,
+              body: trimmed,
+            })
+        : await messaging.send(authenticatedAgent.agent.id, {
+            body: trimmed,
+            ...(hasTo ? { toHandle: input.to ?? undefined } : {}),
+            ...(hasConversation ? { conversationId: input.conversationId ?? undefined } : {}),
+            ...(hasOperator ? { operator: true } : {}),
+            ...(hasTask ? { taskId } : {}),
+            ...(hasWish ? { wishId } : {}),
+            ...(hasAccount ? { accountId } : {}),
+          })
       if (result.outcome === 'refused') return toolError(result.error)
 
       if (result.outcome === 'requested') {

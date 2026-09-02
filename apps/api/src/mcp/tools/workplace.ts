@@ -62,7 +62,17 @@ const ALLOWED: Readonly<Record<WorkplaceSubject, readonly WorkplaceAct[]>> = {
   card: ['list', 'get', 'create', 'update', 'claim', 'handover', 'archive'],
 }
 
-type NextOp = { readonly act: WorkplaceAct; readonly subject: WorkplaceSubject }
+type NextOp = {
+  readonly act: WorkplaceAct
+  readonly subject: WorkplaceSubject
+  readonly id?: string
+  readonly boardId?: string
+  readonly expectedVersion?: number
+  readonly fields?: Record<string, unknown>
+  readonly cursor?: string
+  readonly limit?: number
+  readonly delegationId?: string
+}
 
 const missingBoard: ApiError = {
   code: 'not_found',
@@ -118,43 +128,72 @@ const nextForBoard = (board?: WorkplaceBoard): NextOp[] => {
   ]
   if (board === undefined || board.archivedAt !== null) return next
   next.push(
-    { act: 'get', subject: 'board' },
-    { act: 'update', subject: 'board' },
-    { act: 'list', subject: 'card' },
-    { act: 'create', subject: 'card' },
+    { act: 'get', subject: 'board', id: board.id },
+    {
+      act: 'update',
+      subject: 'board',
+      id: board.id,
+      expectedVersion: board.version,
+    },
+    { act: 'list', subject: 'card', boardId: board.id },
+    { act: 'create', subject: 'card', boardId: board.id },
   )
-  if (board.kind !== 'default') next.push({ act: 'archive', subject: 'board' })
+  if (board.kind !== 'default') {
+    next.push({
+      act: 'archive',
+      subject: 'board',
+      id: board.id,
+      expectedVersion: board.version,
+    })
+  }
   return next
 }
 
 const nextForCard = (card: WorkplaceCard): NextOp[] => {
+  const selected = { id: card.id, boardId: card.boardId }
+  const write = { ...selected, expectedVersion: card.version }
   const next: NextOp[] = [
-    { act: 'get', subject: 'card' },
-    { act: 'list', subject: 'card' },
+    { act: 'get', subject: 'card', ...selected },
+    { act: 'list', subject: 'card', boardId: card.boardId },
   ]
   if (card.archivedAt !== null) return next
   switch (card.status) {
     case 'inbox':
-      next.push({ act: 'update', subject: 'card' }, { act: 'archive', subject: 'card' })
+      next.push(
+        { act: 'update', subject: 'card', ...write },
+        { act: 'archive', subject: 'card', ...write },
+      )
       break
     case 'ready':
       next.push(
-        { act: 'claim', subject: 'card' },
-        { act: 'update', subject: 'card' },
-        { act: 'archive', subject: 'card' },
+        { act: 'claim', subject: 'card', ...write },
+        { act: 'update', subject: 'card', ...write },
+        { act: 'archive', subject: 'card', ...write },
       )
       break
     case 'in_progress':
-    case 'blocked':
     case 'review':
-      next.push({ act: 'update', subject: 'card' }, { act: 'handover', subject: 'card' })
+      next.push(
+        { act: 'update', subject: 'card', ...write },
+        { act: 'handover', subject: 'card', ...write },
+      )
+      break
+    case 'blocked':
+      next.push(
+        { act: 'update', subject: 'card', ...write },
+        { act: 'handover', subject: 'card', ...write },
+        { act: 'archive', subject: 'card', ...write },
+      )
       break
     case 'done':
-      next.push({ act: 'archive', subject: 'card' })
+      next.push({ act: 'archive', subject: 'card', ...write })
       break
   }
   return next
 }
+
+const withContinuation = (next: NextOp[], continuation: NextOp | undefined): NextOp[] =>
+  continuation === undefined ? next : [...next, continuation]
 
 const namedMembers = async (
   boards: WorkplaceBoards,
@@ -197,7 +236,9 @@ export function registerWorkplaceTool(
         delegationId: z
           .string()
           .optional()
-          .describe('A delegation the subject accepted. Omit for your own Workplace.'),
+          .describe(
+            'Only operator agent passes it for subject Workplace; subject omits it for own.',
+          ),
       },
       annotations: {
         readOnlyHint: false,
@@ -327,8 +368,9 @@ const delegationRefusal = (
         : outcome === 'revoked'
           ? 'This delegation was revoked, so no new delegated write is authorized.'
           : outcome === 'wrong-actor'
-            ? 'This delegation does not name you as its operator.'
+            ? 'Only its operator can use this delegation. For your own Workplace, retry without delegationId.'
             : 'No delegation matches the id you named.',
+  ...(outcome === 'wrong-actor' ? { details: { delegationId: 'omit_for_own_workplace' } } : {}),
 })
 
 /** Which board a delegated answer touched, for the activity row. */
@@ -342,7 +384,7 @@ const boardIdOf = (result: CallToolResult, input: Input): string | undefined => 
 const cardIdOf = (result: CallToolResult): string | undefined =>
   stringOf(asObject(result.structuredContent?.['card'])?.['id'])
 
-/** Name actor, subject and delegation on every delegated answer. */
+/** Name actor, subject and delegation on every delegated answer and executable next step. */
 const withDelegation = (
   result: CallToolResult,
   delegation: {
@@ -350,10 +392,25 @@ const withDelegation = (
     readonly subjectAgentId: string
     readonly delegationId: string
   },
-): CallToolResult =>
-  result.isError === true || result.structuredContent === undefined
-    ? result
-    : { ...result, structuredContent: { ...result.structuredContent, delegation } }
+): CallToolResult => {
+  if (result.isError === true || result.structuredContent === undefined) return result
+  const next = result.structuredContent['next']
+  return {
+    ...result,
+    structuredContent: {
+      ...result.structuredContent,
+      ...(Array.isArray(next)
+        ? {
+            next: next.map((operation) => ({
+              ...asObject(operation),
+              delegationId: delegation.delegationId,
+            })),
+          }
+        : {}),
+      delegation,
+    },
+  }
+}
 
 type Input = {
   readonly act: WorkplaceAct
@@ -405,11 +462,24 @@ async function dispatchBoard(
       })
     }
     const first = listed.items[0]
+    const continuation =
+      listed.nextCursor === null
+        ? undefined
+        : {
+            act: 'list' as const,
+            subject: 'board' as const,
+            cursor: listed.nextCursor,
+            ...(input.limit === undefined ? {} : { limit: input.limit }),
+          }
     return ok(
       listed.items.length === 0
         ? 'No boards yet. Create one, or wait for the default board to be planted.'
         : listed.items.map((board) => `- ${board.title} (${board.id}, ${board.kind})`).join('\n'),
-      { items: listed.items, nextCursor: listed.nextCursor, next: nextForBoard(first) },
+      {
+        items: listed.items,
+        nextCursor: listed.nextCursor,
+        next: withContinuation(nextForBoard(first), continuation),
+      },
     )
   }
 
@@ -629,6 +699,17 @@ async function dispatchCard(
     }
     const items = listed.outcome === 'empty' ? [] : listed.items
     const nextCursor = listed.outcome === 'empty' ? null : listed.nextCursor
+    const continuation =
+      nextCursor === null
+        ? undefined
+        : {
+            act: 'list' as const,
+            subject: 'card' as const,
+            boardId: input.boardId,
+            cursor: nextCursor,
+            ...(parsedStatus?.success === true ? { fields: { status: parsedStatus.data } } : {}),
+            ...(input.limit === undefined ? {} : { limit: input.limit }),
+          }
     return ok(
       items.length === 0
         ? 'No cards on this board.'
@@ -636,11 +717,14 @@ async function dispatchCard(
       {
         items,
         nextCursor,
-        next: [
-          { act: 'create', subject: 'card' },
-          { act: 'list', subject: 'card' },
-          { act: 'list', subject: 'board' },
-        ] satisfies NextOp[],
+        next: withContinuation(
+          [
+            { act: 'create', subject: 'card', boardId: input.boardId },
+            { act: 'list', subject: 'card', boardId: input.boardId },
+            { act: 'list', subject: 'board' },
+          ],
+          continuation,
+        ),
       },
     )
   }
@@ -928,9 +1012,27 @@ async function updateCard(
         })
       }
       const listedItems = listed.outcome === 'empty' ? [] : listed.items
+      const nextCursor = listed.outcome === 'empty' ? null : listed.nextCursor
+      const continuation =
+        nextCursor === null
+          ? undefined
+          : {
+              act: 'update' as const,
+              subject: 'card' as const,
+              id: visible.card.id,
+              boardId: visible.card.boardId,
+              fields: {
+                comments: {
+                  act: 'list',
+                  cursor: nextCursor,
+                  ...(typeof comments['limit'] === 'number' ? { limit: comments['limit'] } : {}),
+                },
+              },
+            }
       return ok(`${WORKPLACE_UNTRUSTED_CONTENT}\n\n${listedItems.length} comments.`, {
         items: listedItems,
-        next: nextForCard(visible.card),
+        nextCursor,
+        next: withContinuation(nextForCard(visible.card), continuation),
       })
     }
     const parsed = WorkplaceCreateCommentRequestSchema.safeParse({ body: comments['body'] })

@@ -40,6 +40,27 @@ const errorOf = (result: unknown) =>
 const structuredOf = <T>(result: Awaited<ReturnType<Client['callTool']>>): T =>
   result.structuredContent as T
 
+type NextOperation = {
+  act: string
+  subject: string
+  id?: string
+  boardId?: string
+  expectedVersion?: number
+  cursor?: string
+  limit?: number
+  fields?: Record<string, unknown>
+}
+
+const nextOperation = (
+  next: readonly NextOperation[],
+  act: string,
+  subject: string,
+): NextOperation => {
+  const operation = next.find((one) => one.act === act && one.subject === subject)
+  if (operation === undefined) throw new Error(`Missing next operation ${subject}.${act}`)
+  return operation
+}
+
 const aBoard = (
   ownerId: AgentId,
   over: { title?: string; kind?: 'default' | 'additional' } = {},
@@ -157,6 +178,8 @@ describe('kolonie.workplace (#1761)', () => {
       expect(JSON.stringify(tool?.inputSchema)).not.toContain('toCitizenId')
       expect(JSON.stringify(tool?.inputSchema)).not.toContain('evidenceLinks')
       expect(JSON.stringify(tool?.inputSchema)).toContain('fields')
+      expect(JSON.stringify(tool?.inputSchema)).toContain('Only operator agent passes it')
+      expect(JSON.stringify(tool?.inputSchema)).toContain('subject omits it')
     })
 
     it("does not change this tool's tools/list JSON when boards, cards and labels grow", async () => {
@@ -192,11 +215,14 @@ describe('kolonie.workplace (#1761)', () => {
       expect(listed.isError).not.toBe(true)
       const boards = structuredOf<{
         items: WorkplaceBoard[]
-        next: { act: string; subject: string }[]
+        next: NextOperation[]
       }>(listed)
       expect(boards.items).toHaveLength(1)
       expect(boards.items[0]?.id).toBe(board.id)
-      expect(boards.next.some((one) => one.act === 'list' && one.subject === 'card')).toBe(true)
+      const listCards = nextOperation(boards.next, 'list', 'card')
+      expect(listCards).toEqual({ act: 'list', subject: 'card', boardId: board.id })
+      const listedFromNext = await client.callTool(workplace(listCards))
+      expect(listedFromNext.isError).not.toBe(true)
 
       const created = await client.callTool(
         workplace({
@@ -207,12 +233,16 @@ describe('kolonie.workplace (#1761)', () => {
         }),
       )
       expect(created.isError).not.toBe(true)
-      const made = structuredOf<{ card: WorkplaceCard; next: { act: string; subject: string }[] }>(
-        created,
-      )
+      const made = structuredOf<{ card: WorkplaceCard; next: NextOperation[] }>(created)
       expect(made.card.status).toBe('ready')
       expect(made.card.ownerId).toBeNull()
-      expect(made.next.some((one) => one.act === 'claim' && one.subject === 'card')).toBe(true)
+      expect(nextOperation(made.next, 'claim', 'card')).toEqual({
+        act: 'claim',
+        subject: 'card',
+        id: made.card.id,
+        boardId: board.id,
+        expectedVersion: made.card.version,
+      })
 
       const cards = await client.callTool(
         workplace({ act: 'list', subject: 'card', boardId: board.id }),
@@ -233,14 +263,7 @@ describe('kolonie.workplace (#1761)', () => {
       expect(got.links).toEqual([])
       expect(JSON.stringify(detail.content)).toContain('untrusted')
 
-      const claimed = await client.callTool(
-        workplace({
-          act: 'claim',
-          subject: 'card',
-          id: made.card.id,
-          expectedVersion: made.card.version,
-        }),
-      )
+      const claimed = await client.callTool(workplace(nextOperation(made.next, 'claim', 'card')))
       expect(claimed.isError).not.toBe(true)
       const live = structuredOf<{ card: WorkplaceCard }>(claimed)
       expect(live.card.status).toBe('in_progress')
@@ -259,6 +282,248 @@ describe('kolonie.workplace (#1761)', () => {
       const done = structuredOf<{ card: WorkplaceCard }>(completed)
       expect(done.card.status).toBe('done')
       expect(done.card.outcome).toBe('The walk is filed.')
+      await close()
+    })
+
+    it('fills known ids and versions so every advertised next call is executable', async () => {
+      const { colony, agent, apiKey } = await registeredCitizen()
+      const defaultBoard = plantOwned(colony, agent.id, { title: 'Default', kind: 'default' })
+      const extra = plantOwned(colony, agent.id, { title: 'Extra' })
+      const states: WorkplaceCard['status'][] = [
+        'inbox',
+        'ready',
+        'in_progress',
+        'blocked',
+        'review',
+        'done',
+      ]
+      const cardsByState = new Map<string, WorkplaceCard>()
+      for (const status of states) {
+        const card = aCard(defaultBoard.id, {
+          title: status,
+          status,
+          ownerId: status === 'inbox' || status === 'ready' ? null : agent.id,
+          ...(status === 'blocked' ? { blockedBy: 'waiting', unblockWhen: 'unblocked' } : {}),
+          ...(status === 'done' ? { outcome: 'filed' } : {}),
+        })
+        cardsByState.set(status, card)
+        colony.cards.plantCard(card)
+      }
+      const archivedCard = aCard(defaultBoard.id, {
+        title: 'Archived',
+        status: 'inbox',
+        archivedAt: new Date().toISOString(),
+      })
+      cardsByState.set('archived', archivedCard)
+      colony.cards.plantCard(archivedCard)
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+      const listed = structuredOf<{ items: WorkplaceBoard[]; next: NextOperation[] }>(
+        await client.callTool(workplace({ act: 'list', subject: 'board' })),
+      )
+      const firstListed = listed.items[0]
+      expect(firstListed).toBeDefined()
+      expect(listed.next.filter((one) => one.act === 'list' && one.subject === 'card')).toEqual([
+        { act: 'list', subject: 'card', boardId: firstListed?.id },
+      ])
+      expect(listed.next.some((one) => one.act === 'archive' && one.subject === 'board')).toBe(
+        firstListed?.kind !== 'default',
+      )
+
+      const gotDefault = structuredOf<{ board: WorkplaceBoard; next: NextOperation[] }>(
+        await client.callTool(workplace({ act: 'get', subject: 'board', id: defaultBoard.id })),
+      )
+      expect(gotDefault.next).toEqual(
+        expect.arrayContaining([
+          { act: 'get', subject: 'board', id: defaultBoard.id },
+          {
+            act: 'update',
+            subject: 'board',
+            id: defaultBoard.id,
+            expectedVersion: defaultBoard.version,
+          },
+          { act: 'list', subject: 'card', boardId: defaultBoard.id },
+          { act: 'create', subject: 'card', boardId: defaultBoard.id },
+        ]),
+      )
+      expect(gotDefault.next.some((one) => one.act === 'archive' && one.subject === 'board')).toBe(
+        false,
+      )
+      expect(gotDefault.next.every((one) => !('delegationId' in one))).toBe(true)
+      for (const operation of gotDefault.next) {
+        const fields =
+          operation.act === 'create'
+            ? { title: operation.subject === 'board' ? 'From board next' : 'From card next' }
+            : operation.act === 'update'
+              ? { title: 'Renamed from next' }
+              : undefined
+        const result = await client.callTool(
+          workplace({ ...operation, ...(fields === undefined ? {} : { fields }) }),
+        )
+        expect(result.isError, JSON.stringify(operation)).not.toBe(true)
+      }
+
+      const gotExtra = structuredOf<{ next: NextOperation[] }>(
+        await client.callTool(workplace({ act: 'get', subject: 'board', id: extra.id })),
+      )
+      expect(nextOperation(gotExtra.next, 'archive', 'board')).toEqual({
+        act: 'archive',
+        subject: 'board',
+        id: extra.id,
+        expectedVersion: extra.version,
+      })
+
+      for (const [state, card] of cardsByState) {
+        const detail = structuredOf<{ card: WorkplaceCard; next: NextOperation[] }>(
+          await client.callTool(workplace({ act: 'get', subject: 'card', id: card.id })),
+        )
+        expect(detail.next.every((one) => one.boardId === defaultBoard.id)).toBe(true)
+        const writes = detail.next.filter((one) =>
+          ['update', 'claim', 'handover', 'archive'].includes(one.act),
+        )
+        expect(
+          writes.every(
+            (one) => one.id === detail.card.id && one.expectedVersion === detail.card.version,
+          ),
+        ).toBe(true)
+        const expectedWrites =
+          state === 'archived'
+            ? []
+            : state === 'inbox'
+              ? ['archive', 'update']
+              : state === 'ready'
+                ? ['archive', 'claim', 'update']
+                : state === 'blocked'
+                  ? ['archive', 'handover', 'update']
+                  : state === 'done'
+                    ? ['archive']
+                    : ['handover', 'update']
+        expect(writes.map((one) => one.act).sort()).toEqual(expectedWrites)
+
+        for (const operation of detail.next) {
+          const independent = aCard(defaultBoard.id, {
+            ...detail.card,
+            id: WorkplaceCardIdSchema.parse(randomUUID()),
+          })
+          colony.cards.plantCard(independent)
+          const independentDetail = structuredOf<{ next: NextOperation[] }>(
+            await client.callTool(workplace({ act: 'get', subject: 'card', id: independent.id })),
+          )
+          const executable = nextOperation(independentDetail.next, operation.act, operation.subject)
+          const fields =
+            operation.act === 'update'
+              ? { title: `${state} patched` }
+              : operation.act === 'handover'
+                ? {
+                    toCitizenId: agent.id,
+                    done: 'done',
+                    learned: 'learned',
+                    next: 'next',
+                  }
+                : undefined
+          const result = await client.callTool(
+            workplace({ ...executable, ...(fields === undefined ? {} : { fields }) }),
+          )
+          expect(result.isError, JSON.stringify(executable)).not.toBe(true)
+        }
+      }
+      await close()
+    })
+
+    it('preserves identifiers, versions, filters and cursors in pagination guidance', async () => {
+      const { colony, agent, apiKey } = await registeredCitizen()
+      plantOwned(colony, agent.id, { title: 'First' })
+      plantOwned(colony, agent.id, { title: 'Second' })
+      const firstBoard = plantOwned(colony, agent.id, { title: 'Cards' })
+      const firstCard = aCard(firstBoard.id, { title: 'First card', status: 'ready' })
+      colony.cards.plantCard(firstCard)
+      colony.cards.plantCard(aCard(firstBoard.id, { title: 'Second card', status: 'ready' }))
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+      const boardPage = structuredOf<{
+        items: WorkplaceBoard[]
+        next: NextOperation[]
+      }>(await client.callTool(workplace({ act: 'list', subject: 'board', limit: 1 })))
+      const nextBoards = boardPage.next.find((one) => one.cursor !== undefined)
+      expect(nextBoards).toEqual({
+        act: 'list',
+        subject: 'board',
+        cursor: boardPage.items[0]?.id,
+        limit: 1,
+      })
+      const secondBoardPage = structuredOf<{ items: WorkplaceBoard[] }>(
+        await client.callTool(workplace(nextBoards ?? {})),
+      )
+      expect(secondBoardPage.items).toHaveLength(1)
+      expect(secondBoardPage.items[0]?.id).not.toBe(boardPage.items[0]?.id)
+
+      const cardPage = structuredOf<{ next: NextOperation[] }>(
+        await client.callTool(
+          workplace({
+            act: 'list',
+            subject: 'card',
+            boardId: firstBoard.id,
+            fields: { status: 'ready' },
+            limit: 1,
+          }),
+        ),
+      )
+      const nextCards = cardPage.next.find((one) => one.cursor !== undefined)
+      expect(nextCards).toMatchObject({
+        act: 'list',
+        subject: 'card',
+        boardId: firstBoard.id,
+        limit: 1,
+        fields: { status: 'ready' },
+      })
+      const secondCardPage = structuredOf<{ items: unknown[] }>(
+        await client.callTool(workplace(nextCards ?? {})),
+      )
+      expect(secondCardPage.items).toHaveLength(1)
+
+      await client.callTool(
+        workplace({
+          act: 'update',
+          subject: 'card',
+          id: firstCard.id,
+          fields: { comments: { body: 'First' } },
+        }),
+      )
+      await client.callTool(
+        workplace({
+          act: 'update',
+          subject: 'card',
+          id: firstCard.id,
+          fields: { comments: { body: 'Second' } },
+        }),
+      )
+      const commentPage = structuredOf<{ next: NextOperation[] }>(
+        await client.callTool(
+          workplace({
+            act: 'update',
+            subject: 'card',
+            id: firstCard.id,
+            fields: { comments: { act: 'list', limit: 1 } },
+          }),
+        ),
+      )
+      const nextComments = commentPage.next.find(
+        (one) =>
+          one.act === 'update' &&
+          one.subject === 'card' &&
+          typeof one.fields?.['comments'] === 'object',
+      )
+      expect(nextComments).toMatchObject({
+        act: 'update',
+        subject: 'card',
+        id: firstCard.id,
+        boardId: firstBoard.id,
+        fields: { comments: { act: 'list', limit: 1 } },
+      })
+      const secondCommentPage = structuredOf<{ items: unknown[] }>(
+        await client.callTool(workplace(nextComments ?? {})),
+      )
+      expect(secondCommentPage.items).toHaveLength(1)
       await close()
     })
   })

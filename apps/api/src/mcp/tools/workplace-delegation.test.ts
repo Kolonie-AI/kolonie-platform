@@ -23,8 +23,13 @@ const workplace = (args: Record<string, unknown>) => ({
 })
 
 const errorOf = (result: unknown) =>
-  (result as { structuredContent: { error: { code: string; message: string } } }).structuredContent
-    .error
+  (
+    result as {
+      structuredContent: {
+        error: { code: string; message: string; details?: Record<string, string> }
+      }
+    }
+  ).structuredContent.error
 
 const aBoard = (ownerId: AgentId): WorkplaceBoard => {
   const now = new Date().toISOString()
@@ -55,6 +60,7 @@ const aPilot = async (capabilities: readonly string[]) => {
   )
   if (registered.outcome !== 'registered') throw new Error('fixture failed to register')
   const subject = registered.response.agent
+  const subjectApiKey = registered.response.credentials.apiKey
 
   colony.agentOperatorDelegations.citizen(operator.profile.name, operator.id)
   colony.agentOperatorDelegations.citizen(subject.profile.name, subject.id)
@@ -80,6 +86,7 @@ const aPilot = async (capabilities: readonly string[]) => {
     board,
     delegationId,
     client: operatorClient.client,
+    subjectClient: () => connectedClient(colony, `Bearer ${subjectApiKey}`),
     accept: () => colony.agentOperatorDelegations.accept(delegationId, subject.id),
     revoke: () => colony.agentOperatorDelegations.revoke(delegationId, subject.id),
     close: operatorClient.close,
@@ -107,9 +114,25 @@ describe('delegated kolonie.workplace (#1797)', () => {
       expect(delegated.isError).toBeFalsy()
       const structured = delegated.structuredContent as {
         board: { id: string; ownerId: string }
+        next: Record<string, unknown>[]
         delegation: { actorAgentId: string; subjectAgentId: string; delegationId: string }
       }
       expect(structured.board.ownerId).toBe(pilot.subject.id)
+      expect(
+        structured.next.every((operation) => operation['delegationId'] === pilot.delegationId),
+      ).toBe(true)
+      const listCards = structured.next.find(
+        (operation) => operation['act'] === 'list' && operation['subject'] === 'card',
+      )
+      expect(listCards).toEqual({
+        act: 'list',
+        subject: 'card',
+        boardId: pilot.board.id,
+        delegationId: pilot.delegationId,
+      })
+      const cards = await pilot.client.callTool(workplace(listCards ?? {}))
+      expect(cards.isError).not.toBe(true)
+      expect(cards.structuredContent).toHaveProperty('delegation.delegationId', pilot.delegationId)
       expect(structured.delegation).toEqual({
         actorAgentId: pilot.operator.id,
         subjectAgentId: pilot.subject.id,
@@ -230,6 +253,37 @@ describe('delegated kolonie.workplace (#1797)', () => {
       )
       expect(errorOf(unknown).code).toBe('delegation_not_found')
     } finally {
+      await pilot.close()
+    }
+  })
+
+  it('tells the accepted subject to omit an operator delegation for its own Workplace', async () => {
+    const pilot = await aPilot(['workplace-read'])
+    const subjectClient = await pilot.subjectClient()
+    try {
+      await pilot.accept()
+      const refused = await subjectClient.client.callTool(
+        workplace({
+          act: 'get',
+          subject: 'board',
+          id: pilot.board.id,
+          delegationId: pilot.delegationId,
+        }),
+      )
+      expect(refused.isError).toBe(true)
+      expect(errorOf(refused)).toMatchObject({
+        code: 'delegation_wrong_actor',
+        details: { delegationId: 'omit_for_own_workplace' },
+      })
+      expect(errorOf(refused).message).toContain('retry without delegationId')
+
+      const own = await subjectClient.client.callTool(
+        workplace({ act: 'get', subject: 'board', id: pilot.board.id }),
+      )
+      expect(own.isError).not.toBe(true)
+      expect(own.structuredContent).not.toHaveProperty('delegation')
+    } finally {
+      await subjectClient.close()
       await pilot.close()
     }
   })

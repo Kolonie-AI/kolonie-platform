@@ -1809,8 +1809,8 @@ schema.
 - \`list\` + \`subject=board\` is the overview. Card list requires \`boardId\`.
 - \`get\` on a card returns detail, the latest structured handover and resolved
   typed links. List stays summaries and counts.
-- Every successful response carries \`next\`: compact \`(act, subject)\` ops for
-  the returned object's state.
+- Every successful response carries \`next\`: operations with known resource ids,
+  versions, pagination arguments and delegated perspective already filled.
 
 ## fields
 

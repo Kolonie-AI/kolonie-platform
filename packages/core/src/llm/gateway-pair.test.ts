@@ -6,6 +6,7 @@ import {
   FALLBACK_GATEWAY_BASE_URL_VAR,
   GATEWAY_API_KEY_VARS,
   GATEWAY_BASE_URL_VAR,
+  GATEWAY_MODEL_VAR,
   GATEWAY_MODEL_VARS,
   GatewayUnavailable,
   gatewayClient,
@@ -15,7 +16,7 @@ import {
   gatewaysFromEnvironment,
   type GatewaySet,
 } from './gateway.js'
-import { SERVICE_TIERS } from './tier.js'
+import { CAPABILITY_TIERS, SERVICE_TIERS } from './tier.js'
 
 const TIER = '@preset/tier-2'
 const PRIMARY = { baseUrl: 'https://primary.invalid/v1', apiKey: 'primary-key', model: TIER }
@@ -66,6 +67,46 @@ describe('the two configured gateways', () => {
 
   it('builds primary and fallback from the environment only', () => {
     expect(gatewaysFromEnvironment('moderation', complete)).toEqual(GATEWAYS)
+  })
+
+  it('ignores invalid shared and service overrides for every gateway service', () => {
+    for (const service of Object.keys(SERVICE_TIERS) as (keyof typeof SERVICE_TIERS)[]) {
+      for (const variable of [GATEWAY_MODEL_VARS[service], GATEWAY_MODEL_VAR]) {
+        for (const override of ['', 'tier-1', 'model-v1', 'provider/model-v1']) {
+          const gateways = gatewaysFromEnvironment(service, {
+            [GATEWAY_BASE_URL_VAR]: PRIMARY.baseUrl,
+            [GATEWAY_API_KEY_VARS[service]]: PRIMARY.apiKey,
+            [FALLBACK_GATEWAY_BASE_URL_VAR]: FALLBACK.baseUrl,
+            [FALLBACK_GATEWAY_API_KEY_VARS[service]]: FALLBACK.apiKey,
+            [variable]: override,
+          })
+
+          expect(gateways.primary?.model).toBe(SERVICE_TIERS[service])
+          expect(gateways.fallback?.model).toBe(SERVICE_TIERS[service])
+        }
+      }
+    }
+  })
+
+  it.each(CAPABILITY_TIERS)('preserves a canonical service tier override: %s', (tier) => {
+    const gateways = gatewaysFromEnvironment('moderation', {
+      ...complete,
+      [GATEWAY_MODEL_VARS.moderation]: tier,
+    })
+
+    expect(gateways.primary?.model).toBe(tier)
+    expect(gateways.fallback?.model).toBe(tier)
+  })
+
+  it.each(CAPABILITY_TIERS)('preserves a canonical shared tier override: %s', (tier) => {
+    const gateways = gatewaysFromEnvironment('moderation', {
+      ...complete,
+      [GATEWAY_MODEL_VARS.moderation]: '',
+      [GATEWAY_MODEL_VAR]: tier,
+    })
+
+    expect(gateways.primary?.model).toBe(tier)
+    expect(gateways.fallback?.model).toBe(tier)
   })
 
   it('leaves an unconfigured fallback undefined rather than inventing a default', () => {

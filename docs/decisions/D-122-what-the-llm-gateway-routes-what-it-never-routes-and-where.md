@@ -28,17 +28,23 @@ working calls into 23 404s. The exclusion is only safe while it is legible.
 **Rejected: an `LLM_GATEWAY_ROUTE_EMBEDDINGS` flag.** A flag says the answer could
 be either. It cannot: there is nothing at the other end.
 
-### 2. The model is per service, not global
+### 2. The capability tier is per service, not global
 
 `LLM_GATEWAY_MODEL_<SERVICE>` overrides `LLM_GATEWAY_MODEL` for one service, and
-is resolved by the same service token that picks the API key (`#726`).
+is resolved by the same service token that picks the API key (`#726`). Both
+variables accept only the closed capability tiers from D-141; an invalid value
+is skipped, and the service's `SERVICE_TIERS` assignment is the final default.
+
+**Rejected: letting either variable name a provider model** (`#1810`). It makes
+the gateway preset cease to own model selection and sends the same stale slug to
+both gateways. Keeping only canonical tier overrides preserves incident steering
+without restoring provider-specific deployment configuration.
 
 **Rejected: the single `LLM_GATEWAY_MODEL` that came first.** It was right while
-one service used the gateway and wrong the moment two wanted different models —
-moderation judges quests on the strongest model the Colony has, because since
+one service used the gateway and wrong the moment two wanted different tiers —
+moderation judges quests on the strongest tier the Colony has, because since
 `#693` that verdict _is_ the publication, while the verifier reads images and
-would have been sent to a text model by the same variable. Silently, and on the
-day the gateway was wired up rather than the day anybody changed a model.
+has different capability and cost needs.
 
 **Rejected: a second list of services for models.** One list, one compile error
 when a service is in one place and not the other, instead of a variable nothing

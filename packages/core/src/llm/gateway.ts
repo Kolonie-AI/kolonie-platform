@@ -1,4 +1,4 @@
-import { SERVICE_TIERS } from './tier.js'
+import { CapabilityTierSchema, SERVICE_TIERS, type CapabilityTier } from './tier.js'
 import { silentLog, type Log } from '../log/log.js'
 
 /**
@@ -54,11 +54,12 @@ import { silentLog, type Log } from '../log/log.js'
  *
  * ## The two rules `#726` added
  *
- * **1. The model is per service, not global.** `LLM_GATEWAY_MODEL` steers every
- * service that names no model of its own; `LLM_GATEWAY_MODEL_<SERVICE>` steers
- * one. The service token that resolves it is the same one that picks the API key,
- * so there is one list of services rather than two. A deployment setting none of
- * the per-service variables behaves exactly as it did before they existed.
+ * **1. The tier is per service, not global.** `LLM_GATEWAY_MODEL` steers every
+ * service that names no valid tier of its own; `LLM_GATEWAY_MODEL_<SERVICE>`
+ * steers one. Both accept only the three canonical capability tiers. The service
+ * token that resolves it is the same one that picks the API key, so there is one
+ * list of services rather than two. Invalid values leave the service's assigned
+ * tier in force.
  *
  * **2. A decision the Colony cannot take back does not fall back.**
  * {@link gatewayOnlyFetch} is the client for quest moderation: it throws where
@@ -77,9 +78,11 @@ export const GATEWAY_BASE_URL_VAR = 'LLM_GATEWAY_BASE_URL'
 export const FALLBACK_GATEWAY_BASE_URL_VAR = 'LLM_GATEWAY_FALLBACK_BASE_URL'
 
 /**
- * Which model the gateway is asked for, overriding whatever the caller
- * configured — for **every** service that has no override of its own.
+ * Which capability tier the gateway is asked for, overriding the service tier
+ * for every service that has no valid override of its own.
  *
+ * Only the closed capability-tier set is accepted. A provider model slug or
+ * malformed tier cannot reintroduce provider selection through configuration.
  * See {@link GATEWAY_MODEL_VARS} for why one variable was not enough.
  */
 export const GATEWAY_MODEL_VAR = 'LLM_GATEWAY_MODEL'
@@ -143,23 +146,22 @@ export const FALLBACK_GATEWAY_API_KEY_VARS: Record<GatewayService, string> = {
 } as const
 
 /**
- * One model per service, overriding {@link GATEWAY_MODEL_VAR} for that one
- * (`#726`).
+ * One capability-tier override per service, taking precedence over
+ * {@link GATEWAY_MODEL_VAR} for that one (`#726`, `#1810`).
  *
- * **A single model variable across four services is wrong the moment two of them
- * want different models, and that moment has arrived.** The moderation runner
- * judges quests on the strongest model the Colony has, because since `#693` that
- * verdict *is* the publication. The verifier reads images and would be sent to a
- * text model by the same variable — silently, and on the day the gateway is
- * actually wired to it rather than on the day somebody changed a model.
+ * **A single tier variable across the services is wrong the moment two of them
+ * need different capability levels.** The moderation runner judges quests on
+ * the strongest tier because since `#693` that verdict *is* the publication.
+ * The verifier reads images and has different cost and capability needs.
  *
  * Resolved by the **same service token that picks the API key**, so there is one
  * list of services rather than two. A service named here and not there, or the
  * reverse, is a compile error rather than a variable nothing reads.
  *
- * Falls back to `LLM_GATEWAY_MODEL`, which falls back to no gateway at all —
- * which is the caller's own model on OpenRouter, exactly as before either
- * variable existed. **Nothing changes for a deployment that sets none of these.**
+ * Both levels accept only `CAPABILITY_TIERS`. An invalid per-service value is
+ * skipped; an invalid shared value is skipped; if neither is valid, the service's
+ * `SERVICE_TIERS` assignment wins. This keeps incident steering without letting
+ * configuration choose a provider model.
  */
 export const GATEWAY_MODEL_VARS: Record<GatewayService, string> = {
   verifier: 'LLM_GATEWAY_MODEL_VERIFIER',
@@ -256,12 +258,12 @@ export function gatewayFromEnvironment(
 function modelFromEnvironment(
   service: GatewayService,
   env: Record<string, string | undefined>,
-): string {
-  return (
-    (env[GATEWAY_MODEL_VARS[service]] ?? '').trim() ||
-    (env[GATEWAY_MODEL_VAR] ?? '').trim() ||
-    SERVICE_TIERS[service]
-  )
+): CapabilityTier {
+  for (const configured of [env[GATEWAY_MODEL_VARS[service]], env[GATEWAY_MODEL_VAR]]) {
+    const parsed = CapabilityTierSchema.safeParse((configured ?? '').trim())
+    if (parsed.success) return parsed.data
+  }
+  return SERVICE_TIERS[service]
 }
 
 /**

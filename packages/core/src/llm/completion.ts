@@ -63,10 +63,9 @@ export interface ChatRequest {
   /**
    * The capability tier, sent to the gateway exactly as given.
    *
-   * Typed as a string rather than as `CapabilityTier` because a per-service
-   * `LLM_GATEWAY_MODEL_<SERVICE>` override still overrides — an operator pinning
-   * one service to one exact model during an incident is the reason those
-   * variables exist, and this is the layer the pinned value travels through.
+   * Typed as a string because request construction also serves injected test
+   * clients. Environment configuration is narrowed to `CapabilityTier` at the
+   * gateway boundary before a value reaches this layer.
    */
   readonly model: string
   readonly messages: readonly unknown[]

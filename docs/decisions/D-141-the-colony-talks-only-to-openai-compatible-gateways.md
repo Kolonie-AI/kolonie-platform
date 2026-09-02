@@ -61,7 +61,9 @@ variable for some services — `LLM_GATEWAY_MODEL_<SERVICE>`, D-122 §2 — and 
 still meant that changing which model answers touched a deployment. It is also
 not provider-neutral: a variable holding a vendor slug encodes a provider in the
 value, so the same configuration cannot be pointed at a second gateway without
-being rewritten.
+being rewritten. Since `#1810`, those legacy-named variables accept only this
+record's three capability tiers; malformed values and model slugs fall back to
+the service tier.
 
 **Rejected: a slug compiled in with a variable as an override.** That is what was
 there, and the five constants above are what it cost. A default nobody sets is

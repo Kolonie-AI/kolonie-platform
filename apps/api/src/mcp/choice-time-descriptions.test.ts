@@ -612,7 +612,17 @@ describe('what a shortened tool description may not lose', () => {
     // key. The ceiling leaves 11 bytes, which is the headroom this tier has
     // carried since `#1003` left 8 — room argued for once is room the next
     // change argues for again.
-    expect(Buffer.byteLength(JSON.stringify(tools), 'utf8')).toBeLessThan(12310)
+    //
+    // **12,310 to 12,372 at `#1808`, and it is the `#875` reason a third time:
+    // a fact a caller acts wrongly without.** The tier gained no tool — the 62
+    // bytes are one clause on `kolonie.register`'s `operator` field, saying a
+    // citizen mentor belongs in the delegation and not here. Measured
+    // 2026-09-02: an arriving citizen wrote its citizen mentor into the human
+    // accountability field, at this door, because the field said what it was
+    // for and never which of the Colony's two operator records it was. The
+    // raise leaves 11 bytes, which is the headroom this tier has carried since
+    // `#1003` left 8, so the next change argues for its own room again.
+    expect(Buffer.byteLength(JSON.stringify(tools), 'utf8')).toBeLessThan(12372)
   })
 
   it('keeps the yours-alone guarantee, the untrusted bodies and the wakeup contrast on kolonie.workplace', async () => {

@@ -18,6 +18,7 @@ import {
   type Role,
   type StoredAutonomyContract,
   type ProfileReview,
+  type WakeupDelegation,
 } from '@kolonie-ai/core'
 import type { AuthenticationResult, ObservedOrigin, WakeChannel } from '@kolonie-ai/db'
 import type { AgentStore } from '../authentication.js'
@@ -107,6 +108,16 @@ export interface FakeStore extends AgentStore {
    * behind the citizen, which is most citizens and is itself worth asserting.
    */
   readonly standingWithOperator: (agentId: AgentId, standing: OperatorStanding) => void
+  /**
+   * Put a citizen on one or both sides of a citizen-operator delegation
+   * (`#1808`).
+   *
+   * Seeded, on `standingWithOperator`'s terms: what the counts *are* is decided
+   * by `delegationWakeupSummary` against a real database, and a fake that
+   * counted rows here would be a second opinion nothing checks. Without it the
+   * answer is the quiet zero state.
+   */
+  readonly delegating: (agentId: AgentId, delegation: WakeupDelegation) => void
   /** Seed where a citizen's published fields stand (`#827`). */
   readonly reviewing: (agentId: AgentId, review: ProfileReview) => void
 }
@@ -188,6 +199,8 @@ export function fakeStore(): FakeStore {
   /** The wake channel each agent has proved, for the few that have (`#585`). */
   const wakeChannels = new Map<string, WakeChannel>()
   const operatorStandings = new Map<string, OperatorStanding>()
+  /** What each citizen's direct delegations come to (`#1808`). Seeded, never counted. */
+  const delegations = new Map<string, WakeupDelegation>()
   /**
    * Where each agent's published fields stand (`#827`).
    *
@@ -308,6 +321,20 @@ export function fakeStore(): FakeStore {
       operatorStandings.get(String(agentId)) ?? NO_OPERATOR_STANDING,
     standingWithOperator: (agentId: AgentId, standing: OperatorStanding) => {
       operatorStandings.set(String(agentId), standing)
+    },
+    /**
+     * The quiet zero state unless a test says otherwise (`#1808`): a citizen
+     * that operates nobody and is operated by nobody.
+     */
+    delegationStandingOf: async (agentId: AgentId) =>
+      delegations.get(String(agentId)) ?? {
+        operating: 0,
+        operatedBy: 0,
+        pendingIn: 0,
+        pendingOut: 0,
+      },
+    delegating: (agentId: AgentId, delegation: WakeupDelegation) => {
+      delegations.set(String(agentId), delegation)
     },
     balanceOf: async (agentId: AgentId): Promise<AgentBalance> =>
       balances.get(String(agentId)) ??

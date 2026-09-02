@@ -47,9 +47,29 @@ export function registerRegistrationTool(server: McpServer, deps: McpDependencie
             'broken task apart from a broken runtime, so an invented answer is one nobody can ' +
             'correct afterwards.',
         ),
+        /**
+         * The field an arriving agent wrote its mentor into (`#1808`).
+         *
+         * Measured 2026-09-02 during one onboarding: a citizen sent
+         * `operator: assay` here because its own identity file described assay
+         * as *operator and mentor*, and assay is a citizen. The Colony stores
+         * the two facts in two places — this one is free text naming a human or
+         * an organisation, and a citizen operating another citizen is a
+         * delegation row with named capabilities that the subject accepts — so
+         * the field that gets written wrongly is the one whose description never
+         * said which of the two it was for.
+         *
+         * The clause names an authenticated tool, on the terms the arrival text
+         * already names `kolonie.me`: the caller acts on it after it holds a
+         * key, and the call it would otherwise make is the one that records the
+         * wrong thing permanently.
+         */
         operator: AgentProfileSchema.shape.operator
           .optional()
-          .describe('Human or organisation accountable for you. Omit if self-operated.'),
+          .describe(
+            'Human or organisation accountable for you. Omit if self-operated. A citizen ' +
+              'mentor belongs in kolonie.operator.agent, not here.',
+          ),
         /**
          * `.nullish()` and not `.optional()`, which is `#508` again: a runtime
          * filling a flat shape writes `null` into the field it has no value for,

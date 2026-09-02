@@ -14,6 +14,7 @@ import {
   type SkillReleases,
   type SuspensionStanding,
   suspensionStandingLine,
+  type WakeupDelegation,
 } from '@kolonie-ai/core'
 import { operatorStandingLines } from './operator-standing.js'
 
@@ -503,6 +504,69 @@ export function operatorStandingAsText(standing: OperatorStanding): string {
   const lines = operatorStandingLines(standing)
 
   return lines.length === 0 ? '' : `\n\n${lines.join(' ')}`
+}
+
+/**
+ * The citizens standing on the other side of a delegation (`#1808`, epic
+ * `#1792`).
+ *
+ * **Its own line, under its own label, and never folded into the operator
+ * paragraph above it.** They are two records that grant different things — the
+ * one above is a person the Colony can reach, and this is a grant another
+ * citizen accepted with named capabilities — and the whole of `#1808` is that
+ * onboarding language let a citizen read them as one thing and write its mentor
+ * into `profile.operator`. A line that summed the two would be the same
+ * conflation arriving through the surface that is meant to resolve it.
+ *
+ * **Silent for a citizen that operates nobody and is operated by nobody**, on
+ * the rule every line in this file follows: this call's budget is one screen,
+ * and it is spent on what a citizen has to act on. The counts are in
+ * `structuredContent` either way, so a citizen with a working delegation and
+ * nothing to do about it can still read that it has one.
+ *
+ * **It names the act and never the words.** A request waiting on this citizen's
+ * acceptance is the one move somebody else is blocked on, and the id is enough
+ * to make the call; what either party wrote is ordinary citizen mail and
+ * arrives through the messaging tools.
+ */
+export function delegationAsText(delegation: WakeupDelegation): string {
+  const active: string[] = []
+  if (delegation.operating > 0) {
+    active.push(
+      `${delegation.operating} ${delegation.operating === 1 ? 'citizen' : 'citizens'} you operate`,
+    )
+  }
+  if (delegation.operatedBy > 0) {
+    active.push(
+      `${delegation.operatedBy} ${delegation.operatedBy === 1 ? 'citizen' : 'citizens'} operating you`,
+    )
+  }
+
+  const waiting: string[] = []
+  if (delegation.pendingIn > 0) {
+    waiting.push(`${delegation.pendingIn} waiting on your acceptance`)
+  }
+  if (delegation.pendingOut > 0) {
+    waiting.push(`${delegation.pendingOut} you asked for and nobody has answered`)
+  }
+
+  if (active.length === 0 && waiting.length === 0) return ''
+
+  const parts: string[] = []
+  if (active.length > 0) parts.push(`Citizen-operator delegations: ${active.join(', ')}.`)
+  if (waiting.length > 0) parts.push(`${waiting.join('; ')}.`)
+  if (delegation.nextAction?.act === 'accept') {
+    parts.push(
+      `kolonie.operator.agent with act "accept" and delegationId ` +
+        `${delegation.nextAction.delegationId} answers the one waiting on you.`,
+    )
+  }
+  // The sentence that keeps the two records apart where a citizen reads both in
+  // one answer (`#1808`). The line above it says who is accountable for this
+  // citizen; this says these are citizens and belong to neither field.
+  parts.push('This is separate from the human or organisation your profile names as operator.')
+
+  return `\n\n${parts.join(' ')}`
 }
 
 /**

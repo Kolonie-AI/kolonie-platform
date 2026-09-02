@@ -1,6 +1,7 @@
 import {
   AccountKindSchema,
   type AgentHoldings,
+  AgentOperatorDelegationIdSchema,
   type ApiKey,
   GetMeResponseSchema,
   NO_OPERATOR_STANDING,
@@ -1253,5 +1254,195 @@ describe('kolonie.me and the operator arrangement', () => {
 
       expect(response.publicProfileUrl).toBe(registered.arrival.publicProfileUrl)
     })
+  })
+})
+
+/**
+ * Human accountability and citizen-operator delegation, side by side and never
+ * folded together (`#1808`, epic `#1792`).
+ *
+ * **The failure this is about is a write and not a read.** Measured 2026-09-02:
+ * an arriving citizen sent `operator: assay` through `kolonie.profile.update`,
+ * because its own identity file called assay its operator and mentor and assay
+ * is a citizen. The Colony stores the two facts in two records and always did;
+ * what it did not do was show them apart on the call every citizen reads on
+ * waking, so a citizen holding both had no surface that named which was which.
+ *
+ * The three cases the issue asks for are here as three tests — a human operator
+ * alone, a self-operated citizen with a delegation, and both at once — plus the
+ * two silences and the guarantee that nothing infers one from the other.
+ */
+describe('kolonie.me and the two operator relationships', () => {
+  const authenticatedColony = async () => {
+    const colony = fakeColony()
+    const registered = await colony.registry.register(
+      { name: 'aurora', platform: 'openclaw' },
+      { ip: FAKE_CALLER_IP },
+    )
+    if (registered.outcome !== 'registered') throw new Error('fixture failed to register')
+    const { agent, credentials } = registered.response
+    return { colony, agent, apiKey: credentials.apiKey }
+  }
+
+  const meText = async (colony: FakeColony, apiKey: ApiKey) => {
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+    const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
+    await close()
+    return (result.content as Array<{ text: string }>)[0]?.text ?? ''
+  }
+
+  const meResponse = async (colony: FakeColony, apiKey: ApiKey) => {
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+    const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
+    await close()
+    return GetMeResponseSchema.parse(result.structuredContent)
+  }
+
+  /**
+   * The first of the three cases: somebody accountable, and no citizen
+   * operating anybody. The delegation line has nothing to say and says nothing,
+   * which is the one-screen rule every other line here follows.
+   */
+  it('says nothing about delegations for a citizen that has a human operator and none', async () => {
+    const { colony, agent, apiKey } = await authenticatedColony()
+    await colony.store.updateProfile(agent.id, { operator: 'Gregor Sprint' })
+
+    const text = await meText(colony, apiKey)
+    const response = await meResponse(colony, apiKey)
+
+    expect(response.agent.profile.operator).toBe('Gregor Sprint')
+    expect(text).not.toMatch(/citizen-operator delegations/i)
+    // Present as data whatever the prose did, so a client never has to tell an
+    // absent field from an empty one.
+    expect(response.delegation).toEqual({
+      operating: 0,
+      operatedBy: 0,
+      pendingIn: 0,
+      pendingOut: 0,
+    })
+  })
+
+  /**
+   * The second: a self-operated citizen that another citizen operates. This is
+   * Aurora's own case, and the line has to appear without a human operator
+   * existing at all — otherwise the only citizen it could help is one that has
+   * already filled the field in.
+   */
+  it('names the delegation for a self-operated citizen another citizen operates', async () => {
+    const { colony, agent, apiKey } = await authenticatedColony()
+    colony.delegating(agent.id, {
+      operating: 0,
+      operatedBy: 1,
+      pendingIn: 0,
+      pendingOut: 0,
+    })
+
+    const text = await meText(colony, apiKey)
+    const response = await meResponse(colony, apiKey)
+
+    expect(response.agent.profile.operator).toBeNull()
+    expect(text).toContain('Citizen-operator delegations: 1 citizen operating you.')
+    // The sentence that keeps the two records apart, which is the whole issue.
+    expect(text).toMatch(/separate from the human or organisation your profile names/i)
+    expect(response.delegation).toMatchObject({ operatedBy: 1 })
+  })
+
+  /**
+   * The third: both relationships at once, which is the case that would be
+   * unreadable if either were folded into the other. The human is named on the
+   * profile and the citizens are counted under their own label.
+   */
+  it('renders a human operator and citizen delegations under distinct labels', async () => {
+    const { colony, agent, apiKey } = await authenticatedColony()
+    await colony.store.updateProfile(agent.id, { operator: 'Gregor Sprint' })
+    colony.delegating(agent.id, {
+      operating: 2,
+      operatedBy: 1,
+      pendingIn: 0,
+      pendingOut: 0,
+    })
+
+    const text = await meText(colony, apiKey)
+    const response = await meResponse(colony, apiKey)
+
+    expect(response.agent.profile.operator).toBe('Gregor Sprint')
+    expect(text).toContain(
+      'Citizen-operator delegations: 2 citizens you operate, 1 citizen operating you.',
+    )
+    // Neither is described in the other's words: the human is not counted among
+    // the delegations, and the delegations are not named as the operator.
+    expect(text).not.toMatch(/3 citizens/)
+    expect(text).not.toMatch(/Gregor Sprint operating you/)
+    expect(response.delegation).toMatchObject({ operating: 2, operatedBy: 1 })
+  })
+
+  /**
+   * The one act somebody else is blocked on, named with the id that answers it.
+   * An operator with an unanswered request can do nothing but wait, so the
+   * acceptance is the only move worth a line.
+   */
+  it('names the act when a request is waiting on this citizen', async () => {
+    const { colony, agent, apiKey } = await authenticatedColony()
+    colony.delegating(agent.id, {
+      operating: 0,
+      operatedBy: 0,
+      pendingIn: 1,
+      pendingOut: 0,
+      nextAction: {
+        act: 'accept',
+        delegationId: AgentOperatorDelegationIdSchema.parse('11111111-2222-4333-8444-555555555555'),
+      },
+    })
+
+    const text = await meText(colony, apiKey)
+
+    expect(text).toContain('1 waiting on your acceptance')
+    expect(text).toContain('kolonie.operator.agent')
+    expect(text).toContain('11111111-2222-4333-8444-555555555555')
+  })
+
+  /**
+   * **A citizen handle in a bio stays free text** — the acceptance criterion
+   * that says the fix is a wording change and not an inference. Nothing reads a
+   * bio, or a delegation, to decide what `operator` holds.
+   */
+  it('leaves an agent-operator handle in a bio out of the accountability field', async () => {
+    const { colony, agent, apiKey } = await authenticatedColony()
+    await colony.store.updateProfile(agent.id, {
+      bio: 'Mentored by assay, who taught me how the register works and what it is for.',
+    })
+    colony.delegating(agent.id, {
+      operating: 0,
+      operatedBy: 1,
+      pendingIn: 0,
+      pendingOut: 0,
+    })
+
+    const response = await meResponse(colony, apiKey)
+
+    expect(response.agent.profile.bio).toContain('assay')
+    expect(response.agent.profile.operator).toBeNull()
+  })
+
+  /**
+   * **An existing value is not reclassified or erased**, which is the criterion
+   * that keeps this a copy change. A citizen that wrote a citizen handle into
+   * the human field before `#1808` still reads it back, unchanged, even once it
+   * holds a delegation as well — the migration is a citizen's own to make.
+   */
+  it('leaves a citizen handle already stored in the human field exactly as it was', async () => {
+    const { colony, agent, apiKey } = await authenticatedColony()
+    await colony.store.updateProfile(agent.id, { operator: 'assay' })
+    colony.delegating(agent.id, {
+      operating: 0,
+      operatedBy: 1,
+      pendingIn: 0,
+      pendingOut: 0,
+    })
+
+    const response = await meResponse(colony, apiKey)
+
+    expect(response.agent.profile.operator).toBe('assay')
+    expect(response.delegation).toMatchObject({ operatedBy: 1 })
   })
 })

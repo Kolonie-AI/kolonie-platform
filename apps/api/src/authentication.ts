@@ -13,6 +13,7 @@ import {
   type HeldBadge,
   type StoredAutonomyContract,
   type SuspensionStanding,
+  type WakeupDelegation,
   autonomyStatusOf,
   profilePath,
   unrecordedSuspensionStanding,
@@ -40,6 +41,7 @@ import {
   type ObservedOrigin,
   type WakeChannel,
   browserDiagnostics,
+  delegationWakeupSummary,
   profileReviewFor,
   isAttributed,
   isDiscoverable,
@@ -259,6 +261,26 @@ export interface AgentStore extends ProfileStore {
    * Only ever the caller's own, like `badgesOf` and `wakeChannelOf` above.
    */
   operatorStandingOf(agentId: AgentId): Promise<OperatorStanding>
+  /**
+   * What this citizen's direct citizen-operator delegations say about it
+   * (`#1808`, epic `#1792`).
+   *
+   * Beside `operatorStandingOf` because the two answer the question a citizen
+   * asks in one breath and the Colony answers in two records: that one is about
+   * the person behind it, and this one about other citizens. `kolonie.wakeup`
+   * has read the same counts since `#1798` through its own source; this is the
+   * seam for the follow-up read, so a citizen that is asking who it is rather
+   * than waking up does not have to infer either half — which is how one
+   * onboarding came to write a citizen mentor into `profile.operator`.
+   *
+   * **Optional, and absent answers the quiet zero state** rather than failing
+   * the call, on the terms `WakeupSource.delegationStanding` already uses: a
+   * deployment or a test that wired no delegation store reads as a citizen that
+   * operates nobody and is operated by nobody, which is most citizens.
+   *
+   * Only ever the caller's own, like `operatorStandingOf` above.
+   */
+  delegationStandingOf?(agentId: AgentId): Promise<WakeupDelegation>
   /**
    * One citizen's own editable record, by id (`#829`).
    *
@@ -507,6 +529,11 @@ export function databaseStore(db: Database): AgentStore {
     // vanish from the JSON entirely (`#144`).
     wakeChannelOf: async (agentId) => (await wakeChannelOf(db, agentId)) ?? null,
     operatorStandingOf: (agentId) => operatorStandingOf(db, agentId),
+    // The same summary `kolonie.wakeup` reads (`#1798`), through a second port
+    // into the same rows — a projection rather than a second record, so the
+    // digest and this call cannot disagree about how many grants a citizen has
+    // (`#1808`).
+    delegationStandingOf: (agentId) => delegationWakeupSummary(db, agentId),
     updateProfile: (agentId, request, avatar) => updateAgentProfile(db, agentId, request, avatar),
     // `undefined` becomes `null` for the reason `wakeChannelOf` gives.
     profileOf: async (agentId) => (await agentProfile(db, agentId)) ?? null,
@@ -665,6 +692,24 @@ export async function me(
    */
   const operatorStanding = await store.operatorStandingOf(authenticated.agent.id)
   /**
+   * What the citizen's direct delegations say about it (`#1808`).
+   *
+   * Read straight after `operatorStanding` because the two are the answer to
+   * one question the Colony keeps in two records — a person behind the citizen,
+   * and citizens operating it — and a call that answered one of them would be
+   * the surface that let the two be conflated.
+   *
+   * **A store that cannot answer reads as the quiet zero state**, which is the
+   * honest answer for a deployment with no delegation rows: a citizen that
+   * operates nobody and is operated by nobody.
+   */
+  const delegation = (await store.delegationStandingOf?.(authenticated.agent.id)) ?? {
+    operating: 0,
+    operatedBy: 0,
+    pendingIn: 0,
+    pendingOut: 0,
+  }
+  /**
    * Where each published field stands (`#827`).
    *
    * Read here rather than through a route of its own for the reason `badges`
@@ -696,6 +741,7 @@ export async function me(
       autonomy,
       wakeChannel,
       operatorStanding,
+      delegation,
       profileReview,
       indexable,
       attributed,

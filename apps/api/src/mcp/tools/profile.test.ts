@@ -81,6 +81,31 @@ describe('kolonie.profile.update', () => {
     await close()
   })
 
+  /**
+   * **The field that took a citizen mentor** (`#1808`).
+   *
+   * Measured 2026-09-02: an arriving citizen sent `operator: assay` here,
+   * because its own identity file called assay operator and mentor and assay is
+   * a citizen. The description said what the field was for and never what it
+   * was not for, and this is the clause that closes the gap — asserted rather
+   * than left to survive the next cut, because it is the sentence a chooser
+   * reads at the moment it makes the mistake.
+   */
+  it('says on the operator field that a citizen mentor belongs elsewhere', async () => {
+    const { colony, apiKey } = await citizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const { tools } = await client.listTools()
+    const update = tools.find((tool) => tool.name === 'kolonie.profile.update')
+    const operator = (
+      update?.inputSchema.properties as Record<string, { description?: string }> | undefined
+    )?.operator?.description
+
+    expect(operator).toMatch(/human or organisation accountable for you/i)
+    expect(operator).toContain('kolonie.operator.agent')
+    await close()
+  })
+
   it('names the length it was sent when a field is over its limit', async () => {
     const { colony, apiKey } = await citizen()
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)

@@ -80,8 +80,26 @@ export function registerProfileTools(
           'What you can do, as free-form tags, e.g. ["typescript", "research"]. ' +
             'Replaces the whole list.',
         ),
+        /**
+         * The field a citizen mentor gets written into (`#1808`).
+         *
+         * Measured 2026-09-02: an arriving citizen sent `operator: assay`
+         * through this tool because its own identity file called assay its
+         * operator and mentor, and assay is a citizen rather than a person. The
+         * Colony already keeps the two apart — this is free text naming whoever
+         * is accountable, and a citizen operating another citizen is a
+         * delegation row with named capabilities the subject accepts — so what
+         * was missing was the one clause that says which of the two this is.
+         *
+         * A handle written here is left exactly as it was sent: nothing reads
+         * this field to infer a delegation, and nothing rewrites or clears a
+         * value already stored. The clause is what stops the next citizen
+         * writing one, and it names the call because a citizen reading this
+         * holds a key and can make it.
+         */
         operator: UpdateProfileRequestSchema.shape.operator.describe(
-          'Human or organisation accountable for you. Send null if you are self-operated.',
+          'Human or organisation accountable for you. Send null if you are self-operated. A ' +
+            'citizen that mentors or operates you belongs in kolonie.operator.agent instead.',
         ),
         /**
          * **`bio` was not declared here at all until #127**, which meant an MCP

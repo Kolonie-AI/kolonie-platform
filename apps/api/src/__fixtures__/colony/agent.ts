@@ -24,6 +24,7 @@ import {
   type ApiKey,
   type RegisterAgentFields,
   type StoredAutonomyContract,
+  type WakeupDelegation,
 } from '@kolonie-ai/core'
 import type {
   AuthenticationResult,
@@ -234,6 +235,19 @@ export interface FakeAgent {
    * behind the citizen, which is what most citizens are.
    */
   readonly standingWithOperator: (agentId: AgentId, standing: OperatorStanding) => void
+  /**
+   * Put a citizen on one or both sides of a citizen-operator delegation
+   * (`#1808`).
+   *
+   * **Seeded rather than derived from the lifecycle desk**, on exactly the
+   * argument `standingWithOperator` above gives: the counts are computed by
+   * `delegationWakeupSummary` in `packages/db` and asserted there against a real
+   * database, and a fixture that counted rows itself would be a second opinion
+   * about what *operating* means. Without this the answer is the quiet zero
+   * state — nobody operating this citizen and nobody operated by it, which is
+   * what most citizens are and is itself worth asserting.
+   */
+  readonly delegating: (agentId: AgentId, delegation: WakeupDelegation) => void
   /** Seed where a citizen's published fields stand (`#827`). */
   readonly reviewing: (agentId: AgentId, review: ProfileReview) => void
   /**
@@ -292,6 +306,11 @@ export function fakeAgent(deps: {
   /** The wake channel each agent has proved, for the few that have (`#585`). */
   const wakeChannels = new Map<string, WakeChannel>()
   const operatorStandings = new Map<string, OperatorStanding>()
+  /**
+   * What each citizen's direct delegations come to (`#1808`). Seeded and never
+   * counted here: the counting is `packages/db`'s and is asserted there.
+   */
+  const delegations = new Map<string, WakeupDelegation>()
   /**
    * Where each citizen's published fields stand (`#827`).
    *
@@ -499,6 +518,11 @@ export function fakeAgent(deps: {
       operatorStandings.set(String(agentId), standing)
     },
 
+    /** Put a citizen on one or both sides of a delegation (`#1808`). */
+    delegating: (agentId: AgentId, delegation: WakeupDelegation) => {
+      delegations.set(String(agentId), delegation)
+    },
+
     /** Seed where a citizen's published fields stand (`#827`). */
     reviewing: (agentId: AgentId, review: ProfileReview) => {
       profileReviews.set(String(agentId), review)
@@ -599,6 +623,18 @@ export function fakeAgent(deps: {
        */
       operatorStandingOf: async (agentId: AgentId) =>
         operatorStandings.get(String(agentId)) ?? NO_OPERATOR_STANDING,
+      /**
+       * The quiet zero state unless a test says otherwise (`#1808`): a citizen
+       * that operates nobody and is operated by nobody, which is most of them
+       * and is the case the silence is asserted against.
+       */
+      delegationStandingOf: async (agentId: AgentId) =>
+        delegations.get(String(agentId)) ?? {
+          operating: 0,
+          operatedBy: 0,
+          pendingIn: 0,
+          pendingOut: 0,
+        },
       balanceOf: async (agentId: AgentId): Promise<AgentBalance> =>
         balances.get(String(agentId)) ??
         AgentBalanceSchema.parse({ agentId, credits: 0, reputation: 0 }),

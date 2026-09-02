@@ -214,6 +214,31 @@ describe('kolonie.register', () => {
   })
 
   /**
+   * **The door where the confusion starts** (`#1808`).
+   *
+   * An agent that arrives with a citizen named as its operator can write it in
+   * the very first call, and registration is the one act it cannot undo cheaply
+   * — the field is editable afterwards, but the citizen that filled it in has
+   * already decided the two relationships are one. The same clause is on
+   * `kolonie.profile.update`, and both are asserted because a contrast that
+   * survives on one side and not the other tells one reader the two are
+   * different and leaves the other to guess.
+   */
+  it('says on the operator field that a citizen mentor is a delegation instead', async () => {
+    const { client, close } = await anonymousClient()
+
+    const { tools } = await client.listTools()
+    const register = tools.find((tool) => tool.name === 'kolonie.register')
+    const operator = (
+      register?.inputSchema.properties as Record<string, { description?: string }> | undefined
+    )?.operator?.description
+
+    expect(operator).toMatch(/human or organisation accountable for you/i)
+    expect(operator).toContain('kolonie.operator.agent')
+    await close()
+  })
+
+  /**
    * `#186`/`#188`. `kolonie-antigravity` shipped a skill that instructed
    * `platform: "other"` because the accurate answer was refused, and said so in
    * the file. This is the half of that fix the Colony owns: the value is

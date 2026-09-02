@@ -53,8 +53,10 @@ import {
 import {
   AgentIdSchema,
   createLog,
+  TIER_1,
   gatewayClient,
   gatewaysFromEnvironment,
+  gatewaysWithTier,
   maxTokensFromEnvironment,
   gatewayRoutedFetch,
   SubmissionIdSchema,
@@ -142,8 +144,12 @@ const verifierCeiling = maxTokensFromEnvironment('verifier')
 const verifierGateways = gatewaysFromEnvironment('verifier')
 const verifierGateway = gatewayClient(verifierGateways)
 const verifierApiKey = verifierGateway?.apiKey
+const visionGateways = gatewaysWithTier(verifierGateways, TIER_1)
+const visionGateway = gatewayClient(visionGateways)
+const visionApiKey = visionGateway?.apiKey
 
 const modelFetch = gatewayRoutedFetch(verifierGateways, { log })
+const visionFetch = gatewayRoutedFetch(visionGateways, { log })
 
 // Throws with an explanation if DATABASE_URL is missing (D-009). Failing at
 // startup is the point: a runner that cannot reach its database has not
@@ -263,44 +269,19 @@ const verifiers = createVerifiers({
     recordServed: (agentId, artefactUrl) =>
       recordArtefactServed(db, AgentIdSchema.parse(agentId), artefactUrl),
   },
-  artefactReader: openRouterArtefactReader(
-    verifierApiKey,
-    verifierGateway?.model,
-    modelFetch,
-    log,
-    verifierCeiling,
-  ),
+  artefactReader: openRouterArtefactReader(visionApiKey, visionFetch, log, verifierCeiling),
   imageChallenges: { latest: (agentId) => latestImageChallenge(db, AgentIdSchema.parse(agentId)) },
-  // Both are passed straight through, blank and all: `openRouterVision` treats
-  // an empty string as unset, because Compose writes `${VAR:-}` for every
-  // optional variable and that is an empty string rather than `undefined`.
-  visionModel: openRouterVision(
-    verifierApiKey,
-    verifierGateway?.model,
-    modelFetch,
-    log,
-    verifierCeiling,
-  ),
+  visionModel: openRouterVision(visionApiKey, visionFetch, log, verifierCeiling),
   /**
-   * The generator rung (`#216`), on the same key and a **different model**.
-   *
-   * `SCENE_VISION_MODEL` is separate from `VISION_MODEL` because the two rungs
-   * ask different questions: `raster` asks whether a shape is blue, which the
-   * cheap tier answers well, and this asks how many otters there are, which it
-   * does not. One variable would price both at whichever is more demanding.
+   * The generator rung (`#216`) keeps its distinct prompt and schema while using
+   * the same fixed vision tier as every other image-understanding call.
    *
    * Same degradation as the rung above — no key means `pending`, never a
    * failure, and here that matters more: an attempt at this rung cost the
    * citizen a render.
    */
   sceneChallenges: { latest: (agentId) => latestSceneChallenge(db, AgentIdSchema.parse(agentId)) },
-  sceneVision: openRouterSceneVision(
-    verifierApiKey,
-    verifierGateway?.model,
-    modelFetch,
-    log,
-    verifierCeiling,
-  ),
+  sceneVision: openRouterSceneVision(visionApiKey, visionFetch, log, verifierCeiling),
   /**
    * The prompt-injection badge (`#168`). No vendor half and no credential: every
    * input is a row the Colony wrote and a string the citizen sent, so this line

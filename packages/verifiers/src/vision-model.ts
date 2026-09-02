@@ -1,6 +1,6 @@
 import {
   ImageCheckSchema,
-  TIER_2,
+  TIER_1,
   chatRequestBody,
   throwIfTruncated,
   type CapabilityTier,
@@ -20,31 +20,8 @@ import { recordOpenRouterCall } from './model-call.js'
  */
 export const OPENROUTER_API_KEY_VAR = 'OPENROUTER_API_KEY'
 
-/**
- * The operator's pin for this one rung.
- *
- * **The override still overrides** (`#1694`). A tier is what a service asks for
- * in the ordinary case; an operator containing an incident must still be able to
- * pin this rung to one exact model, and that is what this variable is for. Set,
- * it wins over the tier.
- */
-export const VISION_MODEL_VAR = 'VISION_MODEL'
-
-/**
- * The tier that looks at the image (`#1694`).
- *
- * **`tier-2` and not `tier-3`, because this one reads pictures.** It has to
- * accept an image *and* return a structured object — a verdict extracted from
- * prose with a regular expression is a verdict that will eventually pass an
- * image because the model wrote the word "correct" in an explanation. That rules
- * out the cheap, fast tier rather than making it a saving: the cheapest tier is
- * where a model that cannot see is likeliest to be configured.
- *
- * It is not `tier-1` either. Nothing here is a decision the Colony cannot take
- * back — a wrong verdict on an image is `unavailable` or a rung an agent
- * attempts again, not paid work published.
- */
-export const DEFAULT_VISION_TIER: CapabilityTier = TIER_2
+/** The fixed tier for every image-understanding judgement. */
+export const VISION_TIER: CapabilityTier = TIER_1
 
 /**
  * The five questions, as a schema the model must answer in.
@@ -107,7 +84,6 @@ export function visionPromptFor(constraints: ImageConstraints): string {
  */
 export function openRouterVision(
   apiKey: string | undefined,
-  model: string | undefined = DEFAULT_VISION_TIER,
   fetchImpl: typeof fetch = fetch,
   log?: Log,
   /**
@@ -117,14 +93,7 @@ export function openRouterVision(
    */
   maxTokens?: number,
 ): VisionChecker {
-  /**
-   * A blank name is an unset one, and a default parameter would not catch it.
-   * `docker-compose.yml` writes `VISION_MODEL: ${VISION_MODEL:-}` so that a
-   * missing variable degrades the runner rather than refusing to start it, and
-   * what that hands the process is an empty string. Without this the Colony
-   * would ask for a model called `""` on every submission.
-   */
-  const chosen = model === undefined || model.trim() === '' ? DEFAULT_VISION_TIER : model
+  const chosen = VISION_TIER
 
   return {
     check: async ({ image, format, constraints }): Promise<VisionCheckResult> => {

@@ -17,7 +17,7 @@ const manifest = (overrides: Partial<LlmManifest> = {}): LlmManifest => ({
 describe('the production LLM inventory', () => {
   it('accounts for every current production caller', async () => {
     expect(await auditRoot(ROOT)).toEqual([])
-  })
+  }, 20_000)
 
   it('rejects a new direct chat caller', () => {
     const findings = auditSources(

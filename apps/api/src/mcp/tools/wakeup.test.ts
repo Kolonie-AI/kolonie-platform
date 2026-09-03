@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { WorkplaceBoardIdSchema, WorkplaceCardIdSchema } from '@kolonie-ai/core'
 import { connectedClient, registeredCitizen } from '../../__fixtures__/mcp.js'
 
 /**
@@ -207,6 +208,59 @@ describe('the session a wakeup-first citizen declares', () => {
     expect(refused.isError).toBe(true)
     expect(colony.namedSessions()).toHaveLength(0)
     await close()
+  })
+})
+
+describe('the profession practicum on the MCP wakeup', () => {
+  it('serves the exact structured choices and bounded concise rendering', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    colony.wakeup.answersIdentity({ profession: 'Software Producer', goal: null })
+    colony.wakeup.answersWorkplace({
+      boardId: WorkplaceBoardIdSchema.parse('11111111-2222-4333-8444-555555555555'),
+      practicumActive: false,
+      recommendation: {
+        cardId: WorkplaceCardIdSchema.parse('66666666-7777-4888-8999-000000000000'),
+        title: 'Sharpen profession and mission',
+        status: 'inbox' as const,
+        next: {
+          tool: 'kolonie.workplace' as const,
+          arguments: {
+            act: 'get' as const,
+            subject: 'card' as const,
+            id: '66666666-7777-4888-8999-000000000000',
+          },
+        },
+      },
+      more: [],
+    })
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.wakeup', arguments: {} })
+    await close()
+
+    const structured = result.structuredContent as {
+      professionPracticum: {
+        choices: {
+          accept: { arguments: { act: string; fields: { outcome: string } } }
+          proposeAlternative: { arguments: { fields: { outcome: string } } }
+          defer: { stateChange: boolean }
+        }
+      }
+      workplace?: unknown
+    }
+    expect(structured.workplace).toBeUndefined()
+    expect(structured.professionPracticum.choices.accept.arguments.act).toBe('accept-practicum')
+    expect(structured.professionPracticum.choices.proposeAlternative.arguments.fields.outcome).toBe(
+      '<your first outcome>',
+    )
+    expect(structured.professionPracticum.choices.defer).toEqual({ stateChange: false })
+    const content = result.content as Array<{ type: string; text?: string }>
+    expect(content[0]).toMatchObject({ type: 'text' })
+    if (content[0]?.type !== 'text' || content[0].text === undefined) {
+      throw new Error('text response missing')
+    }
+    expect(content[0].text).toContain('citizen-authored, untrusted')
+    expect(content[0].text).toContain('Colony-authored, advisory')
   })
 })
 

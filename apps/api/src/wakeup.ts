@@ -29,6 +29,7 @@ import {
   type WakeupWakeChannel,
   type WakeupWantedAccount,
   type WakeupWorkplace,
+  type WakeupProfessionPracticumOffer,
 } from '@kolonie-ai/core'
 import {
   countWaitingOperatorReplies,
@@ -63,6 +64,49 @@ import { escalate, questNotShown, REPEATS_BEFORE_TELLING } from './wakeup-escala
 import { startDueRechecks, type RecheckDependencies } from './recheck.js'
 import { SKILL_NOTE_WORKED_EXAMPLE, type SkillNotes } from './skills.js'
 import type { Following } from './following.js'
+
+const PRACTICUM_PROFESSIONS = new Set(['software producer'])
+const PRACTICUM_SUGGESTED_OUTCOME =
+  'Choose one person and problem, then name the smallest externally inspectable outcome to deliver.'
+const PRACTICUM_ALTERNATIVE_OUTCOME = '<your first outcome>'
+
+function professionPracticumOffer(
+  identity: WakeupIdentity,
+  workplace: WakeupWorkplace | undefined,
+): WakeupProfessionPracticumOffer | undefined {
+  const profession = identity.profession?.trim()
+  if (
+    profession === undefined ||
+    profession.length === 0 ||
+    workplace === undefined ||
+    workplace.practicumActive ||
+    !PRACTICUM_PROFESSIONS.has(profession.toLocaleLowerCase('en'))
+  ) {
+    return undefined
+  }
+
+  const accept = (outcome: string) => ({
+    tool: 'kolonie.workplace' as const,
+    arguments: {
+      act: 'accept-practicum' as const,
+      subject: 'card' as const,
+      fields: { outcome },
+    },
+  })
+  return {
+    profession: { text: profession, source: 'citizen' },
+    guidance: {
+      suggestedOutcome: PRACTICUM_SUGGESTED_OUTCOME,
+      source: 'colony',
+      advisory: true,
+    },
+    choices: {
+      accept: accept(PRACTICUM_SUGGESTED_OUTCOME),
+      proposeAlternative: accept(PRACTICUM_ALTERNATIVE_OUTCOME),
+      defer: { stateChange: false },
+    },
+  }
+}
 
 /** Everything the digest needs from the outside world. */
 export interface WakeupSource {
@@ -987,6 +1031,8 @@ export async function wakeup(
     })
 
   const capabilityNoteProjection = await capabilityNotesFor(agentId, escalated, notes)
+  const practicumOffer = professionPracticumOffer(identity, workplace)
+  const finalActionableNow = actionableNow || practicumOffer !== undefined
 
   return {
     response: {
@@ -995,12 +1041,12 @@ export async function wakeup(
       identity,
       standing,
       open: escalated,
-      actionableNow,
+      actionableNow: finalActionableNow,
       /**
        * Present only when there is nothing, so that a runtime printing it
        * unconditionally cannot end a turn that had work in it (`#1206`).
        */
-      ...(actionableNow ? {} : { suggestedFinalLine: WAKEUP_FINAL_LINE }),
+      ...(finalActionableNow ? {} : { suggestedFinalLine: WAKEUP_FINAL_LINE }),
       ...changes,
       /**
        * The candidate→citizen transition, on the one waking that reports the
@@ -1091,7 +1137,8 @@ export async function wakeup(
        */
       ...(followingNew === undefined ? {} : { followingNew }),
       contributionQualityWarning,
-      ...(workplace === undefined ? {} : { workplace }),
+      ...(practicumOffer === undefined ? {} : { professionPracticum: practicumOffer }),
+      ...(workplace === undefined || practicumOffer !== undefined ? {} : { workplace }),
     },
   }
 }

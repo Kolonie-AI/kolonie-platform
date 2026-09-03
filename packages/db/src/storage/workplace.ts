@@ -630,6 +630,18 @@ export async function workplaceWakeup(
     .limit(1)
   if (board === undefined) return undefined
 
+  const [activePracticum] = await db
+    .select({ id: workplaceCards.id })
+    .from(workplaceCards)
+    .where(
+      and(
+        eq(workplaceCards.boardId, board.id),
+        isNull(workplaceCards.archivedAt),
+        sql`${workplaceCards.seedKey} like ${`${PRACTICUM_PREFIX}%`}`,
+      ),
+    )
+    .limit(1)
+
   const rank = sql<number>`case
     when ${workplaceCards.status} = 'in_progress' and ${workplaceCards.ownerId} = ${callerId} then 0
     when ${workplaceCards.status} = 'ready' then 1
@@ -666,6 +678,7 @@ export async function workplaceWakeup(
   const first = cards[0]
   return {
     boardId: WorkplaceBoardIdSchema.parse(board.id),
+    practicumActive: activePracticum !== undefined,
     recommendation:
       first === undefined
         ? null

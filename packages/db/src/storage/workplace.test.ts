@@ -1473,6 +1473,7 @@ describe('workplace wakeup recommendation', () => {
 
     const before = await workplaceWakeup(db, citizenId)
     expect(before?.boardId).toBe(defaultBoard.id)
+    expect(before?.practicumActive).toBe(false)
     expect(before?.recommendation).toMatchObject({
       title: 'Sharpen profession and mission',
       status: 'inbox',
@@ -1487,6 +1488,7 @@ describe('workplace wakeup recommendation', () => {
     const result = await workplaceWakeup(db, citizenId)
 
     expect(result?.boardId).toBe(started.cycle.boardId)
+    expect(result?.practicumActive).toBe(true)
     expect(result?.recommendation).toMatchObject({
       cardId: started.cycle.cards[0]?.id,
       title: 'Understand one user and problem',
@@ -1519,6 +1521,7 @@ describe('workplace wakeup recommendation', () => {
 
     expect(await workplaceWakeup(db, citizenId)).toEqual({
       boardId: board.id,
+      practicumActive: false,
       recommendation: {
         cardId: live.card.id,
         title: 'Live work',
@@ -1530,6 +1533,28 @@ describe('workplace wakeup recommendation', () => {
       },
       more: [{ cardId: ready.card.id, status: 'ready' }],
     })
+  })
+
+  it('detects a practicum independently of the bounded recommendation ranking', async () => {
+    const board = await createDefaultBoard(db, { callerId: citizenId, title: 'Default board' })
+    const started = await startProfessionPracticum(db, {
+      callerId: citizenId,
+      outcome: 'Deliver one runnable status page.',
+    })
+    if (started.outcome !== 'started') throw new Error('cycle missing')
+    for (let index = 0; index < 6; index += 1) {
+      await createCard(db, {
+        callerId: citizenId,
+        boardId: board.id,
+        title: `Ready ${index}`,
+        status: 'ready',
+      })
+    }
+
+    const result = await workplaceWakeup(db, citizenId)
+
+    expect(result?.recommendation?.title).toBe('Ready 0')
+    expect(result?.practicumActive).toBe(true)
   })
 
   it('bounds fifty ready cards to one recommendation and four ids', async () => {

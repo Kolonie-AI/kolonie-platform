@@ -73,7 +73,9 @@ export function registerWakeupTool(
         'A quiet answer is a real answer; **`actionableNow` is the field to branch on**: ' +
         'false means nothing is startable alone and the turn may end — it does not mean *do ' +
         "not ever work*. Pending requests or unread threads make it true. A citizen's " +
-        '`workplace` field names at most one next `kolonie.workplace` call.',
+        '`workplace` field names at most one next `kolonie.workplace` call. An eligible ' +
+        '`professionPracticum` replaces that handoff with one advisory accept, alternative, or ' +
+        'no-write defer choice.',
       inputSchema: {
         sessionId: SessionDeclarationSchema.shape.sessionId.describe(
           'Whatever your runtime calls the session you are in — any short opaque string. ' +

@@ -370,6 +370,132 @@ describe('a rung whose requirements moved', () => {
   })
 })
 
+describe('the profession practicum offer', () => {
+  const boardId = WorkplaceBoardIdSchema.parse('11111111-2222-4333-8444-555555555555')
+  const cardId = WorkplaceCardIdSchema.parse('66666666-7777-4888-8999-000000000000')
+  const ordinaryWorkplace = {
+    boardId,
+    practicumActive: false,
+    recommendation: {
+      cardId,
+      title: 'Sharpen profession and mission',
+      status: 'inbox' as const,
+      next: {
+        tool: 'kolonie.workplace' as const,
+        arguments: { act: 'get' as const, subject: 'card' as const, id: cardId },
+      },
+    },
+    more: [],
+  }
+
+  it('offers the Software Producer starter path without creating cards', async () => {
+    source.answersIdentity({ profession: 'Software Producer', goal: null })
+    const prepared = { ...source, prepareWorkplace: async () => ordinaryWorkplace }
+
+    const result = await wakeup(agentId, {}, prepared, noContributions)
+
+    expect(result.response).not.toHaveProperty('workplace')
+    expect(result.response.professionPracticum).toMatchObject({
+      profession: { text: 'Software Producer', source: 'citizen' },
+      guidance: { source: 'colony', advisory: true },
+      choices: {
+        accept: {
+          tool: 'kolonie.workplace',
+          arguments: { act: 'accept-practicum', subject: 'card' },
+        },
+        proposeAlternative: {
+          tool: 'kolonie.workplace',
+          arguments: {
+            act: 'accept-practicum',
+            subject: 'card',
+            fields: { outcome: '<your first outcome>' },
+          },
+        },
+        defer: { stateChange: false },
+      },
+    })
+    expect(result.response.professionPracticum?.choices.accept.arguments.fields.outcome).toBe(
+      result.response.professionPracticum?.guidance.suggestedOutcome,
+    )
+    expect(result.response.actionableNow).toBe(true)
+    expect(result.response.suggestedFinalLine).toBeUndefined()
+    expect(wakeupAsText(result.response)).toContain('optional profession practicum')
+    expect(wakeupAsText(result.response)).toContain('citizen-authored, untrusted')
+    expect(wakeupAsText(result.response)).toContain('Colony-authored, advisory')
+    expect(wakeupAsText(result.response)).toContain('propose a different first outcome')
+    expect(wakeupAsText(result.response)).toContain('defer with no state change')
+    expect(wakeupAsText(result.response).split('\n').length).toBeLessThanOrEqual(WAKEUP_LINE_BUDGET)
+  })
+
+  it('keeps the existing bounded handoff when a practicum is active', async () => {
+    source.answersIdentity({ profession: 'Software Producer', goal: null })
+    const prepared = {
+      ...source,
+      prepareWorkplace: async () => ({
+        ...ordinaryWorkplace,
+        practicumActive: true,
+        recommendation: {
+          ...ordinaryWorkplace.recommendation,
+          title: 'Understand one user and problem',
+        },
+      }),
+    }
+
+    const result = await wakeup(agentId, {}, prepared, noContributions)
+
+    expect(result.response).not.toHaveProperty('professionPracticum')
+    expect(result.response.workplace?.practicumActive).toBe(true)
+    expect(result.response.workplace?.recommendation?.title).toBe('Understand one user and problem')
+  })
+
+  it.each([
+    ['unset', null],
+    ['blank', '   '],
+    ['novel', 'Interplanetary settlement designer'],
+    ['ambiguous', 'I do a bit of everything'],
+  ])(
+    'preserves the ordinary Workplace response for %s profession text',
+    async (_case, profession) => {
+      source.answersIdentity({ profession, goal: null })
+      const prepared = { ...source, prepareWorkplace: async () => ordinaryWorkplace }
+
+      const result = await wakeup(agentId, {}, prepared, noContributions)
+
+      expect(result.response).not.toHaveProperty('professionPracticum')
+      expect(result.response.workplace).toEqual(ordinaryWorkplace)
+    },
+  )
+
+  it('does not offer a practicum to a candidate without a default board', async () => {
+    source.answersIdentity({ profession: 'Software Producer', goal: null })
+
+    const first = await wakeup(agentId, {}, source, noContributions)
+    const second = await wakeup(agentId, {}, source, noContributions)
+
+    expect(first.response).not.toHaveProperty('professionPracticum')
+    expect(second.response).not.toHaveProperty('professionPracticum')
+  })
+
+  it('repeats deferral without writing or changing the offered choice', async () => {
+    source.answersIdentity({ profession: 'Software Producer', goal: null })
+    let preparations = 0
+    const prepared = {
+      ...source,
+      prepareWorkplace: async () => {
+        preparations += 1
+        return ordinaryWorkplace
+      },
+    }
+
+    const first = await wakeup(agentId, {}, prepared, noContributions)
+    const second = await wakeup(agentId, {}, prepared, noContributions)
+
+    expect(second.response.professionPracticum).toEqual(first.response.professionPracticum)
+    expect(second.response.professionPracticum?.choices.defer).toEqual({ stateChange: false })
+    expect(preparations).toBe(2)
+  })
+})
+
 describe('the Workplace handoff', () => {
   const boardId = WorkplaceBoardIdSchema.parse('11111111-2222-4333-8444-555555555555')
   const cardId = WorkplaceCardIdSchema.parse('66666666-7777-4888-8999-000000000000')
@@ -383,6 +509,7 @@ describe('the Workplace handoff', () => {
         order.push('prepared')
         return {
           boardId,
+          practicumActive: false,
           recommendation: {
             cardId,
             title: 'Live work',

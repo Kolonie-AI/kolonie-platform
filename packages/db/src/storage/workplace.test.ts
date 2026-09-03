@@ -780,6 +780,30 @@ describe('workplace storage', () => {
     expect(listed.items[0]).not.toHaveProperty('description')
   })
 
+  it('reports an ownerless inbox claim as an invalid transition', async () => {
+    const board = await defaultBoard()
+    const created = await createCard(db, {
+      callerId: owner,
+      boardId: board.id,
+      title: 'Not ready',
+      status: 'inbox',
+    })
+    if (created.outcome !== 'created') throw new Error('card missing')
+
+    expect(
+      await claimCard(db, {
+        callerId: owner,
+        cardId: created.card.id,
+        expectedVersion: created.card.version,
+      }),
+    ).toEqual({ outcome: 'invalid-transition' })
+    expect((await getCard(db, owner, created.card.id))?.card).toMatchObject({
+      status: 'inbox',
+      ownerId: null,
+      version: created.card.version,
+    })
+  })
+
   it('claims with one statement: two concurrent claims, exactly one wins', async () => {
     const board = await defaultBoard()
     await addMember(db, { callerId: owner, boardId: board.id, citizenId: member })

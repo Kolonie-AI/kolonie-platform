@@ -9,7 +9,6 @@ import {
   WorkplaceHandoverIdSchema,
   WorkplaceLinkIdSchema,
   canTransitionWorkplace,
-  claimAllowed,
   handoverAllowed,
   mustHaveOwner,
   type AgentId,
@@ -445,10 +444,11 @@ export function fakeWorkplaceCards(): FakeWorkplaceCards {
       if (card === undefined) return { outcome: 'missing' } satisfies ClaimCardResult
       const membership = membershipOf(input.callerId, card.boardId) ?? null
       if (membership === null) return { outcome: 'forbidden' }
-      if (
-        !claimAllowed({ card, caller: input.callerId, membership }) ||
-        card.version !== input.expectedVersion
-      ) {
+      if (card.ownerId !== null) return { outcome: 'conflict' }
+      if (card.status !== 'ready' || card.archivedAt !== null) {
+        return { outcome: 'invalid-transition' }
+      }
+      if (card.version !== input.expectedVersion) {
         return { outcome: 'conflict' }
       }
       const claimed = bump(card, {

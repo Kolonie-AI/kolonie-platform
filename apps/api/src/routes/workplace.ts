@@ -672,6 +672,12 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
       ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
     })
     if (claimed.outcome === 'claimed') return sendCard(reply, actor.origin, claimed.card, 200)
+    if (claimed.outcome === 'invalid-transition') {
+      return finish(reply, actor.origin).status(ERROR_STATUS.workplace_invalid_transition).send({
+        code: 'workplace_invalid_transition',
+        message: 'A card is claimed from ready. Move it to ready first.',
+      })
+    }
     if (claimed.outcome === 'conflict') {
       return finish(reply, actor.origin).status(ERROR_STATUS.workplace_claim_conflict).send({
         code: 'workplace_claim_conflict',

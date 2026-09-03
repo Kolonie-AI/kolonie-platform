@@ -25,7 +25,6 @@ import {
   WorkplaceResolvedLinkSchema,
   PlaybookStatusSchema,
   canTransitionWorkplace,
-  claimAllowed,
   handoverAllowed,
   mustHaveOwner,
   workplaceNextPeriodStart,
@@ -1763,6 +1762,7 @@ export type ClaimCardResult =
   | WorkplaceMissing
   | WorkplaceForbidden
   | WorkplaceConflict
+  | WorkplaceInvalidTransition
 
 export async function claimCard(
   db: Database,
@@ -1849,15 +1849,9 @@ async function claimCardOnce(
       const diagnosed = await diagnoseCardWrite(tx, input.callerId, input.cardId)
       return diagnosed.outcome === 'stale' ? { outcome: 'conflict' } : diagnosed
     }
-    const membership = await membershipOf(tx, input.callerId, visible.boardId)
-    if (
-      !claimAllowed({
-        card: toCard(visible),
-        caller: input.callerId,
-        membership,
-      })
-    ) {
-      return { outcome: 'conflict' }
+    if (visible.ownerId !== null) return { outcome: 'conflict' }
+    if (visible.status !== 'ready' || visible.archivedAt !== null) {
+      return { outcome: 'invalid-transition' }
     }
     return { outcome: 'conflict' }
   })

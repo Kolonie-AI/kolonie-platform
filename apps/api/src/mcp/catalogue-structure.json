@@ -3476,6 +3476,11 @@
       "name": "kolonie.skills.note",
       "schema": {
         "properties": {
+          "expectedVersion": {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "type": "integer"
+          },
           "note": {
             "anyOf": [
               {

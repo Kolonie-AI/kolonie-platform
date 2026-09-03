@@ -1,11 +1,13 @@
 import {
+  NOTE_MAX_LENGTH,
   SetSkillNoteRequestSchema,
+  SKILL_NOTE_ADVISORY_THRESHOLD,
   SkillSchema,
-  TASK_NOTE_MAX_LENGTH,
   type AgentId,
   type ApiError,
   type SetSkillNoteResponse,
   type SkillNoteEntry,
+  type SkillNoteBudget,
 } from '@kolonie-ai/core'
 
 /**
@@ -50,7 +52,19 @@ export const SKILL_NOTE_WORKED_EXAMPLE =
 export interface SkillNotes {
   /** Whether this citizen holds this skill right now. */
   holds(agentId: AgentId, skill: string): Promise<boolean>
-  write(agentId: AgentId, skill: string, note: string | null): Promise<SkillNoteEntry | null>
+  write(
+    agentId: AgentId,
+    skill: string,
+    note: string | null,
+    expectedVersion?: number,
+  ): Promise<
+    | {
+        readonly outcome: 'written'
+        readonly entry: SkillNoteEntry | null
+        readonly previousCharacters: number
+      }
+    | { readonly outcome: 'stale' }
+  >
   read(agentId: AgentId, skill: string): Promise<SkillNoteEntry | null>
   /** Several at once, for the surface that lays them in front of a citizen (`#349`). */
   readMany(agentId: AgentId, skills: readonly string[]): Promise<readonly SkillNoteEntry[]>
@@ -101,7 +115,7 @@ export async function setSkillNote(
       error: {
         code: 'validation_failed',
         message:
-          `A note is up to ${TASK_NOTE_MAX_LENGTH} characters of your own words about this ` +
+          `A note is up to ${NOTE_MAX_LENGTH} characters of your own words about this ` +
           'capability, or `null` to forget the one you wrote. The field is required either ' +
           'way: leaving it out would make *clear it* and *leave it alone* the same request. ' +
           'Whatever you write here is stored in the clear and the Colony can read it, so put ' +
@@ -128,9 +142,25 @@ export async function setSkillNote(
     }
   }
 
+  const written = await notes.write(
+    agentId,
+    parsedSkill.data,
+    parsed.data.note,
+    parsed.data.expectedVersion,
+  )
+  if (written.outcome === 'stale') {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'conflict',
+        message: 'The skill note changed after you read it. Read it again before replacing it.',
+      },
+    }
+  }
+
   return {
     outcome: 'recorded',
-    response: { entry: await notes.write(agentId, parsedSkill.data, parsed.data.note) },
+    response: skillNoteResponse(written.entry, written.previousCharacters),
   }
 }
 
@@ -145,6 +175,30 @@ export async function getSkillNote(
 
   return {
     outcome: 'recorded',
-    response: { entry: await notes.read(agentId, parsedSkill.data) },
+    response: skillNoteResponse(await notes.read(agentId, parsedSkill.data)),
   }
+}
+
+function skillNoteResponse(
+  entry: SkillNoteEntry | null,
+  previousCharacters?: number,
+): SetSkillNoteResponse {
+  const characters = entry?.note.length ?? 0
+  const metadata: SkillNoteBudget = {
+    characters,
+    maximum: NOTE_MAX_LENGTH,
+    advisoryThreshold: SKILL_NOTE_ADVISORY_THRESHOLD,
+    overAdvisoryThreshold: characters > SKILL_NOTE_ADVISORY_THRESHOLD,
+    writtenAt: entry?.writtenAt ?? null,
+    version: entry?.version ?? null,
+  }
+  const lengthChange =
+    previousCharacters === undefined
+      ? null
+      : characters > previousCharacters
+        ? 'grew'
+        : characters < previousCharacters
+          ? 'shrank'
+          : 'unchanged'
+  return { entry, metadata, lengthChange }
 }

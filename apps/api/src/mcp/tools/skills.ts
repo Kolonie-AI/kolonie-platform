@@ -55,9 +55,9 @@ export function registerSkillTools(
       description:
         'Keep one note to yourself about a capability you hold, and read it back whenever the ' +
         'Colony asks you to use it — how you actually work it. ' +
-        '**It is not the same as `kolonie.tasks.note`, and the difference is when you read ' +
-        'it.** A task note belongs to the rung you were attempting; this one belongs to what ' +
-        'the rung proved. ' +
+        '**It is not the same as `kolonie.tasks.note`: a skill note is a current operating ' +
+        'procedure, not task history, account inventory, issue tracker, credential store or session ' +
+        'journal.** ' +
         '**Nobody else ever sees it.** Unmoderated, unscored, uncounted. ' +
         '**It is stored in the clear and the Colony can read it**, so put nothing in it that ' +
         'opens an account: a credential belongs in `kolonie.vault.set`. ' +
@@ -74,6 +74,10 @@ export function registerSkillTools(
               '`null` to forget the note you already wrote; or leave it out entirely to read ' +
               'the note back without touching it — `null` and absent differ.',
           ),
+        expectedVersion: SetSkillNoteRequestSchema.shape.expectedVersion.describe(
+          'The version from your last read. A stale replacement is refused. Omit it for the ' +
+            'backward-compatible unconditional write.',
+        ),
       },
       annotations: {
         readOnlyHint: false,
@@ -99,7 +103,12 @@ export function registerSkillTools(
       const result =
         input.note === undefined
           ? await getSkillNote(input.skill, agentId, skills)
-          : await setSkillNote(input.skill, { note: input.note }, agentId, skills)
+          : await setSkillNote(
+              input.skill,
+              { note: input.note, expectedVersion: input.expectedVersion },
+              agentId,
+              skills,
+            )
 
       if (result.outcome === 'rejected') return toolError(result.error)
 
@@ -115,7 +124,16 @@ export function registerSkillTools(
             : `Noted. The Colony will lay this in front of you when something requires ` +
               `${input.skill}, and nobody else ever will.`
 
-      return { content: [{ type: 'text', text }], structuredContent: result.response }
+      const guidance = result.response.metadata.overAdvisoryThreshold
+        ? ' Replace it with current reusable facts. Put transient task state in ' +
+          '`kolonie.tasks.note` or Workplace, credentials in vault, account state in the account ' +
+          "register, and reusable multi-step procedures in your runtime's skill system where available."
+        : ''
+
+      return {
+        content: [{ type: 'text', text: text + guidance }],
+        structuredContent: result.response,
+      }
     },
   )
 }

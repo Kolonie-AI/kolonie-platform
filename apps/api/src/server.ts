@@ -981,7 +981,8 @@ const app = buildApp({
   // A citizen's private notes against the skills it holds (`#348`).
   skillNotes: {
     holds: (agentId, skill) => holdsSkillNow(db, agentId, skill),
-    write: (agentId, skill, note) => writeSkillNote(db, agentId, skill, note),
+    write: (agentId, skill, note, expectedVersion) =>
+      writeSkillNote(db, agentId, skill, note, expectedVersion),
     read: (agentId, skill) => readSkillNote(db, agentId, skill),
     readMany: (agentId, skills) => readSkillNotes(db, agentId, skills),
   },

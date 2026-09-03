@@ -20,16 +20,20 @@ import { NOTE_MAX_LENGTH } from '../common/note.js'
  */
 export const SkillNoteSchema = z.string().min(1).max(NOTE_MAX_LENGTH)
 
+/** The advisory line leaves room to replace rather than rejecting a valid note. */
+export const SKILL_NOTE_ADVISORY_THRESHOLD = 1500
+
 /**
  * Write, replace or clear the note on one skill.
  *
- * Null clears; an absent field is a validation error, on the rule
- * `SetTaskNoteRequestSchema` states: *forget what I wrote* and *I did not mean
- * to touch it* are different intentions and must not share a shape.
+ * Null clears; the MCP surface leaves this request absent to read without touching.
+ * Forgetting and reading remain different intentions and must not share a shape.
  */
 export const SetSkillNoteRequestSchema = z
   .object({
     note: SkillNoteSchema.nullable(),
+    /** Compare-and-replace guard; omitted preserves unconditional replacement. */
+    expectedVersion: z.int().min(1).optional(),
   })
   .strict()
 export type SetSkillNoteRequest = z.infer<typeof SetSkillNoteRequestSchema>
@@ -40,12 +44,27 @@ export const SkillNoteEntrySchema = z.object({
   note: SkillNoteSchema,
   /** When it was last written. A note that replaces one moves this. */
   writtenAt: TimestampSchema,
+  /** Stable compare-and-replace token, incremented at the persistence boundary. */
+  version: z.int().min(1),
 })
 export type SkillNoteEntry = z.infer<typeof SkillNoteEntrySchema>
+
+export const SkillNoteBudgetSchema = z.object({
+  characters: z.int().min(0).max(NOTE_MAX_LENGTH),
+  maximum: z.literal(NOTE_MAX_LENGTH),
+  advisoryThreshold: z.literal(SKILL_NOTE_ADVISORY_THRESHOLD),
+  overAdvisoryThreshold: z.boolean(),
+  writtenAt: TimestampSchema.nullable(),
+  version: z.int().min(1).nullable(),
+})
+export type SkillNoteBudget = z.infer<typeof SkillNoteBudgetSchema>
 
 export const SetSkillNoteResponseSchema = z.object({
   /** The note as stored, or `null` when the call cleared it. */
   entry: SkillNoteEntrySchema.nullable(),
+  metadata: SkillNoteBudgetSchema,
+  /** Null on reads; writes compare the new body with the body they atomically replaced. */
+  lengthChange: z.enum(['grew', 'shrank', 'unchanged']).nullable(),
 })
 export type SetSkillNoteResponse = z.infer<typeof SetSkillNoteResponseSchema>
 

@@ -85,7 +85,9 @@ describe('a note against a skill', () => {
       'Start it headless or the page hangs.',
     )
 
-    expect(written?.note).toBe('Start it headless or the page hangs.')
+    expect(written.outcome).toBe('written')
+    if (written.outcome !== 'written') throw new Error('write failed')
+    expect(written.entry?.note).toBe('Start it headless or the page hangs.')
     expect((await readSkillNote(db, agentId, 'browser'))?.note).toBe(
       'Start it headless or the page hangs.',
     )
@@ -104,12 +106,61 @@ describe('a note against a skill', () => {
     expect(rows).toHaveLength(1)
   })
 
+  it('replaces exactly one current version and refuses concurrent stale replacements', async () => {
+    const agentId = await anAgent()
+    await grantSkill(agentId, 'browser')
+    const created = await writeSkillNote(db, agentId, 'browser', 'Current procedure.')
+    if (created.outcome !== 'written' || created.entry === null) throw new Error('create failed')
+
+    const [first, second] = await Promise.all([
+      writeSkillNote(db, agentId, 'browser', 'First replacement.', created.entry.version),
+      writeSkillNote(db, agentId, 'browser', 'Second replacement.', created.entry.version),
+    ])
+
+    expect([first.outcome, second.outcome].sort()).toEqual(['stale', 'written'])
+    const current = await readSkillNote(db, agentId, 'browser')
+    expect(current?.version).toBe(created.entry.version + 1)
+    expect(['First replacement.', 'Second replacement.']).toContain(current?.note)
+  })
+
+  it('reports previous character cost for create, grow, shrink and forget', async () => {
+    const agentId = await anAgent()
+    await grantSkill(agentId, 'browser')
+
+    const created = await writeSkillNote(db, agentId, 'browser', 'short')
+    expect(created).toMatchObject({ outcome: 'written', previousCharacters: 0 })
+    if (created.outcome !== 'written' || created.entry === null) throw new Error('create failed')
+
+    const grown = await writeSkillNote(
+      db,
+      agentId,
+      'browser',
+      'a longer procedure',
+      created.entry.version,
+    )
+    expect(grown).toMatchObject({ outcome: 'written', previousCharacters: 5 })
+    if (grown.outcome !== 'written' || grown.entry === null) throw new Error('grow failed')
+
+    const shrunk = await writeSkillNote(db, agentId, 'browser', 'compact', grown.entry.version)
+    expect(shrunk).toMatchObject({ outcome: 'written', previousCharacters: 18 })
+    if (shrunk.outcome !== 'written' || shrunk.entry === null) throw new Error('shrink failed')
+
+    expect(await writeSkillNote(db, agentId, 'browser', null, shrunk.entry.version)).toMatchObject({
+      outcome: 'written',
+      entry: null,
+      previousCharacters: 7,
+    })
+  })
+
   it('forgets it on null, leaving nothing behind', async () => {
     const agentId = await anAgent()
     await grantSkill(agentId, 'browser')
     await writeSkillNote(db, agentId, 'browser', 'Something.')
 
-    expect(await writeSkillNote(db, agentId, 'browser', null)).toBeNull()
+    expect(await writeSkillNote(db, agentId, 'browser', null)).toMatchObject({
+      outcome: 'written',
+      entry: null,
+    })
     expect(await readSkillNote(db, agentId, 'browser')).toBeNull()
     expect(await db.select({ skill: skillNotes.skill }).from(skillNotes)).toEqual([])
   })

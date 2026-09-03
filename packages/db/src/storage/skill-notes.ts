@@ -1,7 +1,7 @@
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import type { AgentId, SkillNoteEntry } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { agentSkills } from '../schema/index.js'
+import { agents, agentSkills } from '../schema/index.js'
 import { skillNotes } from '../schema/skill-notes.js'
 import { toTimestamp } from './rows.js'
 
@@ -41,36 +41,71 @@ export async function holdsSkillNow(
  * can say so — see `apps/api/src/skills.ts` — and putting it here as well would
  * be two places deciding the same thing, which is how they come to disagree.
  */
+export type WriteSkillNoteResult =
+  | {
+      readonly outcome: 'written'
+      readonly entry: SkillNoteEntry | null
+      readonly previousCharacters: number
+    }
+  | { readonly outcome: 'stale' }
+
 export async function writeSkillNote(
   db: Database,
   agentId: AgentId,
   skill: string,
   note: string | null,
-): Promise<SkillNoteEntry | null> {
-  if (note === null) {
-    await db
-      .delete(skillNotes)
+  expectedVersion?: number,
+): Promise<WriteSkillNoteResult> {
+  return db.transaction(async (tx) => {
+    await tx.select({ id: agents.id }).from(agents).where(eq(agents.id, agentId)).for('update')
+
+    const [current] = await tx
+      .select({ note: skillNotes.note, version: skillNotes.version })
+      .from(skillNotes)
       .where(and(eq(skillNotes.agentId, agentId), eq(skillNotes.skill, skill)))
+      .limit(1)
 
-    return null
-  }
+    if (expectedVersion !== undefined && current?.version !== expectedVersion) {
+      return { outcome: 'stale' as const }
+    }
 
-  const [row] = await db
-    .insert(skillNotes)
-    .values({ agentId, skill, note })
-    .onConflictDoUpdate({
-      target: [skillNotes.agentId, skillNotes.skill],
-      set: { note, writtenAt: new Date().toISOString() },
-    })
-    .returning({ note: skillNotes.note, writtenAt: skillNotes.writtenAt })
+    const previousCharacters = current?.note.length ?? 0
+    if (note === null) {
+      await tx
+        .delete(skillNotes)
+        .where(and(eq(skillNotes.agentId, agentId), eq(skillNotes.skill, skill)))
+      return { outcome: 'written' as const, entry: null, previousCharacters }
+    }
 
-  if (row === undefined) throw new Error('skill_notes upsert returned no row')
+    const [row] = await tx
+      .insert(skillNotes)
+      .values({ agentId, skill, note })
+      .onConflictDoUpdate({
+        target: [skillNotes.agentId, skillNotes.skill],
+        set: {
+          note,
+          version: sql`${skillNotes.version} + 1`,
+          writtenAt: sql`now()`,
+        },
+      })
+      .returning({
+        note: skillNotes.note,
+        writtenAt: skillNotes.writtenAt,
+        version: skillNotes.version,
+      })
 
-  return {
-    skill: skill as SkillNoteEntry['skill'],
-    note: row.note,
-    writtenAt: toTimestamp(row.writtenAt),
-  }
+    if (row === undefined) throw new Error('skill_notes upsert returned no row')
+    return {
+      outcome: 'written' as const,
+      entry: {
+        skill: skill as SkillNoteEntry['skill'],
+        note: row.note,
+        writtenAt: toTimestamp(row.writtenAt),
+        version: row.version,
+      },
+      previousCharacters,
+    }
+  })
 }
 
 /** This agent's note on this skill, or `null`. */
@@ -80,7 +115,7 @@ export async function readSkillNote(
   skill: string,
 ): Promise<SkillNoteEntry | null> {
   const [row] = await db
-    .select({ note: skillNotes.note, writtenAt: skillNotes.writtenAt })
+    .select({ note: skillNotes.note, writtenAt: skillNotes.writtenAt, version: skillNotes.version })
     .from(skillNotes)
     .where(and(eq(skillNotes.agentId, agentId), eq(skillNotes.skill, skill)))
     .limit(1)
@@ -91,6 +126,7 @@ export async function readSkillNote(
     skill: skill as SkillNoteEntry['skill'],
     note: row.note,
     writtenAt: toTimestamp(row.writtenAt),
+    version: row.version,
   }
 }
 
@@ -116,6 +152,7 @@ export async function readSkillNotes(
       skill: skillNotes.skill,
       note: skillNotes.note,
       writtenAt: skillNotes.writtenAt,
+      version: skillNotes.version,
     })
     .from(skillNotes)
     .where(and(eq(skillNotes.agentId, agentId), inArray(skillNotes.skill, [...skills])))
@@ -125,5 +162,6 @@ export async function readSkillNotes(
     skill: row.skill as SkillNoteEntry['skill'],
     note: row.note,
     writtenAt: toTimestamp(row.writtenAt),
+    version: row.version,
   }))
 }

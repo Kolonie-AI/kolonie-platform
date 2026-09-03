@@ -239,10 +239,16 @@ class FakeQueue implements SubmissionQueue {
   }
 
   /** Counted for the same reason as `abandonedSweeps` above (`#1439`). */
+  guestVaultHandoffSweeps = 0
   vaultShareSweeps = 0
 
   async destroyExpiredVaultShares(): Promise<number> {
     this.vaultShareSweeps++
+    return 0
+  }
+
+  async destroyExpiredGuestVaultHandoffs(): Promise<number> {
+    this.guestVaultHandoffSweeps++
     return 0
   }
 
@@ -421,6 +427,7 @@ describe('startRunner', () => {
     expect(queue.abandonedSweeps).toBeGreaterThan(0)
     expect(queue.slotSweeps).toBeGreaterThan(0)
     expect(queue.vaultShareSweeps).toBeGreaterThan(0)
+    expect(queue.guestVaultHandoffSweeps).toBeGreaterThan(0)
     expect(queue.contactPrunes).toBeGreaterThan(0)
     expect(queue.iconSweeps).toBeGreaterThan(0)
   })

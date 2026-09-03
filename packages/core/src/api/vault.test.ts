@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { VAULT_KEY_SHAPES, VaultKeySchema, VaultShareNotifyStatusSchema } from './vault.js'
+import {
+  CreateGuestVaultHandoffRequestSchema,
+  GUEST_VAULT_HANDOFF_DEFAULT_MINUTES,
+  GUEST_VAULT_HANDOFF_MAX_MINUTES,
+  GUEST_VAULT_HANDOFF_MIN_MINUTES,
+  GuestVaultHandoffSchema,
+  VAULT_KEY_SHAPES,
+  VaultKeySchema,
+  VaultShareNotifyStatusSchema,
+} from './vault.js'
 
 /**
  * The published convention has to be expressible in the key it describes (#207).
@@ -48,6 +57,74 @@ describe('the published vault key shapes', () => {
   it('refuses an address in a key, so the convention cannot recommend one', () => {
     expect(VaultKeySchema.safeParse('mail.example/citizen@mail.example').success).toBe(false)
   })
+})
+
+describe('portable guest vault handoffs', () => {
+  const request = {
+    key: 'github/octocat',
+    purpose: 'use this machine account credential',
+  }
+
+  it('accepts the default and both minute boundaries', () => {
+    expect(CreateGuestVaultHandoffRequestSchema.parse(request)).toEqual({
+      ...request,
+      minutes: GUEST_VAULT_HANDOFF_DEFAULT_MINUTES,
+    })
+    expect(
+      CreateGuestVaultHandoffRequestSchema.safeParse({
+        ...request,
+        minutes: GUEST_VAULT_HANDOFF_MIN_MINUTES,
+      }).success,
+    ).toBe(true)
+    expect(
+      CreateGuestVaultHandoffRequestSchema.safeParse({
+        ...request,
+        minutes: GUEST_VAULT_HANDOFF_MAX_MINUTES,
+        passphrase: 'a separate phrase',
+      }).success,
+    ).toBe(true)
+  })
+
+  it('rejects an expiry outside the configured bounds and any plaintext value', () => {
+    expect(
+      CreateGuestVaultHandoffRequestSchema.safeParse({
+        ...request,
+        minutes: GUEST_VAULT_HANDOFF_MIN_MINUTES - 1,
+      }).success,
+    ).toBe(false)
+    expect(
+      CreateGuestVaultHandoffRequestSchema.safeParse({
+        ...request,
+        minutes: GUEST_VAULT_HANDOFF_MAX_MINUTES + 1,
+      }).success,
+    ).toBe(false)
+    expect(
+      CreateGuestVaultHandoffRequestSchema.safeParse({ ...request, value: 'must-not-enter' })
+        .success,
+    ).toBe(false)
+  })
+
+  it.each(['active', 'consumed', 'revoked', 'expired'] as const)(
+    'publishes the %s lifecycle state without capability data',
+    (state) => {
+      const handoff = GuestVaultHandoffSchema.parse({
+        id: '11111111-1111-4111-8111-111111111111',
+        key: 'github/octocat',
+        purpose: 'use this machine account credential',
+        state,
+        passphraseRequired: false,
+        createdAt: '2026-09-03T12:00:00.000Z',
+        expiresAt: '2026-09-03T12:15:00.000Z',
+        consumedAt: state === 'consumed' ? '2026-09-03T12:01:00.000Z' : null,
+        revokedAt: state === 'revoked' ? '2026-09-03T12:01:00.000Z' : null,
+      })
+
+      expect(handoff.state).toBe(state)
+      expect(handoff).not.toHaveProperty('token')
+      expect(handoff).not.toHaveProperty('value')
+      expect(handoff).not.toHaveProperty('passphrase')
+    },
+  )
 })
 
 describe('the outcome of telling an operator about a share', () => {

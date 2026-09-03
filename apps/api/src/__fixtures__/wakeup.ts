@@ -9,6 +9,7 @@ import type {
   WakeupStanding,
   WakeupWakeChannel,
   WakeupWantedAccount,
+  WakeupWorkplace,
 } from '@kolonie-ai/core'
 import type { WakeupSource } from '../wakeup.js'
 
@@ -127,6 +128,8 @@ export interface FakeWakeup extends WakeupSource {
   readonly answersPreviousSession: (at: string | null) => void
   /** Current profession and goal, unbounded by the digest window (`#1740`). */
   readonly answersIdentity: (identity: WakeupIdentity) => void
+  /** One bounded Workplace standing for practicum and recommendation tests. */
+  readonly answersWorkplace: (workplace: WakeupWorkplace | undefined) => void
   /** Where the citizen stands, for the section that says so (`#344`). */
   readonly answersStanding: (standing: WakeupStanding) => void
   readonly answersChanges: (changes: Partial<Changes>) => void
@@ -168,6 +171,7 @@ export function fakeWakeup(): FakeWakeup {
   let operatorStanding: OperatorStanding = NO_OPERATOR_STANDING
   let wanted: readonly WakeupWantedAccount[] = []
   let identity: WakeupIdentity = { profession: null, goal: null }
+  let workplace: WakeupWorkplace | undefined
   let standing: WakeupStanding = AT_THE_START
   let walks: readonly { readonly kind: string; readonly provider: string }[] = []
   let walksThrow = false
@@ -182,6 +186,7 @@ export function fakeWakeup(): FakeWakeup {
     operatorStanding: async (_agentId: AgentId) => operatorStanding,
     wantedAccounts: async (_agentId: AgentId) => wanted,
     identity: async (_agentId: AgentId) => identity,
+    prepareWorkplace: async (_agentId: AgentId, _now: string) => workplace,
     standing: async (_agentId: AgentId) => standing,
     walksToAskAbout: async (_agentId: AgentId) => {
       if (walksThrow) throw new Error('the walk store is unhappy')
@@ -214,6 +219,9 @@ export function fakeWakeup(): FakeWakeup {
     },
     answersIdentity: (next) => {
       identity = next
+    },
+    answersWorkplace: (next) => {
+      workplace = next
     },
     answersStanding: (next) => {
       standing = next

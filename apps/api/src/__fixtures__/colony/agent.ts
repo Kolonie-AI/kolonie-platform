@@ -38,7 +38,6 @@ import type { AgentStore } from '../../authentication.js'
 import type { SolanaChallenges } from '../../solana.js'
 import type { FakeVault } from '../vault.js'
 import type { StandingHintSource } from '../../hints.js'
-import type { WakeupSource } from '../../wakeup.js'
 import type { DoctorSource } from '../../doctor.js'
 import type { DiagnosesDesk } from '../../diagnoses.js'
 import type { WalkRefusalDesk } from '../../walk-refusals.js'
@@ -55,7 +54,7 @@ import { fakeConnections, type FakeConnections } from '../connections.js'
 import { fakeMessaging, type FakeMessaging } from '../messaging.js'
 import { fakePlaybooks, type FakePlaybooks } from '../playbooks.js'
 import { fakeStandingHints } from '../hints.js'
-import { fakeWakeup } from '../wakeup.js'
+import { fakeWakeup, type FakeWakeup } from '../wakeup.js'
 
 /**
  * One in-memory Colony behind both seams.
@@ -113,7 +112,7 @@ export interface FakeAgent {
    */
   readonly rotation: CredentialRotation
   readonly expireRotationConfirmation: (token: string) => void
-  readonly wakeup: WakeupSource
+  readonly wakeup: FakeWakeup
   /**
    * What `kolonie.doctor` reads (`#837`).
    *

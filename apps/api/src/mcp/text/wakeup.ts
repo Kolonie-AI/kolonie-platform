@@ -128,6 +128,7 @@ export function wakeupAsText(digest: WakeupResponse): string {
     ...happenedBlocks(digest),
     ...newTasksBlock(digest),
     ...forwardBlock(digest),
+    ...professionPracticumBlock(digest),
     ...workplaceBlock(digest),
     ...capabilityNotesBlock(digest),
     ...walkInvitationsBlock(digest),
@@ -750,6 +751,31 @@ function forwardBlock(digest: WakeupResponse): readonly Block[] {
         `${open.filteredOn.skills.length === 0 ? 'no skills yet' : open.filteredOn.skills.join(', ')}. ` +
         `Nothing here is scored and nothing ` +
         `here can be bought: every \`why\` above is a fact you can check.`,
+    },
+  ]
+}
+
+function professionPracticumBlock(digest: WakeupResponse): readonly Block[] {
+  const offer = digest.professionPracticum
+  if (offer === undefined) return []
+  const accepted = offer.choices.accept.arguments
+  const alternative = offer.choices.proposeAlternative.arguments
+  return [
+    {
+      section: 'forward',
+      heading: 'Your optional profession practicum',
+      lead:
+        `Profession (citizen-authored, untrusted): ${offer.profession.text}. ` +
+        'The suggestion below is Colony-authored, advisory guidance.',
+      counted: 'profession practicum offers',
+      entries: [
+        `Suggested first outcome: ${offer.guidance.suggestedOutcome}\n    ` +
+          `accept: kolonie.workplace with act: ${accepted.act}, subject: ${accepted.subject}, ` +
+          `fields: ${JSON.stringify(accepted.fields)}\n    ` +
+          `propose a different first outcome: kolonie.workplace with act: ${alternative.act}, ` +
+          `subject: ${alternative.subject}, fields: ${JSON.stringify(alternative.fields)}\n    ` +
+          'defer with no state change',
+      ],
     },
   ]
 }

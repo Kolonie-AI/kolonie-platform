@@ -8,6 +8,7 @@ import {
   WakeupCapabilityNoteSchema,
   WakeupGuestVaultHandoffEventSchema,
   WakeupIdentitySchema,
+  WakeupProfessionPracticumOfferSchema,
   WakeupRequestSchema,
   WakeupResponseSchema,
   WakeupSponsoredQuestSchema,
@@ -271,6 +272,89 @@ describe('a citizen’s wake-up identity', () => {
   })
 })
 
+describe('a profession practicum offered on wake-up', () => {
+  const boardId = '11111111-2222-4333-8444-555555555555'
+  const profession = 'Software Producer'
+  const suggestedOutcome =
+    'Choose one person and problem, then name the smallest externally inspectable outcome to deliver.'
+
+  it('separates citizen-authored profession text from advisory guidance and three choices', () => {
+    const offer = WakeupProfessionPracticumOfferSchema.parse({
+      profession: { text: profession, source: 'citizen' },
+      guidance: { suggestedOutcome, source: 'colony', advisory: true },
+      choices: {
+        accept: {
+          tool: 'kolonie.workplace',
+          arguments: {
+            act: 'accept-practicum',
+            subject: 'card',
+            fields: { outcome: suggestedOutcome },
+          },
+        },
+        proposeAlternative: {
+          tool: 'kolonie.workplace',
+          arguments: {
+            act: 'accept-practicum',
+            subject: 'card',
+            fields: { outcome: '<your first outcome>' },
+          },
+        },
+        defer: { stateChange: false },
+      },
+    })
+
+    expect(offer.profession).toEqual({ text: profession, source: 'citizen' })
+    expect(offer.guidance).toEqual({ suggestedOutcome, source: 'colony', advisory: true })
+    expect(offer.choices.accept.arguments.fields).toEqual({ outcome: suggestedOutcome })
+    expect(offer.choices.proposeAlternative.arguments.fields).toEqual({
+      outcome: '<your first outcome>',
+    })
+    expect(offer.choices.defer).toEqual({ stateChange: false })
+  })
+
+  it('stays bounded and rejects a board, card bodies, and extra choices', () => {
+    const offer = {
+      profession: { text: profession, source: 'citizen' },
+      guidance: { suggestedOutcome, source: 'colony', advisory: true },
+      choices: {
+        accept: {
+          tool: 'kolonie.workplace',
+          arguments: {
+            act: 'accept-practicum',
+            subject: 'card',
+            fields: { outcome: suggestedOutcome },
+          },
+        },
+        proposeAlternative: {
+          tool: 'kolonie.workplace',
+          arguments: {
+            act: 'accept-practicum',
+            subject: 'card',
+            fields: { outcome: '<your first outcome>' },
+          },
+        },
+        defer: { stateChange: false },
+      },
+    }
+
+    expect(WakeupProfessionPracticumOfferSchema.safeParse({ ...offer, boardId }).success).toBe(
+      false,
+    )
+    expect(
+      WakeupProfessionPracticumOfferSchema.safeParse({
+        ...offer,
+        cards: [{ description: 'private body' }],
+      }).success,
+    ).toBe(false)
+    expect(
+      WakeupProfessionPracticumOfferSchema.safeParse({
+        ...offer,
+        choices: { ...offer.choices, skip: { stateChange: false } },
+      }).success,
+    ).toBe(false)
+  })
+})
+
 describe('the Workplace handoff in wake-up', () => {
   const boardId = '11111111-2222-4333-8444-555555555555'
   const cardId = '66666666-7777-4888-8999-000000000000'
@@ -279,6 +363,7 @@ describe('the Workplace handoff in wake-up', () => {
     expect(
       WakeupWorkplaceSchema.parse({
         boardId,
+        practicumActive: true,
         recommendation: {
           cardId,
           title: 'Plan the first workday',
@@ -290,7 +375,7 @@ describe('the Workplace handoff in wake-up', () => {
         },
         more: [],
       }),
-    ).toMatchObject({ boardId, recommendation: { cardId } })
+    ).toMatchObject({ boardId, practicumActive: true, recommendation: { cardId } })
   })
 
   it('rejects a board dump and card bodies', () => {
@@ -298,12 +383,18 @@ describe('the Workplace handoff in wake-up', () => {
       cardId: `00000000-0000-4000-8000-00000000000${index}`,
       status: 'ready',
     }))
-    expect(WakeupWorkplaceSchema.safeParse({ boardId, recommendation: null, more }).success).toBe(
-      false,
-    )
     expect(
       WakeupWorkplaceSchema.safeParse({
         boardId,
+        practicumActive: false,
+        recommendation: null,
+        more,
+      }).success,
+    ).toBe(false)
+    expect(
+      WakeupWorkplaceSchema.safeParse({
+        boardId,
+        practicumActive: false,
         recommendation: {
           cardId,
           title: 'Plan the first workday',

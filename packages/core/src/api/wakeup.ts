@@ -25,8 +25,10 @@ import { SubmissionStatusSchema } from '../submission/submission.js'
 import { SupportTicketStatusSchema } from '../support/support.js'
 import { ModerationStatusSchema } from '../guidance/guidance.js'
 import {
+  WORKPLACE_SENTENCE_MAX_LENGTH,
   WORKPLACE_TITLE_MAX_LENGTH,
   WorkplaceLaneSchema,
+  WorkplaceMcpInputSchema,
   WorkplaceWakeupNextSchema,
 } from '../workplace/workplace.js'
 import { WakeDeliveryOutcomeSchema, WakeEventSchema } from '../academy/wake.js'
@@ -596,9 +598,56 @@ export const WakeupIdentitySchema = z.object({
 })
 export type WakeupIdentity = z.infer<typeof WakeupIdentitySchema>
 
+const WakeupPracticumAcceptanceSchema = z
+  .object({
+    tool: z.literal('kolonie.workplace'),
+    arguments: WorkplaceMcpInputSchema.pick({ act: true, subject: true, fields: true }).extend({
+      act: z.literal('accept-practicum'),
+      subject: z.literal('card'),
+      fields: z
+        .object({ outcome: boundedText(WORKPLACE_SENTENCE_MAX_LENGTH).trim().min(1) })
+        .strict(),
+    }),
+  })
+  .strict()
+
+/**
+ * One advisory path from a citizen's self-description into ordinary Workplace work (`#1834`).
+ *
+ * The profession remains the citizen's untrusted text, while the suggested outcome is explicitly
+ * Colony-authored guidance. Acceptance and replacement both use Workplace's existing cycle action;
+ * deferral is represented as the absence of a write rather than another state store.
+ */
+export const WakeupProfessionPracticumOfferSchema = z
+  .object({
+    profession: z
+      .object({
+        text: boundedText(PROFESSION_MAX_LENGTH).trim().min(1),
+        source: z.literal('citizen'),
+      })
+      .strict(),
+    guidance: z
+      .object({
+        suggestedOutcome: boundedText(WORKPLACE_SENTENCE_MAX_LENGTH).trim().min(1),
+        source: z.literal('colony'),
+        advisory: z.literal(true),
+      })
+      .strict(),
+    choices: z
+      .object({
+        accept: WakeupPracticumAcceptanceSchema,
+        proposeAlternative: WakeupPracticumAcceptanceSchema,
+        defer: z.object({ stateChange: z.literal(false) }).strict(),
+      })
+      .strict(),
+  })
+  .strict()
+export type WakeupProfessionPracticumOffer = z.infer<typeof WakeupProfessionPracticumOfferSchema>
+
 export const WakeupWorkplaceSchema = z
   .object({
     boardId: WorkplaceBoardIdSchema,
+    practicumActive: z.boolean(),
     recommendation: z
       .object({
         cardId: WorkplaceCardIdSchema,
@@ -1672,6 +1721,7 @@ export const WakeupResponseSchema = z.object({
     handedBack: 0,
   }),
   workplace: WakeupWorkplaceSchema.optional(),
+  professionPracticum: WakeupProfessionPracticumOfferSchema.optional(),
   /**
    * Standing on this citizen's direct delegations (`#1798`, epic `#1792`).
    *

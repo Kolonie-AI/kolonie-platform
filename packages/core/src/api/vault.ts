@@ -85,6 +85,11 @@ export const VAULT_SHARE_MAX_DAYS = 30
  */
 export const VAULT_SHARE_PURPOSE_MAX_LENGTH = 500
 
+export const GUEST_VAULT_HANDOFF_MIN_MINUTES = 1
+export const GUEST_VAULT_HANDOFF_DEFAULT_MINUTES = 15
+export const GUEST_VAULT_HANDOFF_MAX_MINUTES = 60
+export const GUEST_VAULT_HANDOFF_PASSPHRASE_MAX_LENGTH = 256
+
 /** The citizen's own line beside a share, shown to the operator. */
 export const VaultSharePurposeSchema = z.string().min(1).max(VAULT_SHARE_PURPOSE_MAX_LENGTH)
 
@@ -196,6 +201,39 @@ export const VaultKeySchema = z
       'and any of . _ : - /',
   )
 export type VaultKey = z.infer<typeof VaultKeySchema>
+
+export const GuestVaultHandoffStateSchema = z.enum(['active', 'consumed', 'revoked', 'expired'])
+export type GuestVaultHandoffState = z.infer<typeof GuestVaultHandoffStateSchema>
+
+export const GuestVaultHandoffSchema = z
+  .object({
+    id: z.uuid(),
+    key: VaultKeySchema,
+    purpose: VaultSharePurposeSchema,
+    state: GuestVaultHandoffStateSchema,
+    passphraseRequired: z.boolean(),
+    createdAt: TimestampSchema,
+    expiresAt: TimestampSchema,
+    consumedAt: TimestampSchema.nullable(),
+    revokedAt: TimestampSchema.nullable(),
+  })
+  .strict()
+export type GuestVaultHandoff = z.infer<typeof GuestVaultHandoffSchema>
+
+export const CreateGuestVaultHandoffRequestSchema = z
+  .object({
+    key: VaultKeySchema,
+    purpose: VaultSharePurposeSchema,
+    minutes: z
+      .number()
+      .int()
+      .min(GUEST_VAULT_HANDOFF_MIN_MINUTES)
+      .max(GUEST_VAULT_HANDOFF_MAX_MINUTES)
+      .default(GUEST_VAULT_HANDOFF_DEFAULT_MINUTES),
+    passphrase: z.string().min(1).max(GUEST_VAULT_HANDOFF_PASSPHRASE_MAX_LENGTH).optional(),
+  })
+  .strict()
+export type CreateGuestVaultHandoffRequest = z.infer<typeof CreateGuestVaultHandoffRequestSchema>
 
 /** The secret itself. Opaque to the Colony — it is encrypted before it is stored. */
 export const VaultValueSchema = z.string().min(1).max(VAULT_VALUE_MAX_LENGTH)

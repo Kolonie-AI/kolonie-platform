@@ -1,9 +1,21 @@
 import { and, asc, eq, isNotNull, isNull, lte, or, sql } from 'drizzle-orm'
 import {
+  createHash,
+  randomBytes,
+  randomUUID,
+  scrypt as scryptCallback,
+  timingSafeEqual,
+  type ScryptOptions,
+} from 'node:crypto'
+import { promisify } from 'node:util'
+import {
+  GUEST_VAULT_HANDOFF_MAX_MINUTES,
+  GUEST_VAULT_HANDOFF_MIN_MINUTES,
   now as currentTime,
   VAULT_SHARE_DEFAULT_DAYS,
   VAULT_SHARE_MAX_DAYS,
   type AgentId,
+  type GuestVaultHandoff,
   type HumanId,
   type Timestamp,
 } from '@kolonie-ai/core'
@@ -11,6 +23,7 @@ import type { Database, Transaction } from '../client.js'
 import { humanAgents } from '../schema/human-links.js'
 import { operatorPages } from '../schema/operator-pages.js'
 import { agentVault } from '../schema/vault.js'
+import { guestVaultHandoffs } from '../schema/guest-vault-handoffs.js'
 import { vaultShares } from '../schema/vault-shares.js'
 import { openVaultValue, sealVaultValue, vaultDescriptionScope } from '../vault-crypto.js'
 import { toTimestamp } from './rows.js'
@@ -50,6 +63,60 @@ const shareScope = (key: string): string => `vault-share:${key}`
 
 /** The operator's addition, under its own scope for {@link shareScope}'s reason. */
 const additionScope = (key: string): string => `vault-share:${key}#addition`
+
+const guestScope = (id: string): string => `guest-vault-handoff:${id}`
+const GUEST_TOKEN_BYTES = 32
+const GUEST_MAX_FAILED_ATTEMPTS = 5
+const PASSPHRASE_SALT_BYTES = 16
+const PASSPHRASE_KEY_BYTES = 32
+const PASSPHRASE_SCRYPT_N = 16384
+const PASSPHRASE_SCRYPT_R = 8
+const PASSPHRASE_SCRYPT_P = 1
+const scrypt = promisify(scryptCallback) as (
+  password: string,
+  salt: Buffer,
+  keyLength: number,
+  options: ScryptOptions,
+) => Promise<Buffer>
+
+const hashGuestToken = (token: string): string =>
+  createHash('sha256').update(token, 'utf8').digest('base64url')
+
+async function hashGuestPassphrase(passphrase: string): Promise<string> {
+  const salt = randomBytes(PASSPHRASE_SALT_BYTES)
+  const derived = (await scrypt(passphrase, salt, PASSPHRASE_KEY_BYTES, {
+    N: PASSPHRASE_SCRYPT_N,
+    r: PASSPHRASE_SCRYPT_R,
+    p: PASSPHRASE_SCRYPT_P,
+  })) as Buffer
+  return `scrypt$${PASSPHRASE_SCRYPT_N}$${PASSPHRASE_SCRYPT_R}$${PASSPHRASE_SCRYPT_P}$${salt.toString('base64url')}$${derived.toString('base64url')}`
+}
+
+async function guestPassphraseMatches(passphrase: string, stored: string): Promise<boolean> {
+  const [scheme, n, r, p, salt, expected] = stored.split('$')
+  if (
+    scheme !== 'scrypt' ||
+    n === undefined ||
+    r === undefined ||
+    p === undefined ||
+    salt === undefined ||
+    expected === undefined
+  ) {
+    return false
+  }
+
+  try {
+    const expectedBytes = Buffer.from(expected, 'base64url')
+    const actual = (await scrypt(passphrase, Buffer.from(salt, 'base64url'), expectedBytes.length, {
+      N: Number(n),
+      r: Number(r),
+      p: Number(p),
+    })) as Buffer
+    return actual.length === expectedBytes.length && timingSafeEqual(actual, expectedBytes)
+  } catch {
+    return false
+  }
+}
 
 /** One derived lifecycle event, in the order every operator surface renders it. */
 export interface ShareLifecycleEvent {
@@ -494,6 +561,298 @@ export async function destroyExpiredVaultShares(db: Database): Promise<number> {
     .returning({ id: vaultShares.id })
 
   return destroyed.length
+}
+
+export async function hasActiveGuestVaultHandoffFor(
+  db: Database | Transaction,
+  agentId: AgentId,
+  key: string,
+): Promise<boolean> {
+  const [row] = await db
+    .select({ id: guestVaultHandoffs.id })
+    .from(guestVaultHandoffs)
+    .where(
+      and(
+        eq(guestVaultHandoffs.agentId, agentId),
+        eq(guestVaultHandoffs.vaultKey, key),
+        isNull(guestVaultHandoffs.consumedAt),
+        isNull(guestVaultHandoffs.revokedAt),
+        isNotNull(guestVaultHandoffs.sealedValue),
+        sql`${guestVaultHandoffs.expiresAt} > now()`,
+      ),
+    )
+    .limit(1)
+  return row !== undefined
+}
+
+export type CreateGuestVaultHandoffOutcome =
+  | {
+      readonly outcome: 'created'
+      readonly bearerToken: string
+      readonly handoff: GuestVaultHandoff
+    }
+  | { readonly outcome: 'unknown' | 'spent' | 'unreadable' | 'invalid-expiry' }
+
+export async function createGuestVaultHandoff(
+  db: Database,
+  input: {
+    readonly token: string
+    readonly agentId: AgentId
+    readonly key: string
+    readonly purpose: string
+    readonly minutes: number
+    readonly passphrase?: string | undefined
+    readonly sealingKey: string
+  },
+): Promise<CreateGuestVaultHandoffOutcome> {
+  if (
+    !Number.isInteger(input.minutes) ||
+    input.minutes < GUEST_VAULT_HANDOFF_MIN_MINUTES ||
+    input.minutes > GUEST_VAULT_HANDOFF_MAX_MINUTES
+  ) {
+    return { outcome: 'invalid-expiry' }
+  }
+
+  const [entry] = await db
+    .select({
+      key: agentVault.key,
+      encryptedValue: agentVault.encryptedValue,
+      encryptedDescription: agentVault.encryptedDescription,
+      spentAt: agentVault.spentAt,
+    })
+    .from(agentVault)
+    .where(and(eq(agentVault.agentId, input.agentId), eq(agentVault.key, input.key)))
+    .limit(1)
+
+  if (entry === undefined) return { outcome: 'unknown' }
+  if (entry.spentAt !== null) return { outcome: 'spent' }
+
+  const value = openVaultValue(input.token, String(input.agentId), entry.key, entry.encryptedValue)
+  if (value === null) return { outcome: 'unreadable' }
+  const description =
+    entry.encryptedDescription === null
+      ? null
+      : openVaultValue(
+          input.token,
+          String(input.agentId),
+          vaultDescriptionScope(entry.key),
+          entry.encryptedDescription,
+        )
+
+  const id = randomUUID()
+  const bearerToken = randomBytes(GUEST_TOKEN_BYTES).toString('base64url')
+  const createdAt = currentTime()
+  const expiresAt = new Date(Date.parse(createdAt) + input.minutes * 60_000).toISOString()
+  const [stored] = await db
+    .insert(guestVaultHandoffs)
+    .values({
+      id,
+      agentId: input.agentId,
+      vaultKey: entry.key,
+      purpose: input.purpose,
+      tokenHash: hashGuestToken(bearerToken),
+      sealedValue: sealVaultValue(input.sealingKey, String(input.agentId), guestScope(id), value),
+      sealedDescription:
+        description === null
+          ? null
+          : sealVaultValue(
+              input.sealingKey,
+              String(input.agentId),
+              vaultDescriptionScope(guestScope(id)),
+              description,
+            ),
+      passphraseHash:
+        input.passphrase === undefined ? null : await hashGuestPassphrase(input.passphrase),
+      createdAt,
+      expiresAt,
+    })
+    .returning()
+
+  if (stored === undefined) throw new Error('guest vault handoff insert returned no row')
+  return { outcome: 'created', bearerToken, handoff: guestHandoffRow(stored) }
+}
+
+export type ConsumeGuestVaultHandoffOutcome =
+  | { readonly outcome: 'revealed'; readonly value: string; readonly description: string | null }
+  | { readonly outcome: 'wrong-passphrase' | 'rate-limited' | 'closed' }
+
+export async function consumeGuestVaultHandoff(
+  db: Database,
+  bearerToken: string,
+  passphrase: string | undefined,
+  sealingKey: string,
+  sourceBucket = 'unknown',
+): Promise<ConsumeGuestVaultHandoffOutcome> {
+  if (Buffer.from(bearerToken, 'base64url').length !== GUEST_TOKEN_BYTES) {
+    return { outcome: 'closed' }
+  }
+
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .select()
+      .from(guestVaultHandoffs)
+      .where(eq(guestVaultHandoffs.tokenHash, hashGuestToken(bearerToken)))
+      .for('update')
+      .limit(1)
+
+    if (
+      row === undefined ||
+      row.consumedAt !== null ||
+      row.revokedAt !== null ||
+      row.sealedValue === null ||
+      Date.parse(row.expiresAt) <= Date.now()
+    ) {
+      return { outcome: 'closed' }
+    }
+
+    const sourceHash = hashGuestToken(sourceBucket)
+    const sourceAttempts = row.failedSourceHash === sourceHash ? row.failedAttempts : 0
+    if (sourceAttempts >= GUEST_MAX_FAILED_ATTEMPTS) return { outcome: 'rate-limited' }
+
+    if (row.passphraseHash !== null) {
+      const correct =
+        passphrase !== undefined && (await guestPassphraseMatches(passphrase, row.passphraseHash))
+      if (!correct) {
+        const attempts = sourceAttempts + 1
+        await tx
+          .update(guestVaultHandoffs)
+          .set({ failedAttempts: attempts, failedSourceHash: sourceHash })
+          .where(eq(guestVaultHandoffs.id, row.id))
+        return {
+          outcome: attempts >= GUEST_MAX_FAILED_ATTEMPTS ? 'rate-limited' : 'wrong-passphrase',
+        }
+      }
+    }
+
+    const value = openVaultValue(sealingKey, row.agentId, guestScope(row.id), row.sealedValue)
+    if (value === null) {
+      await tx
+        .update(guestVaultHandoffs)
+        .set({ sealedValue: null, sealedDescription: null })
+        .where(eq(guestVaultHandoffs.id, row.id))
+      return { outcome: 'closed' }
+    }
+    const description =
+      row.sealedDescription === null
+        ? null
+        : openVaultValue(
+            sealingKey,
+            row.agentId,
+            vaultDescriptionScope(guestScope(row.id)),
+            row.sealedDescription,
+          )
+
+    await tx
+      .update(guestVaultHandoffs)
+      .set({ consumedAt: currentTime(), sealedValue: null, sealedDescription: null })
+      .where(eq(guestVaultHandoffs.id, row.id))
+
+    return { outcome: 'revealed', value, description }
+  })
+}
+
+export type InspectGuestVaultHandoffOutcome =
+  | { readonly outcome: 'found'; readonly handoff: GuestVaultHandoff }
+  | { readonly outcome: 'unknown' }
+
+export async function inspectGuestVaultHandoff(
+  db: Database | Transaction,
+  agentId: AgentId,
+  handoffId: string,
+): Promise<InspectGuestVaultHandoffOutcome> {
+  const [row] = await db
+    .select()
+    .from(guestVaultHandoffs)
+    .where(and(eq(guestVaultHandoffs.id, handoffId), eq(guestVaultHandoffs.agentId, agentId)))
+    .limit(1)
+  return row === undefined
+    ? { outcome: 'unknown' }
+    : { outcome: 'found', handoff: guestHandoffRow(row) }
+}
+
+export async function listGuestVaultHandoffs(
+  db: Database | Transaction,
+  agentId: AgentId,
+): Promise<readonly GuestVaultHandoff[]> {
+  const rows = await db
+    .select()
+    .from(guestVaultHandoffs)
+    .where(eq(guestVaultHandoffs.agentId, agentId))
+    .orderBy(asc(guestVaultHandoffs.createdAt), asc(guestVaultHandoffs.id))
+  return rows.map(guestHandoffRow)
+}
+
+export type RevokeGuestVaultHandoffOutcome =
+  | { readonly outcome: 'revoked'; readonly handoff: GuestVaultHandoff }
+  | { readonly outcome: 'terminal'; readonly handoff: GuestVaultHandoff }
+  | { readonly outcome: 'unknown' }
+
+export async function revokeGuestVaultHandoff(
+  db: Database,
+  agentId: AgentId,
+  handoffId: string,
+): Promise<RevokeGuestVaultHandoffOutcome> {
+  const inspected = await inspectGuestVaultHandoff(db, agentId, handoffId)
+  if (inspected.outcome === 'unknown') return inspected
+  if (inspected.handoff.state === 'revoked')
+    return { outcome: 'revoked', handoff: inspected.handoff }
+  if (inspected.handoff.state !== 'active')
+    return { outcome: 'terminal', handoff: inspected.handoff }
+
+  const [row] = await db
+    .update(guestVaultHandoffs)
+    .set({ revokedAt: currentTime(), sealedValue: null, sealedDescription: null })
+    .where(
+      and(
+        eq(guestVaultHandoffs.id, handoffId),
+        eq(guestVaultHandoffs.agentId, agentId),
+        isNull(guestVaultHandoffs.consumedAt),
+        isNull(guestVaultHandoffs.revokedAt),
+      ),
+    )
+    .returning()
+  if (row === undefined) {
+    const raced = await inspectGuestVaultHandoff(db, agentId, handoffId)
+    return raced.outcome === 'unknown' ? raced : { outcome: 'terminal', handoff: raced.handoff }
+  }
+  return { outcome: 'revoked', handoff: guestHandoffRow(row) }
+}
+
+export async function destroyExpiredGuestVaultHandoffs(db: Database): Promise<number> {
+  const rows = await db
+    .update(guestVaultHandoffs)
+    .set({ sealedValue: null, sealedDescription: null })
+    .where(
+      and(
+        isNotNull(guestVaultHandoffs.sealedValue),
+        lte(guestVaultHandoffs.expiresAt, sql`now()`),
+        isNull(guestVaultHandoffs.consumedAt),
+        isNull(guestVaultHandoffs.revokedAt),
+      ),
+    )
+    .returning({ id: guestVaultHandoffs.id })
+  return rows.length
+}
+
+function guestHandoffRow(row: typeof guestVaultHandoffs.$inferSelect): GuestVaultHandoff {
+  return {
+    id: row.id,
+    key: row.vaultKey,
+    purpose: row.purpose,
+    state:
+      row.consumedAt !== null
+        ? 'consumed'
+        : row.revokedAt !== null
+          ? 'revoked'
+          : Date.parse(row.expiresAt) <= Date.now()
+            ? 'expired'
+            : 'active',
+    passphraseRequired: row.passphraseHash !== null,
+    createdAt: toTimestamp(row.createdAt),
+    expiresAt: toTimestamp(row.expiresAt),
+    consumedAt: row.consumedAt === null ? null : toTimestamp(row.consumedAt),
+    revokedAt: row.revokedAt === null ? null : toTimestamp(row.revokedAt),
+  }
 }
 
 function shareRow(row: {

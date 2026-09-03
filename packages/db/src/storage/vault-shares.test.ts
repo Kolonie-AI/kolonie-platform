@@ -8,14 +8,20 @@ import {
 } from '@kolonie-ai/core'
 import { generateApiKey } from '../api-key.js'
 import type { Database } from '../client.js'
-import { vaultShares } from '../schema/index.js'
+import { guestVaultHandoffs, vaultShares } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { sealVaultValue } from '../vault-crypto.js'
 import { registerAgent } from './agents.js'
 import { getVaultEntry, listVaultEntries, setVaultDescription, setVaultEntry } from './vault.js'
 import {
+  consumeGuestVaultHandoff,
+  createGuestVaultHandoff,
+  destroyExpiredGuestVaultHandoffs,
   destroyExpiredVaultShares,
+  inspectGuestVaultHandoff,
+  listGuestVaultHandoffs,
   openShareFor,
+  revokeGuestVaultHandoff,
   shareLifecycleEvents,
   shareVaultEntry,
   unshareVaultEntry,
@@ -320,5 +326,266 @@ describe('sharing a vault entry with an operator', () => {
 
     const rows = await db.select().from(vaultShares).where(eq(vaultShares.agentId, agentId))
     expect(rows).toHaveLength(0)
+  })
+})
+
+describe('portable one-time guest vault handoffs', () => {
+  let db: Database
+  let agentId: AgentId
+  let otherId: AgentId
+  let token: string
+  let otherToken: string
+  const sealingKey = 'a-colony-sealing-key-long-enough-to-be-usable'
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db.$client.end()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+    token = String(generateApiKey())
+    otherToken = String(generateApiKey())
+
+    const owner = await registerAgent(
+      db,
+      RegisterAgentRequestSchema.parse({ name: 'guest-owner', platform: 'openclaw' }),
+    )
+    const other = await registerAgent(
+      db,
+      RegisterAgentRequestSchema.parse({ name: 'guest-other', platform: 'openclaw' }),
+    )
+    if (owner.outcome !== 'registered' || other.outcome !== 'registered') {
+      throw new Error('registration failed')
+    }
+    agentId = owner.agent.id
+    otherId = other.agent.id
+  })
+
+  const create = (over: Partial<Parameters<typeof createGuestVaultHandoff>[1]> = {}) =>
+    createGuestVaultHandoff(db, {
+      token,
+      agentId,
+      key: 'github/octocat',
+      purpose: 'use this machine account credential',
+      minutes: 15,
+      sealingKey,
+      ...over,
+    })
+
+  it('stores a separately sealed copy and only a hash of a high-entropy bearer token', async () => {
+    await setVaultEntry(db, token, agentId, 'github/octocat', 'sentinel-secret', 'machine login')
+
+    const created = await create()
+    expect(created.outcome).toBe('created')
+    if (created.outcome !== 'created') return
+    expect(Buffer.from(created.bearerToken, 'base64url')).toHaveLength(32)
+
+    const [row] = await db.select().from(guestVaultHandoffs)
+    expect(row).toBeDefined()
+    expect(row?.tokenHash).not.toBe(created.bearerToken)
+    expect(JSON.stringify(row)).not.toContain(created.bearerToken)
+    expect(JSON.stringify(row)).not.toContain('sentinel-secret')
+    expect(JSON.stringify(row)).not.toContain('machine login')
+
+    expect(await getVaultEntry(db, token, agentId, 'github/octocat')).toMatchObject({
+      outcome: 'found',
+      value: 'sentinel-secret',
+    })
+    expect((await setVaultEntry(db, token, agentId, 'github/octocat', 'replacement')).outcome).toBe(
+      'stored',
+    )
+  })
+
+  it('keeps each copy immutable when the source vault value is replaced or deleted', async () => {
+    await setVaultEntry(db, token, agentId, 'github/octocat', 'first-secret')
+    const first = await create()
+    if (first.outcome !== 'created') throw new Error(first.outcome)
+
+    await setVaultEntry(db, token, agentId, 'github/octocat', 'second-secret')
+    const second = await create()
+    if (second.outcome !== 'created') throw new Error(second.outcome)
+    await db.execute(
+      sql`delete from agent_vault where agent_id = ${agentId}::uuid and key = 'github/octocat'`,
+    )
+
+    expect(
+      await consumeGuestVaultHandoff(db, first.bearerToken, undefined, sealingKey),
+    ).toMatchObject({ outcome: 'revealed', value: 'first-secret' })
+    expect(
+      await consumeGuestVaultHandoff(db, second.bearerToken, undefined, sealingKey),
+    ).toMatchObject({ outcome: 'revealed', value: 'second-secret' })
+  })
+
+  it('atomically discloses exactly once across concurrent attempts', async () => {
+    await setVaultEntry(db, token, agentId, 'github/octocat', 'sentinel-secret')
+    const created = await create()
+    if (created.outcome !== 'created') throw new Error(created.outcome)
+
+    const attempts = await Promise.all([
+      consumeGuestVaultHandoff(db, created.bearerToken, undefined, sealingKey),
+      consumeGuestVaultHandoff(db, created.bearerToken, undefined, sealingKey),
+    ])
+
+    expect(attempts.filter((attempt) => attempt.outcome === 'revealed')).toHaveLength(1)
+    expect(attempts.filter((attempt) => attempt.outcome === 'closed')).toHaveLength(1)
+    expect(attempts.find((attempt) => attempt.outcome === 'revealed')).toMatchObject({
+      value: 'sentinel-secret',
+    })
+
+    const [row] = await db.select().from(guestVaultHandoffs)
+    expect(row?.sealedValue).toBeNull()
+    expect(row?.sealedDescription).toBeNull()
+    expect(row?.consumedAt).not.toBeNull()
+  })
+
+  it('locks an optional passphrase out by token fingerprint and source bucket', async () => {
+    await setVaultEntry(db, token, agentId, 'github/octocat', 'sentinel-secret')
+    const created = await create({ passphrase: 'separate phrase' })
+    if (created.outcome !== 'created') throw new Error(created.outcome)
+
+    const [stored] = await db.select().from(guestVaultHandoffs)
+    expect(stored?.passphraseHash).toMatch(/^scrypt\$/)
+    expect(stored?.passphraseHash).not.toContain('separate phrase')
+
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+      expect(
+        await consumeGuestVaultHandoff(
+          db,
+          created.bearerToken,
+          'wrong phrase',
+          sealingKey,
+          'source-a',
+        ),
+      ).toMatchObject({ outcome: attempt < 5 ? 'wrong-passphrase' : 'rate-limited' })
+    }
+
+    expect(
+      await consumeGuestVaultHandoff(
+        db,
+        created.bearerToken,
+        'separate phrase',
+        sealingKey,
+        'source-a',
+      ),
+    ).toEqual({ outcome: 'rate-limited' })
+    expect(
+      await consumeGuestVaultHandoff(
+        db,
+        created.bearerToken,
+        'separate phrase',
+        sealingKey,
+        'source-b',
+      ),
+    ).toMatchObject({ outcome: 'revealed', value: 'sentinel-secret' })
+  })
+
+  it('derives terminal state, keeps inspection creator-only, and never reissues capability data', async () => {
+    await setVaultEntry(db, token, agentId, 'github/octocat', 'sentinel-secret')
+    const created = await create()
+    if (created.outcome !== 'created') throw new Error(created.outcome)
+
+    expect(await inspectGuestVaultHandoff(db, agentId, created.handoff.id)).toMatchObject({
+      outcome: 'found',
+      handoff: { state: 'active' },
+    })
+    expect(await inspectGuestVaultHandoff(db, otherId, created.handoff.id)).toEqual({
+      outcome: 'unknown',
+    })
+    expect(JSON.stringify(await listGuestVaultHandoffs(db, agentId))).not.toContain(
+      created.bearerToken,
+    )
+
+    expect(await revokeGuestVaultHandoff(db, agentId, created.handoff.id)).toMatchObject({
+      outcome: 'revoked',
+      handoff: { state: 'revoked' },
+    })
+    expect(await revokeGuestVaultHandoff(db, agentId, created.handoff.id)).toMatchObject({
+      outcome: 'revoked',
+      handoff: { state: 'revoked' },
+    })
+    expect(await revokeGuestVaultHandoff(db, otherId, created.handoff.id)).toEqual({
+      outcome: 'unknown',
+    })
+    expect(await consumeGuestVaultHandoff(db, created.bearerToken, undefined, sealingKey)).toEqual({
+      outcome: 'closed',
+    })
+  })
+
+  it('treats a revoked handoff as the same closed capability as every other terminal state', async () => {
+    await setVaultEntry(db, token, agentId, 'github/octocat', 'sentinel-secret')
+    const created = await create()
+    if (created.outcome !== 'created') throw new Error(created.outcome)
+
+    expect(await revokeGuestVaultHandoff(db, agentId, created.handoff.id)).toMatchObject({
+      outcome: 'revoked',
+    })
+    expect(await consumeGuestVaultHandoff(db, created.bearerToken, undefined, sealingKey)).toEqual({
+      outcome: 'closed',
+    })
+  })
+
+  it('fails closed for malformed, unknown, expired, revoked, and unreadable capability data', async () => {
+    expect(await consumeGuestVaultHandoff(db, 'malformed', undefined, sealingKey)).toEqual({
+      outcome: 'closed',
+    })
+
+    await setVaultEntry(db, token, agentId, 'github/octocat', 'sentinel-secret')
+    const created = await create()
+    if (created.outcome !== 'created') throw new Error(created.outcome)
+
+    await db
+      .update(guestVaultHandoffs)
+      .set({ sealedValue: 'unreadable-envelope' })
+      .where(eq(guestVaultHandoffs.id, created.handoff.id))
+    expect(await consumeGuestVaultHandoff(db, created.bearerToken, undefined, sealingKey)).toEqual({
+      outcome: 'closed',
+    })
+    const [unreadable] = await db
+      .select()
+      .from(guestVaultHandoffs)
+      .where(eq(guestVaultHandoffs.id, created.handoff.id))
+    expect(unreadable?.sealedValue).toBeNull()
+
+    await setVaultEntry(db, token, agentId, 'github/octocat', 'replacement')
+    const expired = await create()
+    if (expired.outcome !== 'created') throw new Error(expired.outcome)
+
+    await db
+      .update(guestVaultHandoffs)
+      .set({
+        createdAt: sql`now() - interval '2 minutes'`,
+        expiresAt: sql`now() - interval '1 minute'`,
+      })
+      .where(eq(guestVaultHandoffs.id, expired.handoff.id))
+
+    expect(await consumeGuestVaultHandoff(db, expired.bearerToken, undefined, sealingKey)).toEqual({
+      outcome: 'closed',
+    })
+    const inspected = await inspectGuestVaultHandoff(db, agentId, expired.handoff.id)
+    expect(inspected.outcome === 'found' && inspected.handoff).toMatchObject({ state: 'expired' })
+    expect(await destroyExpiredGuestVaultHandoffs(db)).toBe(1)
+    expect(await destroyExpiredGuestVaultHandoffs(db)).toBe(0)
+
+    const [row] = await db
+      .select()
+      .from(guestVaultHandoffs)
+      .where(eq(guestVaultHandoffs.id, expired.handoff.id))
+    expect(row?.sealedValue).toBeNull()
+  })
+
+  it('rejects another citizen, spent and unreadable vault entries without writing a handoff', async () => {
+    await setVaultEntry(db, token, agentId, 'github/octocat', 'sentinel-secret')
+    expect((await create({ agentId: otherId, token: otherToken })).outcome).toBe('unknown')
+
+    await db.execute(sql`update agent_vault set spent_at = now() where agent_id = ${agentId}::uuid`)
+    expect((await create()).outcome).toBe('spent')
+    await db.execute(sql`update agent_vault set spent_at = null where agent_id = ${agentId}::uuid`)
+    expect((await create({ token: otherToken })).outcome).toBe('unreadable')
+
+    expect(await db.select().from(guestVaultHandoffs)).toHaveLength(0)
   })
 })

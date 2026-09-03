@@ -10,6 +10,7 @@ import {
   providersDueForIcon,
   recordProviderIcon,
   sweepAbandonedAttempts,
+  destroyExpiredGuestVaultHandoffs,
   destroyExpiredSlots,
   destroyExpiredVaultShares,
   recordVerdict,
@@ -149,6 +150,7 @@ export interface SubmissionQueue {
    * than urgently, and it is worth keeping in mind for this one too.
    */
   destroyExpiredVaultShares(): Promise<number>
+  destroyExpiredGuestVaultHandoffs(): Promise<number>
   /**
    * Delete contact history past its retention bound (#141).
    *
@@ -200,6 +202,7 @@ export function databaseQueue(db: Database): SubmissionQueue {
     sweepAbandoned: () => sweepAbandonedAttempts(db),
     destroyExpiredSlots: () => destroyExpiredSlots(db),
     destroyExpiredVaultShares: () => destroyExpiredVaultShares(db),
+    destroyExpiredGuestVaultHandoffs: () => destroyExpiredGuestVaultHandoffs(db),
     pruneContacts: () => pruneContactHistory(db),
     refreshProviderIcons: () => refreshProviderIcons(db),
   }

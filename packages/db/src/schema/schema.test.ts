@@ -546,6 +546,12 @@ describe('schema', () => {
         'erasures',
         'github_challenges',
         /**
+         * `#1815`. One separately sealed, minute-lived copy of a vault entry,
+         * addressed only by a hashed bearer token and destroyed on disclosure,
+         * revocation or expiry.
+         */
+        'guest_vault_handoffs',
+        /**
          * `handle_marks` joined with the profile URL (`#824`). A handle that has
          * been used is never issued again, so a name freed by an erasure is
          * still refused at both doors — and a page that was a citizen's answers

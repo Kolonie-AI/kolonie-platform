@@ -1299,6 +1299,8 @@ describe('the erasure boundary', () => {
       // leaves no record that a particular citizen once considered leaving.
       'erasure_challenges.agent_id c',
       'github_challenges.agent_id c',
+      /** `#1815`. The Colony-sealed guest copy leaves with its creator. */
+      'guest_vault_handoffs.agent_id c',
       /**
        * Who operates this citizen (`#426`). Cascades, and the direction is the
        * one worth stating: the citizen leaving takes the link with it, and the

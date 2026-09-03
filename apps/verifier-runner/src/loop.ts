@@ -582,6 +582,13 @@ export function startRunner(deps: LoopDependencies, options: RunnerOptions = {})
               destroyed: shares,
             })
 
+          const guestHandoffs = await deps.queue.destroyExpiredGuestVaultHandoffs()
+          if (guestHandoffs > 0)
+            log.info(`destroyed ${guestHandoffs} expired guest vault handoff(s)`, {
+              event: 'vault.guest-handoffs.expired.destroyed',
+              destroyed: guestHandoffs,
+            })
+
           // Same tick, same reason as the line above: nobody is present to do
           // it, and a count that stays at zero is how a broken pruner hides.
           const pruned = await deps.queue.pruneContacts()

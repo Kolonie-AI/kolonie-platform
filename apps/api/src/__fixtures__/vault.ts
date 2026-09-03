@@ -316,7 +316,18 @@ export function fakeVault(): FakeVault {
       }
     },
 
-    createGuestHandoff: async ({ token, agentId, key, purpose, minutes, passphrase }) => {
+    createGuestHandoff: async ({
+      token,
+      agentId,
+      key,
+      purpose,
+      minutes,
+      passphrase,
+      conversationId,
+    }) => {
+      if (conversationId !== undefined && !attachable.has(conversationId)) {
+        return { outcome: 'not-a-participant' as const }
+      }
       const entry = held.get(at(agentId, key))
       if (entry === undefined) return { outcome: 'unknown' as const }
       if (entry.spentAt !== null) return { outcome: 'spent' as const }
@@ -394,6 +405,7 @@ export function fakeVault(): FakeVault {
       }
       return {
         outcome: 'revealed',
+        handoffId: heldHandoff.handoff.id,
         value: heldHandoff.value,
         description: heldHandoff.description,
       }
@@ -418,7 +430,8 @@ export function fakeVault(): FakeVault {
         return { outcome: 'unknown' as const }
       }
       const handoff = heldHandoff.handoff
-      if (handoff.state === 'revoked') return { outcome: 'revoked' as const, handoff }
+      if (handoff.state === 'revoked')
+        return { outcome: 'revoked' as const, changed: false, handoff }
       if (handoff.state !== 'active') return { outcome: 'terminal' as const, handoff }
 
       const revoked: GuestVaultHandoff = {
@@ -427,7 +440,7 @@ export function fakeVault(): FakeVault {
         revokedAt: new Date().toISOString() as GuestVaultHandoff['revokedAt'],
       }
       guestHandoffs.set(handoffId, { ...heldHandoff, handoff: revoked })
-      return { outcome: 'revoked' as const, handoff: revoked }
+      return { outcome: 'revoked' as const, changed: true, handoff: revoked }
     },
 
     hasOperator: async () => linked,

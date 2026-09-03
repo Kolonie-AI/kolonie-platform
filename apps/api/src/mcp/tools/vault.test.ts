@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { anonymousClient, connectedClient, registeredCitizen } from '../../__fixtures__/mcp.js'
+import { recordingLog } from '../../__fixtures__/console.js'
 
 /**
  * The vault over MCP (#98).
@@ -153,9 +154,37 @@ describe('the vault, over MCP', () => {
     await close()
   })
 
-  it('creates, inspects, and revokes a portable guest handoff without returning the secret twice', async () => {
+  it('refuses a linked handoff for a conversation the creator is not in', async () => {
     const { colony, apiKey } = await registeredCitizen()
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    await client.callTool({
+      name: 'kolonie.vault.set',
+      arguments: { key: 'account', value: 'guest-handoff-secret' },
+    })
+    const refused = await client.callTool({
+      name: 'kolonie.vault.handoff.create',
+      arguments: {
+        key: 'account',
+        purpose: 'Give the account to its new custodian.',
+        conversationId: '11111111-1111-4111-8111-111111111111',
+      },
+    })
+
+    expect(refused.isError).toBe(true)
+    expect(JSON.stringify(refused)).toMatch(/conversation/i)
+    expect(JSON.stringify(refused)).not.toContain('guest-handoff-secret')
+    expect(JSON.stringify(refused)).not.toMatch(/\/handoff\//)
+    await close()
+  })
+
+  it('creates, inspects, and revokes a portable guest handoff without returning the secret twice', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const log = recordingLog()
+    const { client, close } = await connectedClient(
+      { ...colony, vault: { ...colony.vault, log } },
+      `Bearer ${apiKey}`,
+    )
 
     await client.callTool({
       name: 'kolonie.vault.set',
@@ -197,7 +226,19 @@ describe('the vault, over MCP', () => {
     })
     expect(revokedAgain.isError).toBeFalsy()
     expect(revokedAgain.structuredContent).toMatchObject({ handoff: { state: 'revoked' } })
-
+    expect(log.lines()).toEqual([
+      {
+        level: 'info',
+        message: 'a guest vault handoff was revoked',
+        fields: {
+          event: 'vault.guest-handoffs.revoked',
+          handoffId,
+        },
+      },
+    ])
+    expect(Object.keys(log.lines()[0]?.fields ?? {}).sort()).toEqual(['event', 'handoffId'])
+    expect(JSON.stringify(log.lines())).not.toContain('secret-for-a-person')
+    expect(JSON.stringify(log.lines())).not.toMatch(/bearer|passphrase|recipient|source/i)
     await close()
   })
 

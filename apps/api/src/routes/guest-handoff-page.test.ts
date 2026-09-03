@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { buildApp } from '../app.js'
+import { recordingLog, type RecordingLog } from '../__fixtures__/console.js'
 import { registeredCitizen } from '../__fixtures__/mcp.js'
 import type { FakeVault } from '../__fixtures__/vault.js'
 import { GUEST_HANDOFF_HEADERS } from '../guest-handoff-page.js'
@@ -12,12 +13,15 @@ const SECRET = 'sentinel-value-not-for-preview'
 let app: FastifyInstance
 let vault: FakeVault
 let token: string
+let createdHandoffId: string
+let log: RecordingLog
 
 beforeEach(async () => {
+  log = recordingLog()
   const registered = await registeredCitizen()
   const { colony, agent, apiKey } = registered
-  vault = colony.vault.vault
   const agentId = agent.id
+  vault = colony.vault.vault
   await vault.set(String(apiKey), agentId, 'service/account', SECRET, 'machine account')
   const created = await vault.createGuestHandoff?.({
     token: String(apiKey),
@@ -29,7 +33,8 @@ beforeEach(async () => {
   })
   if (created === undefined || created.outcome !== 'created') throw new Error('fixture failed')
   token = created.bearerToken
-  app = buildApp({ ...colony, websiteUrl: SITE })
+  createdHandoffId = created.handoff.id
+  app = buildApp({ ...colony, websiteUrl: SITE, log })
   await app.ready()
 })
 
@@ -126,6 +131,20 @@ describe('the public guest handoff page', () => {
     expect((await ask('GET')).statusCode).toBe(404)
     expect((await ask('HEAD')).statusCode).toBe(404)
     expect((await ask('POST', token, { headers, payload })).body).not.toContain(SECRET)
+    expect(log.lines()).toEqual([
+      {
+        level: 'info',
+        message: 'a guest vault handoff was consumed',
+        fields: {
+          event: 'vault.guest-handoffs.consumed',
+          handoffId: createdHandoffId,
+        },
+      },
+    ])
+    expect(JSON.stringify(log.lines())).not.toContain(token)
+    expect(JSON.stringify(log.lines())).not.toContain(SECRET)
+    expect(JSON.stringify(log.lines())).not.toContain('separate phrase')
+    expect(Object.keys(log.lines()[0]?.fields ?? {}).sort()).toEqual(['event', 'handoffId'])
   })
 
   it('re-renders a wrong passphrase without putting it in a URL or consuming', async () => {

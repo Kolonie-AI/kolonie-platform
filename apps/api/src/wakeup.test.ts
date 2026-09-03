@@ -123,6 +123,39 @@ describe('the wake-up digest', () => {
     }
   })
 
+  it('reports terminal guest handoffs without capability or recipient data', async () => {
+    const handoffId = randomUUID()
+    source.answersChanges({
+      guestVaultHandoffEvents: [
+        {
+          handoffId,
+          vaultKey: 'credential/machine',
+          purpose: 'deliver the machine credential',
+          state: 'consumed',
+          at: '2026-09-03T10:00:00.000Z',
+        },
+      ],
+    })
+
+    const result = await wakeup(agentId, {}, source, noContributions)
+    const text = wakeupAsText(result.response)
+
+    expect(wakeupIsQuiet(result.response)).toBe(false)
+    expect(text).toContain('guest vault handoff: credential/machine — consumed')
+    expect(text).toContain(handoffId)
+    expect(text).toContain('kolonie.vault.handoff.list')
+    expect(JSON.stringify(result.response.guestVaultHandoffEvents)).not.toMatch(
+      /bearer|token|passphrase|recipient|ip/i,
+    )
+  })
+
+  it('stays quiet when no guest handoff became terminal', async () => {
+    const result = await wakeup(agentId, {}, source, noContributions)
+
+    expect(result.response.guestVaultHandoffEvents).toEqual([])
+    expect(wakeupIsQuiet(result.response)).toBe(true)
+  })
+
   /**
    * A completed recovery reaches the citizen it happened to (`#1684`).
    *

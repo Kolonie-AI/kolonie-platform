@@ -15,19 +15,68 @@ import {
   VAULT_SHARE_DEFAULT_DAYS,
   VAULT_SHARE_MAX_DAYS,
   type AgentId,
+  type ConversationId,
   type GuestVaultHandoff,
   type HumanId,
   type Timestamp,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
-import { agents } from '../schema/agents.js'
+import {
+  agents,
+  agentVault,
+  guestVaultHandoffs,
+  messageParticipants,
+  messages,
+  vaultShares,
+} from '../schema/index.js'
 import { humanAgents } from '../schema/human-links.js'
 import { operatorPages } from '../schema/operator-pages.js'
-import { agentVault } from '../schema/vault.js'
-import { guestVaultHandoffs } from '../schema/guest-vault-handoffs.js'
-import { vaultShares } from '../schema/vault-shares.js'
 import { openVaultValue, sealVaultValue, vaultDescriptionScope } from '../vault-crypto.js'
 import { toTimestamp } from './rows.js'
+
+async function annotateGuestHandoffConversation(
+  tx: Transaction,
+  agentId: AgentId,
+  conversationId: ConversationId,
+  handoffId: string,
+): Promise<void> {
+  const [participant] = await tx
+    .select({ id: messageParticipants.id })
+    .from(messageParticipants)
+    .where(
+      and(
+        eq(messageParticipants.conversationId, conversationId),
+        eq(messageParticipants.agentId, agentId),
+      ),
+    )
+    .limit(1)
+  if (participant === undefined) return
+
+  const [system] = await tx
+    .insert(messageParticipants)
+    .values({
+      conversationId,
+      party: 'system-role',
+      systemRole: 'security',
+      label: 'security',
+    })
+    .onConflictDoUpdate({
+      target: [messageParticipants.conversationId, messageParticipants.systemRole],
+      targetWhere: sql`${messageParticipants.systemRole} is not null`,
+      set: { label: 'security' },
+    })
+    .returning({ id: messageParticipants.id })
+  if (system === undefined) throw new Error('guest handoff annotation participant returned no row')
+
+  await tx.insert(messages).values({
+    conversationId,
+    senderParticipantId: system.id,
+    senderParty: 'system-role',
+    senderLabel: 'security',
+    senderSystemRole: 'security',
+    body: `Guest vault handoff ${handoffId} was consumed.`,
+  })
+}
 
 /**
  * Sharing one vault entry with the citizen's operator (`#1439`).
@@ -595,10 +644,12 @@ export async function hasActiveGuestVaultHandoffFor(
 export type CreateGuestVaultHandoffOutcome =
   | {
       readonly outcome: 'created'
-      readonly bearerToken: string
       readonly handoff: GuestVaultHandoff
+      readonly bearerToken: string
     }
-  | { readonly outcome: 'unknown' | 'spent' | 'unreadable' | 'invalid-expiry' }
+  | {
+      readonly outcome: 'unknown' | 'spent' | 'unreadable' | 'invalid-expiry' | 'not-a-participant'
+    }
 
 export async function createGuestVaultHandoff(
   db: Database,
@@ -609,6 +660,7 @@ export async function createGuestVaultHandoff(
     readonly purpose: string
     readonly minutes: number
     readonly passphrase?: string | undefined
+    readonly conversationId?: string | undefined
     readonly sealingKey: string
   },
 ): Promise<CreateGuestVaultHandoffOutcome> {
@@ -634,6 +686,20 @@ export async function createGuestVaultHandoff(
   if (entry === undefined) return { outcome: 'unknown' }
   if (entry.spentAt !== null) return { outcome: 'spent' }
 
+  if (input.conversationId !== undefined) {
+    const [participant] = await db
+      .select({ id: messageParticipants.id })
+      .from(messageParticipants)
+      .where(
+        and(
+          eq(messageParticipants.conversationId, input.conversationId),
+          eq(messageParticipants.agentId, input.agentId),
+        ),
+      )
+      .limit(1)
+    if (participant === undefined) return { outcome: 'not-a-participant' }
+  }
+
   const value = openVaultValue(input.token, String(input.agentId), entry.key, entry.encryptedValue)
   if (value === null) return { outcome: 'unreadable' }
   const description =
@@ -657,6 +723,7 @@ export async function createGuestVaultHandoff(
       agentId: input.agentId,
       vaultKey: entry.key,
       purpose: input.purpose,
+      conversationId: input.conversationId ?? null,
       tokenHash: hashGuestToken(bearerToken),
       sealedValue: sealVaultValue(input.sealingKey, String(input.agentId), guestScope(id), value),
       sealedDescription:
@@ -729,7 +796,12 @@ export async function previewGuestVaultHandoff(
 }
 
 export type ConsumeGuestVaultHandoffOutcome =
-  | { readonly outcome: 'revealed'; readonly value: string; readonly description: string | null }
+  | {
+      readonly outcome: 'revealed'
+      readonly handoffId: string
+      readonly value: string
+      readonly description: string | null
+    }
   | { readonly outcome: 'wrong-passphrase' | 'rate-limited' | 'closed' }
 
 export async function consumeGuestVaultHandoff(
@@ -803,7 +875,16 @@ export async function consumeGuestVaultHandoff(
       .set({ consumedAt: currentTime(), sealedValue: null, sealedDescription: null })
       .where(eq(guestVaultHandoffs.id, row.id))
 
-    return { outcome: 'revealed', value, description }
+    if (row.conversationId !== null) {
+      await annotateGuestHandoffConversation(
+        tx,
+        row.agentId as AgentId,
+        row.conversationId as ConversationId,
+        row.id,
+      )
+    }
+
+    return { outcome: 'revealed', handoffId: row.id, value, description }
   })
 }
 
@@ -839,7 +920,7 @@ export async function listGuestVaultHandoffs(
 }
 
 export type RevokeGuestVaultHandoffOutcome =
-  | { readonly outcome: 'revoked'; readonly handoff: GuestVaultHandoff }
+  | { readonly outcome: 'revoked'; readonly changed: boolean; readonly handoff: GuestVaultHandoff }
   | { readonly outcome: 'terminal'; readonly handoff: GuestVaultHandoff }
   | { readonly outcome: 'unknown' }
 
@@ -851,7 +932,7 @@ export async function revokeGuestVaultHandoff(
   const inspected = await inspectGuestVaultHandoff(db, agentId, handoffId)
   if (inspected.outcome === 'unknown') return inspected
   if (inspected.handoff.state === 'revoked')
-    return { outcome: 'revoked', handoff: inspected.handoff }
+    return { outcome: 'revoked', changed: false, handoff: inspected.handoff }
   if (inspected.handoff.state !== 'active')
     return { outcome: 'terminal', handoff: inspected.handoff }
 
@@ -871,7 +952,7 @@ export async function revokeGuestVaultHandoff(
     const raced = await inspectGuestVaultHandoff(db, agentId, handoffId)
     return raced.outcome === 'unknown' ? raced : { outcome: 'terminal', handoff: raced.handoff }
   }
-  return { outcome: 'revoked', handoff: guestHandoffRow(row) }
+  return { outcome: 'revoked', changed: true, handoff: guestHandoffRow(row) }
 }
 
 export async function destroyExpiredGuestVaultHandoffs(db: Database): Promise<number> {

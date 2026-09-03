@@ -30,6 +30,7 @@ import {
   WorkplaceWakeupNextSchema,
 } from '../workplace/workplace.js'
 import { WakeDeliveryOutcomeSchema, WakeEventSchema } from '../academy/wake.js'
+import { GuestVaultHandoffStateSchema, VaultKeySchema, VaultSharePurposeSchema } from './vault.js'
 
 /**
  * A pushed skill-note preview is small enough to orient a waking without replacing the
@@ -934,6 +935,18 @@ export const WakeupOfferOutcomeSchema = z.object({
 })
 export type WakeupOfferOutcome = z.infer<typeof WakeupOfferOutcomeSchema>
 
+/** A terminal portable vault handoff event visible only to its creator (`#1818`). */
+export const WakeupGuestVaultHandoffEventSchema = z
+  .object({
+    handoffId: z.uuid(),
+    vaultKey: VaultKeySchema,
+    purpose: VaultSharePurposeSchema,
+    state: GuestVaultHandoffStateSchema.exclude(['active']),
+    at: TimestampSchema,
+  })
+  .strict()
+export type WakeupGuestVaultHandoffEvent = z.infer<typeof WakeupGuestVaultHandoffEventSchema>
+
 /**
  * A rung this citizen holds whose requirements changed underneath it (`#209`).
  *
@@ -1251,6 +1264,8 @@ export const WakeupResponseSchema = z.object({
    * carries it and one that does not, the way `sponsoredQuests` does.
    */
   offerOutcomes: z.array(WakeupOfferOutcomeSchema).default([]),
+  /** Terminal portable vault handoffs inside this window, with capability data excluded (`#1818`). */
+  guestVaultHandoffEvents: z.array(WakeupGuestVaultHandoffEventSchema).default([]),
   /** State changes on quests this citizen sponsored, and nobody else's (`#756`). */
   sponsoredQuests: z.array(WakeupSponsoredQuestSchema).default([]),
   tasksAdded: z.array(WakeupTaskSchema),
@@ -1719,6 +1734,7 @@ export function wakeupIsQuiet(digest: WakeupResponse): boolean {
     // Not part of {@link wakeupHasUrgentDelta} — nothing is owed and no call
     // clears it.
     digest.offerOutcomes.length === 0 &&
+    digest.guestVaultHandoffEvents.length === 0 &&
     digest.sponsoredQuests.length === 0 &&
     digest.tasksAdded.length === 0 &&
     digest.tasksRetired.length === 0 &&

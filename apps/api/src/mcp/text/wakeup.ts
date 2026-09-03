@@ -435,6 +435,11 @@ function happenedBlocks(digest: WakeupResponse): readonly Block[] {
         'whether anybody holds that handle; an offer ignored and an offer to nobody end alike.'
       )
     }),
+    ...digest.guestVaultHandoffEvents.map(
+      (event) =>
+        `guest vault handoff: ${event.vaultKey} — ${event.state} at ${event.at}` +
+        `\n    ${event.purpose}; handoffId ${event.handoffId}. Inspect with kolonie.vault.handoff.list.`,
+    ),
     ...digest.submissionVerdicts.map(
       (verdict) =>
         `verdict: task ${verdict.taskId} — ${verdict.status}` +

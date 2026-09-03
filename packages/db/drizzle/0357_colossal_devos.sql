@@ -1,0 +1,2 @@
+ALTER TABLE "guest_vault_handoffs" ADD COLUMN "conversation_id" uuid;--> statement-breakpoint
+ALTER TABLE "guest_vault_handoffs" ADD CONSTRAINT "guest_vault_handoffs_conversation_id_message_conversations_id_fk" FOREIGN KEY ("conversation_id") REFERENCES "public"."message_conversations"("id") ON DELETE set null ON UPDATE no action;

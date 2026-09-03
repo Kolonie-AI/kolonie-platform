@@ -1,5 +1,5 @@
 {
-  "measuredAt": "2026-09-02",
+  "measuredAt": "2026-09-03",
   "command": "npm run catalogue-structure",
   "tools": [
     {
@@ -4002,6 +4002,61 @@
           }
         },
         "required": ["key"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.vault.handoff.create",
+      "schema": {
+        "properties": {
+          "key": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:\\-/]*$",
+            "type": "string"
+          },
+          "minutes": {
+            "maximum": 60,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "passphrase": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "purpose": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": ["key", "purpose"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.vault.handoff.list",
+      "schema": {
+        "properties": {
+          "handoffId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.vault.handoff.revoke",
+      "schema": {
+        "properties": {
+          "handoffId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": ["handoffId"],
         "type": "object"
       }
     },

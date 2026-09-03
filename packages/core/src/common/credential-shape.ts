@@ -401,12 +401,15 @@ const UNLABELLED_PATTERNS: readonly (readonly [CredentialFindingReason, RegExp])
  * The labelled case is tried **last**, because it is the one that can be wrong
  * and the unlabelled ones name a more specific finding when both would fire.
  */
+const GUEST_HANDOFF_URL = /https:\/\/kolonie\.ai\/handoff\/[A-Za-z0-9_-]+/g
+
 export function credentialFinding(text: string): CredentialFinding | null {
+  const inspected = text.replace(GUEST_HANDOFF_URL, 'guest-handoff-url')
   for (const [reason, pattern] of UNLABELLED_PATTERNS) {
-    if (pattern.test(text)) return { reason, matched: reason }
+    if (pattern.test(inspected)) return { reason, matched: reason }
   }
 
-  const labelled = LABELLED_SECRET.exec(text)
+  const labelled = LABELLED_SECRET.exec(inspected)
   if (labelled !== null && looksLikeAValue(labelled[1]!, labelled[2]!, labelled[3] ?? '')) {
     return { reason: 'labelled-secret', matched: labelled[1]! }
   }

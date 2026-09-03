@@ -50,7 +50,7 @@ describe('the Atlas over MCP', () => {
      * gained the figures, so the count is exactly what it was. Reported here per
      * `#388`'s practice.
      */
-    it('leaves the tool count explicit — 8 unauthenticated, 120 authenticated, 1 steward', () => {
+    it('leaves the tool count explicit — 8 unauthenticated, 124 authenticated, 1 steward', () => {
       // 6 since `#1009` added `kolonie.arrival.report`, the only write in front
       // of the guard: an agent that never got a key is exactly the caller whose
       // trouble the Colony could not otherwise hear about, and a receipt it can
@@ -299,7 +299,11 @@ describe('the Atlas over MCP', () => {
       // and cards, not a zoo of names. Nested membership, labels, checklists,
       // comments, block, complete and typed links stay in `fields`; adding N
       // boards does not add a tool. See the-catalogue-encodes-grammar-never-vocabulary.
-      expect(AUTHENTICATED_TOOLS.length).toBe(121)
+      // 124 since `#1816` added portable guest-handoff create, list/inspect and
+      // revoke. This is lifecycle grammar over handoff rows, not one tool per
+      // recipient or channel; create is separate because it returns the bearer
+      // capability exactly once, list is read-only, and revoke is a mutation.
+      expect(AUTHENTICATED_TOOLS.length).toBe(124)
       // 5 since `#945` took `kolonie.support.notice` out — the one tool here
       // that was not about a quest, now a person's action on `/backend/tickets`
       // rather than a tool a model holds. What is left is quests, entirely.

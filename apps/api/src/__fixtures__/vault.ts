@@ -3,6 +3,7 @@ import {
   VAULT_SHARE_DEFAULT_DAYS,
   VAULT_SHARE_MAX_DAYS,
   type AgentId,
+  type GuestVaultHandoff,
 } from '@kolonie-ai/core'
 import type {
   GetVaultEntryOutcome,
@@ -106,6 +107,7 @@ interface Shared {
 export function fakeVault(): FakeVault {
   const held = new Map<string, Held>()
   const shares = new Map<string, Shared>()
+  const guestHandoffs = new Map<string, { agentId: AgentId; handoff: GuestVaultHandoff }>()
   const attachable = new Set<string>()
   let linked = true
   const at = (agentId: AgentId | string, key: string) => `${String(agentId)}\0${key}`
@@ -301,6 +303,62 @@ export function fakeVault(): FakeVault {
         reads: open.reads,
         handedBackByOperator: open.handedBackByOperator,
       }
+    },
+
+    createGuestHandoff: async ({ token, agentId, key, purpose, minutes, passphrase }) => {
+      const entry = held.get(at(agentId, key))
+      if (entry === undefined) return { outcome: 'unknown' as const }
+      if (entry.spentAt !== null) return { outcome: 'spent' as const }
+      if (entry.token !== token) return { outcome: 'unreadable' as const }
+
+      const createdAt = new Date().toISOString()
+      const id = crypto.randomUUID()
+      const handoff: GuestVaultHandoff = {
+        id,
+        key,
+        purpose,
+        state: 'active',
+        passphraseRequired: passphrase !== undefined,
+        createdAt: createdAt as GuestVaultHandoff['createdAt'],
+        expiresAt: new Date(
+          Date.now() + minutes * 60_000,
+        ).toISOString() as GuestVaultHandoff['expiresAt'],
+        consumedAt: null,
+        revokedAt: null,
+      }
+      guestHandoffs.set(id, { agentId, handoff })
+      return { outcome: 'created' as const, bearerToken: `guest-${id}`, handoff }
+    },
+
+    inspectGuestHandoff: async (agentId, handoffId) => {
+      const heldHandoff = guestHandoffs.get(handoffId)
+      if (heldHandoff === undefined || heldHandoff.agentId !== agentId) {
+        return { outcome: 'unknown' as const }
+      }
+      return { outcome: 'found' as const, handoff: heldHandoff.handoff }
+    },
+
+    listGuestHandoffs: async (agentId) =>
+      [...guestHandoffs.values()]
+        .filter((heldHandoff) => heldHandoff.agentId === agentId)
+        .map((heldHandoff) => heldHandoff.handoff),
+
+    revokeGuestHandoff: async (agentId, handoffId) => {
+      const heldHandoff = guestHandoffs.get(handoffId)
+      if (heldHandoff === undefined || heldHandoff.agentId !== agentId) {
+        return { outcome: 'unknown' as const }
+      }
+      const handoff = heldHandoff.handoff
+      if (handoff.state === 'revoked') return { outcome: 'revoked' as const, handoff }
+      if (handoff.state !== 'active') return { outcome: 'terminal' as const, handoff }
+
+      const revoked: GuestVaultHandoff = {
+        ...handoff,
+        state: 'revoked',
+        revokedAt: new Date().toISOString() as GuestVaultHandoff['revokedAt'],
+      }
+      guestHandoffs.set(handoffId, { agentId, handoff: revoked })
+      return { outcome: 'revoked' as const, handoff: revoked }
     },
 
     hasOperator: async () => linked,

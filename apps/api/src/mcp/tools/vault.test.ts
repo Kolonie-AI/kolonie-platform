@@ -153,6 +153,89 @@ describe('the vault, over MCP', () => {
     await close()
   })
 
+  it('creates, inspects, and revokes a portable guest handoff without returning the secret twice', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    await client.callTool({
+      name: 'kolonie.vault.set',
+      arguments: { key: 'account', value: 'guest-handoff-secret' },
+    })
+    const created = await client.callTool({
+      name: 'kolonie.vault.handoff.create',
+      arguments: { key: 'account', purpose: 'Give the account to its new custodian.' },
+    })
+
+    expect(created.isError).toBeFalsy()
+    expect(created.structuredContent).toMatchObject({
+      handoff: { key: 'account', state: 'active' },
+      url: expect.stringMatching(/^https:\/\/kolonie\.ai\/handoff\//),
+    })
+    expect(JSON.stringify(created)).not.toContain('guest-handoff-secret')
+    expect(JSON.stringify(created.content)).toMatch(/opening.*does not consume/i)
+    expect(JSON.stringify(created.content)).toMatch(/reveal.*consumes/i)
+
+    const handoffId = (created.structuredContent as { handoff: { id: string } }).handoff.id
+    const listed = await client.callTool({
+      name: 'kolonie.vault.handoff.list',
+      arguments: { handoffId },
+    })
+    expect(listed.structuredContent).toMatchObject({
+      handoffs: [{ id: handoffId, state: 'active' }],
+    })
+    expect(JSON.stringify(listed)).not.toContain('guest-handoff-secret')
+    expect(JSON.stringify(listed)).not.toContain('/handoff/')
+
+    const revoked = await client.callTool({
+      name: 'kolonie.vault.handoff.revoke',
+      arguments: { handoffId },
+    })
+    expect(revoked.structuredContent).toMatchObject({ handoff: { state: 'revoked' } })
+    const revokedAgain = await client.callTool({
+      name: 'kolonie.vault.handoff.revoke',
+      arguments: { handoffId },
+    })
+    expect(revokedAgain.isError).toBeFalsy()
+    expect(revokedAgain.structuredContent).toMatchObject({ handoff: { state: 'revoked' } })
+
+    await close()
+  })
+
+  it('keeps guest handoff inspection and revocation creator-only', async () => {
+    const owner = await registeredCitizen({ name: 'owner' })
+    const ownerClient = await connectedClient(owner.colony, `Bearer ${owner.apiKey}`)
+    await ownerClient.client.callTool({
+      name: 'kolonie.vault.set',
+      arguments: { key: 'account', value: 'guest-handoff-secret' },
+    })
+    const created = await ownerClient.client.callTool({
+      name: 'kolonie.vault.handoff.create',
+      arguments: { key: 'account', purpose: 'Give the account to its new custodian.' },
+    })
+    const handoffId = (created.structuredContent as { handoff: { id: string } }).handoff.id
+
+    const registered = await owner.colony.registry.register(
+      { name: 'stranger', platform: 'openclaw' },
+      { ip: '198.51.100.41' },
+    )
+    if (registered.outcome !== 'registered') throw new Error('fixture failed to register')
+    const stranger = await connectedClient(
+      owner.colony,
+      `Bearer ${registered.response.credentials.apiKey}`,
+    )
+
+    for (const name of ['kolonie.vault.handoff.list', 'kolonie.vault.handoff.revoke']) {
+      const refused = await stranger.client.callTool({ name, arguments: { handoffId } })
+      expect(refused.isError, name).toBe(true)
+      expect((refused.structuredContent as { error: { code: string } }).error.code, name).toBe(
+        'not_found',
+      )
+    }
+
+    await stranger.close()
+    await ownerClient.close()
+  })
+
   it('says whether the operator was notified without returning the value', async () => {
     const { colony, apiKey } = await registeredCitizen()
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
@@ -343,7 +426,23 @@ describe('vault teaching behind _meta (#1693)', () => {
     expect(description('kolonie.vault.unshare')).toMatch(/handed to you here, once/i)
     expect(description('kolonie.vault.unshare')).not.toContain('already expired still works')
 
-    for (const name of ['set', 'get', 'list', 'describe', 'delete', 'share', 'unshare']) {
+    expect(description('kolonie.vault.handoff.create')).toMatch(/portable.*one-time link/i)
+    expect(description('kolonie.vault.handoff.create')).toMatch(/never the value/i)
+    expect(description('kolonie.vault.handoff.list')).toMatch(/never.*url/i)
+    expect(description('kolonie.vault.handoff.revoke')).toMatch(/creator/i)
+
+    for (const name of [
+      'set',
+      'get',
+      'list',
+      'describe',
+      'delete',
+      'share',
+      'unshare',
+      'handoff.create',
+      'handoff.list',
+      'handoff.revoke',
+    ]) {
       expect(tool(`kolonie.vault.${name}`)?._meta, name).toBeDefined()
     }
   })

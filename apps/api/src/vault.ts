@@ -1,10 +1,16 @@
 import type { z } from 'zod'
 import {
+  CreateGuestVaultHandoffRequestSchema,
   SetVaultDescriptionRequestSchema,
   SetVaultEntryRequestSchema,
   ConversationIdSchema,
   ShareVaultEntryRequestSchema,
   VaultKeySchema,
+  GUEST_VAULT_HANDOFF_DEFAULT_MINUTES,
+  GUEST_VAULT_HANDOFF_MAX_MINUTES,
+  type CreateGuestVaultHandoffResponse,
+  type ListGuestVaultHandoffsResponse,
+  type RevokeGuestVaultHandoffResponse,
   VAULT_MAX_ENTRIES,
   VAULT_SHARE_DEFAULT_DAYS,
   VAULT_SHARE_MAX_DAYS,
@@ -25,16 +31,23 @@ import {
 } from '@kolonie-ai/core'
 import {
   attachShareToConversation,
+  createGuestVaultHandoff as createGuestVaultHandoffInDatabase,
   deleteVaultEntry,
   getVaultEntry,
+  inspectGuestVaultHandoff as inspectGuestVaultHandoffInDatabase,
+  listGuestVaultHandoffs as listGuestVaultHandoffsInDatabase,
   listVaultEntries,
   operatorOf,
+  revokeGuestVaultHandoff as revokeGuestVaultHandoffInDatabase,
   setVaultDescription,
   setVaultEntry,
   shareVaultEntry as shareVaultEntryInDatabase,
   unshareVaultEntry as unshareVaultEntryInDatabase,
   type Database,
+  type CreateGuestVaultHandoffOutcome,
   type GetVaultEntryOutcome,
+  type InspectGuestVaultHandoffOutcome,
+  type RevokeGuestVaultHandoffOutcome,
   type SetVaultDescriptionOutcome,
   type SetVaultEntryOutcome,
   type ShareVaultEntryOutcome,
@@ -118,6 +131,22 @@ export interface VaultStore {
     | undefined
   /** End a share and hand back what the operator wrote, once. */
   unshare?: ((agentId: AgentId, key: string) => Promise<UnshareVaultEntryOutcome>) | undefined
+  createGuestHandoff?:
+    | ((input: {
+        readonly token: string
+        readonly agentId: AgentId
+        readonly key: string
+        readonly purpose: string
+        readonly minutes: number
+        readonly passphrase?: string | undefined
+      }) => Promise<CreateGuestVaultHandoffOutcome>)
+    | undefined
+  inspectGuestHandoff?:
+    ((agentId: AgentId, handoffId: string) => Promise<InspectGuestVaultHandoffOutcome>) | undefined
+  listGuestHandoffs?:
+    ((agentId: AgentId) => ReturnType<typeof listGuestVaultHandoffsInDatabase>) | undefined
+  revokeGuestHandoff?:
+    ((agentId: AgentId, handoffId: string) => Promise<RevokeGuestVaultHandoffOutcome>) | undefined
   /**
    * Whether anybody could ever read what this citizen shares (`#918`, `#1439`).
    *
@@ -158,6 +187,13 @@ export function databaseVault(db: Database, sealingKey?: string | undefined): Va
       : {
           share: (input) => shareVaultEntryInDatabase(db, { ...input, sealingKey }),
           unshare: (agentId, key) => unshareVaultEntryInDatabase(db, agentId, key, sealingKey),
+          createGuestHandoff: (input) =>
+            createGuestVaultHandoffInDatabase(db, { ...input, sealingKey }),
+          inspectGuestHandoff: (agentId, handoffId) =>
+            inspectGuestVaultHandoffInDatabase(db, agentId, handoffId),
+          listGuestHandoffs: (agentId) => listGuestVaultHandoffsInDatabase(db, agentId),
+          revokeGuestHandoff: (agentId, handoffId) =>
+            revokeGuestVaultHandoffInDatabase(db, agentId, handoffId),
           attach: (agentId, conversation, shareId) =>
             attachShareToConversation(
               db,
@@ -341,6 +377,134 @@ const NO_SEALING_KEY: ApiError = {
     'This Colony has no sealing key configured, so it cannot carry a secret to a person at all. ' +
     'Nothing is wrong with your request and there is nothing you can do about it — ' +
     'kolonie.support.open reaches somebody who can configure it.',
+}
+
+export async function createGuestVaultHandoff(
+  token: string,
+  agentId: AgentId,
+  body: unknown,
+  deps: VaultDependencies,
+  publicOrigin: string,
+): Promise<VaultOutcome<CreateGuestVaultHandoffResponse>> {
+  const create = deps.vault.createGuestHandoff
+  if (create === undefined) return { outcome: 'rejected', error: NO_SEALING_KEY }
+
+  const parsed = CreateGuestVaultHandoffRequestSchema.safeParse(body)
+  if (!parsed.success) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message:
+          'Name the vault key and purpose, with an optional minute expiry and passphrase. ' +
+          `Omitted minutes means ${GUEST_VAULT_HANDOFF_DEFAULT_MINUTES}; the maximum is ` +
+          `${GUEST_VAULT_HANDOFF_MAX_MINUTES}. There is no field for the value.`,
+        details: fieldErrors(parsed.error),
+      },
+    }
+  }
+
+  const created = await create({ token, agentId, ...parsed.data })
+  if (created.outcome === 'unknown') {
+    return {
+      outcome: 'rejected',
+      error: { code: 'not_found', message: `You have nothing stored under "${parsed.data.key}".` },
+    }
+  }
+  if (created.outcome === 'spent') {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'conflict',
+        message: `The credential stored under "${parsed.data.key}" was transferred.`,
+        details: { reason: VAULT_SPENT },
+      },
+    }
+  }
+  if (created.outcome === 'unreadable') {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'conflict',
+        message: `The entry under "${parsed.data.key}" was sealed with another API key.`,
+        details: { reason: VAULT_SEALED_WITH_ANOTHER_KEY },
+      },
+    }
+  }
+  if (created.outcome === 'invalid-expiry') {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message: `Expiry must be between 1 and ${GUEST_VAULT_HANDOFF_MAX_MINUTES} minutes.`,
+      },
+    }
+  }
+  if (created.outcome !== 'created') {
+    return { outcome: 'rejected', error: NO_SEALING_KEY }
+  }
+
+  return {
+    outcome: 'ok',
+    response: {
+      handoff: created.handoff,
+      url: `${publicOrigin.replace(/\/+$/, '')}/handoff/${created.bearerToken}`,
+    },
+  }
+}
+
+export async function listGuestVaultHandoffs(
+  agentId: AgentId,
+  handoffId: string | undefined,
+  deps: VaultDependencies,
+): Promise<VaultOutcome<ListGuestVaultHandoffsResponse>> {
+  if (deps.vault.listGuestHandoffs === undefined || deps.vault.inspectGuestHandoff === undefined) {
+    return { outcome: 'rejected', error: NO_SEALING_KEY }
+  }
+
+  if (handoffId === undefined) {
+    return {
+      outcome: 'ok',
+      response: { handoffs: [...(await deps.vault.listGuestHandoffs(agentId))] },
+    }
+  }
+
+  const inspected = await deps.vault.inspectGuestHandoff(agentId, handoffId)
+  if (inspected.outcome === 'unknown') {
+    return {
+      outcome: 'rejected',
+      error: { code: 'not_found', message: 'No guest handoff of yours has that id.' },
+    }
+  }
+  return { outcome: 'ok', response: { handoffs: [inspected.handoff] } }
+}
+
+export async function revokeGuestVaultHandoff(
+  agentId: AgentId,
+  handoffId: string,
+  deps: VaultDependencies,
+): Promise<VaultOutcome<RevokeGuestVaultHandoffResponse>> {
+  const revoke = deps.vault.revokeGuestHandoff
+  if (revoke === undefined) return { outcome: 'rejected', error: NO_SEALING_KEY }
+
+  const revoked = await revoke(agentId, handoffId)
+  if (revoked.outcome === 'unknown') {
+    return {
+      outcome: 'rejected',
+      error: { code: 'not_found', message: 'No guest handoff of yours has that id.' },
+    }
+  }
+  if (revoked.outcome === 'terminal') {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'conflict',
+        message: `That guest handoff is already ${revoked.handoff.state}.`,
+        details: { reason: 'terminal_guest_handoff', state: revoked.handoff.state },
+      },
+    }
+  }
+  return { outcome: 'ok', response: { handoff: revoked.handoff } }
 }
 
 /**

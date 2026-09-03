@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { GOAL_MAX_LENGTH, PROFESSION_MAX_LENGTH } from '../agent/agent.js'
 import { SESSION_ID_MAX_LENGTH } from '../agent/session.js'
+import { WorkplaceBoardIdSchema } from '../common/ids.js'
 import {
   SKILL_NOTE_PREVIEW_MAX_LENGTH,
   SKILL_NOTES_PREVIEW_TOTAL_MAX_LENGTH,
@@ -269,6 +270,60 @@ describe('a citizen’s wake-up identity', () => {
       accountsWanted: [],
     })
     expect(parsed.identity).toEqual({ profession: null, goal: null })
+  })
+})
+
+describe('a terminal profession practicum retrospective', () => {
+  const boardId = WorkplaceBoardIdSchema.parse('11111111-2222-4333-8444-555555555555')
+
+  it('carries the terminal result and exactly four bounded choices without evidence prose', () => {
+    const retrospective = {
+      cycleId: 'practicum:123e4567-e89b-42d3-a456-426614174000',
+      result: 'shipped' as const,
+      choices: {
+        startRevised: {
+          tool: 'kolonie.workplace' as const,
+          arguments: {
+            act: 'accept-practicum' as const,
+            subject: 'card' as const,
+            fields: { outcome: '<your revised outcome>' },
+          },
+        },
+        replaceOutcome: {
+          tool: 'kolonie.workplace' as const,
+          arguments: {
+            act: 'accept-practicum' as const,
+            subject: 'card' as const,
+            fields: { outcome: '<a different outcome>' },
+          },
+        },
+        defer: {
+          tool: 'kolonie.workplace' as const,
+          arguments: {
+            act: 'defer-practicum' as const,
+            subject: 'card' as const,
+            id: '123e4567-e89b-42d3-a456-426614174000',
+          },
+        },
+        end: {
+          tool: 'kolonie.workplace' as const,
+          arguments: {
+            act: 'end-practicum' as const,
+            subject: 'card' as const,
+            id: '123e4567-e89b-42d3-a456-426614174000',
+          },
+        },
+      },
+    }
+    expect(
+      WakeupWorkplaceSchema.parse({
+        boardId,
+        practicumActive: false,
+        practicumRetrospective: retrospective,
+        recommendation: null,
+        more: [],
+      }).practicumRetrospective,
+    ).toEqual(retrospective)
   })
 })
 

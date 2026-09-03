@@ -160,7 +160,7 @@ describe('kolonie.workplace (#1761)', () => {
       expect(TOOL_DOCS[TOOL]).toContain('act × subject')
     })
 
-    it('publishes the grammar, not the nested Trello fields, and stays under 900 bytes', async () => {
+    it('publishes the grammar, not the nested Trello fields, and stays under 950 bytes', async () => {
       const { colony, apiKey } = await registeredCitizen()
       const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
       const tool = (await client.listTools()).tools.find((candidate) => candidate.name === TOOL)
@@ -173,7 +173,7 @@ describe('kolonie.workplace (#1761)', () => {
         inputSchema: tool?.inputSchema,
         _meta: tool?._meta,
       })
-      expect(Buffer.byteLength(published, 'utf8')).toBeLessThanOrEqual(900)
+      expect(Buffer.byteLength(published, 'utf8')).toBeLessThanOrEqual(950)
       expect(JSON.stringify(tool?.inputSchema)).not.toContain('blockedBy')
       expect(JSON.stringify(tool?.inputSchema)).not.toContain('toCitizenId')
       expect(JSON.stringify(tool?.inputSchema)).not.toContain('evidenceLinks')
@@ -231,6 +231,60 @@ describe('kolonie.workplace (#1761)', () => {
       expect(started.cycle.cards.every((card) => card.seedKey?.startsWith(started.cycle.id))).toBe(
         true,
       )
+    })
+
+    it('closes a practicum with evidence and returns exactly one retrospective', async () => {
+      const { colony, agent, apiKey } = await registeredCitizen()
+      colony.standing(agent.id, { status: 'citizen' })
+      plantOwned(colony, agent.id, { title: 'Default', kind: 'default' })
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+      const accepted = await client.callTool(
+        workplace({
+          act: 'accept-practicum',
+          subject: 'card',
+          fields: { outcome: 'Deliver one runnable status page to a support team.' },
+        }),
+      )
+      const cycle = structuredOf<{ cycle: { id: string } }>(accepted).cycle
+
+      const result = await client.callTool(
+        workplace({
+          act: 'close-practicum',
+          subject: 'card',
+          id: cycle.id,
+          fields: {
+            result: 'shipped',
+            evidence: { kind: 'url', ref: 'https://example.invalid/status-page' },
+            feedback: 'Asked the support lead to open it.',
+          },
+        }),
+      )
+
+      expect(result.isError).not.toBe(true)
+      const closed = structuredOf<{
+        retrospective: { result: string; choices: Record<string, unknown> }
+      }>(result)
+      expect(closed.retrospective.result).toBe('shipped')
+      expect(Object.keys(closed.retrospective.choices)).toEqual([
+        'startRevised',
+        'replaceOutcome',
+        'defer',
+        'end',
+      ])
+
+      const deferred = await client.callTool(
+        workplace({
+          act: 'defer-practicum',
+          subject: 'card',
+          id: cycle.id,
+        }),
+      )
+      expect(deferred.isError).not.toBe(true)
+      expect(structuredOf<{ outcome: string; choice: string }>(deferred)).toEqual({
+        outcome: 'resolved',
+        choice: 'deferred',
+      })
+      await close()
     })
 
     it('refuses practicum acceptance by a candidate', async () => {

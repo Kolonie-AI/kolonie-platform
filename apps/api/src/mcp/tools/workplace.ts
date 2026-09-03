@@ -8,6 +8,7 @@ import {
   WorkplaceAddMemberRequestSchema,
   WorkplaceBlockCardRequestSchema,
   WorkplaceCompleteCardRequestSchema,
+  WorkplaceClosePracticumRequestSchema,
   WorkplaceCreateBoardRequestSchema,
   WorkplaceCreateCardRequestSchema,
   WorkplaceCreateChecklistItemRequestSchema,
@@ -60,7 +61,19 @@ const CHOICE_TIME =
 
 const ALLOWED: Readonly<Record<WorkplaceSubject, readonly WorkplaceAct[]>> = {
   board: ['list', 'get', 'create', 'update', 'archive'],
-  card: ['list', 'get', 'create', 'accept-practicum', 'update', 'claim', 'handover', 'archive'],
+  card: [
+    'list',
+    'get',
+    'create',
+    'accept-practicum',
+    'close-practicum',
+    'defer-practicum',
+    'end-practicum',
+    'update',
+    'claim',
+    'handover',
+    'archive',
+  ],
 }
 
 type NextOp = {
@@ -687,6 +700,55 @@ async function dispatchCard(
       cycle: started.cycle,
       next: nextForCard(first),
     })
+  }
+
+  if (act === 'close-practicum') {
+    const parsed = WorkplaceClosePracticumRequestSchema.safeParse(fieldsOf(input))
+    if (!parsed.success) {
+      return parsedFail('Practicum completion requires terminal evidence.', parsed.error)
+    }
+    if (input.id === undefined) {
+      return toolError({
+        code: 'validation_failed',
+        message: 'Practicum completion requires its cycle id.',
+        details: { id: 'required' },
+      })
+    }
+    const closed = await cards.closePracticum({
+      callerId,
+      cycleId: input.id,
+      close: parsed.data,
+    })
+    if (closed.outcome === 'unknown-cycle') {
+      return toolError({ code: 'not_found', message: 'No practicum cycle matches that id.' })
+    }
+    return ok(`Closed practicum ${input.id}.`, {
+      retrospective: closed.retrospective,
+    })
+  }
+
+  if (act === 'defer-practicum' || act === 'end-practicum') {
+    if (input.id === undefined) {
+      return toolError({
+        code: 'validation_failed',
+        message: 'The retrospective choice requires its cycle id.',
+        details: { id: 'required' },
+      })
+    }
+    const resolved = await cards.resolvePracticum({
+      callerId,
+      cycleId: input.id,
+      choice: act === 'defer-practicum' ? 'deferred' : 'ended',
+    })
+    if (resolved.outcome === 'unknown-cycle') {
+      return toolError({ code: 'not_found', message: 'No terminal practicum matches that id.' })
+    }
+    return ok(
+      act === 'defer-practicum'
+        ? 'Deferred this practicum retrospective; no successor was created.'
+        : 'Ended this practicum loop; no successor was created.',
+      resolved,
+    )
   }
 
   if (act === 'list') {

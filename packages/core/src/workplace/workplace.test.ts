@@ -32,6 +32,10 @@ import {
   WorkplaceCardPageSchema,
   WorkplaceAcceptPracticumRequestSchema,
   WorkplacePracticumCycleSchema,
+  WORKPLACE_PRACTICUM_EVENTS,
+  WorkplaceClosePracticumRequestSchema,
+  WorkplacePracticumRetrospectiveSchema,
+  WorkplacePracticumEventSchema,
   WorkplaceCreateCardRequestSchema,
   WorkplaceUpdateCardRequestSchema,
   WorkplaceMoveCardRequestSchema,
@@ -761,6 +765,21 @@ describe('card HTTP envelopes (#1760)', () => {
     ).toBe(false)
   })
 
+  it('accepts close-practicum in the bounded Workplace grammar', () => {
+    expect(
+      WorkplaceMcpInputSchema.parse({
+        act: 'close-practicum',
+        subject: 'card',
+        id: '123e4567-e89b-42d3-a456-426614174000',
+        fields: {
+          result: 'shipped',
+          evidence: { kind: 'url', ref: 'https://example.invalid/status-page' },
+          feedback: 'Asked one maintainer to open it.',
+        },
+      }).act,
+    ).toBe('close-practicum')
+  })
+
   it('keeps a practicum acceptance to one outcome and rejects blank or extra fields', () => {
     expect(WorkplaceAcceptPracticumRequestSchema.safeParse({ outcome: '   ' }).success).toBe(false)
     expect(
@@ -769,6 +788,188 @@ describe('card HTTP envelopes (#1760)', () => {
         profession: 'Software Producer',
       }).success,
     ).toBe(false)
+  })
+
+  describe('closing a practicum cycle on evidence', () => {
+    const shipped = {
+      result: 'shipped' as const,
+      evidence: { kind: 'url' as const, ref: 'https://example.invalid/status-page' },
+      feedback: 'Asked the support lead to try it and report one problem.',
+    }
+    const failed = {
+      result: 'failed_experiment' as const,
+      attempted: 'Built the smallest status page against the public health endpoint.',
+      observed: 'The provider refused the account, so nothing could be published.',
+      nextChoice: 'Try the same outcome with a static page on the next cycle.',
+    }
+
+    it('accepts a shipped close carrying an inspectable reference and a feedback record', () => {
+      expect(WorkplaceClosePracticumRequestSchema.parse(shipped)).toEqual(shipped)
+    })
+
+    it('accepts a failed experiment carrying what was attempted, observed, and chosen next', () => {
+      expect(WorkplaceClosePracticumRequestSchema.parse(failed)).toEqual(failed)
+    })
+
+    /**
+     * The rejection cases `#1836` names. Prose alone is not delivery, and a
+     * shipped claim with no reader is not feedback.
+     */
+    it('refuses a shipped close with no evidence, no feedback, or documentation prose instead', () => {
+      expect(
+        WorkplaceClosePracticumRequestSchema.safeParse({
+          result: 'shipped',
+          feedback: shipped.feedback,
+        }).success,
+      ).toBe(false)
+      expect(
+        WorkplaceClosePracticumRequestSchema.safeParse({
+          result: 'shipped',
+          evidence: shipped.evidence,
+        }).success,
+      ).toBe(false)
+      expect(
+        WorkplaceClosePracticumRequestSchema.safeParse({
+          result: 'shipped',
+          evidence: { kind: 'note', ref: 'documented progress in the card' },
+          feedback: shipped.feedback,
+        }).success,
+      ).toBe(false)
+    })
+
+    it('refuses a failed experiment that records no attempt, observation, or next choice', () => {
+      expect(
+        WorkplaceClosePracticumRequestSchema.safeParse({
+          result: 'failed_experiment',
+          attempted: failed.attempted,
+          nextChoice: failed.nextChoice,
+        }).success,
+      ).toBe(false)
+      expect(
+        WorkplaceClosePracticumRequestSchema.safeParse({
+          result: 'failed_experiment',
+          observed: failed.observed,
+          nextChoice: failed.nextChoice,
+        }).success,
+      ).toBe(false)
+      expect(
+        WorkplaceClosePracticumRequestSchema.safeParse({
+          result: 'failed_experiment',
+          attempted: failed.attempted,
+          observed: failed.observed,
+        }).success,
+      ).toBe(false)
+    })
+
+    it('refuses a credential-shaped reference and a private-looking evidence body', () => {
+      expect(
+        WorkplaceClosePracticumRequestSchema.safeParse({
+          ...shipped,
+          evidence: {
+            kind: 'url',
+            ref: 'https://example.invalid/s?token=ghp_0123456789abcdefghijklmnopqrstuvwxyzAB',
+          },
+        }).success,
+      ).toBe(false)
+      expect(
+        WorkplaceClosePracticumRequestSchema.safeParse({
+          ...shipped,
+          feedback: 'The password is hunter2-hunter2-hunter2-hunter2',
+        }).success,
+      ).toBe(false)
+    })
+
+    it('offers exactly four retrospective choices, none of which starts anything by itself', () => {
+      const retrospective = WorkplacePracticumRetrospectiveSchema.parse({
+        cycleId: 'practicum:123e4567-e89b-42d3-a456-426614174000',
+        result: 'shipped',
+        choices: {
+          startRevised: {
+            tool: 'kolonie.workplace',
+            arguments: {
+              act: 'accept-practicum',
+              subject: 'card',
+              fields: { outcome: '<your revised outcome>' },
+            },
+          },
+          replaceOutcome: {
+            tool: 'kolonie.workplace',
+            arguments: {
+              act: 'accept-practicum',
+              subject: 'card',
+              fields: { outcome: '<a different outcome>' },
+            },
+          },
+          defer: {
+            tool: 'kolonie.workplace',
+            arguments: {
+              act: 'defer-practicum',
+              subject: 'card',
+              id: '123e4567-e89b-42d3-a456-426614174000',
+            },
+          },
+          end: {
+            tool: 'kolonie.workplace',
+            arguments: {
+              act: 'end-practicum',
+              subject: 'card',
+              id: '123e4567-e89b-42d3-a456-426614174000',
+            },
+          },
+        },
+      })
+
+      expect(Object.keys(retrospective.choices)).toEqual([
+        'startRevised',
+        'replaceOutcome',
+        'defer',
+        'end',
+      ])
+      expect(retrospective.choices.defer.arguments.act).toBe('defer-practicum')
+      expect(retrospective.choices.end.arguments.act).toBe('end-practicum')
+      expect(
+        WorkplacePracticumRetrospectiveSchema.safeParse({
+          ...retrospective,
+          choices: { ...retrospective.choices, retry: { stateChange: false } },
+        }).success,
+      ).toBe(false)
+    })
+
+    /**
+     * The metric row `#1836` asks for: counts and slugs, and nothing a citizen
+     * wrote. A shape that could carry prose is one that eventually does.
+     */
+    it('names each countable practicum event and refuses any citizen-authored content on one', () => {
+      expect(WORKPLACE_PRACTICUM_EVENTS).toEqual([
+        'offered',
+        'accepted',
+        'deferred',
+        'shipped',
+        'failed_experiment',
+        'replaced',
+        'ended',
+        'documentation_only_update',
+      ])
+
+      const event = WorkplacePracticumEventSchema.parse({
+        event: 'shipped',
+        at: '2026-09-03T10:00:00.000Z',
+      })
+      expect(event).toEqual({ event: 'shipped', at: '2026-09-03T10:00:00.000Z' })
+
+      for (const leak of [
+        { profession: 'Software Producer' },
+        { outcome: 'Deliver one status page.' },
+        { evidence: 'https://example.invalid/status-page' },
+        { agentId: '11111111-2222-4333-8444-555555555555' },
+        { cycleId: 'practicum:123e4567-e89b-42d3-a456-426614174000' },
+      ]) {
+        expect(
+          WorkplacePracticumEventSchema.safeParse({ ...event, ...leak }).success,
+          JSON.stringify(leak),
+        ).toBe(false)
+      }
+    })
   })
 
   it('creates in inbox or ready only', () => {

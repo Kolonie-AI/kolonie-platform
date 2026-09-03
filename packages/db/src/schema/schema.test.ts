@@ -1211,6 +1211,8 @@ describe('schema', () => {
         'workplace_handovers',
         'workplace_idempotency',
         'workplace_labels',
+        /** Aggregate practicum event slugs and instants; no citizen or prose (`#1836`). */
+        'workplace_practicum_events',
         'workplace_recurrence_occurrences',
         'workplace_recurrence_rules',
       ])

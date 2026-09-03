@@ -80,6 +80,7 @@ function professionPracticumOffer(
     profession.length === 0 ||
     workplace === undefined ||
     workplace.practicumActive ||
+    workplace.practicumRetrospective !== undefined ||
     !PRACTICUM_PROFESSIONS.has(profession.toLocaleLowerCase('en'))
   ) {
     return undefined
@@ -1032,7 +1033,9 @@ export async function wakeup(
 
   const capabilityNoteProjection = await capabilityNotesFor(agentId, escalated, notes)
   const practicumOffer = professionPracticumOffer(identity, workplace)
-  const finalActionableNow = actionableNow || practicumOffer !== undefined
+  const practicumRetrospective = workplace?.practicumRetrospective
+  const finalActionableNow =
+    actionableNow || practicumOffer !== undefined || practicumRetrospective !== undefined
 
   return {
     response: {

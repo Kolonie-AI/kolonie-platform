@@ -35,11 +35,14 @@ import {
   listMembers,
   materialiseDue,
   startProfessionPracticum,
+  closeProfessionPracticum,
+  practicumEventCounts,
   moveCard,
   removeLink,
   removeMember,
   renameBoard,
   requestReview,
+  resolveProfessionPracticum,
   updateCard,
   workplaceWakeup,
 } from './workplace.js'
@@ -55,6 +58,7 @@ import {
   workplaceCards,
   workplaceChecklistItems,
   workplaceLabels,
+  workplacePracticumEvents,
   workplaceRecurrenceOccurrences,
   workplaceRecurrenceRules,
 } from '../schema/index.js'
@@ -105,6 +109,43 @@ describe('workplace storage', () => {
    * accepts, and the cycle carries that sentence from problem through delivery
    * to feedback. The cards stay ordinary — rewritable and archivable.
    */
+  it('starts an explicitly accepted successor without altering prior terminal evidence', async () => {
+    await db.update(agents).set({ status: 'citizen' }).where(eq(agents.id, owner))
+    const first = await startProfessionPracticum(db, {
+      callerId: owner,
+      outcome: 'Deliver one runnable status page.',
+    })
+    if (first.outcome !== 'started') throw new Error('cycle missing')
+    await closeProfessionPracticum(db, {
+      callerId: owner,
+      cycleId: first.cycle.id,
+      close: {
+        result: 'shipped',
+        evidence: { kind: 'url', ref: 'https://example.invalid/status-page' },
+        feedback: 'Asked one maintainer to open it.',
+      },
+    })
+
+    const successor = await startProfessionPracticum(db, {
+      callerId: owner,
+      outcome: 'Revise the page around the feedback.',
+    })
+
+    expect(successor.outcome).toBe('started')
+    if (successor.outcome !== 'started') return
+    expect(successor.cycle.id).not.toBe(first.cycle.id)
+    expect(successor.cycle.cards).toHaveLength(5)
+    const prior = await db
+      .select({ seedKey: workplaceCards.seedKey })
+      .from(workplaceCards)
+      .where(sql`${workplaceCards.seedKey} like ${`${first.cycle.id}#s%`}`)
+    expect(prior).toHaveLength(5)
+    expect(await workplaceWakeup(db, owner)).toMatchObject({
+      practicumActive: true,
+    })
+    expect(await workplaceWakeup(db, owner)).not.toHaveProperty('practicumRetrospective')
+  })
+
   it('starts one Software Producer cycle of editable cards on the lazy default board', async () => {
     await db.update(agents).set({ status: 'citizen' }).where(eq(agents.id, owner))
     const additional = await createBoard(db, { callerId: owner, title: 'Existing' })
@@ -234,6 +275,287 @@ describe('workplace storage', () => {
         .from(workplaceBoards)
         .where(and(eq(workplaceBoards.ownerId, owner), eq(workplaceBoards.kind, 'default'))),
     ).toHaveLength(1)
+  })
+
+  /**
+   * `#1836`. The complete Software Producer ending: the citizen delivers
+   * something a reader outside the Colony can open, names who was asked, and is
+   * then offered a choice rather than handed a successor.
+   */
+  it('closes a cycle as shipped on inspectable evidence and offers four choices', async () => {
+    await db.update(agents).set({ status: 'citizen' }).where(eq(agents.id, owner))
+    const started = await startProfessionPracticum(db, {
+      callerId: owner,
+      outcome: 'Help one support team see service health with a smallest runnable status page.',
+    })
+    if (started.outcome !== 'started') throw new Error('cycle missing')
+
+    const closed = await closeProfessionPracticum(db, {
+      callerId: owner,
+      cycleId: started.cycle.id,
+      close: {
+        result: 'shipped',
+        evidence: { kind: 'url', ref: 'https://example.invalid/status-page' },
+        feedback: 'Asked the support lead to open it and name one thing that is wrong.',
+      },
+    })
+
+    expect(closed.outcome).toBe('closed')
+    if (closed.outcome !== 'closed') return
+    expect(closed.retrospective.cycleId).toBe(started.cycle.id)
+    expect(closed.retrospective.result).toBe('shipped')
+    expect(Object.keys(closed.retrospective.choices)).toEqual([
+      'startRevised',
+      'replaceOutcome',
+      'defer',
+      'end',
+    ])
+    expect(closed.retrospective.choices.defer.arguments.act).toBe('defer-practicum')
+    expect(closed.retrospective.choices.end.arguments.act).toBe('end-practicum')
+    const evidenceLinks = await db
+      .select({ kind: workplaceCardLinks.kind, ref: workplaceCardLinks.ref })
+      .from(workplaceCardLinks)
+      .innerJoin(workplaceCards, eq(workplaceCards.id, workplaceCardLinks.cardId))
+      .where(sql`${workplaceCards.seedKey} like ${`${started.cycle.id}#%`}`)
+    expect(evidenceLinks).toEqual([{ kind: 'url', ref: 'https://example.invalid/status-page' }])
+    expect(await workplaceWakeup(db, owner)).toMatchObject({
+      practicumActive: false,
+      practicumRetrospective: {
+        cycleId: started.cycle.id,
+        result: 'shipped',
+      },
+    })
+
+    // Nothing is opened on the citizen's behalf: the cards it already had are
+    // the cards it still has.
+    expect(
+      await db
+        .select()
+        .from(workplaceCards)
+        .where(sql`${workplaceCards.seedKey} like ${`${started.cycle.id}#%`}`),
+    ).toHaveLength(5)
+  })
+
+  it('closes a cycle as a failed experiment on an attempt and an observation', async () => {
+    await db.update(agents).set({ status: 'citizen' }).where(eq(agents.id, owner))
+    const started = await startProfessionPracticum(db, {
+      callerId: owner,
+      outcome: 'Deliver one runnable status page.',
+    })
+    if (started.outcome !== 'started') throw new Error('cycle missing')
+
+    const closed = await closeProfessionPracticum(db, {
+      callerId: owner,
+      cycleId: started.cycle.id,
+      close: {
+        result: 'failed_experiment',
+        attempted: 'Built the smallest page against the published health endpoint.',
+        observed: 'The provider refused the account, so nothing could be published.',
+        nextChoice: 'Try the same outcome as a static page in the next cycle.',
+      },
+    })
+
+    expect(closed.outcome).toBe('closed')
+    if (closed.outcome !== 'closed') return
+    expect(closed.retrospective.result).toBe('failed_experiment')
+    // A failed experiment is terminal and is not a forced retry: the four
+    // choices are the same four a shipped cycle is offered.
+    expect(Object.keys(closed.retrospective.choices)).toEqual([
+      'startRevised',
+      'replaceOutcome',
+      'defer',
+      'end',
+    ])
+  })
+
+  it('refuses to close a cycle that is not the citizen own, and one that does not exist', async () => {
+    await db.update(agents).set({ status: 'citizen' }).where(eq(agents.id, owner))
+    await db.update(agents).set({ status: 'citizen' }).where(eq(agents.id, stranger))
+    const started = await startProfessionPracticum(db, {
+      callerId: owner,
+      outcome: 'Deliver one runnable status page.',
+    })
+    if (started.outcome !== 'started') throw new Error('cycle missing')
+
+    const close = {
+      result: 'failed_experiment' as const,
+      attempted: 'Tried the smallest version.',
+      observed: 'It could not be published.',
+      nextChoice: 'End this outcome and choose another later.',
+    }
+    expect(
+      await closeProfessionPracticum(db, {
+        callerId: stranger,
+        cycleId: started.cycle.id,
+        close,
+      }),
+    ).toEqual({ outcome: 'unknown-cycle' })
+    expect(
+      await closeProfessionPracticum(db, {
+        callerId: owner,
+        cycleId: 'practicum:11111111-2222-4333-8444-555555555555',
+        close,
+      }),
+    ).toEqual({ outcome: 'unknown-cycle' })
+  })
+
+  /**
+   * The idempotency `#1836` requires: closing twice is one terminal cycle and
+   * one counted event, and it never mints a successor.
+   */
+  it('keeps a repeated close idempotent and counts one terminal event', async () => {
+    await db.update(agents).set({ status: 'citizen' }).where(eq(agents.id, owner))
+    const started = await startProfessionPracticum(db, {
+      callerId: owner,
+      outcome: 'Deliver one runnable status page.',
+    })
+    if (started.outcome !== 'started') throw new Error('cycle missing')
+    const close = {
+      result: 'shipped' as const,
+      evidence: { kind: 'url' as const, ref: 'https://example.invalid/status-page' },
+      feedback: 'Asked one maintainer to try it.',
+    }
+
+    const first = await closeProfessionPracticum(db, {
+      callerId: owner,
+      cycleId: started.cycle.id,
+      close,
+    })
+    const again = await closeProfessionPracticum(db, {
+      callerId: owner,
+      cycleId: started.cycle.id,
+      close,
+    })
+
+    expect(first.outcome).toBe('closed')
+    expect(again.outcome).toBe('closed')
+    if (first.outcome !== 'closed' || again.outcome !== 'closed') return
+    expect(again.retrospective).toEqual(first.retrospective)
+    const counts = await practicumEventCounts(db)
+    expect(counts.shipped).toBe(1)
+    expect(counts.accepted).toBe(1)
+  })
+
+  it('records defer once, creates no successor, and removes the retrospective from wakeup', async () => {
+    await db.update(agents).set({ status: 'citizen' }).where(eq(agents.id, owner))
+    const started = await startProfessionPracticum(db, {
+      callerId: owner,
+      outcome: 'Deliver one runnable status page.',
+    })
+    if (started.outcome !== 'started') throw new Error('cycle missing')
+    await closeProfessionPracticum(db, {
+      callerId: owner,
+      cycleId: started.cycle.id,
+      close: {
+        result: 'shipped',
+        evidence: { kind: 'url', ref: 'https://example.invalid/status-page' },
+        feedback: 'Asked one maintainer to open it.',
+      },
+    })
+
+    expect(
+      await resolveProfessionPracticum(db, {
+        callerId: owner,
+        cycleId: started.cycle.id,
+        choice: 'deferred',
+      }),
+    ).toEqual({ outcome: 'resolved', choice: 'deferred' })
+    expect(
+      await resolveProfessionPracticum(db, {
+        callerId: owner,
+        cycleId: started.cycle.id,
+        choice: 'deferred',
+      }),
+    ).toEqual({ outcome: 'resolved', choice: 'deferred' })
+    expect(await workplaceWakeup(db, owner)).not.toHaveProperty('practicumRetrospective')
+    expect((await practicumEventCounts(db)).deferred).toBe(1)
+    expect(
+      await db
+        .select()
+        .from(workplaceCards)
+        .where(sql`${workplaceCards.seedKey} like 'practicum:%'`),
+    ).toHaveLength(5)
+  })
+
+  /**
+   * The rejection case the issue names by title: a card called *document
+   * progress* moved to Done is not evidence, and neither is card volume.
+   */
+  it('does not let documentation-only work close a cycle', async () => {
+    await db.update(agents).set({ status: 'citizen' }).where(eq(agents.id, owner))
+    const started = await startProfessionPracticum(db, {
+      callerId: owner,
+      outcome: 'Deliver one runnable status page.',
+    })
+    if (started.outcome !== 'started') throw new Error('cycle missing')
+
+    for (const card of started.cycle.cards) {
+      const ready = await moveCard(db, {
+        callerId: owner,
+        cardId: card.id,
+        expectedVersion: card.version,
+        status: 'ready',
+      })
+      if (ready.outcome !== 'moved') throw new Error('ready move failed')
+      const claimed = await claimCard(db, {
+        callerId: owner,
+        cardId: card.id,
+        expectedVersion: ready.card.version,
+      })
+      if (claimed.outcome !== 'claimed') throw new Error('claim failed')
+      const completed = await completeCard(db, {
+        callerId: owner,
+        cardId: card.id,
+        expectedVersion: claimed.card.version,
+        outcome: 'Documented progress in the card.',
+      })
+      expect(completed.outcome).toBe('completed')
+    }
+
+    const counts = await practicumEventCounts(db)
+    expect(counts.shipped).toBe(0)
+    expect(counts.failed_experiment).toBe(0)
+    // The Colony can see the loop without reading a word of what was written.
+    expect(counts.documentation_only_update).toBeGreaterThan(0)
+    expect(await workplaceWakeup(db, owner)).toMatchObject({ practicumActive: true })
+  })
+
+  /**
+   * The aggregate is counts and slugs. `#1836` forbids prose, identifiers and
+   * references from reaching it, so this reads the stored rows themselves
+   * rather than the projection over them.
+   */
+  it('records privacy-safe events carrying no citizen, cycle, outcome or evidence', async () => {
+    await db.update(agents).set({ status: 'citizen' }).where(eq(agents.id, owner))
+    const started = await startProfessionPracticum(db, {
+      callerId: owner,
+      outcome: 'Help one support team see service health with a smallest runnable status page.',
+    })
+    if (started.outcome !== 'started') throw new Error('cycle missing')
+    await closeProfessionPracticum(db, {
+      callerId: owner,
+      cycleId: started.cycle.id,
+      close: {
+        result: 'shipped',
+        evidence: { kind: 'url', ref: 'https://example.invalid/status-page' },
+        feedback: 'Asked the support lead to open it.',
+      },
+    })
+
+    const rows = await db.select().from(workplacePracticumEvents)
+    expect(rows.length).toBeGreaterThan(0)
+    const serialised = JSON.stringify(rows)
+    for (const secret of [
+      owner,
+      started.cycle.id,
+      'support team',
+      'status-page',
+      'example.invalid',
+      'Asked the support lead',
+    ]) {
+      expect(serialised, secret).not.toContain(secret)
+    }
+    expect(Object.keys(rows[0] ?? {}).sort()).toEqual(['at', 'event', 'id'])
   })
 
   it('plants one default board on first list without changing an existing additional board', async () => {

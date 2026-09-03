@@ -8,6 +8,9 @@ import {
   WorkplaceBoardIdSchema,
   WorkplaceBoardSchema,
   WORKPLACE_PRACTICUM_CARD_TITLES,
+  WORKPLACE_PRACTICUM_EVENTS,
+  WorkplacePracticumEventNameSchema,
+  WorkplacePracticumResultSchema,
   WorkplaceCadenceSchema,
   WorkplaceCardIdSchema,
   WorkplaceCardLinkSchema,
@@ -41,6 +44,11 @@ import {
   type WorkplaceLane,
   type WorkplaceLinkCounts,
   type WorkplacePracticumCycle,
+  type WorkplacePracticumEvidenceKind,
+  type WorkplaceClosePracticumRequest,
+  type WorkplacePracticumEventName,
+  type WorkplacePracticumResult,
+  type WorkplacePracticumRetrospective,
   type WorkplaceLinkKind,
   type WorkplaceLinkTarget,
   type WorkplaceMembership,
@@ -66,6 +74,7 @@ import {
   workplaceHandovers,
   workplaceIdempotency,
   workplaceLabels,
+  workplacePracticumEvents,
   workplaceRecurrenceOccurrences,
   workplaceRecurrenceRules,
 } from '../schema/index.js'
@@ -638,9 +647,34 @@ export async function workplaceWakeup(
         eq(workplaceCards.boardId, board.id),
         isNull(workplaceCards.archivedAt),
         sql`${workplaceCards.seedKey} like ${`${PRACTICUM_PREFIX}%`}`,
+        sql`${workplaceCards.seedKey} not like ${`${PRACTICUM_PREFIX}%${PRACTICUM_CLOSED}%`}`,
       ),
     )
     .limit(1)
+
+  const [terminalPracticum] = await db
+    .select({ seedKey: workplaceCards.seedKey })
+    .from(workplaceCards)
+    .where(
+      and(
+        eq(workplaceCards.boardId, board.id),
+        isNull(workplaceCards.archivedAt),
+        sql`${workplaceCards.seedKey} like ${`${PRACTICUM_PREFIX}%${PRACTICUM_CLOSED}%`}`,
+        sql`${workplaceCards.seedKey} not like ${`${PRACTICUM_PREFIX}%${PRACTICUM_CLOSED}%#d`}`,
+        sql`${workplaceCards.seedKey} not like ${`${PRACTICUM_PREFIX}%${PRACTICUM_CLOSED}%#e`}`,
+      ),
+    )
+    .orderBy(sql`${workplaceCards.updatedAt} desc`)
+    .limit(1)
+
+  let practicumRetrospective: WorkplacePracticumRetrospective | undefined
+  if (terminalPracticum?.seedKey !== null && terminalPracticum?.seedKey !== undefined) {
+    const [cycleId, tail] = terminalPracticum.seedKey.split(PRACTICUM_CLOSED)
+    const result = tail === undefined ? undefined : PRACTICUM_RESULT_BY_CODE.get(tail.slice(0, 1))
+    if (cycleId !== undefined && result !== undefined) {
+      practicumRetrospective = practicumRetrospectiveFor(cycleId, result)
+    }
+  }
 
   const rank = sql<number>`case
     when ${workplaceCards.status} = 'in_progress' and ${workplaceCards.ownerId} = ${callerId} then 0
@@ -679,6 +713,9 @@ export async function workplaceWakeup(
   return {
     boardId: WorkplaceBoardIdSchema.parse(board.id),
     practicumActive: activePracticum !== undefined,
+    ...(practicumRetrospective === undefined || activePracticum !== undefined
+      ? {}
+      : { practicumRetrospective }),
     recommendation:
       first === undefined
         ? null
@@ -1260,6 +1297,7 @@ export async function startProfessionPracticum(
         and(
           eq(workplaceCards.boardId, board.id),
           sql`${workplaceCards.seedKey} like ${`${PRACTICUM_PREFIX}%`}`,
+          sql`${workplaceCards.seedKey} not like ${`${PRACTICUM_PREFIX}%${PRACTICUM_CLOSED}%`}`,
         ),
       )
       .orderBy(workplaceCards.position, workplaceCards.id)
@@ -1295,11 +1333,255 @@ export async function startProfessionPracticum(
       inserted.push(toCard(row))
       position += RANK_GAP
     }
+    // Counted here rather than at the surface, so an acceptance that arrives
+    // over HTTP, MCP or a delegation is one acceptance in the aggregate.
+    await tx.insert(workplacePracticumEvents).values({ event: 'accepted' })
     return {
       outcome: 'started',
       cycle: { id: cycleId, boardId: WorkplaceBoardIdSchema.parse(board.id), cards: inserted },
     }
   })
+}
+/**
+ * Where a closed cycle records its ending, on the cards themselves (`#1836`).
+ *
+ * **The seed key carries it, exactly as the cycle id does.** A closed cycle is
+ * one whose cards' `seedKey` carries this marker, so there is no second table
+ * shadowing the board and no progress score anywhere: the cards remain the
+ * source of truth, and *terminal* is a property a reader derives from them.
+ *
+ * **The codes are one character because the column is 64 and the budget is
+ * spent.** `practicum:` plus a uuid plus `:card:N` is already 53 of it, so
+ * `#shipped` does not fit and `#failed_experiment` is not close. The map is
+ * explicit and total rather than an abbreviation somebody has to guess at, and
+ * the enum it is keyed by is the one `packages/core` publishes — so a third
+ * result cannot be added without this failing to compile.
+ */
+const PRACTICUM_CLOSED = '#'
+const PRACTICUM_RESULT_CODES: Record<WorkplacePracticumResult, string> = {
+  shipped: 's',
+  failed_experiment: 'f',
+}
+const PRACTICUM_RESULT_BY_CODE = new Map<string, WorkplacePracticumResult>(
+  Object.entries(PRACTICUM_RESULT_CODES).map(([result, code]) => [
+    code,
+    WorkplacePracticumResultSchema.parse(result),
+  ]),
+)
+
+const PRACTICUM_EVIDENCE_LINK_KINDS: Record<WorkplacePracticumEvidenceKind, WorkplaceLinkKind> = {
+  url: 'url',
+  repository: 'url',
+  artifact: 'url',
+}
+
+const practicumRetrospectiveFor = (
+  cycleId: string,
+  result: WorkplacePracticumResult,
+): WorkplacePracticumRetrospective => ({
+  cycleId,
+  result,
+  choices: {
+    startRevised: {
+      tool: 'kolonie.workplace',
+      arguments: {
+        act: 'accept-practicum',
+        subject: 'card',
+        fields: { outcome: '<your revised outcome>' },
+      },
+    },
+    replaceOutcome: {
+      tool: 'kolonie.workplace',
+      arguments: {
+        act: 'accept-practicum',
+        subject: 'card',
+        fields: { outcome: '<a different outcome>' },
+      },
+    },
+    defer: {
+      tool: 'kolonie.workplace',
+      arguments: { act: 'defer-practicum', subject: 'card', id: cycleId },
+    },
+    end: {
+      tool: 'kolonie.workplace',
+      arguments: { act: 'end-practicum', subject: 'card', id: cycleId },
+    },
+  },
+})
+
+export type CloseProfessionPracticumResult =
+  | {
+      readonly outcome: 'closed'
+      readonly retrospective: WorkplacePracticumRetrospective
+    }
+  | { readonly outcome: 'unknown-cycle' }
+
+/**
+ * End one practicum cycle, on evidence the citizen supplies (`#1836`).
+ *
+ * **What closes a cycle is this call and nothing else.** Moving five cards to
+ * Done does not, however they are titled, because the rejection case the issue
+ * names is precisely a card called *document progress* reaching that lane. The
+ * evidence is validated in `packages/core` before it arrives here, so what this
+ * function defends is ownership, idempotency and the promise that nothing is
+ * started on the citizen's behalf.
+ *
+ * **Terminal is recorded on the cards' own `seedKey`**, so the board stays the
+ * only state. A repeated close finds the cycle already terminal and hands back
+ * the same retrospective without counting a second event — which is why the
+ * count and the update happen under one lock rather than in two statements.
+ *
+ * **The successor is offered and never opened.** The returned choices are
+ * callable arguments for `accept-practicum`, which is the same explicit consent
+ * `#1835` requires; `defer` and `end` write nothing at all.
+ */
+export async function closeProfessionPracticum(
+  db: Database,
+  input: {
+    readonly callerId: AgentId
+    readonly cycleId: string
+    readonly close: WorkplaceClosePracticumRequest
+  },
+): Promise<CloseProfessionPracticumResult> {
+  return db.transaction(async (tx) => {
+    await tx
+      .select({ id: agents.id })
+      .from(agents)
+      .where(eq(agents.id, input.callerId))
+      .for('update')
+      .limit(1)
+
+    const cards = await tx
+      .select({ id: workplaceCards.id, seedKey: workplaceCards.seedKey })
+      .from(workplaceCards)
+      .innerJoin(workplaceBoards, eq(workplaceBoards.id, workplaceCards.boardId))
+      .where(
+        and(
+          eq(workplaceBoards.ownerId, input.callerId),
+          or(
+            sql`${workplaceCards.seedKey} like ${`${input.cycleId}:card:%`}`,
+            sql`${workplaceCards.seedKey} like ${`${input.cycleId}${PRACTICUM_CLOSED}%`}`,
+          ),
+        ),
+      )
+    if (cards.length === 0) return { outcome: 'unknown-cycle' }
+
+    const already = cards.find((card) =>
+      card.seedKey?.startsWith(`${input.cycleId}${PRACTICUM_CLOSED}`),
+    )
+    if (already !== undefined) {
+      const marker = already.seedKey?.slice(
+        input.cycleId.length + PRACTICUM_CLOSED.length,
+        input.cycleId.length + PRACTICUM_CLOSED.length + 1,
+      )
+      const result = marker === undefined ? undefined : PRACTICUM_RESULT_BY_CODE.get(marker)
+      if (result === undefined) throw new Error('practicum card has an unknown terminal result')
+      return {
+        outcome: 'closed',
+        retrospective: practicumRetrospectiveFor(input.cycleId, result),
+      }
+    }
+
+    if (input.close.result === 'shipped') {
+      const evidenceCard = cards.at(-1)
+      if (evidenceCard === undefined) throw new Error('practicum cycle has no evidence card')
+      await tx
+        .insert(workplaceCardLinks)
+        .values({
+          cardId: evidenceCard.id,
+          kind: PRACTICUM_EVIDENCE_LINK_KINDS[input.close.evidence.kind],
+          ref: input.close.evidence.ref,
+        })
+        .onConflictDoNothing()
+    }
+
+    for (const card of cards) {
+      const suffix = card.seedKey?.split(':card:')[1] ?? '1'
+      await tx
+        .update(workplaceCards)
+        .set({
+          seedKey: `${input.cycleId}${PRACTICUM_CLOSED}${PRACTICUM_RESULT_CODES[input.close.result]}:card:${suffix}`,
+          updatedAt: sql`now()`,
+        })
+        .where(eq(workplaceCards.id, card.id))
+    }
+    await tx.insert(workplacePracticumEvents).values({ event: input.close.result })
+
+    return {
+      outcome: 'closed',
+      retrospective: practicumRetrospectiveFor(input.cycleId, input.close.result),
+    }
+  })
+}
+
+/** The two terminal retrospective choices that create no successor (`#1836`). */
+export type ResolveProfessionPracticumResult =
+  | { readonly outcome: 'resolved'; readonly choice: 'deferred' | 'ended' }
+  | { readonly outcome: 'unknown-cycle' }
+
+export async function resolveProfessionPracticum(
+  db: Database,
+  input: {
+    readonly callerId: AgentId
+    readonly cycleId: string
+    readonly choice: 'deferred' | 'ended'
+  },
+): Promise<ResolveProfessionPracticumResult> {
+  return db.transaction(async (tx) => {
+    await tx
+      .select({ id: agents.id })
+      .from(agents)
+      .where(eq(agents.id, input.callerId))
+      .for('update')
+      .limit(1)
+    const [terminal] = await tx
+      .select({ id: workplaceCards.id, seedKey: workplaceCards.seedKey })
+      .from(workplaceCards)
+      .innerJoin(workplaceBoards, eq(workplaceBoards.id, workplaceCards.boardId))
+      .where(
+        and(
+          eq(workplaceBoards.ownerId, input.callerId),
+          sql`${workplaceCards.seedKey} like ${`${input.cycleId}${PRACTICUM_CLOSED}%`}`,
+        ),
+      )
+      .limit(1)
+    if (terminal === undefined) return { outcome: 'unknown-cycle' }
+    if (terminal.seedKey?.endsWith('#d') === true)
+      return { outcome: 'resolved', choice: 'deferred' }
+    if (terminal.seedKey?.endsWith('#e') === true) return { outcome: 'resolved', choice: 'ended' }
+    const marker = input.choice === 'deferred' ? '#d' : '#e'
+    await tx
+      .update(workplaceCards)
+      .set({ seedKey: sql`${workplaceCards.seedKey} || ${marker}`, updatedAt: sql`now()` })
+      .where(
+        and(
+          sql`${workplaceCards.seedKey} like ${`${input.cycleId}${PRACTICUM_CLOSED}%`}`,
+          sql`${workplaceCards.seedKey} not like ${`${input.cycleId}${PRACTICUM_CLOSED}%#d`}`,
+          sql`${workplaceCards.seedKey} not like ${`${input.cycleId}${PRACTICUM_CLOSED}%#e`}`,
+        ),
+      )
+    await tx.insert(workplacePracticumEvents).values({ event: input.choice })
+    return { outcome: 'resolved', choice: input.choice }
+  })
+}
+
+/** The aggregate `#1836` publishes: one count per event slug, and nothing else. */
+export async function practicumEventCounts(
+  db: Database,
+): Promise<Record<WorkplacePracticumEventName, number>> {
+  const rows = await db
+    .select({ event: workplacePracticumEvents.event, count: sql<number>`count(*)::int` })
+    .from(workplacePracticumEvents)
+    .groupBy(workplacePracticumEvents.event)
+
+  const counts = Object.fromEntries(
+    WORKPLACE_PRACTICUM_EVENTS.map((event) => [event, 0]),
+  ) as Record<WorkplacePracticumEventName, number>
+  for (const row of rows) {
+    const event = WorkplacePracticumEventNameSchema.safeParse(row.event)
+    if (event.success) counts[event.data] = row.count
+  }
+  return counts
 }
 
 export type CreateCardResult =
@@ -1745,6 +2027,21 @@ export async function completeCard(
       )
       .returning()
     if (row === undefined) return { outcome: 'stale' }
+    /**
+     * Completing a card of a live cycle is progress on the board and **not** a
+     * terminal result (`#1836`).
+     *
+     * It is counted as a documentation-only update precisely so that the Colony
+     * can see a citizen looping without reading what it wrote: the alternative
+     * — inferring shipment from cards reaching Done — is the rejection case the
+     * issue names by title. Only `closeProfessionPracticum` ends a cycle.
+     */
+    if (
+      row.seedKey?.startsWith(PRACTICUM_PREFIX) === true &&
+      !row.seedKey.includes(PRACTICUM_CLOSED)
+    ) {
+      await tx.insert(workplacePracticumEvents).values({ event: 'documentation_only_update' })
+    }
     return { outcome: 'completed', card: toCard(row) }
   })
 }

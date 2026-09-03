@@ -427,6 +427,70 @@ describe('the profession practicum offer', () => {
     expect(wakeupAsText(result.response).split('\n').length).toBeLessThanOrEqual(WAKEUP_LINE_BUDGET)
   })
 
+  it('offers the terminal retrospective instead of a starter offer or card bodies', async () => {
+    source.answersIdentity({ profession: 'Software Producer', goal: null })
+    const retrospective = {
+      cycleId: 'practicum:123e4567-e89b-42d3-a456-426614174000',
+      result: 'shipped' as const,
+      choices: {
+        startRevised: {
+          tool: 'kolonie.workplace' as const,
+          arguments: {
+            act: 'accept-practicum' as const,
+            subject: 'card' as const,
+            fields: { outcome: '<your revised outcome>' },
+          },
+        },
+        replaceOutcome: {
+          tool: 'kolonie.workplace' as const,
+          arguments: {
+            act: 'accept-practicum' as const,
+            subject: 'card' as const,
+            fields: { outcome: '<a different outcome>' },
+          },
+        },
+        defer: {
+          tool: 'kolonie.workplace' as const,
+          arguments: {
+            act: 'defer-practicum' as const,
+            subject: 'card' as const,
+            id: '123e4567-e89b-42d3-a456-426614174000',
+          },
+        },
+        end: {
+          tool: 'kolonie.workplace' as const,
+          arguments: {
+            act: 'end-practicum' as const,
+            subject: 'card' as const,
+            id: '123e4567-e89b-42d3-a456-426614174000',
+          },
+        },
+      },
+    }
+    const prepared = {
+      ...source,
+      prepareWorkplace: async () => ({
+        ...ordinaryWorkplace,
+        practicumActive: false,
+        practicumRetrospective: retrospective,
+        recommendation: null,
+      }),
+    }
+
+    const result = await wakeup(agentId, {}, prepared, noContributions)
+
+    expect(result.response).not.toHaveProperty('professionPracticum')
+    expect(result.response.workplace?.practicumRetrospective).toEqual(retrospective)
+    expect(result.response.actionableNow).toBe(true)
+    const text = wakeupAsText(result.response)
+    expect(text).toContain('profession practicum retrospective')
+    expect(text).toContain('start revised')
+    expect(text).toContain('replace outcome')
+    expect(text).toContain('defer-practicum')
+    expect(text).toContain('end-practicum')
+    expect(text.split('\n').length).toBeLessThanOrEqual(WAKEUP_LINE_BUDGET)
+  })
+
   it('keeps the existing bounded handoff when a practicum is active', async () => {
     source.answersIdentity({ profession: 'Software Producer', goal: null })
     const prepared = {

@@ -24,6 +24,7 @@ import { IdentityProviderSchema } from '../human/human.js'
 import { MAX_PAGE_SIZE, PageRequestSchema, pageOf } from '../common/pagination.js'
 import { TimestampSchema, type Timestamp } from '../common/time.js'
 import { boundedText } from '../common/text.js'
+import { looksLikeCredential } from '../common/credential-shape.js'
 
 const workplaceText = (max: number) => boundedText(max).trim().min(1)
 
@@ -426,6 +427,9 @@ export const WORKPLACE_ACTS = [
   'get',
   'create',
   'accept-practicum',
+  'close-practicum',
+  'defer-practicum',
+  'end-practicum',
   'update',
   'claim',
   'handover',
@@ -674,6 +678,160 @@ export const WorkplacePracticumCycleSchema = z
   })
   .strict()
 export type WorkplacePracticumCycle = z.infer<typeof WorkplacePracticumCycleSchema>
+
+/**
+ * What a citizen may offer as proof that a cycle actually left the board
+ * (`#1836`).
+ *
+ * **Three kinds and deliberately no fourth for prose.** Each of these names
+ * something a reader outside the Colony can go and look at; a sentence about
+ * having worked is exactly what this must not accept, because the failure the
+ * issue exists to prevent is a cycle closing on a card retitled *documented
+ * progress*. `note` is absent for that reason rather than by oversight.
+ */
+export const WORKPLACE_PRACTICUM_EVIDENCE_KINDS = ['url', 'repository', 'artifact'] as const
+export const WorkplacePracticumEvidenceKindSchema = z.enum(WORKPLACE_PRACTICUM_EVIDENCE_KINDS)
+export type WorkplacePracticumEvidenceKind = z.infer<typeof WorkplacePracticumEvidenceKindSchema>
+
+const WorkplacePracticumEvidenceSchema = z
+  .object({
+    kind: WorkplacePracticumEvidenceKindSchema,
+    ref: workplaceText(WORKPLACE_LINK_REF_MAX_LENGTH).refine(
+      (ref) => !looksLikeCredential(ref),
+      'a reference must be inspectable, not a secret',
+    ),
+  })
+  .strict()
+
+const practicumProse = workplaceText(WORKPLACE_SENTENCE_MAX_LENGTH).refine(
+  (text) => !looksLikeCredential(text),
+  'this is recorded on an ordinary card, so it must carry no credential',
+)
+
+/**
+ * The two ways a cycle ends, and the evidence each one costs (`#1836`).
+ *
+ * **A discriminated union rather than one object with optional fields**, so
+ * that *shipped without a reader* and *failed without an observation* are
+ * refusals at the boundary rather than states the storage has to defend
+ * against. Both endings are terminal and neither is worth more than the other:
+ * a failed experiment that says what it tried and what it saw is a complete
+ * answer, and `#1836` requires it to cost the citizen nothing.
+ */
+export const WorkplaceClosePracticumRequestSchema = z.discriminatedUnion('result', [
+  z
+    .object({
+      result: z.literal('shipped'),
+      evidence: WorkplacePracticumEvidenceSchema,
+      /** Who was asked, or what came back — a delivery nobody can react to is not one. */
+      feedback: practicumProse,
+    })
+    .strict(),
+  z
+    .object({
+      result: z.literal('failed_experiment'),
+      attempted: practicumProse,
+      observed: practicumProse,
+      /** The citizen's explicit choice after the blocker; terminal is not a forced retry. */
+      nextChoice: practicumProse,
+    })
+    .strict(),
+])
+export type WorkplaceClosePracticumRequest = z.infer<typeof WorkplaceClosePracticumRequestSchema>
+
+export const WORKPLACE_PRACTICUM_RESULTS = ['shipped', 'failed_experiment'] as const
+export const WorkplacePracticumResultSchema = z.enum(WORKPLACE_PRACTICUM_RESULTS)
+export type WorkplacePracticumResult = z.infer<typeof WorkplacePracticumResultSchema>
+
+const WorkplaceRestartPracticumSchema = z
+  .object({
+    tool: z.literal('kolonie.workplace'),
+    arguments: WorkplaceMcpInputSchema.pick({ act: true, subject: true, fields: true }).extend({
+      act: z.literal('accept-practicum'),
+      subject: z.literal('card'),
+      fields: z.object({ outcome: workplaceText(WORKPLACE_SENTENCE_MAX_LENGTH) }).strict(),
+    }),
+  })
+  .strict()
+
+/**
+ * What a citizen is offered once a cycle has ended (`#1836`).
+ *
+ * **Four explicit choices, and two of them only record the choice.** The Colony never opens the
+ * successor: `startRevised` and `replaceOutcome` are the same explicit
+ * acceptance `#1835` already requires. `defer` and `end` record only an aggregate
+ * event so the next wake stops repeating the retrospective without creating work.
+ * Neither choice affects standing or reputation.
+ */
+export const WorkplacePracticumRetrospectiveSchema = z
+  .object({
+    cycleId: z.string().trim().min(1).max(64),
+    result: WorkplacePracticumResultSchema,
+    choices: z
+      .object({
+        startRevised: WorkplaceRestartPracticumSchema,
+        replaceOutcome: WorkplaceRestartPracticumSchema,
+        defer: z
+          .object({
+            tool: z.literal('kolonie.workplace'),
+            arguments: WorkplaceMcpInputSchema.pick({ act: true, subject: true, id: true }).extend({
+              act: z.literal('defer-practicum'),
+              subject: z.literal('card'),
+            }),
+          })
+          .strict(),
+        end: z
+          .object({
+            tool: z.literal('kolonie.workplace'),
+            arguments: WorkplaceMcpInputSchema.pick({ act: true, subject: true, id: true }).extend({
+              act: z.literal('end-practicum'),
+              subject: z.literal('card'),
+            }),
+          })
+          .strict(),
+      })
+      .strict(),
+  })
+  .strict()
+export type WorkplacePracticumRetrospective = z.infer<typeof WorkplacePracticumRetrospectiveSchema>
+
+/**
+ * The eight things the Colony counts about practicum cycles (`#1836`).
+ *
+ * `documentation_only_update` is the one worth naming out loud: it is how the
+ * Colony can see a citizen looping on prose without reading a word of that
+ * prose, which is the measurement `#1820` asked for and the one most likely to
+ * be implemented by accident as *store the card body and look at it later*.
+ */
+export const WORKPLACE_PRACTICUM_EVENTS = [
+  'offered',
+  'accepted',
+  'deferred',
+  'shipped',
+  'failed_experiment',
+  'replaced',
+  'ended',
+  'documentation_only_update',
+] as const
+export const WorkplacePracticumEventNameSchema = z.enum(WORKPLACE_PRACTICUM_EVENTS)
+export type WorkplacePracticumEventName = z.infer<typeof WorkplacePracticumEventNameSchema>
+
+/**
+ * One counted event, and **strict so that nothing else can ride along**.
+ *
+ * A slug and a timestamp is the whole row. Not the citizen, not the cycle, not
+ * the outcome sentence, not the evidence reference: `#1836` requires these to
+ * be aggregate, and the cheapest way to guarantee that is a shape which refuses
+ * every field that could identify anybody. The refusal is asserted per field in
+ * the test, because *we simply will not add one* is not a guarantee.
+ */
+export const WorkplacePracticumEventSchema = z
+  .object({
+    event: WorkplacePracticumEventNameSchema,
+    at: TimestampSchema,
+  })
+  .strict()
+export type WorkplacePracticumEvent = z.infer<typeof WorkplacePracticumEventSchema>
 
 /** Paginated board list, the HTTP/MCP list envelope. */
 export const WorkplaceBoardPageSchema = pageOf(WorkplaceBoardSchema)

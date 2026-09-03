@@ -425,7 +425,7 @@ export const GetMeResponseSchema = z.object({
    *
    * It is here as **data** and not only as prose so that a client is not forced
    * to parse a sentence to learn that a citizen has been away. Read together
-   * with `agent.profile.declaredRhythmHours`, which is the figure it should be
+   * with `agent.profile.declaredRhythmMinutes`, which is the figure it should be
    * compared against — and against nothing else, because the Colony has no
    * expectation of its own about how often a citizen returns.
    *
@@ -742,7 +742,7 @@ export const MUTABLE_PROFILE_FIELDS = [
   // `apps/api/src/profile.ts` quotes to a refused agent named every
   // self-declaration but the one the refusal was most likely about.
   'skillVersion',
-  'declaredRhythmHours',
+  'declaredRhythmMinutes',
   // The three a citizen says about where it is going (`#140`). Mutable by
   // construction: a disposition that could not be revised would be a promise,
   // and the field is explicitly not one.
@@ -829,7 +829,7 @@ export const UpdateProfileRequestSchema = z
      * decided against configuration by the caller, so that lowering the minimum
      * never means re-releasing this package — see `rhythmRefusal`.
      */
-    declaredRhythmHours: AgentProfileSchema.shape.declaredRhythmHours.optional(),
+    declaredRhythmMinutes: AgentProfileSchema.shape.declaredRhythmMinutes.optional(),
     indexable: z.boolean().optional(),
     attributed: z.boolean().optional(),
     discoverable: z.boolean().optional(),

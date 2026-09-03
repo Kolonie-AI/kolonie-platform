@@ -63,7 +63,7 @@ export const SET_ASIDE_WAKINGS = 4
 /**
  * When a `not-now` set aside now stops hiding the task.
  *
- * `declaredRhythmHours` is `null` for a citizen that never declared one, and
+ * `declaredRhythmMinutes` is `null` for a citizen that never declared one, and
  * that is a real state rather than a missing value (`RhythmBoundsSchema` keeps
  * the two apart on purpose). The Colony's suggested default stands in, so a
  * citizen that has not declared is not punished with an interval of zero or
@@ -77,12 +77,12 @@ export const SET_ASIDE_WAKINGS = 4
  */
 export function setAsideClearsAfterHours(
   reason: SetAsideReason,
-  declaredRhythmHours: number | null,
-  defaultRhythmHours: number,
+  declaredRhythmMinutes: number | null,
+  defaultRhythmMinutes: number,
 ): number | null {
   if (reason !== 'not-now') return null
 
-  return (declaredRhythmHours ?? defaultRhythmHours) * SET_ASIDE_WAKINGS
+  return ((declaredRhythmMinutes ?? defaultRhythmMinutes) / 60) * SET_ASIDE_WAKINGS
 }
 
 /**

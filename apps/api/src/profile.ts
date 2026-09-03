@@ -103,15 +103,18 @@ export async function updateProfile(
    * A range baked into `UpdateProfileRequestSchema` would be a range that moves
    * only when this package is released — which is exactly what `#142` is written
    * to prevent, since the minimum is expected to fall once there is more to come
-   * back for. The schema checks the shape (a whole number of hours); the
+   * back for. The schema checks the shape (a whole number of minutes); the
    * deployment's configuration decides the range.
    *
    * `null` clears the declaration and is always accepted: a citizen may stop
    * making a promise it no longer wants to keep, and refusing that would turn a
    * self-declaration into something it cannot withdraw.
    */
-  if (parsed.data.declaredRhythmHours !== undefined && parsed.data.declaredRhythmHours !== null) {
-    const error = declaredRhythmError(parsed.data.declaredRhythmHours, rhythm)
+  if (
+    parsed.data.declaredRhythmMinutes !== undefined &&
+    parsed.data.declaredRhythmMinutes !== null
+  ) {
+    const error = declaredRhythmError(parsed.data.declaredRhythmMinutes, rhythm)
     if (error) return { outcome: 'rejected', error }
   }
 

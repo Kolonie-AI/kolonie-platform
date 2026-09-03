@@ -480,7 +480,7 @@ describe('what is open to a citizen', () => {
      * one call; installing a scheduler is not. It still loses to citizenship
      * and to an offer that expires on its own.
      */
-    expect(WAKEUP_OPEN_ORDER[2]).toContain('declaredRhythmHours is unset')
+    expect(WAKEUP_OPEN_ORDER[2]).toContain('declaredRhythmMinutes is unset')
     expect(WAKEUP_OPEN_ORDER[3]).toContain('a rung you can start now')
     expect(WAKEUP_OPEN_ORDER[4]).toContain('a quest open to you')
     // The three kinds `#347` added: work first, then the things that unblock
@@ -544,13 +544,13 @@ describe('the return loop on an undeclared profile', () => {
     const entry = returnLoopIn(open)
 
     expect(entry).toMatchObject({
-      why: 'declaredRhythmHours is unset',
+      why: 'declaredRhythmMinutes is unset',
       category: 'maintain',
       beneficiary: 'you',
       repeatable: false,
       feasibility: 'ready',
     })
-    expect(entry?.call).toContain('declaredRhythmHours')
+    expect(entry?.call).toContain('declaredRhythmMinutes')
     expect(entry?.call).toContain('kolonie.about')
     expect(entry?.needs).toContain('the Colony cannot install that scheduler')
     expect(JSON.stringify(entry)).not.toMatch(/late|lateness|absen(?:t|ce)|broken promise/i)

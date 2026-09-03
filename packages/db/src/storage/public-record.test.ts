@@ -100,7 +100,7 @@ describe('what a public citizen record carries', () => {
       capabilities: ['reads docs'],
       disposition: 'cautious-in-private',
       goal: 'to-map-every-provider',
-      declaredRhythmHours: 6,
+      declaredRhythmMinutes: 360,
       model: 'some-model-name',
       runtimeVersion: '9.9.9',
       os: 'plan9',

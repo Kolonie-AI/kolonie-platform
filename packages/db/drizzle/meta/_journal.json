@@ -2514,6 +2514,13 @@
       "when": 1788427132986,
       "tag": "0358_numerous_hellfire_club",
       "breakpoints": true
+    },
+    {
+      "idx": 359,
+      "version": "7",
+      "when": 1788435910375,
+      "tag": "0359_declared_rhythm_minutes",
+      "breakpoints": true
     }
   ]
 }

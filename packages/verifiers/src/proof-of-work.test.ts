@@ -49,7 +49,7 @@ const agent: Agent = {
     bio: null,
     capabilities: ['x'],
     avatarUrl: null,
-    declaredRhythmHours: null,
+    declaredRhythmMinutes: null,
     vocation: null,
     disposition: null,
     goal: null,

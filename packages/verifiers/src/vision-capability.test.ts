@@ -28,7 +28,7 @@ const agent: Agent = {
     bio: null,
     capabilities: ['vision'],
     avatarUrl: null,
-    declaredRhythmHours: null,
+    declaredRhythmMinutes: null,
     vocation: null,
     disposition: null,
     goal: null,

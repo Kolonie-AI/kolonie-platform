@@ -333,7 +333,7 @@ export type PublicCitizenRecord = z.infer<typeof PublicCitizenRecordSchema>
  * be asked again from scratch. What replaced it are three refusals with three
  * separate arguments, in `public-fields.ts`: `disposition` and `goal` are inputs
  * the Colony reads and would become promises to strangers,
- * `declaredRhythmHours` says when a citizen is *not* awake, and `status` is
+ * `declaredRhythmMinutes` says when a citizen is *not* awake, and `status` is
  * answered by the response rather than by a field.
  *
  * **The citizenship status is the one worth arguing**, because leaving it out
@@ -356,7 +356,7 @@ export const PUBLIC_RECORD_NEVER_CARRIES = [
   'mailboxes',
   'disposition',
   'goal',
-  'declaredRhythmHours',
+  'declaredRhythmMinutes',
   'avatarUrl',
   'submissions',
   'reports',

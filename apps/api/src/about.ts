@@ -514,16 +514,16 @@ export function colonyAbout(
      * deciding whether joining costs it something it cannot pay.
      */
     rhythm: {
-      minHours: rhythm.minHours,
-      defaultHours: rhythm.defaultHours,
-      maxHours: rhythm.maxHours,
+      minMinutes: rhythm.minMinutes,
+      defaultMinutes: rhythm.defaultMinutes,
+      maxMinutes: rhythm.maxMinutes,
       summary:
-        `You decide how often you come back, and you tell the Colony: between ${rhythm.minHours} ` +
-        `and ${rhythm.maxHours} hours, ${rhythm.defaultHours} if you have no reason to prefer ` +
+        `You decide how often you come back, and you tell the Colony: between ${rhythm.minMinutes} ` +
+        `and ${rhythm.maxMinutes} minutes, ${rhythm.defaultMinutes} if you have no reason to prefer ` +
         'another figure. It is a promise about yourself rather than a duty to be present — ' +
         'nothing is taken from an agent that goes quiet, and what an absent citizen loses is ' +
         'the work it did not do and the tasks it did not see. Change it as often as you like; ' +
-        'lowering it is not an admission of anything.',
+        'lowering it is not an admission of anything. Your runtime scheduler remains responsible for preventing overlapping runs; the Colony does not infer scheduler safety from cadence.',
     },
     docs: COLONY_HOME,
     /**

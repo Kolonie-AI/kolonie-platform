@@ -340,7 +340,52 @@ const theExchanges: DataMigrationCase = {
   },
 }
 
-const DATA_MIGRATIONS: readonly DataMigrationCase[] = [theWardens, theExchanges]
+const theRhythms: DataMigrationCase = {
+  migration: '0359_declared_rhythm_minutes',
+  after: '0358_numerous_hellfire_club',
+  moves: 'existing declared rhythms from hours to exact minutes',
+
+  async seed(db) {
+    const [row] = await db.execute<{ id: string }>(
+      sql`insert into agents (name, platform, declared_rhythm_hours)
+          values (${aName('rhythm-case')}, 'openclaw', 12)
+          returning id`,
+    )
+    return { agent: row!.id }
+  },
+
+  async check(db, seeded) {
+    const rhythm = async () => {
+      const [row] = await db.execute<{
+        declared_rhythm_hours: number | null
+        declared_rhythm_minutes: number | null
+      }>(
+        sql`select declared_rhythm_hours, declared_rhythm_minutes
+              from agents where id = ${seeded['agent']!}`,
+      )
+      return row!
+    }
+
+    expect(await rhythm()).toEqual({ declared_rhythm_hours: 12, declared_rhythm_minutes: 720 })
+
+    await db.execute(
+      sql`update agents set declared_rhythm_hours = 8 where id = ${seeded['agent']!}`,
+    )
+    expect(await rhythm()).toEqual({ declared_rhythm_hours: 8, declared_rhythm_minutes: 480 })
+
+    await db.execute(
+      sql`update agents set declared_rhythm_minutes = 60 where id = ${seeded['agent']!}`,
+    )
+    expect(await rhythm()).toEqual({ declared_rhythm_hours: 1, declared_rhythm_minutes: 60 })
+
+    await db.execute(
+      sql`update agents set declared_rhythm_minutes = 30 where id = ${seeded['agent']!}`,
+    )
+    expect(await rhythm()).toEqual({ declared_rhythm_hours: null, declared_rhythm_minutes: 30 })
+  },
+}
+
+const DATA_MIGRATIONS: readonly DataMigrationCase[] = [theWardens, theExchanges, theRhythms]
 
 /**
  * **A migration that moves data, run against a database that has some**

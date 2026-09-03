@@ -3,10 +3,12 @@ import { DEFAULT_RHYTHM_BOUNDS, RhythmBoundsSchema, rhythmRefusal } from './rhyt
 
 describe('rhythm bounds', () => {
   it('accepts a range a citizen could choose inside', () => {
-    expect(RhythmBoundsSchema.parse({ minHours: 1, defaultHours: 4, maxHours: 48 })).toEqual({
-      minHours: 1,
-      defaultHours: 4,
-      maxHours: 48,
+    expect(
+      RhythmBoundsSchema.parse({ minMinutes: 10, defaultMinutes: 240, maxMinutes: 2880 }),
+    ).toEqual({
+      minMinutes: 10,
+      defaultMinutes: 240,
+      maxMinutes: 2880,
     })
   })
 
@@ -14,16 +16,19 @@ describe('rhythm bounds', () => {
   // otherwise produce a Colony refusing every declaration one at a time.
   it('refuses a range with nothing in it', () => {
     expect(
-      RhythmBoundsSchema.safeParse({ minHours: 24, defaultHours: 12, maxHours: 6 }).success,
+      RhythmBoundsSchema.safeParse({ minMinutes: 1440, defaultMinutes: 720, maxMinutes: 360 })
+        .success,
     ).toBe(false)
   })
 
   it('refuses a default the same bounds would reject', () => {
     expect(
-      RhythmBoundsSchema.safeParse({ minHours: 6, defaultHours: 48, maxHours: 24 }).success,
+      RhythmBoundsSchema.safeParse({ minMinutes: 360, defaultMinutes: 2880, maxMinutes: 1440 })
+        .success,
     ).toBe(false)
     expect(
-      RhythmBoundsSchema.safeParse({ minHours: 6, defaultHours: 2, maxHours: 24 }).success,
+      RhythmBoundsSchema.safeParse({ minMinutes: 360, defaultMinutes: 120, maxMinutes: 1440 })
+        .success,
     ).toBe(false)
   })
 })
@@ -32,16 +37,16 @@ describe('rhythmRefusal', () => {
   const bounds = DEFAULT_RHYTHM_BOUNDS
 
   it('accepts the ends of the range as well as the middle', () => {
-    for (const hours of [bounds.minHours, bounds.defaultHours, bounds.maxHours]) {
+    for (const hours of [bounds.minMinutes, bounds.defaultMinutes, bounds.maxMinutes]) {
       expect(rhythmRefusal(hours, bounds)).toBeNull()
     }
   })
 
   it('refuses a rhythm below the minimum, naming the range', () => {
-    const refusal = rhythmRefusal(bounds.minHours - 1, bounds)
+    const refusal = rhythmRefusal(bounds.minMinutes - 1, bounds)
 
-    expect(refusal).toContain(String(bounds.minHours))
-    expect(refusal).toContain(String(bounds.maxHours))
+    expect(refusal).toContain(String(bounds.minMinutes))
+    expect(refusal).toContain(String(bounds.maxMinutes))
   })
 
   /**
@@ -52,20 +57,21 @@ describe('rhythmRefusal', () => {
    * the case that had no test is exactly the one that shipped wrong.
    */
   it('accepts an hourly rhythm at the default bounds', () => {
-    expect(DEFAULT_RHYTHM_BOUNDS.minHours).toBe(1)
-    expect(rhythmRefusal(1, DEFAULT_RHYTHM_BOUNDS)).toBeNull()
-    expect(rhythmRefusal(3, DEFAULT_RHYTHM_BOUNDS)).toBeNull()
-    expect(rhythmRefusal(0, DEFAULT_RHYTHM_BOUNDS)).toContain('below the minimum')
+    expect(DEFAULT_RHYTHM_BOUNDS.minMinutes).toBe(10)
+    expect(rhythmRefusal(10, DEFAULT_RHYTHM_BOUNDS)).toBeNull()
+    expect(rhythmRefusal(30, DEFAULT_RHYTHM_BOUNDS)).toBeNull()
+    expect(rhythmRefusal(60, DEFAULT_RHYTHM_BOUNDS)).toBeNull()
+    expect(rhythmRefusal(9, DEFAULT_RHYTHM_BOUNDS)).toContain('below the minimum')
   })
 
   it('refuses a rhythm above the maximum, naming the range', () => {
-    const refusal = rhythmRefusal(72, bounds)
+    const refusal = rhythmRefusal(bounds.maxMinutes + 1, bounds)
 
-    expect(refusal).toContain(String(bounds.maxHours))
+    expect(refusal).toContain(String(bounds.maxMinutes))
     expect(refusal).toContain('above the maximum')
   })
 
-  it('refuses a rhythm that is not a whole number of hours', () => {
+  it('refuses a rhythm that is not a whole number of minutes', () => {
     expect(rhythmRefusal(12.5, bounds)).toContain('whole number')
   })
 
@@ -75,10 +81,10 @@ describe('rhythmRefusal', () => {
    * is written to prevent, one layer up.
    */
   it('names whatever bounds it was given, not the defaults', () => {
-    const narrow = { minHours: 2, defaultHours: 3, maxHours: 4 }
+    const narrow = { minMinutes: 20, defaultMinutes: 30, maxMinutes: 40 }
 
-    expect(rhythmRefusal(12, narrow)).toContain('maximum of 4')
-    expect(rhythmRefusal(1, narrow)).toContain('minimum of 2')
-    expect(rhythmRefusal(3, narrow)).toBeNull()
+    expect(rhythmRefusal(120, narrow)).toContain('maximum of 40')
+    expect(rhythmRefusal(10, narrow)).toContain('minimum of 20')
+    expect(rhythmRefusal(30, narrow)).toBeNull()
   })
 })

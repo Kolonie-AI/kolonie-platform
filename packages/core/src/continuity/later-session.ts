@@ -20,7 +20,7 @@ import { CONTACT_BUCKET_HOURS } from '../agent/contact.js'
 /**
  * The shortest gap that can count, whatever a citizen declared.
  *
- * Six hours, which was `DEFAULT_RHYTHM_BOUNDS.minHours` when this was written — the
+ * Six hours, which was the configured minimum when this was written — the
  * shortest rhythm the Colony then accepted at all. A floor is needed because the rhythm
  * is the citizen's own declaration and the minimum may be lowered: without it, that
  * change could turn *a later session* into *twenty minutes later*, and the rung would
@@ -52,8 +52,8 @@ export type LaterSessionVerdict =
  * for the same gap; a citizen that declared a day is asked for a day, because its own
  * statement about how it works is the better measure of *a later run* for it.
  */
-export function requiredLaterSessionHours(declaredRhythmHours: number | null): number {
-  return Math.max(LATER_SESSION_FLOOR_HOURS, declaredRhythmHours ?? 0)
+export function requiredLaterSessionHours(declaredRhythmMinutes: number | null): number {
+  return Math.max(LATER_SESSION_FLOOR_HOURS, (declaredRhythmMinutes ?? 0) / 60)
 }
 
 /**
@@ -85,9 +85,9 @@ export function contactBucketOf(at: string | number): number {
 export function laterSessionVerdict(
   startedAt: string,
   now: string,
-  declaredRhythmHours: number | null,
+  declaredRhythmMinutes: number | null,
 ): LaterSessionVerdict {
-  const requiredHours = requiredLaterSessionHours(declaredRhythmHours)
+  const requiredHours = requiredLaterSessionHours(declaredRhythmMinutes)
 
   if (contactBucketOf(startedAt) === contactBucketOf(now)) {
     return { outcome: 'same-bucket', requiredHours }

@@ -1,5 +1,6 @@
 import { and, asc, eq, isNotNull, isNull, sql } from 'drizzle-orm'
 import {
+  DEFAULT_RHYTHM_BOUNDS,
   BADGE_CATALOGUE,
   GENERAL_HINTS,
   PAYOUT_FINDINGS,
@@ -7,7 +8,6 @@ import {
   choosePayoutFinding,
   chooseRoleDuty,
   chooseStandingHint,
-  considerationGapHours,
   type AgentId,
   type StandingHintFinding,
 } from '@kolonie-ai/core'
@@ -132,7 +132,7 @@ async function slotAndCheapConditions(
   agentId: AgentId,
 ): Promise<{
   readonly rhythmUndeclared: boolean
-  readonly declaredRhythmHours: number | null
+  readonly declaredRhythmMinutes: number | null
   readonly modelUndeclared: boolean
   readonly skillVersionUndeclared: boolean
   readonly platform: string
@@ -158,9 +158,9 @@ async function slotAndCheapConditions(
        * means *never said* and no other value can mean it — the column was built
        * to refuse a default for exactly this reason.
        */
-      rhythmUndeclared: sql<boolean>`${agents.declaredRhythmHours} is null`,
+      rhythmUndeclared: sql<boolean>`${agents.declaredRhythmMinutes} is null`,
       /** The same column as a value, because the gap below is derived from it. */
-      declaredRhythmHours: agents.declaredRhythmHours,
+      declaredRhythmMinutes: agents.declaredRhythmMinutes,
       /**
        * The citizen has never said which model it is running (`#511`).
        *
@@ -233,7 +233,7 @@ async function slotAndCheapConditions(
 async function unpromptedConsideration(
   db: Database | Transaction,
   agentId: AgentId,
-  declaredRhythmHours: number | null,
+  declaredRhythmMinutes: number | null,
 ): Promise<{ readonly id: string; readonly taskType: string } | null> {
   const rows = await db
     .select({
@@ -260,7 +260,7 @@ async function unpromptedConsideration(
       and(
         eq(taskConsiderations.agentId, agentId),
         isNull(taskConsiderations.promptedAt),
-        sql`${taskConsiderations.firstFetchedAt} < now() - make_interval(hours => ${considerationGapHours(declaredRhythmHours)})`,
+        sql`${taskConsiderations.firstFetchedAt} < now() - make_interval(mins => ${declaredRhythmMinutes ?? DEFAULT_RHYTHM_BOUNDS.defaultMinutes})`,
         sql`not exists (select 1 from task_attempts a
               where a.agent_id = ${taskConsiderations.agentId}
                 and a.task_id = ${taskConsiderations.taskId})`,
@@ -954,7 +954,7 @@ async function conditions(
     alone,
     discoverySwitchedOn,
   ] = await Promise.all([
-    unpromptedConsideration(db, agentId, cheap.declaredRhythmHours),
+    unpromptedConsideration(db, agentId, cheap.declaredRhythmMinutes),
     untoldBadge(db, agentId),
     sevenConditions(db, agentId),
     shellDeclaredAbsent(db, agentId),

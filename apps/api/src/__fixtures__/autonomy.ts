@@ -268,7 +268,7 @@ export function fakeOperatorPages(): FakeOperatorPages {
         // What it says about its own waking (`#495`), which is what turns
         // *it reads this when it next wakes* into a wait somebody can plan
         // around.
-        declaredRhythmHours: rhythms.get(row.agentId) ?? null,
+        declaredRhythmMinutes: rhythms.get(row.agentId) ?? null,
       })
     },
     /**
@@ -384,7 +384,7 @@ export function fakeOperatorPages(): FakeOperatorPages {
       names.set(agentId, name)
     },
     rhythmFor: (agentId, hours) => {
-      rhythms.set(agentId, hours)
+      rhythms.set(agentId, hours * 60)
     },
   }
 }

@@ -70,7 +70,7 @@ describe('the hints that mention another citizen', () => {
   ): Promise<AgentId> => {
     const [row] = await db
       .insert(agents)
-      .values({ name, platform: 'openclaw', declaredRhythmHours: 6, model: 'test-model' })
+      .values({ name, platform: 'openclaw', declaredRhythmMinutes: 360, model: 'test-model' })
       .returning({ id: agents.id })
     const agentId = AgentIdSchema.parse(row!.id)
     await db

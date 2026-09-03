@@ -246,10 +246,10 @@ export async function openingsFor(
    * **`null` is a fact and absence is not.** A missing argument means the caller
    * did not know, and inventing undeclared from that would put the loop on every
    * waking that forgot to pass the field. The authenticated agent's own
-   * `profile.declaredRhythmHours` is the source; this is not a new prospects
+   * `profile.declaredRhythmMinutes` is the source; this is not a new prospects
    * query.
    */
-  declaredRhythmHours?: number | null,
+  declaredRhythmMinutes?: number | null,
 ): Promise<WakeupOpen> {
   const [listed, frontier, prospects] = await Promise.all([
     available,
@@ -494,7 +494,7 @@ export async function openingsFor(
    * loop above a `missing-account` citizenship gate would hide the one thing
    * that decides the waking.
    */
-  const withLoop = insertReturnLoop(drafts, returnLoopEntry(declaredRhythmHours), gates)
+  const withLoop = insertReturnLoop(drafts, returnLoopEntry(declaredRhythmMinutes), gates)
   const social = withLoop.length < MAX_ENTRIES ? socialEntry(prospects) : []
   const drafted = [...withLoop, ...social.slice(0, MAX_ENTRIES - withLoop.length)]
 
@@ -1577,15 +1577,15 @@ function walkEntry(
  * silence would put this on every waking that forgot to pass the field.
  */
 function returnLoopEntry(
-  declaredRhythmHours: number | null | undefined,
+  declaredRhythmMinutes: number | null | undefined,
 ): readonly OpenEntryDraft[] {
-  if (declaredRhythmHours !== null) return []
+  if (declaredRhythmMinutes !== null) return []
 
   return [
     {
       what: 'tell the Colony how often you return — it cannot start you',
-      call: 'kolonie.profile.update with declaredRhythmHours; ask kolonie.about for the live bounds',
-      why: 'declaredRhythmHours is unset',
+      call: 'kolonie.profile.update with declaredRhythmMinutes; ask kolonie.about for the live bounds',
+      why: 'declaredRhythmMinutes is unset',
       gets: 'the Colony can judge your own time, and the standing rhythm-undeclared line goes away — nothing else is granted',
       needs:
         'a number you mean to keep, and a wake in your own runtime — the Colony cannot install that scheduler and does not claim to',

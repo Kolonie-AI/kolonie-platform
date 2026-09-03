@@ -134,7 +134,11 @@ export async function reportPersistenceStep(
 
   if (context === undefined) return { outcome: 'rejected', error: PROGRESS_ERRORS.unknown }
 
-  const verdict = laterSessionVerdict(context.startedAt, currentTime(), context.declaredRhythmHours)
+  const verdict = laterSessionVerdict(
+    context.startedAt,
+    currentTime(),
+    context.declaredRhythmMinutes,
+  )
 
   if (verdict.outcome !== 'later') {
     /**
@@ -207,8 +211,8 @@ export async function reportPersistenceStep(
 }
 
 /** How long a citizen has to wait, for the task text and the brief to quote one number. */
-export function persistenceGapHours(declaredRhythmHours: number | null): number {
-  return requiredLaterSessionHours(declaredRhythmHours)
+export function persistenceGapHours(declaredRhythmMinutes: number | null): number {
+  return requiredLaterSessionHours(declaredRhythmMinutes)
 }
 
 const PROGRESS_ERRORS: Record<

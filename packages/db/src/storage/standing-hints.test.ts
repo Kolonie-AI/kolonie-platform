@@ -58,7 +58,7 @@ describe('the standing hint a citizen did not ask for', () => {
 
   /** A citizen that has never said how often it wakes — the live condition. */
   const anAgent = async (
-    declaredRhythmHours: number | null = null,
+    declaredRhythmMinutes: number | null = null,
     // Declared by default (`#511`), on the same reasoning as the operator claim
     // below: `model-undeclared` is true of every freshly registered agent, and a
     // test about a different condition should not have to reason about it. The
@@ -67,7 +67,7 @@ describe('the standing hint a citizen did not ask for', () => {
   ): Promise<AgentId> => {
     const [row] = await db
       .insert(agents)
-      .values({ name: `hinted-${++seeded}`, platform: 'openclaw', declaredRhythmHours, model })
+      .values({ name: `hinted-${++seeded}`, platform: 'openclaw', declaredRhythmMinutes, model })
       .returning({ id: agents.id })
     if (row === undefined) throw new Error('inserting an agent returned no row')
     const agentId = AgentIdSchema.parse(row.id)
@@ -166,7 +166,7 @@ describe('the standing hint a citizen did not ask for', () => {
     await aSession(agentId, 'before')
     expect((await dueStandingHint(db, agentId))?.code).toBe('rhythm-undeclared')
 
-    await db.update(agents).set({ declaredRhythmHours: 8 }).where(eq(agents.id, agentId))
+    await db.update(agents).set({ declaredRhythmMinutes: 480 }).where(eq(agents.id, agentId))
     await withNothingGeneralLeft(agentId)
 
     await aSession(agentId, 'after')
@@ -188,7 +188,7 @@ describe('the standing hint a citizen did not ask for', () => {
     expect(await dueStandingHint(db, agentId)).toBeNull()
     expect(await hintedAt(agentId)).toBeNull()
 
-    await db.update(agents).set({ declaredRhythmHours: null }).where(eq(agents.id, agentId))
+    await db.update(agents).set({ declaredRhythmMinutes: null }).where(eq(agents.id, agentId))
 
     expect((await dueStandingHint(db, agentId))?.code).toBe('rhythm-undeclared')
   })
@@ -366,7 +366,7 @@ describe('a task the citizen considered and never attempted', () => {
       .values({
         name: `considering-${++seeded}`,
         platform: 'openclaw',
-        declaredRhythmHours,
+        declaredRhythmMinutes: declaredRhythmHours === null ? null : declaredRhythmHours * 60,
         // A declared model, for the same reason as the claim below (`#511`).
         model: 'test-model-1',
         generalHintsTold: GENERAL_HINTS.map((hint) => hint.code),
@@ -681,7 +681,7 @@ describe('the general standing hints', () => {
       .values({
         name: `general-${++seeded}`,
         platform: 'openclaw',
-        declaredRhythmHours: 6,
+        declaredRhythmMinutes: 360,
         skillVersion: '1.0.0',
         model: 'test-model-1',
       })
@@ -791,7 +791,7 @@ describe('the general standing hints', () => {
    */
   it('is outranked by any condition that is about this citizen', async () => {
     const agentId = await anAgent()
-    await db.update(agents).set({ declaredRhythmHours: null }).where(eq(agents.id, agentId))
+    await db.update(agents).set({ declaredRhythmMinutes: null }).where(eq(agents.id, agentId))
     await aSession(agentId)
 
     expect((await dueStandingHint(db, agentId))?.code).toBe('rhythm-undeclared')
@@ -845,7 +845,7 @@ describe('the seven conditions the Colony kept to itself', () => {
       .values({
         name: `seven-${++seeded}`,
         platform: 'openclaw',
-        declaredRhythmHours: 6,
+        declaredRhythmMinutes: 360,
         skillVersion: '1.0.0',
         // Declared, for `anAgent`'s reason (`#511`): a citizen used to test one
         // condition should be quiet about every other one.

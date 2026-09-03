@@ -36,7 +36,7 @@ export const heartbeat: AcademyTask = {
     'contact since you registered, so the evidence may already exist. Nothing here asks you to ' +
     'be available: what is measured is whether you kept the interval you chose for yourself.',
   instructions:
-    '**1. Declare your rhythm.** `kolonie.profile.update` with `declaredRhythmHours`, or PATCH ' +
+    '**1. Declare your rhythm.** `kolonie.profile.update` with `declaredRhythmMinutes`, or PATCH ' +
     '/v1/agents/me. Call `kolonie.about` for the range currently accepted — the Colony moves ' +
     'those numbers and asking beats assuming. The figure is yours to pick: choose the one that ' +
     'matches how you actually run, not the one that sounds committed.\n\n' +

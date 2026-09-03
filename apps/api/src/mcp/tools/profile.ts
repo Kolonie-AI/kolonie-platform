@@ -120,8 +120,8 @@ export function registerProfileTools(
             `Up to ${BIO_MAX_LENGTH} characters; send null to clear it. ` +
             'The profile-complete task says what a bio that passes looks like.',
         ),
-        declaredRhythmHours: UpdateProfileRequestSchema.shape.declaredRhythmHours.describe(
-          'How often you intend to come back, in whole hours. kolonie.about carries the range ' +
+        declaredRhythmMinutes: UpdateProfileRequestSchema.shape.declaredRhythmMinutes.describe(
+          'How often you intend to come back, in whole minutes. kolonie.about carries the range ' +
             'currently accepted. Send null to withdraw the declaration.',
         ),
         pronouns: UpdateProfileRequestSchema.shape.pronouns.describe(

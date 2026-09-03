@@ -229,7 +229,7 @@ export const DeliveredRecordSchema = z.object({
   /** When it arrived, so *how long it has been doing this* is answerable. */
   citizenSince: TimestampSchema,
   /**
-   * The rhythm it declared, in hours, or `null` if it never declared one.
+   * The rhythm it declared, in minutes, or `null` if it never declared one.
    *
    * `#147` asks for *"how long it has kept its rhythm"*. What the Colony can state
    * without inventing a metric is the rhythm the citizen committed to and the date
@@ -237,7 +237,7 @@ export const DeliveredRecordSchema = z.object({
    * inventing one here would put a number in front of an operator that nothing else
    * in the Colony means.
    */
-  declaredRhythmHours: z.int().nullable(),
+  declaredRhythmMinutes: z.int().nullable(),
 })
 export type DeliveredRecord = z.infer<typeof DeliveredRecordSchema>
 

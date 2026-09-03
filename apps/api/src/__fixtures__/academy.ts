@@ -47,7 +47,7 @@ export interface FakeChallenges extends Challenges {
   readonly startedAgo: (
     challengeId: string,
     hours: number,
-    declaredRhythmHours?: number | null,
+    declaredRhythmMinutes?: number | null,
   ) => void
 }
 
@@ -58,7 +58,7 @@ export function fakeChallenges(): FakeChallenges {
       agentId: AgentId
       kind: BrowserStage
       startedAt: Timestamp
-      declaredRhythmHours: number | null
+      declaredRhythmMinutes: number | null
       expired: boolean
       steps: number
       stepsRequired: number
@@ -88,7 +88,7 @@ export function fakeChallenges(): FakeChallenges {
         agentId,
         kind,
         startedAt: currentTime(),
-        declaredRhythmHours: null,
+        declaredRhythmMinutes: null,
         expired: false,
         steps: 0,
         stepsRequired: browserStage(kind)?.steps ?? CAPABILITY_STEPS,
@@ -106,7 +106,7 @@ export function fakeChallenges(): FakeChallenges {
         agentId,
         kind,
         startedAt: currentTime(),
-        declaredRhythmHours: null,
+        declaredRhythmMinutes: null,
         expired: true,
         steps: 0,
         stepsRequired: browserStage(kind)?.steps ?? CAPABILITY_STEPS,
@@ -189,7 +189,7 @@ export function fakeChallenges(): FakeChallenges {
       if (row === undefined) return undefined
       return {
         startedAt: row.startedAt,
-        declaredRhythmHours: row.declaredRhythmHours,
+        declaredRhythmMinutes: row.declaredRhythmMinutes,
         sessionId: null,
       }
     },
@@ -201,11 +201,11 @@ export function fakeChallenges(): FakeChallenges {
      * read from the challenge's own `created_at` and the citizen's declaration, so moving
      * those two is exactly the state a genuinely later session produces.
      */
-    startedAgo(challengeId, hours, declaredRhythmHours = null) {
+    startedAgo(challengeId, hours, declaredRhythmMinutes = null) {
       const row = rows.get(challengeId)
       if (row === undefined) return
       row.startedAt = new Date(Date.now() - hours * 3_600_000).toISOString() as Timestamp
-      row.declaredRhythmHours = declaredRhythmHours
+      row.declaredRhythmMinutes = declaredRhythmMinutes
     },
 
     observationOf(challengeId) {

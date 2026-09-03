@@ -1104,6 +1104,6 @@ export function chooseStandingHint(
  * exempted. Silence is not a claim to a slower cadence — and the hint asking it
  * to declare one outranks this, so it is told in the useful order anyway.
  */
-export function considerationGapHours(declaredRhythmHours: number | null): number {
-  return declaredRhythmHours ?? DEFAULT_RHYTHM_BOUNDS.defaultHours
+export function considerationGapHours(declaredRhythmMinutes: number | null): number {
+  return (declaredRhythmMinutes ?? DEFAULT_RHYTHM_BOUNDS.defaultMinutes) / 60
 }

@@ -7,9 +7,9 @@ import {
 } from '@kolonie-ai/core'
 
 /** The three variables a deployment sets to move the range. */
-export const RHYTHM_MIN_HOURS_VAR = 'RHYTHM_MIN_HOURS'
-export const RHYTHM_DEFAULT_HOURS_VAR = 'RHYTHM_DEFAULT_HOURS'
-export const RHYTHM_MAX_HOURS_VAR = 'RHYTHM_MAX_HOURS'
+export const RHYTHM_MIN_MINUTES_VAR = 'RHYTHM_MIN_MINUTES'
+export const RHYTHM_DEFAULT_MINUTES_VAR = 'RHYTHM_DEFAULT_MINUTES'
+export const RHYTHM_MAX_MINUTES_VAR = 'RHYTHM_MAX_MINUTES'
 
 /**
  * The Colony's current rhythm bounds, from the environment (#142).
@@ -46,20 +46,20 @@ export function rhythmBoundsFromEnv(env: NodeJS.ProcessEnv = process.env): Rhyth
 
     const parsed = Number(raw)
     if (!Number.isFinite(parsed)) {
-      throw new Error(`${name} must be a whole number of hours, not ${JSON.stringify(raw)}`)
+      throw new Error(`${name} must be a whole number of minutes, not ${JSON.stringify(raw)}`)
     }
     return parsed
   }
 
   const parsed = RhythmBoundsSchema.safeParse({
-    minHours: read(RHYTHM_MIN_HOURS_VAR, DEFAULT_RHYTHM_BOUNDS.minHours),
-    defaultHours: read(RHYTHM_DEFAULT_HOURS_VAR, DEFAULT_RHYTHM_BOUNDS.defaultHours),
-    maxHours: read(RHYTHM_MAX_HOURS_VAR, DEFAULT_RHYTHM_BOUNDS.maxHours),
+    minMinutes: read(RHYTHM_MIN_MINUTES_VAR, DEFAULT_RHYTHM_BOUNDS.minMinutes),
+    defaultMinutes: read(RHYTHM_DEFAULT_MINUTES_VAR, DEFAULT_RHYTHM_BOUNDS.defaultMinutes),
+    maxMinutes: read(RHYTHM_MAX_MINUTES_VAR, DEFAULT_RHYTHM_BOUNDS.maxMinutes),
   })
 
   if (!parsed.success) {
     throw new Error(
-      `${RHYTHM_MIN_HOURS_VAR}, ${RHYTHM_DEFAULT_HOURS_VAR} and ${RHYTHM_MAX_HOURS_VAR} do not ` +
+      `${RHYTHM_MIN_MINUTES_VAR}, ${RHYTHM_DEFAULT_MINUTES_VAR} and ${RHYTHM_MAX_MINUTES_VAR} do not ` +
         `describe a usable range: ${parsed.error.issues.map((issue) => issue.message).join('; ')}`,
     )
   }
@@ -79,17 +79,17 @@ export function rhythmBoundsFromEnv(env: NodeJS.ProcessEnv = process.env): Rhyth
  * about are the bounds that rejected it — one computation, not two that can
  * disagree.
  */
-export function declaredRhythmError(hours: number, bounds: RhythmBounds): ApiError | null {
-  const refusal = rhythmRefusal(hours, bounds)
+export function declaredRhythmError(minutes: number, bounds: RhythmBounds): ApiError | null {
+  const refusal = rhythmRefusal(minutes, bounds)
   if (refusal === null) return null
 
   return {
     code: 'validation_failed',
     message: refusal,
     details: {
-      declaredRhythmHours: refusal,
-      minHours: String(bounds.minHours),
-      maxHours: String(bounds.maxHours),
+      declaredRhythmMinutes: refusal,
+      minMinutes: String(bounds.minMinutes),
+      maxMinutes: String(bounds.maxMinutes),
     },
   }
 }

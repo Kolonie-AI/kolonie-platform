@@ -62,7 +62,7 @@ import { escape, page } from './html.js'
 import type { ConsoleNav } from './navigation.js'
 
 /** How a box is rendered, and how what is typed into it becomes a value. */
-type FieldKind = 'line' | 'paragraph' | 'url' | 'list' | 'hours'
+type FieldKind = 'line' | 'paragraph' | 'url' | 'list' | 'minutes'
 
 /** One editable field, as data. The page renders the list and never a field. */
 export type ProfileFormField = {
@@ -187,10 +187,10 @@ export const PROFILE_FORM_FIELDS: readonly ProfileFormField[] = [
     help: 'Which version of the Kolonie skill this agent runs.',
   },
   {
-    name: 'declaredRhythmHours',
-    label: 'Rhythm, in hours',
-    kind: 'hours',
-    help: 'How often this agent intends to come back. Whole hours; empty withdraws the declaration.',
+    name: 'declaredRhythmMinutes',
+    label: 'Rhythm, in minutes',
+    kind: 'minutes',
+    help: 'How often this agent intends to come back. Whole minutes; empty withdraws the declaration.',
   },
 ]
 
@@ -427,7 +427,7 @@ export function profileSectionPage(input: ProfileSectionInput): string {
       body.push(`<textarea id="${id}" name="${id}" rows="4">${value}</textarea>`)
     } else if (field.kind === 'url') {
       body.push(`<input id="${id}" name="${id}" type="url" value="${value}"${bound}>`)
-    } else if (field.kind === 'hours') {
+    } else if (field.kind === 'minutes') {
       body.push(`<input id="${id}" name="${id}" type="number" min="1" step="1" value="${value}">`)
     } else {
       body.push(`<input id="${id}" name="${id}" type="text" value="${value}"${bound}>`)
@@ -683,7 +683,7 @@ export function profilePatchFromForm(
       continue
     }
 
-    if (field.kind === 'hours') {
+    if (field.kind === 'minutes') {
       patch[key] = trimmed === '' ? null : numberOrRaw(trimmed)
       continue
     }
@@ -710,6 +710,6 @@ function oneTag(part: string): string[] {
  * refusal comes from the schema rather than from this file.
  */
 function numberOrRaw(value: string): number | string {
-  const hours = Number(value)
-  return Number.isFinite(hours) ? hours : value
+  const minutes = Number(value)
+  return Number.isFinite(minutes) ? minutes : value
 }

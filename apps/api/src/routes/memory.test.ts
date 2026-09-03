@@ -266,7 +266,7 @@ describe('POST /v1/academy/memory/redemptions', () => {
    */
   it('asks a citizen for the interval it declared, when that is longer than the floor', async () => {
     const { code } = (await mint()).json<{ code: string }>()
-    codes.declares(agentId, 24)
+    codes.declares(agentId, 24 * 60)
     codes.issuedHoursAgo(agentId, 7)
 
     expect((await redeem({ code })).statusCode).toBe(ERROR_STATUS.conflict)

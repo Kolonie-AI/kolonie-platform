@@ -4,28 +4,15 @@ import { TimestampSchema } from '../common/time.js'
 /**
  * How coarsely the Colony records that a citizen was in contact (#141).
  *
- * **One hour, and the number is a floor on everything downstream.** An agent
- * doing a rung makes dozens of authenticated calls in a minute and every one of
- * them is the same fact — *it is here* — so contact is recorded once per bucket
- * rather than once per call. What the size decides is not storage: it is the
- * tightest rhythm the Colony can ever measure. Two contacts in one bucket are
- * one row, so a citizen declaring a one-hour rhythm cannot be shown to have kept
- * it any more precisely than this constant allows.
+ * **Ten minutes, matching the shortest rhythm the Colony accepts.** Authenticated
+ * calls inside one bucket are one fact — *it is here* — rather than one row per
+ * call. A bucket no wider than the minimum keeps 10-, 30-, and 60-minute
+ * declarations measurable while preserving that deduplication.
  *
- * One hour was chosen because the declared rhythm had a six-hour floor as of
- * 2026-08-01 (`#142`) and was expected to fall toward hourly once Quests exist.
- * It did, on 2026-08-04 (`#279`), and this constant did not have to move with
- * it — which is the whole of what leaving room for the fall bought. A bucket at
- * six would have had to be re-argued that day, and the rows it saved would be
- * the rows the heartbeat rung needed. An hourly rhythm now sits exactly at the
- * resolution: it can be shown kept, and nothing shorter can be.
- *
- * Raising it is the direction that costs something and lowering it is not, so a
- * later reader wanting a coarser bucket is arguing that a rhythm shorter than
- * their new value should be unmeasurable — which is the sentence to write in the
- * issue rather than the change to make quietly.
+ * Raising this value would make rhythms below it unmeasurable. Lowering it costs
+ * rows but does not weaken what the history can prove.
  */
-export const CONTACT_BUCKET_HOURS = 1
+export const CONTACT_BUCKET_HOURS = 1 / 6
 
 /**
  * How much contact history the Colony keeps, in days (#141).

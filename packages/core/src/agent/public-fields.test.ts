@@ -50,7 +50,7 @@ describe('the public field lists', () => {
    * it is refused is not obvious from the column name.
    */
   it('refuses the three fields that look publishable and are not', () => {
-    for (const refused of ['disposition', 'goal', 'declaredRhythmHours']) {
+    for (const refused of ['disposition', 'goal', 'declaredRhythmMinutes']) {
       expect(PRIVATE_AGENT_COLUMNS).toContain(refused)
       expect(PUBLIC_CITIZEN_FIELDS).not.toContain(refused)
     }

@@ -157,7 +157,7 @@ export interface OperatorPageView {
    * answers about every six hours* — and it is only ever rendered beside a box
    * somebody is about to type into.
    */
-  readonly declaredRhythmHours: number | null
+  readonly declaredRhythmMinutes: number | null
 }
 
 /**
@@ -251,9 +251,9 @@ export async function openOperatorPage(
   const [agent] = await db.execute<{
     name: string
     created_at: string
-    declared_rhythm_hours: number | null
+    declared_rhythm_minutes: number | null
   }>(
-    sql`select name, created_at, declared_rhythm_hours
+    sql`select name, created_at, declared_rhythm_minutes
           from agents where id = ${row.agentId}`,
   )
 
@@ -270,7 +270,7 @@ export async function openOperatorPage(
     contractAlsoCovered,
     badges,
     facts,
-    declaredRhythmHours: agent?.declared_rhythm_hours ?? null,
+    declaredRhythmMinutes: agent?.declared_rhythm_minutes ?? null,
   }
 }
 

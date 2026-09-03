@@ -80,19 +80,19 @@ export async function setAside(
   // interval cannot be computed from an `Agent` assembled earlier in the request
   // and made stale by a rhythm declared in between.
   const [agent] = await db
-    .select({ declaredRhythmHours: agents.declaredRhythmHours })
+    .select({ declaredRhythmMinutes: agents.declaredRhythmMinutes })
     .from(agents)
     .where(eq(agents.id, agentId))
     .limit(1)
 
   const hours = setAsideClearsAfterHours(
     reason,
-    agent?.declaredRhythmHours ?? null,
-    DEFAULT_RHYTHM_BOUNDS.defaultHours,
+    agent?.declaredRhythmMinutes ?? null,
+    DEFAULT_RHYTHM_BOUNDS.defaultMinutes,
   )
 
   const clearsAt =
-    hours === null ? null : sql<string>`now() + make_interval(hours => ${hours}::int)`
+    hours === null ? null : sql<string>`now() + (${hours}::numeric * interval '1 hour')`
 
   const [row] = await db
     .insert(taskSetAsides)

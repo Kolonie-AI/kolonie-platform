@@ -359,7 +359,7 @@ export function fakeAgent(deps: {
         bio: null,
         capabilities: [],
         avatarUrl: null,
-        declaredRhythmHours: null,
+        declaredRhythmMinutes: null,
         vocation: null,
         disposition: null,
         goal: null,
@@ -769,8 +769,8 @@ export function fakeAgent(deps: {
             case 'skillVersion':
               profile.skillVersion = request.skillVersion ?? null
               break
-            case 'declaredRhythmHours':
-              profile.declaredRhythmHours = request.declaredRhythmHours ?? null
+            case 'declaredRhythmMinutes':
+              profile.declaredRhythmMinutes = request.declaredRhythmMinutes ?? null
               break
             // The three that say where a citizen is going (`#140`). The fake
             // stores the text and nothing else: the classification is derived

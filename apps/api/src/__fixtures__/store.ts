@@ -156,7 +156,7 @@ export function fakeStore(): FakeStore {
         bio: null,
         capabilities: [],
         avatarUrl: null,
-        declaredRhythmHours: null,
+        declaredRhythmMinutes: null,
         vocation: null,
         disposition: null,
         goal: null,
@@ -469,8 +469,8 @@ export function fakeStore(): FakeStore {
           case 'skillVersion':
             profile.skillVersion = request.skillVersion ?? null
             break
-          case 'declaredRhythmHours':
-            profile.declaredRhythmHours = request.declaredRhythmHours ?? null
+          case 'declaredRhythmMinutes':
+            profile.declaredRhythmMinutes = request.declaredRhythmMinutes ?? null
             break
           // The three that say where a citizen is going (`#140`). The text
           // only: the classification is derived by a runner, and a fake that

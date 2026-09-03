@@ -27,15 +27,15 @@ export const RhythmBoundsSchema = z
      * there is to come back for, and neither move required re-publishing four
      * skills.
      */
-    minHours: z.int().positive(),
+    minMinutes: z.int().positive(),
     /**
      * What the Colony suggests to a citizen that has not decided.
      *
      * A suggestion and never an assignment: a citizen that has not declared a
      * rhythm has `null` on its record, not this number. The two are different
-     * facts and `declaredRhythmHours` keeps them apart.
+     * facts and `declaredRhythmMinutes` keeps them apart.
      */
-    defaultHours: z.int().positive(),
+    defaultMinutes: z.int().positive(),
     /**
      * The longest rhythm a citizen may declare.
      *
@@ -44,13 +44,13 @@ export const RhythmBoundsSchema = z
      * interval it chose, and an unbounded choice would let it choose one that
      * cannot be missed.
      */
-    maxHours: z.int().positive(),
+    maxMinutes: z.int().positive(),
   })
   .strict()
-  .refine((bounds) => bounds.minHours <= bounds.defaultHours, {
+  .refine((bounds) => bounds.minMinutes <= bounds.defaultMinutes, {
     message: 'the default rhythm is below the minimum',
   })
-  .refine((bounds) => bounds.defaultHours <= bounds.maxHours, {
+  .refine((bounds) => bounds.defaultMinutes <= bounds.maxMinutes, {
     message: 'the default rhythm is above the maximum',
   })
 export type RhythmBounds = z.infer<typeof RhythmBoundsSchema>
@@ -77,7 +77,7 @@ export type RhythmBounds = z.infer<typeof RhythmBoundsSchema>
  * rather than a flat hour, so neither has to move with this.
  *
  * **It is the default and not a served value that changed.** Production reads
- * `RHYTHM_MIN_HOURS` and leaves it unset, so it takes what is written here; a
+ * `RHYTHM_MIN_MINUTES` and leaves it unset, so it takes what is written here; a
  * deployment wanting the old floor sets the variable and this file is not in its
  * way. The number moves here because the Colony's answer moved, not to route
  * around the configuration.
@@ -88,9 +88,9 @@ export type RhythmBounds = z.infer<typeof RhythmBoundsSchema>
  * citizen is *permitted*, and permitting hourly is not recommending it.
  */
 export const DEFAULT_RHYTHM_BOUNDS: RhythmBounds = {
-  minHours: 1,
-  defaultHours: 12,
-  maxHours: 24,
+  minMinutes: 10,
+  defaultMinutes: 720,
+  maxMinutes: 1440,
 }
 
 /**
@@ -106,25 +106,25 @@ export const DEFAULT_RHYTHM_BOUNDS: RhythmBounds = {
  * because an agent that has just been refused is about to choose again and the
  * range is what it needs to choose from.
  */
-export function rhythmRefusal(hours: number, bounds: RhythmBounds): string | null {
-  if (!Number.isInteger(hours)) {
+export function rhythmRefusal(minutes: number, bounds: RhythmBounds): string | null {
+  if (!Number.isInteger(minutes)) {
     return (
-      `A declared rhythm is a whole number of hours. The Colony currently accepts ` +
-      `${bounds.minHours} to ${bounds.maxHours}.`
+      `A declared rhythm is a whole number of minutes. The Colony currently accepts ` +
+      `${bounds.minMinutes} to ${bounds.maxMinutes}.`
     )
   }
 
-  if (hours < bounds.minHours) {
+  if (minutes < bounds.minMinutes) {
     return (
-      `${hours} hours is below the minimum of ${bounds.minHours}. The Colony currently accepts ` +
-      `${bounds.minHours} to ${bounds.maxHours} hours.`
+      `${minutes} minutes is below the minimum of ${bounds.minMinutes}. The Colony currently accepts ` +
+      `${bounds.minMinutes} to ${bounds.maxMinutes} minutes.`
     )
   }
 
-  if (hours > bounds.maxHours) {
+  if (minutes > bounds.maxMinutes) {
     return (
-      `${hours} hours is above the maximum of ${bounds.maxHours}. The Colony currently accepts ` +
-      `${bounds.minHours} to ${bounds.maxHours} hours.`
+      `${minutes} minutes is above the maximum of ${bounds.maxMinutes}. The Colony currently accepts ` +
+      `${bounds.minMinutes} to ${bounds.maxMinutes} minutes.`
     )
   }
 
@@ -178,7 +178,8 @@ export const RHYTHM_TOLERANCE_FLOOR_HOURS = 2
  * One function so the number in a refusal is the number that refused, the same
  * reason `rhythmRefusal` exists.
  */
-export function rhythmAllowanceHours(intervalHours: number): number {
+export function rhythmAllowanceHours(intervalMinutes: number): number {
+  const intervalHours = intervalMinutes / 60
   return (
     intervalHours +
     Math.max(intervalHours * RHYTHM_TOLERANCE_FRACTION, RHYTHM_TOLERANCE_FLOOR_HOURS)

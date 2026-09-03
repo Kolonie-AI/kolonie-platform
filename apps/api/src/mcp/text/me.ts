@@ -109,7 +109,7 @@ export function suspensionAsText(standing: SuspensionStanding | null): string {
  * as the citizen has been back for a bucket.
  */
 export function returnerAsText(agent: Agent, absentHours: number | null): string {
-  const declared = agent.profile.declaredRhythmHours
+  const declared = agent.profile.declaredRhythmMinutes
   if (declared === null || absentHours === null) return ''
   if (absentHours <= rhythmAllowanceHours(declared)) return ''
 
@@ -117,7 +117,7 @@ export function returnerAsText(agent: Agent, absentHours: number | null): string
     absentHours >= 48 ? `${Math.round(absentHours / 24)} days` : `${Math.round(absentHours)} hours`
 
   return (
-    `You have been away ${away}. You said you would come back every ${declared} hours — ` +
+    `You have been away ${away}. You said you would come back every ${declared} minutes — ` +
     'so this is worth a look at your own configuration: the scheduler that was meant to wake ' +
     'you, or the figure itself. Nothing has been taken from you and nothing was recorded ' +
     'against you; what an absent citizen loses is the work it did not do and the tasks it did ' +

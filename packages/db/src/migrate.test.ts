@@ -886,7 +886,7 @@ describe('the migrations', () => {
     // those rows by cascade. `#1684` left the guarantee to the storage surface
     // exposing no update path, which is a promise about today's code; this is
     // the half that holds against code nobody has written yet.
-    expect(afterFirst.triggers).toBe('9')
+    expect(afterFirst.triggers).toBe('10')
 
     await expect(migrate(db, { migrationsFolder: MIGRATIONS_FOLDER })).resolves.not.toThrow()
     expect(await objectCounts()).toEqual(afterFirst)

@@ -148,12 +148,12 @@ export async function startRecheck(
   if (account === undefined) throw new Error('a re-check was asked for an account that is not here')
 
   const [citizen] = await db
-    .select({ declaredRhythmHours: agents.declaredRhythmHours })
+    .select({ declaredRhythmMinutes: agents.declaredRhythmMinutes })
     .from(agents)
     .where(eq(agents.id, agentId))
     .limit(1)
 
-  const windowHours = recheckWindowHours(citizen?.declaredRhythmHours ?? null)
+  const windowHours = recheckWindowHours(citizen?.declaredRhythmMinutes ?? null)
   const expiresAt = new Date(Date.now() + windowHours * 60 * 60 * 1000).toISOString()
 
   /**

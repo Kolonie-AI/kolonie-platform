@@ -246,7 +246,7 @@ export async function autonomyRecommendation(
       rungs: agent.skills.map((skill) => String(skill)),
       reputation,
       citizenSince: agent.createdAt,
-      declaredRhythmHours: agent.profile.declaredRhythmHours ?? null,
+      declaredRhythmMinutes: agent.profile.declaredRhythmMinutes ?? null,
     },
   }
 

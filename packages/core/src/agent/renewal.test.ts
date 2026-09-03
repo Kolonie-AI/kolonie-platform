@@ -31,7 +31,9 @@ describe('skills that fall due', () => {
     // tolerance, or a citizen keeping its promise would meet renewal while
     // still inside its own interval.
     for (const skill of Object.keys(SKILL_RENEWAL_HOURS)) {
-      expect(SKILL_RENEWAL_HOURS[skill as 'rhythm']!).toBeGreaterThan(rhythmAllowanceHours(24) * 5)
+      expect(SKILL_RENEWAL_HOURS[skill as 'rhythm']!).toBeGreaterThan(
+        rhythmAllowanceHours(24 * 60) * 5,
+      )
     }
   })
 })
@@ -60,8 +62,8 @@ describe('dormancy', () => {
    * against its declared rhythm without being anywhere near dormant.
    */
   it('is an order of magnitude beyond a missed rhythm', () => {
-    expect(DORMANT_AFTER_HOURS).toBeGreaterThan(rhythmAllowanceHours(24) * 5)
+    expect(DORMANT_AFTER_HOURS).toBeGreaterThan(rhythmAllowanceHours(24 * 60) * 5)
     // A citizen a day late on the widest rhythm there is, is not dormant.
-    expect(isDormant(hoursAgo(rhythmAllowanceHours(24) + 24), hoursAgo(10_000))).toBe(false)
+    expect(isDormant(hoursAgo(rhythmAllowanceHours(24 * 60) + 24), hoursAgo(10_000))).toBe(false)
   })
 })

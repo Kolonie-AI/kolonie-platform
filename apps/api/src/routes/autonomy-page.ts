@@ -221,7 +221,7 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
       badges: OperatorPageView['badges']
       contract: OperatorPageView['contract']
       facts: OperatorPageView['facts']
-      declaredRhythmHours: OperatorPageView['declaredRhythmHours']
+      declaredRhythmMinutes: OperatorPageView['declaredRhythmMinutes']
     },
     /**
      * The reader's clock, for a share's expiry (`#1634`).

@@ -87,9 +87,9 @@ export function recommendationAsText(recommendation: AutonomyRecommendation): st
     `Rungs passed: ${recommendation.delivered.rungs.length === 0 ? 'none yet' : recommendation.delivered.rungs.join(', ')}`,
     `Reputation: ${recommendation.delivered.reputation}`,
     `A citizen since: ${recommendation.delivered.citizenSince}`,
-    recommendation.delivered.declaredRhythmHours === null
+    recommendation.delivered.declaredRhythmMinutes === null
       ? 'Declared rhythm: none declared'
-      : `Declared rhythm: every ${recommendation.delivered.declaredRhythmHours} hours`,
+      : `Declared rhythm: every ${recommendation.delivered.declaredRhythmMinutes} minutes`,
     '',
     '## What you could not do, and why',
   ]

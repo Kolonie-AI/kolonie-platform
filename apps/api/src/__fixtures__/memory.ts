@@ -108,7 +108,7 @@ export function fakeMemoryCodes(): FakeMemoryCodes {
 
       return {
         issuedAt: open.issuedAt,
-        declaredRhythmHours: rhythms.get(agentId) ?? null,
+        declaredRhythmMinutes: rhythms.get(agentId) ?? null,
         sessionId: null,
       } satisfies MemoryCodeContext
     },

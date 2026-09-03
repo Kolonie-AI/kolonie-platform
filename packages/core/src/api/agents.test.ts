@@ -55,9 +55,9 @@ describe('UpdateProfileRequestSchema', () => {
           ? ['typescript']
           : field === 'avatarUrl'
             ? 'https://example.com/avatar.png'
-            : // A whole number of hours (#142). The range it has to fall inside
+            : // A whole number of minutes (#142). The range it has to fall inside
               // is configuration and is checked where that is read, not here.
-              field === 'declaredRhythmHours'
+              field === 'declaredRhythmMinutes'
               ? 12
               : // The three mutable fields that are switches rather than values
                 // (`#818`, `#960`, `#1067`): on or off, and no `null` meaning

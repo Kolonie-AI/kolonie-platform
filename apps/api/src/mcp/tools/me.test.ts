@@ -160,13 +160,13 @@ describe('kolonie.me', () => {
     describe('a citizen coming back after an absence', () => {
       it('opens with how long it was away and what it had said', async () => {
         const { colony, agent, apiKey } = await authenticatedColony()
-        await colony.store.updateProfile(agent.id, { declaredRhythmHours: 12 })
+        await colony.store.updateProfile(agent.id, { declaredRhythmMinutes: 720 })
         colony.returnAfter(agent.id, 96)
 
         const text = await meText(colony, apiKey)
 
         expect(text.startsWith('You have been away 4 days.')).toBe(true)
-        expect(text).toContain('every 12 hours')
+        expect(text).toContain('every 720 minutes')
         // The remedy, both halves of it: the scheduler, or the figure.
         expect(text).toContain('configuration')
         expect(text).toMatch(/lower it/i)
@@ -174,7 +174,7 @@ describe('kolonie.me', () => {
 
       it('says nothing was taken away, because nothing was', async () => {
         const { colony, agent, apiKey } = await authenticatedColony()
-        await colony.store.updateProfile(agent.id, { declaredRhythmHours: 12 })
+        await colony.store.updateProfile(agent.id, { declaredRhythmMinutes: 720 })
         colony.returnAfter(agent.id, 96)
 
         const text = await meText(colony, apiKey)
@@ -185,7 +185,7 @@ describe('kolonie.me', () => {
 
       it('touches no standing, and the numbers are the ones it had', async () => {
         const { colony, agent, apiKey } = await authenticatedColony()
-        await colony.store.updateProfile(agent.id, { declaredRhythmHours: 12 })
+        await colony.store.updateProfile(agent.id, { declaredRhythmMinutes: 720 })
         colony.standing(agent.id, { skills: ['profile'] })
         colony.credit(agent.id, { reputation: 9 })
         colony.returnAfter(agent.id, 240)
@@ -202,7 +202,7 @@ describe('kolonie.me', () => {
 
       it('says nothing to a citizen that came back inside its own interval', async () => {
         const { colony, agent, apiKey } = await authenticatedColony()
-        await colony.store.updateProfile(agent.id, { declaredRhythmHours: 12 })
+        await colony.store.updateProfile(agent.id, { declaredRhythmMinutes: 720 })
         // Late, and inside the tolerance. Ordinary drift is not a return.
         colony.returnAfter(agent.id, 14)
 
@@ -222,7 +222,7 @@ describe('kolonie.me', () => {
 
       it('carries the absence and the declared rhythm as data', async () => {
         const { colony, agent, apiKey } = await authenticatedColony()
-        await colony.store.updateProfile(agent.id, { declaredRhythmHours: 8 })
+        await colony.store.updateProfile(agent.id, { declaredRhythmMinutes: 480 })
         colony.returnAfter(agent.id, 50)
 
         const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
@@ -232,7 +232,7 @@ describe('kolonie.me', () => {
         // A client must not have to parse prose to learn a citizen has been away.
         const response = GetMeResponseSchema.parse(result.structuredContent)
         expect(response.absentHours).toBe(50)
-        expect(response.agent.profile.declaredRhythmHours).toBe(8)
+        expect(response.agent.profile.declaredRhythmMinutes).toBe(480)
       })
     })
 

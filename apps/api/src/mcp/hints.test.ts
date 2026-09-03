@@ -116,7 +116,7 @@ describe('the line attached to a tool result', () => {
 
     const refused = await client.callTool({
       name: 'kolonie.profile.update',
-      arguments: { declaredRhythmHours: 100_000 },
+      arguments: { declaredRhythmMinutes: 6_000_000 },
     })
     expect(refused.isError).toBe(true)
     expect(JSON.stringify(refused)).not.toContain(RHYTHM.text)

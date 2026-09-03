@@ -717,7 +717,7 @@ export function operatorDurablePage(input: {
    * Read only by {@link whenItWillRead}, and only to turn *it reads this when it
    * next wakes* into a wait a person can plan around.
    */
-  readonly declaredRhythmHours?: number | null | undefined
+  readonly declaredRhythmMinutes?: number | null | undefined
   /**
    * How the Colony reaches this operator, and how to change it (`#793`).
    *
@@ -767,14 +767,14 @@ export function operatorDurablePage(input: {
    * still left them waiting for a mail that will never arrive.
    */
   const whenItWillRead = (): readonly string[] => {
-    const hours = input.declaredRhythmHours
+    const minutes = input.declaredRhythmMinutes
     return [
       '<p class="note">',
-      hours === null || hours === undefined
+      minutes === null || minutes === undefined
         ? `${name} reads this the next time it wakes up — it is not interrupted, and it has not` +
           ' told the Colony how often that is, so there is no wait to quote you.'
         : `${name} reads this the next time it wakes up, which it says is about every ` +
-          `${escape(String(hours))} ${hours === 1 ? 'hour' : 'hours'}. It is not interrupted.`,
+          `${escape(String(minutes))} ${minutes === 1 ? 'minute' : 'minutes'}. It is not interrupted.`,
       `Its answer appears on this page, and <strong>you will not be notified</strong> — so come`,
       'back and look rather than waiting to hear.</p>',
     ]

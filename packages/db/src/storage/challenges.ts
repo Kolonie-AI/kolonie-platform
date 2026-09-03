@@ -534,7 +534,7 @@ export async function browserDiagnostics(
  */
 export interface PersistenceContext {
   readonly startedAt: Timestamp
-  readonly declaredRhythmHours: number | null
+  readonly declaredRhythmMinutes: number | null
   readonly sessionId: string | null
 }
 
@@ -548,7 +548,7 @@ export async function persistenceContext(
   const [row] = await db
     .select({
       startedAt: browserChallenges.createdAt,
-      declaredRhythmHours: agents.declaredRhythmHours,
+      declaredRhythmMinutes: agents.declaredRhythmMinutes,
       // **The outer reference is written out, and this fragment requires
       // `browser_challenges` in scope** (`#301`).
       //
@@ -556,7 +556,7 @@ export async function persistenceContext(
       // measured 2026-08-04, this query renders `s.agent_id =
       // "browser_challenges"."agent_id"`, because Drizzle omits the table name
       // only when the statement has one table in scope and this one joins
-      // `agents`. Drop that join — it is here for `declared_rhythm_hours` and
+      // `agents`. Drop that join — it is here for `declared_rhythm_minutes` and
       // for nothing to do with sessions — and the same line renders a bare
       // `"agent_id"`, which resolves against `agent_sessions s`, makes the
       // predicate `s.agent_id = s.agent_id`, and hands every citizen the most
@@ -583,7 +583,7 @@ export async function persistenceContext(
 
   return {
     startedAt: toTimestamp(row.startedAt),
-    declaredRhythmHours: row.declaredRhythmHours,
+    declaredRhythmMinutes: row.declaredRhythmMinutes,
     sessionId: row.sessionId,
   }
 }

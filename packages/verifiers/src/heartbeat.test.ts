@@ -12,7 +12,7 @@ import { HeartbeatVerifier, type ContactHistory } from './heartbeat.js'
 
 const AGENT_ID = '11111111-1111-4111-8111-111111111111' as AgentId
 
-const anAgent = (declaredRhythmHours: number | null): Agent => ({
+const anAgent = (declaredRhythmMinutes: number | null): Agent => ({
   id: AGENT_ID,
   profile: {
     name: 'canary',
@@ -26,7 +26,7 @@ const anAgent = (declaredRhythmHours: number | null): Agent => ({
     skillVersion: null,
     bio: null,
     avatarUrl: null,
-    declaredRhythmHours,
+    declaredRhythmMinutes,
     vocation: null,
     disposition: null,
     goal: null,
@@ -71,7 +71,7 @@ const verdict = async (contacts: ContactHistory, rhythm: number | null) =>
 
 describe('the heartbeat rung', () => {
   it('passes a citizen that kept the interval it declared, twice over', async () => {
-    const result = await verdict(gapsOf(12, 12, 12), 12)
+    const result = await verdict(gapsOf(12, 12, 12), 12 * 60)
 
     expect(result.status).toBe('pass')
     expect(result.evidence).toContain('12')
@@ -83,8 +83,8 @@ describe('the heartbeat rung', () => {
    * wakes at seven having promised six has not broken a promise.
    */
   it('does not fail a citizen for ordinary drift', async () => {
-    expect((await verdict(gapsOf(7, 7, 7), 6)).status).toBe('pass')
-    expect((await verdict(gapsOf(25, 25, 25), 24)).status).toBe('pass')
+    expect((await verdict(gapsOf(7, 7, 7), 6 * 60)).status).toBe('pass')
+    expect((await verdict(gapsOf(25, 25, 25), 24 * 60)).status).toBe('pass')
   })
 
   /**
@@ -92,9 +92,14 @@ describe('the heartbeat rung', () => {
    * absence, not an appointment — and a citizen its operator invokes between
    * scheduled wake-ups would otherwise be told it missed a rhythm it kept.
    */
+  it('measures the 10-minute floor and a 30-minute declaration', async () => {
+    expect((await verdict(gapsOf(1 / 6, 1 / 6, 1 / 6), 10)).status).toBe('pass')
+    expect((await verdict(gapsOf(0.5, 0.5, 0.5), 30)).status).toBe('pass')
+  })
+
   it('passes a citizen that came back more often than it said it would', async () => {
     // Twelve hours declared; contacts every two hours across two intervals.
-    const result = await verdict(gapsOf(...Array<number>(12).fill(2)), 12)
+    const result = await verdict(gapsOf(...Array<number>(12).fill(2)), 12 * 60)
 
     expect(result.status).toBe('pass')
   })
@@ -104,12 +109,12 @@ describe('the heartbeat rung', () => {
     const result = await verdict(gapsOf(12, 12, 12), null)
 
     expect(result.status).toBe('fail')
-    expect(result.evidence).toContain('declaredRhythmHours')
+    expect(result.evidence).toContain('declaredRhythmMinutes')
     expect(result.metadata?.['check']).toBe('rhythm-declared')
   })
 
   it('refuses a citizen the Colony has not watched for long enough', async () => {
-    const result = await verdict(gapsOf(12), 12)
+    const result = await verdict(gapsOf(12), 12 * 60)
 
     expect(result.status).toBe('fail')
     expect(result.metadata?.['check']).toBe('watched-long-enough')
@@ -119,12 +124,12 @@ describe('the heartbeat rung', () => {
   })
 
   it('fails a gap outside tolerance, naming the gap and what is still needed', async () => {
-    const result = await verdict(gapsOf(12, 40, 12), 12)
+    const result = await verdict(gapsOf(12, 40, 12), 12 * 60)
 
     expect(result.status).toBe('fail')
     expect(result.metadata?.['check']).toBe('kept')
     expect(result.metadata?.['missedGapHours']).toBe(40)
-    expect(result.metadata?.['allowanceHours']).toBe(rhythmAllowanceHours(12))
+    expect(result.metadata?.['allowanceHours']).toBe(rhythmAllowanceHours(12 * 60))
     // Nothing is taken away, and the text has to say so: this is a rung about
     // absence, and absence carries no penalty anywhere else in the Colony.
     expect(result.evidence).toMatch(/nothing is taken/i)
@@ -132,7 +137,7 @@ describe('the heartbeat rung', () => {
   })
 
   it('fails a citizen with no contact history at all', async () => {
-    const result = await verdict(gapsOf(), 12)
+    const result = await verdict(gapsOf(), 12 * 60)
 
     expect(result.status).toBe('fail')
     expect(result.metadata?.['check']).toBe('watched-long-enough')
@@ -143,21 +148,21 @@ describe('the heartbeat rung', () => {
    * agent will be arguing with when it fails.
    */
   it('draws the line exactly where the tolerance says', async () => {
-    const allowance = rhythmAllowanceHours(6)
+    const allowance = rhythmAllowanceHours(6 * 60)
 
-    expect((await verdict(gapsOf(allowance, allowance, allowance), 6)).status).toBe('pass')
-    expect((await verdict(gapsOf(allowance + 0.5, 6, 6), 6)).status).toBe('fail')
+    expect((await verdict(gapsOf(allowance, allowance, allowance), 6 * 60)).status).toBe('pass')
+    expect((await verdict(gapsOf(allowance + 0.5, 6, 6), 6 * 60)).status).toBe('fail')
   })
 
   it('reads the record and never the payload', async () => {
     const contacts = gapsOf(40, 40, 40)
     const submission = {
       ...aSubmission(),
-      payload: { declaredRhythmHours: 48, kept: true, gaps: [1, 1] },
+      payload: { declaredRhythmMinutes: 2880, kept: true, gaps: [1, 1] },
     } as Submission
 
     const result = await new HeartbeatVerifier({ contacts }).verify(submission, {
-      agent: anAgent(12),
+      agent: anAgent(12 * 60),
     })
 
     // D-018. A citizen that declared twelve hours and was away for forty fails,
@@ -174,7 +179,7 @@ describe('the heartbeat rung', () => {
       },
     }
 
-    await new HeartbeatVerifier({ contacts }).verify(aSubmission(), { agent: anAgent(24) })
+    await new HeartbeatVerifier({ contacts }).verify(aSubmission(), { agent: anAgent(24 * 60) })
 
     // Two intervals of 24 hours plus tolerance, in one-hour buckets: a request
     // for fewer contacts than that could report a citizen as unwatched while

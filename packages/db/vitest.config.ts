@@ -88,14 +88,8 @@ const WORKERS = testWorkers(memoryCeiling())
  * holding neither key. It failed exactly as described above the first time it
  * ran beside its siblings: `vault-crypto.js` was already in the worker's
  * registry, so the mock never took and the rotation cheerfully succeeded.
- * `citizenship.test.ts` forces `provisionDefaultWorkplace` to throw after the
- * status flip (`#1758`); the same shared-registry trap would let the promote
- * commit without a board.
  */
-const ISOLATED: string[] = [
-  'src/storage/vault-reseal-failure.test.ts',
-  'src/storage/citizenship.test.ts',
-]
+const ISOLATED: string[] = ['src/storage/vault-reseal-failure.test.ts']
 
 const EVERY_TEST = ['src/**/*.test.ts']
 

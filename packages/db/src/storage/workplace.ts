@@ -68,6 +68,7 @@ import {
 } from '../schema/index.js'
 import { isUniqueViolation, isUuid } from './errors.js'
 import { toTimestamp } from './rows.js'
+import { provisionDefaultWorkplace } from './workplace-provision.js'
 import { vaultHoldsKey } from './vault.js'
 
 /**
@@ -549,6 +550,14 @@ export type ListBoardsResult =
     }
   | { readonly outcome: 'invalid-cursor' }
 
+/**
+ * List memberships after planting the subject citizen's default board.
+ *
+ * The provision and read share one transaction so a successful first list
+ * cannot expose the pre-provision empty state. Delegated access passes the
+ * subject as `callerId`, and the unique live-default index converges it with
+ * a simultaneous list by the citizen.
+ */
 export async function listBoardsFor(
   db: Database,
   callerId: AgentId,
@@ -558,30 +567,44 @@ export async function listBoardsFor(
   if (after === 'invalid') return { outcome: 'invalid-cursor' }
   const limit = Math.min(Math.max(query.limit ?? DEFAULT_PAGE_SIZE, 1), MAX_PAGE_SIZE)
 
-  const rows = await db
-    .select({ board: workplaceBoards })
-    .from(workplaceBoards)
-    .innerJoin(
-      workplaceBoardMemberships,
-      and(
-        eq(workplaceBoardMemberships.boardId, workplaceBoards.id),
-        eq(workplaceBoardMemberships.citizenId, callerId),
-      ),
-    )
-    .where(
-      after === undefined
-        ? undefined
-        : sql`(${workplaceBoards.createdAt}, ${workplaceBoards.id}) > (${after.createdAt}::timestamptz, ${after.id}::uuid)`,
-    )
-    .orderBy(workplaceBoards.createdAt, workplaceBoards.id)
-    .limit(limit + 1)
+  return db.transaction(async (tx) => {
+    const [caller] = await tx
+      .select({ status: agents.status })
+      .from(agents)
+      .where(eq(agents.id, callerId))
+      .limit(1)
+    if (caller?.status === 'citizen') {
+      await provisionDefaultWorkplace(tx, {
+        citizenId: callerId,
+        now: new Date().toISOString(),
+      })
+    }
 
-  const page = rows.slice(0, limit).map((row) => toBoard(row.board))
-  return {
-    outcome: 'listed',
-    items: page,
-    nextCursor: rows.length > limit ? encodeBoardCursor(rows[limit - 1]!.board) : null,
-  }
+    const rows = await tx
+      .select({ board: workplaceBoards })
+      .from(workplaceBoards)
+      .innerJoin(
+        workplaceBoardMemberships,
+        and(
+          eq(workplaceBoardMemberships.boardId, workplaceBoards.id),
+          eq(workplaceBoardMemberships.citizenId, callerId),
+        ),
+      )
+      .where(
+        after === undefined
+          ? undefined
+          : sql`(${workplaceBoards.createdAt}, ${workplaceBoards.id}) > (${after.createdAt}::timestamptz, ${after.id}::uuid)`,
+      )
+      .orderBy(workplaceBoards.createdAt, workplaceBoards.id)
+      .limit(limit + 1)
+
+    const page = rows.slice(0, limit).map((row) => toBoard(row.board))
+    return {
+      outcome: 'listed',
+      items: page,
+      nextCursor: rows.length > limit ? encodeBoardCursor(rows[limit - 1]!.board) : null,
+    }
+  })
 }
 
 export async function workplaceWakeup(

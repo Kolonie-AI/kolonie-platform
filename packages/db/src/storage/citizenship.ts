@@ -25,7 +25,6 @@ import {
   supportTickets,
   walkProseLifts,
 } from '../schema/index.js'
-import { provisionDefaultWorkplace } from './workplace-provision.js'
 
 /**
  * The migration that last ran the backfill below.
@@ -130,12 +129,11 @@ export interface PromotionResult {
  * own citizenship. It runs *after* `grantSkills` in the same transaction and
  * therefore sees the rows that call just wrote.
  *
- * ## The default Workplace is planted here (`#1758`)
+ * ## The default Workplace is planted on first Workplace access (`#1809`)
  *
- * A successful flip calls {@link provisionDefaultWorkplace} before returning.
- * A throw rolls the status update back, so a citizen without a default board
- * is unreachable on this path. The unique live-default index is what makes a
- * second call a no-op; there is no flag on `agents`.
+ * Citizenship promotion no longer writes Workplace state. The first
+ * authenticated Workplace list plants the default and returns it in one
+ * transaction, including for citizens promoted before Workplace existed.
  *
  * ## `candidate` is the only status this may leave
  *
@@ -189,11 +187,6 @@ export async function promoteIfEarned(
     .returning({ id: agents.id })
 
   if (rows.length === 0) return { promoted: false }
-
-  await provisionDefaultWorkplace(tx, {
-    citizenId: command.agentId,
-    now: command.promotedAt,
-  })
   return { promoted: true }
 }
 

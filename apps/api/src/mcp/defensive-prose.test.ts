@@ -75,9 +75,12 @@ const CEILING_BYTES = 15_000
  * Moved on 2026-08-30 from 2,414 to 2,493 bytes. `#1763` adds one sentence so
  * a citizen choosing this call knows `workplace` names at most one next
  * `kolonie.workplace` call, and nothing else about the Workplace grammar.
+ * Moved on 2026-09-03 from 2,493 to 2,614 bytes. `#1834` adds one sentence so a
+ * citizen choosing this call knows an eligible `professionPracticum` replaces
+ * that handoff with three explicit choices, one of which writes nothing.
  */
-const WAKEUP_PROSE_BYTES = 2493
-const WAKEUP_PROSE_SHA256 = 'e7bd5bc3c2a278657e31ae9eccfdbac18af3ded4bd5d30796cf92e1e47220a2b'
+const WAKEUP_PROSE_BYTES = 2614
+const WAKEUP_PROSE_SHA256 = '450d25de37239087af12759d6689b105d0f21dd1dc0845fe99f8ee6a50117230'
 
 /** The catalogue a connected citizen is handed — the tier the prose is paid for at. */
 const servedCatalogue = async (): Promise<readonly PublishedTool[]> => {

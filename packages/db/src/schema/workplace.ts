@@ -24,6 +24,7 @@ import {
   WORKPLACE_LINK_KINDS,
   WORKPLACE_LINK_REF_MAX_LENGTH,
   WORKPLACE_MEMBERSHIP_ROLES,
+  WORKPLACE_PRACTICUM_EVENTS,
   WORKPLACE_SENTENCE_MAX_LENGTH,
   WORKPLACE_TITLE_MAX_LENGTH,
 } from '@kolonie-ai/core'
@@ -598,5 +599,36 @@ export const workplaceIdempotency = pgTable(
       sql`${table.actorKind} in ('citizen', 'human')`,
     ),
     check('workplace_idempotency_key_is_bounded', sql`char_length(${table.key}) between 1 and 128`),
+  ],
+)
+
+/**
+ * What the Colony counts about profession practicum cycles (`#1836`).
+ *
+ * **Three columns, and the two that are missing are the design.** There is no
+ * citizen, no cycle, no board, no outcome sentence and no evidence reference —
+ * a slug and an instant is the whole row, because `#1836` requires the
+ * measurement to be aggregate and a column that could hold prose is a column
+ * that eventually does. Nothing here is a foreign key for the same reason: a
+ * row that pointed at an agent would survive as a way to ask *which citizen*.
+ *
+ * **It is therefore not an audit trail** and must never be read as one.
+ * `workplace_activity` is where an act with an actor is recorded; this answers
+ * only *how many cycles reached each ending*, which is the question the
+ * profession loop is judged by and the one nobody should need a body to answer.
+ */
+export const workplacePracticumEvents = pgTable(
+  'workplace_practicum_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    event: varchar('event', { length: 32 }).notNull(),
+    at: timestamp('at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('workplace_practicum_events_event_idx').on(table.event, table.at),
+    check(
+      'workplace_practicum_events_event_is_known',
+      sql`${table.event} in (${oneOf(WORKPLACE_PRACTICUM_EVENTS)})`,
+    ),
   ],
 )

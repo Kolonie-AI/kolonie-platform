@@ -782,7 +782,31 @@ function professionPracticumBlock(digest: WakeupResponse): readonly Block[] {
 
 function workplaceBlock(digest: WakeupResponse): readonly Block[] {
   const workplace = digest.workplace
-  if (workplace === undefined || workplace.recommendation === null) return []
+  if (workplace === undefined) return []
+  const retrospective = workplace.practicumRetrospective
+  if (retrospective !== undefined) {
+    const revised = retrospective.choices.startRevised.arguments
+    const replacement = retrospective.choices.replaceOutcome.arguments
+    return [
+      {
+        section: 'forward',
+        heading: 'Your profession practicum retrospective',
+        lead: `The cycle ended as ${retrospective.result}. Nothing starts automatically.`,
+        counted: 'profession practicum retrospectives',
+        entries: [
+          `start revised: kolonie.workplace with act: ${revised.act}, subject: ${revised.subject}, ` +
+            `fields: ${JSON.stringify(revised.fields)}\n    ` +
+            `replace outcome: kolonie.workplace with act: ${replacement.act}, ` +
+            `subject: ${replacement.subject}, fields: ${JSON.stringify(replacement.fields)}\n    ` +
+            `defer: kolonie.workplace with act: ${retrospective.choices.defer.arguments.act}, ` +
+            `subject: card, id: ${retrospective.cycleId}\n    ` +
+            `end: kolonie.workplace with act: ${retrospective.choices.end.arguments.act}, ` +
+            `subject: card, id: ${retrospective.cycleId}`,
+        ],
+      },
+    ]
+  }
+  if (workplace.recommendation === null) return []
   const recommendation = workplace.recommendation
   const args = recommendation.next.arguments
   return [

@@ -29,6 +29,7 @@ import {
   WORKPLACE_TITLE_MAX_LENGTH,
   WorkplaceLaneSchema,
   WorkplaceMcpInputSchema,
+  WorkplacePracticumRetrospectiveSchema,
   WorkplaceWakeupNextSchema,
 } from '../workplace/workplace.js'
 import { WakeDeliveryOutcomeSchema, WakeEventSchema } from '../academy/wake.js'
@@ -648,6 +649,7 @@ export const WakeupWorkplaceSchema = z
   .object({
     boardId: WorkplaceBoardIdSchema,
     practicumActive: z.boolean(),
+    practicumRetrospective: WorkplacePracticumRetrospectiveSchema.optional(),
     recommendation: z
       .object({
         cardId: WorkplaceCardIdSchema,

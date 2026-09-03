@@ -8,6 +8,7 @@ import type {
   WorkplaceLabel,
   WorkplaceLane,
   WorkplaceLinkKind,
+  WorkplaceClosePracticumRequest,
 } from '@kolonie-ai/core'
 import {
   addLink,
@@ -15,6 +16,7 @@ import {
   attachLabel,
   blockCard,
   claimCard,
+  closeProfessionPracticum,
   completeCard,
   createCard,
   createChecklist,
@@ -30,6 +32,7 @@ import {
   listLinks,
   moveCard,
   removeLink,
+  resolveProfessionPracticum,
   requestReview,
   startProfessionPracticum,
   updateCard,
@@ -40,6 +43,7 @@ import {
   type AttachLabelResult,
   type BlockCardResult,
   type ClaimCardResult,
+  type CloseProfessionPracticumResult,
   type CompleteCardResult,
   type CreateCardResult,
   type CreateChecklistItemResult,
@@ -55,6 +59,7 @@ import {
   type ListLinksResult,
   type MoveCardResult,
   type RemoveLinkResult,
+  type ResolveProfessionPracticumResult,
   type RequestReviewResult,
   type StartProfessionPracticumResult,
   type UpdateCardResult,
@@ -84,6 +89,16 @@ export interface WorkplaceCards {
     readonly callerId: AgentId
     readonly outcome: string
   }): Promise<StartProfessionPracticumResult>
+  closePracticum(input: {
+    readonly callerId: AgentId
+    readonly cycleId: string
+    readonly close: WorkplaceClosePracticumRequest
+  }): Promise<CloseProfessionPracticumResult>
+  resolvePracticum(input: {
+    readonly callerId: AgentId
+    readonly cycleId: string
+    readonly choice: 'deferred' | 'ended'
+  }): Promise<ResolveProfessionPracticumResult>
   create(input: {
     readonly callerId: AgentId
     readonly boardId: string
@@ -224,6 +239,8 @@ export function databaseWorkplaceCards(db: Database): WorkplaceCards {
     list: (callerId, boardId, query) => listCards(db, callerId, boardId, query),
     get: (callerId, cardId) => getCard(db, callerId, cardId),
     acceptPracticum: (input) => startProfessionPracticum(db, input),
+    closePracticum: (input) => closeProfessionPracticum(db, input),
+    resolvePracticum: (input) => resolveProfessionPracticum(db, input),
     create: (input) => createCard(db, input),
     update: (input) => updateCard(db, input),
     claim: (input) => claimCard(db, input),

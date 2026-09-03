@@ -278,7 +278,10 @@ export function fakeWorkplaceCards(): FakeWorkplaceCards {
       )?.[0]
       if (boardId === undefined) return { outcome: 'citizen-required' }
       const existing = [...cards.values()].filter(
-        (card) => card.boardId === boardId && card.seedKey?.startsWith('practicum:') === true,
+        (card) =>
+          card.boardId === boardId &&
+          card.seedKey?.startsWith('practicum:') === true &&
+          !card.seedKey.includes('#'),
       )
       if (existing.length > 0) {
         const id = existing[0]?.seedKey?.split(':card:')[0]
@@ -309,6 +312,84 @@ export function fakeWorkplaceCards(): FakeWorkplaceCards {
       }))
       for (const card of made) cards.set(card.id, card)
       return { outcome: 'started', cycle: { id, boardId: boardId as never, cards: made } }
+    },
+
+    closePracticum: async (input) => {
+      const cycleCards = [...cards.values()].filter(
+        (card) =>
+          card.boardId !== undefined &&
+          membershipOf(input.callerId, card.boardId) !== undefined &&
+          (card.seedKey?.startsWith(`${input.cycleId}:card:`) === true ||
+            card.seedKey?.startsWith(`${input.cycleId}#`) === true),
+      )
+      if (cycleCards.length === 0) return { outcome: 'unknown-cycle' as const }
+      const existingCode = cycleCards[0]?.seedKey?.slice(
+        input.cycleId.length + 1,
+        input.cycleId.length + 2,
+      )
+      const result =
+        existingCode === 's'
+          ? 'shipped'
+          : existingCode === 'f'
+            ? 'failed_experiment'
+            : input.close.result
+      if (existingCode !== 's' && existingCode !== 'f') {
+        const code = input.close.result === 'shipped' ? 's' : 'f'
+        for (const card of cycleCards) {
+          const suffix = card.seedKey?.split(':card:')[1] ?? '1'
+          cards.set(card.id, {
+            ...card,
+            seedKey: `${input.cycleId}#${code}:card:${suffix}`,
+            updatedAt: new Date().toISOString(),
+          })
+        }
+      }
+      const accept = (outcome: string) => ({
+        tool: 'kolonie.workplace' as const,
+        arguments: {
+          act: 'accept-practicum' as const,
+          subject: 'card' as const,
+          fields: { outcome },
+        },
+      })
+      return {
+        outcome: 'closed' as const,
+        retrospective: {
+          cycleId: input.cycleId,
+          result,
+          choices: {
+            startRevised: accept('<your revised outcome>'),
+            replaceOutcome: accept('<a different outcome>'),
+            defer: {
+              tool: 'kolonie.workplace' as const,
+              arguments: {
+                act: 'defer-practicum' as const,
+                subject: 'card' as const,
+                id: input.cycleId,
+              },
+            },
+            end: {
+              tool: 'kolonie.workplace' as const,
+              arguments: {
+                act: 'end-practicum' as const,
+                subject: 'card' as const,
+                id: input.cycleId,
+              },
+            },
+          },
+        },
+      }
+    },
+
+    resolvePracticum: async (input) => {
+      const exists = [...cards.values()].some(
+        (card) =>
+          membershipOf(input.callerId, card.boardId) !== undefined &&
+          card.seedKey?.startsWith(`${input.cycleId}#`) === true,
+      )
+      return exists
+        ? { outcome: 'resolved' as const, choice: input.choice }
+        : { outcome: 'unknown-cycle' as const }
     },
 
     create: async (input) => {

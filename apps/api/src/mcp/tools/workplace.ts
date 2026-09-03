@@ -4,6 +4,7 @@ import {
   DELEGATION_REFUSAL_CODES,
   WORKPLACE_UNTRUSTED_CONTENT,
   WorkplaceActSchema,
+  WorkplaceAcceptPracticumRequestSchema,
   WorkplaceAddMemberRequestSchema,
   WorkplaceBlockCardRequestSchema,
   WorkplaceCompleteCardRequestSchema,
@@ -59,7 +60,7 @@ const CHOICE_TIME =
 
 const ALLOWED: Readonly<Record<WorkplaceSubject, readonly WorkplaceAct[]>> = {
   board: ['list', 'get', 'create', 'update', 'archive'],
-  card: ['list', 'get', 'create', 'update', 'claim', 'handover', 'archive'],
+  card: ['list', 'get', 'create', 'accept-practicum', 'update', 'claim', 'handover', 'archive'],
 }
 
 type NextOp = {
@@ -233,12 +234,7 @@ export function registerWorkplaceTool(
         limit: z.number().optional(),
         expectedVersion: z.number().optional(),
         idempotencyKey: z.string().optional(),
-        delegationId: z
-          .string()
-          .optional()
-          .describe(
-            'Only operator agent passes it for subject Workplace; subject omits it for own.',
-          ),
+        delegationId: z.string().optional().describe('Operator only; subject omits it.'),
       },
       annotations: {
         readOnlyHint: false,
@@ -254,6 +250,13 @@ export function registerWorkplaceTool(
       const callerId = authenticatedAgent.agent.id
       const act = input.act
       const subject = input.subject
+      if (
+        input.delegationId === undefined &&
+        act === 'accept-practicum' &&
+        authenticatedAgent.agent.status !== 'citizen'
+      ) {
+        return toolError({ code: 'forbidden', message: 'Only a citizen may start a practicum.' })
+      }
       if (!ALLOWED[subject].includes(act)) return invalidPair(subject)
 
       /**
@@ -669,6 +672,23 @@ async function dispatchCard(
   callerId: Parameters<WorkplaceCards['list']>[0],
   cards: WorkplaceCards,
 ): Promise<CallToolResult> {
+  if (act === 'accept-practicum') {
+    const parsed = WorkplaceAcceptPracticumRequestSchema.safeParse(fieldsOf(input))
+    if (!parsed.success) {
+      return parsedFail('Practicum acceptance takes one outcome.', parsed.error)
+    }
+    const started = await cards.acceptPracticum({ callerId, outcome: parsed.data.outcome })
+    if (started.outcome === 'citizen-required') {
+      return toolError({ code: 'forbidden', message: 'Only a citizen may start a practicum.' })
+    }
+    const first = started.cycle.cards[0]
+    if (first === undefined) throw new Error('practicum cycle returned no cards')
+    return ok(`Started practicum ${started.cycle.id}.`, {
+      cycle: started.cycle,
+      next: nextForCard(first),
+    })
+  }
+
   if (act === 'list') {
     if (input.boardId === undefined) {
       return toolError({

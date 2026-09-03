@@ -425,6 +425,7 @@ export const WORKPLACE_ACTS = [
   'list',
   'get',
   'create',
+  'accept-practicum',
   'update',
   'claim',
   'handover',
@@ -649,6 +650,30 @@ export const WorkplaceCardSchema = z
     }
   })
 export type WorkplaceCard = z.infer<typeof WorkplaceCardSchema>
+
+export const WORKPLACE_PRACTICUM_CARD_TITLES = [
+  'Understand one user and problem',
+  'Make the smallest artifact',
+  'Run or test the artifact',
+  'Publish or deliver the artifact',
+  'Ask for feedback',
+] as const
+
+export const WorkplaceAcceptPracticumRequestSchema = z
+  .object({
+    outcome: workplaceText(WORKPLACE_SENTENCE_MAX_LENGTH),
+  })
+  .strict()
+export type WorkplaceAcceptPracticumRequest = z.infer<typeof WorkplaceAcceptPracticumRequestSchema>
+
+export const WorkplacePracticumCycleSchema = z
+  .object({
+    id: z.string().trim().min(1).max(64),
+    boardId: WorkplaceBoardIdSchema,
+    cards: z.array(WorkplaceCardSchema).min(3).max(5),
+  })
+  .strict()
+export type WorkplacePracticumCycle = z.infer<typeof WorkplacePracticumCycleSchema>
 
 /** Paginated board list, the HTTP/MCP list envelope. */
 export const WorkplaceBoardPageSchema = pageOf(WorkplaceBoardSchema)

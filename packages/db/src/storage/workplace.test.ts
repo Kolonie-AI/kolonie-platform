@@ -366,6 +366,28 @@ describe('workplace storage', () => {
       'defer',
       'end',
     ])
+    // It is counted through the same path a shipped cycle is (`#1844` review),
+    // and it costs the citizen nothing: no shipped count, no standing change.
+    const counts = await practicumEventCounts(db)
+    expect(counts.failed_experiment).toBe(1)
+    expect(counts.shipped).toBe(0)
+
+    // Ending after a failed experiment writes no cards and is counted once.
+    expect(
+      await resolveProfessionPracticum(db, {
+        callerId: owner,
+        cycleId: started.cycle.id,
+        choice: 'ended',
+      }),
+    ).toEqual({ outcome: 'resolved', choice: 'ended' })
+    expect((await practicumEventCounts(db)).ended).toBe(1)
+    expect(await workplaceWakeup(db, owner)).not.toHaveProperty('practicumRetrospective')
+    expect(
+      await db
+        .select()
+        .from(workplaceCards)
+        .where(sql`${workplaceCards.seedKey} like 'practicum:%'`),
+    ).toHaveLength(5)
   })
 
   it('refuses to close a cycle that is not the citizen own, and one that does not exist', async () => {

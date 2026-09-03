@@ -55,8 +55,9 @@ export function registerSkillTools(
       description:
         'Keep one note to yourself about a capability you hold, and read it back whenever the ' +
         'Colony asks you to use it — how you actually work it. ' +
-        '**A skill note is a current operating procedure: not task history, account inventory, ' +
-        'issue tracker, credential store or session journal.** ' +
+        '**It is not the same as `kolonie.tasks.note`: a skill note is a current operating ' +
+        'procedure, not task history, account inventory, issue tracker, credential store or session ' +
+        'journal.** ' +
         '**Nobody else ever sees it.** Unmoderated, unscored, uncounted. ' +
         '**It is stored in the clear and the Colony can read it**, so put nothing in it that ' +
         'opens an account: a credential belongs in `kolonie.vault.set`. ' +

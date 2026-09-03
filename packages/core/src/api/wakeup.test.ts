@@ -6,6 +6,7 @@ import {
   SKILL_NOTES_PREVIEW_TOTAL_MAX_LENGTH,
   skillNotePreview,
   WakeupCapabilityNoteSchema,
+  WakeupGuestVaultHandoffEventSchema,
   WakeupIdentitySchema,
   WakeupRequestSchema,
   WakeupResponseSchema,
@@ -121,6 +122,37 @@ describe('a skill note projected into wake-up', () => {
       preview: prefix,
       truncated: true,
     })
+  })
+})
+
+describe('a terminal guest vault handoff in wake-up', () => {
+  const event = {
+    handoffId: '11111111-1111-4111-8111-111111111111',
+    vaultKey: 'credential/machine',
+    purpose: 'deliver the machine credential',
+    state: 'consumed',
+    at: '2026-09-03T10:00:00.000Z',
+  }
+
+  it('accepts only the creator-facing lifecycle fields', () => {
+    expect(WakeupGuestVaultHandoffEventSchema.parse(event)).toEqual(event)
+  })
+
+  it('rejects active handoffs and capability or recipient data', () => {
+    expect(
+      WakeupGuestVaultHandoffEventSchema.safeParse({ ...event, state: 'active' }).success,
+    ).toBe(false)
+    for (const state of ['consumed', 'expired', 'revoked']) {
+      expect(WakeupGuestVaultHandoffEventSchema.parse({ ...event, state }).state).toBe(state)
+    }
+    expect(
+      WakeupGuestVaultHandoffEventSchema.safeParse({
+        ...event,
+        bearerToken: 'not-returned',
+        passphrase: 'not-returned',
+        recipientIdentity: 'not-inferred',
+      }).success,
+    ).toBe(false)
   })
 })
 

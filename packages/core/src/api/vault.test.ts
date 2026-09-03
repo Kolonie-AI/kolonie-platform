@@ -66,6 +66,7 @@ describe('portable guest vault handoffs', () => {
   const request = {
     key: 'github/octocat',
     purpose: 'use this machine account credential',
+    conversationId: '11111111-1111-4111-8111-111111111111',
   }
 
   it('accepts the default and both minute boundaries', () => {

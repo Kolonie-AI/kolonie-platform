@@ -12,6 +12,7 @@ import {
 } from 'drizzle-orm/pg-core'
 import { VAULT_KEY_MAX_LENGTH, VAULT_SHARE_PURPOSE_MAX_LENGTH } from '@kolonie-ai/core'
 import { agents } from './agents.js'
+import { messageConversations } from './messaging.js'
 
 export const guestVaultHandoffs = pgTable(
   'guest_vault_handoffs',
@@ -22,6 +23,9 @@ export const guestVaultHandoffs = pgTable(
       .references(() => agents.id, { onDelete: 'cascade' }),
     vaultKey: varchar('vault_key', { length: VAULT_KEY_MAX_LENGTH }).notNull(),
     purpose: varchar('purpose', { length: VAULT_SHARE_PURPOSE_MAX_LENGTH }).notNull(),
+    conversationId: uuid('conversation_id').references(() => messageConversations.id, {
+      onDelete: 'set null',
+    }),
     tokenHash: text('token_hash').notNull(),
     sealedValue: text('sealed_value'),
     sealedDescription: text('sealed_description'),

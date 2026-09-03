@@ -75,6 +75,7 @@ const NOTHING: Changes = {
   accountRechecks: [],
   credentialRecoveries: [],
   offerOutcomes: [],
+  guestVaultHandoffEvents: [],
   sponsoredQuests: [],
   tasksAdded: [],
   tasksRetired: [],

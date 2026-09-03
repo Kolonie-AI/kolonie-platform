@@ -28,6 +28,7 @@ import {
   type Timestamp,
   type UnshareVaultEntryResponse,
   type VaultShareNotifyStatus,
+  silentLog,
 } from '@kolonie-ai/core'
 import {
   attachShareToConversation,
@@ -143,6 +144,7 @@ export interface VaultStore {
         readonly purpose: string
         readonly minutes: number
         readonly passphrase?: string | undefined
+        readonly conversationId?: string | undefined
       }) => Promise<CreateGuestVaultHandoffOutcome>)
     | undefined
   previewGuestHandoff?:
@@ -427,6 +429,15 @@ export async function createGuestVaultHandoff(
   }
 
   const created = await create({ token, agentId, ...parsed.data })
+  if (created.outcome === 'not-a-participant') {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message: 'The conversation is not one you may link this handoff to.',
+      },
+    }
+  }
   if (created.outcome === 'unknown') {
     return {
       outcome: 'rejected',
@@ -525,6 +536,13 @@ export async function revokeGuestVaultHandoff(
         details: { reason: 'terminal_guest_handoff', state: revoked.handoff.state },
       },
     }
+  }
+  const log = deps.log ?? silentLog
+  if (revoked.changed) {
+    log.info('a guest vault handoff was revoked', {
+      event: 'vault.guest-handoffs.revoked',
+      handoffId,
+    })
   }
   return { outcome: 'ok', response: { handoff: revoked.handoff } }
 }

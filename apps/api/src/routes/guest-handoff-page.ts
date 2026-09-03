@@ -107,6 +107,10 @@ export function registerGuestHandoffPage(app: FastifyInstance, deps: RouteDepend
       observedOrigin(request.headers, request.ip).fingerprint,
     )
     if (result.outcome === 'revealed') {
+      deps.log.info('a guest vault handoff was consumed', {
+        event: 'vault.guest-handoffs.consumed',
+        handoffId: result.handoffId,
+      })
       reply.header('set-cookie', clearedCsrfCookie())
       return send(reply, 200, guestHandoffRevealPage(result))
     }

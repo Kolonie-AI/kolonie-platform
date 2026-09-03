@@ -8,7 +8,13 @@ import {
 } from '@kolonie-ai/core'
 import { generateApiKey } from '../api-key.js'
 import type { Database } from '../client.js'
-import { guestVaultHandoffs, vaultShares } from '../schema/index.js'
+import {
+  guestVaultHandoffs,
+  messageConversations,
+  messageParticipants,
+  messages,
+  vaultShares,
+} from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { sealVaultValue } from '../vault-crypto.js'
 import { registerAgent } from './agents.js'
@@ -466,6 +472,81 @@ describe('portable one-time guest vault handoffs', () => {
     expect(
       await consumeGuestVaultHandoff(db, second.bearerToken, undefined, sealingKey),
     ).toMatchObject({ outcome: 'revealed', value: 'second-secret' })
+  })
+
+  it('refuses to create a linked handoff for a conversation the creator is not in', async () => {
+    await setVaultEntry(db, token, agentId, 'github/octocat', 'sentinel-secret')
+    const [conversation] = await db.insert(messageConversations).values({}).returning()
+    if (conversation === undefined) throw new Error('conversation insert failed')
+    await db.insert(messageParticipants).values({
+      conversationId: conversation.id,
+      party: 'citizen',
+      agentId: otherId,
+      label: 'guest-other',
+    })
+
+    expect(await create({ conversationId: conversation.id })).toEqual({
+      outcome: 'not-a-participant',
+    })
+    expect(await db.select().from(guestVaultHandoffs)).toHaveLength(0)
+  })
+
+  it('optionally annotates a linked conversation on consumption without exposing capability data', async () => {
+    await setVaultEntry(db, token, agentId, 'github/octocat', 'sentinel-secret')
+    const [conversation] = await db.insert(messageConversations).values({}).returning()
+    if (conversation === undefined) throw new Error('conversation insert failed')
+    await db.insert(messageParticipants).values({
+      conversationId: conversation.id,
+      party: 'citizen',
+      agentId,
+      label: 'guest-owner',
+    })
+
+    const created = await create({ conversationId: conversation.id })
+    if (created.outcome !== 'created') throw new Error(created.outcome)
+
+    expect(
+      await consumeGuestVaultHandoff(db, created.bearerToken, undefined, sealingKey),
+    ).toMatchObject({ outcome: 'revealed', value: 'sentinel-secret' })
+
+    const rows = await db.select().from(messages)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({
+      conversationId: conversation.id,
+      senderParty: 'system-role',
+      senderSystemRole: 'security',
+      body: `Guest vault handoff ${created.handoff.id} was consumed.`,
+    })
+    expect(JSON.stringify(rows)).not.toContain(created.bearerToken)
+    expect(JSON.stringify(rows)).not.toContain('sentinel-secret')
+
+    await setVaultEntry(db, token, agentId, 'github/octocat', 'portable-without-thread')
+    const portable = await create()
+    if (portable.outcome !== 'created') throw new Error(portable.outcome)
+    expect(
+      await consumeGuestVaultHandoff(db, portable.bearerToken, undefined, sealingKey),
+    ).toMatchObject({ outcome: 'revealed', value: 'portable-without-thread' })
+    expect(await db.select().from(messages)).toHaveLength(1)
+  })
+
+  it('does not fail disclosure when a linked conversation was deleted', async () => {
+    await setVaultEntry(db, token, agentId, 'github/octocat', 'sentinel-secret')
+    const [conversation] = await db.insert(messageConversations).values({}).returning()
+    if (conversation === undefined) throw new Error('conversation insert failed')
+    await db.insert(messageParticipants).values({
+      conversationId: conversation.id,
+      party: 'citizen',
+      agentId,
+      label: 'guest-owner',
+    })
+    const created = await create({ conversationId: conversation.id })
+    if (created.outcome !== 'created') throw new Error(created.outcome)
+    await db.delete(messageConversations).where(eq(messageConversations.id, conversation.id))
+
+    expect(
+      await consumeGuestVaultHandoff(db, created.bearerToken, undefined, sealingKey),
+    ).toMatchObject({ outcome: 'revealed', value: 'sentinel-secret' })
+    expect(await db.select().from(messages)).toHaveLength(0)
   })
 
   it('atomically discloses exactly once across concurrent attempts', async () => {

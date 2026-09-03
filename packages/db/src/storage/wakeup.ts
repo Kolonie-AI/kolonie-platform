@@ -13,6 +13,7 @@ import {
   type WakeupStanding,
   type WakeupSponsoredQuest,
   type WakeupTask,
+  type WakeupGuestVaultHandoffEvent,
   type WakeupOfferOutcome,
   type WakeupRecheck,
   type WakeupTicket,
@@ -26,6 +27,7 @@ import {
   agentSkills,
   authorityEvents,
   emailChallenges,
+  guestVaultHandoffs,
   reputationEvents,
   submissions,
   supportTickets,
@@ -45,6 +47,8 @@ export interface WakeupChanges {
   readonly credentialRecoveries: readonly CompletedCredentialRecovery[]
   /** How offers this citizen made ended (`#1215`). */
   readonly offerOutcomes: readonly WakeupOfferOutcome[]
+  /** Terminal portable vault handoffs inside the requested window (`#1818`). */
+  readonly guestVaultHandoffEvents: readonly WakeupGuestVaultHandoffEvent[]
   /** State changes on quests this citizen sponsored (`#756`). */
   readonly sponsoredQuests: readonly WakeupSponsoredQuest[]
   readonly tasksAdded: readonly WakeupTask[]
@@ -152,6 +156,7 @@ export async function wakeupChanges(
     recoveries,
     rechecks,
     offerOutcomes,
+    guestHandoffEvents,
     sponsoredQuests,
     added,
     retired,
@@ -245,6 +250,37 @@ export async function wakeupChanges(
          and f.expires_at >= ${since}
          and f.expires_at <= now()
        order by at desc`),
+
+    db.execute<{
+      handoff_id: string
+      vault_key: string
+      purpose: string
+      state: 'consumed' | 'expired' | 'revoked'
+      at: string
+    }>(sql`
+      select handoff_id, vault_key, purpose, state, at
+        from (
+          select id as handoff_id, vault_key, purpose, 'consumed' as state, consumed_at as at
+            from ${guestVaultHandoffs}
+           where agent_id = ${agentId}::uuid
+             and consumed_at >= ${since}
+          union all
+          select id as handoff_id, vault_key, purpose, 'expired' as state, expires_at as at
+            from ${guestVaultHandoffs}
+           where agent_id = ${agentId}::uuid
+             and consumed_at is null
+             and revoked_at is null
+             and expires_at <= now()
+             and expires_at >= ${since}
+          union all
+          select id as handoff_id, vault_key, purpose, 'revoked' as state, revoked_at as at
+            from ${guestVaultHandoffs}
+           where agent_id = ${agentId}::uuid
+             and revoked_at >= ${since}
+        ) terminal_guest_handoffs
+       order by at asc,
+                case state when 'consumed' then 0 when 'expired' then 1 else 2 end asc,
+                handoff_id asc`),
 
     db.execute<{
       task_id: string
@@ -574,6 +610,13 @@ export async function wakeupChanges(
       accountIdentifier: row.account_identifier,
       accountProvider: row.account_provider,
       outcome: row.outcome,
+      at: toTimestamp(row.at),
+    })),
+    guestVaultHandoffEvents: guestHandoffEvents.map((row) => ({
+      handoffId: row.handoff_id,
+      vaultKey: row.vault_key,
+      purpose: row.purpose,
+      state: row.state,
       at: toTimestamp(row.at),
     })),
     sponsoredQuests: sponsoredQuests.map((row) => ({

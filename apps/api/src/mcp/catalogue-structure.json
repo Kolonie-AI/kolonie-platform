@@ -4009,6 +4009,10 @@
       "name": "kolonie.vault.handoff.create",
       "schema": {
         "properties": {
+          "conversationId": {
+            "format": "uuid",
+            "type": "string"
+          },
           "key": {
             "maxLength": 128,
             "minLength": 1,

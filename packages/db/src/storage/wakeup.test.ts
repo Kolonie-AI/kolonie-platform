@@ -6,6 +6,7 @@ import {
   agentSessions,
   agentSkills,
   authorityEvents,
+  guestVaultHandoffs,
   reputationEvents,
   submissions,
   tasks,
@@ -119,6 +120,128 @@ describe('where the wake-up digest measures from', () => {
     await aFinishedRun(first, 'secret-run-two', 6)
 
     expect(await previousSessionStart(db, second)).toBeNull()
+  })
+})
+
+describe('guest vault handoff terminal events in the digest', () => {
+  let db: Database
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+  })
+
+  const anAgent = async (name: string): Promise<AgentId> => {
+    const result = await registerAgent(
+      db,
+      RegisterAgentRequestSchema.parse({ name, platform: 'openclaw' }),
+    )
+    if (result.outcome !== 'registered') throw new Error(result.outcome)
+    return result.agent.id
+  }
+
+  it('reports only the approved fields in lifecycle order within an inclusive window', async () => {
+    const owner = await anAgent('guest-handoff-owner')
+    const bystander = await anAgent('guest-handoff-bystander')
+    const boundary = '2026-09-03T05:00:00.000Z'
+    const tied = '2026-09-03T05:01:00.000Z'
+
+    await db.insert(guestVaultHandoffs).values([
+      {
+        id: '11111111-1111-4111-8111-111111111111',
+        agentId: owner,
+        vaultKey: 'credential/first',
+        purpose: 'deliver the first credential',
+        tokenHash: 'token-hash-first',
+        sealedValue: null,
+        passphraseHash: 'passphrase-hash-first',
+        failedSourceHash: 'network-source-hash-first',
+        createdAt: '2026-09-03T04:00:00.000Z',
+        expiresAt: '2026-09-03T08:00:00.000Z',
+        consumedAt: boundary,
+      },
+      {
+        id: '22222222-2222-4222-8222-222222222222',
+        agentId: owner,
+        vaultKey: 'credential/second',
+        purpose: 'deliver the second credential',
+        tokenHash: 'token-hash-second',
+        sealedValue: null,
+        createdAt: '2026-09-03T04:00:00.000Z',
+        expiresAt: tied,
+      },
+      {
+        id: '33333333-3333-4333-8333-333333333333',
+        agentId: owner,
+        vaultKey: 'credential/third',
+        purpose: 'deliver the third credential',
+        tokenHash: 'token-hash-third',
+        sealedValue: null,
+        createdAt: '2026-09-03T04:00:00.000Z',
+        expiresAt: '2026-09-03T08:00:00.000Z',
+        revokedAt: tied,
+      },
+      {
+        id: '44444444-4444-4444-8444-444444444444',
+        agentId: bystander,
+        vaultKey: 'credential/private',
+        purpose: 'never reaches the owner',
+        tokenHash: 'token-hash-private',
+        sealedValue: null,
+        createdAt: '2026-09-03T04:00:00.000Z',
+        expiresAt: '2026-09-03T08:00:00.000Z',
+        consumedAt: tied,
+      },
+    ])
+
+    const digest = await wakeupChanges(db, owner, boundary)
+
+    expect(digest.guestVaultHandoffEvents).toEqual([
+      {
+        handoffId: '11111111-1111-4111-8111-111111111111',
+        vaultKey: 'credential/first',
+        purpose: 'deliver the first credential',
+        state: 'consumed',
+        at: boundary,
+      },
+      {
+        handoffId: '22222222-2222-4222-8222-222222222222',
+        vaultKey: 'credential/second',
+        purpose: 'deliver the second credential',
+        state: 'expired',
+        at: tied,
+      },
+      {
+        handoffId: '33333333-3333-4333-8333-333333333333',
+        vaultKey: 'credential/third',
+        purpose: 'deliver the third credential',
+        state: 'revoked',
+        at: tied,
+      },
+    ])
+    expect(Object.keys(digest.guestVaultHandoffEvents[0] ?? {}).sort()).toEqual([
+      'at',
+      'handoffId',
+      'purpose',
+      'state',
+      'vaultKey',
+    ])
+    expect(JSON.stringify(digest.guestVaultHandoffEvents)).not.toMatch(
+      /token-hash|passphrase-hash|network-source-hash|sealedValue|recipient|ip/i,
+    )
+    expect((await wakeupChanges(db, owner, boundary)).guestVaultHandoffEvents).toEqual(
+      digest.guestVaultHandoffEvents,
+    )
+    expect(
+      (await wakeupChanges(db, owner, '2026-09-03T05:02:00.000Z')).guestVaultHandoffEvents,
+    ).toEqual([])
   })
 })
 

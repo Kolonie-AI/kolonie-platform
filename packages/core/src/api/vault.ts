@@ -231,6 +231,7 @@ export const CreateGuestVaultHandoffRequestSchema = z
       .max(GUEST_VAULT_HANDOFF_MAX_MINUTES)
       .default(GUEST_VAULT_HANDOFF_DEFAULT_MINUTES),
     passphrase: z.string().min(1).max(GUEST_VAULT_HANDOFF_PASSPHRASE_MAX_LENGTH).optional(),
+    conversationId: z.string().uuid().optional(),
   })
   .strict()
 export type CreateGuestVaultHandoffRequest = z.infer<typeof CreateGuestVaultHandoffRequestSchema>

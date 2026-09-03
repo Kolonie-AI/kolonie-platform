@@ -391,6 +391,13 @@ export function registerVaultTools(
           .max(GUEST_VAULT_HANDOFF_PASSPHRASE_MAX_LENGTH)
           .optional()
           .describe('Optional second secret the recipient must enter. Never put it in the URL.'),
+        conversationId: z
+          .string()
+          .uuid()
+          .optional()
+          .describe(
+            'A message thread you are in to annotate when the handoff is consumed. Omit it for portable forwarding without a thread.',
+          ),
       },
       annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
       ...toolDocsMeta('kolonie.vault.handoff.create'),

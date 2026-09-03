@@ -4184,7 +4184,16 @@
       "schema": {
         "properties": {
           "act": {
-            "enum": ["list", "get", "create", "update", "claim", "handover", "archive"],
+            "enum": [
+              "list",
+              "get",
+              "create",
+              "accept-practicum",
+              "update",
+              "claim",
+              "handover",
+              "archive"
+            ],
             "type": "string"
           },
           "boardId": {

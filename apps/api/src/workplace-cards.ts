@@ -31,6 +31,7 @@ import {
   moveCard,
   removeLink,
   requestReview,
+  startProfessionPracticum,
   updateCard,
   updateChecklist,
   updateChecklistItem,
@@ -55,6 +56,7 @@ import {
   type MoveCardResult,
   type RemoveLinkResult,
   type RequestReviewResult,
+  type StartProfessionPracticumResult,
   type UpdateCardResult,
   type UpdateChecklistItemResult,
   type UpdateChecklistResult,
@@ -78,6 +80,10 @@ export interface WorkplaceCards {
     },
   ): Promise<ListCardsResult>
   get(callerId: AgentId, cardId: string): Promise<WorkplaceCardDetail | null>
+  acceptPracticum(input: {
+    readonly callerId: AgentId
+    readonly outcome: string
+  }): Promise<StartProfessionPracticumResult>
   create(input: {
     readonly callerId: AgentId
     readonly boardId: string
@@ -217,6 +223,7 @@ export function databaseWorkplaceCards(db: Database): WorkplaceCards {
   return {
     list: (callerId, boardId, query) => listCards(db, callerId, boardId, query),
     get: (callerId, cardId) => getCard(db, callerId, cardId),
+    acceptPracticum: (input) => startProfessionPracticum(db, input),
     create: (input) => createCard(db, input),
     update: (input) => updateCard(db, input),
     claim: (input) => claimCard(db, input),

@@ -30,6 +30,8 @@ import {
   WorkplaceCardSummarySchema,
   WorkplaceCardDetailSchema,
   WorkplaceCardPageSchema,
+  WorkplaceAcceptPracticumRequestSchema,
+  WorkplacePracticumCycleSchema,
   WorkplaceCreateCardRequestSchema,
   WorkplaceUpdateCardRequestSchema,
   WorkplaceMoveCardRequestSchema,
@@ -382,6 +384,7 @@ describe('MCP grammar', () => {
       'list',
       'get',
       'create',
+      'accept-practicum',
       'update',
       'claim',
       'handover',
@@ -732,6 +735,40 @@ describe('card HTTP envelopes (#1760)', () => {
   it('pages summaries, never full cards', () => {
     const page = WorkplaceCardPageSchema.parse({ items: [summary()], nextCursor: null })
     expect(page.items[0]).not.toHaveProperty('description')
+  })
+
+  it('accepts one bounded practicum outcome and a cycle of three to five ordinary cards', () => {
+    expect(
+      WorkplaceAcceptPracticumRequestSchema.parse({
+        outcome: 'Deliver a runnable status page for one support team.',
+      }),
+    ).toEqual({ outcome: 'Deliver a runnable status page for one support team.' })
+
+    const cycle = WorkplacePracticumCycleSchema.parse({
+      id: 'practicum:123e4567-e89b-42d3-a456-426614174000',
+      boardId: BOARD,
+      cards: [card(), card(), card(), card(), card()],
+    })
+    expect(cycle.cards).toHaveLength(5)
+    expect(
+      WorkplacePracticumCycleSchema.safeParse({ ...cycle, cards: [card(), card()] }).success,
+    ).toBe(false)
+    expect(
+      WorkplacePracticumCycleSchema.safeParse({
+        ...cycle,
+        cards: [card(), card(), card(), card(), card(), card()],
+      }).success,
+    ).toBe(false)
+  })
+
+  it('keeps a practicum acceptance to one outcome and rejects blank or extra fields', () => {
+    expect(WorkplaceAcceptPracticumRequestSchema.safeParse({ outcome: '   ' }).success).toBe(false)
+    expect(
+      WorkplaceAcceptPracticumRequestSchema.safeParse({
+        outcome: 'Deliver one result.',
+        profession: 'Software Producer',
+      }).success,
+    ).toBe(false)
   })
 
   it('creates in inbox or ready only', () => {

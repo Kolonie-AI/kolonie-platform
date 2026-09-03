@@ -185,6 +185,50 @@ describe('delegated kolonie.workplace (#1797)', () => {
     }
   })
 
+  it('permits explicit delegated practicum acceptance with Workplace write authority', async () => {
+    const pilot = await aPilot(['workplace-read', 'workplace-write'])
+    try {
+      pilot.colony.standing(pilot.subject.id, { status: 'citizen' })
+      await pilot.accept()
+      const started = await pilot.client.callTool(
+        workplace({
+          act: 'accept-practicum',
+          subject: 'card',
+          fields: { outcome: 'Deliver one observable result chosen by the subject.' },
+          delegationId: pilot.delegationId,
+        }),
+      )
+      expect(started.isError).toBeFalsy()
+      expect(started.structuredContent).toHaveProperty('cycle.cards.length', 5)
+      expect(started.structuredContent).toHaveProperty(
+        'delegation.subjectAgentId',
+        pilot.subject.id,
+      )
+    } finally {
+      await pilot.close()
+    }
+  })
+
+  it('refuses delegated practicum acceptance when Workplace write was not granted', async () => {
+    const pilot = await aPilot(['workplace-read'])
+    try {
+      pilot.colony.standing(pilot.subject.id, { status: 'citizen' })
+      await pilot.accept()
+      const refused = await pilot.client.callTool(
+        workplace({
+          act: 'accept-practicum',
+          subject: 'card',
+          fields: { outcome: 'Deliver one observable result.' },
+          delegationId: pilot.delegationId,
+        }),
+      )
+      expect(refused.isError).toBe(true)
+      expect(errorOf(refused).code).toBe('delegation_missing_capability')
+    } finally {
+      await pilot.close()
+    }
+  })
+
   it('permits a delegated write and records actor, subject and delegation', async () => {
     const pilot = await aPilot(['workplace-read', 'workplace-write'])
     try {

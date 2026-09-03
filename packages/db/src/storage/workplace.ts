@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { and, eq, inArray, isNull, lte, ne, or, sql } from 'drizzle-orm'
 import {
   AgentIdSchema,
@@ -6,6 +7,7 @@ import {
   MAX_PAGE_SIZE,
   WorkplaceBoardIdSchema,
   WorkplaceBoardSchema,
+  WORKPLACE_PRACTICUM_CARD_TITLES,
   WorkplaceCadenceSchema,
   WorkplaceCardIdSchema,
   WorkplaceCardLinkSchema,
@@ -38,6 +40,7 @@ import {
   type WorkplaceLabel,
   type WorkplaceLane,
   type WorkplaceLinkCounts,
+  type WorkplacePracticumCycle,
   type WorkplaceLinkKind,
   type WorkplaceLinkTarget,
   type WorkplaceMembership,
@@ -86,6 +89,7 @@ import { vaultHoldsKey } from './vault.js'
 
 const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000
 const RANK_GAP = 1000
+const PRACTICUM_PREFIX = 'practicum:'
 
 export type WorkplaceUnknown = { readonly outcome: 'unknown' }
 export type WorkplaceMissing = { readonly outcome: 'missing' }
@@ -630,7 +634,8 @@ export async function workplaceWakeup(
     when ${workplaceCards.status} = 'in_progress' and ${workplaceCards.ownerId} = ${callerId} then 0
     when ${workplaceCards.status} = 'ready' then 1
     when ${workplaceCards.status} = 'blocked' and ${workplaceCards.ownerId} = ${callerId} then 2
-    else 3
+    when ${workplaceCards.status} = 'inbox' and ${workplaceCards.seedKey} like ${`${PRACTICUM_PREFIX}%`} then 3
+    else 4
   end`
   const cards = await db
     .select({
@@ -1183,6 +1188,105 @@ async function replayOrStore<T>(
     expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS).toISOString(),
   })
   return value
+}
+
+export type StartProfessionPracticumResult =
+  | { readonly outcome: 'started'; readonly cycle: WorkplacePracticumCycle }
+  | { readonly outcome: 'citizen-required' }
+
+/**
+ * Start one practicum cycle, on explicit citizen acceptance (`#1835`).
+ *
+ * **Only this call creates a cycle.** Declaring what you work as creates
+ * nothing, and neither does waking up: the outcome argument is the citizen's
+ * own sentence and its arrival here is the consent.
+ *
+ * **The cycle identifier rides on `seedKey`, which already exists**, so no
+ * progress table shadows the cards. It is one non-secret string, it grants no
+ * permission, and it is what makes a retry converge and a later read able to
+ * tell these five cards from every other card on the board.
+ *
+ * **Concurrent acceptance converges on one cycle.** The citizen row is locked
+ * first, exactly as the default-board provisioner locks it, so the second
+ * caller reads the cards the first wrote instead of writing five more.
+ */
+export async function startProfessionPracticum(
+  db: Database,
+  input: { readonly callerId: AgentId; readonly outcome: string },
+): Promise<StartProfessionPracticumResult> {
+  return db.transaction(async (tx) => {
+    const [agent] = await tx
+      .select({ status: agents.status })
+      .from(agents)
+      .where(eq(agents.id, input.callerId))
+      .for('update')
+      .limit(1)
+    if (agent?.status !== 'citizen') return { outcome: 'citizen-required' }
+
+    await provisionDefaultWorkplace(tx, {
+      citizenId: input.callerId,
+      now: new Date().toISOString(),
+    })
+    const [board] = await tx
+      .select({ id: workplaceBoards.id })
+      .from(workplaceBoards)
+      .where(
+        and(
+          eq(workplaceBoards.ownerId, input.callerId),
+          eq(workplaceBoards.kind, 'default'),
+          isNull(workplaceBoards.archivedAt),
+        ),
+      )
+      .limit(1)
+    if (board === undefined) throw new Error('default workplace provision returned no board')
+
+    const existing = await tx
+      .select()
+      .from(workplaceCards)
+      .where(
+        and(
+          eq(workplaceCards.boardId, board.id),
+          sql`${workplaceCards.seedKey} like ${`${PRACTICUM_PREFIX}%`}`,
+        ),
+      )
+      .orderBy(workplaceCards.position, workplaceCards.id)
+    if (existing.length > 0) {
+      const cycleId = existing[0]?.seedKey?.split(':card:')[0]
+      if (cycleId === undefined) throw new Error('practicum card has no cycle identifier')
+      return {
+        outcome: 'started',
+        cycle: {
+          id: cycleId,
+          boardId: WorkplaceBoardIdSchema.parse(board.id),
+          cards: existing.map(toCard),
+        },
+      }
+    }
+
+    const cycleId = `${PRACTICUM_PREFIX}${randomUUID()}`
+    let position = await nextPosition(tx, board.id, 'inbox')
+    const inserted: WorkplaceCard[] = []
+    for (const [index, title] of WORKPLACE_PRACTICUM_CARD_TITLES.entries()) {
+      const [row] = await tx
+        .insert(workplaceCards)
+        .values({
+          boardId: board.id,
+          status: 'inbox',
+          title,
+          description: input.outcome,
+          position,
+          seedKey: `${cycleId}:card:${index + 1}`,
+        })
+        .returning()
+      if (row === undefined) throw new Error('practicum card insert returned no row')
+      inserted.push(toCard(row))
+      position += RANK_GAP
+    }
+    return {
+      outcome: 'started',
+      cycle: { id: cycleId, boardId: WorkplaceBoardIdSchema.parse(board.id), cards: inserted },
+    }
+  })
 }
 
 export type CreateCardResult =

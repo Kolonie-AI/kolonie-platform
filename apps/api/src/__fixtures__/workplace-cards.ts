@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import {
   EMPTY_WORKPLACE_LINK_COUNTS,
+  WORKPLACE_PRACTICUM_CARD_TITLES,
   WorkplaceCardIdSchema,
   WorkplaceChecklistIdSchema,
   WorkplaceChecklistItemIdSchema,
@@ -48,6 +49,7 @@ import type {
   MoveCardResult,
   RemoveLinkResult,
   RequestReviewResult,
+  StartProfessionPracticumResult,
   UpdateCardResult,
   UpdateChecklistItemResult,
   UpdateChecklistResult,
@@ -262,6 +264,51 @@ export function fakeWorkplaceCards(): FakeWorkplaceCards {
         handover:
           [...handovers.values()].find((one) => one.cardId === cardId && one.isCurrent) ?? null,
       } satisfies WorkplaceCardDetail
+    },
+
+    /**
+     * Explicit practicum acceptance (`#1835`). The five titles come from the
+     * core contract; this fixture only stores the rows and converges retries.
+     */
+    acceptPracticum: async (input): Promise<StartProfessionPracticumResult> => {
+      const boardId = [...seats.entries()].find(([, memberships]) =>
+        memberships.some(
+          (membership) => membership.citizenId === input.callerId && membership.role === 'owner',
+        ),
+      )?.[0]
+      if (boardId === undefined) return { outcome: 'citizen-required' }
+      const existing = [...cards.values()].filter(
+        (card) => card.boardId === boardId && card.seedKey?.startsWith('practicum:') === true,
+      )
+      if (existing.length > 0) {
+        const id = existing[0]?.seedKey?.split(':card:')[0]
+        if (id === undefined) throw new Error('practicum card has no cycle identifier')
+        return { outcome: 'started', cycle: { id, boardId: boardId as never, cards: existing } }
+      }
+      const id = `practicum:${randomUUID()}`
+      const now = new Date().toISOString()
+      const made = WORKPLACE_PRACTICUM_CARD_TITLES.map((title, index): WorkplaceCard => ({
+        id: WorkplaceCardIdSchema.parse(randomUUID()),
+        boardId: boardId as WorkplaceCard['boardId'],
+        status: 'inbox',
+        title,
+        description: input.outcome,
+        ownerId: null,
+        position: nextPosition(boardId, 'inbox') + index * RANK_GAP,
+        priority: 'unset',
+        dueAt: null,
+        blockedBy: null,
+        unblockWhen: null,
+        outcome: null,
+        version: 1,
+        coverColour: null,
+        seedKey: `${id}:card:${index + 1}`,
+        archivedAt: null,
+        createdAt: now,
+        updatedAt: now,
+      }))
+      for (const card of made) cards.set(card.id, card)
+      return { outcome: 'started', cycle: { id, boardId: boardId as never, cards: made } }
     },
 
     create: async (input) => {

@@ -34,6 +34,7 @@ import {
   listLinks,
   listMembers,
   materialiseDue,
+  startProfessionPracticum,
   moveCard,
   removeLink,
   removeMember,
@@ -97,6 +98,143 @@ describe('workplace storage', () => {
 
   const defaultBoard = async (callerId = owner) =>
     createDefaultBoard(db, { callerId, title: 'Default board' })
+
+  /**
+   * The complete Software Producer example `#1835` asks for: the citizen names
+   * one user/problem and one smallest runnable artifact in the outcome it
+   * accepts, and the cycle carries that sentence from problem through delivery
+   * to feedback. The cards stay ordinary — rewritable and archivable.
+   */
+  it('starts one Software Producer cycle of editable cards on the lazy default board', async () => {
+    await db.update(agents).set({ status: 'citizen' }).where(eq(agents.id, owner))
+    const additional = await createBoard(db, { callerId: owner, title: 'Existing' })
+    const existing = await createCard(db, {
+      callerId: owner,
+      boardId: additional.id,
+      title: 'Keep this card',
+    })
+
+    const started = await startProfessionPracticum(db, {
+      callerId: owner,
+      outcome: 'Help one support team see service health with a smallest runnable status page.',
+    })
+
+    expect(started.outcome).toBe('started')
+    if (started.outcome !== 'started') return
+    expect(started.cycle.cards).toHaveLength(5)
+    expect(started.cycle.cards.map((card) => card.title)).toEqual([
+      'Understand one user and problem',
+      'Make the smallest artifact',
+      'Run or test the artifact',
+      'Publish or deliver the artifact',
+      'Ask for feedback',
+    ])
+    expect(
+      started.cycle.cards.every(
+        (card) =>
+          card.description ===
+          'Help one support team see service health with a smallest runnable status page.',
+      ),
+    ).toBe(true)
+    expect(started.cycle.cards.every((card) => card.boardId === started.cycle.boardId)).toBe(true)
+    expect(started.cycle.cards.every((card) => card.status === 'inbox')).toBe(true)
+    expect(new Set(started.cycle.cards.map((card) => card.seedKey?.split(':card:')[0]))).toEqual(
+      new Set([started.cycle.id]),
+    )
+    expect(
+      await db.select().from(workplaceBoards).where(eq(workplaceBoards.ownerId, owner)),
+    ).toHaveLength(2)
+    expect(
+      await getCard(db, owner, existing.outcome === 'created' ? existing.card.id : ''),
+    ).not.toBeNull()
+    const rewritten = await updateCard(db, {
+      callerId: owner,
+      cardId: started.cycle.cards[0]!.id,
+      expectedVersion: started.cycle.cards[0]!.version,
+      title: 'Interview one support lead',
+    })
+    expect(rewritten.outcome).toBe('updated')
+    const archived = await archiveCard(db, {
+      callerId: owner,
+      cardId: started.cycle.cards[1]!.id,
+      expectedVersion: started.cycle.cards[1]!.version,
+    })
+    expect(archived.outcome).toBe('archived')
+  })
+
+  /**
+   * `#1739` and `direction.test.ts`: nothing here reads what a citizen says it
+   * works as. A novel trade gets the same five cards as any other, and the
+   * citizen's own outcome is the only thing that differs.
+   */
+  it('classifies no profession text and carries the citizen outcome instead', async () => {
+    await db
+      .update(agents)
+      .set({ status: 'citizen', profession: 'Intertidal Signal Gardener' })
+      .where(eq(agents.id, owner))
+
+    const started = await startProfessionPracticum(db, {
+      callerId: owner,
+      outcome: 'Deliver one tide-readable signal and ask its intended reader what changed.',
+    })
+
+    expect(started.outcome).toBe('started')
+    if (started.outcome !== 'started') return
+    expect(started.cycle.cards.map((card) => card.title)).toEqual([
+      'Understand one user and problem',
+      'Make the smallest artifact',
+      'Run or test the artifact',
+      'Publish or deliver the artifact',
+      'Ask for feedback',
+    ])
+    expect(started.cycle.cards[0]?.description).toBe(
+      'Deliver one tide-readable signal and ask its intended reader what changed.',
+    )
+    expect(JSON.stringify(started.cycle.cards)).not.toContain('Intertidal Signal Gardener')
+  })
+
+  it('refuses a candidate without creating a board or cards', async () => {
+    expect(
+      await startProfessionPracticum(db, {
+        callerId: owner,
+        outcome: 'Deliver one observable result.',
+      }),
+    ).toEqual({ outcome: 'citizen-required' })
+    expect(
+      await db.select().from(workplaceBoards).where(eq(workplaceBoards.ownerId, owner)),
+    ).toEqual([])
+    expect(await db.select().from(workplaceCards)).toEqual([])
+  })
+
+  it('converges retried and concurrent acceptance on one cycle', async () => {
+    await db.update(agents).set({ status: 'citizen' }).where(eq(agents.id, owner))
+    const outcome = 'Deliver a runnable queue viewer for one maintainer.'
+
+    const results = await Promise.all([
+      startProfessionPracticum(db, { callerId: owner, outcome }),
+      startProfessionPracticum(db, { callerId: owner, outcome }),
+      startProfessionPracticum(db, { callerId: owner, outcome }),
+      startProfessionPracticum(db, { callerId: owner, outcome }),
+    ])
+
+    expect(results.every((result) => result.outcome === 'started')).toBe(true)
+    const started = results.filter((result) => result.outcome === 'started')
+    expect(new Set(started.map((result) => result.cycle.id))).toHaveLength(1)
+    expect(new Set(started.map((result) => result.cycle.boardId))).toHaveLength(1)
+    const cycleId = started[0]?.cycle.id
+    expect(
+      await db
+        .select()
+        .from(workplaceCards)
+        .where(sql`${workplaceCards.seedKey} like ${`${cycleId}:card:%`}`),
+    ).toHaveLength(5)
+    expect(
+      await db
+        .select()
+        .from(workplaceBoards)
+        .where(and(eq(workplaceBoards.ownerId, owner), eq(workplaceBoards.kind, 'default'))),
+    ).toHaveLength(1)
+  })
 
   it('plants one default board on first list without changing an existing additional board', async () => {
     await db.update(agents).set({ status: 'citizen' }).where(eq(agents.id, owner))
@@ -1325,6 +1463,36 @@ describe('workplace wakeup recommendation', () => {
     if (registered.outcome !== 'registered') throw new Error('citizen missing')
     citizenId = registered.agent.id
     await db.update(agents).set({ status: 'citizen' }).where(eq(agents.id, citizenId))
+  })
+
+  it('keeps default seed-card wakeup discovery and ranks an accepted practicum first', async () => {
+    const boards = await listBoardsFor(db, citizenId)
+    if (boards.outcome !== 'listed') throw new Error('default board missing')
+    const defaultBoard = boards.items.find((board) => board.kind === 'default')
+    if (defaultBoard === undefined) throw new Error('default board missing')
+
+    const before = await workplaceWakeup(db, citizenId)
+    expect(before?.boardId).toBe(defaultBoard.id)
+    expect(before?.recommendation).toMatchObject({
+      title: 'Sharpen profession and mission',
+      status: 'inbox',
+    })
+
+    const started = await startProfessionPracticum(db, {
+      callerId: citizenId,
+      outcome: 'Deliver one runnable status page.',
+    })
+    if (started.outcome !== 'started') throw new Error('cycle missing')
+
+    const result = await workplaceWakeup(db, citizenId)
+
+    expect(result?.boardId).toBe(started.cycle.boardId)
+    expect(result?.recommendation).toMatchObject({
+      cardId: started.cycle.cards[0]?.id,
+      title: 'Understand one user and problem',
+      status: 'inbox',
+    })
+    expect(result?.more).toEqual([])
   })
 
   it('ranks owned in-progress above ready and returns a ready-to-send get call', async () => {

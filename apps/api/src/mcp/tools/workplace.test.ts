@@ -178,7 +178,7 @@ describe('kolonie.workplace (#1761)', () => {
       expect(JSON.stringify(tool?.inputSchema)).not.toContain('toCitizenId')
       expect(JSON.stringify(tool?.inputSchema)).not.toContain('evidenceLinks')
       expect(JSON.stringify(tool?.inputSchema)).toContain('fields')
-      expect(JSON.stringify(tool?.inputSchema)).toContain('Only operator agent passes it')
+      expect(JSON.stringify(tool?.inputSchema)).toContain('Operator only')
       expect(JSON.stringify(tool?.inputSchema)).toContain('subject omits it')
     })
 
@@ -206,6 +206,51 @@ describe('kolonie.workplace (#1761)', () => {
   })
 
   describe('the work loop', () => {
+    it('accepts a practicum explicitly through the existing Workplace tool', async () => {
+      const { colony, agent, apiKey } = await registeredCitizen()
+      colony.standing(agent.id, { status: 'citizen' })
+      const board = plantOwned(colony, agent.id, { title: 'Default', kind: 'default' })
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+      const result = await client.callTool(
+        workplace({
+          act: 'accept-practicum',
+          subject: 'card',
+          fields: { outcome: 'Deliver one runnable status page to a support team.' },
+        }),
+      )
+      await close()
+
+      expect(result.isError).not.toBe(true)
+      const started = structuredOf<{
+        cycle: { id: string; boardId: string; cards: WorkplaceCard[] }
+      }>(result)
+      expect(started.cycle.id).toMatch(/^practicum:/)
+      expect(started.cycle.boardId).toBe(board.id)
+      expect(started.cycle.cards).toHaveLength(5)
+      expect(started.cycle.cards.every((card) => card.seedKey?.startsWith(started.cycle.id))).toBe(
+        true,
+      )
+    })
+
+    it('refuses practicum acceptance by a candidate', async () => {
+      const { colony, agent, apiKey } = await registeredCitizen()
+      plantOwned(colony, agent.id, { title: 'Default', kind: 'default' })
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+      const result = await client.callTool(
+        workplace({
+          act: 'accept-practicum',
+          subject: 'card',
+          fields: { outcome: 'Deliver one observable result.' },
+        }),
+      )
+      await close()
+
+      expect(result.isError).toBe(true)
+      expect(errorOf(result).code).toBe('forbidden')
+    })
+
     it('discovers a board, reads a card, claims it and completes it through this one tool', async () => {
       const { colony, agent, apiKey } = await registeredCitizen()
       const board = plantOwned(colony, agent.id, { title: 'My board' })

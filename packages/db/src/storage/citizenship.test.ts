@@ -1,25 +1,9 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { AgentIdSchema, type AgentId, type CitizenshipStatus } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import type * as WorkplaceProvision from './workplace-provision.js'
-
-const workplaceFailure = vi.hoisted(() => ({ enabled: false }))
-
-vi.mock('./workplace-provision.js', async (importOriginal) => {
-  const original = await importOriginal<typeof WorkplaceProvision>()
-  return {
-    ...original,
-    provisionDefaultWorkplace: async (
-      ...args: Parameters<typeof original.provisionDefaultWorkplace>
-    ) => {
-      if (workplaceFailure.enabled) throw new Error('forced provision failure')
-      return original.provisionDefaultWorkplace(...args)
-    },
-  }
-})
 
 import {
   agentSkills,
@@ -72,7 +56,6 @@ describe('promoting a candidate to citizen', () => {
   })
 
   beforeEach(async () => {
-    workplaceFailure.enabled = false
     await truncateAll(db)
   })
 
@@ -182,13 +165,28 @@ describe('promoting a candidate to citizen', () => {
     })
   })
 
-  it('plants the versioned default workday in the promotion transaction', async () => {
+  it('promotes without planting a Workplace before first access', async () => {
     const agentId = await anAgent()
     await holds(agentId, 'profile')
     await holds(agentId, 'mailbox')
 
-    expect(DEFAULT_WORKPLACE_SEED_VERSION).toBe(1)
     expect(await promote(agentId)).toEqual({ promoted: true })
+    expect(await workplaceCounts()).toEqual({
+      boards: 0,
+      memberships: 0,
+      labels: 0,
+      cards: 0,
+      checklists: 0,
+      checklistItems: 0,
+      recurrenceRules: 0,
+    })
+  })
+
+  it('plants the versioned default workday when provisioned', async () => {
+    const agentId = await anAgent('citizen')
+
+    expect(DEFAULT_WORKPLACE_SEED_VERSION).toBe(1)
+    expect(await provision(agentId)).toEqual({ provisioned: true })
 
     const [agent] = await db
       .select({ name: agents.name })
@@ -286,33 +284,11 @@ describe('promoting a candidate to citizen', () => {
     ])
   })
 
-  it('rolls the status change back when workplace provisioning throws', async () => {
-    const agentId = await anAgent()
-    await holds(agentId, 'profile')
-    await holds(agentId, 'mailbox')
-    workplaceFailure.enabled = true
-    await expect(promote(agentId)).rejects.toThrow('forced provision failure')
-    workplaceFailure.enabled = false
+  it('does not duplicate a workplace when provisioning is checked twice', async () => {
+    const agentId = await anAgent('citizen')
 
-    expect(await statusOf(agentId)).toBe('candidate')
-    expect(await workplaceCounts()).toEqual({
-      boards: 0,
-      memberships: 0,
-      labels: 0,
-      cards: 0,
-      checklists: 0,
-      checklistItems: 0,
-      recurrenceRules: 0,
-    })
-  })
-
-  it('does not duplicate a workplace when promotion is checked twice', async () => {
-    const agentId = await anAgent()
-    await holds(agentId, 'profile')
-    await holds(agentId, 'mailbox')
-
-    expect(await promote(agentId)).toEqual({ promoted: true })
-    expect(await promote(agentId)).toEqual({ promoted: false })
+    expect(await provision(agentId)).toEqual({ provisioned: true })
+    expect(await provision(agentId)).toEqual({ provisioned: false })
     expect(await workplaceCounts()).toEqual({
       boards: 1,
       memberships: 1,
@@ -324,7 +300,7 @@ describe('promoting a candidate to citizen', () => {
     })
   })
 
-  it('provisions a citizen directly once and leaves the existing seed alone', async () => {
+  it('leaves the existing seed alone on a later provisioning call', async () => {
     const agentId = await anAgent('citizen')
 
     expect(await provision(agentId)).toEqual({ provisioned: true })

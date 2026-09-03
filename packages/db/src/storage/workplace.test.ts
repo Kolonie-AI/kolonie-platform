@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { eq, sql } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { AccountKindSchema, type AccountCapability, type AgentId } from '@kolonie-ai/core'
 import { createDatabase, type Database } from '../client.js'
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
@@ -48,6 +48,8 @@ import {
   playbooks,
   tasks,
   workplaceActivity,
+  workplaceBoardMemberships,
+  workplaceBoards,
   workplaceCardLinks,
   workplaceCards,
   workplaceChecklistItems,
@@ -95,6 +97,53 @@ describe('workplace storage', () => {
 
   const defaultBoard = async (callerId = owner) =>
     createDefaultBoard(db, { callerId, title: 'Default board' })
+
+  it('plants one default board on first list without changing an existing additional board', async () => {
+    await db.update(agents).set({ status: 'citizen' }).where(eq(agents.id, owner))
+    const additional = await createBoard(db, { callerId: owner, title: 'Existing' })
+    const memberBoard = await createBoard(db, { callerId: member, title: 'Member board' })
+    await addMember(db, { callerId: member, boardId: memberBoard.id, citizenId: owner })
+
+    const listed = await listBoardsFor(db, owner)
+
+    expect(listed.outcome).toBe('listed')
+    if (listed.outcome !== 'listed') return
+    expect(listed.items).toHaveLength(3)
+    expect(listed.items.find((board) => board.id === additional.id)).toEqual(additional)
+    expect(listed.items.find((board) => board.id === memberBoard.id)).toEqual(memberBoard)
+    expect(listed.items.filter((board) => board.kind === 'default')).toHaveLength(1)
+  })
+
+  it('converges concurrent own and delegated first lists on one default board', async () => {
+    await db.update(agents).set({ status: 'citizen' }).where(eq(agents.id, owner))
+
+    const [own, delegated] = await Promise.all([
+      listBoardsFor(db, owner),
+      listBoardsFor(db, owner),
+      listBoardsFor(db, owner),
+      listBoardsFor(db, owner),
+    ])
+
+    expect(own.outcome).toBe('listed')
+    expect(delegated.outcome).toBe('listed')
+    if (own.outcome !== 'listed' || delegated.outcome !== 'listed') return
+    const ownDefault = own.items.find((board) => board.kind === 'default')
+    const delegatedDefault = delegated.items.find((board) => board.kind === 'default')
+    expect(ownDefault).toBeDefined()
+    expect(delegatedDefault?.id).toBe(ownDefault?.id)
+    expect(
+      await db
+        .select()
+        .from(workplaceBoards)
+        .where(and(eq(workplaceBoards.ownerId, owner), eq(workplaceBoards.kind, 'default'))),
+    ).toHaveLength(1)
+    expect(
+      await db
+        .select()
+        .from(workplaceBoardMemberships)
+        .where(eq(workplaceBoardMemberships.citizenId, owner)),
+    ).toHaveLength(1)
+  })
 
   it('hides a board from a citizen that is not a member, the same as a missing id', async () => {
     const board = await defaultBoard()

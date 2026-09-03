@@ -94,6 +94,28 @@ const aPilot = async (capabilities: readonly string[]) => {
 }
 
 describe('delegated kolonie.workplace (#1797)', () => {
+  it('lets an accepted operator list the subject board it could not see alone', async () => {
+    const pilot = await aPilot(['workplace-read'])
+    try {
+      await pilot.accept()
+      const delegated = await pilot.client.callTool(
+        workplace({
+          act: 'list',
+          subject: 'board',
+          delegationId: pilot.delegationId,
+        }),
+      )
+      expect(delegated.isError).toBeFalsy()
+      expect(delegated.structuredContent).toHaveProperty('items.0.id', pilot.board.id)
+      expect(delegated.structuredContent).toHaveProperty(
+        'delegation.subjectAgentId',
+        pilot.subject.id,
+      )
+    } finally {
+      await pilot.close()
+    }
+  })
+
   it('lets an accepted operator read the subject board it could not see alone', async () => {
     const pilot = await aPilot(['workplace-read'])
     try {

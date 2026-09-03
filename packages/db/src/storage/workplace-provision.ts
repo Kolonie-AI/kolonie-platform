@@ -14,12 +14,13 @@ import {
 } from '../schema/index.js'
 
 /**
- * Plant the default Workplace when citizenship is earned (`#1758`).
+ * Plant the default Workplace on first authenticated Workplace access (`#1809`).
  *
- * **Same transaction as the status flip.** `promoteIfEarned` calls this
- * before returning, so a throw rolls the citizen row back to `candidate`.
- * The unique live-default index is the only idempotency: there is no flag
- * on `agents`, and a second call for a citizen that already has a default
+ * `promoteIfEarned` also calls this in its transaction, so the ordinary
+ * promotion path still cannot expose a citizen without the board. The unique
+ * live-default index remains the database invariant, while a row lock on the
+ * citizen closes the conflict window before seed rows are written: there is no
+ * flag on `agents`, and a second call for a citizen that already has a default
  * board writes nothing.
  *
  * Seed copy is versioned here. Boards that already exist are left alone
@@ -119,6 +120,7 @@ export async function provisionDefaultWorkplace(
     .from(agents)
     .where(eq(agents.id, command.citizenId))
     .limit(1)
+    .for('update')
   if (agent === undefined || agent.status !== 'citizen') {
     throw new Error('provisionDefaultWorkplace refuses anyone who is not a citizen')
   }

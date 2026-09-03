@@ -472,9 +472,7 @@ async function dispatchBoard(
             ...(input.limit === undefined ? {} : { limit: input.limit }),
           }
     return ok(
-      listed.items.length === 0
-        ? 'No boards yet. Create one, or wait for the default board to be planted.'
-        : listed.items.map((board) => `- ${board.title} (${board.id}, ${board.kind})`).join('\n'),
+      listed.items.map((board) => `- ${board.title} (${board.id}, ${board.kind})`).join('\n'),
       {
         items: listed.items,
         nextCursor: listed.nextCursor,

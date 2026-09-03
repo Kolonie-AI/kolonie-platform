@@ -1210,6 +1210,20 @@ describe('private messaging', () => {
   describe('a credential-shaped body', () => {
     const PASTED = 'here you go — password: hunter2'
 
+    it('allows an opaque guest handoff URL through first contact', async () => {
+      const sender = await anAgent('sender')
+      const recipient = await anAgent('recipient')
+      const body =
+        'Open https://kolonie.ai/handoff/0Hn7Gv9mM3xP8qW2rT5yU1iO6pA4sD7fJ9kL2zX5cV8 and reveal it once.'
+
+      expect(
+        await sendCitizenMessage(db, sender, {
+          toHandle: await handleOf(recipient),
+          body,
+        }),
+      ).toMatchObject({ outcome: 'requested' })
+    })
+
     it('is refused on first contact, and writes nothing', async () => {
       const sender = await anAgent('sender')
       const recipient = await anAgent('recipient')

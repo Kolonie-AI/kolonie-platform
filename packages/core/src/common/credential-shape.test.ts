@@ -115,6 +115,13 @@ describe('looksLikeCredential', () => {
     expect(credentialFinding(text)?.reason).toBe('labelled-secret')
   })
 
+  it('allows an opaque guest handoff URL to cross ordinary messaging without exempting nearby credentials', () => {
+    const url = 'https://kolonie.ai/handoff/0Hn7Gv9mM3xP8qW2rT5yU1iO6pA4sD7fJ9kL2zX5cV8'
+    expect(looksLikeCredential(`Open ${url} and reveal it once.`)).toBe(false)
+    expect(looksLikeCredential(`Open ${url}; password: hunter2`)).toBe(true)
+    expect(looksLikeCredential(`${url}/ghp_abcdefghijklmnopqrstuvwxyz01`)).toBe(true)
+  })
+
   it('catches a private key block, a TOTP URI and a vendor-prefixed key', () => {
     for (const text of [
       'here you go\n-----BEGIN OPENSSH PRIVATE KEY-----\nb3Blbn\n',

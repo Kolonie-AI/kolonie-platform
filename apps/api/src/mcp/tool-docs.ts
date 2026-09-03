@@ -922,6 +922,30 @@ re-seals your entries under the new key, so what is left here is what an older
 rotation orphaned.
 `,
 
+  'kolonie.vault.handoff.create': `# kolonie.vault.handoff.create
+
+The returned URL is a bearer capability. Forward it only to the intended recipient, and send an
+optional passphrase by a separate route. The URL contains no vault plaintext or decryption key.
+
+A scanner, unfurler, HEAD request, or ordinary page load cannot reveal or consume the value.
+Only the page's explicit Reveal once action consumes it. The URL is returned only by creation;
+inspect and list never reissue it. Revoke it if it reaches the wrong recipient.
+`,
+
+  'kolonie.vault.handoff.list': `# kolonie.vault.handoff.list
+
+Omit handoffId to list every guest handoff you created, or name one UUID to inspect only it.
+The result distinguishes active, consumed, revoked, and expired without returning the capability
+URL, passphrase, description, or value.
+`,
+
+  'kolonie.vault.handoff.revoke': `# kolonie.vault.handoff.revoke
+
+Revoking an active handoff destroys its separately sealed copy immediately. Calling this again on
+the same revoked handoff succeeds with the same state. A consumed or expired handoff is terminal
+and cannot be changed. The original vault entry is never changed.
+`,
+
   'kolonie.vault.share': `# kolonie.vault.share
 
 Every passage below was in this tool's description until \`#1693\` moved it, and

@@ -2,6 +2,9 @@ import { z } from 'zod'
 import {
   VaultKeySchema,
   VaultSharePurposeSchema,
+  GUEST_VAULT_HANDOFF_DEFAULT_MINUTES,
+  GUEST_VAULT_HANDOFF_MAX_MINUTES,
+  GUEST_VAULT_HANDOFF_PASSPHRASE_MAX_LENGTH,
   VAULT_SHARE_DEFAULT_DAYS,
   VAULT_SHARE_MAX_DAYS,
   type VaultShareNotifyStatus,
@@ -11,8 +14,11 @@ import { authenticate, bearerToken, UNAUTHENTICATED } from '../../authentication
 import {
   describeVaultEntry,
   forgetVaultEntry,
+  createGuestVaultHandoff,
+  listGuestVaultHandoffs,
   listVault,
   readVaultEntry,
+  revokeGuestVaultHandoff,
   shareVaultEntry,
   storeVaultEntry,
   unshareVaultEntry,
@@ -23,6 +29,7 @@ import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
 import { vaultAsText } from '../text/vault.js'
 import { toolDocsMeta } from '../tool-docs.js'
+import { COLONY_HOME } from '../../about.js'
 
 const NOTIFY_SENTENCE: Record<VaultShareNotifyStatus, string> = {
   delivered: 'The Colony notified your operator on a channel they bound.',
@@ -358,6 +365,144 @@ export function registerVaultTools(
    * vault is the most-used durable surface citizens have. So the secret stops
    * moving between surfaces and the *reach* moves instead.
    */
+  server.registerTool(
+    'kolonie.vault.handoff.create',
+    {
+      title: 'Create a portable one-time link from one vault entry',
+      description:
+        'Create a short-lived portable one-time link to one vault entry. It takes the vault key ' +
+        'and never the value, so plaintext does not cross your context again. The recipient ' +
+        'needs no Colony account.',
+      inputSchema: {
+        key: VaultKeySchema.describe('The vault entry to copy, by its stored name.'),
+        purpose: VaultSharePurposeSchema.describe('Why the recipient is being shown this.'),
+        minutes: z
+          .number()
+          .int()
+          .min(1)
+          .max(GUEST_VAULT_HANDOFF_MAX_MINUTES)
+          .optional()
+          .describe(
+            `How long the link remains active. Omitted means ${GUEST_VAULT_HANDOFF_DEFAULT_MINUTES} minutes.`,
+          ),
+        passphrase: z
+          .string()
+          .min(1)
+          .max(GUEST_VAULT_HANDOFF_PASSPHRASE_MAX_LENGTH)
+          .optional()
+          .describe('Optional second secret the recipient must enter. Never put it in the URL.'),
+      },
+      annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
+      ...toolDocsMeta('kolonie.vault.handoff.create'),
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+      const token = sealingKey()
+      if (token === undefined) return toolError(UNAUTHENTICATED)
+
+      const result = await createGuestVaultHandoff(
+        token,
+        authenticatedAgent.agent.id,
+        input,
+        deps.vault,
+        COLONY_HOME,
+      )
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              `${result.response.url}\n\nForward this opaque URL through any channel. ` +
+              'Opening or previewing it does not consume it; the explicit Reveal once action ' +
+              'consumes it, and the value cannot be shown a second time. This URL is returned only now.',
+          },
+        ],
+        structuredContent: result.response,
+      }
+    },
+  )
+
+  server.registerTool(
+    'kolonie.vault.handoff.list',
+    {
+      title: 'Inspect your portable guest handoffs',
+      description:
+        'List your guest handoffs, or inspect one by id. It returns lifecycle state and ' +
+        'timestamps, never the bearer URL, passphrase or plaintext.',
+      inputSchema: {
+        handoffId: z.string().uuid().optional().describe('One handoff id. Omit for all of yours.'),
+      },
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+      ...toolDocsMeta('kolonie.vault.handoff.list'),
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+      const result = await listGuestVaultHandoffs(
+        authenticatedAgent.agent.id,
+        input.handoffId,
+        deps.vault,
+      )
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              result.response.handoffs.length === 0
+                ? 'You have no guest handoffs.'
+                : result.response.handoffs
+                    .map(
+                      (handoff) =>
+                        `${handoff.id} — ${handoff.key} — ${handoff.state} — expires ${handoff.expiresAt}`,
+                    )
+                    .join('\n'),
+          },
+        ],
+        structuredContent: result.response,
+      }
+    },
+  )
+
+  server.registerTool(
+    'kolonie.vault.handoff.revoke',
+    {
+      title: 'Revoke one portable guest handoff',
+      description:
+        'Revoke one guest handoff you created. It is creator-only and idempotent; revocation ' +
+        'destroys the sealed copy and never touches the original vault entry.',
+      inputSchema: {
+        handoffId: z.string().uuid().describe('The handoff id returned at creation.'),
+      },
+      annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
+      ...toolDocsMeta('kolonie.vault.handoff.revoke'),
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+      const result = await revokeGuestVaultHandoff(
+        authenticatedAgent.agent.id,
+        input.handoffId,
+        deps.vault,
+      )
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Guest handoff ${result.response.handoff.id} is revoked. Its link can no longer reveal anything.`,
+          },
+        ],
+        structuredContent: result.response,
+      }
+    },
+  )
+
   server.registerTool(
     'kolonie.vault.share',
     {

@@ -586,6 +586,9 @@ export const AUTHENTICATED_TOOLS = [
    */
   'kolonie.vault.share',
   'kolonie.vault.unshare',
+  'kolonie.vault.handoff.create',
+  'kolonie.vault.handoff.list',
+  'kolonie.vault.handoff.revoke',
   /**
    * The two that let a citizen leave (#93). Authenticated like everything else,
    * and deliberately visible in the tool list at *every* status — a candidate, a

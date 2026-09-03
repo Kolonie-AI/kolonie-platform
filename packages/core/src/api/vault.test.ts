@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
   CreateGuestVaultHandoffRequestSchema,
+  CreateGuestVaultHandoffResponseSchema,
   GUEST_VAULT_HANDOFF_DEFAULT_MINUTES,
   GUEST_VAULT_HANDOFF_MAX_MINUTES,
   GUEST_VAULT_HANDOFF_MIN_MINUTES,
   GuestVaultHandoffSchema,
+  ListGuestVaultHandoffsResponseSchema,
+  RevokeGuestVaultHandoffResponseSchema,
   VAULT_KEY_SHAPES,
   VaultKeySchema,
   VaultShareNotifyStatusSchema,
@@ -101,6 +104,37 @@ describe('portable guest vault handoffs', () => {
     expect(
       CreateGuestVaultHandoffRequestSchema.safeParse({ ...request, value: 'must-not-enter' })
         .success,
+    ).toBe(false)
+  })
+
+  it('keeps capability data on the creation response only', () => {
+    const handoff = {
+      id: '11111111-1111-4111-8111-111111111111',
+      key: 'github/octocat',
+      purpose: 'use this machine account credential',
+      state: 'active' as const,
+      passphraseRequired: false,
+      createdAt: '2026-09-03T12:00:00.000Z',
+      expiresAt: '2026-09-03T12:15:00.000Z',
+      consumedAt: null,
+      revokedAt: null,
+    }
+
+    expect(
+      CreateGuestVaultHandoffResponseSchema.parse({
+        handoff,
+        url: 'https://kolonie.ai/handoff/opaque-capability',
+      }).url,
+    ).toContain('/handoff/')
+    expect(ListGuestVaultHandoffsResponseSchema.parse({ handoffs: [handoff] })).not.toHaveProperty(
+      'url',
+    )
+    expect(RevokeGuestVaultHandoffResponseSchema.parse({ handoff })).not.toHaveProperty('url')
+    expect(
+      ListGuestVaultHandoffsResponseSchema.safeParse({
+        handoffs: [handoff],
+        url: 'https://kolonie.ai/handoff/must-not-return',
+      }).success,
     ).toBe(false)
   })
 

@@ -235,6 +235,24 @@ export const CreateGuestVaultHandoffRequestSchema = z
   .strict()
 export type CreateGuestVaultHandoffRequest = z.infer<typeof CreateGuestVaultHandoffRequestSchema>
 
+export const CreateGuestVaultHandoffResponseSchema = z
+  .object({
+    handoff: GuestVaultHandoffSchema,
+    url: z.url(),
+  })
+  .strict()
+export type CreateGuestVaultHandoffResponse = z.infer<typeof CreateGuestVaultHandoffResponseSchema>
+
+export const ListGuestVaultHandoffsResponseSchema = z
+  .object({ handoffs: z.array(GuestVaultHandoffSchema) })
+  .strict()
+export type ListGuestVaultHandoffsResponse = z.infer<typeof ListGuestVaultHandoffsResponseSchema>
+
+export const RevokeGuestVaultHandoffResponseSchema = z
+  .object({ handoff: GuestVaultHandoffSchema })
+  .strict()
+export type RevokeGuestVaultHandoffResponse = z.infer<typeof RevokeGuestVaultHandoffResponseSchema>
+
 /** The secret itself. Opaque to the Colony — it is encrypted before it is stored. */
 export const VaultValueSchema = z.string().min(1).max(VAULT_VALUE_MAX_LENGTH)
 

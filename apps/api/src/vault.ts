@@ -32,21 +32,25 @@ import {
 import {
   attachShareToConversation,
   createGuestVaultHandoff as createGuestVaultHandoffInDatabase,
+  consumeGuestVaultHandoff as consumeGuestVaultHandoffInDatabase,
   deleteVaultEntry,
   getVaultEntry,
   inspectGuestVaultHandoff as inspectGuestVaultHandoffInDatabase,
   listGuestVaultHandoffs as listGuestVaultHandoffsInDatabase,
   listVaultEntries,
   operatorOf,
+  previewGuestVaultHandoff as previewGuestVaultHandoffInDatabase,
   revokeGuestVaultHandoff as revokeGuestVaultHandoffInDatabase,
   setVaultDescription,
   setVaultEntry,
   shareVaultEntry as shareVaultEntryInDatabase,
   unshareVaultEntry as unshareVaultEntryInDatabase,
   type Database,
+  type ConsumeGuestVaultHandoffOutcome,
   type CreateGuestVaultHandoffOutcome,
   type GetVaultEntryOutcome,
   type InspectGuestVaultHandoffOutcome,
+  type PreviewGuestVaultHandoffOutcome,
   type RevokeGuestVaultHandoffOutcome,
   type SetVaultDescriptionOutcome,
   type SetVaultEntryOutcome,
@@ -141,6 +145,15 @@ export interface VaultStore {
         readonly passphrase?: string | undefined
       }) => Promise<CreateGuestVaultHandoffOutcome>)
     | undefined
+  previewGuestHandoff?:
+    ((bearerToken: string) => Promise<PreviewGuestVaultHandoffOutcome>) | undefined
+  consumeGuestHandoff?:
+    | ((
+        bearerToken: string,
+        passphrase: string | undefined,
+        sourceBucket: string,
+      ) => Promise<ConsumeGuestVaultHandoffOutcome>)
+    | undefined
   inspectGuestHandoff?:
     ((agentId: AgentId, handoffId: string) => Promise<InspectGuestVaultHandoffOutcome>) | undefined
   listGuestHandoffs?:
@@ -189,6 +202,15 @@ export function databaseVault(db: Database, sealingKey?: string | undefined): Va
           unshare: (agentId, key) => unshareVaultEntryInDatabase(db, agentId, key, sealingKey),
           createGuestHandoff: (input) =>
             createGuestVaultHandoffInDatabase(db, { ...input, sealingKey }),
+          previewGuestHandoff: (bearerToken) => previewGuestVaultHandoffInDatabase(db, bearerToken),
+          consumeGuestHandoff: (bearerToken, passphrase, sourceBucket) =>
+            consumeGuestVaultHandoffInDatabase(
+              db,
+              bearerToken,
+              passphrase,
+              sealingKey,
+              sourceBucket,
+            ),
           inspectGuestHandoff: (agentId, handoffId) =>
             inspectGuestVaultHandoffInDatabase(db, agentId, handoffId),
           listGuestHandoffs: (agentId) => listGuestVaultHandoffsInDatabase(db, agentId),

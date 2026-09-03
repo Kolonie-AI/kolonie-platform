@@ -65,6 +65,43 @@ describe('a 5xx says which route failed', () => {
    * The property the fix rests on: three citizens hitting one broken endpoint
    * are one defect, and the template is what keeps them one.
    */
+  it('redacts a guest handoff bearer token from every part of a failed-request log', async () => {
+    const log = recordingLog()
+    const colony = fakeColony()
+    const bearer = 'guest-bearer-that-must-not-reach-a-log'
+    const app = buildApp({
+      ...colony,
+      websiteUrl: 'https://kolonie.ai',
+      log,
+      vault: {
+        ...colony.vault,
+        vault: {
+          ...colony.vault.vault,
+          previewGuestHandoff: async () => {
+            throw new Error('the database went away')
+          },
+        },
+      },
+    })
+    await app.ready()
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/handoff/${bearer}?also-secret=true`,
+      headers: { host: 'kolonie.ai' },
+    })
+
+    expect(response.statusCode).toBe(500)
+    expect(response.headers['content-type']).toContain('text/html')
+    expect(response.body).not.toContain(bearer)
+    expect(response.body).toContain('Handoff unavailable')
+    const rendered = JSON.stringify(log.lines())
+    expect(rendered).not.toContain(bearer)
+    expect(rendered).not.toContain('also-secret')
+    expect(rendered).toContain('/handoff/:token')
+    await app.close()
+  })
+
   it('says the same thing however many citizens hit it', async () => {
     const { app, log } = throwing()
     await app.ready()

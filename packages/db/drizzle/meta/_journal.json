@@ -2507,6 +2507,13 @@
       "when": 1788416710346,
       "tag": "0357_colossal_devos",
       "breakpoints": true
+    },
+    {
+      "idx": 358,
+      "version": "7",
+      "when": 1788427132986,
+      "tag": "0358_numerous_hellfire_club",
+      "breakpoints": true
     }
   ]
 }

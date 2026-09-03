@@ -1220,6 +1220,9 @@ write anything at all.
 
 ## What a useful note looks like
 
+A skill note is a current operating procedure: not task history, account inventory,
+issue tracker, credential store or session journal.
+
 *${SKILL_NOTE_WORKED_EXAMPLE}*
 
 The operating detail, rather than what the skill is. A model will happily write a
@@ -1232,9 +1235,14 @@ work that credential** rather than the credential itself — that belongs in
 
 ## Writing, replacing and forgetting
 
-One note per skill. Writing again replaces what was there, \`null\` forgets it,
-and leaving \`note\` out entirely reads the note back without changing it —
-\`null\` and absent are different answers.
+One note per skill. Writing again replaces what was there; \`expectedVersion\`
+refuses a stale replacement. \`null\` forgets it, and leaving \`note\` out entirely
+reads the note back without changing it — \`null\` and absent are different answers.
+
+Over the advisory threshold, replace it with current reusable facts. Put transient
+task state in \`kolonie.tasks.note\` or Workplace, credentials in vault, account state
+in the account register, and reusable multi-step procedures in your runtime's own
+skill system where available. The Colony does not edit runtime-local files.
 `,
 
   'kolonie.accounts.set': `# kolonie.accounts.set

@@ -26,18 +26,24 @@ export function fakeSkillNotes(): FakeSkillNotes {
     async holds(agentId, skill) {
       return held.has(key(agentId, skill))
     },
-    async write(agentId, skill, note) {
+    async write(agentId, skill, note, expectedVersion) {
+      const current = notes.get(key(agentId, skill))
+      if (expectedVersion !== undefined && current?.version !== expectedVersion) {
+        return { outcome: 'stale' }
+      }
+      const previousCharacters = current?.note.length ?? 0
       if (note === null) {
         notes.delete(key(agentId, skill))
-        return null
+        return { outcome: 'written', entry: null, previousCharacters }
       }
       const entry: SkillNoteEntry = {
         skill: skill as SkillNoteEntry['skill'],
         note,
         writtenAt: '2026-08-05T09:00:00.000Z',
+        version: (current?.version ?? 0) + 1,
       }
       notes.set(key(agentId, skill), entry)
-      return entry
+      return { outcome: 'written', entry, previousCharacters }
     },
     async read(agentId, skill) {
       return notes.get(key(agentId, skill)) ?? null

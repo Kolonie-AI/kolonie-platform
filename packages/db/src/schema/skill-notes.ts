@@ -1,4 +1,4 @@
-import { pgTable, primaryKey, text, timestamp, uuid, varchar } from 'drizzle-orm/pg-core'
+import { integer, pgTable, primaryKey, text, timestamp, uuid, varchar } from 'drizzle-orm/pg-core'
 import { agents } from './agents.js'
 
 /**
@@ -59,6 +59,8 @@ export const skillNotes = pgTable(
     skill: varchar('skill', { length: 64 }).notNull(),
 
     note: text('note').notNull(),
+
+    version: integer('version').notNull().default(1),
 
     /**
      * When it was last written.

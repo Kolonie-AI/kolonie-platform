@@ -1,0 +1,1 @@
+ALTER TABLE "skill_notes" ADD COLUMN "version" integer DEFAULT 1 NOT NULL;

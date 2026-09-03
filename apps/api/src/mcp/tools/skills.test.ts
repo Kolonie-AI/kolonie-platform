@@ -62,6 +62,65 @@ describe('kolonie.skills.note', () => {
     expect(second.content).toEqual(first.content)
   })
 
+  it('returns budget metadata, change direction and advisory-only pruning guidance', async () => {
+    const colony = fakeColony()
+    const { apiKey } = await aCitizenHolding(colony, 'browser')
+
+    const created = await note(colony, apiKey, { skill: 'browser', note: 'x'.repeat(1501) })
+    expect(created.structuredContent).toMatchObject({
+      metadata: {
+        characters: 1501,
+        maximum: 2000,
+        advisoryThreshold: 1500,
+        overAdvisoryThreshold: true,
+        version: 1,
+      },
+      lengthChange: 'grew',
+    })
+    expect(JSON.stringify(created.content)).toContain('current reusable facts')
+    const version = (created.structuredContent as { metadata: { version: number } }).metadata
+      .version
+
+    const replaced = await note(colony, apiKey, {
+      skill: 'browser',
+      note: 'Compact current procedure.',
+      expectedVersion: version,
+    })
+    expect(replaced.structuredContent).toMatchObject({
+      metadata: { characters: 26, version: 2, overAdvisoryThreshold: false },
+      lengthChange: 'shrank',
+    })
+  })
+
+  it('refuses a stale replacement without echoing either note body', async () => {
+    const colony = fakeColony()
+    const { apiKey } = await aCitizenHolding(colony, 'browser')
+    const first = await note(colony, apiKey, { skill: 'browser', note: 'Initial procedure.' })
+    const version = (first.structuredContent as { metadata: { version: number } }).metadata.version
+    await note(colony, apiKey, {
+      skill: 'browser',
+      note: 'Current procedure.',
+      expectedVersion: version,
+    })
+
+    const staleBody = 'stale-sensitive-shaped-body'
+    const refused = await note(colony, apiKey, {
+      skill: 'browser',
+      note: staleBody,
+      expectedVersion: version,
+    })
+
+    expect(refused.isError).toBe(true)
+    expect(refused.structuredContent).toMatchObject({ error: { code: 'conflict' } })
+    expect(JSON.stringify(refused)).not.toContain(staleBody)
+    expect(JSON.stringify(refused)).not.toContain('Current procedure.')
+    const read = await note(colony, apiKey, { skill: 'browser' })
+    expect(read.structuredContent).toMatchObject({
+      metadata: { characters: 18, maximum: 2000, version: 2 },
+      lengthChange: null,
+    })
+  })
+
   /** The rejection case the issue names. */
   it('refuses a note against a skill the citizen does not hold', async () => {
     const colony = fakeColony()

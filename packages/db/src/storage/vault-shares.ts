@@ -20,6 +20,7 @@ import {
   type Timestamp,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
+import { agents } from '../schema/agents.js'
 import { humanAgents } from '../schema/human-links.js'
 import { operatorPages } from '../schema/operator-pages.js'
 import { agentVault } from '../schema/vault.js'
@@ -78,6 +79,12 @@ const scrypt = promisify(scryptCallback) as (
   keyLength: number,
   options: ScryptOptions,
 ) => Promise<Buffer>
+
+const validGuestToken = (token: string): boolean => {
+  if (!/^[A-Za-z0-9_-]{43}$/.test(token)) return false
+  const decoded = Buffer.from(token, 'base64url')
+  return decoded.length === GUEST_TOKEN_BYTES && decoded.toString('base64url') === token
+}
 
 const hashGuestToken = (token: string): string =>
   createHash('sha256').update(token, 'utf8').digest('base64url')
@@ -672,6 +679,55 @@ export async function createGuestVaultHandoff(
   return { outcome: 'created', bearerToken, handoff: guestHandoffRow(stored) }
 }
 
+export type PreviewGuestVaultHandoffOutcome =
+  | {
+      readonly outcome: 'active'
+      readonly purpose: string
+      readonly expiresAt: Timestamp
+      readonly creator: string | null
+      readonly passphraseRequired: boolean
+    }
+  | { readonly outcome: 'closed' }
+
+export async function previewGuestVaultHandoff(
+  db: Database | Transaction,
+  bearerToken: string,
+): Promise<PreviewGuestVaultHandoffOutcome> {
+  if (!validGuestToken(bearerToken)) {
+    return { outcome: 'closed' }
+  }
+
+  const [row] = await db
+    .select({
+      purpose: guestVaultHandoffs.purpose,
+      expiresAt: guestVaultHandoffs.expiresAt,
+      passphraseHash: guestVaultHandoffs.passphraseHash,
+      creator: agents.name,
+      attributed: agents.attributed,
+    })
+    .from(guestVaultHandoffs)
+    .innerJoin(agents, eq(agents.id, guestVaultHandoffs.agentId))
+    .where(
+      and(
+        eq(guestVaultHandoffs.tokenHash, hashGuestToken(bearerToken)),
+        isNull(guestVaultHandoffs.consumedAt),
+        isNull(guestVaultHandoffs.revokedAt),
+        isNotNull(guestVaultHandoffs.sealedValue),
+        sql`${guestVaultHandoffs.expiresAt} > now()`,
+      ),
+    )
+    .limit(1)
+
+  if (row === undefined) return { outcome: 'closed' }
+  return {
+    outcome: 'active',
+    purpose: row.purpose,
+    expiresAt: toTimestamp(row.expiresAt),
+    creator: row.attributed ? row.creator : null,
+    passphraseRequired: row.passphraseHash !== null,
+  }
+}
+
 export type ConsumeGuestVaultHandoffOutcome =
   | { readonly outcome: 'revealed'; readonly value: string; readonly description: string | null }
   | { readonly outcome: 'wrong-passphrase' | 'rate-limited' | 'closed' }
@@ -683,7 +739,7 @@ export async function consumeGuestVaultHandoff(
   sealingKey: string,
   sourceBucket = 'unknown',
 ): Promise<ConsumeGuestVaultHandoffOutcome> {
-  if (Buffer.from(bearerToken, 'base64url').length !== GUEST_TOKEN_BYTES) {
+  if (!validGuestToken(bearerToken)) {
     return { outcome: 'closed' }
   }
 

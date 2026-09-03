@@ -49,6 +49,12 @@ import { registerPlaybookPages } from './routes/playbook-pages.js'
 import { registerAvatarRoutes } from './routes/avatars.js'
 import { registerShareImageRoutes } from './routes/share-images.js'
 import { registerProfilePages } from './routes/profile-pages.js'
+import { GUEST_HANDOFF_HEADERS, guestHandoffClosedPage } from './guest-handoff-page.js'
+import {
+  isGuestHandoffRequestUrl,
+  redactedGuestHandoffUrl,
+  registerGuestHandoffPage,
+} from './routes/guest-handoff-page.js'
 import { registerTrailingSlashRedirect } from './routes/trailing-slash.js'
 import type { AvatarDesk } from './avatars.js'
 import { registerEmailRoutes } from './routes/email.js'
@@ -675,6 +681,7 @@ export function buildApp({
   // page and not because anything matches in order: `/@:handle` and `/atlas/*`
   // share no prefix.
   registerProfilePages(app, routes)
+  registerGuestHandoffPage(app, routes)
   // A trailing slash on any of the three public page prefixes is a `301` to the
   // page rather than the REST API's JSON `404` (`#1212`). After the pages it
   // redirects into, because that is the order it reads in; the hook is global
@@ -866,6 +873,14 @@ export function buildApp({
      */
     const hint = nearestRouteHint(request.method, request.url, registeredRoutes)
 
+    if (isGuestHandoffRequestUrl(request.url)) {
+      return reply
+        .status(404)
+        .headers(GUEST_HANDOFF_HEADERS)
+        .type('text/html; charset=utf-8')
+        .send(guestHandoffClosedPage())
+    }
+
     const error: ApiError = {
       code: 'not_found',
       message:
@@ -993,14 +1008,23 @@ export function buildApp({
      * and a sustained outage is the case worth waking somebody for.
      */
     if (sent >= 500) {
-      log.error(`${request.method} ${request.url} failed`, caught, {
+      const loggedUrl = redactedGuestHandoffUrl(request.url)
+      log.error(`${request.method} ${loggedUrl} failed`, caught, {
         event: error.code === 'temporarily_unavailable' ? 'request.unavailable' : 'request.failed',
         requestId: request.id,
         method: request.method,
         route: routeKeyOf(request),
-        url: request.url,
+        url: loggedUrl,
         status: sent,
       })
+    }
+
+    if (isGuestHandoffRequestUrl(request.url)) {
+      return reply
+        .status(sent)
+        .headers(GUEST_HANDOFF_HEADERS)
+        .type('text/html; charset=utf-8')
+        .send(guestHandoffClosedPage())
     }
 
     return reply.status(sent).send(error)

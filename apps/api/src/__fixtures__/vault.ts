@@ -6,6 +6,7 @@ import {
   type GuestVaultHandoff,
 } from '@kolonie-ai/core'
 import type {
+  ConsumeGuestVaultHandoffOutcome,
   GetVaultEntryOutcome,
   SetVaultEntryOutcome,
   ShareVaultEntryOutcome,
@@ -104,10 +105,20 @@ interface Shared {
   handedBackByOperator: boolean
 }
 
+interface GuestHeld {
+  readonly agentId: AgentId
+  handoff: GuestVaultHandoff
+  readonly bearerToken: string
+  readonly value: string
+  readonly description: string | null
+  readonly passphrase: string | undefined
+  readonly creator: string | null
+}
+
 export function fakeVault(): FakeVault {
   const held = new Map<string, Held>()
   const shares = new Map<string, Shared>()
-  const guestHandoffs = new Map<string, { agentId: AgentId; handoff: GuestVaultHandoff }>()
+  const guestHandoffs = new Map<string, GuestHeld>()
   const attachable = new Set<string>()
   let linked = true
   const at = (agentId: AgentId | string, key: string) => `${String(agentId)}\0${key}`
@@ -326,8 +337,66 @@ export function fakeVault(): FakeVault {
         consumedAt: null,
         revokedAt: null,
       }
-      guestHandoffs.set(id, { agentId, handoff })
-      return { outcome: 'created' as const, bearerToken: `guest-${id}`, handoff }
+      const bearerToken = `guest-${id}`
+      guestHandoffs.set(id, {
+        agentId,
+        handoff,
+        bearerToken,
+        value: entry.value,
+        description: entry.description,
+        passphrase,
+        creator: 'canary',
+      })
+      return { outcome: 'created' as const, bearerToken, handoff }
+    },
+
+    previewGuestHandoff: async (bearerToken) => {
+      const heldHandoff = [...guestHandoffs.values()].find(
+        (candidate) => candidate.bearerToken === bearerToken,
+      )
+      if (
+        heldHandoff === undefined ||
+        heldHandoff.handoff.state !== 'active' ||
+        Date.parse(heldHandoff.handoff.expiresAt) <= Date.now()
+      ) {
+        return { outcome: 'closed' as const }
+      }
+      return {
+        outcome: 'active' as const,
+        purpose: heldHandoff.handoff.purpose,
+        expiresAt: heldHandoff.handoff.expiresAt,
+        creator: heldHandoff.creator,
+        passphraseRequired: heldHandoff.passphrase !== undefined,
+      }
+    },
+
+    consumeGuestHandoff: async (
+      bearerToken,
+      passphrase,
+    ): Promise<ConsumeGuestVaultHandoffOutcome> => {
+      const heldHandoff = [...guestHandoffs.values()].find(
+        (candidate) => candidate.bearerToken === bearerToken,
+      )
+      if (
+        heldHandoff === undefined ||
+        heldHandoff.handoff.state !== 'active' ||
+        Date.parse(heldHandoff.handoff.expiresAt) <= Date.now()
+      ) {
+        return { outcome: 'closed' }
+      }
+      if (heldHandoff.passphrase !== undefined && passphrase !== heldHandoff.passphrase) {
+        return { outcome: 'wrong-passphrase' }
+      }
+      heldHandoff.handoff = {
+        ...heldHandoff.handoff,
+        state: 'consumed',
+        consumedAt: new Date().toISOString() as GuestVaultHandoff['consumedAt'],
+      }
+      return {
+        outcome: 'revealed',
+        value: heldHandoff.value,
+        description: heldHandoff.description,
+      }
     },
 
     inspectGuestHandoff: async (agentId, handoffId) => {
@@ -357,7 +426,7 @@ export function fakeVault(): FakeVault {
         state: 'revoked',
         revokedAt: new Date().toISOString() as GuestVaultHandoff['revokedAt'],
       }
-      guestHandoffs.set(handoffId, { agentId, handoff: revoked })
+      guestHandoffs.set(handoffId, { ...heldHandoff, handoff: revoked })
       return { outcome: 'revoked' as const, handoff: revoked }
     },
 

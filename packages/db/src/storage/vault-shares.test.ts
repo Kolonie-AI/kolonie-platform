@@ -21,6 +21,7 @@ import {
   inspectGuestVaultHandoff,
   listGuestVaultHandoffs,
   openShareFor,
+  previewGuestVaultHandoff,
   revokeGuestVaultHandoff,
   shareLifecycleEvents,
   shareVaultEntry,
@@ -375,6 +376,53 @@ describe('portable one-time guest vault handoffs', () => {
       sealingKey,
       ...over,
     })
+
+  it('previews only active public metadata without decrypting or consuming the copy', async () => {
+    await setVaultEntry(db, token, agentId, 'github/octocat', 'sentinel-secret', 'machine login')
+    const created = await create({ passphrase: 'separate phrase' })
+    if (created.outcome !== 'created') throw new Error(created.outcome)
+
+    expect(await previewGuestVaultHandoff(db, created.bearerToken)).toEqual({
+      outcome: 'active',
+      purpose: 'use this machine account credential',
+      expiresAt: created.handoff.expiresAt,
+      creator: 'guest-owner',
+      passphraseRequired: true,
+    })
+    expect(await previewGuestVaultHandoff(db, created.bearerToken)).toEqual(
+      await previewGuestVaultHandoff(db, created.bearerToken),
+    )
+
+    expect(
+      await consumeGuestVaultHandoff(
+        db,
+        created.bearerToken,
+        'separate phrase',
+        sealingKey,
+        'source-a',
+      ),
+    ).toMatchObject({ outcome: 'revealed', value: 'sentinel-secret' })
+    expect(await previewGuestVaultHandoff(db, created.bearerToken)).toEqual({ outcome: 'closed' })
+  })
+
+  it('suppresses an opted-out creator and collapses every closed preview state', async () => {
+    await setVaultEntry(db, token, agentId, 'github/octocat', 'sentinel-secret')
+    const created = await create()
+    if (created.outcome !== 'created') throw new Error(created.outcome)
+
+    await db.execute(sql`update agents set attributed = false where id = ${agentId}::uuid`)
+    expect(await previewGuestVaultHandoff(db, created.bearerToken)).toMatchObject({
+      outcome: 'active',
+      creator: null,
+    })
+
+    expect(await previewGuestVaultHandoff(db, 'malformed')).toEqual({ outcome: 'closed' })
+    expect(await previewGuestVaultHandoff(db, '!'.repeat(43))).toEqual({ outcome: 'closed' })
+    expect(await previewGuestVaultHandoff(db, 'A'.repeat(43))).toEqual({ outcome: 'closed' })
+
+    await revokeGuestVaultHandoff(db, agentId, created.handoff.id)
+    expect(await previewGuestVaultHandoff(db, created.bearerToken)).toEqual({ outcome: 'closed' })
+  })
 
   it('stores a separately sealed copy and only a hash of a high-entropy bearer token', async () => {
     await setVaultEntry(db, token, agentId, 'github/octocat', 'sentinel-secret', 'machine login')

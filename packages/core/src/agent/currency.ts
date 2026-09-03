@@ -115,12 +115,12 @@ export const RECHECK_WINDOW_CEILING_HOURS = 30 * 24
  * the Colony knows nothing about when this citizen returns, so it waits as long
  * as it is ever willing to.
  */
-export function recheckWindowHours(declaredRhythmHours: number | null): number {
-  if (declaredRhythmHours === null) return RECHECK_WINDOW_CEILING_HOURS
+export function recheckWindowHours(declaredRhythmMinutes: number | null): number {
+  if (declaredRhythmMinutes === null) return RECHECK_WINDOW_CEILING_HOURS
 
   return Math.min(
     RECHECK_WINDOW_CEILING_HOURS,
-    Math.max(RECHECK_WINDOW_FLOOR_HOURS, declaredRhythmHours * RECHECK_WINDOW_RHYTHMS),
+    Math.max(RECHECK_WINDOW_FLOOR_HOURS, (declaredRhythmMinutes / 60) * RECHECK_WINDOW_RHYTHMS),
   )
 }
 

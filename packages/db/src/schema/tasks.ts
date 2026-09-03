@@ -249,7 +249,7 @@ export const tasks = pgTable(
      * Adding the column filters nothing until a sponsor chooses a window.
      *
      * **No check constraint, deliberately** — the same decision
-     * `declared_rhythm_hours` records one table over. The admissible windows are
+     * `declared_rhythm_minutes` records one table over. The admissible windows are
      * a closed set in core (`ActivityWindowSchema`), and putting a copy of that
      * set here would mean a migration every time the product offers a fourth
      * one. What the database enforces is that it is positive, because a window of

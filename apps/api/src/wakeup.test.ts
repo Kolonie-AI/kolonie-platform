@@ -1750,7 +1750,7 @@ describe('whether a waking has a piece of work in it', () => {
     const result = await wakeup(agentId, {}, source, noContributions, {
       source: { catalogue, quests: fakeQuests() },
       skills: [],
-      declaredRhythmHours: null,
+      declaredRhythmMinutes: null,
     })
 
     expect(

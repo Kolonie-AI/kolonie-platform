@@ -677,7 +677,7 @@ export async function wakeup(
          * nothing from a missing field; only an explicit `null` mints the
          * return-loop entry.
          */
-        readonly declaredRhythmHours?: number | null
+        readonly declaredRhythmMinutes?: number | null
       }
     | undefined,
   /**
@@ -801,7 +801,7 @@ export async function wakeup(
           openings.skills,
           openings.source,
           available,
-          openings.declaredRhythmHours,
+          openings.declaredRhythmMinutes,
         ),
     startableSince(agentId, since, openings?.source),
     source.messagingDelta?.(agentId) ?? Promise.resolve(emptyMessaging),

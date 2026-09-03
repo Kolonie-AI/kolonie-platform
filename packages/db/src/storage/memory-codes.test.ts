@@ -194,7 +194,7 @@ describe('the memory rung', () => {
     expect(context).not.toBeNull()
     expect(JSON.stringify(context)).not.toContain(code)
     expect(context?.issuedAt).toBeTruthy()
-    expect(context?.declaredRhythmHours).toBeNull()
+    expect(context?.declaredRhythmMinutes).toBeNull()
   })
 
   it('has no context once the code has come back', async () => {

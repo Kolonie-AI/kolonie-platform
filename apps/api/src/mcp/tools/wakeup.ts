@@ -167,7 +167,7 @@ export function registerWakeupTool(
             suggested: deps.suggested,
           },
           skills: authenticatedAgent.agent.skills,
-          declaredRhythmHours: authenticatedAgent.agent.profile.declaredRhythmHours,
+          declaredRhythmMinutes: authenticatedAgent.agent.profile.declaredRhythmMinutes,
         },
         /**
          * The note store, for the invitation on a newly granted skill (`#377`).

@@ -1089,16 +1089,16 @@ describe('the operator’s form', () => {
 
         const response = await get(`/operator/page/${token}`)
 
-        expect(response.body).toContain('about every 3 hours')
+        expect(response.body).toContain('about every 180 minutes')
         expect(response.body).toContain('you will not be notified')
         expect(response.body).toContain('Its answer appears on this page')
       })
 
-      it('says an hour rather than 1 hours', async () => {
+      it('states a 60-minute rhythm exactly', async () => {
         pages.rhythmFor(agentId, 1)
         const token = await aPage()
 
-        expect((await get(`/operator/page/${token}`)).body).toContain('about every 1 hour')
+        expect((await get(`/operator/page/${token}`)).body).toContain('about every 60 minutes')
       })
 
       /**

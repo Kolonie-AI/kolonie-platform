@@ -247,7 +247,11 @@ export async function redeemMemoryCodeFor(
    * id the citizen names is corroboration and decides nothing, because the citizen names
    * it itself.
    */
-  const verdict = laterSessionVerdict(context.issuedAt, currentTime(), context.declaredRhythmHours)
+  const verdict = laterSessionVerdict(
+    context.issuedAt,
+    currentTime(),
+    context.declaredRhythmMinutes,
+  )
 
   if (verdict.outcome !== 'later') {
     return rejected(

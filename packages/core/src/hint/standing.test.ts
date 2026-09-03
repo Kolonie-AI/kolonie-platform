@@ -132,12 +132,12 @@ describe('choosing between the two findings about money', () => {
  */
 describe('the gap before a task the citizen did not attempt is worth asking about', () => {
   it('is the citizen’s own declared rhythm', () => {
-    expect(considerationGapHours(1)).toBe(1)
-    expect(considerationGapHours(168)).toBe(168)
+    expect(considerationGapHours(60)).toBe(1)
+    expect(considerationGapHours(168 * 60)).toBe(168)
   })
 
   it('measures a citizen that declared nothing by the default', () => {
-    expect(considerationGapHours(null)).toBe(DEFAULT_RHYTHM_BOUNDS.defaultHours)
+    expect(considerationGapHours(null)).toBe(DEFAULT_RHYTHM_BOUNDS.defaultMinutes / 60)
   })
 
   /**
@@ -146,7 +146,7 @@ describe('the gap before a task the citizen did not attempt is worth asking abou
    * what fails and `considerationGapHours` is what has to grow a floor.
    */
   it('cannot be shorter than the shortest rhythm the Colony accepts', () => {
-    expect(considerationGapHours(DEFAULT_RHYTHM_BOUNDS.minHours)).toBeGreaterThanOrEqual(1)
+    expect(considerationGapHours(DEFAULT_RHYTHM_BOUNDS.minMinutes)).toBeGreaterThanOrEqual(1 / 6)
   })
 })
 

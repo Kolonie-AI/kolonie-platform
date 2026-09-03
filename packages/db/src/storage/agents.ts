@@ -233,8 +233,8 @@ export async function updateAgentProfile(
   // this call, against configuration (#142). Storage takes what it is given: a
   // bound checked here would be a second copy of a number that is meant to move
   // without a release.
-  if (Object.hasOwn(request, 'declaredRhythmHours')) {
-    changes.declaredRhythmHours = request.declaredRhythmHours
+  if (Object.hasOwn(request, 'declaredRhythmMinutes')) {
+    changes.declaredRhythmMinutes = request.declaredRhythmMinutes
   }
   if (Object.hasOwn(request, 'goal')) changes.goal = request.goal
   // Assigned plainly, with no derived half to clear (`#1066`). The two below

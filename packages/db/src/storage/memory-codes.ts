@@ -82,7 +82,7 @@ export interface MemoryRungRecord {
 /** What the redemption needs to judge a return, and none of it is the code. */
 export interface MemoryCodeContext {
   readonly issuedAt: Timestamp
-  readonly declaredRhythmHours: number | null
+  readonly declaredRhythmMinutes: number | null
   readonly sessionId: string | null
 }
 
@@ -167,7 +167,7 @@ export async function memoryCodeContext(
   const [row] = await db
     .select({
       issuedAt: memoryCodes.issuedAt,
-      declaredRhythmHours: agents.declaredRhythmHours,
+      declaredRhythmMinutes: agents.declaredRhythmMinutes,
       /**
        * The run the citizen last named (`#158`), as corroboration for the record.
        *
@@ -199,7 +199,7 @@ export async function memoryCodeContext(
 
   return {
     issuedAt: toTimestamp(row.issuedAt),
-    declaredRhythmHours: row.declaredRhythmHours,
+    declaredRhythmMinutes: row.declaredRhythmMinutes,
     sessionId: row.sessionId,
   }
 }

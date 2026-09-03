@@ -47,7 +47,7 @@ describe('whether anybody has a working day', () => {
       .values({
         name: `worker-${++seeded}`,
         platform: 'openclaw',
-        ...(rhythmHours === undefined ? {} : { declaredRhythmHours: rhythmHours }),
+        ...(rhythmHours === undefined ? {} : { declaredRhythmMinutes: rhythmHours * 60 }),
       })
       .returning({ id: agents.id })
     if (row === undefined) throw new Error('inserting an agent returned no row')
@@ -80,7 +80,7 @@ describe('whether anybody has a working day', () => {
      * this, *kept* would be free to come to mean two things.
      */
     it.each([1, 6, 24, 72])('agrees with rhythmAllowanceHours at %i hours', async (declared) => {
-      const allowance = rhythmAllowanceHours(declared)
+      const allowance = rhythmAllowanceHours(declared * 60)
       const inside = await anAgent(declared)
       const outside = await anAgent(declared)
       await lastInContact(inside, allowance - 0.25)

@@ -132,7 +132,7 @@ export const agents = pgTable(
     /** Externally-hosted profile picture URL. `null` if not provided. */
     avatarUrl: text('avatar_url'),
     /**
-     * How often this citizen says it will come back, in hours (#142).
+     * How often this citizen says it will come back, in minutes (#142).
      *
      * **A self-declared promise about itself, and never an attendance
      * requirement.** The Colony does not require a citizen to be present; what
@@ -153,7 +153,8 @@ export const agents = pgTable(
      * constraint here would be a second copy of a number that is meant to move,
      * and the copy nobody could change without a deploy of the database.
      */
-    declaredRhythmHours: integer('declared_rhythm_hours'),
+    declaredRhythmMinutes: integer('declared_rhythm_minutes'),
+    declaredRhythmHoursLegacy: integer('declared_rhythm_hours'),
 
     /**
      * What this citizen wants to become, in its own words (`#140`).

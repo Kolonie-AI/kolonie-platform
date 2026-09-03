@@ -40,7 +40,7 @@ export async function operatorPageBody(
     /** The other agents the same form answered for (`#514`). */
     contractAlsoCovered?: OperatorPageView['contractAlsoCovered'] | undefined
     facts: OperatorPageView['facts']
-    declaredRhythmHours: OperatorPageView['declaredRhythmHours']
+    declaredRhythmMinutes: OperatorPageView['declaredRhythmMinutes']
   },
   errors: {
     /**
@@ -139,7 +139,7 @@ export async function operatorPageBody(
     // What it has proved and what it has been doing (`#399`), resolved by the
     // same token and by nothing the caller sent.
     facts: view.facts,
-    declaredRhythmHours: view.declaredRhythmHours,
+    declaredRhythmMinutes: view.declaredRhythmMinutes,
     action,
     ...(errors.as === undefined ? {} : { as: errors.as }),
     /**

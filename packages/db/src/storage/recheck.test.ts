@@ -71,13 +71,13 @@ describe('the mailbox re-check', () => {
 
   /** A window a citizen cannot reach is a window that measures its rhythm. */
   it('takes the window from the rhythm the citizen declared', async () => {
-    await updateAgentProfile(db, agentId, { declaredRhythmHours: 24 })
+    await updateAgentProfile(db, agentId, { declaredRhythmMinutes: 1440 })
 
     const started = await startRecheck(db, agentId, accountId)
     if (started.outcome !== 'open') throw new Error(started.outcome)
 
     const hours = (Date.parse(started.recheck.expiresAt) - Date.now()) / 3_600_000
-    expect(Math.round(hours)).toBe(recheckWindowHours(24))
+    expect(Math.round(hours)).toBe(recheckWindowHours(1440))
   })
 
   /**

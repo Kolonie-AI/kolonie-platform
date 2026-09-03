@@ -16,7 +16,7 @@ describe('how long a later session has to be', () => {
   })
 
   it('is the declared interval when that is longer', () => {
-    expect(requiredLaterSessionHours(24)).toBe(24)
+    expect(requiredLaterSessionHours(24 * 60)).toBe(24)
   })
 
   /**
@@ -26,7 +26,7 @@ describe('how long a later session has to be', () => {
    * measuring anything.
    */
   it('never goes below the floor for a short declared interval', () => {
-    expect(requiredLaterSessionHours(1)).toBe(LATER_SESSION_FLOOR_HOURS)
+    expect(requiredLaterSessionHours(60)).toBe(LATER_SESSION_FLOOR_HOURS)
   })
 })
 
@@ -53,8 +53,8 @@ describe('whether a return is a later session', () => {
    * it runs is the better measure of *a later run* for it than any number the Colony picks.
    */
   it('holds a citizen to the interval it declared when that is longer', () => {
-    expect(laterSessionVerdict(at(7), NOW, 24).outcome).toBe('too-soon')
-    expect(laterSessionVerdict(at(25), NOW, 24).outcome).toBe('later')
+    expect(laterSessionVerdict(at(7), NOW, 24 * 60).outcome).toBe('too-soon')
+    expect(laterSessionVerdict(at(25), NOW, 24 * 60).outcome).toBe('later')
   })
 
   /**

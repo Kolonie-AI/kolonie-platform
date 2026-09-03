@@ -207,17 +207,17 @@ describe('kolonie.about', () => {
     const colony = fakeColony()
     const { client, close } = await connectedClient({
       ...colony,
-      rhythm: { minHours: 2, defaultHours: 5, maxHours: 30 },
+      rhythm: { minMinutes: 120, defaultMinutes: 300, maxMinutes: 1800 },
     })
 
     const result = await client.callTool({ name: 'kolonie.about', arguments: {} })
 
     expect(result.structuredContent).toMatchObject({
-      rhythm: { minHours: 2, defaultHours: 5, maxHours: 30 },
+      rhythm: { minMinutes: 120, defaultMinutes: 300, maxMinutes: 1800 },
     })
     // The text half too, because that is the one a model reads — and both are
     // generated from one payload, so this proves they have not drifted.
-    expect(JSON.stringify(result.content)).toContain('between 2')
+    expect(JSON.stringify(result.content)).toContain('between 120')
     await close()
   })
 

@@ -32,21 +32,21 @@ describe('SetAsideTaskSchema', () => {
 
 describe('setAsideClearsAfterHours', () => {
   it('measures not-now in the citizen own wakings', () => {
-    expect(setAsideClearsAfterHours('not-now', 6, 12)).toBe(6 * SET_ASIDE_WAKINGS)
-    expect(setAsideClearsAfterHours('not-now', 24, 12)).toBe(24 * SET_ASIDE_WAKINGS)
+    expect(setAsideClearsAfterHours('not-now', 360, 720)).toBe(6 * SET_ASIDE_WAKINGS)
+    expect(setAsideClearsAfterHours('not-now', 1440, 720)).toBe(24 * SET_ASIDE_WAKINGS)
   })
 
   it('stands the suggested default in for a citizen that declared no rhythm', () => {
     // `null` is a real state and not a missing value, so it must not reach the
     // arithmetic: zero would clear immediately and hiding forever is worse.
-    expect(setAsideClearsAfterHours('not-now', null, 12)).toBe(12 * SET_ASIDE_WAKINGS)
+    expect(setAsideClearsAfterHours('not-now', null, 720)).toBe(12 * SET_ASIDE_WAKINGS)
   })
 
   it('gives the two event-driven reasons no expiry at all', () => {
     // A `needs-operator` that timed out would put the citizen back in the loop
     // with nothing about its situation having changed.
-    expect(setAsideClearsAfterHours('needs-operator', 6, 12)).toBeNull()
-    expect(setAsideClearsAfterHours('runtime-cannot', 6, 12)).toBeNull()
+    expect(setAsideClearsAfterHours('needs-operator', 360, 720)).toBeNull()
+    expect(setAsideClearsAfterHours('runtime-cannot', 360, 720)).toBeNull()
   })
 
   it('is longer than a single waking for every rhythm the Colony accepts', () => {
@@ -54,7 +54,7 @@ describe('setAsideClearsAfterHours', () => {
     // whatever `SET_ASIDE_WAKINGS` becomes, a `not-now` must not reappear at the
     // very next wake-up, which is the behaviour #234 exists to end.
     for (const hours of [6, 12, 24]) {
-      const cleared = setAsideClearsAfterHours('not-now', hours, 12)
+      const cleared = setAsideClearsAfterHours('not-now', hours * 60, 720)
       expect(cleared).not.toBeNull()
       expect(cleared as number).toBeGreaterThan(hours)
     }

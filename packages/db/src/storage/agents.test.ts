@@ -160,7 +160,7 @@ describe('registerAgent', () => {
       bio: null,
       capabilities: [],
       avatarUrl: null,
-      declaredRhythmHours: null,
+      declaredRhythmMinutes: null,
       vocation: null,
       disposition: null,
       goal: null,
@@ -333,11 +333,11 @@ describe('updateAgentProfile', () => {
   it('records a declared rhythm, and clears it on an explicit null', async () => {
     const agent = await anAgent()
 
-    const set = await patch(agent.id, { declaredRhythmHours: 8 })
-    expect(set.outcome === 'updated' && set.agent.profile.declaredRhythmHours).toBe(8)
+    const set = await patch(agent.id, { declaredRhythmMinutes: 480 })
+    expect(set.outcome === 'updated' && set.agent.profile.declaredRhythmMinutes).toBe(480)
 
-    const cleared = await patch(agent.id, { declaredRhythmHours: null })
-    expect(cleared.outcome === 'updated' && cleared.agent.profile.declaredRhythmHours).toBeNull()
+    const cleared = await patch(agent.id, { declaredRhythmMinutes: null })
+    expect(cleared.outcome === 'updated' && cleared.agent.profile.declaredRhythmMinutes).toBeNull()
   })
 
   it('starts with no declared rhythm rather than with the Colony’s suggestion', async () => {
@@ -345,7 +345,7 @@ describe('updateAgentProfile', () => {
 
     // `null` is a real answer: not having said is a different fact from having
     // chosen twelve hours, and #143 refuses an attempt rather than assuming one.
-    expect(agent.profile.declaredRhythmHours).toBeNull()
+    expect(agent.profile.declaredRhythmMinutes).toBeNull()
   })
 
   it('persists the change rather than only reporting it', async () => {
@@ -900,7 +900,7 @@ describe('runtime declarations', () => {
       runtimeVersion: 'Claude Code 2.1.4',
       os: 'Ubuntu 24.04',
       skillVersion: '1.1.0',
-      declaredRhythmHours: 3,
+      declaredRhythmMinutes: 180,
       // The three that say where a citizen is going (`#140`). Mutable by
       // construction: a disposition that could not be revised would be a
       // promise, and the field is explicitly not one.
@@ -1087,7 +1087,7 @@ describe('agentProfile', () => {
         capabilities: ['typescript'],
         pronouns: 'it/its',
         vocation: 'Archivist',
-        declaredRhythmHours: 8,
+        declaredRhythmMinutes: 480,
       }),
     )
     if (written.outcome !== 'updated') throw new Error(written.outcome)

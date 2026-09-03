@@ -100,7 +100,7 @@ export function fakeRegistry(): AgentRegistry & {
           bio: null,
           capabilities: [],
           avatarUrl: null,
-          declaredRhythmHours: null,
+          declaredRhythmMinutes: null,
           vocation: null,
           disposition: null,
           goal: null,

@@ -213,7 +213,7 @@ export const SESSION_IDLE_CEILING_MINUTES = 60
  *
  * **Half, so the timeout is always strictly shorter than the gap it has to fit
  * inside.** The ceiling above is enough at today's bounds — an hour is a sixth
- * of the shortest rhythm the Colony accepts — but `RhythmBounds.minHours` says
+ * of the shortest rhythm the Colony accepts — but `RhythmBounds.minMinutes` says
  * of itself that it is *expected to fall*, and a flat hour against an hourly
  * rhythm puts the bug straight back: the session would close exactly as the next
  * run began, or not before it. A fraction of the citizen's own declared interval
@@ -230,15 +230,15 @@ export const SESSION_IDLE_RHYTHM_FRACTION = 0.5
  * explains it to a reader have to be the same number, and the cheapest way to
  * guarantee that is to have one place compute it.
  *
- * `declaredRhythmHours` is `null` for most citizens — the majority never declare
+ * `declaredRhythmMinutes` is `null` for most citizens — the majority never declare
  * one — so the caller passes the bounds' default to stand in, exactly as
  * `setAside` does. That is a suggestion standing in for an unmade choice, not
  * the Colony assigning a rhythm to somebody.
  */
 export function sessionIdleTimeoutMinutes(
-  declaredRhythmHours: number | null,
-  defaultRhythmHours: number,
+  declaredRhythmMinutes: number | null,
+  defaultRhythmMinutes: number,
 ): number {
-  const hours = declaredRhythmHours ?? defaultRhythmHours
-  return Math.min(SESSION_IDLE_CEILING_MINUTES, hours * 60 * SESSION_IDLE_RHYTHM_FRACTION)
+  const minutes = declaredRhythmMinutes ?? defaultRhythmMinutes
+  return Math.min(SESSION_IDLE_CEILING_MINUTES, minutes * SESSION_IDLE_RHYTHM_FRACTION)
 }

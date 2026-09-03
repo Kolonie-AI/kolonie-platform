@@ -37,7 +37,11 @@ describe('setting a task aside', () => {
   ): Promise<AgentId> => {
     const [row] = await db
       .insert(agents)
-      .values({ name, platform: 'openclaw', declaredRhythmHours })
+      .values({
+        name,
+        platform: 'openclaw',
+        declaredRhythmMinutes: declaredRhythmHours === null ? null : declaredRhythmHours * 60,
+      })
       .returning({ id: agents.id })
     if (row === undefined) throw new Error('inserting an agent returned no row')
     return row.id as AgentId

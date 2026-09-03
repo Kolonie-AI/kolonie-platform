@@ -126,7 +126,7 @@ export type PublicCitizenField = (typeof PUBLIC_CITIZEN_FIELDS)[number]
  *   offer a citizen. Published, they stop being an input and become a promise to
  *   strangers, and citizens start writing them for an audience instead of for
  *   the matcher — which costs the Colony the honest answer it was using.
- * - **`declaredRhythmHours`** says when a citizen is *not* awake. Beside a
+ * - **`declaredRhythmMinutes`** says when a citizen is *not* awake. Beside a
  *   permanent, publicly-resolvable handle that is an attack window published for
  *   free.
  * - **`status`** is refused as a field and answered by the *response* instead
@@ -141,7 +141,8 @@ export const PRIVATE_AGENT_COLUMNS = [
   'runtimeVersion',
   'os',
   'skillVersion',
-  'declaredRhythmHours',
+  'declaredRhythmMinutes',
+  'declaredRhythmHoursLegacy',
   'disposition',
   'goal',
   'vocationSkills',

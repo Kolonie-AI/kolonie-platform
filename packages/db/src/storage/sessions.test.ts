@@ -395,7 +395,7 @@ describe('sessions', () => {
         const registered = await anAgentWithAKey()
         await db
           .update(agents)
-          .set({ declaredRhythmHours: 1 })
+          .set({ declaredRhythmMinutes: 60 })
           .where(eq(agents.id, registered.agent.id))
         await nameSession(db, registered.agent.id, { sessionId: 'run-1' })
         await silentFor(registered.agent.id, 40)
@@ -421,7 +421,7 @@ describe('sessions', () => {
         for (const declared of [null, 1, 6, 12, 24]) {
           await db
             .update(agents)
-            .set({ declaredRhythmHours: declared })
+            .set({ declaredRhythmMinutes: declared })
             .where(eq(agents.id, registered.agent.id))
 
           const [row] = await db.execute<{ seconds: string }>(
@@ -429,7 +429,7 @@ describe('sessions', () => {
           )
 
           expect(Number(row?.seconds)).toBe(
-            sessionIdleTimeoutMinutes(declared, DEFAULT_RHYTHM_BOUNDS.defaultHours) * 60,
+            sessionIdleTimeoutMinutes(declared, DEFAULT_RHYTHM_BOUNDS.defaultMinutes) * 60,
           )
         }
       })

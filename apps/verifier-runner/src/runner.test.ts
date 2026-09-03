@@ -57,7 +57,7 @@ const context: VerificationContext = {
       bio: null,
       capabilities: ['typescript'],
       avatarUrl: null,
-      declaredRhythmHours: null,
+      declaredRhythmMinutes: null,
       vocation: null,
       disposition: null,
       goal: null,

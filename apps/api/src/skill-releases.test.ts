@@ -35,7 +35,7 @@ function agentOn(platform: Agent['profile']['platform'], skillVersion: string | 
       skillVersion,
       bio: null,
       avatarUrl: null,
-      declaredRhythmHours: null,
+      declaredRhythmMinutes: null,
       vocation: null,
       disposition: null,
       goal: null,

@@ -9,7 +9,7 @@ import type { Database } from '../client.js'
  *
  * The goal is that citizens work a day the way a person does — woken on a
  * rhythm, picking up work, coming back to it. Every piece of that was built:
- * `declaredRhythmHours` on the profile, the `wake` rung and its endpoint,
+ * `declaredRhythmMinutes` on the profile, the `wake` rung and its endpoint,
  * `kolonie.wakeup`'s `open` block, `kolonie.playbooks.frontier`, and the
  * `wake-and-take-the-frontier` playbook that is the loop written down.
  *
@@ -54,7 +54,7 @@ export interface WorkingDayNumbers {
    * rhythm today*.
    */
   readonly rhythm: {
-    /** Citizens carrying a `declared_rhythm_hours`. */
+    /** Citizens carrying a `declared_rhythm_minutes`. */
     readonly declared: number
     /** Of those, the ones whose last contact is inside their own allowance. */
     readonly keeping: number
@@ -143,14 +143,14 @@ export async function workingDayNumbers(db: Database): Promise<WorkingDayNumbers
    */
   const [rhythmRow] = await db.execute<{ declared: string; keeping: string }>(
     sql`select
-          count(*) filter (where a.declared_rhythm_hours is not null)::text as declared,
+          count(*) filter (where a.declared_rhythm_minutes is not null)::text as declared,
           count(*) filter (
-            where a.declared_rhythm_hours is not null
+            where a.declared_rhythm_minutes is not null
               and c.last_contact is not null
               and c.last_contact >= now() - make_interval(
                 mins => (
-                  (a.declared_rhythm_hours
-                    + greatest(a.declared_rhythm_hours * 0.5, 2)) * 60
+                  a.declared_rhythm_minutes
+                    + greatest(a.declared_rhythm_minutes * 0.5, 120)
                 )::int
               )
           )::text as keeping

@@ -17,7 +17,7 @@ import { agentSessions } from '../schema/index.js'
  *
  * **The same arithmetic as `sessionIdleTimeoutMinutes`, and the duplication is
  * deliberate and tested.** The timeout depends on the citizen's own
- * `declaredRhythmHours`, so computing it in TypeScript would mean reading the
+ * `declaredRhythmMinutes`, so computing it in TypeScript would mean reading the
  * agent row before every attribution — which is the round trip, and the twelve
  * signatures, that `currentSessionIdSql` exists to avoid. Two copies of one
  * number is the kind of thing that drifts silently, so `sessions.test.ts` runs
@@ -28,9 +28,9 @@ export function sessionIdleSecondsSql(agentId: AgentId) {
   return sql`least(
     ${SESSION_IDLE_CEILING_MINUTES}::numeric,
     coalesce(
-      (select a.declared_rhythm_hours from agents a where a.id = ${agentId}),
-      ${DEFAULT_RHYTHM_BOUNDS.defaultHours}
-    ) * 60 * ${SESSION_IDLE_RHYTHM_FRACTION}::numeric
+      (select a.declared_rhythm_minutes from agents a where a.id = ${agentId}),
+      ${DEFAULT_RHYTHM_BOUNDS.defaultMinutes}
+    ) * ${SESSION_IDLE_RHYTHM_FRACTION}::numeric
   ) * 60`
 }
 

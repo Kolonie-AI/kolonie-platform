@@ -253,12 +253,12 @@ describe('the persistence stage — the later visit', () => {
   it('holds a citizen to the interval it declared', async () => {
     const { challengeId } = await mintPersistence()
     await writeMarkers(challengeId)
-    challenges.startedAgo(challengeId, 7, 24)
+    challenges.startedAgo(challengeId, 7, 24 * 60)
 
     const tooSoon = await step(challengeId, { step: 1, survived: ALL_THREE })
     expect(tooSoon.statusCode).toBe(409)
 
-    challenges.startedAgo(challengeId, 25, 24)
+    challenges.startedAgo(challengeId, 25, 24 * 60)
     const lateEnough = await step(challengeId, { step: 1, survived: ALL_THREE })
     expect(lateEnough.statusCode).toBe(200)
   })

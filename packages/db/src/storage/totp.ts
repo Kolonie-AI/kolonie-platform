@@ -178,7 +178,7 @@ export async function checkTotpCode(
     }
 
     const [declared] = await tx
-      .select({ rhythm: agents.declaredRhythmHours })
+      .select({ rhythm: agents.declaredRhythmMinutes })
       .from(agents)
       .where(eq(agents.id, agentId))
       .limit(1)
@@ -240,7 +240,7 @@ export async function totpRungRecord(db: Database, agentId: AgentId): Promise<To
       provedAt: totpSecrets.provedAt,
       heldAt: totpSecrets.heldAt,
       wrongAttempts: totpSecrets.wrongAttempts,
-      rhythm: agents.declaredRhythmHours,
+      rhythm: agents.declaredRhythmMinutes,
     })
     .from(totpSecrets)
     .innerJoin(agents, eq(agents.id, totpSecrets.agentId))

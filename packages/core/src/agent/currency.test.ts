@@ -15,15 +15,15 @@ describe('the re-check window', () => {
    * is given longer, never marked gone for being slow.
    */
   it('gives a slower citizen a longer window than a faster one', () => {
-    expect(recheckWindowHours(DEFAULT_RHYTHM_BOUNDS.maxHours)).toBeGreaterThan(
-      recheckWindowHours(DEFAULT_RHYTHM_BOUNDS.minHours),
+    expect(recheckWindowHours(DEFAULT_RHYTHM_BOUNDS.maxMinutes)).toBeGreaterThan(
+      recheckWindowHours(DEFAULT_RHYTHM_BOUNDS.minMinutes),
     )
   })
 
   it('is the rhythm multiplied, between the floor and the ceiling', () => {
-    expect(recheckWindowHours(48)).toBe(48 * RECHECK_WINDOW_RHYTHMS)
-    expect(recheckWindowHours(1)).toBe(RECHECK_WINDOW_FLOOR_HOURS)
-    expect(recheckWindowHours(10_000)).toBe(RECHECK_WINDOW_CEILING_HOURS)
+    expect(recheckWindowHours(48 * 60)).toBe(48 * RECHECK_WINDOW_RHYTHMS)
+    expect(recheckWindowHours(60)).toBe(RECHECK_WINDOW_FLOOR_HOURS)
+    expect(recheckWindowHours(10_000 * 60)).toBe(RECHECK_WINDOW_CEILING_HOURS)
   })
 
   /** Knowing nothing about when a citizen returns means waiting as long as we ever will. */
@@ -34,11 +34,11 @@ describe('the re-check window', () => {
   /** Every declarable rhythm produces a window a citizen could actually answer in. */
   it('never returns a window shorter than the rhythm it was given', () => {
     for (
-      let hours = DEFAULT_RHYTHM_BOUNDS.minHours;
-      hours <= DEFAULT_RHYTHM_BOUNDS.maxHours;
-      hours += 1
+      let minutes = DEFAULT_RHYTHM_BOUNDS.minMinutes;
+      minutes <= DEFAULT_RHYTHM_BOUNDS.maxMinutes;
+      minutes += 1
     ) {
-      expect(recheckWindowHours(hours)).toBeGreaterThan(hours)
+      expect(recheckWindowHours(minutes)).toBeGreaterThan(minutes / 60)
     }
   })
 })

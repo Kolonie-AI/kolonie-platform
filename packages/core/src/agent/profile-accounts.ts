@@ -71,7 +71,7 @@ export const PROFILE_ACCOUNT_KINDS_REFUSED: Readonly<Record<string, string>> = {
    * A number is a *recovery factor* on accounts the Colony has never heard of.
    * Published beside a verified identity it hands an attacker both halves of a
    * SIM-swap in one fetch, and unlike a mailbox the citizen frequently cannot
-   * replace it at all. Same argument as §4's `declaredRhythmHours` refusal about
+   * replace it at all. Same argument as §4's `declaredRhythmMinutes` refusal about
    * a different column.
    */
   phone:

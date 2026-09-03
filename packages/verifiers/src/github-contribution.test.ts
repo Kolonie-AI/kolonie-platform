@@ -33,7 +33,7 @@ const anAgent = (id: string = AGENT_ID): Agent =>
       bio: null,
       capabilities: ['typescript'],
       avatarUrl: null,
-      declaredRhythmHours: null,
+      declaredRhythmMinutes: null,
       vocation: null,
       disposition: null,
       goal: null,

@@ -212,13 +212,13 @@ describe('kolonie.profile.update', () => {
 
     const updated = await client.callTool({
       name: 'kolonie.profile.update',
-      arguments: { declaredRhythmHours: 8 },
+      arguments: { declaredRhythmMinutes: 480 },
     })
     const standing = await client.callTool({ name: 'kolonie.me', arguments: {} })
 
     expect(updated.isError).toBeFalsy()
     const { agent } = GetMeResponseSchema.parse(standing.structuredContent)
-    expect(agent.profile.declaredRhythmHours).toBe(8)
+    expect(agent.profile.declaredRhythmMinutes).toBe(480)
     await close()
   })
 
@@ -270,27 +270,27 @@ describe('kolonie.profile.update', () => {
   it('refuses a rhythm below the minimum, naming the current limits', async () => {
     const { colony, apiKey } = await citizen()
     const { client, close } = await connectedClient(
-      { ...colony, rhythm: { minHours: 6, defaultHours: 12, maxHours: 24 } },
+      { ...colony, rhythm: { minMinutes: 360, defaultMinutes: 720, maxMinutes: 1440 } },
       `Bearer ${apiKey}`,
     )
 
     const refused = await client.callTool({
       name: 'kolonie.profile.update',
-      arguments: { declaredRhythmHours: 1 },
+      arguments: { declaredRhythmMinutes: 300 },
     })
 
     expect(refused.isError).toBe(true)
     const text = JSON.stringify(refused)
     expect(text).toContain('validation_failed')
-    expect(text).toContain('6')
-    expect(text).toContain('24')
+    expect(text).toContain('360')
+    expect(text).toContain('1440')
     await close()
   })
 
   it('accepts a rhythm one deployment refuses when another is configured for it', async () => {
     const { colony, apiKey } = await citizen()
     const { client, close } = await connectedClient(
-      { ...colony, rhythm: { minHours: 1, defaultHours: 4, maxHours: 24 } },
+      { ...colony, rhythm: { minMinutes: 60, defaultMinutes: 240, maxMinutes: 1440 } },
       `Bearer ${apiKey}`,
     )
 
@@ -298,7 +298,7 @@ describe('kolonie.profile.update', () => {
     // configuration, which is the whole of #142.
     const updated = await client.callTool({
       name: 'kolonie.profile.update',
-      arguments: { declaredRhythmHours: 1 },
+      arguments: { declaredRhythmMinutes: 60 },
     })
 
     expect(updated.isError).toBeFalsy()
@@ -311,11 +311,11 @@ describe('kolonie.profile.update', () => {
 
     await client.callTool({
       name: 'kolonie.profile.update',
-      arguments: { declaredRhythmHours: 8 },
+      arguments: { declaredRhythmMinutes: 480 },
     })
     const cleared = await client.callTool({
       name: 'kolonie.profile.update',
-      arguments: { declaredRhythmHours: null },
+      arguments: { declaredRhythmMinutes: null },
     })
     const standing = await client.callTool({ name: 'kolonie.me', arguments: {} })
 
@@ -324,7 +324,7 @@ describe('kolonie.profile.update', () => {
     // the Colony's suggestion, and a promise a citizen may not withdraw is not
     // a self-declaration.
     const { agent } = GetMeResponseSchema.parse(standing.structuredContent)
-    expect(agent.profile.declaredRhythmHours).toBeNull()
+    expect(agent.profile.declaredRhythmMinutes).toBeNull()
     await close()
   })
 

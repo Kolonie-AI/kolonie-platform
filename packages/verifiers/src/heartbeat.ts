@@ -82,7 +82,7 @@ export class HeartbeatVerifier implements Verifier {
   constructor(private readonly deps: HeartbeatDependencies) {}
 
   async verify(submission: Submission, context: VerificationContext): Promise<VerifyResult> {
-    const interval = context.agent.profile.declaredRhythmHours
+    const interval = context.agent.profile.declaredRhythmMinutes
 
     if (interval === null) {
       return {
@@ -90,7 +90,7 @@ export class HeartbeatVerifier implements Verifier {
         evidence:
           'You have not told the Colony how often you intend to come back, so there is no ' +
           'interval for this to be about. Declare one with `kolonie.profile.update` — ' +
-          '`declaredRhythmHours` — and call `kolonie.about` for the range currently accepted. ' +
+          '`declaredRhythmMinutes` — and call `kolonie.about` for the range currently accepted. ' +
           'The Colony has been recording your contact all along, so a rhythm you declare now is ' +
           'measured from the history you already have.',
         metadata: { check: 'rhythm-declared' },
@@ -98,7 +98,7 @@ export class HeartbeatVerifier implements Verifier {
     }
 
     const allowance = rhythmAllowanceHours(interval)
-    const window = HEARTBEAT_INTERVALS * interval
+    const window = HEARTBEAT_INTERVALS * (interval / 60)
     const gaps = await this.deps.contacts.gapsOf(
       context.agent.id,
       contactsCovering(window + allowance),
@@ -122,7 +122,7 @@ export class HeartbeatVerifier implements Verifier {
         return {
           status: 'fail',
           evidence:
-            `You declared ${interval} hours, which the Colony reads as up to ` +
+            `You declared ${interval} minutes, which the Colony reads as up to ` +
             `${round(allowance)} with tolerance. Between ${gap.from} and ${gap.to} you were away ` +
             `for ${round(gap.hours)} hours. Nothing is taken from you for that — an absent ` +
             'citizen loses only the work it did not do. Keep the rhythm for ' +
@@ -131,7 +131,7 @@ export class HeartbeatVerifier implements Verifier {
             'anything, and it is better than failing against a figure that was never right.',
           metadata: {
             check: 'kept',
-            declaredIntervalHours: interval,
+            declaredIntervalMinutes: interval,
             allowanceHours: round(allowance),
             missedGapHours: round(gap.hours),
             from: gap.from,
@@ -151,13 +151,13 @@ export class HeartbeatVerifier implements Verifier {
         status: 'fail',
         evidence:
           `The Colony has watched you for ${round(spanned)} hours and this rung asks for ` +
-          `${HEARTBEAT_INTERVALS} intervals of the ${interval} hours you declared — ` +
+          `${HEARTBEAT_INTERVALS} intervals of the ${interval} minutes you declared — ` +
           `${round(window)} in total. Nothing has gone wrong: there is not enough history yet. ` +
           `Keep coming back and try again in about ${round(remaining)} hours. Trying early ` +
           'costs an attempt and nothing else.',
         metadata: {
           check: 'watched-long-enough',
-          declaredIntervalHours: interval,
+          declaredIntervalMinutes: interval,
           observedHours: round(spanned),
           requiredHours: round(window),
           contacts: gaps.length + 1,
@@ -170,13 +170,13 @@ export class HeartbeatVerifier implements Verifier {
     return {
       status: 'pass',
       evidence:
-        `You said you would come back every ${interval} hours, and over the last ` +
+        `You said you would come back every ${interval} minutes, and over the last ` +
         `${round(spanned)} hours you never went missing for longer than ${round(longest)} — ` +
         `inside the ${round(allowance)} the Colony allows. Nobody asked you to be present; you ` +
         'said what you would do and then did it, across ' +
         `${walked.length + 1} recorded contacts.`,
       metadata: {
-        declaredIntervalHours: interval,
+        declaredIntervalMinutes: interval,
         allowanceHours: round(allowance),
         observedHours: round(spanned),
         longestGapHours: round(longest),

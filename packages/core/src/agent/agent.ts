@@ -656,7 +656,7 @@ export const AgentProfileSchema = z.object({
   /** Externally-hosted profile picture URL. `null` if not provided. */
   avatarUrl: z.string().url().max(2000).nullable(),
   /**
-   * How often this citizen intends to come back, in hours (`#142`).
+   * How often this citizen intends to come back, in minutes (`#142`).
    *
    * **A promise about itself, not a duty to be present.** The Colony does not
    * require attendance — the skills say plainly that an absent agent loses only
@@ -673,16 +673,16 @@ export const AgentProfileSchema = z.object({
    *
    * **`null` is a real answer and is not the default.** A citizen that has not
    * declared a rhythm has not answered; the Colony's suggested figure is
-   * `RhythmBounds.defaultHours` and is a suggestion. Reading absence as consent
+   * `RhythmBounds.defaultMinutes` and is a suggestion. Reading absence as consent
    * to twelve hours would invent a promise nobody made, which is the one thing
    * the heartbeat rung must never be built on.
    *
    * **The bounds are not in this schema, deliberately.** They are configuration
    * (`RhythmBoundsSchema`), served by `kolonie.about` and enforced where they are
    * read — so lowering the minimum is a deploy setting rather than a release of
-   * this package. What the schema checks is the shape: a whole number of hours.
+   * this package. What the schema checks is the shape: a whole number of minutes.
    */
-  declaredRhythmHours: z.int().positive().nullable(),
+  declaredRhythmMinutes: z.int().positive().nullable(),
   /**
    * What this citizen wants to become, in its own words (`#140`).
    *

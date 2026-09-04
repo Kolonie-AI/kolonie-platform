@@ -18,6 +18,7 @@ import {
   EARN_FACETS,
   EarnFacetSchema,
   SignupCostSchema,
+  ATLAS_ENTRIES_DEFAULT_PAGE,
   ATLAS_ENTRIES_MAX_PAGE,
   ATLAS_QUERY_MAX_LENGTH,
   WalkOutcomeSchema,
@@ -597,15 +598,22 @@ export function registerAccountAtlasTools(
          * the response, and a schema that refused would only make every caller
          * learn the number by being refused once. `#1302` gave the catalogue the
          * same treatment, so the sentence holds whichever page this is.
+         *
+         * **An omitted limit is the default, not the ceiling** (`#1860`). Naming
+         * no size used to mean fifty, which is how a successful MCP catalogue
+         * read crossed 64 KiB. The argument says both numbers so a caller that
+         * wants the larger page has to ask for it.
          */
         limit: z
           .number()
           .int()
           .optional()
           .describe(
-            `How many at once — entries, or walks when you asked for those. Over ` +
-              `${ATLAS_ENTRIES_MAX_PAGE} entries gets ${ATLAS_ENTRIES_MAX_PAGE}; over ` +
-              `${PUBLISHED_WALKS_MAX_PAGE} walks gets ${PUBLISHED_WALKS_MAX_PAGE}.`,
+            `How many at once — entries, or walks when you asked for those. Omit it ` +
+              `and the catalogue page is ${ATLAS_ENTRIES_DEFAULT_PAGE}; over ` +
+              `${ATLAS_ENTRIES_MAX_PAGE} entries gets ${ATLAS_ENTRIES_MAX_PAGE}. Over ` +
+              `${PUBLISHED_WALKS_MAX_PAGE} walks gets ${PUBLISHED_WALKS_MAX_PAGE}. ` +
+              'Send back `nextCursor` for the rest.',
           ),
       },
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },

@@ -67,14 +67,28 @@ import { SignupCostSchema, ProviderTermsSchema } from './atlas-conditions.js'
 export const ATLAS_QUERY_MAX_LENGTH = 100
 
 /**
- * How many entries one page of the catalogue carries.
+ * How many entries one page of the catalogue carries when the caller names a
+ * size.
  *
- * **A page and not the whole shelf, once a query is possible.** The catalogue
- * answered unpaginated while it was 133 entries; a reader asking for `mail` at a
- * thousand entries should not be handed everything that matched, and a reader
- * asking for nothing at all should not be handed everything either.
+ * **A ceiling, not the default.** The catalogue answered unpaginated while it
+ * was 133 entries; a reader asking for `mail` at a thousand entries should not
+ * be handed everything that matched. An omitted `limit` is a different
+ * question — see {@link ATLAS_ENTRIES_DEFAULT_PAGE}.
  */
 export const ATLAS_ENTRIES_MAX_PAGE = 50
+
+/**
+ * How many entries an omitted `limit` returns (`#1860`).
+ *
+ * **Smaller than the ceiling on purpose.** D-149: an omitted limit is a default,
+ * not an invitation to the documented maximum. A citizen measured the 50-entry
+ * MCP page at 110,606 bytes on 2026-09-03, which is the Doctor's
+ * unreadable-response finding arriving as the ordinary read. Five is the page
+ * that stays under 64 KiB on a representative current-schema fixture while
+ * still carrying a `nextCursor` whenever more remains. A caller that wants the
+ * ceiling names it.
+ */
+export const ATLAS_ENTRIES_DEFAULT_PAGE = 5
 
 export const AtlasQuerySchema = z.string().trim().min(1).max(ATLAS_QUERY_MAX_LENGTH)
 
@@ -263,6 +277,10 @@ export interface AtlasPage<T> {
  * the ceiling is a property of the response, and refusing would only make every
  * caller learn the number by being refused once — which is the line the walks
  * page already takes.
+ *
+ * **An omitted limit is the default, not the ceiling** (`#1860`). Naming no
+ * size used to mean fifty, which is how a successful MCP catalogue read crossed
+ * 64 KiB. The explicit maximum is still available; it has to be asked for.
  */
 export function atlasPageOf<T extends { readonly provider: string }>(
   entries: readonly T[],
@@ -270,7 +288,7 @@ export function atlasPageOf<T extends { readonly provider: string }>(
 ): AtlasPage<T> {
   const limit = Math.max(
     1,
-    Math.min(ATLAS_ENTRIES_MAX_PAGE, Math.floor(options.limit ?? ATLAS_ENTRIES_MAX_PAGE)),
+    Math.min(ATLAS_ENTRIES_MAX_PAGE, Math.floor(options.limit ?? ATLAS_ENTRIES_DEFAULT_PAGE)),
   )
 
   const start = ((): number => {

@@ -124,7 +124,7 @@ describe('six workers copying at once', () => {
    * badly or failed outright. It does neither — 136–159 ms for all six, measured
    * on CLAUDE002 on 2026-08-04 — and this is that measurement as an assertion.
    */
-  it('all get a database, and none is refused', async () => {
+  it('keeps copying different worker databases in parallel', async () => {
     const slots = [103, 104, 105, 106]
 
     const databases = await Promise.all(slots.map(async (slot) => connectForTests(scratch(slot))))
@@ -141,9 +141,34 @@ describe('six workers copying at once', () => {
 
     expect(counts).toEqual(slots.map(() => 0))
   })
+
+  it('serializes copies of the same worker database', async () => {
+    const databases = await Promise.all([
+      connectForTests(scratch(103)),
+      connectForTests(scratch(103)),
+    ])
+    opened.push(...databases)
+
+    const rows = await databases[1]!.execute<{ count: number }>(
+      sql`select count(*)::int as count from tasks`,
+    )
+
+    expect(rows[0]?.count).toBe(0)
+  })
 })
 
 describe('a template that is not there', () => {
+  it('continues copying after a same-database failure', async () => {
+    const absent = new URL('/kolonie_no_such_base', base).toString()
+    await expect(connectForTests(scratch(107), absent)).rejects.toThrow()
+
+    const db = await connectForTests(scratch(107))
+    opened.push(db)
+
+    const rows = await db.execute<{ count: number }>(sql`select count(*)::int as count from tasks`)
+    expect(rows[0]?.count).toBe(0)
+  })
+
   /**
    * **A failure and not a quiet fall back to migrating.** The whole saving is
    * that no file migrates; a path that silently did so when the template was

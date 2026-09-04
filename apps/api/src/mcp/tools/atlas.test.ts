@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { ATLAS_ANY_PROVED_PHRASE, noFigures, type AtlasEntry } from '@kolonie-ai/core'
+import {
+  ATLAS_ANY_PROVED_PHRASE,
+  ATLAS_ENTRIES_DEFAULT_PAGE,
+  noFigures,
+  type AtlasEntry,
+} from '@kolonie-ai/core'
 import { fakeColony, type FakeColony } from '../../__fixtures__/colony/index.js'
 import { atlasEntryAsText, readAtlas } from '../../provider-recipes.js'
 import { AUTHENTICATED_TOOLS, WARDEN_TOOLS, UNAUTHENTICATED_TOOLS } from '../tool-list.js'
@@ -1006,7 +1011,7 @@ describe('searching the Atlas', () => {
       const result = await readAtlas({}, wide.recipes, true)
       if (result.outcome !== 'ok') throw new Error('expected the read to succeed')
 
-      expect(result.response.entries).toHaveLength(50)
+      expect(result.response.entries).toHaveLength(ATLAS_ENTRIES_DEFAULT_PAGE)
       expect(result.response.total).toBe(1200)
       expect(result.response.nextCursor).not.toBeNull()
     })

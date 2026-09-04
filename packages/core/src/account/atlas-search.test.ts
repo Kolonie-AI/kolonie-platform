@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  ATLAS_ENTRIES_DEFAULT_PAGE,
   ATLAS_ENTRIES_MAX_PAGE,
   ATLAS_QUERY_MAX_LENGTH,
   AtlasQuerySchema,
@@ -169,6 +170,20 @@ describe('paging the catalogue', () => {
   it('clamps rather than refusing an unreasonable limit', () => {
     expect(atlasPageOf(shelf(200), { limit: 5000 }).entries).toHaveLength(ATLAS_ENTRIES_MAX_PAGE)
     expect(atlasPageOf(shelf(10), { limit: 0 }).entries).toHaveLength(1)
+  })
+
+  it('defaults an omitted limit to a small page, not the ceiling', () => {
+    const page = atlasPageOf(shelf(200), {})
+
+    expect(page.entries).toHaveLength(ATLAS_ENTRIES_DEFAULT_PAGE)
+    expect(page.total).toBe(200)
+    expect(page.nextCursor).not.toBeNull()
+  })
+
+  it('honours an explicit limit up to the ceiling', () => {
+    expect(atlasPageOf(shelf(200), { limit: ATLAS_ENTRIES_MAX_PAGE }).entries).toHaveLength(
+      ATLAS_ENTRIES_MAX_PAGE,
+    )
   })
 
   it('is one empty page and not a cursor loop when nothing matched', () => {

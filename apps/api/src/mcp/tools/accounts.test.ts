@@ -1,14 +1,20 @@
 import { describe, expect, it } from 'vitest'
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import {
   AccountCapabilitySchema,
   AccountKindSchema,
   AccountProviderSchema,
   AgentIdSchema,
+  ATLAS_ENTRIES_DEFAULT_PAGE,
+  ATLAS_ENTRIES_MAX_PAGE,
+  noFigures,
+  UNREADABLE_RESPONSE_BYTES,
   WALK_REPORT_FIELDS,
   WALK_REPORT_FIELD_ORDER,
   type AgentId,
   type WalkedRecipe,
 } from '@kolonie-ai/core'
+import { toolResultBytes } from '../../call-rollup.js'
 import type { PreviousWalkVerdict, PublishedWalkPage } from '@kolonie-ai/db'
 import { WalkReportSchema } from '../../account-walks.js'
 import { connectedClient, registeredCitizen } from '../../__fixtures__/mcp.js'
@@ -18,7 +24,10 @@ import {
   type FakeAccountRegister,
 } from '../../__fixtures__/accounts.js'
 import { fakeWalks } from '../../__fixtures__/account-walks.js'
-import { fakeProviderRecipes } from '../../__fixtures__/provider-recipes.js'
+import {
+  fakeProviderRecipes,
+  type FakeProviderRecipes,
+} from '../../__fixtures__/provider-recipes.js'
 
 describe('kolonie.accounts.walk-report', () => {
   it('takes the published steps as one ordered tick-list', () => {
@@ -3324,5 +3333,315 @@ describe('kolonie.accounts.walk-report answering a repeat', () => {
     const result = await filed(repeating(walks, REPEATED), apiKey, colony)
 
     expect(JSON.stringify(result)).not.toContain(agent.id)
+  })
+})
+
+/**
+ * The default catalogue page is a successful MCP answer (`#1860`).
+ *
+ * D-149: 64 KiB is the only MCP success ceiling. A citizen measured an
+ * unfiltered `kolonie.accounts.recipes` at 110,606 bytes on 2026-09-03, which
+ * is the Doctor's unreadable-response finding arriving as the ordinary read.
+ * Criterion 1 was the red proof that omitted-limit exceeded that ceiling on a
+ * representative current-schema page. The smaller default inverts it: the same
+ * fixture stays under 64 KiB and still carries `nextCursor`.
+ *
+ * **What the fixture fills is what an unfiltered catalogue page actually
+ * renders.** Briefings, notes, routes and `atlasReachAsText` stay off that
+ * read (`full: false`). Provider ids stay `provider-NNNN.test`.
+ */
+describe('kolonie.accounts.recipes default page stays a readable MCP answer', () => {
+  /**
+   * A stewarded joinable entry as it actually lands on the catalogue: steps,
+   * a walked write-up, measured figures, and the fields a reader sees. Schema
+   * maxima are not this — padding every string to its ceiling made two entries
+   * larger than the citizen measurement of a fifty-entry page.
+   */
+  const representativeWalked = (): WalkedRecipe => ({
+    prerequisites: [
+      'A mailbox the Colony has already proved.',
+      'The operator is available for one OAuth approval.',
+    ],
+    steps: [
+      {
+        title: 'Open the signup page',
+        detail: 'It is OAuth-only; there is no email signup and no API token path.',
+      },
+      {
+        title: 'Authorise the app',
+        detail: 'The operator approves the OAuth request in the provider dialog.',
+        needsOperator: true,
+      },
+      {
+        title: 'Confirm the inbound number',
+        detail: 'The dashboard shows the number only after the first inbound SMS arrives.',
+      },
+    ],
+    walls: [
+      {
+        kind: 'human-check',
+        title: 'A checkbox before the OAuth redirect',
+        symptom: 'the signup form will not submit until a person ticks it',
+        remedy: 'the operator completes that step; an API token is not enough',
+        posesHumanityQuestion: true,
+      },
+      {
+        kind: 'phone-verification',
+        title: 'Inbound SMS to finish signup',
+        symptom: 'the form asks for a number that can receive',
+        remedy: 'use a number already proved at sms-receive',
+      },
+    ],
+    verification: [
+      'the dashboard lists the inbound number',
+      'an Academy rung can read a code sent to it',
+    ],
+    cost: 'card-to-sign-up',
+    terms: 'agent-allowed',
+  })
+
+  const representativeJoinable = (index: number): Parameters<FakeProviderRecipes['write']>[0] => {
+    const provider = `provider-${String(index).padStart(4, '0')}.test`
+
+    return {
+      kind: 'phone',
+      provider,
+      title: `Inbound SMS at ${provider}`,
+      about:
+        'A number that can receive, used to finish signups that ask for a code. ' +
+        'Outbound sending is a different product and is not this entry.',
+      description: 'Inbound SMS numbers for agents that already hold a proved mailbox.',
+      homepage: `https://${provider}/`,
+      category: 'telephony',
+      status: 'joinable',
+      paid: true,
+      lastConfirmedAt: '2020-01-01T00:00:00.000Z',
+      needs: ['email', 'phone', 'operator'],
+      terms: 'agent-allowed',
+      cost: 'card-to-sign-up',
+      direction: 'inbound',
+      proves: 'rung',
+      provesTask: 'sms-receive',
+      facets: [
+        { axis: 'earn', slug: 'affiliate-referral' },
+        { axis: 'tag', slug: 'resold-bandwidth' },
+      ],
+      cautions: [
+        {
+          text: 'Outbound sending is refused on a new account; this entry is inbound only.',
+          direction: 'outbound' as const,
+        },
+      ],
+      steps: [
+        {
+          actor: 'agent',
+          instruction: 'Open the signup page and start with the mailbox you already proved.',
+          produces: ['handle'],
+        },
+        {
+          actor: 'operator',
+          instruction: 'Approve the OAuth request in the provider dialog.',
+          ask: 'Please approve the OAuth request that is waiting in your browser.',
+          wall: true,
+          wallReason: 'The provider will not continue until a person ticks the box.',
+        },
+        {
+          actor: 'agent',
+          instruction: 'Wait for the inbound SMS and finish the Academy rung that reads it.',
+        },
+      ],
+      walkedRecipe: representativeWalked(),
+      walls: [
+        {
+          kind: 'human-check',
+          reportedBy: 8,
+          lastReportedAt: '2020-01-01T00:00:00.000Z',
+          title: 'A checkbox before the OAuth redirect',
+          symptom: 'the signup form will not submit until a person ticks it',
+          remedy: 'the operator completes that step',
+          posesHumanityQuestion: true,
+        },
+        {
+          kind: 'phone-verification',
+          reportedBy: 5,
+          lastReportedAt: '2020-01-01T00:00:00.000Z',
+          title: 'Inbound SMS to finish signup',
+          symptom: 'the form asks for a number that can receive',
+          remedy: 'use a number already proved at sms-receive',
+        },
+      ],
+    }
+  }
+
+  const representativeShelf = (count: number) => {
+    const recipes = fakeProviderRecipes()
+    for (let index = 0; index < count; index += 1) {
+      const entry = representativeJoinable(index)
+      recipes.write(entry)
+      recipes.measure({
+        ...noFigures(entry.kind, entry.provider),
+        attempted: 80,
+        proved: 50,
+        medianHoursToProof: 12,
+        stopped: [
+          { outcome: 'signup-refused', citizens: 12 },
+          { outcome: 'abandoned', citizens: 10 },
+        ],
+        refused: 12,
+        stillHeld: 40,
+        heldLongEnoughToAsk: 45,
+        band: 'about-half',
+        commonestStop: 'signup-refused',
+        suppressed: false,
+        anyProved: true,
+        evidenced: true,
+        walked: {
+          citizens: 40,
+          gotThrough: 22,
+          band: 'about-half',
+          platforms: { other: 12, claude: 10 },
+          walls: [
+            { kind: 'human-check', citizens: 8 },
+            { kind: 'phone-verification', citizens: 5 },
+          ],
+          homepage: `https://${entry.provider}/`,
+          about: entry.description ?? null,
+          anySighted: true,
+          anyAbandoned: true,
+          anyOperatorOpened: true,
+        },
+      })
+    }
+    return recipes
+  }
+
+  const pageOf = (result: CallToolResult) =>
+    result.structuredContent as {
+      entries: readonly { provider: string }[]
+      nextCursor: string | null
+      total: number
+    }
+
+  it('keeps an omitted-limit page under 64 KiB and still carries a cursor', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(
+      { ...colony, recipes: representativeShelf(ATLAS_ENTRIES_MAX_PAGE) },
+      `Bearer ${apiKey}`,
+    )
+
+    const result = (await client.callTool({
+      name: 'kolonie.accounts.recipes',
+      arguments: {},
+    })) as CallToolResult
+    const page = pageOf(result)
+
+    expect(result.isError).not.toBe(true)
+    expect(toolResultBytes(result)).toBeLessThan(UNREADABLE_RESPONSE_BYTES)
+    expect(page.entries).toHaveLength(ATLAS_ENTRIES_DEFAULT_PAGE)
+    expect(page.total).toBe(ATLAS_ENTRIES_MAX_PAGE)
+    expect(page.nextCursor).not.toBeNull()
+    await close()
+  })
+
+  it('visits every matching entry exactly once when following the cursor', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(
+      { ...colony, recipes: representativeShelf(12) },
+      `Bearer ${apiKey}`,
+    )
+
+    const seen: string[] = []
+    let cursor: string | undefined
+    for (let turn = 0; turn < 12; turn += 1) {
+      const result = (await client.callTool({
+        name: 'kolonie.accounts.recipes',
+        arguments: cursor === undefined ? {} : { cursor },
+      })) as CallToolResult
+      const page = pageOf(result)
+      seen.push(...page.entries.map((entry) => entry.provider))
+      if (page.nextCursor === null) break
+      cursor = page.nextCursor
+    }
+
+    expect(seen).toHaveLength(12)
+    expect(new Set(seen).size).toBe(12)
+    await close()
+  })
+
+  it('honours an explicit limit up to the ceiling and never silently truncates', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(
+      { ...colony, recipes: representativeShelf(ATLAS_ENTRIES_MAX_PAGE + 10) },
+      `Bearer ${apiKey}`,
+    )
+
+    const asked = (await client.callTool({
+      name: 'kolonie.accounts.recipes',
+      arguments: { limit: ATLAS_ENTRIES_MAX_PAGE },
+    })) as CallToolResult
+    const askedPage = pageOf(asked)
+    const clamped = (await client.callTool({
+      name: 'kolonie.accounts.recipes',
+      arguments: { limit: 500 },
+    })) as CallToolResult
+    const clampedPage = pageOf(clamped)
+
+    expect(askedPage.entries).toHaveLength(ATLAS_ENTRIES_MAX_PAGE)
+    expect(askedPage.total).toBe(ATLAS_ENTRIES_MAX_PAGE + 10)
+    expect(askedPage.nextCursor).not.toBeNull()
+    expect(clampedPage.entries).toHaveLength(ATLAS_ENTRIES_MAX_PAGE)
+    expect(clampedPage.total).toBe(ATLAS_ENTRIES_MAX_PAGE + 10)
+    expect(clampedPage.nextCursor).not.toBeNull()
+    await close()
+  })
+
+  it('still returns one named provider in full, unclipped by the catalogue default', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const recipes = representativeShelf(12)
+    const { client, close } = await connectedClient({ ...colony, recipes }, `Bearer ${apiKey}`)
+
+    const result = (await client.callTool({
+      name: 'kolonie.accounts.recipes',
+      arguments: { provider: 'provider-0007.test' },
+    })) as CallToolResult
+    const page = pageOf(result)
+    const text = JSON.stringify(result.content)
+
+    expect(result.isError).not.toBe(true)
+    expect(page.entries).toHaveLength(1)
+    expect(page.entries[0]?.provider).toBe('provider-0007.test')
+    expect(page.nextCursor).toBeNull()
+    expect(text).toContain('Inbound SMS at provider-0007.test')
+    expect(text).toContain('Open the signup page')
+    await close()
+  })
+
+  it('leaves walks paging on its own limit when walks are asked for', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const recipes = representativeShelf(12)
+    let asked: { limit?: number } | undefined
+    const walks = {
+      ...fakeWalks(),
+      async published(where: { limit?: number }) {
+        asked = where
+        return { walks: [], nextCursor: null }
+      },
+    }
+    const { client, close } = await connectedClient(
+      { ...colony, recipes, walks },
+      `Bearer ${apiKey}`,
+    )
+
+    const result = (await client.callTool({
+      name: 'kolonie.accounts.recipes',
+      arguments: { provider: 'provider-0007.test', walks: true },
+    })) as CallToolResult
+    const page = pageOf(result)
+
+    expect(result.isError).not.toBe(true)
+    expect(asked?.limit).toBeUndefined()
+    expect(page.entries).toHaveLength(1)
+    expect(page.entries[0]?.provider).toBe('provider-0007.test')
+    await close()
   })
 })

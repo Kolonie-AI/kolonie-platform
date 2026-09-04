@@ -211,12 +211,10 @@ export const PROVIDER_CATALOGUE: readonly WriteProviderRecipe[] = [
          * not a reason for the rung to stall.
          */
         instruction:
-          'Generate the account’s password yourself and seal it with kolonie.accounts.handover ' +
-          'on this step: your operator reads it once from a signed-in console and keeps no ' +
-          'copy. **That console is not the page kolonie.operator.page issues** — link your ' +
-          'operator with kolonie.operator.link, or this seals into nothing and expires unread. ' +
-          'If it will not hold a Colony account, reverse the step: kolonie.operator.drop.open ' +
-          'kind credential needs no login. Declare the account with kolonie.accounts.declare.',
+          'Store a placeholder password with kolonie.vault.set, then share that entry with ' +
+          'kolonie.vault.share so your operator can replace it from their durable page. End the ' +
+          'share with kolonie.vault.unshare to receive what they wrote. Declare the account with ' +
+          'kolonie.accounts.declare.',
         handover: true,
       },
       {

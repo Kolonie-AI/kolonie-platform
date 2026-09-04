@@ -1018,6 +1018,92 @@ describe('writing briefings', () => {
   })
 
   /**
+   * `#1853`. Two empty stopped briefing completions are the same retryable
+   * provider-response anomaly as an unusable verdict: the stale flag stays set,
+   * nothing is published, and the log detector must not see `briefing.failed`
+   * at error on every poll.
+   */
+  it('does not emit briefing.failed at error for a retryable provider-response anomaly', async () => {
+    const taskId = randomUUID() as TaskId
+    stale = [taskId]
+    model.failsNext(new ProviderResponseAnomaly('stop', ['content']))
+    const lines: { level: 'info' | 'warn' | 'error'; event: unknown }[] = []
+
+    await expect(
+      briefingTick(
+        {
+          store: briefingStore(),
+          model,
+          log: {
+            info: (_message, fields) => lines.push({ level: 'info', event: fields?.['event'] }),
+            warn: (_message, fields) => lines.push({ level: 'warn', event: fields?.['event'] }),
+            error: (_message, _error, fields) =>
+              lines.push({ level: 'error', event: fields?.['event'] }),
+          },
+        },
+        10,
+      ),
+    ).rejects.toBeInstanceOf(ProviderResponseAnomaly)
+
+    expect(written).toEqual([])
+    expect(stale).toEqual([taskId])
+    expect(lines).toContainEqual({ level: 'warn', event: 'briefing.retryable' })
+    expect(lines.some((line) => line.event === 'briefing.failed')).toBe(false)
+  })
+
+  it('raises a retryable provider-response anomaly when that is all the briefing pass saw', async () => {
+    stale = [randomUUID() as TaskId]
+    model.failsNext(new ProviderResponseAnomaly('stop', ['content']))
+
+    await expect(briefingTick({ store: briefingStore(), model }, 10)).rejects.toBeInstanceOf(
+      ProviderResponseAnomaly,
+    )
+    expect(written).toEqual([])
+  })
+
+  it('does not raise the briefing pass when another task in it succeeded', async () => {
+    const broken = randomUUID() as TaskId
+    const fine = randomUUID() as TaskId
+    stale = [broken, fine]
+    model.failsNext(new ProviderResponseAnomaly('stop', ['content']))
+    model.composes({ section: 'wall', text: 'A wall.', sources: [corpus[0]!.id] })
+
+    const outcome = await briefingTick({ store: briefingStore(), model }, 10)
+
+    expect(outcome).toEqual({ written: 1, failed: 1, unreachable: 0 })
+    expect(written.map((entry) => entry.taskId)).toEqual([fine])
+    expect(stale).toEqual([broken])
+  })
+
+  it('backs off consecutive briefing provider-response anomalies and resets after a successful poll', async () => {
+    const waits: number[] = []
+    let anomalyPolls = 2
+    const anomalyModel = {
+      ...model,
+      compose: async () => {
+        if (anomalyPolls-- > 0) throw new ProviderResponseAnomaly('stop', ['content'])
+        return [{ section: 'wall' as const, text: 'A wall.', sources: [corpus[0]!.id] }]
+      },
+    }
+    stale = [randomUUID() as TaskId]
+    const started: { runner?: ReturnType<typeof startBriefingRunner> } = {}
+    const sleep = async (ms: number) => {
+      waits.push(ms)
+      if (waits.length === 3) void started.runner?.stop()
+    }
+
+    const runner = startBriefingRunner(
+      { store: briefingStore(), model: anomalyModel },
+      { pollIntervalMs: 10, maxBackoffMs: 100, sleep },
+    )
+    started.runner = runner
+    await runner.finished
+
+    expect(waits).toEqual([20, 40, 10])
+    expect(runner.health().consecutiveFailures).toBe(0)
+  })
+
+  /**
    * **A pass that got one briefing out is not an outage.** The throw is reserved
    * for a pass in which nothing succeeded and every failure was the provider —
    * otherwise a single reset in a batch of ten would cost the nine that worked

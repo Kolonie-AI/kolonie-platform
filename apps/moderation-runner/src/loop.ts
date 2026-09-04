@@ -70,7 +70,7 @@ import { directionTick, type DirectionLoopDependencies } from './directions.js'
 import { profileTick, type ProfileLoopDependencies } from './profiles.js'
 import { judgeQuality } from './quality.js'
 import { checkRedLines } from './redline.js'
-import { ProviderUnreachable, type Model } from './llm.js'
+import { ProviderResponseAnomaly, ProviderUnreachable, type Model } from './llm.js'
 
 /** Where the loop reads and writes. Injected, so the decision is testable without one. */
 export interface ModerationStore {
@@ -497,11 +497,21 @@ export async function judge(entry: PendingReport, deps: LoopDependencies): Promi
     // visible and reversible — unlike a verdict written from a failed call. The
     // stages accumulated so far go with it: they explain nothing that was decided,
     // because nothing was.
-    log.error(`could not moderate ${entry.kind} ${entry.id}`, error, {
-      event: 'entry.moderate.failed',
-      kind: entry.kind,
-      entryId: entry.id,
-    })
+    if (error instanceof ProviderResponseAnomaly) {
+      log.warn(`could not moderate ${entry.kind} ${entry.id} — ${error.message}`, {
+        event: 'entry.moderate.retryable',
+        kind: entry.kind,
+        entryId: entry.id,
+        finishReason: error.finishReason,
+        missing: error.missing,
+      })
+    } else {
+      log.error(`could not moderate ${entry.kind} ${entry.id}`, error, {
+        event: 'entry.moderate.failed',
+        kind: entry.kind,
+        entryId: entry.id,
+      })
+    }
     return { kind: 'failed', error }
   }
 }
@@ -573,6 +583,7 @@ export async function tick(deps: LoopDependencies, batchSize: number): Promise<T
   const entries = await store.pending(batchSize)
 
   const outcome = { judged: 0, approved: 0, rejected: 0, merged: 0, failed: 0 }
+  let responseAnomaly: ProviderResponseAnomaly | undefined
 
   /**
    * Tasks touched this batch, so the tripwire is asked once per task rather
@@ -626,6 +637,7 @@ export async function tick(deps: LoopDependencies, batchSize: number): Promise<T
         break
       case 'failed':
         outcome.failed++
+        if (judgement.error instanceof ProviderResponseAnomaly) responseAnomaly ??= judgement.error
         break
     }
   }
@@ -641,6 +653,14 @@ export async function tick(deps: LoopDependencies, batchSize: number): Promise<T
   await judgeAtlasProposals(deps, batchSize, log)
   await scrubWalkProse(deps, batchSize, log)
 
+  if (
+    responseAnomaly !== undefined &&
+    outcome.approved === 0 &&
+    outcome.rejected === 0 &&
+    outcome.merged === 0
+  ) {
+    throw responseAnomaly
+  }
   return outcome
 }
 
@@ -1506,6 +1526,17 @@ function reportPollThrow(
 ): void {
   if (!running) {
     log.warn(interrupted.message, { event: interrupted.event })
+    return
+  }
+
+  if (error instanceof ProviderResponseAnomaly) {
+    log.warn(failed.message, {
+      event: 'poll.provider-response.retryable',
+      consecutiveFailures,
+      retryInMs: failed.retryInMs,
+      finishReason: error.finishReason,
+      missing: error.missing,
+    })
     return
   }
 

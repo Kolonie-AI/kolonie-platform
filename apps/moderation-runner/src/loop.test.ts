@@ -29,7 +29,7 @@ import {
 import type { AtlasCategoryProposalStore } from './atlas-category-proposals.js'
 import { segmentsOf, SIMILARITY_THRESHOLD } from './dedup.js'
 import { fakeModel, type FakeModel } from './__fixtures__/model.js'
-import { ProviderUnreachable } from './llm.js'
+import { ProviderResponseAnomaly, ProviderUnreachable } from './llm.js'
 import { healthOf } from './health.js'
 import type { QuestModerationStore } from './quests.js'
 import type { WalkProseModerationStore } from './walk-prose.js'
@@ -664,6 +664,31 @@ describe('writing the verdict', () => {
     expect(judgement.kind).toBe('failed')
     expect(written).toEqual([])
   })
+
+  /**
+   * `#1826`. A retryable provider-response anomaly is not a product defect: the
+   * row stays pending, nothing is invented, and the log detector must not see
+   * `entry.moderate.failed` at error on every poll.
+   */
+  it('does not emit entry.moderate.failed at error for a retryable provider-response anomaly', async () => {
+    const lines: { level: 'info' | 'warn' | 'error'; event: unknown }[] = []
+    model.failsNext(new ProviderResponseAnomaly('stop', ['reason']))
+
+    const judgement = await judge(anEntry(), {
+      ...deps(),
+      log: {
+        info: (_message, fields) => lines.push({ level: 'info', event: fields?.['event'] }),
+        warn: (_message, fields) => lines.push({ level: 'warn', event: fields?.['event'] }),
+        error: (_message, _error, fields) =>
+          lines.push({ level: 'error', event: fields?.['event'] }),
+      },
+    })
+
+    expect(judgement.kind).toBe('failed')
+    expect(written).toEqual([])
+    expect(lines).toContainEqual({ level: 'warn', event: 'entry.moderate.retryable' })
+    expect(lines.some((line) => line.event === 'entry.moderate.failed')).toBe(false)
+  })
 })
 
 describe('one pass over the queue', () => {
@@ -693,6 +718,29 @@ describe('one pass over the queue', () => {
     clearAndUseful()
 
     expect((await tick(deps(), 1)).judged).toBe(1)
+  })
+
+  /**
+   * `#1826`. One latched unusable verdict must not be retried on the next 60s
+   * poll: the pass raises the typed anomaly so the runner's existing backoff
+   * applies, the same way an unreachable provider does.
+   */
+  it('raises a retryable provider-response anomaly when that is all the pass saw', async () => {
+    queue = [anEntry()]
+    model.failsNext(new ProviderResponseAnomaly('stop', ['reason']))
+
+    await expect(tick(deps(), 10)).rejects.toBeInstanceOf(ProviderResponseAnomaly)
+    expect(written).toEqual([])
+  })
+
+  it('does not raise the pass when another entry in it succeeded', async () => {
+    queue = [anEntry(), anEntry()]
+    model.failsNext(new ProviderResponseAnomaly('stop', ['reason']))
+    clearAndUseful()
+
+    const outcome = await tick(deps(), 10)
+
+    expect(outcome).toMatchObject({ judged: 2, failed: 1, approved: 1 })
   })
 })
 
@@ -1214,6 +1262,34 @@ describe('a poll that throws', () => {
     const failure = lines.find((line) => line.event === 'poll.failed')
     expect(failure?.level).toBe('error')
     expect(failure?.message).toContain('retrying in')
+  })
+
+  it('backs off consecutive provider-response anomalies and resets after a successful poll', async () => {
+    const waits: number[] = []
+    let anomalyPolls = 2
+    const anomalyModel = {
+      ...model,
+      classify: async () => {
+        if (anomalyPolls-- > 0) throw new ProviderResponseAnomaly('stop', ['reason'])
+        return { decision: 'crossed', reason: 'clear' }
+      },
+    }
+    queue = [anEntry()]
+    const started: { runner?: ReturnType<typeof startRunner> } = {}
+    const sleep = async (ms: number) => {
+      waits.push(ms)
+      if (waits.length === 3) void started.runner?.stop()
+    }
+
+    const runner = startRunner(
+      { store, model: anomalyModel },
+      { pollIntervalMs: 10, maxBackoffMs: 100, sleep },
+    )
+    started.runner = runner
+    await runner.finished
+
+    expect(waits).toEqual([20, 40, 10])
+    expect(runner.health().consecutiveFailures).toBe(0)
   })
 
   it('backs off consecutive walk-provider outages and resets after a successful poll', async () => {

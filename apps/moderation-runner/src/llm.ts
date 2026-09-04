@@ -238,6 +238,27 @@ export interface MarkedSpan {
  * rotation of the log.
  */
 /**
+ * A completion the provider said was finished, with no usable offered fields.
+ *
+ * Distinct from {@link ProviderUnreachable}: the bytes arrived. Distinct from a
+ * product defect: nothing here was invented, and a later valid completion still
+ * writes the ordinary verdict. `#1826` is this class existing so the runner can
+ * back off instead of filing `entry.moderate.failed` every minute.
+ */
+export class ProviderResponseAnomaly extends Error {
+  readonly finishReason: string | undefined
+  readonly missing: readonly string[]
+
+  constructor(finishReason: string | undefined, missing: readonly string[]) {
+    const stopped = finishReason === undefined ? 'without a finish reason' : `with ${finishReason}`
+    super(`OpenRouter returned an unusable completion ${stopped}; missing ${missing.join(', ')}`)
+    this.name = 'ProviderResponseAnomaly'
+    this.finishReason = finishReason
+    this.missing = [...missing]
+  }
+}
+
+/**
  * The request never reached OpenRouter (`#449`).
  *
  * **A class rather than a message, because the two failures need opposite
@@ -425,6 +446,33 @@ function withoutContent(body: unknown): boolean {
 /** The transient empty completion observed in #599, and no wider failure class. */
 function stoppedWithoutContent(body: unknown): boolean {
   return finishReason(body) === 'stop' && withoutContent(body)
+}
+
+type ResponseAnomaly = {
+  readonly finishReason: string | undefined
+  readonly missing: readonly string[]
+}
+
+function missingVerdictFields(body: unknown): ResponseAnomaly | undefined {
+  const content = (body as { choices?: { message?: { content?: unknown } }[] }).choices?.[0]
+    ?.message?.content
+  if (typeof content !== 'string' || content.trim() === '') return undefined
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(content)
+  } catch {
+    return undefined
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return undefined
+
+  const verdict = parsed as Partial<Classification>
+  const missing = [
+    typeof verdict.decision === 'string' ? undefined : 'decision',
+    typeof verdict.reason === 'string' ? undefined : 'reason',
+  ].filter((field): field is string => field !== undefined)
+
+  return missing.length === 0 ? undefined : { finishReason: finishReason(body), missing }
 }
 
 /**
@@ -645,6 +693,7 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
    */
   const chat = async (
     request: ChatRequest,
+    responseAnomaly?: (body: unknown) => ResponseAnomaly | undefined,
   ): Promise<{
     readonly body: unknown
     readonly accounting: ModelCall | undefined
@@ -654,13 +703,21 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
       ...(ceiling === undefined ? {} : { maxTokens: ceiling }),
     })
     const response = await call('/chat/completions', body)
+    throwIfTruncated(response.body)
+    const anomaly = stoppedWithoutContent(response.body)
+      ? { finishReason: 'stop', missing: ['content'] }
+      : responseAnomaly?.(response.body)
+    const answered = anomaly === undefined ? response : await call('/chat/completions', body)
 
-    // `stop` ordinarily means a complete answer. One empty response is a
-    // provider anomaly; one immediate retry avoids delaying the entry until the
-    // next poll, while a second empty response still fails visibly.
-    const answered = stoppedWithoutContent(response.body)
-      ? await call('/chat/completions', body)
-      : response
+    if (anomaly !== undefined) {
+      throwIfTruncated(answered.body)
+      const repeated = stoppedWithoutContent(answered.body)
+        ? { finishReason: 'stop', missing: ['content'] }
+        : responseAnomaly?.(answered.body)
+      if (repeated !== undefined) {
+        throw new ProviderResponseAnomaly(repeated.finishReason, repeated.missing)
+      }
+    }
 
     // Cut off before it finished — at the operator's ceiling if one is set, and
     // at the gateway's own otherwise. Either way it is a failed call and never a
@@ -675,37 +732,40 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
     name: model,
 
     async classify({ system, user, choices }) {
-      const { body, accounting } = await chat({
-        model,
-        messages: [
-          { role: 'system', content: system },
-          { role: 'user', content: user },
-        ],
-        /**
-         * Strict schema, not a request in prose. The `decision` field is an enum
-         * of exactly the answers the caller will act on, so "approve, I think"
-         * and "APPROVED" are impossible rather than handled.
-         */
-        response_format: {
-          type: 'json_schema',
-          json_schema: {
-            name: 'verdict',
-            strict: true,
-            schema: {
-              type: 'object',
-              properties: {
-                decision: { type: 'string', enum: [...choices] },
-                reason: { type: 'string' },
+      const { body, accounting } = await chat(
+        {
+          model,
+          messages: [
+            { role: 'system', content: system },
+            { role: 'user', content: user },
+          ],
+          /**
+           * Strict schema, not a request in prose. The `decision` field is an enum
+           * of exactly the answers the caller will act on, so "approve, I think"
+           * and "APPROVED" are impossible rather than handled.
+           */
+          response_format: {
+            type: 'json_schema',
+            json_schema: {
+              name: 'verdict',
+              strict: true,
+              schema: {
+                type: 'object',
+                properties: {
+                  decision: { type: 'string', enum: [...choices] },
+                  reason: { type: 'string' },
+                },
+                required: ['decision', 'reason'],
+                additionalProperties: false,
               },
-              required: ['decision', 'reason'],
-              additionalProperties: false,
             },
           },
+          // Judging the same text twice should reach the same verdict. This is a
+          // classification, not a composition.
+          temperature: 0,
         },
-        // Judging the same text twice should reach the same verdict. This is a
-        // classification, not a composition.
-        temperature: 0,
-      })
+        missingVerdictFields,
+      )
 
       /**
        * **No ceiling to name any more** (`#1694`). `messageContent` still

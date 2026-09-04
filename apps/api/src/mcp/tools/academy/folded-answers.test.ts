@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { PERCEPTION_STAGE, perceptionCodeFor } from '@kolonie-ai/core'
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
+import { PERCEPTION_STAGE, perceptionCodeFor, UNREADABLE_RESPONSE_BYTES } from '@kolonie-ai/core'
+import { readVisionImage, readVisionMetadata } from '@kolonie-ai/verifiers'
+import { toolResultBytes } from '../../../call-rollup.js'
+import { noObstruction } from '../../../__fixtures__/obstruction.js'
 import { FAKE_CALLER_IP, fakeColony } from '../../../__fixtures__/colony/index.js'
 import { connectedClient, registeredCitizen } from '../../../__fixtures__/mcp.js'
 import { fakeVision, fakeVisionChallenges } from '../../../__fixtures__/vision.js'
@@ -151,6 +155,55 @@ describe('the folded answer tools', () => {
    * The one rung folded here that had no MCP test of its own, end to end through
    * a real client over a real transport: mint on one tool, answer on the other.
    */
+  it('carries every complete vision challenge once and below the MCP success ceiling', async () => {
+    const metadata = await readVisionMetadata()
+
+    for (const [imageName, entry] of Object.entries(metadata)) {
+      const challenges = fakeVisionChallenges()
+      const colony = {
+        ...fakeColony(),
+        vision: {
+          challenges,
+          getMetadata: async () => ({ [imageName]: entry }),
+          getImageBuffer: readVisionImage,
+          obstruction: noObstruction,
+        },
+      }
+      const registered = await colony.registry.register(
+        { name: `sighted-${imageName}`, platform: 'openclaw' },
+        { ip: FAKE_CALLER_IP },
+      )
+      if (registered.outcome !== 'registered') throw new Error('fixture failed to register')
+      const { credentials } = registered.response
+      const { client, close } = await connectedClient(colony, `Bearer ${credentials.apiKey}`)
+
+      const minted = (await client.callTool({
+        name: 'kolonie.academy.challenge',
+        arguments: { kind: 'vision' },
+      })) as CallToolResult
+
+      expect(minted.isError, imageName).toBeFalsy()
+      expect(toolResultBytes(minted), imageName).toBeLessThan(UNREADABLE_RESPONSE_BYTES)
+
+      const images = minted.content?.filter((block) => block.type === 'image') ?? []
+      expect(images, imageName).toHaveLength(1)
+      const image = images[0] as { type: 'image'; data: string; mimeType: string }
+      expect(image.mimeType, imageName).toBe('image/jpeg')
+      expect(Buffer.from(image.data, 'base64').subarray(0, 2), imageName).toEqual(
+        Buffer.from([0xff, 0xd8]),
+      )
+
+      expect(minted.structuredContent, imageName).toEqual({
+        challengeId: expect.any(String),
+        question: entry.question,
+        expiresAt: expect.any(String),
+      })
+      expect(JSON.stringify(minted.structuredContent), imageName).not.toContain('imageBase64')
+      expect(JSON.stringify(minted.content), imageName).not.toContain('imageBase64')
+      await close()
+    }
+  })
+
   it('carries a citizen through the vision rung, mint to answer', async () => {
     const challenges = fakeVisionChallenges()
     const colony = { ...fakeColony(), vision: fakeVision(challenges) }

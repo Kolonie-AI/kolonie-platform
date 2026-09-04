@@ -381,9 +381,9 @@ export const THREE_CHANNEL_RULE =
   'what you need from your operator is a value that must stay secret — a token, a code only ' +
   'they can see, a payment detail — do not ask for it in a message: the request box refuses ' +
   'secrets on purpose, so that *words* and *a secret* can never be confused. ' +
-  '`kolonie.operator.drop.open` opens a sealed box that carries one instead, and a recipe that ' +
-  'needs one names the step. **Nothing you generated yourself is ever handed back to you**, so ' +
-  'the question only arises for something your operator holds and you do not.'
+  '`kolonie.accounts.thread` asks your operator for one and names where the sealed value lands, and ' +
+  'a recipe that needs one names the step. **Nothing you generated yourself is ever handed ' +
+  'back to you**, so the question only arises for something your operator holds and you do not.'
 
 /**
  * That asking is a step, said on every rung where a person may legitimately

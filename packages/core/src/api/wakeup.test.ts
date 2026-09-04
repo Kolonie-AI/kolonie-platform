@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { GOAL_MAX_LENGTH, PROFESSION_MAX_LENGTH } from '../agent/agent.js'
+import { GOAL_MAX_LENGTH, PROFESSION_MAX_LENGTH, VOCATION_MAX_LENGTH } from '../agent/agent.js'
 import { SESSION_ID_MAX_LENGTH } from '../agent/session.js'
 import { WorkplaceBoardIdSchema } from '../common/ids.js'
 import {
@@ -9,6 +9,7 @@ import {
   WakeupCapabilityNoteSchema,
   WakeupGuestVaultHandoffEventSchema,
   WakeupIdentitySchema,
+  WakeupOpenSchema,
   WakeupProfessionPracticumOfferSchema,
   WakeupRequestSchema,
   WakeupResponseSchema,
@@ -195,6 +196,7 @@ describe('a citizen’s wake-up identity', () => {
     expect(
       WakeupIdentitySchema.safeParse({
         profession: 'Software maintainer',
+        vocation: 'Software Producer',
         goal: 'Make account acquisition repeatable.',
       }).success,
     ).toBe(true)
@@ -204,26 +206,37 @@ describe('a citizen’s wake-up identity', () => {
     expect(
       WakeupIdentitySchema.parse({
         profession: 'Software maintainer',
+        vocation: 'Software Producer',
         goal: 'Make account acquisition repeatable.',
         vocationSkills: ['mailbox'],
         dispositionStance: 'ordinary',
       }),
     ).toEqual({
       profession: 'Software maintainer',
+      vocation: 'Software Producer',
       goal: 'Make account acquisition repeatable.',
     })
   })
 
-  it('rejects either sentence past its canonical profile bound', () => {
+  it('rejects any sentence past its canonical profile bound', () => {
     expect(
       WakeupIdentitySchema.safeParse({
         profession: 'a'.repeat(PROFESSION_MAX_LENGTH + 1),
+        vocation: null,
         goal: null,
       }).success,
     ).toBe(false)
     expect(
       WakeupIdentitySchema.safeParse({
         profession: null,
+        vocation: 'a'.repeat(VOCATION_MAX_LENGTH + 1),
+        goal: null,
+      }).success,
+    ).toBe(false)
+    expect(
+      WakeupIdentitySchema.safeParse({
+        profession: null,
+        vocation: null,
         goal: 'a'.repeat(GOAL_MAX_LENGTH + 1),
       }).success,
     ).toBe(false)
@@ -269,7 +282,98 @@ describe('a citizen’s wake-up identity', () => {
       },
       accountsWanted: [],
     })
-    expect(parsed.identity).toEqual({ profession: null, goal: null })
+    expect(parsed.identity).toEqual({ profession: null, vocation: null, goal: null })
+  })
+})
+
+describe('profession as a soft orientation signal (#1807)', () => {
+  const entry = {
+    what: 'Prove a mailbox',
+    call: 'kolonie.tasks.submit with taskId …',
+    why: 'You hold no mailbox.',
+    gets: 'the mailbox skill',
+    needs: 'nothing new',
+    category: 'advance' as const,
+    beneficiary: 'you' as const,
+    feasibility: 'ready' as const,
+    repeatable: false,
+    touches: ['mailbox'],
+  }
+
+  const open = (over: Record<string, unknown> = {}) => ({
+    entries: [entry],
+    nothing: false,
+    actionable: true,
+    filteredOn: { skills: [] },
+    ...over,
+  })
+
+  /**
+   * The whole of what `#1807` adds to the wire: one advisory sentence that
+   * says which already-offered entry suits the citizen's own words, and says
+   * in the payload itself that it is inferred rather than observed.
+   */
+  it('carries an advisory orientation naming a matched entry and its own source', () => {
+    const orientation = {
+      matchedCall: entry.call,
+      because: 'Your declared profession names delivering something a reader can open.',
+      basis: 'profession' as const,
+      source: 'inferred-from-citizen-declaration' as const,
+      advisory: true as const,
+    }
+
+    expect(WakeupOpenSchema.parse(open({ orientation })).orientation).toEqual(orientation)
+  })
+
+  /** Absent is the ordinary answer: null, blank and novel text all fall back. */
+  it('parses an open section with no orientation at all', () => {
+    expect(WakeupOpenSchema.parse(open())).not.toHaveProperty('orientation')
+  })
+
+  /**
+   * The invariants the issue names. The signal may not become a score, may not
+   * become authority, and may not pretend the Colony observed it.
+   */
+  it('refuses a ranked, gating, or Colony-asserted orientation', () => {
+    const orientation = {
+      matchedCall: entry.call,
+      because: 'It matches.',
+      basis: 'profession' as const,
+      source: 'inferred-from-citizen-declaration' as const,
+      advisory: true as const,
+    }
+    for (const leak of [
+      { score: 0.9 },
+      { rank: 1 },
+      { grants: ['mailbox'] },
+      { hides: ['kolonie.tasks.list'] },
+      { autoClaim: true },
+      { source: 'colony-observed' },
+      { advisory: false },
+    ]) {
+      expect(
+        WakeupOpenSchema.safeParse(open({ orientation: { ...orientation, ...leak } })).success,
+        JSON.stringify(leak),
+      ).toBe(false)
+    }
+  })
+
+  /** It points at work already on the list; it never introduces a sixth entry. */
+  it('keeps the entry cap and does not carry an entry of its own', () => {
+    expect(
+      WakeupOpenSchema.safeParse(
+        open({
+          orientation: {
+            matchedCall: entry.call,
+            because: 'It matches.',
+            basis: 'profession',
+            source: 'inferred-from-citizen-declaration',
+            advisory: true,
+            entry,
+          },
+        }),
+      ).success,
+    ).toBe(false)
   })
 })
 

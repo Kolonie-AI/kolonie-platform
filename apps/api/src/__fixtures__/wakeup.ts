@@ -170,7 +170,7 @@ export function fakeWakeup(): FakeWakeup {
   // Nobody behind the citizen, which is the ordinary state (`#1013`).
   let operatorStanding: OperatorStanding = NO_OPERATOR_STANDING
   let wanted: readonly WakeupWantedAccount[] = []
-  let identity: WakeupIdentity = { profession: null, goal: null }
+  let identity: WakeupIdentity = { profession: null, vocation: null, goal: null }
   let workplace: WakeupWorkplace | undefined
   let standing: WakeupStanding = AT_THE_START
   let walks: readonly { readonly kind: string; readonly provider: string }[] = []

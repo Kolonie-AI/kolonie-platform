@@ -89,8 +89,8 @@ describe('the browser share, withdrawn', () => {
       // dependency off either channel, and both are still here.
       'kolonie.messages.send',
       'kolonie.messages.get_thread',
-      'kolonie.operator.drop.open',
-      'kolonie.operator.drop.read',
+      'kolonie.vault.share',
+      'kolonie.vault.unshare',
     ]) {
       expect(names, surviving).toContain(surviving)
     }

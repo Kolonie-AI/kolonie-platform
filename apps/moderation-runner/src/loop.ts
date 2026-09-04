@@ -1858,8 +1858,14 @@ export interface BriefingTickOutcome {
   readonly unreachable: number
 }
 
-/** What one task's pass came to. Three outcomes, because two of them are failures for different reasons. */
-export type SynthesisOutcome = 'written' | 'failed' | 'unreachable'
+/**
+ * What one synthesis came to.
+ *
+ * A retryable provider-response anomaly carries its typed evidence so a batch can
+ * finish the other stale rows before deciding whether the whole pass should back
+ * off (`#1853`).
+ */
+export type SynthesisOutcome = 'written' | 'failed' | 'unreachable' | ProviderResponseAnomaly
 
 /**
  * Rewrite every briefing whose corpus has moved.
@@ -1885,14 +1891,20 @@ export async function briefingTick(
 ): Promise<BriefingTickOutcome> {
   const { store, providers, categories, model, log = silentLog } = deps
   const outcome = { written: 0, failed: 0, unreachable: 0 }
+  let responseAnomaly: ProviderResponseAnomaly | undefined
+
+  const count = (result: SynthesisOutcome): void => {
+    if (result === 'written') {
+      outcome.written++
+      return
+    }
+    outcome.failed++
+    if (result === 'unreachable') outcome.unreachable++
+    if (result instanceof ProviderResponseAnomaly) responseAnomaly ??= result
+  }
 
   for (const taskId of await store.stale(batchSize)) {
-    const result = await synthesiseNow(store, model, taskId, log)
-    if (result === 'written') outcome.written++
-    else {
-      outcome.failed++
-      if (result === 'unreachable') outcome.unreachable++
-    }
+    count(await synthesiseNow(store, model, taskId, log))
   }
 
   /**
@@ -1908,17 +1920,7 @@ export async function briefingTick(
    * should exhaust it on the provider half.
    */
   for (const where of (await providers?.stale(batchSize)) ?? []) {
-    const result = await synthesiseProviderNow(
-      providers as ProviderBriefingStore,
-      model,
-      where,
-      log,
-    )
-    if (result === 'written') outcome.written++
-    else {
-      outcome.failed++
-      if (result === 'unreachable') outcome.unreachable++
-    }
+    count(await synthesiseProviderNow(providers as ProviderBriefingStore, model, where, log))
   }
 
   /**
@@ -1947,6 +1949,10 @@ export async function briefingTick(
       '/chat/completions',
       new Error(`${outcome.unreachable} briefing(s) in this pass reached no provider`),
     )
+  }
+
+  if (responseAnomaly !== undefined && outcome.written === 0) {
+    throw responseAnomaly
   }
 
   /**
@@ -2223,6 +2229,23 @@ export async function synthesiseNow(
       return 'unreachable'
     }
 
+    /**
+     * `#1853`. A completion the provider said was finished, with no usable
+     * content, is not this task's defect: the stale flag stays set, nothing is
+     * published, and the log detector must not see `briefing.failed` at error
+     * on every poll. The alarm moves up to {@link briefingTick}, the same way
+     * an unreachable provider already does.
+     */
+    if (error instanceof ProviderResponseAnomaly) {
+      log.warn(`could not write the briefing for ${taskId} — ${error.message}`, {
+        event: 'briefing.retryable',
+        taskId,
+        finishReason: error.finishReason,
+        missing: error.missing,
+      })
+      return error
+    }
+
     log.error(`could not write the briefing for ${taskId}`, error, {
       event: 'briefing.failed',
       taskId,
@@ -2335,6 +2358,16 @@ export async function synthesiseProviderNow(
       return 'unreachable'
     }
 
+    if (error instanceof ProviderResponseAnomaly) {
+      log.warn(`could not write the briefing for ${provider} — ${error.message}`, {
+        event: 'provider.briefing.retryable',
+        provider,
+        finishReason: error.finishReason,
+        missing: error.missing,
+      })
+      return error
+    }
+
     log.error(`could not write the briefing for ${provider}`, error, {
       event: 'provider.briefing.failed',
       provider,
@@ -2439,6 +2472,16 @@ export async function synthesisePlaybookNow(
         endpoint: error.endpoint,
       })
       return 'unreachable'
+    }
+
+    if (error instanceof ProviderResponseAnomaly) {
+      log.warn(`could not write the briefing for playbook ${playbookId} — ${error.message}`, {
+        event: 'playbook.briefing.retryable',
+        playbookId,
+        finishReason: error.finishReason,
+        missing: error.missing,
+      })
+      return error
     }
 
     log.error(`could not write the briefing for playbook ${playbookId}`, error, {

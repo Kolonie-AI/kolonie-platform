@@ -61,7 +61,7 @@ const drop = async (url: string): Promise<void> => {
 
 afterAll(async () => {
   for (const db of opened) await db.close()
-  for (const slot of [101, 102, 103, 104, 105, 106, 107]) await drop(scratch(slot))
+  for (const slot of [101, 102, 103, 104, 105, 106, 107, 108]) await drop(scratch(slot))
 })
 
 describe('a database copied from the template', () => {
@@ -142,14 +142,17 @@ describe('six workers copying at once', () => {
     expect(counts).toEqual(slots.map(() => 0))
   })
 
-  it('serializes copies of the same worker database', async () => {
+  it('returns the same pool to concurrent callers for one worker database', async () => {
     const databases = await Promise.all([
-      connectForTests(scratch(103)),
-      connectForTests(scratch(103)),
+      connectForTests(scratch(108)),
+      connectForTests(scratch(108)),
+      connectForTests(scratch(108)),
     ])
     opened.push(...databases)
 
-    const rows = await databases[1]!.execute<{ count: number }>(
+    expect(new Set(databases).size).toBe(1)
+
+    const rows = await databases[0]!.execute<{ count: number }>(
       sql`select count(*)::int as count from tasks`,
     )
 

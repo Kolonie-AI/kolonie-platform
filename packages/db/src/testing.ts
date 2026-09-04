@@ -363,9 +363,9 @@ export async function connectForTests(
 
 /**
  * The pool this module last handed out for a database, so it can be closed
- * before that database is dropped. {@link serializeRecreation} keeps replacement
- * ordered, so the pool registered by one caller is closed before the next caller
- * begins its drop/create pair.
+ * before that database is dropped. {@link serializeRecreation} makes concurrent
+ * callers share one replacement, so the pool registered by that operation is
+ * closed before a later operation begins its drop/create pair.
  *
  * **Module state, which is only durable because `#295` turned off per-file
  * isolation.** With a registry that resets between files, the previous file's
@@ -378,10 +378,18 @@ export async function connectForTests(
 const poolsByDatabase = new Map<string, Database>()
 
 /**
- * The recreation currently running for a database name, so the next one waits
- * for it instead of racing it (`#1854`).
+ * The recreation currently running for a database name, so another caller joins
+ * it instead of racing it (`#1854`).
  *
- * **Why a queue per name and not one lock for the module.** Two worker slots own
+ * **Why one shared promise and not a queue.** Two top-level suites that arrive
+ * together need the same clean database and can use the same pool; running the
+ * recreation once is both the serialization and the cheapest answer. A queue
+ * avoids the duplicate create, but makes the later `beforeAll` pay another full
+ * copy while CI is already busy enough for that wait to cross the unchanged
+ * ten-second hook limit. Once the promise settles, a later file starts a fresh
+ * recreation exactly as before.
+ *
+ * **Why the key is the name and not one lock for the module.** Two worker slots own
  * two databases and have nothing to serialise: `w3` and `w4` copy the template
  * at the same moment by design, and that is the 136–159 ms measurement
  * {@link recreateFromTemplate} rests on. What must not overlap is two
@@ -397,26 +405,25 @@ const poolsByDatabase = new Map<string, Database>()
  * suite was wrong and no timeout was too short — the drop/create pair is simply
  * not re-entrant for one name.
  *
- * **A failure must not wedge the queue.** The earlier rejection is consumed before
- * the next recreation starts, but the current caller still receives its own
- * rejection. The entry is deleted only by whoever put it there, so a later
- * waiter's chain is never dropped halfway.
+ * **A failure must not wedge the mechanism.** The shared promise is returned to
+ * every caller that joined it, so each receives the same rejection. Its owner
+ * then removes it in `finally`, and a later call may recreate the same name from
+ * scratch. The identity check prevents an older completion from deleting a newer
+ * promise if this function's lifecycle ever gains another path.
  */
-const recreationsByDatabase = new Map<string, Promise<void>>()
+const recreationsByDatabase = new Map<string, Promise<unknown>>()
 
 async function serializeRecreation<T>(name: string, recreate: () => Promise<T>): Promise<T> {
-  const previous = recreationsByDatabase.get(name) ?? Promise.resolve()
-  const current = previous.catch(() => {}).then(recreate)
-  const settled = current.then(
-    () => {},
-    () => {},
-  )
-  recreationsByDatabase.set(name, settled)
+  const current = recreationsByDatabase.get(name)
+  if (current !== undefined) return current as Promise<T>
+
+  const recreation = recreate()
+  recreationsByDatabase.set(name, recreation)
 
   try {
-    return await current
+    return await recreation
   } finally {
-    if (recreationsByDatabase.get(name) === settled) recreationsByDatabase.delete(name)
+    if (recreationsByDatabase.get(name) === recreation) recreationsByDatabase.delete(name)
   }
 }
 

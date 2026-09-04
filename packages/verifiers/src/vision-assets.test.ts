@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { UNREADABLE_RESPONSE_BYTES } from '@kolonie-ai/core'
 import {
   readVisionImage,
   readVisionMetadata,
   VISION_ASSETS_DIR,
   type VisionAssetMetadata,
 } from './vision-assets.js'
+import { readImage } from './image.js'
 
 /**
  * These read the assets that actually ship. That is the whole point of them.
@@ -51,6 +53,10 @@ describe('vision assets', () => {
       // SOI marker. `openVisionChallenge` appends random bytes to defeat hash
       // matching, so the tail is deliberately not a JPEG EOI and is not checked.
       expect([bytes[0], bytes[1]], `${name} starts with a JPEG SOI`).toEqual([0xff, 0xd8])
+      expect(readImage(bytes), `${name} is a complete 384×384 JPEG`).toMatchObject({
+        outcome: 'read',
+        facts: { format: 'image/jpeg', width: 384, height: 384 },
+      })
     }
   })
 
@@ -59,6 +65,21 @@ describe('vision assets', () => {
     const onDisk = (await fs.readdir(VISION_ASSETS_DIR)).filter((name) => name !== 'metadata.json')
 
     expect([...onDisk].sort()).toEqual(Object.keys(metadata).sort())
+  })
+
+  it('encodes every image so a complete MCP vision result can stay under 64 KiB', async () => {
+    const metadata = await readVisionMetadata()
+    const envelopeBudget = 8 * 1024
+    const noiseBytes = 32
+
+    for (const name of Object.keys(metadata)) {
+      const bytes = await readVisionImage(name)
+      const payload = Buffer.concat([bytes, Buffer.alloc(noiseBytes)]).toString('base64')
+
+      expect(Buffer.byteLength(payload, 'utf8') + envelopeBudget, name).toBeLessThan(
+        UNREADABLE_RESPONSE_BYTES,
+      )
+    }
   })
 
   it('rejects a name that is not in metadata.json', async () => {

@@ -435,6 +435,7 @@ export const ARGUMENT_LESS_MINTS: readonly ArgumentLessMint[] = [
     doctrine: 'It is an image and a question about it.',
     mint: async (agent, deps) => {
       const { response } = await openVisionChallenge(agent.id, deps.vision)
+      const { imageBase64, ...metadata } = response
 
       return {
         content: [
@@ -443,11 +444,12 @@ export const ARGUMENT_LESS_MINTS: readonly ArgumentLessMint[] = [
             text: `Analyze the image and answer the question: "${response.question}". Hand the text answer back with kolonie.academy.answer with kind "vision.solve".`,
           },
           {
-            type: 'text',
-            text: `imageBase64: ${response.imageBase64}`,
+            type: 'image',
+            data: imageBase64,
+            mimeType: 'image/jpeg',
           },
         ],
-        structuredContent: response,
+        structuredContent: metadata,
       }
     },
   },

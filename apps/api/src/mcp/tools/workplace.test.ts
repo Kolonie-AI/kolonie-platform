@@ -219,11 +219,11 @@ describe('kolonie.workplace (#1761)', () => {
           fields: { outcome: 'Deliver one runnable status page to a support team.' },
         }),
       )
-      await close()
 
       expect(result.isError).not.toBe(true)
       const started = structuredOf<{
         cycle: { id: string; boardId: string; cards: WorkplaceCard[] }
+        next: NextOperation[]
       }>(result)
       expect(started.cycle.id).toMatch(/^practicum:/)
       expect(started.cycle.boardId).toBe(board.id)
@@ -231,6 +231,44 @@ describe('kolonie.workplace (#1761)', () => {
       expect(started.cycle.cards.every((card) => card.seedKey?.startsWith(started.cycle.id))).toBe(
         true,
       )
+
+      const first = started.cycle.cards[0]
+      expect(first).toBeDefined()
+      if (first === undefined) throw new Error('practicum returned no cards')
+      const ready = nextOperation(started.next, 'update', 'card')
+      expect(ready).toEqual({
+        act: 'update',
+        subject: 'card',
+        id: first.id,
+        boardId: board.id,
+        expectedVersion: first.version,
+        fields: { status: 'ready' },
+      })
+
+      const refused = await client.callTool(
+        workplace({
+          act: 'claim',
+          subject: 'card',
+          id: first.id,
+          boardId: board.id,
+          expectedVersion: first.version,
+        }),
+      )
+      expect(refused.isError).toBe(true)
+      expect(errorOf(refused).code).toBe('workplace_invalid_transition')
+
+      const moved = await client.callTool(workplace(ready))
+      expect(moved.isError).not.toBe(true)
+      const atReady = structuredOf<{ card: WorkplaceCard; next: NextOperation[] }>(moved)
+      expect(atReady.card.status).toBe('ready')
+      expect(atReady.card.ownerId).toBeNull()
+
+      const claimed = await client.callTool(workplace(nextOperation(atReady.next, 'claim', 'card')))
+      expect(claimed.isError).not.toBe(true)
+      const live = structuredOf<{ card: WorkplaceCard }>(claimed)
+      expect(live.card.status).toBe('in_progress')
+      expect(live.card.ownerId).toBe(agent.id)
+      await close()
     })
 
     it('closes a practicum with evidence and returns exactly one retrospective', async () => {

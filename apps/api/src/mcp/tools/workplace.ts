@@ -174,7 +174,7 @@ const nextForCard = (card: WorkplaceCard): NextOp[] => {
   switch (card.status) {
     case 'inbox':
       next.push(
-        { act: 'update', subject: 'card', ...write },
+        { act: 'update', subject: 'card', ...write, fields: { status: 'ready' } },
         { act: 'archive', subject: 'card', ...write },
       )
       break
@@ -875,6 +875,12 @@ async function dispatchCard(
       expectedVersion,
       ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }),
     })
+    if (claimed.outcome === 'invalid-transition') {
+      return toolError({
+        code: 'workplace_invalid_transition',
+        message: 'A card is claimed from ready. Move it to ready first.',
+      })
+    }
     if (claimed.outcome === 'conflict') {
       return toolError({
         code: 'workplace_claim_conflict',

@@ -1071,6 +1071,21 @@ describe('workplace cards (#1760)', () => {
       expect(body.ownerId).toBe(agent.id)
     })
 
+    it('refuses an inbox claim as workplace_invalid_transition', async () => {
+      const { apiKey, agent } = await aCitizen('early-claimer')
+      const board = aBoard(agent.id)
+      const card = aCard(board.id, { status: 'inbox', ownerId: null })
+      colony.boards.plant(board, [seat(board, agent.id)])
+      colony.cards.plantBoard(board.id, [seat(board, agent.id)])
+      colony.cards.plantCard(card)
+
+      const response = await asKey('POST', `${CARDS}/${card.id}/claim`, apiKey, {
+        headers: { 'if-match': String(card.version) },
+      })
+      expect(response.statusCode).toBe(ERROR_STATUS.workplace_invalid_transition)
+      expect(response.json()).toMatchObject({ code: 'workplace_invalid_transition' })
+    })
+
     it('refuses a second claim as workplace_claim_conflict', async () => {
       const { agent } = await aCitizen('chair-claim')
       const { apiKey: memberKey, agent: member } = await aCitizen('sitter-claim')

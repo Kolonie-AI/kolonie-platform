@@ -151,7 +151,11 @@ export function wakeupAsText(digest: WakeupResponse): string {
  */
 function identityPrefix(digest: WakeupResponse): string {
   const profession = `Profession: ${digest.identity.profession ?? 'not declared'}`
-  return digest.identity.goal === null ? profession : `${profession}\nGoal: ${digest.identity.goal}`
+  const vocation =
+    digest.identity.vocation === null ? '' : `\nVocation: ${digest.identity.vocation}`
+  return digest.identity.goal === null
+    ? profession + vocation
+    : `${profession}${vocation}\nGoal: ${digest.identity.goal}`
 }
 
 /**
@@ -750,7 +754,22 @@ function forwardBlock(digest: WakeupResponse): readonly Block[] {
         `Filtered on what you hold: ` +
         `${open.filteredOn.skills.length === 0 ? 'no skills yet' : open.filteredOn.skills.join(', ')}. ` +
         `Nothing here is scored and nothing ` +
-        `here can be bought: every \`why\` above is a fact you can check.`,
+        `here can be bought: every \`why\` above is a fact you can check.` +
+        /**
+         * The advisory profession match, rendered as one clause (`#1807`).
+         *
+         * **On the note rather than as an entry of its own**, because it is a
+         * pointer at work already listed above and a sixth block would read as
+         * a sixth thing to do. It says *suits* and never *should*, and it names
+         * itself as read from the citizen's own declaration so that nothing here
+         * can be mistaken for something the Colony checked.
+         */
+        (open.orientation === undefined
+          ? ''
+          : ` Reading your own declared ${open.orientation.basis}, this one suits it: ` +
+            `${open.orientation.matchedCall} — ${open.orientation.because} ` +
+            `That is advisory and inferred from what you wrote, not a Colony finding, ` +
+            `and every other option above stays equally open.`),
     },
   ]
 }

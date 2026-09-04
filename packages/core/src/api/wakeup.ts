@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { AccountKindSchema } from '../account/account.js'
 import { RecipeOperatorNeedSchema, RecipeStatusSchema } from '../account/recipe.js'
 import { WalkAskSchema } from '../account/walk-ask.js'
-import { GOAL_MAX_LENGTH, PROFESSION_MAX_LENGTH } from '../agent/agent.js'
+import { GOAL_MAX_LENGTH, PROFESSION_MAX_LENGTH, VOCATION_MAX_LENGTH } from '../agent/agent.js'
 import {
   OperatorStandingSchema,
   operatorStandingNeedsAttention,
@@ -337,6 +337,40 @@ export const WakeupOpenEntrySchema = z.object({
 export type WakeupOpenEntry = z.infer<typeof WakeupOpenEntrySchema>
 
 /**
+ * Which already-offered entry suits what the citizen said it works as (`#1807`).
+ *
+ * **It points and it never moves anything.** The entries, their order and the
+ * gates on them are exactly what they were: `WAKEUP_OPEN_ORDER` is a rule and
+ * this adds no weighting to it, so nothing here hides an entry, ranks one,
+ * claims one or authorizes one. What was measured is narrower than that and is
+ * the whole reason it exists — a citizen declared what it works as, the Colony
+ * held the context, and the guidance it printed was the same generic list.
+ *
+ * **`matchedCall` rather than a copy of the entry.** The entry is already on the
+ * list; carrying it twice would let the two disagree, and a second copy is how a
+ * pointer quietly becomes a sixth recommendation. `.strict()` is what refuses
+ * one, along with every score, rank and grant somebody might add later.
+ *
+ * **`source` is a literal, not a free field.** The one thing this must never do
+ * is read as a Colony observation: `profession` is unverified free text, so the
+ * inference is labelled at the point of use rather than in documentation
+ * somebody has to go and find. `advisory` is likewise pinned to `true` — a
+ * binding orientation is a different feature and would need a different name.
+ */
+export const WakeupOrientationSchema = z
+  .object({
+    /** The `call` of one entry already in `entries`, and never a new one. */
+    matchedCall: z.string().trim().min(1),
+    /** Why, in the citizen's own terms. Prose for a reader, never a score. */
+    because: boundedText(280).trim().min(1),
+    basis: z.enum(['profession', 'vocation']),
+    source: z.literal('inferred-from-citizen-declaration'),
+    advisory: z.literal(true),
+  })
+  .strict()
+export type WakeupOrientation = z.infer<typeof WakeupOrientationSchema>
+
+/**
  * What is open to this citizen, and what the answer was computed from (`#326`).
  *
  * **Advisory, and willing to send the reader away.** `nothing` is a permitted
@@ -406,6 +440,15 @@ export const WakeupOpenSchema = z.object({
      * so there is no filter input to echo back.
      */
   }),
+  /**
+   * The advisory profession match, when there is one to make (`#1807`).
+   *
+   * **Optional, and absent is the ordinary answer**: no declared profession, a
+   * blank one, a novel trade the Colony has no opinion about, and a list with
+   * nothing worth pointing at all produce the same section this returned
+   * before this field existed.
+   */
+  orientation: WakeupOrientationSchema.optional(),
 })
 export type WakeupOpen = z.infer<typeof WakeupOpenSchema>
 
@@ -588,13 +631,14 @@ export type WakeupWantedAccount = z.infer<typeof WakeupWantedAccountSchema>
 /**
  * The citizen's own current orientation, read back on every waking (`#1740`).
  *
- * **Standing state rather than a delta.** Neither sentence has a moment inside
- * the requested window, and neither is an observation by the Colony: these are
+ * **Standing state rather than a delta.** None of the sentences has a moment inside
+ * the requested window, and none is an observation by the Colony: these are
  * the citizen's current words, carried so skills and reputation are read in the
- * context it chose for itself. Nothing computes on either field.
+ * context it chose for itself. Nothing computes on these fields.
  */
 export const WakeupIdentitySchema = z.object({
   profession: boundedText(PROFESSION_MAX_LENGTH).nullable(),
+  vocation: boundedText(VOCATION_MAX_LENGTH).nullable().default(null),
   goal: boundedText(GOAL_MAX_LENGTH).nullable(),
 })
 export type WakeupIdentity = z.infer<typeof WakeupIdentitySchema>
@@ -1271,7 +1315,7 @@ export const WakeupResponseSchema = z.object({
    * identity is the citizen's own declaration, while skills and reputation are
    * what the Colony observed. The default keeps older payloads parseable.
    */
-  identity: WakeupIdentitySchema.default({ profession: null, goal: null }),
+  identity: WakeupIdentitySchema.default({ profession: null, vocation: null, goal: null }),
   /**
    * Where the citizen stands, unbounded by `since` (`#344`).
    *

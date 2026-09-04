@@ -214,7 +214,7 @@ describe('the session a wakeup-first citizen declares', () => {
 describe('the profession practicum on the MCP wakeup', () => {
   it('serves the exact structured choices and bounded concise rendering', async () => {
     const { colony, apiKey } = await registeredCitizen()
-    colony.wakeup.answersIdentity({ profession: 'Software Producer', goal: null })
+    colony.wakeup.answersIdentity({ profession: 'Software Producer', vocation: null, goal: null })
     colony.wakeup.answersWorkplace({
       boardId: WorkplaceBoardIdSchema.parse('11111111-2222-4333-8444-555555555555'),
       practicumActive: false,

@@ -15,6 +15,7 @@ import {
   type WakeupMessagingDelta,
   type WakeupDelegation,
   type WakeupIdentity,
+  type WakeupOrientation,
   type WakeupVaultSharesDelta,
   type WakeupOpen,
   type Task,
@@ -107,6 +108,64 @@ function professionPracticumOffer(
       defer: { stateChange: false },
     },
   }
+}
+
+/**
+ * Which capability a declared trade leans on, for the entries already offered
+ * (`#1807`).
+ *
+ * **A small, explicit table and deliberately not a classifier.** `#1739` settled
+ * that the Colony reads nothing into what a citizen says it works as, and this
+ * does not reopen it: an unlisted trade produces no orientation at all, which is
+ * the same answer a blank one produces. Adding a trade here is a decision
+ * somebody writes down, not a model output nobody can predict.
+ */
+const ORIENTATION_CAPABILITIES: ReadonlyMap<string, readonly string[]> = new Map([
+  ['software producer', ['website', 'web-server', 'github', 'domain', 'publishing']],
+])
+
+/**
+ * Point at one entry the citizen is already being offered (`#1807`).
+ *
+ * **It reorders nothing and removes nothing.** The entry it names stays exactly
+ * where `WAKEUP_OPEN_ORDER` put it; what is added is one sentence saying which
+ * of several valid next actions matches the citizen's own words, marked in the
+ * payload as inferred rather than observed.
+ *
+ * **The first match in the existing order wins**, so the pointer cannot become a
+ * second ranking: it has no opinion about which capability is worth more, only
+ * about which offered entry the citizen's own declaration touches first.
+ */
+function professionOrientation(
+  identity: WakeupIdentity,
+  open: WakeupOpen,
+): WakeupOrientation | undefined {
+  const declared = [
+    ['profession', identity.profession?.trim()],
+    ['vocation', identity.vocation?.trim()],
+  ] as const
+  for (const [kind, text] of declared) {
+    if (text === undefined || text.length === 0) continue
+    const wanted = ORIENTATION_CAPABILITIES.get(text.toLocaleLowerCase('en'))
+    if (wanted === undefined) continue
+
+    const matched = open.entries.find((entry) =>
+      entry.touches.some((capability) => wanted.includes(capability)),
+    )
+    if (matched === undefined) continue
+
+    return {
+      matchedCall: matched.call,
+      because: `Your declared ${kind} leans on ${matched.touches
+        .filter((capability) => wanted.includes(capability))
+        .join(', ')}. Everything else on this list stays open to you.`,
+      basis: kind,
+      source: 'inferred-from-citizen-declaration',
+      advisory: true,
+    }
+  }
+
+  return undefined
 }
 
 /** Everything the digest needs from the outside world. */
@@ -428,6 +487,7 @@ export function databaseWakeup(db: Database, rechecks?: RecheckDependencies): Wa
       const agent = await agentProfile(db, agentId)
       return {
         profession: agent?.profile.profession ?? null,
+        vocation: agent?.profile.vocation ?? null,
         goal: agent?.profile.goal ?? null,
       }
     },
@@ -1032,6 +1092,15 @@ export async function wakeup(
     })
 
   const capabilityNoteProjection = await capabilityNotesFor(agentId, escalated, notes)
+  /**
+   * The advisory profession match, computed last (`#1807`).
+   *
+   * **After escalation, because it points at the list the citizen will actually
+   * read.** Naming an entry that escalation then replaced would be a pointer to
+   * something absent, which is worse than no pointer at all.
+   */
+  const orientation = professionOrientation(identity, escalated)
+  const oriented = orientation === undefined ? escalated : { ...escalated, orientation }
   const practicumOffer = professionPracticumOffer(identity, workplace)
   const practicumRetrospective = workplace?.practicumRetrospective
   const finalActionableNow =
@@ -1043,7 +1112,7 @@ export async function wakeup(
       firstSession,
       identity,
       standing,
-      open: escalated,
+      open: oriented,
       actionableNow: finalActionableNow,
       /**
        * Present only when there is nothing, so that a runtime printing it

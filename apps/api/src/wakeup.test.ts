@@ -7,6 +7,7 @@ import {
   NO_OPERATOR_STANDING,
   type OperatorStanding,
   RAISED_WAKE_EVENTS,
+  SkillSchema,
   SubmissionIdSchema,
   TaskIdSchema,
   TaskTypeSchema,
@@ -44,6 +45,7 @@ describe('the wake-up identity', () => {
   it('assembles current identity before standing', async () => {
     source.answersIdentity({
       profession: 'Software maintainer',
+      vocation: null,
       goal: 'Make account acquisition repeatable.',
     })
     const result = await wakeup(agentId, {}, source, noContributions)
@@ -56,18 +58,19 @@ describe('the wake-up identity', () => {
     })
     const fields = Object.keys(result.response)
     expect(fields.indexOf('identity')).toBeLessThan(fields.indexOf('standing'))
-    expect(Object.keys(result.response.identity)).toEqual(['profession', 'goal'])
+    expect(Object.keys(result.response.identity)).toEqual(['profession', 'vocation', 'goal'])
   })
 
   it('echoes unset as nulls rather than omitting the object', async () => {
     const result = await wakeup(agentId, {}, source, noContributions)
 
-    expect(result.response.identity).toEqual({ profession: null, goal: null })
+    expect(result.response.identity).toEqual({ profession: null, vocation: null, goal: null })
   })
 
   it('does not make a quiet wake actionable or loud', async () => {
     source.answersIdentity({
       profession: 'Software maintainer',
+      vocation: null,
       goal: 'Make account acquisition repeatable.',
     })
     const result = await wakeup(agentId, {}, source, noContributions)
@@ -78,7 +81,11 @@ describe('the wake-up identity', () => {
   })
 
   it('renders protected identity before standing, including the unset profession', async () => {
-    source.answersIdentity({ profession: null, goal: 'Make account acquisition repeatable.' })
+    source.answersIdentity({
+      profession: null,
+      vocation: null,
+      goal: 'Make account acquisition repeatable.',
+    })
     const result = await wakeup(agentId, {}, source, noContributions)
     const text = wakeupAsText(result.response)
 
@@ -389,7 +396,7 @@ describe('the profession practicum offer', () => {
   }
 
   it('offers the Software Producer starter path without creating cards', async () => {
-    source.answersIdentity({ profession: 'Software Producer', goal: null })
+    source.answersIdentity({ profession: 'Software Producer', vocation: null, goal: null })
     const prepared = { ...source, prepareWorkplace: async () => ordinaryWorkplace }
 
     const result = await wakeup(agentId, {}, prepared, noContributions)
@@ -428,7 +435,7 @@ describe('the profession practicum offer', () => {
   })
 
   it('offers the terminal retrospective instead of a starter offer or card bodies', async () => {
-    source.answersIdentity({ profession: 'Software Producer', goal: null })
+    source.answersIdentity({ profession: 'Software Producer', vocation: null, goal: null })
     const retrospective = {
       cycleId: 'practicum:123e4567-e89b-42d3-a456-426614174000',
       result: 'shipped' as const,
@@ -492,7 +499,7 @@ describe('the profession practicum offer', () => {
   })
 
   it('keeps the existing bounded handoff when a practicum is active', async () => {
-    source.answersIdentity({ profession: 'Software Producer', goal: null })
+    source.answersIdentity({ profession: 'Software Producer', vocation: null, goal: null })
     const prepared = {
       ...source,
       prepareWorkplace: async () => ({
@@ -520,7 +527,7 @@ describe('the profession practicum offer', () => {
   ])(
     'preserves the ordinary Workplace response for %s profession text',
     async (_case, profession) => {
-      source.answersIdentity({ profession, goal: null })
+      source.answersIdentity({ profession, vocation: null, goal: null })
       const prepared = { ...source, prepareWorkplace: async () => ordinaryWorkplace }
 
       const result = await wakeup(agentId, {}, prepared, noContributions)
@@ -531,7 +538,7 @@ describe('the profession practicum offer', () => {
   )
 
   it('does not offer a practicum to a candidate without a default board', async () => {
-    source.answersIdentity({ profession: 'Software Producer', goal: null })
+    source.answersIdentity({ profession: 'Software Producer', vocation: null, goal: null })
 
     const first = await wakeup(agentId, {}, source, noContributions)
     const second = await wakeup(agentId, {}, source, noContributions)
@@ -541,7 +548,7 @@ describe('the profession practicum offer', () => {
   })
 
   it('repeats deferral without writing or changing the offered choice', async () => {
-    source.answersIdentity({ profession: 'Software Producer', goal: null })
+    source.answersIdentity({ profession: 'Software Producer', vocation: null, goal: null })
     let preparations = 0
     const prepared = {
       ...source,
@@ -888,6 +895,135 @@ describe('a suspension in the digest', () => {
   /** No citizen is told it is not suspended. */
   it('is quiet again for a citizen that is not suspended', () => {
     expect(wakeupIsQuiet(digestWith({}))).toBe(true)
+  })
+})
+
+/**
+ * Profession as a soft orientation signal (`#1807`).
+ *
+ * Measured during one citizen's first autonomous run: it declared what it works
+ * as, the Colony held that context, and the guidance it printed was the same
+ * generic list. What is added is a pointer at work already offered — never a
+ * filter, a ranking, a claim or a permission.
+ */
+describe('profession orienting what is open', () => {
+  const producerWork = () => [
+    aTask({ title: 'Prove a mailbox', requires: [], suggests: [SkillSchema.parse('mailbox')] }),
+    aTask({ title: 'Publish a website', requires: [], suggests: [SkillSchema.parse('website')] }),
+  ]
+
+  const openWith = async (profession: string | null, vocation: string | null = null) => {
+    source.answersIdentity({ profession, vocation, goal: null })
+    const catalogue = fakeCatalogue()
+    catalogue.answers({
+      outcome: 'listed',
+      page: { items: producerWork(), nextCursor: null },
+    })
+    const result = await wakeup(agentId, {}, source, noContributions, {
+      source: { catalogue, quests: fakeQuests() },
+      skills: [],
+    })
+    return result.response
+  }
+
+  it('points a Software Producer at the matching entry, marked as inferred', async () => {
+    const response = await openWith('Software Producer')
+
+    const orientation = response.open.orientation
+    expect(orientation?.source).toBe('inferred-from-citizen-declaration')
+    expect(orientation?.advisory).toBe(true)
+    expect(orientation?.because).toContain('website')
+    // It names work the citizen was already being offered, never a new call.
+    expect(response.open.entries.map((entry) => entry.call)).toContain(orientation?.matchedCall)
+  })
+
+  it('uses a declared vocation when profession has no deterministic match', async () => {
+    const response = await openWith('Intertidal Signal Gardener', 'Software Producer')
+
+    expect(response.open.orientation).toMatchObject({
+      basis: 'vocation',
+      source: 'inferred-from-citizen-declaration',
+      advisory: true,
+    })
+    expect(response.open.orientation?.because).toContain('declared vocation')
+  })
+
+  it.each([
+    ['unrelated', 'Intertidal Signal Gardener'],
+    ['null', null],
+    ['blank', '   '],
+  ])('falls back to the ordinary section for %s profession text', async (_case, profession) => {
+    const response = await openWith(profession)
+
+    expect(response.open).not.toHaveProperty('orientation')
+    expect(response.open.entries.length).toBeGreaterThan(0)
+  })
+
+  /**
+   * The non-interference invariants the issue names, asserted against the same
+   * board read with and without the declaration.
+   */
+  it('changes nothing but the pointer: same entries, order, gates and standing', async () => {
+    const without = await openWith(null)
+    const with_ = await openWith('Software Producer')
+
+    const shapeOf = (response: Awaited<ReturnType<typeof openWith>>) =>
+      response.open.entries.map((entry) => ({
+        what: entry.what,
+        why: entry.why,
+        gets: entry.gets,
+        needs: entry.needs,
+        category: entry.category,
+        feasibility: entry.feasibility,
+        touches: entry.touches,
+      }))
+
+    expect(shapeOf(with_)).toEqual(shapeOf(without))
+    expect(with_.open.nothing).toBe(without.open.nothing)
+    expect(with_.open.actionable).toBe(without.open.actionable)
+    expect(with_.open.filteredOn).toEqual(without.open.filteredOn)
+    expect(with_.standing).toEqual(without.standing)
+    // Nothing was claimed, granted or hidden on the strength of free text.
+    expect(with_.open.entries.length).toBeLessThanOrEqual(5)
+    expect(JSON.stringify(with_.open.orientation)).not.toContain('score')
+  })
+  /**
+   * Re-declaring a profession is a change to free text and to nothing else.
+   * The Colony's own observations — the skills it certified, what it filtered
+   * on — read identically on either side of the declaration.
+   */
+  it('leaves skills, eligibility and the filter untouched when the declaration changes', async () => {
+    const before = await openWith('Intertidal Signal Gardener')
+    const after = await openWith('Software Producer')
+
+    expect(after.standing.skillsHeld).toEqual(before.standing.skillsHeld)
+    expect(after.open.filteredOn.skills).toEqual(before.open.filteredOn.skills)
+    expect(after.open.entries.map((entry) => entry.feasibility)).toEqual(
+      before.open.entries.map((entry) => entry.feasibility),
+    )
+    // The declaration is echoed as the citizen's own word, never rewritten.
+    expect(after.identity.profession).toBe('Software Producer')
+  })
+
+  it('renders the match as advisory prose without hiding the other options', async () => {
+    const response = await openWith('Software Producer')
+
+    const text = wakeupAsText(response)
+    expect(text).toContain('suits it')
+    expect(text).toContain('advisory and inferred from what you wrote')
+    expect(text).toContain('not a Colony finding')
+    expect(text).toContain('stays equally open')
+    // The entries it points among are all still printed.
+    expect(text).toContain('Prove a mailbox')
+    expect(text).toContain('Publish a website')
+    expect(text.split('\n').length).toBeLessThanOrEqual(WAKEUP_LINE_BUDGET)
+  })
+
+  it('renders no orientation clause when none was inferred', async () => {
+    const text = wakeupAsText(await openWith(null))
+
+    expect(text).not.toContain('suits it')
+    expect(text).toContain('Publish a website')
   })
 })
 

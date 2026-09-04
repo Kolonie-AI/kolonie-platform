@@ -223,17 +223,21 @@ export function registerAccountOperatorTools(
         })
       }
 
+      /**
+       * **The wish is provenance where there is one, and never a prerequisite**
+       * (`#1837`).
+       *
+       * Requiring a *wanted* wish here deadlocked every published route at a
+       * provider whose terms forbid an agent-held account: `kolonie.accounts.wishes`
+       * refuses such a provider by design, so the wish could not exist and the
+       * step could not open. The step above was already resolved and validated
+       * against the published recipe or an accepted pattern, and that resolution
+       * is the authority for opening this handoff. A wish nobody has marked
+       * wanted still refuses, one gate up.
+       */
       const wish = (await deps.wishes.store.list(authenticatedAgent.agent.id)).find(
         (candidate) => candidate.provider === input.provider && candidate.wantedAt !== null,
       )
-      if (wish === undefined) {
-        return toolError({
-          code: 'conflict',
-          message:
-            `${input.provider} is not a wanted wish of yours. Put it on the shared list with ` +
-            'kolonie.accounts.wishes and have your operator mark it wanted before opening a handoff.',
-        })
-      }
 
       /**
        * The Academy's retry rule, applied to walks (`#811`).
@@ -401,28 +405,30 @@ export function registerAccountOperatorTools(
       )
 
       /**
-       * **The Colony's own send, and never the citizen's** (`#1445`).
-       *
-       * `packages/core/src/operator/handover.ts` constraint 4: *"An agent that
-       * could compose the message arriving beside its secret is a different and
-       * worse thing."* `#1437` decision 2 lets a citizen write the sentence
-       * beside a **share** — because a share hangs on a thread it is visibly
-       * writing in — and deliberately does not reach here: a handoff arrives
-       * cold, about a provider the operator may never have heard of. So the
-       * words are the recipe's and the message is attributed to the Colony,
-       * which is what turns *no agent wrote this* from a promise into something
-       * the person can see.
+       * **The Colony's own send, and never the citizen's** (`#1445`). The words
+       * are the recipe's and the message is attributed to the Colony, which is
+       * what lets the person see that no agent composed it. The subject is the
+       * account where one exists, otherwise the wish where one exists (`#1837`).
+       * A validated recipe-backed step with neither opens the plain operator
+       * thread rather than refusing.
        */
+      const subject =
+        account !== undefined
+          ? { accountId: account.id }
+          : wish !== undefined
+            ? { wishId: wish.id }
+            : {}
+
       const asked =
         deps.messaging.sendAsColony === undefined
           ? await deps.messaging.send(authenticatedAgent.agent.id, {
               body: filled.ask,
               operator: true,
-              wishId: wish.id,
+              ...(wish === undefined ? {} : { wishId: wish.id }),
             })
           : await deps.messaging.sendAsColony(authenticatedAgent.agent.id, {
               body: filled.ask,
-              ...(account === undefined ? { wishId: wish.id } : { accountId: account.id }),
+              ...subject,
             })
 
       if (asked.outcome === 'refused') return toolError(asked.error)

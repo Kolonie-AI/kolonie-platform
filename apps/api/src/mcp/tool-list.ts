@@ -399,16 +399,6 @@ export const AUTHENTICATED_TOOLS = [
    */
   'kolonie.accounts.handoff',
   /**
-   * The other direction: the agent hands its operator a secret (`#592`).
-   *
-   * Beside `handoff` because it is the same act mirrored — that opens a step
-   * where a person answers, this opens one where a person *reads* — and because
-   * a citizen looking for one finds the other. It is not a general channel: it
-   * refuses any step the recipe does not mark as a handover, which is what keeps
-   * *an agent may send its operator a secret* from meaning *whenever it likes*.
-   */
-  'kolonie.accounts.handover',
-  /**
    * The conversation about one account (`#930`).
    *
    * Beside the two handover tools because it is what they become: those open a
@@ -516,47 +506,6 @@ export const AUTHENTICATED_TOOLS = [
    * costs zero tools here.
    */
   'kolonie.support.withdraw',
-  /**
-   * Retired, and named for one release (`#1454`, epic `#1447`).
-   *
-   * **Three rows, ever** — in the whole life of the channel, measured on
-   * 2026-08-20. The asymmetry that used to be argued for here, *one tool
-   * against the inbox's several because a note is not a thread*, was the defect
-   * rather than the design: a citizen that wanted to say *understood, but the
-   * account is at a different provider* had to open a **request** to answer a
-   * sentence, spending the one slot it needed for a real block.
-   *
-   * A person now opens a thread from `/inbox` without being asked (`#1452`),
-   * which is what a note was, and the citizen answers it. Citizens hold skills
-   * and memories naming this tool, so it answers with what replaced it rather
-   * than with an unknown-tool error. It leaves the list with the refusal.
-   */
-  'kolonie.operator.notes',
-  /**
-   * The third channel (`#410`): the one place a secret may travel from an
-   * operator to its citizen.
-   *
-   * Three entries and not one, because the three answer different questions and a
-   * dispatcher would have made *taking* a mode of *looking*. Reading spends the
-   * drop, so it has to be its own call.
-   *
-   * **`kolonie.operator.notes` used to be cited here as the same reasoning one step
-   * back, and `#927` broke the comparison rather than weakening it.** A note is
-   * words and is now kept after delivery; a drop carries a secret and the Colony
-   * stops holding it the moment it is taken. The two channels look alike and the
-   * thing that decides how they behave is what is inside them.
-   */
-  /**
-   * Retired, and named for one release (`#1444`).
-   *
-   * 7 opened and 0 ever filled over the whole life of the channel. Citizens hold
-   * skills and memories naming these, so each answers with what replaced it —
-   * `kolonie.vault.share` — rather than with an unknown-tool error. They leave
-   * the list with the refusal.
-   */
-  'kolonie.operator.drop.open',
-  'kolonie.operator.drops',
-  'kolonie.operator.drop.read',
   /**
    * Blocked by permission rather than by ability (#147) — saying so, reading the case
    * it makes, and taking one back.

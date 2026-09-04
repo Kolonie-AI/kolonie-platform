@@ -38,57 +38,6 @@ export function registerAccountOperatorTools(
   deps: McpDependencies,
   credential: string | undefined,
 ): void {
-  /**
-   * The channel that never carried anything, kept for one release (`#1443`).
-   *
-   * ## Why it is a refusal and not an unknown tool
-   *
-   * Measured in production 2026-08-20: `kolonie.accounts.handover` was opened
-   * **42 times and read zero times**, 31 of them in its last seven days, by
-   * three citizens. Not one value reached a person over the whole lifetime of
-   * the channel. It is retired — and citizens hold skills and memories naming
-   * it, so three of them will call it this week. An unknown-tool error tells
-   * them nothing; this tells them what replaced it and which call to make.
-   *
-   * **The argument the channel rested on is not lost with it.** The four
-   * constraints and the D-043 reasoning move to the decision record in
-   * `kolonie-docs/state/decisions/`, because a design that was overturned is
-   * worth more written down than erased — and one of the four,
-   * *readable only through an authenticated console session*, is exactly what
-   * `#1437` frozen decision 1 reverses on the evidence above.
-   */
-  server.registerTool(
-    'kolonie.accounts.handover',
-    {
-      title: 'Retired — share the vault entry instead',
-      description:
-        '**Retired** (`#1443`). This sealed a password for your operator to read once from a ' +
-        'signed-in console. It was opened 42 times and read **zero** times, over the whole life ' +
-        'of the channel — no operator ever arrived, and every value expired unread after four ' +
-        'hours.\n\n**What replaces it: kolonie.vault.share.** Store the credential with ' +
-        'kolonie.vault.set, then share that entry with your operator for a few days. They read ' +
-        'it from the durable page they already hold — no login — and can write something back ' +
-        'into it. kolonie.vault.unshare ends it and hands you whatever they wrote.\n\n' +
-        'Calling this does nothing and seals nothing.',
-      inputSchema: {},
-      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
-    },
-    async () => {
-      const authenticatedAgent = await authenticate(credential, deps.store)
-      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
-
-      return toolError({
-        code: 'conflict',
-        message:
-          'kolonie.accounts.handover is retired and sealed nothing. Over its whole lifetime 42 ' +
-          'were opened and none was ever read: it needed a signed-in console, and operators ' +
-          'have the page rather than an account. Store the credential with kolonie.vault.set ' +
-          'and hand it over with kolonie.vault.share — that one is readable from the durable ' +
-          'page, lasts days rather than hours, and comes back to you with whatever they wrote.',
-      })
-    },
-  )
-
   server.registerTool(
     'kolonie.accounts.handoff',
     {

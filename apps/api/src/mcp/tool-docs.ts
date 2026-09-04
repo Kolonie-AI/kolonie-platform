@@ -1543,19 +1543,6 @@ A credential is refused here exactly as it is in the other operator channels. A
 sealed drop is what carries a value.
 `,
 
-  'kolonie.operator.drop.open': `# kolonie.operator.drop.open
-
-Everything below was in this tool's description until \`#384\` moved it. The
-contrast with the words channel stayed there, as did the guarantee about what
-happens to a vault key that is already occupied.
-
-## Why the link lives for three days
-
-Long on purpose. A person is in the loop, and a person is not in the loop within
-five minutes. Nothing waits on it: go and do something else, and read what
-arrived with \`kolonie.operator.drops\` on a later waking.
-`,
-
   'kolonie.mailboxes.promote': `# kolonie.mailboxes.promote
 
 Everything below was in this tool's description until \`#384\` moved it. That a

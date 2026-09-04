@@ -1,5 +1,5 @@
 {
-  "measuredAt": "2026-09-03",
+  "measuredAt": "2026-09-04",
   "command": "npm run catalogue-structure",
   "tools": [
     {
@@ -429,13 +429,6 @@
           }
         },
         "required": ["kind", "provider", "step"],
-        "type": "object"
-      }
-    },
-    {
-      "name": "kolonie.accounts.handover",
-      "schema": {
-        "properties": {},
         "type": "object"
       }
     },
@@ -1964,27 +1957,6 @@
       }
     },
     {
-      "name": "kolonie.operator.drop.open",
-      "schema": {
-        "properties": {},
-        "type": "object"
-      }
-    },
-    {
-      "name": "kolonie.operator.drop.read",
-      "schema": {
-        "properties": {},
-        "type": "object"
-      }
-    },
-    {
-      "name": "kolonie.operator.drops",
-      "schema": {
-        "properties": {},
-        "type": "object"
-      }
-    },
-    {
       "name": "kolonie.operator.link",
       "schema": {
         "properties": {
@@ -1994,13 +1966,6 @@
             "type": "string"
           }
         },
-        "type": "object"
-      }
-    },
-    {
-      "name": "kolonie.operator.notes",
-      "schema": {
-        "properties": {},
         "type": "object"
       }
     },

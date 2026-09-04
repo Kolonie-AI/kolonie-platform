@@ -1076,6 +1076,97 @@ describe('kolonie.accounts.handoff known values (#594 wall 3)', () => {
   })
 })
 
+/**
+ * A published recipe step is the authority for opening its own handoff
+ * (`#1837`).
+ *
+ * The wish list says which providers an agent may hold, and it refuses a
+ * `terms-forbid-agents` provider outright. Requiring a wanted wish before a
+ * recipe-backed operator step therefore made the published github.com route
+ * unwalkable: the wish could never exist, so the handoff could never open.
+ * What still holds is the narrower gate — a wish the operator has *not* marked
+ * wanted is an onboarding they have not agreed to, and that refuses as before.
+ */
+describe('a recipe-backed operator step needs no wish (#1837)', () => {
+  const withRecipe = async (forbidden = true) => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    colony.recipes.write({
+      kind: 'github',
+      provider: 'github.com',
+      status: 'joinable',
+      steps: [{ actor: 'operator', instruction: 'Create the account.', ask: 'Please create it.' }],
+    })
+    if (forbidden) colony.wishes.store.forbid('github.com')
+    colony.operatorThreadStore.givePage(agent.id)
+    colony.messaging.citizen(agent.profile.name, { agentId: agent.id })
+    colony.messaging.operatorLink(agent.profile.name)
+
+    return { colony, apiKey, agent }
+  }
+
+  const handoff = (client: Awaited<ReturnType<typeof connectedClient>>['client']) =>
+    client.callTool({
+      name: 'kolonie.accounts.handoff',
+      arguments: { kind: 'github', provider: 'github.com', step: 1 },
+    })
+
+  it('opens the step for a terms-forbid-agents provider with nothing on the list', async () => {
+    const { colony, apiKey } = await withRecipe()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await handoff(client)
+
+    expect(result.isError).not.toBe(true)
+    expect(JSON.stringify(result.content)).toContain('Please create it.')
+    await close()
+  })
+
+  /** The gate that stays: on the list, and the operator has not agreed to it. */
+  it('still refuses when the wish exists and nobody marked it wanted', async () => {
+    const { colony, apiKey, agent } = await withRecipe(false)
+    await colony.wishes.store.add({
+      agentId: agent.id,
+      provider: 'github.com',
+      author: 'citizen',
+    })
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await handoff(client)
+
+    expect(result.isError).toBe(true)
+    expect(JSON.stringify(result.content)).toContain('marked it as wanted')
+    await close()
+  })
+
+  it('still rejects that provider from the wish list', async () => {
+    const { colony, apiKey } = await withRecipe()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.wishes',
+      arguments: { provider: 'github.com', noticedWhile: 'Following the published recipe.' },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(JSON.stringify(result.content)).toContain('forbids an account held by an agent')
+    await close()
+  })
+
+  /** An unknown provider is still an unknown provider, wish or no wish. */
+  it('refuses a provider the catalogue has never heard of', async () => {
+    const { colony, apiKey } = await withRecipe()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.handoff',
+      arguments: { kind: 'github', provider: 'nowhere.example', step: 1 },
+    })
+
+    expect(result.isError).toBe(true)
+    await close()
+  })
+})
+
 describe('kolonie.accounts.wishes', () => {
   it('adds agent context to a wish the operator put on the list first', async () => {
     const { colony, apiKey, agent } = await registeredCitizen()

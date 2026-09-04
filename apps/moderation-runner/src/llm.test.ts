@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import { TIER_1, TruncatedCompletion } from '@kolonie-ai/core'
-import { openRouterModel, ProviderUnreachable, MODERATION_TIER } from './llm.js'
+import {
+  openRouterModel,
+  ProviderResponseAnomaly,
+  ProviderUnreachable,
+  MODERATION_TIER,
+} from './llm.js'
 import { cosine, SIMILARITY_THRESHOLD } from './dedup.js'
 
 /** A `fetch` that answers with one canned body and records what it was sent. */
@@ -279,7 +284,48 @@ describe('classifying', () => {
         user: 'u',
         choices: ['approve', 'reject'],
       }),
-    ).rejects.toThrow('finish_reason stop')
+    ).rejects.toBeInstanceOf(ProviderResponseAnomaly)
+    expect(sent).toHaveLength(2)
+  })
+
+  /**
+   * `#1826`. A strict-schema object that stopped and still has no offered
+   * decision is the same provider-response anomaly as an empty stopped
+   * completion: retry once, and never invent a verdict from the unusable reply.
+   */
+  it('retries once when a stopped verdict is missing the required fields', async () => {
+    const { impl, sent } = stubFetchSequence(
+      { choices: [{ message: { content: '{"decision":"approve"}' }, finish_reason: 'stop' }] },
+      aVerdict('{"decision":"approve","reason":"concrete"}'),
+    )
+
+    const verdict = await openRouterModel('a-key', { fetch: impl }).classify({
+      system: 's',
+      user: 'u',
+      choices: ['approve', 'reject'],
+    })
+
+    expect(verdict).toMatchObject({ decision: 'approve', reason: 'concrete' })
+    expect(sent).toHaveLength(2)
+  })
+
+  it('classifies two missing-fields verdicts as a retryable provider-response anomaly', async () => {
+    const missing = {
+      choices: [{ message: { content: '{"decision":"approve"}' }, finish_reason: 'stop' }],
+    }
+    const { impl, sent } = stubFetchSequence(missing, missing)
+
+    await expect(
+      openRouterModel('a-key', { fetch: impl }).classify({
+        system: 's',
+        user: 'u',
+        choices: ['approve', 'reject'],
+      }),
+    ).rejects.toMatchObject({
+      name: 'ProviderResponseAnomaly',
+      finishReason: 'stop',
+      missing: expect.arrayContaining(['reason']),
+    })
     expect(sent).toHaveLength(2)
   })
 
@@ -421,11 +467,12 @@ describe('classifying', () => {
    * never reaches the verdict parser at all. Same distinction, drawn where the
    * fact lives: `finish_reason` is what tells the two apart.
    */
-  /** And does not say so when it was not: a genuinely malformed answer stays malformed. */
+  /** A stopped strict-schema verdict missing a field is a retryable response anomaly. */
   it('does not blame the ceiling for a verdict the model simply got wrong', async () => {
-    const { impl } = stubFetch({
+    const response = {
       choices: [{ message: { content: '{"decision":"approve"}' }, finish_reason: 'stop' }],
-    })
+    }
+    const { impl, sent } = stubFetchSequence(response, response)
 
     await expect(
       openRouterModel('a-key', { fetch: impl }).classify({
@@ -433,7 +480,8 @@ describe('classifying', () => {
         user: 'u',
         choices: ['approve', 'reject'],
       }),
-    ).rejects.toThrow(/without a decision and a reason$/)
+    ).rejects.toBeInstanceOf(ProviderResponseAnomaly)
+    expect(sent).toHaveLength(2)
   })
 
   /**
@@ -712,7 +760,7 @@ describe('composing', () => {
         sourceIds: ['a'],
         maxClaimLength: 400,
       }),
-    ).rejects.toThrow('content was blank')
+    ).rejects.toBeInstanceOf(ProviderResponseAnomaly)
     expect(sent).toHaveLength(2)
   })
 

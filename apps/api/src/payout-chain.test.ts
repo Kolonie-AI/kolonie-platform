@@ -53,6 +53,22 @@ describe('the payout chain reader', () => {
     expect(q.calls()).toBe(3)
   })
 
+  it('retries an HTTP 500 and returns the answer it eventually gets', async () => {
+    const q = queue(status(500), ok({ value: 42 }))
+    const chain = httpPayoutChain(URL, q.fetch)
+
+    await expect(chain.balance('an-address')).resolves.toBe(42)
+    expect(q.calls()).toBe(2)
+  })
+
+  it('gives up after three HTTP 500 answers as unreachable', async () => {
+    const q = queue(status(500))
+    const chain = httpPayoutChain(URL, q.fetch)
+
+    await expect(chain.balance('an-address')).rejects.toBeInstanceOf(ChainUnreachableError)
+    expect(q.calls()).toBe(3)
+  })
+
   it.each([408, 429, 502, 503, 504, 520, 529])('retries %i', async (code) => {
     const q = queue(status(code), ok({ value: 1 }))
     await expect(httpPayoutChain(URL, q.fetch).balance('an-address')).resolves.toBe(1)
@@ -88,10 +104,10 @@ describe('the payout chain reader', () => {
    * obligation it can see; a retry decided here can see neither.
    */
   it('never retries the write', async () => {
-    const q = queue(status(522))
+    const q = queue(status(500))
     const chain = httpPayoutChain(URL, q.fetch)
 
-    await expect(chain.send('a-transaction')).rejects.toThrow()
+    await expect(chain.send('a-transaction')).rejects.toBeInstanceOf(ChainUnreachableError)
     expect(q.calls()).toBe(1)
   })
 

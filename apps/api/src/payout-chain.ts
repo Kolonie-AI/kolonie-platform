@@ -23,15 +23,15 @@ export const PAYOUT_RPC_URL_VAR = 'RPC_URL'
  * paid that quarter of an hour.
  *
  * **520–529 is Cloudflare's own range** and is the one that actually fired.
- * `408`, `429`, `502`, `503` and `504` are here beside it because they are the
- * same statement made by a different hop, and a Solana provider rate-limiting a
+ * `408`, `429`, `500`, `502`, `503` and `504` are here beside it because they are
+ * the same statement made by a different hop, and a Solana provider rate-limiting a
  * read is the most ordinary of them.
  *
  * **Nothing in the 400s except 408 and 429.** A malformed request answered 400
  * is answered 400 again on every retry, and retrying it would turn a bug into a
  * slow bug.
  */
-const RETRYABLE_STATUSES: ReadonlySet<number> = new Set([408, 429, 502, 503, 504])
+const RETRYABLE_STATUSES: ReadonlySet<number> = new Set([408, 429, 500, 502, 503, 504])
 const CLOUDFLARE_RANGE = { first: 520, last: 529 } as const
 
 const retryable = (status: number): boolean =>

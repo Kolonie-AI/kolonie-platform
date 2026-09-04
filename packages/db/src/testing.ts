@@ -318,19 +318,11 @@ export async function ensureWorkerDatabase(baseUrl: string, slot: number): Promi
  * migration built it — which is the thing under test.
  */
 /**
- * **One call per test file, and never two in the same one.** It drops `public`
- * before it migrates, so a second `connectForTests` in a file that already has a
- * connection pulls the schema out from under the suite still using it. What that
- * looks like is not an error here — it is a lock wait and then a failing insert
- * in *another* file entirely, which is a long way from the change that caused
- * it. A second suite in one file shares the first suite's `db`, or moves to a
- * file of its own; a new file costs a reconnection and nothing else.
- *
- * **`fileParallelism` being on does not soften this** (`#284`). Files are
- * independent of *each other* because each worker slot owns a database, and that
- * is a statement about files in different slots. Two `connectForTests` calls in
- * one file are in one slot, in one database, and pull the schema out from under
- * each other exactly as before.
+ * **Several top-level suites may call it.** It drops and recreates the database,
+ * so each recreation is serialized per database name and closes the pool it
+ * replaces before dropping. This prevents concurrent suite hooks from racing
+ * each other's drop/create pair; suites still must not use a pool after another
+ * suite has begun replacing it.
  */
 export async function connectForTests(
   url: string,
@@ -342,33 +334,38 @@ export async function connectForTests(
    */
   baseUrl: string = databaseUrlFromEnv(),
 ): Promise<Database> {
-  await recreateFromTemplate(url, baseUrl)
+  const name = databaseNameOf(url)
+  return serializeRecreation(name, async () => {
+    await recreateFromTemplate(url, baseUrl)
 
-  const db = createDatabase(url, {
-    max: 1,
-    onnotice: () => {},
-    /**
-     * **Every statement the tests run is read for the `#183` defect** (`#311`).
-     *
-     * Whether a `sql` fragment renders a bare identifier is decided at its call
-     * site — select-field position *and* a single-table query — so no amount of
-     * reading the fragment settles it, which is what `bare-identifiers.test.ts`
-     * says about itself. This is the other half: the rendering is right here, and
-     * a fragment gets judged in every shape a test puts it in.
-     *
-     * It throws, so the failure lands on the query that produced it rather than
-     * in a summary at the end of the run. Here and not in `createDatabase`,
-     * because nothing about this belongs in a running service.
-     */
-    debug: (_connection, query) => assertNoBareOuterReference(query),
+    const db = createDatabase(url, {
+      max: 1,
+      onnotice: () => {},
+      /**
+       * **Every statement the tests run is read for the `#183` defect** (`#311`).
+       *
+       * Whether a `sql` fragment renders a bare identifier is decided at its call
+       * site — select-field position *and* a single-table query — so no amount of
+       * reading the fragment settles it, which is what `bare-identifiers.test.ts`
+       * says about itself. This is the other half: the rendering is right here, and
+       * a fragment gets judged in every shape a test puts it in.
+       *
+       * It throws, so the failure lands on the query that produced it rather than
+       * in a summary at the end of the run. Here and not in `createDatabase`,
+       * because nothing about this belongs in a running service.
+       */
+      debug: (_connection, query) => assertNoBareOuterReference(query),
+    })
+    poolsByDatabase.set(name, db)
+    return db
   })
-  poolsByDatabase.set(databaseNameOf(url), db)
-  return db
 }
 
 /**
  * The pool this module last handed out for a database, so it can be closed
- * before that database is dropped.
+ * before that database is dropped. {@link serializeRecreation} makes concurrent
+ * callers share one replacement, so the pool registered by that operation is
+ * closed before a later operation begins its drop/create pair.
  *
  * **Module state, which is only durable because `#295` turned off per-file
  * isolation.** With a registry that resets between files, the previous file's
@@ -379,6 +376,56 @@ export async function connectForTests(
  * not open.
  */
 const poolsByDatabase = new Map<string, Database>()
+
+/**
+ * The recreation currently running for a database name, so another caller joins
+ * it instead of racing it (`#1854`).
+ *
+ * **Why one shared promise and not a queue.** Two top-level suites that arrive
+ * together need the same clean database and can use the same pool; running the
+ * recreation once is both the serialization and the cheapest answer. A queue
+ * avoids the duplicate create, but makes the later `beforeAll` pay another full
+ * copy while CI is already busy enough for that wait to cross the unchanged
+ * ten-second hook limit. Once the promise settles, a later file starts a fresh
+ * recreation exactly as before.
+ *
+ * **Why the key is the name and not one lock for the module.** Two worker slots own
+ * two databases and have nothing to serialise: `w3` and `w4` copy the template
+ * at the same moment by design, and that is the 136–159 ms measurement
+ * {@link recreateFromTemplate} rests on. What must not overlap is two
+ * recreations of *one* name, and the name is the whole of the contention.
+ *
+ * **What overlapping looked like.** `isolate: false` keeps this map alive
+ * between files, but one file may hold several top-level suites, and their
+ * `beforeAll` hooks start together rather than in sequence. On `main` at
+ * `6391b712` two suites in `storage/messaging.test.ts` entered
+ * {@link connectForTests} for the same worker database: both dropped it, both
+ * issued `create database`, and Postgres answered the second with `23505` on
+ * `pg_database_datname_index` while the first hook sat past its timeout. Neither
+ * suite was wrong and no timeout was too short — the drop/create pair is simply
+ * not re-entrant for one name.
+ *
+ * **A failure must not wedge the mechanism.** The shared promise is returned to
+ * every caller that joined it, so each receives the same rejection. Its owner
+ * then removes it in `finally`, and a later call may recreate the same name from
+ * scratch. The identity check prevents an older completion from deleting a newer
+ * promise if this function's lifecycle ever gains another path.
+ */
+const recreationsByDatabase = new Map<string, Promise<unknown>>()
+
+async function serializeRecreation<T>(name: string, recreate: () => Promise<T>): Promise<T> {
+  const current = recreationsByDatabase.get(name)
+  if (current !== undefined) return current as Promise<T>
+
+  const recreation = recreate()
+  recreationsByDatabase.set(name, recreation)
+
+  try {
+    return await recreation
+  } finally {
+    if (recreationsByDatabase.get(name) === recreation) recreationsByDatabase.delete(name)
+  }
+}
 
 /**
  * Replace one worker's database with a copy of the template (`#296`).

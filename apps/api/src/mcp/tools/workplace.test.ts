@@ -287,6 +287,69 @@ describe('kolonie.workplace (#1761)', () => {
       await close()
     })
 
+    /**
+     * The tool boundary, for the four cases `#1844`'s review found only in the
+     * storage tests: a failed experiment, a repeated close, a cycle nobody
+     * holds, and a close with no evidence at all.
+     */
+    it('closes a failed experiment, stays idempotent, and refuses evidence-free or unknown closes', async () => {
+      const { colony, agent, apiKey } = await registeredCitizen()
+      colony.standing(agent.id, { status: 'citizen' })
+      plantOwned(colony, agent.id, { title: 'Default', kind: 'default' })
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+      const accepted = await client.callTool(
+        workplace({
+          act: 'accept-practicum',
+          subject: 'card',
+          fields: { outcome: 'Deliver one runnable status page to a support team.' },
+        }),
+      )
+      const cycle = structuredOf<{ cycle: { id: string } }>(accepted).cycle
+      const failing = {
+        result: 'failed_experiment',
+        attempted: 'Built the smallest page against the published health endpoint.',
+        observed: 'The provider refused the account, so nothing could be published.',
+        nextChoice: 'Try the same outcome as a static page next cycle.',
+      }
+
+      const first = await client.callTool(
+        workplace({ act: 'close-practicum', subject: 'card', id: cycle.id, fields: failing }),
+      )
+      const again = await client.callTool(
+        workplace({ act: 'close-practicum', subject: 'card', id: cycle.id, fields: failing }),
+      )
+      const noEvidence = await client.callTool(
+        workplace({
+          act: 'close-practicum',
+          subject: 'card',
+          id: cycle.id,
+          fields: { result: 'shipped', feedback: 'Asked one maintainer to look.' },
+        }),
+      )
+      const unknown = await client.callTool(
+        workplace({
+          act: 'close-practicum',
+          subject: 'card',
+          id: 'practicum:11111111-2222-4333-8444-555555555555',
+          fields: failing,
+        }),
+      )
+      await close()
+
+      expect(first.isError).not.toBe(true)
+      type Closed = { retrospective: { result: string; choices: Record<string, unknown> } }
+      expect(structuredOf<Closed>(first).retrospective.result).toBe('failed_experiment')
+      // A second close is the same terminal answer, never a second cycle.
+      expect(again.isError).not.toBe(true)
+      expect(structuredOf<Closed>(again).retrospective).toEqual(
+        structuredOf<Closed>(first).retrospective,
+      )
+      expect(noEvidence.isError).toBe(true)
+      expect(errorOf(noEvidence).code).toBe('validation_failed')
+      expect(unknown.isError).toBe(true)
+      expect(errorOf(unknown).code).toBe('not_found')
+    })
+
     it('refuses practicum acceptance by a candidate', async () => {
       const { colony, agent, apiKey } = await registeredCitizen()
       plantOwned(colony, agent.id, { title: 'Default', kind: 'default' })

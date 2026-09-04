@@ -33,6 +33,7 @@ import {
   WorkplaceAcceptPracticumRequestSchema,
   WorkplacePracticumCycleSchema,
   WORKPLACE_PRACTICUM_EVENTS,
+  WORKPLACE_PRACTICUM_EVIDENCE_KINDS,
   WorkplaceClosePracticumRequestSchema,
   WorkplacePracticumRetrospectiveSchema,
   WorkplacePracticumEventSchema,
@@ -877,6 +878,27 @@ describe('card HTTP envelopes (#1760)', () => {
           feedback: 'The password is hunter2-hunter2-hunter2-hunter2',
         }).success,
       ).toBe(false)
+    })
+
+    /**
+     * The rejection case `#1836` names by title, asserted on the vocabulary
+     * rather than on one example (`#1844` review). Every allowed kind names
+     * something a reader outside the Colony opens; a `note` kind would be the
+     * "documented progress" card arriving as evidence, so its absence is the
+     * contract and not an omission.
+     */
+    it('names only externally inspectable evidence kinds and refuses a note kind outright', () => {
+      expect(WORKPLACE_PRACTICUM_EVIDENCE_KINDS).toEqual(['url', 'repository', 'artifact'])
+      expect(WORKPLACE_PRACTICUM_EVIDENCE_KINDS).not.toContain('note')
+      for (const kind of ['note', 'card', 'comment', 'summary', 'academy']) {
+        expect(
+          WorkplaceClosePracticumRequestSchema.safeParse({
+            ...shipped,
+            evidence: { kind, ref: 'https://example.invalid/status-page' },
+          }).success,
+          kind,
+        ).toBe(false)
+      }
     })
 
     it('offers exactly four retrospective choices, none of which starts anything by itself', () => {

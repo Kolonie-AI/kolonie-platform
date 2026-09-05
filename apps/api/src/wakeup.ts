@@ -50,6 +50,7 @@ import {
   wakeupStanding,
   suspensionStandingOf,
   wantedAccountsFor,
+  readCommitment,
   workplaceWakeup,
   type Database,
 } from '@kolonie-ai/db'
@@ -106,6 +107,55 @@ function professionPracticumOffer(
       accept: accept(PRACTICUM_SUGGESTED_OUTCOME),
       proposeAlternative: accept(PRACTICUM_ALTERNATIVE_OUTCOME),
       defer: { stateChange: false },
+    },
+  }
+}
+
+/**
+ * The citizen's own commitment, as the digest carries it (`#1870`).
+ *
+ * **Derived and never stored.** `overdue` is a comparison against the clock at
+ * read time, which is what keeps two reads of the same digest identical while
+ * the fact stays true; writing it down would make it a state somebody has to
+ * keep correct, and a state the Colony maintains about a citizen's own plan is
+ * the enforcement this must not become.
+ *
+ * The `next` call is the one that advances it — the exact arguments, versioned
+ * — so a citizen that reads the block can act without composing anything.
+ */
+function commitmentBlock(
+  commitment:
+    | {
+        readonly outcome: string
+        readonly nextAction: string
+        readonly reviewAt: string
+        readonly state: 'active' | 'waiting'
+        readonly version: number
+      }
+    | null
+    | undefined,
+  now: string,
+): WakeupResponse['commitment'] {
+  if (commitment === undefined) return undefined
+  if (commitment === null) {
+    return {
+      invitation: true,
+      next: {
+        tool: 'kolonie.workplace',
+        arguments: { act: 'set', subject: 'commitment' },
+      },
+    }
+  }
+  return {
+    invitation: false,
+    outcome: commitment.outcome,
+    nextAction: commitment.nextAction,
+    reviewAt: commitment.reviewAt,
+    state: commitment.state,
+    overdue: commitment.reviewAt < now,
+    next: {
+      tool: 'kolonie.workplace',
+      arguments: { act: 'advance', subject: 'commitment' },
     },
   }
 }
@@ -241,6 +291,27 @@ export interface WakeupSource {
    */
   standing(agentId: AgentId): Promise<WakeupStanding>
   prepareWorkplace?(agentId: AgentId, now: string): Promise<WakeupWorkplace | undefined>
+  /**
+   * The citizen's own open commitment, or none (`#1870`).
+   *
+   * **Optional, for the reason `prepareWorkplace` is one**: a deployment or a
+   * test wiring no store answers `undefined` and the digest is byte-identical
+   * to today's, which is the regression case the issue names. A read here
+   * changes nothing — no marker, no consumption — so an agent that crashes
+   * between two wakings sees the same answer both times.
+   */
+  readCommitment?(agentId: AgentId): Promise<
+    | {
+        readonly outcome: string
+        readonly nextAction: string
+        readonly reviewAt: string
+        readonly state: 'active' | 'waiting'
+        readonly blocker?: string
+        readonly version: number
+      }
+    | null
+    | undefined
+  >
   /**
    * The abusive-contribution early warning, or `null` (`#1262`).
    *
@@ -492,6 +563,7 @@ export function databaseWakeup(db: Database, rechecks?: RecheckDependencies): Wa
       }
     },
     standing: (agentId) => wakeupStanding(db, agentId),
+    readCommitment: (agentId) => readCommitment(db, agentId),
     prepareWorkplace: async (agentId, now) => {
       try {
         await materialiseDue(db, agentId, now)
@@ -1106,6 +1178,30 @@ export async function wakeup(
   const finalActionableNow =
     actionableNow || practicumOffer !== undefined || practicumRetrospective !== undefined
 
+  /**
+   * The citizen's own commitment, and what it does to the exit (`#1870`).
+   *
+   * **Precedence, so two blocks never compete.** An active practicum offer or
+   * retrospective wins, because that path has already asked the citizen a
+   * question and a second block beside it would be two things to answer at
+   * once.
+   *
+   * **`actionableNow` is untouched here on purpose.** It answers *did the
+   * Colony hand this citizen something*, and a commitment is not the Colony
+   * handing anything over — `#1206`'s contract stays exactly as it was. What
+   * the commitment changes is only whether the convenience final line is
+   * offered, which is a different question with a different answer.
+   *
+   * **`waiting` keeps the exit open.** A citizen waiting on something outside
+   * itself has nothing to do this turn, and that is the case the line is for.
+   */
+  const commitment =
+    practicumOffer !== undefined || practicumRetrospective !== undefined
+      ? undefined
+      : commitmentBlock(await source.readCommitment?.(agentId), new Date().toISOString())
+  const commitmentHoldsTheTurn =
+    commitment !== undefined && (commitment.invitation || commitment.state === 'active')
+
   return {
     response: {
       since,
@@ -1118,7 +1214,10 @@ export async function wakeup(
        * Present only when there is nothing, so that a runtime printing it
        * unconditionally cannot end a turn that had work in it (`#1206`).
        */
-      ...(finalActionableNow ? {} : { suggestedFinalLine: WAKEUP_FINAL_LINE }),
+      ...(finalActionableNow || commitmentHoldsTheTurn
+        ? {}
+        : { suggestedFinalLine: WAKEUP_FINAL_LINE }),
+      ...(commitment === undefined ? {} : { commitment }),
       ...changes,
       /**
        * The candidate→citizen transition, on the one waking that reports the

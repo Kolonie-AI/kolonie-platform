@@ -8,6 +8,7 @@ import {
   type OperatorStanding,
   RUNTIME_DECLARATION_STALE_DAYS,
   type StoredAutonomyContract,
+  WORKPLACE_SELF_DIRECTION_GUIDANCE,
 } from '@kolonie-ai/core'
 import type { WakeChannel } from '@kolonie-ai/db'
 import { describe, expect, it } from 'vitest'
@@ -1444,5 +1445,17 @@ describe('kolonie.me and the two operator relationships', () => {
 
     expect(response.agent.profile.operator).toBe('assay')
     expect(response.delegation).toMatchObject({ operatedBy: 1 })
+  })
+})
+
+describe('the self-direction sentence is absent from kolonie.me (#1871)', () => {
+  it('is not carried by the call that reports where a citizen stands', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const me = await client.callTool({ name: 'kolonie.me', arguments: {} })
+    await close()
+
+    expect(JSON.stringify(me)).not.toContain(WORKPLACE_SELF_DIRECTION_GUIDANCE)
   })
 })

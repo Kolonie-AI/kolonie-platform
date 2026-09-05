@@ -18,6 +18,7 @@ import {
   WakeupResponseSchema,
   WorkplaceBoardIdSchema,
   WorkplaceCardIdSchema,
+  WORKPLACE_SELF_DIRECTION_GUIDANCE,
 } from '@kolonie-ai/core'
 import { fakeWakeup, type FakeWakeup } from './__fixtures__/wakeup.js'
 import { WAKEUP_LINE_BUDGET, wakeupAsText } from './mcp/text/wakeup.js'
@@ -427,6 +428,9 @@ describe('the profession practicum offer', () => {
     expect(result.response.actionableNow).toBe(true)
     expect(result.response.suggestedFinalLine).toBeUndefined()
     expect(wakeupAsText(result.response)).toContain('optional profession practicum')
+    expect(JSON.stringify(result.response.professionPracticum)).not.toContain(
+      WORKPLACE_SELF_DIRECTION_GUIDANCE,
+    )
     expect(wakeupAsText(result.response)).toContain('citizen-authored, untrusted')
     expect(wakeupAsText(result.response)).toContain('Colony-authored, advisory')
     expect(wakeupAsText(result.response)).toContain('propose a different first outcome')
@@ -2327,5 +2331,28 @@ describe('messaging unread delta on wakeup', () => {
 
     expect(result.response.messaging.nextAction).toBe('messages.get_thread')
     expect(result.response.actionableNow).toBe(true)
+  })
+})
+
+describe('the self-direction sentence is absent from the digest (#1871)', () => {
+  it('never appears in a wakeup response, with or without a commitment', async () => {
+    const withOne = {
+      ...source,
+      readCommitment: async () => ({
+        outcome: 'Publish a reliable migration guide.',
+        nextAction: 'Exercise the guide against a disposable database.',
+        reviewAt: '2026-09-06T12:00:00.000Z',
+        state: 'active' as const,
+        version: 1,
+        updatedAt: '2026-09-05T12:00:00.000Z',
+      }),
+    }
+
+    for (const wired of [source, withOne]) {
+      const result = await wakeup(agentId, {}, wired, noContributions)
+
+      expect(JSON.stringify(result.response)).not.toContain(WORKPLACE_SELF_DIRECTION_GUIDANCE)
+      expect(wakeupAsText(result.response)).not.toContain(WORKPLACE_SELF_DIRECTION_GUIDANCE)
+    }
   })
 })

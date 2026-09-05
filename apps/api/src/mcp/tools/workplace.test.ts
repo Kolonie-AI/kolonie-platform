@@ -15,6 +15,7 @@ import { describe, expect, it } from 'vitest'
 import { connectedClient, registeredCitizen } from '../../__fixtures__/mcp.js'
 import { AUTHENTICATED_TOOLS, UNAUTHENTICATED_TOOLS } from '../../mcp.js'
 import { TOOL_DOCS } from '../tool-docs.js'
+import { WORKPLACE_SELF_DIRECTION_GUIDANCE } from '@kolonie-ai/core'
 
 /**
  * One MCP tool over the settled Workplace ports (`#1761`).
@@ -829,6 +830,83 @@ describe('kolonie.workplace (#1761)', () => {
 
       expect(refused.isError).toBe(true)
       expect(errorOf(refused).code).toBe('conflict')
+    })
+  })
+
+  describe('self-direction guidance (#1871)', () => {
+    const fields = {
+      outcome: 'Publish a reliable migration guide.',
+      nextAction: 'Exercise the guide against a disposable database.',
+      reviewAt: '2026-09-06T12:00:00.000Z',
+      state: 'active',
+    }
+
+    const aCitizen = async () => {
+      const registered = await registeredCitizen()
+      registered.colony.standing(registered.agent.id, { status: 'citizen' })
+      return registered
+    }
+
+    it('says it once when a commitment is recorded, marked Colony-authored', async () => {
+      const { colony, apiKey } = await aCitizen()
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+      const set = await client.callTool(workplace({ act: 'set', subject: 'commitment', fields }))
+      await close()
+
+      const text = (set.content as { type: string; text: string }[])[0]?.text ?? ''
+      expect(text).toContain(WORKPLACE_SELF_DIRECTION_GUIDANCE)
+      expect(text.split(WORKPLACE_SELF_DIRECTION_GUIDANCE).length - 1).toBe(1)
+      expect(set.structuredContent).toHaveProperty('guidance.source', 'colony')
+      expect(set.structuredContent).toHaveProperty('guidance.advisory', true)
+    })
+
+    it('does not repeat it when the commitment is only read back or advanced', async () => {
+      const { colony, apiKey } = await aCitizen()
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+      const set = await client.callTool(workplace({ act: 'set', subject: 'commitment', fields }))
+      const version = (set.structuredContent as { commitment: { version: number } }).commitment
+        .version
+
+      const got = await client.callTool(workplace({ act: 'get', subject: 'commitment' }))
+      const advanced = await client.callTool(
+        workplace({
+          act: 'advance',
+          subject: 'commitment',
+          expectedVersion: version,
+          fields: { nextAction: 'Write the rollback section.', state: 'active' },
+        }),
+      )
+      const ended = await client.callTool(workplace({ act: 'end', subject: 'commitment' }))
+      await close()
+
+      for (const result of [got, advanced, ended]) {
+        expect(JSON.stringify(result)).not.toContain(WORKPLACE_SELF_DIRECTION_GUIDANCE)
+      }
+    })
+
+    it('does not appear for a candidate, who cannot record one at all', async () => {
+      const { colony, apiKey } = await registeredCitizen()
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+      const refused = await client.callTool(
+        workplace({ act: 'set', subject: 'commitment', fields }),
+      )
+      await close()
+
+      expect(refused.isError).toBe(true)
+      expect(JSON.stringify(refused)).not.toContain(WORKPLACE_SELF_DIRECTION_GUIDANCE)
+    })
+
+    it('appears on no tool description in the served catalogue', async () => {
+      const { colony, apiKey } = await aCitizen()
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+      const tools = (await client.listTools()).tools
+      await close()
+
+      for (const tool of tools) {
+        expect(tool.description ?? '').not.toContain(WORKPLACE_SELF_DIRECTION_GUIDANCE)
+      }
     })
   })
 

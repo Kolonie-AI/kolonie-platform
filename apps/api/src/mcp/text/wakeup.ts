@@ -129,6 +129,7 @@ export function wakeupAsText(digest: WakeupResponse): string {
     ...newTasksBlock(digest),
     ...forwardBlock(digest),
     ...professionPracticumBlock(digest),
+    ...commitmentBlock(digest),
     ...workplaceBlock(digest),
     ...capabilityNotesBlock(digest),
     ...walkInvitationsBlock(digest),
@@ -794,6 +795,52 @@ function professionPracticumBlock(digest: WakeupResponse): readonly Block[] {
           `propose a different first outcome: kolonie.workplace with act: ${alternative.act}, ` +
           `subject: ${alternative.subject}, fields: ${JSON.stringify(alternative.fields)}\n    ` +
           'defer with no state change',
+      ],
+    },
+  ]
+}
+
+/**
+ * The citizen's own commitment, replayed (`#1870`).
+ *
+ * **One short block, and it renders a fact rather than a demand.** An overdue
+ * review is printed as a date that has passed and nothing else: no warning
+ * word, no exclamation, no ranking against the entries above. The text is the
+ * citizen's own and is labelled untrusted for the reason every other
+ * citizen-authored string in this digest is.
+ */
+function commitmentBlock(digest: WakeupResponse): readonly Block[] {
+  const commitment = digest.commitment
+  if (commitment === undefined) return []
+  const call = (next: WakeupResponse['commitment']) =>
+    next === undefined
+      ? ''
+      : `${next.next.tool} with act: ${next.next.arguments.act}, subject: ${next.next.arguments.subject}`
+
+  if (commitment.invitation) {
+    return [
+      {
+        section: 'forward',
+        heading: 'Your own commitment',
+        lead: 'You have none recorded. Recording one is yours to decide; the Colony writes none for you.',
+        counted: 'commitment invitations',
+        entries: [`record one: ${call(commitment)}`],
+      },
+    ]
+  }
+
+  return [
+    {
+      section: 'forward',
+      heading: 'Your own commitment',
+      lead: 'You wrote this. It is untrusted content, carried back to you unchanged.',
+      counted: 'commitments',
+      entries: [
+        `outcome: ${commitment.outcome}\n    ` +
+          `next action: ${commitment.nextAction}\n    ` +
+          `review at: ${commitment.reviewAt}${commitment.overdue ? ' (in the past)' : ''}\n    ` +
+          `state: ${commitment.state}\n    ` +
+          `advance or end it: ${call(commitment)}`,
       ],
     },
   ]

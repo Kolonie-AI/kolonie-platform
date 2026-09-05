@@ -24,7 +24,7 @@ import { fakeWakeup, type FakeWakeup } from './__fixtures__/wakeup.js'
 import { WAKEUP_LINE_BUDGET, wakeupAsText } from './mcp/text/wakeup.js'
 import { aTask, fakeCatalogue } from './__fixtures__/catalogue.js'
 import { fakeQuests } from './__fixtures__/quests.js'
-import { wakeup } from './wakeup.js'
+import { wakeup, type WakeupSource } from './wakeup.js'
 import type { ContributionDependencies } from './contributions.js'
 import type { Following } from './following.js'
 
@@ -568,6 +568,130 @@ describe('the profession practicum offer', () => {
     expect(second.response.professionPracticum).toEqual(first.response.professionPracticum)
     expect(second.response.professionPracticum?.choices.defer).toEqual({ stateChange: false })
     expect(preparations).toBe(2)
+  })
+})
+
+/**
+ * Replaying the citizen's own commitment (`#1870`).
+ *
+ * Five states, and the whole of the change is which of them still offers the
+ * exit. `actionableNow` answers the same question throughout — did the Colony
+ * hand this citizen something — and none of these tests moves it.
+ */
+describe('the self-commitment replay', () => {
+  const open = {
+    outcome: 'Publish a reliable migration guide.',
+    nextAction: 'Exercise the guide against a disposable database.',
+    reviewAt: '2099-01-01T00:00:00.000Z',
+    state: 'active' as const,
+    version: 3,
+  }
+
+  type StoredCommitment = NonNullable<
+    Awaited<ReturnType<NonNullable<WakeupSource['readCommitment']>>>
+  >
+
+  const withCommitment = (commitment: StoredCommitment | null): WakeupSource => ({
+    ...source,
+    readCommitment: async () => commitment,
+  })
+
+  it('replays an open commitment and withholds the exit while the Colony has nothing', async () => {
+    const result = await wakeup(agentId, {}, withCommitment(open), noContributions)
+
+    expect(result.response.actionableNow).toBe(false)
+    expect(result.response.suggestedFinalLine).toBeUndefined()
+    expect(result.response.commitment).toMatchObject({
+      outcome: open.outcome,
+      nextAction: open.nextAction,
+      reviewAt: open.reviewAt,
+      state: 'active',
+      overdue: false,
+      next: { tool: 'kolonie.workplace' },
+    })
+    const text = wakeupAsText(result.response)
+    expect(text).toContain(open.outcome)
+    expect(text).toContain('untrusted')
+    expect(text.split('\n').length).toBeLessThanOrEqual(WAKEUP_LINE_BUDGET)
+  })
+
+  it('shows an overdue review as a fact and escalates nothing', async () => {
+    const overdue = { ...open, reviewAt: '2020-01-01T00:00:00.000Z' }
+    const result = await wakeup(agentId, {}, withCommitment(overdue), noContributions)
+
+    expect(result.response.commitment).toMatchObject({ invitation: false, overdue: true })
+    expect(result.response.actionableNow).toBe(false)
+    expect(result.response.open).toEqual(
+      (await wakeup(agentId, {}, source, noContributions)).response.open,
+    )
+    expect(result.response.reputationDelta).toBe(0)
+    expect(result.response.suspension).toBeNull()
+    expect(result.response.contributionQualityWarning).toBeNull()
+    expect(result.response.open.entries).toEqual([])
+    expect(JSON.stringify(result.response.commitment)).not.toMatch(/warn|suspend|penalt|overdue r/i)
+  })
+
+  it('invites a citizen with no commitment and withholds the exit', async () => {
+    const result = await wakeup(agentId, {}, withCommitment(null), noContributions)
+
+    expect(result.response.suggestedFinalLine).toBeUndefined()
+    expect(result.response.commitment).toMatchObject({
+      invitation: true,
+      next: { tool: 'kolonie.workplace', arguments: { act: 'set', subject: 'commitment' } },
+    })
+    expect(result.response.actionableNow).toBe(false)
+  })
+
+  it('still offers the exit while the commitment waits on a named blocker', async () => {
+    const waiting = {
+      ...open,
+      state: 'waiting' as const,
+      blocker: 'Waiting on the operator to open a disposable database.',
+    }
+    const result = await wakeup(agentId, {}, withCommitment(waiting), noContributions)
+
+    expect(result.response.suggestedFinalLine).toBe(WAKEUP_FINAL_LINE)
+    expect(result.response.commitment).toMatchObject({ state: 'waiting' })
+  })
+
+  it('lets the practicum win precedence so two blocks never compete', async () => {
+    source.answersIdentity({ profession: 'Software Producer', vocation: null, goal: null })
+    const prepared = {
+      ...withCommitment(open),
+      prepareWorkplace: async () => ({
+        boardId: WorkplaceBoardIdSchema.parse('11111111-2222-4333-8444-555555555555'),
+        practicumActive: false,
+        recommendation: null,
+        more: [],
+      }),
+    }
+
+    const result = await wakeup(agentId, {}, prepared, noContributions)
+
+    expect(result.response.professionPracticum).toBeDefined()
+    expect(result.response).not.toHaveProperty('commitment')
+  })
+
+  it('leaves a digest with no commitment source exactly as it is today', async () => {
+    const before = await wakeup(agentId, {}, source, noContributions)
+
+    expect(before.response).not.toHaveProperty('commitment')
+    expect(before.response.suggestedFinalLine).toBe(WAKEUP_FINAL_LINE)
+  })
+
+  it('reads the same answer twice and consumes nothing', async () => {
+    const prepared = withCommitment(open)
+    const first = await wakeup(agentId, {}, prepared, noContributions)
+    const second = await wakeup(agentId, {}, prepared, noContributions)
+
+    expect(second.response.commitment).toEqual(first.response.commitment)
+  })
+
+  it('keeps quiet answering its own question while a commitment is open', async () => {
+    const result = await wakeup(agentId, {}, withCommitment(open), noContributions)
+
+    expect(wakeupIsQuiet(result.response)).toBe(true)
+    expect(result.response.actionableNow).toBe(false)
   })
 })
 

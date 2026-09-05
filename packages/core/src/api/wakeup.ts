@@ -27,6 +27,7 @@ import { ModerationStatusSchema } from '../guidance/guidance.js'
 import {
   WORKPLACE_SENTENCE_MAX_LENGTH,
   WORKPLACE_TITLE_MAX_LENGTH,
+  WorkplaceCommitmentStateSchema,
   WorkplaceLaneSchema,
   WorkplaceMcpInputSchema,
   WorkplacePracticumRetrospectiveSchema,
@@ -1558,6 +1559,48 @@ export const WakeupResponseSchema = z.object({
    * it needs is `open`, which the citizen has already been given.
    */
   suggestedFinalLine: z.string().optional(),
+  /**
+   * The citizen's own open commitment, replayed (`#1870`).
+   *
+   * **Replay and never enforcement.** The strings are the citizen's own words,
+   * read back unchanged, and `overdue` is a fact derived from `reviewAt` at
+   * read time and stored nowhere. No warning, no judgement and no chase lives
+   * here, and none may grow onto it: an overdue review is shown the same way a
+   * future one is, because a commitment is a thing the citizen carries, not a
+   * thing the Colony holds it to.
+   *
+   * **`waiting` closes the exit.** A commitment that names what it waits for
+   * is a citizen with nothing to do until the outside answers, and
+   * `suggestedFinalLine` is still offered beside it — the one state where
+   * ending the turn is the correct action.
+   *
+   * **`invitation` is the none case.** A citizen with no commitment and
+   * nothing from the Colony is shown the exact call that records one, marked
+   * advisory and Colony-authored the way the practicum offer marks its
+   * guidance. Nothing is invented on the citizen's behalf and the digest
+   * stays silent for a runtime that ignores the field.
+   */
+  commitment: z
+    .discriminatedUnion('invitation', [
+      z
+        .object({
+          invitation: z.literal(false),
+          outcome: z.string(),
+          nextAction: z.string(),
+          reviewAt: TimestampSchema,
+          state: WorkplaceCommitmentStateSchema,
+          overdue: z.boolean(),
+          next: WorkplaceWakeupNextSchema,
+        })
+        .strict(),
+      z
+        .object({
+          invitation: z.literal(true),
+          next: WorkplaceWakeupNextSchema,
+        })
+        .strict(),
+    ])
+    .optional(),
   /** Net reputation over the window. `0` where nothing moved. */
   reputationDelta: z.int(),
   /**

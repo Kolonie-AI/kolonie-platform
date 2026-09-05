@@ -1685,6 +1685,12 @@ describe('the erasure boundary', () => {
       /** A comment is writing. It leaves with the author. */
       'workplace_comments.author_id c',
       /**
+       * `#1869`. A commitment is one citizen's own sentence about its own
+       * work, and it names nobody else — so it cascades whole rather than
+       * being stripped of an author and left standing.
+       */
+      'workplace_commitments.agent_id c',
+      /**
        * A handover is structured writing by `from_id` about a named
        * `to_id`. Both ends cascade: strip either name and the row is
        * not evidence of a transfer any more.

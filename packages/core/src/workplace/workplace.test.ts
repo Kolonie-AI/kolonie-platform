@@ -6,6 +6,9 @@ import {
   WORKPLACE_LANES,
   WORKPLACE_LINK_KINDS,
   WorkplaceCadenceSchema,
+  WorkplaceCommitmentSchema,
+  WorkplaceSetCommitmentRequestSchema,
+  WorkplaceAdvanceCommitmentRequestSchema,
   EMPTY_WORKPLACE_LINK_COUNTS,
   WorkplaceActSchema,
   WorkplaceBoardSchema,
@@ -1318,6 +1321,86 @@ describe('typed card links (#1765)', () => {
     expect(WorkplaceCardSummarySchema.safeParse(listRow({ linkCounts: undefined })).success).toBe(
       false,
     )
+  })
+})
+
+describe('self-authored commitment (#1869)', () => {
+  const active = {
+    outcome: 'Publish a reliable migration guide.',
+    nextAction: 'Exercise the guide against a disposable database.',
+    reviewAt: '2026-09-06T12:00:00.000Z',
+    state: 'active' as const,
+    version: 1,
+  }
+
+  it('parses one strict active commitment', () => {
+    expect(WorkplaceCommitmentSchema.parse(active)).toEqual(active)
+    expect(WorkplaceCommitmentSchema.safeParse({ ...active, extra: true }).success).toBe(false)
+  })
+
+  it('requires a blocker exactly while waiting', () => {
+    expect(WorkplaceCommitmentSchema.safeParse({ ...active, state: 'waiting' }).success).toBe(false)
+    expect(
+      WorkplaceCommitmentSchema.parse({
+        ...active,
+        state: 'waiting',
+        blocker: 'Waiting for the disposable database to be ready.',
+      }).blocker,
+    ).toBe('Waiting for the disposable database to be ready.')
+    expect(
+      WorkplaceCommitmentSchema.safeParse({ ...active, blocker: 'Nothing blocks this.' }).success,
+    ).toBe(false)
+  })
+
+  it('refuses credential-shaped text on every citizen-authored field', () => {
+    const credential = `ghp_${'a'.repeat(36)}`
+    for (const field of ['outcome', 'nextAction', 'blocker'] as const) {
+      const value = {
+        ...active,
+        state: field === 'blocker' ? ('waiting' as const) : active.state,
+        ...(field === 'blocker' ? { blocker: credential } : { [field]: credential }),
+      }
+      expect(WorkplaceCommitmentSchema.safeParse(value).success).toBe(false)
+    }
+  })
+
+  it('defines strict set and advance write boundaries', () => {
+    expect(
+      WorkplaceSetCommitmentRequestSchema.parse({
+        outcome: active.outcome,
+        nextAction: active.nextAction,
+        reviewAt: active.reviewAt,
+        state: 'active',
+      }),
+    ).toEqual({
+      outcome: active.outcome,
+      nextAction: active.nextAction,
+      reviewAt: active.reviewAt,
+      state: 'active',
+    })
+    expect(
+      WorkplaceSetCommitmentRequestSchema.safeParse({
+        outcome: active.outcome,
+        nextAction: active.nextAction,
+        reviewAt: '2026-09-06',
+        state: 'active',
+      }).success,
+    ).toBe(false)
+    expect(
+      WorkplaceSetCommitmentRequestSchema.safeParse({
+        outcome: active.outcome,
+        nextAction: active.nextAction,
+        reviewAt: active.reviewAt,
+        state: 'waiting',
+      }).success,
+    ).toBe(false)
+    expect(
+      WorkplaceAdvanceCommitmentRequestSchema.safeParse({
+        nextAction: active.nextAction,
+        state: 'active',
+        outcome: active.outcome,
+      }).success,
+    ).toBe(false)
   })
 })
 

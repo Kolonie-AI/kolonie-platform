@@ -2,8 +2,11 @@ import {
   AgentIdSchema,
   AgentOperatorDelegationIdSchema,
   DELEGATION_REFUSAL_CODES,
+  WORKPLACE_COMMITMENT_UNTRUSTED_CONTENT,
   WORKPLACE_UNTRUSTED_CONTENT,
   WorkplaceActSchema,
+  WorkplaceAdvanceCommitmentRequestSchema,
+  WorkplaceSetCommitmentRequestSchema,
   WorkplaceAcceptPracticumRequestSchema,
   WorkplaceAddMemberRequestSchema,
   WorkplaceBlockCardRequestSchema,
@@ -30,6 +33,7 @@ import {
   type WorkplaceAct,
   type WorkplaceBoard,
   type WorkplaceCard,
+  type WorkplaceCommitment,
   type WorkplaceSubject,
 } from '@kolonie-ai/core'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
@@ -74,6 +78,14 @@ const ALLOWED: Readonly<Record<WorkplaceSubject, readonly WorkplaceAct[]>> = {
     'handover',
     'archive',
   ],
+  /**
+   * Four acts, one row, and no new tool (`#1869`).
+   *
+   * A commitment has no list and no create: there is at most one, `set`
+   * creates or replaces it, and `end` is how it stops. `list` is absent
+   * deliberately — offering it would imply a backlog the product refuses.
+   */
+  commitment: ['get', 'set', 'advance', 'end'],
 }
 
 type NextOp = {
@@ -270,6 +282,19 @@ export function registerWorkplaceTool(
       ) {
         return toolError({ code: 'forbidden', message: 'Only a citizen may start a practicum.' })
       }
+      /**
+       * A commitment is citizen work, matching `accept-practicum` (`#1869`).
+       *
+       * The read is guarded with the writes so a candidate is answered the
+       * same way whichever act it names, rather than learning it holds none.
+       */
+      if (
+        input.delegationId === undefined &&
+        subject === 'commitment' &&
+        authenticatedAgent.agent.status !== 'citizen'
+      ) {
+        return toolError({ code: 'forbidden', message: 'Only a citizen may hold a commitment.' })
+      }
       if (!ALLOWED[subject].includes(act)) return invalidPair(subject)
 
       /**
@@ -327,7 +352,9 @@ export function registerWorkplaceTool(
         const result =
           subject === 'board'
             ? await dispatchBoard(act, input, attribution.subjectAgentId, boards)
-            : await dispatchCard(act, input, attribution.subjectAgentId, cards)
+            : subject === 'commitment'
+              ? await dispatchCommitment(act, input, attribution.subjectAgentId, cards)
+              : await dispatchCard(act, input, attribution.subjectAgentId, cards)
         if (result.isError !== true && lifecycle.recordAct !== undefined) {
           const boardId = boardIdOf(result, input)
           if (boardId !== undefined) {
@@ -346,6 +373,9 @@ export function registerWorkplaceTool(
 
       if (subject === 'board') {
         return dispatchBoard(act, input, callerId, boards)
+      }
+      if (subject === 'commitment') {
+        return dispatchCommitment(act, input, callerId, cards)
       }
       return dispatchCard(act, input, callerId, cards)
     },
@@ -677,6 +707,93 @@ async function mutateMembers(
     })
   }
   return ok('Member removed.', { next: nextForBoard(board) })
+}
+
+/**
+ * The four commitment acts (`#1869`).
+ *
+ * Every field is the citizen's own text, validated by the core schemas so the
+ * MCP boundary and storage refuse the same things — an unexplained `waiting`
+ * and anything credential-shaped. Nothing here reads a profession, touches a
+ * board, or writes a card.
+ */
+async function dispatchCommitment(
+  act: WorkplaceAct,
+  input: Input,
+  callerId: AgentId,
+  cards: WorkplaceCards,
+): Promise<CallToolResult> {
+  const answer = (commitment: WorkplaceCommitment | null, text: string): CallToolResult =>
+    ok(`${WORKPLACE_COMMITMENT_UNTRUSTED_CONTENT}\n\n${text}`, {
+      commitment,
+      next: nextForCommitment(commitment),
+    })
+
+  if (act === 'get') {
+    return answer(await cards.readCommitment(callerId), 'Your commitment, as you wrote it.')
+  }
+
+  if (act === 'end') {
+    await cards.endCommitment({ callerId })
+    return answer(null, 'Commitment ended.')
+  }
+
+  if (act === 'set') {
+    const parsed = WorkplaceSetCommitmentRequestSchema.safeParse(fieldsOf(input))
+    if (!parsed.success) {
+      return parsedFail(
+        'A commitment takes outcome, nextAction, reviewAt and state; waiting also takes blocker.',
+        parsed.error,
+      )
+    }
+    const set = await cards.setCommitment({
+      callerId,
+      ...parsed.data,
+      ...(input.expectedVersion === undefined ? {} : { expectedVersion: input.expectedVersion }),
+    })
+    if (set.outcome === 'citizen-required') {
+      return toolError({ code: 'forbidden', message: 'Only a citizen may hold a commitment.' })
+    }
+    if (set.outcome === 'stale') {
+      return toolError({
+        code: 'conflict',
+        message: 'Send the version you last read as `expectedVersion` to replace your commitment.',
+      })
+    }
+    return answer(set.commitment, 'Commitment recorded.')
+  }
+
+  const parsed = WorkplaceAdvanceCommitmentRequestSchema.safeParse(fieldsOf(input))
+  if (!parsed.success) {
+    return parsedFail(
+      'Advancing takes nextAction and state, optionally reviewAt; the outcome is kept.',
+      parsed.error,
+    )
+  }
+  const expectedVersion = needExpected(input)
+  if (typeof expectedVersion !== 'number') return expectedVersion
+  const advanced = await cards.advanceCommitment({ callerId, expectedVersion, ...parsed.data })
+  if (advanced.outcome === 'missing') {
+    return toolError({ code: 'not_found', message: 'You hold no commitment to advance.' })
+  }
+  if (advanced.outcome === 'stale') {
+    return toolError({
+      code: 'conflict',
+      message: 'The commitment has changed since you last read it.',
+    })
+  }
+  return answer(advanced.commitment, 'Commitment advanced.')
+}
+
+/** What a citizen can do next with its own commitment, ids and versions filled in. */
+const nextForCommitment = (commitment: WorkplaceCommitment | null): NextOp[] => {
+  if (commitment === null) return [{ act: 'set', subject: 'commitment' }]
+  return [
+    { act: 'get', subject: 'commitment' },
+    { act: 'advance', subject: 'commitment', expectedVersion: commitment.version },
+    { act: 'set', subject: 'commitment', expectedVersion: commitment.version },
+    { act: 'end', subject: 'commitment' },
+  ]
 }
 
 async function dispatchCard(

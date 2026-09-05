@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import { AccountKindSchema, type AccountCapability, type AgentId } from '@kolonie-ai/core'
 import { createDatabase, type Database } from '../client.js'
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
@@ -43,6 +43,10 @@ import {
   renameBoard,
   requestReview,
   resolveProfessionPracticum,
+  setCommitment,
+  readCommitment,
+  advanceCommitment,
+  endCommitment,
   updateCard,
   workplaceWakeup,
 } from './workplace.js'
@@ -54,6 +58,7 @@ import {
   workplaceActivity,
   workplaceBoardMemberships,
   workplaceBoards,
+  workplaceCommitments,
   workplaceCardLinks,
   workplaceCards,
   workplaceChecklistItems,
@@ -2266,5 +2271,181 @@ describe('materialiseDue', () => {
       skipped: 0,
     })
     expect(await db.select().from(workplaceRecurrenceOccurrences)).toEqual([])
+  })
+})
+
+describe('self-authored commitment storage', () => {
+  let db: Database
+  let owner: AgentId
+  let member: AgentId
+  let stranger: AgentId
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+    owner = await citizen('owner')
+    member = await citizen('member')
+    stranger = await citizen('stranger')
+    await db
+      .update(agents)
+      .set({ status: 'citizen' })
+      .where(inArray(agents.id, [owner, member, stranger]))
+  })
+
+  const citizen = async (name: string): Promise<AgentId> => {
+    const registered = await registerAgent(db, { name, platform: 'openclaw', operator: null })
+    if (registered.outcome !== 'registered') throw new Error(`could not register ${name}`)
+    return registered.agent.id
+  }
+
+  const first = {
+    outcome: 'Publish a reliable migration guide.',
+    nextAction: 'Exercise the guide against a disposable database.',
+    reviewAt: '2026-09-06T12:00:00.000Z',
+    state: 'active' as const,
+  }
+
+  it('refuses a candidate at the storage boundary', async () => {
+    await db.update(agents).set({ status: 'candidate' }).where(eq(agents.id, owner))
+    const refused = await setCommitment(db, { callerId: owner, ...first })
+    expect(refused.outcome).toBe('citizen-required')
+    expect(await readCommitment(db, owner)).toBeNull()
+  })
+
+  it('sets, reads back, advances and ends exactly one commitment', async () => {
+    const set = await setCommitment(db, { callerId: owner, ...first })
+    expect(set.outcome).toBe('set')
+    if (set.outcome !== 'set') return
+    expect(set.commitment).toMatchObject({ ...first, version: 1 })
+
+    expect(await readCommitment(db, owner)).toMatchObject({ ...first, version: 1 })
+
+    const advanced = await advanceCommitment(db, {
+      callerId: owner,
+      expectedVersion: set.commitment.version,
+      nextAction: 'Write the rollback section.',
+      state: 'active',
+    })
+    expect(advanced.outcome).toBe('advanced')
+    if (advanced.outcome !== 'advanced') return
+    expect(advanced.commitment.outcome).toBe(first.outcome)
+    expect(advanced.commitment.nextAction).toBe('Write the rollback section.')
+    expect(advanced.commitment.version).toBe(2)
+
+    expect(await endCommitment(db, { callerId: owner })).toEqual({ outcome: 'ended' })
+    expect(await readCommitment(db, owner)).toBeNull()
+  })
+
+  it('refuses a replacement whose expectedVersion is stale and supersedes with the right one', async () => {
+    const set = await setCommitment(db, { callerId: owner, ...first })
+    if (set.outcome !== 'set') throw new Error('commitment missing')
+
+    const stale = await setCommitment(db, {
+      callerId: owner,
+      ...first,
+      outcome: 'A different outcome.',
+      expectedVersion: 99,
+    })
+    expect(stale.outcome).toBe('stale')
+
+    const missing = await setCommitment(db, {
+      callerId: owner,
+      ...first,
+      outcome: 'A different outcome.',
+    })
+    expect(missing.outcome).toBe('stale')
+
+    const superseded = await setCommitment(db, {
+      callerId: owner,
+      ...first,
+      outcome: 'A different outcome.',
+      expectedVersion: set.commitment.version,
+    })
+    expect(superseded.outcome).toBe('set')
+    if (superseded.outcome !== 'set') return
+    expect(superseded.commitment.outcome).toBe('A different outcome.')
+    expect(
+      await db.select().from(workplaceCommitments).where(eq(workplaceCommitments.agentId, owner)),
+    ).toHaveLength(1)
+  })
+
+  it('converges two concurrent first writes on one row', async () => {
+    const attempts = await Promise.allSettled([
+      setCommitment(db, { callerId: owner, ...first, outcome: 'Race one.' }),
+      setCommitment(db, { callerId: owner, ...first, outcome: 'Race two.' }),
+    ])
+    const settled = attempts.filter(
+      (attempt) => attempt.status === 'fulfilled' && attempt.value.outcome === 'set',
+    )
+    expect(settled.length).toBeGreaterThanOrEqual(1)
+    expect(
+      await db.select().from(workplaceCommitments).where(eq(workplaceCommitments.agentId, owner)),
+    ).toHaveLength(1)
+  })
+
+  it('keeps waiting explained and refuses an unexplained wait', async () => {
+    const set = await setCommitment(db, {
+      callerId: owner,
+      ...first,
+      state: 'waiting',
+      blocker: 'Waiting on the operator to open a disposable database.',
+    })
+    expect(set.outcome).toBe('set')
+    if (set.outcome !== 'set') return
+    expect(set.commitment.blocker).toBe('Waiting on the operator to open a disposable database.')
+    await expectRejection(
+      () =>
+        db.insert(workplaceCommitments).values({
+          agentId: stranger,
+          outcome: first.outcome,
+          nextAction: first.nextAction,
+          reviewAt: first.reviewAt,
+          state: 'waiting',
+        }),
+      /workplace_commitments_waiting_is_explained/,
+    )
+  })
+
+  it('cannot advance or end what is not there, and ending twice is not an error', async () => {
+    const advanced = await advanceCommitment(db, {
+      callerId: owner,
+      expectedVersion: 1,
+      nextAction: 'Resurrect the ended commitment.',
+      state: 'active',
+    })
+    expect(advanced.outcome).toBe('missing')
+
+    await setCommitment(db, { callerId: owner, ...first })
+    expect(await endCommitment(db, { callerId: owner })).toEqual({ outcome: 'ended' })
+    expect(await endCommitment(db, { callerId: owner })).toEqual({ outcome: 'ended' })
+    expect(await db.select().from(workplaceCommitments)).toHaveLength(0)
+  })
+
+  it('provisions no board, creates no card and writes no activity', async () => {
+    await db.update(agents).set({ status: 'citizen' }).where(eq(agents.id, owner))
+    await setCommitment(db, { callerId: owner, ...first })
+
+    expect(await db.select().from(workplaceBoards)).toEqual([])
+    expect(await db.select().from(workplaceCards)).toEqual([])
+    expect(await db.select().from(workplaceActivity)).toEqual([])
+    expect(await db.select().from(workplacePracticumEvents)).toEqual([])
+    expect(await workplaceWakeup(db, owner)).toBeUndefined()
+  })
+
+  it('goes with the citizen it belongs to', async () => {
+    await setCommitment(db, { callerId: owner, ...first })
+    await setCommitment(db, { callerId: member, ...first })
+
+    await eraseAgent(db, { agentId: owner, banSalt: SALT })
+
+    expect(await db.select().from(workplaceCommitments)).toHaveLength(1)
+    expect(await readCommitment(db, member)).not.toBeNull()
   })
 })

@@ -15,6 +15,7 @@ import {
   type WorkplaceCard,
   type WorkplaceCardDetail,
   type WorkplaceCardSummary,
+  type WorkplaceCommitment,
   type WorkplaceChecklist,
   type WorkplaceChecklistItem,
   type WorkplaceComment,
@@ -106,6 +107,7 @@ const toSummary = (
 export function fakeWorkplaceCards(): FakeWorkplaceCards {
   const seats = new Map<string, WorkplaceMembership[]>()
   const cards = new Map<string, WorkplaceCard>()
+  const commitments = new Map<AgentId, WorkplaceCommitment>()
   const labels = new Map<string, WorkplaceLabel>()
   const cardLabels = new Map<string, Set<string>>()
   const checklists = new Map<string, WorkplaceChecklist>()
@@ -195,6 +197,47 @@ export function fakeWorkplaceCards(): FakeWorkplaceCards {
     },
     plantResolvable: (kind: WorkplaceLinkKind, ref: string) => {
       resolvable.add(`${kind}:${ref}`)
+    },
+
+    setCommitment: async (input) => {
+      /**
+       * The fixture stores rows; the citizen-only rule is production's, and
+       * the MCP tool refuses a candidate before this is ever reached.
+       */
+      const existing = commitments.get(input.callerId)
+      if (existing !== undefined && input.expectedVersion !== existing.version) {
+        return { outcome: 'stale' as const }
+      }
+      const commitment: WorkplaceCommitment = {
+        outcome: input.outcome,
+        nextAction: input.nextAction,
+        reviewAt: input.reviewAt,
+        state: input.state,
+        ...(input.blocker === undefined ? {} : { blocker: input.blocker }),
+        version: (existing?.version ?? 0) + 1,
+      }
+      commitments.set(input.callerId, commitment)
+      return { outcome: 'set' as const, commitment }
+    },
+    readCommitment: async (callerId) => commitments.get(callerId) ?? null,
+    advanceCommitment: async (input) => {
+      const existing = commitments.get(input.callerId)
+      if (existing === undefined) return { outcome: 'missing' as const }
+      if (existing.version !== input.expectedVersion) return { outcome: 'stale' as const }
+      const commitment: WorkplaceCommitment = {
+        outcome: existing.outcome,
+        nextAction: input.nextAction,
+        reviewAt: input.reviewAt ?? existing.reviewAt,
+        state: input.state,
+        ...(input.blocker === undefined ? {} : { blocker: input.blocker }),
+        version: existing.version + 1,
+      }
+      commitments.set(input.callerId, commitment)
+      return { outcome: 'advanced' as const, commitment }
+    },
+    endCommitment: async (input) => {
+      commitments.delete(input.callerId)
+      return { outcome: 'ended' as const }
     },
 
     list: async (callerId, boardId, query = {}) => {

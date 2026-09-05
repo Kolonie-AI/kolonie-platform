@@ -20,6 +20,7 @@ import {
   WORKPLACE_BOARD_KINDS,
   WORKPLACE_BODY_MAX_LENGTH,
   WORKPLACE_CADENCES,
+  WORKPLACE_COMMITMENT_STATES,
   WORKPLACE_LANES,
   WORKPLACE_LINK_KINDS,
   WORKPLACE_LINK_REF_MAX_LENGTH,
@@ -48,6 +49,50 @@ const TITLE_MAX = sql.raw(String(WORKPLACE_TITLE_MAX_LENGTH))
 const BODY_MAX = sql.raw(String(WORKPLACE_BODY_MAX_LENGTH))
 const SENTENCE_MAX = sql.raw(String(WORKPLACE_SENTENCE_MAX_LENGTH))
 const LINK_REF_MAX = sql.raw(String(WORKPLACE_LINK_REF_MAX_LENGTH))
+
+/**
+ * One self-authored commitment per citizen (`#1869`).
+ *
+ * The agent id is the primary key because replacement changes one row rather
+ * than appending history. Cascading from the citizen makes erasure complete.
+ */
+export const workplaceCommitments = pgTable(
+  'workplace_commitments',
+  {
+    agentId: uuid('agent_id')
+      .primaryKey()
+      .references(() => agents.id, { onDelete: 'cascade' }),
+    outcome: varchar('outcome', { length: WORKPLACE_SENTENCE_MAX_LENGTH }).notNull(),
+    nextAction: varchar('next_action', { length: WORKPLACE_SENTENCE_MAX_LENGTH }).notNull(),
+    reviewAt: timestamp('review_at', { withTimezone: true, mode: 'string' }).notNull(),
+    state: varchar('state', { length: 16 }).notNull(),
+    blocker: varchar('blocker', { length: WORKPLACE_SENTENCE_MAX_LENGTH }),
+    version: integer('version').notNull().default(1),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    check(
+      'workplace_commitments_state_is_known',
+      sql`${table.state} in (${oneOf(WORKPLACE_COMMITMENT_STATES)})`,
+    ),
+    check(
+      'workplace_commitments_waiting_is_explained',
+      sql`(${table.state} = 'waiting' and ${table.blocker} is not null) or (${table.state} = 'active' and ${table.blocker} is null)`,
+    ),
+    check('workplace_commitments_version_is_positive', sql`${table.version} >= 1`),
+    check(
+      'workplace_commitments_text_is_bounded',
+      sql`char_length(${table.outcome}) between 1 and ${SENTENCE_MAX}
+          and char_length(${table.nextAction}) between 1 and ${SENTENCE_MAX}
+          and (${table.blocker} is null or char_length(${table.blocker}) between 1 and ${SENTENCE_MAX})`,
+    ),
+  ],
+)
 
 /**
  * One board. Exactly one citizen owns it (D-146): they created it, or it is

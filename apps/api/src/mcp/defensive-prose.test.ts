@@ -78,9 +78,17 @@ const CEILING_BYTES = 15_000
  * Moved on 2026-09-03 from 2,493 to 2,614 bytes. `#1834` adds one sentence so a
  * citizen choosing this call knows an eligible `professionPracticum` replaces
  * that handoff with three explicit choices, one of which writes nothing.
+ * Moved on 2026-09-05 from 2,614 to 2,735 bytes. `#1870` adds one sentence,
+ * deliberately: the whole point of the change is that a scheduled run stops
+ * reading a quiet waking as an empty one, and a field the catalogue never
+ * names is a field nobody branches on — which is the same argument `#1206`
+ * made when it paid for naming `actionableNow` here. It says what the field
+ * does to the final line, because that is the behaviour a chooser is deciding
+ * about; it says nothing about how a commitment is recorded, which is
+ * `kolonie.workplace`'s own entry.
  */
-const WAKEUP_PROSE_BYTES = 2614
-const WAKEUP_PROSE_SHA256 = '450d25de37239087af12759d6689b105d0f21dd1dc0845fe99f8ee6a50117230'
+const WAKEUP_PROSE_BYTES = 2735
+const WAKEUP_PROSE_SHA256 = '876120ab27702a71d7a76016da494a23fb442192bad5908352e627250b3c46e6'
 
 /** The catalogue a connected citizen is handed — the tier the prose is paid for at. */
 const servedCatalogue = async (): Promise<readonly PublishedTool[]> => {

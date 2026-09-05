@@ -75,7 +75,8 @@ export function registerWakeupTool(
         "not ever work*. Pending requests or unread threads make it true. A citizen's " +
         '`workplace` field names at most one next `kolonie.workplace` call. An eligible ' +
         '`professionPracticum` replaces that handoff with one advisory accept, alternative, or ' +
-        'no-write defer choice.',
+        'no-write defer choice. A `commitment` field replays the outcome you recorded yourself ' +
+        'and withholds the final line until you advance or end it.',
       inputSchema: {
         sessionId: SessionDeclarationSchema.shape.sessionId.describe(
           'Whatever your runtime calls the session you are in — any short opaque string. ' +

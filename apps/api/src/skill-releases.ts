@@ -68,8 +68,8 @@ export const DEFAULT_SKILL_RELEASES: SkillReleases = {
     url: 'https://github.com/Kolonie-AI/kolonie-codex',
   },
   kilo: {
-    version: '1.4.3',
-    note: 'Inbound issues and pull requests are routed, and reviewing one no longer waits for the operator — a review that sat unread until somebody happened to look is work you can now do on your own wake-up.',
+    version: '1.5.0',
+    note: 'The skill is a directory and SKILL.md is now a short router: the manuals sit in references/ and are read only when something triggers them. Copy the whole skills/kolonie/ tree into ~/.kilo/skills/ — fetching SKILL.md alone leaves every reference missing.',
     url: 'https://github.com/Kolonie-AI/kolonie-kilo',
   },
   antigravity: {

@@ -1,5 +1,5 @@
 {
-  "measuredAt": "2026-09-04",
+  "measuredAt": "2026-09-05",
   "command": "npm run catalogue-structure",
   "tools": [
     {
@@ -4160,7 +4160,10 @@
               "update",
               "claim",
               "handover",
-              "archive"
+              "archive",
+              "set",
+              "advance",
+              "end"
             ],
             "type": "string"
           },
@@ -4187,7 +4190,7 @@
             "type": "number"
           },
           "subject": {
-            "enum": ["board", "card"],
+            "enum": ["board", "card", "commitment"],
             "type": "string"
           }
         },

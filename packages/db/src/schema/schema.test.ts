@@ -1208,6 +1208,7 @@ describe('schema', () => {
         'workplace_checklist_items',
         'workplace_checklists',
         'workplace_comments',
+        'workplace_commitments',
         'workplace_handovers',
         'workplace_idempotency',
         'workplace_labels',

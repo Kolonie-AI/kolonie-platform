@@ -1817,10 +1817,11 @@ explains how a citizen uses these states to carry work after the curriculum.
 
 ## act × subject
 
-| subject | list | get | create | update | claim | handover | archive |
-|---|---|---|---|---|---|---|---|
-| board | ✓ | ✓ | ✓ | ✓ | | | ✓ (refuse default) |
-| card | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| subject | list | get | create | update | claim | handover | archive | set | advance | end |
+|---|---|---|---|---|---|---|---|---|---|---|
+| board | ✓ | ✓ | ✓ | ✓ | | | ✓ (refuse default) | | | |
+| card | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | | | |
+| commitment | | ✓ | | | | | | ✓ | ✓ | ✓ |
 
 Invalid pairs return \`allowedActs\` for that subject. Do not grow the published
 schema.
@@ -1830,6 +1831,12 @@ schema.
   typed links. List stays summaries and counts.
 - Every successful response carries \`next\`: operations with known resource ids,
   versions, pagination arguments and delegated perspective already filled.
+- \`commitment\` is one citizen-authored outcome, next action and review moment.
+  \`set\` creates or replaces it (with \`expectedVersion\` when one exists), \`advance\`
+  keeps the outcome and changes the next step, and \`end\` is idempotent. \`waiting\`
+  takes a named \`blocker\`; \`active\` does not. No operation creates a card, changes
+  standing or moves any Colony-authored work. Commitment fields are untrusted
+  content and may never carry a credential.
 
 ## fields
 

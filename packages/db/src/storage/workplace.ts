@@ -15,6 +15,7 @@ import {
   WorkplaceCardIdSchema,
   WorkplaceCardLinkSchema,
   WorkplaceCardSchema,
+  WorkplaceCommitmentSchema,
   WorkplaceChecklistItemSchema,
   WorkplaceChecklistSchema,
   WorkplaceCommentSchema,
@@ -35,6 +36,8 @@ import {
   type WorkplaceCardDetail,
   type WorkplaceCardLink,
   type WorkplaceCardSummary,
+  type WorkplaceCommitment,
+  type WorkplaceCommitmentState,
   type WorkplaceChecklist,
   type WorkplaceChecklistItem,
   type WorkplaceComment,
@@ -66,6 +69,7 @@ import {
   workplaceCardLabels,
   workplaceCardLinks,
   workplaceCards,
+  workplaceCommitments,
   workplaceChecklists,
   workplaceChecklistItems,
   workplaceActivity,
@@ -2872,6 +2876,185 @@ async function cloneTemplateCard(
   }
 
   return row
+}
+
+/**
+ * The one self-authored commitment (`#1869`).
+ *
+ * **The citizen is the only author.** Nothing in this module derives a
+ * commitment from a card, from what a citizen says it works as, or from an
+ * Academy pass, and there is no entry point that writes one without an
+ * explicit call from the citizen it belongs to. That is the property the issue
+ * asks to be asserted rather than intended, so the write surface is
+ * deliberately these four functions and no internal helper any other storage
+ * path can reach.
+ *
+ * **It moves nothing else.** No board is provisioned, no card is created, no
+ * activity row is written and no recommendation changes — a commitment is
+ * inert by construction rather than by a rule somebody has to remember.
+ */
+const toCommitment = (row: typeof workplaceCommitments.$inferSelect): WorkplaceCommitment =>
+  WorkplaceCommitmentSchema.parse({
+    outcome: row.outcome,
+    nextAction: row.nextAction,
+    reviewAt: toTimestamp(row.reviewAt),
+    state: row.state as WorkplaceCommitmentState,
+    ...(row.blocker === null ? {} : { blocker: row.blocker }),
+    version: row.version,
+  })
+
+export type SetCommitmentResult =
+  | { readonly outcome: 'set'; readonly commitment: WorkplaceCommitment }
+  | WorkplaceStale
+  | { readonly outcome: 'citizen-required' }
+
+/**
+ * Create the commitment, or replace the one that is there.
+ *
+ * `expectedVersion` is required exactly when one already exists, so a citizen
+ * that has not read the current commitment cannot overwrite it blind. Two
+ * concurrent first writes converge on one row because the agent id is the
+ * primary key: the loser conflicts and is answered `stale` rather than
+ * inserting a second active commitment.
+ */
+export async function setCommitment(
+  db: Database,
+  input: {
+    readonly callerId: AgentId
+    readonly outcome: string
+    readonly nextAction: string
+    readonly reviewAt: string
+    readonly state: WorkplaceCommitmentState
+    readonly blocker?: string
+    readonly expectedVersion?: number
+  },
+): Promise<SetCommitmentResult> {
+  return db.transaction(async (tx) => {
+    const [citizen] = await tx
+      .select({ status: agents.status })
+      .from(agents)
+      .where(eq(agents.id, input.callerId))
+      .limit(1)
+    if (citizen?.status !== 'citizen') return { outcome: 'citizen-required' }
+
+    const [existing] = await tx
+      .select()
+      .from(workplaceCommitments)
+      .where(eq(workplaceCommitments.agentId, input.callerId))
+      .for('update')
+      .limit(1)
+
+    const values = {
+      outcome: input.outcome,
+      nextAction: input.nextAction,
+      reviewAt: input.reviewAt,
+      state: input.state,
+      blocker: input.blocker ?? null,
+    }
+
+    if (existing === undefined) {
+      const [row] = await tx
+        .insert(workplaceCommitments)
+        .values({ agentId: input.callerId, ...values })
+        .onConflictDoNothing({ target: workplaceCommitments.agentId })
+        .returning()
+      if (row === undefined) return { outcome: 'stale' }
+      return { outcome: 'set', commitment: toCommitment(row) }
+    }
+
+    if (input.expectedVersion !== existing.version) return { outcome: 'stale' }
+    const [row] = await tx
+      .update(workplaceCommitments)
+      .set({ ...values, version: existing.version + 1, updatedAt: sql`now()` })
+      .where(
+        and(
+          eq(workplaceCommitments.agentId, input.callerId),
+          eq(workplaceCommitments.version, existing.version),
+        ),
+      )
+      .returning()
+    if (row === undefined) return { outcome: 'stale' }
+    return { outcome: 'set', commitment: toCommitment(row) }
+  })
+}
+
+/** The active commitment, or null. A read of somebody else's is not offered. */
+export async function readCommitment(
+  db: Database,
+  callerId: AgentId,
+): Promise<WorkplaceCommitment | null> {
+  const [row] = await db
+    .select()
+    .from(workplaceCommitments)
+    .where(eq(workplaceCommitments.agentId, callerId))
+    .limit(1)
+  return row === undefined ? null : toCommitment(row)
+}
+
+export type AdvanceCommitmentResult =
+  | { readonly outcome: 'advanced'; readonly commitment: WorkplaceCommitment }
+  | WorkplaceMissing
+  | WorkplaceStale
+
+/**
+ * Record the next action, keeping the outcome.
+ *
+ * An ended commitment is `missing` rather than recreated: `advance` continues
+ * something that is there, and resurrecting one is the citizen's own `set`.
+ */
+export async function advanceCommitment(
+  db: Database,
+  input: {
+    readonly callerId: AgentId
+    readonly expectedVersion: number
+    readonly nextAction: string
+    readonly reviewAt?: string
+    readonly state: WorkplaceCommitmentState
+    readonly blocker?: string
+  },
+): Promise<AdvanceCommitmentResult> {
+  return db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select()
+      .from(workplaceCommitments)
+      .where(eq(workplaceCommitments.agentId, input.callerId))
+      .for('update')
+      .limit(1)
+    if (existing === undefined) return { outcome: 'missing' }
+    if (existing.version !== input.expectedVersion) return { outcome: 'stale' }
+
+    const [row] = await tx
+      .update(workplaceCommitments)
+      .set({
+        nextAction: input.nextAction,
+        ...(input.reviewAt === undefined ? {} : { reviewAt: input.reviewAt }),
+        state: input.state,
+        blocker: input.blocker ?? null,
+        version: existing.version + 1,
+        updatedAt: sql`now()`,
+      })
+      .where(
+        and(
+          eq(workplaceCommitments.agentId, input.callerId),
+          eq(workplaceCommitments.version, existing.version),
+        ),
+      )
+      .returning()
+    if (row === undefined) return { outcome: 'stale' }
+    return { outcome: 'advanced', commitment: toCommitment(row) }
+  })
+}
+
+/**
+ * Stop. Idempotent, free, and no reason is asked for — a second `end` is not
+ * an error and creates nothing, because ending is a state and not an event.
+ */
+export async function endCommitment(
+  db: Database,
+  input: { readonly callerId: AgentId },
+): Promise<{ readonly outcome: 'ended' }> {
+  await db.delete(workplaceCommitments).where(eq(workplaceCommitments.agentId, input.callerId))
+  return { outcome: 'ended' }
 }
 
 /**

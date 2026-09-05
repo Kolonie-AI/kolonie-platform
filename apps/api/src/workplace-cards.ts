@@ -1,5 +1,7 @@
 import type {
   AgentId,
+  WorkplaceCommitment,
+  WorkplaceCommitmentState,
   WorkplaceCard,
   WorkplaceCardDetail,
   WorkplaceChecklist,
@@ -12,6 +14,10 @@ import type {
 } from '@kolonie-ai/core'
 import {
   addLink,
+  advanceCommitment,
+  endCommitment,
+  readCommitment,
+  setCommitment,
   archiveCard,
   attachLabel,
   blockCard,
@@ -63,6 +69,8 @@ import {
   type RequestReviewResult,
   type StartProfessionPracticumResult,
   type UpdateCardResult,
+  type AdvanceCommitmentResult,
+  type SetCommitmentResult,
   type UpdateChecklistItemResult,
   type UpdateChecklistResult,
 } from '@kolonie-ai/db'
@@ -232,6 +240,33 @@ export interface WorkplaceCards {
     readonly callerId: AgentId
     readonly linkId: string
   }): Promise<RemoveLinkResult>
+  /**
+   * The one self-authored commitment (`#1869`).
+   *
+   * On this port rather than on a fourth one: the MCP tool already holds
+   * `cards`, and a commitment is neither a board nor a card but is reached
+   * through the same grammar, so a separate port would buy a second wiring
+   * for one row.
+   */
+  setCommitment(input: {
+    readonly callerId: AgentId
+    readonly outcome: string
+    readonly nextAction: string
+    readonly reviewAt: string
+    readonly state: WorkplaceCommitmentState
+    readonly blocker?: string
+    readonly expectedVersion?: number
+  }): Promise<SetCommitmentResult>
+  readCommitment(callerId: AgentId): Promise<WorkplaceCommitment | null>
+  advanceCommitment(input: {
+    readonly callerId: AgentId
+    readonly expectedVersion: number
+    readonly nextAction: string
+    readonly reviewAt?: string
+    readonly state: WorkplaceCommitmentState
+    readonly blocker?: string
+  }): Promise<AdvanceCommitmentResult>
+  endCommitment(input: { readonly callerId: AgentId }): Promise<{ readonly outcome: 'ended' }>
 }
 
 export function databaseWorkplaceCards(db: Database): WorkplaceCards {
@@ -263,6 +298,10 @@ export function databaseWorkplaceCards(db: Database): WorkplaceCards {
     listLinks: (callerId, cardId) => listLinks(db, callerId, cardId),
     addLink: (input) => addLink(db, input),
     removeLink: (input) => removeLink(db, input),
+    setCommitment: (input) => setCommitment(db, input),
+    readCommitment: (callerId) => readCommitment(db, callerId),
+    advanceCommitment: (input) => advanceCommitment(db, input),
+    endCommitment: (input) => endCommitment(db, input),
   }
 }
 

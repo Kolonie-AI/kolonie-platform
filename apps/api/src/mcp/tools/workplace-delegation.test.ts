@@ -354,6 +354,48 @@ describe('delegated kolonie.workplace (#1797)', () => {
     }
   })
 
+  /**
+   * A commitment under a delegation (`#1869`).
+   *
+   * It reuses the capabilities the Workplace grammar already checks, so a
+   * read needs `workplace-read` and a write needs `workplace-write`. It
+   * writes no activity row because it touches no board, which is the
+   * `workplace_activity_delegation_is_whole` "neither" case rather than an
+   * omission.
+   */
+  it('authorizes a delegated commitment by capability and writes no board activity', async () => {
+    const pilot = await aPilot(['workplace-read'])
+    try {
+      pilot.colony.standing(pilot.subject.id, { status: 'citizen' })
+      await pilot.accept()
+
+      const refused = await pilot.client.callTool(
+        workplace({
+          act: 'set',
+          subject: 'commitment',
+          fields: {
+            outcome: 'Deliver one observable result.',
+            nextAction: 'Draft the smallest version of it.',
+            reviewAt: '2026-09-06T12:00:00.000Z',
+            state: 'active',
+          },
+          delegationId: pilot.delegationId,
+        }),
+      )
+      expect(refused.isError).toBe(true)
+      expect(errorOf(refused).code).toBe('delegation_missing_capability')
+
+      const read = await pilot.client.callTool(
+        workplace({ act: 'get', subject: 'commitment', delegationId: pilot.delegationId }),
+      )
+      expect(read.isError).toBeFalsy()
+      expect(read.structuredContent).toHaveProperty('delegation.subjectAgentId', pilot.subject.id)
+      expect(read.structuredContent).toHaveProperty('commitment', null)
+    } finally {
+      await pilot.close()
+    }
+  })
+
   it('leaves an undelegated call byte-compatible, carrying no delegation block', async () => {
     const { colony, apiKey, agent } = await registeredCitizen()
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)

@@ -2,6 +2,7 @@ import {
   ListTasksRequestSchema,
   REPORT_FIELDS,
   SPONSOR_ASYMMETRY,
+  SubmitTaskMcpReceiptSchema,
   SubmitTaskRequestSchema,
 } from '@kolonie-ai/core'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
@@ -432,6 +433,7 @@ export function registerTaskTools(
       if (result.outcome === 'rejected') return toolError(result.error)
 
       const { submission, poll, reportFiled, assistanceUndeclared } = result.response
+      const receipt = SubmitTaskMcpReceiptSchema.parse(result.response)
 
       return {
         content: [
@@ -476,14 +478,13 @@ export function registerTaskTools(
           },
         ],
         /**
-         * The same `SubmitTaskResponse` the REST surface sends, `poll.endpoint`
-         * included — and that field names a `/v1` path even here. Left as it is
-         * rather than rewritten per surface: it is where the verdict genuinely
-         * lives, the text above tells an MCP caller the tool that reads it, and
-         * a response that differs between surfaces is the drift both of them
-         * exist to avoid.
+         * The MCP receipt is a typed projection rather than the full REST
+         * response (`#1861`, D-149). The full payload reached storage above;
+         * repeating it here can make the acknowledgement too large for the
+         * caller to receive. Parsing performs the omission and validates every
+         * field needed to follow the asynchronous verdict.
          */
-        structuredContent: result.response,
+        structuredContent: receipt,
       }
     },
   )

@@ -226,6 +226,15 @@ describe('POST /v1/tasks/:taskId/submissions', () => {
     })
   })
 
+  it('echoes the payload on REST — the MCP receipt is the projection, not this door', async () => {
+    const payload = { image: 'x'.repeat(2048) }
+
+    const response = await post({ payload })
+
+    expect(response.statusCode).toBe(202)
+    expect(response.json().submission.payload).toEqual(payload)
+  })
+
   it('refuses an anonymous caller', async () => {
     const response = await post(undefined, null)
 

@@ -1,5 +1,11 @@
 import { randomUUID } from 'node:crypto'
-import { FrontierResponseSchema, SkillSchema, SubmissionIdSchema } from '@kolonie-ai/core'
+import {
+  FrontierResponseSchema,
+  SkillSchema,
+  SubmissionIdSchema,
+  UNREADABLE_RESPONSE_BYTES,
+} from '@kolonie-ai/core'
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { describe, expect, it } from 'vitest'
 import { aTask, fakeCatalogue } from '../../__fixtures__/catalogue.js'
 import { aBriefing } from '../../__fixtures__/guidance.js'
@@ -7,6 +13,7 @@ import { connectedClient, registeredCitizen } from '../../__fixtures__/mcp.js'
 import { fakeProviderRecipes } from '../../__fixtures__/provider-recipes.js'
 import { aSubmission, fakeSubmissions } from '../../__fixtures__/submissions.js'
 import { buildApp } from '../../app.js'
+import { toolResultBytes } from '../../call-rollup.js'
 import { TOOL_DOCS } from '../tool-docs.js'
 import { VERDICT_POLL } from '../../submissions.js'
 
@@ -664,6 +671,123 @@ describe('kolonie.tasks.submit', () => {
     // middle out would keep the length wrong in a way only equality catches.
     expect((carried as string).length).toBe(image.length)
     expect(carried).toBe(image)
+    await close()
+  })
+
+  /**
+   * **A mutation receipt does not echo the evidence** (`#1861`, D-149).
+   *
+   * A citizen measurement on 2026-09-03 recorded `kolonie.tasks.submit` at
+   * 86,511 bytes because `structuredContent` was the same `SubmitTaskResponse`
+   * REST returns, and that schema embeds `payload`. The caller already holds
+   * the evidence; the receipt is the identifiers that follow the asynchronous
+   * verdict. Omitting the payload is not data loss. The store and the verifier
+   * still see it whole, which the assertion on `lastCommand` is.
+   */
+  it('does not echo the evidence, and stays under the unreadable-response ceiling', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const submissions = fakeSubmissions()
+    const task = aTask()
+    const { client, close } = await connectedClient({ ...colony, submissions }, `Bearer ${apiKey}`)
+
+    const evidence = 'x'.repeat(UNREADABLE_RESPONSE_BYTES)
+    const result = (await client.callTool({
+      name: 'kolonie.tasks.submit',
+      arguments: { taskId: task.id, payload: { image: evidence } },
+    })) as CallToolResult
+
+    expect(result.isError).toBeFalsy()
+    expect(toolResultBytes(result)).toBeLessThan(UNREADABLE_RESPONSE_BYTES)
+
+    const structured = JSON.stringify(result.structuredContent)
+    const text = JSON.stringify(result.content)
+    expect(structured).not.toContain(evidence)
+    expect(text).not.toContain(evidence)
+
+    expect(submissions.lastCommand()?.payload).toEqual({ image: evidence })
+    const receipt = result.structuredContent as {
+      submission: {
+        id: string
+        taskId: string
+        attempt: number
+        status: string
+        assistance: string
+        payload?: unknown
+        report?: unknown
+      }
+      poll: unknown
+    }
+    expect(receipt).toMatchObject({
+      submission: {
+        taskId: task.id,
+        attempt: 1,
+        status: 'pending',
+        assistance: 'unknown',
+      },
+      poll: VERDICT_POLL,
+    })
+    expect(SubmissionIdSchema.parse(receipt.submission.id)).toBe(receipt.submission.id)
+    expect(receipt.submission).not.toHaveProperty('payload')
+    expect(receipt.submission).not.toHaveProperty('report')
+    await close()
+  })
+
+  it('stores a single-box report and does not echo it on the receipt', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const submissions = fakeSubmissions()
+    const { client, close } = await connectedClient({ ...colony, submissions }, `Bearer ${apiKey}`)
+    const report = 'The activation step never completed and no error was shown anywhere.'
+
+    const result = (await client.callTool({
+      name: 'kolonie.tasks.submit',
+      arguments: { taskId: aTask().id, payload: {}, report },
+    })) as CallToolResult
+
+    expect(result.isError).toBeFalsy()
+    expect(submissions.lastCommand()?.report).toBe(report)
+    expect(JSON.stringify(result.structuredContent)).not.toContain(report)
+    expect(
+      (result.structuredContent as { submission: Record<string, unknown> }).submission,
+    ).not.toHaveProperty('report')
+    await close()
+  })
+
+  it('carries reportFiled on the receipt when the three answers were filed', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = (await client.callTool({
+      name: 'kolonie.tasks.submit',
+      arguments: {
+        taskId: aTask().id,
+        payload: {},
+        did: 'Took the second provider on the list and it went through on the first try.',
+      },
+    })) as CallToolResult
+
+    expect(result.structuredContent).toMatchObject({ reportFiled: 'filed' })
+    await close()
+  })
+
+  it('carries the undeclared-assistance price on the receipt', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const submissions = fakeSubmissions()
+    const task = aTask()
+    submissions.answers({
+      outcome: 'accepted',
+      submission: aSubmission({ taskId: task.id, agentId: agent.id, payload: {} }),
+      assistanceUndeclared: { fullReputation: 8, reducedReputation: 4, percent: 50 },
+    })
+    const { client, close } = await connectedClient({ ...colony, submissions }, `Bearer ${apiKey}`)
+
+    const result = (await client.callTool({
+      name: 'kolonie.tasks.submit',
+      arguments: { taskId: task.id },
+    })) as CallToolResult
+
+    expect(result.structuredContent).toMatchObject({
+      assistanceUndeclared: { fullReputation: 8, reducedReputation: 4, percent: 50 },
+    })
     await close()
   })
 })

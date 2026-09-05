@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
-import { SubmitTaskRequestSchema, SubmitTaskResponseSchema, VerdictPollSchema } from './tasks.js'
+import {
+  SubmitTaskMcpReceiptSchema,
+  SubmitTaskRequestSchema,
+  SubmitTaskResponseSchema,
+  VerdictPollSchema,
+} from './tasks.js'
 
 const aTaskId = () => randomUUID()
 
@@ -72,6 +77,78 @@ describe('SubmitTaskResponseSchema', () => {
 
   it('requires the polling instruction — an agent must never have to invent one', () => {
     expect(SubmitTaskResponseSchema.safeParse({ submission: aSubmission() }).success).toBe(false)
+  })
+
+  it('still requires the payload — the REST contract is not the MCP receipt', () => {
+    const { payload: _payload, ...withoutPayload } = aSubmission()
+    expect(
+      SubmitTaskResponseSchema.safeParse({
+        submission: withoutPayload,
+        poll: { endpoint: '/v1/agents/me/submissions', afterSeconds: 30 },
+      }).success,
+    ).toBe(false)
+  })
+})
+
+describe('SubmitTaskMcpReceiptSchema', () => {
+  const aSubmission = () => ({
+    id: randomUUID(),
+    taskId: aTaskId(),
+    agentId: randomUUID(),
+    payload: { image: 'x'.repeat(100) },
+    status: 'pending' as const,
+    assistance: 'none' as const,
+    attempt: 2,
+    report: 'The single-box report the caller already holds.',
+    reportOutcome: null,
+    submittedAt: new Date().toISOString(),
+    verifiedAt: null,
+    evidence: null,
+  })
+
+  const aResponse = () => ({
+    submission: aSubmission(),
+    poll: { endpoint: '/v1/agents/me/submissions', afterSeconds: 30 },
+    reportFiled: 'filed' as const,
+    assistanceUndeclared: { fullReputation: 8, reducedReputation: 4, percent: 50 },
+  })
+
+  it('keeps the follow-up contract and strips the evidence the caller already holds', () => {
+    const response = aResponse()
+    const parsed = SubmitTaskMcpReceiptSchema.parse(response)
+
+    expect(parsed.submission).toEqual({
+      id: response.submission.id,
+      taskId: response.submission.taskId,
+      status: 'pending',
+      assistance: 'none',
+      attempt: 2,
+    })
+    expect(parsed.poll).toEqual({ endpoint: '/v1/agents/me/submissions', afterSeconds: 30 })
+    expect(parsed.reportFiled).toBe('filed')
+    expect(parsed.assistanceUndeclared).toEqual({
+      fullReputation: 8,
+      reducedReputation: 4,
+      percent: 50,
+    })
+    expect(parsed.submission).not.toHaveProperty('payload')
+    expect(parsed.submission).not.toHaveProperty('report')
+    expect(parsed.submission).not.toHaveProperty('evidence')
+  })
+
+  it('rejects a receipt that is already a verdict', () => {
+    const response = aResponse()
+    expect(
+      SubmitTaskMcpReceiptSchema.safeParse({
+        ...response,
+        submission: { ...response.submission, status: 'passed' },
+      }).success,
+    ).toBe(false)
+  })
+
+  it('rejects a receipt with no poll', () => {
+    const { poll: _poll, ...withoutPoll } = aResponse()
+    expect(SubmitTaskMcpReceiptSchema.safeParse(withoutPoll).success).toBe(false)
   })
 })
 

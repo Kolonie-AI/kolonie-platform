@@ -1042,6 +1042,27 @@ export const SubmitTaskResponseSchema = z.object({
 export type SubmitTaskResponse = z.infer<typeof SubmitTaskResponseSchema>
 
 /**
+ * The bounded acknowledgement `kolonie.tasks.submit` returns over MCP (`#1861`).
+ *
+ * **A projection rather than a weaker submission.** The REST response, storage
+ * write and verifier all need the full payload; the mutation receipt does not.
+ * Parsing the full response through this schema both validates the follow-up
+ * contract and strips the evidence the caller already holds. `pending` is a
+ * literal because this acknowledgement is acceptance for asynchronous
+ * verification, never a verdict.
+ */
+export const SubmitTaskMcpReceiptSchema = SubmitTaskResponseSchema.extend({
+  submission: SubmissionSchema.pick({
+    id: true,
+    taskId: true,
+    status: true,
+    assistance: true,
+    attempt: true,
+  }).extend({ status: z.literal('pending') }),
+})
+export type SubmitTaskMcpReceipt = z.infer<typeof SubmitTaskMcpReceiptSchema>
+
+/**
  * `GET /v1/agents/me/submissions` — every submission this agent has made, and
  * where each one stands.
  *

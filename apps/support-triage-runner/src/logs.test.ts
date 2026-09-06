@@ -78,6 +78,30 @@ describe('every query that parses JSON skips the lines it cannot parse', () => {
     expect(queries[0]).toContain('| json | __error__=""')
   })
 
+  it('the last-start query searches backward in ranges no wider than one hour', async () => {
+    const requests: URL[] = []
+    const fetchImpl = (async (input: string | URL | Request) => {
+      requests.push(new URL(String(input)))
+      return new Response(JSON.stringify({ data: { result: [] } }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as unknown as typeof fetch
+
+    await lokiLogs(options(fetchImpl)).lastStart('api', '2026-08-06T11:00:00.000Z')
+
+    expect(requests).toHaveLength(24)
+    for (const request of requests) {
+      const start = BigInt(request.searchParams.get('start') ?? '')
+      const end = BigInt(request.searchParams.get('end') ?? '')
+      expect(end - start).toBeLessThanOrEqual(3_600_000_000_000n)
+      expect(request.searchParams.get('limit')).toBe('1')
+      expect(request.searchParams.get('direction')).toBe('backward')
+    }
+    expect(requests[0]?.searchParams.get('end')).toBe('1786014000000000000')
+    expect(requests.at(-1)?.searchParams.get('start')).toBe('1785927600000000000')
+  })
+
   /**
    * The invariant, rather than three assertions about three lines. A fourth
    * query added later without the filter fails here, which is where `#435`

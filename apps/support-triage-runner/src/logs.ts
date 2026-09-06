@@ -491,26 +491,33 @@ export function lokiLogs(options: LokiOptions): Logs {
       // A day back and no further. A deploy older than that is not the
       // explanation for an error that started this afternoon, and saying so
       // would be worse than saying nothing.
-      const start = Math.floor(before / 1000) - 86_400
+      const end = Math.floor(before / 1000)
+      const oldest = end - 86_400
+      const selector = `{job="containers", service="${service}"} | json | __error__="" | event=~"service.started|runner.started"`
 
-      const found = (await query('/loki/api/v1/query_range', {
-        query: `{job="containers", service="${service}"} | json | __error__="" | event=~"service.started|runner.started"`,
-        start: String(start * 1_000_000_000),
-        end: String(Math.floor(before / 1000) * 1_000_000_000),
-        limit: '1',
-        direction: 'backward',
-      })) as
-        | { data?: { result?: ReadonlyArray<{ values?: ReadonlyArray<[string, string]> }> } }
-        | undefined
+      for (let rangeEnd = end; rangeEnd > oldest; rangeEnd -= 3_600) {
+        const rangeStart = Math.max(oldest, rangeEnd - 3_600)
+        const found = (await query('/loki/api/v1/query_range', {
+          query: selector,
+          start: String(rangeStart * 1_000_000_000),
+          end: String(rangeEnd * 1_000_000_000),
+          limit: '1',
+          direction: 'backward',
+        })) as
+          | { data?: { result?: ReadonlyArray<{ values?: ReadonlyArray<[string, string]> }> } }
+          | undefined
 
-      const entries = (found?.data?.result ?? []).flatMap((stream) => stream.values ?? [])
-      if (entries.length === 0) return null
+        const entries = (found?.data?.result ?? []).flatMap((stream) => stream.values ?? [])
+        if (entries.length === 0) continue
 
-      const newest = entries
-        .map(([nanos]) => Number(BigInt(nanos) / 1_000_000n))
-        .sort((a, b) => b - a)[0]
+        const newest = entries
+          .map(([nanos]) => Number(BigInt(nanos) / 1_000_000n))
+          .sort((a, b) => b - a)[0]
 
-      return newest === undefined ? null : new Date(newest).toISOString()
+        return newest === undefined ? null : new Date(newest).toISOString()
+      }
+
+      return null
     },
   }
 }

@@ -1,16 +1,19 @@
 import { describe, expect, it } from 'vitest'
+import { API_BASE_PATH } from './version.js'
 import {
   CreateGuestVaultHandoffRequestSchema,
   CreateGuestVaultHandoffResponseSchema,
   GUEST_VAULT_HANDOFF_DEFAULT_MINUTES,
   GUEST_VAULT_HANDOFF_MAX_MINUTES,
   GUEST_VAULT_HANDOFF_MIN_MINUTES,
+  GetVaultEntryMcpReceiptSchema,
   GuestVaultHandoffSchema,
   ListGuestVaultHandoffsResponseSchema,
   RevokeGuestVaultHandoffResponseSchema,
   VAULT_KEY_SHAPES,
   VaultKeySchema,
   VaultShareNotifyStatusSchema,
+  vaultEntryRetrieval,
 } from './vault.js'
 
 /**
@@ -172,5 +175,51 @@ describe('the outcome of telling an operator about a share', () => {
 
   it('rejects an invented outcome rather than making callers interpret prose', () => {
     expect(VaultShareNotifyStatusSchema.safeParse('queued').success).toBe(false)
+  })
+})
+
+/**
+ * A vault read over MCP is a transcript event (`#1874`).
+ *
+ * The receipt is what a default read answers with: everything about the entry
+ * except the one field a conversational transcript must not carry, plus the
+ * named route that hands the plaintext over outside it.
+ */
+describe('the transcript-safe vault read receipt', () => {
+  const entry = {
+    key: 'github/octocat',
+    description: null,
+    spentAt: null,
+    share: null,
+    createdAt: '2026-09-06T00:00:00.000Z',
+    updatedAt: '2026-09-06T00:00:00.000Z',
+  }
+
+  it('projects a read into a receipt that carries no value', () => {
+    const receipt = GetVaultEntryMcpReceiptSchema.parse({
+      entry,
+      value: 'a-synthetic-fixture-value',
+      retrieval: {
+        method: 'GET',
+        path: `${API_BASE_PATH}/vault/github%2Foctocat`,
+        authorization: 'Bearer <your API key>',
+      },
+    })
+
+    expect(receipt).not.toHaveProperty('value')
+    expect(JSON.stringify(receipt)).not.toContain('a-synthetic-fixture-value')
+    expect(receipt.retrieval.path).toBe(`${API_BASE_PATH}/vault/github%2Foctocat`)
+  })
+
+  it('refuses a receipt whose retrieval route is missing', () => {
+    expect(GetVaultEntryMcpReceiptSchema.safeParse({ entry }).success).toBe(false)
+  })
+
+  it('names the route for one key, escaped so a slash in the name survives', () => {
+    expect(vaultEntryRetrieval('totp/github')).toEqual({
+      method: 'GET',
+      path: `${API_BASE_PATH}/vault/totp%2Fgithub`,
+      authorization: 'Bearer <your API key>',
+    })
   })
 })

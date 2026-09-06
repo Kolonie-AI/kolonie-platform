@@ -1,5 +1,7 @@
 import { z } from 'zod'
 import {
+  GetVaultEntryMcpReceiptSchema,
+  vaultEntryRetrieval,
   VaultKeySchema,
   VaultSharePurposeSchema,
   GUEST_VAULT_HANDOFF_DEFAULT_MINUTES,
@@ -27,7 +29,7 @@ import {
 } from '../../vault.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
-import { vaultAsText } from '../text/vault.js'
+import { vaultAsText, vaultReadAsText } from '../text/vault.js'
 import { toolDocsMeta } from '../tool-docs.js'
 import { COLONY_HOME } from '../../about.js'
 
@@ -189,9 +191,15 @@ export function registerVaultTools(
       // `#1693` — the wake-up route and what a different API key leaves behind
       // moved behind `_meta`. The same-key boundary and the given-away refusal
       // stay because both decide whether this call can hand a secret over.
+      // `#1874` — the plaintext left this answer. A citizen reported that a
+      // readback puts the whole credential into structured content and rendered
+      // text, which is where a conversational transcript keeps it. The receipt
+      // names the route instead, and the route is the one that already existed.
       description:
-        'Read one secret you put in the vault, decrypted with the API key you are presenting.\n\n' +
-        'It only opens with **the same API key that stored it**.\n\n' +
+        'Confirm one entry and get the route that hands its value back outside this ' +
+        'transcript. It only opens with **the same API key that stored it**.\n\n' +
+        '**The secret is not in this answer.** Fetch it at the named route with the same ' +
+        'key, so a credential does not land in a conversational transcript.\n\n' +
         '**An entry whose account you gave away is refused rather than opened.**',
       inputSchema: {
         key: VaultKeySchema.describe('The name you stored it under.'),
@@ -210,12 +218,31 @@ export function registerVaultTools(
 
       if (result.outcome === 'rejected') return toolError(result.error)
 
+      /**
+       * **The value does not enter either half of this answer** (`#1874`,
+       * D-149 rule 5).
+       *
+       * It used to be in both, deliberately: a client that renders only text
+       * would otherwise show an agent everything about its secret except the
+       * secret. What that reasoning missed is where those two halves go — a
+       * transcript keeps them, and a credential in a transcript outlives the
+       * call that needed it. Parsing performs the omission, and the retrieval
+       * route is a door the citizen can already open, with the key it is
+       * presenting here.
+       */
+      const receipt = GetVaultEntryMcpReceiptSchema.parse({
+        entry: result.response.entry,
+        retrieval: vaultEntryRetrieval(result.response.entry.key),
+      })
+
       return {
-        // The value in the text half as well as the structured one: a client
-        // that renders only text would otherwise show an agent everything about
-        // its secret except the secret.
-        content: [{ type: 'text', text: result.response.value }],
-        structuredContent: result.response,
+        content: [
+          {
+            type: 'text',
+            text: vaultReadAsText(receipt),
+          },
+        ],
+        structuredContent: receipt,
       }
     },
   )

@@ -5,6 +5,7 @@ import {
   OFFER_CONFIRMATION_TTL_SECONDS,
   RELATED_ACCOUNTS_MAX,
   TRANSFER_TTL_DAYS,
+  VAULT_MAX_ENTRIES,
   type AgentId,
   type ConfirmationVerdict,
   type CredentialFinding,
@@ -18,7 +19,7 @@ import { agents } from '../schema/agents.js'
 import { openAccountTransferIn, sealAccountTransfer } from './account-transfers.js'
 import { closeWalkOnTransfer } from './account-walks.js'
 import { provedMailbox, provedMailboxes } from './email.js'
-import { getVaultEntry, markVaultEntrySpent } from './vault.js'
+import { getVaultEntry, markVaultEntrySpent, vaultEntryCount } from './vault.js'
 
 /**
  * Offering a spare account to another citizen (`#1125`).
@@ -129,6 +130,16 @@ export type GiveAccountOutcome =
   | { readonly outcome: 'unknown-account' }
   /** Decision 4: no `vaultKey`, and the fix is two calls. */
   | { readonly outcome: 'no-vault-key' }
+  /**
+   * The giver is at the quota and the fix would need a new entry (`#1873`).
+   *
+   * Ordered **before** `no-vault-key`, because that refusal names
+   * `kolonie.vault.set` as the way on and at the quota that call is the one
+   * that fails — from a subsystem that knows nothing about a handover, leaving
+   * an irreversible `kolonie.vault.delete` as the only apparent way forward.
+   * This says it while the cheap options are still open. It reclaims nothing.
+   */
+  | { readonly outcome: 'giver-vault-full'; readonly maxEntries: number }
   /** The named entry is not one the giver holds, or not one its key opens. */
   | { readonly outcome: 'nothing-to-give' }
   /** Decision 6. Exempt from decision 5: the caller already knows its own handle. */
@@ -250,6 +261,29 @@ export async function giveAccount(
     return row
   })
   const primary = set[0]!
+
+  /**
+   * The quota is checked **before** the refusal that would send the giver to
+   * `kolonie.vault.set` (`#1873`).
+   *
+   * At the ceiling that call refuses, and its refusal knows nothing about a
+   * handover being under way — which is how an ordinary transfer came to force
+   * the irreversible deletion of an unrelated credential. Saying it here is the
+   * whole of the fix: **nothing on this path deletes, evicts, prunes, archives
+   * or expires an entry**, and nothing ever will. Warning earlier is the repair;
+   * reclaiming space would be a different and much worse one.
+   *
+   * It fires only where an entry would have to be written. A giver at the
+   * ceiling whose accounts already carry their credentials has nothing to store
+   * and is not stopped.
+   */
+  const needsAnEntry = set.some(
+    (account) => account.vaultKey === null || account.vaultKey.trim() === '',
+  )
+
+  if (needsAnEntry && (await vaultEntryCount(db, command.fromAgentId)) >= VAULT_MAX_ENTRIES) {
+    return { outcome: 'giver-vault-full', maxEntries: VAULT_MAX_ENTRIES }
+  }
 
   for (const account of set) {
     if (account.vaultKey === null || account.vaultKey.trim() === '') {

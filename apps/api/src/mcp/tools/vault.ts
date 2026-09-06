@@ -574,7 +574,14 @@ export function registerVaultTools(
         'is sealed under the Colony’s key for as long as the share lasts, because a person ' +
         'has no key of their own.\n\n' +
         '**kolonie.vault.set is refused while an entry is shared**, and names ' +
-        'kolonie.vault.unshare as the way on.',
+        'kolonie.vault.unshare as the way on.\n\n' +
+        // `#1873` — published rather than left in this comment because the
+        // confusion has happened: a citizen meaning to move a credential to
+        // another citizen reads this tool first, since it is the vault tool
+        // with *share* in the name, and the word that excludes the case sits
+        // inside a sentence about something else.
+        '**This one is for the person linked to you.** A credential moving to another citizen ' +
+        'goes through kolonie.accounts.give.',
       inputSchema: {
         key: VaultKeySchema.describe(
           'The entry to share, by the name you stored it under. Only the name — there is no ' +

@@ -1,6 +1,11 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq, sql } from 'drizzle-orm'
-import { AccountKindSchema, RegisterAgentRequestSchema, type AgentId } from '@kolonie-ai/core'
+import {
+  AccountKindSchema,
+  RegisterAgentRequestSchema,
+  VAULT_MAX_ENTRIES,
+  type AgentId,
+} from '@kolonie-ai/core'
 import { generateApiKey } from '../api-key.js'
 import type { Database } from '../client.js'
 import {
@@ -28,7 +33,13 @@ import {
 } from './account-offers.js'
 import { accountWalk, unreportedWalk, walkInProgress } from './account-walks.js'
 import { atlasFigures } from './atlas-figures.js'
-import { getVaultEntry, listedEntries, listVaultEntries, setVaultEntry } from './vault.js'
+import {
+  getVaultEntry,
+  listedEntries,
+  listVaultEntries,
+  setVaultEntry,
+  vaultEntryCount,
+} from './vault.js'
 
 const target = databaseTestTarget()
 
@@ -282,6 +293,54 @@ describe('an account offered to another citizen', () => {
   })
 
   /** Decision 7: the address the Colony writes to, with nowhere else to write. */
+  /**
+   * A handover must never be what forces an irreversible deletion (`#1873`).
+   *
+   * The giver's sequence is vault.set → accounts.declare → accounts.give, and
+   * at the quota the first step is what refuses — from a subsystem that knows
+   * nothing about a handover being in progress, leaving `kolonie.vault.delete`
+   * as the only way forward. So the give path learns to say it first.
+   */
+  describe('a giver whose vault is full', () => {
+    const fillGiverVault = async (): Promise<void> => {
+      await db.insert(agentVault).values(
+        Array.from({ length: VAULT_MAX_ENTRIES - 1 }, (_unused, index) => ({
+          agentId: giver,
+          key: `filler-${String(index).padStart(4, '0')}`,
+          encryptedValue: 'not-openable-and-not-read-by-these-tests',
+        })),
+      )
+    }
+
+    it('refuses early, naming the quota, when the account has no credential yet', async () => {
+      await fillGiverVault()
+      const withoutCredential = await anAccount({ vaultKey: null, identifier: 'another-handle' })
+
+      expect(await give({ accountId: withoutCredential })).toEqual({
+        outcome: 'giver-vault-full',
+        maxEntries: VAULT_MAX_ENTRIES,
+      })
+    })
+
+    it('still gives an account whose credential is already stored', async () => {
+      await fillGiverVault()
+
+      // The entry exists, so nothing has to be written and the quota is not in
+      // the way. A refusal here would block a handover for no reason.
+      expect((await give()).outcome).toBe('offered')
+    })
+
+    it('deletes, evicts and prunes nothing, whatever it answers', async () => {
+      await fillGiverVault()
+      const before = await vaultEntryCount(db, giver)
+      const withoutCredential = await anAccount({ vaultKey: null, identifier: 'another-handle' })
+
+      await give({ accountId: withoutCredential })
+
+      expect(await vaultEntryCount(db, giver)).toBe(before)
+    })
+  })
+
   describe('the reach mailbox', () => {
     let mailbox: string
 

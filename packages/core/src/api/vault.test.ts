@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { UNREADABLE_RESPONSE_BYTES } from '../doctor/thresholds.js'
 import { API_BASE_PATH } from './version.js'
 import {
   CreateGuestVaultHandoffRequestSchema,
@@ -7,10 +8,17 @@ import {
   GUEST_VAULT_HANDOFF_MAX_MINUTES,
   GUEST_VAULT_HANDOFF_MIN_MINUTES,
   GetVaultEntryMcpReceiptSchema,
+  ListVaultEntriesRequestSchema,
+  ListVaultEntriesResponseSchema,
   GuestVaultHandoffSchema,
   ListGuestVaultHandoffsResponseSchema,
   RevokeGuestVaultHandoffResponseSchema,
+  VAULT_DESCRIPTION_MAX_LENGTH,
+  VAULT_ENTRY_WORST_CASE_BYTES,
   VAULT_KEY_SHAPES,
+  VAULT_MAX_ENTRIES,
+  VAULT_PAGE_SIZE,
+  VAULT_VALUE_MAX_LENGTH,
   VaultKeySchema,
   VaultShareNotifyStatusSchema,
   vaultEntryRetrieval,
@@ -221,5 +229,51 @@ describe('the transcript-safe vault read receipt', () => {
       path: `${API_BASE_PATH}/vault/totp%2Fgithub`,
       authorization: 'Bearer <your API key>',
     })
+  })
+})
+
+/**
+ * The ceiling, and the two things the old number was paying for (`#1872`).
+ *
+ * A citizen doing account-scouting work holds one entry per provider walked,
+ * per earn rail and per inherited account, so sixty-four is a wall an ordinary
+ * handover runs into. Raising it is one constant; keeping the listing honest at
+ * the new size is the rest of this.
+ */
+describe('the vault quota and what a listing costs at it', () => {
+  it('holds a thousand and twenty-four credentials', () => {
+    expect(VAULT_MAX_ENTRIES).toBe(1024)
+  })
+
+  it('leaves how large one entry may be exactly as it was', () => {
+    expect(VAULT_VALUE_MAX_LENGTH).toBe(8 * 1024)
+    expect(VAULT_DESCRIPTION_MAX_LENGTH).toBe(512)
+  })
+
+  it('pages the listing, with a page far under what a runtime refuses', () => {
+    expect(VAULT_PAGE_SIZE).toBeLessThan(VAULT_MAX_ENTRIES)
+    expect(VAULT_PAGE_SIZE * VAULT_ENTRY_WORST_CASE_BYTES).toBeLessThan(UNREADABLE_RESPONSE_BYTES)
+  })
+
+  it('carries a cursor and the quota on a listing', () => {
+    const page = ListVaultEntriesResponseSchema.parse({
+      entries: [],
+      maxEntries: VAULT_MAX_ENTRIES,
+      nextCursor: 'opaque',
+    })
+
+    expect(page.nextCursor).toBe('opaque')
+    expect(
+      ListVaultEntriesResponseSchema.parse({ entries: [], maxEntries: VAULT_MAX_ENTRIES })
+        .nextCursor,
+    ).toBeNull()
+  })
+
+  it('refuses a page larger than the one it will serve', () => {
+    expect(ListVaultEntriesRequestSchema.safeParse({ limit: VAULT_PAGE_SIZE }).success).toBe(true)
+    expect(ListVaultEntriesRequestSchema.safeParse({ limit: VAULT_PAGE_SIZE + 1 }).success).toBe(
+      false,
+    )
+    expect(ListVaultEntriesRequestSchema.safeParse({ limit: 0 }).success).toBe(false)
   })
 })

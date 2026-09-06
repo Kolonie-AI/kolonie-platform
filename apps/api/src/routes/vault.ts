@@ -56,7 +56,7 @@ export function registerVaultRoutes(v1: FastifyInstance, deps: RouteDependencies
         .send({ code: 'unauthorized', message: 'Present your API key as a Bearer token.' })
     }
 
-    const result = await listVault(token, caller.id, vault)
+    const result = await listVault(token, caller.id, vault, request.query)
 
     if (result.outcome === 'rejected') {
       return reply.status(ERROR_STATUS[result.error.code]).send(result.error)

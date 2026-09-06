@@ -28,7 +28,7 @@ import {
 } from './account-offers.js'
 import { accountWalk, unreportedWalk, walkInProgress } from './account-walks.js'
 import { atlasFigures } from './atlas-figures.js'
-import { getVaultEntry, listVaultEntries, setVaultEntry } from './vault.js'
+import { getVaultEntry, listedEntries, listVaultEntries, setVaultEntry } from './vault.js'
 
 const target = databaseTestTarget()
 
@@ -652,7 +652,7 @@ describe('an account offered to another citizen', () => {
         // it exactly as before — a spent entry is still the giver's to see.
         const [row] = await db.select().from(agentVault).where(eq(agentVault.agentId, giver))
         expect(row?.encryptedValue).toBeTruthy()
-        expect(await listVaultEntries(db, giverToken, giver)).toMatchObject([
+        expect(listedEntries(await listVaultEntries(db, giverToken, giver))).toMatchObject([
           { key: 'provider/handle', description: FIXTURE_DESCRIPTION },
         ])
       })
@@ -1253,7 +1253,7 @@ describe('an account offered to another citizen', () => {
         value: FIXTURE_VALUE,
       })
 
-      const listed = await listVaultEntries(db, giverToken, giver)
+      const listed = listedEntries(await listVaultEntries(db, giverToken, giver))
       expect(listed).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ key: 'mailbox/spare' }),

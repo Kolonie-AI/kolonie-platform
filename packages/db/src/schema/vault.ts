@@ -70,9 +70,11 @@ export const agentVault = pgTable(
      * the decision rather than an inconsistency. The two reasons the key is in
      * the clear are the unique index and keeping `list` free of decryption;
      * neither applies to this column. It is not indexed, and the cost of
-     * decrypting it in a listing is bounded by `VAULT_MAX_ENTRIES` — sixty-four
+     * decrypting it in a listing is bounded by `VAULT_PAGE_SIZE` — fifty
      * AES-GCM opens on a call that already holds the sealing key because it is
-     * already authenticated.
+     * already authenticated. The bound was `VAULT_MAX_ENTRIES` until `#1872`
+     * raised that to 1024 and moved the listing onto a page for exactly this
+     * reason.
      *
      * What it buys is the class of disclosure the plaintext key deliberately
      * accepts a small corner of. An operator reading the key learns that a

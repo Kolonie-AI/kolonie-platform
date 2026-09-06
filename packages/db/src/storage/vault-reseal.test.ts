@@ -8,7 +8,13 @@ import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
 import { authenticateApiKey } from './authentication.js'
 import { rotateApiKey } from './rotation.js'
-import { getVaultEntry, listVaultEntries, reSealVault, setVaultEntry } from './vault.js'
+import {
+  getVaultEntry,
+  listedEntries,
+  listVaultEntries,
+  reSealVault,
+  setVaultEntry,
+} from './vault.js'
 
 const target = databaseTestTarget()
 
@@ -79,7 +85,9 @@ describe('rotating a key re-seals the vault (#1127)', () => {
 
     const rotated = await rotate(apiKey)
 
-    const listed = await listVaultEntries(db, String(rotated.credentials.apiKey), agentId)
+    const listed = listedEntries(
+      await listVaultEntries(db, String(rotated.credentials.apiKey), agentId),
+    )
     expect(listed).toMatchObject([{ key: 'mailbox', description: 'the mailbox at a provider' }])
   })
 

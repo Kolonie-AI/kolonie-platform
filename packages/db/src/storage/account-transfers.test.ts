@@ -17,7 +17,7 @@ import {
   openAccountTransfer,
   sealAccountTransfer,
 } from './account-transfers.js'
-import { getVaultEntry, listVaultEntries, setVaultEntry } from './vault.js'
+import { getVaultEntry, listedEntries, listVaultEntries, setVaultEntry } from './vault.js'
 
 const target = databaseTestTarget()
 
@@ -132,7 +132,7 @@ describe('a credential travelling between two citizens', () => {
     const read = await getVaultEntry(db, recipientToken, recipient, 'inherited/handle')
     expect(read).toMatchObject({ outcome: 'found', value: FIXTURE_VALUE })
 
-    const listed = await listVaultEntries(db, recipientToken, recipient)
+    const listed = listedEntries(await listVaultEntries(db, recipientToken, recipient))
     expect(listed).toEqual([
       expect.objectContaining({ key: 'inherited/handle', description: FIXTURE_DESCRIPTION }),
     ])

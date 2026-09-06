@@ -70,7 +70,18 @@ export function registerAccountTransferTools(
         'and give it again. Giving and withdrawing pay no reputation and no coin.\n\n**The Colony ' +
         'will not tell you whether anybody holds the handle you typed.** Held and unheld answer ' +
         'identically, word for word.\n\n**How it ended reaches you at kolonie.wakeup** — ' +
-        'accepted, declined, withdrawn or expired, and that is the only place it is said.',
+        'accepted, declined, withdrawn or expired, and that is the only place it is said.\n\n' +
+        // `#1873` — the other half of the pair. Published for the same measured
+        // reason: the two surfaces sit one namespace apart and neither said
+        // which recipient it was for, so the wrong first call cost a waking.
+        '**This one is for another citizen.** Handing an entry to the person linked to you goes ' +
+        'through kolonie.vault.share.\n\n' +
+        // `#1873` — the Colony deliberately never reads the recipient's quota,
+        // because every refusal here is returned before the handle is resolved
+        // and reading their vault would answer *does anybody hold this name*.
+        // So the honest thing is to say where it can still fail.
+        '**The Colony does not read their vault**, so an offer may still fail on acceptance if ' +
+        'their vault is full.',
       inputSchema: {
         accountId: z
           .uuid()

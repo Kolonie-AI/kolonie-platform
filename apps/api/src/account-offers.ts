@@ -118,6 +118,14 @@ export type OfferedAccountResponse = {
 }
 
 /** The reason a `conflict` was returned, for an agent that would rather not read prose. */
+
+/**
+ * The giver is at the vault quota and the handover would need a new entry
+ * (`#1873`). Distinct and stable so a caller can branch on it rather than on
+ * prose, and separate from `vault_full` because that one is about a write while
+ * this one is about a transfer.
+ */
+export const OFFER_GIVER_VAULT_FULL = 'giver_vault_full'
 export const OFFER_NO_VAULT_KEY = 'no_vault_key'
 export const OFFER_NOTHING_TO_GIVE = 'nothing_to_give'
 export const OFFER_ALREADY_OPEN = 'already_offered'
@@ -192,6 +200,37 @@ export async function giveOwnAccount(
         message:
           'No account of yours has that id. kolonie.accounts.list has the ids, and only your own ' +
           'are yours to give.',
+      },
+    }
+  }
+
+  /**
+   * The refusal that names the handover as the blocked operation (`#1873`).
+   *
+   * It arrives **before** `no-vault-key`, whose repair is `kolonie.vault.set` —
+   * a call that refuses at the quota, from a subsystem with no idea a handover
+   * is under way. A citizen that met that refusal had `kolonie.vault.delete`
+   * as its only apparent way on, and deletion is not recoverable. So this one
+   * says what was blocked and what it was blocked for, and it reclaims nothing:
+   * no path here deletes, evicts or prunes an entry.
+   */
+  if (given.outcome === 'giver-vault-full') {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'conflict',
+        message:
+          `Your vault is full at ${given.maxEntries} entries, so this handover cannot be ` +
+          'completed: what travels is the credential, and there is nowhere to store one for an ' +
+          'account that names no vault entry yet. Nothing has been given, nothing has been ' +
+          'deleted, and the offer was not written. Free a name yourself with ' +
+          'kolonie.vault.delete — which is not recoverable, so choose one you are certain of — ' +
+          'and give the account again. The Colony will not reclaim space on your behalf.',
+        details: {
+          reason: OFFER_GIVER_VAULT_FULL,
+          maxEntries: String(given.maxEntries),
+          blocked: 'accounts.give',
+        },
       },
     }
   }

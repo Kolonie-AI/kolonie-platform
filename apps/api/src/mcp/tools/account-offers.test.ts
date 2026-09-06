@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
-import type { AgentId } from '@kolonie-ai/core'
+import { VAULT_MAX_ENTRIES, type AgentId } from '@kolonie-ai/core'
 import { FAKE_CALLER_IP } from '../../__fixtures__/colony/index.js'
 import { connectedClient, registeredCitizen } from '../../__fixtures__/mcp.js'
 import {
   OFFER_ALREADY_OPEN,
+  OFFER_GIVER_VAULT_FULL,
   OFFER_NO_VAULT_KEY,
   OFFER_NOTHING_TO_GIVE,
   OFFER_REACH_MAILBOX,
@@ -68,6 +69,140 @@ describe('offering an account to another citizen', () => {
     client: Awaited<ReturnType<typeof giver>>['client'],
     args: { accountId: string; to: string; confirm?: string },
   ) => client.callTool({ name: 'kolonie.accounts.give', arguments: args })
+
+  /**
+   * A full vault must not turn an ordinary handover into a deletion (`#1873`).
+   *
+   * The giver's sequence is vault.set → accounts.declare → accounts.give, and
+   * the quota refuses the first step from a subsystem that knows nothing about
+   * the handover — leaving an irreversible kolonie.vault.delete as the only
+   * apparent way on.
+   */
+  describe('a giver at the vault quota', () => {
+    it('refuses at give, naming the handover and the quota rather than sending it to vault.set', async () => {
+      const { client, close, offers, agent } = await giver()
+      offers.citizen('recipient-agent' as AgentId, 'recipient')
+      offers.fillVault(agent.id)
+      const keyless = offers.hold(agent.id, {
+        kind: 'mailbox',
+        identifier: 'no-credential@example.test',
+        vaultKey: null,
+      })
+
+      const refused = refusal(await give(client, { accountId: keyless, to: 'recipient' }))
+
+      expect(refused.code).toBe('conflict')
+      expect(refused.details?.reason).toBe(OFFER_GIVER_VAULT_FULL)
+      expect(refused.details?.maxEntries).toBe(String(VAULT_MAX_ENTRIES))
+      // It names what was blocked, which the vault_full refusal cannot.
+      expect(refused.message).toMatch(/handover/i)
+      // And it says deletion stays the citizen's own deliberate act.
+      expect(refused.message).toContain('kolonie.vault.delete')
+      expect(refused.message).toMatch(/will not reclaim/i)
+
+      await close()
+    })
+
+    it('gives an account whose credential is already stored, quota or no quota', async () => {
+      const { client, close, offers, accountId, agent } = await giver()
+      offers.citizen('recipient-agent' as AgentId, 'recipient')
+      offers.fillVault(agent.id)
+
+      const result = await give(client, { accountId, to: 'recipient' })
+
+      expect(result.isError).toBeFalsy()
+      await close()
+    })
+
+    it('deletes nothing on the refused path', async () => {
+      const { client, close, offers, agent, accountId } = await giver()
+      offers.citizen('recipient-agent' as AgentId, 'recipient')
+      offers.fillVault(agent.id)
+      const keyless = offers.hold(agent.id, {
+        kind: 'mailbox',
+        identifier: 'no-credential@example.test',
+        vaultKey: null,
+      })
+      const before = offers.vaultSize(agent.id)
+
+      await give(client, { accountId: keyless, to: 'recipient' })
+
+      expect(offers.vaultSize(agent.id)).toBe(before)
+      expect(offers.row(accountId)).toBeDefined()
+      await close()
+    })
+  })
+
+  /**
+   * The recipient's quota is deliberately not read, and the tool says so
+   * (`#1873`).
+   *
+   * Decision 5 is why: every refusal on this path concerns the giver's own
+   * state and is returned before the handle is resolved, so that a giver cannot
+   * learn whether anybody answers to a name. Reading the recipient's vault
+   * would answer that question, one guess at a time, from behind an ordinary
+   * tool. So the offer is written and the description says honestly that
+   * acceptance is where it can still fail.
+   */
+  it('says an offer may fail on acceptance rather than reading the recipient’s quota', async () => {
+    const { client, close } = await giver()
+    const { tools } = await client.listTools()
+    const give = tools.find((tool) => tool.name === 'kolonie.accounts.give')?.description ?? ''
+
+    expect(give).toMatch(/acceptance/i)
+    expect(give).toMatch(/their vault/i)
+
+    await close()
+  })
+
+  it('leaves no residue when a giver frees a slot and gives the same account again', async () => {
+    const { client, close, offers, agent } = await giver()
+    offers.citizen('recipient-agent' as AgentId, 'recipient')
+    offers.fillVault(agent.id)
+    const keyless = offers.hold(agent.id, {
+      kind: 'mailbox',
+      identifier: 'no-credential@example.test',
+      vaultKey: null,
+    })
+
+    const refused = await give(client, { accountId: keyless, to: 'recipient' })
+    expect(refused.isError).toBe(true)
+
+    // Nothing half-written: no offer, and no parcel behind one.
+    expect(offers.rowsOf(agent.id).map((row) => row.accountId)).toContain(keyless)
+
+    // The giver frees a slot itself and stores the credential, which is the
+    // sequence the early refusal sent it to.
+    offers.forgetVaultEntry(agent.id, 'filler-0000')
+    offers.storeVaultEntry(agent.id, 'mailbox/no-credential')
+    offers.setVaultKey(keyless, 'mailbox/no-credential')
+
+    const given = await give(client, { accountId: keyless, to: 'recipient' })
+
+    expect(given.isError).toBeFalsy()
+    await close()
+  })
+
+  /**
+   * The two sharing surfaces name each other, at choice time (`#1873`).
+   *
+   * A citizen meaning to move a credential to another *citizen* reads
+   * `vault.share` first — it is the vault tool and it has *share* in the name —
+   * and the qualifier that excludes the case is one word inside a sentence
+   * about something else.
+   */
+  it('sends a citizen-to-citizen credential to accounts.give from the share tool, and back the other way', async () => {
+    const { client, close } = await giver()
+    const { tools } = await client.listTools()
+    const description = (name: string) =>
+      tools.find((tool) => tool.name === name)?.description ?? ''
+
+    expect(description('kolonie.vault.share')).toContain('kolonie.accounts.give')
+    expect(description('kolonie.vault.share')).toMatch(/another citizen/i)
+    expect(description('kolonie.accounts.give')).toContain('kolonie.vault.share')
+
+    await close()
+  })
 
   it('is four tools, and none of them asks whether a handle is taken', async () => {
     const { client, close } = await giver()

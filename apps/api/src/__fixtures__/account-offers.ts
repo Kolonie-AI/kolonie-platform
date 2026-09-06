@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import {
   RELATED_ACCOUNTS_MAX,
   TRANSFER_TTL_DAYS,
+  VAULT_MAX_ENTRIES,
   keyMaterialFinding,
   type AgentId,
   type CredentialFinding,
@@ -77,6 +78,12 @@ export interface FakeAccountOffers extends AccountOfferStore {
   rowsOf(agentId: AgentId): readonly (ArrivedAccount & { readonly accountId: string })[]
   /** Whether a citizen's vault holds that name. The giver's must survive. */
   holdsVaultEntry(agentId: AgentId, key: string): boolean
+  /** Fill a citizen's vault to the quota, for the early give refusal (`#1873`). */
+  fillVault(agentId: AgentId, entries?: number): void
+  /** Point an account at a vault entry, as kolonie.accounts.set does. */
+  setVaultKey(accountId: string, vaultKey: string): void
+  /** How many entries a citizen holds — what asserts that nothing was reclaimed. */
+  vaultSize(agentId: AgentId): number
   /**
    * Whether that entry has been marked as no longer the citizen's to use
    * (`#1214`). The giver's entry survives an accept and stops opening: both
@@ -221,6 +228,21 @@ export function fakeAccountOffers(): FakeAccountOffers {
       return vaultEntries.has(`${agentId}:${key}`)
     },
 
+    fillVault(agentId, entries = VAULT_MAX_ENTRIES) {
+      for (let index = vaultEntries.size; index < entries; index += 1) {
+        vaultEntries.add(`${agentId}:filler-${String(index).padStart(4, '0')}`)
+      }
+    },
+
+    setVaultKey(accountId, vaultKey) {
+      const held = accounts.get(accountId)
+      if (held !== undefined) accounts.set(accountId, { ...held, vaultKey })
+    },
+
+    vaultSize(agentId) {
+      return [...vaultEntries].filter((entry) => entry.startsWith(`${agentId}:`)).length
+    },
+
     spentVaultEntry(agentId, key) {
       return spentEntries.has(`${agentId}:${key}`)
     },
@@ -246,6 +268,23 @@ export function fakeAccountOffers(): FakeAccountOffers {
           return Promise.resolve({ outcome: 'unknown-account' })
         }
         set.push(account)
+      }
+
+      /**
+       * @mirrors packages/db/src/storage/account-offers.ts giveAccount
+       *
+       * The quota is read **before** `no-vault-key`, because that refusal names
+       * `kolonie.vault.set` and at the ceiling that call is the one that fails
+       * (`#1873`). A fixture that kept the old order would let the surface test
+       * pass while a real giver still met the refusal mid-handover. It reclaims
+       * nothing here either.
+       */
+      const needsAnEntry = set.some((account) => account.vaultKey === null)
+      const held = [...vaultEntries].filter((entry) =>
+        entry.startsWith(`${command.fromAgentId}:`),
+      ).length
+      if (needsAnEntry && held >= VAULT_MAX_ENTRIES) {
+        return Promise.resolve({ outcome: 'giver-vault-full', maxEntries: VAULT_MAX_ENTRIES })
       }
 
       for (const account of set) {

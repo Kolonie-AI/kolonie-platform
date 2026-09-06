@@ -11,7 +11,9 @@ import {
   type CreateGuestVaultHandoffResponse,
   type ListGuestVaultHandoffsResponse,
   type RevokeGuestVaultHandoffResponse,
+  ListVaultEntriesRequestSchema,
   VAULT_MAX_ENTRIES,
+  VAULT_PAGE_SIZE,
   VAULT_SHARE_DEFAULT_DAYS,
   VAULT_SHARE_MAX_DAYS,
   keyMaterialFinding,
@@ -57,6 +59,7 @@ import {
   type SetVaultEntryOutcome,
   type ShareVaultEntryOutcome,
   type UnshareVaultEntryOutcome,
+  type ListVaultEntriesOutcome,
   type VaultEntryRow,
   type VaultShareRow,
 } from '@kolonie-ai/db'
@@ -87,10 +90,15 @@ export interface VaultStore {
    * decrypts nothing.
    *
    * It still decrypts no *values*, which is the property that mattered — what it
-   * opens is at most `VAULT_MAX_ENTRIES` short descriptions, on a call that
-   * already holds the key because it is already authenticated.
+   * opens is at most `VAULT_PAGE_SIZE` short descriptions, on a call that
+   * already holds the key because it is already authenticated. It pages since
+   * `#1872`, because the quota it used to be bounded by is now 1024.
    */
-  list(token: string, agentId: AgentId): Promise<readonly VaultEntryRow[]>
+  list(
+    token: string,
+    agentId: AgentId,
+    page?: { readonly cursor?: string | undefined; readonly limit?: number | undefined },
+  ): Promise<ListVaultEntriesOutcome>
   /** Writing or clearing the description alone, without the value being re-sent. */
   describe(
     token: string,
@@ -185,7 +193,7 @@ export function databaseVault(db: Database, sealingKey?: string | undefined): Va
     set: (token, agentId, key, value, description) =>
       setVaultEntry(db, token, agentId, key, value, description),
     get: (token, agentId, key) => getVaultEntry(db, token, agentId, key),
-    list: (token, agentId) => listVaultEntries(db, token, agentId),
+    list: (token, agentId, page) => listVaultEntries(db, token, agentId, page),
     describe: (token, agentId, key, description) =>
       setVaultDescription(db, token, agentId, key, description),
     delete: (agentId, key) => deleteVaultEntry(db, agentId, key),
@@ -833,12 +841,48 @@ export async function listVault(
   token: string,
   agentId: AgentId,
   deps: VaultDependencies,
+  asked: unknown = {},
 ): Promise<VaultOutcome<ListVaultEntriesResponse>> {
-  const entries = await deps.vault.list(token, agentId)
+  const parsed = ListVaultEntriesRequestSchema.safeParse(asked ?? {})
+  if (!parsed.success) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message: `A listing takes at most ${VAULT_PAGE_SIZE} entries and a cursor from an earlier page.`,
+      },
+    }
+  }
+
+  const page = await deps.vault.list(token, agentId, parsed.data)
+
+  /**
+   * A cursor the Colony did not write is a refusal rather than a first page
+   * (`#1872`).
+   *
+   * Answering page one would look like the walk restarting, and a caller
+   * following a cursor loop would then never terminate — the same argument
+   * D-033 makes about a page that cannot be followed.
+   */
+  if (page.outcome === 'invalid-cursor') {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message:
+          'That cursor is not one the Colony wrote. Call the listing with no cursor to start ' +
+          'again from the oldest entry.',
+      },
+    }
+  }
 
   return {
     outcome: 'ok',
-    response: { entries: [...entries], maxEntries: VAULT_MAX_ENTRIES },
+    response: {
+      entries: [...page.entries],
+      maxEntries: VAULT_MAX_ENTRIES,
+      nextCursor: page.nextCursor,
+    },
   }
 }
 

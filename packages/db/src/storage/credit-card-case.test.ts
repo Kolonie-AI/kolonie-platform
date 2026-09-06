@@ -20,7 +20,7 @@ import {
   readOperatorConversation,
 } from './messaging.js'
 import { operatorThreadsForPageToken } from './operator-threads.js'
-import { setVaultEntry, getVaultEntry, listVaultEntries } from './vault.js'
+import { setVaultEntry, getVaultEntry, listedEntries, listVaultEntries } from './vault.js'
 import {
   handBackShare,
   movedThreadFor,
@@ -302,7 +302,7 @@ describe('the credit-card case', () => {
     expect(JSON.stringify(listed)).not.toContain('hunter2')
     expect(JSON.stringify(listed)).not.toContain('4417')
 
-    const vault = await listVaultEntries(db, token, agentId)
+    const vault = listedEntries(await listVaultEntries(db, token, agentId))
     expect(JSON.stringify(vault)).not.toContain('4417')
   })
 

@@ -259,7 +259,7 @@ describe('the throttle at both doors', () => {
           ...colony.vault.vault,
           list: async () => {
             reached += 1
-            return []
+            return { outcome: 'listed' as const, entries: [], nextCursor: null }
           },
         },
       }

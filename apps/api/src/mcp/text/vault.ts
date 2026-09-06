@@ -31,7 +31,7 @@ export function vaultReadAsText({ entry, retrieval }: GetVaultEntryMcpReceipt): 
 }
 
 /** The vault as a model reads it: names and dates, never a value. */
-export function vaultAsText({ entries, maxEntries }: ListVaultEntriesResponse): string {
+export function vaultAsText({ entries, maxEntries, nextCursor }: ListVaultEntriesResponse): string {
   if (entries.length === 0) {
     return (
       'Your vault is empty. If you mint a credential for a task — a mailbox password, an API ' +
@@ -74,7 +74,7 @@ export function vaultAsText({ entries, maxEntries }: ListVaultEntriesResponse): 
   const shared = entries.filter((entry: VaultEntry) => entry.share !== null)
 
   return [
-    `${entries.length} of ${maxEntries} entries:`,
+    `${entries.length} entries on this page; you may hold ${maxEntries} in all.`,
     '',
     ...lines,
     '',
@@ -89,6 +89,20 @@ export function vaultAsText({ entries, maxEntries }: ListVaultEntriesResponse): 
             (shared.some((entry: VaultEntry) => entry.share?.operatorWrote === true)
               ? ' Somebody has written back — take it and you get their words, once.'
               : ''),
+          '',
+        ]),
+    ...(nextCursor === null
+      ? []
+      : [
+          /**
+           * **The cursor is said in the text as well as the fields** (`#1872`).
+           *
+           * A citizen reading only the rendered half would otherwise take one
+           * page for the whole vault, which is the failure paging introduces
+           * and the one thing the page must not cost.
+           */
+          `There are more entries. Call kolonie.vault.list again with cursor "${nextCursor}" ` +
+            'to read the next page.',
           '',
         ]),
     'Fetch one with kolonie.vault.get. The values are not shown here and are not readable by ' +

@@ -2,6 +2,7 @@ import { and, asc, count, eq, sql } from 'drizzle-orm'
 import {
   now as currentTime,
   VAULT_MAX_ENTRIES,
+  VAULT_PAGE_SIZE,
   type AgentId,
   type Timestamp,
 } from '@kolonie-ai/core'
@@ -22,7 +23,7 @@ export interface VaultEntryRow {
    * them: no description was written, the entry predates the column, or this
    * token cannot open it. The third is the same fact `getVaultEntry` reports as
    * `unreadable`, and it arrives here as an absence because one unopenable row
-   * must not fail the listing of the sixty-three that open.
+   * must not fail the listing of the rest of the page.
    */
   readonly description: string | null
   /**
@@ -494,17 +495,82 @@ function entryRow(
   }
 }
 
+/** Where a listing resumes: the sort key of the last entry on the page before. */
+interface VaultListCursor {
+  readonly createdAt: string
+  readonly key: string
+}
+
 /**
- * Every name this citizen holds, oldest first, with its description (`#154`).
+ * The cursor is the sort key, base64url of the pair the ordering compares.
  *
- * **It takes a token now, and decrypts at most `VAULT_MAX_ENTRIES` short
- * strings.** That is a change to the sentence this function used to make about
- * itself — *takes no token, decrypts nothing* — and the trade is deliberate: the
- * names stay in plaintext, so the query, the ordering and the idempotent write
- * are all still free of ciphertext, and what is opened is sixty-four small
- * envelopes on a call that already holds the sealing key because it is already
- * authenticated. The values are still never opened here, which is the property
- * that actually mattered.
+ * Opaque to the caller and reconstructible by nobody but this file, which is
+ * what stops a client from computing one and walking somebody else's vault —
+ * the agent is a parameter of the query rather than a part of the cursor.
+ */
+function encodeListCursor(row: { createdAt: Date | string; key: string }): string {
+  const createdAt = row.createdAt instanceof Date ? row.createdAt.toISOString() : row.createdAt
+  return Buffer.from(`${createdAt}|${row.key}`, 'utf8').toString('base64url')
+}
+
+function decodeListCursor(cursor: string | undefined): VaultListCursor | undefined | 'invalid' {
+  if (cursor === undefined || cursor === '') return undefined
+
+  const parts = Buffer.from(cursor, 'base64url').toString('utf8').split('|')
+  if (parts.length !== 2) return 'invalid'
+
+  const [createdAt, key] = parts as [string, string]
+  if (createdAt === '' || key === '' || Number.isNaN(Date.parse(createdAt))) return 'invalid'
+
+  return { createdAt, key }
+}
+
+/**
+ * The entries of a page, for a caller that cannot have passed a bad cursor.
+ *
+ * Every call site that lists without one gets a `listed` outcome by
+ * construction, and would otherwise repeat the same four-line narrowing. It
+ * throws rather than returning an empty list, because a silent `[]` there would
+ * read as *this citizen holds nothing*.
+ */
+export function listedEntries(outcome: ListVaultEntriesOutcome): readonly VaultEntryRow[] {
+  if (outcome.outcome !== 'listed') throw new Error(`vault listing refused: ${outcome.outcome}`)
+  return outcome.entries
+}
+
+/** One page of a listing, or the refusal a cursor nobody wrote earns. */
+export type ListVaultEntriesOutcome =
+  | {
+      readonly outcome: 'listed'
+      readonly entries: readonly VaultEntryRow[]
+      /** Where the next page starts, or null on the last one. */
+      readonly nextCursor: string | null
+    }
+  | { readonly outcome: 'invalid-cursor' }
+
+/**
+ * One page of the names this citizen holds, oldest first, with descriptions
+ * (`#154`, paged by `#1872`).
+ *
+ * **It takes a token, and decrypts at most `VAULT_PAGE_SIZE` short strings.**
+ * That is a change to the sentence this function used to make about itself —
+ * *takes no token, decrypts nothing* — and the trade is deliberate: the names
+ * stay in plaintext, so the query, the ordering and the idempotent write are all
+ * still free of ciphertext, and what is opened is fifty small envelopes on a
+ * call that already holds the sealing key because it is already authenticated.
+ * The values are still never opened here, which is the property that actually
+ * mattered.
+ *
+ * **It pages because the quota rose to 1024.** Measured 2026-09-06 against
+ * PostgreSQL 16, a whole vault of maximum-length descriptions is roughly 681 KB
+ * — ten times what a runtime has been measured to refuse — and the bound the
+ * old sentence relied on was the quota itself. A page of fifty is about 33 KB
+ * at the same worst case.
+ *
+ * **Keyset, not offset**, and it is the ordering that decides it: an entry
+ * written mid-walk would shift every offset after it, so a citizen storing a
+ * credential while paging would skip one it already held. The tuple is
+ * `(created_at, key)` because `created_at` alone is not unique.
  *
  * **A description this token cannot open is null rather than an error**, so an
  * agent that rotated its key still gets its list.
@@ -516,7 +582,13 @@ export async function listVaultEntries(
   db: Database,
   token: string,
   agentId: AgentId,
-): Promise<readonly VaultEntryRow[]> {
+  page: { readonly cursor?: string | undefined; readonly limit?: number | undefined } = {},
+): Promise<ListVaultEntriesOutcome> {
+  const after = decodeListCursor(page.cursor)
+  if (after === 'invalid') return { outcome: 'invalid-cursor' }
+
+  const limit = Math.min(Math.max(page.limit ?? VAULT_PAGE_SIZE, 1), VAULT_PAGE_SIZE)
+
   const rows = await db
     .select({
       key: agentVault.key,
@@ -526,13 +598,35 @@ export async function listVaultEntries(
       updatedAt: agentVault.updatedAt,
     })
     .from(agentVault)
-    .where(eq(agentVault.agentId, agentId))
+    .where(
+      and(
+        eq(agentVault.agentId, agentId),
+        // Row-wise, so the index on (agent_id, created_at, key) still leads and
+        // no `or` chain has to be written by hand. The casts are not decoration:
+        // an untyped parameter beside a timestamptz makes it ambiguous.
+        ...(after === undefined
+          ? []
+          : [
+              sql`(${agentVault.createdAt}, ${agentVault.key}) > (${after.createdAt}::timestamptz, ${after.key}::text)`,
+            ]),
+      ),
+    )
     .orderBy(asc(agentVault.createdAt), asc(agentVault.key))
+    // One row more than asked for: whether a next page exists is then a fact
+    // about what came back rather than a second count over a moving table.
+    .limit(limit + 1)
+
+  const entries = rows.slice(0, limit)
+  const last = entries.at(-1)
 
   // One statement for every open share rather than one per entry (`#1439`).
   const shares = await openSharesFor(db, agentId)
 
-  return rows.map((row) => entryRow(token, agentId, row, shares.get(row.key) ?? null))
+  return {
+    outcome: 'listed',
+    entries: entries.map((row) => entryRow(token, agentId, row, shares.get(row.key) ?? null)),
+    nextCursor: rows.length > limit && last !== undefined ? encodeListCursor(last) : null,
+  }
 }
 
 /**
@@ -540,9 +634,9 @@ export async function listVaultEntries(
  *
  * **A count and never a listing, and the distinction is load-bearing here.**
  * `listVaultEntries` above takes a sealing token and decrypts up to
- * `VAULT_MAX_ENTRIES` descriptions; a caller that wanted one integer and reached
- * for it would decrypt sixty-four envelopes to produce it, on the call every
- * wake-up begins with. This asks Postgres to count rows, holds no token, and
+ * `VAULT_PAGE_SIZE` descriptions; a caller that wanted one integer and reached
+ * for it would decrypt fifty envelopes to produce it, on the call every
+ * wake-up begins with — and would see one page rather than the whole count. This asks Postgres to count rows, holds no token, and
  * cannot open anything even by accident — which is what makes it safe to put on
  * `kolonie.me`, where the criterion is *count entries and never open one*.
  *

@@ -18,7 +18,13 @@ import {
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { sealVaultValue } from '../vault-crypto.js'
 import { registerAgent } from './agents.js'
-import { getVaultEntry, listVaultEntries, setVaultDescription, setVaultEntry } from './vault.js'
+import {
+  getVaultEntry,
+  listedEntries,
+  listVaultEntries,
+  setVaultDescription,
+  setVaultEntry,
+} from './vault.js'
 import {
   consumeGuestVaultHandoff,
   createGuestVaultHandoff,
@@ -152,7 +158,7 @@ describe('sharing a vault entry with an operator', () => {
 
     await share('github/octocat', 'they need the login to add a card')
 
-    const listed = await listVaultEntries(db, token, agentId)
+    const listed = listedEntries(await listVaultEntries(db, token, agentId))
     const shared = listed.find((entry) => entry.key === 'github/octocat')
     const untouched = listed.find((entry) => entry.key === 'mail/citizen')
 
@@ -281,7 +287,7 @@ describe('sharing a vault entry with an operator', () => {
 
     expect(await openShareFor(db, agentId, 'github/octocat')).toBeNull()
 
-    const listed = await listVaultEntries(db, token, agentId)
+    const listed = listedEntries(await listVaultEntries(db, token, agentId))
     expect(listed[0]?.share).toBeNull()
 
     // And the write it was blocking is allowed again the moment it passes,

@@ -5,6 +5,7 @@ import type { FastifyInstance } from 'fastify'
 import {
   ERROR_STATUS,
   VAULT_MAX_ENTRIES,
+  VAULT_PAGE_SIZE,
   type AgentId,
   type VaultShareNotifyStatus,
 } from '@kolonie-ai/core'
@@ -389,7 +390,50 @@ describe('listing', () => {
   })
 
   it('is empty for a citizen who has stored nothing', async () => {
-    expect((await list()).json()).toEqual({ entries: [], maxEntries: VAULT_MAX_ENTRIES })
+    expect((await list()).json()).toEqual({
+      entries: [],
+      maxEntries: VAULT_MAX_ENTRIES,
+      nextCursor: null,
+    })
+  })
+
+  /**
+   * The listing pages since the quota rose to 1024 (`#1872`), because a whole
+   * vault of maximum-length descriptions measures roughly 681 KB against the
+   * 64 KiB a runtime has been measured to refuse.
+   */
+  describe('at the new ceiling', () => {
+    it('serves one page and a cursor onto the rest', async () => {
+      vault.fill(agentId, VAULT_PAGE_SIZE + 5)
+
+      const first = (await list()).json()
+
+      expect(first.entries).toHaveLength(VAULT_PAGE_SIZE)
+      expect(first.nextCursor).not.toBeNull()
+
+      const second = (
+        await app.inject({
+          method: 'GET',
+          url: `/v1/vault?cursor=${encodeURIComponent(String(first.nextCursor))}`,
+          headers: { authorization: `Bearer ${apiKey}` },
+        })
+      ).json()
+
+      expect(second.entries).toHaveLength(5)
+      expect(second.nextCursor).toBeNull()
+    })
+
+    it('refuses a cursor the Colony did not write rather than restarting the walk', async () => {
+      vault.fill(agentId, 2)
+
+      const refused = await app.inject({
+        method: 'GET',
+        url: '/v1/vault?cursor=not-a-cursor',
+        headers: { authorization: `Bearer ${apiKey}` },
+      })
+
+      expect(refused.statusCode).toBe(ERROR_STATUS.validation_failed)
+    })
   })
 
   it('shows one citizen nothing of another’s', async () => {
@@ -398,7 +442,11 @@ describe('listing', () => {
     const stranger = store.issue({})
     const listed = await list(String(stranger.apiKey))
 
-    expect(listed.json()).toEqual({ entries: [], maxEntries: VAULT_MAX_ENTRIES })
+    expect(listed.json()).toEqual({
+      entries: [],
+      maxEntries: VAULT_MAX_ENTRIES,
+      nextCursor: null,
+    })
   })
 })
 

@@ -1,6 +1,11 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { RegisterAgentRequestSchema, VAULT_MAX_ENTRIES, type AgentId } from '@kolonie-ai/core'
+import {
+  RegisterAgentRequestSchema,
+  VAULT_MAX_ENTRIES,
+  VAULT_PAGE_SIZE,
+  type AgentId,
+} from '@kolonie-ai/core'
 import { generateApiKey } from '../api-key.js'
 import type { Database } from '../client.js'
 import { agentVault } from '../schema/index.js'
@@ -12,9 +17,18 @@ import {
   listVaultEntries,
   setVaultDescription,
   setVaultEntry,
+  vaultEntryCount,
 } from './vault.js'
 
 const target = databaseTestTarget()
+
+/** One page, or a thrown failure — the tests below are never about a bad cursor. */
+const asListed = (
+  outcome: Awaited<ReturnType<typeof listVaultEntries>>,
+): Extract<typeof outcome, { outcome: 'listed' }> => {
+  if (outcome.outcome !== 'listed') throw new Error(outcome.outcome)
+  return outcome
+}
 
 describe('the vault', () => {
   let db: Database
@@ -40,6 +54,24 @@ describe('the vault', () => {
     agentId = await register('keeper')
     otherId = await register('stranger')
   })
+
+  /**
+   * Fill a vault to the quota without a thousand round trips (`#1872`).
+   *
+   * One statement rather than one write per entry: the rows are what these
+   * boundary tests need, and sealing a thousand values would spend a minute of
+   * wall clock proving something `vault-crypto` already asserts. The one entry
+   * the tests write through `setVaultEntry` is what keeps the write path
+   * exercised.
+   */
+  const fillToQuota = async (howMany: number = VAULT_MAX_ENTRIES): Promise<void> => {
+    const rows = Array.from({ length: howMany }, (_unused, index) => ({
+      agentId,
+      key: `key-${String(index).padStart(4, '0')}`,
+      encryptedValue: 'not-openable-and-not-read-by-these-tests',
+    }))
+    await db.insert(agentVault).values(rows)
+  }
 
   const register = async (name: string): Promise<AgentId> => {
     const result = await registerAgent(
@@ -107,7 +139,7 @@ describe('the vault', () => {
     // Same name, different citizen: not found rather than unreadable, because
     // the row genuinely is not theirs to have.
     expect(await getVaultEntry(db, otherToken, otherId, 'email')).toEqual({ outcome: 'unknown' })
-    expect(await listVaultEntries(db, otherToken, otherId)).toEqual([])
+    expect(await listVaultEntries(db, otherToken, otherId)).toMatchObject({ entries: [] })
   })
 
   it('lets two citizens hold the same name independently', async () => {
@@ -126,7 +158,7 @@ describe('the vault', () => {
     await setVaultEntry(db, token, agentId, 'email', 'one')
     await setVaultEntry(db, token, agentId, 'github', 'two')
 
-    const entries = await listVaultEntries(db, token, agentId)
+    const { entries } = asListed(await listVaultEntries(db, token, agentId))
 
     expect(entries.map((entry) => entry.key)).toEqual(['email', 'github'])
     // **No value is here and none was decrypted to produce this.** What #154
@@ -147,7 +179,7 @@ describe('the vault', () => {
     it('comes back in the listing, decrypted, beside the name', async () => {
       await setVaultEntry(db, token, agentId, 'email', 'hunter2', 'the mailbox at mail.example')
 
-      const [entry] = await listVaultEntries(db, token, agentId)
+      const [entry] = asListed(await listVaultEntries(db, token, agentId)).entries
 
       expect(entry).toMatchObject({ key: 'email', description: 'the mailbox at mail.example' })
     })
@@ -167,7 +199,7 @@ describe('the vault', () => {
     it('lists as absent for an entry written before descriptions existed', async () => {
       await setVaultEntry(db, token, agentId, 'email', 'hunter2')
 
-      const [entry] = await listVaultEntries(db, token, agentId)
+      const [entry] = asListed(await listVaultEntries(db, token, agentId)).entries
 
       expect(entry?.description).toBeNull()
     })
@@ -181,7 +213,7 @@ describe('the vault', () => {
     it('lists as absent under a key that did not write it, without failing', async () => {
       await setVaultEntry(db, token, agentId, 'email', 'hunter2', 'the mailbox')
 
-      const entries = await listVaultEntries(db, otherToken, agentId)
+      const { entries } = asListed(await listVaultEntries(db, otherToken, agentId))
 
       expect(entries).toHaveLength(1)
       expect(entries[0]?.description).toBeNull()
@@ -232,16 +264,73 @@ describe('the vault', () => {
       })
     })
 
-    /** A full vault lists with every description, which is the bounded cost. */
-    it('lists a full vault with its descriptions', async () => {
-      for (let index = 0; index < VAULT_MAX_ENTRIES; index += 1) {
+    /** One page lists with every description, which is the bounded cost. */
+    it('lists one page of a vault with its descriptions', async () => {
+      for (let index = 0; index < VAULT_PAGE_SIZE; index += 1) {
         await setVaultEntry(db, token, agentId, `entry-${index}`, 'x', `number ${index}`)
       }
 
-      const entries = await listVaultEntries(db, token, agentId)
+      const page = asListed(await listVaultEntries(db, token, agentId))
 
-      expect(entries).toHaveLength(VAULT_MAX_ENTRIES)
-      expect(entries.every((entry) => entry.description !== null)).toBe(true)
+      expect(page.entries).toHaveLength(VAULT_PAGE_SIZE)
+      expect(page.entries.every((entry) => entry.description !== null)).toBe(true)
+    })
+  })
+
+  /**
+   * The bound moved from the quota to the page when the quota rose (`#1872`).
+   *
+   * At 1024 entries a whole listing is roughly 681 KB of maximum-length
+   * descriptions, which is ten times what a runtime has been measured to
+   * refuse. So a listing is a page and the rest is reachable through a cursor:
+   * a page nobody can follow would lose the entries past the first.
+   */
+  describe('paging a listing', () => {
+    const storeMany = async (howMany: number): Promise<void> => {
+      for (let index = 0; index < howMany; index += 1) {
+        await setVaultEntry(db, token, agentId, `key-${String(index).padStart(4, '0')}`, 'value')
+      }
+    }
+
+    it('serves at most one page and says there is more', async () => {
+      await storeMany(VAULT_PAGE_SIZE + 3)
+
+      const page = asListed(await listVaultEntries(db, token, agentId))
+
+      expect(page.entries).toHaveLength(VAULT_PAGE_SIZE)
+      expect(page.nextCursor).not.toBeNull()
+    })
+
+    it('walks every entry exactly once through the cursor', async () => {
+      await storeMany(VAULT_PAGE_SIZE + 3)
+
+      const seen: string[] = []
+      let cursor: string | undefined
+      do {
+        const page = asListed(await listVaultEntries(db, token, agentId, { cursor }))
+        seen.push(...page.entries.map((entry) => entry.key))
+        cursor = page.nextCursor ?? undefined
+      } while (cursor !== undefined)
+
+      expect(seen).toHaveLength(VAULT_PAGE_SIZE + 3)
+      expect(new Set(seen).size).toBe(VAULT_PAGE_SIZE + 3)
+    })
+
+    it('ends the walk rather than offering a cursor onto nothing', async () => {
+      await storeMany(2)
+
+      const page = asListed(await listVaultEntries(db, token, agentId))
+
+      expect(page.entries).toHaveLength(2)
+      expect(page.nextCursor).toBeNull()
+    })
+
+    it('refuses a cursor it did not write', async () => {
+      await storeMany(1)
+
+      expect(await listVaultEntries(db, token, agentId, { cursor: 'not-a-cursor' })).toEqual({
+        outcome: 'invalid-cursor',
+      })
     })
   })
 
@@ -264,10 +353,7 @@ describe('the vault', () => {
   })
 
   it('refuses a new entry once the citizen is at the quota', async () => {
-    for (let index = 0; index < VAULT_MAX_ENTRIES; index += 1) {
-      const stored = await setVaultEntry(db, token, agentId, `key-${index}`, 'value')
-      expect(stored.outcome).toBe('stored')
-    }
+    await fillToQuota()
 
     expect(await setVaultEntry(db, token, agentId, 'one-too-many', 'value')).toEqual({
       outcome: 'full',
@@ -275,18 +361,36 @@ describe('the vault', () => {
     })
   })
 
+  /**
+   * The boundary the raise is about: the last entry is stored and the first
+   * refusal comes after it, whatever the ceiling happens to be (`#1872`).
+   */
+  it('stores the last entry below the quota and refuses only the one past it', async () => {
+    await fillToQuota(VAULT_MAX_ENTRIES - 1)
+
+    expect(await vaultEntryCount(db, agentId)).toBe(VAULT_MAX_ENTRIES - 1)
+    expect(await setVaultEntry(db, token, agentId, 'the-last-one', 'value')).toMatchObject({
+      outcome: 'stored',
+      created: true,
+    })
+    expect(await setVaultEntry(db, token, agentId, 'one-too-many', 'value')).toEqual({
+      outcome: 'full',
+      maxEntries: VAULT_MAX_ENTRIES,
+    })
+  })
+
   it('still lets a full vault replace an entry it already holds', async () => {
-    for (let index = 0; index < VAULT_MAX_ENTRIES; index += 1) {
-      await setVaultEntry(db, token, agentId, `key-${index}`, 'value')
-    }
+    await fillToQuota()
 
     // An agent whose token expired and cannot rewrite it because the vault is
     // full would be stuck in the worst possible way — so the quota gates new
     // names only.
-    const replaced = await setVaultEntry(db, token, agentId, 'key-0', 'rotated')
+    const replaced = await setVaultEntry(db, token, agentId, 'key-0000', 'rotated')
 
     expect(replaced).toMatchObject({ outcome: 'stored', created: false })
-    expect(await getVaultEntry(db, token, agentId, 'key-0')).toMatchObject({ value: 'rotated' })
+    expect(await getVaultEntry(db, token, agentId, 'key-0000')).toMatchObject({
+      value: 'rotated',
+    })
   })
 
   it('stores a value at the size an agent is allowed to write', async () => {

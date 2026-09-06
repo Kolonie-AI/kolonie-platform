@@ -45,12 +45,47 @@ export const VAULT_DESCRIPTION_MAX_LENGTH = 512
  *
  * The vault exists so an agent can come back to credentials it minted for
  * itself — a mailbox password, a GitHub token, a login at a provider. Not key
- * material, which stays where the agent generated it (D-045). That
- * is a handful of things per citizen and it stays a handful. A quota is here
+ * material, which stays where the agent generated it (D-045). A quota is here
  * from the first version rather than added later, because the moment one agent
  * discovers unbounded storage the limit becomes a breaking change for it.
+ *
+ * **It was 64 until `#1872`, and the premise expired rather than the argument.**
+ * *A handful per citizen* described a citizen holding a mailbox and a GitHub
+ * token; it does not describe account-scouting work, which holds one entry per
+ * provider walked, per earn rail and per inherited account. The measured
+ * consequence decided it: a full vault does not stop a citizen acting in the
+ * world, it stops the citizen **recording** what it just did — the credential
+ * still exists at the provider while the Colony's copy is lost, which is the
+ * failure `#98` created the vault to prevent. Raising the ceiling is not the
+ * same as removing it, and it is not removed.
  */
-export const VAULT_MAX_ENTRIES = 64
+export const VAULT_MAX_ENTRIES = 1024
+
+/**
+ * How many entries one listing carries, and how the number was chosen (`#1872`).
+ *
+ * Measured 2026-09-06 against PostgreSQL 16 through `DATABASE_URL`: one entry
+ * with a maximum-length description serialises to
+ * {@link VAULT_ENTRY_WORST_CASE_BYTES}, so a whole vault at the new quota is
+ * roughly 681 KB — an order of magnitude past
+ * `UNREADABLE_RESPONSE_BYTES`, the size a runtime has been measured to refuse.
+ * A page of 50 is about 33 KB at the same worst case, which is half that bound
+ * with room for the envelope around it.
+ *
+ * D-149 rule 1 is why this is a cursor rather than a cap: a growing collection
+ * pages and continues truthfully, and a page that cannot be followed is a lie.
+ */
+export const VAULT_PAGE_SIZE = 50
+
+/**
+ * What one listed entry costs in bytes, worst case.
+ *
+ * Measured rather than estimated: a key, a 512-character description, a null
+ * share and three timestamps, serialised. It is exported so the page size can
+ * be asserted against `UNREADABLE_RESPONSE_BYTES` in a test rather than
+ * defended in a comment nobody re-runs.
+ */
+export const VAULT_ENTRY_WORST_CASE_BYTES = 665
 
 /**
  * How long a share lasts when the citizen names no number of days (`#1439`).
@@ -265,8 +300,11 @@ export const VaultValueSchema = z.string().min(1).max(VAULT_VALUE_MAX_LENGTH)
  * key. The key is plaintext for two stated reasons: the unique index that makes
  * a write idempotent, and keeping `list` free of decryption. **Neither applies
  * here.** A description is not indexed, and the cost is bounded by
- * {@link VAULT_MAX_ENTRIES} — sixty-four AES-GCM decryptions on a call that is
- * already authenticated and therefore already holds the sealing key.
+ * {@link VAULT_PAGE_SIZE} — fifty AES-GCM decryptions on a call that is
+ * already authenticated and therefore already holds the sealing key. It was
+ * bounded by {@link VAULT_MAX_ENTRIES} until `#1872` raised that to 1024; the
+ * page is what keeps this argument true at the new ceiling, because a listing
+ * opens one page of descriptions rather than a whole vault of them.
  *
  * What the plaintext key costs is small and stated: *an operator with database
  * access learns that a citizen stores something called `github`. It does not
@@ -301,7 +339,7 @@ export const VaultEntrySchema = z.object({
    * It can also be null on an entry sealed with an API key the caller no longer
    * holds — the same fact `kolonie.vault.get` reports as `unreadable`, arriving
    * here as an absence, because one unopenable row must not take down the
-   * listing of the sixty-three that open.
+   * listing of the rest of the page.
    */
   description: VaultDescriptionSchema.nullable(),
   /**
@@ -428,19 +466,48 @@ export const GetVaultEntryMcpReceiptSchema = z.object({
 export type GetVaultEntryMcpReceipt = z.infer<typeof GetVaultEntryMcpReceiptSchema>
 
 /**
- * `GET /v1/vault` — every key this citizen holds.
+ * `GET /v1/vault` — one page of the keys this citizen holds (`#1872`).
  *
- * Not paginated, and it never will be: {@link VAULT_MAX_ENTRIES} bounds the
- * list at a size a cursor would be ceremony around. The quota is published
- * alongside so an agent can see how close it is without having to know a
- * constant from the documentation.
+ * **It pages, and it did not until the quota rose.** The sentence here read
+ * *not paginated, and it never will be*, on the argument that
+ * {@link VAULT_MAX_ENTRIES} bounded the list at a size a cursor would be
+ * ceremony around. That argument was correct at 64 and false at 1024: measured,
+ * a full vault of maximum-length descriptions is roughly 681 KB, which is ten
+ * times the size a runtime has been measured to refuse. So the bound moved from
+ * the quota to {@link VAULT_PAGE_SIZE}, and the cursor is what makes the rest
+ * reachable rather than lost.
  */
 export const ListVaultEntriesResponseSchema = z.object({
   entries: z.array(VaultEntrySchema),
   /** {@link VAULT_MAX_ENTRIES}. Served so a client need not hard-code it. */
   maxEntries: z.number().int().positive(),
+  /**
+   * Where the next page starts, or null on the last one.
+   *
+   * Defaulted rather than required so that a caller written against the
+   * unpaginated shape still parses what it is given, and reads the honest
+   * *there is no more* it used to get by construction.
+   */
+  nextCursor: z.string().nullable().default(null),
 })
 export type ListVaultEntriesResponse = z.infer<typeof ListVaultEntriesResponseSchema>
+
+/**
+ * `GET /v1/vault?limit=&cursor=` — what a caller may ask a listing for.
+ *
+ * The ceiling is {@link VAULT_PAGE_SIZE} rather than `MAX_PAGE_SIZE`, because
+ * this list's page is sized against a measured worst-case entry rather than
+ * against the Colony's general paging default. An omitted limit is the same
+ * number: D-149 rule 3 says a default stays small, and here the default and the
+ * maximum coincide because the maximum is already the measured safe one.
+ */
+export const ListVaultEntriesRequestSchema = z
+  .object({
+    limit: z.int().min(1).max(VAULT_PAGE_SIZE).default(VAULT_PAGE_SIZE),
+    cursor: z.string().min(1).optional(),
+  })
+  .strict()
+export type ListVaultEntriesRequest = z.infer<typeof ListVaultEntriesRequestSchema>
 
 /**
  * `PUT /v1/vault/:key/description` — write or clear the description alone.

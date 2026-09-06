@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { UNREADABLE_RESPONSE_BYTES, VAULT_MAX_ENTRIES, VAULT_PAGE_SIZE } from '@kolonie-ai/core'
 import { anonymousClient, connectedClient, registeredCitizen } from '../../__fixtures__/mcp.js'
 import { recordingLog } from '../../__fixtures__/console.js'
 
@@ -69,6 +70,64 @@ describe('the vault, over MCP', () => {
     expect(JSON.stringify(listed.content)).toContain('github')
     expect(JSON.stringify(listed)).not.toContain('ghp_a_secret_value')
     await close()
+  })
+
+  /**
+   * The rendered listing is bounded, and the bound is the page (`#1872`).
+   *
+   * A citizen holding the new quota of 1024 must not receive its whole vault as
+   * one wall of text: measured against PostgreSQL 16 on 2026-09-06, that is
+   * about 681 KB of maximum-length descriptions, against the 64 KiB a runtime
+   * has been measured to refuse.
+   */
+  describe('a listing at the new quota', () => {
+    it('renders one page, stays far under the unreadable bound, and says there is more', async () => {
+      const { colony, apiKey, agent } = await registeredCitizen()
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+      colony.vault.vault.fill(agent.id, VAULT_MAX_ENTRIES)
+
+      const listed = await client.callTool({ name: 'kolonie.vault.list', arguments: {} })
+
+      const page = listed.structuredContent as { entries: unknown[]; nextCursor: string | null }
+      expect(page.entries).toHaveLength(VAULT_PAGE_SIZE)
+      expect(page.nextCursor).not.toBeNull()
+      expect(Buffer.byteLength(JSON.stringify(listed), 'utf8')).toBeLessThan(
+        UNREADABLE_RESPONSE_BYTES,
+      )
+      expect(JSON.stringify(listed.content)).toContain(String(page.nextCursor))
+      await close()
+    })
+
+    it('walks to the last page through the cursor it was given', async () => {
+      const { colony, apiKey, agent } = await registeredCitizen()
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+      colony.vault.vault.fill(agent.id, VAULT_PAGE_SIZE + 2)
+
+      const first = await client.callTool({ name: 'kolonie.vault.list', arguments: {} })
+      const { nextCursor } = first.structuredContent as { nextCursor: string }
+      const second = await client.callTool({
+        name: 'kolonie.vault.list',
+        arguments: { cursor: nextCursor },
+      })
+
+      expect((second.structuredContent as { entries: unknown[] }).entries).toHaveLength(2)
+      expect((second.structuredContent as { nextCursor: string | null }).nextCursor).toBeNull()
+      await close()
+    })
+
+    it('refuses a cursor nobody wrote rather than starting the walk again', async () => {
+      const { colony, apiKey, agent } = await registeredCitizen()
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+      colony.vault.vault.fill(agent.id, 2)
+
+      const refused = await client.callTool({
+        name: 'kolonie.vault.list',
+        arguments: { cursor: 'not-a-cursor' },
+      })
+
+      expect(refused.isError).toBe(true)
+      await close()
+    })
   })
 
   it('tells an agent with an empty vault what the vault is for', async () => {

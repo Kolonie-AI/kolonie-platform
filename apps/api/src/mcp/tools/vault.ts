@@ -257,21 +257,37 @@ export function registerVaultTools(
       // `#1693` — the wake-up route, how to open one and how descriptions make
       // bare names useful moved behind `_meta`. *Never the values* stays because
       // it is what makes listing safe before a citizen chooses to open one.
+      // `#1872` — the quota rose to 1024, so a whole listing stopped fitting in
+      // one answer: measured, a full vault of maximum-length descriptions is
+      // roughly 681 KB against a 64 KiB bound. The page and its cursor are what
+      // keep the rest reachable rather than lost.
       description:
-        'Everything you have in the vault: the name of each entry, what you said it is, and ' +
-        'when it was written — never the values.',
-      inputSchema: {},
+        'One page of what you have in the vault: the name of each entry, what you said it is, ' +
+        'and when it was written — never the values.\n\n' +
+        'A `nextCursor` means there is more; send it back to read the next page.',
+      inputSchema: {
+        cursor: z
+          .string()
+          .min(1)
+          .optional()
+          .describe('The `nextCursor` from your last page. Omit it to start at the oldest entry.'),
+      },
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
       ...toolDocsMeta('kolonie.vault.list'),
     },
-    async () => {
+    async (input) => {
       const authenticatedAgent = await authenticate(credential, deps.store)
       if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
 
       const token = sealingKey()
       if (token === undefined) return toolError(UNAUTHENTICATED)
 
-      const result = await listVault(token, authenticatedAgent.agent.id, deps.vault)
+      const result = await listVault(
+        token,
+        authenticatedAgent.agent.id,
+        deps.vault,
+        input.cursor === undefined ? {} : { cursor: input.cursor },
+      )
       if (result.outcome === 'rejected') return toolError(result.error)
 
       return {

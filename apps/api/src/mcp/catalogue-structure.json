@@ -1,5 +1,5 @@
 {
-  "measuredAt": "2026-09-05",
+  "measuredAt": "2026-09-06",
   "command": "npm run catalogue-structure",
   "tools": [
     {
@@ -4037,7 +4037,12 @@
     {
       "name": "kolonie.vault.list",
       "schema": {
-        "properties": {},
+        "properties": {
+          "cursor": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
         "type": "object"
       }
     },

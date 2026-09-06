@@ -1,5 +1,6 @@
 import {
   VAULT_MAX_ENTRIES,
+  VAULT_PAGE_SIZE,
   VAULT_SHARE_DEFAULT_DAYS,
   VAULT_SHARE_MAX_DAYS,
   type AgentId,
@@ -8,10 +9,10 @@ import {
 import type {
   ConsumeGuestVaultHandoffOutcome,
   GetVaultEntryOutcome,
+  ListVaultEntriesOutcome,
   SetVaultEntryOutcome,
   ShareVaultEntryOutcome,
   UnshareVaultEntryOutcome,
-  VaultEntryRow,
   VaultShareRow,
 } from '@kolonie-ai/db'
 import type { VaultDependencies, VaultStore } from '../vault.js'
@@ -235,8 +236,8 @@ export function fakeVault(): FakeVault {
       return { outcome: 'found', entry: row, value: entry.value }
     },
 
-    list: async (token, agentId): Promise<readonly VaultEntryRow[]> =>
-      keysOf(agentId)
+    list: async (token, agentId, page): Promise<ListVaultEntriesOutcome> => {
+      const all = keysOf(agentId)
         .map((composite) => {
           const key = composite.split('\0')[1] ?? ''
           const entry = held.get(composite)
@@ -251,7 +252,33 @@ export function fakeVault(): FakeVault {
             updatedAt: entry?.updatedAt ?? '',
           }
         })
-        .sort((left, right) => left.createdAt.localeCompare(right.createdAt)),
+        .sort(
+          (left, right) =>
+            left.createdAt.localeCompare(right.createdAt) || left.key.localeCompare(right.key),
+        )
+
+      // @mirrors packages/db/src/storage/vault.ts listVaultEntries
+      // Keyset over the same (createdAt, key) tuple, and the same refusal for a
+      // cursor nothing wrote — a fake that restarted the walk instead would let
+      // an API test pass while a real caller looped.
+      const after = page?.cursor
+      if (after !== undefined) {
+        const at = all.findIndex((entry) => `${entry.createdAt}|${entry.key}` === after)
+        if (at === -1) return { outcome: 'invalid-cursor' as const }
+        all.splice(0, at + 1)
+      }
+
+      const limit = Math.min(Math.max(page?.limit ?? VAULT_PAGE_SIZE, 1), VAULT_PAGE_SIZE)
+      const entries = all.slice(0, limit)
+      const last = entries.at(-1)
+
+      return {
+        outcome: 'listed' as const,
+        entries,
+        nextCursor:
+          all.length > limit && last !== undefined ? `${last.createdAt}|${last.key}` : null,
+      }
+    },
 
     delete: async (agentId, key): Promise<boolean> => held.delete(at(agentId, key)),
 

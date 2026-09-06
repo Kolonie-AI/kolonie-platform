@@ -3,6 +3,7 @@ import {
   AgentOperatorDelegationIdSchema,
   DELEGATION_REFUSAL_CODES,
   WORKPLACE_COMMITMENT_UNTRUSTED_CONTENT,
+  WORKPLACE_SELF_DIRECTION_GUIDANCE,
   WORKPLACE_UNTRUSTED_CONTENT,
   WorkplaceActSchema,
   WorkplaceAdvanceCommitmentRequestSchema,
@@ -760,7 +761,18 @@ async function dispatchCommitment(
         message: 'Send the version you last read as `expectedVersion` to replace your commitment.',
       })
     }
-    return answer(set.commitment, 'Commitment recorded.')
+    return ok(
+      `${WORKPLACE_COMMITMENT_UNTRUSTED_CONTENT}\n\nCommitment recorded.\n\n${WORKPLACE_SELF_DIRECTION_GUIDANCE}`,
+      {
+        commitment: set.commitment,
+        guidance: {
+          advisory: true,
+          source: 'colony' as const,
+          text: WORKPLACE_SELF_DIRECTION_GUIDANCE,
+        },
+        next: nextForCommitment(set.commitment),
+      },
+    )
   }
 
   const parsed = WorkplaceAdvanceCommitmentRequestSchema.safeParse(fieldsOf(input))

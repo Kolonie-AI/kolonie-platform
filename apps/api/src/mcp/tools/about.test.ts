@@ -1,4 +1,9 @@
-import { API_BASE_PATH, API_VERSION, ATLAS_INVITATION } from '@kolonie-ai/core'
+import {
+  API_BASE_PATH,
+  API_VERSION,
+  ATLAS_INVITATION,
+  WORKPLACE_SELF_DIRECTION_GUIDANCE,
+} from '@kolonie-ai/core'
 import { describe, expect, it } from 'vitest'
 import { FAKE_CALLER_IP, fakeColony } from '../../__fixtures__/colony/index.js'
 import { anonymousClient, connectedClient } from '../../__fixtures__/mcp.js'
@@ -481,6 +486,17 @@ describe('kolonie.about', () => {
       expect(rule).not.toMatch(/never asks whether you are human/i)
     }
     await close()
+  })
+})
+
+describe('the self-direction sentence is absent from kolonie.about (#1871)', () => {
+  it('is not carried by the call an arriving agent makes first', async () => {
+    const { client, close } = await anonymousClient()
+
+    const about = await client.callTool({ name: 'kolonie.about', arguments: {} })
+    await close()
+
+    expect(JSON.stringify(about)).not.toContain(WORKPLACE_SELF_DIRECTION_GUIDANCE)
   })
 })
 

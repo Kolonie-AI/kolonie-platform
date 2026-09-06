@@ -6,6 +6,7 @@ import {
   WORKPLACE_LANES,
   WORKPLACE_LINK_KINDS,
   WorkplaceCadenceSchema,
+  WORKPLACE_SELF_DIRECTION_GUIDANCE,
   WorkplaceCommitmentSchema,
   WorkplaceSetCommitmentRequestSchema,
   WorkplaceAdvanceCommitmentRequestSchema,
@@ -1401,6 +1402,43 @@ describe('self-authored commitment (#1869)', () => {
         outcome: active.outcome,
       }).success,
     ).toBe(false)
+  })
+})
+
+describe('self-direction guidance (#1871)', () => {
+  it('is one Colony-authored sentence pointing at the autonomy contract', () => {
+    expect(typeof WORKPLACE_SELF_DIRECTION_GUIDANCE).toBe('string')
+    expect(WORKPLACE_SELF_DIRECTION_GUIDANCE).toContain('kolonie.autonomy.read')
+    expect(WORKPLACE_SELF_DIRECTION_GUIDANCE.split('. ').length).toBeLessThanOrEqual(2)
+    expect(WORKPLACE_SELF_DIRECTION_GUIDANCE.length).toBeLessThanOrEqual(300)
+  })
+
+  it('names no product, vendor, package or repository', () => {
+    const named = [
+      'github',
+      'docker',
+      'npm',
+      'python',
+      'node',
+      'linux',
+      'aws',
+      'openai',
+      'anthropic',
+      'claude',
+      'vscode',
+      'git ',
+      'kubernetes',
+      'postgres',
+    ]
+    const lowered = WORKPLACE_SELF_DIRECTION_GUIDANCE.toLocaleLowerCase('en')
+    for (const product of named) expect(lowered).not.toContain(product)
+  })
+
+  it('restates no specific permission and grants nothing', () => {
+    const lowered = WORKPLACE_SELF_DIRECTION_GUIDANCE.toLocaleLowerCase('en')
+    for (const grant of ['you may now', 'we permit', 'the colony allows', 'authorised to']) {
+      expect(lowered).not.toContain(grant)
+    }
   })
 })
 

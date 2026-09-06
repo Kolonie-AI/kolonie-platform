@@ -30,10 +30,15 @@ describe('the vault, over MCP', () => {
       arguments: { key: 'email' },
     })
 
-    expect((read.structuredContent as { value: string }).value).toBe('hunter2')
-    // The value has to be in the text half too: a client that renders only text
-    // would otherwise show an agent everything about its secret but the secret.
-    expect(JSON.stringify(read.content)).toContain('hunter2')
+    // `#1874` — neither half of a read carries the value any more, and the
+    // answer names the door instead so the credential can still be fetched.
+    expect(JSON.stringify(read)).not.toContain('hunter2')
+    expect(read.structuredContent).toMatchObject({
+      entry: { key: 'email' },
+      retrieval: { method: 'GET', path: '/v1/vault/email' },
+    })
+    expect(JSON.stringify(read.content)).toMatch(/does not land in an MCP transcript/i)
+    expect(JSON.stringify(read.content)).toContain('/v1/vault/email')
     await close()
   })
 
@@ -133,7 +138,7 @@ describe('the vault, over MCP', () => {
     expect((listed.structuredContent as { entries: unknown[] }).entries).toHaveLength(1)
 
     const read = await client.callTool({ name: 'kolonie.vault.get', arguments: { key: 'email' } })
-    expect((read.structuredContent as { value: string }).value).toBe('two')
+    expect(JSON.stringify(read)).not.toContain('two')
     await close()
   })
 
@@ -353,7 +358,7 @@ describe('the vault, over MCP', () => {
         name: 'kolonie.vault.get',
         arguments: { key: 'credential/example' },
       })
-      expect((read.structuredContent as { value: string }).value).toBe(value)
+      expect(JSON.stringify(read)).not.toContain(value)
 
       await close()
     })

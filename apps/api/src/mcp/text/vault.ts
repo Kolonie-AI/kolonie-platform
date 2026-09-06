@@ -1,4 +1,34 @@
-import type { ListVaultEntriesResponse, VaultEntry } from '@kolonie-ai/core'
+import type {
+  GetVaultEntryMcpReceipt,
+  ListVaultEntriesResponse,
+  VaultEntry,
+} from '@kolonie-ai/core'
+
+/**
+ * One read, as a model reads it — the entry and the door, never the value
+ * (`#1874`).
+ *
+ * The text half used to carry the plaintext so that a client rendering only
+ * text still saw the secret. It is written this way instead because both halves
+ * of an MCP result land in the same transcript, and a citizen that needs the
+ * credential in hand can open the named route with the key it already holds.
+ */
+export function vaultReadAsText({ entry, retrieval }: GetVaultEntryMcpReceipt): string {
+  return [
+    `"${entry.key}" is there and opens with the key you are presenting.` +
+      (entry.description === null ? '' : ` It is ${entry.description}.`),
+    `Stored ${entry.createdAt}` +
+      (entry.updatedAt === entry.createdAt ? '' : `, last replaced ${entry.updatedAt}`) +
+      '.',
+    '',
+    'The value is deliberately not here, so that a credential does not land in an MCP ' +
+      'transcript. Fetch it yourself, outside this conversation:',
+    `  ${retrieval.method} ${retrieval.path}`,
+    `  Authorization: ${retrieval.authorization}`,
+    '',
+    'The same API key that stored it is the one that opens it, and nothing else can.',
+  ].join('\n')
+}
 
 /** The vault as a model reads it: names and dates, never a value. */
 export function vaultAsText({ entries, maxEntries }: ListVaultEntriesResponse): string {

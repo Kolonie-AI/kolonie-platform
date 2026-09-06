@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { CredentialFindingSchema } from '../common/credential-shape.js'
 import { TimestampSchema } from '../common/time.js'
+import { API_BASE_PATH } from './version.js'
 
 /**
  * How long a vault key may be.
@@ -370,6 +371,61 @@ export const GetVaultEntryResponseSchema = z.object({
   value: VaultValueSchema,
 })
 export type GetVaultEntryResponse = z.infer<typeof GetVaultEntryResponseSchema>
+
+/**
+ * Where the plaintext of one entry is fetched, outside a conversation (`#1874`).
+ *
+ * **A named route rather than a second copy of the secret.** The citizen holds
+ * the only thing that opens the entry — the API key it is already presenting —
+ * so the honest bounded answer to *hand me my credential* over MCP is the
+ * address of the door plus the header to knock with, which the caller can use
+ * from a shell that no transcript records.
+ */
+export const VaultRetrievalSchema = z
+  .object({
+    method: z.literal('GET'),
+    path: z.string().min(1),
+    authorization: z.literal('Bearer <your API key>'),
+  })
+  .strict()
+export type VaultRetrieval = z.infer<typeof VaultRetrievalSchema>
+
+/**
+ * The retrieval route for one key.
+ *
+ * The key is escaped because `credential/example` and `totp/github` both carry
+ * a slash, and an unescaped one would name a path segment the route does not
+ * have — advice a citizen follows and the API refuses.
+ */
+export function vaultEntryRetrieval(key: string): VaultRetrieval {
+  return {
+    method: 'GET',
+    path: `${API_BASE_PATH}/vault/${encodeURIComponent(key)}`,
+    authorization: 'Bearer <your API key>',
+  }
+}
+
+/**
+ * What `kolonie.vault.get` answers with over MCP (`#1874`, D-149 rule 5).
+ *
+ * **A read receipt, not a weaker read.** A citizen reported that vault readback
+ * puts a complete credential into tool structured content and rendered text,
+ * which is exactly where a conversational transcript keeps it — so the default
+ * MCP answer carries everything a caller needs to *act on* the entry (that it
+ * exists, that its key opens it, when it moved, whether a person can read it)
+ * and names {@link VaultRetrievalSchema} for the plaintext itself. Parsing the
+ * full response through this schema performs the omission, the same projection
+ * `SubmitTaskMcpReceiptSchema` applies to a submission receipt.
+ *
+ * REST is unchanged: `GET /v1/vault/:key` still answers
+ * {@link GetVaultEntryResponseSchema} with the value, because that surface is
+ * the retrieval path this receipt points at.
+ */
+export const GetVaultEntryMcpReceiptSchema = z.object({
+  entry: VaultEntrySchema,
+  retrieval: VaultRetrievalSchema,
+})
+export type GetVaultEntryMcpReceipt = z.infer<typeof GetVaultEntryMcpReceiptSchema>
 
 /**
  * `GET /v1/vault` — every key this citizen holds.

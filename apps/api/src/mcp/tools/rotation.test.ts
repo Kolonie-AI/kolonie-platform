@@ -303,8 +303,12 @@ describe('kolonie.credential.rotate', () => {
       name: 'kolonie.vault.get',
       arguments: { key: 'mailbox/keeper' },
     })
+    // A read that succeeds is what proves the reseal: the entry is opened with
+    // the presented key before this answer is built. The value itself is no
+    // longer in either half of it (`#1874`), so the receipt is what is asserted.
     expect(read.isError).toBeFalsy()
-    expect(JSON.stringify(read.structuredContent)).toContain('a value')
+    expect(read.structuredContent).toMatchObject({ entry: { key: 'mailbox/keeper' } })
+    expect(JSON.stringify(read)).not.toContain('a value')
 
     // And the description, which is sealed under its own scope and would be the
     // half a fix that moved only values would leave as a list of nulls.

@@ -46,6 +46,8 @@ describe('the folded answer tools', () => {
       'kolonie.academy.list',
       'kolonie.academy.answer',
       'kolonie.academy.retest',
+      // The repeated practice, one verb over five acts (`#1892`).
+      'kolonie.academy.self-direction',
     ])
     await close()
   })

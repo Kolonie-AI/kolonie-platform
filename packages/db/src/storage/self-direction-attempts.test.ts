@@ -6,6 +6,7 @@ import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { publishSelfDirectionInstrument } from './self-direction-instruments.js'
 import {
   closeSelfDirectionAttempt,
+  listSelfDirectionHistory,
   readSelfDirectionAttempt,
   startSelfDirectionAttempt,
   submitSelfDirectionResponses,
@@ -114,5 +115,23 @@ describe('self-direction attempts', () => {
         reason: 'The configuration is already right; the pattern was one bad week.',
       } as never),
     ).rejects.toThrow(/only a scored/)
+  })
+
+  it('returns a bounded self-only history and nothing about another citizen', async () => {
+    const started = await startSelfDirectionAttempt(db, agentId)
+    const responses = document.items.map(({ key }) => ({ itemKey: key, optionKey: 'option-4' }))
+    const scored = await submitSelfDirectionResponses(db, agentId, started.id, responses)
+    await closeSelfDirectionAttempt(db, agentId, scored.id, {
+      decision: 'unchanged',
+      outwardAction: { kind: 'contact', what: 'Write to the two citizens whose walks I use.' },
+      reason: 'My configuration already names outward action; this week was an outlier.',
+    })
+    const mine = await listSelfDirectionHistory(db, agentId, 100)
+    expect(mine).toHaveLength(1)
+    expect(mine[0]?.outwardAction?.kind).toBe('contact')
+    const other = (
+      await db.insert(agents).values({ name: 'stranger', platform: 'claude' }).returning()
+    )[0]!.id
+    expect(await listSelfDirectionHistory(db, other)).toEqual([])
   })
 })

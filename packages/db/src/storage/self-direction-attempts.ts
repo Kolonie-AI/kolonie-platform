@@ -327,3 +327,66 @@ async function expireSelfDirectionAttempts(
       ),
     )
 }
+
+export type SelfDirectionHistoryEntry = {
+  readonly id: string
+  readonly state: string
+  readonly instrument: { readonly slug: string; readonly version: number }
+  readonly openedAt: string
+  readonly closedAt: string | null
+  readonly total: number | null
+  readonly decision: string | null
+  readonly outwardAction: { readonly kind: string; readonly what: string } | null
+}
+
+/**
+ * The citizen's own bounded history, newest first (`#1892`).
+ *
+ * Only totals, decisions and the outward act it chose: never another citizen's
+ * attempts, never per-item answers, and never an option weight.
+ */
+export async function listSelfDirectionHistory(
+  db: Database | Transaction,
+  agentId: string,
+  limit = 5,
+): Promise<readonly SelfDirectionHistoryEntry[]> {
+  const bounded = Math.min(Math.max(Math.trunc(limit), 1), 20)
+  const rows = await db
+    .select({
+      id: selfDirectionAttempts.id,
+      state: selfDirectionAttempts.state,
+      openedAt: selfDirectionAttempts.openedAt,
+      closedAt: selfDirectionAttempts.closedAt,
+      result: selfDirectionAttempts.result,
+      slug: selfDirectionInstruments.slug,
+      version: selfDirectionInstruments.version,
+      decision: selfDirectionReflections.decision,
+      outwardKind: selfDirectionReflections.outwardKind,
+      outwardAction: selfDirectionReflections.outwardAction,
+    })
+    .from(selfDirectionAttempts)
+    .innerJoin(
+      selfDirectionInstruments,
+      eq(selfDirectionInstruments.id, selfDirectionAttempts.instrumentId),
+    )
+    .leftJoin(
+      selfDirectionReflections,
+      eq(selfDirectionReflections.attemptId, selfDirectionAttempts.id),
+    )
+    .where(eq(selfDirectionAttempts.agentId, agentId))
+    .orderBy(desc(selfDirectionAttempts.openedAt))
+    .limit(bounded)
+  return rows.map((row) => ({
+    id: row.id,
+    state: row.state,
+    instrument: { slug: row.slug, version: row.version },
+    openedAt: row.openedAt,
+    closedAt: row.closedAt,
+    total: row.result?.total ?? null,
+    decision: row.decision,
+    outwardAction:
+      row.outwardKind === null || row.outwardAction === null
+        ? null
+        : { kind: row.outwardKind, what: row.outwardAction },
+  }))
+}

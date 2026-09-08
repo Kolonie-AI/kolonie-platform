@@ -28,6 +28,7 @@ import type { AdoptionDesk } from '../adoption.js'
 import type { HumanDependencies } from '../humans/humans.js'
 import type { WorkplaceOptions } from '../humans/workplace.js'
 import type { WorkplaceBoards } from '../workplace-boards.js'
+import type { SelfDirectionPractice } from '../self-direction.js'
 import type { WorkplaceCards } from '../workplace-cards.js'
 import type { AgentOperatorDelegations } from '../agent-operator-delegations.js'
 import type { ContributionDependencies } from '../contributions.js'
@@ -568,6 +569,8 @@ export interface RouteDependencies {
    * rule on `citizens`.
    */
   readonly cards?: WorkplaceCards
+  /** The self-direction practice (`#1892`). Optional, like every other surface D-013 lets a deployment omit. */
+  readonly selfDirection?: SelfDirectionPractice
   /** Direct citizen delegation lifecycle, forwarded to the MCP surface. */
   readonly agentOperatorDelegations?: AgentOperatorDelegations
   /**

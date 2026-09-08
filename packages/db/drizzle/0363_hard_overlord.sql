@@ -9,7 +9,6 @@ CREATE TABLE "self_direction_attempts" (
 	"expires_at" timestamp with time zone NOT NULL,
 	"scored_at" timestamp with time zone,
 	"closed_at" timestamp with time zone,
-	"session_id" varchar(128),
 	"delegation_id" uuid,
 	"row_version" integer DEFAULT 1 NOT NULL,
 	CONSTRAINT "self_direction_attempts_state_known" CHECK ("self_direction_attempts"."state" in ('open', 'awaiting-reflection', 'closed', 'expired')),

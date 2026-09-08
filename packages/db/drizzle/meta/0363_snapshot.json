@@ -1,5 +1,5 @@
 {
-  "id": "53ae4bc8-0d1d-4e98-808a-7b3c1c2d9797",
+  "id": "0a6bea3f-5580-4363-a0c2-f26ef2f63891",
   "prevId": "248fc1c5-d663-4c97-81e6-7717dc792321",
   "version": "7",
   "dialect": "postgresql",
@@ -23421,12 +23421,6 @@
         "closed_at": {
           "name": "closed_at",
           "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "session_id": {
-          "name": "session_id",
-          "type": "varchar(128)",
           "primaryKey": false,
           "notNull": false
         },

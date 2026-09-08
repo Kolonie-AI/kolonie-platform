@@ -146,6 +146,29 @@ export default defineConfig({
      * timeout in this package is good for.
      */
     testTimeout: 30_000,
+    /**
+     * **The hook default is ten seconds, and hooks here do the heaviest thing
+     * this package does** (`#1886`).
+     *
+     * A `beforeAll` in this package drops and re-creates a whole database from
+     * the migrated template before a single test runs, and several top-level
+     * suites in one file enter that path together — `serializeRecreation` in
+     * `src/testing.ts` makes them share one recreation rather than race it, so a
+     * suite that joins waits out the whole copy. That wait is what the ten
+     * seconds were being measured against.
+     *
+     * It went over the cliff twice in a row on CI for `#1886`, both times on
+     * `storage/messaging.test.ts > every thread about one account`, with 219
+     * files and 4,444 tests green around it and no assertion failing anywhere.
+     * The same file passes alone in 108 s locally. That is the signature the
+     * comment above already describes: a limit measuring which machine ran it
+     * rather than whether anything is wrong.
+     *
+     * Matched to {@link testTimeout} rather than picked separately, because both
+     * answer the same question — far above a healthy round trip to Postgres, far
+     * below a hang — and two numbers for one question drift apart.
+     */
+    hookTimeout: 30_000,
     // Vitest buffers worker console output and only shows it around failures.
     // A skipped suite is not a failure, so the explanation of *why* the database
     // tests did not run would be swallowed — leaving exactly the silent skip

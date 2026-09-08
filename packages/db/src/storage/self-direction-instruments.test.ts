@@ -112,3 +112,19 @@ describe('self-direction instruments', () => {
     expect((await readSelfDirectionInstrument(db, document().slug, 1))?.lifecycle).toBe('retired')
   })
 })
+
+/** The production data itself takes the same guarded path as any later version. */
+it('publishes the checked-in pilot and reads every public field back', async () => {
+  const { SELF_DIRECTION_MVP_V1 } = await import('../self-direction-instrument/mvp-v1.js')
+  const db = await connectForTests(target.url)
+  try {
+    await truncateAll(db)
+    const first = await publishSelfDirectionInstrument(db, SELF_DIRECTION_MVP_V1)
+    expect(first.outcome).toBe('created')
+    expect(await readSelfDirectionInstrument(db, 'self-direction-mvp', 1)).toEqual(
+      SELF_DIRECTION_MVP_V1,
+    )
+  } finally {
+    await db.close()
+  }
+})

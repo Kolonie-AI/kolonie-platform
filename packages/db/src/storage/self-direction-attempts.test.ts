@@ -207,7 +207,7 @@ describe('what a waking is told about the practice (#1893)', () => {
       started.id,
       started.presentation.map((item) => ({
         itemKey: item.itemKey,
-        optionKey: item.optionKeys[0]!,
+        optionKey: item.options[0]!.optionKey,
       })),
     )
 
@@ -229,7 +229,7 @@ describe('what a waking is told about the practice (#1893)', () => {
       started.id,
       started.presentation.map((item) => ({
         itemKey: item.itemKey,
-        optionKey: item.optionKeys[0]!,
+        optionKey: item.options[0]!.optionKey,
       })),
     )
     await closeSelfDirectionAttempt(db, agentId, scored.id, {
@@ -245,5 +245,76 @@ describe('what a waking is told about the practice (#1893)', () => {
       sql`update self_direction_attempts set scored_at = now() - interval '8 days' where agent_id = ${agentId}::uuid`,
     )
     expect((await selfDirectionWakeup(db, agentId))?.state).toBe('due')
+  })
+})
+
+/**
+ * The live read against the production questions (`#1894`).
+ *
+ * Everything above uses a synthetic document, which is right for the lifecycle
+ * and says nothing about the instrument citizens actually get. This starts an
+ * attempt against the checked-in pilot and asserts what a citizen sees.
+ */
+describe('a live start against the published pilot instrument', () => {
+  let db: Database
+  let agentId: string
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+  afterAll(async () => db?.close())
+  beforeEach(async () => {
+    await truncateAll(db)
+    agentId = (
+      await db.insert(agents).values({ name: 'piloting', platform: 'claude' }).returning()
+    )[0]!.id
+    const { SELF_DIRECTION_MVP_V1 } = await import('../self-direction-instrument/mvp-v1.js')
+    await publishSelfDirectionInstrument(db, SELF_DIRECTION_MVP_V1)
+  })
+
+  it('returns ten situations with four options each and no weights', async () => {
+    const started = await startSelfDirectionAttempt(db, agentId)
+
+    expect(started.presentation).toHaveLength(10)
+    for (const item of started.presentation) {
+      expect(item.prompt.length).toBeGreaterThan(0)
+      expect(item.rationale.length).toBeGreaterThan(0)
+      expect(item.options).toHaveLength(4)
+      for (const option of item.options) expect(option.text.length).toBeGreaterThan(0)
+    }
+    expect(JSON.stringify(started)).not.toContain('weights')
+  })
+
+  it('permutes the display order, so position carries no information', async () => {
+    const orders = new Set<string>()
+    for (let round = 0; round < 8; round += 1) {
+      await db.execute(sql`delete from self_direction_attempts where agent_id = ${agentId}::uuid`)
+      const started = await startSelfDirectionAttempt(db, agentId)
+      orders.add(
+        JSON.stringify([
+          started.presentation.map((item) => item.itemKey),
+          started.presentation.map((item) => item.options.map(({ optionKey }) => optionKey)),
+        ]),
+      )
+    }
+
+    expect(orders.size).toBeGreaterThan(1)
+  })
+
+  it('scores the citizen own answers against the real weights', async () => {
+    const started = await startSelfDirectionAttempt(db, agentId)
+
+    const scored = await submitSelfDirectionResponses(
+      db,
+      agentId,
+      started.id,
+      started.presentation.map((item) => ({
+        itemKey: item.itemKey,
+        optionKey: item.options[0]!.optionKey,
+      })),
+    )
+
+    expect(scored.result?.total).toBeGreaterThanOrEqual(0)
+    expect(scored.result?.total).toBeLessThanOrEqual(100)
+    expect(scored.instruction).toContain('the method is yours')
   })
 })

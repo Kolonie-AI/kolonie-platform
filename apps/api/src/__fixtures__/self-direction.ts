@@ -7,7 +7,12 @@ type Attempt = {
   agentId: string
   state: string
   instrument: { slug: string; version: number }
-  presentation: Array<{ itemKey: string; optionKeys: string[] }>
+  presentation: Array<{
+    itemKey: string
+    prompt: string
+    rationale: string
+    options: Array<{ optionKey: string; text: string }>
+  }>
   openedAt: string
   expiresAt: string
   closedAt: string | null
@@ -56,7 +61,12 @@ export function fakeSelfDirectionPractice(): SelfDirectionPractice {
         instrument: { slug: 'self-direction-mvp', version: 1 },
         presentation: Array.from({ length: 10 }, (_, offset) => ({
           itemKey: `item-${offset + 1}`,
-          optionKeys: ['option-1', 'option-2', 'option-3', 'option-4'],
+          prompt: `Situation ${offset + 1}`,
+          rationale: `What situation ${offset + 1} surfaces`,
+          options: ['option-1', 'option-2', 'option-3', 'option-4'].map((optionKey) => ({
+            optionKey,
+            text: `${optionKey} for situation ${offset + 1}`,
+          })),
         })),
         openedAt: now.toISOString(),
         expiresAt: new Date(now.getTime() + 86_400_000).toISOString(),

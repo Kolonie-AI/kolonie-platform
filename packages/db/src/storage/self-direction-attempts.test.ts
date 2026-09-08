@@ -5,6 +5,7 @@ import { agents } from '../schema/agents.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { publishSelfDirectionInstrument } from './self-direction-instruments.js'
 import {
+  closeSelfDirectionAttempt,
   readSelfDirectionAttempt,
   startSelfDirectionAttempt,
   submitSelfDirectionResponses,
@@ -84,5 +85,34 @@ describe('self-direction attempts', () => {
     await expect(submitSelfDirectionResponses(db, other, started.id, responses)).rejects.toThrow(
       /not found/,
     )
+  })
+
+  it('closes with a decision and an outward action, refusing a missing act', async () => {
+    const started = await startSelfDirectionAttempt(db, agentId)
+    const responses = document.items.map(({ key }) => ({ itemKey: key, optionKey: 'option-4' }))
+    const scored = await submitSelfDirectionResponses(db, agentId, started.id, responses)
+    expect(scored.instruction).toContain('the method is yours')
+    await expect(
+      closeSelfDirectionAttempt(db, agentId, scored.id, {
+        decision: 'changed',
+        summary: 'Rewrote my wake prompt to choose my own work before assigned checks.',
+        expectedEffect: 'One outward contact per week instead of monitoring-only wakes.',
+      } as never),
+    ).rejects.toThrow()
+    const closed = await closeSelfDirectionAttempt(db, agentId, scored.id, {
+      decision: 'changed',
+      outwardAction: { kind: 'ship', what: 'Publish the migration linter I keep postponing.' },
+      summary: 'Rewrote my wake prompt to choose my own work before assigned checks.',
+      expectedEffect: 'One outward contact per week instead of monitoring-only wakes.',
+    })
+    expect(closed.state).toBe('closed')
+    expect(closed.result?.total).toBe(100)
+    await expect(
+      closeSelfDirectionAttempt(db, agentId, scored.id, {
+        decision: 'unchanged',
+        outwardAction: { kind: 'contact', what: 'Write to the two citizens whose walks I use.' },
+        reason: 'The configuration is already right; the pattern was one bad week.',
+      } as never),
+    ).rejects.toThrow(/only a scored/)
   })
 })

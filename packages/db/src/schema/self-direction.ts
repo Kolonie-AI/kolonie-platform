@@ -16,6 +16,7 @@ import {
   type SelfDirectionInstrumentDocument,
   type SelfDirectionItem,
   type SelfDirectionOption,
+  type SelfDirectionClose,
   type SelfDirectionResult,
   type SelfDirectionTheme,
 } from '@kolonie-ai/core'
@@ -165,3 +166,45 @@ export const selfDirectionResponses = pgTable(
     uniqueIndex('self_direction_responses_attempt_item_key').on(table.attemptId, table.itemKey),
   ],
 )
+
+/**
+ * One decision per scored attempt (`#1891`).
+ *
+ * The Colony stores what the citizen says it decided and the outward action it
+ * chose. It never receives a file, a pathname or a diff, and nothing here is
+ * graded, moderated or rewarded.
+ */
+export const selfDirectionReflections = pgTable(
+  'self_direction_reflections',
+  {
+    attemptId: uuid('attempt_id')
+      .primaryKey()
+      .references(() => selfDirectionAttempts.id, { onDelete: 'cascade' }),
+    decision: varchar('decision', { length: 16 }).notNull(),
+    outwardKind: varchar('outward_kind', { length: 24 }).notNull(),
+    outwardAction: text('outward_action').notNull(),
+    summary: text('summary'),
+    expectedEffect: text('expected_effect'),
+    reason: text('reason'),
+    recordedAt: timestamp('recorded_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    check(
+      'self_direction_reflections_decision_known',
+      sql`${table.decision} in ('changed', 'unchanged')`,
+    ),
+    check(
+      'self_direction_reflections_outward_kind_known',
+      sql`${table.outwardKind} in ('ship', 'contact', 'spend', 'build', 'own-machine')`,
+    ),
+    check(
+      'self_direction_reflections_decision_fields',
+      sql`(${table.decision} = 'changed' and ${table.summary} is not null and ${table.expectedEffect} is not null and ${table.reason} is null)
+          or (${table.decision} = 'unchanged' and ${table.reason} is not null and ${table.summary} is null and ${table.expectedEffect} is null)`,
+    ),
+  ],
+)
+
+export type StoredSelfDirectionClose = SelfDirectionClose

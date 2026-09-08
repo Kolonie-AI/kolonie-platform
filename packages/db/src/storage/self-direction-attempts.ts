@@ -1,7 +1,10 @@
 import { randomInt } from 'node:crypto'
 import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import {
+  SELF_DIRECTION_INSPECT_INSTRUCTION,
+  SelfDirectionCloseSchema,
   scoreSelfDirectionResponses,
+  type SelfDirectionClose,
   type SelfDirectionResponse,
   type SelfDirectionResult,
 } from '@kolonie-ai/core'
@@ -11,6 +14,7 @@ import {
   selfDirectionInstruments,
   selfDirectionItems,
   selfDirectionOptions,
+  selfDirectionReflections,
   selfDirectionResponses,
 } from '../schema/self-direction.js'
 import { readSelfDirectionInstrument } from './self-direction-instruments.js'
@@ -25,7 +29,13 @@ export type SelfDirectionAttemptView = {
   readonly expiresAt: string
   readonly result: SelfDirectionResult | null
   readonly delta: number | null
+  /** The one Colony sentence beside a result, and never a queue of forms. */
+  readonly instruction: string | null
+  /** What the citizen decided and chose to do outward last time. */
+  readonly previousClose: SelfDirectionCloseRecord | null
 }
+
+export type SelfDirectionCloseRecord = SelfDirectionClose & { readonly recordedAt: string }
 
 const shuffle = <T>(input: readonly T[]): T[] => {
   const values = [...input]
@@ -50,24 +60,29 @@ async function view(
     .where(eq(selfDirectionInstruments.id, row.instrumentId))
     .limit(1)
   if (instrument === undefined) throw new Error('attempt instrument not found')
-  const [previous] =
-    row.result === null
+  const [previous] = await db
+    .select({ result: selfDirectionAttempts.result, id: selfDirectionAttempts.id })
+    .from(selfDirectionAttempts)
+    .innerJoin(
+      selfDirectionInstruments,
+      eq(selfDirectionInstruments.id, selfDirectionAttempts.instrumentId),
+    )
+    .where(
+      and(
+        eq(selfDirectionAttempts.agentId, row.agentId),
+        eq(selfDirectionAttempts.state, 'closed'),
+        eq(selfDirectionInstruments.slug, instrument.compatibility.lineage),
+      ),
+    )
+    .orderBy(desc(selfDirectionAttempts.closedAt))
+    .limit(1)
+  const [previousClose] =
+    previous === undefined
       ? []
       : await db
-          .select({ result: selfDirectionAttempts.result })
-          .from(selfDirectionAttempts)
-          .innerJoin(
-            selfDirectionInstruments,
-            eq(selfDirectionInstruments.id, selfDirectionAttempts.instrumentId),
-          )
-          .where(
-            and(
-              eq(selfDirectionAttempts.agentId, row.agentId),
-              eq(selfDirectionAttempts.state, 'closed'),
-              eq(selfDirectionInstruments.slug, instrument.compatibility.lineage),
-            ),
-          )
-          .orderBy(desc(selfDirectionAttempts.closedAt))
+          .select()
+          .from(selfDirectionReflections)
+          .where(eq(selfDirectionReflections.attemptId, previous.id))
           .limit(1)
   return {
     id: row.id,
@@ -81,7 +96,74 @@ async function view(
       row.result === null || previous?.result == null
         ? null
         : row.result.total - previous.result.total,
+    instruction: row.result === null ? null : SELF_DIRECTION_INSPECT_INSTRUCTION,
+    previousClose:
+      previousClose === undefined
+        ? null
+        : ({
+            decision: previousClose.decision,
+            outwardAction: { kind: previousClose.outwardKind, what: previousClose.outwardAction },
+            ...(previousClose.summary === null ? {} : { summary: previousClose.summary }),
+            ...(previousClose.expectedEffect === null
+              ? {}
+              : { expectedEffect: previousClose.expectedEffect }),
+            ...(previousClose.reason === null ? {} : { reason: previousClose.reason }),
+            recordedAt: previousClose.recordedAt,
+          } as SelfDirectionCloseRecord),
   }
+}
+
+/**
+ * Close a scored attempt with the citizen's own decision and outward action.
+ *
+ * The Colony records the sentence and the chosen next act; it never inspects,
+ * verifies, judges or rewards either, and nothing about standing moves.
+ */
+export async function closeSelfDirectionAttempt(
+  db: Database,
+  agentId: string,
+  attemptId: string,
+  input: SelfDirectionClose,
+): Promise<SelfDirectionAttemptView> {
+  const close = SelfDirectionCloseSchema.parse(input)
+  return db.transaction(async (tx) => {
+    const [attempt] = await tx
+      .select()
+      .from(selfDirectionAttempts)
+      .where(
+        and(eq(selfDirectionAttempts.id, attemptId), eq(selfDirectionAttempts.agentId, agentId)),
+      )
+      .limit(1)
+    if (attempt === undefined) throw new Error('self-direction attempt not found')
+    if (attempt.state !== 'awaiting-reflection') {
+      throw new Error('only a scored self-direction attempt can be closed')
+    }
+    await tx.insert(selfDirectionReflections).values({
+      attemptId,
+      decision: close.decision,
+      outwardKind: close.outwardAction.kind,
+      outwardAction: close.outwardAction.what,
+      summary: close.summary ?? null,
+      expectedEffect: close.expectedEffect ?? null,
+      reason: close.reason ?? null,
+    })
+    const [closed] = await tx
+      .update(selfDirectionAttempts)
+      .set({
+        state: 'closed',
+        closedAt: new Date().toISOString(),
+        version: sql`${selfDirectionAttempts.version} + 1`,
+      })
+      .where(
+        and(
+          eq(selfDirectionAttempts.id, attemptId),
+          eq(selfDirectionAttempts.state, 'awaiting-reflection'),
+        ),
+      )
+      .returning()
+    if (closed === undefined) throw new Error('self-direction attempt already closed')
+    return view(tx, closed)
+  })
 }
 
 /** Start or return the citizen's one stable live practice presentation. */

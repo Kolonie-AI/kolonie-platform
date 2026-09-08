@@ -993,9 +993,11 @@ describe('schema', () => {
          * has nothing to cascade and a retired version stays readable for the
          * attempts that already resolved against it.
          */
+        'self_direction_attempts',
         'self_direction_instruments',
         'self_direction_items',
         'self_direction_options',
+        'self_direction_responses',
         /**
          * A citizen's note against a capability rather than against the rung
          * that proved it (`#348`). The same shape as `task_notes` and a separate

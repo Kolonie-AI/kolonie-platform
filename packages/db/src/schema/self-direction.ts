@@ -11,12 +11,15 @@ import {
   uuid,
   varchar,
 } from 'drizzle-orm/pg-core'
-import type {
-  SelfDirectionInstrumentDocument,
-  SelfDirectionItem,
-  SelfDirectionOption,
-  SelfDirectionTheme,
+import {
+  SELF_DIRECTION_ATTEMPT_STATES,
+  type SelfDirectionInstrumentDocument,
+  type SelfDirectionItem,
+  type SelfDirectionOption,
+  type SelfDirectionResult,
+  type SelfDirectionTheme,
 } from '@kolonie-ai/core'
+import { agents } from './agents.js'
 
 /** Colony-owned public formative content; these rows intentionally have no citizen id. */
 export const selfDirectionInstruments = pgTable(
@@ -103,3 +106,58 @@ export const selfDirectionOptions = pgTable(
 )
 
 export type StoredSelfDirectionItem = SelfDirectionItem
+
+export const selfDirectionAttempts = pgTable(
+  'self_direction_attempts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agentId: uuid('agent_id')
+      .notNull()
+      .references(() => agents.id, { onDelete: 'cascade' }),
+    instrumentId: uuid('instrument_id')
+      .notNull()
+      .references(() => selfDirectionInstruments.id, { onDelete: 'restrict' }),
+    state: varchar('state', { length: 24 }).notNull().default('open'),
+    presentation: jsonb('presentation')
+      .$type<Array<{ itemKey: string; optionKeys: string[] }>>()
+      .notNull(),
+    result: jsonb('result').$type<SelfDirectionResult>(),
+    openedAt: timestamp('opened_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
+    expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'string' }).notNull(),
+    scoredAt: timestamp('scored_at', { withTimezone: true, mode: 'string' }),
+    closedAt: timestamp('closed_at', { withTimezone: true, mode: 'string' }),
+    sessionId: varchar('session_id', { length: 128 }),
+    delegationId: uuid('delegation_id'),
+    version: integer('row_version').notNull().default(1),
+  },
+  (table) => [
+    uniqueIndex('self_direction_attempts_one_live_per_agent')
+      .on(table.agentId)
+      .where(sql`${table.state} in ('open', 'awaiting-reflection')`),
+    index('self_direction_attempts_agent_opened_idx').on(table.agentId, table.openedAt),
+    check(
+      'self_direction_attempts_state_known',
+      sql`${table.state} in (${sql.raw(SELF_DIRECTION_ATTEMPT_STATES.map((one) => `'${one}'`).join(', '))})`,
+    ),
+    check('self_direction_attempts_version_positive', sql`${table.version} >= 1`),
+    check('self_direction_attempts_expiry_after_open', sql`${table.expiresAt} > ${table.openedAt}`),
+  ],
+)
+
+export const selfDirectionResponses = pgTable(
+  'self_direction_responses',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    attemptId: uuid('attempt_id')
+      .notNull()
+      .references(() => selfDirectionAttempts.id, { onDelete: 'cascade' }),
+    itemKey: varchar('item_key', { length: 64 }).notNull(),
+    optionKey: varchar('option_key', { length: 64 }).notNull(),
+    answeredAt: timestamp('answered_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('self_direction_responses_attempt_item_key').on(table.attemptId, table.itemKey),
+  ],
+)

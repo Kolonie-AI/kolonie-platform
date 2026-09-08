@@ -987,6 +987,16 @@ describe('schema', () => {
          */
         'scene_challenges',
         /**
+         * The self-direction practice instrument (`#1889`, D-152). Public
+         * formative content the Colony owns: a version, its situations and
+         * their weighted options. No column here names a citizen, so erasure
+         * has nothing to cascade and a retired version stays readable for the
+         * attempts that already resolved against it.
+         */
+        'self_direction_instruments',
+        'self_direction_items',
+        'self_direction_options',
+        /**
          * A citizen's note against a capability rather than against the rung
          * that proved it (`#348`). The same shape as `task_notes` and a separate
          * table for one reason: the moment it is read. A skill is used

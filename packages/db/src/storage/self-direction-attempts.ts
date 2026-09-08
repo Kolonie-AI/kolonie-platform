@@ -88,7 +88,7 @@ async function view(
 export async function startSelfDirectionAttempt(
   db: Database,
   agentId: string,
-  provenance: { sessionId?: string; delegationId?: string } = {},
+  provenance: { delegationId?: string } = {},
 ): Promise<SelfDirectionAttemptView> {
   return db.transaction(async (tx) => {
     await expireSelfDirectionAttempts(tx, agentId)
@@ -137,7 +137,6 @@ export async function startSelfDirectionAttempt(
         instrumentId: instrument.id,
         presentation,
         expiresAt,
-        sessionId: provenance.sessionId,
         delegationId: provenance.delegationId,
       })
       .onConflictDoNothing()

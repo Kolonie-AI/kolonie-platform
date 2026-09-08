@@ -67,7 +67,7 @@ describe('self-direction attempts', () => {
     const started = await startSelfDirectionAttempt(db, agentId)
     const responses = document.items.map(({ key }) => ({ itemKey: key, optionKey: 'option-4' }))
     const result = await submitSelfDirectionResponses(db, agentId, started.id, responses)
-    expect(result.result.total).toBe(100)
+    expect(result.result?.total).toBe(100)
     expect(result.state).toBe('awaiting-reflection')
     expect(JSON.stringify(result)).not.toContain('weights')
     await expect(submitSelfDirectionResponses(db, agentId, started.id, responses)).rejects.toThrow(

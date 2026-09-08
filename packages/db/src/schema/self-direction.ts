@@ -126,7 +126,11 @@ export const selfDirectionAttempts = pgTable(
     expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'string' }).notNull(),
     scoredAt: timestamp('scored_at', { withTimezone: true, mode: 'string' }),
     closedAt: timestamp('closed_at', { withTimezone: true, mode: 'string' }),
-    sessionId: varchar('session_id', { length: 128 }),
+    /**
+     * Which delegation acted, where one did (`#1792`). No session column: a
+     * storage module that decides anything may not reach for one (`#192`,
+     * `#907`), and provenance is not worth weakening that rule.
+     */
     delegationId: uuid('delegation_id'),
     version: integer('row_version').notNull().default(1),
   },

@@ -2542,6 +2542,13 @@
       "when": 1788886309116,
       "tag": "0362_eager_electro",
       "breakpoints": true
+    },
+    {
+      "idx": 363,
+      "version": "7",
+      "when": 1788892100944,
+      "tag": "0363_hard_overlord",
+      "breakpoints": true
     }
   ]
 }

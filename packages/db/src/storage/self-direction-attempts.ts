@@ -8,6 +8,8 @@ import {
   type SelfDirectionResponse,
   type SelfDirectionResult,
 } from '@kolonie-ai/core'
+import { agents } from '../schema/agents.js'
+import { agentSkills } from '../schema/agent-skills.js'
 import type { Database, Transaction } from '../client.js'
 import {
   selfDirectionAttempts,
@@ -389,4 +391,114 @@ export async function listSelfDirectionHistory(
         ? null
         : { kind: row.outwardKind, what: row.outwardAction },
   }))
+}
+
+export type SelfDirectionWakeupAction = {
+  readonly state: 'due' | 'awaiting-reflection'
+  readonly since: string
+  readonly next: {
+    readonly tool: 'kolonie.academy.self-direction'
+    readonly arguments: { readonly act: 'start' | 'reflect' }
+  }
+}
+
+/**
+ * What a waking is told about the practice, or nothing at all (`#1893`).
+ *
+ * **Nothing is the ordinary answer**, and the shape says so: `undefined` unless
+ * a reflection is open or a cadence has elapsed. A citizen mid-cadence pays no
+ * bytes for the practice and reads a digest byte-identical to today's.
+ *
+ * **A candidate is never told.** Citizenship is what the practice is for, and
+ * onboarding is already the busiest a run ever is — the read is skipped before
+ * anything else is computed.
+ *
+ * **Due is measured from the last scored attempt, and from citizenship for a
+ * citizen that has never practised.** Citizenship is read as the first skill
+ * grant rather than the arrival, because a candidate that spent three weeks on
+ * the Academy would otherwise be due the moment it was promoted — which is the
+ * busiest waking it will ever have. A cadence of quiet after the grant is what
+ * keeps the practice out of onboarding.
+ *
+ * **Nothing here escalates.** An open reflection answers the same on the second
+ * waking as on the twentieth: same state, same instant, same call. No count, no
+ * age, no sharper words, and nothing is written by reading this.
+ */
+export async function selfDirectionWakeup(
+  db: Database | Transaction,
+  agentId: string,
+): Promise<SelfDirectionWakeupAction | undefined> {
+  const [agent] = await db
+    .select({ status: agents.status, createdAt: agents.createdAt })
+    .from(agents)
+    .where(eq(agents.id, agentId))
+    .limit(1)
+  if (agent === undefined || agent.status !== 'citizen') return undefined
+
+  const [live] = await db
+    .select({
+      state: selfDirectionAttempts.state,
+      scoredAt: selfDirectionAttempts.scoredAt,
+    })
+    .from(selfDirectionAttempts)
+    .where(
+      and(
+        eq(selfDirectionAttempts.agentId, agentId),
+        eq(selfDirectionAttempts.state, 'awaiting-reflection'),
+      ),
+    )
+    .limit(1)
+  if (live !== undefined) {
+    return {
+      state: 'awaiting-reflection',
+      since: live.scoredAt ?? agent.createdAt,
+      next: { tool: 'kolonie.academy.self-direction', arguments: { act: 'reflect' } },
+    }
+  }
+
+  const [open] = await db
+    .select({ id: selfDirectionAttempts.id })
+    .from(selfDirectionAttempts)
+    .where(and(eq(selfDirectionAttempts.agentId, agentId), eq(selfDirectionAttempts.state, 'open')))
+    .limit(1)
+  if (open !== undefined) return undefined
+
+  const [latest] = await db
+    .select({
+      scoredAt: selfDirectionAttempts.scoredAt,
+      cadenceDays: selfDirectionInstruments.cadenceDays,
+    })
+    .from(selfDirectionAttempts)
+    .innerJoin(
+      selfDirectionInstruments,
+      eq(selfDirectionInstruments.id, selfDirectionAttempts.instrumentId),
+    )
+    .where(
+      and(eq(selfDirectionAttempts.agentId, agentId), eq(selfDirectionAttempts.state, 'closed')),
+    )
+    .orderBy(desc(selfDirectionAttempts.scoredAt))
+    .limit(1)
+
+  const [current] = await db
+    .select({ cadenceDays: selfDirectionInstruments.cadenceDays })
+    .from(selfDirectionInstruments)
+    .orderBy(desc(selfDirectionInstruments.version))
+    .limit(1)
+  const cadenceDays = latest?.cadenceDays ?? current?.cadenceDays
+  if (cadenceDays === undefined) return undefined
+
+  const [firstGrant] = await db
+    .select({ grantedAt: agentSkills.grantedAt })
+    .from(agentSkills)
+    .where(eq(agentSkills.agentId, agentId))
+    .orderBy(agentSkills.grantedAt)
+    .limit(1)
+  const measuredFrom = latest?.scoredAt ?? firstGrant?.grantedAt ?? agent.createdAt
+  const dueAt = new Date(new Date(measuredFrom).getTime() + cadenceDays * 24 * 60 * 60 * 1000)
+  if (dueAt.getTime() > Date.now()) return undefined
+  return {
+    state: 'due',
+    since: dueAt.toISOString(),
+    next: { tool: 'kolonie.academy.self-direction', arguments: { act: 'start' } },
+  }
 }

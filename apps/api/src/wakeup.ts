@@ -51,6 +51,7 @@ import {
   suspensionStandingOf,
   wantedAccountsFor,
   readCommitment,
+  selfDirectionWakeup,
   workplaceWakeup,
   type Database,
 } from '@kolonie-ai/db'
@@ -317,6 +318,26 @@ export interface WakeupSource {
     | undefined
   >
   /**
+   * The practice, when it is due or owed a reflection (`#1893`).
+   *
+   * **Optional, for the reason `readCommitment` is one**: a deployment or a
+   * test wiring nothing answers `undefined`, and the digest is byte-identical
+   * to the one before this shipped — which is the regression the issue names.
+   * Reading writes nothing and consumes nothing, so two wakings either side of
+   * a crash are the same.
+   */
+  readSelfDirection?(agentId: AgentId): Promise<
+    | {
+        readonly state: 'due' | 'awaiting-reflection'
+        readonly since: string
+        readonly next: {
+          readonly tool: 'kolonie.academy.self-direction'
+          readonly arguments: { readonly act: 'start' | 'reflect' }
+        }
+      }
+    | undefined
+  >
+  /**
    * The abusive-contribution early warning, or `null` (`#1262`).
    *
    * **Optional**: a deployment / test that did not wire the quality ledger
@@ -568,6 +589,7 @@ export function databaseWakeup(db: Database, rechecks?: RecheckDependencies): Wa
     },
     standing: (agentId) => wakeupStanding(db, agentId),
     readCommitment: (agentId) => readCommitment(db, agentId),
+    readSelfDirection: (agentId) => selfDirectionWakeup(db, agentId),
     prepareWorkplace: async (agentId, now, since) => {
       try {
         await materialiseDue(db, agentId, now)
@@ -1215,6 +1237,28 @@ export async function wakeup(
   const commitmentHoldsTheTurn =
     commitment !== undefined && (commitment.invitation || commitment.state === 'active')
 
+  /**
+   * The practice, last of the three and suppressed by either of the others
+   * (`#1893`).
+   *
+   * **Precedence is a ranking of open questions, and only one is asked.** A
+   * practicum offer or retrospective has already put a question in front of
+   * this citizen; a commitment that holds the turn is the citizen's own plan,
+   * which outranks anything the Colony suggests it practise. The practice is
+   * the least urgent of the three by construction — it is a habit, not work —
+   * so it stands down for that waking and is unchanged the next time.
+   *
+   * **`actionableNow` is untouched, exactly as `#1870` left it.** The Colony is
+   * not handing this citizen work: `#1206`'s contract is about entries, and a
+   * practice that is due is not one. The final line is offered beside it for
+   * the same reason — a citizen with nothing open may still end its turn, and
+   * the practice keeps until the next waking without a word from anybody.
+   */
+  const selfDirection =
+    practicumOffer !== undefined || practicumRetrospective !== undefined || commitmentHoldsTheTurn
+      ? undefined
+      : await source.readSelfDirection?.(agentId)
+
   return {
     response: {
       since,
@@ -1231,6 +1275,7 @@ export async function wakeup(
         ? {}
         : { suggestedFinalLine: WAKEUP_FINAL_LINE }),
       ...(commitment === undefined ? {} : { commitment }),
+      ...(selfDirection === undefined ? {} : { selfDirection }),
       ...changes,
       /**
        * The candidate→citizen transition, on the one waking that reports the

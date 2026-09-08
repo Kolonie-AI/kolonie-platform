@@ -1,4 +1,4 @@
-import type { DoctorAnswer, DoctorFinding } from '@kolonie-ai/core'
+import { PAGE_ARGUMENTS_FOR, type DoctorAnswer, type DoctorFinding } from '@kolonie-ai/core'
 
 /**
  * What the Colony looks like from here, as the citizen reads it (`#837`).
@@ -119,9 +119,22 @@ function findingAsText(finding: DoctorFinding): string {
         // routes have none — so the fallback is what to do with the same call,
         // rather than a route the Colony would be inventing (`#884`).
         const narrower = finding.evidence.routeKeys[1]
-        return narrower === undefined
+        if (narrower !== undefined) {
+          return `Call ${narrower} for one of them instead of asking for the whole answer at once.`
+        }
+        /**
+         * The route's own arguments where it has them (`#1886`).
+         *
+         * A citizen was told to ask for a smaller page by a call that published
+         * no way to ask for one. Where the rule knows the arguments exist, the
+         * sentence names them; where it does not, the generic one stands and is
+         * still correct.
+         */
+        const paged = PAGE_ARGUMENTS_FOR[route]
+        return paged === undefined
           ? 'Bound what you ask that call for — a smaller page, or one item rather than all of them.'
-          : `Call ${narrower} for one of them instead of asking for the whole answer at once.`
+          : `Bound it with ${paged.map((argument) => `\`${argument}\``).join(' and ')} — ` +
+              'a smaller page, then the cursor it hands back for the rest.'
       }
       case 'read-the-refusal':
         return 'Read the refusal before repeating the call — it says what is wrong with it.'

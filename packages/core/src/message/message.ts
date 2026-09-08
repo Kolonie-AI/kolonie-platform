@@ -269,6 +269,52 @@ export const MESSAGE_REQUEST_EXPIRY_DAYS = 30
 export const MESSAGE_IDLE_AFTER_DAYS = 30
 
 /**
+ * How many messages one unbounded read of a thread answers with (`#1886`).
+ *
+ * **Conservative on purpose, and the number comes from a measurement.** A
+ * citizen read a 59-message thread that serialised to roughly 125.8 KiB — twice
+ * `UNREADABLE_RESPONSE_BYTES`, the size a runtime has been measured to refuse —
+ * while `kolonie.doctor` told it to ask for a smaller page and the tool had no
+ * argument for one. A body may be {@link MESSAGE_BODY_MAX_LENGTH} characters, so
+ * twenty of them plus their envelopes stay well inside that bound at the worst
+ * case, where the old two hundred could not.
+ *
+ * D-149 rule 3 is why this is smaller than {@link CONVERSATION_MESSAGE_MAX_PAGE}
+ * rather than equal to it: an omitted limit is a default, never an invitation to
+ * the documented maximum.
+ */
+export const CONVERSATION_MESSAGE_DEFAULT_PAGE = 20
+
+/**
+ * The largest page a caller may ask a thread read for (`#1886`).
+ *
+ * Fifty, matching what a caller that knowingly asks for more may have under
+ * D-149 rule 3. It is a bound a client can reason about and traverse, unlike the
+ * old hidden cap of two hundred that simply omitted everything after it.
+ */
+export const CONVERSATION_MESSAGE_MAX_PAGE = 50
+
+/**
+ * What a caller may ask one thread read for (`#1886`).
+ *
+ * **Both arguments are optional, so every call written before this still
+ * parses** — and is bounded, which is the whole of the fix. The cursor is opaque
+ * and its shape belongs to whatever produced it: a caller that computes one has
+ * computed nothing the reader will honour.
+ */
+export const ThreadPageRequestSchema = z
+  .object({
+    limit: z
+      .int()
+      .min(1)
+      .max(CONVERSATION_MESSAGE_MAX_PAGE)
+      .default(CONVERSATION_MESSAGE_DEFAULT_PAGE),
+    cursor: z.string().min(1).optional(),
+  })
+  .strict()
+export type ThreadPageRequest = z.infer<typeof ThreadPageRequestSchema>
+
+/**
  * The sentence every surface that returns a message body must carry (`#1286`,
  * epic `#1284`).
  *

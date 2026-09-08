@@ -131,6 +131,24 @@ describe('unreadable-response', () => {
     expect(finding?.recommendation).toBe('narrow-the-request')
   })
 
+  it('identifies paged thread retrieval so its Doctor guidance can name the supported arguments', () => {
+    const finding = unreadableResponse(
+      input({
+        hours: [
+          bucket({
+            hour: 0,
+            routeKey: 'kolonie.messages.get_thread',
+            calls: 1,
+            bytesOut: 125_800,
+            maxBytesOut: 125_800,
+          }),
+        ],
+      }),
+    )[0]
+
+    expect(finding?.evidence.figures['supportsPageArguments']).toBe(1)
+  })
+
   /**
    * Confidence is not lowered for having been seen in one hour. The agreement
    * term asks whether a pattern holds across buckets, and this finding is not a

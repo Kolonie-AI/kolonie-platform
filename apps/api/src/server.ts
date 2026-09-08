@@ -1044,13 +1044,15 @@ const app = buildApp({
    */
   messaging: {
     listThreads: (agentId, options) => listConversations(db, agentId, options),
-    getThread: async (agentId, conversationId) => {
-      const result = await readConversation(db, agentId, conversationId)
+    getThread: async (agentId, conversationId, page) => {
+      const result = await readConversation(db, agentId, conversationId, page)
       return result.outcome === 'read'
         ? {
             outcome: 'read',
             response: {
               messages: result.messages,
+              ...(result.invalidCursor === true ? { invalidCursor: true as const } : {}),
+              ...(result.nextCursor === undefined ? {} : { nextCursor: result.nextCursor }),
               // What the thread is about and what is attached to it (`#1441`).
               about: result.about,
               shares: result.shares,

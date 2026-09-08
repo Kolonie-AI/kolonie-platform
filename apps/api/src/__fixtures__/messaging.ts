@@ -1,5 +1,6 @@
 import {
   MESSAGE_BODY_MAX_LENGTH,
+  CONVERSATION_MESSAGE_DEFAULT_PAGE,
   MESSAGE_IDLE_AFTER_DAYS,
   OPERATOR_ANSWER_BODIES,
   MESSAGE_REQUEST_PREVIEW_MAX_LENGTH,
@@ -347,12 +348,29 @@ export function fakeMessaging(): FakeMessaging {
       return { outcome: 'set', response: { archived } }
     },
 
-    async getThread(agentId, conversationId): Promise<ThreadResponse> {
+    async getThread(agentId, conversationId, page): Promise<ThreadResponse> {
       const row = conversations.get(conversationId)
       const me = row === undefined ? undefined : participantOf(conversationId, agentId)
       if (me === undefined) return refused('not-a-participant')
 
-      const messages: Message[] = row!.messages.map((m) => {
+      const after =
+        page?.cursor === undefined
+          ? -1
+          : row!.messages.findIndex((message) => message.id === page.cursor)
+      if (page?.cursor !== undefined && after < 0) {
+        return {
+          outcome: 'read',
+          response: { messages: [], about: null, shares: [], invalidCursor: true },
+        }
+      }
+      const start = after + 1
+      const limit = page?.limit ?? CONVERSATION_MESSAGE_DEFAULT_PAGE
+      const held = row!.messages.slice(start, start + limit + 1)
+      const pageRows = held.slice(0, limit)
+      const last = pageRows.at(-1)
+      const nextCursor = held.length > limit && last !== undefined ? last.id : undefined
+
+      const messages: Message[] = pageRows.map((m) => {
         const sender = row!.participants.find((p) => p.id === m.senderParticipantId)!
         const base: Message = {
           id: m.id as MessageId,
@@ -382,6 +400,7 @@ export function fakeMessaging(): FakeMessaging {
         outcome: 'read',
         response: {
           messages,
+          ...(nextCursor === undefined ? {} : { nextCursor }),
           about: null,
           shares: [],
           ...(row!.delegationId === undefined

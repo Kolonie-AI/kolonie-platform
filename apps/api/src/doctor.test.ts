@@ -11,6 +11,7 @@ import { buildApp } from './app.js'
 import { doctorAnswerFor } from './doctor.js'
 import { FAKE_CALLER_IP, fakeColony } from './__fixtures__/colony/index.js'
 import { fakeDoctorSource } from './__fixtures__/doctor.js'
+import { doctorAsText } from './mcp/text/doctor.js'
 import { connectedClient } from './__fixtures__/mcp.js'
 
 const NOW = new Date('2026-08-04T00:00:00.000Z')
@@ -72,6 +73,31 @@ describe('the doctor surface', () => {
 
       const observed = loop?.evidence.figures['observedIntervalSeconds'] ?? 0
       expect(loop?.retryAfterSeconds ?? 0).toBeGreaterThan(observed * 2)
+    })
+
+    it('names the supported thread-page arguments instead of generic impossible guidance', async () => {
+      const answer = await doctorAnswerFor(
+        ONE,
+        fakeDoctorSource(
+          {
+            [ONE]: [
+              bucket(1, {
+                routeKey: 'kolonie.messages.get_thread',
+                calls: 1,
+                bytesOut: 125_800,
+                maxBytesOut: 125_800,
+              }),
+            ],
+          },
+          { [ONE]: ESTABLISHED },
+        ),
+        NOW,
+      )
+      const text = doctorAsText(answer)
+
+      expect(text).toContain('`limit`')
+      expect(text).toContain('`cursor`')
+      expect(text).not.toContain('one item rather than all')
     })
 
     it('answers a citizen with nothing wrong with a populated summary and no findings', async () => {

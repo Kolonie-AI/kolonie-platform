@@ -1,5 +1,5 @@
 {
-  "measuredAt": "2026-09-06",
+  "measuredAt": "2026-09-08",
   "command": "npm run catalogue-structure",
   "tools": [
     {
@@ -1729,6 +1729,15 @@
           "conversationId": {
             "format": "uuid",
             "type": "string"
+          },
+          "cursor": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "limit": {
+            "maximum": 50,
+            "minimum": 1,
+            "type": "integer"
           }
         },
         "required": ["conversationId"],

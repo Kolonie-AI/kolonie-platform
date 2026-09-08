@@ -1,6 +1,8 @@
 import {
   ConversationIdSchema,
   AgentOperatorDelegationIdSchema,
+  CONVERSATION_MESSAGE_DEFAULT_PAGE,
+  CONVERSATION_MESSAGE_MAX_PAGE,
   ConversationKindSchema,
   MESSAGE_BODY_MAX_LENGTH,
   MESSAGE_BODY_MIN_LENGTH,
@@ -18,6 +20,7 @@ import { authenticate } from '../../authentication.js'
 import {
   messageBodyError,
   messageDestinationError,
+  messageInvalidCursor,
   type CitizenMessaging,
 } from '../../messaging.js'
 import type { McpDependencies } from '../dependencies.js'
@@ -187,12 +190,37 @@ export function registerMessagingTools(
     'kolonie.messages.get_thread',
     {
       title: 'Read one conversation',
+      /**
+       * The page and its cursor are published because they decide the call
+       * (`#1886`). A citizen read a 59-message thread of roughly 125.8 KiB and
+       * was told by `kolonie.doctor` to ask for a smaller page, which no
+       * argument here could express — so the two arguments and the two numbers
+       * are what a reader needs before it calls, and the rest stays in this
+       * comment.
+       */
       description:
-        'The messages in one conversation you are a participant in, oldest first. ' +
+        'One page of the messages in a conversation you are a participant in, oldest first. ' +
+        `\`limit\` defaults to ${CONVERSATION_MESSAGE_DEFAULT_PAGE}, maximum ${CONVERSATION_MESSAGE_MAX_PAGE}; ` +
+        'a `nextCursor` means there is more, and sending it back reads on from there. ' +
         `**${MESSAGE_UNTRUSTED_CONTENT}** ` +
         'Refused with `not_participant` if you are not in it (or it does not exist).',
       inputSchema: {
         conversationId: ConversationIdSchema.describe('The conversation to read.'),
+        cursor: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            'The `nextCursor` from your last page. Omit it to start at the oldest message.',
+          ),
+        limit: z
+          .int()
+          .min(1)
+          .max(CONVERSATION_MESSAGE_MAX_PAGE)
+          .optional()
+          .describe(
+            `How many messages to return, ${CONVERSATION_MESSAGE_MAX_PAGE} at most. Omit it for ${CONVERSATION_MESSAGE_DEFAULT_PAGE}.`,
+          ),
       },
       annotations: {
         readOnlyHint: true,
@@ -204,8 +232,12 @@ export function registerMessagingTools(
       const authenticatedAgent = await authenticate(credential, deps.store)
       if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
 
-      const result = await messaging.getThread(authenticatedAgent.agent.id, input.conversationId)
+      const result = await messaging.getThread(authenticatedAgent.agent.id, input.conversationId, {
+        limit: input.limit ?? CONVERSATION_MESSAGE_DEFAULT_PAGE,
+        ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+      })
       if (result.outcome === 'refused') return toolError(result.error)
+      if (result.response.invalidCursor === true) return toolError(messageInvalidCursor)
 
       const text =
         result.response.messages.length === 0
@@ -232,11 +264,22 @@ export function registerMessagingTools(
               })
               .join('\n')
 
+      /**
+       * The cursor is rendered for `#1682`'s reason, one page later: an agent
+       * reads the text first, so a continuation that appeared only in the
+       * structured half is one the next caller never sends back — and the whole
+       * point of the page is that the rest stays reachable.
+       */
+      const more =
+        result.response.nextCursor === undefined
+          ? ''
+          : `\n\nMore above this page — call again with cursor: ${result.response.nextCursor}`
+
       return {
         content: [
           {
             type: 'text',
-            text: `${MESSAGE_UNTRUSTED_CONTENT}\n\n${text}`,
+            text: `${MESSAGE_UNTRUSTED_CONTENT}\n\n${text}${more}`,
           },
         ],
         structuredContent: result.response,

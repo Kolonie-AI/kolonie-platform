@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { and, eq, isNull, sql } from 'drizzle-orm'
 import {
   AgentIdSchema,
+  CONVERSATION_MESSAGE_DEFAULT_PAGE,
   HumanIdSchema,
   OPERATOR_ANSWER_BODIES,
   OperatorAnswerKindSchema,
@@ -39,6 +40,7 @@ import {
   blockSender,
   declineMessageRequest,
   CONVERSATION_LIST_LIMIT,
+  CONVERSATION_MESSAGE_LIMIT,
   listConversations,
   listMessageRequests,
   listOperatorConversations,
@@ -156,6 +158,115 @@ describe('private messaging', () => {
     const result = await readConversation(db, agentId, conversation as never)
     return result.outcome === 'read' ? result.messages.map((m) => m.body) : result
   }
+
+  describe('thread pagination (#1886)', () => {
+    const populatedThread = async (messageCount: number) => {
+      const sender = await anAgent('page-sender')
+      const recipient = await anAgent('page-recipient')
+      const opened = await sendCitizenMessage(db, sender, {
+        toHandle: await handleOf(recipient),
+        body: 'message-00',
+      })
+      if (opened.outcome !== 'requested') throw new Error('unreachable')
+      await acceptMessageRequest(db, recipient, opened.requestId)
+
+      for (let index = 1; index < messageCount; index += 1) {
+        const body = `message-${String(index).padStart(2, '0')}`
+        const sent = await replyInConversation(db, sender, opened.conversationId, body)
+        if (sent.outcome !== 'delivered') throw new Error('unreachable')
+      }
+
+      return { sender, recipient, conversationId: opened.conversationId }
+    }
+
+    it('bounds an omitted limit at the conservative default', async () => {
+      const { sender, conversationId } = await populatedThread(
+        CONVERSATION_MESSAGE_DEFAULT_PAGE + 1,
+      )
+
+      const page = await readConversation(db, sender, conversationId)
+      if (page.outcome !== 'read') throw new Error('unreachable')
+
+      expect(page.messages).toHaveLength(CONVERSATION_MESSAGE_DEFAULT_PAGE)
+      expect(page.nextCursor).toBeDefined()
+    })
+
+    it('keeps the human console read at its existing bound', async () => {
+      const citizen = await anAgent('page-citizen')
+      const operator = await aPerson(citizen)
+      const opened = await sendOperatorMessage(db, operator, citizen, 'message-00')
+      if (opened.outcome !== 'delivered') throw new Error('unreachable')
+
+      for (let index = 1; index < CONVERSATION_MESSAGE_DEFAULT_PAGE + 1; index += 1) {
+        const sent = await replyInConversation(
+          db,
+          citizen,
+          opened.conversationId,
+          `message-${String(index).padStart(2, '0')}`,
+        )
+        if (sent.outcome !== 'delivered') throw new Error('unreachable')
+      }
+
+      const page = await readOperatorConversation(db, operator, opened.conversationId)
+      if (page.outcome !== 'read') throw new Error('unreachable')
+
+      expect(CONVERSATION_MESSAGE_LIMIT).toBeGreaterThan(CONVERSATION_MESSAGE_DEFAULT_PAGE)
+      expect(page.messages).toHaveLength(CONVERSATION_MESSAGE_DEFAULT_PAGE + 1)
+      expect(page.nextCursor).toBeUndefined()
+    })
+
+    it('walks a 59-message thread in stable, non-overlapping pages and omits the terminal cursor', async () => {
+      const { sender, conversationId } = await populatedThread(59)
+      const bodies: string[] = []
+      let cursor: string | undefined
+      const pageLengths: number[] = []
+
+      do {
+        const page = await readConversation(db, sender, conversationId, { limit: 17, cursor })
+        if (page.outcome !== 'read') throw new Error('unreachable')
+        pageLengths.push(page.messages.length)
+        bodies.push(...page.messages.map((message) => message.body))
+        cursor = page.nextCursor
+      } while (cursor !== undefined)
+
+      expect(pageLengths).toEqual([17, 17, 17, 8])
+      expect(bodies).toEqual(
+        Array.from({ length: 59 }, (_, index) => `message-${String(index).padStart(2, '0')}`),
+      )
+      expect(new Set(bodies).size).toBe(59)
+    })
+
+    it('keeps authorization identical when pagination arguments are present', async () => {
+      const { conversationId } = await populatedThread(2)
+      const outsider = await anAgent('page-outsider')
+
+      expect(
+        await readConversation(db, outsider, conversationId, {
+          limit: 1,
+          cursor: 'opaque-but-untrusted',
+        }),
+      ).toEqual({ outcome: 'refused', refusal: 'not-a-participant' })
+    })
+
+    /**
+     * A cursor nobody issued is not the same fact as a walk that has ended, and
+     * collapsing the two would hand a caller an empty page that reads as *this
+     * thread is finished* — which is how a forged or truncated cursor silently
+     * loses every message after it.
+     */
+    it('marks a cursor it never issued rather than answering an empty last page', async () => {
+      const { sender, conversationId } = await populatedThread(3)
+
+      const forged = await readConversation(db, sender, conversationId, {
+        cursor: 'not-a-cursor-this-reader-issued',
+      })
+      if (forged.outcome !== 'read') throw new Error('unreachable')
+
+      expect(forged.invalidCursor).toBe(true)
+      expect(forged.messages).toEqual([])
+      expect(forged.nextCursor).toBeUndefined()
+    })
+  })
 
   describe('an unknown citizen', () => {
     it('opens a request rather than delivering, and the recipient cannot read a word of it', async () => {

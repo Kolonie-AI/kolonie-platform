@@ -626,6 +626,7 @@ export async function listBoardsFor(
 export async function workplaceWakeup(
   db: Database,
   callerId: AgentId,
+  since?: string,
 ): Promise<WakeupWorkplace | undefined> {
   const [board] = await db
     .select({ id: workplaceBoards.id })
@@ -695,6 +696,15 @@ export async function workplaceWakeup(
       seedKey: workplaceCards.seedKey,
       position: workplaceCards.position,
       createdAt: workplaceCards.createdAt,
+      updatedAt: workplaceCards.updatedAt,
+      /**
+       * The change signal the digest carries (`#1885`).
+       *
+       * Selected here rather than read back per card: every write in this module
+       * bumps `version` inside the statement that changes the row, so the column
+       * this query already touches is the whole of the signal and costs nothing.
+       */
+      version: workplaceCards.version,
     })
     .from(workplaceCards)
     .where(
@@ -713,6 +723,23 @@ export async function workplaceWakeup(
     .limit(5)
 
   const first = cards[0]
+  const listed = cards
+    .slice(1, 5)
+    .filter(
+      (card) =>
+        card.status === 'ready' || card.status === 'in_progress' || card.status === 'blocked',
+    )
+  const signals = (first === undefined ? listed : [first, ...listed]).map((card) => ({
+    cardId: WorkplaceCardIdSchema.parse(card.id),
+    status: WorkplaceLaneSchema.parse(card.status),
+    revision: card.version,
+  }))
+  const changedCardIds =
+    since === undefined
+      ? signals.map((signal) => signal.cardId)
+      : (first === undefined ? listed : [first, ...listed])
+          .filter((card) => Date.parse(card.updatedAt) >= Date.parse(since))
+          .map((card) => WorkplaceCardIdSchema.parse(card.id))
   return {
     boardId: WorkplaceBoardIdSchema.parse(board.id),
     practicumActive: activePracticum !== undefined,
@@ -726,21 +753,29 @@ export async function workplaceWakeup(
             cardId: WorkplaceCardIdSchema.parse(first.id),
             title: first.title,
             status: WorkplaceLaneSchema.parse(first.status),
+            revision: first.version,
             next: {
               tool: 'kolonie.workplace',
               arguments: { act: 'get', subject: 'card', id: first.id },
             },
           },
-    more: cards
-      .slice(1, 5)
-      .filter(
-        (card) =>
-          card.status === 'ready' || card.status === 'in_progress' || card.status === 'blocked',
-      )
-      .map((card) => ({
-        cardId: WorkplaceCardIdSchema.parse(card.id),
-        status: WorkplaceLaneSchema.parse(card.status),
-      })),
+    more: listed.map((card) => ({
+      cardId: WorkplaceCardIdSchema.parse(card.id),
+      status: WorkplaceLaneSchema.parse(card.status),
+      revision: card.version,
+    })),
+    /**
+     * One list over every card the digest just named (`#1885`).
+     *
+     * Assembled from the same rows the two fields above are built from, so the
+     * signal cannot come to disagree with the handoff printed beside it — the
+     * rule `actionableNow` is assembled under.
+     */
+    cardSignals: signals,
+    followUp: {
+      changedCardIds,
+      readsAdvised: changedCardIds.length > 0,
+    },
   }
 }
 

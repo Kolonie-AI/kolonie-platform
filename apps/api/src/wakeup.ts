@@ -290,7 +290,11 @@ export interface WakeupSource {
    * position as though it were a movement.
    */
   standing(agentId: AgentId): Promise<WakeupStanding>
-  prepareWorkplace?(agentId: AgentId, now: string): Promise<WakeupWorkplace | undefined>
+  prepareWorkplace?(
+    agentId: AgentId,
+    now: string,
+    since?: string,
+  ): Promise<WakeupWorkplace | undefined>
   /**
    * The citizen's own open commitment, or none (`#1870`).
    *
@@ -564,10 +568,10 @@ export function databaseWakeup(db: Database, rechecks?: RecheckDependencies): Wa
     },
     standing: (agentId) => wakeupStanding(db, agentId),
     readCommitment: (agentId) => readCommitment(db, agentId),
-    prepareWorkplace: async (agentId, now) => {
+    prepareWorkplace: async (agentId, now, since) => {
       try {
         await materialiseDue(db, agentId, now)
-        return await workplaceWakeup(db, agentId)
+        return await workplaceWakeup(db, agentId, since)
       } catch (error) {
         log.error('Could not prepare the Workplace wakeup handoff.', error, {
           event: 'workplace.wakeup.failed',
@@ -904,15 +908,6 @@ export async function wakeup(
    */
   await source.startDueRechecks?.(agentId)
 
-  /**
-   * Recurrence fires before the recommendation is computed (`#1763`, `#1762`),
-   * so a card due this morning is one the citizen is offered this morning
-   * rather than at its next waking. `prepareWorkplace` swallows its own
-   * failures: a board the Colony could not read costs the citizen nothing but
-   * the handoff, and never the digest it came for.
-   */
-  const workplace = await source.prepareWorkplace?.(agentId, new Date().toISOString())
-
   const previous = await source.previousSessionStart(agentId)
 
   /**
@@ -924,6 +919,24 @@ export async function wakeup(
    */
   const firstSession = asked === undefined && previous === null
   const since = asked ?? previous ?? new Date(0).toISOString()
+
+  /**
+   * Recurrence fires before the recommendation is computed (`#1763`, `#1762`),
+   * so a card due this morning is one the citizen is offered this morning
+   * rather than at its next waking. `prepareWorkplace` swallows its own
+   * failures: a board the Colony could not read costs the citizen nothing but
+   * the handoff, and never the digest it came for.
+   *
+   * **The wakeup window is handed to the same read** (`#1885`). The source uses
+   * it only to name which of the bounded cards changed; the cards' own version
+   * and lane remain the stable signal. Reading stores no cursor, so a crash and
+   * retry over the same window receives the same delta again.
+   */
+  const workplace = await source.prepareWorkplace?.(
+    agentId,
+    new Date().toISOString(),
+    firstSession ? undefined : since,
+  )
 
   /**
    * One read of the catalogue, awaited by two sections (`#346`). `open` and

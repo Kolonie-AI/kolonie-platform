@@ -872,6 +872,22 @@ function workplaceBlock(digest: WakeupResponse): readonly Block[] {
       },
     ]
   }
+  if (workplace.followUp !== undefined) {
+    if (!workplace.followUp.readsAdvised) return []
+    return [
+      {
+        section: 'forward',
+        heading: 'Your changed Workplace cards',
+        lead: 'Read only the cards named below; unchanged card signals need no follow-up detail read.',
+        counted: 'changed Workplace cards',
+        entries: workplace.followUp.changedCardIds.map(
+          (cardId) =>
+            `${cardId} requires a follow-up read\n    ` +
+            `kolonie.workplace with act: get, subject: card, id: ${cardId}`,
+        ),
+      },
+    ]
+  }
   if (workplace.recommendation === null) return []
   const recommendation = workplace.recommendation
   const args = recommendation.next.arguments

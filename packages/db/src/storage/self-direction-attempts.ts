@@ -21,7 +21,12 @@ import {
 } from '../schema/self-direction.js'
 import { readSelfDirectionInstrument } from './self-direction-instruments.js'
 
-export type SelfDirectionPresentation = Array<{ itemKey: string; optionKeys: string[] }>
+export type SelfDirectionPresentation = Array<{
+  readonly itemKey: string
+  readonly prompt: string
+  readonly rationale: string
+  readonly options: readonly { readonly optionKey: string; readonly text: string }[]
+}>
 export type SelfDirectionAttemptView = {
   readonly id: string
   readonly state: string
@@ -86,11 +91,50 @@ async function view(
           .from(selfDirectionReflections)
           .where(eq(selfDirectionReflections.attemptId, previous.id))
           .limit(1)
+  const itemRows = await db
+    .select({
+      id: selfDirectionItems.id,
+      itemKey: selfDirectionItems.itemKey,
+      prompt: selfDirectionItems.prompt,
+      rationale: selfDirectionItems.rationale,
+    })
+    .from(selfDirectionItems)
+    .where(eq(selfDirectionItems.instrumentId, row.instrumentId))
+  const optionRows = await db
+    .select({
+      itemId: selfDirectionOptions.itemId,
+      optionKey: selfDirectionOptions.optionKey,
+      text: selfDirectionOptions.text,
+    })
+    .from(selfDirectionOptions)
+    .where(
+      inArray(
+        selfDirectionOptions.itemId,
+        itemRows.map(({ id }) => id),
+      ),
+    )
+  const presentation = row.presentation.map((shown) => {
+    const item = itemRows.find(({ itemKey }) => itemKey === shown.itemKey)
+    if (item === undefined) throw new Error(`attempt item ${shown.itemKey} not found`)
+    return {
+      itemKey: shown.itemKey,
+      prompt: item.prompt,
+      rationale: item.rationale,
+      options: shown.optionKeys.map((optionKey) => {
+        const option = optionRows.find(
+          (candidate) => candidate.itemId === item.id && candidate.optionKey === optionKey,
+        )
+        if (option === undefined) throw new Error(`attempt option ${optionKey} not found`)
+        return { optionKey, text: option.text }
+      }),
+    }
+  })
+
   return {
     id: row.id,
     state: row.state,
     instrument: { slug: instrument.slug, version: instrument.version },
-    presentation: row.presentation,
+    presentation,
     openedAt: row.openedAt,
     expiresAt: row.expiresAt,
     result: row.result,

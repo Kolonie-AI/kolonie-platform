@@ -1,4 +1,6 @@
 import { seedAcademyTasks } from './academy-tasks.js'
+import { SELF_DIRECTION_MVP_V1 } from './self-direction-instrument/mvp-v1.js'
+import { publishSelfDirectionInstrument } from './storage/self-direction-instruments.js'
 import { seedProviderCatalogue } from './provider-catalogue.js'
 import { curateListedAtlasEntries, seedListedAtlasEntries } from './atlas-providers.js'
 import { seedBundles } from './storage/provider-bundles.js'
@@ -43,6 +45,18 @@ async function main(): Promise<void> {
      */
     const { written } = await seedProviderCatalogue(db)
     console.log(`provider catalogue: ${written} entries written`)
+
+    /**
+     * The first self-direction instrument (`#1894`), after the Academy tasks
+     * and before anything that can offer work. Publication is content-addressed
+     * and idempotent: a same-version drift refuses rather than silently
+     * rewriting the questions under an answer already stored.
+     */
+    const selfDirection = await publishSelfDirectionInstrument(db, SELF_DIRECTION_MVP_V1)
+    if (selfDirection.outcome === 'conflict') {
+      throw new Error('self-direction instrument version 1 conflicts with the stored content')
+    }
+    console.log(`self-direction instrument: ${selfDirection.outcome}`)
 
     /**
      * The bundles (`#531`), after the catalogue for the same reason the

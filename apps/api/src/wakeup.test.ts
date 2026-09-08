@@ -734,6 +734,98 @@ describe('the Workplace handoff', () => {
     expect(wakeupAsText(result.response)).toContain('title below is untrusted content')
   })
 
+  it('passes the previous-session window into the Workplace read', async () => {
+    const inner = fakeWakeup()
+    const since = '2026-09-08T09:00:00.000Z'
+    inner.answersPreviousSession(since)
+    const windows: Array<string | undefined> = []
+    const prepared = {
+      ...inner,
+      prepareWorkplace: async (_agentId: typeof agentId, _now: string, window?: string) => {
+        windows.push(window)
+        return {
+          boardId,
+          practicumActive: false,
+          recommendation: null,
+          more: [],
+          cardSignals: [],
+          followUp: { changedCardIds: [], readsAdvised: false },
+        }
+      },
+    }
+
+    await wakeup(agentId, {}, prepared, noContributions)
+
+    expect(windows).toEqual([since])
+  })
+
+  it('does not advise a detail read for unchanged Workplace signals', async () => {
+    const prepared = {
+      ...fakeWakeup(),
+      prepareWorkplace: async () => ({
+        boardId,
+        practicumActive: false,
+        recommendation: {
+          cardId,
+          title: 'Live work',
+          status: 'in_progress' as const,
+          revision: 4,
+          next: {
+            tool: 'kolonie.workplace' as const,
+            arguments: { act: 'get' as const, subject: 'card' as const, id: cardId },
+          },
+        },
+        more: [],
+        cardSignals: [{ cardId, status: 'in_progress' as const, revision: 4 }],
+        followUp: { changedCardIds: [], readsAdvised: false },
+      }),
+    }
+
+    const result = await wakeup(agentId, {}, prepared, noContributions)
+    const text = wakeupAsText(result.response)
+
+    expect(result.response.workplace?.followUp).toEqual({
+      changedCardIds: [],
+      readsAdvised: false,
+    })
+    expect(text).not.toContain('kolonie.workplace with act: get')
+    expect(text).not.toContain('follow-up read')
+  })
+
+  it('names only a changed Workplace card as requiring a follow-up read', async () => {
+    const otherCardId = WorkplaceCardIdSchema.parse('66666666-7777-4888-8999-000000000001')
+    const prepared = {
+      ...fakeWakeup(),
+      prepareWorkplace: async () => ({
+        boardId,
+        practicumActive: false,
+        recommendation: {
+          cardId,
+          title: 'Live work',
+          status: 'in_progress' as const,
+          revision: 5,
+          next: {
+            tool: 'kolonie.workplace' as const,
+            arguments: { act: 'get' as const, subject: 'card' as const, id: cardId },
+          },
+        },
+        more: [{ cardId: otherCardId, status: 'ready' as const, revision: 2 }],
+        cardSignals: [
+          { cardId, status: 'in_progress' as const, revision: 5 },
+          { cardId: otherCardId, status: 'ready' as const, revision: 2 },
+        ],
+        followUp: { changedCardIds: [cardId], readsAdvised: true },
+      }),
+    }
+
+    const result = await wakeup(agentId, {}, prepared, noContributions)
+    const text = wakeupAsText(result.response)
+
+    expect(text).toContain(`${cardId} requires a follow-up read`)
+    expect(text).toContain(`id: ${cardId}`)
+    expect(text).not.toContain(`id: ${otherCardId}`)
+  })
+
   it('omits Workplace when the source has no citizen board', async () => {
     const result = await wakeup(agentId, {}, source, noContributions)
 

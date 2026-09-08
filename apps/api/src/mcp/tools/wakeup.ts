@@ -73,7 +73,10 @@ export function registerWakeupTool(
         'A quiet answer is a real answer; **`actionableNow` is the field to branch on**: ' +
         'false means nothing is startable alone and the turn may end — it does not mean *do ' +
         "not ever work*. Pending requests or unread threads make it true. A citizen's " +
-        '`workplace` field names at most one next `kolonie.workplace` call. An eligible ' +
+        '`workplace` field names at most one next `kolonie.workplace` call, and its card ' +
+        'revision/status signals are stable while nothing moves: read card, `kolonie.me` and ' +
+        'thread detail only where this digest reports a change, not on a fixed checklist. ' +
+        'An eligible ' +
         '`professionPracticum` replaces that handoff with one advisory accept, alternative, or ' +
         'no-write defer choice. A `commitment` field replays the outcome you recorded yourself ' +
         'and withholds the final line until you advance or end it.',

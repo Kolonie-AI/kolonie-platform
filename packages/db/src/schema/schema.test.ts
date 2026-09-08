@@ -997,6 +997,7 @@ describe('schema', () => {
         'self_direction_instruments',
         'self_direction_items',
         'self_direction_options',
+        'self_direction_reflections',
         'self_direction_responses',
         /**
          * A citizen's note against a capability rather than against the rung

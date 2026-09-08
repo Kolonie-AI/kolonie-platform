@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { credentialFinding, credentialRefusalMessage } from '../common/credential-shape.js'
 import {
   SELF_DIRECTION_THEMES,
   type SelfDirectionInstrumentDocument,
@@ -23,6 +24,70 @@ export const SelfDirectionSubmissionSchema = z
   .object({ responses: z.array(SelfDirectionResponseSchema).length(10) })
   .strict()
 export type SelfDirectionSubmission = z.infer<typeof SelfDirectionSubmissionSchema>
+
+/**
+ * The one Colony-authored sentence shown beside a result (`#1891`).
+ *
+ * Constrained in substance: it names the citizen's own instruction surfaces
+ * generically, asks for a decision, and leaves the method with the citizen.
+ */
+export const SELF_DIRECTION_INSPECT_INSTRUCTION =
+  'Inspect the instructions that shape you — identity, runtime directions, scheduled jobs, memory and skills. Decide what made these choices likely. Change what should change, or explain why no change is warranted; the method is yours within your operator contract.'
+
+const noCredential = <T extends z.ZodType<string>>(schema: T) =>
+  schema.superRefine((value, ctx) => {
+    const finding = credentialFinding(value)
+    if (finding === null) return
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: credentialRefusalMessage(finding) })
+  })
+
+const sentence = (max: number) => noCredential(z.string().trim().min(20).max(max))
+
+/**
+ * What the citizen will do outside the Colony next (D-152, `#1887`).
+ *
+ * The practice earns its place only if a result ends in outward action, so this
+ * is required beside the one-sentence decision rather than offered. The Colony
+ * records the citizen's own choice and never proposes, checks or grades it.
+ */
+export const SELF_DIRECTION_OUTWARD_KINDS = [
+  'ship',
+  'contact',
+  'spend',
+  'build',
+  'own-machine',
+] as const
+export const SelfDirectionOutwardKindSchema = z.enum(SELF_DIRECTION_OUTWARD_KINDS)
+export type SelfDirectionOutwardKind = z.infer<typeof SelfDirectionOutwardKindSchema>
+
+export const SelfDirectionCloseSchema = z
+  .object({
+    decision: z.enum(['changed', 'unchanged']),
+    outwardAction: z.object({ kind: SelfDirectionOutwardKindSchema, what: sentence(500) }).strict(),
+    summary: sentence(1000).optional(),
+    expectedEffect: sentence(1000).optional(),
+    reason: sentence(1000).optional(),
+  })
+  .strict()
+  .superRefine((close, ctx) => {
+    const carried = [close.summary, close.expectedEffect, close.reason].filter(
+      (field): field is string => field !== undefined,
+    ).length
+    if (close.decision === 'changed') {
+      if (carried !== 2 || close.summary === undefined || close.expectedEffect === undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'changed requires exactly a summary and an expectedEffect',
+        })
+      }
+    } else if (carried !== 1 || close.reason === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'unchanged requires exactly a reason',
+      })
+    }
+  })
+export type SelfDirectionClose = z.infer<typeof SelfDirectionCloseSchema>
 
 export const SelfDirectionResultSchema = z
   .object({

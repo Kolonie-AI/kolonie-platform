@@ -230,6 +230,71 @@
       }
     },
     {
+      "name": "kolonie.academy.self-direction",
+      "schema": {
+        "properties": {
+          "act": {
+            "enum": ["start", "submit", "result", "reflect", "history"],
+            "type": "string"
+          },
+          "attemptId": {
+            "type": "string"
+          },
+          "decision": {
+            "enum": ["changed", "unchanged"],
+            "type": "string"
+          },
+          "expectedEffect": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "number"
+          },
+          "outwardAction": {
+            "properties": {
+              "kind": {
+                "enum": ["ship", "contact", "spend", "build", "own-machine"],
+                "type": "string"
+              },
+              "what": {
+                "type": "string"
+              }
+            },
+            "required": ["kind", "what"],
+            "type": "object"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "responses": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "itemKey": {
+                  "maxLength": 64,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "optionKey": {
+                  "maxLength": 64,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": ["itemKey", "optionKey"],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "required": ["act"],
+        "type": "object"
+      }
+    },
+    {
       "name": "kolonie.account.erase",
       "schema": {
         "properties": {

@@ -20,6 +20,7 @@ import type { CitizenConnections } from '../connections.js'
 import type { CitizenMessaging } from '../messaging.js'
 import type { PlaybookDependencies } from '../playbooks.js'
 import type { WorkplaceBoards } from '../workplace-boards.js'
+import type { SelfDirectionPractice } from '../self-direction.js'
 import type { WorkplaceCards } from '../workplace-cards.js'
 import type { SkillNotes } from '../skills.js'
 import type { WakeupSource } from '../wakeup.js'
@@ -299,6 +300,11 @@ export interface McpDependencies {
    * the house rule on `citizens`.
    */
   readonly cards?: WorkplaceCards
+  /**
+   * The self-direction practice (`#1892`). Optional, per D-013: a deployment
+   * that wired none registers no practice tool rather than one that refuses.
+   */
+  readonly selfDirection?: SelfDirectionPractice
   /** Direct citizen delegation lifecycle; absent means the single lifecycle tool is not served. */
   readonly agentOperatorDelegations?: AgentOperatorDelegations
   /**

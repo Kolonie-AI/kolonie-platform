@@ -264,6 +264,14 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.academy.challenge',
   'kolonie.academy.list',
   'kolonie.academy.answer',
+  /**
+   * The repeated self-direction practice, in one verb (`#1892`, D-152).
+   *
+   * Five acts and not five tools, for the reason the Academy is three: every
+   * description is carried by every citizen in every session, and a practice
+   * nobody is mid-way through would otherwise cost five entries to say so.
+   */
+  'kolonie.academy.self-direction',
   // Registered by `tools/mailboxes.ts` and not with the Academy, and it says
   // why. Neither of these two is a rung.
   'kolonie.mailboxes.list',

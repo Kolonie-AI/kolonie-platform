@@ -74,6 +74,7 @@ import { databaseHumanStore } from './humans/humans.js'
 import { auth0Tenant } from './humans/auth0.js'
 import { remoteJwks, type WorkplaceOptions } from './humans/workplace.js'
 import { databaseWorkplaceBoards } from './workplace-boards.js'
+import { databaseSelfDirectionPractice } from './self-direction.js'
 import { databaseWorkplaceCards } from './workplace-cards.js'
 import { databaseAgentOperatorDelegations } from './agent-operator-delegations.js'
 import { operatorNoteLimiter, signInAddressLimiter, signInClientLimiter } from './rate-limit.js'
@@ -2137,6 +2138,7 @@ const app = buildApp({
   ...(workplace === undefined ? {} : { workplace }),
   boards: databaseWorkplaceBoards(db),
   cards: databaseWorkplaceCards(db),
+  selfDirection: databaseSelfDirectionPractice(db),
   agentOperatorDelegations: databaseAgentOperatorDelegations(db),
   console: {
     store: databaseConsoleStore(db),

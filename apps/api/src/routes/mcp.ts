@@ -56,6 +56,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
     playbooks,
     boards,
     cards,
+    selfDirection,
     agentOperatorDelegations,
     website,
     webServer,
@@ -282,6 +283,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
           // caught for playbooks.
           ...(boards === undefined ? {} : { boards }),
           ...(cards === undefined ? {} : { cards }),
+          ...(selfDirection === undefined ? {} : { selfDirection }),
           ...(agentOperatorDelegations === undefined ? {} : { agentOperatorDelegations }),
           website,
           webServer,

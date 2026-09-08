@@ -4,6 +4,7 @@ import { registerAcademyAnswerTool } from './answer.js'
 import { registerAcademyChallengeTool } from './challenge.js'
 import { registerAcademyListTool } from './list.js'
 import { registerRetestTool } from './retest.js'
+import { registerSelfDirectionTool } from './self-direction.js'
 
 /**
  * Every rung of the Academy, and nothing that merely sits next to one.
@@ -38,4 +39,5 @@ export function registerAcademyTools(
   registerAcademyListTool(server)
   registerAcademyAnswerTool(server, deps, credential)
   registerRetestTool(server, deps, credential)
+  registerSelfDirectionTool(server, deps, credential)
 }

@@ -9,6 +9,8 @@ import { fakeAccountOffers, type FakeAccountOffers } from '../account-offers.js'
 import { fakeHumans } from '../humans.js'
 import type { HumanDependencies } from '../../humans/humans.js'
 import { fakeWorkplaceBoards, type FakeWorkplaceBoards } from '../workplace-boards.js'
+import { fakeSelfDirectionPractice } from '../self-direction.js'
+import type { SelfDirectionPractice } from '../../self-direction.js'
 import { fakeWorkplaceCards, type FakeWorkplaceCards } from '../workplace-cards.js'
 import {
   fakeAgentOperatorDelegations,
@@ -136,6 +138,8 @@ export interface FakeDesks {
    * server production runs. Appended, per the house rule on `citizens`.
    */
   readonly cards: FakeWorkplaceCards
+  /** The self-direction practice, storing rows and deciding no rule (`#1892`). */
+  readonly selfDirection: SelfDirectionPractice
   /** Direct citizen delegation lifecycle for MCP tests. */
   readonly agentOperatorDelegations: FakeAgentOperatorDelegations
 }
@@ -193,6 +197,7 @@ export function fakeDesks(): FakeDesks {
     autonomyStore,
     boards: fakeWorkplaceBoards(),
     cards: fakeWorkplaceCards(),
+    selfDirection: fakeSelfDirectionPractice(),
     agentOperatorDelegations: fakeAgentOperatorDelegations(),
   }
 }

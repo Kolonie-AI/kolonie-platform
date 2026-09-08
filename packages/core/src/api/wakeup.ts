@@ -32,9 +32,26 @@ import {
   WorkplaceMcpInputSchema,
   WorkplacePracticumRetrospectiveSchema,
   WorkplaceWakeupNextSchema,
+  SelfDirectionWakeupNextSchema,
 } from '../workplace/workplace.js'
 import { WakeDeliveryOutcomeSchema, WakeEventSchema } from '../academy/wake.js'
 import { GuestVaultHandoffStateSchema, VaultKeySchema, VaultSharePurposeSchema } from './vault.js'
+
+/**
+ * One compact practice action for the digest (`#1893`).
+ *
+ * Lifted to its own exported schema so the shape is assertable without a whole
+ * response around it — the same reason `WorkplaceWakeupNextSchema` lives in
+ * `workplace.ts` rather than only inline.
+ */
+export const SelfDirectionWakeupActionSchema = z
+  .object({
+    state: z.enum(['due', 'awaiting-reflection']),
+    since: TimestampSchema,
+    next: SelfDirectionWakeupNextSchema,
+  })
+  .strict()
+export type SelfDirectionWakeupAction = z.infer<typeof SelfDirectionWakeupActionSchema>
 
 /**
  * A pushed skill-note preview is small enough to orient a waking without replacing the
@@ -1638,6 +1655,27 @@ export const WakeupResponseSchema = z.object({
    * it needs is `open`, which the citizen has already been given.
    */
   suggestedFinalLine: z.string().optional(),
+  /**
+   * The practice, when one thing is true of it (`#1893`).
+   *
+   * **Absent unless due or awaiting reflection**, so an ordinary waking that
+   * owes the practice nothing pays no bytes for it and a runtime printing the
+   * digest unconditionally shows nothing.
+   *
+   * **One compact action and not a digest of the practice.** No questions, no
+   * score, no themes, no reflection prose and no history: the state, the
+   * relevant instant, and the exact `kolonie.academy.self-direction` call.
+   *
+   * **Precedence is the caller's and tested there**: an open profession
+   * practicum question or an open self-commitment outranks this block, and a
+   * higher-priority open item suppresses it for that wake rather than showing
+   * two things to answer at once.
+   *
+   * **No escalation.** `awaiting-reflection` stays recoverable on later wakes
+   * with the same shape; nothing here messages, opens a ticket, costs standing
+   * or changes tone the longer it stays open.
+   */
+  selfDirection: SelfDirectionWakeupActionSchema.optional(),
   /**
    * The citizen's own open commitment, replayed (`#1870`).
    *

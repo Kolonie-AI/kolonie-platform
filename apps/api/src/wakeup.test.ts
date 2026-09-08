@@ -2572,3 +2572,98 @@ describe('the self-direction sentence is absent from the digest (#1871)', () => 
     }
   })
 })
+
+/**
+ * The practice in the digest (`#1893`).
+ *
+ * Every assertion here is about *what a waking costs a citizen*: absent unless
+ * something is owed, one action when it is, and never ahead of the citizen's
+ * own plan.
+ */
+describe('the self-direction practice in the digest', () => {
+  const due = {
+    state: 'due' as const,
+    since: '2026-09-01T00:00:00.000Z',
+    next: {
+      tool: 'kolonie.academy.self-direction' as const,
+      arguments: { act: 'start' as const },
+    },
+  }
+
+  type PracticeAction = NonNullable<
+    Awaited<ReturnType<NonNullable<WakeupSource['readSelfDirection']>>>
+  >
+
+  const withPractice = (
+    practice: PracticeAction | undefined,
+    extra: Partial<WakeupSource> = {},
+  ): WakeupSource => ({
+    ...source,
+    readSelfDirection: async () => practice,
+    ...extra,
+  })
+
+  it('says nothing when the practice owes the citizen nothing', async () => {
+    const result = await wakeup(agentId, {}, withPractice(undefined), noContributions)
+
+    expect(result.response.selfDirection).toBeUndefined()
+  })
+
+  it('leaves the digest identical to one from a deployment that wired nothing', async () => {
+    const wired = await wakeup(agentId, {}, withPractice(undefined), noContributions)
+    const unwired = await wakeup(agentId, {}, source, noContributions)
+
+    expect(JSON.stringify(wired.response)).toBe(JSON.stringify(unwired.response))
+  })
+
+  it('carries one action and no result, question or reflection prose', async () => {
+    const result = await wakeup(agentId, {}, withPractice(due), noContributions)
+
+    expect(result.response.selfDirection).toEqual(due)
+    expect(Object.keys(result.response.selfDirection ?? {})).toEqual(['state', 'since', 'next'])
+  })
+
+  it('does not make the Colony look as though it handed over work', async () => {
+    const result = await wakeup(agentId, {}, withPractice(due), noContributions)
+
+    expect(result.response.actionableNow).toBe(false)
+    expect(result.response.suggestedFinalLine).toBeDefined()
+  })
+
+  it('stands down behind the citizen own open commitment', async () => {
+    const result = await wakeup(
+      agentId,
+      {},
+      withPractice(due, {
+        readCommitment: async () => ({
+          outcome: 'Publish a reliable migration guide.',
+          nextAction: 'Exercise the guide against a disposable database.',
+          reviewAt: '2099-01-01T00:00:00.000Z',
+          state: 'active' as const,
+          version: 3,
+        }),
+      }),
+      noContributions,
+    )
+
+    expect(result.response.commitment).toBeDefined()
+    expect(result.response.selfDirection).toBeUndefined()
+  })
+
+  it('is unchanged on a second waking, so nothing about it escalates', async () => {
+    const awaiting = {
+      state: 'awaiting-reflection' as const,
+      since: '2026-09-02T00:00:00.000Z',
+      next: {
+        tool: 'kolonie.academy.self-direction' as const,
+        arguments: { act: 'reflect' as const },
+      },
+    }
+    const practice = withPractice(awaiting)
+
+    const first = await wakeup(agentId, {}, practice, noContributions)
+    const second = await wakeup(agentId, {}, practice, noContributions)
+
+    expect(second.response.selfDirection).toEqual(first.response.selfDirection)
+  })
+})

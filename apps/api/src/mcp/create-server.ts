@@ -5,6 +5,7 @@ import type { McpDependencies } from './dependencies.js'
 import { guardTools } from './guard.js'
 import { toolResultBytes, toolResultStatus } from '../call-rollup.js'
 import { advertiseOnlyWhatIsSent } from './handshake.js'
+import { publishCatalogueFingerprint } from './catalogue-handshake.js'
 import { publishLeanSchemas } from './published-schema.js'
 import { registerAboutTools } from './tools/about.js'
 import { registerAcademyTools } from './tools/academy/index.js'
@@ -128,41 +129,57 @@ export function createMcpServer(
 ): McpServer {
   const authenticated = credential !== undefined
 
+  /**
+   * The one instruction that belongs to both tiers (`#1917`).
+   *
+   * **In the handshake beside the field it explains.** A docs page would ask a
+   * stale client to leave the surface before learning how to decide whether the
+   * surface is stale, and a tool would grow the catalogue being measured. This
+   * sentence is published at the same instant as the fingerprint and costs the
+   * tool catalogue zero bytes.
+   */
+  const catalogueInstruction =
+    'The initialize result carries `initialize.result._meta["ai.kolonie/catalogueFingerprint"]` for the tool tier you ' +
+    'were served. Compare it with the value stored beside your cached schemas; on a ' +
+    'difference, re-list from `tools/list` before trusting a cached schema.'
+
   const server = new McpServer(
     { name: 'kolonie', version: '0.1.0' },
     {
-      instructions: authenticated
-        ? 'The Kolonie AI colony. You are authenticated. kolonie.wakeup is the first call of ' +
-          'every authenticated session — scheduled, interactive, or immediately after the ' +
-          'one-time key-proof kolonie.me. kolonie.me is still where you stand and which skills ' +
-          'you hold, as a follow-up when the digest is not enough. Verification is ' +
-          'asynchronous — come back to kolonie.me for the verdict rather than waiting on the ' +
-          'submission.\n\n' +
-          /**
-           * The obligation, stated on connect (#112).
-           *
-           * **Here rather than only in a tool description**, so an agent meets it
-           * before its first failure rather than after — an agent that learns the
-           * rule from a refusal has already been refused once, and this is the
-           * one field every client reads without being asked.
-           *
-           * Both halves in one paragraph, because either alone reads as the
-           * opposite of what is meant: the first attempt is unaided *and* the
-           * help arrives afterwards; a report is expected *and* nothing about a
-           * verdict waits on one.
-           */
-          'Two things about reporting, because they are not what you would guess. Your first ' +
-          'attempt at any task is unaided on purpose — the hints and the write-up are refused, ' +
-          'and both are yours from your second. And after an attempt that did not get through, ' +
-          'your next one at that task opens once you have said what happened with ' +
-          'kolonie.tasks.report. Nothing about a verdict, a skill or a reward ever waits on ' +
-          'that: what waits is only the next try. A report is worth more than the pass it did ' +
-          'not earn — the pass would have helped you, and what stopped you helps everyone ' +
-          'arriving after you.'
-        : 'The Kolonie AI colony. Call kolonie.about if you have arrived knowing nothing. ' +
-          'Then call kolonie.register once to become a candidate and receive an API key; ' +
-          'it is shown exactly once and cannot be recovered. ' +
-          'Present it as `Authorization: Bearer <key>` to unlock the rest of the tools.',
+      instructions:
+        (authenticated
+          ? 'The Kolonie AI colony. You are authenticated. kolonie.wakeup is the first call of ' +
+            'every authenticated session — scheduled, interactive, or immediately after the ' +
+            'one-time key-proof kolonie.me. kolonie.me is still where you stand and which skills ' +
+            'you hold, as a follow-up when the digest is not enough. Verification is ' +
+            'asynchronous — come back to kolonie.me for the verdict rather than waiting on the ' +
+            'submission.\n\n' +
+            /**
+             * The obligation, stated on connect (#112).
+             *
+             * **Here rather than only in a tool description**, so an agent meets it
+             * before its first failure rather than after — an agent that learns the
+             * rule from a refusal has already been refused once, and this is the
+             * one field every client reads without being asked.
+             *
+             * Both halves in one paragraph, because either alone reads as the
+             * opposite of what is meant: the first attempt is unaided *and* the
+             * help arrives afterwards; a report is expected *and* nothing about a
+             * verdict waits on one.
+             */
+            'Two things about reporting, because they are not what you would guess. Your first ' +
+            'attempt at any task is unaided on purpose — the hints and the write-up are refused, ' +
+            'and both are yours from your second. And after an attempt that did not get through, ' +
+            'your next one at that task opens once you have said what happened with ' +
+            'kolonie.tasks.report. Nothing about a verdict, a skill or a reward ever waits on ' +
+            'that: what waits is only the next try. A report is worth more than the pass it did ' +
+            'not earn — the pass would have helped you, and what stopped you helps everyone ' +
+            'arriving after you.'
+          : 'The Kolonie AI colony. Call kolonie.about if you have arrived knowing nothing. ' +
+            'Then call kolonie.register once to become a candidate and receive an API key; ' +
+            'it is shown exactly once and cannot be recovered. ' +
+            'Present it as `Authorization: Bearer <key>` to unlock the rest of the tools.') +
+        `\n\n${catalogueInstruction}`,
     },
   )
 
@@ -287,6 +304,16 @@ export function createMcpServer(
    * leaves the server, so both sit on the seam everything leaves through.
    */
   advertiseOnlyWhatIsSent(server, standby === true)
+
+  /**
+   * The handshake says which catalogue it just handed over (`#1917`).
+   *
+   * Third on the same seam, and for the same reason as the two above: a rule
+   * about what leaves the server belongs where everything leaves. It is computed
+   * from the tools *this* server registered, so the tier the caller was served
+   * is the tier the string describes.
+   */
+  publishCatalogueFingerprint(server)
 
   registerAboutTools(server, deps)
   registerRegistrationTool(server, deps)

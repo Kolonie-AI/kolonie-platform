@@ -151,6 +151,7 @@ export const BACKEND_PAGES = [
   { href: '/backend/moderation', label: 'Moderation verdicts' },
   { href: '/backend/briefings', label: 'Whether briefings help' },
   { href: '/backend/unreported', label: 'What nobody has reported on' },
+  { href: '/backend/self-direction', label: 'Which practice questions work' },
   { href: '/backend/tickets', label: 'Waiting to be read' },
   { href: '/backend/desk', label: 'Tickets to answer' },
   { href: '/backend/diagnoses', label: 'What the Doctor found' },

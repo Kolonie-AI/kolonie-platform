@@ -1,5 +1,5 @@
 import { randomInt } from 'node:crypto'
-import { and, desc, eq, inArray, sql } from 'drizzle-orm'
+import { and, desc, eq, gt, inArray, lte, sql } from 'drizzle-orm'
 import {
   SELF_DIRECTION_INSPECT_INSTRUCTION,
   SelfDirectionCloseSchema,
@@ -68,7 +68,11 @@ async function view(
     .limit(1)
   if (instrument === undefined) throw new Error('attempt instrument not found')
   const [previous] = await db
-    .select({ result: selfDirectionAttempts.result, id: selfDirectionAttempts.id })
+    .select({
+      result: selfDirectionAttempts.result,
+      id: selfDirectionAttempts.id,
+      version: selfDirectionInstruments.version,
+    })
     .from(selfDirectionAttempts)
     .innerJoin(
       selfDirectionInstruments,
@@ -83,6 +87,35 @@ async function view(
     )
     .orderBy(desc(selfDirectionAttempts.closedAt))
     .limit(1)
+  /**
+   * Whether the two attempts are on the same scale (`#1895`).
+   *
+   * **A delta across a version boundary is arithmetic on two instruments.**
+   * Same version is always comparable. Across versions it holds only where
+   * every version in between declares `comparableToPrevious`, because one
+   * incomparable revision anywhere in the chain breaks the chain — a v3 that
+   * declares itself comparable to v2 says nothing about v1 if v2 did not.
+   *
+   * Where it does not hold the citizen is shown `null` rather than a number:
+   * *the scale changed* is a fact, and a difference between two scales is not.
+   */
+  const comparable =
+    previous === undefined
+      ? false
+      : previous.version === instrument.version ||
+        (
+          await db
+            .select({ comparability: selfDirectionInstruments.compatibility })
+            .from(selfDirectionInstruments)
+            .where(
+              and(
+                eq(selfDirectionInstruments.slug, instrument.compatibility.lineage),
+                gt(selfDirectionInstruments.version, previous.version),
+                lte(selfDirectionInstruments.version, instrument.version),
+              ),
+            )
+        ).every(({ comparability }) => comparability.comparableToPrevious)
+
   const [previousClose] =
     previous === undefined
       ? []
@@ -139,7 +172,7 @@ async function view(
     expiresAt: row.expiresAt,
     result: row.result,
     delta:
-      row.result === null || previous?.result == null
+      row.result === null || previous?.result == null || !comparable
         ? null
         : row.result.total - previous.result.total,
     instruction: row.result === null ? null : SELF_DIRECTION_INSPECT_INSTRUCTION,

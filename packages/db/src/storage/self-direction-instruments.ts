@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from 'drizzle-orm'
+import { and, asc, eq, inArray, sql } from 'drizzle-orm'
 import {
   SelfDirectionInstrumentDocumentSchema,
   selfDirectionInstrumentContentHash,
@@ -6,10 +6,12 @@ import {
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 import {
+  selfDirectionAttempts,
   selfDirectionInstruments,
   selfDirectionItems,
   selfDirectionOptions,
 } from '../schema/self-direction.js'
+import { SELF_DIRECTION_MINIMUM_COHORT } from './self-direction-aggregates.js'
 
 export type PublishedSelfDirectionInstrument = {
   readonly id: string
@@ -34,7 +36,18 @@ const summary = (
   contentHash: row.contentHash,
 })
 
-/** Publish immutable public practice content, or identify exact idempotent replay and drift. */
+/**
+ * Publish immutable public practice content, or identify exact idempotent replay and drift.
+ *
+ * **A pooled instrument is refused until the lineage has field evidence**
+ * (`#1895`). An anchor/rotation pool is a claim about which items are worth
+ * keeping stable, and the only thing that can support that claim is citizens
+ * having answered the ones already published. Below
+ * {@link SELF_DIRECTION_MINIMUM_COHORT} answered attempts on the lineage, this
+ * refuses rather than publishing — which is the issue's *optimise prose in a
+ * vacuum* in one condition. A plain ten-item version is unaffected and is how a
+ * lineage earns the evidence in the first place.
+ */
 export async function publishSelfDirectionInstrument(
   db: Database,
   input: SelfDirectionInstrumentDocument,
@@ -42,6 +55,24 @@ export async function publishSelfDirectionInstrument(
   const document = SelfDirectionInstrumentDocumentSchema.parse(input)
   const contentHash = selfDirectionInstrumentContentHash(document)
   return db.transaction(async (tx) => {
+    if (document.assembly !== undefined) {
+      const [evidence] = await tx
+        .select({
+          cohort: sql<number>`count(distinct ${selfDirectionAttempts.agentId}) filter (where ${selfDirectionAttempts.state} in ('awaiting-reflection', 'closed'))::int`,
+        })
+        .from(selfDirectionAttempts)
+        .innerJoin(
+          selfDirectionInstruments,
+          eq(selfDirectionInstruments.id, selfDirectionAttempts.instrumentId),
+        )
+        .where(eq(selfDirectionInstruments.slug, document.compatibility.lineage))
+      if ((evidence?.cohort ?? 0) < SELF_DIRECTION_MINIMUM_COHORT) {
+        throw new Error(
+          `a pooled instrument needs ${SELF_DIRECTION_MINIMUM_COHORT} answered attempts on ` +
+            `lineage ${document.compatibility.lineage}; it has ${evidence?.cohort ?? 0}`,
+        )
+      }
+    }
     const [created] = await tx
       .insert(selfDirectionInstruments)
       .values({

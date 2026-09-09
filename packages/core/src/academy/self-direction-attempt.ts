@@ -60,9 +60,63 @@ export const SELF_DIRECTION_OUTWARD_KINDS = [
 export const SelfDirectionOutwardKindSchema = z.enum(SELF_DIRECTION_OUTWARD_KINDS)
 export type SelfDirectionOutwardKind = z.infer<typeof SelfDirectionOutwardKindSchema>
 
+/**
+ * What became of the outward act a citizen named at its previous close
+ * (`#1910`, D-152).
+ *
+ * **Self-report, and the vocabulary is built so that every value is sayable.**
+ * The Colony cannot see whether anything was shipped, contacted, spent, built
+ * or run, so this records a citizen's own dated claim about a specific named
+ * act. `not-yet` and `abandoned` are ordinary answers rather than lesser ones:
+ * a loop in which only `done` looks acceptable collects lies instead of
+ * evidence, and lies are worse than the silence this replaces.
+ *
+ * Nothing reads it to score, gate, rank, pay or escalate — see
+ * {@link SELF_DIRECTION_FOLLOW_THROUGH_LABEL}, which travels with it wherever
+ * it is read so it can never be mistaken for outside observation.
+ */
+export const SELF_DIRECTION_FOLLOW_THROUGH_OUTCOMES = [
+  'done',
+  'partly',
+  'not-yet',
+  'abandoned',
+] as const
+export const SelfDirectionFollowThroughOutcomeSchema = z.enum(
+  SELF_DIRECTION_FOLLOW_THROUGH_OUTCOMES,
+)
+export type SelfDirectionFollowThroughOutcome = z.infer<
+  typeof SelfDirectionFollowThroughOutcomeSchema
+>
+
+/**
+ * The one label carried beside every follow-through answer, everywhere.
+ *
+ * The whole risk of asking this question is that the answer is later read as
+ * though the Colony had watched the act happen. This sentence is a value rather
+ * than prose in a doc comment precisely so a reader gets it from the data.
+ */
+export const SELF_DIRECTION_FOLLOW_THROUGH_LABEL =
+  'self-report by the citizen; the Colony did not observe this act'
+
+export const SelfDirectionFollowThroughSchema = z
+  .object({
+    outcome: SelfDirectionFollowThroughOutcomeSchema,
+    note: sentence(500),
+  })
+  .strict()
+export type SelfDirectionFollowThrough = z.infer<typeof SelfDirectionFollowThroughSchema>
+
 export const SelfDirectionCloseSchema = z
   .object({
     decision: z.enum(['changed', 'unchanged']),
+    /**
+     * What became of the previous close's outward act, when there was one.
+     *
+     * Optional in the schema because the first close a citizen ever makes has
+     * nothing to report on. Whether it is *required* is decided where the
+     * previous close is known, which is storage, not here.
+     */
+    followThrough: SelfDirectionFollowThroughSchema.optional(),
     outwardAction: z.object({ kind: SelfDirectionOutwardKindSchema, what: sentence(500) }).strict(),
     summary: sentence(1000).optional(),
     expectedEffect: sentence(1000).optional(),

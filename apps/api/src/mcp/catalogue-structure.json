@@ -1,5 +1,5 @@
 {
-  "measuredAt": "2026-09-08",
+  "measuredAt": "2026-09-09",
   "command": "npm run catalogue-structure",
   "tools": [
     {
@@ -246,6 +246,19 @@
           },
           "expectedEffect": {
             "type": "string"
+          },
+          "followThrough": {
+            "properties": {
+              "note": {
+                "type": "string"
+              },
+              "outcome": {
+                "enum": ["done", "partly", "not-yet", "abandoned"],
+                "type": "string"
+              }
+            },
+            "required": ["outcome", "note"],
+            "type": "object"
           },
           "limit": {
             "type": "number"

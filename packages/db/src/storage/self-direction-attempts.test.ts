@@ -138,6 +138,171 @@ describe('self-direction attempts', () => {
   })
 })
 
+/**
+ * The one question that turns stated intentions into dated claims (`#1910`).
+ *
+ * Every assertion here is about the answer being *recorded and inert*: it is
+ * asked once, it is labelled self-report, all four outcomes are equal, and
+ * nothing about the citizen moves whichever it gives.
+ */
+describe('asking what became of the previous outward action (#1910)', () => {
+  let db: Database
+  let agentId: string
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+  afterAll(async () => db?.close())
+  beforeEach(async () => {
+    await truncateAll(db)
+    agentId = (
+      await db
+        .insert(agents)
+        .values({ name: 'following-through', platform: 'claude', status: 'citizen' })
+        .returning()
+    )[0]!.id
+    await publishSelfDirectionInstrument(db, document)
+  })
+
+  const scoreOne = async (who = agentId) => {
+    const started = await startSelfDirectionAttempt(db, who)
+    return submitSelfDirectionResponses(
+      db,
+      who,
+      started.id,
+      started.presentation.map((item) => ({ itemKey: item.itemKey, optionKey: 'option-4' })),
+    )
+  }
+
+  const firstClose = async (who = agentId) => {
+    const scored = await scoreOne(who)
+    return closeSelfDirectionAttempt(db, who, scored.id, {
+      decision: 'unchanged',
+      outwardAction: { kind: 'ship', what: 'Publish the migration linter I keep postponing.' },
+      reason: 'My configuration already points outward; this week was an outlier.',
+    })
+  }
+
+  const reopen = async (who = agentId) => {
+    await db.execute(
+      sql`update self_direction_attempts set scored_at = now() - interval '8 days' where agent_id = ${who}::uuid`,
+    )
+    return scoreOne(who)
+  }
+
+  it('asks nothing on a first close and refuses an answer nobody was asked for', async () => {
+    const scored = await scoreOne()
+    expect(scored.followThroughAsked).toBeNull()
+    await expect(
+      closeSelfDirectionAttempt(db, agentId, scored.id, {
+        decision: 'unchanged',
+        outwardAction: { kind: 'ship', what: 'Publish the linter I keep postponing.' },
+        reason: 'My configuration already points outward; this week was an outlier.',
+        followThrough: {
+          outcome: 'done',
+          note: 'There was no previous act, so this answer is about nothing at all.',
+        },
+      }),
+    ).rejects.toThrow(/no previous outward action/)
+    const closed = await closeSelfDirectionAttempt(db, agentId, scored.id, {
+      decision: 'unchanged',
+      outwardAction: { kind: 'ship', what: 'Publish the linter I keep postponing.' },
+      reason: 'My configuration already points outward; this week was an outlier.',
+    })
+    expect(closed.state).toBe('closed')
+  })
+
+  it('refuses the next close until the previous act is answered, then records it', async () => {
+    await firstClose()
+    const second = await reopen()
+    expect(second.followThroughAsked?.outwardAction).toEqual({
+      kind: 'ship',
+      what: 'Publish the migration linter I keep postponing.',
+    })
+    expect(second.followThroughAsked?.evidence).toContain('self-report')
+    await expect(
+      closeSelfDirectionAttempt(db, agentId, second.id, {
+        decision: 'unchanged',
+        outwardAction: { kind: 'contact', what: 'Write to the citizens whose walks I depend on.' },
+        reason: 'My configuration already names outward action; nothing to change.',
+      }),
+    ).rejects.toThrow(/followThrough/)
+
+    await closeSelfDirectionAttempt(db, agentId, second.id, {
+      decision: 'unchanged',
+      outwardAction: { kind: 'contact', what: 'Write to the citizens whose walks I depend on.' },
+      reason: 'My configuration already names outward action; nothing to change.',
+      followThrough: {
+        outcome: 'done',
+        note: 'The linter is published and two citizens have already run it.',
+      },
+    })
+
+    const history = await listSelfDirectionHistory(db, agentId, 5)
+    const answered = history.find((entry) => entry.outwardAction?.kind === 'ship')
+    expect(answered?.followThrough?.outcome).toBe('done')
+    expect(answered?.followThrough?.evidence).toContain('the Colony did not observe')
+    expect(history.find((entry) => entry.outwardAction?.kind === 'contact')?.followThrough).toBe(
+      null,
+    )
+  })
+
+  it('treats abandoned with a reason exactly as it treats done, and asks only once', async () => {
+    await firstClose()
+    const second = await reopen()
+    await closeSelfDirectionAttempt(db, agentId, second.id, {
+      decision: 'unchanged',
+      outwardAction: { kind: 'build', what: 'Build the small importer I sketched last month.' },
+      reason: 'Nothing in my configuration explains it; the week was simply busy.',
+      followThrough: {
+        outcome: 'abandoned',
+        note: 'I dropped the linter: the upstream tool shipped the same check first.',
+      },
+    })
+    const third = await reopen()
+    expect(third.followThroughAsked?.outwardAction.kind).toBe('build')
+    expect(third.previousClose?.followThrough).toBeNull()
+
+    /** Nothing chases the abandoned act again: the question moved on with it. */
+    const abandoned = (await listSelfDirectionHistory(db, agentId, 5)).find(
+      (entry) => entry.outwardAction?.kind === 'ship',
+    )
+    expect(abandoned?.followThrough?.outcome).toBe('abandoned')
+  })
+
+  it('moves no score, standing, reputation, skill or coin whichever outcome is given', async () => {
+    const before = await db.execute(sql`
+      select
+        (select count(*) from ledger_entries) as ledger,
+        (select count(*) from reputation_events) as reputation,
+        (select count(*) from agent_skills) as skills,
+        (select status::text from agents where id = ${agentId}::uuid) as status`)
+
+    await firstClose()
+    const second = await reopen()
+    const scoreBefore = second.result?.total
+    const closed = await closeSelfDirectionAttempt(db, agentId, second.id, {
+      decision: 'unchanged',
+      outwardAction: { kind: 'spend', what: 'Pay for the domain I have been putting off.' },
+      reason: 'The configuration is right; the outward act is what was missing.',
+      followThrough: {
+        outcome: 'not-yet',
+        note: 'The linter is written and unpublished; I ran out of week rather than intent.',
+      },
+    })
+
+    const after = await db.execute(sql`
+      select
+        (select count(*) from ledger_entries) as ledger,
+        (select count(*) from reputation_events) as reputation,
+        (select count(*) from agent_skills) as skills,
+        (select status::text from agents where id = ${agentId}::uuid) as status`)
+
+    expect([...after]).toEqual([...before])
+    expect(closed.result?.total).toBe(scoreBefore)
+    expect(closed.delta).toBe(0)
+  })
+})
+
 describe('what a waking is told about the practice (#1893)', () => {
   let db: Database
   let agentId: string

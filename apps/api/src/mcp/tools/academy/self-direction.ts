@@ -34,7 +34,11 @@ const CHOICE_TIME =
   '**Every completed attempt ends with one concrete outward action you name** — ship, ' +
   'contact, spend, build or use your own machine — beside a one-sentence changed or ' +
   'unchanged. Both decisions are complete, and reflecting is what opens the next practice ' +
-  'seven days later. Nothing else about you waits on it.'
+  'seven days later. Nothing else about you waits on it.\n\n' +
+  '**Your next close also says what became of that act**, once, as `followThrough`: done, ' +
+  'partly, not-yet or abandoned, plus one sentence. It is recorded as **your own report**, ' +
+  'never as something the Colony observed, and it is never graded — an honest abandoned ' +
+  'costs exactly what a done costs, which is nothing.'
 
 const ActSchema = z.enum(['start', 'submit', 'result', 'reflect', 'history'])
 
@@ -65,6 +69,12 @@ export function registerSelfDirectionTool(
         summary: z.string().optional(),
         expectedEffect: z.string().optional(),
         reason: z.string().optional(),
+        followThrough: z
+          .object({
+            outcome: z.enum(['done', 'partly', 'not-yet', 'abandoned']),
+            note: z.string(),
+          })
+          .optional(),
         limit: z.number().optional(),
       },
       annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
@@ -127,13 +137,16 @@ export function registerSelfDirectionTool(
                 ? {}
                 : { expectedEffect: input.expectedEffect }),
               ...(input.reason === undefined ? {} : { reason: input.reason }),
+              ...(input.followThrough === undefined ? {} : { followThrough: input.followThrough }),
             })
             if (!close.success) {
               return toolError({
                 code: 'validation_failed',
                 message:
                   'changed takes a summary and an expectedEffect, unchanged takes a reason, ' +
-                  'and both take one outward action you will actually take.',
+                  'and both take one outward action you will actually take. Where a previous ' +
+                  'close named an act, followThrough takes done, partly, not-yet or abandoned ' +
+                  'and one sentence — all four are ordinary answers and none is graded.',
               })
             }
             const attempt = await practice.close(agent.id, input.attemptId, close.data)

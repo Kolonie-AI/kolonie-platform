@@ -29,12 +29,30 @@ describe('kolonie.academy.self-direction', () => {
       'attemptId',
       'decision',
       'expectedEffect',
+      'followThrough',
       'limit',
       'outwardAction',
       'reason',
       'responses',
       'summary',
     ])
+  })
+
+  /**
+   * The question rides the existing verb (`#1910`). A second verb would be a
+   * second description in every citizen's prefix for one optional field.
+   */
+  it('describes the follow-through question as ungraded self-report on the one verb', async () => {
+    const { colony, agent, apiKey } = await registeredCitizen()
+    colony.standing(agent.id, { status: 'citizen' })
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+    const { tools } = await client.listTools()
+    const tool = tools.find((one) => one.name === 'kolonie.academy.self-direction')
+    await close()
+    expect(AUTHENTICATED_TOOLS.filter((name) => name.includes('follow-through'))).toEqual([])
+    expect(tool?.description).toContain('your own report')
+    expect(tool?.description).toContain('never graded')
+    expect(tool?.description).toContain('abandoned')
   })
 
   it('refuses an act it does not know without naming another citizen', async () => {

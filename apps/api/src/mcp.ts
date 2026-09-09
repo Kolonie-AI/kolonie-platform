@@ -14,10 +14,12 @@
  * holding the implementation, under the same names.
  */
 export { MCP_ALIAS_PATH, MCP_PATH, MCP_PATHS } from './mcp/paths.js'
-export { mcpProbe, MCP_PROBE_ALLOW } from './mcp/probe.js'
+export { mcpProbe, MCP_PROBE_ALLOW, MCP_PROBE_ALLOW_WITH_STANDBY } from './mcp/probe.js'
 export type { McpProbe } from './mcp/probe.js'
 export { AUTHENTICATED_TOOLS, WARDEN_TOOLS, UNAUTHENTICATED_TOOLS } from './mcp/tool-list.js'
 export { createMcpServer } from './mcp/create-server.js'
 export { handleMcpRequest } from './mcp/transport.js'
+export { mcpStandbyStreams } from './mcp/standby.js'
+export type { McpStandbyStreams } from './mcp/standby.js'
 export { ME_BIO_EXCERPT_LENGTH } from './mcp/text/me.js'
 export type { McpDependencies, McpLog } from './mcp/dependencies.js'

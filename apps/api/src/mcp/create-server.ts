@@ -111,6 +111,20 @@ export function createMcpServer(
    * rather than more.
    */
   warden?: boolean,
+  /**
+   * Whether this deployment holds standby streams (`#1916`).
+   *
+   * **The deployment and not the connection, which is the part worth stating.**
+   * A conformant client initialises over `POST` and opens its `GET` stream
+   * afterwards, so the handshake that has to carry `listChanged` is the one on
+   * the request door — the standby stream is not open yet when the promise is
+   * made. What makes the promise true is that this server *will* open one when
+   * the client asks, which is a fact about the deployment.
+   *
+   * Absent means no standby registry was wired, and then D-101 is unchanged:
+   * nothing can deliver the notification and the handshake does not claim it.
+   */
+  standby?: boolean,
 ): McpServer {
   const authenticated = credential !== undefined
 
@@ -266,12 +280,13 @@ export function createMcpServer(
   publishLeanSchemas(server)
 
   /**
-   * The handshake promises only what this transport can deliver (`#386`).
+   * The handshake promises only what this connection can deliver (`#386`,
+   * `#1916`).
    *
    * Beside `publishLeanSchemas` and for its reason: both are rules about what
    * leaves the server, so both sit on the seam everything leaves through.
    */
-  advertiseOnlyWhatIsSent(server)
+  advertiseOnlyWhatIsSent(server, standby === true)
 
   registerAboutTools(server, deps)
   registerRegistrationTool(server, deps)

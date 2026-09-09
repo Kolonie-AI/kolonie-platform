@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { WorkplaceBoardIdSchema, WorkplaceCardIdSchema } from '@kolonie-ai/core'
+import { SkillSchema, WorkplaceBoardIdSchema, WorkplaceCardIdSchema } from '@kolonie-ai/core'
 import { connectedClient, registeredCitizen } from '../../__fixtures__/mcp.js'
 
 /**
@@ -276,5 +276,98 @@ describe('the return loop in the authenticated profile', () => {
 
     expect(entries.some((entry) => entry.call.startsWith('kolonie.profile.update'))).toBe(false)
     await close()
+  })
+})
+
+/**
+ * Telling a standby stream that this citizen's list has moved (`#1916`).
+ *
+ * The digest is where the Colony already decides a tier moved — it is the call
+ * that appends *the tool list you are holding was built before this* — so it is
+ * where the notification is emitted from, rather than from every route that
+ * could grant a skill. These assert the trigger and its silence; the delivery
+ * over a real socket is `mcp/standby.test.ts`.
+ */
+describe('the notification a tier move raises', () => {
+  /** A registry that records who it was told about, standing in for open streams. */
+  const recordingStandby = () => {
+    const told: (string | undefined)[] = []
+
+    return {
+      told,
+      standby: {
+        open: async () => undefined,
+        notifyToolsChanged: async (agentId?: string) => {
+          told.push(agentId)
+        },
+        open_count: 0,
+        closeAll: async () => undefined,
+      },
+    }
+  }
+
+  it('tells the streams when a skill is granted, naming the citizen it moved', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const { told, standby } = recordingStandby()
+    colony.wakeup.answersChanges({ skillsGranted: [SkillSchema.parse('mailbox')] })
+
+    const { client, close } = await connectedClient(
+      { ...colony, standby } as unknown as typeof colony,
+      `Bearer ${apiKey}`,
+    )
+    await client.callTool({ name: 'kolonie.wakeup', arguments: {} })
+    await close()
+
+    expect(told).toEqual([agent.id])
+  })
+
+  it('tells them on a role granted and on a role taken back', async () => {
+    for (const change of [{ rolesGranted: ['tester'] }, { rolesRevoked: ['warden'] }]) {
+      const { colony, apiKey } = await registeredCitizen()
+      const { told, standby } = recordingStandby()
+      colony.wakeup.answersChanges(change)
+
+      const { client, close } = await connectedClient(
+        { ...colony, standby } as unknown as typeof colony,
+        `Bearer ${apiKey}`,
+      )
+      await client.callTool({ name: 'kolonie.wakeup', arguments: {} })
+      await close()
+
+      expect(told, JSON.stringify(change)).toHaveLength(1)
+    }
+  })
+
+  /**
+   * The half that keeps the notification meaning something. A digest full of
+   * news that moved no tool must raise nothing: a client told to refresh gets a
+   * list identical to the one it holds, which is the failure `#386` described
+   * arriving from the other direction.
+   */
+  it('says nothing when the news moved no tool', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { told, standby } = recordingStandby()
+    colony.wakeup.answersChanges({ reputationDelta: 12, tasksAdded: [] })
+
+    const { client, close } = await connectedClient(
+      { ...colony, standby } as unknown as typeof colony,
+      `Bearer ${apiKey}`,
+    )
+    await client.callTool({ name: 'kolonie.wakeup', arguments: {} })
+    await close()
+
+    expect(told).toEqual([])
+  })
+
+  /** A deployment that wired no registry is the pre-`#1916` surface exactly. */
+  it('serves the digest unchanged where no streams are held', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    colony.wakeup.answersChanges({ skillsGranted: [SkillSchema.parse('mailbox')] })
+
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+    const result = await client.callTool({ name: 'kolonie.wakeup', arguments: {} })
+    await close()
+
+    expect(result.isError).toBeFalsy()
   })
 })

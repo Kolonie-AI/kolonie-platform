@@ -207,6 +207,34 @@ export function registerWakeupTool(
        */
       const response = { ...result.response, catalogueFingerprint: CATALOGUE_FINGERPRINT }
 
+      /**
+       * Tell a standby stream that this citizen's list has moved (`#1916`).
+       *
+       * **These three lines and no others**, because they are the ones the
+       * digest already appends {@link LIST_IS_STALE} to: a skill grant, a role
+       * granted, a role taken back. D-013 builds the list from exactly those, so
+       * anything else moves the text of a tool and not the set of them — and a
+       * notification that follows a line which changed nothing is the failure
+       * `#386` was about, arriving from the other direction.
+       *
+       * **After the response is built, and awaited nowhere.** The digest is what
+       * the citizen asked for; a stream that has gone away, or a fan-out that is
+       * slow, must not delay it or fail it. `notifyToolsChanged` drops its own
+       * dead streams, so there is nothing here to handle.
+       *
+       * **The sentence stays whatever this does.** A client that ignores the
+       * notification, or a deployment that holds no streams, still reads *the
+       * tool list you are holding was built before this* — the notification is
+       * the fast path and the text is the floor.
+       */
+      const listMoved =
+        result.response.skillsGranted.length > 0 ||
+        result.response.rolesGranted.length > 0 ||
+        result.response.rolesRevoked.length > 0
+      if (listMoved && deps.standby !== undefined) {
+        void deps.standby.notifyToolsChanged(authenticatedAgent.agent.id)
+      }
+
       return {
         content: [{ type: 'text', text: wakeupAsText(result.response) }],
         structuredContent: response,

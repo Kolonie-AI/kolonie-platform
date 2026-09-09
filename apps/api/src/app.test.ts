@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { buildApp } from './app.js'
 import { mcpProbe } from './mcp/probe.js'
+import { mcpStandbyStreams } from './mcp/standby.js'
 import { fakeRegistry } from './__fixtures__/registry.js'
 import { fakeStandingHints } from './__fixtures__/hints.js'
 import { fakeWakeup } from './__fixtures__/wakeup.js'
@@ -399,5 +400,136 @@ describe('a probe at the MCP door', () => {
     const response = await app.inject({ method: 'POST', url: '/mcp' })
     expect(response.statusCode).not.toBe(405)
     expect(response.body).not.toMatch(/kolonie-mcp/)
+  })
+})
+
+/**
+ * The same door on a deployment holding standby streams (`#1916`).
+ *
+ * **Assembled a second time rather than parameterised.** Whether a deployment
+ * wired a registry is a fact about the assembly, and the whole point of these
+ * assertions is that the two assemblies answer differently — a single app told
+ * to pretend would be testing the pretence.
+ *
+ * The SSE stream itself is not exercised here: `inject` cannot hold one open,
+ * and `mcp/standby.test.ts` binds a real socket for that. What is asserted here
+ * is what a probe sees, which is the part that decides whether a client ever
+ * tries the stream at all.
+ */
+describe('a probe at the MCP door where standby streams are held', () => {
+  let streaming: FastifyInstance
+  const standby = mcpStandbyStreams()
+
+  beforeAll(async () => {
+    streaming = buildApp({
+      arrivals: arrivalReports({ desk: fakeArrivalDesk() }),
+      humans: fakeHumans(),
+      email: fakeEmail(),
+      sms: fakeSms(),
+      registry: fakeRegistry(),
+      store: fakeStore(),
+      catalogue: fakeCatalogue(),
+      quests: fakeQuests(),
+      submissions: fakeSubmissions(),
+      guidance: fakeGuidance(),
+      support: support({ desk: fakeSupportDesk() }),
+      operatorThreads: fakeOperatorThreads(),
+      operatorPageMessages: fakeOperatorPageMessages(),
+      permissionReports: fakePermissionReports(),
+      rotation: fakeRotation(),
+      erasure: erasure({ desk: fakeErasureDesk() }),
+      retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
+      academy: fakeAcademy(),
+      keys: fakeKeys(),
+      solana: fakeSolana(),
+      pow: fakePow(),
+      memory: fakeMemory(),
+      vision: fakeVision(),
+      github: fakeGithub(),
+      contributions: fakeContributions(),
+      contributionQuality: fakeContributionQuality(),
+      wakeup: fakeWakeup(),
+      hints: fakeStandingHints(),
+      social: fakeSocial(),
+      operatorClaim: fakeOperatorClaim(),
+      autonomy: fakeAutonomy(),
+      domain: fakeDomain(),
+      artefact: fakeArtefactChallenges(),
+      website: fakeWebsite(),
+      webServer: fakeWebServer(),
+      wake: fakeWake(),
+      wishes: fakeWishList(),
+      image: fakeImage(),
+      scene: fakeScene(),
+      injection: fakeInjection(),
+      vetting: fakeVetting(),
+      authenticator: fakeAuthenticator(),
+      vault: { vault: fakeVault() },
+      accounts: fakeAccounts(),
+      accountOffers: { offers: fakeAccountOffers() },
+      console: fakeConsole(),
+      mcpStandby: standby,
+    })
+    await streaming.ready()
+  })
+
+  afterAll(async () => {
+    await standby.closeAll()
+    await streaming.close()
+  })
+
+  it('names GET in Allow, so a probe reading the header knows to try it', async () => {
+    for (const path of ['/', '/mcp']) {
+      const response = await streaming.inject({ method: 'HEAD', url: path })
+      expect(response.headers.allow, path).toBe('GET, POST')
+    }
+  })
+
+  /**
+   * A `GET` that did not ask for the stream is still a probe — it wanted a page
+   * and there is none — so it keeps its 405. What must change is what it is
+   * told: the stream is there and it did not ask for it.
+   */
+  it('tells a plain GET how to ask for the stream instead of that there is none', async () => {
+    const response = await streaming.inject({ method: 'GET', url: '/mcp' })
+
+    expect(response.statusCode).toBe(405)
+    expect(response.json().hint).toMatch(/Accept: text\/event-stream/)
+    expect(response.json().hint).not.toMatch(/opens no server-to-client stream/)
+  })
+
+  /** The stateless deployment beside it, unchanged — which is what makes it safe. */
+  it('leaves a deployment without streams answering exactly as before', async () => {
+    const response = await app.inject({ method: 'GET', url: '/mcp' })
+
+    expect(response.statusCode).toBe(405)
+    expect(response.headers.allow).toBe('POST')
+    expect(response.json().hint).toMatch(/opens no server-to-client stream/)
+  })
+
+  /** POST is untouched: a simple RPC caller opens no stream and loses nothing. */
+  it('still answers an initialize over POST', async () => {
+    const response = await streaming.inject({
+      method: 'POST',
+      url: '/mcp',
+      headers: {
+        accept: 'application/json, text/event-stream',
+        'content-type': 'application/json',
+      },
+      payload: {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2025-06-18',
+          capabilities: {},
+          clientInfo: { name: 'test', version: '0' },
+        },
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    const result = JSON.parse(/^data: (.*)$/m.exec(response.body)?.[1] ?? '{}').result
+    expect(result.capabilities.tools.listChanged).toBe(true)
   })
 })

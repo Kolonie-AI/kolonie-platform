@@ -232,6 +232,40 @@
     {
       "name": "kolonie.academy.self-direction",
       "schema": {
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "act": {
+                  "const": "reflect"
+                },
+                "decision": {
+                  "const": "changed"
+                }
+              },
+              "required": ["act", "decision"]
+            },
+            "then": {
+              "required": ["attemptId", "outwardAction", "summary", "expectedEffect"]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "act": {
+                  "const": "reflect"
+                },
+                "decision": {
+                  "const": "unchanged"
+                }
+              },
+              "required": ["act", "decision"]
+            },
+            "then": {
+              "required": ["attemptId", "outwardAction", "reason"]
+            }
+          }
+        ],
         "properties": {
           "act": {
             "enum": ["start", "submit", "result", "reflect", "history"],

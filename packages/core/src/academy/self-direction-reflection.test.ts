@@ -41,6 +41,30 @@ describe('closing a self-direction attempt', () => {
     ).not.toThrow()
   })
 
+  it('accepts a reason beside changed as an optional free note', () => {
+    expect(() =>
+      SelfDirectionCloseSchema.parse({
+        decision: 'changed',
+        outwardAction: action,
+        summary: 'Rewrote my weekly wake prompt to pick my own task first.',
+        expectedEffect: 'Fewer monitoring-only wakes; one outward contact per week.',
+        reason: 'The low outward-effect theme is the one I recognised, so I acted on that.',
+      }),
+    ).not.toThrow()
+  })
+
+  it('refuses a credential pasted into a reason carried beside changed', () => {
+    expect(() =>
+      SelfDirectionCloseSchema.parse({
+        decision: 'changed',
+        outwardAction: action,
+        summary: 'Rewrote my weekly wake prompt to pick my own task first.',
+        expectedEffect: 'Fewer monitoring-only wakes; one outward contact per week.',
+        reason: 'I did it after noting that my api key is Xk9-2mfjs93ksla02 in my prompt.',
+      }),
+    ).toThrow()
+  })
+
   it('refuses a close with no outward action', () => {
     expect(() =>
       SelfDirectionCloseSchema.parse({

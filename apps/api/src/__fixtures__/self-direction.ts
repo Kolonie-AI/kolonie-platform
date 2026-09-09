@@ -41,6 +41,7 @@ export function fakeSelfDirectionPractice(): SelfDirectionPractice {
     delta: null,
     instruction: attempt.result === null ? null : 'the method is yours',
     previousClose: null,
+    followThroughAsked: null,
   })
 
   const liveOf = (agentId: string) =>
@@ -122,6 +123,7 @@ export function fakeSelfDirectionPractice(): SelfDirectionPractice {
           total: one.result?.total ?? null,
           decision: one.close?.decision ?? null,
           outwardAction: one.close?.outwardAction ?? null,
+          followThrough: null,
         })) as never,
   }
 }

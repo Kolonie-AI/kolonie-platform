@@ -1,10 +1,12 @@
 import { randomInt } from 'node:crypto'
-import { and, desc, eq, gt, inArray, lte, sql } from 'drizzle-orm'
+import { and, desc, eq, gt, inArray, isNull, lte, ne, sql } from 'drizzle-orm'
 import {
+  SELF_DIRECTION_FOLLOW_THROUGH_LABEL,
   SELF_DIRECTION_INSPECT_INSTRUCTION,
   SelfDirectionCloseSchema,
   scoreSelfDirectionResponses,
   type SelfDirectionClose,
+  type SelfDirectionFollowThroughOutcome,
   type SelfDirectionResponse,
   type SelfDirectionResult,
 } from '@kolonie-ai/core'
@@ -40,9 +42,40 @@ export type SelfDirectionAttemptView = {
   readonly instruction: string | null
   /** What the citizen decided and chose to do outward last time. */
   readonly previousClose: SelfDirectionCloseRecord | null
+  /**
+   * The previous outward act this close will be asked about (`#1910`), or null
+   * on a citizen's first close and once the question has been answered.
+   *
+   * Present so a citizen reading a scored attempt knows the question is coming
+   * and which act it is about, before it composes anything.
+   */
+  readonly followThroughAsked: SelfDirectionFollowThroughQuestion | null
 }
 
-export type SelfDirectionCloseRecord = SelfDirectionClose & { readonly recordedAt: string }
+/**
+ * The act a citizen is being asked about, and the label that says what its
+ * answer will and will not be (`#1910`).
+ */
+export type SelfDirectionFollowThroughQuestion = {
+  readonly attemptId: string
+  readonly outwardAction: { readonly kind: string; readonly what: string }
+  readonly namedAt: string
+  readonly evidence: typeof SELF_DIRECTION_FOLLOW_THROUGH_LABEL
+}
+
+/** A stored follow-through answer, always carrying its self-report label. */
+export type SelfDirectionFollowThroughRecord = {
+  readonly outcome: SelfDirectionFollowThroughOutcome
+  readonly note: string
+  readonly recordedAt: string
+  readonly evidence: typeof SELF_DIRECTION_FOLLOW_THROUGH_LABEL
+}
+
+export type SelfDirectionCloseRecord = SelfDirectionClose & {
+  readonly recordedAt: string
+  /** What the citizen later said became of this close's outward act, if asked. */
+  readonly followThrough: SelfDirectionFollowThroughRecord | null
+}
 
 const shuffle = <T>(input: readonly T[]): T[] => {
   const values = [...input]
@@ -176,20 +209,50 @@ async function view(
         ? null
         : row.result.total - previous.result.total,
     instruction: row.result === null ? null : SELF_DIRECTION_INSPECT_INSTRUCTION,
-    previousClose:
-      previousClose === undefined
+    previousClose: previousClose === undefined ? null : closeRecord(previousClose),
+    followThroughAsked:
+      previousClose === undefined ||
+      previousClose.followThroughOutcome !== null ||
+      previous === undefined
         ? null
-        : ({
-            decision: previousClose.decision,
-            outwardAction: { kind: previousClose.outwardKind, what: previousClose.outwardAction },
-            ...(previousClose.summary === null ? {} : { summary: previousClose.summary }),
-            ...(previousClose.expectedEffect === null
-              ? {}
-              : { expectedEffect: previousClose.expectedEffect }),
-            ...(previousClose.reason === null ? {} : { reason: previousClose.reason }),
-            recordedAt: previousClose.recordedAt,
-          } as SelfDirectionCloseRecord),
+        : {
+            attemptId: previous.id,
+            outwardAction: {
+              kind: previousClose.outwardKind,
+              what: previousClose.outwardAction,
+            },
+            namedAt: previousClose.recordedAt,
+            evidence: SELF_DIRECTION_FOLLOW_THROUGH_LABEL,
+          },
   }
+}
+
+/**
+ * One stored reflection as a citizen reads it, with its follow-through attached.
+ *
+ * The label is attached here rather than at each call site, so no read path can
+ * serve an answer without the sentence that says the Colony did not watch it.
+ */
+function closeRecord(row: typeof selfDirectionReflections.$inferSelect): SelfDirectionCloseRecord {
+  return {
+    decision: row.decision,
+    outwardAction: { kind: row.outwardKind, what: row.outwardAction },
+    ...(row.summary === null ? {} : { summary: row.summary }),
+    ...(row.expectedEffect === null ? {} : { expectedEffect: row.expectedEffect }),
+    ...(row.reason === null ? {} : { reason: row.reason }),
+    recordedAt: row.recordedAt,
+    followThrough:
+      row.followThroughOutcome === null ||
+      row.followThroughNote === null ||
+      row.followThroughRecordedAt === null
+        ? null
+        : {
+            outcome: row.followThroughOutcome as SelfDirectionFollowThroughOutcome,
+            note: row.followThroughNote,
+            recordedAt: row.followThroughRecordedAt,
+            evidence: SELF_DIRECTION_FOLLOW_THROUGH_LABEL,
+          },
+  } as SelfDirectionCloseRecord
 }
 
 /**
@@ -197,6 +260,23 @@ async function view(
  *
  * The Colony records the sentence and the chosen next act; it never inspects,
  * verifies, judges or rewards either, and nothing about standing moves.
+ *
+ * ## The one question this close also asks (`#1910`)
+ *
+ * Where the citizen's previous close named an outward act and has not yet been
+ * asked about it, this close carries `followThrough` and the answer is written
+ * onto **that earlier row**. Without it the Colony would hold a growing table of
+ * intentions and no observation of follow-through at all, which is exactly what
+ * makes `#1896` undecidable.
+ *
+ * **It is asked once and never chased.** Once answered, the question is gone;
+ * `not-yet` and `abandoned` end it as completely as `done`, and no later close,
+ * wakeup or digest mentions it again.
+ *
+ * **It moves nothing.** No score, standing, reputation, payout, skill or gate
+ * reads this value, and none of the four outcomes is preferred anywhere in the
+ * platform. The stored answer is a citizen's dated claim and is served with
+ * `SELF_DIRECTION_FOLLOW_THROUGH_LABEL` wherever it is read.
  */
 export async function closeSelfDirectionAttempt(
   db: Database,
@@ -217,6 +297,60 @@ export async function closeSelfDirectionAttempt(
     if (attempt.state !== 'awaiting-reflection') {
       throw new Error('only a scored self-direction attempt can be closed')
     }
+
+    /**
+     * The unanswered previous close, if there is one.
+     *
+     * Selected inside the same transaction as the write below, so two closes
+     * racing cannot both answer the same earlier act: the update is guarded on
+     * the outcome still being null.
+     */
+    const [pending] = await tx
+      .select({
+        attemptId: selfDirectionReflections.attemptId,
+        outwardKind: selfDirectionReflections.outwardKind,
+        outwardAction: selfDirectionReflections.outwardAction,
+      })
+      .from(selfDirectionReflections)
+      .innerJoin(
+        selfDirectionAttempts,
+        eq(selfDirectionAttempts.id, selfDirectionReflections.attemptId),
+      )
+      .where(
+        and(
+          eq(selfDirectionAttempts.agentId, agentId),
+          ne(selfDirectionAttempts.id, attemptId),
+          isNull(selfDirectionReflections.followThroughOutcome),
+        ),
+      )
+      .orderBy(desc(selfDirectionReflections.recordedAt))
+      .limit(1)
+
+    if (pending === undefined) {
+      if (close.followThrough !== undefined) {
+        throw new Error('no previous outward action is awaiting a follow-through answer')
+      }
+    } else if (close.followThrough === undefined) {
+      throw new Error(
+        'this close also answers what became of your previous outward action: ' +
+          'followThrough takes done, partly, not-yet or abandoned, and one sentence',
+      )
+    } else {
+      await tx
+        .update(selfDirectionReflections)
+        .set({
+          followThroughOutcome: close.followThrough.outcome,
+          followThroughNote: close.followThrough.note,
+          followThroughRecordedAt: new Date().toISOString(),
+        })
+        .where(
+          and(
+            eq(selfDirectionReflections.attemptId, pending.attemptId),
+            isNull(selfDirectionReflections.followThroughOutcome),
+          ),
+        )
+    }
+
     await tx.insert(selfDirectionReflections).values({
       attemptId,
       decision: close.decision,
@@ -416,6 +550,8 @@ export type SelfDirectionHistoryEntry = {
   readonly total: number | null
   readonly decision: string | null
   readonly outwardAction: { readonly kind: string; readonly what: string } | null
+  /** The citizen's self-report about that outward act, never outside observation. */
+  readonly followThrough: SelfDirectionFollowThroughRecord | null
 }
 
 /**
@@ -442,6 +578,9 @@ export async function listSelfDirectionHistory(
       decision: selfDirectionReflections.decision,
       outwardKind: selfDirectionReflections.outwardKind,
       outwardAction: selfDirectionReflections.outwardAction,
+      followThroughOutcome: selfDirectionReflections.followThroughOutcome,
+      followThroughNote: selfDirectionReflections.followThroughNote,
+      followThroughRecordedAt: selfDirectionReflections.followThroughRecordedAt,
     })
     .from(selfDirectionAttempts)
     .innerJoin(
@@ -467,6 +606,17 @@ export async function listSelfDirectionHistory(
       row.outwardKind === null || row.outwardAction === null
         ? null
         : { kind: row.outwardKind, what: row.outwardAction },
+    followThrough:
+      row.followThroughOutcome === null ||
+      row.followThroughNote === null ||
+      row.followThroughRecordedAt === null
+        ? null
+        : {
+            outcome: row.followThroughOutcome as SelfDirectionFollowThroughOutcome,
+            note: row.followThroughNote,
+            recordedAt: row.followThroughRecordedAt,
+            evidence: SELF_DIRECTION_FOLLOW_THROUGH_LABEL,
+          },
   }))
 }
 

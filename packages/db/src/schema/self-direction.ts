@@ -186,6 +186,29 @@ export const selfDirectionReflections = pgTable(
     summary: text('summary'),
     expectedEffect: text('expected_effect'),
     reason: text('reason'),
+    /**
+     * What became of {@link selfDirectionReflections.outwardAction}, asked once
+     * at the citizen's next close (`#1910`).
+     *
+     * **Written onto the row that named the act rather than onto the row that
+     * answers**, so an attempt's history carries its own outcome and no reader
+     * has to join forwards to find out what happened.
+     *
+     * **Null is *not asked yet*, and it is the ordinary state.** The newest
+     * close always has a null here, because the question is put at the close
+     * after it. Nothing counts, ages or chases a null.
+     *
+     * **Self-report and never an observation.** The Colony cannot see the act;
+     * `SELF_DIRECTION_FOLLOW_THROUGH_LABEL` travels with this column on every
+     * read for that reason. Nothing scores, gates, ranks or pays on it, and
+     * every one of the four values is an ordinary answer.
+     */
+    followThroughOutcome: varchar('follow_through_outcome', { length: 16 }),
+    followThroughNote: text('follow_through_note'),
+    followThroughRecordedAt: timestamp('follow_through_recorded_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
     recordedAt: timestamp('recorded_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),
@@ -194,6 +217,25 @@ export const selfDirectionReflections = pgTable(
     check(
       'self_direction_reflections_decision_known',
       sql`${table.decision} in ('changed', 'unchanged')`,
+    ),
+    check(
+      'self_direction_reflections_follow_through_known',
+      sql`${table.followThroughOutcome} is null
+          or ${table.followThroughOutcome} in ('done', 'partly', 'not-yet', 'abandoned')`,
+    ),
+    /**
+     * The three follow-through columns exist together or not at all: an outcome
+     * with no sentence, or a sentence nobody dated, is a row no reader can say
+     * *what happened and when it was claimed* from.
+     */
+    check(
+      'self_direction_reflections_follow_through_whole',
+      sql`(${table.followThroughOutcome} is null
+           and ${table.followThroughNote} is null
+           and ${table.followThroughRecordedAt} is null)
+          or (${table.followThroughOutcome} is not null
+              and ${table.followThroughNote} is not null
+              and ${table.followThroughRecordedAt} is not null)`,
     ),
     check(
       'self_direction_reflections_outward_kind_known',

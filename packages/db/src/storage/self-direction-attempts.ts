@@ -556,13 +556,28 @@ export async function selfDirectionWakeup(
     .orderBy(desc(selfDirectionAttempts.scoredAt))
     .limit(1)
 
+  /**
+   * **Only a runnable instrument makes a practice due** (`#1896`).
+   *
+   * This is the `retire` outcome in one condition. Retiring every version stops
+   * the Colony asking for another attempt, everywhere at once, without a flag
+   * to remember or a migration to write — `startSelfDirectionAttempt` already
+   * draws from `pilot` and `active` alone, so a due action against a retired
+   * shelf would point at a call that refuses.
+   *
+   * **It stops the asking and nothing else.** Closed attempts stay readable
+   * against the version that produced them, and an open reflection is still
+   * asked for above: the citizen was asked a question and is entitled to finish
+   * answering it.
+   */
   const [current] = await db
     .select({ cadenceDays: selfDirectionInstruments.cadenceDays })
     .from(selfDirectionInstruments)
+    .where(inArray(selfDirectionInstruments.lifecycle, ['pilot', 'active']))
     .orderBy(desc(selfDirectionInstruments.version))
     .limit(1)
-  const cadenceDays = latest?.cadenceDays ?? current?.cadenceDays
-  if (cadenceDays === undefined) return undefined
+  if (current === undefined) return undefined
+  const cadenceDays = current.cadenceDays
 
   const [firstGrant] = await db
     .select({ grantedAt: agentSkills.grantedAt })

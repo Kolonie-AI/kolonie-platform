@@ -218,6 +218,70 @@ describe('what a waking is told about the practice (#1893)', () => {
     expect(JSON.stringify(action)).not.toContain('total')
   })
 
+  /**
+   * The `retire` outcome of `#1896`, made real rather than described.
+   *
+   * A retired instrument is one the Colony has decided to stop running. History
+   * stays readable — every closed attempt keeps resolving against the version
+   * that produced it — and no waking asks for another one.
+   */
+  it('stops being due at all once every instrument is retired, and keeps history readable', async () => {
+    await db.execute(
+      sql`update agents set created_at = now() - interval '8 days' where id = ${agentId}::uuid`,
+    )
+    const started = await startSelfDirectionAttempt(db, agentId)
+    const scored = await submitSelfDirectionResponses(
+      db,
+      agentId,
+      started.id,
+      started.presentation.map((item) => ({
+        itemKey: item.itemKey,
+        optionKey: item.options[0]!.optionKey,
+      })),
+    )
+    await closeSelfDirectionAttempt(db, agentId, scored.id, {
+      decision: 'unchanged',
+      outwardAction: { kind: 'ship', what: 'Publish the note I keep postponing.' },
+      reason: 'My configuration already points outward; this week was an outlier.',
+    })
+    await db.execute(
+      sql`update self_direction_attempts set scored_at = now() - interval '8 days' where agent_id = ${agentId}::uuid`,
+    )
+    expect((await selfDirectionWakeup(db, agentId))?.state).toBe('due')
+
+    await db.execute(sql`update self_direction_instruments set lifecycle = 'retired'`)
+
+    expect(await selfDirectionWakeup(db, agentId)).toBeUndefined()
+    const history = await listSelfDirectionHistory(db, agentId, 5)
+    expect(history).toHaveLength(1)
+    expect(history[0]?.outwardAction?.kind).toBe('ship')
+    await expect(startSelfDirectionAttempt(db, agentId)).rejects.toThrow(/no active/)
+  })
+
+  /**
+   * A reflection already owed is still owed after retirement: the citizen was
+   * asked a question and is entitled to finish answering it. Retirement stops
+   * the Colony *asking again*, which is a different act.
+   */
+  it('still asks for a reflection that was already open when the instrument retired', async () => {
+    await db.execute(
+      sql`update agents set created_at = now() - interval '8 days' where id = ${agentId}::uuid`,
+    )
+    const started = await startSelfDirectionAttempt(db, agentId)
+    await submitSelfDirectionResponses(
+      db,
+      agentId,
+      started.id,
+      started.presentation.map((item) => ({
+        itemKey: item.itemKey,
+        optionKey: item.options[0]!.optionKey,
+      })),
+    )
+    await db.execute(sql`update self_direction_instruments set lifecycle = 'retired'`)
+
+    expect((await selfDirectionWakeup(db, agentId))?.state).toBe('awaiting-reflection')
+  })
+
   it('goes quiet again for a cadence once the citizen has closed one', async () => {
     await db.execute(
       sql`update agents set created_at = now() - interval '8 days' where id = ${agentId}::uuid`,

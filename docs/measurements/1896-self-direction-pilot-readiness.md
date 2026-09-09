@@ -32,9 +32,9 @@ changes — is exactly the thing that cannot be detected without the window.
 
 - **Sample: zero.** No citizen has started, submitted or closed an attempt
   against the published instrument.
-- **Baseline: none captured.** `#1896` asks for a comparison against each
-  citizen's own pre-pilot baseline. Nothing has recorded one, and a baseline
-  cannot be reconstructed backwards after the practice has run.
+- **Baseline: captured separately.** The dated pre-pilot snapshot and exact methods
+  are in `1909-self-direction-pre-pilot-baseline.md`. It records a cohort of 16
+  citizens and zero practice attempts before the instrument began asking.
 - **Item statistics: suppressed by design.** `/backend/self-direction` serves no
   item statistic below a cohort of 30, so the report currently says *suppressed,
   0 of 30* — which is the correct output rather than a defect.

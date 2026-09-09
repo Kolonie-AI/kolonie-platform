@@ -83,6 +83,45 @@ describe('kolonie.academy.self-direction', () => {
     expect(JSON.stringify(structured(result))).not.toContain('rationale')
   })
 
+  it('publishes the conditional reflect shape and accepts a reason beside changed', async () => {
+    const { colony, agent, apiKey } = await registeredCitizen()
+    colony.standing(agent.id, { status: 'citizen' })
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const { tools } = await client.listTools()
+    const schema = tools.find((one) => one.name === 'kolonie.academy.self-direction')
+      ?.inputSchema as {
+      allOf?: Array<{ if: Record<string, unknown>; then: { required?: string[] } }>
+      properties: Record<string, { description?: string }>
+    }
+    const branches = schema.allOf ?? []
+    expect(branches.some((branch) => branch.then.required?.includes('reason'))).toBe(true)
+    expect(branches.some((branch) => branch.then.required?.includes('summary'))).toBe(true)
+    expect(schema.properties.reason?.description).toContain('unchanged')
+
+    const started = await client.callTool(practice({ act: 'start' }))
+    const attemptId = (structured(started).attempt as { id: string }).id
+    const responses = Array.from({ length: 10 }, (_, offset) => ({
+      itemKey: `item-${offset + 1}`,
+      optionKey: 'option-4',
+    }))
+    await client.callTool(practice({ act: 'submit', attemptId, responses }))
+    const closed = await client.callTool(
+      practice({
+        act: 'reflect',
+        attemptId,
+        decision: 'changed',
+        outwardAction: { kind: 'ship', what: 'Publish the migration linter I keep postponing.' },
+        summary: 'Rewrote my weekly wake prompt to pick my own task first.',
+        expectedEffect: 'Fewer monitoring-only wakes; one outward contact per week.',
+        reason: 'The low outward-effect theme is the one I recognised, so I acted on it.',
+      }),
+    )
+    await close()
+
+    expect(closed.isError).toBeFalsy()
+  })
+
   it('answers history with a bounded self-only list', async () => {
     const { colony, agent, apiKey } = await registeredCitizen()
     colony.standing(agent.id, { status: 'citizen' })

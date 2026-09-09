@@ -120,24 +120,37 @@ export const SelfDirectionCloseSchema = z
     outwardAction: z.object({ kind: SelfDirectionOutwardKindSchema, what: sentence(500) }).strict(),
     summary: sentence(1000).optional(),
     expectedEffect: sentence(1000).optional(),
+    /**
+     * Why the citizen decided as it did (`#1915`).
+     *
+     * **Required on `unchanged`, an optional free note on `changed`.** An
+     * unchanged close is nothing but its reason, so it is what makes that
+     * decision sayable at all. On a changed close the summary and the expected
+     * effect are what the practice needs, and a citizen that also explains
+     * itself has answered with more than the branch asked for — refusing that
+     * spent a call and taught the citizen to say less, which is the opposite of
+     * what this practice is for.
+     */
     reason: sentence(1000).optional(),
   })
   .strict()
   .superRefine((close, ctx) => {
-    const carried = [close.summary, close.expectedEffect, close.reason].filter(
-      (field): field is string => field !== undefined,
-    ).length
     if (close.decision === 'changed') {
-      if (carried !== 2 || close.summary === undefined || close.expectedEffect === undefined) {
+      if (close.summary === undefined || close.expectedEffect === undefined) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: 'changed requires exactly a summary and an expectedEffect',
+          message: 'changed requires a summary and an expectedEffect',
         })
       }
-    } else if (carried !== 1 || close.reason === undefined) {
+    } else if (close.reason === undefined) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'unchanged requires exactly a reason',
+        message: 'unchanged requires a reason',
+      })
+    } else if (close.summary !== undefined || close.expectedEffect !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'unchanged takes no summary or expectedEffect',
       })
     }
   })

@@ -3,9 +3,10 @@ import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
 import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js'
 
 /**
- * The handshake stops promising a notification nothing can send (`#386`).
+ * The handshake promises `listChanged` exactly where something sends it
+ * (`#386`, `#1916`).
  *
- * ## What was wrong
+ * ## What was wrong, and what D-101 decided
  *
  * `initialize` answered `"capabilities": {"tools": {"listChanged": true}}` and a
  * search across `apps/api/src/mcp/` found no emission of
@@ -17,30 +18,21 @@ import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js'
  * sees it is entitled to wait for a signal that will never arrive, and nothing
  * in the answer tells it otherwise.
  *
- * ## Why the answer is to stop advertising rather than to start sending
+ * So D-101 pruned the flag, on the argument that a per-request transport built
+ * with `sessionIdGenerator: undefined` has no open connection to send it on.
+ * That argument is still exactly right about a per-request transport, and this
+ * still prunes it there.
  *
- * **There is no stream to send it on, by a decision this does not reopen.**
- * `transport.ts` builds a fresh server and a fresh `StreamableHTTPServerTransport`
- * per request with `sessionIdGenerator: undefined`, and closes both when the
- * response ends. Its own reasoning is that the API runs as a container that can
- * be replaced mid-deploy, *"and a session held in one process's memory would
- * break the moment it is"*. So at the instant a citizen's tier changes there is
- * no open connection belonging to it anywhere: the request that changed it is
- * already being torn down, and the next one has not arrived.
+ * ## What changed, and what did not
  *
- * Sending it would therefore mean holding server-side sessions, which is a
- * different architecture with a different failure mode, decided against for
- * reasons that have nothing to do with this capability. **Advertising a promise
- * whose delivery depends on reversing an unrelated decision is not support.**
+ * `#1916` adds a standby stream — `standby.ts` — which is server-to-client only
+ * and stays open. On one of those the notification is deliverable, so the flag
+ * is kept: the rule was never *never promise this*, it was **promise it exactly
+ * where it is kept**, and D-101 named this reversal itself.
  *
- * ## What replaces it, so the citizen is not left guessing
- *
- * D-013 already recomputes the list per request, so a citizen whose tier changed
- * gets the right list the moment it reconnects. What it lacked was any way to
- * know it should. The answers that change a tier now say so — see
- * `LIST_IS_STALE` in `text/wakeup.ts` — which is the same shape
- * `kolonie-docs#159` settles for everything else the Colony knows and the
- * citizen would otherwise have to poll for.
+ * **The pruning is therefore about the transport rather than the server.** One
+ * `createMcpServer` serves both, and it is the connection that decides — a POST
+ * that answers one request and closes still says nothing it cannot do.
  *
  * ## Why it is pruned from the answer rather than configured
  *
@@ -48,6 +40,12 @@ import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js'
  * no way to say otherwise. The transport's `send` is the one seam every caller
  * passes through, and it is where `#382` already shapes what is published — so
  * the handshake a test sees is the handshake a citizen gets.
+ *
+ * ## What still stands
+ *
+ * `LIST_IS_STALE` in `text/wakeup.ts` says the same thing in the digest, and it
+ * stays: a citizen that never opens a standby stream reads it there, and one
+ * that does is told twice about a thing worth acting on once.
  */
 
 /** An `initialize` result with the promise it cannot keep removed. */
@@ -75,8 +73,14 @@ const honestInitialize = (message: JSONRPCMessage): JSONRPCMessage => {
  * Called once by `createMcpServer`, beside `publishLeanSchemas` and for the same
  * reason: the rule is about what leaves the server, so it belongs on the seam
  * everything leaves through rather than at any one registration.
+ *
+ * `keepsListChanged` is the standby stream saying it will deliver the
+ * notification (`#1916`). Absent means a per-request transport, where D-101's
+ * argument is unchanged and the flag comes off.
  */
-export function advertiseOnlyWhatIsSent(server: McpServer): void {
+export function advertiseOnlyWhatIsSent(server: McpServer, keepsListChanged = false): void {
+  if (keepsListChanged) return
+
   const connect = server.connect.bind(server)
 
   server.connect = async (transport: Transport, ...rest: unknown[]): Promise<void> => {

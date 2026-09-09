@@ -1,4 +1,5 @@
 import type { CallRollup } from '../call-rollup.js'
+import type { McpStandbyStreams } from './standby.js'
 import type { ThrottleGate } from '../throttle-gate.js'
 import type { DoctorSource } from '../doctor.js'
 import type { OpenSource } from '../open.js'
@@ -368,6 +369,20 @@ export interface McpDependencies {
    * repeated invitation rather than a repeated obligation.
    */
   readonly suggested?: OpenSource['suggested']
+  /**
+   * The standby streams a persistent citizen holds open (`#1916`).
+   *
+   * **Optional, and the absence is the old behaviour exactly.** A deployment
+   * that wired none has no way to deliver `notifications/tools/list_changed`, so
+   * the handshake does not promise one and nothing here tries to send one — D-101
+   * unchanged, which is what makes this safe to add to a surface that is also
+   * served over plain HTTP.
+   *
+   * Read by the front door alone: `kolonie.wakeup` is where a tier move is
+   * already computed, so it is where the notification is emitted from rather
+   * than from every route that could grant a skill.
+   */
+  readonly standby?: McpStandbyStreams
   readonly website: WebsiteDependencies
   /**
    * The rung above the hosting account (`#244`): controlling a web server rather

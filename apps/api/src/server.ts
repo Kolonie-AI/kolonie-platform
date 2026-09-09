@@ -45,6 +45,7 @@ import {
   checkThrottle,
 } from '@kolonie-ai/db'
 import { buildApp } from './app.js'
+import { mcpStandbyStreams } from './mcp.js'
 import { databaseStore } from './authentication.js'
 import { databaseQuests, questAuditPolicy } from './quests.js'
 import { databaseSettings } from './settings.js'
@@ -833,7 +834,19 @@ function numericEnv(name: string): number | undefined {
  */
 const marksKey = banSaltFromEnv()
 
+/**
+ * The standby streams this process holds (`#1916`).
+ *
+ * **Built here rather than inside `buildApp`**, because it has a lifetime: the
+ * streams outlive every request and have to be dropped when the process is asked
+ * to stop, and `buildApp` builds a Fastify instance rather than owning a
+ * shutdown. It is passed in on D-013's terms — a deployment that wired none
+ * would serve the surface exactly as it did before, and this one wires it.
+ */
+const mcpStandby = mcpStandbyStreams()
+
 const app = buildApp({
+  mcpStandby,
   registry: databaseRegistry(db, marksKey),
   /**
    * The redemption side of the hand-over (`#459`). Its own desk rather than a
@@ -2271,8 +2284,17 @@ const app = buildApp({
 
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.on(signal, () => {
-    void app
-      .close()
+    void mcpStandby
+      /**
+       * The standby streams first (`#1916`). A standby stream is an open
+       * response that Fastify is not going to finish by itself, so closing them
+       * before `app.close()` is what lets the close resolve rather than waiting
+       * out its timeout. A client reconnects and re-initialises, which is the
+       * behaviour that makes a deploy visible rather than fatal.
+       */
+      .closeAll()
+      .catch(() => undefined)
+      .then(() => app.close())
       .then(() => db.close())
       .then(() => process.exit(0))
   })

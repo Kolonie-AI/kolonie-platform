@@ -20,8 +20,9 @@ import { LIST_IS_STALE } from './text/wakeup.js'
 /** The served `initialize` result, as a client actually receives it. */
 const handshakeOf = async (
   credential?: string,
+  standby = false,
 ): Promise<{ capabilities: Record<string, unknown>; instructions: string | undefined }> => {
-  const server = createMcpServer(fakeColony(), credential)
+  const server = createMcpServer(fakeColony(), credential, undefined, undefined, standby)
   const client = new Client({ name: 'test', version: '0' })
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
 
@@ -34,7 +35,7 @@ const handshakeOf = async (
 }
 
 describe('what the handshake promises', () => {
-  it('does not claim listChanged, because nothing sends it', async () => {
+  it('does not claim listChanged where nothing can send it', async () => {
     for (const credential of [undefined, 'Bearer anything']) {
       const { capabilities } = await handshakeOf(credential)
       const tools = capabilities['tools'] as Record<string, unknown> | undefined
@@ -43,6 +44,23 @@ describe('what the handshake promises', () => {
       // tools. What is gone is the promise about being told when they change.
       expect(tools, String(credential)).toBeDefined()
       expect(tools).not.toHaveProperty('listChanged')
+    }
+  })
+
+  /**
+   * The other half, once there is a stream (`#1916`).
+   *
+   * D-101 pruned the flag because nothing could deliver the notification, and it
+   * named its own reversal: *if a transport that holds a session arrives, this
+   * becomes sendable and should be sent.* `standby.ts` is that transport, so on
+   * a deployment holding one the promise is kept and is therefore made.
+   */
+  it('claims listChanged where a standby stream will deliver it', async () => {
+    for (const credential of [undefined, 'Bearer anything']) {
+      const { capabilities } = await handshakeOf(credential, true)
+      const tools = capabilities['tools'] as Record<string, unknown> | undefined
+
+      expect(tools?.['listChanged'], String(credential)).toBe(true)
     }
   })
 

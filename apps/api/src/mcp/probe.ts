@@ -38,7 +38,17 @@ import { MCP_PATHS } from './paths.js'
  * genuinely differ, and reading it as though it were is what left `OPTIONS`
  * being told the reason `GET` has no meaning here. See `methodClause` (`#1058`).
  */
+/**
+ * Which methods the MCP door takes.
+ *
+ * `POST` always; `GET` as well where a deployment holds standby streams
+ * (`#1916`), because `Allow` is a claim about this server and a probe reading it
+ * decides what to try next. A `GET` that does not accept `text/event-stream`
+ * still lands here — it asked for a page and there is none — and it is told the
+ * stream exists rather than that the method is meaningless.
+ */
 export const MCP_PROBE_ALLOW = 'POST'
+export const MCP_PROBE_ALLOW_WITH_STANDBY = 'GET, POST'
 
 /**
  * The body served with that 405 — a shape rather than a sentence, because both
@@ -116,10 +126,21 @@ export interface McpProbe {
  * Each clause opens with a space and closes with a full stop, so it drops into
  * the sentence run without the caller assembling anything.
  */
-function methodClause(method: string): string {
+function methodClause(method: string, standby: boolean): string {
   switch (method) {
     case 'GET':
-      return ' MCP gives it that stream, and a server offering none is required to answer 405.'
+      /**
+       * Two answers, because two deployments are honestly different (`#1916`).
+       *
+       * With standby streams the stream exists and this caller simply did not
+       * ask for it — saying *there is no stream* would be false, and would send
+       * a persistent client back to polling. Without them D-101 is unchanged and
+       * the original sentence is still the true one.
+       */
+      return standby
+        ? ' MCP gives it the server-to-client stream, and this server opens one — send' +
+            ' `Accept: text/event-stream` to hold it.'
+        : ' MCP gives it that stream, and a server offering none is required to answer 405.'
     case 'DELETE':
       return ' MCP gives it session termination, and there is no session here to end.'
     case 'OPTIONS':
@@ -141,7 +162,19 @@ function methodClause(method: string): string {
  * as it arrives clean, and a health check that turns on a slash is a health
  * check that reports the wrong thing.
  */
-export function mcpProbe(method: string, url: string): McpProbe | undefined {
+export function mcpProbe(
+  method: string,
+  url: string,
+  /**
+   * Whether this deployment holds standby streams (`#1916`).
+   *
+   * **Absent is false, so a caller that does not pass it is answered exactly as
+   * before.** The probe describes what this server does, and one that opens a
+   * stream must not go on saying it opens none — that sentence is what a
+   * persistent client reads before deciding to poll forever.
+   */
+  standby = false,
+): McpProbe | undefined {
   if (method.toUpperCase() === 'POST') return undefined
 
   const path = url.split('?')[0]?.replace(/(.)\/+$/, '$1') ?? ''
@@ -156,9 +189,15 @@ export function mcpProbe(method: string, url: string): McpProbe | undefined {
     rest: `${API_BASE_PATH}/`,
     hint:
       `This is the Colony's MCP surface and it is up. It speaks JSON-RPC over POST — begin ` +
-      `with an \`initialize\` request. This server keeps no session and opens no ` +
-      `server-to-client stream, so POST is the only method that carries an MCP request and ` +
-      `${method.toUpperCase()} is not one of them.${methodClause(method.toUpperCase())} The ` +
+      `with an \`initialize\` request. ` +
+      (standby
+        ? `POST carries every MCP request, and GET with \`Accept: text/event-stream\` opens a ` +
+          `server-to-client stream that carries notifications. ` +
+          `${method.toUpperCase()} is neither.`
+        : `This server keeps no session and opens no server-to-client stream, so POST is the ` +
+          `only method that carries an MCP request and ${method.toUpperCase()} is not one of ` +
+          `them.`) +
+      `${methodClause(method.toUpperCase(), standby)} The ` +
       `REST API is a different surface, under ${API_BASE_PATH}/.`,
   }
 }

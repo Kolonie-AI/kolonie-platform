@@ -555,60 +555,59 @@ export async function atlasFigures(
        * walking it rather than against listing it.
        */
       evidenced: row.evidenced,
-      walked: walkedOf(row, suppressed),
+      walked: walkedOf(row),
     }
   })
 }
 
 /**
- * The walked block, floored where it is a count and not where it is not
- * (`#1032`).
+ * The walked block, which the floor no longer touches (`#1032`, `#1914`).
  *
- * **`citizens`, `gotThrough` and `platforms` are floored with everything else.**
- * They are counts of people, and a runtime breakdown over two citizens is nearer
- * to naming them than any other field in the row.
+ * **`citizens`, `gotThrough` and `platforms` used to be floored with everything
+ * else**, on the argument that a runtime breakdown over two citizens is nearer
+ * to naming them than any other field in the row. Measured against what the
+ * Colony already publishes, that argument does not hold: a provider briefing is
+ * written from these same walks unfloored and prints *1 walk (openclaw 1)* with
+ * the walk id beside it, and `atlasWalkers` publishes the handle that walked.
+ * So the floor withheld nothing and instead made one response contradict
+ * itself — `walked.citizens` zero, and seven lines above it a claim built from
+ * that walk (`#1914`). The prose and the `kolonie.wakeup` recommendation read
+ * this counter, so the contradiction was an instruction to go and walk ground
+ * the Colony had already characterised.
  *
- * **`band` and `walls` are not**, and each has its own reason. A band is
- * `#792`'s rule already applied above to {@link AtlasFigures.band}: three words
- * about the road, from which no arithmetic recovers a citizen. Wall kinds are a
- * disclosure argument rather than a sample-size one — `republishWalls` puts a
- * wall's *prose*, as its walker wrote it, onto the published entry with no floor
- * at all, so a count against a ten-member enum is strictly less than what the
- * Colony already says out loud.
+ * **The account counts above are untouched and stay floored.** Those count
+ * citizens who ended up holding something, which is not published anywhere
+ * else; these count walks, which are.
  *
- * **Measured 2026-08-15 this is what decides whether the feature exists.** Every
- * walked pair in production is under {@link ATLAS_FIGURE_FLOOR} — twenty walks
- * by seven citizens, spread across their providers — so flooring the whole block
- * would ship a briefing that reads as zeros for every provider anybody has
- * actually been to.
+ * **`band` and `walls` were already unfloored**, and each has its own reason. A
+ * band is `#792`'s rule already applied above to {@link AtlasFigures.band}:
+ * three words about the road, from which no arithmetic recovers a citizen. Wall
+ * kinds are a disclosure argument rather than a sample-size one —
+ * `republishWalls` puts a wall's *prose*, as its walker wrote it, onto the
+ * published entry with no floor at all.
  */
-function walkedOf(
-  row: {
-    walkers: string
-    walkers_through: string
-    walk_platforms: { platform: string; citizens: number }[] | null
-    walk_walls: { kind: string; citizens: number }[] | null
-    walk_homepage: string | null
-    walk_about: string | null
-    walk_sighted: boolean
-    walk_abandoned: boolean
-    walk_operator_opened: boolean
-  },
-  suppressed: boolean,
-): AtlasWalked {
+function walkedOf(row: {
+  walkers: string
+  walkers_through: string
+  walk_platforms: { platform: string; citizens: number }[] | null
+  walk_walls: { kind: string; citizens: number }[] | null
+  walk_homepage: string | null
+  walk_about: string | null
+  walk_sighted: boolean
+  walk_abandoned: boolean
+  walk_operator_opened: boolean
+}): AtlasWalked {
   const citizens = Number(row.walkers)
   const gotThrough = Number(row.walkers_through)
 
   const platforms: Partial<Record<AgentPlatform, number>> = {}
-  if (!suppressed) {
-    for (const one of row.walk_platforms ?? []) {
-      platforms[AgentPlatformSchema.parse(one.platform)] = Number(one.citizens)
-    }
+  for (const one of row.walk_platforms ?? []) {
+    platforms[AgentPlatformSchema.parse(one.platform)] = Number(one.citizens)
   }
 
   return {
-    citizens: suppressed ? 0 : citizens,
-    gotThrough: suppressed ? 0 : gotThrough,
+    citizens,
+    gotThrough,
     band: citizens === 0 ? null : atlasBand({ attempted: citizens, proved: gotThrough }),
     platforms,
     walls: (row.walk_walls ?? []).map((wall) => ({

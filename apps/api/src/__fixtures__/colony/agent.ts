@@ -42,6 +42,7 @@ import type { DoctorSource } from '../../doctor.js'
 import type { DiagnosesDesk } from '../../diagnoses.js'
 import type { WalkRefusalDesk } from '../../walk-refusals.js'
 import type { TicketDesk } from '../../support-desk.js'
+import type { SelfDirectionStatistics } from '../../self-direction.js'
 import { fakeDiagnosesDesk, fakeDoctorSource } from '../doctor.js'
 import { fakeWalkRefusalDesk } from '../walk-refusals.js'
 import { fakeTicketDesk } from '../ticket-desk.js'
@@ -148,6 +149,14 @@ export interface FakeAgent {
    * crawls every link the console emits.
    */
   readonly ticketDesk: TicketDesk
+  /**
+   * What the console's practice-questions page reads (`#1895`).
+   *
+   * Wired by default and answering with an empty shelf, for the reason
+   * `ticketDesk` above is: the navigation names `/backend/self-direction`, and
+   * `console-links.test.ts` crawls every link the console emits.
+   */
+  readonly selfDirectionStatistics: SelfDirectionStatistics
   /**
    * The state facts behind the wake-up's non-rung suggestions (`#347`).
    *
@@ -455,6 +464,9 @@ export function fakeAgent(deps: {
     // A desk with nothing waiting on it, which is the state the page has to
     // render as a sentence rather than as an empty table (`#1347`).
     ticketDesk: fakeTicketDesk(),
+    // No instrument published, which is the state the page has to render as a
+    // sentence rather than as an empty table (`#1895`).
+    selfDirectionStatistics: { items: async () => ({ minimumCohort: 30, instruments: [] }) },
     prospects: async () => ({
       hasOperator: true,
       // And nobody named on the profile to pair with in the console (`#1012`).

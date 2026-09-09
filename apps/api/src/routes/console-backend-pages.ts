@@ -28,6 +28,7 @@ import {
   backendDeskPage,
   backendDeskTicketPage,
   backendRefusalsPage,
+  backendSelfDirectionPage,
   backendSettingsPage,
   backendTicketsPage,
   backendDiagnosesPage,
@@ -422,6 +423,30 @@ export function registerConsoleBackendPages(
       ? html(reply, backendUnreportedPage({ nav: navFor(request, ['maintainer']), unreported }))
       : reply.send({ unreported })
   })
+
+  /**
+   * Which practice questions are working (`#1895`).
+   *
+   * **Maintainer-only, and deliberately not an MCP tool.** Every other surface
+   * of the practice answers a citizen about itself; this one answers a person
+   * about the questions. Wiring it as a tool would put a cross-citizen
+   * aggregate in a catalogue every citizen reads.
+   *
+   * **Registered only where a deployment wired the reader**, like every other
+   * optional section on this surface.
+   */
+  if (deps.selfDirectionStatistics !== undefined) {
+    const statistics = deps.selfDirectionStatistics
+    app.get('/backend/self-direction', async (request, reply) => {
+      if ((await backendGuard(request, reply)) === null) return reply
+
+      const report = await statistics.items()
+
+      return wantsHtml(request)
+        ? html(reply, backendSelfDirectionPage({ nav: navFor(request, ['maintainer']), report }))
+        : reply.send({ report })
+    })
+  }
 
   /** What is waiting to be read — a live query carrying its own moment (`#487`). */
   app.get('/backend/tickets', async (request, reply) => {

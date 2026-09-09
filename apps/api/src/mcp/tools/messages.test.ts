@@ -1,4 +1,9 @@
-import { MESSAGE_IDLE_AFTER_DAYS, MESSAGE_UNTRUSTED_CONTENT } from '@kolonie-ai/core'
+import {
+  CONVERSATION_MESSAGE_DEFAULT_PAGE,
+  CONVERSATION_MESSAGE_MAX_PAGE,
+  MESSAGE_IDLE_AFTER_DAYS,
+  MESSAGE_UNTRUSTED_CONTENT,
+} from '@kolonie-ai/core'
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { describe, expect, it } from 'vitest'
 import { FAKE_CALLER_IP } from '../../__fixtures__/colony/index.js'
@@ -24,9 +29,9 @@ const listThreads = (args: Record<string, unknown> = {}) => ({
   name: 'kolonie.messages.list_threads',
   arguments: args,
 })
-const getThread = (conversationId: string) => ({
+const getThread = (conversationId: string, page: { cursor?: string; limit?: number } = {}) => ({
   name: 'kolonie.messages.get_thread',
-  arguments: { conversationId },
+  arguments: { conversationId, ...page },
 })
 const markRead = (conversationId: string, upTo?: string | null) => ({
   name: 'kolonie.messages.mark_read',
@@ -107,6 +112,88 @@ describe('kolonie.messages.* (#1286)', () => {
 
     const get = listing.tools.find((tool) => tool.name === 'kolonie.messages.get_thread')
     expect(get?.description).toContain(MESSAGE_UNTRUSTED_CONTENT)
+
+    await close()
+  })
+
+  it('publishes and enforces the bounded thread page schema', async () => {
+    const { alice, close } = await aPair()
+    const { tools } = await alice.client.listTools()
+    const get = tools.find((tool) => tool.name === 'kolonie.messages.get_thread')
+
+    expect(get?.description).toContain(`defaults to ${CONVERSATION_MESSAGE_DEFAULT_PAGE}`)
+    expect(get?.description).toContain(`maximum ${CONVERSATION_MESSAGE_MAX_PAGE}`)
+    expect(get?.inputSchema).toMatchObject({
+      properties: {
+        cursor: { type: 'string' },
+        limit: { maximum: CONVERSATION_MESSAGE_MAX_PAGE, minimum: 1, type: 'integer' },
+      },
+    })
+
+    const rejected = await alice.client.callTool(
+      getThread('00000000-0000-4000-a000-000000000001', {
+        limit: CONVERSATION_MESSAGE_MAX_PAGE + 1,
+      }),
+    )
+    expect(rejected.isError).toBe(true)
+
+    await close()
+  })
+
+  it('traverses a 59-message thread through opaque cursors and omits the terminal cursor', async () => {
+    const { alice, bob, close } = await aPair()
+    const asked = await alice.client.callTool(
+      send({ to: bob.agent.profile.name, body: 'message-00' }),
+    )
+    const requestId = (asked.structuredContent as { requestId: string }).requestId
+    const conversationId = (asked.structuredContent as { conversationId: string }).conversationId
+    await bob.client.callTool(requests({ act: 'accept', requestId }))
+
+    for (let index = 1; index < 59; index += 1) {
+      await alice.client.callTool(
+        send({ conversationId, body: `message-${String(index).padStart(2, '0')}` }),
+      )
+    }
+
+    const bodies: string[] = []
+    let cursor: string | undefined
+    do {
+      const page = await alice.client.callTool(getThread(conversationId, { limit: 17, cursor }))
+      expect(page.isError).toBeFalsy()
+      const response = page.structuredContent as {
+        messages: { body: string }[]
+        nextCursor?: string
+      }
+      bodies.push(...response.messages.map((message) => message.body))
+      cursor = response.nextCursor
+      if (cursor !== undefined) expect(cursor).not.toContain(response.messages.at(-1)!.body)
+    } while (cursor !== undefined)
+
+    expect(bodies).toEqual(
+      Array.from({ length: 59 }, (_, index) => `message-${String(index).padStart(2, '0')}`),
+    )
+    expect(new Set(bodies).size).toBe(59)
+
+    const forged = await alice.client.callTool(
+      getThread(conversationId, { cursor: 'not-a-cursor-this-reader-issued' }),
+    )
+    expect(forged.isError).toBe(true)
+
+    await close()
+  })
+
+  it('keeps the participant refusal when pagination arguments are present', async () => {
+    const { alice, bob, close } = await aPair()
+    const asked = await alice.client.callTool(
+      send({ to: bob.agent.profile.name, body: 'Still private.' }),
+    )
+    const conversationId = (asked.structuredContent as { conversationId: string }).conversationId
+
+    const refused = await bob.client.callTool(
+      getThread(conversationId, { cursor: 'opaque-but-untrusted', limit: 1 }),
+    )
+    expect(refused.isError).toBe(true)
+    expect(refused.structuredContent).toMatchObject({ error: { code: 'not_participant' } })
 
     await close()
   })

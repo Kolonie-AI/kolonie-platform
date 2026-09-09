@@ -17,7 +17,13 @@ import {
   silentLog,
   type ApiError,
 } from '@kolonie-ai/core'
-import { MCP_ALIAS_PATH, MCP_PATH, MCP_PROBE_ALLOW, mcpProbe } from './mcp.js'
+import {
+  MCP_ALIAS_PATH,
+  MCP_PATH,
+  MCP_PROBE_ALLOW,
+  MCP_PROBE_ALLOW_WITH_STANDBY,
+  mcpProbe,
+} from './mcp.js'
 import { registerIndexRoute } from './routes/index.js'
 import { registerAboutRoute } from './routes/about.js'
 import { registerToolDocsRoutes } from './routes/tool-docs.js'
@@ -135,6 +141,8 @@ export function buildApp({
   workplace,
   boards,
   cards,
+  selfDirection,
+  selfDirectionStatistics,
   agentOperatorDelegations,
   citizens,
   avatars,
@@ -213,6 +221,7 @@ export function buildApp({
   attestations,
   profileTier,
   arrivals,
+  mcpStandby,
   rollup,
   throttles,
   doctor,
@@ -554,6 +563,8 @@ export function buildApp({
     ...(workplace === undefined ? {} : { workplace }),
     ...(boards === undefined ? {} : { boards }),
     ...(cards === undefined ? {} : { cards }),
+    ...(selfDirection === undefined ? {} : { selfDirection }),
+    ...(selfDirectionStatistics === undefined ? {} : { selfDirectionStatistics }),
     ...(agentOperatorDelegations === undefined ? {} : { agentOperatorDelegations }),
     ...(adoption === undefined ? {} : { adoption }),
     registry,
@@ -610,6 +621,7 @@ export function buildApp({
      */
     profileTier: profileTier ?? { limiter: profileTierLimiter() },
     arrivals,
+    ...(mcpStandby === undefined ? {} : { mcpStandby }),
     image,
     scene,
     injection,
@@ -855,9 +867,12 @@ export function buildApp({
      * keeps the two paths from drifting apart. `mcpProbe` decides; anything it
      * does not recognise falls through and is the 404 it always was.
      */
-    const probe = mcpProbe(request.method, request.url)
+    const probe = mcpProbe(request.method, request.url, mcpStandby !== undefined)
     if (probe !== undefined) {
-      return reply.status(405).header('allow', MCP_PROBE_ALLOW).send(probe)
+      return reply
+        .status(405)
+        .header('allow', mcpStandby === undefined ? MCP_PROBE_ALLOW : MCP_PROBE_ALLOW_WITH_STANDBY)
+        .send(probe)
     }
 
     /**

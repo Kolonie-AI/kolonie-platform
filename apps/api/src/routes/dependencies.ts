@@ -28,6 +28,7 @@ import type { AdoptionDesk } from '../adoption.js'
 import type { HumanDependencies } from '../humans/humans.js'
 import type { WorkplaceOptions } from '../humans/workplace.js'
 import type { WorkplaceBoards } from '../workplace-boards.js'
+import type { SelfDirectionPractice, SelfDirectionStatistics } from '../self-direction.js'
 import type { WorkplaceCards } from '../workplace-cards.js'
 import type { AgentOperatorDelegations } from '../agent-operator-delegations.js'
 import type { ContributionDependencies } from '../contributions.js'
@@ -42,6 +43,7 @@ import type { Erasure } from '../erasure.js'
 import type { Recovery } from '../recovery.js'
 import type { CitizenConnections } from '../connections.js'
 import type { CitizenMessaging, OperatorMessaging } from '../messaging.js'
+import type { McpStandbyStreams } from '../mcp/standby.js'
 import type { GithubDependencies } from '../github.js'
 import type { TaskGuidance } from '../guidance.js'
 import type { ImageDependencies } from '../image.js'
@@ -568,6 +570,14 @@ export interface RouteDependencies {
    * rule on `citizens`.
    */
   readonly cards?: WorkplaceCards
+  /** The self-direction practice (`#1892`). Optional, like every other surface D-013 lets a deployment omit. */
+  readonly selfDirection?: SelfDirectionPractice
+  /**
+   * The maintainer's item statistics (`#1895`). Optional like every other
+   * backend section: a deployment that wires none serves no page rather than an
+   * empty one.
+   */
+  readonly selfDirectionStatistics?: SelfDirectionStatistics
   /** Direct citizen delegation lifecycle, forwarded to the MCP surface. */
   readonly agentOperatorDelegations?: AgentOperatorDelegations
   /**
@@ -591,4 +601,17 @@ export interface RouteDependencies {
    */
   readonly connections?: CitizenConnections
   readonly messaging?: CitizenMessaging
+  /**
+   * Where the standby streams are held, when this deployment holds any
+   * (`#1916`).
+   *
+   * **Optional, on D-013's terms and with a stated consequence.** A deployment
+   * that wires none answers `GET` at the MCP door exactly as it did before —
+   * `405` with the probe body — and its citizens keep the fallback D-101 left
+   * them: the wake-up sentence saying the list they hold was built earlier.
+   * Wiring one is what turns the capability on, and the handshake follows it
+   * rather than being configured separately. Appended, per the house rule on
+   * `citizens`.
+   */
+  readonly mcpStandby?: McpStandbyStreams
 }

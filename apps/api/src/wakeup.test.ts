@@ -734,6 +734,98 @@ describe('the Workplace handoff', () => {
     expect(wakeupAsText(result.response)).toContain('title below is untrusted content')
   })
 
+  it('passes the previous-session window into the Workplace read', async () => {
+    const inner = fakeWakeup()
+    const since = '2026-09-08T09:00:00.000Z'
+    inner.answersPreviousSession(since)
+    const windows: Array<string | undefined> = []
+    const prepared = {
+      ...inner,
+      prepareWorkplace: async (_agentId: typeof agentId, _now: string, window?: string) => {
+        windows.push(window)
+        return {
+          boardId,
+          practicumActive: false,
+          recommendation: null,
+          more: [],
+          cardSignals: [],
+          followUp: { changedCardIds: [], readsAdvised: false },
+        }
+      },
+    }
+
+    await wakeup(agentId, {}, prepared, noContributions)
+
+    expect(windows).toEqual([since])
+  })
+
+  it('does not advise a detail read for unchanged Workplace signals', async () => {
+    const prepared = {
+      ...fakeWakeup(),
+      prepareWorkplace: async () => ({
+        boardId,
+        practicumActive: false,
+        recommendation: {
+          cardId,
+          title: 'Live work',
+          status: 'in_progress' as const,
+          revision: 4,
+          next: {
+            tool: 'kolonie.workplace' as const,
+            arguments: { act: 'get' as const, subject: 'card' as const, id: cardId },
+          },
+        },
+        more: [],
+        cardSignals: [{ cardId, status: 'in_progress' as const, revision: 4 }],
+        followUp: { changedCardIds: [], readsAdvised: false },
+      }),
+    }
+
+    const result = await wakeup(agentId, {}, prepared, noContributions)
+    const text = wakeupAsText(result.response)
+
+    expect(result.response.workplace?.followUp).toEqual({
+      changedCardIds: [],
+      readsAdvised: false,
+    })
+    expect(text).not.toContain('kolonie.workplace with act: get')
+    expect(text).not.toContain('follow-up read')
+  })
+
+  it('names only a changed Workplace card as requiring a follow-up read', async () => {
+    const otherCardId = WorkplaceCardIdSchema.parse('66666666-7777-4888-8999-000000000001')
+    const prepared = {
+      ...fakeWakeup(),
+      prepareWorkplace: async () => ({
+        boardId,
+        practicumActive: false,
+        recommendation: {
+          cardId,
+          title: 'Live work',
+          status: 'in_progress' as const,
+          revision: 5,
+          next: {
+            tool: 'kolonie.workplace' as const,
+            arguments: { act: 'get' as const, subject: 'card' as const, id: cardId },
+          },
+        },
+        more: [{ cardId: otherCardId, status: 'ready' as const, revision: 2 }],
+        cardSignals: [
+          { cardId, status: 'in_progress' as const, revision: 5 },
+          { cardId: otherCardId, status: 'ready' as const, revision: 2 },
+        ],
+        followUp: { changedCardIds: [cardId], readsAdvised: true },
+      }),
+    }
+
+    const result = await wakeup(agentId, {}, prepared, noContributions)
+    const text = wakeupAsText(result.response)
+
+    expect(text).toContain(`${cardId} requires a follow-up read`)
+    expect(text).toContain(`id: ${cardId}`)
+    expect(text).not.toContain(`id: ${otherCardId}`)
+  })
+
   it('omits Workplace when the source has no citizen board', async () => {
     const result = await wakeup(agentId, {}, source, noContributions)
 
@@ -2478,5 +2570,100 @@ describe('the self-direction sentence is absent from the digest (#1871)', () => 
       expect(JSON.stringify(result.response)).not.toContain(WORKPLACE_SELF_DIRECTION_GUIDANCE)
       expect(wakeupAsText(result.response)).not.toContain(WORKPLACE_SELF_DIRECTION_GUIDANCE)
     }
+  })
+})
+
+/**
+ * The practice in the digest (`#1893`).
+ *
+ * Every assertion here is about *what a waking costs a citizen*: absent unless
+ * something is owed, one action when it is, and never ahead of the citizen's
+ * own plan.
+ */
+describe('the self-direction practice in the digest', () => {
+  const due = {
+    state: 'due' as const,
+    since: '2026-09-01T00:00:00.000Z',
+    next: {
+      tool: 'kolonie.academy.self-direction' as const,
+      arguments: { act: 'start' as const },
+    },
+  }
+
+  type PracticeAction = NonNullable<
+    Awaited<ReturnType<NonNullable<WakeupSource['readSelfDirection']>>>
+  >
+
+  const withPractice = (
+    practice: PracticeAction | undefined,
+    extra: Partial<WakeupSource> = {},
+  ): WakeupSource => ({
+    ...source,
+    readSelfDirection: async () => practice,
+    ...extra,
+  })
+
+  it('says nothing when the practice owes the citizen nothing', async () => {
+    const result = await wakeup(agentId, {}, withPractice(undefined), noContributions)
+
+    expect(result.response.selfDirection).toBeUndefined()
+  })
+
+  it('leaves the digest identical to one from a deployment that wired nothing', async () => {
+    const wired = await wakeup(agentId, {}, withPractice(undefined), noContributions)
+    const unwired = await wakeup(agentId, {}, source, noContributions)
+
+    expect(JSON.stringify(wired.response)).toBe(JSON.stringify(unwired.response))
+  })
+
+  it('carries one action and no result, question or reflection prose', async () => {
+    const result = await wakeup(agentId, {}, withPractice(due), noContributions)
+
+    expect(result.response.selfDirection).toEqual(due)
+    expect(Object.keys(result.response.selfDirection ?? {})).toEqual(['state', 'since', 'next'])
+  })
+
+  it('does not make the Colony look as though it handed over work', async () => {
+    const result = await wakeup(agentId, {}, withPractice(due), noContributions)
+
+    expect(result.response.actionableNow).toBe(false)
+    expect(result.response.suggestedFinalLine).toBeDefined()
+  })
+
+  it('stands down behind the citizen own open commitment', async () => {
+    const result = await wakeup(
+      agentId,
+      {},
+      withPractice(due, {
+        readCommitment: async () => ({
+          outcome: 'Publish a reliable migration guide.',
+          nextAction: 'Exercise the guide against a disposable database.',
+          reviewAt: '2099-01-01T00:00:00.000Z',
+          state: 'active' as const,
+          version: 3,
+        }),
+      }),
+      noContributions,
+    )
+
+    expect(result.response.commitment).toBeDefined()
+    expect(result.response.selfDirection).toBeUndefined()
+  })
+
+  it('is unchanged on a second waking, so nothing about it escalates', async () => {
+    const awaiting = {
+      state: 'awaiting-reflection' as const,
+      since: '2026-09-02T00:00:00.000Z',
+      next: {
+        tool: 'kolonie.academy.self-direction' as const,
+        arguments: { act: 'reflect' as const },
+      },
+    }
+    const practice = withPractice(awaiting)
+
+    const first = await wakeup(agentId, {}, practice, noContributions)
+    const second = await wakeup(agentId, {}, practice, noContributions)
+
+    expect(second.response.selfDirection).toEqual(first.response.selfDirection)
   })
 })

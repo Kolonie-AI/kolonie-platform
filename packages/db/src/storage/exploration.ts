@@ -1,5 +1,5 @@
 import { and, asc, eq, isNotNull, notInArray, sql } from 'drizzle-orm'
-import type { AgentId } from '@kolonie-ai/core'
+import { RECIPE_WALKABLE_STATUSES, type AgentId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { accountWalks } from '../schema/account-walks.js'
 import { providerRecipes } from '../schema/provider-recipes.js'
@@ -59,9 +59,16 @@ export async function unwalkedAtlasEntry(
     .where(
       and(
         sql`not exists (
-              select 1 from ${accountWalks}
-               where ${accountWalks.kind} = ${providerRecipes.kind}
-                 and ${accountWalks.provider} = ${providerRecipes.provider})`,
+                select 1 from ${accountWalks}
+                 where ${accountWalks.kind} = ${providerRecipes.kind}
+                   and ${accountWalks.provider} = ${providerRecipes.provider})`,
+        // A refused recipe is already a closed direct-signup route. It must
+        // not be offered as exploratory work; a separate joinable route
+        // remains a candidate when the provider exposes one (`#1882`).
+        sql`${providerRecipes.status} in (${sql.raw(
+          RECIPE_WALKABLE_STATUSES.map((status) => `'${status}'`).join(', '),
+        )})`,
+        sql`${providerRecipes.retiredAt} is null`,
         // **`notInArray`, not `<> all(${heldKinds})`** (`#895`).
         //
         // A JS array interpolated into a `sql` template is expanded by Drizzle

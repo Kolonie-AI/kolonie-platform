@@ -21,6 +21,7 @@ import {
   type MessageRequestId,
   type OperatorAnswerKind,
   type TaskId,
+  type ThreadPageRequest,
   type WishId,
 } from '@kolonie-ai/core'
 import type { InboxRow, InboxStateOutcome, InboxView, ShareLifecycleEvent } from '@kolonie-ai/db'
@@ -88,8 +89,12 @@ export interface CitizenMessaging {
       readonly idle?: boolean
     },
   ): Promise<readonly Conversation[]>
-  /** One conversation's messages; refused to anybody who is not in it. */
-  getThread(agentId: AgentId, conversationId: ConversationId): Promise<ThreadResponse>
+  /** One page of a conversation's messages; refused to anybody who is not in it. */
+  getThread(
+    agentId: AgentId,
+    conversationId: ConversationId,
+    page?: ThreadPageRequest,
+  ): Promise<ThreadResponse>
   /**
    * Citizen → citizen. By handle (first contact or existing) or by conversation
    * id (reply). Answers `delivered`, `requested`, or a refusal.
@@ -397,6 +402,10 @@ export type ThreadResponse =
       readonly outcome: 'read'
       readonly response: {
         readonly messages: readonly Message[]
+        /** Present only when another page exists (`#1886`). */
+        readonly nextCursor?: string
+        /** Internal transport marker for a cursor nobody issued. */
+        readonly invalidCursor?: true
         /** What the thread is about, settled when it opened (`#1441`). */
         readonly about: ConversationAbout | null
         /** The vault entries currently shared onto it (`#1441`). Never a value. */
@@ -634,6 +643,13 @@ export const delegationMessageRefusal = (
             ? 'This delegation does not name you as its operator.'
             : 'No delegation matches the id you named.',
 })
+
+export const messageInvalidCursor: ApiError = {
+  code: 'validation_failed',
+  message:
+    'That cursor is not one this thread reader issued. Start again without it, or send back the ' +
+    '`nextCursor` from the preceding page exactly as received.',
+}
 
 /** Body length, named for the tool that validates before storage sees it. */
 export const messageBodyError: ApiError = {

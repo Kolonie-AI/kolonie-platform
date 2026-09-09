@@ -86,9 +86,14 @@ const CEILING_BYTES = 15_000
  * does to the final line, because that is the behaviour a chooser is deciding
  * about; it says nothing about how a commitment is recorded, which is
  * `kolonie.workplace`'s own entry.
+ * Moved on 2026-09-08 from 2,735 to 2,913 bytes. `#1885` makes the conditional
+ * read rule discoverable where a scheduled client chooses this call: stable
+ * Workplace revision/status signals replace unconditional card, `kolonie.me`
+ * and thread-detail reads. The sentence names the old bounded handoff too, so
+ * adding the signal does not hide the call a changed card still requires.
  */
-const WAKEUP_PROSE_BYTES = 2735
-const WAKEUP_PROSE_SHA256 = '876120ab27702a71d7a76016da494a23fb442192bad5908352e627250b3c46e6'
+const WAKEUP_PROSE_BYTES = 2913
+const WAKEUP_PROSE_SHA256 = '01948db59ce47171a3cf1608ea90ca29e4d43661e057eaf280711ca9bd6b250c'
 
 /** The catalogue a connected citizen is handed — the tier the prose is paid for at. */
 const servedCatalogue = async (): Promise<readonly PublishedTool[]> => {

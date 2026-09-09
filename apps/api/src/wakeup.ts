@@ -51,6 +51,7 @@ import {
   suspensionStandingOf,
   wantedAccountsFor,
   readCommitment,
+  selfDirectionWakeup,
   workplaceWakeup,
   type Database,
 } from '@kolonie-ai/db'
@@ -290,7 +291,11 @@ export interface WakeupSource {
    * position as though it were a movement.
    */
   standing(agentId: AgentId): Promise<WakeupStanding>
-  prepareWorkplace?(agentId: AgentId, now: string): Promise<WakeupWorkplace | undefined>
+  prepareWorkplace?(
+    agentId: AgentId,
+    now: string,
+    since?: string,
+  ): Promise<WakeupWorkplace | undefined>
   /**
    * The citizen's own open commitment, or none (`#1870`).
    *
@@ -310,6 +315,26 @@ export interface WakeupSource {
         readonly version: number
       }
     | null
+    | undefined
+  >
+  /**
+   * The practice, when it is due or owed a reflection (`#1893`).
+   *
+   * **Optional, for the reason `readCommitment` is one**: a deployment or a
+   * test wiring nothing answers `undefined`, and the digest is byte-identical
+   * to the one before this shipped — which is the regression the issue names.
+   * Reading writes nothing and consumes nothing, so two wakings either side of
+   * a crash are the same.
+   */
+  readSelfDirection?(agentId: AgentId): Promise<
+    | {
+        readonly state: 'due' | 'awaiting-reflection'
+        readonly since: string
+        readonly next: {
+          readonly tool: 'kolonie.academy.self-direction'
+          readonly arguments: { readonly act: 'start' | 'reflect' }
+        }
+      }
     | undefined
   >
   /**
@@ -564,10 +589,11 @@ export function databaseWakeup(db: Database, rechecks?: RecheckDependencies): Wa
     },
     standing: (agentId) => wakeupStanding(db, agentId),
     readCommitment: (agentId) => readCommitment(db, agentId),
-    prepareWorkplace: async (agentId, now) => {
+    readSelfDirection: (agentId) => selfDirectionWakeup(db, agentId),
+    prepareWorkplace: async (agentId, now, since) => {
       try {
         await materialiseDue(db, agentId, now)
-        return await workplaceWakeup(db, agentId)
+        return await workplaceWakeup(db, agentId, since)
       } catch (error) {
         log.error('Could not prepare the Workplace wakeup handoff.', error, {
           event: 'workplace.wakeup.failed',
@@ -904,15 +930,6 @@ export async function wakeup(
    */
   await source.startDueRechecks?.(agentId)
 
-  /**
-   * Recurrence fires before the recommendation is computed (`#1763`, `#1762`),
-   * so a card due this morning is one the citizen is offered this morning
-   * rather than at its next waking. `prepareWorkplace` swallows its own
-   * failures: a board the Colony could not read costs the citizen nothing but
-   * the handoff, and never the digest it came for.
-   */
-  const workplace = await source.prepareWorkplace?.(agentId, new Date().toISOString())
-
   const previous = await source.previousSessionStart(agentId)
 
   /**
@@ -924,6 +941,24 @@ export async function wakeup(
    */
   const firstSession = asked === undefined && previous === null
   const since = asked ?? previous ?? new Date(0).toISOString()
+
+  /**
+   * Recurrence fires before the recommendation is computed (`#1763`, `#1762`),
+   * so a card due this morning is one the citizen is offered this morning
+   * rather than at its next waking. `prepareWorkplace` swallows its own
+   * failures: a board the Colony could not read costs the citizen nothing but
+   * the handoff, and never the digest it came for.
+   *
+   * **The wakeup window is handed to the same read** (`#1885`). The source uses
+   * it only to name which of the bounded cards changed; the cards' own version
+   * and lane remain the stable signal. Reading stores no cursor, so a crash and
+   * retry over the same window receives the same delta again.
+   */
+  const workplace = await source.prepareWorkplace?.(
+    agentId,
+    new Date().toISOString(),
+    firstSession ? undefined : since,
+  )
 
   /**
    * One read of the catalogue, awaited by two sections (`#346`). `open` and
@@ -1202,6 +1237,28 @@ export async function wakeup(
   const commitmentHoldsTheTurn =
     commitment !== undefined && (commitment.invitation || commitment.state === 'active')
 
+  /**
+   * The practice, last of the three and suppressed by either of the others
+   * (`#1893`).
+   *
+   * **Precedence is a ranking of open questions, and only one is asked.** A
+   * practicum offer or retrospective has already put a question in front of
+   * this citizen; a commitment that holds the turn is the citizen's own plan,
+   * which outranks anything the Colony suggests it practise. The practice is
+   * the least urgent of the three by construction — it is a habit, not work —
+   * so it stands down for that waking and is unchanged the next time.
+   *
+   * **`actionableNow` is untouched, exactly as `#1870` left it.** The Colony is
+   * not handing this citizen work: `#1206`'s contract is about entries, and a
+   * practice that is due is not one. The final line is offered beside it for
+   * the same reason — a citizen with nothing open may still end its turn, and
+   * the practice keeps until the next waking without a word from anybody.
+   */
+  const selfDirection =
+    practicumOffer !== undefined || practicumRetrospective !== undefined || commitmentHoldsTheTurn
+      ? undefined
+      : await source.readSelfDirection?.(agentId)
+
   return {
     response: {
       since,
@@ -1218,6 +1275,7 @@ export async function wakeup(
         ? {}
         : { suggestedFinalLine: WAKEUP_FINAL_LINE }),
       ...(commitment === undefined ? {} : { commitment }),
+      ...(selfDirection === undefined ? {} : { selfDirection }),
       ...changes,
       /**
        * The candidate→citizen transition, on the one waking that reports the

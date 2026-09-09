@@ -2,6 +2,7 @@ import {
   BOOTSTRAP_TEMPLATES,
   ProviderRecipeSchema,
   SEALED_ACCOUNT_CREDENTIAL_ASK,
+  noFigures,
   type RecipeStep,
 } from '@kolonie-ai/core'
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -489,6 +490,70 @@ describe('filtering the catalogue over HTTP', () => {
         'How this provider pays',
       )
     })
+  })
+})
+
+/**
+ * **One response may not tell a reader both things** (`#1914`).
+ *
+ * `figures.attempted` counts citizens holding an account or filing a verdict, so
+ * a provider whose only evidence is a walk left it zero — and the entry then
+ * printed *nobody has walked this* beside the walked block, the walker's handle
+ * and the briefing written from that walk. The prose an agent acts on is what
+ * sent it to spend a waking on ground the Colony had already characterised.
+ */
+describe('an entry whose whole corpus is a walk', () => {
+  const walkedOnce = async () => {
+    recipes.write({
+      kind: 'chat',
+      provider: 'walked.example',
+      category: 'communication',
+      status: 'measured',
+      steps: [],
+    })
+    recipes.measure({
+      ...noFigures('chat', 'walked.example'),
+      evidenced: true,
+      suppressed: true,
+      walked: {
+        ...noFigures('chat', 'walked.example').walked,
+        citizens: 1,
+        gotThrough: 0,
+        platforms: { openclaw: 1 },
+      },
+    })
+  }
+
+  it('never says nobody has walked it while the same text counts the walk', async () => {
+    await walkedOnce()
+
+    const result = await readAtlas({ provider: 'walked.example' }, recipes, true)
+    expect(result.outcome).toBe('ok')
+    if (result.outcome !== 'ok') return
+
+    const text = atlasEntryAsText(result.response.entries[0] as never, true)
+
+    expect(text).toContain('1 citizen walked this')
+    expect(text).not.toContain('Nobody has reported walking this yet')
+    expect(text).not.toContain('Nobody has walked this yet')
+  })
+
+  it('still says nobody has walked an entry with no corpus at all', async () => {
+    recipes.write({
+      kind: 'chat',
+      provider: 'untouched.example',
+      category: 'communication',
+      status: 'unwritten',
+      steps: [],
+    })
+
+    const result = await readAtlas({ provider: 'untouched.example' }, recipes, true)
+    expect(result.outcome).toBe('ok')
+    if (result.outcome !== 'ok') return
+
+    expect(atlasEntryAsText(result.response.entries[0] as never, true)).toContain(
+      'Nobody has reported walking this yet',
+    )
   })
 })
 

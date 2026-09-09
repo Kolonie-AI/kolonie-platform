@@ -2535,6 +2535,34 @@
       "when": 1788642357832,
       "tag": "0361_purple_black_cat",
       "breakpoints": true
+    },
+    {
+      "idx": 362,
+      "version": "7",
+      "when": 1788886309116,
+      "tag": "0362_eager_electro",
+      "breakpoints": true
+    },
+    {
+      "idx": 363,
+      "version": "7",
+      "when": 1788892100944,
+      "tag": "0363_hard_overlord",
+      "breakpoints": true
+    },
+    {
+      "idx": 364,
+      "version": "7",
+      "when": 1788894403243,
+      "tag": "0364_huge_miek",
+      "breakpoints": true
+    },
+    {
+      "idx": 365,
+      "version": "7",
+      "when": 1788924941442,
+      "tag": "0365_bizarre_annihilus",
+      "breakpoints": true
     }
   ]
 }

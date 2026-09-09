@@ -24,8 +24,10 @@ import type { AdoptionDesk } from './adoption.js'
 import type { HumanDependencies } from './humans/humans.js'
 import type { WorkplaceOptions } from './humans/workplace.js'
 import type { WorkplaceBoards } from './workplace-boards.js'
+import type { SelfDirectionPractice, SelfDirectionStatistics } from './self-direction.js'
 import type { WorkplaceCards } from './workplace-cards.js'
 import type { AgentOperatorDelegations } from './agent-operator-delegations.js'
+import type { McpStandbyStreams } from './mcp/standby.js'
 import type { ContributionDependencies } from './contributions.js'
 import type { ContributionQualitySource } from './contribution-quality.js'
 import type { StandingHintSource } from './hints.js'
@@ -745,6 +747,24 @@ export interface AppDependencies {
    * per the house rule on `citizens`.
    */
   readonly cards?: WorkplaceCards
+  /**
+   * The self-direction practice (`#1892`). Optional, so a deployment that wired
+   * none serves no practice tool rather than one that refuses every act.
+   */
+  readonly selfDirection?: SelfDirectionPractice
+  /** The maintainer's aggregate item statistics (`#1895`); no page where unwired. */
+  readonly selfDirectionStatistics?: SelfDirectionStatistics
   /** Direct citizen delegation lifecycle, shared by MCP and delegated services. */
   readonly agentOperatorDelegations?: AgentOperatorDelegations
+  /**
+   * Where standby MCP streams are held (`#1916`).
+   *
+   * **Optional, and its absence is the pre-`#1916` surface exactly.** Wired,
+   * `GET` at the MCP door with `Accept: text/event-stream` opens a
+   * server-to-client stream and the handshake on it advertises
+   * `tools.listChanged`; unwired, `GET` is the `405` probe it has always been
+   * and no handshake anywhere claims the capability. Appended, per the house
+   * rule on `citizens`.
+   */
+  readonly mcpStandby?: McpStandbyStreams
 }

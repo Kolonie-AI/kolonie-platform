@@ -2,6 +2,8 @@ import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, or, sql } from 'dri
 import { alias } from 'drizzle-orm/pg-core'
 import {
   operatorNeedState,
+  CONVERSATION_MESSAGE_DEFAULT_PAGE,
+  CONVERSATION_MESSAGE_MAX_PAGE,
   MESSAGE_REQUEST_EXPIRY_DAYS,
   MESSAGE_IDLE_AFTER_DAYS,
   now as currentTime,
@@ -120,8 +122,75 @@ import { shareLifecycleEvents, type ShareLifecycleEvent } from './vault-shares.j
 /** How many conversations one listing answers with. A ceiling, not a page. */
 export const CONVERSATION_LIST_LIMIT = 50
 
-/** How many messages one read of a conversation answers with, newest last. */
+/**
+ * Where a thread read resumes: the sort key of the last message on the page
+ * before (`#1886`).
+ *
+ * **Keyset rather than offset**, for the reason the vault listing gives: a
+ * message arriving mid-walk shifts every offset after it, so a citizen reading a
+ * live thread would skip a message it had not seen. The tuple is
+ * `(created_at, id)` because `created_at` alone is not unique — two messages
+ * written in the same millisecond are ordinary.
+ */
+interface ThreadCursor {
+  readonly createdAt: string
+  readonly id: string
+}
+
+/**
+ * The cursor is the sort key, base64url of the pair the ordering compares.
+ *
+ * Opaque to the caller, and the conversation is a parameter of the query rather
+ * than a part of the cursor — so a cursor carried from one thread to another
+ * reads nothing it would not have read anyway.
+ */
+function encodeThreadCursor(row: { createdAt: string; id: string }): string {
+  return Buffer.from(`${row.createdAt}|${row.id}`, 'utf8').toString('base64url')
+}
+
+function decodeThreadCursor(cursor: string | undefined): ThreadCursor | undefined | 'invalid' {
+  if (cursor === undefined || cursor === '') return undefined
+
+  try {
+    const parts = Buffer.from(cursor, 'base64url').toString('utf8').split('|')
+    if (parts.length !== 2) return 'invalid'
+
+    const [createdAt, id] = parts as [string, string]
+    if (
+      createdAt === '' ||
+      Number.isNaN(Date.parse(createdAt)) ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)
+    ) {
+      return 'invalid'
+    }
+
+    return { createdAt, id }
+  } catch {
+    return 'invalid'
+  }
+}
+
+/** What a caller may ask one thread read for (`#1886`). */
+export interface ThreadPage {
+  readonly limit?: number | undefined
+  readonly cursor?: string | undefined
+}
+
+/**
+ * How many messages the operator console's own read answers with (`#1886`).
+ *
+ * **Unchanged at two hundred, and deliberately not the citizen's bound.** The
+ * page `#1886` adds is for `kolonie.messages.get_thread`, whose caller is a
+ * model with a context window; the console renders a thread into a scrollable
+ * page for a person and publishes no cursor to walk with, so lowering it here
+ * would silently hide messages a human can currently read.
+ */
 export const CONVERSATION_MESSAGE_LIMIT = 200
+
+/** The bound one read applies, after the caller's ask has been clamped. */
+function boundedLimit(asked: number | undefined, fallback: number, ceiling: number): number {
+  return Math.min(Math.max(asked ?? fallback, 1), ceiling)
+}
 
 /**
  * What became of a send.
@@ -170,6 +239,17 @@ export type ReadResult =
        */
       readonly about: ConversationAbout | null
       readonly shares: readonly ConversationShare[]
+      /**
+       * Where the next page starts, absent on the last one (`#1886`).
+       *
+       * **Absent rather than null on the terminal page**, which is what the
+       * issue asked for: a caller loops while the key is there, and a thread
+       * short enough to arrive whole answers exactly as it did before this
+       * existed.
+       */
+      readonly nextCursor?: string
+      /** A cursor nobody issued, kept distinct from an empty terminal page. */
+      readonly invalidCursor?: true
       /** The attached shares' derived lifecycle, already in its canonical order (`#1633`). */
       readonly shareEvents: readonly ShareLifecycleEvent[]
       /** The direct delegation this mentor thread was opened under (`#1798`). */
@@ -2289,6 +2369,7 @@ export async function readOperatorConversation(
   db: Database,
   humanId: HumanId,
   id: ConversationId,
+  page: ThreadPage = {},
 ): Promise<ReadResult> {
   const [me] = await db
     .select({ id: messageParticipants.id })
@@ -2299,7 +2380,10 @@ export async function readOperatorConversation(
     .limit(1)
 
   if (me === undefined) return { outcome: 'refused', refusal: 'not-a-participant' }
-  return await conversationBodies(db, id)
+  return await conversationBodies(db, id, page, {
+    fallback: CONVERSATION_MESSAGE_LIMIT,
+    ceiling: CONVERSATION_MESSAGE_LIMIT,
+  })
 }
 
 const asSender = (row: {
@@ -2323,16 +2407,25 @@ const asSender = (row: {
  * request nothing and the *recipient* of one everything they have not agreed to:
  * the recipient has no participant row until it accepts, so this refuses it, and
  * that refusal is the request gate rather than a check somebody added.
+ *
+ * **The page is read after the participant check and never before it** (`#1886`).
+ * A caller that is not in the thread is refused identically whether it named a
+ * cursor, a limit, both or neither — pagination is what a reader gets after
+ * authorisation, never a second way to ask.
  */
 export async function readConversation(
   db: Database,
   agentId: AgentId,
   id: ConversationId,
+  page: ThreadPage = {},
 ): Promise<ReadResult> {
   const me = await participantOf(db, id, agentId)
   if (me === undefined) return { outcome: 'refused', refusal: 'not-a-participant' }
 
-  return await conversationBodies(db, id)
+  return await conversationBodies(db, id, page, {
+    fallback: CONVERSATION_MESSAGE_DEFAULT_PAGE,
+    ceiling: CONVERSATION_MESSAGE_MAX_PAGE,
+  })
 }
 
 /**
@@ -2342,8 +2435,21 @@ export async function readConversation(
  * in it* first and then call this; a function that took an id and returned
  * bodies would be the second way in this file's header says must not exist, so
  * it is not exported and there is nowhere to reach it from.
+ *
+ * **The order is the one it always had** (`#1886`): oldest first, by
+ * `(created_at, id)`. Paging did not choose it — the index
+ * `messages_conversation_idx` is on that pair and every existing caller relies
+ * on it, so a page is a window onto the same sequence rather than a new one.
  */
-async function conversationBodies(db: Database, id: ConversationId): Promise<ReadResult> {
+async function conversationBodies(
+  db: Database,
+  id: ConversationId,
+  page: ThreadPage = {},
+  bound: { readonly fallback: number; readonly ceiling: number } = {
+    fallback: CONVERSATION_MESSAGE_DEFAULT_PAGE,
+    ceiling: CONVERSATION_MESSAGE_MAX_PAGE,
+  },
+): Promise<ReadResult> {
   const [conversation] = await db
     .select({
       delegationId: messageConversations.delegationId,
@@ -2372,6 +2478,19 @@ async function conversationBodies(db: Database, id: ConversationId): Promise<Rea
     ),
   )
 
+  const limit = boundedLimit(page.limit, bound.fallback, bound.ceiling)
+  const after = decodeThreadCursor(page.cursor)
+  if (after === 'invalid') {
+    return {
+      outcome: 'read',
+      about,
+      shares,
+      shareEvents,
+      invalidCursor: true,
+      messages: [],
+    }
+  }
+
   const rows = await db
     .select({
       id: messages.id,
@@ -2389,15 +2508,35 @@ async function conversationBodies(db: Database, id: ConversationId): Promise<Rea
       createdAt: messages.createdAt,
     })
     .from(messages)
-    .where(eq(messages.conversationId, id))
-    .orderBy(asc(messages.createdAt))
-    .limit(CONVERSATION_MESSAGE_LIMIT)
+    .where(
+      and(
+        eq(messages.conversationId, id),
+        // Row-wise, so the index on (conversation_id, created_at) still leads.
+        // The casts are not decoration: an untyped parameter beside a
+        // timestamptz makes the comparison ambiguous.
+        ...(after === undefined
+          ? []
+          : [
+              sql`(${messages.createdAt}, ${messages.id}) > (${after.createdAt}::timestamptz, ${after.id}::uuid)`,
+            ]),
+      ),
+    )
+    .orderBy(asc(messages.createdAt), asc(messages.id))
+    // One row more than asked for: whether a next page exists is then a fact
+    // about what came back rather than a second count over a growing thread.
+    .limit(limit + 1)
+
+  const page_ = rows.slice(0, limit)
+  const last = page_.at(-1)
+  const nextCursor =
+    rows.length > limit && last !== undefined ? encodeThreadCursor(last) : undefined
 
   return {
     outcome: 'read',
     about,
     shares,
     shareEvents,
+    ...(nextCursor === undefined ? {} : { nextCursor }),
     ...(conversation?.delegationId === null || conversation?.delegationId === undefined
       ? {}
       : {
@@ -2405,7 +2544,7 @@ async function conversationBodies(db: Database, id: ConversationId): Promise<Rea
           delegationId: conversation.delegationId as AgentOperatorDelegationId,
           delegationStatus: conversation.delegationStatus as 'pending' | 'active' | 'revoked',
         }),
-    messages: rows.map((row) => {
+    messages: page_.map((row) => {
       const base: Message = {
         id: messageId(row.id),
         conversationId: conversationId(row.conversationId),

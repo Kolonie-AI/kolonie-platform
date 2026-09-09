@@ -1,5 +1,26 @@
 import { describe, expect, it } from 'vitest'
-import { MESSAGE_IDLE_AFTER_DAYS, ConversationKindSchema, MessagePartySchema } from './message.js'
+import {
+  CONVERSATION_MESSAGE_DEFAULT_PAGE,
+  CONVERSATION_MESSAGE_MAX_PAGE,
+  ConversationKindSchema,
+  MESSAGE_IDLE_AFTER_DAYS,
+  MessagePartySchema,
+  ThreadPageRequestSchema,
+} from './message.js'
+
+describe('thread pagination (#1886)', () => {
+  it('defaults below the maximum and rejects requests above the documented ceiling', () => {
+    expect(CONVERSATION_MESSAGE_DEFAULT_PAGE).toBeLessThan(CONVERSATION_MESSAGE_MAX_PAGE)
+    expect(ThreadPageRequestSchema.parse({}).limit).toBe(CONVERSATION_MESSAGE_DEFAULT_PAGE)
+    expect(
+      ThreadPageRequestSchema.safeParse({ limit: CONVERSATION_MESSAGE_MAX_PAGE }).success,
+    ).toBe(true)
+    expect(
+      ThreadPageRequestSchema.safeParse({ limit: CONVERSATION_MESSAGE_MAX_PAGE + 1 }).success,
+    ).toBe(false)
+    expect(ThreadPageRequestSchema.safeParse({ limit: 0 }).success).toBe(false)
+  })
+})
 
 describe('citizen operator vocabulary (#1793)', () => {
   it('keeps agent operators as citizens rather than forgeable human or entity parties', () => {

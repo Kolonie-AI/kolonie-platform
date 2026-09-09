@@ -32,9 +32,26 @@ import {
   WorkplaceMcpInputSchema,
   WorkplacePracticumRetrospectiveSchema,
   WorkplaceWakeupNextSchema,
+  SelfDirectionWakeupNextSchema,
 } from '../workplace/workplace.js'
 import { WakeDeliveryOutcomeSchema, WakeEventSchema } from '../academy/wake.js'
 import { GuestVaultHandoffStateSchema, VaultKeySchema, VaultSharePurposeSchema } from './vault.js'
+
+/**
+ * One compact practice action for the digest (`#1893`).
+ *
+ * Lifted to its own exported schema so the shape is assertable without a whole
+ * response around it — the same reason `WorkplaceWakeupNextSchema` lives in
+ * `workplace.ts` rather than only inline.
+ */
+export const SelfDirectionWakeupActionSchema = z
+  .object({
+    state: z.enum(['due', 'awaiting-reflection']),
+    since: TimestampSchema,
+    next: SelfDirectionWakeupNextSchema,
+  })
+  .strict()
+export type SelfDirectionWakeupAction = z.infer<typeof SelfDirectionWakeupActionSchema>
 
 /**
  * A pushed skill-note preview is small enough to orient a waking without replacing the
@@ -690,6 +707,63 @@ export const WakeupProfessionPracticumOfferSchema = z
   .strict()
 export type WakeupProfessionPracticumOffer = z.infer<typeof WakeupProfessionPracticumOfferSchema>
 
+/**
+ * How a citizen tells *this card moved* from *this card is the same card* (`#1885`).
+ *
+ * **A revision and never a body.** The card's own `version` is already bumped by
+ * every write that changes it, and the lane it sits in is already carried — so a
+ * signal made of those two costs nothing to compute and nothing to store, and a
+ * citizen holding the pair from its last waking can answer *do I have to read
+ * this card again* without making the call that answers it.
+ *
+ * **The pair rather than the version alone.** A lane move is a `version` bump
+ * today, and a future write that moves a card without bumping it would silently
+ * stop being a change. Carrying both means the signal is wrong only if both
+ * are, and a reader comparing the two fields sees which one moved.
+ *
+ * **Stable across unchanged wakings, which is the whole point.** `#1885` was
+ * filed because a scheduled run had no way to tell an identical digest from a
+ * fresh one and re-read every card on every waking. Two wakings over an
+ * unchanged board return the same `revision` and the same `status`, byte for
+ * byte, and nothing in here is a timestamp for that reason: a clock would move
+ * on its own and make every waking look like a change.
+ */
+export const WakeupWorkplaceCardSignalSchema = z
+  .object({
+    cardId: WorkplaceCardIdSchema,
+    status: WorkplaceLaneSchema,
+    /** The card's own optimistic-concurrency version, which every write bumps. */
+    revision: z.int().min(1),
+  })
+  .strict()
+export type WakeupWorkplaceCardSignal = z.infer<typeof WakeupWorkplaceCardSignalSchema>
+
+/**
+ * What the Colony says about reading further, so a citizen need not guess (`#1885`).
+ *
+ * **A named list and a sentence, rather than an instruction to check everything.**
+ * `changedCardIds` is the answer to *which of the cards I was shown is worth a
+ * `kolonie.workplace` read*, and it is empty on a waking where nothing moved —
+ * which is the state a scheduled run must be able to reach without a call.
+ *
+ * **It never names a card the digest did not carry a signal for.** A pointer to
+ * something absent is worse than no pointer, on `professionOrientation`'s rule.
+ */
+export const WakeupWorkplaceFollowUpSchema = z
+  .object({
+    changedCardIds: z.array(WorkplaceCardIdSchema).max(5),
+    /**
+     * Whether any follow-up read is called for at all.
+     *
+     * Derived from `changedCardIds` rather than stored beside it, and carried so
+     * that a reader branching on one boolean does not have to know that an empty
+     * array is the quiet answer.
+     */
+    readsAdvised: z.boolean(),
+  })
+  .strict()
+export type WakeupWorkplaceFollowUp = z.infer<typeof WakeupWorkplaceFollowUpSchema>
+
 export const WakeupWorkplaceSchema = z
   .object({
     boardId: WorkplaceBoardIdSchema,
@@ -700,6 +774,15 @@ export const WakeupWorkplaceSchema = z
         cardId: WorkplaceCardIdSchema,
         title: boundedText(WORKPLACE_TITLE_MAX_LENGTH),
         status: WorkplaceLaneSchema,
+        /**
+         * The recommended card's revision, beside the status it already carried.
+         *
+         * **Optional, and its absence is the old shape** (`#1885`). Every
+         * producer in the Colony fills it; a deployment or a test that wires a
+         * store without it answers exactly the digest it answered before, which
+         * is the backward compatibility the issue asks for by name.
+         */
+        revision: z.int().min(1).optional(),
         next: WorkplaceWakeupNextSchema,
       })
       .strict()
@@ -710,10 +793,23 @@ export const WakeupWorkplaceSchema = z
           .object({
             cardId: WorkplaceCardIdSchema,
             status: WorkplaceLaneSchema,
+            /** As on the recommendation: present from `#1885`, absent on the old shape. */
+            revision: z.int().min(1).optional(),
           })
           .strict(),
       )
       .max(4),
+    /**
+     * Every card this digest referenced, with the signal to compare (`#1885`).
+     *
+     * **Its own list rather than only the fields above**, because the two
+     * questions have different readers: `recommendation` and `more` answer *what
+     * should I do*, and this answers *what changed since I last looked*. A
+     * citizen keeping one small map from waking to waking keeps this one, and
+     * does not have to reassemble it from two shapes.
+     */
+    cardSignals: z.array(WakeupWorkplaceCardSignalSchema).max(5).optional(),
+    followUp: WakeupWorkplaceFollowUpSchema.optional(),
   })
   .strict()
 export type WakeupWorkplace = z.infer<typeof WakeupWorkplaceSchema>
@@ -1559,6 +1655,27 @@ export const WakeupResponseSchema = z.object({
    * it needs is `open`, which the citizen has already been given.
    */
   suggestedFinalLine: z.string().optional(),
+  /**
+   * The practice, when one thing is true of it (`#1893`).
+   *
+   * **Absent unless due or awaiting reflection**, so an ordinary waking that
+   * owes the practice nothing pays no bytes for it and a runtime printing the
+   * digest unconditionally shows nothing.
+   *
+   * **One compact action and not a digest of the practice.** No questions, no
+   * score, no themes, no reflection prose and no history: the state, the
+   * relevant instant, and the exact `kolonie.academy.self-direction` call.
+   *
+   * **Precedence is the caller's and tested there**: an open profession
+   * practicum question or an open self-commitment outranks this block, and a
+   * higher-priority open item suppresses it for that wake rather than showing
+   * two things to answer at once.
+   *
+   * **No escalation.** `awaiting-reflection` stays recoverable on later wakes
+   * with the same shape; nothing here messages, opens a ticket, costs standing
+   * or changes tone the longer it stays open.
+   */
+  selfDirection: SelfDirectionWakeupActionSchema.optional(),
   /**
    * The citizen's own open commitment, replayed (`#1870`).
    *

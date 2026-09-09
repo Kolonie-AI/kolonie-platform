@@ -142,6 +142,122 @@ describe('the unwalked Atlas entry a stuck citizen is offered', () => {
 
     expect(entry).toBeNull()
   })
+
+  /**
+   * `#1882`, verbatim from the report: a citizen whose board was empty was told
+   * *No citizen has walked discord.com for a chat* and sent to
+   * `kolonie.accounts.recipes`, whose very first line for the same pair said
+   * **Do not attempt this.** The recipe and the walk suggestion were two answers
+   * to one question, and the digest had never read the first before writing the
+   * second.
+   *
+   * The case is refused-and-walked only because the two go together: a `refused`
+   * recipe is one whose whole content is *direct signup does not open*, so
+   * `No citizen has walked it* is doubly wrong — the door is not only walked,
+   * it is shut. An operator-token route on the same provider is a **different
+   * route** and stays a candidate, which is the truthful half of the fix.
+   */
+  it('does not offer discord.com direct signup the recipe already refused, and keeps a distinct joinable route', async () => {
+    // The recipe whose refusal the citizen read: direct signup for a chat
+    // account, closed with the age/legal-capacity wall.
+    await writeProviderRecipe(db, {
+      kind: AccountKindSchema.parse('chat'),
+      provider: 'discord.com',
+      title: 'Discord',
+      status: 'refused',
+      refusal:
+        'Direct signup requires representing you are of legal age and may present a CAPTCHA ' +
+        'or device attestation. Do not attempt it.',
+      category: 'communication',
+      steps: [],
+    })
+
+    // An operator-provided-token social route on the same provider: a distinct
+    // route that must not make direct signup look unexplored, and must not be
+    // lost to the suppression either.
+    await writeProviderRecipe(db, {
+      kind: AccountKindSchema.parse('social'),
+      provider: 'discord.com',
+      title: 'Discord (operator token)',
+      status: 'joinable',
+      category: 'social-publishing',
+      steps: [
+        {
+          actor: 'operator',
+          instruction: 'A person is needed.',
+          ask: 'Create and hand over an operator token.',
+        },
+      ],
+      proves: 'rung',
+      provesTask: 'social-account',
+    })
+
+    // A refused walk on the direct route, so the `not exists` half alone — the
+    // one that was live before `#1882` — would already exclude it. The refusal
+    // below is what makes the case: the recipe itself is the record, and the
+    // read must honour it with or without a walk row.
+    const walker = await registerAgent(
+      db,
+      RegisterAgentRequestSchema.parse({ name: 'Refused walker', platform: 'openclaw' }),
+    )
+    if (walker.outcome !== 'registered') throw new Error(walker.outcome)
+    await db.execute(
+      `insert into account_walks (agent_id, kind, provider, started_at, finished_at, outcome, wall)
+       values ('${walker.agent.id}', 'chat', 'discord.com', now(), now(), 'refused', 'human-check')`,
+    )
+
+    const entry = await unwalkedAtlasEntry(db, ['github', 'mailbox', 'domain'])
+
+    // The refused chat route is gone even though a walk exists for it, and the
+    // operator-token route on the same provider — a different kind — is the
+    // truthful offer that stays. `chat` sorts before `social`, so the answer
+    // being the social route also proves the refused row was excluded rather
+    // than merely outranked.
+    expect(entry).not.toBeNull()
+    expect(entry?.kind).not.toBe('chat')
+    expect(entry?.kind).toBe('social')
+    expect(entry?.provider).toBe('discord.com')
+  })
+
+  /**
+   * The suppression half on its own: a recipe nobody has walked is still not
+   * offered when its status is `refused`. This is the case the report actually
+   * describes — *No citizen has walked discord.com for a chat* was true, and
+   * the recommendation was wrong anyway, because the recipe already said the
+   * door does not open.
+   */
+  it('does not offer a refused direct-signup recipe even when no walk row exists', async () => {
+    await truncateAll(db)
+
+    await writeProviderRecipe(db, {
+      kind: AccountKindSchema.parse('chat'),
+      provider: 'discord.com',
+      title: 'Discord',
+      status: 'refused',
+      refusal:
+        'Direct signup requires representing you are of legal age and may present a CAPTCHA ' +
+        'or device attestation. Do not attempt it.',
+      category: 'communication',
+      steps: [],
+    })
+
+    // The only other entry is a kind the citizen holds, so if the refused row
+    // were not excluded the answer would name discord.com.
+    await writeProviderRecipe(db, {
+      kind: AccountKindSchema.parse('github'),
+      provider: 'github.com',
+      title: 'GitHub',
+      status: 'joinable',
+      category: 'code-hosting',
+      steps: [{ actor: 'agent', instruction: 'Open the signup page.' }],
+      proves: 'rung',
+      provesTask: 'email-inbox',
+    })
+
+    const entry = await unwalkedAtlasEntry(db, ['github', 'mailbox', 'domain'])
+
+    expect(entry).toBeNull()
+  })
 })
 
 /**

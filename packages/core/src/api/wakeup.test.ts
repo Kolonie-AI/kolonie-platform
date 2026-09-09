@@ -570,6 +570,134 @@ describe('the Workplace handoff in wake-up', () => {
   })
 })
 
+/**
+ * The change signal a scheduled run branches on (`#1885`).
+ *
+ * The digest used to name cards without ever saying whether they had moved, so a
+ * run woken every hour re-read all five every hour. These tests pin the two
+ * properties that make the signal worth carrying: it is stable while nothing
+ * moves, and the old shape still parses.
+ */
+describe('the Workplace revision delta in wake-up', () => {
+  const boardId = '11111111-2222-4333-8444-555555555555'
+  const cardId = '66666666-7777-4888-8999-000000000000'
+  const otherCardId = '66666666-7777-4888-8999-000000000001'
+
+  const digest = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
+    boardId,
+    practicumActive: false,
+    recommendation: {
+      cardId,
+      title: 'Live work',
+      status: 'in_progress',
+      revision: 3,
+      next: { tool: 'kolonie.workplace', arguments: { act: 'get', subject: 'card', id: cardId } },
+    },
+    more: [{ cardId: otherCardId, status: 'ready', revision: 1 }],
+    cardSignals: [
+      { cardId, status: 'in_progress', revision: 3 },
+      { cardId: otherCardId, status: 'ready', revision: 1 },
+    ],
+    followUp: { changedCardIds: [], readsAdvised: false },
+    ...overrides,
+  })
+
+  it('carries a revision beside the lane on every card it names', () => {
+    const parsed = WakeupWorkplaceSchema.parse(digest())
+
+    expect(parsed.recommendation?.revision).toBe(3)
+    expect(parsed.more[0]?.revision).toBe(1)
+    expect(parsed.cardSignals).toEqual([
+      { cardId, status: 'in_progress', revision: 3 },
+      { cardId: otherCardId, status: 'ready', revision: 1 },
+    ])
+  })
+
+  it('says no follow-up read is advised while nothing has moved', () => {
+    const parsed = WakeupWorkplaceSchema.parse(digest())
+
+    expect(parsed.followUp).toEqual({ changedCardIds: [], readsAdvised: false })
+  })
+
+  it('names the changed card when one has moved', () => {
+    const parsed = WakeupWorkplaceSchema.parse(
+      digest({ followUp: { changedCardIds: [cardId], readsAdvised: true } }),
+    )
+
+    expect(parsed.followUp?.changedCardIds).toEqual([cardId])
+    expect(parsed.followUp?.readsAdvised).toBe(true)
+  })
+
+  it('still accepts a digest carrying neither signal, so the old shape is unbroken', () => {
+    const old = {
+      boardId,
+      practicumActive: false,
+      recommendation: {
+        cardId,
+        title: 'Live work',
+        status: 'in_progress',
+        next: { tool: 'kolonie.workplace', arguments: { act: 'get', subject: 'card', id: cardId } },
+      },
+      more: [{ cardId: otherCardId, status: 'ready' }],
+    }
+
+    const parsed = WakeupWorkplaceSchema.parse(old)
+
+    expect(parsed.cardSignals).toBeUndefined()
+    expect(parsed.followUp).toBeUndefined()
+    expect(parsed.recommendation?.revision).toBeUndefined()
+  })
+
+  it('rejects a revision that is not a whole number at or above one', () => {
+    expect(
+      WakeupWorkplaceSchema.safeParse(
+        digest({ cardSignals: [{ cardId, status: 'ready', revision: 0 }] }),
+      ).success,
+    ).toBe(false)
+    expect(
+      WakeupWorkplaceSchema.safeParse(
+        digest({ cardSignals: [{ cardId, status: 'ready', revision: 1.5 }] }),
+      ).success,
+    ).toBe(false)
+  })
+
+  it('rejects a timestamp or a body smuggled into the signal', () => {
+    expect(
+      WakeupWorkplaceSchema.safeParse(
+        digest({
+          cardSignals: [
+            { cardId, status: 'ready', revision: 1, updatedAt: '2026-09-08T00:00:00.000Z' },
+          ],
+        }),
+      ).success,
+    ).toBe(false)
+    expect(
+      WakeupWorkplaceSchema.safeParse(
+        digest({ cardSignals: [{ cardId, status: 'ready', revision: 1, title: 'Live work' }] }),
+      ).success,
+    ).toBe(false)
+  })
+
+  it('bounds both lists to the five cards the handoff may name', () => {
+    const six = Array.from({ length: 6 }, (_, index) => ({
+      cardId: `00000000-0000-4000-8000-00000000000${index}`,
+      status: 'ready',
+      revision: 1,
+    }))
+    expect(WakeupWorkplaceSchema.safeParse(digest({ cardSignals: six })).success).toBe(false)
+    expect(
+      WakeupWorkplaceSchema.safeParse(
+        digest({
+          followUp: {
+            changedCardIds: six.map((signal) => signal.cardId),
+            readsAdvised: true,
+          },
+        }),
+      ).success,
+    ).toBe(false)
+  })
+})
+
 describe('a sponsored quest in the wake-up digest', () => {
   it('accepts the invoice state the sponsor must act on', () => {
     expect(

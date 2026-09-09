@@ -39,8 +39,18 @@ export async function handleMcpRequest(
   request: IncomingMessage,
   response: ServerResponse,
   body: unknown,
+  /**
+   * Whether this deployment opens standby streams (`#1916`).
+   *
+   * **Carried onto the request door because that is where the handshake is.** A
+   * client initialises over `POST` and opens its `GET` stream afterwards, so the
+   * `initialize` result that has to say `tools.listChanged` is this one. Absent
+   * means no registry was wired and the flag comes off, exactly as D-101 left
+   * it.
+   */
+  standby = false,
 ): Promise<void> {
-  const server = createMcpServer(deps, credential, agentId, steward)
+  const server = createMcpServer(deps, credential, agentId, steward, standby)
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })
 
   // Close the pair when the response ends, whichever way it ends. Without this,

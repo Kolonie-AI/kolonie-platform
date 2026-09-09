@@ -1504,6 +1504,9 @@ describe('the erasure boundary', () => {
       // The generator rung's scene specification (#216). Same argument as the
       // image rung it sits beside: a question the Colony put to *this* citizen.
       'scene_challenges.agent_id c',
+      // Practice attempts are private citizen state and vanish with the citizen (`#1890`).
+      // Reflections cascade through the attempt, never naming the citizen directly.
+      'self_direction_attempts.agent_id c',
       /** `#348`. Cascades, on `task_notes`' terms: written to nobody but its author. */
       'skill_notes.agent_id c',
       /**

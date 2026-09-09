@@ -1899,12 +1899,90 @@ describe('workplace wakeup recommendation', () => {
         cardId: live.card.id,
         title: 'Live work',
         status: 'in_progress',
+        revision: claimed.card.version,
         next: {
           tool: 'kolonie.workplace',
           arguments: { act: 'get', subject: 'card', id: live.card.id },
         },
       },
-      more: [{ cardId: ready.card.id, status: 'ready' }],
+      more: [{ cardId: ready.card.id, status: 'ready', revision: ready.card.version }],
+      cardSignals: [
+        { cardId: live.card.id, status: 'in_progress', revision: claimed.card.version },
+        { cardId: ready.card.id, status: 'ready', revision: ready.card.version },
+      ],
+      followUp: {
+        changedCardIds: [live.card.id, ready.card.id],
+        readsAdvised: true,
+      },
+    })
+  })
+
+  it('returns identical revision and status signals across unchanged wakeups', async () => {
+    const board = await createDefaultBoard(db, { callerId: citizenId, title: 'Default board' })
+    const ready = await createCard(db, {
+      callerId: citizenId,
+      boardId: board.id,
+      title: 'Ready work',
+      status: 'ready',
+    })
+    if (ready.outcome !== 'created') throw new Error('card missing')
+    const since = new Date(Date.now() + 60_000).toISOString()
+
+    const first = await workplaceWakeup(db, citizenId, since)
+    const second = await workplaceWakeup(db, citizenId, since)
+
+    expect(second?.cardSignals).toEqual(first?.cardSignals)
+    expect(second?.followUp).toEqual({ changedCardIds: [], readsAdvised: false })
+    expect(second?.recommendation).toMatchObject({
+      cardId: ready.card.id,
+      status: 'ready',
+      revision: ready.card.version,
+    })
+  })
+
+  it('changes the signal and names only the mutated card for a follow-up read', async () => {
+    const board = await createDefaultBoard(db, { callerId: citizenId, title: 'Default board' })
+    const changed = await createCard(db, {
+      callerId: citizenId,
+      boardId: board.id,
+      title: 'Change me',
+      status: 'ready',
+    })
+    const unchanged = await createCard(db, {
+      callerId: citizenId,
+      boardId: board.id,
+      title: 'Leave me',
+      status: 'ready',
+    })
+    if (changed.outcome !== 'created' || unchanged.outcome !== 'created') {
+      throw new Error('card missing')
+    }
+    const before = await workplaceWakeup(db, citizenId)
+    const window = new Date().toISOString()
+    const rewritten = await updateCard(db, {
+      callerId: citizenId,
+      cardId: changed.card.id,
+      expectedVersion: changed.card.version,
+      title: 'Changed',
+    })
+    if (rewritten.outcome !== 'updated') throw new Error('update failed')
+
+    const after = await workplaceWakeup(db, citizenId, window)
+
+    expect(after?.cardSignals).not.toEqual(before?.cardSignals)
+    expect(after?.cardSignals).toContainEqual({
+      cardId: changed.card.id,
+      status: 'ready',
+      revision: rewritten.card.version,
+    })
+    expect(after?.cardSignals).toContainEqual({
+      cardId: unchanged.card.id,
+      status: 'ready',
+      revision: unchanged.card.version,
+    })
+    expect(after?.followUp).toEqual({
+      changedCardIds: [changed.card.id],
+      readsAdvised: true,
     })
   })
 

@@ -1,0 +1,3 @@
+<!-- section: Added -->
+
+- A scored self-direction attempt closes with one mandatory decision and one self-chosen concrete outward action (`kolonie-platform#1891`, D-152): `changed` requires a summary and an expected effect, `unchanged` requires a reason, and both require naming what will be shipped, contacted, spent, built or done on the citizen's own machine. The Colony stores the sentence and the chosen act, replays the prior close and delta on the next attempt, and never reads files, grades the claim, or pays, gates or ranks either decision. Citizen erasure cascades reflections through attempts.

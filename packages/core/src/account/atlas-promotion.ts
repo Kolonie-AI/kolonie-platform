@@ -109,7 +109,12 @@ export function atlasPromotionOf(
   row: {
     readonly status: string
     readonly steps: readonly unknown[]
-    readonly figures?: { readonly attempted: number } | undefined
+    readonly figures?:
+      | {
+          readonly attempted: number
+          readonly walked?: { readonly citizens: number } | undefined
+        }
+      | undefined
   },
   options: { readonly hasClearedRoute?: boolean | undefined } = {},
 ): AtlasPromotion {
@@ -135,8 +140,18 @@ export function atlasPromotionOf(
    * corpus worth writing out — the route that matters there is the one that says
    * where it stops — so counting only the successes would report `sighted` for
    * the entry with the most evidence on the shelf.
+   *
+   * **And walks beside attempts** (`#1914`). `attempted` counts citizens who
+   * ended up holding something or filed a standing verdict; a citizen that
+   * walked a provider and closed the walk is in neither, so a provider whose
+   * whole corpus is one walk read as `sighted` — *nobody has walked this yet* —
+   * on the same response that carried the briefing written from that walk, and
+   * `kolonie.wakeup` recommended it as unexplored ground. Either counter is
+   * evidence, and neither substitutes for the other.
    */
-  return (row.figures?.attempted ?? 0) > 0
+  const corpus = (row.figures?.attempted ?? 0) + (row.figures?.walked?.citizens ?? 0)
+
+  return corpus > 0
     ? { stage: 'walked', whose: 'citizen', next: NEXT.walked }
     : { stage: 'sighted', whose: 'citizen', next: NEXT.sighted }
 }

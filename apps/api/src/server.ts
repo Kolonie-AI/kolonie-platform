@@ -45,6 +45,7 @@ import {
   checkThrottle,
 } from '@kolonie-ai/db'
 import { buildApp } from './app.js'
+import { mcpStandbyStreams } from './mcp.js'
 import { databaseStore } from './authentication.js'
 import { databaseQuests, questAuditPolicy } from './quests.js'
 import { databaseSettings } from './settings.js'
@@ -74,6 +75,7 @@ import { databaseHumanStore } from './humans/humans.js'
 import { auth0Tenant } from './humans/auth0.js'
 import { remoteJwks, type WorkplaceOptions } from './humans/workplace.js'
 import { databaseWorkplaceBoards } from './workplace-boards.js'
+import { databaseSelfDirectionPractice, databaseSelfDirectionStatistics } from './self-direction.js'
 import { databaseWorkplaceCards } from './workplace-cards.js'
 import { databaseAgentOperatorDelegations } from './agent-operator-delegations.js'
 import { operatorNoteLimiter, signInAddressLimiter, signInClientLimiter } from './rate-limit.js'
@@ -832,7 +834,19 @@ function numericEnv(name: string): number | undefined {
  */
 const marksKey = banSaltFromEnv()
 
+/**
+ * The standby streams this process holds (`#1916`).
+ *
+ * **Built here rather than inside `buildApp`**, because it has a lifetime: the
+ * streams outlive every request and have to be dropped when the process is asked
+ * to stop, and `buildApp` builds a Fastify instance rather than owning a
+ * shutdown. It is passed in on D-013's terms — a deployment that wired none
+ * would serve the surface exactly as it did before, and this one wires it.
+ */
+const mcpStandby = mcpStandbyStreams()
+
 const app = buildApp({
+  mcpStandby,
   registry: databaseRegistry(db, marksKey),
   /**
    * The redemption side of the hand-over (`#459`). Its own desk rather than a
@@ -1044,13 +1058,15 @@ const app = buildApp({
    */
   messaging: {
     listThreads: (agentId, options) => listConversations(db, agentId, options),
-    getThread: async (agentId, conversationId) => {
-      const result = await readConversation(db, agentId, conversationId)
+    getThread: async (agentId, conversationId, page) => {
+      const result = await readConversation(db, agentId, conversationId, page)
       return result.outcome === 'read'
         ? {
             outcome: 'read',
             response: {
               messages: result.messages,
+              ...(result.invalidCursor === true ? { invalidCursor: true as const } : {}),
+              ...(result.nextCursor === undefined ? {} : { nextCursor: result.nextCursor }),
               // What the thread is about and what is attached to it (`#1441`).
               about: result.about,
               shares: result.shares,
@@ -2135,6 +2151,8 @@ const app = buildApp({
   ...(workplace === undefined ? {} : { workplace }),
   boards: databaseWorkplaceBoards(db),
   cards: databaseWorkplaceCards(db),
+  selfDirection: databaseSelfDirectionPractice(db),
+  selfDirectionStatistics: databaseSelfDirectionStatistics(db),
   agentOperatorDelegations: databaseAgentOperatorDelegations(db),
   console: {
     store: databaseConsoleStore(db),
@@ -2266,8 +2284,17 @@ const app = buildApp({
 
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.on(signal, () => {
-    void app
-      .close()
+    void mcpStandby
+      /**
+       * The standby streams first (`#1916`). A standby stream is an open
+       * response that Fastify is not going to finish by itself, so closing them
+       * before `app.close()` is what lets the close resolve rather than waiting
+       * out its timeout. A client reconnects and re-initialises, which is the
+       * behaviour that makes a deploy visible rather than fatal.
+       */
+      .closeAll()
+      .catch(() => undefined)
+      .then(() => app.close())
       .then(() => db.close())
       .then(() => process.exit(0))
   })

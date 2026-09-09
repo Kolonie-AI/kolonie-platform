@@ -28,6 +28,24 @@ export const NARROWER_CALL_FOR: Readonly<Record<string, string>> = {
 }
 
 /**
+ * The routes that already take a bounded page, and can say so (`#1886`).
+ *
+ * **A route here is one whose *own* arguments answer the finding.** The generic
+ * advice beside `narrow-the-request` — *bound what you ask that call for* — is
+ * true and unactionable where a caller cannot see which argument would do it:
+ * `kolonie.messages.get_thread` returned a 59-message thread of roughly
+ * 125.8 KiB while the Doctor recommended a smaller page and the tool published
+ * no argument for one, which is what `#1886` reports. Naming the arguments is
+ * the difference between advice and an instruction.
+ *
+ * Short for {@link NARROWER_CALL_FOR}'s reason: a route missing from it gets the
+ * generic sentence, which is still correct.
+ */
+export const PAGE_ARGUMENTS_FOR: Readonly<Record<string, readonly string[]>> = {
+  'kolonie.messages.get_thread': ['limit', 'cursor'],
+}
+
+/**
  * One response large enough that the caller may not have been able to take it
  * (`#884`).
  *
@@ -69,6 +87,7 @@ export function unreadableResponse(input: DoctorInput): readonly Finding[] {
 
     const window = windowOf(route.hours)
     const narrower = NARROWER_CALL_FOR[route.routeKey]
+    const pageArguments = PAGE_ARGUMENTS_FOR[route.routeKey]
 
     findings.push({
       kind: 'unreadable-response',
@@ -88,6 +107,15 @@ export function unreadableResponse(input: DoctorInput): readonly Finding[] {
           calls: summed.calls,
           bytesOut: summed.bytesOut,
           maxBytesOut: summed.maxBytesOut,
+          /**
+           * Whether this route's own arguments bound it (`#1886`).
+           *
+           * A figure rather than a route key, because it is a property of the
+           * route already named rather than a second route — and `Evidence`
+           * carries numbers and route keys and nothing else, which is what
+           * keeps a stored finding free of prose nobody checked.
+           */
+          ...(pageArguments === undefined ? {} : { supportsPageArguments: 1 }),
         },
       },
       // Full agreement by construction, and passed explicitly rather than left to

@@ -11,7 +11,7 @@ import {
   type Diagnosis,
   type StoredProviderEnquiry,
 } from '@kolonie-ai/core'
-import type { EffectiveSetting } from '@kolonie-ai/db'
+import type { EffectiveSetting, SelfDirectionItemReport } from '@kolonie-ai/db'
 import type {
   Arrivals,
   BackendSections,
@@ -438,6 +438,77 @@ export function backendUnreportedPage(
             .map((row) => `<tr><td>${escape(row.title)}</td><td>${String(row.attempts)}</td></tr>`)
             .join('')}</tbody>`,
           '</table>',
+        ]
+
+  return backendSection({ ...input, body })
+}
+
+/**
+ * `/backend/self-direction` — which practice questions are working (`#1895`).
+ *
+ * **It reports and it never acts.** No retire button, no revise form, no
+ * weight editor: published prose and weights never mutate, a revision is a new
+ * version through the protected publisher, and a page that could retire an item
+ * would be the measurement apparatus deciding what it measures.
+ *
+ * **A suppressed version is shown as suppressed rather than hidden.** How far a
+ * version is from the minimum cohort is the fact a maintainer actually wants
+ * during a pilot, and it says nothing about any citizen.
+ */
+export function backendSelfDirectionPage(
+  input: BackendPageInput & { readonly report: SelfDirectionItemReport },
+): string {
+  const share = (value: number) => `${String(Math.round(value * 100))}%`
+  const body =
+    input.report.instruments.length === 0
+      ? [
+          '<p class="note">No self-direction instrument has been published yet. That is an ' +
+            'empty shelf rather than a gap in the measurement.</p>',
+        ]
+      : [
+          `<p class="note">No item statistic is served below a cohort of ` +
+            `${String(input.report.minimumCohort)} citizens, and that floor does not move. ` +
+            'Everything here <strong>flags and never retires</strong>: a revision is a new ' +
+            'version through the publisher, and published questions never change underneath ' +
+            'an answer already given.</p>',
+          ...input.report.instruments.flatMap((instrument) => {
+            const heading =
+              `<h2>${escape(instrument.slug)} v${String(instrument.version)} ` +
+              `<span class="note">(${escape(instrument.lifecycle)}, cohort ` +
+              `${String(instrument.cohort)}${
+                instrument.expiryRate === null ? '' : `, expiry ${share(instrument.expiryRate)}`
+              })</span></h2>`
+            if (instrument.suppressed) {
+              return [
+                heading,
+                `<p class="note">Suppressed: ${String(instrument.cohort)} of ` +
+                  `${String(input.report.minimumCohort)} citizens have answered this version, so ` +
+                  'no item statistic is computed for it at all.</p>',
+              ]
+            }
+            return [
+              heading,
+              '<table>',
+              '<thead><tr><th>Item</th><th>Answers</th><th>Distribution</th>' +
+                '<th>Returning / moved</th><th>Flags</th></tr></thead>',
+              `<tbody>${instrument.items
+                .map(
+                  (item) =>
+                    `<tr><td>${escape(item.itemKey)}</td><td>${String(item.responses)}</td>` +
+                    `<td>${item.options
+                      .map((one) => `${escape(one.optionKey)} ${share(one.share)}`)
+                      .join(', ')}</td>` +
+                    `<td>${
+                      item.longitudinal === null
+                        ? 'nobody has returned yet'
+                        : `${String(item.longitudinal.returning)} / ${String(item.longitudinal.moved)}`
+                    }</td>` +
+                    `<td>${item.flags.length === 0 ? '—' : escape(item.flags.join(', '))}</td></tr>`,
+                )
+                .join('')}</tbody>`,
+              '</table>',
+            ]
+          }),
         ]
 
   return backendSection({ ...input, body })

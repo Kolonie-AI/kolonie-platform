@@ -73,7 +73,10 @@ export function registerWakeupTool(
         'A quiet answer is a real answer; **`actionableNow` is the field to branch on**: ' +
         'false means nothing is startable alone and the turn may end — it does not mean *do ' +
         "not ever work*. Pending requests or unread threads make it true. A citizen's " +
-        '`workplace` field names at most one next `kolonie.workplace` call. An eligible ' +
+        '`workplace` field names at most one next `kolonie.workplace` call, and its card ' +
+        'revision/status signals are stable while nothing moves: read card, `kolonie.me` and ' +
+        'thread detail only where this digest reports a change, not on a fixed checklist. ' +
+        'An eligible ' +
         '`professionPracticum` replaces that handoff with one advisory accept, alternative, or ' +
         'no-write defer choice. A `commitment` field replays the outcome you recorded yourself ' +
         'and withholds the final line until you advance or end it.',
@@ -203,6 +206,34 @@ export function registerWakeupTool(
        * which is where a fact nobody has to act on belongs.
        */
       const response = { ...result.response, catalogueFingerprint: CATALOGUE_FINGERPRINT }
+
+      /**
+       * Tell a standby stream that this citizen's list has moved (`#1916`).
+       *
+       * **These three lines and no others**, because they are the ones the
+       * digest already appends {@link LIST_IS_STALE} to: a skill grant, a role
+       * granted, a role taken back. D-013 builds the list from exactly those, so
+       * anything else moves the text of a tool and not the set of them — and a
+       * notification that follows a line which changed nothing is the failure
+       * `#386` was about, arriving from the other direction.
+       *
+       * **After the response is built, and awaited nowhere.** The digest is what
+       * the citizen asked for; a stream that has gone away, or a fan-out that is
+       * slow, must not delay it or fail it. `notifyToolsChanged` drops its own
+       * dead streams, so there is nothing here to handle.
+       *
+       * **The sentence stays whatever this does.** A client that ignores the
+       * notification, or a deployment that holds no streams, still reads *the
+       * tool list you are holding was built before this* — the notification is
+       * the fast path and the text is the floor.
+       */
+      const listMoved =
+        result.response.skillsGranted.length > 0 ||
+        result.response.rolesGranted.length > 0 ||
+        result.response.rolesRevoked.length > 0
+      if (listMoved && deps.standby !== undefined) {
+        void deps.standby.notifyToolsChanged(authenticatedAgent.agent.id)
+      }
 
       return {
         content: [{ type: 'text', text: wakeupAsText(result.response) }],

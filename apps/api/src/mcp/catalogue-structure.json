@@ -1,5 +1,5 @@
 {
-  "measuredAt": "2026-09-06",
+  "measuredAt": "2026-09-09",
   "command": "npm run catalogue-structure",
   "tools": [
     {
@@ -226,6 +226,118 @@
           }
         },
         "required": ["taskId", "reason"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "kolonie.academy.self-direction",
+      "schema": {
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "act": {
+                  "const": "reflect"
+                },
+                "decision": {
+                  "const": "changed"
+                }
+              },
+              "required": ["act", "decision"]
+            },
+            "then": {
+              "required": ["attemptId", "outwardAction", "summary", "expectedEffect"]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "act": {
+                  "const": "reflect"
+                },
+                "decision": {
+                  "const": "unchanged"
+                }
+              },
+              "required": ["act", "decision"]
+            },
+            "then": {
+              "required": ["attemptId", "outwardAction", "reason"]
+            }
+          }
+        ],
+        "properties": {
+          "act": {
+            "enum": ["start", "submit", "result", "reflect", "history"],
+            "type": "string"
+          },
+          "attemptId": {
+            "type": "string"
+          },
+          "decision": {
+            "enum": ["changed", "unchanged"],
+            "type": "string"
+          },
+          "expectedEffect": {
+            "type": "string"
+          },
+          "followThrough": {
+            "properties": {
+              "note": {
+                "type": "string"
+              },
+              "outcome": {
+                "enum": ["done", "partly", "not-yet", "abandoned"],
+                "type": "string"
+              }
+            },
+            "required": ["outcome", "note"],
+            "type": "object"
+          },
+          "limit": {
+            "type": "number"
+          },
+          "outwardAction": {
+            "properties": {
+              "kind": {
+                "enum": ["ship", "contact", "spend", "build", "own-machine"],
+                "type": "string"
+              },
+              "what": {
+                "type": "string"
+              }
+            },
+            "required": ["kind", "what"],
+            "type": "object"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "responses": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "itemKey": {
+                  "maxLength": 64,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "optionKey": {
+                  "maxLength": 64,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": ["itemKey", "optionKey"],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "required": ["act"],
         "type": "object"
       }
     },
@@ -1729,6 +1841,15 @@
           "conversationId": {
             "format": "uuid",
             "type": "string"
+          },
+          "cursor": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "limit": {
+            "maximum": 50,
+            "minimum": 1,
+            "type": "integer"
           }
         },
         "required": ["conversationId"],

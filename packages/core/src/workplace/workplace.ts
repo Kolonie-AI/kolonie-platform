@@ -1371,3 +1371,18 @@ export const WorkplaceMeResponseSchema = z
   })
   .strict()
 export type WorkplaceMeResponse = z.infer<typeof WorkplaceMeResponseSchema>
+
+/**
+ * The practice call a due wakeup carries (`#1893`).
+ *
+ * Only `act`, and only the acts a waking can legitimately hand over: `start`
+ * for a due practice, `reflect` for an open reflection. Everything else the
+ * verb serves is the citizen's own business mid-loop, not the digest's.
+ */
+export const SelfDirectionWakeupNextSchema = z
+  .object({
+    tool: z.literal('kolonie.academy.self-direction'),
+    arguments: z.object({ act: z.enum(['start', 'reflect']) }).strict(),
+  })
+  .strict()
+export type SelfDirectionWakeupNext = z.infer<typeof SelfDirectionWakeupNextSchema>

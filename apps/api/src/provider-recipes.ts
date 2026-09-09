@@ -1694,7 +1694,16 @@ export function figuresAsText(figures: AtlasFigures): string {
 
   const rate = throughRate(figures)
   if (rate === null) {
-    return 'Nobody has reported walking this yet. That is an absence and not a poor result.'
+    /**
+     * **Only where the walks say nothing either** (`#1914`). `figures.attempted`
+     * counts citizens who ended up holding something or filed a verdict, and a
+     * walk is in neither — so this sentence printed *nobody has walked this*
+     * directly under `walkedAsText`'s account of the walks. The walked block
+     * above already says what those walks found, so there is nothing to add.
+     */
+    return figures.walked.citizens > 0
+      ? ''
+      : 'Nobody has reported walking this yet. That is an absence and not a poor result.'
   }
 
   const lines = [

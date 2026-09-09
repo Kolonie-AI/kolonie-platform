@@ -537,6 +537,42 @@ describe('the measured figures behind an Atlas entry', () => {
     })
 
     /**
+     * **The counters and the walker list must agree inside one response**
+     * (`#1914`). A briefing is written from the walks unfloored and names them
+     * with their ids and their runtimes, and `atlasWalkers` publishes the handle
+     * that walked; a floored `walked.citizens` beside those said nobody had been
+     * there. So the walked counts clear the floor: they count walks the Colony
+     * already publishes.
+     */
+    it('counts a lone walk rather than zeroing it beside the briefing it wrote', async () => {
+      const agentId = await citizen('lone-walker')
+      const walkId = await walkInProgress(db, agentId, { kind, provider: 'counted.test' })
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+      await finishWalk(db, walkId, { outcome: 'abandoned' })
+
+      const figures = await only('counted.test')
+
+      expect(figures?.suppressed).toBe(true)
+      /** The account counts stay floored: those are counts of citizens holding something. */
+      expect(figures?.attempted).toBe(0)
+      expect(figures?.walked.citizens).toBe(1)
+      expect(figures?.walked.gotThrough).toBe(0)
+      expect(figures?.walked.platforms).toEqual({ openclaw: 1 })
+    })
+
+    it('counts a lone walk that got through, on both halves of the ratio', async () => {
+      const agentId = await citizen('through-walker')
+      const walkId = await walkInProgress(db, agentId, { kind, provider: 'through.test' })
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+      await finishWalk(db, walkId, { outcome: 'proved' })
+
+      const figures = await only('through.test')
+
+      expect(figures?.walked.citizens).toBe(1)
+      expect(figures?.walked.gotThrough).toBe(1)
+    })
+
+    /**
      * **The homepage clears the floor with the band and the walls** (`#1330`).
      *
      * A public URL is a fact about the provider: `https://scouted.test` names no
@@ -558,7 +594,7 @@ describe('the measured figures behind an Atlas entry', () => {
       const figures = await only('scouted.test')
 
       expect(figures?.suppressed).toBe(true)
-      expect(figures?.walked.citizens).toBe(0)
+      expect(figures?.attempted).toBe(0)
       expect(figures?.walked.homepage).toBe('https://scouted.test')
     })
 
@@ -623,7 +659,7 @@ describe('the measured figures behind an Atlas entry', () => {
 
       /** The suppressed shape, exactly as the homepage assertion above uses. */
       expect(figures?.suppressed).toBe(true)
-      expect(figures?.walked.citizens).toBe(0)
+      expect(figures?.attempted).toBe(0)
       expect(figures?.walked.about).toBe(sentence)
     })
 

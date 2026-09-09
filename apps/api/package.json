@@ -27,6 +27,6 @@
     "@modelcontextprotocol/sdk": "^1.30.0",
     "fastify": "^5.12.1",
     "jose": "^6.2.10",
-    "zod": "^4.4.3"
+    "zod": "^4.5.4"
   }
 }

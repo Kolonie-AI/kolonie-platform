@@ -84,3 +84,31 @@ describe('SelfDirectionInstrumentDocumentSchema', () => {
     expect(() => SelfDirectionInstrumentDocumentSchema.parse({ ...instrument, items })).toThrow()
   })
 })
+
+describe('a versioned anchor and rotation pool (#1895)', () => {
+  const anchors = instrument.items.slice(0, 8).map(({ key }) => key)
+  const pooled = () =>
+    structuredClone({
+      ...instrument,
+      version: 2,
+      items: [...instrument.items, { ...instrument.items[0]!, key: 'rotation-item' }],
+      assembly: { anchorItemKeys: anchors, rotationCount: 2 },
+    })
+
+  it('accepts a stable anchor set plus a stratified rotation count', () => {
+    expect(SelfDirectionInstrumentDocumentSchema.parse(pooled()).assembly).toEqual({
+      anchorItemKeys: anchors,
+      rotationCount: 2,
+    })
+  })
+
+  it('refuses an anchor absent from the version and any ratio not presenting ten', () => {
+    const unknown = pooled()
+    unknown.assembly = { anchorItemKeys: ['absent'], rotationCount: 9 }
+    expect(() => SelfDirectionInstrumentDocumentSchema.parse(unknown)).toThrow(/anchor/)
+
+    const eleven = pooled()
+    eleven.assembly = { anchorItemKeys: anchors, rotationCount: 3 }
+    expect(() => SelfDirectionInstrumentDocumentSchema.parse(eleven)).toThrow(/ten/)
+  })
+})

@@ -100,6 +100,23 @@ export const SelfDirectionInstrumentDocumentSchema = z
       .array(z.object({ key: SelfDirectionThemeSchema, description: line }).strict())
       .length(SELF_DIRECTION_THEMES.length),
     items: z.array(SelfDirectionItemSchema).max(500),
+    /**
+     * How a later version assembles an attempt from a larger pool (`#1895`).
+     *
+     * **Versioned with the instrument rather than configured**, because the
+     * anchor/rotation ratio decides what a score means: two citizens answering
+     * different rotations are comparable only if they share the anchors, and a
+     * ratio that could move between attempts would make a delta arithmetic on
+     * two different instruments. Absent on the MVP, which has no pool to draw
+     * from and presents all ten items to everybody.
+     */
+    assembly: z
+      .object({
+        anchorItemKeys: z.array(KeySchema).min(1).max(50),
+        rotationCount: z.int().min(0).max(50),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
   .superRefine((instrument, ctx) => {
@@ -112,7 +129,30 @@ export const SelfDirectionInstrumentDocumentSchema = z
     if (new Set(instrument.items.map(({ key }) => key)).size !== instrument.items.length) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'item keys must be unique' })
     }
+    if (instrument.assembly !== undefined) {
+      const keys = new Set(instrument.items.map(({ key }) => key))
+      const unknown = instrument.assembly.anchorItemKeys.filter((key) => !keys.has(key))
+      if (unknown.length > 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['assembly', 'anchorItemKeys'],
+          message: 'every anchor must name an item this instrument publishes',
+        })
+      }
+    }
     if (instrument.lifecycle === 'draft') return
+    if (instrument.assembly !== undefined) {
+      const presented =
+        instrument.assembly.anchorItemKeys.length + instrument.assembly.rotationCount
+      if (presented !== 10) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['assembly'],
+          message: 'an assembled attempt must present exactly ten items',
+        })
+      }
+      return
+    }
     if (instrument.items.length !== 10) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,

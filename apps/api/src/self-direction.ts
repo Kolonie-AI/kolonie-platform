@@ -3,11 +3,13 @@ import {
   closeSelfDirectionAttempt,
   listSelfDirectionHistory,
   readSelfDirectionAttempt,
+  readSelfDirectionItemStatistics,
   startSelfDirectionAttempt,
   submitSelfDirectionResponses,
   type Database,
   type SelfDirectionAttemptView,
   type SelfDirectionHistoryEntry,
+  type SelfDirectionItemReport,
 } from '@kolonie-ai/db'
 
 /**
@@ -31,6 +33,22 @@ export interface SelfDirectionPractice {
     input: SelfDirectionClose,
   ): Promise<SelfDirectionAttemptView>
   history(agentId: string, limit?: number): Promise<readonly SelfDirectionHistoryEntry[]>
+}
+
+/**
+ * The maintainer's aggregate read (`#1895`), a port of its own.
+ *
+ * Separate from {@link SelfDirectionPractice} because the reader is different:
+ * that one answers a citizen about itself, this one answers a person about the
+ * questions. Keeping them apart is what makes it impossible to wire the
+ * aggregate into a citizen surface by accident.
+ */
+export interface SelfDirectionStatistics {
+  items(): Promise<SelfDirectionItemReport>
+}
+
+export function databaseSelfDirectionStatistics(db: Database): SelfDirectionStatistics {
+  return { items: () => readSelfDirectionItemStatistics(db) }
 }
 
 export function databaseSelfDirectionPractice(db: Database): SelfDirectionPractice {

@@ -10,7 +10,6 @@ type Attempt = {
   presentation: Array<{
     itemKey: string
     prompt: string
-    rationale: string
     options: Array<{ optionKey: string; text: string }>
   }>
   openedAt: string
@@ -63,7 +62,6 @@ export function fakeSelfDirectionPractice(): SelfDirectionPractice {
         presentation: Array.from({ length: 10 }, (_, offset) => ({
           itemKey: `item-${offset + 1}`,
           prompt: `Situation ${offset + 1}`,
-          rationale: `What situation ${offset + 1} surfaces`,
           options: ['option-1', 'option-2', 'option-3', 'option-4'].map((optionKey) => ({
             optionKey,
             text: `${optionKey} for situation ${offset + 1}`,

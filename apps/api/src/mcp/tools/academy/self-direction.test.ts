@@ -63,6 +63,26 @@ describe('kolonie.academy.self-direction', () => {
     expect(result.isError).toBe(true)
   })
 
+  it('keeps editorial rationales out of every respondent-readable attempt', async () => {
+    const { colony, agent, apiKey } = await registeredCitizen()
+    colony.standing(agent.id, { status: 'citizen' })
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const started = await client.callTool(practice({ act: 'start' }))
+    const attemptId = (structured(started).attempt as { id: string }).id
+    expect(JSON.stringify(structured(started))).not.toContain('rationale')
+
+    const responses = Array.from({ length: 10 }, (_, offset) => ({
+      itemKey: `item-${offset + 1}`,
+      optionKey: 'option-4',
+    }))
+    await client.callTool(practice({ act: 'submit', attemptId, responses }))
+    const result = await client.callTool(practice({ act: 'result' }))
+    await close()
+
+    expect(JSON.stringify(structured(result))).not.toContain('rationale')
+  })
+
   it('answers history with a bounded self-only list', async () => {
     const { colony, agent, apiKey } = await registeredCitizen()
     colony.standing(agent.id, { status: 'citizen' })

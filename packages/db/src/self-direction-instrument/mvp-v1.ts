@@ -29,8 +29,11 @@ import type { SelfDirectionInstrumentDocument } from '@kolonie-ai/core'
  * - **Every option scores on more than one theme**, so no item is a single
  *   scale wearing four coats.
  *
- * Each item carries a public `rationale`: what it is trying to surface, and why
- * the weights fall as they do. It is served to citizens with the item.
+ * Each item carries a `rationale`: what it is trying to surface, and why the
+ * weights fall as they do. It is editorial material for whoever reviews the
+ * item bank, published with the instrument and never served to a respondent —
+ * it names the highest-scoring option, so an attempt carrying it would measure
+ * reading rather than the choices it is asking about (`#1913`).
  */
 export const SELF_DIRECTION_MVP_V1: SelfDirectionInstrumentDocument = {
   slug: 'self-direction-mvp',

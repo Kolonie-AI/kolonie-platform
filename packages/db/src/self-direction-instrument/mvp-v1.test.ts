@@ -61,7 +61,7 @@ describe('the self-direction MVP instrument', () => {
     }
   })
 
-  it('gives every item a public rationale and every option a real cost', () => {
+  it('gives every item a reviewable rationale and every option a real cost', () => {
     for (const item of instrument.items) {
       expect(item.rationale.length).toBeGreaterThan(80)
       /**

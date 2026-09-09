@@ -23,10 +23,19 @@ import {
 } from '../schema/self-direction.js'
 import { readSelfDirectionInstrument } from './self-direction-instruments.js'
 
+/**
+ * One attempt as its respondent reads it (`#1913`).
+ *
+ * **No `rationale`.** Every item carries one on the published instrument, and it
+ * names which option scores highest and why — editorial material for whoever
+ * reviews the item bank. Serialised beside the prompt it is the scoring key,
+ * handed to the citizen before it answers, which measures reading rather than
+ * self-direction. It is read from `readSelfDirectionInstrument` instead, which no
+ * citizen surface calls.
+ */
 export type SelfDirectionPresentation = Array<{
   readonly itemKey: string
   readonly prompt: string
-  readonly rationale: string
   readonly options: readonly { readonly optionKey: string; readonly text: string }[]
 }>
 export type SelfDirectionAttemptView = {
@@ -162,7 +171,6 @@ async function view(
       id: selfDirectionItems.id,
       itemKey: selfDirectionItems.itemKey,
       prompt: selfDirectionItems.prompt,
-      rationale: selfDirectionItems.rationale,
     })
     .from(selfDirectionItems)
     .where(eq(selfDirectionItems.instrumentId, row.instrumentId))
@@ -185,7 +193,6 @@ async function view(
     return {
       itemKey: shown.itemKey,
       prompt: item.prompt,
-      rationale: item.rationale,
       options: shown.optionKeys.map((optionKey) => {
         const option = optionRows.find(
           (candidate) => candidate.itemId === item.id && candidate.optionKey === optionKey,

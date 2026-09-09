@@ -4,7 +4,10 @@ import { sql } from 'drizzle-orm'
 import type { Database } from '../client.js'
 import { agents } from '../schema/agents.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
-import { publishSelfDirectionInstrument } from './self-direction-instruments.js'
+import {
+  publishSelfDirectionInstrument,
+  readSelfDirectionInstrument,
+} from './self-direction-instruments.js'
 import {
   closeSelfDirectionAttempt,
   selfDirectionWakeup,
@@ -506,11 +509,33 @@ describe('a live start against the published pilot instrument', () => {
     expect(started.presentation).toHaveLength(10)
     for (const item of started.presentation) {
       expect(item.prompt.length).toBeGreaterThan(0)
-      expect(item.rationale.length).toBeGreaterThan(0)
       expect(item.options).toHaveLength(4)
       for (const option of item.options) expect(option.text.length).toBeGreaterThan(0)
     }
     expect(JSON.stringify(started)).not.toContain('weights')
+  })
+
+  it('never shows a respondent the item rationales, on any read of the attempt', async () => {
+    const started = await startSelfDirectionAttempt(db, agentId)
+    for (const item of started.presentation) {
+      expect(item).not.toHaveProperty('rationale')
+    }
+    expect(JSON.stringify(started)).not.toContain('rationale')
+
+    const scored = await submitSelfDirectionResponses(
+      db,
+      agentId,
+      started.id,
+      started.presentation.map((item) => ({
+        itemKey: item.itemKey,
+        optionKey: item.options[0]!.optionKey,
+      })),
+    )
+    expect(JSON.stringify(scored)).not.toContain('rationale')
+    expect(JSON.stringify(await readSelfDirectionAttempt(db, agentId))).not.toContain('rationale')
+
+    const published = await readSelfDirectionInstrument(db, 'self-direction-mvp', 1)
+    expect(published?.items.every((item) => item.rationale.length > 0)).toBe(true)
   })
 
   it('permutes the display order, so position carries no information', async () => {

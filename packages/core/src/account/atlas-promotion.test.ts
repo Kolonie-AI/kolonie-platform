@@ -16,10 +16,12 @@ import {
  * not theirs — and none of them turns a cleared route into a joinable entry.
  */
 
-const row = (over: Partial<{ status: string; steps: unknown[]; attempted: number }> = {}) => ({
+const row = (
+  over: Partial<{ status: string; steps: unknown[]; attempted: number; walked: number }> = {},
+) => ({
   status: over.status ?? 'measured',
   steps: over.steps ?? [],
-  figures: { attempted: over.attempted ?? 0 },
+  figures: { attempted: over.attempted ?? 0, walked: { citizens: over.walked ?? 0 } },
 })
 
 describe('where one row stands', () => {
@@ -37,6 +39,24 @@ describe('where one row stands', () => {
     expect(promotion.stage).toBe<AtlasPromotionStage>('walked')
     expect(promotion.whose).toBe('citizen')
     expect(promotion.next).toContain('`recipe`')
+  })
+
+  /**
+   * `#1914`: a provider whose only evidence is a walk. `attempted` counts
+   * citizens who ended up holding something or filed a verdict, so a walk that
+   * wrote the briefing left it at zero — and the entry then said *nobody has
+   * walked this* directly beside the claims that walk produced. Either counter
+   * being non-zero is a corpus.
+   */
+  it('is walked when a walk is the whole of the corpus', () => {
+    const promotion = atlasPromotionOf(row({ walked: 1 }))
+
+    expect(promotion.stage).toBe<AtlasPromotionStage>('walked')
+    expect(promotion.next).not.toContain('Nobody has walked this yet')
+  })
+
+  it('is still sighted where neither counter has anything', () => {
+    expect(atlasPromotionOf(row()).stage).toBe<AtlasPromotionStage>('sighted')
   })
 
   it('counts attempts and not proofs, so a wall of refusals is still a corpus', () => {

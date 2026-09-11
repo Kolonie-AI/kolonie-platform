@@ -11,6 +11,7 @@ import {
   directionScoped,
   atlasByOutcome,
   atlasConditionsSentences,
+  atlasCanonicalKind,
   atlasEntries,
   atlasShelfHasEvidence,
   atlasStateOf,
@@ -1181,7 +1182,7 @@ export async function readAtlas(
       recipes: entry.recipes
         .filter(
           (recipe) =>
-            (input.kind === undefined || recipe.kind === input.kind) &&
+            (input.kind === undefined || recipe.kind === atlasCanonicalKind(input.kind)) &&
             (input.held === undefined || !input.held.has(recipe.kind)) &&
             /**
              * **Per recipe and not per shelf** (`#981`). A provider's shelf may

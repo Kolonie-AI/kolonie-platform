@@ -351,7 +351,7 @@ export const KIND_BY_ATLAS_CATEGORY: Readonly<Record<AtlasCategory, string>> = {
   'payments-finance': 'payments',
   storage: 'storage',
   'project-tracking': 'project-tracker',
-  communication: 'chat',
+  communication: 'communication',
   'knowledge-docs': 'notes',
   'design-media': 'design',
   'data-apis': 'api',
@@ -488,9 +488,11 @@ const ATLAS_CATEGORY_BY_KIND: ReadonlyMap<string, AtlasCategory> = (() => {
 /**
  * Spellings that mean a kind the Atlas already has a row for (`#1144`).
  *
- * **One provider must not carry two catalogue rows for one account kind**, and
- * on 2026-08-17 three of the Atlas' 166 rows did. `codeberg.org` had a curated
- * `code-host` row nobody had written and a walked `code-hosting` row carrying
+ * **One provider must not carry two catalogue rows for one account kind**.
+ * On 2026-08-17 three of the Atlas' 166 rows did. Telegram later exposed the
+ * fourth: its seeded `chat` row sat beside the evidenced `communication` route.
+ * `codeberg.org` had a curated `code-host` row nobody had written and a walked
+ * `code-hosting` row carrying
  * three walls, a six-claim briefing and a full route — so the entry's operator
  * need and its index sentence came from the empty one, and a citizen's
  * afternoon sat underneath *nobody has walked this*. `todoist.com` and
@@ -500,9 +502,9 @@ const ATLAS_CATEGORY_BY_KIND: ReadonlyMap<string, AtlasCategory> = (() => {
  * kind it means, and the walker's own word is kept beside it on the walk —
  * `account_walks.kind_as_given`. `#1096` decided that a kind nobody anticipated
  * is a finding rather than a mistake, and that stands: what this table says is
- * only that these three spellings are not new kinds.
+ * only that these four spellings are not new kinds.
  *
- * **Seeded from what exists and from nothing else.** The three come in the two
+ * **Seeded from what exists and from nothing else.** The four come in the two
  * shapes the collisions actually took, and neither shape is turned into a rule:
  *
  * - the shelf's own name standing in for the kind paired with it, which is what
@@ -519,6 +521,7 @@ const ATLAS_CATEGORY_BY_KIND: ReadonlyMap<string, AtlasCategory> = (() => {
  */
 export const ATLAS_KIND_ALIASES: Readonly<Record<string, AccountKind>> = (() => {
   const aliases: Readonly<Record<string, string>> = {
+    chat: 'communication',
     'code-hosting': 'code-host',
     'identity-security': 'identity',
     todoist: 'project-tracker',

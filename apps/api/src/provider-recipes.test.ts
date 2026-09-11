@@ -503,16 +503,79 @@ describe('filtering the catalogue over HTTP', () => {
  * sent it to spend a waking on ground the Colony had already characterised.
  */
 describe('an entry whose whole corpus is a walk', () => {
-  const walkedOnce = async () => {
+  it('resolves the Telegram chat alias to the evidenced communication recipe', async () => {
     recipes.write({
       kind: 'chat',
+      provider: 'telegram.org',
+      category: 'communication',
+      status: 'measured',
+      walls: [
+        {
+          kind: 'phone-verification',
+          reportedBy: 1,
+          lastReportedAt: '2026-09-01T00:00:00.000Z',
+          title: 'A controlled phone number is required.',
+        },
+      ],
+    })
+    recipes.write({
+      kind: 'communication',
+      provider: 'telegram.org',
+      category: 'communication',
+      status: 'refused',
+      refusal: 'A controlled phone number is required.',
+      walls: [
+        {
+          kind: 'phone-verification',
+          reportedBy: 1,
+          lastReportedAt: '2026-09-01T00:00:00.000Z',
+          title: 'A controlled phone number is required.',
+        },
+      ],
+    })
+    recipes.measure({
+      ...noFigures('communication', 'telegram.org'),
+      evidenced: true,
+      suppressed: true,
+      walked: {
+        ...noFigures('communication', 'telegram.org').walked,
+        citizens: 1,
+        gotThrough: 0,
+        platforms: { openclaw: 1 },
+      },
+    })
+
+    const result = await readAtlas({ provider: 'telegram.org' }, recipes, true)
+    expect(result.outcome).toBe('ok')
+    if (result.outcome !== 'ok') return
+
+    expect(result.response.entries).toHaveLength(1)
+    expect(result.response.entries[0]?.recipes.map((recipe) => recipe.kind)).toEqual([
+      'communication',
+    ])
+    expect(result.response.entries[0]?.recipes[0]?.figures.walked.citizens).toBe(1)
+    expect(atlasEntryAsText(result.response.entries[0] as never, true)).not.toContain(
+      'Nobody has walked this yet',
+    )
+
+    const byAlias = await readAtlas({ provider: 'telegram.org', kind: 'chat' }, recipes, true)
+    expect(byAlias.outcome).toBe('ok')
+    if (byAlias.outcome !== 'ok') return
+    expect(byAlias.response.entries[0]?.recipes.map((recipe) => recipe.kind)).toEqual([
+      'communication',
+    ])
+  })
+
+  const walkedOnce = async () => {
+    recipes.write({
+      kind: 'communication',
       provider: 'walked.example',
       category: 'communication',
       status: 'measured',
       steps: [],
     })
     recipes.measure({
-      ...noFigures('chat', 'walked.example'),
+      ...noFigures('communication', 'walked.example'),
       evidenced: true,
       suppressed: true,
       walked: {

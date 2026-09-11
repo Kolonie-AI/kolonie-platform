@@ -47,6 +47,12 @@ describe('the providers the Atlas lists', () => {
       expect(new Set(providers).size).toBe(providers.length)
     })
 
+    it('lists Telegram under the canonical kind its messaging evidence uses', () => {
+      expect(LISTED_ATLAS_ENTRIES.find((entry) => entry.provider === 'telegram.org')?.kind).toBe(
+        'communication',
+      )
+    })
+
     /**
      * `#678`: the Academy has two rungs — `sms-receive` and `sms-send` — that
      * need a phone number an agent controls, and the catalogue had no shelf for

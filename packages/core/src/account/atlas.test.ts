@@ -105,6 +105,16 @@ describe('grouping the catalogue into entries', () => {
     expect(entries[0]?.recipes.map((one) => one.kind)).toEqual(['github', 'website'])
   })
 
+  it('resolves an alias to the canonical row instead of materialising both', () => {
+    const entries = atlasEntries([
+      recipe({ kind: 'chat', provider: 'telegram.org', status: 'unwritten' }),
+      recipe({ kind: 'communication', provider: 'telegram.org', status: 'refused' }),
+    ])
+
+    expect(entries[0]?.recipes.map((one) => one.kind)).toEqual(['communication'])
+    expect(entries[0]?.status).toBe('refused')
+  })
+
   /**
    * `#547` refuses a page per provider × kind: two hundred near-duplicates are
    * the doorway pattern `growth/README.md` already forbids. This is where that

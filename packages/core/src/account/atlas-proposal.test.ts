@@ -204,6 +204,7 @@ describe('the kind a spelling means', () => {
   })
 
   it('resolves each measured spelling onto the kind it means', () => {
+    expect(atlasCanonicalKind('chat')).toBe('communication')
     expect(atlasCanonicalKind('code-hosting')).toBe('code-host')
     expect(atlasCanonicalKind('identity-security')).toBe('identity')
     expect(atlasCanonicalKind('todoist')).toBe('project-tracker')

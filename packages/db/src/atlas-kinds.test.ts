@@ -98,6 +98,24 @@ describe('folding a second spelling of an account kind onto the row it means', (
     ])
   })
 
+  it('repairs the persisted Telegram listing beside its evidenced messaging row', async () => {
+    await entry({ kind: 'chat', provider: 'telegram.org', category: 'communication' })
+    await entry({
+      kind: 'communication',
+      provider: 'telegram.org',
+      category: 'communication',
+      walked: true,
+      title: 'The evidenced route',
+    })
+
+    const result = await reconcileAtlasKinds(db)
+
+    expect(result).toMatchObject({ moved: 0, dropped: 1, conflicted: 0 })
+    expect(await rowsFor('telegram.org')).toEqual([
+      { kind: 'communication', status: 'joinable', title: 'The evidenced route' },
+    ])
+  })
+
   /** An alias row with no twin is moved rather than dropped: nothing collides. */
   it('moves an alias row onto the canonical kind where no row is there', async () => {
     await entry({

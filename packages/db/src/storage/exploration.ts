@@ -1,5 +1,10 @@
 import { and, asc, eq, isNotNull, notInArray, sql } from 'drizzle-orm'
-import { RECIPE_WALKABLE_STATUSES, type AgentId } from '@kolonie-ai/core'
+import {
+  ATLAS_KIND_ALIASES,
+  RECIPE_WALKABLE_STATUSES,
+  atlasCanonicalKind,
+  type AgentId,
+} from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { accountWalks } from '../schema/account-walks.js'
 import { providerRecipes } from '../schema/provider-recipes.js'
@@ -33,7 +38,8 @@ export interface UnwalkedEntry {
 
 /**
  * A `(kind, provider)` in the Atlas that no citizen has ever walked, of a kind
- * this citizen does not already hold.
+ * this citizen does not already hold. Kinds are compared by the catalogue key
+ * they mean, so a walk or account under a canonical kind also covers its aliases.
  *
  * **Scarcity moves an agent; encouragement does not** (`#881`). *No citizen has
  * attempted this provider yet* is a reason a citizen can act on, and it is only
@@ -53,14 +59,30 @@ export async function unwalkedAtlasEntry(
   db: Database,
   heldKinds: readonly string[],
 ): Promise<UnwalkedEntry | null> {
+  const canonicalHeldKinds = [...new Set(heldKinds.map((kind) => atlasCanonicalKind(kind)))]
+  /**
+   * Persisted rows can still carry an alias until the seed reconciliation runs.
+   * The wakeup read must agree before then with the catalogue, walks and accounts,
+   * all of which treat the canonical kind as the pair's key (`#1929`).
+   */
+  const canonicalRecipeKind = sql<string>`case ${providerRecipes.kind}
+    ${sql.join(
+      Object.entries(ATLAS_KIND_ALIASES).map(
+        ([alias, canonical]) => sql`when ${alias} then ${canonical}`,
+      ),
+      sql` `,
+    )}
+    else ${providerRecipes.kind}
+  end`
+
   const rows = await db
-    .select({ kind: providerRecipes.kind, provider: providerRecipes.provider })
+    .select({ kind: canonicalRecipeKind, provider: providerRecipes.provider })
     .from(providerRecipes)
     .where(
       and(
         sql`not exists (
                 select 1 from ${accountWalks}
-                 where ${accountWalks.kind} = ${providerRecipes.kind}
+                 where ${accountWalks.kind} = ${canonicalRecipeKind}
                    and ${accountWalks.provider} = ${providerRecipes.provider})`,
         // A refused recipe is already a closed direct-signup route. It must
         // not be offered as exploratory work; a separate joinable route
@@ -69,7 +91,7 @@ export async function unwalkedAtlasEntry(
           RECIPE_WALKABLE_STATUSES.map((status) => `'${status}'`).join(', '),
         )})`,
         sql`${providerRecipes.retiredAt} is null`,
-        // **`notInArray`, not `<> all(${heldKinds})`** (`#895`).
+        // **`notInArray`, not `<> all(${canonicalHeldKinds})`** (`#895`).
         //
         // A JS array interpolated into a `sql` template is expanded by Drizzle
         // into a parenthesised *parameter list* — `($1, $2, $3)` — which is a
@@ -87,10 +109,12 @@ export async function unwalkedAtlasEntry(
         // and a predicate over an empty list is a predicate nobody needs to
         // write. `notInArray` with an empty array is a footgun in its own right
         // — it is the one input for which the operator has no honest SQL.
-        ...(heldKinds.length > 0 ? [notInArray(providerRecipes.kind, [...heldKinds])] : []),
+        ...(canonicalHeldKinds.length > 0
+          ? [notInArray(canonicalRecipeKind, canonicalHeldKinds)]
+          : []),
       ),
     )
-    .orderBy(providerRecipes.kind, providerRecipes.provider)
+    .orderBy(canonicalRecipeKind, providerRecipes.provider)
     .limit(1)
 
   return rows[0] ?? null

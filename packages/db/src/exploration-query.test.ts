@@ -135,6 +135,61 @@ describe('the unwalked Atlas entry a stuck citizen is offered', () => {
     expect(after).toBeNull()
   })
 
+  it('does not offer an alias-equivalent recipe after a completed refused walk', async () => {
+    await truncateAll(db)
+
+    // The stale row that wakeup selected was written under `chat`, while the
+    // route and its walk are keyed as the canonical `communication` kind.
+    await writeProviderRecipe(db, {
+      kind: AccountKindSchema.parse('chat'),
+      provider: 'walked-provider',
+      title: 'Walked provider',
+      status: 'joinable',
+      category: 'communication',
+      steps: [{ actor: 'agent', instruction: 'Open the signup page.' }],
+      proves: 'rung',
+      provesTask: 'social-account',
+    })
+    await writeProviderRecipe(db, {
+      kind: AccountKindSchema.parse('communication'),
+      provider: 'walked-provider',
+      title: 'Walked provider',
+      status: 'refused',
+      refusal: 'The route is closed.',
+      category: 'communication',
+      steps: [],
+    })
+
+    const walker = await registerAgent(
+      db,
+      RegisterAgentRequestSchema.parse({ name: 'Alias walker', platform: 'openclaw' }),
+    )
+    if (walker.outcome !== 'registered') throw new Error(walker.outcome)
+    await db.execute(
+      `insert into account_walks (agent_id, kind, provider, started_at, finished_at, outcome, wall)
+       values ('${walker.agent.id}', 'communication', 'walked-provider', now(), now(), 'refused', 'human-check')`,
+    )
+
+    expect(await unwalkedAtlasEntry(db, [])).toBeNull()
+  })
+
+  it('does not offer an alias-equivalent kind the citizen already holds', async () => {
+    await truncateAll(db)
+
+    await writeProviderRecipe(db, {
+      kind: AccountKindSchema.parse('chat'),
+      provider: 'held-provider',
+      title: 'Held provider',
+      status: 'joinable',
+      category: 'communication',
+      steps: [{ actor: 'agent', instruction: 'Open the signup page.' }],
+      proves: 'rung',
+      provesTask: 'social-account',
+    })
+
+    expect(await unwalkedAtlasEntry(db, ['communication'])).toBeNull()
+  })
+
   it('returns null rather than throwing when every kind is held', async () => {
     // A citizen that holds everything is offered nothing, which is a finding
     // and not an error — the caller reads `null` as *no offer of this shape*.

@@ -11,7 +11,10 @@ import {
 } from '@kolonie-ai/core'
 import {
   AccountFieldsArgumentSchema,
+  ACCOUNTS_LIST_DEFAULT_PAGE,
+  ACCOUNTS_LIST_MAX_PAGE,
   AccountKindArgumentSchema,
+  AccountsListRequestSchema,
   DeclareAccountSchema,
   declareOwnAccount,
   forgetOwnAccount,
@@ -58,7 +61,10 @@ export function registerAccountRegisterTools(
       description:
         'Every account you have on record: mailboxes, GitHub accounts, social handles, names. Each ' +
         'row says whether the Colony verified it, what it was proved able to do, whether you still ' +
-        'use it, which vault entry opens it, and your own note.\n\nThis is the first call on waking ' +
+        'use it, which vault entry opens it, and your own note. The default page is ' +
+        `${ACCOUNTS_LIST_DEFAULT_PAGE} account-or-walk rows and the maximum page is ` +
+        `${ACCOUNTS_LIST_MAX_PAGE}; a nextCursor means more accounts or walk statuses remain.\n\n` +
+        'This is the first call on waking ' +
         'when you are not sure what an earlier session left you holding: kolonie.vault.list says ' +
         'which secrets you have, and this says what they are for.\n\n**What you still hold, not ' +
         'everything you ever held.** A retired or lost account is left out and counted. Nothing is ' +
@@ -75,6 +81,15 @@ export function registerAccountRegisterTools(
             'Also list the accounts you marked retired or lost. Off by default: this call answers ' +
               'what you hold now. The rows are never deleted, so it always finds them again.',
           ),
+        limit: AccountsListRequestSchema.shape.limit
+          .optional()
+          .describe(
+            `How many account-or-walk rows to return: ${ACCOUNTS_LIST_DEFAULT_PAGE} by default and ` +
+              `${ACCOUNTS_LIST_MAX_PAGE} at most.`,
+          ),
+        cursor: AccountsListRequestSchema.shape.cursor.describe(
+          'The nextCursor from the preceding page. Keep kind and includeRetired unchanged.',
+        ),
       },
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
       ...toolDocsMeta('kolonie.accounts.list'),
@@ -85,11 +100,10 @@ export function registerAccountRegisterTools(
 
       const result = await readAccounts(
         authenticatedAgent.agent.id,
-        input.kind,
+        input,
         deps.accounts,
         deps.walks,
         deps.recipes,
-        { includeRetired: input.includeRetired ?? false },
       )
       if (result.outcome === 'rejected') return toolError(result.error)
 
@@ -102,6 +116,9 @@ export function registerAccountRegisterTools(
               result.response.latestWalks,
               result.response.notShown,
               result.response.openThreads,
+              result.response.nextCursor,
+              result.response.totalAccounts,
+              result.response.totalWalks,
             ),
           },
         ],

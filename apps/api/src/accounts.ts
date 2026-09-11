@@ -283,6 +283,42 @@ export const AccountKindArgumentSchema = z
   .max(32)
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'a kind is a lowercase kebab-case slug')
 
+export const ACCOUNTS_LIST_DEFAULT_PAGE = 8
+export const ACCOUNTS_LIST_MAX_PAGE = 16
+
+export const AccountsListRequestSchema = z
+  .object({
+    kind: AccountKindArgumentSchema.optional(),
+    includeRetired: z.boolean().default(false),
+    limit: z.int().min(1).max(ACCOUNTS_LIST_MAX_PAGE).default(ACCOUNTS_LIST_DEFAULT_PAGE),
+    cursor: z.string().min(1).optional(),
+  })
+  .strict()
+
+const AccountsListCursorSchema = z.object({
+  kind: AccountKindArgumentSchema.nullable(),
+  includeRetired: z.boolean(),
+  after: z.discriminatedUnion('type', [
+    z.object({ type: z.literal('account'), id: z.uuid() }),
+    z.object({ type: z.literal('walk'), id: z.uuid() }),
+  ]),
+})
+type AccountsListCursor = z.infer<typeof AccountsListCursorSchema>
+
+function encodeAccountsListCursor(cursor: AccountsListCursor): string {
+  return Buffer.from(JSON.stringify(cursor), 'utf8').toString('base64url')
+}
+
+function decodeAccountsListCursor(raw: string): AccountsListCursor | undefined {
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8'))
+    const cursor = AccountsListCursorSchema.safeParse(parsed)
+    return cursor.success ? cursor.data : undefined
+  } catch {
+    return undefined
+  }
+}
+
 /**
  * The note field, with a refusal that says how long the note actually was.
  *
@@ -354,6 +390,9 @@ export type AccountsResponse = {
   readonly accounts: readonly Account[]
   /** The newest walk for each provider this citizen touched, including drafts without an account. */
   readonly latestWalks: readonly WalkStatus[]
+  readonly nextCursor: string | null
+  readonly totalAccounts: number
+  readonly totalWalks: number
   /** The kinds the Colony proves today, so an agent need not guess a slug. */
   readonly knownKinds: readonly string[]
   /**
@@ -454,44 +493,105 @@ export type AccountWriteOutcome =
  */
 export async function readAccounts(
   agentId: AgentId,
-  kind: string | undefined,
+  asked: unknown,
   deps: AccountDependencies,
   walks?: WalkStore,
   recipes?: ProviderRecipes,
-  options?: { readonly includeRetired?: boolean },
 ): Promise<AccountsOutcome> {
-  const parsed = kind === undefined ? undefined : AccountKindArgumentSchema.safeParse(kind)
+  const parsed = AccountsListRequestSchema.safeParse(asked ?? {})
 
-  if (parsed !== undefined && !parsed.success) {
+  if (!parsed.success) {
     return {
       outcome: 'rejected',
       error: {
         code: 'validation_failed',
-        message: `A kind is a lowercase kebab-case slug, e.g. ${KNOWN_ACCOUNT_KINDS.join(', ')}.`,
+        message:
+          `An account listing takes at most ${ACCOUNTS_LIST_MAX_PAGE} rows and a cursor from an ` +
+          'earlier page. A kind is a lowercase kebab-case slug.',
       },
     }
   }
 
-  const held = await deps.register.list(agentId, parsed?.data as AccountKind | undefined)
-  const accounts =
-    options?.includeRetired === true ? held : held.filter((one) => one.status === 'in-use')
+  const { kind, includeRetired, limit } = parsed.data
+  const cursor =
+    parsed.data.cursor === undefined ? undefined : decodeAccountsListCursor(parsed.data.cursor)
 
-  const latestWalks =
+  if (
+    parsed.data.cursor !== undefined &&
+    (cursor === undefined ||
+      cursor.kind !== (kind ?? null) ||
+      cursor.includeRetired !== includeRetired)
+  ) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message:
+          'That cursor is not one the Colony wrote for these filters. Call the listing with no ' +
+          'cursor to start again, then keep kind and includeRetired unchanged while paging.',
+      },
+    }
+  }
+
+  const held = await deps.register.list(agentId, kind as AccountKind | undefined)
+  const visibleAccounts = includeRetired ? held : held.filter((one) => one.status === 'in-use')
+
+  const allLatestWalks =
     recipes === undefined
       ? []
       : await latestWalkStatuses(
           agentId,
-          parsed?.data as AccountKind | undefined,
+          kind as AccountKind | undefined,
           walks,
           recipes,
           deps.register,
         )
 
-  /**
-   * One statement for the whole list rather than one per account, and skipped
-   * entirely where the caller wired no thread reader — the accounts surface
-   * predates messaging and must go on working without it.
-   */
+  const accountStart =
+    cursor?.after.type === 'account'
+      ? Math.max(0, visibleAccounts.findIndex((account) => account.id === cursor.after.id) + 1)
+      : cursor?.after.type === 'walk'
+        ? visibleAccounts.length
+        : 0
+  const walkStart =
+    cursor?.after.type === 'walk'
+      ? Math.max(0, allLatestWalks.findIndex((walk) => walk.walkId === cursor.after.id) + 1)
+      : 0
+
+  if (
+    cursor !== undefined &&
+    ((cursor.after.type === 'account' &&
+      !visibleAccounts.some((account) => account.id === cursor.after.id)) ||
+      (cursor.after.type === 'walk' &&
+        !allLatestWalks.some((walk) => walk.walkId === cursor.after.id)))
+  ) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message: 'That cursor no longer names a row in this listing. Start again with no cursor.',
+      },
+    }
+  }
+
+  const accounts = visibleAccounts.slice(accountStart, accountStart + limit)
+  const remaining = limit - accounts.length
+  const latestWalks = remaining === 0 ? [] : allLatestWalks.slice(walkStart, walkStart + remaining)
+  const hasMoreAccounts = accountStart + accounts.length < visibleAccounts.length
+  const hasMoreWalks = walkStart + latestWalks.length < allLatestWalks.length
+  const lastAccount = accounts.at(-1)
+  const lastWalk = latestWalks.at(-1)
+  const after =
+    lastWalk === undefined
+      ? lastAccount === undefined
+        ? undefined
+        : ({ type: 'account', id: lastAccount.id } as const)
+      : ({ type: 'walk', id: lastWalk.walkId } as const)
+  const nextCursor =
+    after === undefined || (!hasMoreAccounts && !hasMoreWalks)
+      ? null
+      : encodeAccountsListCursor({ kind: kind ?? null, includeRetired, after })
+
   const openThreads =
     deps.threads === undefined
       ? {}
@@ -505,8 +605,11 @@ export async function readAccounts(
     response: {
       accounts,
       latestWalks,
+      nextCursor,
+      totalAccounts: visibleAccounts.length,
+      totalWalks: allLatestWalks.length,
       knownKinds: KNOWN_ACCOUNT_KINDS,
-      notShown: held.length - accounts.length,
+      notShown: held.length - visibleAccounts.length,
       openThreads,
     },
   }

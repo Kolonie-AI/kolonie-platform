@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import {
   AccountCapabilitySchema,
+  ACCOUNT_MAX_ENTRIES,
+  ACCOUNT_NOTE_MAX_LENGTH,
   AccountKindSchema,
   AccountProviderSchema,
   AgentIdSchema,
@@ -17,6 +19,7 @@ import {
 import { toolResultBytes } from '../../call-rollup.js'
 import type { PreviousWalkVerdict, PublishedWalkPage } from '@kolonie-ai/db'
 import { WalkReportSchema } from '../../account-walks.js'
+import { ACCOUNTS_LIST_DEFAULT_PAGE, ACCOUNTS_LIST_MAX_PAGE } from '../../accounts.js'
 import { connectedClient, registeredCitizen } from '../../__fixtures__/mcp.js'
 import {
   fakeAccountRegister,
@@ -913,7 +916,222 @@ describe('kolonie.accounts.walk-status', () => {
       await closeAuthor()
     })
   })
+})
 
+describe('kolonie.accounts.list pages the register and walk statuses', () => {
+  const aMaximumRegister = async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const register = fakeAccountRegister()
+    const walks = fakeWalks()
+    const largestCapability = AccountCapabilitySchema.parse('x'.repeat(32))
+
+    for (let index = 0; index < ACCOUNT_MAX_ENTRIES; index += 1) {
+      register.proveDirectly(agent.id, {
+        kind: AccountKindSchema.parse(`kind-${String(index).padStart(2, '0')}`),
+        identifier: `${String(index).padStart(2, '0')}-${'i'.repeat(317)}`,
+        capabilities: [largestCapability],
+        note: 'n'.repeat(ACCOUNT_NOTE_MAX_LENGTH),
+        vaultKey: 'v'.repeat(128),
+      })
+    }
+
+    for (let index = 0; index < 165; index += 1) {
+      walks.add({
+        agentId: agent.id,
+        kind: `walk-${String(index).padStart(3, '0')}`,
+        provider: `provider-${String(index).padStart(3, '0')}-${'p'.repeat(111)}`,
+      })
+    }
+
+    const connected = await connectedClient(
+      { ...colony, accounts: fakeAccounts(register), walks },
+      `Bearer ${apiKey}`,
+    )
+
+    return { ...connected }
+  }
+
+  it('publishes the default, maximum, cursor and page unit in its schema', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const tool = (await client.listTools()).tools.find(
+      (candidate) => candidate.name === 'kolonie.accounts.list',
+    )
+    const properties = tool?.inputSchema.properties as
+      Record<string, { description?: string; maximum?: number }> | undefined
+    const published = `${tool?.description ?? ''}\n${JSON.stringify(tool?.inputSchema ?? {})}`
+
+    expect(properties?.limit?.maximum).toBe(ACCOUNTS_LIST_MAX_PAGE)
+    expect(published).toContain(String(ACCOUNTS_LIST_DEFAULT_PAGE))
+    expect(published).toContain(String(ACCOUNTS_LIST_MAX_PAGE))
+    expect(published).toContain('account-or-walk rows')
+    expect(published).toContain('nextCursor')
+    await close()
+  })
+
+  it('keeps an omitted-argument maximum register and walk history below 64 KiB', async () => {
+    const { client, close } = await aMaximumRegister()
+
+    const result = (await client.callTool({
+      name: 'kolonie.accounts.list',
+      arguments: {},
+    })) as CallToolResult
+
+    expect(result.isError).not.toBe(true)
+    expect(toolResultBytes(result)).toBeLessThan(UNREADABLE_RESPONSE_BYTES)
+    await close()
+  })
+
+  it('names the page, the remaining rows and the cursor in text and structure alike', async () => {
+    const { client, close } = await aMaximumRegister()
+
+    const result = (await client.callTool({
+      name: 'kolonie.accounts.list',
+      arguments: {},
+    })) as CallToolResult
+    const page = result.structuredContent as {
+      accounts: readonly { id: string }[]
+      latestWalks: readonly { walkId: string }[]
+      nextCursor: string | null
+      totalAccounts: number
+      totalWalks: number
+    }
+
+    expect(page.accounts).toHaveLength(ACCOUNTS_LIST_DEFAULT_PAGE)
+    expect(page.latestWalks).toHaveLength(0)
+    expect(page.totalAccounts).toBe(ACCOUNT_MAX_ENTRIES)
+    expect(page.totalWalks).toBe(165)
+    expect(page.nextCursor).not.toBeNull()
+    expect(JSON.stringify(result.content)).toContain(page.nextCursor as string)
+    await close()
+  })
+
+  it('visits every account and every latest walk exactly once through the cursor', async () => {
+    const { client, close } = await aMaximumRegister()
+
+    const accountIds: string[] = []
+    const walkIds: string[] = []
+    let cursor: string | undefined
+
+    for (let turn = 0; turn < 64; turn += 1) {
+      const result = (await client.callTool({
+        name: 'kolonie.accounts.list',
+        arguments: cursor === undefined ? {} : { cursor },
+      })) as CallToolResult
+
+      expect(result.isError).not.toBe(true)
+      expect(toolResultBytes(result)).toBeLessThan(UNREADABLE_RESPONSE_BYTES)
+
+      const page = result.structuredContent as {
+        accounts: readonly { id: string }[]
+        latestWalks: readonly { walkId: string }[]
+        nextCursor: string | null
+      }
+      accountIds.push(...page.accounts.map((account) => account.id))
+      walkIds.push(...page.latestWalks.map((walk) => walk.walkId))
+      if (page.nextCursor === null) break
+      cursor = page.nextCursor
+    }
+
+    expect(accountIds).toHaveLength(ACCOUNT_MAX_ENTRIES)
+    expect(new Set(accountIds).size).toBe(ACCOUNT_MAX_ENTRIES)
+    expect(walkIds).toHaveLength(165)
+    expect(new Set(walkIds).size).toBe(165)
+    await close()
+  })
+
+  it('refuses a cursor the Colony did not write, rather than restarting the walk', async () => {
+    const { client, close } = await aMaximumRegister()
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.list',
+      arguments: { cursor: 'not-a-cursor' },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(JSON.stringify(result.content)).toContain('cursor')
+    await close()
+  })
+
+  it('composes kind filtering with paging and leaves other kinds out', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const register = fakeAccountRegister()
+    for (let index = 0; index < 10; index += 1) {
+      register.proveDirectly(agent.id, {
+        kind: AccountKindSchema.parse('mailbox'),
+        identifier: `held-${String(index).padStart(2, '0')}@mail.example`,
+      })
+    }
+    register.proveDirectly(agent.id, {
+      kind: AccountKindSchema.parse('github'),
+      identifier: 'octocat',
+    })
+    const { client, close } = await connectedClient(
+      { ...colony, accounts: fakeAccounts(register) },
+      `Bearer ${apiKey}`,
+    )
+
+    const first = (await client.callTool({
+      name: 'kolonie.accounts.list',
+      arguments: { kind: 'mailbox' },
+    })) as CallToolResult
+    const firstPage = first.structuredContent as {
+      accounts: readonly { kind: string; id: string }[]
+      nextCursor: string | null
+      totalAccounts: number
+    }
+    const second = (await client.callTool({
+      name: 'kolonie.accounts.list',
+      arguments: { kind: 'mailbox', cursor: firstPage.nextCursor },
+    })) as CallToolResult
+    const secondPage = second.structuredContent as {
+      accounts: readonly { kind: string; id: string }[]
+      nextCursor: string | null
+    }
+
+    expect(firstPage.totalAccounts).toBe(10)
+    expect(firstPage.accounts).toHaveLength(ACCOUNTS_LIST_DEFAULT_PAGE)
+    expect(secondPage.accounts).toHaveLength(2)
+    expect(secondPage.nextCursor).toBeNull()
+    expect(
+      [...firstPage.accounts, ...secondPage.accounts].every(
+        (account) => account.kind === 'mailbox',
+      ),
+    ).toBe(true)
+    await close()
+  })
+
+  it('refuses a cursor whose filters differ from the call carrying it', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const register = fakeAccountRegister()
+    for (let index = 0; index < 10; index += 1) {
+      register.proveDirectly(agent.id, {
+        kind: AccountKindSchema.parse('mailbox'),
+        identifier: `held-${String(index).padStart(2, '0')}@mail.example`,
+      })
+    }
+    const { client, close } = await connectedClient(
+      { ...colony, accounts: fakeAccounts(register) },
+      `Bearer ${apiKey}`,
+    )
+
+    const first = (await client.callTool({
+      name: 'kolonie.accounts.list',
+      arguments: { kind: 'mailbox' },
+    })) as CallToolResult
+    const { nextCursor } = first.structuredContent as { nextCursor: string | null }
+    const crossed = await client.callTool({
+      name: 'kolonie.accounts.list',
+      arguments: { cursor: nextCursor },
+    })
+
+    expect(crossed.isError).toBe(true)
+    await close()
+  })
+})
+
+describe('kolonie.accounts.list surfaces the latest walk', () => {
   it('surfaces the latest walk on the account list, and says where to read it', async () => {
     const { colony, apiKey, agent } = await registeredCitizen()
     const walks = fakeWalks()

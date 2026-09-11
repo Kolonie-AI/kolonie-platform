@@ -497,6 +497,9 @@ export function atlasShelfTitle(category: string): string {
 /**
  * Group catalogue rows into entries, one per provider.
  *
+ * Alias-equivalent rows collapse onto the canonical kind before grouping. The
+ * canonical row wins where persisted data still contains both spellings.
+ *
  * **Here rather than in a query**, because every surface needs the same grouping
  * and a `GROUP BY` returning JSON would put the assembly in SQL where the shape
  * cannot be parsed. `providerRecipeList` already orders joinable-first then by
@@ -544,12 +547,27 @@ export function atlasEntries(
   const byProvider = new Map<string, ProviderRecipe[]>()
 
   for (const recipe of recipes) {
+    const kind = atlasCanonicalKind(recipe.kind)
     const held = byProvider.get(recipe.provider)
-    if (held === undefined) byProvider.set(recipe.provider, [recipe])
-    else held.push(recipe)
+    if (held === undefined) {
+      byProvider.set(recipe.provider, [recipe])
+      continue
+    }
+
+    const at = held.findIndex((row) => atlasCanonicalKind(row.kind) === kind)
+    if (at === -1) {
+      held.push(recipe)
+      continue
+    }
+
+    if (recipe.kind === kind) held[at] = recipe
   }
 
-  return [...byProvider.entries()].map(([provider, rows]) => {
+  return [...byProvider.entries()].map(([provider, storedRows]) => {
+    const rows = storedRows.map((row) => {
+      const kind = atlasCanonicalKind(row.kind)
+      return kind === row.kind ? row : { ...row, kind }
+    })
     const status = atlasEntryStatus(rows)
 
     /**

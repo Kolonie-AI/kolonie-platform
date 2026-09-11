@@ -44,10 +44,25 @@ export function registerAccountRoutes(v1: FastifyInstance, deps: RouteDependenci
     // no booleans, so the string is what is compared — and anything other than
     // `true` is the default view rather than an error, because a typo here must
     // not turn *show me everything* into a 400 on a read.
-    const { kind, includeRetired } = request.query as { kind?: string; includeRetired?: string }
-    const result = await readAccounts(caller.id, kind, accounts, walks, recipes, {
-      includeRetired: includeRetired === 'true',
-    })
+    const { kind, includeRetired, limit, cursor } = request.query as {
+      kind?: string
+      includeRetired?: string
+      limit?: string
+      cursor?: string
+    }
+    const parsedLimit = limit === undefined ? undefined : Number(limit)
+    const result = await readAccounts(
+      caller.id,
+      {
+        ...(kind === undefined ? {} : { kind }),
+        includeRetired: includeRetired === 'true',
+        ...(parsedLimit === undefined ? {} : { limit: parsedLimit }),
+        ...(cursor === undefined ? {} : { cursor }),
+      },
+      accounts,
+      walks,
+      recipes,
+    )
 
     if (result.outcome === 'rejected') {
       return reply.status(ERROR_STATUS[result.error.code]).send(result.error)

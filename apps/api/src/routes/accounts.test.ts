@@ -186,6 +186,58 @@ describe('GET /v1/accounts', () => {
     expect(response.json().accounts).toHaveLength(1)
   })
 
+  it('pages accounts and latest walks through one additive cursor', async () => {
+    for (let index = 0; index < 10; index += 1) {
+      register.proveDirectly(agentId, {
+        kind: AccountKindSchema.parse('mailbox'),
+        identifier: `held-${String(index).padStart(2, '0')}@mail.example`,
+      })
+    }
+    for (let index = 0; index < 3; index += 1) {
+      walks.add({
+        agentId,
+        kind: 'github',
+        provider: `provider-${String(index).padStart(2, '0')}`,
+      })
+    }
+
+    const seenAccounts: string[] = []
+    const seenWalks: string[] = []
+    let cursor: string | undefined
+
+    for (let turn = 0; turn < 5; turn += 1) {
+      const response = await authed({
+        method: 'GET',
+        url: `/v1/accounts?limit=4${cursor === undefined ? '' : `&cursor=${encodeURIComponent(cursor)}`}`,
+      })
+      expect(response.statusCode).toBe(200)
+      const page = response.json<{
+        accounts: { id: string }[]
+        latestWalks: { walkId: string }[]
+        nextCursor: string | null
+      }>()
+      seenAccounts.push(...page.accounts.map((account) => account.id))
+      seenWalks.push(...page.latestWalks.map((walk) => walk.walkId))
+      if (page.nextCursor === null) break
+      cursor = page.nextCursor
+    }
+
+    expect(seenAccounts).toHaveLength(10)
+    expect(new Set(seenAccounts).size).toBe(10)
+    expect(seenWalks).toHaveLength(3)
+    expect(new Set(seenWalks).size).toBe(3)
+  })
+
+  it('rejects an invalid cursor and an oversized page', async () => {
+    const invalidCursor = await authed({ method: 'GET', url: '/v1/accounts?cursor=not-a-cursor' })
+    const oversized = await authed({ method: 'GET', url: '/v1/accounts?limit=17' })
+
+    expect(invalidCursor.statusCode).toBe(422)
+    expect(invalidCursor.json()).toMatchObject({ code: 'validation_failed' })
+    expect(oversized.statusCode).toBe(422)
+    expect(oversized.json()).toMatchObject({ code: 'validation_failed' })
+  })
+
   it('refuses an anonymous caller', async () => {
     expect((await app.inject({ method: 'GET', url: '/v1/accounts' })).statusCode).toBe(401)
   })

@@ -86,6 +86,28 @@ describe('the inventory', () => {
     expect(text).toContain(walk.walkId)
   })
 
+  it('says when another account-or-walk page remains and prints its cursor', () => {
+    const text = accountsAsText(
+      [account({ kind: 'github', identifier: 'colette' })],
+      [],
+      0,
+      {},
+      'opaque-next',
+      9,
+      4,
+    )
+
+    expect(text).toContain('More accounts or walk statuses remain')
+    expect(text).toContain('9 accounts and 4 latest walks')
+    expect(text).toContain('opaque-next')
+  })
+
+  it('says nothing about another page after the final one', () => {
+    const text = accountsAsText([account({ kind: 'github', identifier: 'colette' })])
+
+    expect(text).not.toContain('More accounts or walk statuses remain')
+  })
+
   it('says what each kind opens, before the identifiers of that kind', () => {
     const text = accountsAsText([
       account({ kind: 'mailbox', identifier: 'me@example.org' }),

@@ -1,5 +1,5 @@
 {
-  "measuredAt": "2026-09-09",
+  "measuredAt": "2026-09-11",
   "command": "npm run catalogue-structure",
   "tools": [
     {
@@ -436,6 +436,10 @@
       "name": "kolonie.accounts.list",
       "schema": {
         "properties": {
+          "cursor": {
+            "minLength": 1,
+            "type": "string"
+          },
           "includeRetired": {
             "type": "boolean"
           },
@@ -444,6 +448,12 @@
             "minLength": 3,
             "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
             "type": "string"
+          },
+          "limit": {
+            "default": 8,
+            "maximum": 16,
+            "minimum": 1,
+            "type": "integer"
           }
         },
         "type": "object"

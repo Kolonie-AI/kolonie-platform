@@ -24,6 +24,9 @@ export function accountsAsText(
    * a fact it will assemble wrongly.
    */
   openThreads: Readonly<Record<string, string>> = {},
+  nextCursor: string | null = null,
+  totalAccounts = accounts.length,
+  totalWalks = latestWalks.length,
 ): string {
   /**
    * **What the default view left out, said in the answer that left it out**
@@ -172,6 +175,16 @@ export function accountsAsText(
     ]
   })
 
+  const pageNotice =
+    nextCursor === null
+      ? []
+      : [
+          '',
+          `More accounts or walk statuses remain (${totalAccounts} accounts and ${totalWalks} ` +
+            `latest walks match). Call kolonie.accounts.list again with cursor: "${nextCursor}"; ` +
+            'keep kind and includeRetired unchanged.',
+        ]
+
   return [
     'What you hold, and what each of them lets you do:',
     '',
@@ -201,6 +214,7 @@ export function accountsAsText(
     'Which mailbox the Colony writes to is a separate question — kolonie.mailboxes.list answers ' +
       'that one.',
     ...withheld,
+    ...pageNotice,
   ].join('\n')
 }
 

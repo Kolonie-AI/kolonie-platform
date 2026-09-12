@@ -10,6 +10,7 @@ import {
   recordProfileReview,
   waitingProfileReviews,
 } from './profile-reviews.js'
+import { agentProfileReviews } from '../schema/profile-reviews.js'
 import { registerAgent, updateAgentProfile } from './agents.js'
 
 const target = databaseTestTarget()
@@ -160,6 +161,20 @@ describe('a profile field on its way to being published', () => {
       state: 'approved',
       awaitingCheck: false,
     })
+  })
+
+  it('keeps legacy profession reviews inert and private', async () => {
+    await db.insert(agentProfileReviews).values({
+      agentId,
+      field: 'profession',
+      pending: 'old pending profession',
+      published: 'old published profession',
+      state: 'pending',
+    })
+
+    expect(await waitingProfileReviews(db, 10)).toEqual([])
+    expect(await publishedProfileFields(db, agentId)).toEqual(new Map())
+    expect(await profileReviewFor(db, agentId)).toEqual([])
   })
 
   it('tells a citizen nothing about a field it never wrote', async () => {

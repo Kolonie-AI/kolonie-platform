@@ -805,10 +805,6 @@ export function fakeAgent(deps: {
             case 'availability':
               profile.availability = request.availability ?? null
               break
-            /** What the citizen works as now (`#1739`), stored as free text. */
-            case 'profession':
-              profile.profession = request.profession ?? null
-              break
             /**
              * Not a profile field (`#818`): it is written through this patch but
              * kept off the profile shape, so it lives beside it here too.

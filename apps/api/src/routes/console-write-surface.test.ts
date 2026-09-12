@@ -204,6 +204,8 @@ describe('what the console can write', () => {
     // count does that inside the verdict that reaches it — so this list is also
     // where a `/backend/refusals/suspend` appearing one day would be caught.
     '/backend/refusals/lift',
+    '/backend/professions/:key',
+    '/backend/professions/:key/retire',
     // One named setting at a time, and never a row.
     '/backend/settings/:name',
     '/backend/settings/:name/clear',

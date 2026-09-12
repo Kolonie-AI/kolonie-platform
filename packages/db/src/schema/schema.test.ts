@@ -293,6 +293,12 @@ describe('schema', () => {
          */
         'agent_origins',
         /**
+         * `agent_professions` (`#1935`): the citizen's one current profession
+         * choice by stable registry key. It carries assignment concurrency and
+         * no definition version, so publication changes resolve without rewrites.
+         */
+        'agent_professions',
+        /**
          * `agent_profile_reviews` (`#827`): what a citizen wrote about itself,
          * on its way to being published. One row per citizen per field, holding
          * what is waiting to be read and what a check last cleared.
@@ -863,6 +869,13 @@ describe('schema', () => {
         'playbook_step_proposals',
         'playbooks',
         'pow_challenges',
+        /**
+         * The Colony-owned profession catalogue (`#1935`): one stable key and
+         * its immutable numbered documents. The pointer is on `professions`;
+         * `profession_versions` preserves every definition maintainers published.
+         */
+        'profession_versions',
+        'professions',
         // `provider_reports` (#298): what a provider did to a citizen that got
         // no account out of it — the row `accounts` structurally cannot hold,
         // because a provider hangs off an account there.

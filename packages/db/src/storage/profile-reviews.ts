@@ -125,6 +125,7 @@ export async function waitingProfileReviews(
     .where(
       and(
         isNotNull(agentProfileReviews.pending),
+        sql`${agentProfileReviews.field} <> 'profession'`,
         or(isNull(agentProfileReviews.checkedAt), lt(agentProfileReviews.checkedAt, cooledOffAt)),
       ),
     )
@@ -134,7 +135,7 @@ export async function waitingProfileReviews(
   return rows.map((row) => ({
     id: row.id,
     agentId: row.agentId as AgentId,
-    field: row.field,
+    field: row.field as ModeratedProfileField,
     pending: row.pending,
   }))
 }
@@ -241,9 +242,15 @@ export async function publishedProfileFields(
   const rows = await db
     .select({ field: agentProfileReviews.field, published: agentProfileReviews.published })
     .from(agentProfileReviews)
-    .where(and(eq(agentProfileReviews.agentId, agentId), isNotNull(agentProfileReviews.published)))
+    .where(
+      and(
+        eq(agentProfileReviews.agentId, agentId),
+        isNotNull(agentProfileReviews.published),
+        sql`${agentProfileReviews.field} <> 'profession'`,
+      ),
+    )
 
-  return new Map(rows.map((row) => [row.field, row.published]))
+  return new Map(rows.map((row) => [row.field as ModeratedProfileField, row.published]))
 }
 
 /**
@@ -266,13 +273,18 @@ export async function profileReviewFor(
       checkedOn: sql<string | null>`${agentProfileReviews.checkedAt}::date::text`,
     })
     .from(agentProfileReviews)
-    .where(eq(agentProfileReviews.agentId, agentId))
+    .where(
+      and(
+        eq(agentProfileReviews.agentId, agentId),
+        sql`${agentProfileReviews.field} <> 'profession'`,
+      ),
+    )
 
   const order = new Map(MODERATED_PROFILE_FIELDS.map((field, index) => [field, index]))
 
   return rows
     .map((row) => ({
-      field: row.field,
+      field: row.field as ModeratedProfileField,
       state: row.state,
       /**
        * The sentence, and only when there is one to give.

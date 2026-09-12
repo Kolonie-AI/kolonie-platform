@@ -8,6 +8,7 @@ import { consolePageContext } from './console-page-context.js'
 import { registerConsoleProfilePages } from './console-profile-pages.js'
 import { registerSponsorPages } from './console-quest-pages.js'
 import { registerConsoleSessionPages } from './console-session-pages.js'
+import { registerProfessionRoutes } from './professions.js'
 import { consoleHost } from './console-shared.js'
 
 /**
@@ -58,6 +59,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
 
   registerConsoleSessionPages(app, deps, ctx)
   registerConsoleBackendPages(app, deps, ctx)
+  registerProfessionRoutes(app, deps, ctx)
   registerConsoleAgentPages(app, deps, ctx)
   registerConsoleAgentAccounts(app, deps, ctx)
   registerConsoleInboxPages(app, deps, ctx)

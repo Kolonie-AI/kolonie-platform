@@ -355,6 +355,15 @@ describe('PATCH /v1/agents/me', () => {
       expect(response.json().code).toBe('validation_failed')
     })
 
+    it('refuses a free-text profession rather than quietly ignoring it', async () => {
+      const { apiKey } = (await withStore()).issue()
+
+      const response = await patch(apiKey, { profession: 'Software Producer' })
+
+      expect(response.statusCode).toBe(422)
+      expect(response.json().code).toBe('validation_failed')
+    })
+
     /**
      * A wallet address is not editable here, and the refusal is a rejection
      * rather than a silent drop — `UpdateProfileRequestSchema` is `.strict()`.

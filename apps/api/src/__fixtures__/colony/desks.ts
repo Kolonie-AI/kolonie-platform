@@ -39,6 +39,8 @@ import type { OperatorThreadDependencies } from '../../operator-threads.js'
 import type { PermissionReportDependencies } from '../../permission-reports.js'
 import { fakeErasureDesk, type FakeErasureDesk } from '../erasure.js'
 import { fakeRecoveryDesk, type FakeRecoveryDesk } from '../recovery.js'
+import { fakeProfessions } from '../professions.js'
+import type { Professions } from '../../professions.js'
 
 /**
  * The surfaces somebody sits behind: a steward, an operator, an account holder.
@@ -142,6 +144,7 @@ export interface FakeDesks {
   readonly selfDirection: SelfDirectionPractice
   /** Direct citizen delegation lifecycle for MCP tests. */
   readonly agentOperatorDelegations: FakeAgentOperatorDelegations
+  readonly professions: Professions
 }
 
 export function fakeDesks(): FakeDesks {
@@ -199,5 +202,6 @@ export function fakeDesks(): FakeDesks {
     cards: fakeWorkplaceCards(),
     selfDirection: fakeSelfDirectionPractice(),
     agentOperatorDelegations: fakeAgentOperatorDelegations(),
+    professions: fakeProfessions(),
   }
 }

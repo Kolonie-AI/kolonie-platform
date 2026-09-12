@@ -72,6 +72,41 @@ export const ProfessionSummarySchema = z
   .strict()
 export type ProfessionSummary = z.infer<typeof ProfessionSummarySchema>
 
+/** The active catalogue projection keeps full profession prose behind one keyed read. */
+export const ProfessionCatalogueSummarySchema = ProfessionDefinitionFieldsSchema.pick({
+  key: true,
+  title: true,
+  summary: true,
+  version: true,
+}).strict()
+export type ProfessionCatalogueSummary = z.infer<typeof ProfessionCatalogueSummarySchema>
+
+/** Fixed resource grammar so a new profession changes data and never the MCP schema. */
+export const ProfessionMcpInputSchema = z.discriminatedUnion('act', [
+  z.object({ act: z.literal('list') }).strict(),
+  z.object({ act: z.literal('get'), key: ProfessionKeySchema }).strict(),
+  z
+    .object({
+      act: z.literal('choose'),
+      key: ProfessionKeySchema,
+      expectedAssignmentVersion: z.number().int().positive().optional(),
+    })
+    .strict(),
+])
+export type ProfessionMcpInput = z.infer<typeof ProfessionMcpInputSchema>
+
+/** The compact list response contains no caller state or duplicated follow-up operations. */
+export const ProfessionListResponseSchema = z
+  .object({ professions: z.array(ProfessionCatalogueSummarySchema) })
+  .strict()
+export type ProfessionListResponse = z.infer<typeof ProfessionListResponseSchema>
+
+/** One canonical current definition, readable for both active and retired professions. */
+export const ProfessionGetResponseSchema = z
+  .object({ lifecycle: ProfessionLifecycleSchema, definition: ProfessionDefinitionSchema })
+  .strict()
+export type ProfessionGetResponse = z.infer<typeof ProfessionGetResponseSchema>
+
 /** A stable-key choice that deliberately does not pin a definition version. */
 export const ProfessionAssignmentSchema = z
   .object({
@@ -81,3 +116,33 @@ export const ProfessionAssignmentSchema = z
   })
   .strict()
 export type ProfessionAssignment = z.infer<typeof ProfessionAssignmentSchema>
+
+const ProfessionGetNextSchema = z
+  .object({
+    tool: z.literal('kolonie.profession'),
+    arguments: z.object({ act: z.literal('get'), key: ProfessionKeySchema }).strict(),
+  })
+  .strict()
+
+const ProfessionChooseNextSchema = z
+  .object({
+    tool: z.literal('kolonie.profession'),
+    arguments: z
+      .object({
+        act: z.literal('choose'),
+        key: ProfessionKeySchema,
+        expectedAssignmentVersion: z.number().int().positive(),
+      })
+      .strict(),
+  })
+  .strict()
+
+/** A successful choice returns the decision, its live definition and executable follow-ups. */
+export const ProfessionChooseResponseSchema = z
+  .object({
+    assignment: ProfessionAssignmentSchema,
+    definition: ProfessionDefinitionSchema,
+    next: z.tuple([ProfessionGetNextSchema, ProfessionChooseNextSchema]),
+  })
+  .strict()
+export type ProfessionChooseResponse = z.infer<typeof ProfessionChooseResponseSchema>

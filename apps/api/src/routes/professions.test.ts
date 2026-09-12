@@ -44,6 +44,14 @@ describe('/backend/professions', () => {
       publishedByHumanId: null,
     }
     const professions: Professions = {
+      listActive: async () => [
+        {
+          key: definition.key,
+          title: definition.title,
+          summary: definition.summary,
+          version: definition.version,
+        },
+      ],
       listForMaintainer: async () => [{ profession, definition, publication, priorVersions: [1] }],
       read: async (_key, version) =>
         version === undefined || version === 1 ? { profession, definition, publication } : null,
@@ -65,7 +73,7 @@ describe('/backend/professions', () => {
           profession: { ...profession, lifecycle: 'retired', retiredAt: profession.publishedAt },
         }
       },
-      assign: async () => ({ outcome: 'unavailable' }),
+      assign: async () => ({ outcome: 'unavailable', reason: 'not-found' }),
     }
     app = buildApp({
       ...fakeColony(),

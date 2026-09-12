@@ -8,7 +8,11 @@ import {
   PROFESSION_DEFINITION_MAX_BYTES,
   PUBLIC_DECLARED_FIELDS,
   ProfessionAssignmentSchema,
+  ProfessionChooseResponseSchema,
   ProfessionDefinitionSchema,
+  ProfessionGetResponseSchema,
+  ProfessionListResponseSchema,
+  ProfessionMcpInputSchema,
   ProfessionSummarySchema,
   PublicCitizenRecordSchema,
   UpdateProfileRequestSchema,
@@ -132,6 +136,95 @@ describe('the canonical profession contract', () => {
     })
     expect(result.success).toBe(false)
     expect(PROFESSION_DEFINITION_MAX_BYTES).toBe(8 * 1024)
+  })
+
+  it('validates the fixed profession tool grammar without enumerating profession keys', () => {
+    expect(ProfessionMcpInputSchema.parse({ act: 'list' })).toEqual({ act: 'list' })
+    expect(
+      ProfessionMcpInputSchema.parse({
+        act: 'choose',
+        key: 'software-producer',
+        expectedAssignmentVersion: 2,
+      }),
+    ).toEqual({ act: 'choose', key: 'software-producer', expectedAssignmentVersion: 2 })
+    expect(
+      ProfessionMcpInputSchema.safeParse({
+        act: 'choose',
+        key: 'software-producer',
+        expectedAssignmentVersion: null,
+      }).success,
+    ).toBe(false)
+    expect(ProfessionMcpInputSchema.safeParse({ act: 'get' }).success).toBe(false)
+    expect(
+      ProfessionMcpInputSchema.safeParse({ act: 'list', key: 'software-producer' }).success,
+    ).toBe(false)
+    expect(
+      ProfessionMcpInputSchema.safeParse({ act: 'choose', key: 'Software Producer' }).success,
+    ).toBe(false)
+  })
+
+  it('validates each exact profession tool response', () => {
+    const summary = {
+      key: 'software-producer',
+      title: 'Software Producer',
+      summary: 'Builds useful software.',
+      version: 1,
+    }
+    expect(ProfessionListResponseSchema.parse({ professions: [summary] })).toEqual({
+      professions: [summary],
+    })
+    expect(
+      ProfessionGetResponseSchema.parse({ lifecycle: 'active', definition: definition() }),
+    ).toEqual({ lifecycle: 'active', definition: definition() })
+    const assignment = {
+      key: 'software-producer',
+      chosenAt: '2026-09-12T12:00:00.000Z',
+      assignmentVersion: 1,
+    }
+    expect(
+      ProfessionChooseResponseSchema.safeParse({
+        assignment,
+        definition: definition(),
+        next: [
+          { tool: 'kolonie.profession', arguments: { act: 'get', key: assignment.key } },
+          {
+            tool: 'kolonie.profession',
+            arguments: {
+              act: 'choose',
+              key: 'citizen-mentor',
+              expectedAssignmentVersion: assignment.assignmentVersion,
+            },
+          },
+        ],
+      }).success,
+    ).toBe(true)
+    expect(
+      ProfessionChooseResponseSchema.safeParse({
+        assignment,
+        definition: definition(),
+        next: [{ tool: 'kolonie.profession', arguments: { act: 'get', key: assignment.key } }],
+      }).success,
+    ).toBe(false)
+    expect(
+      ProfessionChooseResponseSchema.safeParse({
+        assignment,
+        definition: definition(),
+        next: [
+          { tool: 'kolonie.profession', arguments: { act: 'get', key: assignment.key } },
+          {
+            tool: 'kolonie.profession',
+            arguments: {
+              act: 'choose',
+              key: 'Software Producer',
+              expectedAssignmentVersion: assignment.assignmentVersion,
+            },
+          },
+        ],
+      }).success,
+    ).toBe(false)
+    expect(
+      ProfessionListResponseSchema.safeParse({ professions: [summary], next: [] }).success,
+    ).toBe(false)
   })
 })
 

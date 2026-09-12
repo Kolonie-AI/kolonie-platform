@@ -65,6 +65,7 @@ import { fakeWishList } from './account-wishes.js'
 import { fakeReachability } from './reachability.js'
 import { fakeWebsite } from './website.js'
 import { fakeRecoveryDesk } from './recovery.js'
+import { fakeProfessions } from './professions.js'
 import { recovery } from '../recovery.js'
 
 // How every MCP test reaches the surface it is testing.
@@ -132,6 +133,7 @@ export const anonymousClient = (registry: AgentRegistry = fakeRegistry()) =>
     skillReleases: DEFAULT_SKILL_RELEASES,
     registry,
     store: fakeStore(),
+    professions: fakeProfessions(),
     catalogue: fakeCatalogue(),
     submissions: fakeSubmissions(),
     guidance: fakeGuidance(),

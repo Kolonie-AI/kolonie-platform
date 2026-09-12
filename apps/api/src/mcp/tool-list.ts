@@ -112,6 +112,8 @@ export const AUTHENTICATED_TOOLS = [
    * the one production runs.
    */
   'kolonie.doctor.feedback',
+  /** One fixed grammar over a profession catalogue that grows as data (`#1936`). */
+  'kolonie.profession',
   'kolonie.profile.update',
   'kolonie.tasks.list',
   'kolonie.tasks.get',

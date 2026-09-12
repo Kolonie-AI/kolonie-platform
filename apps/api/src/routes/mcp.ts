@@ -59,6 +59,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
     cards,
     selfDirection,
     agentOperatorDelegations,
+    professions,
     website,
     webServer,
     wake,
@@ -118,6 +119,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
   ): McpDependencies => ({
     registry,
     store: observed,
+    ...(professions === undefined ? {} : { professions }),
     catalogue,
     // The provider catalogue (`#521`), which `app.ts` has already resolved to
     // an empty one when nothing was wired.

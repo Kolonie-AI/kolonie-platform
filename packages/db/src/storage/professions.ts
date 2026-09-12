@@ -2,6 +2,7 @@ import { and, asc, eq, sql } from 'drizzle-orm'
 import {
   ProfessionDefinitionSchema,
   type ProfessionAssignment,
+  type ProfessionCatalogueSummary,
   type ProfessionDefinition,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
@@ -134,6 +135,32 @@ export async function readProfession(
   return row === undefined ? null : publication(row.profession, row.version)
 }
 
+/** Lists the compact active catalogue without exposing full profession constitutions. */
+export async function listActiveProfessions(db: Database): Promise<ProfessionCatalogueSummary[]> {
+  const rows = await db
+    .select({ profession: professions, version: professionVersions })
+    .from(professions)
+    .innerJoin(
+      professionVersions,
+      and(
+        eq(professionVersions.professionKey, professions.key),
+        eq(professionVersions.version, professions.currentVersion),
+      ),
+    )
+    .where(eq(professions.lifecycle, 'active'))
+    .orderBy(asc(professions.key))
+
+  return rows.map(({ version }) => {
+    const definition = ProfessionDefinitionSchema.parse(version.definition)
+    return {
+      key: definition.key,
+      title: definition.title,
+      summary: definition.summary,
+      version: definition.version,
+    }
+  })
+}
+
 /** Lists full current definitions and numbered history for maintainers. */
 export async function listProfessionsForMaintainer(db: Database) {
   const rows = await db
@@ -203,7 +230,7 @@ export async function retireProfession(
   })
 }
 
-/** Writes one stable-key choice with optimistic assignment concurrency. */
+/** Writes one stable-key choice with optimistic assignment concurrency and resolves it atomically. */
 export async function assignProfession(
   db: Database,
   input: {
@@ -212,20 +239,19 @@ export async function assignProfession(
     readonly expectedVersion: number | null
   },
 ): Promise<
-  | { readonly outcome: 'assigned'; readonly assignment: ProfessionAssignment }
+  | {
+      readonly outcome: 'assigned'
+      readonly assignment: ProfessionAssignment
+      readonly definition: ProfessionDefinition
+      readonly lifecycle: 'active' | 'retired'
+    }
   | { readonly outcome: 'conflict'; readonly assignmentVersion: number | null }
-  | { readonly outcome: 'unavailable' }
+  | { readonly outcome: 'unavailable'; readonly reason: 'not-found' | 'inactive' }
 > {
   return db.transaction(async (tx) => {
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtextextended('profession-assignment:' || ${input.agentId}, 0))`,
     )
-    const [profession] = await tx
-      .select()
-      .from(professions)
-      .where(eq(professions.key, input.key))
-      .limit(1)
-    if (profession?.lifecycle !== 'active') return { outcome: 'unavailable' }
     const [current] = await tx
       .select()
       .from(agentProfessions)
@@ -234,6 +260,49 @@ export async function assignProfession(
       .limit(1)
     if ((current?.assignmentVersion ?? null) !== input.expectedVersion) {
       return { outcome: 'conflict', assignmentVersion: current?.assignmentVersion ?? null }
+    }
+    if (current?.professionKey === input.key) {
+      const [profession] = await tx
+        .select({ profession: professions, version: professionVersions })
+        .from(professions)
+        .innerJoin(
+          professionVersions,
+          and(
+            eq(professionVersions.professionKey, professions.key),
+            eq(professionVersions.version, professions.currentVersion),
+          ),
+        )
+        .where(eq(professions.key, input.key))
+        .for('update', { of: professions })
+        .limit(1)
+      if (profession === undefined) throw new Error('assigned profession is missing')
+      return {
+        outcome: 'assigned',
+        assignment: {
+          key: current.professionKey,
+          chosenAt: current.chosenAt,
+          assignmentVersion: current.assignmentVersion,
+        },
+        definition: ProfessionDefinitionSchema.parse(profession.version.definition),
+        lifecycle: profession.profession.lifecycle as 'active' | 'retired',
+      }
+    }
+    const [profession] = await tx
+      .select({ profession: professions, version: professionVersions })
+      .from(professions)
+      .innerJoin(
+        professionVersions,
+        and(
+          eq(professionVersions.professionKey, professions.key),
+          eq(professionVersions.version, professions.currentVersion),
+        ),
+      )
+      .where(eq(professions.key, input.key))
+      .for('update', { of: professions })
+      .limit(1)
+    if (profession === undefined) return { outcome: 'unavailable', reason: 'not-found' }
+    if (profession.profession.lifecycle !== 'active') {
+      return { outcome: 'unavailable', reason: 'inactive' }
     }
     const [written] =
       current === undefined
@@ -263,6 +332,8 @@ export async function assignProfession(
         chosenAt: written.chosenAt,
         assignmentVersion: written.assignmentVersion,
       },
+      definition: ProfessionDefinitionSchema.parse(profession.version.definition),
+      lifecycle: 'active',
     }
   })
 }

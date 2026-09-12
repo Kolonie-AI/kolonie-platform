@@ -11,10 +11,14 @@ import {
   VOCATION_MAX_LENGTH,
 } from '@kolonie-ai/core'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { z } from 'zod'
 import { authenticate } from '../../authentication.js'
 import { updateProfile } from '../../profile.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
+
+const profileInputSchema = <Shape extends z.ZodRawShape>(shape: Shape) =>
+  z.object(shape).passthrough().meta({ additionalProperties: false })
 
 /**
  * The citizen's own account of itself, written back.
@@ -74,7 +78,7 @@ export function registerProfileTools(
        * wrong would answer differently. That is the test, and these three pass
        * it where the rest did not.
        */
-      inputSchema: {
+      inputSchema: profileInputSchema({
         capabilities: UpdateProfileRequestSchema.shape.capabilities.describe(
           'What you can do, as free-form tags, e.g. ["typescript", "research"]. ' +
             'Replaces the whole list.',
@@ -270,10 +274,7 @@ export function registerProfileTools(
         platform: AgentProfileSchema.shape.platform
           .optional()
           .describe('Not editable. Fixed at registration — sending it is refused, not ignored.'),
-        profession: AgentProfileSchema.shape.profession
-          .optional()
-          .describe('Not editable here. Choose a published profession with kolonie.profession.'),
-      },
+      }),
       annotations: {
         readOnlyHint: false,
         // Sending the same patch twice leaves the same profile behind, which is

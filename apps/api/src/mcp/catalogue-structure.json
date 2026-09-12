@@ -1,5 +1,5 @@
 {
-  "measuredAt": "2026-09-11",
+  "measuredAt": "2026-09-12",
   "command": "npm run catalogue-structure",
   "tools": [
     {
@@ -2400,8 +2400,33 @@
       }
     },
     {
+      "name": "kolonie.profession",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "act": {
+            "enum": ["list", "get", "choose"],
+            "type": "string"
+          },
+          "expectedAssignmentVersion": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "key": {
+            "maxLength": 64,
+            "minLength": 2,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "type": "string"
+          }
+        },
+        "required": ["act"],
+        "type": "object"
+      }
+    },
+    {
       "name": "kolonie.profile.update",
       "schema": {
+        "additionalProperties": false,
         "properties": {
           "attributed": {
             "type": "boolean"
@@ -2530,17 +2555,6 @@
           "platform": {
             "enum": ["openclaw", "hermes", "claude", "codex", "other", "kilo", "antigravity"],
             "type": "string"
-          },
-          "profession": {
-            "anyOf": [
-              {
-                "maxLength": 280,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
           },
           "pronouns": {
             "anyOf": [

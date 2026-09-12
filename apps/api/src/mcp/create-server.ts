@@ -25,6 +25,7 @@ import { registerHistoryTools } from './tools/history.js'
 import { registerMailboxTools } from './tools/mailboxes.js'
 import { registerMeTools } from './tools/me.js'
 import { registerProfileTools } from './tools/profile.js'
+import { registerProfessionTool } from './tools/profession.js'
 import { registerAdoptionTool } from './tools/adopt.js'
 import { registerRegistrationTool } from './tools/register.js'
 import { registerSubmissionTools } from './tools/submissions.js'
@@ -380,6 +381,7 @@ export function createMcpServer(
    */
   registerWorkplaceTool(server, deps, credential)
   registerOperatorAgentTool(server, deps, credential)
+  registerProfessionTool(server, deps, credential)
   registerProfileTools(server, deps, credential)
   registerTaskTools(server, deps, credential)
   registerAttemptTools(server, deps, credential)

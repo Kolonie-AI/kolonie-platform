@@ -997,6 +997,54 @@ describe('kolonie.tasks.frontier', () => {
     await close()
   })
 
+  it('skips refused providers before taking the Atlas top three', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const catalogue = fakeCatalogue()
+    const recipes = fakeProviderRecipes()
+    recipes.write({ kind: 'mailbox', provider: 'closed-one', status: 'refused' })
+    recipes.write({ kind: 'mailbox', provider: 'closed-two', status: 'refused' })
+    recipes.write({ kind: 'mailbox', provider: 'closed-three', status: 'refused' })
+    recipes.write({ kind: 'mailbox', provider: 'open-route' })
+    catalogue.answersAccountFrontier([{ kind: 'mailbox', unlocks: 1 }])
+    const { client, close } = await connectedClient(
+      { ...colony, catalogue, recipes },
+      `Bearer ${apiKey}`,
+    )
+
+    const result = await client.callTool({ name: 'kolonie.tasks.frontier', arguments: {} })
+
+    const [account] = FrontierResponseSchema.parse(result.structuredContent).accounts
+    expect(account).toEqual({ kind: 'mailbox', unlocks: 1, providers: ['open-route'] })
+    await close()
+  })
+
+  it('omits refused and retired providers without hiding the account frontier', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const catalogue = fakeCatalogue()
+    const recipes = fakeProviderRecipes()
+    recipes.write({ kind: 'mailbox', provider: 'closed-one', status: 'refused' })
+    recipes.write({ kind: 'mailbox', provider: 'closed-two', status: 'refused' })
+    recipes.write({ kind: 'mailbox', provider: 'closed-three', status: 'refused' })
+    recipes.write({ kind: 'mailbox', provider: 'withdrawn', status: 'retired' })
+    catalogue.answersAccountFrontier([{ kind: 'mailbox', unlocks: 1 }])
+    const { client, close } = await connectedClient(
+      { ...colony, catalogue, recipes },
+      `Bearer ${apiKey}`,
+    )
+
+    const result = await client.callTool({ name: 'kolonie.tasks.frontier', arguments: {} })
+
+    const [account] = FrontierResponseSchema.parse(result.structuredContent).accounts
+    expect(account).toEqual({ kind: 'mailbox', unlocks: 1, providers: [] })
+
+    const text = JSON.stringify(result.content)
+    expect(text).toContain('no currently viable route is known')
+    expect(text).toContain('boundary research')
+    expect(text).not.toContain('closed-one')
+    expect(text).not.toContain('withdrawn')
+    await close()
+  })
+
   it('says nothing at all about accounts when none would open work', async () => {
     // The empty answer is silence rather than a paragraph explaining itself: a
     // citizen holding every gating kind has nothing to act on here, and this call
@@ -1011,10 +1059,10 @@ describe('kolonie.tasks.frontier', () => {
     await close()
   })
 
-  it('says so plainly when the Atlas has no provider for a kind yet', async () => {
+  it('says no viable route is known when the Atlas has no provider for a kind yet', async () => {
     // A kind nobody has walked is worth naming anyway — the count is the reason
-    // to go after it, and the honest answer is that the shelf is empty, not that
-    // the kind is unavailable.
+    // to research its boundary, and the honest answer is that no route exists,
+    // not that the kind is unavailable.
     const { colony, apiKey } = await registeredCitizen()
     const catalogue = fakeCatalogue()
     catalogue.answersAccountFrontier([{ kind: 'trello', unlocks: 1 }])
@@ -1024,7 +1072,7 @@ describe('kolonie.tasks.frontier', () => {
 
     const [account] = FrontierResponseSchema.parse(result.structuredContent).accounts
     expect(account?.providers).toEqual([])
-    expect(JSON.stringify(result.content)).toContain('the Atlas has no provider for it yet')
+    expect(JSON.stringify(result.content)).toContain('no currently viable route is known')
     await close()
   })
 })

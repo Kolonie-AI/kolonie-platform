@@ -103,7 +103,8 @@ function accountsAsText(accounts: FrontierResponse['accounts']): readonly string
   const lines = accounts.map((account) => {
     const where =
       account.providers.length === 0
-        ? 'the Atlas has no provider for it yet — kolonie.accounts.recipes, and walk one'
+        ? 'no currently viable route is known — inspect kolonie.accounts.recipes; a provider ' +
+          'walk is boundary research, not a route that unlocks this work'
         : `start at ${account.providers.join(', ')}`
 
     return `• ${account.kind} — ${account.unlocks} would come within reach; ${where}`
@@ -117,7 +118,7 @@ function accountsAsText(accounts: FrontierResponse['accounts']): readonly string
     ...lines,
     '',
     'The count is what kolonie.tasks.list with equipped true would then show you, and it is ' +
-      'availability rather than a commitment. The providers are the top of the Atlas ordering ' +
+      'availability rather than a commitment. Any providers shown preserve the Atlas ordering ' +
       'for that kind — kolonie.accounts.recipes is the whole shelf.',
   ]
 }

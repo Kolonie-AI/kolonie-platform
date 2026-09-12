@@ -1659,18 +1659,11 @@ describe('the erasure boundary', () => {
       'website_attributions.agent_id c',
       'website_challenges.agent_id c',
       /**
-       * `#1757`. Activity names who did it; the row is the citizen's and
-       * goes. A linked human on the same row is `set null` on *their*
-       * erasure, which is a different parent and is not in this list.
+       * `#1939`. Card history outlives an actor or delegated subject. Both
+       * identifiers set null so erasure preserves the unrelated card timeline.
        */
-      'workplace_activity.actor_id c',
-      /**
-       * `#1797`. The subject of a delegated act cascades for the reason the
-       * actor does: an event describing whose Workplace moved describes
-       * nobody once that citizen has left. The delegation on the same row is
-       * `set null` from *its* own parent, which is not this list.
-       */
-      'workplace_activity.subject_agent_id c',
+      'workplace_activity.actor_id n',
+      'workplace_activity.subject_agent_id n',
       /**
        * Membership is access, not a public fact. Cascades from both ends:
        * the board going takes its roster, and a citizen leaving drops

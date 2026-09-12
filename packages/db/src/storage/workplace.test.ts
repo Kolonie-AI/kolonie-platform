@@ -31,6 +31,7 @@ import {
   listBoardsFor,
   listCards,
   listComments,
+  listCardEvents,
   listLinks,
   listMembers,
   materialiseDue,
@@ -807,6 +808,189 @@ describe('workplace storage', () => {
     expect(listed.items[0]).not.toHaveProperty('description')
   })
 
+  it('records one canonical event for each card mutation family without copying private bodies', async () => {
+    const board = await defaultBoard()
+    const created = await createCard(db, {
+      callerId: owner,
+      boardId: board.id,
+      title: 'Eventful card',
+      description: 'Private description',
+      status: 'ready',
+    })
+    if (created.outcome !== 'created') throw new Error('card missing')
+    const updated = await updateCard(db, {
+      callerId: owner,
+      cardId: created.card.id,
+      expectedVersion: created.card.version,
+      title: 'Changed title',
+    })
+    if (updated.outcome !== 'updated') throw new Error('update failed')
+    const noOp = await updateCard(db, {
+      callerId: owner,
+      cardId: updated.card.id,
+      expectedVersion: updated.card.version,
+      title: updated.card.title,
+    })
+    expect(noOp).toEqual({ outcome: 'updated', card: updated.card })
+    expect(
+      await updateCard(db, {
+        callerId: owner,
+        cardId: updated.card.id,
+        expectedVersion: created.card.version,
+        title: updated.card.title,
+      }),
+    ).toEqual({ outcome: 'stale' })
+    const claimed = await claimCard(db, {
+      callerId: owner,
+      cardId: updated.card.id,
+      expectedVersion: updated.card.version,
+    })
+    if (claimed.outcome !== 'claimed') throw new Error('claim failed')
+    const checklist = await createChecklist(db, {
+      callerId: owner,
+      cardId: claimed.card.id,
+      title: 'Private checklist',
+    })
+    if (checklist.outcome !== 'created') throw new Error('checklist failed')
+    const item = await createChecklistItem(db, {
+      callerId: owner,
+      checklistId: checklist.checklist.id,
+      title: 'Private item',
+    })
+    if (item.outcome !== 'created') throw new Error('item failed')
+    const comment = await createComment(db, {
+      callerId: owner,
+      cardId: claimed.card.id,
+      body: 'Private comment body',
+    })
+    if (comment.outcome !== 'created') throw new Error('comment failed')
+    const link = await addLink(db, {
+      callerId: owner,
+      cardId: claimed.card.id,
+      kind: 'url',
+      ref: 'https://example.com/private',
+    })
+    if (link.outcome !== 'created') throw new Error('link failed')
+    const blocked = await blockCard(db, {
+      callerId: owner,
+      cardId: claimed.card.id,
+      expectedVersion: claimed.card.version,
+      blockedBy: 'Waiting for an answer.',
+      unblockWhen: 'The answer arrives.',
+    })
+    if (blocked.outcome !== 'blocked') throw new Error('block failed')
+
+    const listed = await listCardEvents(db, owner, created.card.id, { limit: 100 })
+    expect(listed.outcome).toBe('listed')
+    if (listed.outcome !== 'listed') return
+    expect(listed.items.map((event) => event.verb)).toEqual([
+      'card.blocked',
+      'card.link_created',
+      'card.comment_created',
+      'card.checklist_item_created',
+      'card.checklist_created',
+      'card.claimed',
+      'card.updated',
+      'card.created',
+    ])
+    expect(listed.items.every((event) => event.actorId === owner)).toBe(true)
+    expect(JSON.stringify(listed.items)).not.toContain('Private comment body')
+    expect(JSON.stringify(listed.items)).not.toContain('Private checklist')
+    expect(JSON.stringify(listed.items)).not.toContain('example.com/private')
+  })
+
+  it('paginates tied events newest-first and hides the timeline from a stranger', async () => {
+    const board = await defaultBoard()
+    const created = await createCard(db, { callerId: owner, boardId: board.id, title: 'Timeline' })
+    if (created.outcome !== 'created') throw new Error('card missing')
+    const at = '2026-09-12T12:00:00.000Z'
+    await db
+      .update(workplaceActivity)
+      .set({ createdAt: at })
+      .where(eq(workplaceActivity.cardId, created.card.id))
+    await db.insert(workplaceActivity).values([
+      {
+        boardId: board.id,
+        cardId: created.card.id,
+        actorId: owner,
+        actorKind: 'citizen',
+        verb: 'card.comment_created',
+        payload: { commentId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
+        createdAt: at,
+      },
+      {
+        boardId: board.id,
+        cardId: created.card.id,
+        actorId: owner,
+        actorKind: 'citizen',
+        verb: 'card.comment_deleted',
+        payload: { commentId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
+        createdAt: at,
+      },
+    ])
+    const first = await listCardEvents(db, owner, created.card.id, { limit: 2 })
+    expect(first.outcome).toBe('listed')
+    if (first.outcome !== 'listed') return
+    expect(first.items).toHaveLength(2)
+    expect(first.nextCursor).not.toBeNull()
+    const second = await listCardEvents(db, owner, created.card.id, {
+      limit: 2,
+      cursor: first.nextCursor,
+    })
+    expect(second.outcome).toBe('listed')
+    if (second.outcome !== 'listed') return
+    expect(new Set([...first.items, ...second.items].map((event) => event.id)).size).toBe(3)
+    expect(await listCardEvents(db, owner, created.card.id, { cursor: 'forged' })).toEqual({
+      outcome: 'invalid-cursor',
+    })
+    expect(await listCardEvents(db, stranger, created.card.id)).toEqual({ outcome: 'unknown' })
+  })
+
+  it('keeps card events after actor erasure and removes them with card cascade', async () => {
+    const board = await defaultBoard()
+    await addMember(db, { callerId: owner, boardId: board.id, citizenId: member })
+    const created = await createCard(db, {
+      callerId: member,
+      boardId: board.id,
+      title: 'Surviving history',
+    })
+    if (created.outcome !== 'created') throw new Error('card missing')
+    const [before] = await db
+      .select()
+      .from(workplaceActivity)
+      .where(eq(workplaceActivity.cardId, created.card.id))
+    expect(before?.actorId).toBe(member)
+    await eraseAgent(db, { agentId: member, banSalt: SALT })
+    const history = await listCardEvents(db, owner, created.card.id)
+    expect(history.outcome).toBe('listed')
+    if (history.outcome !== 'listed') return
+    expect(history.items[0]?.actorId).toBeNull()
+    expect(history.items[0]?.actorKind).toBe('citizen')
+    await db.delete(workplaceCards).where(eq(workplaceCards.id, created.card.id))
+    expect(
+      await db
+        .select()
+        .from(workplaceActivity)
+        .where(eq(workplaceActivity.cardId, created.card.id)),
+    ).toHaveLength(0)
+  })
+
+  it('rolls back an event when its state mutation rolls back', async () => {
+    const board = await defaultBoard()
+    await expect(
+      db.transaction(async (tx) => {
+        const result = await createCard(tx as unknown as Database, {
+          callerId: owner,
+          boardId: board.id,
+          title: 'Rolled back',
+        })
+        if (result.outcome !== 'created') throw new Error('create failed')
+        throw new Error('rollback')
+      }),
+    ).rejects.toThrow('rollback')
+    expect(await db.select().from(workplaceActivity)).toHaveLength(0)
+  })
+
   it('reports an ownerless inbox claim as an invalid transition', async () => {
     const board = await defaultBoard()
     const created = await createCard(db, {
@@ -880,6 +1064,9 @@ describe('workplace storage', () => {
     const listed = await listCards(db, owner, board.id)
     if (listed.outcome !== 'listed') throw new Error('list failed')
     expect(listed.items).toHaveLength(1)
+    const events = await listCardEvents(db, owner, first.card.id)
+    expect(events.outcome).toBe('listed')
+    if (events.outcome === 'listed') expect(events.items).toHaveLength(1)
   })
 
   it('replays a claim against the same idempotency key without a second side effect', async () => {
@@ -907,6 +1094,11 @@ describe('workplace storage', () => {
     expect(second.outcome).toBe('claimed')
     if (first.outcome !== 'claimed' || second.outcome !== 'claimed') return
     expect(second.card.version).toBe(first.card.version)
+    const events = await listCardEvents(db, owner, created.card.id)
+    expect(events.outcome).toBe('listed')
+    if (events.outcome === 'listed') {
+      expect(events.items.map((event) => event.verb)).toEqual(['card.claimed', 'card.created'])
+    }
   })
 
   it('refuses inbox → in_progress as a move', async () => {
@@ -2160,10 +2352,14 @@ describe('materialiseDue', () => {
     expect(toTimestamp(rows[1]!.periodStart)).toBe('2026-09-07T00:00:00.000Z')
     expect(rows[1]?.cardId).toBeNull()
 
-    const activity = await db.select().from(workplaceActivity)
+    const activity = await db
+      .select()
+      .from(workplaceActivity)
+      .where(eq(workplaceActivity.verb, 'recurrence.skipped'))
     expect(activity).toHaveLength(1)
     expect(activity[0]?.verb).toBe('recurrence.skipped')
-    expect(activity[0]?.actorId).toBe(owner)
+    expect(activity[0]?.actorId).toBeNull()
+    expect(activity[0]?.actorKind).toBe('system')
     expect(activity[0]?.boardId).toBe(board.id)
   })
 

@@ -28,9 +28,11 @@ export async function recordDelegatedWorkplaceAct(
     boardId: event.boardId,
     ...(event.cardId === undefined ? {} : { cardId: event.cardId }),
     actorId: event.actorAgentId,
+    actorKind: 'citizen',
     subjectAgentId: event.subjectAgentId,
     delegationId: event.delegationId,
     verb: event.verb,
+    legacy: true,
     ...(event.payload === undefined ? {} : { payload: event.payload }),
   })
 }

@@ -5,6 +5,7 @@ import { VaultKeySchema } from '../api/vault.js'
 import { CitizenshipStatusSchema } from '../agent/agent.js'
 import {
   AgentIdSchema,
+  AgentOperatorDelegationIdSchema,
   type AgentId,
   HumanIdSchema,
   TaskIdSchema,
@@ -511,6 +512,166 @@ export const WorkplaceResolvedLinkSchema = WorkplaceCardLinkSchema.extend({
     path: ['target', 'kind'],
   })
 export type WorkplaceResolvedLink = z.infer<typeof WorkplaceResolvedLinkSchema>
+
+export const WORKPLACE_CARD_EVENT_VERBS = [
+  'card.created',
+  'card.updated',
+  'card.claimed',
+  'card.moved',
+  'card.blocked',
+  'card.review_requested',
+  'card.closed',
+  'card.handover_started',
+  'card.archived',
+  'card.label_attached',
+  'card.label_detached',
+  'card.checklist_created',
+  'card.checklist_updated',
+  'card.checklist_deleted',
+  'card.checklist_item_created',
+  'card.checklist_item_updated',
+  'card.checklist_item_deleted',
+  'card.comment_created',
+  'card.comment_updated',
+  'card.comment_deleted',
+  'card.link_created',
+  'card.link_deleted',
+] as const
+export const WorkplaceCardEventVerbSchema = z.enum(WORKPLACE_CARD_EVENT_VERBS)
+export type WorkplaceCardEventVerb = z.infer<typeof WorkplaceCardEventVerbSchema>
+
+export const WORKPLACE_EVENT_ACTOR_KINDS = ['citizen', 'human-linked', 'system'] as const
+export const WorkplaceEventActorKindSchema = z.enum(WORKPLACE_EVENT_ACTOR_KINDS)
+export type WorkplaceEventActorKind = z.infer<typeof WorkplaceEventActorKindSchema>
+
+const eventFieldValue = z.union([z.string(), z.number(), z.null()])
+const eventChange = z.object({ before: eventFieldValue, after: eventFieldValue }).strict()
+const eventIdPayload = (key: string) => z.object({ [key]: z.uuid() }).strict()
+
+export const WorkplaceCardEventPayloadSchemas = {
+  'card.created': z
+    .object({
+      title: workplaceText(WORKPLACE_TITLE_MAX_LENGTH),
+      description: workplaceText(WORKPLACE_BODY_MAX_LENGTH).nullable(),
+      status: WorkplaceLaneSchema,
+      priority: WorkplacePrioritySchema,
+      dueAt: TimestampSchema.nullable(),
+      coverColour: WorkplaceColourSchema.nullable(),
+      kind: z.string().min(1).max(32).optional(),
+      parentId: WorkplaceCardIdSchema.nullable().optional(),
+    })
+    .strict(),
+  'card.updated': z
+    .object({ changes: z.record(z.string(), eventChange) })
+    .strict()
+    .refine((value) => Object.keys(value.changes).length > 0, {
+      message: 'changes cannot be empty',
+    }),
+  'card.claimed': z.object({ ownerId: AgentIdSchema }).strict(),
+  'card.moved': z
+    .object({
+      fromStatus: WorkplaceLaneSchema,
+      toStatus: WorkplaceLaneSchema,
+      fromPosition: z.number().finite(),
+      toPosition: z.number().finite(),
+    })
+    .strict(),
+  'card.blocked': z
+    .object({
+      fromStatus: WorkplaceLaneSchema,
+      blockedBy: workplaceText(WORKPLACE_SENTENCE_MAX_LENGTH),
+      unblockWhen: workplaceText(WORKPLACE_SENTENCE_MAX_LENGTH),
+    })
+    .strict(),
+  'card.review_requested': z.object({ fromStatus: WorkplaceLaneSchema }).strict(),
+  'card.closed': z.union([
+    z.object({ closeRecordId: z.uuid(), result: z.string().min(1).max(64) }).strict(),
+    z.object({ outcome: workplaceText(WORKPLACE_BODY_MAX_LENGTH) }).strict(),
+  ]),
+  'card.handover_started': z
+    .object({
+      handoverId: WorkplaceHandoverIdSchema,
+      fromId: AgentIdSchema,
+      toId: AgentIdSchema,
+    })
+    .strict(),
+  'card.archived': z.object({ fromStatus: WorkplaceLaneSchema }).strict(),
+  'card.label_attached': eventIdPayload('labelId'),
+  'card.label_detached': eventIdPayload('labelId'),
+  'card.checklist_created': eventIdPayload('checklistId'),
+  'card.checklist_updated': eventIdPayload('checklistId'),
+  'card.checklist_deleted': eventIdPayload('checklistId'),
+  'card.checklist_item_created': z
+    .object({ checklistId: WorkplaceChecklistIdSchema, itemId: WorkplaceChecklistItemIdSchema })
+    .strict(),
+  'card.checklist_item_updated': z
+    .object({ checklistId: WorkplaceChecklistIdSchema, itemId: WorkplaceChecklistItemIdSchema })
+    .strict(),
+  'card.checklist_item_deleted': z
+    .object({ checklistId: WorkplaceChecklistIdSchema, itemId: WorkplaceChecklistItemIdSchema })
+    .strict(),
+  'card.comment_created': eventIdPayload('commentId'),
+  'card.comment_updated': eventIdPayload('commentId'),
+  'card.comment_deleted': eventIdPayload('commentId'),
+  'card.link_created': z
+    .object({ linkId: WorkplaceLinkIdSchema, kind: WorkplaceLinkKindSchema })
+    .strict(),
+  'card.link_deleted': z
+    .object({ linkId: WorkplaceLinkIdSchema, kind: WorkplaceLinkKindSchema })
+    .strict(),
+} as const satisfies Record<WorkplaceCardEventVerb, z.ZodType>
+
+export type WorkplaceCardEventPayload = {
+  [Verb in WorkplaceCardEventVerb]: z.infer<(typeof WorkplaceCardEventPayloadSchemas)[Verb]>
+}[WorkplaceCardEventVerb]
+
+export function parseWorkplaceCardEventPayload(
+  verb: WorkplaceCardEventVerb,
+  payload: unknown,
+): WorkplaceCardEventPayload {
+  return WorkplaceCardEventPayloadSchemas[verb].parse(payload) as WorkplaceCardEventPayload
+}
+
+export const WorkplaceCardEventSchema = z
+  .object({
+    id: z.uuid(),
+    boardId: WorkplaceBoardIdSchema,
+    cardId: WorkplaceCardIdSchema,
+    actorId: AgentIdSchema.nullable(),
+    actorKind: WorkplaceEventActorKindSchema,
+    actorHumanId: HumanIdSchema.nullable(),
+    subjectAgentId: AgentIdSchema.nullable(),
+    delegationId: AgentOperatorDelegationIdSchema.nullable(),
+    verb: WorkplaceCardEventVerbSchema.or(z.string().min(1).max(64)),
+    payload: z.record(z.string(), z.unknown()),
+    legacy: z.boolean(),
+    createdAt: TimestampSchema,
+  })
+  .strict()
+  .superRefine((event, ctx) => {
+    if (event.actorKind !== 'human-linked' && event.actorHumanId !== null) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['actorHumanId'],
+        message: 'only human-linked names a human',
+      })
+    }
+    if (event.actorKind === 'system' && event.actorId !== null) {
+      ctx.addIssue({ code: 'custom', path: ['actorId'], message: 'system has no citizen actor' })
+    }
+    if (!event.legacy) {
+      const verb = WorkplaceCardEventVerbSchema.safeParse(event.verb)
+      if (
+        !verb.success ||
+        !WorkplaceCardEventPayloadSchemas[verb.data].safeParse(event.payload).success
+      ) {
+        ctx.addIssue({ code: 'custom', path: ['payload'], message: 'payload does not match verb' })
+      }
+    }
+  })
+export type WorkplaceCardEvent = z.infer<typeof WorkplaceCardEventSchema>
+export const WorkplaceCardEventPageSchema = pageOf(WorkplaceCardEventSchema)
+export type WorkplaceCardEventPage = z.infer<typeof WorkplaceCardEventPageSchema>
 
 /** `GET /v1/workplace/cards/:cardId/links` (`#1765`). No page — a card holds a handful. */
 export const WorkplaceCardLinkListSchema = z
@@ -1221,6 +1382,8 @@ export const WorkplaceCardDetailSchema = z
     comments: z.array(WorkplaceCommentSchema),
     links: z.array(WorkplaceResolvedLinkSchema),
     handover: WorkplaceHandoverSchema.nullable(),
+    eventCount: z.int().min(0),
+    events: z.array(WorkplaceCardEventSchema).max(5),
   })
   .strict()
 export type WorkplaceCardDetail = z.infer<typeof WorkplaceCardDetailSchema>

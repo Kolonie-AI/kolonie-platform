@@ -21,6 +21,7 @@ import {
   WORKPLACE_BODY_MAX_LENGTH,
   WORKPLACE_CADENCES,
   WORKPLACE_COMMITMENT_STATES,
+  WORKPLACE_EVENT_ACTOR_KINDS,
   WORKPLACE_LANES,
   WORKPLACE_LINK_KINDS,
   WORKPLACE_LINK_REF_MAX_LENGTH,
@@ -578,21 +579,21 @@ export const workplaceActivity = pgTable(
       .notNull()
       .references(() => workplaceBoards.id, { onDelete: 'cascade' }),
     cardId: uuid('card_id').references(() => workplaceCards.id, { onDelete: 'cascade' }),
-    actorId: uuid('actor_id')
-      .notNull()
-      .references(() => agents.id, { onDelete: 'cascade' }),
+    actorId: uuid('actor_id').references(() => agents.id, { onDelete: 'set null' }),
+    actorKind: varchar('actor_kind', { length: 16 }).notNull().default('citizen'),
     actorHumanId: uuid('actor_human_id').references(() => humans.id, { onDelete: 'set null' }),
     /**
      * Whose Workplace this act moved, when an operator citizen performed it
      * under a delegation (`#1797`). Null on an ordinary act, where the actor
      * is the subject.
      */
-    subjectAgentId: uuid('subject_agent_id').references(() => agents.id, { onDelete: 'cascade' }),
+    subjectAgentId: uuid('subject_agent_id').references(() => agents.id, { onDelete: 'set null' }),
     /** The grant that authorized it, so the authority is auditable, not inferred. */
     delegationId: uuid('delegation_id').references(() => agentOperatorDelegations.id, {
       onDelete: 'set null',
     }),
     verb: varchar('verb', { length: 64 }).notNull(),
+    legacy: boolean('legacy').notNull().default(false),
     payload: jsonb('payload')
       .$type<Record<string, unknown>>()
       .notNull()
@@ -609,6 +610,16 @@ export const workplaceActivity = pgTable(
      * delegation would claim an authority nothing recorded, and a delegation
      * with no subject would name authority over nobody.
      */
+    check(
+      'workplace_activity_actor_kind_is_known',
+      sql`${table.actorKind} in (${oneOf(WORKPLACE_EVENT_ACTOR_KINDS)})`,
+    ),
+    check(
+      'workplace_activity_actor_is_coherent',
+      sql`(${table.actorKind} = 'system' and ${table.actorId} is null and ${table.actorHumanId} is null)
+          or (${table.actorKind} = 'citizen' and ${table.actorHumanId} is null)
+          or ${table.actorKind} = 'human-linked'`,
+    ),
     check(
       'workplace_activity_delegation_is_whole',
       sql`(${table.subjectAgentId} is null) = (${table.delegationId} is null)`,

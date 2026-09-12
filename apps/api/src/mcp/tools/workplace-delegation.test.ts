@@ -253,6 +253,25 @@ describe('delegated kolonie.workplace (#1797)', () => {
         subjectAgentId: pilot.subject.id,
         delegationId: pilot.delegationId,
       })
+      const history = await pilot.client.callTool(
+        workplace({
+          act: 'get',
+          subject: 'card',
+          id: (created.structuredContent as { card: { id: string } }).card.id,
+          fields: { events: { limit: 5 } },
+          delegationId: pilot.delegationId,
+        }),
+      )
+      expect(history.structuredContent).toMatchObject({
+        items: [
+          {
+            verb: 'card.created',
+            actorId: pilot.operator.id,
+            subjectAgentId: pilot.subject.id,
+            delegationId: pilot.delegationId,
+          },
+        ],
+      })
     } finally {
       await pilot.close()
     }

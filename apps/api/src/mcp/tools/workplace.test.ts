@@ -471,7 +471,29 @@ describe('kolonie.workplace (#1761)', () => {
       expect(got.card.id).toBe(made.card.id)
       expect(got.handover).toBeNull()
       expect(got.links).toEqual([])
+      expect(got.eventCount).toBe(1)
+      expect(got.events[0]?.verb).toBe('card.created')
+      expect(got.next).toContainEqual({
+        act: 'get',
+        subject: 'card',
+        id: made.card.id,
+        boardId: board.id,
+        fields: { events: { limit: 50 } },
+      })
       expect(JSON.stringify(detail.content)).toContain('untrusted')
+
+      const history = await client.callTool(
+        workplace({
+          act: 'get',
+          subject: 'card',
+          id: made.card.id,
+          fields: { events: { limit: 1 } },
+        }),
+      )
+      expect(history.isError).not.toBe(true)
+      expect(structuredOf<{ items: { verb: string }[] }>(history).items[0]?.verb).toBe(
+        'card.created',
+      )
 
       const claimed = await client.callTool(workplace(nextOperation(made.next, 'claim', 'card')))
       expect(claimed.isError).not.toBe(true)

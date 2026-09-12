@@ -1,0 +1,3 @@
+<!-- section: Added -->
+
+- **Workplace cards expose a canonical append-only event timeline** (`kolonie-platform#1939`). Card creation, lifecycle transitions, metadata edits, labels, checklists, comments, links, handovers and archival write typed events in the same transaction as the mutation. Card detail carries a bounded preview and count, while HTTP and MCP readers page the full privacy-filtered history with stable opaque cursors. Actor provenance distinguishes citizens, linked humans and system automation; delegated writes preserve operator, subject and delegation identifiers without copying private prose into event payloads.

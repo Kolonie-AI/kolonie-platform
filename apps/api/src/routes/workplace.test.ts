@@ -992,6 +992,8 @@ describe('workplace cards (#1760)', () => {
       expect(detail.comments).toEqual([])
       expect(detail.links).toEqual([])
       expect(detail.handover).toBeNull()
+      expect(detail.eventCount).toBe(0)
+      expect(detail.events).toEqual([])
       expect(response.headers.etag).toBe('1')
     })
 
@@ -1008,6 +1010,31 @@ describe('workplace cards (#1760)', () => {
       const missing = await asKey('GET', `${CARDS}/${randomUUID()}`, strangerKey)
       expect(hidden.statusCode).toBe(ERROR_STATUS.not_found)
       expect(hidden.body).toBe(missing.body)
+    })
+
+    it('reads canonical card events as a page and hides them from a stranger', async () => {
+      const { apiKey, agent } = await aCitizen('event-reader')
+      const { apiKey: strangerKey } = await aCitizen('event-stranger')
+      const board = aBoard(agent.id)
+      colony.boards.plant(board, [seat(board, agent.id)])
+      colony.cards.plantBoard(board.id, [seat(board, agent.id)])
+      const created = await asKey('POST', `${BOARDS}/${board.id}/cards`, apiKey, {
+        payload: { title: 'Remember me' },
+      })
+      const card = created.json() as WorkplaceCard
+
+      const page = await asKey('GET', `${CARDS}/${card.id}/events?limit=1`, apiKey)
+      expect(page.statusCode).toBe(200)
+      expect(page.json()).toMatchObject({
+        items: [{ verb: 'card.created', cardId: card.id, legacy: false }],
+        nextCursor: null,
+      })
+      const hidden = await asKey('GET', `${CARDS}/${card.id}/events`, strangerKey)
+      const missing = await asKey('GET', `${CARDS}/${randomUUID()}/events`, strangerKey)
+      expect(hidden.statusCode).toBe(ERROR_STATUS.not_found)
+      expect(hidden.body).toBe(missing.body)
+      const invalid = await asKey('GET', `${CARDS}/${card.id}/events?cursor=forged`, apiKey)
+      expect(invalid.statusCode).toBe(ERROR_STATUS.validation_failed)
     })
 
     it('patches title on a matching If-Match and refuses a stale one', async () => {
@@ -1469,6 +1496,18 @@ describe('workplace cards (#1760)', () => {
     }
     const schema = (
       document.paths['/v1/workplace/boards/{boardId}/cards']?.get?.responses?.['200'] as {
+        content?: { 'application/json'?: { schema?: { properties?: Record<string, unknown> } } }
+      }
+    )?.content?.['application/json']?.schema
+    expect(Object.keys(schema?.properties ?? {}).sort()).toEqual(['items', 'nextCursor'])
+  })
+
+  it('describes the event collection from the core schema', async () => {
+    const document = (await app.inject({ method: 'GET', url: '/openapi.json' })).json() as {
+      paths: Record<string, { get?: { responses?: Record<string, unknown> } }>
+    }
+    const schema = (
+      document.paths['/v1/workplace/cards/{cardId}/events']?.get?.responses?.['200'] as {
         content?: { 'application/json'?: { schema?: { properties?: Record<string, unknown> } } }
       }
     )?.content?.['application/json']?.schema

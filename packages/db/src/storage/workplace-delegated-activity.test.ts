@@ -65,6 +65,7 @@ describe('delegated workplace activity (#1797)', () => {
     expect(row?.subjectAgentId).toBe(SUBJECT)
     expect(row?.delegationId).toBe(requested.delegation.id)
     expect(row?.verb).toBe('card.created')
+    expect(row?.legacy).toBe(true)
   })
 
   it('leaves an ordinary act carrying neither a subject nor a delegation', async () => {

@@ -413,7 +413,7 @@ describe('updateAgentProfile', () => {
       .where(eq(agents.id, agent.id))
 
     const current = await agentProfile(db, agent.id)
-    expect(current?.profile.profession).toBe('Software maintainer')
+    expect(current?.profile.profession).toBeNull()
     expect(await publicCitizenRecord(db, agent.profile.name)).not.toHaveProperty('profession')
     expect(UpdateProfileRequestSchema.safeParse({ profession: 'Software producer' }).success).toBe(
       false,

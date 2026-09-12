@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { GOAL_MAX_LENGTH, PROFESSION_MAX_LENGTH, VOCATION_MAX_LENGTH } from '../agent/agent.js'
+import { GOAL_MAX_LENGTH, VOCATION_MAX_LENGTH } from '../agent/agent.js'
 import { SESSION_ID_MAX_LENGTH } from '../agent/session.js'
 import { WorkplaceBoardIdSchema } from '../common/ids.js'
 import {
@@ -192,50 +192,71 @@ describe('the session a wakeup-first citizen may declare', () => {
 })
 
 describe('a citizen’s wake-up identity', () => {
-  it('accepts the citizen’s current self-declaration', () => {
+  const profession = {
+    state: 'assigned' as const,
+    assignmentVersion: 2,
+    source: 'colony' as const,
+    definition: {
+      key: 'software-producer',
+      version: 3,
+      title: 'Software Producer',
+      summary: 'Builds useful software.',
+      vision: 'Useful software becomes durable.',
+      mission: 'Ship a running solution.',
+      intendedImpact: 'People solve a real problem.',
+      audience: 'People with that problem.',
+      successSignals: ['Observable use'],
+      principles: ['Own the lifecycle'],
+      failureModes: ['A demo graveyard'],
+      boundaries: ['Use authorised systems'],
+      workplaceOrientation: 'Carry the current product bet.',
+    },
+  }
+
+  it('accepts the current Colony assignment and citizen-authored direction', () => {
     expect(
       WakeupIdentitySchema.safeParse({
-        profession: 'Software maintainer',
+        profession,
         vocation: 'Software Producer',
         goal: 'Make account acquisition repeatable.',
       }).success,
     ).toBe(true)
   })
 
-  it('keeps classifications out of the citizen’s own words', () => {
+  it('keeps classifications out of the identity block', () => {
     expect(
       WakeupIdentitySchema.parse({
-        profession: 'Software maintainer',
+        profession,
         vocation: 'Software Producer',
         goal: 'Make account acquisition repeatable.',
         vocationSkills: ['mailbox'],
         dispositionStance: 'ordinary',
       }),
     ).toEqual({
-      profession: 'Software maintainer',
+      profession,
       vocation: 'Software Producer',
       goal: 'Make account acquisition repeatable.',
     })
   })
 
-  it('rejects any sentence past its canonical profile bound', () => {
+  it('rejects legacy profession text and direction past its canonical profile bound', () => {
     expect(
       WakeupIdentitySchema.safeParse({
-        profession: 'a'.repeat(PROFESSION_MAX_LENGTH + 1),
+        profession: 'Software maintainer',
         vocation: null,
         goal: null,
       }).success,
     ).toBe(false)
     expect(
       WakeupIdentitySchema.safeParse({
-        profession: null,
+        profession: { state: 'unassigned' },
         vocation: 'a'.repeat(VOCATION_MAX_LENGTH + 1),
         goal: null,
       }).success,
     ).toBe(false)
     expect(
       WakeupIdentitySchema.safeParse({
-        profession: null,
+        profession: { state: 'unassigned' },
         vocation: null,
         goal: 'a'.repeat(GOAL_MAX_LENGTH + 1),
       }).success,
@@ -282,7 +303,11 @@ describe('a citizen’s wake-up identity', () => {
       },
       accountsWanted: [],
     })
-    expect(parsed.identity).toEqual({ profession: null, vocation: null, goal: null })
+    expect(parsed.identity).toEqual({
+      profession: { state: 'unassigned' },
+      vocation: null,
+      goal: null,
+    })
   })
 })
 
@@ -437,9 +462,9 @@ describe('a profession practicum offered on wake-up', () => {
   const suggestedOutcome =
     'Choose one person and problem, then name the smallest externally inspectable outcome to deliver.'
 
-  it('separates citizen-authored profession text from advisory guidance and three choices', () => {
+  it('separates the Colony profession from advisory guidance and three choices', () => {
     const offer = WakeupProfessionPracticumOfferSchema.parse({
-      profession: { text: profession, source: 'citizen' },
+      profession: { key: 'software-producer', title: profession, source: 'colony' },
       guidance: { suggestedOutcome, source: 'colony', advisory: true },
       choices: {
         accept: {
@@ -462,7 +487,11 @@ describe('a profession practicum offered on wake-up', () => {
       },
     })
 
-    expect(offer.profession).toEqual({ text: profession, source: 'citizen' })
+    expect(offer.profession).toEqual({
+      key: 'software-producer',
+      title: profession,
+      source: 'colony',
+    })
     expect(offer.guidance).toEqual({ suggestedOutcome, source: 'colony', advisory: true })
     expect(offer.choices.accept.arguments.fields).toEqual({ outcome: suggestedOutcome })
     expect(offer.choices.proposeAlternative.arguments.fields).toEqual({

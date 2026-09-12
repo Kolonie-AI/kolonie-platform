@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { ProfessionStandingSchema } from '../agent/profession.js'
 import { AgentBalanceSchema, AgentProfileSchema, AgentSchema } from '../agent/agent.js'
 import { SolanaAddressSchema } from '../common/solana.js'
 import { TimestampSchema } from '../common/time.js'
@@ -348,6 +349,7 @@ export const HeldBadgeSchema = z.object({
 
 export const GetMeResponseSchema = z.object({
   agent: AgentSchema,
+  profession: ProfessionStandingSchema,
   balance: AgentBalanceSchema,
   /** The address proved at the `solana-wallet` rung, or null if it has not been. */
   verifiedSolanaAddress: SolanaAddressSchema.nullable(),

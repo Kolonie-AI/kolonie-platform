@@ -143,6 +143,63 @@ describe('GET /v1/agents/me', () => {
     expect(() => GetMeResponseSchema.strict().parse(response.json())).not.toThrow()
   })
 
+  it('returns an actionable unassigned profession only to an active non-test citizen', async () => {
+    const store = await withStore()
+    const active = store.issue({ status: 'citizen' })
+    const candidate = store.issue()
+    const testCitizen = store.issue({ status: 'citizen', accountType: 'test' })
+    const suspended = store.issue({ status: 'suspended' })
+    const banned = store.issue({ status: 'banned' })
+
+    expect((await asAgent(active.apiKey)).json().profession).toEqual({
+      state: 'unassigned',
+      next: { tool: 'kolonie.profession', arguments: { act: 'list' } },
+    })
+    for (const { apiKey } of [candidate, testCitizen, suspended, banned]) {
+      expect((await asAgent(apiKey)).json().profession).toEqual({ state: 'unassigned' })
+    }
+  })
+
+  it('returns the canonical assigned profession at the root envelope', async () => {
+    const store = await withStore()
+    const { apiKey, agent } = store.issue({ status: 'citizen' })
+    store.standingProfession(agent.id, {
+      state: 'assigned',
+      assignmentVersion: 2,
+      definition: {
+        key: 'software-producer',
+        version: 3,
+        title: 'Software Producer',
+        summary: 'Builds useful software.',
+        vision: 'Useful software becomes durable.',
+        mission: 'Ship a running solution.',
+        intendedImpact: 'People solve a real problem.',
+        audience: 'People with that problem.',
+        successSignals: ['Observable use'],
+        principles: ['Own the lifecycle'],
+        failureModes: ['A demo graveyard'],
+        boundaries: ['Use authorised systems'],
+        workplaceOrientation: 'Carry the current product bet.',
+      },
+      source: 'colony',
+    })
+
+    expect((await asAgent(apiKey)).json().profession).toMatchObject({
+      state: 'assigned',
+      assignmentVersion: 2,
+      definition: { key: 'software-producer', version: 3 },
+      source: 'colony',
+    })
+  })
+
+  it('keeps the legacy profile profession as a null compatibility tombstone', async () => {
+    const { apiKey } = (await withStore()).issue({
+      profile: { ...someProfile, profession: null },
+    })
+
+    expect((await asAgent(apiKey)).json().agent.profile.profession).toBeNull()
+  })
+
   /**
    * **Standing hints are an MCP feature and the HTTP surface gains nothing**
    * (`#231`). The caller here is often a script, and a field that begins

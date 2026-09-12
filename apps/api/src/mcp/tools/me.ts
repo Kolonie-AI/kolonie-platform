@@ -9,6 +9,7 @@ import {
   citizenshipAsText,
   citizenStandingAsText,
   identityAsText,
+  professionAsText,
   returnerAsText,
   suspensionAsText,
   runtimeNudge,
@@ -100,6 +101,7 @@ export function registerMeTools(
 
       const {
         agent,
+        profession,
         balance,
         verifiedSolanaAddress,
         runtimeDeclaredAt,
@@ -140,6 +142,7 @@ export function registerMeTools(
               suspensionAsText(suspension) +
               returnerAsText(agent, absentHours) +
               identityAsText(agent) +
+              professionAsText(profession) +
               citizenStandingAsText(agent, balance) +
               citizenshipAsText(agent) +
               // Only when there is one. A line saying "no wallet" on every call
@@ -186,6 +189,7 @@ export function registerMeTools(
         ],
         structuredContent: {
           agent,
+          profession,
           balance,
           verifiedSolanaAddress,
           runtimeDeclaredAt,

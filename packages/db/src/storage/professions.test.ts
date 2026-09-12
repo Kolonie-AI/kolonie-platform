@@ -1,17 +1,20 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq, sql } from 'drizzle-orm'
-import type { ProfessionDefinition } from '@kolonie-ai/core'
+import type { AgentId, ProfessionDefinition } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { agents } from '../schema/agents.js'
 import { humans } from '../schema/humans.js'
 import { agentProfessions, professionVersions, professions } from '../schema/professions.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
+import { agentProfile } from './agents.js'
 import {
   assignProfession,
   listActiveProfessions,
   listProfessionsForMaintainer,
   publishProfession,
+  professionStanding,
   readProfession,
+  resolveProfessionStanding,
   retireProfession,
 } from './professions.js'
 
@@ -117,6 +120,157 @@ describe('profession registry', () => {
       assignmentVersion: 1,
     })
     expect(assignment[0]).not.toHaveProperty('definitionVersion')
+  })
+
+  it('resolves current standing without changing the assignment version', async () => {
+    await publishProfession(db, { expectedVersion: null, definition: definition(), publisherId })
+    const [agent] = await db
+      .insert(agents)
+      .values({ name: 'standing', platform: 'claude' })
+      .returning()
+
+    expect(await resolveProfessionStanding(db, agent!.id)).toEqual({ outcome: 'unassigned' })
+    expect(await professionStanding(db, agent!.id, { actionable: true })).toEqual({
+      state: 'unassigned',
+      next: { tool: 'kolonie.profession', arguments: { act: 'list' } },
+    })
+    await assignProfession(db, {
+      agentId: agent!.id,
+      key: 'software-producer',
+      expectedVersion: null,
+    })
+    expect(await resolveProfessionStanding(db, agent!.id)).toMatchObject({
+      outcome: 'assigned',
+      standing: {
+        state: 'assigned',
+        assignmentVersion: 1,
+        definition: definition(),
+        source: 'colony',
+      },
+    })
+
+    const second = definition('software-producer', 2)
+    await publishProfession(db, { expectedVersion: 1, definition: second, publisherId })
+    await retireProfession(db, { key: 'software-producer', expectedVersion: 2 })
+    expect(await resolveProfessionStanding(db, agent!.id)).toMatchObject({
+      outcome: 'assigned',
+      standing: { assignmentVersion: 1, definition: second },
+    })
+  })
+
+  it('ignores arbitrary legacy prose when no assignment exists', async () => {
+    const [agent] = await db
+      .insert(agents)
+      .values({ name: 'legacy-standing', platform: 'claude', profession: 'Any words at all' })
+      .returning()
+
+    expect(await resolveProfessionStanding(db, agent!.id)).toEqual({ outcome: 'unassigned' })
+  })
+
+  it('returns bounded unavailable standing and logs no definition prose when the current row is missing or corrupt', async () => {
+    await publishProfession(db, { expectedVersion: null, definition: definition(), publisherId })
+    const [agent] = await db
+      .insert(agents)
+      .values({ name: 'broken-standing', platform: 'claude' })
+      .returning()
+    await assignProfession(db, {
+      agentId: agent!.id,
+      key: 'software-producer',
+      expectedVersion: null,
+    })
+
+    const records: unknown[][] = []
+    const options = {
+      actionable: true,
+      log: {
+        info: () => undefined,
+        warn: () => undefined,
+        error: (...fields: unknown[]) => records.push(fields),
+      },
+    }
+    await db.execute(sql`alter table profession_versions disable trigger all`)
+    await db.execute(sql`alter table professions disable trigger all`)
+    try {
+      await db
+        .delete(professionVersions)
+        .where(eq(professionVersions.professionKey, 'software-producer'))
+
+      expect(await professionStanding(db, agent!.id, options)).toMatchObject({
+        state: 'unavailable',
+        key: 'software-producer',
+      })
+
+      await db.execute(
+        sql`insert into profession_versions (profession_key, version, definition, published_by_human_id) values ('software-producer', 1, ${JSON.stringify({ key: 'software-producer', version: 1, mission: 'corrupt unpublished prose' })}::jsonb, ${publisherId})`,
+      )
+      const standing = await professionStanding(db, agent!.id, options)
+
+      expect(standing).toEqual({
+        state: 'unavailable',
+        key: 'software-producer',
+        next: {
+          tool: 'kolonie.support.open',
+          arguments: {
+            kind: 'defect',
+            route: 'colony',
+            subject: 'Profession definition unavailable',
+            body: 'My assigned profession could not be resolved during wakeup.',
+          },
+        },
+      })
+    } finally {
+      await db.execute(sql`alter table professions enable trigger all`)
+      await db.execute(sql`alter table profession_versions enable trigger all`)
+    }
+    expect(records).toHaveLength(2)
+    expect(records[1]?.[2]).toMatchObject({
+      event: 'profession.standing.failed',
+      agentId: agent!.id,
+      professionKey: 'software-producer',
+    })
+    expect(JSON.stringify(records)).not.toContain('corrupt unpublished prose')
+  })
+
+  it('switches only the assignment and preserves unrelated citizen state', async () => {
+    await publishProfession(db, { expectedVersion: null, definition: definition(), publisherId })
+    await publishProfession(db, {
+      expectedVersion: null,
+      definition: definition('citizen-mentor'),
+      publisherId,
+    })
+    const [agent] = await db
+      .insert(agents)
+      .values({
+        name: 'switching-standing',
+        platform: 'claude',
+        vocation: 'Archivist',
+        goal: 'Keep one durable record.',
+        roles: ['tester'],
+        status: 'citizen',
+      })
+      .returning()
+    const agentId = agent!.id as AgentId
+    const before = await agentProfile(db, agentId)
+    await assignProfession(db, {
+      agentId,
+      key: 'software-producer',
+      expectedVersion: null,
+    })
+
+    await assignProfession(db, {
+      agentId,
+      key: 'citizen-mentor',
+      expectedVersion: 1,
+    })
+
+    expect(await resolveProfessionStanding(db, agentId)).toMatchObject({
+      outcome: 'assigned',
+      standing: {
+        assignmentVersion: 2,
+        definition: { key: 'citizen-mentor' },
+      },
+    })
+    expect(await agentProfile(db, agentId)).toEqual(before)
   })
 
   it('returns the assignment and current definition from one atomic choice', async () => {

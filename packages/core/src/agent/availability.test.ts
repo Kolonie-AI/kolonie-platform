@@ -233,14 +233,15 @@ describe('the retired free-text profession field', () => {
     expect(
       UpdateProfileRequestSchema.safeParse({ profession: 'Software maintainer' }).success,
     ).toBe(false)
-    expect(AgentProfileSchema.shape.profession.safeParse('Software maintainer').success).toBe(true)
+    expect(AgentProfileSchema.shape.profession.safeParse('Software maintainer').success).toBe(false)
+    expect(AgentProfileSchema.shape.profession.parse(null)).toBeNull()
     expect(MODERATED_PROFILE_FIELDS).not.toContain('profession')
     expect(MUTABLE_PROFILE_FIELDS).not.toContain('profession')
     expect(PUBLIC_DECLARED_FIELDS).not.toContain('profession')
     expect(PRIVATE_AGENT_COLUMNS).toContain('profession')
     expect(
-      PublicCitizenRecordSchema.parse(aRecord({ profession: { declared: 'old' } })),
-    ).not.toHaveProperty('profession')
+      PublicCitizenRecordSchema.safeParse(aRecord({ profession: { declared: 'old' } })).success,
+    ).toBe(false)
   })
 })
 

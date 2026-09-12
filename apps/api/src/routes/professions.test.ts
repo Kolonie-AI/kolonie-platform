@@ -55,6 +55,8 @@ describe('/backend/professions', () => {
       listForMaintainer: async () => [{ profession, definition, publication, priorVersions: [1] }],
       read: async (_key, version) =>
         version === undefined || version === 1 ? { profession, definition, publication } : null,
+      standing: async () => ({ outcome: 'unassigned' }),
+      resolveStanding: async () => ({ state: 'unassigned' }),
       publish: async (input) => {
         calls.publish += 1
         calls.publisherId = input.publisherId

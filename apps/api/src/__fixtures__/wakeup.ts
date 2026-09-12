@@ -128,6 +128,12 @@ export interface FakeWakeup extends WakeupSource {
   readonly answersPreviousSession: (at: string | null) => void
   /** Current profession and goal, unbounded by the digest window (`#1740`). */
   readonly answersIdentity: (identity: WakeupIdentity) => void
+  readonly professionIdentityFrom: (
+    resolve: (
+      agentId: AgentId,
+      options: { readonly actionable: boolean },
+    ) => Promise<WakeupIdentity>,
+  ) => void
   /** One bounded Workplace standing for practicum and recommendation tests. */
   readonly answersWorkplace: (workplace: WakeupWorkplace | undefined) => void
   /** Where the citizen stands, for the section that says so (`#344`). */
@@ -170,7 +176,14 @@ export function fakeWakeup(): FakeWakeup {
   // Nobody behind the citizen, which is the ordinary state (`#1013`).
   let operatorStanding: OperatorStanding = NO_OPERATOR_STANDING
   let wanted: readonly WakeupWantedAccount[] = []
-  let identity: WakeupIdentity = { profession: null, vocation: null, goal: null }
+  let identity: WakeupIdentity = {
+    profession: { state: 'unassigned' },
+    vocation: null,
+    goal: null,
+  }
+  let identityResolver:
+    | ((agentId: AgentId, options: { readonly actionable: boolean }) => Promise<WakeupIdentity>)
+    | undefined
   let workplace: WakeupWorkplace | undefined
   let standing: WakeupStanding = AT_THE_START
   let walks: readonly { readonly kind: string; readonly provider: string }[] = []
@@ -185,7 +198,19 @@ export function fakeWakeup(): FakeWakeup {
     wakeChannel: async (_agentId: AgentId) => channel,
     operatorStanding: async (_agentId: AgentId) => operatorStanding,
     wantedAccounts: async (_agentId: AgentId) => wanted,
-    identity: async (_agentId: AgentId) => identity,
+    identity: async (agentId: AgentId, options) => {
+      if (identityResolver !== undefined) return identityResolver(agentId, options)
+      return {
+        ...identity,
+        profession:
+          identity.profession.state === 'unassigned' && options.actionable
+            ? {
+                state: 'unassigned',
+                next: { tool: 'kolonie.profession', arguments: { act: 'list' } },
+              }
+            : identity.profession,
+      }
+    },
     prepareWorkplace: async (_agentId: AgentId, _now: string) => workplace,
     standing: async (_agentId: AgentId) => standing,
     walksToAskAbout: async (_agentId: AgentId) => {
@@ -219,6 +244,10 @@ export function fakeWakeup(): FakeWakeup {
     },
     answersIdentity: (next) => {
       identity = next
+      identityResolver = undefined
+    },
+    professionIdentityFrom: (resolve) => {
+      identityResolver = resolve
     },
     answersWorkplace: (next) => {
       workplace = next

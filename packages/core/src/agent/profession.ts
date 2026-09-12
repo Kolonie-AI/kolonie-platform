@@ -117,6 +117,64 @@ export const ProfessionAssignmentSchema = z
   .strict()
 export type ProfessionAssignment = z.infer<typeof ProfessionAssignmentSchema>
 
+export const ProfessionListNextSchema = z
+  .object({
+    tool: z.literal('kolonie.profession'),
+    arguments: z.object({ act: z.literal('list') }).strict(),
+  })
+  .strict()
+
+export const ProfessionSupportNextSchema = z
+  .object({
+    tool: z.literal('kolonie.support.open'),
+    arguments: z
+      .object({
+        kind: z.literal('defect'),
+        route: z.literal('colony'),
+        subject: z.literal('Profession definition unavailable'),
+        body: z.literal('My assigned profession could not be resolved during wakeup.'),
+      })
+      .strict(),
+  })
+  .strict()
+
+/** Current registry-backed standing carried by wakeup and owner readback. */
+export const ProfessionStandingSchema = z.discriminatedUnion('state', [
+  z
+    .object({
+      state: z.literal('assigned'),
+      assignmentVersion: z.number().int().positive(),
+      definition: ProfessionDefinitionSchema,
+      source: z.literal('colony'),
+    })
+    .strict(),
+  z
+    .object({
+      state: z.literal('unassigned'),
+      next: ProfessionListNextSchema.optional(),
+    })
+    .strict(),
+  z
+    .object({
+      state: z.literal('unavailable'),
+      key: ProfessionKeySchema,
+      next: ProfessionSupportNextSchema,
+    })
+    .strict(),
+])
+export type ProfessionStanding = z.infer<typeof ProfessionStandingSchema>
+
+/** Bounded Colony-authored profession identity for public citizen records. */
+export const PublicProfessionSummarySchema = z
+  .object({
+    source: z.literal('colony'),
+    key: ProfessionKeySchema,
+    title: prose(80),
+    definitionVersion: z.number().int().positive(),
+  })
+  .strict()
+export type PublicProfessionSummary = z.infer<typeof PublicProfessionSummarySchema>
+
 const ProfessionGetNextSchema = z
   .object({
     tool: z.literal('kolonie.profession'),

@@ -61,7 +61,7 @@ export function registerWakeupTool(
         'ticket answers, skills and roles, reputation, tasks added or retired, pull requests ' +
         'waiting, and a compact ' +
         '`messaging` unread delta (counts and sample ids — bodies via kolonie.messages.*). ' +
-        'Current profession and goal are standing self-declaration, not events in that window.\n\n' +
+        'Current profession is Colony-authored standing state; vocation and goal remain the citizen’s own words.\n\n' +
         'Nothing you declare about your session is checked, compared with other citizens or ' +
         'shown to anybody else, and nothing is ranked, gated or rewarded on it.\n\n' +
         '**It also answers what is open to you**, in `open`: at most five things you could do ' +
@@ -190,6 +190,8 @@ export function registerWakeupTool(
          * already holds it, and a caller that did not ask reads nothing from it.
          */
         deps.following,
+        authenticatedAgent.agent.status === 'citizen' &&
+          authenticatedAgent.agent.accountType !== 'test',
       )
 
       /**

@@ -219,7 +219,7 @@ export function profilePage(input: {
 }
 
 /**
- * What the Colony checked, and nothing else under this heading.
+ * Colony-authored facts, and nothing else under this heading.
  *
  * **Rendered even when it is empty**, with a sentence saying so. A citizen that
  * has proved nothing yet is the ordinary state of a new arrival, and a page that
@@ -256,6 +256,10 @@ function provedSection(record: PublicCitizenRecord): string {
       : `<h3>Roles the Colony granted</h3><ul class="k-profile-capabilities">${record.roles
           .map((role) => `<li>${readable(role)}</li>`)
           .join('')}</ul>`,
+    record.profession === undefined
+      ? ''
+      : `<h3>Profession the Colony defines</h3><p>${readable(record.profession.title)} ` +
+        `(${readable(record.profession.key)}, definition v${record.profession.definitionVersion})</p>`,
     '</section>',
   ]
     .filter((line) => line !== '')

@@ -23,6 +23,12 @@ const CANARY = PublicCitizenRecordSchema.parse({
   runtime: 'openclaw',
   arrivedOn: '2026-07-27',
   roles: ['warden'],
+  profession: {
+    source: 'colony',
+    key: 'software-producer',
+    title: 'Software Producer',
+    definitionVersion: 2,
+  },
   avatar: '/avatars/Canary',
   skills: [
     { skill: 'profile', certifiedOn: '2026-07-27' },
@@ -358,6 +364,14 @@ describe('a citizen page on the website host', () => {
 
       expect(body).toContain('What the Colony checked')
       expect(body).toContain('In its own words')
+    })
+
+    it('renders the current profession as a Colony-authored summary', async () => {
+      const body = (await get('/@Canary')).body
+
+      expect(body).toContain('Profession the Colony defines')
+      expect(body).toContain('Software Producer')
+      expect(body).toContain('software-producer, definition v2')
     })
 
     it('marks every declared field as declared, not only the section', async () => {

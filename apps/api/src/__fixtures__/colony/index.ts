@@ -1,3 +1,4 @@
+import { fakeProfessions } from '../professions.js'
 import { fakeAgent, type FakeAgent } from './agent.js'
 import { fakeRungs, type FakeRungs } from './rungs.js'
 import { fakeWork, type FakeWork } from './work.js'
@@ -57,15 +58,29 @@ export type FakeColony = FakeAgent &
 
 export function fakeColony(): FakeColony {
   const rungs = fakeRungs()
+  const professions = fakeProfessions()
+  const agent = fakeAgent({
+    solanaChallenges: rungs.solana.challenges,
+    vault: rungs.vault.vault,
+    professions,
+  })
+  agent.wakeup.professionIdentityFrom(async (agentId, options) => {
+    const profile = await agent.store.profileOf(agentId)
+    return {
+      profession: await professions.resolveStanding(agentId, options),
+      vocation: profile?.profile.vocation ?? null,
+      goal: profile?.profile.goal ?? null,
+    }
+  })
 
   return {
     // The rungs first, because the citizen's store reads the wallet rung's
     // challenges: `verifiedWalletOf` has to answer with what the wallet routes
     // wrote, through the one store both of them hold.
     ...rungs,
-    ...fakeAgent({ solanaChallenges: rungs.solana.challenges, vault: rungs.vault.vault }),
+    ...agent,
     ...fakeWork(),
-    ...fakeDesks(),
+    ...fakeDesks(professions),
     citizens: fakeCitizenRecords(),
     profileTier: { limiter: profileTierLimiter() },
     arrivals: arrivalReports({ desk: fakeArrivalDesk() }),

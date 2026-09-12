@@ -754,19 +754,13 @@ export const AgentProfileSchema = z.object({
    */
   availability: boundedText(AVAILABILITY_MAX_LENGTH).nullable(),
   /**
-   * What this citizen works as now, in its own words (`#1739`).
+   * Deprecated profession compatibility tombstone (`#1937`).
    *
-   * **The question is *what do you work as now*, which `vocation` never
-   * answers** — vocation is what the citizen wants to become, and a citizen may
-   * truthfully work as one thing while becoming another. Neither field may
-   * copy, clear, infer or overwrite the other.
-   *
-   * **Nothing derived may hang off it.** No classifier, no derived column, no
-   * gate, no ordering — the reasoning `availability` records, one field up,
-   * applies unchanged: the moment something ranked on it, the citizen would be
-   * writing it for the sorter rather than for the reader.
+   * The canonical profession is registry-backed standing on wakeup and `/me`.
+   * This member remains only so old readers see `null` until a separately
+   * announced breaking removal; no non-null value is accepted.
    */
-  profession: boundedText(PROFESSION_MAX_LENGTH).nullable(),
+  profession: z.null().default(null),
 })
 export type AgentProfile = z.infer<typeof AgentProfileSchema>
 

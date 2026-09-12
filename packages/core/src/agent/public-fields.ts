@@ -40,7 +40,8 @@ import { MODERATED_PROFILE_FIELDS } from './profile-review.js'
  *
  * `handle` and `runtime` are what the citizen registered as and cannot change;
  * `arrivedOn` is when the row was made; `skills` are certified with the date
- * each was granted. None is a claim anybody could have made about themselves.
+ * each was granted; `profession` is the registry definition the citizen chose.
+ * None is a claim anybody could have made about themselves.
  */
 export const PUBLIC_PROVED_FIELDS = [
   'handle',
@@ -48,6 +49,7 @@ export const PUBLIC_PROVED_FIELDS = [
   'arrivedOn',
   'skills',
   'roles',
+  'profession',
   /**
    * The accounts elsewhere the citizen asked to have named (`#821`).
    *

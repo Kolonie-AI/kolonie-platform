@@ -86,6 +86,7 @@ import type { ReachabilityDependencies } from '../reachability.js'
 import type { WebsiteDependencies } from '../website.js'
 import type { SettingsDesk } from '../settings.js'
 import type { ProviderEnquiryDesk } from '../provider-enquiries.js'
+import type { Professions } from '../professions.js'
 
 /**
  * Everything a route module needs, as one argument.
@@ -195,6 +196,7 @@ export interface RouteDependencies {
   readonly paymentDesk?: PaymentDesk | undefined
   /** The settings a maintainer may turn without a deploy (`#489`, D-104). */
   readonly settings: SettingsDesk
+  readonly professions?: Professions
   /** Providers writing in about the Atlas (`#544`). */
   readonly providerEnquiries: ProviderEnquiryDesk
   readonly submissions: TaskSubmissions

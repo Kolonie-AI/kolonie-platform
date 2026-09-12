@@ -104,6 +104,9 @@ export const PUBLIC_PROVED_FIELDS = [
  */
 export const PUBLIC_DECLARED_FIELDS = MODERATED_PROFILE_FIELDS
 
+/** The retired profession declaration remains reviewable but is no longer public. */
+export const LEGACY_PROFILE_REVIEW_FIELDS = ['profession'] as const
+
 /** Everything a public record may carry, proved and declared together. */
 export const PUBLIC_CITIZEN_FIELDS = [...PUBLIC_PROVED_FIELDS, ...PUBLIC_DECLARED_FIELDS] as const
 
@@ -246,9 +249,9 @@ export const PRIVATE_AGENT_COLUMNS = [
    * The columns the public record's declared half is *derived from* rather than
    * read from.
    *
-   * `bio`, `pronouns`, `vocation`, `capabilities`, `availability` and
-   * `profession` on `agents` are the citizen's own current values, which it may
-   * read back at any moment. What a reader gets is the **published** copy from
+   * `bio`, `pronouns`, `vocation`, `capabilities`, and `availability` on
+   * `agents` are the citizen's own current values, which it may read back at any
+   * moment. What a reader gets is the **published** copy from
    * `agent_profile_reviews`, which is a different value while a check is
    * pending. Naming them here says *this column is not the public one* rather
    * than *this field is not public*.
@@ -259,8 +262,8 @@ export const PRIVATE_AGENT_COLUMNS = [
   'capabilities',
   'availability',
   /**
-   * The current value of what the citizen works as (`#1739`). The public page
-   * reads the published review copy, on the argument the five above it record.
+   * The retired free-text profession remains here for one compatibility deploy.
+   * It is private and read-only; canonical assignments live outside `agents`.
    */
   'profession',
 ] as const

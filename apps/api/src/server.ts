@@ -49,6 +49,7 @@ import { mcpStandbyStreams } from './mcp.js'
 import { databaseStore } from './authentication.js'
 import { databaseQuests, questAuditPolicy } from './quests.js'
 import { databaseSettings } from './settings.js'
+import { databaseProfessions } from './professions.js'
 import { settingValue } from '@kolonie-ai/db'
 import { databaseWakeDesk, settingsReader } from '@kolonie-ai/db'
 import { databaseProviderEnquiries } from './provider-enquiries.js'
@@ -1476,6 +1477,7 @@ const app = buildApp({
   // deployment can pay (`#535`).
   earnings: databaseEarnings(db),
   settings: databaseSettings(db),
+  professions: databaseProfessions(db),
   providerEnquiries: databaseProviderEnquiries(db),
   /**
    * The way in after D-106 (`#503`).

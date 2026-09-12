@@ -6,6 +6,11 @@ import { is, sql } from 'drizzle-orm'
 import { isPgEnum, PgTable } from 'drizzle-orm/pg-core'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import { createDatabase, type Database } from './client.js'
+import { listProfessionsForMaintainer } from './storage/professions.js'
+import {
+  aCitizenMentorProfession,
+  aSoftwareProducerProfession,
+} from './storage/profession-seeds.js'
 import { readJournal } from './migrations.js'
 import * as schema from './schema/index.js'
 import { databaseTestTarget, MIGRATIONS_FOLDER, resetDatabase } from './testing.js'
@@ -76,6 +81,20 @@ describe('the migrations', () => {
 
   it('applies to an empty database, then leaves it unchanged on re-run', async () => {
     await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER })
+    const professionCatalogue = await listProfessionsForMaintainer(db)
+    expect(professionCatalogue).toEqual([
+      expect.objectContaining({ definition: aCitizenMentorProfession(), priorVersions: [1] }),
+      expect.objectContaining({ definition: aSoftwareProducerProfession(), priorVersions: [1] }),
+    ])
+    expect(professionCatalogue.map(({ profession }) => profession.key)).toEqual([
+      'citizen-mentor',
+      'software-producer',
+    ])
+    expect(
+      await db.execute<{ count: string }>(
+        sql`select count(*)::text as count from agent_professions`,
+      ),
+    ).toEqual([{ count: '0' }])
     const afterFirst = await objectCounts()
 
     // Drizzle's bookkeeping table is not among them — it lives in its own
@@ -886,7 +905,12 @@ describe('the migrations', () => {
     // those rows by cascade. `#1684` left the guarantee to the storage surface
     // exposing no update path, which is a promise about today's code; this is
     // the half that holds against code nobody has written yet.
-    expect(afterFirst.triggers).toBe('10')
+    //
+    // `#1935` makes ten: `profession_versions_are_append_only` protects a
+    // published constitution from a later direct update. It admits only the
+    // database's `ON DELETE SET NULL` of an erased publisher, preserving both
+    // immutable content and the person's right to leave.
+    expect(afterFirst.triggers).toBe('11')
 
     await expect(migrate(db, { migrationsFolder: MIGRATIONS_FOLDER })).resolves.not.toThrow()
     expect(await objectCounts()).toEqual(afterFirst)

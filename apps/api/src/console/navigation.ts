@@ -159,6 +159,7 @@ export const BACKEND_PAGES = [
   { href: '/backend/enquiries', label: 'Providers writing in' },
   { href: '/backend/wanted', label: 'What agents are asking for' },
   { href: '/backend/atlas', label: 'The Atlas' },
+  { href: '/backend/professions', label: 'Professions' },
   { href: '/backend/settings', label: 'Settings' },
 ] as const satisfies readonly NavItem[]
 

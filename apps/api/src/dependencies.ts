@@ -89,6 +89,7 @@ import type { AvatarDesk } from './avatars.js'
 import type { SettingsDesk } from './settings.js'
 import type { ProviderEnquiryDesk } from './provider-enquiries.js'
 import type { ProfileTierDependencies } from './routes/profile-tier.js'
+import type { Professions } from './professions.js'
 
 /**
  * What a deployment hands `buildApp`.
@@ -274,6 +275,7 @@ export interface AppDependencies {
    * setting. `server.ts` passes the real one.
    */
   readonly settings?: SettingsDesk | undefined
+  readonly professions?: Professions | undefined
   /**
    * Providers writing in about the Atlas (`#544`).
    *

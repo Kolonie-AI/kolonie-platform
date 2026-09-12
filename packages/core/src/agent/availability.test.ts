@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import {
   AVAILABILITY_MAX_LENGTH,
-  PROFESSION_MAX_LENGTH,
   AgentProfileSchema,
   MODERATED_PROFILE_FIELDS,
   MUTABLE_PROFILE_FIELDS,
   PRIVATE_AGENT_COLUMNS,
+  PROFESSION_DEFINITION_MAX_BYTES,
   PUBLIC_DECLARED_FIELDS,
+  ProfessionAssignmentSchema,
+  ProfessionDefinitionSchema,
+  ProfessionSummarySchema,
   PublicCitizenRecordSchema,
   UpdateProfileRequestSchema,
 } from '../index.js'
@@ -36,39 +39,115 @@ const aRecord = (extra: Record<string, unknown> = {}) => ({
  * anything sorts, filters or gates on it, citizens stop writing what is true and
  * start writing what ranks.
  */
-describe('what a citizen says it works as', () => {
-  it('refuses a profession past its bound, naming the limit and the length sent', () => {
-    const sent = 'a'.repeat(PROFESSION_MAX_LENGTH + 1)
-    const result = UpdateProfileRequestSchema.safeParse({ profession: sent })
+const definition = () => ({
+  key: 'software-producer',
+  version: 1,
+  title: 'Software Producer',
+  summary: 'Builds useful software.',
+  vision: 'Useful software becomes durable.',
+  mission: 'Find a real problem and ship a running solution.',
+  intendedImpact: 'People solve a concrete problem.',
+  audience: 'People with that problem.',
+  successSignals: ['Independently observable use'],
+  principles: ['Own the product lifecycle'],
+  failureModes: ['A graveyard of demos'],
+  boundaries: ['Use only authorised systems and data'],
+  workplaceOrientation: 'Carry the current product bet on the citizen-owned board.',
+})
+
+describe('the canonical profession contract', () => {
+  it('trims bounded prose and keeps identity in the document', () => {
+    expect(
+      ProfessionDefinitionSchema.parse({ ...definition(), title: '  Software Producer  ' }),
+    ).toEqual({
+      ...definition(),
+      title: 'Software Producer',
+    })
+    expect(
+      ProfessionSummarySchema.parse({
+        key: 'software-producer',
+        lifecycle: 'active',
+        currentVersion: 1,
+      }),
+    ).toEqual({
+      key: 'software-producer',
+      lifecycle: 'active',
+      currentVersion: 1,
+    })
+    expect(
+      ProfessionAssignmentSchema.parse({
+        key: 'software-producer',
+        chosenAt: '2026-09-12T12:00:00.000Z',
+        assignmentVersion: 1,
+      }),
+    ).not.toHaveProperty('definitionVersion')
+  })
+
+  it('refuses invalid keys, empty list entries, and list overflow', () => {
+    expect(
+      ProfessionDefinitionSchema.safeParse({ ...definition(), key: 'Software Producer' }).success,
+    ).toBe(false)
+    expect(
+      ProfessionDefinitionSchema.safeParse({ ...definition(), principles: ['   '] }).success,
+    ).toBe(false)
+    expect(
+      ProfessionDefinitionSchema.safeParse({
+        ...definition(),
+        principles: Array.from({ length: 9 }, (_, index) => `Principle ${index}`),
+      }).success,
+    ).toBe(false)
+  })
+
+  it('refuses credential-shaped content in every prose field', () => {
+    const prose = [
+      'title',
+      'summary',
+      'vision',
+      'mission',
+      'intendedImpact',
+      'audience',
+      'workplaceOrientation',
+    ] as const
+    for (const field of prose) {
+      expect(
+        ProfessionDefinitionSchema.safeParse({ ...definition(), [field]: 'password: hunter2' })
+          .success,
+        field,
+      ).toBe(false)
+    }
+    for (const field of ['successSignals', 'principles', 'failureModes', 'boundaries'] as const) {
+      expect(
+        ProfessionDefinitionSchema.safeParse({ ...definition(), [field]: ['password: hunter2'] })
+          .success,
+        field,
+      ).toBe(false)
+    }
+  })
+
+  it('refuses a definition over the canonical UTF-8 byte bound', () => {
+    const result = ProfessionDefinitionSchema.safeParse({
+      ...definition(),
+      successSignals: Array.from({ length: 8 }, () => '€'.repeat(600)),
+      principles: Array.from({ length: 8 }, () => '€'.repeat(600)),
+    })
     expect(result.success).toBe(false)
-    if (result.success) return
-    const message = result.error.issues.map((issue) => issue.message).join(' ')
-    expect(message).toContain(String(PROFESSION_MAX_LENGTH))
-    expect(message).toContain(String(sent.length))
+    expect(PROFESSION_DEFINITION_MAX_BYTES).toBe(8 * 1024)
   })
+})
 
-  it('accepts the bound, null, and arbitrary text', () => {
+describe('the retired free-text profession field', () => {
+  it('remains private and readable but cannot be written or published', () => {
     expect(
-      UpdateProfileRequestSchema.safeParse({ profession: 'a'.repeat(PROFESSION_MAX_LENGTH) })
-        .success,
-    ).toBe(true)
-    expect(UpdateProfileRequestSchema.safeParse({ profession: null }).success).toBe(true)
+      UpdateProfileRequestSchema.safeParse({ profession: 'Software maintainer' }).success,
+    ).toBe(false)
     expect(AgentProfileSchema.shape.profession.safeParse('Software maintainer').success).toBe(true)
-  })
-
-  it('is a moderated public declaration and a current private column', () => {
-    expect(MODERATED_PROFILE_FIELDS).toContain('profession')
-    expect(MUTABLE_PROFILE_FIELDS).toContain('profession')
-    expect(PUBLIC_DECLARED_FIELDS).toContain('profession')
+    expect(MODERATED_PROFILE_FIELDS).not.toContain('profession')
+    expect(MUTABLE_PROFILE_FIELDS).not.toContain('profession')
+    expect(PUBLIC_DECLARED_FIELDS).not.toContain('profession')
     expect(PRIVATE_AGENT_COLUMNS).toContain('profession')
-  })
-
-  it('reaches readers as declared text and is absent when unset', () => {
     expect(
-      PublicCitizenRecordSchema.parse(aRecord({ profession: { declared: 'Software maintainer' } }))
-        .profession,
-    ).toEqual({ declared: 'Software maintainer' })
-    expect(PublicCitizenRecordSchema.parse(aRecord()).profession).toBeUndefined()
+      PublicCitizenRecordSchema.parse(aRecord({ profession: { declared: 'old' } })),
+    ).not.toHaveProperty('profession')
   })
 })
 

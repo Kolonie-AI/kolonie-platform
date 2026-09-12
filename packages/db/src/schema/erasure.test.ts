@@ -1161,6 +1161,11 @@ describe('the erasure boundary', () => {
        */
       'agent_origins.agent_id c',
       /**
+       * `#1935`. Cascades: the current profession assignment is part of the
+       * citizen's record and cannot outlive the citizen it describes.
+       */
+      'agent_professions.agent_id c',
+      /**
        * `#827`. Cascades, and it is the one row here whose deletion a reader can
        * see: the published copy of a bio lives in this table, so a review row
        * that outlived its citizen would be text the Colony goes on serving about

@@ -32,7 +32,7 @@ import {
   MessagePrioritySchema,
   MessageRequestStatusSchema,
   MessageSystemRoleSchema,
-  ModeratedProfileFieldSchema,
+  ProfileReviewFieldSchema,
   ProfileReviewStateSchema,
   WakeDeliveryOutcomeSchema,
   CredentialKindSchema,
@@ -535,14 +535,14 @@ export const paymentObserver = pgEnum('payment_observer', valuesOf(PaymentObserv
 /**
  * Which self-declared field one review row is about (`#827`).
  *
- * `MODERATED_PROFILE_FIELDS` in core is the source, and taking it from there is
- * load bearing rather than tidy: the same list is what the checker walks and
- * what `#817`'s public allowlist is asserted against, so a field this enum knows
- * and that list does not would be a field published without ever being read.
+ * `ProfileReviewFieldSchema` in core retains the retired `profession` value while
+ * `MODERATED_PROFILE_FIELDS` controls new writes. Keeping the enum label makes
+ * existing review rows readable during the compatibility deploy without making
+ * the retired declaration public or writable.
  */
 export const profileReviewField = pgEnum(
   'profile_review_field',
-  valuesOf(ModeratedProfileFieldSchema.options),
+  valuesOf(ProfileReviewFieldSchema.options),
 )
 
 /**

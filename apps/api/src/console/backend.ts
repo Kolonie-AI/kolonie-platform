@@ -12,6 +12,7 @@ import {
   type StoredProviderEnquiry,
 } from '@kolonie-ai/core'
 import type { EffectiveSetting, SelfDirectionItemReport } from '@kolonie-ai/db'
+import type { ProfessionPublication } from '../professions.js'
 import type {
   Arrivals,
   BackendSections,
@@ -1568,6 +1569,58 @@ export function backendQuestPage(
  */
 export function backendAtlasPage(input: BackendPageInput & { readonly curation: string }): string {
   return backendSection({ ...input, body: [input.curation] })
+}
+
+export function backendProfessionsPage(
+  input: BackendPageInput & {
+    readonly professions: readonly (ProfessionPublication & {
+      readonly priorVersions: readonly number[]
+    })[]
+  },
+): string {
+  return backendSection({
+    ...input,
+    body:
+      input.professions.length === 0
+        ? ['<p class="note">No profession has been published.</p>']
+        : input.professions.map(
+            ({ profession, definition, publication, priorVersions }) =>
+              `<section><h2>${escape(definition.title)}</h2>` +
+              `<p><code>${escape(profession.key)}</code> · ${escape(profession.lifecycle)} · ` +
+              `current version ${String(profession.currentVersion)} · published ${escape(relative(publication.publishedAt))}</p>` +
+              `<p>${escape(definition.summary)}</p>` +
+              `<p>Versions: ${priorVersions
+                .map(
+                  (version) =>
+                    `<a href="/backend/professions/${encodeURIComponent(profession.key)}/versions/${String(version)}">${String(version)}</a>`,
+                )
+                .join(', ')}</p></section>`,
+          ),
+  })
+}
+
+export function backendProfessionVersionPage(
+  input: BackendPageInput & { readonly publication: ProfessionPublication },
+): string {
+  const { profession, definition, publication } = input.publication
+  return backendSection({
+    ...input,
+    title: `${definition.title} v${String(definition.version)}`,
+    body: [
+      `<p><code>${escape(profession.key)}</code> · ${escape(profession.lifecycle)} · published ${escape(relative(publication.publishedAt))}</p>`,
+      `<p>${escape(definition.summary)}</p>`,
+      `<h2>Vision</h2><p>${escape(definition.vision)}</p>`,
+      `<h2>Mission</h2><p>${escape(definition.mission)}</p>`,
+      `<h2>Intended impact</h2><p>${escape(definition.intendedImpact)}</p>`,
+      `<h2>Audience</h2><p>${escape(definition.audience)}</p>`,
+      `<h2>Success signals</h2><ul>${definition.successSignals.map((item) => `<li>${escape(item)}</li>`).join('')}</ul>`,
+      `<h2>Principles</h2><ul>${definition.principles.map((item) => `<li>${escape(item)}</li>`).join('')}</ul>`,
+      `<h2>Failure modes</h2><ul>${definition.failureModes.map((item) => `<li>${escape(item)}</li>`).join('')}</ul>`,
+      `<h2>Boundaries</h2><ul>${definition.boundaries.map((item) => `<li>${escape(item)}</li>`).join('')}</ul>`,
+      `<h2>Workplace orientation</h2><p>${escape(definition.workplaceOrientation)}</p>`,
+      '<p><a href="/backend/professions">Back to professions</a></p>',
+    ],
+  })
 }
 
 /**

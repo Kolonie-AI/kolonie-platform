@@ -169,7 +169,6 @@ export async function publicCitizenRecord(
     ...declared('vocation', published),
     ...declared('capabilities', published),
     ...declared('availability', published),
-    ...declared('profession', published),
   }
 }
 

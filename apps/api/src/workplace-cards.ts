@@ -3,6 +3,7 @@ import type {
   WorkplaceCommitment,
   WorkplaceCommitmentState,
   WorkplaceCard,
+  WorkplaceCardEvent,
   WorkplaceCardDetail,
   WorkplaceChecklist,
   WorkplaceChecklistItem,
@@ -34,6 +35,7 @@ import {
   getCard,
   handoverCard,
   listCards,
+  listCardEvents,
   listComments,
   listLinks,
   moveCard,
@@ -61,6 +63,8 @@ import {
   type DetachLabelResult,
   type HandoverCardResult,
   type ListCardsResult,
+  type ListCardEventsResult,
+  type WorkplaceEventAttribution,
   type ListCommentsResult,
   type ListLinksResult,
   type MoveCardResult,
@@ -82,6 +86,8 @@ import {
  * tests need no Postgres. Policy stays in `@kolonie-ai/core` and the
  * statements stay in `packages/db`.
  */
+export type WorkplaceWriteAttribution = WorkplaceEventAttribution
+
 export interface WorkplaceCards {
   list(
     callerId: AgentId,
@@ -93,6 +99,11 @@ export interface WorkplaceCards {
     },
   ): Promise<ListCardsResult>
   get(callerId: AgentId, cardId: string): Promise<WorkplaceCardDetail | null>
+  events(
+    callerId: AgentId,
+    cardId: string,
+    query?: { readonly cursor?: string | null; readonly limit?: number },
+  ): Promise<ListCardEventsResult>
   acceptPracticum(input: {
     readonly callerId: AgentId
     readonly outcome: string
@@ -117,6 +128,7 @@ export interface WorkplaceCards {
     readonly dueAt?: string | null
     readonly coverColour?: string | null
     readonly idempotencyKey?: string
+    readonly attribution?: WorkplaceWriteAttribution
   }): Promise<CreateCardResult>
   update(input: {
     readonly callerId: AgentId
@@ -128,12 +140,14 @@ export interface WorkplaceCards {
     readonly dueAt?: string | null
     readonly coverColour?: string | null
     readonly position?: number
+    readonly attribution?: WorkplaceWriteAttribution
   }): Promise<UpdateCardResult>
   claim(input: {
     readonly callerId: AgentId
     readonly cardId: string
     readonly expectedVersion: number
     readonly idempotencyKey?: string
+    readonly attribution?: WorkplaceWriteAttribution
   }): Promise<ClaimCardResult>
   move(input: {
     readonly callerId: AgentId
@@ -141,6 +155,7 @@ export interface WorkplaceCards {
     readonly expectedVersion: number
     readonly status: WorkplaceLane
     readonly position?: number
+    readonly attribution?: WorkplaceWriteAttribution
   }): Promise<MoveCardResult>
   block(input: {
     readonly callerId: AgentId
@@ -148,17 +163,20 @@ export interface WorkplaceCards {
     readonly expectedVersion: number
     readonly blockedBy: string
     readonly unblockWhen: string
+    readonly attribution?: WorkplaceWriteAttribution
   }): Promise<BlockCardResult>
   requestReview(input: {
     readonly callerId: AgentId
     readonly cardId: string
     readonly expectedVersion: number
+    readonly attribution?: WorkplaceWriteAttribution
   }): Promise<RequestReviewResult>
   complete(input: {
     readonly callerId: AgentId
     readonly cardId: string
     readonly expectedVersion: number
     readonly outcome: string
+    readonly attribution?: WorkplaceWriteAttribution
   }): Promise<CompleteCardResult>
   handover(input: {
     readonly callerId: AgentId
@@ -171,41 +189,49 @@ export interface WorkplaceCards {
     readonly blocked?: string | null
     readonly evidenceLinks?: readonly string[]
     readonly idempotencyKey?: string
+    readonly attribution?: WorkplaceWriteAttribution
   }): Promise<HandoverCardResult>
   archive(input: {
     readonly callerId: AgentId
     readonly cardId: string
     readonly expectedVersion: number
+    readonly attribution?: WorkplaceWriteAttribution
   }): Promise<ArchiveCardResult>
   attachLabel(input: {
     readonly callerId: AgentId
     readonly cardId: string
     readonly labelId: string
+    readonly attribution?: WorkplaceWriteAttribution
   }): Promise<AttachLabelResult>
   detachLabel(input: {
     readonly callerId: AgentId
     readonly cardId: string
     readonly labelId: string
+    readonly attribution?: WorkplaceWriteAttribution
   }): Promise<DetachLabelResult>
   createChecklist(input: {
     readonly callerId: AgentId
     readonly cardId: string
     readonly title: string
+    readonly attribution?: WorkplaceWriteAttribution
   }): Promise<CreateChecklistResult>
   updateChecklist(input: {
     readonly callerId: AgentId
     readonly checklistId: string
     readonly title?: string
     readonly position?: number
+    readonly attribution?: WorkplaceWriteAttribution
   }): Promise<UpdateChecklistResult>
   deleteChecklist(input: {
     readonly callerId: AgentId
     readonly checklistId: string
+    readonly attribution?: WorkplaceWriteAttribution
   }): Promise<DeleteChecklistResult>
   createChecklistItem(input: {
     readonly callerId: AgentId
     readonly checklistId: string
     readonly title: string
+    readonly attribution?: WorkplaceWriteAttribution
   }): Promise<CreateChecklistItemResult>
   updateChecklistItem(input: {
     readonly callerId: AgentId
@@ -213,10 +239,12 @@ export interface WorkplaceCards {
     readonly title?: string
     readonly doneAt?: string | null
     readonly position?: number
+    readonly attribution?: WorkplaceWriteAttribution
   }): Promise<UpdateChecklistItemResult>
   deleteChecklistItem(input: {
     readonly callerId: AgentId
     readonly itemId: string
+    readonly attribution?: WorkplaceWriteAttribution
   }): Promise<DeleteChecklistItemResult>
   listComments(
     callerId: AgentId,
@@ -227,6 +255,7 @@ export interface WorkplaceCards {
     readonly callerId: AgentId
     readonly cardId: string
     readonly body: string
+    readonly attribution?: WorkplaceWriteAttribution
   }): Promise<CreateCommentResult>
   listLinks(callerId: AgentId, cardId: string): Promise<ListLinksResult>
   addLink(input: {
@@ -235,10 +264,12 @@ export interface WorkplaceCards {
     readonly kind: WorkplaceLinkKind
     readonly ref: string
     readonly note?: string
+    readonly attribution?: WorkplaceWriteAttribution
   }): Promise<AddLinkResult>
   removeLink(input: {
     readonly callerId: AgentId
     readonly linkId: string
+    readonly attribution?: WorkplaceWriteAttribution
   }): Promise<RemoveLinkResult>
   /**
    * The one self-authored commitment (`#1869`).
@@ -273,6 +304,7 @@ export function databaseWorkplaceCards(db: Database): WorkplaceCards {
   return {
     list: (callerId, boardId, query) => listCards(db, callerId, boardId, query),
     get: (callerId, cardId) => getCard(db, callerId, cardId),
+    events: (callerId, cardId, query) => listCardEvents(db, callerId, cardId, query),
     acceptPracticum: (input) => startProfessionPracticum(db, input),
     closePracticum: (input) => closeProfessionPracticum(db, input),
     resolvePracticum: (input) => resolveProfessionPracticum(db, input),
@@ -307,6 +339,7 @@ export function databaseWorkplaceCards(db: Database): WorkplaceCards {
 
 export type {
   WorkplaceCard,
+  WorkplaceCardEvent,
   WorkplaceCardDetail,
   WorkplaceChecklist,
   WorkplaceChecklistItem,

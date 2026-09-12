@@ -46,7 +46,7 @@ import type { McpDependencies } from '../dependencies.js'
 import { toolDocsMeta } from '../tool-docs.js'
 import { toolError } from '../guard.js'
 import type { WorkplaceBoards } from '../../workplace-boards.js'
-import type { WorkplaceCards } from '../../workplace-cards.js'
+import type { WorkplaceCards, WorkplaceWriteAttribution } from '../../workplace-cards.js'
 
 /**
  * One MCP grammar over the settled Workplace ports (`#1761`).
@@ -350,25 +350,18 @@ export function registerWorkplaceTool(
             message: 'That act names no delegated capability.',
           })
         }
+        const writeAttribution: WorkplaceWriteAttribution = {
+          actorKind: 'citizen',
+          actorId: attribution.actorAgentId,
+          subjectAgentId: attribution.subjectAgentId,
+          delegationId: attribution.delegationId,
+        }
         const result =
           subject === 'board'
             ? await dispatchBoard(act, input, attribution.subjectAgentId, boards)
             : subject === 'commitment'
               ? await dispatchCommitment(act, input, attribution.subjectAgentId, cards)
-              : await dispatchCard(act, input, attribution.subjectAgentId, cards)
-        if (result.isError !== true && lifecycle.recordAct !== undefined) {
-          const boardId = boardIdOf(result, input)
-          if (boardId !== undefined) {
-            await lifecycle.recordAct({
-              boardId,
-              ...(cardIdOf(result) === undefined ? {} : { cardId: cardIdOf(result) as string }),
-              actorAgentId: attribution.actorAgentId,
-              subjectAgentId: attribution.subjectAgentId,
-              delegationId: AgentOperatorDelegationIdSchema.parse(attribution.delegationId),
-              verb: `${subject}.${act}`,
-            })
-          }
-        }
+              : await dispatchCard(act, input, attribution.subjectAgentId, cards, writeAttribution)
         return withDelegation(result, attribution)
       }
 
@@ -419,17 +412,6 @@ const delegationRefusal = (
             : 'No delegation matches the id you named.',
   ...(outcome === 'wrong-actor' ? { details: { delegationId: 'omit_for_own_workplace' } } : {}),
 })
-
-/** Which board a delegated answer touched, for the activity row. */
-const boardIdOf = (result: CallToolResult, input: Input): string | undefined => {
-  const structured = result.structuredContent
-  const board = asObject(structured?.['board'])
-  const card = asObject(structured?.['card'])
-  return stringOf(board?.['id']) ?? stringOf(card?.['boardId']) ?? input.boardId
-}
-
-const cardIdOf = (result: CallToolResult): string | undefined =>
-  stringOf(asObject(result.structuredContent?.['card'])?.['id'])
 
 /** Name actor, subject and delegation on every delegated answer and executable next step. */
 const withDelegation = (
@@ -813,6 +795,7 @@ async function dispatchCard(
   input: Input,
   callerId: Parameters<WorkplaceCards['list']>[0],
   cards: WorkplaceCards,
+  attribution?: WorkplaceWriteAttribution,
 ): Promise<CallToolResult> {
   if (act === 'accept-practicum') {
     const parsed = WorkplaceAcceptPracticumRequestSchema.safeParse(fieldsOf(input))
@@ -960,6 +943,7 @@ async function dispatchCard(
       ...(parsed.data.dueAt === undefined ? {} : { dueAt: parsed.data.dueAt }),
       ...(parsed.data.coverColour === undefined ? {} : { coverColour: parsed.data.coverColour }),
       ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }),
+      ...(attribution === undefined ? {} : { attribution }),
     })
     if (created.outcome === 'invalid-transition') {
       return toolError({
@@ -978,6 +962,42 @@ async function dispatchCard(
   if (typeof id !== 'string') return id
 
   if (act === 'get') {
+    const eventFields = asObject(fieldsOf(input)['events'])
+    if (eventFields !== undefined) {
+      const listed = await cards.events(callerId, id, {
+        ...(typeof eventFields['cursor'] === 'string' ? { cursor: eventFields['cursor'] } : {}),
+        ...(typeof eventFields['limit'] === 'number' ? { limit: eventFields['limit'] } : {}),
+      })
+      if (listed.outcome === 'unknown') return toolError(missingCard)
+      if (listed.outcome === 'invalid-cursor') {
+        return toolError({
+          code: 'validation_failed',
+          message: 'The cursor is not one of ours.',
+          details: { cursor: 'invalid' },
+        })
+      }
+      const continuation =
+        listed.nextCursor === null
+          ? undefined
+          : {
+              act: 'get' as const,
+              subject: 'card' as const,
+              id,
+              fields: {
+                events: {
+                  cursor: listed.nextCursor,
+                  ...(typeof eventFields['limit'] === 'number'
+                    ? { limit: eventFields['limit'] }
+                    : {}),
+                },
+              },
+            }
+      return ok(`${listed.items.length} canonical card events.`, {
+        items: listed.items,
+        nextCursor: listed.nextCursor,
+        next: withContinuation([], continuation),
+      })
+    }
     const detail = await cards.get(callerId, id)
     if (detail === null) return toolError(missingCard)
     const text =
@@ -985,11 +1005,20 @@ async function dispatchCard(
       (detail.card.description === null || detail.card.description === ''
         ? ''
         : `\n\n${detail.card.description}`)
-    return ok(text, { ...detail, next: nextForCard(detail.card) })
+    return ok(text, {
+      ...detail,
+      next: withContinuation(nextForCard(detail.card), {
+        act: 'get',
+        subject: 'card',
+        id: detail.card.id,
+        boardId: detail.card.boardId,
+        fields: { events: { limit: 50 } },
+      }),
+    })
   }
 
   if (act === 'update') {
-    return updateCard(input, callerId, id, cards)
+    return updateCard(input, callerId, id, cards, attribution)
   }
 
   const expectedVersion = needExpected(input)
@@ -1003,6 +1032,7 @@ async function dispatchCard(
       cardId: id,
       expectedVersion,
       ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }),
+      ...(attribution === undefined ? {} : { attribution }),
     })
     if (claimed.outcome === 'invalid-transition') {
       return toolError({
@@ -1049,6 +1079,7 @@ async function dispatchCard(
       ...(parsed.data.blocked === undefined ? {} : { blocked: parsed.data.blocked }),
       evidenceLinks: parsed.data.evidenceLinks,
       ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }),
+      ...(attribution === undefined ? {} : { attribution }),
     })
     if (handed.outcome === 'stale') {
       return toolError({
@@ -1079,7 +1110,12 @@ async function dispatchCard(
   if (act === 'archive') {
     const visible = await cards.get(callerId, id)
     if (visible === null) return toolError(missingCard)
-    const archived = await cards.archive({ callerId, cardId: id, expectedVersion })
+    const archived = await cards.archive({
+      callerId,
+      cardId: id,
+      expectedVersion,
+      ...(attribution === undefined ? {} : { attribution }),
+    })
     if (archived.outcome === 'stale') {
       return toolError({
         code: 'conflict',
@@ -1112,6 +1148,7 @@ async function updateCard(
   callerId: Parameters<WorkplaceCards['get']>[0],
   cardId: string,
   cards: WorkplaceCards,
+  attribution?: WorkplaceWriteAttribution,
 ): Promise<CallToolResult> {
   const visible = await cards.get(callerId, cardId)
   if (visible === null) return toolError(missingCard)
@@ -1127,6 +1164,7 @@ async function updateCard(
       cardId,
       expectedVersion,
       outcome: parsed.data.outcome,
+      ...(attribution === undefined ? {} : { attribution }),
     })
     return cardWriteResult(
       completed,
@@ -1146,6 +1184,7 @@ async function updateCard(
       expectedVersion,
       blockedBy: parsed.data.blockedBy,
       unblockWhen: parsed.data.unblockWhen,
+      ...(attribution === undefined ? {} : { attribution }),
     })
     return cardWriteResult(
       blocked,
@@ -1164,7 +1203,12 @@ async function updateCard(
     if (!parsed.success)
       return parsedFail('Move takes a status, and an optional position.', parsed.error)
     if (parsed.data.status === 'review') {
-      const reviewed = await cards.requestReview({ callerId, cardId, expectedVersion })
+      const reviewed = await cards.requestReview({
+        callerId,
+        cardId,
+        expectedVersion,
+        ...(attribution === undefined ? {} : { attribution }),
+      })
       return cardWriteResult(
         reviewed,
         'reviewed',
@@ -1177,6 +1221,7 @@ async function updateCard(
       expectedVersion,
       status: parsed.data.status,
       ...(parsed.data.position === undefined ? {} : { position: parsed.data.position }),
+      ...(attribution === undefined ? {} : { attribution }),
     })
     return cardWriteResult(moved, 'moved', moved.outcome === 'moved' ? moved.card : undefined)
   }
@@ -1192,22 +1237,32 @@ async function updateCard(
       })
     }
     if (labelAct === 'add') {
-      const attached = await cards.attachLabel({ callerId, cardId, labelId })
+      const attached = await cards.attachLabel({
+        callerId,
+        cardId,
+        labelId,
+        ...(attribution === undefined ? {} : { attribution }),
+      })
       if (attached.outcome !== 'attached') return toolError(missingCard)
       return ok(`Label attached.`, { label: attached.label, next: nextForCard(visible.card) })
     }
-    const detached = await cards.detachLabel({ callerId, cardId, labelId })
+    const detached = await cards.detachLabel({
+      callerId,
+      cardId,
+      labelId,
+      ...(attribution === undefined ? {} : { attribution }),
+    })
     if (detached.outcome !== 'detached') return toolError(missingCard)
     return ok('Label detached.', { next: nextForCard(visible.card) })
   }
 
   const checklists = asObject(fields['checklists'])
   if (checklists !== undefined) {
-    return mutateChecklist(callerId, cardId, checklists, cards, visible.card)
+    return mutateChecklist(callerId, cardId, checklists, cards, visible.card, attribution)
   }
   const items = asObject(fields['checklistItems'])
   if (items !== undefined) {
-    return mutateChecklistItem(callerId, items, cards, visible.card)
+    return mutateChecklistItem(callerId, items, cards, visible.card, attribution)
   }
 
   const comments = asObject(fields['comments'])
@@ -1252,7 +1307,12 @@ async function updateCard(
     }
     const parsed = WorkplaceCreateCommentRequestSchema.safeParse({ body: comments['body'] })
     if (!parsed.success) return parsedFail('A comment takes a body.', parsed.error)
-    const created = await cards.createComment({ callerId, cardId, body: parsed.data.body })
+    const created = await cards.createComment({
+      callerId,
+      cardId,
+      body: parsed.data.body,
+      ...(attribution === undefined ? {} : { attribution }),
+    })
     if (created.outcome !== 'created') return toolError(missingCard)
     return ok(`${WORKPLACE_UNTRUSTED_CONTENT}\n\nComment added.`, {
       comment: created.comment,
@@ -1262,7 +1322,7 @@ async function updateCard(
 
   const links = asObject(fields['links'])
   if (links !== undefined) {
-    return mutateLinks(callerId, cardId, links, cards, visible.card)
+    return mutateLinks(callerId, cardId, links, cards, visible.card, attribution)
   }
 
   const expectedVersion = needExpected(input)
@@ -1286,6 +1346,7 @@ async function updateCard(
     cardId,
     expectedVersion,
     ...parsed.data,
+    ...(attribution === undefined ? {} : { attribution }),
   })
   if (updated.outcome === 'stale') {
     return toolError({
@@ -1330,12 +1391,18 @@ async function mutateChecklist(
   checklists: Record<string, unknown>,
   cards: WorkplaceCards,
   card: WorkplaceCard,
+  attribution?: WorkplaceWriteAttribution,
 ): Promise<CallToolResult> {
   const checklistAct = stringOf(checklists['act'])
   if (checklistAct === 'add') {
     const parsed = WorkplaceCreateChecklistRequestSchema.safeParse({ title: checklists['title'] })
     if (!parsed.success) return parsedFail('A checklist takes a title.', parsed.error)
-    const created = await cards.createChecklist({ callerId, cardId, title: parsed.data.title })
+    const created = await cards.createChecklist({
+      callerId,
+      cardId,
+      title: parsed.data.title,
+      ...(attribution === undefined ? {} : { attribution }),
+    })
     if (created.outcome !== 'created') return toolError(missingCard)
     return ok(`${WORKPLACE_UNTRUSTED_CONTENT}\n\nChecklist added.`, {
       checklist: created.checklist,
@@ -1350,7 +1417,11 @@ async function mutateChecklist(
     })
   }
   if (checklistAct === 'remove') {
-    const deleted = await cards.deleteChecklist({ callerId, checklistId })
+    const deleted = await cards.deleteChecklist({
+      callerId,
+      checklistId,
+      ...(attribution === undefined ? {} : { attribution }),
+    })
     if (deleted.outcome !== 'deleted') return toolError(missingCard)
     return ok('Checklist removed.', { next: nextForCard(card) })
   }
@@ -1361,7 +1432,12 @@ async function mutateChecklist(
   if (!parsed.success) {
     return parsedFail('A checklist patch takes a title or a position.', parsed.error)
   }
-  const updated = await cards.updateChecklist({ callerId, checklistId, ...parsed.data })
+  const updated = await cards.updateChecklist({
+    callerId,
+    checklistId,
+    ...parsed.data,
+    ...(attribution === undefined ? {} : { attribution }),
+  })
   if (updated.outcome !== 'updated') return toolError(missingCard)
   return ok(`${WORKPLACE_UNTRUSTED_CONTENT}\n\nChecklist updated.`, {
     checklist: updated.checklist,
@@ -1374,6 +1450,7 @@ async function mutateChecklistItem(
   items: Record<string, unknown>,
   cards: WorkplaceCards,
   card: WorkplaceCard,
+  attribution?: WorkplaceWriteAttribution,
 ): Promise<CallToolResult> {
   const itemAct = stringOf(items['act'])
   if (itemAct === 'add') {
@@ -1390,6 +1467,7 @@ async function mutateChecklistItem(
       callerId,
       checklistId,
       title: parsed.data.title,
+      ...(attribution === undefined ? {} : { attribution }),
     })
     if (created.outcome !== 'created') return toolError(missingCard)
     return ok(`${WORKPLACE_UNTRUSTED_CONTENT}\n\nItem added.`, {
@@ -1405,7 +1483,11 @@ async function mutateChecklistItem(
     })
   }
   if (itemAct === 'remove') {
-    const deleted = await cards.deleteChecklistItem({ callerId, itemId })
+    const deleted = await cards.deleteChecklistItem({
+      callerId,
+      itemId,
+      ...(attribution === undefined ? {} : { attribution }),
+    })
     if (deleted.outcome !== 'deleted') return toolError(missingCard)
     return ok('Item removed.', { next: nextForCard(card) })
   }
@@ -1417,7 +1499,12 @@ async function mutateChecklistItem(
   if (!parsed.success) {
     return parsedFail('A checklist item patch takes title, doneAt or position.', parsed.error)
   }
-  const updated = await cards.updateChecklistItem({ callerId, itemId, ...parsed.data })
+  const updated = await cards.updateChecklistItem({
+    callerId,
+    itemId,
+    ...parsed.data,
+    ...(attribution === undefined ? {} : { attribution }),
+  })
   if (updated.outcome !== 'updated') return toolError(missingCard)
   return ok(`${WORKPLACE_UNTRUSTED_CONTENT}\n\nItem updated.`, {
     item: updated.item,
@@ -1431,6 +1518,7 @@ async function mutateLinks(
   links: Record<string, unknown>,
   cards: WorkplaceCards,
   card: WorkplaceCard,
+  attribution?: WorkplaceWriteAttribution,
 ): Promise<CallToolResult> {
   const linkAct = stringOf(links['act'])
   if (linkAct === 'remove') {
@@ -1441,7 +1529,11 @@ async function mutateLinks(
         message: 'fields.links remove needs id.',
       })
     }
-    const removed = await cards.removeLink({ callerId, linkId })
+    const removed = await cards.removeLink({
+      callerId,
+      linkId,
+      ...(attribution === undefined ? {} : { attribution }),
+    })
     if (removed.outcome === 'forbidden') {
       return toolError({
         code: 'workplace_not_member',
@@ -1465,6 +1557,7 @@ async function mutateLinks(
     kind: parsed.data.kind,
     ref: parsed.data.ref,
     ...(parsed.data.note === undefined ? {} : { note: parsed.data.note }),
+    ...(attribution === undefined ? {} : { attribution }),
   })
   if (created.outcome === 'unresolvable') {
     return toolError({

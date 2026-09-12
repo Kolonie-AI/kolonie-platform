@@ -13,6 +13,7 @@ import {
   mustHaveOwner,
   type AgentId,
   type WorkplaceCard,
+  type WorkplaceCardEvent,
   type WorkplaceCardDetail,
   type WorkplaceCardSummary,
   type WorkplaceCommitment,
@@ -107,6 +108,7 @@ const toSummary = (
 export function fakeWorkplaceCards(): FakeWorkplaceCards {
   const seats = new Map<string, WorkplaceMembership[]>()
   const cards = new Map<string, WorkplaceCard>()
+  const events = new Map<string, WorkplaceCardEvent[]>()
   const commitments = new Map<AgentId, WorkplaceCommitment>()
   const labels = new Map<string, WorkplaceLabel>()
   const cardLabels = new Map<string, Set<string>>()
@@ -176,6 +178,34 @@ export function fakeWorkplaceCards(): FakeWorkplaceCards {
       return { state: 'resolved', kind: 'task', title: 'Create an email address', status: 'active' }
     }
     return { state: 'resolved', kind: 'playbook', title: 'Weekly inbox triage', status: 'open' }
+  }
+
+  const appendEvent = (
+    callerId: AgentId,
+    card: WorkplaceCard,
+    verb: WorkplaceCardEvent['verb'],
+    payload: Record<string, unknown>,
+    attribution?: Parameters<WorkplaceCards['create']>[0]['attribution'],
+  ) => {
+    const actorKind = attribution?.actorKind ?? 'citizen'
+    const event: WorkplaceCardEvent = {
+      id: randomUUID(),
+      boardId: card.boardId,
+      cardId: card.id,
+      actorId: actorKind === 'system' ? null : (attribution?.actorId ?? callerId),
+      actorKind,
+      actorHumanId:
+        actorKind === 'human-linked' && attribution?.actorHumanId !== undefined
+          ? (attribution.actorHumanId as WorkplaceCardEvent['actorHumanId'])
+          : null,
+      subjectAgentId: attribution?.subjectAgentId ?? null,
+      delegationId: (attribution?.delegationId as WorkplaceCardEvent['delegationId']) ?? null,
+      verb,
+      payload,
+      legacy: false,
+      createdAt: new Date().toISOString(),
+    }
+    events.set(card.id, [event, ...(events.get(card.id) ?? [])])
   }
 
   const nextPosition = (boardId: string, status: WorkplaceLane): number => {
@@ -305,7 +335,29 @@ export function fakeWorkplaceCards(): FakeWorkplaceCards {
           .sort((a, b) => a.id.localeCompare(b.id)),
         handover:
           [...handovers.values()].find((one) => one.cardId === cardId && one.isCurrent) ?? null,
+        eventCount: events.get(cardId)?.length ?? 0,
+        events: (events.get(cardId) ?? []).slice(0, 5),
       } satisfies WorkplaceCardDetail
+    },
+
+    events: async (callerId, cardId, query = {}) => {
+      if (visible(callerId, cardId) === null) return { outcome: 'unknown' as const }
+      const all = events.get(cardId) ?? []
+      const start =
+        query.cursor === undefined || query.cursor === null || query.cursor === ''
+          ? 0
+          : all.findIndex((event) => event.id === query.cursor) + 1
+      if (query.cursor !== undefined && query.cursor !== null && start === 0) {
+        return { outcome: 'invalid-cursor' as const }
+      }
+      const limit = query.limit ?? 50
+      const items = all.slice(start, start + limit)
+      return {
+        outcome: 'listed' as const,
+        items,
+        nextCursor:
+          start + items.length < all.length ? (items[items.length - 1]?.id ?? null) : null,
+      }
     },
 
     /**
@@ -462,6 +514,20 @@ export function fakeWorkplaceCards(): FakeWorkplaceCards {
         updatedAt: now,
       }
       cards.set(card.id, card)
+      appendEvent(
+        input.callerId,
+        card,
+        'card.created',
+        {
+          title: card.title,
+          description: card.description,
+          status: card.status,
+          priority: card.priority,
+          dueAt: card.dueAt,
+          coverColour: card.coverColour,
+        },
+        input.attribution,
+      )
       return { outcome: 'created', card }
     },
 

@@ -22,6 +22,7 @@ import {
   WorkplaceAddMemberRequestSchema,
   WorkplaceBlockCardRequestSchema,
   WorkplaceCardDetailSchema,
+  WorkplaceCardEventPageSchema,
   WorkplaceCardPageSchema,
   WorkplaceCardSchema,
   WorkplaceChecklistItemSchema,
@@ -229,6 +230,7 @@ export const OPERATIONS: Record<string, OperationSchemas> = {
     response: WorkplaceCardSchema,
   },
   'GET /v1/workplace/cards/:cardId': { response: WorkplaceCardDetailSchema },
+  'GET /v1/workplace/cards/:cardId/events': { response: WorkplaceCardEventPageSchema },
   'PATCH /v1/workplace/cards/:cardId': {
     request: WorkplaceUpdateCardRequestSchema,
     response: WorkplaceCardSchema,

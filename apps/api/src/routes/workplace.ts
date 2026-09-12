@@ -41,6 +41,7 @@ import { callerFor } from './authenticated.js'
 import { fieldErrors } from '../validation.js'
 import type { RouteDependencies } from './dependencies.js'
 import type { WorkplaceBoards } from '../workplace-boards.js'
+import type { WorkplaceWriteAttribution } from '../workplace-cards.js'
 
 /**
  * The workplace SPA's authenticated door (`#1727`, `#1764`, `#1759`).
@@ -151,6 +152,7 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
     if (cards !== undefined) {
       v1.options('/workplace/boards/:boardId/cards', preflight)
       v1.options('/workplace/cards/:cardId', preflight)
+      v1.options('/workplace/cards/:cardId/events', preflight)
       v1.options('/workplace/cards/:cardId/claim', preflight)
       v1.options('/workplace/cards/:cardId/move', preflight)
       v1.options('/workplace/cards/:cardId/block', preflight)
@@ -178,7 +180,14 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
   const citizenFor = async (
     request: FastifyRequest,
     reply: FastifyReply,
-  ): Promise<{ readonly citizenId: AgentId; readonly origin: string | undefined } | undefined> => {
+  ): Promise<
+    | {
+        readonly citizenId: AgentId
+        readonly origin: string | undefined
+        readonly attribution?: WorkplaceWriteAttribution
+      }
+    | undefined
+  > => {
     const origin = originHeader(request.headers.origin)
     const token = bearerToken(request.headers.authorization)
 
@@ -201,7 +210,15 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
 
     const actor = await workplaceActorFor(request, reply, humans.store, workplace)
     if (actor === undefined) return undefined
-    return { citizenId: actor.citizenId, origin: actor.origin }
+    return {
+      citizenId: actor.citizenId,
+      origin: actor.origin,
+      attribution: {
+        actorKind: 'human-linked',
+        actorId: actor.citizenId,
+        actorHumanId: actor.human.id,
+      },
+    }
   }
 
   const namedMembers = async (
@@ -595,6 +612,7 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
       ...(parsed.data.dueAt === undefined ? {} : { dueAt: parsed.data.dueAt }),
       ...(parsed.data.coverColour === undefined ? {} : { coverColour: parsed.data.coverColour }),
       ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
+      ...(actor.attribution === undefined ? {} : { attribution: actor.attribution }),
     })
     if (created.outcome === 'created') {
       return sendCard(reply, actor.origin, created.card, 201)
@@ -615,6 +633,37 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
     const detail = await cards.get(actor.citizenId, cardId)
     if (detail === null) return missingCard(reply, actor.origin)
     return sendCard(reply, actor.origin, detail.card, 200, detail)
+  })
+
+  v1.get('/workplace/cards/:cardId/events', async (request, reply) => {
+    const actor = await citizenFor(request, reply)
+    if (actor === undefined) return
+    const parsed = PageRequestSchema.safeParse(pageQuery(request.query))
+    if (!parsed.success) {
+      return finish(reply, actor.origin)
+        .status(ERROR_STATUS.validation_failed)
+        .send({
+          code: 'validation_failed',
+          message: 'A card event list takes a cursor and a limit.',
+          details: fieldErrors(parsed.error),
+        })
+    }
+    const { cardId } = request.params as { cardId: string }
+    const listed = await cards.events(actor.citizenId, cardId, parsed.data)
+    if (listed.outcome === 'unknown') return missingCard(reply, actor.origin)
+    if (listed.outcome === 'invalid-cursor') {
+      return finish(reply, actor.origin)
+        .status(ERROR_STATUS.validation_failed)
+        .send({
+          code: 'validation_failed',
+          message: 'The cursor is not one of ours.',
+          details: { cursor: 'invalid' },
+        })
+    }
+    return finish(reply, actor.origin).status(200).send({
+      items: listed.items,
+      nextCursor: listed.nextCursor,
+    })
   })
 
   v1.patch('/workplace/cards/:cardId', async (request, reply) => {
@@ -642,6 +691,7 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
       cardId,
       expectedVersion,
       ...parsed.data,
+      ...(actor.attribution === undefined ? {} : { attribution: actor.attribution }),
     })
     if (updated.outcome === 'stale') {
       return finish(reply, actor.origin)
@@ -670,6 +720,7 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
       cardId,
       expectedVersion,
       ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
+      ...(actor.attribution === undefined ? {} : { attribution: actor.attribution }),
     })
     if (claimed.outcome === 'claimed') return sendCard(reply, actor.origin, claimed.card, 200)
     if (claimed.outcome === 'invalid-transition') {
@@ -712,6 +763,7 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
       expectedVersion,
       status: parsed.data.status,
       ...(parsed.data.position === undefined ? {} : { position: parsed.data.position }),
+      ...(actor.attribution === undefined ? {} : { attribution: actor.attribution }),
     })
     if (moved.outcome === 'moved') return sendCard(reply, actor.origin, moved.card, 200)
     if (moved.outcome === 'stale') {
@@ -759,6 +811,7 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
       expectedVersion,
       blockedBy: parsed.data.blockedBy,
       unblockWhen: parsed.data.unblockWhen,
+      ...(actor.attribution === undefined ? {} : { attribution: actor.attribution }),
     })
     if (blocked.outcome === 'blocked') return sendCard(reply, actor.origin, blocked.card, 200)
     if (blocked.outcome === 'stale') {
@@ -788,6 +841,7 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
       callerId: actor.citizenId,
       cardId,
       expectedVersion,
+      ...(actor.attribution === undefined ? {} : { attribution: actor.attribution }),
     })
     if (reviewed.outcome === 'reviewed') return sendCard(reply, actor.origin, reviewed.card, 200)
     if (reviewed.outcome === 'stale') {
@@ -828,6 +882,7 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
       cardId,
       expectedVersion,
       outcome: parsed.data.outcome,
+      ...(actor.attribution === undefined ? {} : { attribution: actor.attribution }),
     })
     if (completed.outcome === 'completed') return sendCard(reply, actor.origin, completed.card, 200)
     if (completed.outcome === 'stale') {
@@ -878,6 +933,7 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
       ...(parsed.data.blocked === undefined ? {} : { blocked: parsed.data.blocked }),
       evidenceLinks: parsed.data.evidenceLinks,
       ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
+      ...(actor.attribution === undefined ? {} : { attribution: actor.attribution }),
     })
     if (handed.outcome === 'handed-over') {
       return sendCard(reply, actor.origin, handed.card, 200, {
@@ -918,6 +974,7 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
       callerId: actor.citizenId,
       cardId,
       expectedVersion,
+      ...(actor.attribution === undefined ? {} : { attribution: actor.attribution }),
     })
     if (archived.outcome === 'archived') return sendCard(reply, actor.origin, archived.card, 200)
     if (archived.outcome === 'stale') {
@@ -948,6 +1005,7 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
       callerId: actor.citizenId,
       cardId,
       labelId,
+      ...(actor.attribution === undefined ? {} : { attribution: actor.attribution }),
     })
     if (attached.outcome !== 'attached') return missingCard(reply, actor.origin)
     return finish(reply, actor.origin).status(201).send(attached.label)
@@ -964,6 +1022,7 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
       callerId: actor.citizenId,
       cardId,
       labelId,
+      ...(actor.attribution === undefined ? {} : { attribution: actor.attribution }),
     })
     if (detached.outcome !== 'detached') return missingCard(reply, actor.origin)
     return finish(reply, actor.origin).status(204).send()
@@ -990,6 +1049,7 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
       callerId: actor.citizenId,
       cardId,
       title: parsed.data.title,
+      ...(actor.attribution === undefined ? {} : { attribution: actor.attribution }),
     })
     if (created.outcome !== 'created') return missingCard(reply, actor.origin)
     return finish(reply, actor.origin).status(201).send(created.checklist)
@@ -1013,6 +1073,7 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
       callerId: actor.citizenId,
       checklistId,
       ...parsed.data,
+      ...(actor.attribution === undefined ? {} : { attribution: actor.attribution }),
     })
     if (updated.outcome !== 'updated') return missingCard(reply, actor.origin)
     return finish(reply, actor.origin).status(200).send(updated.checklist)
@@ -1025,6 +1086,7 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
     const deleted = await cards.deleteChecklist({
       callerId: actor.citizenId,
       checklistId,
+      ...(actor.attribution === undefined ? {} : { attribution: actor.attribution }),
     })
     if (deleted.outcome !== 'deleted') return missingCard(reply, actor.origin)
     return finish(reply, actor.origin).status(204).send()
@@ -1048,6 +1110,7 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
       callerId: actor.citizenId,
       checklistId,
       title: parsed.data.title,
+      ...(actor.attribution === undefined ? {} : { attribution: actor.attribution }),
     })
     if (created.outcome !== 'created') return missingCard(reply, actor.origin)
     return finish(reply, actor.origin).status(201).send(created.item)
@@ -1071,6 +1134,7 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
       callerId: actor.citizenId,
       itemId,
       ...parsed.data,
+      ...(actor.attribution === undefined ? {} : { attribution: actor.attribution }),
     })
     if (updated.outcome !== 'updated') return missingCard(reply, actor.origin)
     return finish(reply, actor.origin).status(200).send(updated.item)
@@ -1083,6 +1147,7 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
     const deleted = await cards.deleteChecklistItem({
       callerId: actor.citizenId,
       itemId,
+      ...(actor.attribution === undefined ? {} : { attribution: actor.attribution }),
     })
     if (deleted.outcome !== 'deleted') return missingCard(reply, actor.origin)
     return finish(reply, actor.origin).status(204).send()
@@ -1143,6 +1208,7 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
       callerId: actor.citizenId,
       cardId,
       body: parsed.data.body,
+      ...(actor.attribution === undefined ? {} : { attribution: actor.attribution }),
     })
     if (created.outcome !== 'created') return missingCard(reply, actor.origin)
     return finish(reply, actor.origin).status(201).send(created.comment)
@@ -1183,6 +1249,7 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
       kind: parsed.data.kind,
       ref: parsed.data.ref,
       ...(parsed.data.note === undefined ? {} : { note: parsed.data.note }),
+      ...(actor.attribution === undefined ? {} : { attribution: actor.attribution }),
     })
     if (created.outcome === 'unresolvable') {
       return finish(reply, actor.origin).status(ERROR_STATUS.workplace_link_unresolvable).send({
@@ -1207,6 +1274,7 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
     const removed = await cards.removeLink({
       callerId: actor.citizenId,
       linkId,
+      ...(actor.attribution === undefined ? {} : { attribution: actor.attribution }),
     })
     if (removed.outcome === 'forbidden') {
       return finish(reply, actor.origin).status(ERROR_STATUS.workplace_not_member).send({

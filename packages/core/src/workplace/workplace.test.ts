@@ -33,6 +33,10 @@ import {
   WorkplaceSubjectSchema,
   WorkplaceCardSummarySchema,
   WorkplaceCardDetailSchema,
+  WorkplaceCardEventPageSchema,
+  WorkplaceCardEventSchema,
+  WorkplaceCardEventVerbSchema,
+  WorkplaceCardEventPayloadSchemas,
   WorkplaceCardPageSchema,
   WorkplaceAcceptPracticumRequestSchema,
   WorkplacePracticumCycleSchema,
@@ -746,6 +750,82 @@ describe('card HTTP envelopes (#1760)', () => {
     expect(page.items[0]).not.toHaveProperty('description')
   })
 
+  it('validates card events by verb and keeps unknown migrated rows explicitly legacy', () => {
+    const event = {
+      id: '123e4567-e89b-42d3-a456-426614174000',
+      boardId: BOARD,
+      cardId: CARD,
+      actorId: CITIZEN,
+      actorKind: 'citizen',
+      actorHumanId: null,
+      subjectAgentId: null,
+      delegationId: null,
+      verb: 'card.created',
+      payload: {
+        title: 'Walk a provider',
+        description: null,
+        status: 'ready',
+        priority: 'unset',
+        dueAt: null,
+        coverColour: null,
+      },
+      legacy: false,
+      createdAt: NOW,
+    }
+    expect(WorkplaceCardEventSchema.parse(event).verb).toBe('card.created')
+    expect(
+      WorkplaceCardEventPageSchema.parse({ items: [event], nextCursor: null }).items,
+    ).toHaveLength(1)
+    expect(
+      WorkplaceCardEventSchema.safeParse({ ...event, payload: { commentId: CARD } }).success,
+    ).toBe(false)
+    expect(
+      WorkplaceCardEventSchema.safeParse({
+        ...event,
+        verb: 'recurrence.skipped',
+        payload: { arbitrary: true },
+        legacy: true,
+      }).success,
+    ).toBe(true)
+    expect(WorkplaceCardEventVerbSchema.safeParse('recurrence.skipped').success).toBe(false)
+  })
+
+  it('does not accept prose or external references in identifier-only event payloads', () => {
+    expect(
+      WorkplaceCardEventPayloadSchemas['card.comment_created'].safeParse({
+        commentId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+        body: 'private prose',
+      }).success,
+    ).toBe(false)
+    expect(
+      WorkplaceCardEventPayloadSchemas['card.link_created'].safeParse({
+        linkId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+        kind: 'url',
+        ref: 'https://example.test/private',
+      }).success,
+    ).toBe(false)
+  })
+
+  it('keeps the origin class through identity erasure and refuses system actors', () => {
+    const base = {
+      id: '123e4567-e89b-42d3-a456-426614174000',
+      boardId: BOARD,
+      cardId: CARD,
+      actorId: CITIZEN,
+      actorHumanId: null,
+      subjectAgentId: null,
+      delegationId: null,
+      verb: 'card.claimed',
+      payload: { ownerId: CITIZEN },
+      legacy: false,
+      createdAt: NOW,
+    }
+    expect(WorkplaceCardEventSchema.safeParse({ ...base, actorKind: 'human-linked' }).success).toBe(
+      true,
+    )
+    expect(WorkplaceCardEventSchema.safeParse({ ...base, actorKind: 'system' }).success).toBe(false)
+  })
+
   it('accepts one bounded practicum outcome and a cycle of three to five ordinary cards', () => {
     expect(
       WorkplaceAcceptPracticumRequestSchema.parse({
@@ -1120,6 +1200,8 @@ describe('card HTTP envelopes (#1760)', () => {
       ],
       links: [],
       handover: null,
+      eventCount: 0,
+      events: [],
     })
     expect(detail.labels).toHaveLength(1)
     expect(detail.checklists[0]?.items[0]?.title).toBe('Mint the challenge')

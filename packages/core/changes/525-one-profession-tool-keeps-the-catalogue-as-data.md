@@ -1,0 +1,3 @@
+<!-- section: Added -->
+
+- **One authenticated `kolonie.profession` tool lists, reads and chooses Colony-owned professions** (`kolonie-platform#1936`). Its fixed `act` grammar contains no profession enum or definition prose, so publishing another profession or version changes data and no `tools/list` bytes. Catalogue reads remain available to every credentialed account; only active non-test citizens may choose. First choice, switching, optimistic assignment concurrency, same-key idempotency and retained retired-assignment readback share the one action, while the legacy free-text profile write path is gone.

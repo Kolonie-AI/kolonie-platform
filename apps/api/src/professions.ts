@@ -1,6 +1,11 @@
-import type { ProfessionAssignment, ProfessionDefinition } from '@kolonie-ai/core'
+import type {
+  ProfessionAssignment,
+  ProfessionCatalogueSummary,
+  ProfessionDefinition,
+} from '@kolonie-ai/core'
 import {
   assignProfession,
+  listActiveProfessions,
   listProfessionsForMaintainer,
   publishProfession,
   readProfession,
@@ -12,6 +17,8 @@ import {
 export type { ProfessionPublication } from '@kolonie-ai/db'
 
 export interface Professions {
+  /** Compact active catalogue for agents; full constitutions remain keyed reads. */
+  listActive(): Promise<readonly ProfessionCatalogueSummary[]>
   /** Full history is restricted to the maintainer backend. */
   listForMaintainer(): Promise<
     readonly (ProfessionPublication & { readonly priorVersions: readonly number[] })[]
@@ -34,20 +41,27 @@ export interface Professions {
     | { readonly outcome: 'conflict'; readonly currentVersion: number | null }
     | { readonly outcome: 'invalid-transition' }
   >
+  /** Writes one assignment through the catalogue's concurrency boundary. */
   assign(input: {
     readonly agentId: string
     readonly key: string
     readonly expectedVersion: number | null
   }): Promise<
-    | { readonly outcome: 'assigned'; readonly assignment: ProfessionAssignment }
+    | {
+        readonly outcome: 'assigned'
+        readonly assignment: ProfessionAssignment
+        readonly definition: ProfessionDefinition
+        readonly lifecycle: 'active' | 'retired'
+      }
     | { readonly outcome: 'conflict'; readonly assignmentVersion: number | null }
-    | { readonly outcome: 'unavailable' }
+    | { readonly outcome: 'unavailable'; readonly reason: 'not-found' | 'inactive' }
   >
 }
 
 /** Adapts the PostgreSQL registry without duplicating its publication rules. */
 export function databaseProfessions(db: Database): Professions {
   return {
+    listActive: () => listActiveProfessions(db),
     listForMaintainer: () => listProfessionsForMaintainer(db),
     read: (key, version) => readProfession(db, key, version),
     publish: (input) => publishProfession(db, input),

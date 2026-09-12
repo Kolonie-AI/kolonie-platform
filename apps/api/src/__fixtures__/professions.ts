@@ -11,7 +11,10 @@ import type { Professions, ProfessionPublication } from '../professions.js'
  */
 export const fakeProfessions = (): Professions => {
   const versions = new Map<string, Map<number, ProfessionPublication>>()
-  const assignments = new Map<string, { key: string; assignmentVersion: number }>()
+  const assignments = new Map<
+    string,
+    { key: string; chosenAt: string; assignmentVersion: number }
+  >()
   const retired = new Set<string>()
 
   const current = (key: string): ProfessionPublication | null => {
@@ -22,6 +25,19 @@ export const fakeProfessions = (): Professions => {
   }
 
   return {
+    listActive: async () =>
+      [...versions.keys()].sort().flatMap((key) => {
+        const held = current(key)
+        if (held === null || retired.has(key)) return []
+        return [
+          {
+            key: held.definition.key,
+            title: held.definition.title,
+            summary: held.definition.summary,
+            version: held.definition.version,
+          },
+        ]
+      }),
     listForMaintainer: async () =>
       [...versions.keys()].sort().flatMap((key) => {
         const held = current(key)
@@ -44,7 +60,16 @@ export const fakeProfessions = (): Professions => {
     read: async (key, version) => {
       const held = versions.get(key)
       if (held === undefined) return null
-      return version === undefined ? current(key) : (held.get(version) ?? null)
+      const found = version === undefined ? current(key) : (held.get(version) ?? null)
+      if (found === null || !retired.has(key)) return found
+      return {
+        ...found,
+        profession: {
+          ...found.profession,
+          lifecycle: 'retired' as const,
+          retiredAt: found.profession.retiredAt ?? found.profession.publishedAt,
+        },
+      }
     },
     publish: async ({ expectedVersion, definition, publisherId }) => {
       const parsed = ProfessionDefinitionSchema.parse(definition)
@@ -95,17 +120,37 @@ export const fakeProfessions = (): Professions => {
       }
     },
     assign: async ({ agentId, key, expectedVersion }) => {
-      const found = current(key)
-      if (found === null || retired.has(key)) return { outcome: 'unavailable' as const }
       const held = assignments.get(agentId)
       if ((held?.assignmentVersion ?? null) !== expectedVersion) {
         return { outcome: 'conflict' as const, assignmentVersion: held?.assignmentVersion ?? null }
       }
+      if (held?.key === key) {
+        const found = current(key)
+        if (found === null) throw new Error('assigned profession is missing')
+        return {
+          outcome: 'assigned' as const,
+          assignment: {
+            key,
+            chosenAt: held.chosenAt,
+            assignmentVersion: held.assignmentVersion,
+          },
+          definition: found.definition,
+          lifecycle: retired.has(key) ? ('retired' as const) : ('active' as const),
+        }
+      }
+      const found = current(key)
+      if (found === null) return { outcome: 'unavailable' as const, reason: 'not-found' as const }
+      if (retired.has(key)) {
+        return { outcome: 'unavailable' as const, reason: 'inactive' as const }
+      }
       const assignmentVersion = (held?.assignmentVersion ?? 0) + 1
-      assignments.set(agentId, { key, assignmentVersion })
+      const chosenAt = new Date().toISOString()
+      assignments.set(agentId, { key, chosenAt, assignmentVersion })
       return {
         outcome: 'assigned' as const,
-        assignment: { key, chosenAt: new Date().toISOString(), assignmentVersion },
+        assignment: { key, chosenAt, assignmentVersion },
+        definition: found.definition,
+        lifecycle: 'active' as const,
       }
     },
   }

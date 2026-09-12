@@ -72,6 +72,7 @@ import type { ArrivalReports } from '../arrival-reports.js'
 import type { ReachabilityDependencies } from '../reachability.js'
 import type { WebsiteDependencies } from '../website.js'
 import type { AgentOperatorDelegations } from '../agent-operator-delegations.js'
+import type { Professions } from '../professions.js'
 
 /**
  * Everything the MCP surface needs from the outside world.
@@ -138,6 +139,8 @@ export interface McpDependencies {
    */
   readonly arrivals: ArrivalReports
   readonly store: AgentStore
+  /** The central profession catalogue and assignment port (`#1936`). */
+  readonly professions?: Professions
   readonly catalogue: TaskCatalogue
   readonly submissions: TaskSubmissions
   readonly guidance: TaskGuidance

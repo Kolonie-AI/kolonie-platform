@@ -8,6 +8,7 @@ import { agentProfessions, professionVersions, professions } from '../schema/pro
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import {
   assignProfession,
+  listActiveProfessions,
   listProfessionsForMaintainer,
   publishProfession,
   readProfession,
@@ -44,6 +45,36 @@ describe('profession registry', () => {
     await truncateAll(db)
     const [publisher] = await db.insert(humans).values({}).returning({ id: humans.id })
     publisherId = publisher!.id
+  })
+
+  it('lists only active profession summaries in stable-key order', async () => {
+    await publishProfession(db, { expectedVersion: null, definition: definition(), publisherId })
+    await publishProfession(db, {
+      expectedVersion: null,
+      definition: definition('citizen-mentor'),
+      publisherId,
+    })
+    await publishProfession(db, {
+      expectedVersion: null,
+      definition: definition('retired-builder'),
+      publisherId,
+    })
+    await retireProfession(db, { key: 'retired-builder', expectedVersion: 1 })
+
+    expect(await listActiveProfessions(db)).toEqual([
+      {
+        key: 'citizen-mentor',
+        title: 'Software Producer',
+        summary: 'Builds useful software.',
+        version: 1,
+      },
+      {
+        key: 'software-producer',
+        title: 'Software Producer',
+        summary: 'Builds useful software.',
+        version: 1,
+      },
+    ])
   })
 
   it('publishes immutable gap-free versions and resolves assignments through the current pointer', async () => {
@@ -86,6 +117,77 @@ describe('profession registry', () => {
       assignmentVersion: 1,
     })
     expect(assignment[0]).not.toHaveProperty('definitionVersion')
+  })
+
+  it('returns the assignment and current definition from one atomic choice', async () => {
+    await publishProfession(db, { expectedVersion: null, definition: definition(), publisherId })
+    const [agent] = await db
+      .insert(agents)
+      .values({ name: 'resolved-choice', platform: 'claude' })
+      .returning()
+
+    expect(
+      await assignProfession(db, {
+        agentId: agent!.id,
+        key: 'software-producer',
+        expectedVersion: null,
+      }),
+    ).toMatchObject({
+      outcome: 'assigned',
+      definition: definition(),
+      lifecycle: 'active',
+    })
+  })
+
+  it('checks assignment concurrency before same-key idempotency and reads back a retired assignment', async () => {
+    await publishProfession(db, { expectedVersion: null, definition: definition(), publisherId })
+    const [agent] = await db
+      .insert(agents)
+      .values({ name: 'idempotent', platform: 'claude' })
+      .returning()
+    const first = await assignProfession(db, {
+      agentId: agent!.id,
+      key: 'software-producer',
+      expectedVersion: null,
+    })
+    if (first.outcome !== 'assigned') throw new Error('fixture failed to assign profession')
+
+    expect(
+      await assignProfession(db, {
+        agentId: agent!.id,
+        key: 'software-producer',
+        expectedVersion: null,
+      }),
+    ).toMatchObject({ outcome: 'conflict', assignmentVersion: 1 })
+
+    const before = await db
+      .select()
+      .from(agentProfessions)
+      .where(eq(agentProfessions.agentId, agent!.id))
+    expect(
+      await assignProfession(db, {
+        agentId: agent!.id,
+        key: 'software-producer',
+        expectedVersion: 1,
+      }),
+    ).toEqual(first)
+    expect(
+      await db.select().from(agentProfessions).where(eq(agentProfessions.agentId, agent!.id)),
+    ).toEqual(before)
+
+    await retireProfession(db, { key: 'software-producer', expectedVersion: 1 })
+    expect(
+      await assignProfession(db, {
+        agentId: agent!.id,
+        key: 'software-producer',
+        expectedVersion: 1,
+      }),
+    ).toMatchObject({
+      outcome: 'assigned',
+      assignment: first.assignment,
+      definition: definition(),
+      lifecycle: 'retired',
+    })
   })
 
   it('guards assignment concurrency and never imports legacy prose', async () => {

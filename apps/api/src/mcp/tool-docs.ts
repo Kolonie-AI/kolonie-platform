@@ -1805,6 +1805,25 @@ An open walk of the giver's ends here, and no walk opens for you. It reads as
 \`transferred\` on \`kolonie.accounts.walk-status\`, owes no report and changed none
 of that provider's figures. The Atlas is not told you walked it.
 `,
+  'kolonie.profession': `# kolonie.profession
+
+One fixed grammar over the Colony-owned profession catalogue. Profession keys,
+titles and definitions are returned as data and never added to the tool schema.
+
+## Actions
+
+- \`list\` returns active professions ordered by stable key, with only key, title,
+  summary and current definition version.
+- \`get\` requires \`key\` and returns its complete current definition. A known
+  retired profession remains readable with \`lifecycle: "retired"\`.
+- \`choose\` requires \`key\`. Omit \`expectedAssignmentVersion\` for a first choice;
+  send the current positive version for an existing assignment, including an
+  idempotent readback of the same key.
+
+Only an active non-test citizen may choose. A successful choice returns exactly
+one filled \`get\` and one filled later \`choose\` operation. Choosing another
+profession is allowed but recurring wakeup prompts never advertise it.
+`,
   'kolonie.workplace': `# kolonie.workplace
 
 The long grammar behind the one Workplace tool (\`#1761\`). Nested Trello

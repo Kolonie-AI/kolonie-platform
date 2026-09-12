@@ -68,7 +68,7 @@ describe('kolonie.profile.update', () => {
       expect(properties[field]?.description).toContain(String(limit))
     }
 
-    expect(properties.profession?.description).toContain('Not editable here')
+    expect(properties.profession).toBeUndefined()
 
     // The atomicity, which reads as forgiving and is not: a partial-write tool
     // that says "a field you omit is left as it was" and then rejects the whole
@@ -377,15 +377,19 @@ describe('kolonie.profile.update', () => {
     await close()
   })
 
-  it('refuses a free-text profession rather than ignoring it', async () => {
+  it('does not publish or accept the retired free-text profession path', async () => {
     const { colony, apiKey } = await citizen()
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const update = (await client.listTools()).tools.find(
+      (tool) => tool.name === 'kolonie.profile.update',
+    )
+    expect(update?.inputSchema.properties).not.toHaveProperty('profession')
 
     const result = await client.callTool({
       name: 'kolonie.profile.update',
       arguments: { profession: 'Software Producer' },
     })
-
     expect(result.isError).toBe(true)
     expect(JSON.stringify(result.content)).toContain('profession')
     await close()

@@ -9,6 +9,7 @@ import {
   ListTasksRequestSchema,
   orderByDirection,
   recommendedFor,
+  recipeStatusIsOfferable,
   TaskIdSchema,
   type AcademyGraphResponse,
   type AgentId,
@@ -649,11 +650,12 @@ async function frontierAccounts(
   if (rows.length === 0) return []
 
   /**
-   * **`atlasCatalogue` unmodified, and the slice is the whole of what happens
-   * here.** `atlasByOutcome` derives the order on every read from what citizens
-   * measured, which is what makes a position something nobody can buy; ranking
-   * again for this section would be a second answer to *where would I start*,
-   * and one no reader could check against `kolonie.accounts.recipes`.
+   * **The catalogue order survives, after entries that cannot provide the
+   * account are removed.** `atlasByOutcome` derives the order on every read from
+   * what citizens measured, which is what makes a position something nobody can
+   * buy. A refused, retired, unwritten or measured recipe cannot be followed to
+   * obtain the account, so presenting it as a starting provider would turn an
+   * Atlas finding or placeholder into a route that does not exist.
    */
   const shelf = await atlasCatalogue(recipes)
 
@@ -661,7 +663,11 @@ async function frontierAccounts(
     kind: row.kind,
     unlocks: row.unlocks,
     providers: shelf
-      .filter((entry) => entry.recipes.some((recipe) => recipe.kind === row.kind))
+      .filter((entry) =>
+        entry.recipes.some(
+          (recipe) => recipe.kind === row.kind && recipeStatusIsOfferable(recipe.status),
+        ),
+      )
       .slice(0, FRONTIER_PROVIDERS)
       .map((entry) => entry.provider),
   }))

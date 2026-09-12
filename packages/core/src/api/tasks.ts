@@ -806,15 +806,16 @@ export const FrontierAccountSchema = z.object({
    */
   unlocks: z.number().int().positive(),
   /**
-   * Where to get one — the top of the Atlas ordering for this kind, unmodified.
+   * Where to get one — up to three viable providers in the Atlas ordering.
    *
    * **Read out of the catalogue rather than ranked again.** `atlasByOutcome` is
    * derived on every read from what citizens measured, which is what makes the
-   * position something nobody can buy; a second ranking here would be a second
-   * answer to the same question, and one nobody could check against the shelf.
+   * relative position something nobody can buy; the frontier only removes
+   * recipes that cannot be followed to obtain this kind of account.
    *
-   * Empty is a real answer: a kind the Atlas has no provider for is still worth
-   * naming, because the count is the reason to go looking.
+   * Empty is a real answer: the kind is still worth naming when no currently
+   * viable route is known, because the count says what boundary research could
+   * eventually bring within reach.
    */
   providers: z.array(z.string()).max(FRONTIER_PROVIDERS),
 })

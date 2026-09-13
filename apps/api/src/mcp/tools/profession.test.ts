@@ -71,7 +71,7 @@ describe('kolonie.profession (#1936)', () => {
     const tool = authenticatedTools.find((candidate) => candidate.name === TOOL)
 
     expect(anonymousTools.map(({ name }) => name)).not.toContain(TOOL)
-    expect(authenticatedTools).toHaveLength(129)
+    expect(authenticatedTools).toHaveLength(130)
     expect(authenticatedTools.filter(({ name }) => name === TOOL)).toHaveLength(1)
     expect(AUTHENTICATED_TOOLS.filter((name) => name === TOOL)).toEqual([TOOL])
     expect(UNAUTHENTICATED_TOOLS).not.toContain(TOOL)

@@ -1,8 +1,10 @@
 import {
   CONVERSATION_MESSAGE_DEFAULT_PAGE,
   CONVERSATION_MESSAGE_MAX_PAGE,
+  ConversationIdSchema,
   MESSAGE_IDLE_AFTER_DAYS,
   MESSAGE_UNTRUSTED_CONTENT,
+  MessageIdSchema,
 } from '@kolonie-ai/core'
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { describe, expect, it } from 'vitest'
@@ -49,6 +51,10 @@ const protect = (args: Record<string, unknown>) => ({
   name: 'kolonie.messages.protect',
   arguments: args,
 })
+const retract = (messageId: string) => ({
+  name: 'kolonie.messages.retract',
+  arguments: { messageId },
+})
 
 const textOf = (result: Awaited<ReturnType<Client['callTool']>>) => JSON.stringify(result.content)
 
@@ -61,6 +67,7 @@ const TOOLS = [
   'kolonie.messages.archive',
   'kolonie.messages.acknowledge',
   'kolonie.messages.protect',
+  'kolonie.messages.retract',
 ] as const
 
 /**
@@ -496,6 +503,227 @@ describe('kolonie.messages.* (#1286)', () => {
       const outsider = await bob.client.callTool(acknowledge(systemId))
       expect(outsider.isError).toBe(true)
       expect(outsider.structuredContent).toMatchObject({ error: { code: 'not_found' } })
+
+      await close()
+    })
+  })
+
+  describe('sender retraction (#1959)', () => {
+    it('publishes only messageId with the exact mutation annotations', async () => {
+      const { alice, close } = await aPair()
+      const tool = (await alice.client.listTools()).tools.find(
+        (candidate) => candidate.name === 'kolonie.messages.retract',
+      )
+
+      expect(tool?.inputSchema).toMatchObject({
+        type: 'object',
+        properties: { messageId: { type: 'string', format: 'uuid' } },
+        required: ['messageId'],
+      })
+      expect(Object.keys(tool?.inputSchema.properties ?? {})).toEqual(['messageId'])
+      expect(tool?.annotations).toEqual({
+        readOnlyHint: false,
+        idempotentHint: true,
+        destructiveHint: true,
+        openWorldHint: false,
+      })
+
+      await close()
+    })
+
+    it('retracts its own message with one stable exact envelope and canonical tombstone', async () => {
+      const { alice, bob, close } = await aPair()
+      const asked = await alice.client.callTool(
+        send({ to: bob.agent.profile.name, body: 'Open this thread.' }),
+      )
+      const { requestId, conversationId } = asked.structuredContent as {
+        requestId: string
+        conversationId: string
+      }
+      await bob.client.callTool(requests({ act: 'accept', requestId }))
+      const delivered = await alice.client.callTool(
+        send({ conversationId, body: 'This wording no longer stands.' }),
+      )
+      const messageId = (delivered.structuredContent as { messageId: string }).messageId
+
+      const first = await alice.client.callTool(retract(messageId))
+      const repeated = await alice.client.callTool(retract(messageId))
+      const expected = {
+        retracted: true,
+        messageId,
+        conversationId,
+        retractedAt: expect.stringMatching(/^\d{4}-/),
+        externalCopiesMayRemain: true,
+      }
+      expect(first.isError).toBeFalsy()
+      expect(first.structuredContent).toEqual(expected)
+      expect(repeated.structuredContent).toEqual(first.structuredContent)
+      expect(textOf(first)).toMatch(/removed from Kolonie thread views/i)
+      expect(textOf(first)).toMatch(/recipient memory/i)
+      expect(textOf(first)).toMatch(/local transcript/i)
+      expect(textOf(first)).toMatch(/screenshot/i)
+      expect(textOf(first)).toMatch(/export/i)
+      expect(textOf(first)).toMatch(/delivered notification/i)
+
+      const thread = await bob.client.callTool(getThread(conversationId))
+      const messages = (thread.structuredContent as { messages: Record<string, unknown>[] })
+        .messages
+      expect(messages.at(-1)).toMatchObject({
+        id: messageId,
+        conversationId,
+        sender: expect.objectContaining({ party: 'citizen' }),
+        createdAt: expect.stringMatching(/^\d{4}-/),
+        retractedAt: (first.structuredContent as { retractedAt: string }).retractedAt,
+      })
+      expect(messages.at(-1)).not.toHaveProperty('body')
+      expect(textOf(thread)).toContain('Message retracted by sender.')
+      expect(textOf(thread)).not.toContain('This wording no longer stands.')
+
+      await close()
+    })
+
+    it('returns one indistinguishable not_found response for every unauthorized identity', async () => {
+      const { colony, alice, bob, close } = await aPair()
+      const asked = await alice.client.callTool(
+        send({ to: bob.agent.profile.name, body: 'Open this thread.' }),
+      )
+      const { requestId, conversationId } = asked.structuredContent as {
+        requestId: string
+        conversationId: string
+      }
+      await bob.client.callTool(requests({ act: 'accept', requestId }))
+      const sent = await alice.client.callTool(
+        send({ conversationId, body: 'Owned by the sender.' }),
+      )
+      const ownMessageId = (sent.structuredContent as { messageId: string }).messageId
+      const systemMessageId = colony.messaging.systemThread(bob.agent.profile.name).messageId
+      const hiddenConversationId = colony.messaging.operatorThread(alice.agent.profile.name)
+      const hiddenThread = await alice.client.callTool(getThread(hiddenConversationId))
+      const hiddenMessageId = (hiddenThread.structuredContent as { messages: { id: string }[] })
+        .messages[0]!.id
+      const randomMessageId = crypto.randomUUID()
+
+      const [otherSender, hidden, system, random] = await Promise.all([
+        bob.client.callTool(retract(ownMessageId)),
+        bob.client.callTool(retract(hiddenMessageId)),
+        bob.client.callTool(retract(systemMessageId)),
+        bob.client.callTool(retract(randomMessageId)),
+      ])
+      expect(otherSender.isError).toBe(true)
+      expect(hidden.isError).toBe(true)
+      expect(system.isError).toBe(true)
+      expect(random.isError).toBe(true)
+      expect(otherSender.structuredContent).toEqual(hidden.structuredContent)
+      expect(hidden.structuredContent).toEqual(system.structuredContent)
+      expect(system.structuredContent).toEqual(random.structuredContent)
+      expect(random.structuredContent).toMatchObject({ error: { code: 'not_found' } })
+
+      await close()
+    })
+
+    it('returns validation_failed for a malformed message id', async () => {
+      const { alice, close } = await aPair()
+      const malformed = await alice.client.callTool(retract('not-a-message-id'))
+
+      expect(malformed.isError).toBe(true)
+      expect(malformed.structuredContent).toMatchObject({
+        error: { code: 'validation_failed' },
+      })
+
+      await close()
+    })
+
+    it('retracts the actual citizen sender in an operator thread', async () => {
+      const { colony, alice, close } = await aPair()
+      colony.messaging.operatorLink(alice.agent.profile.name)
+      const sent = await alice.client.callTool(
+        send({ operator: true, body: 'Please disregard this request.' }),
+      )
+      const { messageId, conversationId } = sent.structuredContent as {
+        messageId: string
+        conversationId: string
+      }
+
+      const result = await alice.client.callTool(retract(messageId))
+      expect(result.structuredContent).toMatchObject({
+        retracted: true,
+        messageId,
+        conversationId,
+      })
+
+      const thread = await alice.client.callTool(getThread(conversationId))
+      const tombstone = (
+        thread.structuredContent as {
+          messages: { retractedAt?: string; body?: string }[]
+        }
+      ).messages.find((message) => message.retractedAt !== undefined)
+      expect(tombstone).toMatchObject({
+        retractedAt: (result.structuredContent as { retractedAt: string }).retractedAt,
+      })
+      expect(tombstone).not.toHaveProperty('body')
+      expect(textOf(thread)).not.toContain('Please disregard this request.')
+
+      await close()
+    })
+
+    it('lets only the actual delegated sender retract, never the subject', async () => {
+      const { colony, alice, bob, close } = await aPair()
+      colony.agentOperatorDelegations.citizen(alice.agent.profile.name, alice.agent.id)
+      colony.agentOperatorDelegations.citizen(bob.agent.profile.name, bob.agent.id)
+      const requested = await colony.agentOperatorDelegations.request({
+        operatorAgentId: alice.agent.id,
+        subjectHandle: bob.agent.profile.name,
+        capabilities: ['message'],
+      })
+      if (!('delegation' in requested)) throw new Error('fixture delegation failed')
+      await colony.agentOperatorDelegations.accept(requested.delegation.id, bob.agent.id)
+
+      const conversationId = ConversationIdSchema.parse(crypto.randomUUID())
+      const messageId = MessageIdSchema.parse(crypto.randomUUID())
+      let senderId: string | undefined
+      let retractedAt: string | undefined
+      colony.messaging.sendDelegated = async (actor) => {
+        senderId = actor
+        return { outcome: 'delivered', response: { conversationId, messageId } }
+      }
+      const delegatedMessaging = colony.messaging as {
+        sendDelegated: NonNullable<typeof colony.messaging.sendDelegated>
+        retract: NonNullable<typeof colony.messaging.retract>
+      }
+      delegatedMessaging.retract = async (actor, id) => {
+        if (actor !== senderId || id !== messageId) {
+          return {
+            outcome: 'refused',
+            error: { code: 'not_found', message: 'No retractable message matches that id.' },
+          }
+        }
+        retractedAt ??= new Date().toISOString()
+        return {
+          outcome: 'retracted',
+          response: { conversationId, messageId, retractedAt },
+        }
+      }
+
+      await alice.client.callTool(
+        send({
+          delegationId: requested.delegation.id,
+          body: 'Mentor direction that should not stand.',
+        }),
+      )
+
+      const subjectAttempt = await bob.client.callTool(retract(messageId))
+      expect(subjectAttempt.isError).toBe(true)
+      expect(subjectAttempt.structuredContent).toMatchObject({ error: { code: 'not_found' } })
+
+      const retracted = await alice.client.callTool(retract(messageId))
+      expect(retracted.structuredContent).toEqual({
+        retracted: true,
+        messageId,
+        conversationId,
+        retractedAt,
+        externalCopiesMayRemain: true,
+      })
+      expect(senderId).toBe(alice.agent.id)
 
       await close()
     })

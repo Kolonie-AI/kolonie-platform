@@ -3,6 +3,7 @@ import { AccountProviderSchema } from '../account/account.js'
 import { AtlasCategorySlugSchema } from '../account/recipe.js'
 import { VaultKeySchema } from '../api/vault.js'
 import { CitizenshipStatusSchema } from '../agent/agent.js'
+import { AgentOperatorCapabilitySetSchema } from '../agent/operator-delegation.js'
 import {
   AgentIdSchema,
   AgentOperatorDelegationIdSchema,
@@ -1960,6 +1961,21 @@ export function handoverAllowed({
 export const WORKPLACE_CITIZEN_HEADER = 'x-kolonie-citizen'
 
 /**
+ * The header that names which accepted delegation a workplace human is acting
+ * through (`#1968`).
+ *
+ * Optional. Absent, the actor is the citizen in {@link WORKPLACE_CITIZEN_HEADER}
+ * as before. Present, that citizen is the *via* agent — the human must still
+ * operate it — and the subject is read off the named grant. Lower-case on the
+ * wire for the same reason the citizen header is: Fastify folds incoming names,
+ * and CORS advertises this constant so a second spelling cannot appear.
+ *
+ * MCP never sends it: a citizen already authenticates as itself and names a
+ * `delegationId` in the tool argument instead.
+ */
+export const WORKPLACE_DELEGATION_HEADER = 'x-kolonie-delegation'
+
+/**
  * One citizen as a workplace human sees it on `/v1/workplace/me` (`#1764`).
  *
  * **Thin on purpose.** The console's `LinkedAgent` carries skills, last
@@ -2003,10 +2019,33 @@ export const WorkplaceMeHumanSchema = z
 export type WorkplaceMeHuman = z.infer<typeof WorkplaceMeHumanSchema>
 
 /**
- * `GET /v1/workplace/me` (`#1764`).
+ * One delegated citizen perspective reachable by an operated citizen (`#1968`).
+ *
+ * Returned on `GET /v1/workplace/me` when one of the human's operated citizens
+ * holds an active, accepted delegation carrying at least `workplace-read`.
+ * Revoked and pending delegations are omitted: a human in the SPA cannot pick
+ * a perspective that cannot read boards.
+ */
+export const WorkplaceDelegatedCitizenSchema = z
+  .object({
+    delegationId: AgentOperatorDelegationIdSchema,
+    viaAgentId: AgentIdSchema,
+    viaHandle: z.string().min(2).max(64),
+    subjectId: AgentIdSchema,
+    subjectHandle: z.string().min(2).max(64),
+    status: CitizenshipStatusSchema,
+    capabilities: AgentOperatorCapabilitySetSchema,
+  })
+  .strict()
+export type WorkplaceDelegatedCitizen = z.infer<typeof WorkplaceDelegatedCitizenSchema>
+
+/**
+ * `GET /v1/workplace/me` (`#1764`, `#1968`).
  *
  * `agents` is the citizens in `human_agents` for this human. Empty is a
  * valid answer — a person may hold a workplace login and operate nobody yet.
+ * `delegations` is the active delegations those operated citizens hold that
+ * carry at least `workplace-read`.
  * This route does not mint an agent and does not require
  * {@link WORKPLACE_CITIZEN_HEADER}; it is how the SPA learns the list.
  */
@@ -2014,6 +2053,7 @@ export const WorkplaceMeResponseSchema = z
   .object({
     human: WorkplaceMeHumanSchema,
     agents: z.array(WorkplaceActorSchema),
+    delegations: z.array(WorkplaceDelegatedCitizenSchema).default([]),
   })
   .strict()
 export type WorkplaceMeResponse = z.infer<typeof WorkplaceMeResponseSchema>

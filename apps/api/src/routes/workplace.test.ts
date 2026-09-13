@@ -10,6 +10,7 @@ import {
   WorkplaceCardIdSchema,
   WorkplaceLabelIdSchema,
   WORKPLACE_CITIZEN_HEADER,
+  WORKPLACE_DELEGATION_HEADER,
   type AgentId,
   type WorkplaceBoard,
   type WorkplaceCard,
@@ -284,7 +285,11 @@ describe('the workplace door', () => {
           content?: { 'application/json'?: { schema?: { properties?: Record<string, unknown> } } }
         }
       )?.content?.['application/json']?.schema
-      expect(Object.keys(schema?.properties ?? {}).sort()).toEqual(['agents', 'human'])
+      expect(Object.keys(schema?.properties ?? {}).sort()).toEqual([
+        'agents',
+        'delegations',
+        'human',
+      ])
     })
   })
 
@@ -524,6 +529,7 @@ describe('the workplace door', () => {
         expect(response.headers['access-control-allow-origin']).toBe(WORKPLACE_ORIGIN)
         expect(response.headers['access-control-allow-headers']).toContain('authorization')
         expect(response.headers['access-control-allow-headers']).toContain('x-kolonie-citizen')
+        expect(response.headers['access-control-allow-headers']).toContain('x-kolonie-delegation')
         expect(response.headers['access-control-allow-methods']).toContain('POST')
         expect(response.headers['access-control-allow-methods']).toContain('PATCH')
         expect(response.headers['access-control-allow-methods']).toContain('DELETE')
@@ -1091,6 +1097,359 @@ const seat = (board: WorkplaceBoard, citizenId: AgentId, role: 'owner' | 'member
   boardId: board.id,
   citizenId,
   role,
+})
+
+const requestDelegation = async (
+  operatorAgentId: AgentId,
+  subjectId: AgentId,
+  subjectHandle: string,
+  capabilities: readonly string[],
+  options: { accept?: boolean } = {},
+) => {
+  colony.agentOperatorDelegations.citizen(subjectHandle, subjectId)
+  const requested = await colony.agentOperatorDelegations.request({
+    operatorAgentId,
+    subjectHandle,
+    capabilities: capabilities as never,
+  })
+  if (!('delegation' in requested)) throw new Error('fixture failed to request delegation')
+  if (options.accept !== false) {
+    await colony.agentOperatorDelegations.accept(requested.delegation.id, subjectId)
+  }
+  return requested.delegation
+}
+
+const aDelegatedPerspective = async (
+  capabilities: readonly string[],
+  over: { accept?: boolean } = {},
+) => {
+  const person = humans.holdsIdentity({
+    provider: 'github',
+    subject: '4815162342',
+    email: 'someone@example.test',
+  })
+  const via = anAgent({ name: 'assay', status: 'citizen' })
+  humans.operatesAgent(person.id, via)
+  const { agent: subject } = await aCitizen('aurora')
+  colony.standing(subject.id, { status: 'citizen' })
+  colony.agentOperatorDelegations.citizen(via.profile.name, via.id)
+  const delegation = await requestDelegation(
+    via.id,
+    subject.id,
+    subject.profile.name,
+    capabilities,
+    { accept: over.accept },
+  )
+  const delegationId = delegation.id
+  const board = aBoard(subject.id, { title: 'Aurora inbox' })
+  const membership = [seat(board, subject.id)]
+  colony.boards.plant(board, membership)
+  colony.cards.plantBoard(board.id, membership)
+  return { person, via, subject, board, delegationId }
+}
+
+const asDelegated = (
+  method: InjectOptions['method'],
+  url: string,
+  token: string,
+  viaId: string,
+  delegationId: string,
+  over: { payload?: InjectOptions['payload']; headers?: Record<string, string> } = {},
+): Promise<InjectResponse> =>
+  asSpa(method, url, token, viaId, {
+    ...over,
+    headers: { [WORKPLACE_DELEGATION_HEADER]: delegationId, ...over.headers },
+  })
+
+describe('a delegated workplace perspective (#1968)', () => {
+  it('lists active workplace-read grants on /me and omits pending, revoked and message-only ones', async () => {
+    const person = humans.holdsIdentity({
+      provider: 'github',
+      subject: '4815162342',
+      email: 'someone@example.test',
+    })
+    const via = anAgent({ name: 'assay', status: 'citizen' })
+    humans.operatesAgent(person.id, via)
+    const { agent: aurora } = await aCitizen('aurora')
+    const { agent: pendingSubject } = await aCitizen('pending-one')
+    const { agent: revokedSubject } = await aCitizen('revoked-one')
+    const { agent: messageSubject } = await aCitizen('message-one')
+    const { agent: stranger } = await aCitizen('stranger-one')
+    colony.standing(aurora.id, { status: 'citizen' })
+    colony.standing(pendingSubject.id, { status: 'citizen' })
+    colony.standing(revokedSubject.id, { status: 'citizen' })
+    colony.standing(messageSubject.id, { status: 'citizen' })
+    colony.standing(stranger.id, { status: 'citizen' })
+    colony.agentOperatorDelegations.citizen(via.profile.name, via.id)
+    colony.agentOperatorDelegations.citizen(aurora.profile.name, aurora.id)
+    colony.agentOperatorDelegations.citizen(pendingSubject.profile.name, pendingSubject.id)
+    colony.agentOperatorDelegations.citizen(revokedSubject.profile.name, revokedSubject.id)
+    colony.agentOperatorDelegations.citizen(messageSubject.profile.name, messageSubject.id)
+    colony.agentOperatorDelegations.citizen(stranger.profile.name, stranger.id)
+
+    const live = await colony.agentOperatorDelegations.request({
+      operatorAgentId: via.id,
+      subjectHandle: aurora.profile.name,
+      capabilities: ['workplace-read', 'workplace-write'],
+    })
+    if (!('delegation' in live)) throw new Error('fixture failed to request live delegation')
+    await colony.agentOperatorDelegations.accept(live.delegation.id, aurora.id)
+
+    const pending = await colony.agentOperatorDelegations.request({
+      operatorAgentId: via.id,
+      subjectHandle: pendingSubject.profile.name,
+      capabilities: ['workplace-read'],
+    })
+    if (!('delegation' in pending)) throw new Error('fixture failed to request pending delegation')
+
+    const revoked = await colony.agentOperatorDelegations.request({
+      operatorAgentId: via.id,
+      subjectHandle: revokedSubject.profile.name,
+      capabilities: ['workplace-read'],
+    })
+    if (!('delegation' in revoked)) throw new Error('fixture failed to request revoked delegation')
+    await colony.agentOperatorDelegations.accept(revoked.delegation.id, revokedSubject.id)
+    await colony.agentOperatorDelegations.revoke(revoked.delegation.id, revokedSubject.id)
+
+    const messageOnly = await colony.agentOperatorDelegations.request({
+      operatorAgentId: via.id,
+      subjectHandle: messageSubject.profile.name,
+      capabilities: ['message'],
+    })
+    if (!('delegation' in messageOnly)) throw new Error('fixture failed to request message grant')
+    await colony.agentOperatorDelegations.accept(messageOnly.delegation.id, messageSubject.id)
+
+    const otherPerson = humans.holdsIdentity({
+      provider: 'google',
+      subject: '99',
+      email: null,
+    })
+    const otherVia = anAgent({ name: 'other-via', status: 'citizen' })
+    humans.operatesAgent(otherPerson.id, otherVia)
+    colony.agentOperatorDelegations.citizen(otherVia.profile.name, otherVia.id)
+    const strangerGrant = await colony.agentOperatorDelegations.request({
+      operatorAgentId: otherVia.id,
+      subjectHandle: stranger.profile.name,
+      capabilities: ['workplace-read'],
+    })
+    if (!('delegation' in strangerGrant))
+      throw new Error('fixture failed to request stranger grant')
+    await colony.agentOperatorDelegations.accept(strangerGrant.delegation.id, stranger.id)
+
+    const body = (await asWorkplace(await aToken())).json() as {
+      agents: { handle: string }[]
+      delegations: {
+        delegationId: string
+        viaHandle: string
+        subjectHandle: string
+        capabilities: string[]
+      }[]
+    }
+    expect(body.agents.map((row) => row.handle)).toEqual(['assay'])
+    expect(body.delegations).toEqual([
+      {
+        delegationId: live.delegation.id,
+        viaAgentId: via.id,
+        viaHandle: 'assay',
+        subjectId: aurora.id,
+        subjectHandle: 'aurora',
+        status: 'citizen',
+        capabilities: ['workplace-read', 'workplace-write'],
+      },
+    ])
+  })
+
+  it('lets an accepted workplace-read grant list the subject board the human could not see alone', async () => {
+    const pilot = await aDelegatedPerspective(['workplace-read'])
+    const token = await aToken()
+    const alone = await asSpa('GET', BOARDS, token, pilot.via.id)
+    expect(alone.statusCode).toBe(200)
+    expect(alone.json()).toEqual({ items: [], nextCursor: null })
+
+    const delegated = await asDelegated('GET', BOARDS, token, pilot.via.id, pilot.delegationId)
+    expect(delegated.statusCode).toBe(200)
+    expect(delegated.json()).toEqual({ items: [pilot.board], nextCursor: null })
+    expect(delegated.headers['access-control-allow-origin']).toBe(WORKPLACE_ORIGIN)
+  })
+
+  it('rejects a mutation without workplace-write as 403 delegation_missing_capability', async () => {
+    const pilot = await aDelegatedPerspective(['workplace-read'])
+    const token = await aToken()
+    const listed = await asDelegated('GET', BOARDS, token, pilot.via.id, pilot.delegationId)
+    expect(listed.statusCode).toBe(200)
+
+    const created = await asDelegated(
+      'POST',
+      `${BOARDS}/${pilot.board.id}/cards`,
+      token,
+      pilot.via.id,
+      pilot.delegationId,
+      { payload: { title: 'A write this grant cannot make' } },
+    )
+    expect(created.statusCode).toBe(ERROR_STATUS.delegation_missing_capability)
+    expect(created.json()).toMatchObject({
+      code: 'delegation_missing_capability',
+      message: 'This delegation does not carry workplace-write.',
+    })
+  })
+
+  it('records a delegated write as the via-agent acting on the subject under the grant', async () => {
+    const pilot = await aDelegatedPerspective(['workplace-read', 'workplace-write'])
+    const token = await aToken()
+    const created = await asDelegated(
+      'POST',
+      `${BOARDS}/${pilot.board.id}/cards`,
+      token,
+      pilot.via.id,
+      pilot.delegationId,
+      { payload: { title: 'Walked for Aurora' } },
+    )
+    expect(created.statusCode).toBe(201)
+    const card = created.json() as WorkplaceCard
+    expect(card.boardId).toBe(pilot.board.id)
+
+    const history = await asDelegated(
+      'GET',
+      `${CARDS}/${card.id}/events`,
+      token,
+      pilot.via.id,
+      pilot.delegationId,
+    )
+    expect(history.statusCode).toBe(200)
+    expect(history.json()).toMatchObject({
+      items: [
+        {
+          verb: 'card.created',
+          actorKind: 'human-linked',
+          actorId: pilot.via.id,
+          actorHumanId: pilot.person.id,
+          subjectAgentId: pilot.subject.id,
+          delegationId: pilot.delegationId,
+        },
+      ],
+    })
+  })
+
+  it('needs handover on top of workplace-write for an ownership move', async () => {
+    const pilot = await aDelegatedPerspective(['workplace-read', 'workplace-write'])
+    const refused = await asDelegated(
+      'POST',
+      `${CARDS}/${randomUUID()}/handover`,
+      await aToken(),
+      pilot.via.id,
+      pilot.delegationId,
+      {
+        payload: {
+          toCitizenId: pilot.subject.id,
+          done: 'Walked the first two steps.',
+          learned: 'The form asks for a phone.',
+          next: 'Ask the operator for the number.',
+          evidenceLinks: [],
+        },
+        headers: { 'if-match': '1' },
+      },
+    )
+    expect(refused.statusCode).toBe(ERROR_STATUS.delegation_missing_capability)
+    expect(refused.json()).toMatchObject({ code: 'delegation_missing_capability' })
+  })
+
+  it('refuses pending, revoked and unknown grants without leaking existence', async () => {
+    const pending = await aDelegatedPerspective(['workplace-read'], { accept: false })
+    const token = await aToken()
+    const pendingRead = await asDelegated(
+      'GET',
+      BOARDS,
+      token,
+      pending.via.id,
+      pending.delegationId,
+    )
+    expect(pendingRead.statusCode).toBe(ERROR_STATUS.delegation_pending)
+    expect(pendingRead.json()).toMatchObject({ code: 'delegation_pending' })
+
+    await colony.agentOperatorDelegations.accept(pending.delegationId, pending.subject.id)
+    await colony.agentOperatorDelegations.revoke(pending.delegationId, pending.subject.id)
+    const revoked = await asDelegated('GET', BOARDS, token, pending.via.id, pending.delegationId)
+    expect(revoked.statusCode).toBe(ERROR_STATUS.delegation_revoked)
+    expect(revoked.json()).toMatchObject({ code: 'delegation_revoked' })
+
+    const unknown = await asDelegated('GET', BOARDS, token, pending.via.id, randomUUID())
+    const malformed = await asDelegated('GET', BOARDS, token, pending.via.id, 'not-a-delegation')
+    expect(unknown.statusCode).toBe(ERROR_STATUS.delegation_not_found)
+    expect(unknown.json()).toMatchObject({ code: 'delegation_not_found' })
+    expect(malformed.statusCode).toBe(unknown.statusCode)
+    expect(malformed.body).toBe(unknown.body)
+
+    const empty = await asDelegated('GET', BOARDS, token, pending.via.id, '')
+    expect(empty.statusCode).toBe(unknown.statusCode)
+    expect(empty.body).toBe(unknown.body)
+  })
+
+  it('refuses a delegation belonging to another operated citizen as wrong actor', async () => {
+    const pilot = await aDelegatedPerspective(['workplace-read'])
+    const otherVia = anAgent({ name: 'other-operated', status: 'citizen' })
+    humans.operatesAgent(pilot.person.id, otherVia)
+    const refused = await asDelegated(
+      'GET',
+      BOARDS,
+      await aToken(),
+      otherVia.id,
+      pilot.delegationId,
+    )
+    expect(refused.statusCode).toBe(ERROR_STATUS.delegation_wrong_actor)
+    expect(refused.json()).toMatchObject({ code: 'delegation_wrong_actor' })
+  })
+
+  it('resolves the actor probe to the delegated subject', async () => {
+    const pilot = await aDelegatedPerspective(['workplace-read'])
+    const response = await asDelegated(
+      'GET',
+      ACTOR,
+      await aToken(),
+      pilot.via.id,
+      pilot.delegationId,
+    )
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toEqual({
+      humanId: pilot.person.id,
+      citizenId: pilot.subject.id,
+    })
+  })
+
+  it('refuses a grant this human does not operate as an unknown citizen', async () => {
+    const otherPerson = humans.holdsIdentity({
+      provider: 'google',
+      subject: '99',
+      email: null,
+    })
+    const otherVia = anAgent({ name: 'other-via', status: 'citizen' })
+    humans.operatesAgent(otherPerson.id, otherVia)
+    const { agent: subject } = await aCitizen('hidden-aurora')
+    colony.standing(subject.id, { status: 'citizen' })
+    colony.agentOperatorDelegations.citizen(otherVia.profile.name, otherVia.id)
+    colony.agentOperatorDelegations.citizen(subject.profile.name, subject.id)
+    const requested = await colony.agentOperatorDelegations.request({
+      operatorAgentId: otherVia.id,
+      subjectHandle: subject.profile.name,
+      capabilities: ['workplace-read'],
+    })
+    if (!('delegation' in requested)) throw new Error('fixture failed to request stranger grant')
+    await colony.agentOperatorDelegations.accept(requested.delegation.id, subject.id)
+
+    humans.holdsIdentity({
+      provider: 'github',
+      subject: '4815162342',
+      email: 'someone@example.test',
+    })
+    const refused = await asDelegated(
+      'GET',
+      BOARDS,
+      await aToken(),
+      otherVia.id,
+      requested.delegation.id,
+    )
+    expect(refused.statusCode).toBe(ERROR_STATUS.workplace_unknown_citizen)
+    expect(refused.json()).toMatchObject({ code: 'workplace_unknown_citizen' })
+  })
 })
 
 describe('workplace cards (#1760)', () => {

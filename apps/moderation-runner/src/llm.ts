@@ -453,6 +453,18 @@ type ResponseAnomaly = {
   readonly missing: readonly string[]
 }
 
+/**
+ * A model asked for JSON usually returns JSON. "Usually" is not a contract, and a
+ * fenced block is a cheap thing to survive (`#1971`). Same shape as
+ * `apps/support-triage-runner/src/llm.ts` `stripFence`.
+ */
+function stripFence(text: string): string {
+  const trimmed = text.trim()
+  if (!trimmed.startsWith('```')) return trimmed
+  const withoutFence = trimmed.replace(/^```[a-zA-Z]*\n?/, '')
+  return withoutFence.replace(/```$/, '').trim()
+}
+
 function missingVerdictFields(body: unknown): ResponseAnomaly | undefined {
   const content = (body as { choices?: { message?: { content?: unknown } }[] }).choices?.[0]
     ?.message?.content
@@ -460,7 +472,7 @@ function missingVerdictFields(body: unknown): ResponseAnomaly | undefined {
 
   let parsed: unknown
   try {
-    parsed = JSON.parse(content)
+    parsed = JSON.parse(stripFence(content))
   } catch {
     return undefined
   }
@@ -520,7 +532,7 @@ function parseVerdict(
   stopped?: string,
   ceiling?: number,
 ): Classification {
-  const bare = content.trim()
+  const bare = stripFence(content)
 
   /**
    * **Why the reply is unusable, when the reply itself cannot say** (`#437`).

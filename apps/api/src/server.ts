@@ -855,7 +855,7 @@ const app = buildApp({
    * over, and `adoption.ts` argues why those must not share a code path.
    */
   adoption: { redeem: (input) => redeemAdoptionCode(db, input) },
-  store: databaseStore(db),
+  store: databaseStore(db, log),
   catalogue: databaseCatalogue(db),
   /**
    * One citizen's public record, by name and without a credential (`#441`).

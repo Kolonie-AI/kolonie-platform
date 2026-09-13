@@ -1,7 +1,9 @@
 import type {
+  Log,
   ProfessionAssignment,
   ProfessionCatalogueSummary,
   ProfessionDefinition,
+  ProfessionStanding,
 } from '@kolonie-ai/core'
 import {
   assignProfession,
@@ -9,6 +11,8 @@ import {
   listProfessionsForMaintainer,
   publishProfession,
   readProfession,
+  professionStanding,
+  resolveProfessionStanding,
   retireProfession,
   type Database,
   type ProfessionPublication,
@@ -24,6 +28,18 @@ export interface Professions {
     readonly (ProfessionPublication & { readonly priorVersions: readonly number[] })[]
   >
   read(key: string, version?: number): Promise<ProfessionPublication | null>
+  standing(agentId: string): Promise<
+    | {
+        readonly outcome: 'assigned'
+        readonly standing: Extract<ProfessionStanding, { state: 'assigned' }>
+      }
+    | { readonly outcome: 'unassigned' }
+    | { readonly outcome: 'unavailable'; readonly key: string }
+  >
+  resolveStanding(
+    agentId: string,
+    options: { readonly actionable: boolean; readonly log?: Log },
+  ): Promise<ProfessionStanding>
   publish(input: {
     readonly expectedVersion: number | null
     readonly definition: ProfessionDefinition
@@ -64,6 +80,8 @@ export function databaseProfessions(db: Database): Professions {
     listActive: () => listActiveProfessions(db),
     listForMaintainer: () => listProfessionsForMaintainer(db),
     read: (key, version) => readProfession(db, key, version),
+    standing: (agentId) => resolveProfessionStanding(db, agentId),
+    resolveStanding: (agentId, options) => professionStanding(db, agentId, options),
     publish: (input) => publishProfession(db, input),
     retire: (input) => retireProfession(db, input),
     assign: (input) => assignProfession(db, input),

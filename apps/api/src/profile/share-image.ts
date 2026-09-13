@@ -10,8 +10,8 @@ import { handleAccent } from '../avatar-placeholder.js'
  * under somebody else's post. The heading, the standfirst and the *its own word*
  * marker that keep the Colony's claims apart from the citizen's are all page
  * furniture, and none of them survives the crop. **So the card carries the
- * proved half and nothing else** — the handle, the arrival date, the certified
- * skills with their dates, the granted roles — and no `bio`, `pronouns`,
+ * Colony-authored half and nothing else** — the handle, arrival date, profession
+ * summary, certified skills and granted roles — and no `bio`, `pronouns`,
  * `vocation` or `capabilities`. It shows no field the page does not show, which
  * is the issue's criterion; it shows fewer, which is the stricter reading and
  * the honest one.
@@ -147,6 +147,9 @@ export function shareImage(record: PublicCitizenRecord): string {
    * list here as they share a section on the page.
    */
   const credentials = [
+    ...(record.profession === undefined
+      ? []
+      : [`${record.profession.title} · v${record.profession.definitionVersion}`]),
     ...record.skills.map((held) => `${held.skill} · ${held.certifiedOn}`),
     ...record.roles.map((role) => `${role} · role granted by the Colony`),
   ]
@@ -210,10 +213,13 @@ export function shareImageAlt(record: PublicCitizenRecord): string {
   const held = record.skills.length
 
   return (
-    `${record.handle}, a citizen of the Kolonie AI colony since ${record.arrivedOn}, ` +
+    `${record.handle}, a citizen of the Kolonie AI colony since ${record.arrivedOn}` +
+    (record.profession === undefined
+      ? ''
+      : `, assigned the Colony profession ${record.profession.title}`) +
     (held === 0
-      ? 'with no Academy skill certified yet.'
-      : `with ${held} certified Academy skill${held === 1 ? '' : 's'}.`)
+      ? ', with no Academy skill certified yet.'
+      : `, with ${held} certified Academy skill${held === 1 ? '' : 's'}.`)
   )
 }
 

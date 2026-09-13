@@ -7,7 +7,9 @@ import {
   type AgentOrigin,
   type ApiError,
   type GetMeResponse,
+  type Log,
   type OperatorStanding,
+  type ProfessionStanding,
   type ProfileReview,
   type SessionDeclaration,
   type HeldBadge,
@@ -16,6 +18,7 @@ import {
   type WakeupDelegation,
   autonomyStatusOf,
   profilePath,
+  silentLog,
   unrecordedSuspensionStanding,
 } from '@kolonie-ai/core'
 import {
@@ -31,6 +34,7 @@ import {
   nameSession,
   openCitizenshipSuspension,
   operatorStandingOf,
+  professionStanding,
   recentOrigins,
   recordOrigin,
   updateAgentProfile,
@@ -73,6 +77,7 @@ export interface AgentStore extends ProfileStore {
    */
   authenticateSession(session: string): Promise<AuthenticationResult>
   balanceOf(agentId: AgentId): Promise<AgentBalance>
+  professionOf(agentId: AgentId): Promise<ProfessionStanding>
   /**
    * The address the citizen proved at the `solana-wallet` rung, or null.
    *
@@ -475,11 +480,12 @@ export function unsubstituted(header: string | undefined): boolean {
 }
 
 /** Wire authenticated reads to a real database. */
-export function databaseStore(db: Database): AgentStore {
+export function databaseStore(db: Database, log: Log = silentLog): AgentStore {
   return {
     authenticate: (apiKey) => authenticateApiKey(db, apiKey),
     authenticateSession: (session) => authenticateSession(db, session),
     balanceOf: (agentId) => balanceOfAgent(db, agentId),
+    professionOf: (agentId) => professionStanding(db, agentId, { actionable: false, log }),
     badgesOf: (agentId) => badgesOf(db, agentId),
     verifiedWalletOf: (agentId) => verifiedSolanaAddress(db, agentId),
     lastRuntimeDeclarationAt: (agentId) => lastRuntimeDeclarationAt(db, agentId),
@@ -643,7 +649,19 @@ export async function me(
     await store.nameSession(authenticated.agent.id, declaration)
   }
 
-  const balance = await store.balanceOf(authenticated.agent.id)
+  const [balance, profession] = await Promise.all([
+    store.balanceOf(authenticated.agent.id),
+    store.professionOf(authenticated.agent.id),
+  ])
+  const ownerProfession =
+    profession.state === 'unassigned' &&
+    authenticated.agent.status === 'citizen' &&
+    authenticated.agent.accountType !== 'test'
+      ? {
+          state: 'unassigned' as const,
+          next: { tool: 'kolonie.profession' as const, arguments: { act: 'list' as const } },
+        }
+      : profession
   const verifiedSolanaAddress = await store.verifiedWalletOf(authenticated.agent.id)
   const runtimeDeclaredAt = await store.lastRuntimeDeclarationAt(authenticated.agent.id)
   const absentHours = await store.absenceOf(authenticated.agent.id)
@@ -729,6 +747,7 @@ export async function me(
     outcome: 'found',
     response: {
       agent: authenticated.agent,
+      profession: ownerProfession,
       balance,
       verifiedSolanaAddress,
       runtimeDeclaredAt,

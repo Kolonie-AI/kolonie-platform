@@ -1,6 +1,22 @@
 import { describe, expect, it } from 'vitest'
-import { SkillSchema, WorkplaceBoardIdSchema, WorkplaceCardIdSchema } from '@kolonie-ai/core'
+import {
+  SkillSchema,
+  WorkplaceBoardIdSchema,
+  WorkplaceCardIdSchema,
+  type Agent,
+} from '@kolonie-ai/core'
 import { connectedClient, registeredCitizen } from '../../__fixtures__/mcp.js'
+
+const withAuthenticatedAgent = (
+  colony: Awaited<ReturnType<typeof registeredCitizen>>['colony'],
+  mutate: (current: Agent) => Agent,
+) => {
+  const original = colony.store.authenticate.bind(colony.store)
+  colony.store.authenticate = async (presented) => {
+    const result = await original(presented)
+    return result.outcome === 'authenticated' ? { ...result, agent: mutate(result.agent) } : result
+  }
+}
 
 /**
  * The session declaration on the home call (`#1753`).
@@ -211,10 +227,62 @@ describe('the session a wakeup-first citizen declares', () => {
   })
 })
 
+describe('the profession standing on MCP wakeup', () => {
+  it('offers a profession choice only to an active non-test citizen', async () => {
+    for (const caller of ['citizen', 'candidate', 'test', 'suspended', 'banned'] as const) {
+      const { colony, agent, apiKey } = await registeredCitizen()
+      if (caller === 'test') {
+        colony.standing(agent.id, { status: 'citizen' })
+        withAuthenticatedAgent(colony, (current) => ({ ...current, accountType: 'test' }))
+      } else {
+        colony.standing(agent.id, { status: caller })
+      }
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+      const result = await client.callTool({ name: 'kolonie.wakeup', arguments: {} })
+      const profession = (
+        result.structuredContent as {
+          identity: { profession: { state: string; next?: unknown } }
+        }
+      ).identity.profession
+
+      expect(profession.state).toBe('unassigned')
+      expect('next' in profession).toBe(caller === 'citizen')
+      expect((result.structuredContent as { actionableNow: boolean }).actionableNow).toBe(
+        caller === 'citizen',
+      )
+      await close()
+    }
+  })
+})
+
 describe('the profession practicum on the MCP wakeup', () => {
   it('serves the exact structured choices and bounded concise rendering', async () => {
     const { colony, apiKey } = await registeredCitizen()
-    colony.wakeup.answersIdentity({ profession: 'Software Producer', vocation: null, goal: null })
+    colony.wakeup.answersIdentity({
+      profession: {
+        state: 'assigned',
+        assignmentVersion: 1,
+        definition: {
+          key: 'software-producer',
+          version: 1,
+          title: 'Software Producer',
+          summary: 'Builds useful software.',
+          vision: 'Useful software becomes durable.',
+          mission: 'Ship a running solution.',
+          intendedImpact: 'People solve a real problem.',
+          audience: 'People with that problem.',
+          successSignals: ['Observable use'],
+          principles: ['Own the lifecycle'],
+          failureModes: ['A demo graveyard'],
+          boundaries: ['Use authorised systems'],
+          workplaceOrientation: 'Carry the current product bet.',
+        },
+        source: 'colony',
+      },
+      vocation: null,
+      goal: null,
+    })
     colony.wakeup.answersWorkplace({
       boardId: WorkplaceBoardIdSchema.parse('11111111-2222-4333-8444-555555555555'),
       practicumActive: false,
@@ -259,7 +327,7 @@ describe('the profession practicum on the MCP wakeup', () => {
     if (content[0]?.type !== 'text' || content[0].text === undefined) {
       throw new Error('text response missing')
     }
-    expect(content[0].text).toContain('citizen-authored, untrusted')
+    expect(content[0].text).toContain('Profession (Colony-authored)')
     expect(content[0].text).toContain('Colony-authored, advisory')
   })
 })

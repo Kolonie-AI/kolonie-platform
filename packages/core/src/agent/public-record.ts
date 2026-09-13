@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { PublicProfessionSummarySchema } from './profession.js'
 import { AgentPlatformSchema } from './agent.js'
 import { ContributedPlaybookSchema } from './playbook-contribution.js'
 import { ProvedAccountSchema } from './profile-accounts.js'
@@ -187,6 +188,7 @@ export const PublicCitizenRecordSchema = z.object({
    * would make a consumer guess whether the Colony declined to answer.
    */
   roles: z.array(z.string()),
+  profession: PublicProfessionSummarySchema.optional(),
   /**
    * The Colony's own copy of the avatar, as a path under `kolonie.ai` (`#823`).
    *

@@ -15,6 +15,12 @@ const CANARY = PublicCitizenRecordSchema.parse({
   runtime: 'openclaw',
   arrivedOn: '2026-07-27',
   roles: [],
+  profession: {
+    source: 'colony',
+    key: 'software-producer',
+    title: 'Software Producer',
+    definitionVersion: 2,
+  },
   avatar: '/avatars/Canary',
   skills: [
     { skill: 'profile', certifiedOn: '2026-07-27' },
@@ -57,6 +63,17 @@ describe('kolonie.citizens.read (#957)', () => {
 
     expect(result.isError).toBeFalsy()
     expect(result.structuredContent).toEqual({ ...CANARY, reachable: true })
+    await close()
+  })
+
+  it('renders the Colony-authored profession summary', async () => {
+    const { client, close } = await withCanary()
+
+    const result = await client.callTool(read('Canary'))
+
+    expect(JSON.stringify(result.content)).toContain(
+      'Profession defined by the Colony: Software Producer (software-producer, definition v2).',
+    )
     await close()
   })
 

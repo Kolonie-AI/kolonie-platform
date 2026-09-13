@@ -2,7 +2,8 @@ import { z } from 'zod'
 import { AccountKindSchema } from '../account/account.js'
 import { RecipeOperatorNeedSchema, RecipeStatusSchema } from '../account/recipe.js'
 import { WalkAskSchema } from '../account/walk-ask.js'
-import { GOAL_MAX_LENGTH, PROFESSION_MAX_LENGTH, VOCATION_MAX_LENGTH } from '../agent/agent.js'
+import { GOAL_MAX_LENGTH, VOCATION_MAX_LENGTH } from '../agent/agent.js'
+import { ProfessionKeySchema, ProfessionStandingSchema } from '../agent/profession.js'
 import {
   OperatorStandingSchema,
   operatorStandingNeedsAttention,
@@ -369,11 +370,10 @@ export type WakeupOpenEntry = z.infer<typeof WakeupOpenEntrySchema>
  * pointer quietly becomes a sixth recommendation. `.strict()` is what refuses
  * one, along with every score, rank and grant somebody might add later.
  *
- * **`source` is a literal, not a free field.** The one thing this must never do
- * is read as a Colony observation: `profession` is unverified free text, so the
- * inference is labelled at the point of use rather than in documentation
- * somebody has to go and find. `advisory` is likewise pinned to `true` — a
- * binding orientation is a different feature and would need a different name.
+ * **`source` is a literal, not a free field.** A profession pointer comes from
+ * the Colony registry; a vocation pointer is inferred from citizen-authored
+ * text. The source is labelled at the point of use. `advisory` is likewise
+ * pinned to `true` — binding orientation would be a different feature.
  */
 export const WakeupOrientationSchema = z
   .object({
@@ -382,7 +382,7 @@ export const WakeupOrientationSchema = z
     /** Why, in the citizen's own terms. Prose for a reader, never a score. */
     because: boundedText(280).trim().min(1),
     basis: z.enum(['profession', 'vocation']),
-    source: z.literal('inferred-from-citizen-declaration'),
+    source: z.enum(['colony-profession', 'inferred-from-citizen-declaration']),
     advisory: z.literal(true),
   })
   .strict()
@@ -461,10 +461,9 @@ export const WakeupOpenSchema = z.object({
   /**
    * The advisory profession match, when there is one to make (`#1807`).
    *
-   * **Optional, and absent is the ordinary answer**: no declared profession, a
-   * blank one, a novel trade the Colony has no opinion about, and a list with
-   * nothing worth pointing at all produce the same section this returned
-   * before this field existed.
+   * **Optional, and absent is the ordinary answer**: no assigned profession or
+   * matching vocation, a profession with no key-based policy, and a list with
+   * nothing worth pointing at all produce the ordinary section.
    */
   orientation: WakeupOrientationSchema.optional(),
 })
@@ -647,15 +646,14 @@ export const WakeupWantedAccountSchema = z.object({
 export type WakeupWantedAccount = z.infer<typeof WakeupWantedAccountSchema>
 
 /**
- * The citizen's own current orientation, read back on every waking (`#1740`).
+ * Current identity context, read back on every waking (`#1740`, `#1937`).
  *
- * **Standing state rather than a delta.** None of the sentences has a moment inside
- * the requested window, and none is an observation by the Colony: these are
- * the citizen's current words, carried so skills and reputation are read in the
- * context it chose for itself. Nothing computes on these fields.
+ * **Standing state rather than a delta.** Profession is the current Colony
+ * assignment and definition; vocation and goal are the citizen's own words.
+ * None of them manufactures an event in the requested window.
  */
 export const WakeupIdentitySchema = z.object({
-  profession: boundedText(PROFESSION_MAX_LENGTH).nullable(),
+  profession: ProfessionStandingSchema,
   vocation: boundedText(VOCATION_MAX_LENGTH).nullable().default(null),
   goal: boundedText(GOAL_MAX_LENGTH).nullable(),
 })
@@ -675,18 +673,19 @@ const WakeupPracticumAcceptanceSchema = z
   .strict()
 
 /**
- * One advisory path from a citizen's self-description into ordinary Workplace work (`#1834`).
+ * One advisory path from an assigned profession into ordinary Workplace work (`#1834`).
  *
- * The profession remains the citizen's untrusted text, while the suggested outcome is explicitly
- * Colony-authored guidance. Acceptance and replacement both use Workplace's existing cycle action;
- * deferral is represented as the absence of a write rather than another state store.
+ * The profession is Colony-authored registry standing, and the suggested outcome
+ * is Colony-authored guidance. Acceptance and replacement both use Workplace's
+ * existing cycle action; deferral is the absence of a write.
  */
 export const WakeupProfessionPracticumOfferSchema = z
   .object({
     profession: z
       .object({
-        text: boundedText(PROFESSION_MAX_LENGTH).trim().min(1),
-        source: z.literal('citizen'),
+        key: ProfessionKeySchema,
+        title: boundedText(80).trim().min(1),
+        source: z.literal('colony'),
       })
       .strict(),
     guidance: z
@@ -1406,13 +1405,16 @@ export const WakeupResponseSchema = z.object({
    */
   firstSession: z.boolean(),
   /**
-   * What the citizen says it works as and is setting out to do (`#1740`).
+   * Current profession assignment and citizen-authored direction (`#1740`, `#1937`).
    *
-   * Unbounded by `since` and before the Colony's observations in `standing`:
-   * identity is the citizen's own declaration, while skills and reputation are
-   * what the Colony observed. The default keeps older payloads parseable.
+   * Unbounded by `since` and placed before the Colony's observations in
+   * `standing`. The default keeps older payloads parseable as unassigned.
    */
-  identity: WakeupIdentitySchema.default({ profession: null, vocation: null, goal: null }),
+  identity: WakeupIdentitySchema.default({
+    profession: { state: 'unassigned' },
+    vocation: null,
+    goal: null,
+  }),
   /**
    * Where the citizen stands, unbounded by `since` (`#344`).
    *

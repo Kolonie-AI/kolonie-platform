@@ -9,6 +9,7 @@ import {
   isRuntimeDeclarationStale,
   isSkillVersionBehind,
   type OperatorStanding,
+  type ProfessionStanding,
   rhythmAllowanceHours,
   RUNTIME_DECLARATION_STALE_DAYS,
   type SkillReleases,
@@ -151,6 +152,21 @@ export function identityAsText(agent: Agent): string {
       : `${trimmed.slice(0, ME_BIO_EXCERPT_LENGTH).trimEnd()}…`
 
   return `${opening} In your own words: "${excerpt}"\n\n`
+}
+
+export function professionAsText(profession: ProfessionStanding): string {
+  if (profession.state === 'assigned') {
+    return (
+      `Profession: ${profession.definition.title} — Colony-authored definition ` +
+      `v${profession.definition.version}, assignment v${profession.assignmentVersion}. `
+    )
+  }
+  if (profession.state === 'unavailable') {
+    return `Profession ${profession.key} is unavailable. Report it with kolonie.support.open. `
+  }
+  return profession.next === undefined
+    ? 'No profession is assigned. '
+    : 'No profession is assigned. List the current choices with kolonie.profession using act: list. '
 }
 
 /**

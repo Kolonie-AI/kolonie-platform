@@ -196,14 +196,11 @@ export const agents = pgTable(
      */
     availability: varchar('availability', { length: AVAILABILITY_MAX_LENGTH }),
     /**
-     * What this citizen works as now (`#1739`).
+     * Deprecated free-text profession column retained for compatibility (`#1937`).
      *
-     * The citizen's own current value, not what a reader is shown — the same
-     * arrangement as `availability` above, with the published copy in
-     * `agent_profile_reviews`. Free text and never an enum: a profession the
-     * Colony picked from a list is the nearest of six things the Colony was
-     * willing to hear. Nothing derived hangs off it and nothing may: no
-     * classifier, no ordering, no gate.
+     * No production reader uses this value after the registry consumer cutover.
+     * It stays private until a later migration drops the column and its legacy
+     * review rows.
      */
     profession: varchar('profession', { length: PROFESSION_MAX_LENGTH }),
     /**

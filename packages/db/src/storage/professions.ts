@@ -1,9 +1,12 @@
 import { and, asc, eq, sql } from 'drizzle-orm'
 import {
   ProfessionDefinitionSchema,
+  silentLog,
+  type Log,
   type ProfessionAssignment,
   type ProfessionCatalogueSummary,
   type ProfessionDefinition,
+  type ProfessionStanding,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { agentProfessions, professionVersions, professions } from '../schema/professions.js'
@@ -112,6 +115,116 @@ export async function publishProfession(
     if (updated === undefined) throw new Error('profession current pointer update returned no row')
     return { outcome: 'published', ...publication(updated, version) }
   })
+}
+
+export type ResolvedProfessionStanding =
+  | {
+      readonly outcome: 'assigned'
+      readonly standing: Extract<ProfessionStanding, { state: 'assigned' }>
+    }
+  | { readonly outcome: 'unassigned' }
+  | { readonly outcome: 'unavailable'; readonly key: string }
+
+/**
+ * Resolve an assignment against the registry's current pointer on every read.
+ * The discriminant keeps malformed registry data separate from no assignment.
+ */
+export async function resolveProfessionStanding(
+  db: Database,
+  agentId: string,
+): Promise<ResolvedProfessionStanding> {
+  const [assignment] = await db
+    .select({
+      key: agentProfessions.professionKey,
+      assignmentVersion: agentProfessions.assignmentVersion,
+      currentVersion: professions.currentVersion,
+      definition: professionVersions.definition,
+    })
+    .from(agentProfessions)
+    .leftJoin(professions, eq(professions.key, agentProfessions.professionKey))
+    .leftJoin(
+      professionVersions,
+      and(
+        eq(professionVersions.professionKey, professions.key),
+        eq(professionVersions.version, professions.currentVersion),
+      ),
+    )
+    .where(eq(agentProfessions.agentId, agentId))
+    .limit(1)
+
+  if (assignment === undefined) return { outcome: 'unassigned' }
+  if (assignment.definition === null) {
+    return {
+      outcome: 'unavailable',
+      key: assignment.key,
+    }
+  }
+
+  const parsed = ProfessionDefinitionSchema.safeParse(assignment.definition)
+  if (
+    !parsed.success ||
+    parsed.data.key !== assignment.key ||
+    parsed.data.version !== assignment.currentVersion
+  ) {
+    return {
+      outcome: 'unavailable',
+      key: assignment.key,
+    }
+  }
+
+  return {
+    outcome: 'assigned',
+    standing: {
+      state: 'assigned',
+      assignmentVersion: assignment.assignmentVersion,
+      definition: parsed.data,
+      source: 'colony',
+    },
+  }
+}
+
+/** Convert the resolver outcome into the bounded public standing contract. */
+export async function professionStanding(
+  db: Database,
+  agentId: string,
+  options: {
+    readonly actionable: boolean
+    readonly log?: Log
+  },
+): Promise<ProfessionStanding> {
+  const resolved = await resolveProfessionStanding(db, agentId)
+  if (resolved.outcome === 'assigned') return resolved.standing
+  if (resolved.outcome === 'unassigned') {
+    return {
+      state: 'unassigned',
+      ...(options.actionable
+        ? { next: { tool: 'kolonie.profession', arguments: { act: 'list' } } }
+        : {}),
+    }
+  }
+
+  ;(options.log ?? silentLog).error(
+    'Could not resolve the assigned profession.',
+    new Error('profession standing unavailable'),
+    {
+      event: 'profession.standing.failed',
+      agentId,
+      professionKey: resolved.key,
+    },
+  )
+  return {
+    state: 'unavailable',
+    key: resolved.key,
+    next: {
+      tool: 'kolonie.support.open',
+      arguments: {
+        kind: 'defect',
+        route: 'colony',
+        subject: 'Profession definition unavailable',
+        body: 'My assigned profession could not be resolved during wakeup.',
+      },
+    },
+  }
 }
 
 /** Resolves either the current pointer or one immutable historical version. */

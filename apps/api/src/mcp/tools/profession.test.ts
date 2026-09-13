@@ -312,4 +312,69 @@ describe('kolonie.profession (#1936)', () => {
     ).toBe(assignment.chosenAt)
     await close()
   })
+
+  it('carries one citizen from unassigned wakeup through choice to a refreshed current definition', async () => {
+    const { colony, agent, apiKey } = await registeredCitizen()
+    colony.standing(agent.id, { status: 'citizen' })
+    await publish(colony.professions, 'software-producer')
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const before = await client.callTool({ name: 'kolonie.wakeup', arguments: {} })
+    expect(before.structuredContent).toMatchObject({
+      identity: {
+        profession: {
+          state: 'unassigned',
+          next: { tool: TOOL, arguments: { act: 'list' } },
+        },
+      },
+      actionableNow: true,
+    })
+
+    expect((await call(client, { act: 'list' })).structuredContent).toMatchObject({
+      professions: [{ key: 'software-producer', version: 1 }],
+    })
+    expect(
+      (await call(client, { act: 'get', key: 'software-producer' })).structuredContent,
+    ).toEqual({
+      lifecycle: 'active',
+      definition: definition('software-producer'),
+    })
+    await call(client, { act: 'choose', key: 'software-producer' })
+
+    const assigned = await client.callTool({ name: 'kolonie.wakeup', arguments: {} })
+    expect(assigned.structuredContent).toMatchObject({
+      identity: {
+        profession: {
+          state: 'assigned',
+          assignmentVersion: 1,
+          definition: definition('software-producer'),
+          source: 'colony',
+        },
+      },
+    })
+
+    await publish(colony.professions, 'software-producer', 2)
+    const refreshed = await client.callTool({ name: 'kolonie.wakeup', arguments: {} })
+    expect(refreshed.structuredContent).toMatchObject({
+      identity: {
+        profession: {
+          state: 'assigned',
+          assignmentVersion: 1,
+          definition: definition('software-producer', 2),
+          source: 'colony',
+        },
+      },
+    })
+
+    const owner = await client.callTool({ name: 'kolonie.me', arguments: {} })
+    expect(owner.structuredContent).toMatchObject({
+      profession: {
+        state: 'assigned',
+        assignmentVersion: 1,
+        definition: definition('software-producer', 2),
+        source: 'colony',
+      },
+    })
+    await close()
+  })
 })

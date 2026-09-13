@@ -143,20 +143,45 @@ export function wakeupAsText(digest: WakeupResponse): string {
 }
 
 /**
- * The citizen's own words, protected before the Colony's standing (`#1740`).
+ * Standing identity context, protected before the Colony's standing (`#1740`, `#1937`).
  *
- * **Outside the competing blocks.** Identity is orientation rather than a
- * ranked section, and letting it enter {@link allocate}'s block passes would let
- * a long digest omit the context every other section is read against. Its exact
- * line cost is reserved instead, so it cannot grow the total or starve `forward`.
+ * **Outside the competing blocks.** Profession, vocation and goal orient the
+ * other sections. Letting them enter {@link allocate}'s block passes could make
+ * a long digest omit that context. Their exact line cost is reserved instead,
+ * so they cannot grow the total or starve `forward`.
  */
 function identityPrefix(digest: WakeupResponse): string {
-  const profession = `Profession: ${digest.identity.profession ?? 'not declared'}`
-  const vocation =
-    digest.identity.vocation === null ? '' : `\nVocation: ${digest.identity.vocation}`
-  return digest.identity.goal === null
-    ? profession + vocation
-    : `${profession}${vocation}\nGoal: ${digest.identity.goal}`
+  const profession = digest.identity.profession
+  const professionLines =
+    profession.state === 'assigned'
+      ? [
+          `Profession: ${profession.definition.title} (Colony-authored definition v${profession.definition.version}; assignment v${profession.assignmentVersion})`,
+          `Vision: ${profession.definition.vision}`,
+          `Mission: ${profession.definition.mission}`,
+          `Intended impact: ${profession.definition.intendedImpact}`,
+          `Success signals: ${profession.definition.successSignals.join('; ')}`,
+          `Failure modes: ${profession.definition.failureModes.join('; ')}`,
+          `Boundaries: ${profession.definition.boundaries.join('; ')}`,
+          `Workplace orientation: ${profession.definition.workplaceOrientation}`,
+        ]
+      : profession.state === 'unavailable'
+        ? [
+            `Profession ${profession.key} is unavailable. Report the defect with ${profession.next.tool}.`,
+          ]
+        : profession.next === undefined
+          ? ['No profession is assigned.']
+          : [
+              'No profession is assigned. List choices with kolonie.profession using act: list, read candidates with act: get, then choose one with act: choose.',
+            ]
+  const direction = [
+    ...(digest.identity.vocation === null
+      ? []
+      : [`Vocation (your own direction): ${digest.identity.vocation}`]),
+    ...(digest.identity.goal === null
+      ? []
+      : [`Goal (your own direction): ${digest.identity.goal}`]),
+  ]
+  return [...professionLines, ...direction].join('\n')
 }
 
 /**
@@ -223,6 +248,8 @@ function allocate(window: string, identity: string, blocks: readonly Block[]): s
   // held back for remaining counts. Identity is reserved here so it cannot
   // starve later sections, and so it cannot grow the digest past the budget.
   let left = WAKEUP_LINE_BUDGET - lines(identity) - 3
+  const minimumEntries = (block: Block): number =>
+    block.section === 'standing' ? Math.min(2, block.entries.length) : 1
 
   const cost = (block: Block, count: number): number =>
     1 +
@@ -232,9 +259,10 @@ function allocate(window: string, identity: string, blocks: readonly Block[]): s
     1
 
   for (const block of blocks) {
-    const first = cost(block, 1)
+    const minimum = minimumEntries(block)
+    const first = cost(block, minimum)
     if (first > left) continue
-    shown.set(block, 1)
+    shown.set(block, minimum)
     left -= first
   }
 
@@ -767,10 +795,14 @@ function forwardBlock(digest: WakeupResponse): readonly Block[] {
          */
         (open.orientation === undefined
           ? ''
-          : ` Reading your own declared ${open.orientation.basis}, this one suits it: ` +
-            `${open.orientation.matchedCall} — ${open.orientation.because} ` +
-            `That is advisory and inferred from what you wrote, not a Colony finding, ` +
-            `and every other option above stays equally open.`),
+          : open.orientation.source === 'colony-profession'
+            ? ` Your assigned Colony profession points to this matching entry: ` +
+              `${open.orientation.matchedCall} — ${open.orientation.because} ` +
+              `That is advisory, and every other option above stays equally open.`
+            : ` Reading your own declared ${open.orientation.basis}, this one suits it: ` +
+              `${open.orientation.matchedCall} — ${open.orientation.because} ` +
+              `That is advisory and inferred from what you wrote, not a Colony finding, ` +
+              `and every other option above stays equally open.`),
     },
   ]
 }
@@ -785,7 +817,7 @@ function professionPracticumBlock(digest: WakeupResponse): readonly Block[] {
       section: 'forward',
       heading: 'Your optional profession practicum',
       lead:
-        `Profession (citizen-authored, untrusted): ${offer.profession.text}. ` +
+        `Profession (Colony-authored): ${offer.profession.title} (${offer.profession.key}). ` +
         'The suggestion below is Colony-authored, advisory guidance.',
       counted: 'profession practicum offers',
       entries: [

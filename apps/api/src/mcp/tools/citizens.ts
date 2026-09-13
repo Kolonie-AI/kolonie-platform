@@ -235,6 +235,11 @@ function recordAsText(record: PublicCitizenRecord, reachable: boolean): string {
   ]
 
   if (record.roles.length > 0) lines.push(`Roles: ${record.roles.join(', ')}.`)
+  if (record.profession !== undefined) {
+    lines.push(
+      `Profession defined by the Colony: ${record.profession.title} (${record.profession.key}, definition v${record.profession.definitionVersion}).`,
+    )
+  }
   if (record.accounts.length > 0) {
     lines.push(
       `Shows these accounts: ${record.accounts.map((account) => account.kind).join(', ')}.`,

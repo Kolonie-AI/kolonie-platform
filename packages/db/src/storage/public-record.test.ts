@@ -6,8 +6,9 @@ import {
   PUBLIC_PLAYBOOKS_MAX,
   PUBLIC_SOURCE_COLUMNS,
   type AgentId,
+  type ProfessionDefinition,
 } from '@kolonie-ai/core'
-import { eq, getTableColumns } from 'drizzle-orm'
+import { eq, getTableColumns, sql } from 'drizzle-orm'
 import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import {
@@ -21,6 +22,7 @@ import {
   taskReports,
   tasks,
   verifications,
+  humans,
 } from '../schema/index.js'
 import { writeProviderRecipe } from './provider-recipes.js'
 import { publicCitizenRecord } from './public-record.js'
@@ -31,6 +33,7 @@ import {
 } from './profile-reviews.js'
 import { storeAvatar } from './avatars.js'
 import { registerAgent, updateAgentProfile } from './agents.js'
+import { assignProfession, publishProfession, retireProfession } from './professions.js'
 import {
   accountOf,
   declareAccount,
@@ -43,6 +46,22 @@ import {
 } from './accounts.js'
 
 const target = databaseTestTarget()
+
+const professionDefinition = (version = 1): ProfessionDefinition => ({
+  key: 'software-producer',
+  version,
+  title: 'Software Producer',
+  summary: 'Builds useful software.',
+  vision: 'Useful software becomes durable.',
+  mission: 'Ship a running solution.',
+  intendedImpact: 'People solve a real problem.',
+  audience: 'People with that problem.',
+  successSignals: ['Observable use'],
+  principles: ['Own the lifecycle'],
+  failureModes: ['A demo graveyard'],
+  boundaries: ['Use authorised systems'],
+  workplaceOrientation: 'Carry the current product bet.',
+})
 
 describe('what a public citizen record carries', () => {
   let db: Database
@@ -150,6 +169,66 @@ describe('what a public citizen record carries', () => {
     expect(record).not.toHaveProperty('bio')
     expect(record).not.toHaveProperty('vocation')
     expect(record).not.toHaveProperty('capabilities')
+  })
+
+  it('publishes only the current Colony profession summary for an assignment', async () => {
+    const [publisher] = await db.insert(humans).values({}).returning({ id: humans.id })
+    await publishProfession(db, {
+      expectedVersion: null,
+      definition: professionDefinition(),
+      publisherId: publisher!.id,
+    })
+    await assignProfession(db, {
+      agentId,
+      key: 'software-producer',
+      expectedVersion: null,
+    })
+
+    expect((await publicCitizenRecord(db, 'colette'))?.profession).toEqual({
+      source: 'colony',
+      key: 'software-producer',
+      title: 'Software Producer',
+      definitionVersion: 1,
+    })
+
+    await publishProfession(db, {
+      expectedVersion: 1,
+      definition: { ...professionDefinition(2), title: 'Software Product Builder' },
+      publisherId: publisher!.id,
+    })
+    await retireProfession(db, { key: 'software-producer', expectedVersion: 2 })
+    expect((await publicCitizenRecord(db, 'colette'))?.profession).toEqual({
+      source: 'colony',
+      key: 'software-producer',
+      title: 'Software Product Builder',
+      definitionVersion: 2,
+    })
+  })
+
+  it('omits profession for legacy prose or an unavailable assignment', async () => {
+    await db.update(agents).set({ profession: 'Software Producer' }).where(eq(agents.id, agentId))
+    expect(await publicCitizenRecord(db, 'colette')).not.toHaveProperty('profession')
+
+    const [publisher] = await db.insert(humans).values({}).returning({ id: humans.id })
+    await publishProfession(db, {
+      expectedVersion: null,
+      definition: professionDefinition(),
+      publisherId: publisher!.id,
+    })
+    await assignProfession(db, {
+      agentId,
+      key: 'software-producer',
+      expectedVersion: null,
+    })
+    await db.execute(sql`alter table profession_versions disable trigger user`)
+    try {
+      await db.execute(
+        sql`update profession_versions set definition = jsonb_build_object('key', 'software-producer', 'version', 1) where profession_key = 'software-producer' and version = 1`,
+      )
+    } finally {
+      await db.execute(sql`alter table profession_versions enable trigger user`)
+    }
+    expect(await publicCitizenRecord(db, 'colette')).not.toHaveProperty('profession')
   })
 
   it('always carries an avatar path, and never the citizen’s own URL', async () => {

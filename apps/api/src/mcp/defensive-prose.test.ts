@@ -62,9 +62,9 @@ const CEILING_BYTES = 15_000
  * Moved again, on 2026-08-19, from 1,663 to 1,623 — **downwards, by forty**.
  * `#1287` trimmed the entry to name the compact `messaging` unread delta; the
  * fixture was not restamped with that commit. Restamped on tip after later trims.
- * Moved on 2026-08-27 from 1,621 to 1,707 bytes. `#1740` deliberately adds
- * current profession and goal as standing self-declaration, distinct from the
- * window, so a client choosing this call knows the two orientation fields exist.
+ * Moved on 2026-08-27 from 1,621 to 1,707 bytes. `#1740` deliberately added
+ * current profession and goal as standing orientation distinct from the window;
+ * `#1937` later made profession Colony-authored registry standing.
  * Moved on 2026-08-29 from 1,707 to 1,825 bytes. `#1749` establishes wakeup as
  * the first call of every authenticated session, including scheduled, interactive,
  * and first-after-register sessions.
@@ -91,9 +91,11 @@ const CEILING_BYTES = 15_000
  * Workplace revision/status signals replace unconditional card, `kolonie.me`
  * and thread-detail reads. The sentence names the old bounded handoff too, so
  * adding the signal does not hide the call a changed card still requires.
+ * Moved on 2026-09-13 from 2,913 to 2,933 bytes. `#1937` replaces the citizen’s
+ * free-text profession with the current Colony-authored profession standing.
  */
-const WAKEUP_PROSE_BYTES = 2913
-const WAKEUP_PROSE_SHA256 = '01948db59ce47171a3cf1608ea90ca29e4d43661e057eaf280711ca9bd6b250c'
+const WAKEUP_PROSE_BYTES = 2933
+const WAKEUP_PROSE_SHA256 = '34bd4d1710ae0cdb21c073f07ad3edfd6e314b646bc4d09e511d0c69d52243a0'
 
 /** The catalogue a connected citizen is handed — the tier the prose is paid for at. */
 const servedCatalogue = async (): Promise<readonly PublishedTool[]> => {

@@ -18,6 +18,7 @@ import {
   type Role,
   type StoredAutonomyContract,
   type ProfileReview,
+  type ProfessionStanding,
   type WakeupDelegation,
 } from '@kolonie-ai/core'
 import type { AuthenticationResult, ObservedOrigin, WakeChannel } from '@kolonie-ai/db'
@@ -118,6 +119,8 @@ export interface FakeStore extends AgentStore {
    * answer is the quiet zero state.
    */
   readonly delegating: (agentId: AgentId, delegation: WakeupDelegation) => void
+  /** Seed the canonical profession standing returned to the owner. */
+  readonly standingProfession: (agentId: AgentId, profession: ProfessionStanding) => void
   /** Seed where a citizen's published fields stand (`#827`). */
   readonly reviewing: (agentId: AgentId, review: ProfileReview) => void
 }
@@ -132,6 +135,7 @@ export function fakeStore(): FakeStore {
   const balances = new Map<string, AgentBalance>()
   const wallets = new Map<string, string>()
   const runtimeDeclarations = new Map<string, string>()
+  const professions = new Map<string, ProfessionStanding>()
 
   const issue = (overrides: Partial<Agent> = {}, balance: Partial<AgentBalance> = {}) => {
     const agentId = overrides.id ?? AgentIdSchema.parse(randomUUID())
@@ -339,6 +343,10 @@ export function fakeStore(): FakeStore {
     balanceOf: async (agentId: AgentId): Promise<AgentBalance> =>
       balances.get(String(agentId)) ??
       AgentBalanceSchema.parse({ agentId, credits: 0, reputation: 0 }),
+    professionOf: async (agentId) => professions.get(String(agentId)) ?? { state: 'unassigned' },
+    standingProfession: (agentId, profession) => {
+      professions.set(String(agentId), profession)
+    },
 
     /**
      * Null unless a test says otherwise, because "has not proved a wallet" is

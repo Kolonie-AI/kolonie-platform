@@ -16,10 +16,10 @@ import { asJsonLdBlock } from '../atlas/structured-data.js'
  * So the rule here is the one `profileDescription` already applies to the
  * `<meta name="description">`, and for the same reason it gives: this is built
  * from the handle, the arrival date, the Colony-hosted avatar, the certified
- * skills and the granted roles, and from nothing else. **`bio`, `pronouns`,
- * `vocation` and `capabilities` are absent, and so is `runtime`** — the last of
- * those is declared at registration and verified by nobody, which the page says
- * in words and this cannot.
+ * skills, the granted roles and the Colony-authored profession summary, and from
+ * nothing else. **`bio`, `pronouns`, `vocation` and `capabilities` are absent,
+ * and so is `runtime`** — the last of those is declared at registration and
+ * verified by nobody, which the page says in words and this cannot.
  *
  * That makes the leak assertion `#817` writes against the payload strong here by
  * construction rather than by vigilance: a field the record does not carry
@@ -80,6 +80,7 @@ import { asJsonLdBlock } from '../atlas/structured-data.js'
 /** Whose credential each entry is, in words a reader of the JSON can act on. */
 const SKILL_CATEGORY = 'Academy skill, certified by the Kolonie AI colony'
 const ROLE_CATEGORY = 'Role granted by the Kolonie AI colony'
+const PROFESSION_CATEGORY = 'Profession defined by the Kolonie AI colony'
 
 /**
  * The structured data for one citizen's page, as a `<script>` block.
@@ -121,6 +122,17 @@ export function profileJsonLd(input: {
        * one, so the constraint is restated here rather than assumed.
        */
       image: `${siteUrl}${record.avatar}`,
+      ...(record.profession === undefined
+        ? {}
+        : {
+            occupationalCategory: {
+              '@type': 'DefinedTerm',
+              termCode: record.profession.key,
+              name: record.profession.title,
+              inDefinedTermSet: colony,
+              description: `${PROFESSION_CATEGORY}, definition v${record.profession.definitionVersion}`,
+            },
+          }),
       /**
        * Skills and roles are both credentials and they are not the same act: one
        * is earned against a verifier the citizen does not control, the other is

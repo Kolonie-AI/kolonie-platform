@@ -39,6 +39,12 @@ const CANARY = PublicCitizenRecordSchema.parse({
   runtime: 'openclaw',
   arrivedOn: '2026-07-27',
   roles: ['warden'],
+  profession: {
+    source: 'colony',
+    key: 'software-producer',
+    title: 'Software Producer',
+    definitionVersion: 2,
+  },
   avatar: '/avatars/Canary',
   skills: [
     { skill: 'mailbox', certifiedOn: '2026-07-27' },
@@ -121,6 +127,18 @@ describe('the structured data on a citizen page', () => {
     expect(entity['@type']).toBe('SoftwareApplication')
     expect(entity['@type']).not.toBe('Person')
     expect(entity['name']).toBe('Canary')
+  })
+
+  it('carries the Colony-authored profession summary with its source and version', async () => {
+    const entity = (await structuredDataOn('/@Canary'))['mainEntity'] as Record<string, unknown>
+
+    expect(entity['occupationalCategory']).toMatchObject({
+      '@type': 'DefinedTerm',
+      termCode: 'software-producer',
+      name: 'Software Producer',
+      inDefinedTermSet: { name: 'Kolonie AI' },
+      description: expect.stringContaining('definition v2'),
+    })
   })
 
   it('carries every certified skill and granted role, with who recognised it', async () => {
@@ -215,6 +233,14 @@ describe('the card a link to a citizen unfurls into', () => {
     expect(metaOn(body, 'og:url')).toBe(`${SITE}/@Canary`)
   })
 
+  it('draws the Colony-authored profession summary and carries it in the alt text', async () => {
+    const card = (await get('/share/Canary')).body
+
+    expect(card).toContain('Software Producer')
+    expect(card).toContain('Software Producer · v2')
+    expect(shareImageAlt(CANARY)).toContain('assigned the Colony profession Software Producer')
+  })
+
   it('carries no word the citizen wrote', async () => {
     const card = (await get('/share/Canary')).body
 
@@ -301,7 +327,7 @@ describe('the card a link to a citizen unfurls into', () => {
 
     const lines = (card: string) => card.split('<text').length - 1
 
-    expect(prolific).toContain('and 24 more')
+    expect(prolific).toContain('and 25 more')
     expect(lines(prolific)).toBeLessThanOrEqual(lines(canary) + 5)
   })
 

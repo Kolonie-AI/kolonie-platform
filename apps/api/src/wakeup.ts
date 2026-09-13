@@ -50,6 +50,7 @@ import {
   wakeupStanding,
   suspensionStandingOf,
   wantedAccountsFor,
+  professionStanding,
   readCommitment,
   selfDirectionWakeup,
   workplaceWakeup,
@@ -68,7 +69,7 @@ import { startDueRechecks, type RecheckDependencies } from './recheck.js'
 import { SKILL_NOTE_WORKED_EXAMPLE, type SkillNotes } from './skills.js'
 import type { Following } from './following.js'
 
-const PRACTICUM_PROFESSIONS = new Set(['software producer'])
+const PRACTICUM_PROFESSIONS = new Set(['software-producer'])
 const PRACTICUM_SUGGESTED_OUTCOME =
   'Choose one person and problem, then name the smallest externally inspectable outcome to deliver.'
 const PRACTICUM_ALTERNATIVE_OUTCOME = '<your first outcome>'
@@ -77,14 +78,13 @@ function professionPracticumOffer(
   identity: WakeupIdentity,
   workplace: WakeupWorkplace | undefined,
 ): WakeupProfessionPracticumOffer | undefined {
-  const profession = identity.profession?.trim()
+  const profession = identity.profession
   if (
-    profession === undefined ||
-    profession.length === 0 ||
+    profession.state !== 'assigned' ||
     workplace === undefined ||
     workplace.practicumActive ||
     workplace.practicumRetrospective !== undefined ||
-    !PRACTICUM_PROFESSIONS.has(profession.toLocaleLowerCase('en'))
+    !PRACTICUM_PROFESSIONS.has(profession.definition.key)
   ) {
     return undefined
   }
@@ -98,7 +98,11 @@ function professionPracticumOffer(
     },
   })
   return {
-    profession: { text: profession, source: 'citizen' },
+    profession: {
+      key: profession.definition.key,
+      title: profession.definition.title,
+      source: 'colony',
+    },
     guidance: {
       suggestedOutcome: PRACTICUM_SUGGESTED_OUTCOME,
       source: 'colony',
@@ -172,6 +176,9 @@ function commitmentBlock(
  * somebody writes down, not a model output nobody can predict.
  */
 const ORIENTATION_CAPABILITIES: ReadonlyMap<string, readonly string[]> = new Map([
+  ['software-producer', ['website', 'web-server', 'github', 'domain', 'publishing']],
+])
+const VOCATION_ORIENTATION_CAPABILITIES: ReadonlyMap<string, readonly string[]> = new Map([
   ['software producer', ['website', 'web-server', 'github', 'domain', 'publishing']],
 ])
 
@@ -192,12 +199,19 @@ function professionOrientation(
   open: WakeupOpen,
 ): WakeupOrientation | undefined {
   const declared = [
-    ['profession', identity.profession?.trim()],
-    ['vocation', identity.vocation?.trim()],
+    [
+      'profession',
+      identity.profession.state === 'assigned' ? identity.profession.definition.key : undefined,
+      'colony-profession',
+    ],
+    ['vocation', identity.vocation?.trim(), 'inferred-from-citizen-declaration'],
   ] as const
-  for (const [kind, text] of declared) {
+  for (const [kind, text, source] of declared) {
     if (text === undefined || text.length === 0) continue
-    const wanted = ORIENTATION_CAPABILITIES.get(text.toLocaleLowerCase('en'))
+    const wanted =
+      kind === 'profession'
+        ? ORIENTATION_CAPABILITIES.get(text)
+        : VOCATION_ORIENTATION_CAPABILITIES.get(text.toLocaleLowerCase('en'))
     if (wanted === undefined) continue
 
     const matched = open.entries.find((entry) =>
@@ -207,11 +221,11 @@ function professionOrientation(
 
     return {
       matchedCall: matched.call,
-      because: `Your declared ${kind} leans on ${matched.touches
+      because: `${kind === 'profession' ? 'Your assigned profession' : 'Your declared vocation'} leans on ${matched.touches
         .filter((capability) => wanted.includes(capability))
         .join(', ')}. Everything else on this list stays open to you.`,
       basis: kind,
-      source: 'inferred-from-citizen-declaration',
+      source,
       advisory: true,
     }
   }
@@ -281,7 +295,7 @@ export interface WakeupSource {
    * nor goal is an event inside a window. Reading the current profile also keeps
    * this private self-reading independent of the moderated publication copy.
    */
-  identity(agentId: AgentId): Promise<WakeupIdentity>
+  identity(agentId: AgentId, options: { readonly actionable: boolean }): Promise<WakeupIdentity>
   /**
    * Where the citizen stands (`#344`).
    *
@@ -579,10 +593,16 @@ export function databaseWakeup(db: Database, rechecks?: RecheckDependencies): Wa
         operatorNeedIsGuess: row.operatorNeedIsGuess,
       }))
     },
-    identity: async (agentId) => {
-      const agent = await agentProfile(db, agentId)
+    identity: async (agentId, options) => {
+      const [agent, profession] = await Promise.all([
+        agentProfile(db, agentId),
+        professionStanding(db, agentId, {
+          actionable: options.actionable,
+          log,
+        }),
+      ])
       return {
-        profession: agent?.profile.profession ?? null,
+        profession,
         vocation: agent?.profile.vocation ?? null,
         goal: agent?.profile.goal ?? null,
       }
@@ -904,6 +924,7 @@ export async function wakeup(
    * not ask cannot be told apart from each other either.
    */
   following?: Following | undefined,
+  professionWriteAllowed = false,
 ): Promise<{ readonly response: WakeupResponse }> {
   /**
    * A malformed `since` falls back to the derived window rather than refusing.
@@ -1004,7 +1025,7 @@ export async function wakeup(
     source.wakeChannel(agentId),
     source.operatorStanding(agentId),
     source.wantedAccounts(agentId),
-    source.identity(agentId),
+    source.identity(agentId, { actionable: professionWriteAllowed }),
     source.standing(agentId),
     openings === undefined
       ? Promise.resolve(NOTHING_OPEN)
@@ -1211,7 +1232,10 @@ export async function wakeup(
   const practicumOffer = professionPracticumOffer(identity, workplace)
   const practicumRetrospective = workplace?.practicumRetrospective
   const finalActionableNow =
-    actionableNow || practicumOffer !== undefined || practicumRetrospective !== undefined
+    actionableNow ||
+    (identity.profession.state === 'unassigned' && identity.profession.next !== undefined) ||
+    practicumOffer !== undefined ||
+    practicumRetrospective !== undefined
 
   /**
    * The citizen's own commitment, and what it does to the exit (`#1870`).

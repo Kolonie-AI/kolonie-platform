@@ -71,6 +71,68 @@ export const fakeProfessions = (): Professions => {
         },
       }
     },
+    standing: async (agentId) => {
+      const assignment = assignments.get(agentId)
+      if (assignment === undefined) return { outcome: 'unassigned' as const }
+      const found = current(assignment.key)
+      if (found === null) {
+        return {
+          outcome: 'unavailable' as const,
+          key: assignment.key,
+        }
+      }
+      return {
+        outcome: 'assigned' as const,
+        standing: {
+          state: 'assigned' as const,
+          assignmentVersion: assignment.assignmentVersion,
+          definition: found.definition,
+          source: 'colony' as const,
+        },
+      }
+    },
+    resolveStanding: async (agentId, options) => {
+      const assignment = assignments.get(agentId)
+      if (assignment === undefined) {
+        return {
+          state: 'unassigned' as const,
+          ...(options.actionable
+            ? { next: { tool: 'kolonie.profession' as const, arguments: { act: 'list' as const } } }
+            : {}),
+        }
+      }
+      const found = current(assignment.key)
+      if (found === null) {
+        options.log?.error(
+          'Could not resolve the assigned profession.',
+          new Error('profession standing unavailable'),
+          {
+            event: 'profession.standing.failed',
+            agentId,
+            professionKey: assignment.key,
+          },
+        )
+        return {
+          state: 'unavailable' as const,
+          key: assignment.key,
+          next: {
+            tool: 'kolonie.support.open' as const,
+            arguments: {
+              kind: 'defect' as const,
+              route: 'colony' as const,
+              subject: 'Profession definition unavailable' as const,
+              body: 'My assigned profession could not be resolved during wakeup.' as const,
+            },
+          },
+        }
+      }
+      return {
+        state: 'assigned' as const,
+        assignmentVersion: assignment.assignmentVersion,
+        definition: found.definition,
+        source: 'colony' as const,
+      }
+    },
     publish: async ({ expectedVersion, definition, publisherId }) => {
       const parsed = ProfessionDefinitionSchema.parse(definition)
       const held = versions.get(parsed.key)

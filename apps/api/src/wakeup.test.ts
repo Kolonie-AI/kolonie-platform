@@ -30,6 +30,36 @@ import type { Following } from './following.js'
 
 const agentId = AgentIdSchema.parse(randomUUID())
 
+const professionDefinition = () => ({
+  key: 'software-producer',
+  version: 1,
+  title: 'Software Producer',
+  summary: 'Builds useful software.',
+  vision: 'Useful software becomes durable.',
+  mission: 'Ship a running solution.',
+  intendedImpact: 'People solve a real problem.',
+  audience: 'People with that problem.',
+  successSignals: ['Observable use'],
+  principles: ['Own the lifecycle'],
+  failureModes: ['A demo graveyard'],
+  boundaries: ['Use authorised systems'],
+  workplaceOrientation: 'Carry the current product bet.',
+})
+
+const assignedProfession = () => ({
+  state: 'assigned' as const,
+  assignmentVersion: 1,
+  definition: professionDefinition(),
+  source: 'colony' as const,
+})
+
+const assignedProfessionWith = (key: string, title: string) => ({
+  state: 'assigned' as const,
+  assignmentVersion: 1,
+  definition: { ...professionDefinition(), key, title },
+  source: 'colony' as const,
+})
+
 let source: FakeWakeup
 
 /** No GitHub account, so the contributions half answers empty without reaching out. */
@@ -45,7 +75,7 @@ beforeEach(() => {
 describe('the wake-up identity', () => {
   it('assembles current identity before standing', async () => {
     source.answersIdentity({
-      profession: 'Software maintainer',
+      profession: assignedProfession(),
       vocation: null,
       goal: 'Make account acquisition repeatable.',
     })
@@ -53,7 +83,7 @@ describe('the wake-up identity', () => {
 
     expect(result.response).toMatchObject({
       identity: {
-        profession: 'Software maintainer',
+        profession: assignedProfession(),
         goal: 'Make account acquisition repeatable.',
       },
     })
@@ -65,12 +95,16 @@ describe('the wake-up identity', () => {
   it('echoes unset as nulls rather than omitting the object', async () => {
     const result = await wakeup(agentId, {}, source, noContributions)
 
-    expect(result.response.identity).toEqual({ profession: null, vocation: null, goal: null })
+    expect(result.response.identity).toEqual({
+      profession: { state: 'unassigned' },
+      vocation: null,
+      goal: null,
+    })
   })
 
   it('does not make a quiet wake actionable or loud', async () => {
     source.answersIdentity({
-      profession: 'Software maintainer',
+      profession: assignedProfession(),
       vocation: null,
       goal: 'Make account acquisition repeatable.',
     })
@@ -83,16 +117,16 @@ describe('the wake-up identity', () => {
 
   it('renders protected identity before standing, including the unset profession', async () => {
     source.answersIdentity({
-      profession: null,
+      profession: { state: 'unassigned' },
       vocation: null,
       goal: 'Make account acquisition repeatable.',
     })
     const result = await wakeup(agentId, {}, source, noContributions)
     const text = wakeupAsText(result.response)
 
-    expect(text).toContain('Profession: not declared')
-    expect(text).toContain('Goal: Make account acquisition repeatable.')
-    expect(text.indexOf('Profession:')).toBeLessThan(text.indexOf('Where you stand'))
+    expect(text).toContain('No profession is assigned.')
+    expect(text).toContain('Goal (your own direction): Make account acquisition repeatable.')
+    expect(text.indexOf('No profession')).toBeLessThan(text.indexOf('Where you stand'))
     expect(text.split('\n').length).toBeLessThanOrEqual(WAKEUP_LINE_BUDGET)
   })
 })
@@ -326,7 +360,7 @@ describe('a rung whose requirements moved', () => {
     const digest = WakeupResponseSchema.parse({
       since: new Date().toISOString(),
       firstSession: false,
-      identity: { profession: null, goal: null },
+      identity: { profession: { state: 'unassigned' }, goal: null },
       standing: { skillsHeld: [], skillsGrantable: 0, reputation: 0 },
       accountRechecks: [],
       tasksAdded: [],
@@ -397,14 +431,14 @@ describe('the profession practicum offer', () => {
   }
 
   it('offers the Software Producer starter path without creating cards', async () => {
-    source.answersIdentity({ profession: 'Software Producer', vocation: null, goal: null })
+    source.answersIdentity({ profession: assignedProfession(), vocation: null, goal: null })
     const prepared = { ...source, prepareWorkplace: async () => ordinaryWorkplace }
 
     const result = await wakeup(agentId, {}, prepared, noContributions)
 
     expect(result.response).not.toHaveProperty('workplace')
     expect(result.response.professionPracticum).toMatchObject({
-      profession: { text: 'Software Producer', source: 'citizen' },
+      profession: { key: 'software-producer', title: 'Software Producer', source: 'colony' },
       guidance: { source: 'colony', advisory: true },
       choices: {
         accept: {
@@ -431,7 +465,7 @@ describe('the profession practicum offer', () => {
     expect(JSON.stringify(result.response.professionPracticum)).not.toContain(
       WORKPLACE_SELF_DIRECTION_GUIDANCE,
     )
-    expect(wakeupAsText(result.response)).toContain('citizen-authored, untrusted')
+    expect(wakeupAsText(result.response)).toContain('Profession (Colony-authored)')
     expect(wakeupAsText(result.response)).toContain('Colony-authored, advisory')
     expect(wakeupAsText(result.response)).toContain('propose a different first outcome')
     expect(wakeupAsText(result.response)).toContain('defer with no state change')
@@ -439,7 +473,7 @@ describe('the profession practicum offer', () => {
   })
 
   it('offers the terminal retrospective instead of a starter offer or card bodies', async () => {
-    source.answersIdentity({ profession: 'Software Producer', vocation: null, goal: null })
+    source.answersIdentity({ profession: assignedProfession(), vocation: null, goal: null })
     const retrospective = {
       cycleId: 'practicum:123e4567-e89b-42d3-a456-426614174000',
       result: 'shipped' as const,
@@ -503,7 +537,7 @@ describe('the profession practicum offer', () => {
   })
 
   it('keeps the existing bounded handoff when a practicum is active', async () => {
-    source.answersIdentity({ profession: 'Software Producer', vocation: null, goal: null })
+    source.answersIdentity({ profession: assignedProfession(), vocation: null, goal: null })
     const prepared = {
       ...source,
       prepareWorkplace: async () => ({
@@ -524,12 +558,10 @@ describe('the profession practicum offer', () => {
   })
 
   it.each([
-    ['unset', null],
-    ['blank', '   '],
-    ['novel', 'Interplanetary settlement designer'],
-    ['ambiguous', 'I do a bit of everything'],
+    ['unassigned', { state: 'unassigned' as const }],
+    ['unrelated', assignedProfessionWith('citizen-mentor', 'Citizen Mentor')],
   ])(
-    'preserves the ordinary Workplace response for %s profession text',
+    'preserves the ordinary Workplace response for an %s profession',
     async (_case, profession) => {
       source.answersIdentity({ profession, vocation: null, goal: null })
       const prepared = { ...source, prepareWorkplace: async () => ordinaryWorkplace }
@@ -542,7 +574,7 @@ describe('the profession practicum offer', () => {
   )
 
   it('does not offer a practicum to a candidate without a default board', async () => {
-    source.answersIdentity({ profession: 'Software Producer', vocation: null, goal: null })
+    source.answersIdentity({ profession: assignedProfession(), vocation: null, goal: null })
 
     const first = await wakeup(agentId, {}, source, noContributions)
     const second = await wakeup(agentId, {}, source, noContributions)
@@ -552,7 +584,7 @@ describe('the profession practicum offer', () => {
   })
 
   it('repeats deferral without writing or changing the offered choice', async () => {
-    source.answersIdentity({ profession: 'Software Producer', vocation: null, goal: null })
+    source.answersIdentity({ profession: assignedProfession(), vocation: null, goal: null })
     let preparations = 0
     const prepared = {
       ...source,
@@ -655,7 +687,7 @@ describe('the self-commitment replay', () => {
   })
 
   it('lets the practicum win precedence so two blocks never compete', async () => {
-    source.answersIdentity({ profession: 'Software Producer', vocation: null, goal: null })
+    source.answersIdentity({ profession: assignedProfession(), vocation: null, goal: null })
     const prepared = {
       ...withCommitment(open),
       prepareWorkplace: async () => ({
@@ -886,7 +918,7 @@ describe('a due mailbox re-check', () => {
         ...WakeupResponseSchema.parse({
           since: new Date().toISOString(),
           firstSession: false,
-          identity: { profession: null, goal: null },
+          identity: { profession: { state: 'unassigned' }, goal: null },
           standing: { skillsHeld: [], skillsGrantable: 0, reputation: 0 },
           accountRechecks: [],
           tasksAdded: [],
@@ -946,7 +978,7 @@ describe('a role granted or taken back', () => {
     WakeupResponseSchema.parse({
       since: new Date().toISOString(),
       firstSession: false,
-      identity: { profession: null, goal: null },
+      identity: { profession: { state: 'unassigned' }, goal: null },
       standing: { skillsHeld: [], skillsGrantable: 0, reputation: 0 },
       accountRechecks: [],
       tasksAdded: [],
@@ -1056,7 +1088,7 @@ describe('a suspension in the digest', () => {
     WakeupResponseSchema.parse({
       since: new Date().toISOString(),
       firstSession: false,
-      identity: { profession: null, goal: null },
+      identity: { profession: { state: 'unassigned' }, goal: null },
       standing: { skillsHeld: [], skillsGrantable: 0, reputation: 0 },
       accountRechecks: [],
       tasksAdded: [],
@@ -1132,7 +1164,13 @@ describe('profession orienting what is open', () => {
     aTask({ title: 'Publish a website', requires: [], suggests: [SkillSchema.parse('website')] }),
   ]
 
-  const openWith = async (profession: string | null, vocation: string | null = null) => {
+  const openWith = async (
+    profession:
+      | ReturnType<typeof assignedProfession>
+      | ReturnType<typeof assignedProfessionWith>
+      | { readonly state: 'unassigned' },
+    vocation: string | null = null,
+  ) => {
     source.answersIdentity({ profession, vocation, goal: null })
     const catalogue = fakeCatalogue()
     catalogue.answers({
@@ -1146,11 +1184,11 @@ describe('profession orienting what is open', () => {
     return result.response
   }
 
-  it('points a Software Producer at the matching entry, marked as inferred', async () => {
-    const response = await openWith('Software Producer')
+  it('points a Software Producer at the matching entry using the stable Colony key', async () => {
+    const response = await openWith(assignedProfession())
 
     const orientation = response.open.orientation
-    expect(orientation?.source).toBe('inferred-from-citizen-declaration')
+    expect(orientation?.source).toBe('colony-profession')
     expect(orientation?.advisory).toBe(true)
     expect(orientation?.because).toContain('website')
     // It names work the citizen was already being offered, never a new call.
@@ -1158,7 +1196,10 @@ describe('profession orienting what is open', () => {
   })
 
   it('uses a declared vocation when profession has no deterministic match', async () => {
-    const response = await openWith('Intertidal Signal Gardener', 'Software Producer')
+    const response = await openWith(
+      assignedProfessionWith('citizen-mentor', 'Citizen Mentor'),
+      'Software Producer',
+    )
 
     expect(response.open.orientation).toMatchObject({
       basis: 'vocation',
@@ -1169,10 +1210,9 @@ describe('profession orienting what is open', () => {
   })
 
   it.each([
-    ['unrelated', 'Intertidal Signal Gardener'],
-    ['null', null],
-    ['blank', '   '],
-  ])('falls back to the ordinary section for %s profession text', async (_case, profession) => {
+    ['unrelated', assignedProfessionWith('citizen-mentor', 'Citizen Mentor')],
+    ['unassigned', { state: 'unassigned' as const }],
+  ])('falls back to the ordinary section for an %s profession', async (_case, profession) => {
     const response = await openWith(profession)
 
     expect(response.open).not.toHaveProperty('orientation')
@@ -1184,8 +1224,8 @@ describe('profession orienting what is open', () => {
    * board read with and without the declaration.
    */
   it('changes nothing but the pointer: same entries, order, gates and standing', async () => {
-    const without = await openWith(null)
-    const with_ = await openWith('Software Producer')
+    const without = await openWith({ state: 'unassigned' })
+    const with_ = await openWith(assignedProfession())
 
     const shapeOf = (response: Awaited<ReturnType<typeof openWith>>) =>
       response.open.entries.map((entry) => ({
@@ -1212,26 +1252,24 @@ describe('profession orienting what is open', () => {
    * The Colony's own observations — the skills it certified, what it filtered
    * on — read identically on either side of the declaration.
    */
-  it('leaves skills, eligibility and the filter untouched when the declaration changes', async () => {
-    const before = await openWith('Intertidal Signal Gardener')
-    const after = await openWith('Software Producer')
+  it('leaves skills, eligibility and the filter untouched when the assignment changes', async () => {
+    const before = await openWith({ state: 'unassigned' })
+    const after = await openWith(assignedProfession())
 
     expect(after.standing.skillsHeld).toEqual(before.standing.skillsHeld)
     expect(after.open.filteredOn.skills).toEqual(before.open.filteredOn.skills)
     expect(after.open.entries.map((entry) => entry.feasibility)).toEqual(
       before.open.entries.map((entry) => entry.feasibility),
     )
-    // The declaration is echoed as the citizen's own word, never rewritten.
-    expect(after.identity.profession).toBe('Software Producer')
+    expect(after.identity.profession).toEqual(assignedProfession())
   })
 
   it('renders the match as advisory prose without hiding the other options', async () => {
-    const response = await openWith('Software Producer')
+    const response = await openWith(assignedProfession())
 
     const text = wakeupAsText(response)
-    expect(text).toContain('suits it')
-    expect(text).toContain('advisory and inferred from what you wrote')
-    expect(text).toContain('not a Colony finding')
+    expect(text).toContain('assigned Colony profession')
+    expect(text).toContain('That is advisory')
     expect(text).toContain('stays equally open')
     // The entries it points among are all still printed.
     expect(text).toContain('Prove a mailbox')
@@ -1240,7 +1278,7 @@ describe('profession orienting what is open', () => {
   })
 
   it('renders no orientation clause when none was inferred', async () => {
-    const text = wakeupAsText(await openWith(null))
+    const text = wakeupAsText(await openWith({ state: 'unassigned' }))
 
     expect(text).not.toContain('suits it')
     expect(text).toContain('Publish a website')
@@ -1329,7 +1367,7 @@ describe('the shape of the rendered digest', () => {
       since: '2026-08-01T09:00:00.000Z',
       firstSession: false,
       identity: {
-        profession: 'Software maintainer',
+        profession: assignedProfession(),
         goal: 'Make account acquisition repeatable.',
       },
       standing: {
@@ -1484,8 +1522,13 @@ describe('the shape of the rendered digest', () => {
     }
   }
 
+  const compactIdentity = () => ({
+    ...worstCase(),
+    identity: { profession: { state: 'unassigned' as const }, vocation: null, goal: null },
+  })
+
   it('renders the sections in the order the constant states', () => {
-    const where = positions(wakeupAsText(worstCase()))
+    const where = positions(wakeupAsText(compactIdentity()))
 
     expect(where.standing).toBeGreaterThan(-1)
     expect(where.standing).toBeLessThan(where.happened)
@@ -1499,7 +1542,7 @@ describe('the shape of the rendered digest', () => {
    * answer sat at line 66 and no model treats line 66 as an instruction.
    */
   it('no longer renders what moves you forward last', () => {
-    const text = wakeupAsText(worstCase())
+    const text = wakeupAsText(compactIdentity())
     const where = positions(text)
 
     expect(where.forward).toBeLessThan(text.split('\n').length - 1)
@@ -1554,7 +1597,7 @@ describe('the shape of the rendered digest', () => {
    * nowhere at all — measured against commit `bb6aca1`.
    */
   it('renders what is owed, which the text used to leave out entirely', () => {
-    const text = wakeupAsText(worstCase())
+    const text = wakeupAsText(compactIdentity())
 
     expect(text).toContain('What is owed')
     expect(text).toMatch(/needs re-checking|operator wrote|pull request waits/)
@@ -1623,7 +1666,7 @@ describe('the new tasks a waking citizen is shown', () => {
     WakeupResponseSchema.parse({
       since: '1970-01-01T00:00:00.000Z',
       firstSession: true,
-      identity: { profession: null, goal: null },
+      identity: { profession: { state: 'unassigned' }, goal: null },
       standing: { skillsHeld: ['profile'], skillsGrantable: 22, reputation: 0 },
       accountRechecks: [],
       tasksAdded: tasksAdded.map((task) => ({ kind: 'academy', ...task })),

@@ -35,6 +35,7 @@ import type {
 } from '@kolonie-ai/db'
 import type { CredentialRotation } from '../../rotation.js'
 import type { AgentStore } from '../../authentication.js'
+import type { Professions } from '../../professions.js'
 import type { SolanaChallenges } from '../../solana.js'
 import type { FakeVault } from '../vault.js'
 import type { StandingHintSource } from '../../hints.js'
@@ -298,6 +299,7 @@ export interface FakeAgent {
 export function fakeAgent(deps: {
   readonly solanaChallenges: SolanaChallenges
   readonly vault: FakeVault
+  readonly professions: Professions
 }): FakeAgent {
   const byKey = new Map<string, { agent: Agent; revoked: boolean }>()
   const balances = new Map<string, AgentBalance>()
@@ -649,6 +651,8 @@ export function fakeAgent(deps: {
       balanceOf: async (agentId: AgentId): Promise<AgentBalance> =>
         balances.get(String(agentId)) ??
         AgentBalanceSchema.parse({ agentId, credits: 0, reputation: 0 }),
+      professionOf: (agentId: AgentId) =>
+        deps.professions.resolveStanding(agentId, { actionable: false }),
 
       /**
        * Reads what the wallet rung recorded, through the same fake the routes

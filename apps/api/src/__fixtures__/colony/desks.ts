@@ -147,7 +147,7 @@ export interface FakeDesks {
   readonly professions: Professions
 }
 
-export function fakeDesks(): FakeDesks {
+export function fakeDesks(professions: Professions = fakeProfessions()): FakeDesks {
   const desk = fakeSupportDesk()
   const erasureDesk = fakeErasureDesk()
   const recoveryDesk = fakeRecoveryDesk()
@@ -202,6 +202,6 @@ export function fakeDesks(): FakeDesks {
     cards: fakeWorkplaceCards(),
     selfDirection: fakeSelfDirectionPractice(),
     agentOperatorDelegations: fakeAgentOperatorDelegations(),
-    professions: fakeProfessions(),
+    professions,
   }
 }

@@ -38,6 +38,7 @@ import {
   verifications,
 } from '../schema/index.js'
 import { publishedProfileFields } from './profile-reviews.js'
+import { resolveProfessionStanding } from './professions.js'
 
 /**
  * One citizen's public record, looked up by the name a reader already has
@@ -144,6 +145,7 @@ export async function publicCitizenRecord(
   const published = await publishedProfileFields(db, citizen.id as AgentId)
 
   const shown = await shownAccounts(db, citizen.id as AgentId)
+  const profession = await resolveProfessionStanding(db, citizen.id as AgentId)
 
   return {
     handle: citizen.handle,
@@ -161,6 +163,16 @@ export async function publicCitizenRecord(
       skill: SkillSchema.parse(row.skill),
       certifiedOn: row.certifiedOn,
     })),
+    ...(profession.outcome === 'assigned'
+      ? {
+          profession: {
+            source: 'colony' as const,
+            key: profession.standing.definition.key,
+            title: profession.standing.definition.title,
+            definitionVersion: profession.standing.definition.version,
+          },
+        }
+      : {}),
     accounts: shown,
     contributions: await contributions(db, citizen.id as AgentId, shown),
     playbooks: await contributedPlaybooks(db, citizen.id as AgentId),

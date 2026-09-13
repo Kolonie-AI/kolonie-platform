@@ -876,6 +876,8 @@ const aCard = (boardId: WorkplaceBoard['id'], over: Partial<WorkplaceCard> = {})
     id: WorkplaceCardIdSchema.parse(randomUUID()),
     boardId,
     status: 'inbox',
+    kind: 'action',
+    parentInitiativeId: null,
     title: 'Walk a provider',
     description: null,
     ownerId: null,
@@ -910,6 +912,81 @@ const seat = (board: WorkplaceBoard, citizenId: AgentId, role: 'owner' | 'member
 
 describe('workplace cards (#1760)', () => {
   describe('an API-key caller', () => {
+    it('publishes kind and parent filters plus both fields on card rows', async () => {
+      const document = (await app.inject({ method: 'GET', url: '/openapi.json' })).json() as {
+        paths: Record<
+          string,
+          {
+            get?: {
+              parameters?: { name?: string }[]
+              responses?: Record<
+                string,
+                {
+                  content?: {
+                    'application/json'?: {
+                      schema?: {
+                        properties?: {
+                          items?: { items?: { properties?: Record<string, unknown> } }
+                        }
+                      }
+                    }
+                  }
+                }
+              >
+            }
+          }
+        >
+      }
+      const operation = document.paths['/v1/workplace/boards/{boardId}/cards']?.get
+      expect(operation?.parameters?.map((parameter) => parameter.name)).toEqual(
+        expect.arrayContaining(['kind', 'parentInitiativeId']),
+      )
+      const itemProperties =
+        operation?.responses?.['200']?.content?.['application/json']?.schema?.properties?.items
+          ?.items?.properties
+      expect(Object.keys(itemProperties ?? {})).toEqual(
+        expect.arrayContaining(['kind', 'parentInitiativeId']),
+      )
+    })
+
+    it('creates and filters Initiative child Actions with identical HTTP semantics', async () => {
+      const { apiKey, agent } = await aCitizen('initiative-owner')
+      const board = aBoard(agent.id)
+      colony.boards.plant(board, [seat(board, agent.id)])
+      colony.cards.plantBoard(board.id, [seat(board, agent.id)])
+
+      const madeInitiative = await asKey('POST', `${BOARDS}/${board.id}/cards`, apiKey, {
+        payload: { title: 'Reach one outcome', kind: 'initiative', status: 'ready' },
+      })
+      expect(madeInitiative.statusCode).toBe(201)
+      const initiative = madeInitiative.json() as WorkplaceCard
+      const madeAction = await asKey('POST', `${BOARDS}/${board.id}/cards`, apiKey, {
+        payload: {
+          title: 'Ship one artifact',
+          kind: 'action',
+          parentInitiativeId: initiative.id,
+          status: 'ready',
+        },
+      })
+      expect(madeAction.statusCode).toBe(201)
+      const action = madeAction.json() as WorkplaceCard
+
+      const listed = await asKey(
+        'GET',
+        `${BOARDS}/${board.id}/cards?kind=action&parentInitiativeId=${initiative.id}`,
+        apiKey,
+      )
+      expect(listed.statusCode).toBe(200)
+      expect((listed.json() as { items: WorkplaceCard[] }).items).toMatchObject([
+        { id: action.id, kind: 'action', parentInitiativeId: initiative.id },
+      ])
+      const detail = await asKey('GET', `${CARDS}/${initiative.id}`, apiKey)
+      expect(detail.json()).toMatchObject({
+        actionCounts: { total: 1, done: 0, active: 1 },
+        nextActions: [{ id: action.id }],
+      })
+    })
+
     it('creates a card in inbox and lists it as a summary', async () => {
       const { apiKey, agent } = await aCitizen('card-owner')
       const board = aBoard(agent.id)

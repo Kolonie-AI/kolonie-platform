@@ -46,6 +46,7 @@ import {
   WorkplaceMemberSchema,
   WorkplaceMembersResponseSchema,
   WorkplaceMoveCardRequestSchema,
+  WorkplaceListCardsQuerySchema,
   WorkplaceUpdateCardRequestSchema,
   WorkplaceUpdateChecklistItemRequestSchema,
   WorkplaceUpdateChecklistRequestSchema,
@@ -129,6 +130,8 @@ export const CREDENTIAL_FREE = new Set([
 export interface OperationSchemas {
   /** The request body, where `core` already describes one. */
   request?: ZodType
+  /** The URL query, where `core` already describes one. */
+  query?: ZodType
   /** The 200/201 body. */
   response?: ZodType
   /**
@@ -228,7 +231,10 @@ export const OPERATIONS: Record<string, OperationSchemas> = {
     request: WorkplaceAddMemberRequestSchema,
     response: WorkplaceMemberSchema,
   },
-  'GET /v1/workplace/boards/:boardId/cards': { response: WorkplaceCardPageSchema },
+  'GET /v1/workplace/boards/:boardId/cards': {
+    query: WorkplaceListCardsQuerySchema,
+    response: WorkplaceCardPageSchema,
+  },
   'POST /v1/workplace/boards/:boardId/cards': {
     request: WorkplaceCreateCardRequestSchema,
     response: WorkplaceCardSchema,

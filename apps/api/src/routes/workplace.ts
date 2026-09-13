@@ -561,7 +561,8 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
         .status(ERROR_STATUS.validation_failed)
         .send({
           code: 'validation_failed',
-          message: 'A card list takes a cursor, a limit, and an optional status.',
+          message:
+            'A card list takes a cursor, a limit, and optional status, kind or parentInitiativeId filters.',
           details: fieldErrors(parsed.error),
         })
     }
@@ -610,6 +611,10 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
       title: parsed.data.title,
       ...(parsed.data.description === undefined ? {} : { description: parsed.data.description }),
       ...(parsed.data.status === undefined ? {} : { status: parsed.data.status }),
+      ...(parsed.data.kind === undefined ? {} : { kind: parsed.data.kind }),
+      ...(parsed.data.parentInitiativeId === undefined
+        ? {}
+        : { parentInitiativeId: parsed.data.parentInitiativeId }),
       ...(parsed.data.priority === undefined ? {} : { priority: parsed.data.priority }),
       ...(parsed.data.dueAt === undefined ? {} : { dueAt: parsed.data.dueAt }),
       ...(parsed.data.coverColour === undefined ? {} : { coverColour: parsed.data.coverColour }),
@@ -622,7 +627,7 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
     if (created.outcome === 'invalid-transition') {
       return finish(reply, actor.origin).status(ERROR_STATUS.workplace_invalid_transition).send({
         code: 'workplace_invalid_transition',
-        message: 'A card is created in inbox or ready.',
+        message: 'The card kind, parent or initial lane is not valid.',
       })
     }
     return missingBoard(reply, actor.origin)
@@ -762,7 +767,7 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
         .send({
           code: 'validation_failed',
           message:
-            'Patch takes title, description, priority, due, coverColour or position — not status.',
+            'Patch takes title, description, priority, due, coverColour, position, kind or parentInitiativeId — not status.',
           details: fieldErrors(parsed.error),
         })
     }
@@ -781,6 +786,12 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
       return finish(reply, actor.origin)
         .status(ERROR_STATUS.conflict)
         .send({ code: 'conflict', message: 'The card has changed since you last read it.' })
+    }
+    if (updated.outcome === 'invalid-transition') {
+      return finish(reply, actor.origin).status(ERROR_STATUS.workplace_invalid_transition).send({
+        code: 'workplace_invalid_transition',
+        message: 'The requested kind or parent relation is not valid.',
+      })
     }
     if (updated.outcome !== 'updated') return missingCard(reply, actor.origin)
     return sendCard(reply, actor.origin, updated.card, 200)

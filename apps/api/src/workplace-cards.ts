@@ -12,6 +12,7 @@ import type {
   WorkplaceComment,
   WorkplaceLabel,
   WorkplaceLane,
+  WorkplaceCardKind,
   WorkplaceLinkKind,
   WorkplaceClosePracticumRequest,
 } from '@kolonie-ai/core'
@@ -100,6 +101,8 @@ export interface WorkplaceCards {
     boardId: string,
     query?: {
       readonly status?: WorkplaceLane
+      readonly kind?: WorkplaceCardKind
+      readonly parentInitiativeId?: string | null
       readonly cursor?: string | null
       readonly limit?: number
     },
@@ -135,6 +138,8 @@ export interface WorkplaceCards {
     readonly title: string
     readonly description?: string | null
     readonly status?: WorkplaceLane
+    readonly kind?: WorkplaceCardKind
+    readonly parentInitiativeId?: string | null
     readonly priority?: string
     readonly dueAt?: string | null
     readonly coverColour?: string | null
@@ -151,6 +156,8 @@ export interface WorkplaceCards {
     readonly dueAt?: string | null
     readonly coverColour?: string | null
     readonly position?: number
+    readonly kind?: WorkplaceCardKind
+    readonly parentInitiativeId?: string | null
     readonly attribution?: WorkplaceWriteAttribution
   }): Promise<UpdateCardResult>
   claim(input: {

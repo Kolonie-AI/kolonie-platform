@@ -86,6 +86,8 @@ const aCard = (boardId: WorkplaceBoard['id'], over: Partial<WorkplaceCard> = {})
     id: WorkplaceCardIdSchema.parse(randomUUID()),
     boardId,
     status: 'inbox',
+    kind: 'action',
+    parentInitiativeId: null,
     title: 'Walk a provider',
     description: null,
     ownerId: null,
@@ -588,6 +590,69 @@ describe('kolonie.workplace (#1761)', () => {
       expect(history.isError).not.toBe(true)
       expect(structuredOf<{ items: { revision: number }[] }>(history).items[0]?.revision).toBe(2)
       expect(JSON.stringify(history.content)).toContain('untrusted')
+      await close()
+    })
+
+    it('lists Initiative children and never advertises claim for an Initiative', async () => {
+      const { colony, agent, apiKey } = await registeredCitizen()
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+      const board = aBoard(agent.id)
+      colony.boards.plant(board, [seat(board, agent.id)])
+      colony.cards.plantBoard(board.id, [seat(board, agent.id)])
+      const initiative = aCard(board.id, { kind: 'initiative', status: 'ready' })
+      const action = aCard(board.id, {
+        kind: 'action',
+        parentInitiativeId: initiative.id,
+        status: 'ready',
+      })
+      colony.cards.plantCard(initiative)
+      colony.cards.plantCard(action)
+
+      const got = structuredOf<{ next: NextOperation[] }>(
+        await client.callTool(workplace({ act: 'get', subject: 'card', id: initiative.id })),
+      )
+      expect(got.next.some((one) => one.act === 'claim')).toBe(false)
+      expect(got.next).toContainEqual({
+        act: 'list',
+        subject: 'card',
+        boardId: board.id,
+        fields: { kind: 'action', parentInitiativeId: initiative.id },
+      })
+      for (const operation of got.next) {
+        const independent = aCard(board.id, { kind: 'initiative', status: 'ready' })
+        colony.cards.plantCard(independent)
+        const independentDetail = structuredOf<{ next: NextOperation[] }>(
+          await client.callTool(workplace({ act: 'get', subject: 'card', id: independent.id })),
+        )
+        const executable = independentDetail.next.find(
+          (one) =>
+            one.act === operation.act &&
+            one.subject === operation.subject &&
+            (operation.fields === undefined) === (one.fields === undefined),
+        )
+        if (executable === undefined) throw new Error(`Missing Initiative next ${operation.act}`)
+        const fields =
+          executable.act === 'create'
+            ? { ...executable.fields, title: 'New child' }
+            : executable.act === 'update'
+              ? { title: 'Renamed Initiative' }
+              : undefined
+        const result = await client.callTool(
+          workplace({ ...executable, ...(fields === undefined ? {} : { fields }) }),
+        )
+        expect(result.isError, JSON.stringify(operation)).not.toBe(true)
+      }
+      const listed = structuredOf<{ items: WorkplaceCard[] }>(
+        await client.callTool(
+          workplace({
+            act: 'list',
+            subject: 'card',
+            boardId: board.id,
+            fields: { kind: 'action', parentInitiativeId: initiative.id },
+          }),
+        ),
+      )
+      expect(listed.items).toMatchObject([{ id: action.id }])
       await close()
     })
 

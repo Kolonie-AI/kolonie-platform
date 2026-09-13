@@ -45,14 +45,28 @@ export function openApiPath(url: string): string {
 function parametersFor(
   url: string,
   described: Record<string, string> = {},
-): { name: string; in: 'path'; required: true; schema: { type: 'string' } }[] {
-  return [...url.matchAll(/:([A-Za-z0-9_]+)/g)].map(([, name]) => ({
+  query?: ZodType,
+): Record<string, unknown>[] {
+  const pathParameters = [...url.matchAll(/:([A-Za-z0-9_]+)/g)].map(([, name]) => ({
     name: name ?? '',
     in: 'path' as const,
     required: true as const,
     schema: { type: 'string' as const },
     ...(described[name ?? ''] ? { description: described[name ?? ''] } : {}),
   }))
+  if (query === undefined) return pathParameters
+  const properties = (
+    jsonSchema(query, 'input') as { readonly properties?: Record<string, unknown> }
+  ).properties
+  return [
+    ...pathParameters,
+    ...Object.entries(properties ?? {}).map(([name, schema]) => ({
+      name,
+      in: 'query' as const,
+      required: false,
+      schema,
+    })),
+  ]
 }
 
 /**
@@ -114,7 +128,7 @@ export function buildOpenApiDocument(
       const key = `${method} ${route.url}`
       const declared = OPERATIONS[key] ?? {}
       const path = openApiPath(route.url)
-      const parameters = parametersFor(route.url, declared.parameters)
+      const parameters = parametersFor(route.url, declared.parameters, declared.query)
 
       const operation: Record<string, unknown> = {
         operationId: operationId(method, route.url),

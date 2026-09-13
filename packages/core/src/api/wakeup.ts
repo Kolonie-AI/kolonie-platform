@@ -773,6 +773,14 @@ export const WakeupWorkplaceSchema = z
         cardId: WorkplaceCardIdSchema,
         title: boundedText(WORKPLACE_TITLE_MAX_LENGTH),
         status: WorkplaceLaneSchema,
+        parentInitiative: z
+          .object({
+            id: WorkplaceCardIdSchema,
+            title: boundedText(WORKPLACE_TITLE_MAX_LENGTH),
+          })
+          .strict()
+          .nullable()
+          .optional(),
         /**
          * The recommended card's revision, beside the status it already carried.
          *

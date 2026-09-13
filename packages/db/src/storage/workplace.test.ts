@@ -119,6 +119,214 @@ describe('workplace storage', () => {
    * accepts, and the cycle carries that sentence from problem through delivery
    * to feedback. The cards stay ordinary — rewritable and archivable.
    */
+  it('creates Initiatives and valid child Actions and filters each shape', async () => {
+    const board = await defaultBoard()
+    const initiative = await createCard(db, {
+      callerId: owner,
+      boardId: board.id,
+      title: 'Reach one outcome',
+      kind: 'initiative',
+      status: 'ready',
+    })
+    if (initiative.outcome !== 'created') throw new Error('initiative missing')
+    const action = await createCard(db, {
+      callerId: owner,
+      boardId: board.id,
+      title: 'Ship one artifact',
+      kind: 'action',
+      parentInitiativeId: initiative.card.id,
+      status: 'ready',
+    })
+    expect(action.outcome).toBe('created')
+    if (action.outcome !== 'created') return
+    expect(action.card.parentInitiativeId).toBe(initiative.card.id)
+    expect(
+      await listCards(db, owner, board.id, {
+        kind: 'action',
+        parentInitiativeId: initiative.card.id,
+      }),
+    ).toMatchObject({ outcome: 'listed', items: [{ id: action.card.id, kind: 'action' }] })
+    const detail = await getCard(db, owner, initiative.card.id)
+    expect(detail).toMatchObject({
+      actionCounts: { total: 1, done: 0, active: 1 },
+      nextActions: [{ id: action.card.id }],
+    })
+  })
+
+  it('refuses invalid parents and kind changes with children', async () => {
+    const board = await defaultBoard()
+    const other = await createBoard(db, { callerId: owner, title: 'Other' })
+    const initiative = await createCard(db, {
+      callerId: owner,
+      boardId: board.id,
+      title: 'Home outcome',
+      kind: 'initiative',
+      status: 'ready',
+    })
+    const ordinary = await createCard(db, {
+      callerId: owner,
+      boardId: board.id,
+      title: 'Ordinary Action',
+      status: 'ready',
+    })
+    if (initiative.outcome !== 'created' || ordinary.outcome !== 'created') {
+      throw new Error('cards missing')
+    }
+    expect(
+      await createCard(db, {
+        callerId: owner,
+        boardId: other.id,
+        title: 'Cross-board Action',
+        parentInitiativeId: initiative.card.id,
+      }),
+    ).toEqual({ outcome: 'invalid-transition' })
+    expect(
+      await createCard(db, {
+        callerId: owner,
+        boardId: board.id,
+        title: 'Action under Action',
+        parentInitiativeId: ordinary.card.id,
+      }),
+    ).toEqual({ outcome: 'invalid-transition' })
+    const child = await createCard(db, {
+      callerId: owner,
+      boardId: board.id,
+      title: 'Child',
+      parentInitiativeId: initiative.card.id,
+    })
+    expect(child.outcome).toBe('created')
+    expect(
+      await updateCard(db, {
+        callerId: owner,
+        cardId: initiative.card.id,
+        expectedVersion: initiative.card.version,
+        kind: 'action',
+      }),
+    ).toEqual({ outcome: 'invalid-transition' })
+  })
+
+  it('gates Initiative completion on open Actions and unparents children on archive', async () => {
+    const board = await defaultBoard()
+    const initiative = await createCard(db, {
+      callerId: owner,
+      boardId: board.id,
+      title: 'Reach one outcome',
+      kind: 'initiative',
+      status: 'ready',
+    })
+    if (initiative.outcome !== 'created') throw new Error('initiative missing')
+    const child = await createCard(db, {
+      callerId: owner,
+      boardId: board.id,
+      title: 'Open Action',
+      parentInitiativeId: initiative.card.id,
+      status: 'ready',
+    })
+    if (child.outcome !== 'created') throw new Error('child missing')
+    expect(
+      await completeCard(db, {
+        callerId: owner,
+        cardId: initiative.card.id,
+        expectedVersion: initiative.card.version,
+        close: { outcome: 'Outcome reached.' },
+      }),
+    ).toEqual({ outcome: 'invalid-transition' })
+
+    const archived = await archiveCard(db, {
+      callerId: owner,
+      cardId: initiative.card.id,
+      expectedVersion: initiative.card.version,
+    })
+    expect(archived.outcome).toBe('archived')
+    expect((await getCard(db, owner, child.card.id))?.card.parentInitiativeId).toBeNull()
+    const history = await listCardEvents(db, owner, child.card.id)
+    if (history.outcome !== 'listed') throw new Error('event history missing')
+    expect(history.items[0]).toMatchObject({
+      verb: 'card.updated',
+      payload: {
+        changes: { parentInitiativeId: { before: initiative.card.id, after: null } },
+      },
+    })
+  })
+
+  it('serializes concurrent Initiative archive and child reparenting', async () => {
+    const board = await defaultBoard()
+    const initiative = await createCard(db, {
+      callerId: owner,
+      boardId: board.id,
+      title: 'Outcome to archive',
+      kind: 'initiative',
+      status: 'ready',
+    })
+    const child = await createCard(db, {
+      callerId: owner,
+      boardId: board.id,
+      title: 'Child to move',
+      status: 'ready',
+    })
+    if (initiative.outcome !== 'created' || child.outcome !== 'created') {
+      throw new Error('cards missing')
+    }
+
+    const [archived, reparented] = await Promise.all([
+      archiveCard(db, {
+        callerId: owner,
+        cardId: initiative.card.id,
+        expectedVersion: initiative.card.version,
+      }),
+      updateCard(db, {
+        callerId: owner,
+        cardId: child.card.id,
+        expectedVersion: child.card.version,
+        parentInitiativeId: initiative.card.id,
+      }),
+    ])
+
+    expect(archived.outcome).toBe('archived')
+    expect(['updated', 'invalid-transition']).toContain(reparented.outcome)
+    expect((await getCard(db, owner, child.card.id))?.card.parentInitiativeId).toBeNull()
+  })
+
+  it('serializes concurrent Initiative completion and child creation', async () => {
+    const board = await defaultBoard()
+    const initiative = await createCard(db, {
+      callerId: owner,
+      boardId: board.id,
+      title: 'Outcome to complete',
+      kind: 'initiative',
+      status: 'ready',
+    })
+    if (initiative.outcome !== 'created') throw new Error('initiative missing')
+
+    const [completed, child] = await Promise.all([
+      completeCard(db, {
+        callerId: owner,
+        cardId: initiative.card.id,
+        expectedVersion: initiative.card.version,
+        close: {
+          result: 'abandoned',
+          summary: 'The Initiative ended without further execution.',
+          learned: 'No additional Action was warranted.',
+          evidenceLinkIds: [],
+          next: { kind: 'sentence', text: 'Return to the board.' },
+        },
+      }),
+      createCard(db, {
+        callerId: owner,
+        boardId: board.id,
+        title: 'Late child',
+        parentInitiativeId: initiative.card.id,
+        status: 'ready',
+      }),
+    ])
+
+    expect(completed.outcome).toBe('completed')
+    expect(child.outcome).toBe('created')
+    if (child.outcome === 'created') {
+      expect(child.card.parentInitiativeId).toBe(initiative.card.id)
+    }
+  })
+
   it('starts an explicitly accepted successor without altering prior terminal evidence', async () => {
     await db.update(agents).set({ status: 'citizen' }).where(eq(agents.id, owner))
     const first = await startProfessionPracticum(db, {
@@ -2321,6 +2529,37 @@ describe('workplace wakeup recommendation', () => {
     expect(result?.more).toEqual([])
   })
 
+  it('excludes Initiatives and returns parent metadata for a child Action', async () => {
+    const board = await createDefaultBoard(db, { callerId: citizenId, title: 'Default board' })
+    const initiative = await createCard(db, {
+      callerId: citizenId,
+      boardId: board.id,
+      title: 'Reach the outcome',
+      kind: 'initiative',
+      status: 'ready',
+    })
+    if (initiative.outcome !== 'created') throw new Error('initiative missing')
+    const action = await createCard(db, {
+      callerId: citizenId,
+      boardId: board.id,
+      title: 'Ship the next artifact',
+      parentInitiativeId: initiative.card.id,
+      status: 'ready',
+    })
+    if (action.outcome !== 'created') throw new Error('action missing')
+
+    const result = await workplaceWakeup(db, citizenId)
+    if (result === undefined || result.cardSignals === undefined) {
+      throw new Error('wakeup workplace missing')
+    }
+
+    expect(result.recommendation).toMatchObject({
+      cardId: action.card.id,
+      parentInitiative: { id: initiative.card.id, title: 'Reach the outcome' },
+    })
+    expect(result.cardSignals.some((signal) => signal.cardId === initiative.card.id)).toBe(false)
+  })
+
   it('ranks owned in-progress above ready and returns a ready-to-send get call', async () => {
     const board = await createDefaultBoard(db, { callerId: citizenId, title: 'Default board' })
     const ready = await createCard(db, {
@@ -2351,6 +2590,7 @@ describe('workplace wakeup recommendation', () => {
         title: 'Live work',
         status: 'in_progress',
         revision: claimed.card.version,
+        parentInitiative: null,
         next: {
           tool: 'kolonie.workplace',
           arguments: { act: 'get', subject: 'card', id: live.card.id },

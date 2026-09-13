@@ -244,6 +244,9 @@ export function registerMessagingTools(
           ? 'No messages in this conversation yet.'
           : result.response.messages
               .map((m) => {
+                if ('retractedAt' in m) {
+                  return `[${m.createdAt}] ${m.sender.label} (${m.id}): Message retracted by sender.`
+                }
                 const flags: string[] = []
                 if (m.priority !== undefined) flags.push(`priority=${m.priority}`)
                 if (m.actionRequired === true) flags.push('actionRequired')

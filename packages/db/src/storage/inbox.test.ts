@@ -10,6 +10,7 @@ import {
   markConversationReadByOperator,
   openOperatorHelpConversation,
   readConversation,
+  retractMessageAsCitizen,
   sendOperatorMessage,
 } from './messaging.js'
 
@@ -103,6 +104,21 @@ describe('the inbox', () => {
     expect(row?.conversationId).toBe(thread)
     expect(row?.latest?.body).toBe('The thing that actually matters now.')
     expect(row?.latest?.mine).toBe(false)
+  })
+
+  it('renders a retracted latest message without searching its erased body', async () => {
+    const opened = await openOperatorHelpConversation(db, first, {
+      body: 'The searchable words that no longer stand.',
+    })
+    if (opened.outcome !== 'delivered') throw new Error(opened.outcome)
+
+    await retractMessageAsCitizen(db, first, opened.messageId)
+
+    const [row] = await inboxFor(db, humanId)
+    expect(row?.conversationId).toBe(opened.conversationId)
+    expect(row?.latest).toMatchObject({ retractedAt: expect.any(String), mine: false })
+    expect(row?.latest).not.toHaveProperty('body')
+    expect(await inboxFor(db, humanId, { search: 'searchable words' })).toEqual([])
   })
 
   it('counts unread from the cursor, and opening the thread clears it', async () => {

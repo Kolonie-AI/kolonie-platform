@@ -104,7 +104,8 @@ export interface OperatorThreadMessage {
    * so the third value exists and the page renders it differently.
    */
   readonly author: 'citizen' | 'operator' | 'colony'
-  readonly body: string
+  readonly body?: string
+  readonly retractedAt?: string
   readonly kind: OperatorAnswerKind | null
   readonly writtenAt: string
 }
@@ -360,6 +361,7 @@ async function messagesOfThread(
     .select({
       party: messages.senderParty,
       body: messages.body,
+      retractedAt: messages.retractedAt,
       kind: messages.answerKind,
       createdAt: messages.createdAt,
     })
@@ -386,8 +388,8 @@ async function messagesOfThread(
         : row.party === 'system-role'
           ? ('colony' as const)
           : ('citizen' as const),
-    body: row.body,
-    kind: row.kind,
+    ...(row.retractedAt === null ? { body: row.body ?? '' } : { retractedAt: row.retractedAt }),
+    kind: row.retractedAt === null ? row.kind : null,
     writtenAt: row.createdAt,
   }))
 }
@@ -423,6 +425,7 @@ export async function wishThreadsWaitingOn(
         sql`not exists (
           select 1 from ${messages}
           where ${messages.conversationId} = ${messageConversations.id}
+            and ${messages.retractedAt} is null
             and ${messages.senderParty} = 'operator-human'
         )`,
       ),
@@ -592,6 +595,7 @@ export async function hasOpenOperatorThread(db: Database, agentId: AgentId): Pro
         select ${messages.senderParty}
         from ${messages}
         where ${messages.conversationId} = ${messageConversations.id}
+          and ${messages.retractedAt} is null
         order by ${messages.createdAt} desc, ${messages.id} desc
         limit 1
       ) = 'citizen'`,
@@ -628,7 +632,13 @@ export async function operatorAnsweredAboutTask(
       ),
     )
     .innerJoin(messages, eq(messages.conversationId, messageConversations.id))
-    .where(and(eq(messageConversations.taskId, taskId), eq(messages.senderParty, 'operator-human')))
+    .where(
+      and(
+        eq(messageConversations.taskId, taskId),
+        eq(messages.senderParty, 'operator-human'),
+        isNull(messages.retractedAt),
+      ),
+    )
     .limit(1)
 
   return row !== undefined
@@ -699,6 +709,7 @@ export async function countWaitingOperatorReplies(db: Database, agentId: AgentId
     .where(
       and(
         eq(messages.senderParty, 'operator-human'),
+        isNull(messages.retractedAt),
         or(isNull(cursor.id), sql`${messages.createdAt} > ${cursor.createdAt}`),
         /**
          * **Archived by this citizen means off its waking** (`#1550`), the same

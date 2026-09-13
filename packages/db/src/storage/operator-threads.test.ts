@@ -27,6 +27,7 @@ import {
   markConversationRead,
   messagingWakeupDelta,
   openOperatorHelpConversation,
+  retractMessageAsOperator,
   sendCitizenMessage,
   sendColonyMessageToOperatorThread,
   sendOperatorMessage,
@@ -222,6 +223,28 @@ describe('the operator questions, asked of messages', () => {
       )
 
       expect(await operatorAnsweredAboutTask(db, agentId, taskId)).toBe(true)
+    })
+
+    it('does not treat a retracted operator answer as settled', async () => {
+      const agentId = await anAgent()
+      const humanId = await aPerson(agentId)
+      const taskId = await aTask()
+      const thread = await ask(agentId, 'May I run a server?', { taskId })
+      const answer = await sendOperatorMessage(
+        db,
+        humanId,
+        agentId,
+        'You may go ahead.',
+        undefined,
+        undefined,
+        ConversationIdSchema.parse(thread),
+      )
+      if (answer.outcome !== 'delivered') throw new Error('unreachable')
+
+      await retractMessageAsOperator(db, humanId, answer.messageId)
+
+      expect(await operatorAnsweredAboutTask(db, agentId, taskId)).toBe(false)
+      expect(await hasOpenOperatorThread(db, agentId)).toBe(true)
     })
 
     /**

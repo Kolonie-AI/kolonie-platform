@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { and, eq, isNull, sql } from 'drizzle-orm'
 import {
@@ -19,6 +20,8 @@ import {
   messageConversations,
   messageParticipants,
   messageReports,
+  messageRetractionEvidence,
+  messageRequests,
   messages,
   operatorTelegramChats,
   tasks,
@@ -26,6 +29,7 @@ import {
 } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
 import { acceptConnection, removeConnection, requestConnection } from './connections.js'
+import { eraseAgent } from './erasure.js'
 import { followCitizen } from './following.js'
 import { countWaitingOperatorReplies } from './operator-threads.js'
 import { listSetAsides, setAside } from './set-asides.js'
@@ -53,6 +57,9 @@ import {
   readOperatorConversation,
   replyInConversation,
   reportMessageAbuse,
+  resolveMessageReport,
+  retractMessageAsCitizen,
+  retractMessageAsOperator,
   sendCitizenMessage,
   sendOperatorMessage,
   sendSystemMessage,
@@ -156,7 +163,9 @@ describe('private messaging', () => {
 
   const bodiesFor = async (agentId: AgentId, conversation: string) => {
     const result = await readConversation(db, agentId, conversation as never)
-    return result.outcome === 'read' ? result.messages.map((m) => m.body) : result
+    return result.outcome === 'read'
+      ? result.messages.map((message) => ('retractedAt' in message ? undefined : message.body))
+      : result
   }
 
   describe('thread pagination (#1886)', () => {
@@ -225,7 +234,9 @@ describe('private messaging', () => {
         const page = await readConversation(db, sender, conversationId, { limit: 17, cursor })
         if (page.outcome !== 'read') throw new Error('unreachable')
         pageLengths.push(page.messages.length)
-        bodies.push(...page.messages.map((message) => message.body))
+        bodies.push(
+          ...page.messages.map((message) => ('retractedAt' in message ? '' : message.body)),
+        )
         cursor = page.nextCursor
       } while (cursor !== undefined)
 
@@ -265,6 +276,375 @@ describe('private messaging', () => {
       expect(forged.invalidCursor).toBe(true)
       expect(forged.messages).toEqual([])
       expect(forged.nextCursor).toBeUndefined()
+    })
+  })
+
+  describe('sender retraction (#1958)', () => {
+    const sentAndAccepted = async (body: string) => {
+      const sender = await anAgent('sender')
+      const recipient = await anAgent('recipient')
+      const sent = await sendCitizenMessage(db, sender, {
+        toHandle: await handleOf(recipient),
+        body,
+      })
+      if (sent.outcome !== 'requested' || sent.messageId === undefined) {
+        throw new Error('unreachable')
+      }
+      await acceptMessageRequest(db, recipient, sent.requestId)
+      return { sender, recipient, sent: { ...sent, messageId: sent.messageId } }
+    }
+
+    it('leaves ordinary sends bounded and non-null during the expand window', async () => {
+      const sender = await anAgent('sender')
+      const recipient = await anAgent('recipient')
+      await expectRejection(
+        async () =>
+          sendCitizenMessage(db, sender, {
+            toHandle: await handleOf(recipient),
+            body: '',
+          }),
+        /messages_body_length/,
+      )
+      expect(await db.select().from(messages)).toEqual([])
+    })
+
+    it('erases a citizen body into a stable tombstone without moving thread state', async () => {
+      const sender = await anAgent('sender')
+      const recipient = await anAgent('recipient')
+      const opened = await sendCitizenMessage(db, sender, {
+        toHandle: await handleOf(recipient),
+        body: 'These words no longer stand.',
+      })
+      if (opened.outcome !== 'requested' || opened.messageId === undefined) {
+        throw new Error('unreachable')
+      }
+      await acceptMessageRequest(db, recipient, opened.requestId)
+      await markConversationRead(db, recipient, opened.conversationId, opened.messageId)
+
+      const before = await readConversation(db, sender, opened.conversationId)
+      const retracted = await retractMessageAsCitizen(db, sender, opened.messageId)
+      const replay = await retractMessageAsCitizen(db, sender, opened.messageId)
+      const after = await readConversation(db, recipient, opened.conversationId)
+
+      expect(retracted).toMatchObject({
+        outcome: 'retracted',
+        messageId: opened.messageId,
+        conversationId: opened.conversationId,
+      })
+      expect(replay).toEqual(retracted)
+      expect(after).toMatchObject({
+        outcome: 'read',
+        messages: [
+          {
+            id: opened.messageId,
+            retractedAt: retracted.outcome === 'retracted' ? retracted.retractedAt : undefined,
+          },
+        ],
+      })
+      if (after.outcome !== 'read') throw new Error('unreachable')
+      expect(after.messages[0]).not.toHaveProperty('body')
+      expect(await cursorOf(opened.conversationId, recipient)).toBe(opened.messageId)
+      expect((await listConversations(db, sender))[0]?.lastMessageAt).toBe(
+        before.outcome === 'read' ? before.messages[0]?.createdAt : undefined,
+      )
+    })
+
+    it('allows a later report against a tombstone without recreating erased evidence', async () => {
+      const sender = await anAgent('sender')
+      const recipient = await anAgent('recipient')
+      const sent = await sendCitizenMessage(db, sender, {
+        toHandle: await handleOf(recipient),
+        body: 'Gone before the report.',
+      })
+      if (sent.outcome !== 'requested' || sent.messageId === undefined) {
+        throw new Error('unreachable')
+      }
+      await acceptMessageRequest(db, recipient, sent.requestId)
+      await retractMessageAsCitizen(db, sender, sent.messageId)
+
+      expect(
+        await reportMessageAbuse(db, recipient, {
+          handle: await handleOf(sender),
+          messageId: sent.messageId,
+        }),
+      ).toMatchObject({ outcome: 'reported' })
+      expect(await db.select().from(messageRetractionEvidence)).toEqual([])
+    })
+
+    it('makes unknown, inaccessible, other-sender and system-role IDs indistinguishable', async () => {
+      const sender = await anAgent('sender')
+      const recipient = await anAgent('recipient')
+      const outsider = await anAgent('outsider')
+      const opened = await sendCitizenMessage(db, sender, {
+        toHandle: await handleOf(recipient),
+        body: 'A private message.',
+      })
+      if (opened.outcome !== 'requested' || opened.messageId === undefined) {
+        throw new Error('unreachable')
+      }
+      const system = await sendSystemMessage(db, 'security', recipient, 'A system message.')
+      if (system.outcome !== 'delivered') throw new Error('unreachable')
+      const random = randomUUID() as never
+
+      const refused = await Promise.all([
+        retractMessageAsCitizen(db, outsider, opened.messageId),
+        retractMessageAsCitizen(db, recipient, opened.messageId),
+        retractMessageAsCitizen(db, recipient, system.messageId),
+        retractMessageAsCitizen(db, recipient, random),
+      ])
+
+      expect(new Set(refused.map((result) => JSON.stringify(result)))).toEqual(
+        new Set([JSON.stringify({ outcome: 'refused', refusal: 'no-such-message' })]),
+      )
+    })
+
+    it('lets only the actual human sender retract an operator message', async () => {
+      const citizen = await anAgent('citizen')
+      const operator = await aPerson(citizen)
+      const otherCitizen = await anAgent('other-citizen')
+      const other = await aPerson(otherCitizen)
+      const sent = await sendOperatorMessage(db, operator, citizen, 'An operator answer.')
+      if (sent.outcome !== 'delivered') throw new Error('unreachable')
+
+      expect(await retractMessageAsOperator(db, other, sent.messageId)).toEqual({
+        outcome: 'refused',
+        refusal: 'no-such-message',
+      })
+      expect(await retractMessageAsOperator(db, operator, sent.messageId)).toMatchObject({
+        outcome: 'retracted',
+        messageId: sent.messageId,
+      })
+    })
+
+    it('concurrent retractions converge on one timestamp and one cleared row', async () => {
+      const sender = await anAgent('sender')
+      const recipient = await anAgent('recipient')
+      const sent = await sendCitizenMessage(db, sender, {
+        toHandle: await handleOf(recipient),
+        body: 'Retract me concurrently.',
+      })
+      if (sent.outcome !== 'requested' || sent.messageId === undefined) {
+        throw new Error('unreachable')
+      }
+
+      const results = await Promise.all(
+        Array.from({ length: 6 }, () => retractMessageAsCitizen(db, sender, sent.messageId!)),
+      )
+      expect(new Set(results.map((result) => JSON.stringify(result))).size).toBe(1)
+
+      const [row] = await db
+        .select({ body: messages.body, retractedAt: messages.retractedAt })
+        .from(messages)
+        .where(eq(messages.id, sent.messageId))
+      expect(row?.body).toBeNull()
+      expect(row?.retractedAt).not.toBeNull()
+    })
+
+    it('clears every body-derived semantic field', async () => {
+      const citizen = await anAgent('citizen')
+      const operator = await aPerson(citizen)
+      const sent = await sendOperatorMessage(
+        db,
+        operator,
+        citizen,
+        null,
+        'your operator',
+        'permission',
+      )
+      if (sent.outcome !== 'delivered') throw new Error('unreachable')
+
+      await retractMessageAsOperator(db, operator, sent.messageId)
+      const [row] = await db
+        .select({
+          body: messages.body,
+          answerKind: messages.answerKind,
+          priority: messages.priority,
+          actionRequired: messages.actionRequired,
+          nextAction: messages.nextAction,
+          acknowledgedAt: messages.acknowledgedAt,
+        })
+        .from(messages)
+        .where(eq(messages.id, sent.messageId))
+      expect(row).toEqual({
+        body: null,
+        answerKind: null,
+        priority: null,
+        actionRequired: false,
+        nextAction: null,
+        acknowledgedAt: null,
+      })
+    })
+
+    it('clears only the pending request whose explicit preview source was retracted', async () => {
+      const sender = await anAgent('sender')
+      const recipient = await anAgent('recipient')
+      const first = await sendCitizenMessage(db, sender, {
+        toHandle: await handleOf(recipient),
+        body: 'Opening preview.',
+      })
+      if (first.outcome !== 'requested' || first.messageId === undefined) {
+        throw new Error('unreachable')
+      }
+      await sendCitizenMessage(db, sender, {
+        toHandle: await handleOf(recipient),
+        body: 'A later message.',
+      })
+
+      const [requestBefore] = await db
+        .select()
+        .from(messageRequests)
+        .where(eq(messageRequests.id, first.requestId))
+      expect(requestBefore?.previewMessageId).toBe(first.messageId)
+
+      const later = await db
+        .select({ id: messages.id })
+        .from(messages)
+        .where(eq(messages.conversationId, first.conversationId))
+      const laterId = later.find((row) => row.id !== first.messageId)!.id as never
+      await retractMessageAsCitizen(db, sender, laterId)
+      expect((await listMessageRequests(db, recipient))[0]?.preview).toBe('Opening preview.')
+
+      await retractMessageAsCitizen(db, sender, first.messageId)
+      const [requestAfter] = await db
+        .select()
+        .from(messageRequests)
+        .where(eq(messageRequests.id, first.requestId))
+      expect(requestAfter?.previewText).toBeNull()
+      expect(requestAfter?.previewMessageId).toBeNull()
+      expect(requestAfter?.status).toBe('pending')
+    })
+
+    it('serializes a report racing retraction onto one of the two legal outcomes', async () => {
+      const { sender, recipient, sent } = await sentAndAccepted('Evidence at the race boundary.')
+      const [report, retract] = await Promise.all([
+        reportMessageAbuse(db, recipient, {
+          handle: await handleOf(sender),
+          messageId: sent.messageId,
+        }),
+        retractMessageAsCitizen(db, sender, sent.messageId),
+      ])
+
+      expect(report).toMatchObject({ outcome: 'reported' })
+      expect(retract).toMatchObject({ outcome: 'retracted' })
+      const [message] = await db
+        .select({ body: messages.body })
+        .from(messages)
+        .where(eq(messages.id, sent.messageId))
+      expect(message?.body).toBeNull()
+      const evidence = await db
+        .select({ body: messageRetractionEvidence.body })
+        .from(messageRetractionEvidence)
+        .where(eq(messageRetractionEvidence.messageId, sent.messageId))
+      expect(evidence.length).toBeLessThanOrEqual(1)
+      if (evidence.length === 1) expect(evidence[0]?.body).toBe('Evidence at the race boundary.')
+    })
+
+    it('serializes concurrent final resolutions and removes evidence once', async () => {
+      const { sender, recipient, sent } = await sentAndAccepted('Evidence for two reports.')
+      const reports = await Promise.all([
+        reportMessageAbuse(db, recipient, {
+          handle: await handleOf(sender),
+          messageId: sent.messageId,
+        }),
+        reportMessageAbuse(db, recipient, {
+          handle: await handleOf(sender),
+          messageId: sent.messageId,
+        }),
+      ])
+      if (reports.some((report) => report.outcome !== 'reported')) throw new Error('unreachable')
+      await retractMessageAsCitizen(db, sender, sent.messageId)
+
+      await Promise.all(
+        reports.map((report) =>
+          resolveMessageReport(
+            db,
+            report.outcome === 'reported' ? report.reportId : '',
+            'reviewed',
+          ),
+        ),
+      )
+
+      expect(await db.select().from(messageRetractionEvidence)).toEqual([])
+    })
+
+    it('retains evidence only for an already-open report and deletes it on final resolution', async () => {
+      const sender = await anAgent('sender')
+      const recipient = await anAgent('recipient')
+      const sent = await sendCitizenMessage(db, sender, {
+        toHandle: await handleOf(recipient),
+        body: 'Evidence for an open report.',
+      })
+      if (sent.outcome !== 'requested' || sent.messageId === undefined) {
+        throw new Error('unreachable')
+      }
+      await acceptMessageRequest(db, recipient, sent.requestId)
+      const first = await reportMessageAbuse(db, recipient, {
+        handle: await handleOf(sender),
+        messageId: sent.messageId,
+      })
+      const second = await reportMessageAbuse(db, recipient, {
+        handle: await handleOf(sender),
+        messageId: sent.messageId,
+      })
+      if (first.outcome !== 'reported' || second.outcome !== 'reported')
+        throw new Error('unreachable')
+
+      await retractMessageAsCitizen(db, sender, sent.messageId)
+      const [evidence] = await db
+        .select()
+        .from(messageRetractionEvidence)
+        .where(eq(messageRetractionEvidence.messageId, sent.messageId))
+      expect(evidence?.body).toBe('Evidence for an open report.')
+
+      await resolveMessageReport(db, first.reportId, 'reviewed')
+      expect(await db.select().from(messageRetractionEvidence)).toHaveLength(1)
+      await resolveMessageReport(db, second.reportId, 'dismissed')
+      expect(await db.select().from(messageRetractionEvidence)).toEqual([])
+
+      const unreported = await sendCitizenMessage(db, sender, {
+        toHandle: await handleOf(recipient),
+        body: 'No report exists.',
+      })
+      if (unreported.outcome !== 'delivered') throw new Error('unreachable')
+      await retractMessageAsCitizen(db, sender, unreported.messageId)
+      expect(await db.select().from(messageRetractionEvidence)).toEqual([])
+
+      const resolvedBeforeRetraction = await sendCitizenMessage(db, sender, {
+        toHandle: await handleOf(recipient),
+        body: 'This report was already resolved.',
+      })
+      if (resolvedBeforeRetraction.outcome !== 'delivered') throw new Error('unreachable')
+      const report = await reportMessageAbuse(db, recipient, {
+        handle: await handleOf(sender),
+        messageId: resolvedBeforeRetraction.messageId,
+      })
+      if (report.outcome !== 'reported') throw new Error('unreachable')
+      await resolveMessageReport(db, report.reportId, 'reviewed')
+      await retractMessageAsCitizen(db, sender, resolvedBeforeRetraction.messageId)
+      expect(await db.select().from(messageRetractionEvidence)).toEqual([])
+    })
+
+    it('removes evidence when reporter erasure takes the last open report', async () => {
+      const { sender, recipient, sent } = await sentAndAccepted(
+        'Evidence held for a departing reporter.',
+      )
+      const report = await reportMessageAbuse(db, recipient, {
+        handle: await handleOf(sender),
+        messageId: sent.messageId,
+      })
+      if (report.outcome !== 'reported') throw new Error('unreachable')
+      await retractMessageAsCitizen(db, sender, sent.messageId)
+      expect(await db.select().from(messageRetractionEvidence)).toHaveLength(1)
+
+      const result = await eraseAgent(db, { agentId: recipient, banSalt: 'a'.repeat(32) })
+
+      expect(result.outcome).toBe('erased')
+      expect(await db.select().from(messageRetractionEvidence)).toEqual([])
+      const [surviving] = await db
+        .select({ body: messages.body, retractedAt: messages.retractedAt })
+        .from(messages)
+        .where(eq(messages.id, sent.messageId))
+      expect(surviving).toEqual({ body: null, retractedAt: expect.any(String) })
     })
   })
 
@@ -1470,7 +1850,11 @@ describe('private messaging', () => {
       const read = await readConversation(db, bob, connected.conversationId)
       expect(read.outcome).toBe('read')
       if (read.outcome !== 'read') throw new Error('unreachable')
-      expect(read.messages.some((m) => m.body.includes('no request gate'))).toBe(true)
+      expect(
+        read.messages.some((message) =>
+          'retractedAt' in message ? false : message.body.includes('no request gate'),
+        ),
+      ).toBe(true)
 
       // And no pending request was created for the connected pair.
       expect(await listMessageRequests(db, bob)).toEqual([])

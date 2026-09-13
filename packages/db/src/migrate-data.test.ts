@@ -666,8 +666,8 @@ const theWorkplaceStarterRetirement: DataMigrationCase = {
 }
 
 const theWorkplaceLexicalRecallProjection: DataMigrationCase = {
-  migration: '0373_slim_prowler',
-  after: '0372_dapper_living_mummy',
+  migration: '0374_yummy_stick',
+  after: '0373_yellow_lorna_dane',
   moves: 'canonical cards and closures into GIN-indexed recall vectors',
 
   async seed(db) {

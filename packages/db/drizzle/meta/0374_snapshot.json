@@ -1,6 +1,6 @@
 {
-  "id": "b9abc6db-9545-4636-a64a-7a9e48b2448b",
-  "prevId": "9a6031b5-04ad-4a02-b59e-f80a4fa84cfe",
+  "id": "2c537d11-e0f9-4784-9e4d-08baec6daca2",
+  "prevId": "b9abc6db-9545-4636-a64a-7a9e48b2448b",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -22249,6 +22249,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "search_vector": {
+          "name": "search_vector",
+          "type": "tsvector",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -22283,6 +22289,21 @@
           "isUnique": false,
           "concurrently": false,
           "method": "btree",
+          "with": {}
+        },
+        "workplace_card_closures_search_idx": {
+          "name": "workplace_card_closures_search_idx",
+          "columns": [
+            {
+              "expression": "search_vector",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "gin",
           "with": {}
         }
       },
@@ -22732,6 +22753,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "search_vector": {
+          "name": "search_vector",
+          "type": "tsvector",
+          "primaryKey": false,
+          "notNull": false
+        },
         "archived_at": {
           "name": "archived_at",
           "type": "timestamp with time zone",
@@ -22859,6 +22886,21 @@
           "isUnique": false,
           "concurrently": false,
           "method": "btree",
+          "with": {}
+        },
+        "workplace_cards_search_idx": {
+          "name": "workplace_cards_search_idx",
+          "columns": [
+            {
+              "expression": "search_vector",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "gin",
           "with": {}
         }
       },

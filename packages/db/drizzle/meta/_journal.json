@@ -2616,8 +2616,15 @@
     {
       "idx": 373,
       "version": "7",
-      "when": 1789312867921,
-      "tag": "0373_slim_prowler",
+      "when": 1789315840635,
+      "tag": "0373_yellow_lorna_dane",
+      "breakpoints": true
+    },
+    {
+      "idx": 374,
+      "version": "7",
+      "when": 1789326087279,
+      "tag": "0374_yummy_stick",
       "breakpoints": true
     }
   ]

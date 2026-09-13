@@ -155,7 +155,15 @@ const readThread = async (cookie: string, conversationId: string) =>
         url: `/inbox/${conversationId}`,
         headers: { host: CONSOLE_HOST, accept: 'application/json', cookie },
       })
-    ).json() as { messages: { body: string; answerKind?: string; sender: { party: string } }[] }
+    ).json() as {
+      messages: {
+        id: string
+        body?: string
+        retractedAt?: string
+        answerKind?: string
+        sender: { party: string }
+      }[]
+    }
   ).messages
 
 /** The newest message of the only thread this agent has. */
@@ -376,6 +384,180 @@ describe('the declaration, and the thread it answers (#1319)', () => {
 
     expect(elsewhere.statusCode).toBe(404)
     expect(nonsense.statusCode).toBe(422)
+  })
+
+  /**
+   * Sender retraction from the signed-in person's own door (`#1960`, cut 3 of
+   * the `#1948` package).
+   *
+   * ## What is under test here, and what is already settled
+   *
+   * The storage semantics — sender-only authorization, idempotency, the
+   * tombstone at the original position, the indistinguishable `no-such-message`
+   * for everything else — are `#1958`'s and are asserted against real PostgreSQL
+   * in `packages/db/src/storage/messaging.test.ts`. What this adds is the door:
+   * the `Retract` action only on the person's own body-bearing messages, one
+   * POST path that checks participation before storage, a redirect that adds no
+   * second message, and success copy that never claims recall.
+   */
+  describe('sender retraction (#1960)', () => {
+    const threadHtml = async (cookie: string, conversationId: string): Promise<string> =>
+      (
+        await app.inject({
+          method: 'GET',
+          url: `/inbox/${conversationId}`,
+          headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
+        })
+      ).body
+
+    /** The signed-in person writes, through the door a person actually uses. */
+    const write = async (cookie: string, conversationId: string, body: string): Promise<string> => {
+      const sent = await app.inject({
+        method: 'POST',
+        url: `/inbox/${conversationId}`,
+        headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
+        payload: { body },
+      })
+      expect(sent.statusCode).toBe(303)
+      const after = await readThread(cookie, conversationId)
+      const latest = after.at(-1)
+      if (latest === undefined) throw new Error('no message recorded')
+      return latest.id
+    }
+
+    const retract = (cookie: string, conversationId: string, messageId: string) =>
+      app.inject({
+        method: 'POST',
+        url: `/inbox/${conversationId}/messages/${messageId}/retract`,
+        headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
+      })
+
+    it('offers Retract on the person’s own messages and on nobody else’s', async () => {
+      const cookie = await signedInCookie()
+      const humanId = await operates(agentId)
+      const conversationId = messages.thread(humanId, agentId)
+      messages.agentWrites(humanId, agentId, 'an agent-authored message', conversationId)
+      messages.colonyWrites(humanId, agentId, 'a system message', conversationId)
+      const ownMessageId = await write(cookie, conversationId, 'A body I may come to regret.')
+
+      const page = await threadHtml(cookie, conversationId)
+
+      // Exactly one form, aiming at exactly the one message it belongs to.
+      expect(page.match(/<form[^>]*action="[^"]*\/retract"/g)).toHaveLength(1)
+      expect(page).toContain(`action="/inbox/${conversationId}/messages/${ownMessageId}/retract"`)
+    })
+
+    it('offers no action on a message that is already retracted', async () => {
+      const cookie = await signedInCookie()
+      const humanId = await operates(agentId)
+      const conversationId = messages.thread(humanId, agentId)
+      const ownMessageId = await write(cookie, conversationId, 'Words that will not stand.')
+      await retract(cookie, conversationId, ownMessageId)
+
+      const page = await threadHtml(cookie, conversationId)
+
+      expect(page).not.toMatch(/<form[^>]*action="[^"]*\/retract"/)
+      expect(page).toContain('Message retracted by sender.')
+    })
+
+    it('retracts through the shared storage operation, redirects, and adds no message', async () => {
+      const cookie = await signedInCookie()
+      const humanId = await operates(agentId)
+      const conversationId = messages.thread(humanId, agentId)
+      messages.agentWrites(humanId, agentId, 'a message that stays', conversationId)
+      const ownMessageId = await write(cookie, conversationId, 'A message to take back.')
+
+      const response = await retract(cookie, conversationId, ownMessageId)
+
+      expect(response.statusCode).toBe(303)
+      expect(response.headers['location']).toBe(
+        `/inbox/${conversationId}?retracted=${ownMessageId}`,
+      )
+
+      const after = await readThread(cookie, conversationId)
+      // One message retracted, one left standing, and no third correction row.
+      expect(after).toHaveLength(2)
+      const tombstone = after.find((message) => message.retractedAt !== undefined)
+      expect(tombstone).toBeDefined()
+      expect(tombstone?.id).toBe(ownMessageId)
+      expect(tombstone?.body).toBeUndefined()
+      expect(after.filter((message) => message.body === 'a message that stays')).toHaveLength(1)
+    })
+
+    it('says on the thread that the body left Kolonie views and copies may remain', async () => {
+      const cookie = await signedInCookie()
+      const humanId = await operates(agentId)
+      const conversationId = messages.thread(humanId, agentId)
+      const ownMessageId = await write(cookie, conversationId, 'A message to take back.')
+      const redirected = await retract(cookie, conversationId, ownMessageId)
+      const location = redirected.headers['location'] as string
+
+      const page = (
+        await app.inject({
+          method: 'GET',
+          url: location,
+          headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
+        })
+      ).body
+
+      expect(page).toContain('removed from Kolonie thread views')
+      expect(page).toContain('copies may remain')
+      expect(page).not.toContain('recall')
+    })
+
+    it('answers a repeat with a redirect, the same timestamp, and no second mutation', async () => {
+      const cookie = await signedInCookie()
+      const humanId = await operates(agentId)
+      const conversationId = messages.thread(humanId, agentId)
+      const ownMessageId = await write(cookie, conversationId, 'Only one tombstone, please.')
+
+      const first = await retract(cookie, conversationId, ownMessageId)
+      const second = await retract(cookie, conversationId, ownMessageId)
+
+      expect(first.statusCode).toBe(303)
+      expect(second.statusCode).toBe(303)
+      const after = await readThread(cookie, conversationId)
+      const tombstones = after.filter((message) => message.retractedAt !== undefined)
+      expect(tombstones).toHaveLength(1)
+    })
+
+    /**
+     * **The non-disclosure rule, on this door.** Wrong conversation/message
+     * pairing, a thread that is not this person's, another sender's message, a
+     * system message, an unknown id and a malformed one all answer the same —
+     * and that answer is the existing not-found, never an ownership oracle.
+     */
+    it('answers every wrong aim exactly as it answers an id that names nothing', async () => {
+      const cookie = await signedInCookie()
+      const humanId = await operates(agentId)
+      const conversationId = messages.thread(humanId, agentId)
+      messages.agentWrites(humanId, agentId, 'not mine to retract', conversationId)
+      messages.colonyWrites(humanId, agentId, 'the Colony, not a person', conversationId)
+      const listed = await readThread(cookie, conversationId)
+      const agentMessageId = listed.find((one) => one.sender.party === 'citizen')?.id
+      const systemMessageId = listed.find((one) => one.sender.party === 'system-role')?.id
+      if (agentMessageId === undefined || systemMessageId === undefined) {
+        throw new Error('the thread should hold an agent and a system message')
+      }
+      const ownMessageId = await write(cookie, conversationId, 'mine, wrong conversation')
+      const otherConversation = messages.thread(humanId, agentId)
+      const strangerThread = messages.thread('11111111-1111-4111-8111-111111111111', agentId)
+
+      const aimed = [
+        retract(cookie, otherConversation, ownMessageId),
+        retract(cookie, strangerThread, ownMessageId),
+        retract(cookie, conversationId, agentMessageId),
+        retract(cookie, conversationId, systemMessageId),
+        retract(cookie, conversationId, '00000000-0000-4000-8000-0000000000ff'),
+        retract(cookie, conversationId, 'not-an-id'),
+      ]
+      const answers = await Promise.all(aimed)
+
+      for (const answer of answers) expect(answer.statusCode).toBe(404)
+      // And nothing was taken back by any of them.
+      const after = await readThread(cookie, conversationId)
+      expect(after.every((message) => message.retractedAt === undefined)).toBe(true)
+    })
   })
 
   /** One form per thread, so there is no answer that cannot say what it answers. */

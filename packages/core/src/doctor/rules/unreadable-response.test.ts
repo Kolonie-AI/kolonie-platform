@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { NARROWER_CALL_FOR, unreadableResponse } from './unreadable-response.js'
+import { NARROWER_CALL_FOR, PAGE_ARGUMENTS_FOR, unreadableResponse } from './unreadable-response.js'
 import { bucket, input } from '../__fixtures__/windows.js'
 import { UNREADABLE_RESPONSE_BYTES } from '../thresholds.js'
 
@@ -127,7 +127,9 @@ describe('unreadable-response', () => {
     )[0]
 
     expect(NARROWER_CALL_FOR['kolonie.support.read']).toBeUndefined()
+    expect(PAGE_ARGUMENTS_FOR['kolonie.support.read']).toEqual(['limit', 'cursor'])
     expect(finding?.evidence.routeKeys).toEqual(['kolonie.support.read'])
+    expect(finding?.evidence.figures['supportsPageArguments']).toBe(1)
     expect(finding?.recommendation).toBe('narrow-the-request')
   })
 

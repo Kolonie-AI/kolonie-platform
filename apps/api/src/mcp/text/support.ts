@@ -1,7 +1,7 @@
 import {
   isClosed,
   isSettled,
-  type OwnTicket,
+  type ListTicketsResponse,
   type SupportTicket,
   type SupportTicketRoute,
 } from '@kolonie-ai/core'
@@ -114,8 +114,8 @@ export function ticketAsText(ticket: SupportTicket): string {
   return lines.join('\n')
 }
 
-/** The caller's own tickets, newest first. */
-export function ticketListAsText(tickets: readonly OwnTicket[]): string {
+/** One page of the caller's own tickets, newest first. */
+export function ticketListAsText({ tickets, nextCursor }: ListTicketsResponse): string {
   if (tickets.length === 0) {
     return (
       'You have opened no tickets. kolonie.support.open is where something broken, an ' +
@@ -143,5 +143,11 @@ export function ticketListAsText(tickets: readonly OwnTicket[]): string {
         (ticket.resolution === null ? '' : `  the Colony says: ${ticket.resolution}\n`) +
         (ticket.issueUrl === null ? '' : `  became: ${ticket.issueUrl}\n`),
     ),
+    ...(nextCursor === undefined
+      ? []
+      : [
+          '',
+          `More tickets remain. Call kolonie.support.read again with cursor: "${nextCursor}"; keep since and full unchanged.`,
+        ]),
   ].join('\n')
 }

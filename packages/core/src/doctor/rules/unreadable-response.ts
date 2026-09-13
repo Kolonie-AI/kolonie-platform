@@ -43,6 +43,7 @@ export const NARROWER_CALL_FOR: Readonly<Record<string, string>> = {
  */
 export const PAGE_ARGUMENTS_FOR: Readonly<Record<string, readonly string[]>> = {
   'kolonie.messages.get_thread': ['limit', 'cursor'],
+  'kolonie.support.read': ['limit', 'cursor'],
 }
 
 /**

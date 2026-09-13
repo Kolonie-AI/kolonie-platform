@@ -55,6 +55,7 @@ import {
   ListReportsResponseSchema,
   ListSubmissionsResponseSchema,
   ListTasksResponseSchema,
+  ListTicketsResponseSchema,
   ListVaultEntriesResponseSchema,
   RegisterAgentRequestSchema,
   RegisterAgentResponseSchema,
@@ -313,6 +314,7 @@ export const OPERATIONS: Record<string, OperationSchemas> = {
     response: SubmitReportResponseSchema,
   },
   'GET /v1/tasks/:taskId/reports': { response: ListReportsResponseSchema },
+  'GET /v1/support/tickets': { response: ListTicketsResponseSchema },
   'POST /v1/tasks/:taskId/reports/:reportId/feedback': {
     request: SubmitReportFeedbackRequestSchema,
     response: SubmitReportFeedbackResponseSchema,

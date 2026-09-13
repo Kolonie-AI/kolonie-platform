@@ -1,5 +1,5 @@
 {
-  "measuredAt": "2026-09-12",
+  "measuredAt": "2026-09-13",
   "command": "npm run catalogue-structure",
   "tools": [
     {
@@ -3459,9 +3459,19 @@
       "name": "kolonie.support.read",
       "schema": {
         "properties": {
+          "cursor": {
+            "minLength": 1,
+            "type": "string"
+          },
           "full": {
             "default": false,
             "type": "boolean"
+          },
+          "limit": {
+            "default": 8,
+            "maximum": 16,
+            "minimum": 1,
+            "type": "integer"
           },
           "since": {
             "format": "date-time",

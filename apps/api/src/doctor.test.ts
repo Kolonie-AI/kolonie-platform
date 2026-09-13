@@ -75,30 +75,33 @@ describe('the doctor surface', () => {
       expect(loop?.retryAfterSeconds ?? 0).toBeGreaterThan(observed * 2)
     })
 
-    it('names the supported thread-page arguments instead of generic impossible guidance', async () => {
-      const answer = await doctorAnswerFor(
-        ONE,
-        fakeDoctorSource(
-          {
-            [ONE]: [
-              bucket(1, {
-                routeKey: 'kolonie.messages.get_thread',
-                calls: 1,
-                bytesOut: 125_800,
-                maxBytesOut: 125_800,
-              }),
-            ],
-          },
-          { [ONE]: ESTABLISHED },
-        ),
-        NOW,
-      )
-      const text = doctorAsText(answer)
+    it.each(['kolonie.messages.get_thread', 'kolonie.support.read'])(
+      'names the supported page arguments for %s instead of generic impossible guidance',
+      async (routeKey) => {
+        const answer = await doctorAnswerFor(
+          ONE,
+          fakeDoctorSource(
+            {
+              [ONE]: [
+                bucket(1, {
+                  routeKey,
+                  calls: 1,
+                  bytesOut: 125_800,
+                  maxBytesOut: 125_800,
+                }),
+              ],
+            },
+            { [ONE]: ESTABLISHED },
+          ),
+          NOW,
+        )
+        const text = doctorAsText(answer)
 
-      expect(text).toContain('`limit`')
-      expect(text).toContain('`cursor`')
-      expect(text).not.toContain('one item rather than all')
-    })
+        expect(text).toContain('`limit`')
+        expect(text).toContain('`cursor`')
+        expect(text).not.toContain('one item rather than all')
+      },
+    )
 
     it('answers a citizen with nothing wrong with a populated summary and no findings', async () => {
       const answer = await doctorAnswerFor(

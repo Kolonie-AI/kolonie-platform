@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import {
+  ReadTicketsRequestSchema,
   SupportTicketIdSchema,
   type AgentId,
   type OpenTicketRequest,
@@ -8,6 +9,34 @@ import {
 } from '@kolonie-ai/core'
 import { WITHDRAWABLE_TICKET_STATUSES } from '@kolonie-ai/core'
 import type { SupportDesk } from '../support.js'
+
+type FakeSupportCursor = {
+  readonly since: string | null
+  readonly full: boolean
+  readonly afterId: string
+}
+
+function encodeFakeSupportCursor(cursor: FakeSupportCursor): string {
+  return Buffer.from(JSON.stringify(cursor), 'utf8').toString('base64url')
+}
+
+function decodeFakeSupportCursor(raw: string): FakeSupportCursor | undefined {
+  try {
+    const value: unknown = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8'))
+    if (typeof value !== 'object' || value === null) return undefined
+    const { since, full, afterId } = value as Record<string, unknown>
+    if (
+      !((typeof since === 'string' && !Number.isNaN(Date.parse(since))) || since === null) ||
+      typeof full !== 'boolean' ||
+      typeof afterId !== 'string'
+    ) {
+      return undefined
+    }
+    return { since, full, afterId }
+  } catch {
+    return undefined
+  }
+}
 
 export interface FakeSupportDesk extends SupportDesk {
   /**
@@ -31,6 +60,7 @@ export interface FakeSupportDesk extends SupportDesk {
    * opt out of.
    */
   readonly ownSubmission: (agentId: AgentId, submissionId: string) => void
+  readonly allOwnTickets: (agentId: AgentId) => readonly SupportTicket[]
 }
 
 /**
@@ -89,10 +119,48 @@ export function fakeSupportDesk(): FakeSupportDesk {
       return { outcome: 'opened', ticket }
     },
 
-    listOwnTickets: async (agentId) =>
-      [...tickets.values()]
-        .filter((ticket) => ticket.agentId === agentId)
-        .sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
+    listOwnTickets: async (agentId, asked) => {
+      const query = ReadTicketsRequestSchema.parse(asked ?? {})
+      const all = [...tickets.values()]
+        .filter(
+          (ticket) =>
+            ticket.agentId === agentId &&
+            (query.since === undefined || ticket.createdAt >= query.since),
+        )
+        .sort(
+          (left, right) =>
+            right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id),
+        )
+      const cursor = query.cursor === undefined ? undefined : decodeFakeSupportCursor(query.cursor)
+      if (
+        query.cursor !== undefined &&
+        (cursor === undefined ||
+          cursor.since !== (query.since ?? null) ||
+          cursor.full !== query.full)
+      ) {
+        return { outcome: 'invalid-cursor' }
+      }
+      const start =
+        cursor === undefined ? 0 : all.findIndex((ticket) => ticket.id === cursor.afterId) + 1
+      if (cursor !== undefined && start === 0) return { outcome: 'invalid-cursor' }
+      const page = all.slice(start, start + query.limit)
+      const last = page.at(-1)
+      const nextCursor =
+        start + page.length < all.length && last !== undefined
+          ? encodeFakeSupportCursor({
+              since: query.since ?? null,
+              full: query.full,
+              afterId: last.id,
+            })
+          : undefined
+      return {
+        outcome: 'listed',
+        tickets: page.map((ticket) =>
+          query.full ? ticket : (({ body: _body, ...lean }) => lean)(ticket),
+        ),
+        ...(nextCursor === undefined ? {} : { nextCursor }),
+      }
+    },
 
     readOwnTicket: async ({ ticketId, agentId }) => {
       const ticket = tickets.get(String(ticketId))
@@ -176,6 +244,14 @@ export function fakeSupportDesk(): FakeSupportDesk {
       if (ticket === undefined) throw new Error('cannot settle a ticket that was never opened')
       tickets.set(String(ticketId), { ...ticket, ...settlement })
     },
+
+    allOwnTickets: (agentId) =>
+      [...tickets.values()]
+        .filter((ticket) => ticket.agentId === agentId)
+        .sort(
+          (left, right) =>
+            right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id),
+        ),
   }
 }
 

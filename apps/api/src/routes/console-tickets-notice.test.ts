@@ -135,7 +135,7 @@ describe('the notice a maintainer writes', () => {
 
     await send(cookie, { agentId: String(agentId), aboutSubmissionId: submissionId, ...NOTICE })
 
-    const [ticket] = await colony.desk.listOwnTickets(agentId)
+    const [ticket] = colony.desk.allOwnTickets(agentId)
     expect(ticket?.kind).toBe('notice')
     expect(ticket?.status).toBe('resolved')
     expect(ticket?.aboutSubmissionId).toBe(submissionId)
@@ -172,7 +172,7 @@ describe('what the door refuses, and what it says instead', () => {
     })
 
     expect(response.body).toContain('not that citizen’s, or is not there')
-    expect(await colony.desk.listOwnTickets(agentId)).toHaveLength(0)
+    expect(colony.desk.allOwnTickets(agentId)).toHaveLength(0)
   })
 
   it('sends nothing without a body', async () => {
@@ -185,7 +185,7 @@ describe('what the door refuses, and what it says instead', () => {
     })
 
     expect(response.body).toContain('a notice needs the citizen')
-    expect(await colony.desk.listOwnTickets(agentId)).toHaveLength(0)
+    expect(colony.desk.allOwnTickets(agentId)).toHaveLength(0)
   })
 
   it('is not a door a signed-in stranger can push', async () => {
@@ -198,7 +198,7 @@ describe('what the door refuses, and what it says instead', () => {
     })
 
     expect(response.statusCode).toBe(404)
-    expect(await colony.desk.listOwnTickets(agentId)).toHaveLength(0)
+    expect(colony.desk.allOwnTickets(agentId)).toHaveLength(0)
   })
 
   it('is not a door anybody can push without signing in at all', async () => {
@@ -210,6 +210,6 @@ describe('what the door refuses, and what it says instead', () => {
     })
 
     expect(response.statusCode).toBe(404)
-    expect(await colony.desk.listOwnTickets(agentId)).toHaveLength(0)
+    expect(colony.desk.allOwnTickets(agentId)).toHaveLength(0)
   })
 })

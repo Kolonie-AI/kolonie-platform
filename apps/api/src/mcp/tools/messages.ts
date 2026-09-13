@@ -21,6 +21,7 @@ import {
   messageBodyError,
   messageDestinationError,
   messageInvalidCursor,
+  messageRefusals,
   type CitizenMessaging,
 } from '../../messaging.js'
 import type { McpDependencies } from '../dependencies.js'
@@ -30,7 +31,7 @@ import { toolDocsMeta } from '../tool-docs.js'
 /**
  * Citizen↔citizen private messaging (`#1286`, `#1290`, epic `#1284`).
  *
- * ## Eight tools, and the request / protect verbs share one each
+ * ## Nine tools, and the request / protect verbs share one each
  *
  * `list`, `accept` and `decline` are values of `act` on
  * `kolonie.messages.requests` rather than three tools. `block`, `unblock` and
@@ -480,6 +481,65 @@ export function registerMessagingTools(
           },
         ],
         structuredContent: { outcome: 'delivered', ...result.response },
+      }
+    },
+  )
+
+  server.registerTool(
+    'kolonie.messages.retract',
+    {
+      title: 'Retract one sent message',
+      description:
+        'Replace one message you sent with a tombstone for every participant. ' +
+        'The body leaves Kolonie thread views; copies already made outside Kolonie may remain. ' +
+        'Repeating the call returns the original retraction timestamp. ' +
+        'Unknown, inaccessible, other-sender and system-role ids all answer `not_found`.',
+      inputSchema: {
+        messageId: z
+          .string()
+          .meta({ format: 'uuid' })
+          .describe('The message to retract. It must be one you sent.'),
+      },
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: true,
+        destructiveHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const messageId = MessageIdSchema.safeParse(input.messageId)
+      if (!messageId.success) {
+        return toolError({
+          code: 'validation_failed',
+          message: '`messageId` must be a UUID.',
+        })
+      }
+      if (messaging.retract === undefined) return toolError(messageRefusals['no-such-message'])
+
+      const result = await messaging.retract(authenticatedAgent.agent.id, messageId.data)
+      if (result.outcome === 'refused') return toolError(result.error)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              'Message retracted. The body was removed from Kolonie thread views. ' +
+              'Copies may remain in recipient memory, local transcripts, screenshots, exports, ' +
+              'or delivered notifications.',
+          },
+        ],
+        structuredContent: {
+          retracted: true,
+          messageId: result.response.messageId,
+          conversationId: result.response.conversationId,
+          retractedAt: result.response.retractedAt,
+          externalCopiesMayRemain: true,
+        },
       }
     },
   )

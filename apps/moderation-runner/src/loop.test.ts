@@ -7,7 +7,7 @@ import type {
   PendingReport,
   PendingQuest,
 } from '@kolonie-ai/db'
-import { ATLAS_SEEDED_CATEGORIES, GatewayUnavailable } from '@kolonie-ai/core'
+import { AccountKindSchema, ATLAS_SEEDED_CATEGORIES, GatewayUnavailable } from '@kolonie-ai/core'
 import type {
   BriefingClaim,
   Log,
@@ -22,9 +22,11 @@ import {
   startBriefingRunner,
   startQuestRunner,
   startRunner,
+  synthesiseProviderNow,
   tick,
   type BriefingStore,
   type ModerationStore,
+  type ProviderBriefingStore,
 } from './loop.js'
 import type { AtlasCategoryProposalStore } from './atlas-category-proposals.js'
 import { segmentsOf, SIMILARITY_THRESHOLD } from './dedup.js'
@@ -731,6 +733,130 @@ describe('writing the verdict', () => {
 
     expect(judgement.kind).not.toBe('failed')
     expect(lines.some((line) => line.event === 'entry.moderate.failed')).toBe(false)
+  })
+})
+
+describe('provider briefings', () => {
+  const source = () => ({
+    id: randomUUID(),
+    outcome: 'abandoned' as const,
+    content: 'The signup form asked for a phone number on the last step.',
+    about: null,
+    platform: 'openclaw' as const,
+    finishedAt: new Date().toISOString(),
+  })
+
+  const providerStore = (
+    corpus: readonly ReturnType<typeof source>[],
+    writes: unknown[],
+  ): ProviderBriefingStore => ({
+    stale: async () => [],
+    corpus: async () => corpus,
+    write: async (input) => {
+      writes.push(input)
+    },
+    describe: async () => false,
+    promoteIdentity: async () => ({ about: false, description: false }),
+  })
+
+  /**
+   * `#1975`. The production signature was `provider.briefing.failed` at error
+   * for a fenced valid `{ claims: [...] }` reply. Provider synthesis reaches the
+   * same `compose` parser as task synthesis, and this locks that whole path.
+   */
+  it('writes fenced JSON without emitting provider.briefing.failed', async () => {
+    const walk = source()
+    const writes: unknown[] = []
+    const lines: { level: 'info' | 'warn' | 'error'; event: unknown }[] = []
+    const impl = (async () =>
+      ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          model: 'provider/model-that-answered',
+          choices: [
+            {
+              message: {
+                content:
+                  '```json\n{"claims":[{"section":"wall","text":"A real wall.","sources":["' +
+                  walk.id +
+                  '"]}]}\n```',
+              },
+            },
+          ],
+        }),
+      }) as Response) as unknown as typeof fetch
+
+    const outcome = await synthesiseProviderNow(
+      providerStore([walk], writes),
+      openRouterModel('a-key', { fetch: impl }),
+      { kind: AccountKindSchema.parse('mailbox'), provider: 'provider-fixture' },
+      {
+        info: (_message, fields) => lines.push({ level: 'info', event: fields?.['event'] }),
+        warn: (_message, fields) => lines.push({ level: 'warn', event: fields?.['event'] }),
+        error: (_message, _error, fields) =>
+          lines.push({ level: 'error', event: fields?.['event'] }),
+      },
+    )
+
+    expect(outcome).toBe('written')
+    expect(writes).toHaveLength(1)
+    expect(lines.some((line) => line.event === 'provider.briefing.failed')).toBe(false)
+  })
+
+  it('does not publish fenced garbage and emits provider.briefing.failed', async () => {
+    const walk = source()
+    const writes: unknown[] = []
+    const lines: { level: 'info' | 'warn' | 'error'; event: unknown }[] = []
+    const impl = (async () =>
+      ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          model: 'provider/model-that-answered',
+          choices: [{ message: { content: '```json\nnot-json\n```' } }],
+        }),
+      }) as Response) as unknown as typeof fetch
+
+    const outcome = await synthesiseProviderNow(
+      providerStore([walk], writes),
+      openRouterModel('a-key', { fetch: impl }),
+      { kind: AccountKindSchema.parse('mailbox'), provider: 'provider-fixture' },
+      {
+        info: (_message, fields) => lines.push({ level: 'info', event: fields?.['event'] }),
+        warn: (_message, fields) => lines.push({ level: 'warn', event: fields?.['event'] }),
+        error: (_message, _error, fields) =>
+          lines.push({ level: 'error', event: fields?.['event'] }),
+      },
+    )
+
+    expect(outcome).toBe('failed')
+    expect(writes).toEqual([])
+    expect(lines).toContainEqual({ level: 'error', event: 'provider.briefing.failed' })
+  })
+
+  it('warns on a retryable anomaly without emitting provider.briefing.failed', async () => {
+    const walk = source()
+    const writes: unknown[] = []
+    const lines: { level: 'info' | 'warn' | 'error'; event: unknown }[] = []
+    model.failsNext(new ProviderResponseAnomaly('stop', ['content']))
+
+    const outcome = await synthesiseProviderNow(
+      providerStore([walk], writes),
+      model,
+      { kind: AccountKindSchema.parse('mailbox'), provider: 'provider-fixture' },
+      {
+        info: (_message, fields) => lines.push({ level: 'info', event: fields?.['event'] }),
+        warn: (_message, fields) => lines.push({ level: 'warn', event: fields?.['event'] }),
+        error: (_message, _error, fields) =>
+          lines.push({ level: 'error', event: fields?.['event'] }),
+      },
+    )
+
+    expect(outcome).toBeInstanceOf(ProviderResponseAnomaly)
+    expect(writes).toEqual([])
+    expect(lines).toContainEqual({ level: 'warn', event: 'provider.briefing.retryable' })
+    expect(lines.some((line) => line.event === 'provider.briefing.failed')).toBe(false)
   })
 })
 

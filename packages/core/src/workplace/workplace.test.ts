@@ -57,6 +57,9 @@ import {
   WorkplaceCardClosureSchema,
   WorkplaceCardClosurePageSchema,
   WorkplaceCreateCardClosureRequestSchema,
+  WorkplaceRecallRequestSchema,
+  WorkplaceRecallResponseSchema,
+  normalizeWorkplaceRecallQuery,
   WorkplaceHandoverCardRequestSchema,
   WorkplaceCreateChecklistRequestSchema,
   WorkplaceUpdateChecklistRequestSchema,
@@ -84,6 +87,7 @@ const OTHER = AgentIdSchema.parse('aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee')
 const BOARD = '11111111-2222-4333-8444-555555555555'
 const CARD = '66666666-7777-4888-8999-000000000000'
 const OTHER_CARD = '77777777-8888-4999-8aaa-111111111111'
+const CLOSURE = '99999999-0000-4111-8222-333333333333'
 const NOW = '2026-08-29T12:00:00.000Z'
 
 function board(over: Record<string, unknown> = {}) {
@@ -445,6 +449,7 @@ describe('MCP grammar', () => {
       'claim',
       'handover',
       'archive',
+      'recall',
     ] as const) {
       expect(WorkplaceActSchema.parse(act)).toBe(act)
     }
@@ -1842,6 +1847,8 @@ describe('public nouns', () => {
     expect(names.some((name) => /Task|WorkItem|Workday/.test(name))).toBe(false)
     expect(names).toContain('WorkplaceBoardSchema')
     expect(names).toContain('WorkplaceCardSchema')
+    expect(names).toContain('WorkplaceRecallRequestSchema')
+    expect(names).toContain('WorkplaceRecallResponseSchema')
     expect(WORKPLACE_DEFAULT_LABELS).toEqual([
       'profession',
       'growth',
@@ -1849,5 +1856,119 @@ describe('public nouns', () => {
       'colony',
       'needs-operator',
     ])
+  })
+})
+
+describe('WorkplaceRecallRequestSchema (#1943)', () => {
+  it('normalizes Unicode whitespace runs and NFKC characters in the query', () => {
+    const normalized = normalizeWorkplaceRecallQuery('  hello\u3000world\t\n  ①  ')
+    expect(normalized).toBe('hello world 1')
+    const parsed = WorkplaceRecallRequestSchema.parse({
+      query: '  migration\u00A0guide\t  ',
+      scope: 'my_default',
+    })
+    expect(parsed.query).toBe('migration guide')
+  })
+
+  it('refuses credentials and queries that exceed the bound after NFKC normalization', () => {
+    expect(
+      WorkplaceRecallRequestSchema.safeParse({
+        query: `ghp_${'a'.repeat(36)}`,
+        scope: 'my_default',
+      }).success,
+    ).toBe(false)
+    expect(
+      WorkplaceRecallRequestSchema.safeParse({
+        query: '\u3300'.repeat(250),
+        scope: 'my_default',
+      }).success,
+    ).toBe(false)
+  })
+
+  it('requires boardId exactly when scope is board', () => {
+    expect(
+      WorkplaceRecallRequestSchema.safeParse({ query: 'shipped', scope: 'board' }).success,
+    ).toBe(false)
+    expect(
+      WorkplaceRecallRequestSchema.safeParse({ query: 'shipped', scope: 'board', boardId: BOARD })
+        .success,
+    ).toBe(true)
+    expect(
+      WorkplaceRecallRequestSchema.safeParse({
+        query: 'shipped',
+        scope: 'my_default',
+        boardId: BOARD,
+      }).success,
+    ).toBe(false)
+  })
+
+  it('refuses from > to, non-unique filter enums, and unknown keys', () => {
+    expect(
+      WorkplaceRecallRequestSchema.safeParse({
+        query: 'test',
+        scope: 'my_default',
+        from: '2026-09-14T00:00:00.000Z',
+        to: '2026-09-13T00:00:00.000Z',
+      }).success,
+    ).toBe(false)
+    expect(
+      WorkplaceRecallRequestSchema.safeParse({
+        query: 'test',
+        scope: 'my_default',
+        kinds: ['card', 'card'],
+      }).success,
+    ).toBe(false)
+    expect(
+      WorkplaceRecallRequestSchema.safeParse({
+        query: 'test',
+        scope: 'my_default',
+        status: ['ready', 'ready'],
+      }).success,
+    ).toBe(false)
+    expect(
+      WorkplaceRecallRequestSchema.safeParse({
+        query: 'test',
+        scope: 'my_default',
+        extraField: true,
+      }).success,
+    ).toBe(false)
+  })
+
+  it('parses valid citations and enforces closure reference coherence', () => {
+    const validCard = {
+      type: 'card',
+      board: { id: BOARD, title: 'Default board' },
+      card: { id: CARD, title: 'A card', status: 'ready', kind: 'action' },
+      matchedAt: '2026-09-13T12:00:00.000Z',
+      highlights: ['matched text'],
+      read: { tool: 'kolonie.workplace', arguments: { act: 'get', subject: 'card', id: CARD } },
+    }
+    const response = WorkplaceRecallResponseSchema.parse({
+      items: [validCard],
+      nextCursor: null,
+    })
+    expect(response.items).toHaveLength(1)
+    expect(response.items[0]?.closure).toBeUndefined()
+
+    // A closure citation must carry its closure metadata
+    expect(
+      WorkplaceRecallResponseSchema.safeParse({
+        items: [{ ...validCard, type: 'closure' }],
+        nextCursor: null,
+      }).success,
+    ).toBe(false)
+
+    // A card citation must not carry closure metadata
+    expect(
+      WorkplaceRecallResponseSchema.safeParse({
+        items: [
+          {
+            ...validCard,
+            closure: { id: CLOSURE, revision: 1, result: 'shipped' },
+          },
+        ],
+        nextCursor: null,
+      }).success,
+    ).toBe(false)
   })
 })

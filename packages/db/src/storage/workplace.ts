@@ -1,5 +1,5 @@
-import { randomUUID } from 'node:crypto'
-import { and, desc, eq, inArray, isNull, lt, lte, ne, or, sql } from 'drizzle-orm'
+import { createHash, randomUUID } from 'node:crypto'
+import { and, desc, eq, inArray, isNull, lt, lte, ne, or, sql, type SQL } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 import {
   AgentIdSchema,
@@ -31,6 +31,12 @@ import {
   WorkplaceLinkKindSchema,
   WorkplaceCardSummarySchema,
   WorkplaceResolvedLinkSchema,
+  WorkplaceRecallHitSchema,
+  normalizeWorkplaceRecallQuery,
+  WORKPLACE_RECALL_DEFAULT_LIMIT,
+  WORKPLACE_RECALL_HIGHLIGHT_MAX,
+  WORKPLACE_RECALL_HIGHLIGHT_MAX_LENGTH,
+  WORKPLACE_RECALL_MAX_LIMIT,
   PlaybookStatusSchema,
   canTransitionWorkplace,
   handoverAllowed,
@@ -70,6 +76,8 @@ import {
   type WorkplaceLinkTarget,
   type WorkplaceMembership,
   type WorkplaceResolvedLink,
+  type WorkplaceRecallHit,
+  type WorkplaceRecallRequest,
   type WorkplaceWakeupNext,
   type WakeupWorkplace,
 } from '@kolonie-ai/core'
@@ -121,6 +129,38 @@ const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000
 const RANK_GAP = 1000
 const PRACTICUM_PREFIX = 'practicum:'
 const STARTER_PREFIX = 'v1:'
+
+/**
+ * The card half of the lexical projection (`#1943`): title weighted A,
+ * description B. Expressed once so the insert, the update and the reindex
+ * produce byte-identical vectors — a projection two writers compute
+ * differently is one a rebuild silently changes.
+ */
+const cardSearchVector = (
+  title: string,
+  description: string | null,
+) => sql`setweight(to_tsvector('english', coalesce(${title}, '')), 'A')
+  || setweight(to_tsvector('english', coalesce(${description}, '')), 'B')`
+
+/**
+ * The closure half: summary A, learned B, and the refs of the closure's
+ * current evidence links as exact punctuation-bounded tokens under the
+ * `simple` config at weight D — a deleted link is absent because the
+ * subquery reads the live relation, not a stored copy.
+ */
+const closureEvidenceSearchVector = (evidenceRefs: string | SQL<unknown>) =>
+  sql`setweight(
+    to_tsvector(
+      'simple',
+      regexp_replace(coalesce(${evidenceRefs}, ''), '[^[:alnum:]-]+', ' ', 'g')
+    ),
+    'D'
+  )`
+
+const closureSearchVectorFrom = (summary: string, learned: string, evidenceRefs: string) =>
+  sql`setweight(to_tsvector('english', coalesce(${summary}, '')), 'A')
+    || setweight(to_tsvector('english', coalesce(${learned}, '')), 'B')
+    || ${closureEvidenceSearchVector(evidenceRefs)}`
 
 export type WorkplaceUnknown = { readonly outcome: 'unknown' }
 export type WorkplaceMissing = { readonly outcome: 'missing' }
@@ -2100,6 +2140,7 @@ export async function startProfessionPracticum(
           description: input.outcome,
           position,
           seedKey: `${cycleId}:card:${index + 1}`,
+          searchVector: cardSearchVector(title, input.outcome),
         })
         .returning()
       if (row === undefined) throw new Error('practicum card insert returned no row')
@@ -2416,6 +2457,7 @@ export async function createCard(
             priority: input.priority ?? 'unset',
             dueAt: input.dueAt ?? null,
             coverColour: input.coverColour ?? null,
+            searchVector: cardSearchVector(input.title, input.description ?? null),
           })
           .returning()
         if (row === undefined) throw new Error('workplace card insert returned no row')
@@ -2538,6 +2580,14 @@ export async function updateCard(
       .set({
         ...(input.title === undefined ? {} : { title: input.title }),
         ...(input.description === undefined ? {} : { description: input.description }),
+        ...(input.title !== undefined || input.description !== undefined
+          ? {
+              searchVector: cardSearchVector(
+                input.title ?? locked.card.title,
+                input.description === undefined ? locked.card.description : input.description,
+              ),
+            }
+          : {}),
         ...(input.priority === undefined ? {} : { priority: input.priority }),
         ...(input.dueAt === undefined ? {} : { dueAt: input.dueAt }),
         ...(input.coverColour === undefined ? {} : { coverColour: input.coverColour }),
@@ -3026,6 +3076,13 @@ async function insertClosure(
     readonly attribution?: WorkplaceEventAttribution
   },
 ): Promise<WorkplaceCardClosure> {
+  const evidenceRows =
+    input.close.evidenceLinkIds.length === 0
+      ? []
+      : await tx
+          .select({ id: workplaceCardLinks.id, ref: workplaceCardLinks.ref })
+          .from(workplaceCardLinks)
+          .where(inArray(workplaceCardLinks.id, input.close.evidenceLinkIds))
   const [row] = await tx
     .insert(workplaceCardClosures)
     .values({
@@ -3042,6 +3099,11 @@ async function insertClosure(
       next: input.close.next,
       legacy: input.legacy,
       supersedesClosureId: input.supersedesClosureId ?? null,
+      searchVector: closureSearchVectorFrom(
+        input.close.summary,
+        input.close.learned,
+        evidenceRows.map((one) => one.ref).join(' '),
+      ),
     })
     .returning()
   if (row === undefined) throw new Error('workplace card closure insert returned no row')
@@ -4094,6 +4156,22 @@ export async function removeLink(
     const membership = await membershipOf(tx, input.callerId, locked.card.boardId)
     if (membership === null) return { outcome: 'missing' }
     if (!mayWriteLink(membership, locked.card, input.callerId)) return { outcome: 'forbidden' }
+    await tx.execute(sql`
+      UPDATE workplace_card_closures cl
+         SET search_vector =
+               setweight(to_tsvector('english', coalesce(cl.summary, '')), 'A') ||
+               setweight(to_tsvector('english', coalesce(cl.learned, '')), 'B') ||
+               ${closureEvidenceSearchVector(sql`(
+                 select string_agg(l.ref, ' ')
+                   from workplace_card_closure_evidence e
+                   join workplace_card_links l on l.id = e.link_id
+                  where e.closure_id = cl.id
+                    and l.id <> ${input.linkId}
+               )`)}
+       WHERE cl.id IN (
+         SELECT closure_id FROM workplace_card_closure_evidence WHERE link_id = ${input.linkId}
+       )
+    `)
     await tx.delete(workplaceCardLinks).where(eq(workplaceCardLinks.id, input.linkId))
     await appendCardEvent(tx, {
       boardId: locked.card.boardId,
@@ -4292,6 +4370,7 @@ async function cloneTemplateCard(
       position,
       priority: template.priority,
       coverColour: template.coverColour,
+      searchVector: cardSearchVector(template.title, template.description),
     })
     .returning()
   if (row === undefined) throw new Error('workplace recurrence clone returned no row')
@@ -4648,4 +4727,416 @@ export async function releaseWorkplaceOwnership(tx: Transaction, agentId: AgentI
       from ranked
      where c.id = ranked.id
   `)
+}
+
+export type RecallWorkplaceResult =
+  | {
+      readonly outcome: 'recalled'
+      readonly items: readonly WorkplaceRecallHit[]
+      readonly nextCursor: string | null
+    }
+  | WorkplaceMissing
+  | { readonly outcome: 'invalid-cursor' }
+
+function computeRecallHash(input: WorkplaceRecallRequest): string {
+  const payload = {
+    q: input.query.toLowerCase(),
+    scope: input.scope,
+    boardId: input.boardId ?? null,
+    kinds: (input.kinds ?? ['card', 'closure']).slice().sort(),
+    result: (input.result ?? []).slice().sort(),
+    status: (input.status ?? []).slice().sort(),
+    from: input.from ?? null,
+    to: input.to ?? null,
+  }
+  return createHash('sha256').update(JSON.stringify(payload)).digest('hex').slice(0, 16)
+}
+
+type RecallCursor = {
+  readonly h: string
+  readonly r: number
+  readonly m: string
+  readonly t: 'card' | 'closure'
+  readonly id: string
+}
+
+function encodeRecallCursor(
+  hash: string,
+  item: { rank: number; matchedAt: string; type: 'card' | 'closure'; id: string },
+): string {
+  return Buffer.from(
+    JSON.stringify({
+      h: hash,
+      r: item.rank,
+      m: item.matchedAt,
+      t: item.type,
+      id: item.id,
+    }),
+    'utf8',
+  ).toString('base64url')
+}
+
+function decodeRecallCursor(
+  cursor: string | undefined | null,
+  expectedHash: string,
+): RecallCursor | undefined | 'invalid' {
+  if (cursor === undefined || cursor === null || cursor === '') return undefined
+  if (!/^[A-Za-z0-9_-]+$/.test(cursor)) return 'invalid'
+  try {
+    const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'))
+    if (typeof parsed !== 'object' || parsed === null) return 'invalid'
+    if (parsed.h !== expectedHash) return 'invalid'
+    if (
+      typeof parsed.r !== 'number' ||
+      typeof parsed.m !== 'string' ||
+      typeof parsed.id !== 'string'
+    ) {
+      return 'invalid'
+    }
+    if (parsed.t !== 'card' && parsed.t !== 'closure') return 'invalid'
+    return parsed as RecallCursor
+  } catch {
+    return 'invalid'
+  }
+}
+
+function parseHighlights(rawHeadline: string | null | undefined, fallback: string): string[] {
+  if (rawHeadline === null || rawHeadline === undefined || rawHeadline.trim() === '') {
+    const trimmed = fallback.trim().slice(0, WORKPLACE_RECALL_HIGHLIGHT_MAX_LENGTH)
+    return trimmed.length > 0 ? [trimmed] : []
+  }
+  const fragments = rawHeadline
+    .split('###')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+    .map((s) =>
+      s.length > WORKPLACE_RECALL_HIGHLIGHT_MAX_LENGTH
+        ? s.slice(0, WORKPLACE_RECALL_HIGHLIGHT_MAX_LENGTH)
+        : s,
+    )
+    .slice(0, WORKPLACE_RECALL_HIGHLIGHT_MAX)
+  if (fragments.length === 0) {
+    const trimmed = fallback.trim().slice(0, WORKPLACE_RECALL_HIGHLIGHT_MAX_LENGTH)
+    return trimmed.length > 0 ? [trimmed] : []
+  }
+  return fragments
+}
+
+/**
+ * Re-index the disposable lexical projection from canonical rows (`#1943`).
+ *
+ * Reproduces the identical tsvectors generated during ordinary writes and the
+ * migration backfill. A projection that desynchronised or whose columns were
+ * wiped is restored completely without needing an embedding provider.
+ */
+export async function rebuildWorkplaceRecallProjection(db: Database | Transaction): Promise<void> {
+  await db.execute(sql`
+    UPDATE workplace_cards c
+       SET search_vector =
+             setweight(to_tsvector('english', coalesce(c.title, '')), 'A') ||
+             setweight(to_tsvector('english', coalesce(c.description, '')), 'B')
+  `)
+  await db.execute(sql`
+    UPDATE workplace_card_closures cl
+       SET search_vector =
+             setweight(to_tsvector('english', coalesce(cl.summary, '')), 'A') ||
+             setweight(to_tsvector('english', coalesce(cl.learned, '')), 'B') ||
+             ${closureEvidenceSearchVector(sql`(
+               select string_agg(l.ref, ' ')
+                 from workplace_card_closure_evidence e
+                 join workplace_card_links l on l.id = e.link_id
+                where e.closure_id = cl.id
+             )`)}
+  `)
+}
+
+/**
+ * Permission-aware lexical recall with bounded citations (`#1943`).
+ *
+ * Queries cards and closures simultaneously with stable rank/time/type/id
+ * ordering. Candidate filtering happens in SQL before ranking, guaranteeing
+ * no unauthorized row is scanned or read into application memory.
+ */
+export async function recallWorkplace(
+  db: Database,
+  callerId: AgentId,
+  input: WorkplaceRecallRequest,
+): Promise<RecallWorkplaceResult> {
+  const hash = computeRecallHash(input)
+  const after = decodeRecallCursor(input.cursor, hash)
+  if (after === 'invalid') return { outcome: 'invalid-cursor' }
+
+  let boardFilter: ReturnType<typeof sql>
+  if (input.scope === 'my_default') {
+    const [defaultBoard] = await db
+      .select({ id: workplaceBoards.id })
+      .from(workplaceBoards)
+      .where(
+        and(
+          eq(workplaceBoards.ownerId, callerId),
+          eq(workplaceBoards.kind, 'default'),
+          isNull(workplaceBoards.archivedAt),
+        ),
+      )
+      .limit(1)
+    if (defaultBoard === undefined) {
+      return { outcome: 'recalled', items: [], nextCursor: null }
+    }
+    boardFilter = sql`b.id = ${defaultBoard.id}`
+  } else if (input.scope === 'board') {
+    if (input.boardId === undefined || !isUuid(input.boardId)) return { outcome: 'missing' }
+    const [board] = await db
+      .select({ id: workplaceBoards.id })
+      .from(workplaceBoards)
+      .innerJoin(
+        workplaceBoardMemberships,
+        and(
+          eq(workplaceBoardMemberships.boardId, workplaceBoards.id),
+          eq(workplaceBoardMemberships.citizenId, callerId),
+        ),
+      )
+      .where(and(eq(workplaceBoards.id, input.boardId), isNull(workplaceBoards.archivedAt)))
+      .limit(1)
+    if (board === undefined) return { outcome: 'missing' }
+    boardFilter = sql`b.id = ${input.boardId}`
+  } else {
+    // shared_with_me: union of all boards caller sits on
+    boardFilter = sql`b.id IN (
+      SELECT m.board_id
+        FROM workplace_board_memberships m
+       WHERE m.citizen_id = ${callerId}
+    )`
+  }
+
+  const kinds = input.kinds ?? ['card', 'closure']
+  const searchCards =
+    kinds.includes('card') && (input.result === undefined || input.result.length === 0)
+  const searchClosures = kinds.includes('closure')
+  if (!searchCards && !searchClosures) {
+    return { outcome: 'recalled', items: [], nextCursor: null }
+  }
+
+  const normalizedQuery = normalizeWorkplaceRecallQuery(input.query)
+  const qEnglish = sql`websearch_to_tsquery('english', ${normalizedQuery})`
+  const qSimple = sql`websearch_to_tsquery('simple', ${normalizedQuery})`
+
+  const statusFilterCards =
+    input.status !== undefined && input.status.length > 0
+      ? sql`AND c.status IN (${sql.join(
+          input.status.map((s) => sql`${s}`),
+          sql`, `,
+        )})`
+      : sql``
+  const statusFilterClosures =
+    input.status !== undefined && input.status.length > 0
+      ? sql`AND c.status IN (${sql.join(
+          input.status.map((s) => sql`${s}`),
+          sql`, `,
+        )})`
+      : sql``
+
+  const fromFilterCards = input.from !== undefined ? sql`AND c.updated_at >= ${input.from}` : sql``
+  const toFilterCards = input.to !== undefined ? sql`AND c.updated_at <= ${input.to}` : sql``
+
+  const fromFilterClosures =
+    input.from !== undefined ? sql`AND cl.created_at >= ${input.from}` : sql``
+  const toFilterClosures = input.to !== undefined ? sql`AND cl.created_at <= ${input.to}` : sql``
+
+  const resultFilterClosures =
+    input.result !== undefined && input.result.length > 0
+      ? sql`AND cl.result IN (${sql.join(
+          input.result.map((r) => sql`${r}`),
+          sql`, `,
+        )})`
+      : sql``
+
+  const cardQuery = sql`
+    SELECT
+      'card' AS hit_type,
+      c.id::text AS hit_id,
+      c.id::text AS card_id,
+      c.board_id::text AS board_id,
+      b.title AS board_title,
+      c.title AS card_title,
+      c.status AS card_status,
+      c.kind AS card_kind,
+      NULL::text AS closure_id,
+      NULL::int AS closure_revision,
+      NULL::text AS closure_result,
+      NULL::text AS closure_summary,
+      to_char(c.updated_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS matched_at,
+      round(ts_rank(c.search_vector, ${qEnglish})::numeric, 6)::float8 AS rank,
+      (c.title || '. ' || coalesce(c.description, '')) AS headline_source
+    FROM workplace_cards c
+    JOIN workplace_boards b ON b.id = c.board_id
+    WHERE b.archived_at IS NULL
+      AND c.archived_at IS NULL
+      AND c.search_vector @@ ${qEnglish}
+      AND ${boardFilter}
+      ${statusFilterCards}
+      ${fromFilterCards}
+      ${toFilterCards}
+  `
+
+  const closureQuery = sql`
+    SELECT
+      'closure' AS hit_type,
+      cl.id::text AS hit_id,
+      c.id::text AS card_id,
+      c.board_id::text AS board_id,
+      b.title AS board_title,
+      c.title AS card_title,
+      c.status AS card_status,
+      c.kind AS card_kind,
+      cl.id::text AS closure_id,
+      cl.revision AS closure_revision,
+      cl.result AS closure_result,
+      cl.summary AS closure_summary,
+      to_char(cl.created_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS matched_at,
+      round(
+        greatest(ts_rank(cl.search_vector, ${qEnglish}), ts_rank(cl.search_vector, ${qSimple}))::numeric,
+        6
+      )::float8 AS rank,
+      (cl.summary || '. ' || cl.learned) AS headline_source
+    FROM workplace_card_closures cl
+    JOIN workplace_cards c ON c.id = cl.card_id
+    JOIN workplace_boards b ON b.id = c.board_id
+    WHERE b.archived_at IS NULL
+      AND c.archived_at IS NULL
+      AND (cl.search_vector @@ ${qEnglish} OR cl.search_vector @@ ${qSimple})
+      AND ${boardFilter}
+      ${statusFilterClosures}
+      ${resultFilterClosures}
+      ${fromFilterClosures}
+      ${toFilterClosures}
+  `
+
+  const unionSql =
+    searchCards && searchClosures
+      ? sql`${cardQuery} UNION ALL ${closureQuery}`
+      : searchCards
+        ? cardQuery
+        : closureQuery
+
+  const cursorClause =
+    after === undefined
+      ? sql``
+      : sql`AND (
+          rank < ${after.r}
+          OR (rank = ${after.r} AND matched_at < ${after.m})
+          OR (rank = ${after.r} AND matched_at = ${after.m} AND hit_type > ${after.t})
+          OR (rank = ${after.r} AND matched_at = ${after.m} AND hit_type = ${after.t} AND hit_id > ${after.id})
+        )`
+
+  const limit = Math.min(
+    Math.max(input.limit ?? WORKPLACE_RECALL_DEFAULT_LIMIT, 1),
+    WORKPLACE_RECALL_MAX_LIMIT,
+  )
+
+  const rows = await db.execute<{
+    hit_type: 'card' | 'closure'
+    hit_id: string
+    card_id: string
+    board_id: string
+    board_title: string
+    card_title: string
+    card_status: string
+    card_kind: string
+    closure_id: string | null
+    closure_revision: number | null
+    closure_result: string | null
+    closure_summary: string | null
+    matched_at: string
+    rank: number
+    raw_headline: string | null
+  }>(sql`
+    WITH candidates AS (
+      ${unionSql}
+    ),
+    paged AS (
+      SELECT *
+        FROM candidates
+       WHERE 1=1
+         ${cursorClause}
+       ORDER BY rank DESC, matched_at DESC, hit_type ASC, hit_id ASC
+       LIMIT ${limit + 1}
+    )
+    SELECT
+      hit_type,
+      hit_id,
+      card_id,
+      board_id,
+      board_title,
+      card_title,
+      card_status,
+      card_kind,
+      closure_id,
+      closure_revision,
+      closure_result,
+      closure_summary,
+      matched_at,
+      rank,
+      ts_headline(
+        'english',
+        headline_source,
+        ${qEnglish},
+        'StartSel=«, StopSel=», MaxWords=20, MinWords=5, ShortWord=3, MaxFragments=4, FragmentDelimiter=###'
+      ) AS raw_headline
+    FROM paged
+  `)
+
+  const page = rows.slice(0, limit)
+  const items: WorkplaceRecallHit[] = page.map((row) =>
+    WorkplaceRecallHitSchema.parse({
+      type: row.hit_type,
+      board: {
+        id: row.board_id,
+        title: row.board_title,
+      },
+      card: {
+        id: row.card_id,
+        title: row.card_title,
+        status: row.card_status,
+        kind: row.card_kind,
+      },
+      ...(row.hit_type === 'closure'
+        ? {
+            closure: {
+              id: row.closure_id!,
+              revision: row.closure_revision!,
+              result: row.closure_result!,
+            },
+          }
+        : {}),
+      matchedAt: row.matched_at,
+      highlights: parseHighlights(
+        row.raw_headline,
+        row.hit_type === 'card' ? row.card_title : (row.closure_summary ?? row.card_title),
+      ),
+      read: {
+        tool: 'kolonie.workplace',
+        arguments: {
+          act: 'get',
+          subject: 'card',
+          id: row.card_id,
+        },
+      },
+    }),
+  )
+
+  const nextCursor =
+    rows.length > limit
+      ? encodeRecallCursor(hash, {
+          rank: rows[limit - 1]!.rank,
+          matchedAt: rows[limit - 1]!.matched_at,
+          type: rows[limit - 1]!.hit_type,
+          id: rows[limit - 1]!.hit_id,
+        })
+      : null
+
+  return {
+    outcome: 'recalled',
+    items,
+    nextCursor,
+  }
 }

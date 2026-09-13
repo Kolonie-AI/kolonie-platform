@@ -1,6 +1,11 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
-import { AccountKindSchema, type AccountCapability, type AgentId } from '@kolonie-ai/core'
+import {
+  AccountKindSchema,
+  type AccountCapability,
+  type AgentId,
+  type WorkplaceLinkId,
+} from '@kolonie-ai/core'
 import { createDatabase, type Database } from '../client.js'
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
@@ -44,6 +49,8 @@ import {
   removeLink,
   removeMember,
   renameBoard,
+  recallWorkplace,
+  rebuildWorkplaceRecallProjection,
   requestReview,
   resolveProfessionPracticum,
   retireStarter,
@@ -4104,5 +4111,373 @@ describe('workplace starter retirement', () => {
         boardId: '00000000-0000-4000-8000-000000000000',
       }),
     ).toEqual({ outcome: 'missing' })
+  })
+})
+
+/**
+ * Permission-aware lexical recall (`#1943`).
+ *
+ * The query is exercised through the real GIN-backed PostgreSQL projection.
+ * No fixture can prove the ACL is applied before rank or that a cursor orders a
+ * card and its closure together, so every case here plants canonical rows and
+ * asks storage exactly as HTTP and MCP do.
+ */
+describe('workplace lexical recall', () => {
+  let db: Database
+  let owner: AgentId
+  let member: AgentId
+  let outsider: AgentId
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+    owner = await citizen('recall-owner')
+    member = await citizen('recall-member')
+    outsider = await citizen('recall-outsider')
+  })
+
+  const citizen = async (name: string): Promise<AgentId> => {
+    const registered = await registerAgent(db, { name, platform: 'openclaw', operator: null })
+    if (registered.outcome !== 'registered') throw new Error(`could not register ${name}`)
+    await db.update(agents).set({ status: 'citizen' }).where(eq(agents.id, registered.agent.id))
+    return registered.agent.id
+  }
+
+  const makeDone = async (
+    callerId: AgentId,
+    boardId: string,
+    input: {
+      title: string
+      description?: string
+      summary: string
+      learned: string
+      result?: 'shipped' | 'failed_experiment'
+      evidenceRef?: string
+    },
+  ) => {
+    const created = await createCard(db, {
+      callerId,
+      boardId,
+      title: input.title,
+      description: input.description,
+      status: 'ready',
+    })
+    if (created.outcome !== 'created') throw new Error('card missing')
+    const claimed = await claimCard(db, {
+      callerId,
+      cardId: created.card.id,
+      expectedVersion: created.card.version,
+    })
+    if (claimed.outcome !== 'claimed') throw new Error('claim failed')
+
+    const evidenceLinkIds: WorkplaceLinkId[] = []
+    if (input.evidenceRef !== undefined) {
+      const evidence = await addLink(db, {
+        callerId,
+        cardId: claimed.card.id,
+        kind: 'url',
+        ref: input.evidenceRef,
+      })
+      if (evidence.outcome !== 'created') throw new Error('evidence missing')
+      evidenceLinkIds.push(evidence.link.id)
+    }
+
+    const result = input.result ?? 'shipped'
+    const completed = await completeCard(db, {
+      callerId,
+      cardId: claimed.card.id,
+      expectedVersion: claimed.card.version,
+      close: {
+        result,
+        summary: input.summary,
+        learned: input.learned,
+        evidenceLinkIds,
+        next: { kind: 'none' },
+      },
+    })
+    if (completed.outcome !== 'completed') throw new Error('completion failed')
+    return completed
+  }
+
+  it('finds active and Done cards plus every closure revision with bounded citations', async () => {
+    const board = await createDefaultBoard(db, { callerId: owner, title: 'Owner memory' })
+    const active = await createCard(db, {
+      callerId: owner,
+      boardId: board.id,
+      title: 'Prepare the lunar launch checklist',
+      description: 'Coordinate the launch window.',
+      status: 'ready',
+    })
+    if (active.outcome !== 'created') throw new Error('active card missing')
+    const completed = await makeDone(owner, board.id, {
+      title: 'Ship launch telemetry',
+      summary: 'Published the lunar telemetry dashboard.',
+      learned: 'A lunar launch needs one bounded signal.',
+      evidenceRef: 'https://example.invalid/lunar-telemetry',
+    })
+    const revised = await createCardClosure(db, {
+      callerId: owner,
+      cardId: completed.card.id,
+      close: {
+        result: 'failed_experiment',
+        summary: 'Tested the lunar telemetry dashboard and observed stale counters.',
+        learned: 'The lunar counter needs a monotonic clock.',
+        evidenceLinkIds: [],
+        next: { kind: 'none' },
+        supersedesClosureId: completed.closure.id,
+      },
+    })
+    expect(revised.outcome).toBe('created')
+
+    const recalled = await recallWorkplace(db, owner, {
+      query: 'lunar',
+      scope: 'my_default',
+      limit: 10,
+    })
+
+    expect(recalled.outcome).toBe('recalled')
+    if (recalled.outcome !== 'recalled') return
+    expect(recalled.items.map((one) => one.type).sort()).toEqual(['card', 'closure', 'closure'])
+    expect(recalled.items.some((one) => one.card.id === active.card.id)).toBe(true)
+    expect(
+      recalled.items
+        .filter((one) => one.type === 'closure')
+        .map((one) => one.closure?.revision)
+        .sort(),
+    ).toEqual([1, 2])
+    for (const item of recalled.items) {
+      expect(item.read).toEqual({
+        tool: 'kolonie.workplace',
+        arguments: { act: 'get', subject: 'card', id: item.card.id },
+      })
+      expect(item.highlights.length).toBeLessThanOrEqual(4)
+      expect(item.highlights.every((one) => one.length <= 240)).toBe(true)
+      expect(JSON.stringify(item)).not.toContain(outsider)
+    }
+  })
+
+  it('applies scope and structured filters before ranking', async () => {
+    const own = await createDefaultBoard(db, { callerId: owner, title: 'Own memory' })
+    const shared = await createBoard(db, { callerId: member, title: 'Shared memory' })
+    await addMember(db, { callerId: member, boardId: shared.id, citizenId: owner })
+    await makeDone(owner, own.id, {
+      title: 'Own comet experiment',
+      summary: 'Published the comet report.',
+      learned: 'Comets need a bounded window.',
+      evidenceRef: 'https://example.invalid/own-comet',
+    })
+    const failed = await makeDone(member, shared.id, {
+      title: 'Shared comet experiment',
+      summary: 'Tested the comet probe and observed a timeout.',
+      learned: 'Comet probes need retries.',
+      result: 'failed_experiment',
+    })
+
+    const ownOnly = await recallWorkplace(db, owner, {
+      query: 'comet',
+      scope: 'my_default',
+    })
+    expect(ownOnly.outcome).toBe('recalled')
+    if (ownOnly.outcome !== 'recalled') return
+    expect(new Set(ownOnly.items.map((one) => one.board.id))).toEqual(new Set([own.id]))
+
+    const filtered = await recallWorkplace(db, owner, {
+      query: 'comet',
+      scope: 'shared_with_me',
+      kinds: ['closure'],
+      result: ['failed_experiment'],
+      status: ['done'],
+    })
+    expect(filtered.outcome).toBe('recalled')
+    if (filtered.outcome !== 'recalled') return
+    expect(filtered.items).toHaveLength(1)
+    expect(filtered.items[0]).toMatchObject({
+      type: 'closure',
+      board: { id: shared.id },
+      card: { id: failed.card.id, status: 'done' },
+      closure: { result: 'failed_experiment' },
+    })
+  })
+
+  it('hides non-member boards, card ownership alone, and removed memberships immediately', async () => {
+    const board = await createBoard(db, { callerId: owner, title: 'Private memory' })
+    const card = await createCard(db, {
+      callerId: owner,
+      boardId: board.id,
+      title: 'Confidential aurora finding',
+      status: 'ready',
+    })
+    if (card.outcome !== 'created') throw new Error('card missing')
+
+    expect(
+      await recallWorkplace(db, outsider, {
+        query: 'aurora',
+        scope: 'board',
+        boardId: board.id,
+      }),
+    ).toEqual({ outcome: 'missing' })
+
+    // Card ownership does not grant access once its owner has no membership.
+    await db
+      .update(workplaceCards)
+      .set({ ownerId: outsider })
+      .where(eq(workplaceCards.id, card.card.id))
+    expect(
+      await recallWorkplace(db, outsider, {
+        query: 'aurora',
+        scope: 'shared_with_me',
+      }),
+    ).toEqual({ outcome: 'recalled', items: [], nextCursor: null })
+
+    await addMember(db, { callerId: owner, boardId: board.id, citizenId: member })
+    const before = await recallWorkplace(db, member, {
+      query: 'aurora',
+      scope: 'board',
+      boardId: board.id,
+    })
+    expect(before.outcome).toBe('recalled')
+    await removeMember(db, { callerId: owner, boardId: board.id, citizenId: member })
+    expect(
+      await recallWorkplace(db, member, {
+        query: 'aurora',
+        scope: 'board',
+        boardId: board.id,
+      }),
+    ).toEqual({ outcome: 'missing' })
+  })
+
+  it('paginates equal-rank rows without duplicates and binds the cursor to all filters', async () => {
+    const board = await createDefaultBoard(db, { callerId: owner, title: 'Paged memory' })
+    const now = '2026-09-13T12:00:00.000Z'
+    for (const suffix of ['alpha', 'beta', 'gamma']) {
+      const made = await createCard(db, {
+        callerId: owner,
+        boardId: board.id,
+        title: `Nebula ${suffix}`,
+        status: 'ready',
+      })
+      if (made.outcome !== 'created') throw new Error('card missing')
+      await db
+        .update(workplaceCards)
+        .set({ updatedAt: now })
+        .where(eq(workplaceCards.id, made.card.id))
+    }
+    await rebuildWorkplaceRecallProjection(db)
+
+    const first = await recallWorkplace(db, owner, {
+      query: 'nebula',
+      scope: 'my_default',
+      kinds: ['card'],
+      limit: 2,
+    })
+    expect(first.outcome).toBe('recalled')
+    if (first.outcome !== 'recalled') return
+    expect(first.items).toHaveLength(2)
+    expect(first.nextCursor).not.toBeNull()
+
+    const second = await recallWorkplace(db, owner, {
+      query: 'nebula',
+      scope: 'my_default',
+      kinds: ['card'],
+      limit: 2,
+      cursor: first.nextCursor ?? undefined,
+    })
+    expect(second.outcome).toBe('recalled')
+    if (second.outcome !== 'recalled') return
+    expect(second.items).toHaveLength(1)
+    expect(new Set([...first.items, ...second.items].map((one) => one.card.id)).size).toBe(3)
+
+    expect(
+      await recallWorkplace(db, owner, {
+        query: 'different',
+        scope: 'my_default',
+        kinds: ['card'],
+        limit: 2,
+        cursor: first.nextCursor ?? undefined,
+      }),
+    ).toEqual({ outcome: 'invalid-cursor' })
+    expect(
+      await recallWorkplace(db, owner, {
+        query: 'nebula',
+        scope: 'shared_with_me',
+        kinds: ['card'],
+        limit: 2,
+        cursor: first.nextCursor ?? undefined,
+      }),
+    ).toEqual({ outcome: 'invalid-cursor' })
+  })
+
+  it('rebuilds projections equivalently and removes deleted evidence refs from recall', async () => {
+    const board = await createDefaultBoard(db, { callerId: owner, title: 'Rebuild memory' })
+    const completed = await makeDone(owner, board.id, {
+      title: 'Evidence exercise',
+      summary: 'Published the evidence index.',
+      learned: 'Evidence must remain current.',
+      evidenceRef: 'https://example.invalid/artifact-token-1943',
+    })
+    const before = await recallWorkplace(db, owner, {
+      query: 'artifact-token-1943',
+      scope: 'my_default',
+      kinds: ['closure'],
+    })
+    expect(before.outcome).toBe('recalled')
+    if (before.outcome !== 'recalled') return
+    expect(before.items).toHaveLength(1)
+
+    await expect(
+      db.execute(
+        sql`update workplace_card_closures
+               set search_vector = search_vector
+             where id = ${completed.closure.id}`,
+      ),
+    ).resolves.not.toThrow()
+    await expectRejection(
+      () =>
+        db.execute(
+          sql`update workplace_card_closures
+                 set summary = 'Rewritten history.'
+               where id = ${completed.closure.id}`,
+        ),
+      /append-only/,
+    )
+
+    await db
+      .update(workplaceCards)
+      .set({ searchVector: null })
+      .where(eq(workplaceCards.id, completed.card.id))
+    await db.execute(
+      sql`update workplace_card_closures
+             set search_vector = null
+           where id = ${completed.closure.id}`,
+    )
+    await rebuildWorkplaceRecallProjection(db)
+    expect(
+      await recallWorkplace(db, owner, {
+        query: 'artifact-token-1943',
+        scope: 'my_default',
+        kinds: ['closure'],
+      }),
+    ).toMatchObject({ outcome: 'recalled', items: [{ type: 'closure' }] })
+
+    const [evidence] = await db
+      .select({ linkId: workplaceCardClosureEvidence.linkId })
+      .from(workplaceCardClosureEvidence)
+      .where(eq(workplaceCardClosureEvidence.closureId, completed.closure.id))
+    if (evidence === undefined) throw new Error('evidence relation missing')
+    await removeLink(db, { callerId: owner, linkId: evidence.linkId })
+    expect(
+      await recallWorkplace(db, owner, {
+        query: 'artifact-token-1943',
+        scope: 'my_default',
+        kinds: ['closure'],
+      }),
+    ).toEqual({ outcome: 'recalled', items: [], nextCursor: null })
   })
 })

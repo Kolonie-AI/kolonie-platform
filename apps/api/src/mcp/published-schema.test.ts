@@ -1,5 +1,8 @@
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { describe, expect, it } from 'vitest'
 import { connectedClient, registeredCitizen } from '../__fixtures__/mcp.js'
+import { createMcpServer } from '../mcp.js'
 import { withoutSchemaNoise } from './published-schema.js'
 
 /**
@@ -95,6 +98,57 @@ describe('the schemas the Colony publishes', () => {
     expect(JSON.stringify(refused.content)).toContain('Invalid UUID')
 
     await close()
+  })
+
+  /**
+   * The full boundary reported in `#1931`: the raw list response carries both
+   * the current source schema and the cache rule a deferred client persists.
+   * Asserting either half alone would have stayed green on the `#1928` deploy.
+   *
+   * The list result is captured before the SDK parses it. The pinned SDK predates
+   * these 2026-07-28 fields; a test reading only `client.listTools()` could pass
+   * because an SDK default supplied the same values rather than the server.
+   */
+  it('publishes the current accounts.list schema with an immediately stale private cache', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const server = createMcpServer(colony, `Bearer ${apiKey}`)
+    const client = new Client({ name: 'test', version: '0' })
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+    const results: Record<string, unknown>[] = []
+    const receive = clientTransport.onmessage
+    clientTransport.onmessage = (message, extra) => {
+      const result = 'result' in message ? message.result : undefined
+      if (
+        result !== undefined &&
+        typeof result === 'object' &&
+        Array.isArray((result as Record<string, unknown>)['tools'])
+      ) {
+        results.push(result as Record<string, unknown>)
+      }
+      receive?.(message, extra)
+    }
+
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)])
+    await client.listTools()
+    await Promise.all([client.close(), server.close()])
+
+    const result = results[0]
+    const tools = result?.['tools'] as
+      | readonly { name?: string; inputSchema?: { properties?: Record<string, unknown> } }[]
+      | undefined
+    const properties = tools?.find((tool) => tool.name === 'kolonie.accounts.list')?.inputSchema
+      ?.properties
+
+    expect(result?.['ttlMs']).toBe(0)
+    expect(result?.['cacheScope']).toBe('private')
+    expect(Object.keys(properties ?? {})).toEqual(['kind', 'includeRetired', 'limit', 'cursor'])
+    expect(properties?.['limit']).toMatchObject({
+      type: 'integer',
+      minimum: 1,
+      maximum: 16,
+      default: 8,
+    })
+    expect(properties?.['cursor']).toMatchObject({ type: 'string', minLength: 1 })
   })
 
   /**

@@ -42,6 +42,15 @@ import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js'
  * to the client, not about what is *enforced* at the boundary, and the two were
  * never the same object.
  *
+ * ## Why this list is immediately stale and private
+ *
+ * MCP 2026-07-28 defines `ttlMs: 0` as *re-fetch every time*. That closes the
+ * indefinite lazy-cache path that kept a pre-deploy schema after `#1928`: a
+ * client may defer opening this server, but it may not carry one catalogue
+ * response into another process as current. `private` matches the
+ * credential-dependent tiers D-013 serves; a cache shared between callers could
+ * otherwise publish one citizen's tool tier to another.
+ *
  * ## Why it hangs off `connect` rather than off each registration
  *
  * The SDK builds a tool's JSON Schema from its Zod shape when the list is asked
@@ -85,7 +94,7 @@ export function withoutSchemaNoise(value: unknown): unknown {
   return pruned
 }
 
-/** A `tools/list` result with its schemas pruned, or the message untouched. */
+/** A `tools/list` result with lean schemas and an immediately stale private cache. */
 const leanMessage = (message: JSONRPCMessage): JSONRPCMessage => {
   if (!('result' in message) || message.result === undefined) return message
 
@@ -94,7 +103,12 @@ const leanMessage = (message: JSONRPCMessage): JSONRPCMessage => {
 
   return {
     ...message,
-    result: { ...result, tools: withoutSchemaNoise(result['tools']) },
+    result: {
+      ...result,
+      tools: withoutSchemaNoise(result['tools']),
+      ttlMs: 0,
+      cacheScope: 'private',
+    },
   } as JSONRPCMessage
 }
 

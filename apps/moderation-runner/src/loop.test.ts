@@ -29,7 +29,7 @@ import {
 import type { AtlasCategoryProposalStore } from './atlas-category-proposals.js'
 import { segmentsOf, SIMILARITY_THRESHOLD } from './dedup.js'
 import { fakeModel, type FakeModel } from './__fixtures__/model.js'
-import { ProviderResponseAnomaly, ProviderUnreachable } from './llm.js'
+import { openRouterModel, ProviderResponseAnomaly, ProviderUnreachable } from './llm.js'
 import { healthOf } from './health.js'
 import type { QuestModerationStore } from './quests.js'
 import type { WalkProseModerationStore } from './walk-prose.js'
@@ -687,6 +687,49 @@ describe('writing the verdict', () => {
     expect(judgement.kind).toBe('failed')
     expect(written).toEqual([])
     expect(lines).toContainEqual({ level: 'warn', event: 'entry.moderate.retryable' })
+    expect(lines.some((line) => line.event === 'entry.moderate.failed')).toBe(false)
+  })
+
+  /**
+   * `#1971`. The production signature was a fenced verdict —
+   * `the model did not answer with JSON: \`\`\`json { "decision": "approve" …` —
+   * filed as `entry.moderate.failed` at error on every poll, 1012 lines of it.
+   * A fenced but valid verdict is usable after unwrap and must be judged, not
+   * failed.
+   */
+  it('judges a fenced verdict rather than emitting entry.moderate.failed', async () => {
+    const lines: { level: 'info' | 'warn' | 'error'; event: unknown }[] = []
+    const impl = (async () =>
+      ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          model: 'provider/model-that-answered',
+          choices: [
+            { message: { content: '```json\n{"decision":"clear","reason":"nothing here"}\n```' } },
+          ],
+        }),
+      }) as Response) as unknown as typeof fetch
+    const fencedModel = openRouterModel('a-key', { fetch: impl })
+    model.answers({ decision: 'approve', reason: 'names a concrete obstacle' })
+    let classifications = 0
+
+    const judgement = await judge(anEntry(), {
+      ...deps(),
+      model: {
+        ...model,
+        classify: async (input) =>
+          classifications++ === 0 ? fencedModel.classify(input) : model.classify(input),
+      },
+      log: {
+        info: (_message, fields) => lines.push({ level: 'info', event: fields?.['event'] }),
+        warn: (_message, fields) => lines.push({ level: 'warn', event: fields?.['event'] }),
+        error: (_message, _error, fields) =>
+          lines.push({ level: 'error', event: fields?.['event'] }),
+      },
+    })
+
+    expect(judgement.kind).not.toBe('failed')
     expect(lines.some((line) => line.event === 'entry.moderate.failed')).toBe(false)
   })
 })

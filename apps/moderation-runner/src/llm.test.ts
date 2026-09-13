@@ -93,6 +93,36 @@ describe('classifying', () => {
     expect(verdict).toMatchObject({ decision: 'reject', reason: 'Nothing specific.' })
   })
 
+  it.each([
+    ['json', '```json'],
+    ['JSON', '```JSON'],
+    ['bare', '```'],
+  ])('returns a verdict from a %s fenced JSON object', async (_label, fence) => {
+    const { impl } = stubFetch(
+      aVerdict(`  ${fence}\n{"decision":"approve","reason":"concrete"}\n\`\`\`  `),
+    )
+
+    const verdict = await openRouterModel('a-key', { fetch: impl }).classify({
+      system: 's',
+      user: 'u',
+      choices: ['approve', 'reject'],
+    })
+
+    expect(verdict).toMatchObject({ decision: 'approve', reason: 'concrete' })
+  })
+
+  it('refuses fenced content that is not JSON', async () => {
+    const { impl } = stubFetch(aVerdict('```json\nnot-json\n```'))
+
+    await expect(
+      openRouterModel('a-key', { fetch: impl }).classify({
+        system: 's',
+        user: 'u',
+        choices: ['approve', 'reject'],
+      }),
+    ).rejects.toThrow('did not answer with JSON')
+  })
+
   it('logs the model and tokens reported by the response', async () => {
     const info = vi.fn()
     const { impl } = stubFetch(aVerdict('{"decision":"approve","reason":"concrete"}'))

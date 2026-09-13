@@ -910,8 +910,9 @@ describe('the migrations', () => {
     // constitutions and immutable card close claims, with the actor-only nulling
     // that erasure requires admitted as the sole closure update. `#1941` makes
     // thirteen: every parent link is rechecked at commit against a live
-    // Initiative on the same board.
-    expect(afterFirst.triggers).toBe('13')
+    // Initiative on the same board. `#1942` makes fourteen: deleting a focused
+    // card records the loss before the foreign key clears the id.
+    expect(afterFirst.triggers).toBe('14')
 
     await expect(migrate(db, { migrationsFolder: MIGRATIONS_FOLDER })).resolves.not.toThrow()
     expect(await objectCounts()).toEqual(afterFirst)

@@ -8,6 +8,7 @@ import {
   WorkplaceCadenceSchema,
   WORKPLACE_SELF_DIRECTION_GUIDANCE,
   WorkplaceCommitmentSchema,
+  WorkplaceCommitmentResponseSchema,
   WorkplaceSetCommitmentRequestSchema,
   WorkplaceAdvanceCommitmentRequestSchema,
   EMPTY_WORKPLACE_LINK_COUNTS,
@@ -1598,12 +1599,19 @@ describe('self-authored commitment (#1869)', () => {
     nextAction: 'Exercise the guide against a disposable database.',
     reviewAt: '2026-09-06T12:00:00.000Z',
     state: 'active' as const,
+    focusCardId: null,
     version: 1,
   }
+  const focusCardId = '66666666-7777-4888-8999-000000000000'
 
   it('parses one strict active commitment', () => {
     expect(WorkplaceCommitmentSchema.parse(active)).toEqual(active)
-    expect(WorkplaceCommitmentSchema.safeParse({ ...active, extra: true }).success).toBe(false)
+    expect(WorkplaceCommitmentResponseSchema.parse({ commitment: active })).toEqual({
+      commitment: active,
+    })
+    expect(WorkplaceCommitmentResponseSchema.parse({ commitment: null })).toEqual({
+      commitment: null,
+    })
   })
 
   it('requires a blocker exactly while waiting', () => {
@@ -1632,20 +1640,31 @@ describe('self-authored commitment (#1869)', () => {
     }
   })
 
-  it('defines strict set and advance write boundaries', () => {
+  it('defines strict set and advance write boundaries with explicit focus semantics', () => {
     expect(
       WorkplaceSetCommitmentRequestSchema.parse({
         outcome: active.outcome,
         nextAction: active.nextAction,
         reviewAt: active.reviewAt,
         state: 'active',
+        focusCardId,
       }),
     ).toEqual({
       outcome: active.outcome,
       nextAction: active.nextAction,
       reviewAt: active.reviewAt,
       state: 'active',
+      focusCardId,
     })
+    expect(
+      WorkplaceSetCommitmentRequestSchema.parse({
+        outcome: active.outcome,
+        nextAction: active.nextAction,
+        reviewAt: active.reviewAt,
+        state: 'active',
+        focusCardId: null,
+      }).focusCardId,
+    ).toBeNull()
     expect(
       WorkplaceSetCommitmentRequestSchema.safeParse({
         outcome: active.outcome,
@@ -1662,6 +1681,13 @@ describe('self-authored commitment (#1869)', () => {
         state: 'waiting',
       }).success,
     ).toBe(false)
+    expect(
+      WorkplaceAdvanceCommitmentRequestSchema.parse({
+        nextAction: active.nextAction,
+        state: 'active',
+        focusCardId: null,
+      }).focusCardId,
+    ).toBeNull()
     expect(
       WorkplaceAdvanceCommitmentRequestSchema.safeParse({
         nextAction: active.nextAction,

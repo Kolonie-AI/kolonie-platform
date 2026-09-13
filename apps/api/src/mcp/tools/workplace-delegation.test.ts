@@ -380,7 +380,8 @@ describe('delegated kolonie.workplace (#1797)', () => {
    * read needs `workplace-read` and a write needs `workplace-write`. It
    * writes no activity row because it touches no board, which is the
    * `workplace_activity_delegation_is_whole` "neither" case rather than an
-   * omission.
+   * omission. `#1942` keeps that authorization and only adds the focus
+   * pointer; a linked human on HTTP is a different door.
    */
   it('authorizes a delegated commitment by capability and writes no board activity', async () => {
     const pilot = await aPilot(['workplace-read'])
@@ -410,6 +411,38 @@ describe('delegated kolonie.workplace (#1797)', () => {
       expect(read.isError).toBeFalsy()
       expect(read.structuredContent).toHaveProperty('delegation.subjectAgentId', pilot.subject.id)
       expect(read.structuredContent).toHaveProperty('commitment', null)
+    } finally {
+      await pilot.close()
+    }
+  })
+
+  it('forbids a delegated caller from setting or clearing the subject focus', async () => {
+    const pilot = await aPilot(['workplace-write'])
+    try {
+      pilot.colony.standing(pilot.subject.id, { status: 'citizen' })
+      await pilot.accept()
+
+      for (const act of ['set', 'advance'] as const) {
+        const refused = await pilot.client.callTool(
+          workplace({
+            act,
+            subject: 'commitment',
+            expectedVersion: 1,
+            fields:
+              act === 'set'
+                ? {
+                    outcome: 'Deliver one observable result.',
+                    nextAction: 'Draft the smallest version of it.',
+                    reviewAt: '2026-09-06T12:00:00.000Z',
+                    state: 'active',
+                    focusCardId: null,
+                  }
+                : { nextAction: 'Continue.', state: 'active', focusCardId: null },
+            delegationId: pilot.delegationId,
+          }),
+        )
+        expect(errorOf(refused).code).toBe('forbidden')
+      }
     } finally {
       await pilot.close()
     }

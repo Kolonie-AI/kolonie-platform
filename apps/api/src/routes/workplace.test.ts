@@ -15,6 +15,7 @@ import {
   type WorkplaceCard,
   type WorkplaceCardDetail,
   type WorkplaceCardSummary,
+  type WorkplaceCommitment,
   type WorkplaceLabel,
 } from '@kolonie-ai/core'
 import { buildApp } from '../app.js'
@@ -54,6 +55,7 @@ const ME = '/v1/workplace/me'
 const ACTOR = '/v1/workplace/actor'
 const BOARDS = '/v1/workplace/boards'
 const CARDS = '/v1/workplace/cards'
+const COMMITMENT = '/v1/workplace/commitment'
 
 /** The `sub` a tenant mints: `<strategy>|<subject>`, as `auth0.ts` records. */
 const SUBJECT = 'github|4815162342'
@@ -685,6 +687,107 @@ const aBoard = (
     updatedAt: now,
   }
 }
+
+describe('workplace commitments (#1942)', () => {
+  const fields = {
+    outcome: 'Publish a reliable migration guide.',
+    nextAction: 'Exercise the guide against a disposable database.',
+    reviewAt: '2026-09-14T12:00:00.000Z',
+    state: 'active' as const,
+  }
+
+  const focusedCitizen = async () => {
+    const { apiKey, agent } = await aCitizen('focused-citizen')
+    colony.standing(agent.id, { status: 'citizen' })
+    const board = aBoard(agent.id, { kind: 'default' })
+    const card = aCard(board.id, { status: 'ready' })
+    const membership = [seat(board, agent.id)]
+    colony.boards.plant(board, membership)
+    colony.cards.plantBoard(board.id, membership)
+    colony.cards.plantCard(card)
+    return { apiKey, agent, board, card }
+  }
+
+  it('sets, reads, replaces, clears and ends a focus through the HTTP surface', async () => {
+    const { apiKey, board, card } = await focusedCitizen()
+    const set = await asKey('PUT', COMMITMENT, apiKey, {
+      payload: { ...fields, focusCardId: card.id },
+    })
+    expect(set.statusCode).toBe(200)
+    const commitment = (set.json() as { commitment: WorkplaceCommitment }).commitment
+    expect(commitment.focusCardId).toBe(card.id)
+
+    const read = await asKey('GET', COMMITMENT, apiKey)
+    expect(read.statusCode).toBe(200)
+    expect(read.json()).toMatchObject({ commitment: { focusCardId: card.id } })
+
+    const replacement = aCard(board.id, { status: 'ready' })
+    colony.cards.plantCard(replacement)
+    const replaced = await asKey('PUT', COMMITMENT, apiKey, {
+      headers: { 'if-match': String(commitment.version) },
+      payload: { ...fields, focusCardId: replacement.id },
+    })
+    expect(replaced.statusCode).toBe(200)
+    const replacedCommitment = (replaced.json() as { commitment: WorkplaceCommitment }).commitment
+    expect(replacedCommitment.focusCardId).toBe(replacement.id)
+
+    const cleared = await asKey('POST', `${COMMITMENT}/advance`, apiKey, {
+      headers: { 'if-match': String(replacedCommitment.version) },
+      payload: { nextAction: 'Choose a new focus.', state: 'active', focusCardId: null },
+    })
+    expect(cleared.statusCode).toBe(200)
+    expect(cleared.json()).toMatchObject({ commitment: { focusCardId: null } })
+
+    const ended = await asKey('DELETE', COMMITMENT, apiKey)
+    expect(ended.statusCode).toBe(200)
+    expect(ended.json()).toEqual({ commitment: null })
+  })
+
+  it('rejects an unreadable focus without disclosing it and refuses a linked human', async () => {
+    const { apiKey } = await focusedCitizen()
+    const missing = await asKey('PUT', COMMITMENT, apiKey, {
+      payload: { ...fields, focusCardId: randomUUID() },
+    })
+    expect(missing.statusCode).toBe(ERROR_STATUS.not_found)
+    expect(missing.json()).toMatchObject({ code: 'not_found' })
+
+    const person = humans.holdsIdentity({
+      provider: 'github',
+      subject: '4815162342',
+      email: 'someone@example.test',
+    })
+    const subject = anAgent({ name: 'linked-subject', status: 'citizen' })
+    humans.operatesAgent(person.id, subject)
+    for (const [method, url, payload] of [
+      ['GET', COMMITMENT, undefined],
+      ['PUT', COMMITMENT, fields],
+      ['POST', `${COMMITMENT}/advance`, { nextAction: 'Continue.', state: 'active' }],
+      ['DELETE', COMMITMENT, undefined],
+    ] as const) {
+      const refused = await asSpa(method, url, await aToken(), subject.id, { payload })
+      expect(refused.statusCode).toBe(ERROR_STATUS.forbidden)
+    }
+  })
+
+  it('describes nullable focus on every commitment route', async () => {
+    const document = (await app.inject({ method: 'GET', url: '/openapi.json' })).json() as {
+      paths: Record<string, Record<string, { responses?: Record<string, { content?: unknown }> }>>
+    }
+    for (const [path, method] of [
+      ['/v1/workplace/commitment', 'get'],
+      ['/v1/workplace/commitment', 'put'],
+      ['/v1/workplace/commitment/advance', 'post'],
+      ['/v1/workplace/commitment', 'delete'],
+    ] as const) {
+      const schema = (
+        document.paths[path]?.[method]?.responses?.['200'] as {
+          content?: { 'application/json'?: { schema?: unknown } }
+        }
+      )?.content?.['application/json']?.schema
+      expect(JSON.stringify(schema)).toContain('focusCardId')
+    }
+  })
+})
 
 describe('workplace boards (#1759)', () => {
   describe('an API-key caller', () => {

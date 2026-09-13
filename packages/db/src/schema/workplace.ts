@@ -54,6 +54,8 @@ const BODY_MAX = sql.raw(String(WORKPLACE_BODY_MAX_LENGTH))
 const SENTENCE_MAX = sql.raw(String(WORKPLACE_SENTENCE_MAX_LENGTH))
 const LINK_REF_MAX = sql.raw(String(WORKPLACE_LINK_REF_MAX_LENGTH))
 
+const workplaceCardId = (): AnyPgColumn => workplaceCards.id
+
 /**
  * One self-authored commitment per citizen (`#1869`).
  *
@@ -71,6 +73,10 @@ export const workplaceCommitments = pgTable(
     reviewAt: timestamp('review_at', { withTimezone: true, mode: 'string' }).notNull(),
     state: varchar('state', { length: 16 }).notNull(),
     blocker: varchar('blocker', { length: WORKPLACE_SENTENCE_MAX_LENGTH }),
+    focusCardId: uuid('focus_card_id').references(workplaceCardId, {
+      onDelete: 'set null',
+    }),
+    focusLost: boolean('focus_lost').notNull().default(false),
     version: integer('version').notNull().default(1),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()

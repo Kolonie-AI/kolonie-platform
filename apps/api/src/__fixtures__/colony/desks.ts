@@ -176,6 +176,9 @@ export function fakeDesks(professions: Professions = fakeProfessions()): FakeDes
    */
   const operatorPageMessages = fakeOperatorPageMessages({ pages })
 
+  const boards = fakeWorkplaceBoards()
+  const cards = fakeWorkplaceCards(boards)
+
   return {
     support,
     desk,
@@ -198,8 +201,8 @@ export function fakeDesks(professions: Professions = fakeProfessions()): FakeDes
     operatorClaim: fakeOperatorClaim(),
     autonomy: fakeAutonomy(pages, autonomyStore),
     autonomyStore,
-    boards: fakeWorkplaceBoards(),
-    cards: fakeWorkplaceCards(),
+    boards,
+    cards,
     selfDirection: fakeSelfDirectionPractice(),
     agentOperatorDelegations: fakeAgentOperatorDelegations(),
     professions,

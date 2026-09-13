@@ -616,6 +616,7 @@ describe('the self-commitment replay', () => {
     nextAction: 'Exercise the guide against a disposable database.',
     reviewAt: '2099-01-01T00:00:00.000Z',
     state: 'active' as const,
+    focusCardId: null,
     version: 3,
   }
 
@@ -638,8 +639,12 @@ describe('the self-commitment replay', () => {
       nextAction: open.nextAction,
       reviewAt: open.reviewAt,
       state: 'active',
+      focusCardId: null,
       overdue: false,
-      next: { tool: 'kolonie.workplace' },
+      next: {
+        tool: 'kolonie.workplace',
+        arguments: { act: 'get', subject: 'commitment' },
+      },
     })
     const text = wakeupAsText(result.response)
     expect(text).toContain(open.outcome)
@@ -856,6 +861,59 @@ describe('the Workplace handoff', () => {
     expect(text).toContain(`${cardId} requires a follow-up read`)
     expect(text).toContain(`id: ${cardId}`)
     expect(text).not.toContain(`id: ${otherCardId}`)
+  })
+
+  it('renders a lost focus and bounded executable choices without former focus content', async () => {
+    const formerTitle = 'Former private focus title'
+    const prepared = {
+      ...fakeWakeup(),
+      prepareWorkplace: async () => ({
+        boardId,
+        practicumActive: false,
+        focusCardId: null,
+        focusLost: true as const,
+        recommendation: null,
+        more: [],
+      }),
+    }
+
+    const lost = await wakeup(agentId, {}, prepared, noContributions)
+    const lostText = wakeupAsText(lost.response)
+    expect(lostText).toContain('commitment focus is no longer available')
+    expect(lostText).not.toContain(formerTitle)
+
+    const decision = await wakeup(
+      agentId,
+      {},
+      {
+        ...fakeWakeup(),
+        prepareWorkplace: async () => ({
+          boardId,
+          practicumActive: false,
+          focusCardId: cardId,
+          focusKind: 'initiative' as const,
+          recommendation: null,
+          more: [],
+          commitmentDecision: {
+            choices: [
+              {
+                tool: 'kolonie.workplace' as const,
+                arguments: { act: 'get' as const, subject: 'card' as const, id: cardId },
+              },
+              {
+                tool: 'kolonie.workplace' as const,
+                arguments: { act: 'end' as const, subject: 'commitment' as const },
+              },
+            ],
+          },
+        }),
+      },
+      noContributions,
+    )
+    const decisionText = wakeupAsText(decision.response)
+    expect(decisionText).toContain('Your commitment focus needs a decision')
+    expect(decisionText).toContain('"act":"get"')
+    expect(decisionText.split('\n').length).toBeLessThanOrEqual(WAKEUP_LINE_BUDGET)
   })
 
   it('omits Workplace when the source has no citizen board', async () => {
@@ -2602,6 +2660,7 @@ describe('the self-direction sentence is absent from the digest (#1871)', () => 
         nextAction: 'Exercise the guide against a disposable database.',
         reviewAt: '2026-09-06T12:00:00.000Z',
         state: 'active' as const,
+        focusCardId: null,
         version: 1,
         updatedAt: '2026-09-05T12:00:00.000Z',
       }),
@@ -2683,6 +2742,7 @@ describe('the self-direction practice in the digest', () => {
           nextAction: 'Exercise the guide against a disposable database.',
           reviewAt: '2099-01-01T00:00:00.000Z',
           state: 'active' as const,
+          focusCardId: null,
           version: 3,
         }),
       }),

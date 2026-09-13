@@ -34,6 +34,9 @@ import {
   WorkplaceCommentPageSchema,
   WorkplaceCommentSchema,
   WorkplaceCompleteCardRequestSchema,
+  WorkplaceAdvanceCommitmentRequestSchema,
+  WorkplaceCommitmentResponseSchema,
+  WorkplaceSetCommitmentRequestSchema,
   WorkplaceCreateCardRequestSchema,
   WorkplaceCreateChecklistItemRequestSchema,
   WorkplaceCreateChecklistRequestSchema,
@@ -216,6 +219,16 @@ export const OPERATIONS: Record<string, OperationSchemas> = {
   },
   'GET /v1/agents/me': { response: GetMeResponseSchema },
   'GET /v1/workplace/me': { response: WorkplaceMeResponseSchema },
+  'GET /v1/workplace/commitment': { response: WorkplaceCommitmentResponseSchema },
+  'PUT /v1/workplace/commitment': {
+    request: WorkplaceSetCommitmentRequestSchema,
+    response: WorkplaceCommitmentResponseSchema,
+  },
+  'POST /v1/workplace/commitment/advance': {
+    request: WorkplaceAdvanceCommitmentRequestSchema,
+    response: WorkplaceCommitmentResponseSchema,
+  },
+  'DELETE /v1/workplace/commitment': { response: WorkplaceCommitmentResponseSchema },
   'GET /v1/workplace/boards': { response: WorkplaceBoardPageSchema },
   'POST /v1/workplace/boards': {
     request: WorkplaceCreateBoardRequestSchema,

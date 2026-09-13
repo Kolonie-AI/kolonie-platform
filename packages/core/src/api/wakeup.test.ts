@@ -566,6 +566,80 @@ describe('the Workplace handoff in wake-up', () => {
     ).toMatchObject({ boardId, practicumActive: true, recommendation: { cardId } })
   })
 
+  it('accepts focus metadata and bounded executable commitment choices', () => {
+    const parsed = WakeupWorkplaceSchema.parse({
+      boardId,
+      practicumActive: false,
+      focusCardId: cardId,
+      focusKind: 'initiative',
+      recommendation: null,
+      more: [],
+      commitmentDecision: {
+        choices: [
+          {
+            tool: 'kolonie.workplace',
+            arguments: { act: 'get', subject: 'card', id: cardId, boardId },
+          },
+          {
+            tool: 'kolonie.workplace',
+            arguments: {
+              act: 'create',
+              subject: 'card',
+              boardId,
+              fields: { kind: 'action', parentInitiativeId: cardId },
+            },
+          },
+          {
+            tool: 'kolonie.workplace',
+            arguments: {
+              act: 'advance',
+              subject: 'commitment',
+              expectedVersion: 2,
+              fields: { nextAction: 'Continue.', state: 'active', focusCardId: null },
+            },
+          },
+          { tool: 'kolonie.workplace', arguments: { act: 'end', subject: 'commitment' } },
+        ],
+      },
+    })
+
+    expect(parsed.focusKind).toBe('initiative')
+    expect(parsed.commitmentDecision?.choices).toHaveLength(4)
+    expect(parsed.commitmentDecision?.choices[1]?.arguments.fields).toEqual({
+      kind: 'action',
+      parentInitiativeId: cardId,
+    })
+  })
+
+  it('bounds commitment choices and rejects focus content leakage', () => {
+    const choice = {
+      tool: 'kolonie.workplace' as const,
+      arguments: { act: 'get' as const, subject: 'card' as const, id: cardId },
+    }
+    expect(
+      WakeupWorkplaceSchema.safeParse({
+        boardId,
+        practicumActive: false,
+        focusCardId: cardId,
+        focusKind: 'action',
+        focusTitle: 'must stay on card detail',
+        recommendation: null,
+        more: [],
+      }).success,
+    ).toBe(false)
+    expect(
+      WakeupWorkplaceSchema.safeParse({
+        boardId,
+        practicumActive: false,
+        focusCardId: cardId,
+        focusKind: 'action',
+        recommendation: null,
+        more: [],
+        commitmentDecision: { choices: Array.from({ length: 7 }, () => choice) },
+      }).success,
+    ).toBe(false)
+  })
+
   it('rejects a board dump and card bodies', () => {
     const more = Array.from({ length: 5 }, (_, index) => ({
       cardId: `00000000-0000-4000-8000-00000000000${index}`,

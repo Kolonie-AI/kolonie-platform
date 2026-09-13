@@ -907,6 +907,58 @@ describe('kolonie.workplace (#1761)', () => {
       state: 'active',
     }
 
+    it('sets and clears focus explicitly', async () => {
+      const { colony, agent, apiKey } = await registeredCitizen()
+      colony.standing(agent.id, { status: 'citizen' })
+      const board = plantOwned(colony, agent.id, { kind: 'default' })
+      const focus = aCard(board.id, { status: 'ready' })
+      colony.cards.plantCard(focus)
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+      const set = structuredOf<{ commitment: WorkplaceCommitment }>(
+        await client.callTool(
+          workplace({
+            act: 'set',
+            subject: 'commitment',
+            fields: { ...fields, focusCardId: focus.id },
+          }),
+        ),
+      )
+      expect(set.commitment.focusCardId).toBe(focus.id)
+
+      const cleared = structuredOf<{ commitment: WorkplaceCommitment }>(
+        await client.callTool(
+          workplace({
+            act: 'advance',
+            subject: 'commitment',
+            expectedVersion: set.commitment.version,
+            fields: { nextAction: 'Choose a new focus.', state: 'active', focusCardId: null },
+          }),
+        ),
+      )
+      await close()
+      expect(cleared.commitment.focusCardId).toBeNull()
+    })
+
+    it('hides an invalid focus behind the existing missing-card error', async () => {
+      const { colony, agent, apiKey } = await registeredCitizen()
+      colony.standing(agent.id, { status: 'citizen' })
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+      const refused = await client.callTool(
+        workplace({
+          act: 'set',
+          subject: 'commitment',
+          fields: { ...fields, focusCardId: randomUUID() },
+        }),
+      )
+      await close()
+
+      expect(refused.isError).toBe(true)
+      expect(errorOf(refused).code).toBe('not_found')
+      expect(errorOf(refused).message).toBe('No card matches the id you named.')
+    })
+
     it('sets, gets, advances and ends through the one Workplace tool', async () => {
       const { colony, agent, apiKey } = await registeredCitizen()
       colony.standing(agent.id, { status: 'citizen' })

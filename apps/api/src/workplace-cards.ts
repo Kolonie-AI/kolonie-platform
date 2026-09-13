@@ -3,6 +3,7 @@ import type {
   WorkplaceCommitment,
   WorkplaceCompleteCardRequest,
   WorkplaceCreateCardClosureRequest,
+  WorkplaceCardId,
   WorkplaceCommitmentState,
   WorkplaceCard,
   WorkplaceCardEvent,
@@ -311,6 +312,7 @@ export interface WorkplaceCards {
     readonly reviewAt: string
     readonly state: WorkplaceCommitmentState
     readonly blocker?: string
+    readonly focusCardId?: WorkplaceCardId | null
     readonly expectedVersion?: number
   }): Promise<SetCommitmentResult>
   readCommitment(callerId: AgentId): Promise<WorkplaceCommitment | null>
@@ -321,6 +323,7 @@ export interface WorkplaceCards {
     readonly reviewAt?: string
     readonly state: WorkplaceCommitmentState
     readonly blocker?: string
+    readonly focusCardId?: WorkplaceCardId | null
   }): Promise<AdvanceCommitmentResult>
   endCommitment(input: { readonly callerId: AgentId }): Promise<{ readonly outcome: 'ended' }>
 }

@@ -28,6 +28,7 @@ import { ModerationStatusSchema } from '../guidance/guidance.js'
 import {
   WORKPLACE_SENTENCE_MAX_LENGTH,
   WORKPLACE_TITLE_MAX_LENGTH,
+  WorkplaceCardKindSchema,
   WorkplaceCommitmentStateSchema,
   WorkplaceLaneSchema,
   WorkplaceMcpInputSchema,
@@ -763,10 +764,29 @@ export const WakeupWorkplaceFollowUpSchema = z
   .strict()
 export type WakeupWorkplaceFollowUp = z.infer<typeof WakeupWorkplaceFollowUpSchema>
 
+/**
+ * The bounded calls offered when a live focus contains no executable Action.
+ *
+ * Keeping calls rather than prose lets the wakeup consumer execute a choice
+ * without inventing ids, versions, or card relations.
+ */
+export const WakeupWorkplaceCommitmentDecisionSchema = z
+  .object({
+    choices: z.array(WorkplaceWakeupNextSchema).min(1).max(6),
+  })
+  .strict()
+export type WakeupWorkplaceCommitmentDecision = z.infer<
+  typeof WakeupWorkplaceCommitmentDecisionSchema
+>
+
 export const WakeupWorkplaceSchema = z
   .object({
     boardId: WorkplaceBoardIdSchema,
     practicumActive: z.boolean(),
+    focusCardId: WorkplaceCardIdSchema.nullable().optional(),
+    focusKind: WorkplaceCardKindSchema.optional(),
+    focusLost: z.literal(true).optional(),
+    commitmentDecision: WakeupWorkplaceCommitmentDecisionSchema.optional(),
     practicumRetrospective: WorkplacePracticumRetrospectiveSchema.optional(),
     recommendation: z
       .object({
@@ -1716,6 +1736,7 @@ export const WakeupResponseSchema = z.object({
           nextAction: z.string(),
           reviewAt: TimestampSchema,
           state: WorkplaceCommitmentStateSchema,
+          focusCardId: WorkplaceCardIdSchema.nullable(),
           overdue: z.boolean(),
           next: WorkplaceWakeupNextSchema,
         })

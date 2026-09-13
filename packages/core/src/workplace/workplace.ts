@@ -162,6 +162,10 @@ const commitmentFields = {
   blocker: commitmentText.optional(),
 }
 
+const commitmentFocus = {
+  focusCardId: WorkplaceCardIdSchema.nullable().optional(),
+}
+
 const commitmentRefinement = (
   commitment: { readonly state: WorkplaceCommitmentState; readonly blocker?: string },
   ctx: z.RefinementCtx,
@@ -191,15 +195,27 @@ const commitmentRefinement = (
 export const WorkplaceCommitmentSchema = z
   .object({
     ...commitmentFields,
+    focusCardId: WorkplaceCardIdSchema.nullable(),
     version: z.int().min(1),
   })
   .strict()
   .superRefine(commitmentRefinement)
 export type WorkplaceCommitment = z.infer<typeof WorkplaceCommitmentSchema>
 
+/**
+ * One commitment response for both an active row and the idempotent empty case.
+ *
+ * HTTP and MCP reuse this shape so `focusCardId` cannot disappear at one read
+ * boundary while remaining required on the stored commitment itself.
+ */
+export const WorkplaceCommitmentResponseSchema = z
+  .object({ commitment: WorkplaceCommitmentSchema.nullable() })
+  .strict()
+export type WorkplaceCommitmentResponse = z.infer<typeof WorkplaceCommitmentResponseSchema>
+
 /** A complete citizen-authored replacement for the one active commitment. */
 export const WorkplaceSetCommitmentRequestSchema = z
-  .object(commitmentFields)
+  .object({ ...commitmentFields, ...commitmentFocus })
   .strict()
   .superRefine(commitmentRefinement)
 export type WorkplaceSetCommitmentRequest = z.infer<typeof WorkplaceSetCommitmentRequestSchema>
@@ -211,6 +227,7 @@ export const WorkplaceAdvanceCommitmentRequestSchema = z
     reviewAt: TimestampSchema.optional(),
     state: WorkplaceCommitmentStateSchema,
     blocker: commitmentText.optional(),
+    ...commitmentFocus,
   })
   .strict()
   .superRefine(commitmentRefinement)
@@ -771,6 +788,8 @@ export const WorkplaceWakeupNextSchema = z
       subject: true,
       id: true,
       boardId: true,
+      fields: true,
+      expectedVersion: true,
     }),
   })
   .strict()

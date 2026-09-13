@@ -2497,6 +2497,305 @@ describe('workplace wakeup recommendation', () => {
     await db.update(agents).set({ status: 'citizen' }).where(eq(agents.id, citizenId))
   })
 
+  it('scopes focused Initiative wakeup to eligible child Actions', async () => {
+    const board = await createDefaultBoard(db, { callerId: citizenId, title: 'Default board' })
+    const initiative = await createCard(db, {
+      callerId: citizenId,
+      boardId: board.id,
+      title: 'Focused initiative',
+      kind: 'initiative',
+      status: 'ready',
+    })
+    const child =
+      initiative.outcome === 'created'
+        ? await createCard(db, {
+            callerId: citizenId,
+            boardId: board.id,
+            title: 'Focused child',
+            parentInitiativeId: initiative.card.id,
+            status: 'ready',
+          })
+        : undefined
+    const unrelated = await createCard(db, {
+      callerId: citizenId,
+      boardId: board.id,
+      title: 'Unrelated action',
+      status: 'ready',
+    })
+    if (
+      initiative.outcome !== 'created' ||
+      child?.outcome !== 'created' ||
+      unrelated.outcome !== 'created'
+    ) {
+      throw new Error('card missing')
+    }
+    await setCommitment(db, {
+      callerId: citizenId,
+      outcome: 'Reach the focused outcome.',
+      nextAction: 'Continue inside the initiative.',
+      reviewAt: '2026-09-14T00:00:00.000Z',
+      state: 'active',
+      focusCardId: initiative.card.id,
+    })
+
+    await db
+      .update(workplaceCards)
+      .set({ createdAt: '2026-09-13T10:00:00.000Z', position: 2000 })
+      .where(eq(workplaceCards.id, child.card.id))
+    const earlier = await createCard(db, {
+      callerId: citizenId,
+      boardId: board.id,
+      title: 'Earlier position, later creation',
+      parentInitiativeId: initiative.card.id,
+      status: 'ready',
+    })
+    if (earlier.outcome !== 'created') throw new Error('earlier child missing')
+    await db
+      .update(workplaceCards)
+      .set({ createdAt: '2026-09-13T10:00:00.000Z', position: 500 })
+      .where(eq(workplaceCards.id, earlier.card.id))
+
+    const result = await workplaceWakeup(db, citizenId)
+
+    expect(result).toMatchObject({
+      focusCardId: initiative.card.id,
+      focusKind: 'initiative',
+      recommendation: { cardId: earlier.card.id },
+    })
+    expect(result?.more.some((card) => card.cardId === unrelated.card.id)).toBe(false)
+  })
+
+  it('recommends a focused blocked Action as a decision surface before unrelated work', async () => {
+    const board = await createDefaultBoard(db, { callerId: citizenId, title: 'Default board' })
+    const focused = await createCard(db, {
+      callerId: citizenId,
+      boardId: board.id,
+      title: 'Blocked focus',
+      status: 'ready',
+    })
+    const unrelated = await createCard(db, {
+      callerId: citizenId,
+      boardId: board.id,
+      title: 'Unrelated ready action',
+      status: 'ready',
+    })
+    if (focused.outcome !== 'created' || unrelated.outcome !== 'created')
+      throw new Error('card missing')
+    const claimed = await claimCard(db, {
+      callerId: citizenId,
+      cardId: focused.card.id,
+      expectedVersion: focused.card.version,
+    })
+    if (claimed.outcome !== 'claimed') throw new Error('claim failed')
+    const blocked = await blockCard(db, {
+      callerId: citizenId,
+      cardId: focused.card.id,
+      expectedVersion: claimed.card.version,
+      blockedBy: 'Waiting for a result.',
+      unblockWhen: 'The result arrives.',
+    })
+    if (blocked.outcome !== 'blocked') throw new Error('block failed')
+    await setCommitment(db, {
+      callerId: citizenId,
+      outcome: 'Resolve the blocker.',
+      nextAction: 'Decide what to do next.',
+      reviewAt: '2026-09-14T00:00:00.000Z',
+      state: 'waiting',
+      blocker: 'Waiting for a result.',
+      focusCardId: focused.card.id,
+    })
+
+    const result = await workplaceWakeup(db, citizenId)
+
+    expect(result?.recommendation).toMatchObject({
+      cardId: focused.card.id,
+      status: 'blocked',
+      next: {
+        tool: 'kolonie.workplace',
+        arguments: {
+          act: 'update',
+          subject: 'card',
+          id: focused.card.id,
+          boardId: board.id,
+          expectedVersion: blocked.card.version,
+          fields: { status: 'in_progress' },
+        },
+      },
+    })
+    expect(result?.more).toEqual([])
+  })
+
+  it('returns executable choices instead of unrelated work for an empty focused Initiative', async () => {
+    const board = await createDefaultBoard(db, { callerId: citizenId, title: 'Default board' })
+    const initiative = await createCard(db, {
+      callerId: citizenId,
+      boardId: board.id,
+      title: 'Empty focus',
+      kind: 'initiative',
+      status: 'ready',
+    })
+    await createCard(db, {
+      callerId: citizenId,
+      boardId: board.id,
+      title: 'Unrelated action',
+      status: 'ready',
+    })
+    if (initiative.outcome !== 'created') throw new Error('initiative missing')
+    const set = await setCommitment(db, {
+      callerId: citizenId,
+      outcome: 'Reach the focused outcome.',
+      nextAction: 'Choose the next child Action.',
+      reviewAt: '2026-09-14T00:00:00.000Z',
+      state: 'active',
+      focusCardId: initiative.card.id,
+    })
+    if (set.outcome !== 'set') throw new Error('commitment missing')
+
+    const result = await workplaceWakeup(db, citizenId)
+
+    expect(result?.recommendation).toBeNull()
+    expect(result?.more).toEqual([])
+    expect(result?.commitmentDecision?.choices).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          arguments: expect.objectContaining({
+            act: 'get',
+            subject: 'card',
+            id: initiative.card.id,
+          }),
+        }),
+        expect.objectContaining({
+          arguments: expect.objectContaining({
+            act: 'create',
+            subject: 'card',
+            boardId: board.id,
+            fields: {
+              kind: 'action',
+              parentInitiativeId: initiative.card.id,
+            },
+          }),
+        }),
+        expect.objectContaining({
+          arguments: expect.objectContaining({
+            act: 'advance',
+            subject: 'commitment',
+            expectedVersion: set.commitment.version,
+            fields: {
+              nextAction: set.commitment.nextAction,
+              state: set.commitment.state,
+              focusCardId: null,
+            },
+          }),
+        }),
+      ]),
+    )
+  })
+
+  it.each(['active', 'waiting'] as const)(
+    'returns a decision for a focused Done Action on a %s commitment',
+    async (state) => {
+      const board = await createDefaultBoard(db, { callerId: citizenId, title: 'Default board' })
+      const focused = await createCard(db, {
+        callerId: citizenId,
+        boardId: board.id,
+        title: 'Focused Action',
+        status: 'ready',
+      })
+      if (focused.outcome !== 'created') throw new Error('focus missing')
+      const claimed = await claimCard(db, {
+        callerId: citizenId,
+        cardId: focused.card.id,
+        expectedVersion: focused.card.version,
+      })
+      if (claimed.outcome !== 'claimed') throw new Error('claim failed')
+      const completed = await completeCard(db, {
+        callerId: citizenId,
+        cardId: focused.card.id,
+        expectedVersion: claimed.card.version,
+        outcome: 'The focused Action finished.',
+      })
+      if (completed.outcome !== 'completed') throw new Error('completion failed')
+      await createCard(db, {
+        callerId: citizenId,
+        boardId: board.id,
+        title: 'Unrelated ready Action',
+        status: 'ready',
+      })
+      await setCommitment(db, {
+        callerId: citizenId,
+        outcome: 'Finish the focused result.',
+        nextAction: 'Choose what follows.',
+        reviewAt: '2026-09-14T00:00:00.000Z',
+        state,
+        ...(state === 'waiting' ? { blocker: 'A decision is pending.' } : {}),
+        focusCardId: completed.card.id,
+      })
+
+      const result = await workplaceWakeup(db, citizenId)
+
+      expect(result).toMatchObject({
+        focusCardId: completed.card.id,
+        focusKind: 'action',
+        recommendation: null,
+        more: [],
+      })
+      expect(result?.commitmentDecision?.choices).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            arguments: { act: 'get', subject: 'card', id: completed.card.id, boardId: board.id },
+          }),
+          expect.objectContaining({
+            arguments: {
+              act: 'update',
+              subject: 'card',
+              id: completed.card.id,
+              boardId: board.id,
+              expectedVersion: completed.card.version,
+            },
+          }),
+          expect.objectContaining({ arguments: { act: 'end', subject: 'commitment' } }),
+        ]),
+      )
+    },
+  )
+
+  it('keeps ordinary ranking after the focused commitment ends', async () => {
+    const board = await createDefaultBoard(db, { callerId: citizenId, title: 'Default board' })
+    const focus = await createCard(db, {
+      callerId: citizenId,
+      boardId: board.id,
+      title: 'Focused ready',
+      status: 'ready',
+    })
+    const live = await createCard(db, {
+      callerId: citizenId,
+      boardId: board.id,
+      title: 'Ordinary live work',
+      status: 'ready',
+    })
+    if (focus.outcome !== 'created' || live.outcome !== 'created') throw new Error('card missing')
+    const claimed = await claimCard(db, {
+      callerId: citizenId,
+      cardId: live.card.id,
+      expectedVersion: live.card.version,
+    })
+    if (claimed.outcome !== 'claimed') throw new Error('claim failed')
+    await setCommitment(db, {
+      callerId: citizenId,
+      outcome: 'Focus elsewhere.',
+      nextAction: 'Read the focus.',
+      reviewAt: '2026-09-14T00:00:00.000Z',
+      state: 'active',
+      focusCardId: focus.card.id,
+    })
+    expect((await workplaceWakeup(db, citizenId))?.recommendation?.cardId).toBe(focus.card.id)
+
+    await endCommitment(db, { callerId: citizenId })
+
+    expect((await workplaceWakeup(db, citizenId))?.recommendation?.cardId).toBe(live.card.id)
+    expect((await getCard(db, citizenId, focus.card.id))?.card.archivedAt).toBeNull()
+  })
+
   it('keeps default seed-card wakeup discovery and ranks an accepted practicum first', async () => {
     const boards = await listBoardsFor(db, citizenId)
     if (boards.outcome !== 'listed') throw new Error('default board missing')
@@ -2697,6 +2996,60 @@ describe('workplace wakeup recommendation', () => {
 
     expect(result?.recommendation?.title).toBe('Ready 0')
     expect(result?.practicumActive).toBe(true)
+  })
+
+  it('limits more to four eligible child Actions inside a focused Initiative', async () => {
+    const board = await createDefaultBoard(db, { callerId: citizenId, title: 'Default board' })
+    const initiative = await createCard(db, {
+      callerId: citizenId,
+      boardId: board.id,
+      title: 'Broad focus',
+      kind: 'initiative',
+      status: 'ready',
+    })
+    if (initiative.outcome !== 'created') throw new Error('initiative missing')
+    const children: Array<{ id: string; createdAt: string; position: number }> = []
+    for (let index = 0; index < 7; index += 1) {
+      const child = await createCard(db, {
+        callerId: citizenId,
+        boardId: board.id,
+        title: `Focused child ${index}`,
+        kind: 'action',
+        parentInitiativeId: initiative.card.id,
+        status: 'ready',
+      })
+      if (child.outcome !== 'created') throw new Error('child missing')
+      children.push({
+        id: child.card.id,
+        createdAt: child.card.createdAt,
+        position: child.card.position,
+      })
+    }
+    await setCommitment(db, {
+      callerId: citizenId,
+      outcome: 'Finish the initiative.',
+      nextAction: 'Continue with one child.',
+      reviewAt: '2026-09-14T00:00:00.000Z',
+      state: 'active',
+      focusCardId: initiative.card.id,
+    })
+
+    const result = await workplaceWakeup(db, citizenId)
+
+    expect(result?.more).toHaveLength(4)
+    const expected = [...children]
+      .sort(
+        (left, right) =>
+          left.createdAt.localeCompare(right.createdAt) ||
+          left.position - right.position ||
+          left.id.localeCompare(right.id),
+      )
+      .slice(0, 5)
+      .map((one) => one.id)
+    expect([
+      result?.recommendation?.cardId,
+      ...(result?.more.map((one) => one.cardId) ?? []),
+    ]).toEqual(expected)
   })
 
   it('bounds fifty ready cards to one recommendation and four ids', async () => {
@@ -3092,6 +3445,107 @@ describe('self-authored commitment storage', () => {
     expect(await readCommitment(db, owner)).toBeNull()
   })
 
+  it('sets, replaces, preserves and clears a focus on the citizen default board', async () => {
+    const board = await createDefaultBoard(db, { callerId: owner, title: 'Default board' })
+    const firstFocus = await createCard(db, {
+      callerId: owner,
+      boardId: board.id,
+      title: 'First focus',
+      status: 'ready',
+    })
+    const secondFocus = await createCard(db, {
+      callerId: owner,
+      boardId: board.id,
+      title: 'Second focus',
+      status: 'ready',
+    })
+    if (firstFocus.outcome !== 'created' || secondFocus.outcome !== 'created') {
+      throw new Error('focus card missing')
+    }
+
+    const set = await setCommitment(db, {
+      callerId: owner,
+      ...first,
+      focusCardId: firstFocus.card.id,
+    })
+    expect(set.outcome).toBe('set')
+    if (set.outcome !== 'set') return
+    expect(set.commitment.focusCardId).toBe(firstFocus.card.id)
+
+    const preservedSet = await setCommitment(db, {
+      callerId: owner,
+      ...first,
+      expectedVersion: set.commitment.version,
+    })
+    expect(preservedSet.outcome).toBe('set')
+    if (preservedSet.outcome !== 'set') return
+    expect(preservedSet.commitment.focusCardId).toBe(firstFocus.card.id)
+
+    const replaced = await setCommitment(db, {
+      callerId: owner,
+      ...first,
+      expectedVersion: preservedSet.commitment.version,
+      focusCardId: secondFocus.card.id,
+    })
+    expect(replaced.outcome).toBe('set')
+    if (replaced.outcome !== 'set') return
+    expect(replaced.commitment.focusCardId).toBe(secondFocus.card.id)
+
+    const preserved = await advanceCommitment(db, {
+      callerId: owner,
+      expectedVersion: replaced.commitment.version,
+      nextAction: 'Keep moving.',
+      state: 'active',
+    })
+    expect(preserved.outcome).toBe('advanced')
+    if (preserved.outcome !== 'advanced') return
+    expect(preserved.commitment.focusCardId).toBe(secondFocus.card.id)
+
+    const cleared = await advanceCommitment(db, {
+      callerId: owner,
+      expectedVersion: preserved.commitment.version,
+      nextAction: 'Choose later.',
+      state: 'active',
+      focusCardId: null,
+    })
+    expect(cleared.outcome).toBe('advanced')
+    if (cleared.outcome !== 'advanced') return
+    expect(cleared.commitment.focusCardId).toBeNull()
+  })
+
+  it('hides unknown, archived, shared-board and unreadable focus cards behind one miss', async () => {
+    const own = await createDefaultBoard(db, { callerId: owner, title: 'Default board' })
+    const archived = await createCard(db, {
+      callerId: owner,
+      boardId: own.id,
+      title: 'Archived focus',
+    })
+    if (archived.outcome !== 'created') throw new Error('focus card missing')
+    await archiveCard(db, {
+      callerId: owner,
+      cardId: archived.card.id,
+      expectedVersion: archived.card.version,
+    })
+    const shared = await createDefaultBoard(db, { callerId: member, title: 'Member default' })
+    await addMember(db, { callerId: member, boardId: shared.id, citizenId: owner })
+    const sharedCard = await createCard(db, {
+      callerId: member,
+      boardId: shared.id,
+      title: 'Shared focus',
+    })
+    if (sharedCard.outcome !== 'created') throw new Error('shared focus missing')
+
+    for (const focusCardId of [
+      '00000000-0000-4000-8000-000000000000',
+      archived.card.id,
+      sharedCard.card.id,
+    ]) {
+      expect(await setCommitment(db, { callerId: owner, ...first, focusCardId })).toEqual({
+        outcome: 'missing',
+      })
+    }
+  })
+
   it('sets, reads back, advances and ends exactly one commitment', async () => {
     const set = await setCommitment(db, { callerId: owner, ...first })
     expect(set.outcome).toBe('set')
@@ -3210,6 +3664,90 @@ describe('self-authored commitment storage', () => {
     expect(await db.select().from(workplaceActivity)).toEqual([])
     expect(await db.select().from(workplacePracticumEvents)).toEqual([])
     expect(await workplaceWakeup(db, owner)).toBeUndefined()
+  })
+
+  it('clears an archived focus transactionally and reports focusLost once without title leakage', async () => {
+    const board = await createDefaultBoard(db, { callerId: owner, title: 'Default board' })
+    const focus = await createCard(db, {
+      callerId: owner,
+      boardId: board.id,
+      title: 'Former private focus title',
+    })
+    if (focus.outcome !== 'created') throw new Error('focus card missing')
+    await setCommitment(db, { callerId: owner, ...first, focusCardId: focus.card.id })
+
+    const archived = await archiveCard(db, {
+      callerId: owner,
+      cardId: focus.card.id,
+      expectedVersion: focus.card.version,
+    })
+    expect(archived.outcome).toBe('archived')
+    expect(await readCommitment(db, owner)).toMatchObject({ focusCardId: null })
+
+    const wake = await workplaceWakeup(db, owner)
+    expect(wake).toMatchObject({ focusCardId: null, focusLost: true })
+    expect(JSON.stringify(wake)).not.toContain('Former private focus title')
+    expect(await workplaceWakeup(db, owner)).not.toHaveProperty('focusLost')
+  })
+
+  it('consumes focusLost once when concurrent wakeups race', async () => {
+    const board = await createDefaultBoard(db, { callerId: owner, title: 'Default board' })
+    const focus = await createCard(db, {
+      callerId: owner,
+      boardId: board.id,
+      title: 'Focus removed before two wakeups',
+    })
+    if (focus.outcome !== 'created') throw new Error('focus card missing')
+    await setCommitment(db, { callerId: owner, ...first, focusCardId: focus.card.id })
+    await archiveCard(db, {
+      callerId: owner,
+      cardId: focus.card.id,
+      expectedVersion: focus.card.version,
+    })
+
+    const wakeups = await Promise.all([workplaceWakeup(db, owner), workplaceWakeup(db, owner)])
+
+    expect(wakeups.filter((wake) => wake?.focusLost === true)).toHaveLength(1)
+  })
+
+  it('marks a hard-deleted focus lost through the foreign key', async () => {
+    const board = await createDefaultBoard(db, { callerId: owner, title: 'Default board' })
+    const focus = await createCard(db, {
+      callerId: owner,
+      boardId: board.id,
+      title: 'Hard-deleted focus',
+    })
+    if (focus.outcome !== 'created') throw new Error('focus card missing')
+    await setCommitment(db, { callerId: owner, ...first, focusCardId: focus.card.id })
+
+    await db.delete(workplaceCards).where(eq(workplaceCards.id, focus.card.id))
+
+    expect(await readCommitment(db, owner)).toMatchObject({ focusCardId: null })
+    expect(await workplaceWakeup(db, owner)).toMatchObject({ focusLost: true })
+    expect(await workplaceWakeup(db, owner)).not.toHaveProperty('focusLost')
+  })
+
+  it('serializes focus writes with archiving so a live reference never survives', async () => {
+    const board = await createDefaultBoard(db, { callerId: owner, title: 'Default board' })
+    const focus = await createCard(db, {
+      callerId: owner,
+      boardId: board.id,
+      title: 'Raced focus',
+    })
+    if (focus.outcome !== 'created') throw new Error('focus card missing')
+
+    const [set, archived] = await Promise.all([
+      setCommitment(db, { callerId: owner, ...first, focusCardId: focus.card.id }),
+      archiveCard(db, {
+        callerId: owner,
+        cardId: focus.card.id,
+        expectedVersion: focus.card.version,
+      }),
+    ])
+
+    expect(archived.outcome).toBe('archived')
+    expect(['set', 'missing']).toContain(set.outcome)
+    expect(await readCommitment(db, owner)).toMatchObject({ focusCardId: null })
   })
 
   it('goes with the citizen it belongs to', async () => {

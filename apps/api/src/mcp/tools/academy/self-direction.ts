@@ -43,57 +43,51 @@ const CHOICE_TIME =
 const ActSchema = z.enum(['start', 'submit', 'result', 'reflect', 'history'])
 
 /**
- * The reflect branch as both validation input and published JSON Schema (`#1915`).
+ * The reflect branch as validation input, with its conditions in prose (`#1915`,
+ * `#1964`).
  *
- * The MCP SDK accepts a Zod object, not a separate JSON Schema, so the metadata
- * is the one route to carry `if`/`then` through its conversion. These conditions
- * teach a client what to send before it spends the call; the core close schema
- * remains the authority that validates the branch after dispatch.
+ * ## Why the conditions are no longer `if`/`then`
+ *
+ * `#1915` carried them as `allOf` in `.meta()`, because the SDK accepts a Zod
+ * object rather than a JSON Schema and metadata was the one route to express a
+ * conditional requirement. It merged into the **root** of the published schema,
+ * and Anthropic's tool-use API refuses `oneOf`, `allOf` or `anyOf` there — before
+ * inference, naming the whole request, so this one tool made the entire catalogue
+ * unusable on that API. Measured 2026-09-13, from eight consecutive `400`s.
+ *
+ * So the requirement is stated where a model actually reads it: on the field it
+ * constrains. That is a real loss of machine-checkability at the client and no
+ * loss at the boundary — `SelfDirectionCloseSchema` was always the authority that
+ * validates a close, `#1915` said so, and it is unchanged. A client that sends a
+ * `changed` close without a summary is refused by the same code with the same
+ * message it was refused by yesterday.
  */
-const REFLECT_SHAPE = z
-  .object({
-    act: ActSchema,
-    attemptId: z.string().optional(),
-    responses: z.array(SelfDirectionResponseSchema).optional(),
-    decision: z.enum(['changed', 'unchanged']).optional(),
-    outwardAction: z
-      .object({
-        kind: z.enum(['ship', 'contact', 'spend', 'build', 'own-machine']),
-        what: z.string(),
-      })
-      .optional(),
-    summary: z.string().optional(),
-    expectedEffect: z.string().optional(),
-    reason: z
-      .string()
-      .optional()
-      .describe('Required for unchanged; optional as a free note for changed.'),
-    followThrough: z
-      .object({
-        outcome: z.enum(['done', 'partly', 'not-yet', 'abandoned']),
-        note: z.string(),
-      })
-      .optional(),
-    limit: z.number().optional(),
-  })
-  .meta({
-    allOf: [
-      {
-        if: {
-          properties: { act: { const: 'reflect' }, decision: { const: 'changed' } },
-          required: ['act', 'decision'],
-        },
-        then: { required: ['attemptId', 'outwardAction', 'summary', 'expectedEffect'] },
-      },
-      {
-        if: {
-          properties: { act: { const: 'reflect' }, decision: { const: 'unchanged' } },
-          required: ['act', 'decision'],
-        },
-        then: { required: ['attemptId', 'outwardAction', 'reason'] },
-      },
-    ],
-  })
+const REFLECT_SHAPE = z.object({
+  act: ActSchema,
+  attemptId: z.string().optional().describe('Required for submit and reflect.'),
+  responses: z.array(SelfDirectionResponseSchema).optional(),
+  decision: z.enum(['changed', 'unchanged']).optional(),
+  outwardAction: z
+    .object({
+      kind: z.enum(['ship', 'contact', 'spend', 'build', 'own-machine']),
+      what: z.string(),
+    })
+    .optional()
+    .describe('Required for reflect, on either decision.'),
+  summary: z.string().optional().describe('Required for changed; refused for unchanged.'),
+  expectedEffect: z.string().optional().describe('Required for changed; refused for unchanged.'),
+  reason: z
+    .string()
+    .optional()
+    .describe('Required for unchanged; optional as a free note for changed.'),
+  followThrough: z
+    .object({
+      outcome: z.enum(['done', 'partly', 'not-yet', 'abandoned']),
+      note: z.string(),
+    })
+    .optional(),
+  limit: z.number().optional(),
+})
 
 export function registerSelfDirectionTool(
   server: McpServer,

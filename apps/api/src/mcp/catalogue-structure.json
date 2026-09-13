@@ -120,40 +120,6 @@
     {
       "name": "kolonie.academy.self-direction",
       "schema": {
-        "allOf": [
-          {
-            "if": {
-              "properties": {
-                "act": {
-                  "const": "reflect"
-                },
-                "decision": {
-                  "const": "changed"
-                }
-              },
-              "required": ["act", "decision"]
-            },
-            "then": {
-              "required": ["attemptId", "outwardAction", "summary", "expectedEffect"]
-            }
-          },
-          {
-            "if": {
-              "properties": {
-                "act": {
-                  "const": "reflect"
-                },
-                "decision": {
-                  "const": "unchanged"
-                }
-              },
-              "required": ["act", "decision"]
-            },
-            "then": {
-              "required": ["attemptId", "outwardAction", "reason"]
-            }
-          }
-        ],
         "properties": {
           "act": {
             "enum": ["start", "submit", "result", "reflect", "history"],
@@ -1838,7 +1804,40 @@
     {
       "name": "kolonie.operator.agent",
       "schema": {
-        "properties": {},
+        "properties": {
+          "act": {
+            "enum": ["request", "accept", "list", "revoke"],
+            "type": "string"
+          },
+          "capabilities": {
+            "items": {
+              "enum": ["workplace-read", "workplace-write", "message", "handover"],
+              "type": "string"
+            },
+            "maxItems": 4,
+            "minItems": 1,
+            "type": "array"
+          },
+          "delegationId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "statuses": {
+            "items": {
+              "enum": ["pending", "active", "revoked"],
+              "type": "string"
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "type": "array"
+          },
+          "subject": {
+            "maxLength": 64,
+            "minLength": 2,
+            "type": "string"
+          }
+        },
+        "required": ["act"],
         "type": "object"
       }
     },

@@ -26,6 +26,7 @@ import {
   WorkplaceRecurrenceSchema,
   WorkplaceMcpInputSchema,
   WorkplaceMeResponseSchema,
+  WorkplaceDelegatedCitizenSchema,
   WorkplaceCreateBoardRequestSchema,
   WorkplaceRenameBoardRequestSchema,
   WorkplaceRetireStarterRequestSchema,
@@ -68,6 +69,7 @@ import {
   WorkplaceLinkKindSchema,
   WorkplaceLinkTargetSchema,
   WORKPLACE_CITIZEN_HEADER,
+  WORKPLACE_DELEGATION_HEADER,
   WORKPLACE_TRANSITIONS,
   canTransitionWorkplace,
   claimAllowed,
@@ -694,6 +696,50 @@ describe('the workplace human actor (#1764)', () => {
 
   it('names the citizen header in lower case, once', () => {
     expect(WORKPLACE_CITIZEN_HEADER).toBe('x-kolonie-citizen')
+    expect(WORKPLACE_DELEGATION_HEADER).toBe('x-kolonie-delegation')
+  })
+
+  it('defaults delegations to an empty list, backwards-compatibly', () => {
+    expect(WorkplaceMeResponseSchema.parse(me).delegations).toEqual([])
+  })
+
+  /**
+   * The delegated perspective (#1968): one row per active delegation held by
+   * an operated citizen. The names a browser needs to *pick* a perspective —
+   * both handles, both ids, the delegation id and the grant — are the fields,
+   * and nothing here is a second directory: a revoked or pending delegation
+   * never reaches this list, which is the route's job to guarantee.
+   */
+  it('parses one delegated citizen and refuses a revoked status shape', () => {
+    const delegated = {
+      delegationId: '11111111-2222-4333-8444-555555555555',
+      viaAgentId: CITIZEN,
+      viaHandle: 'colette',
+      subjectId: '99999999-8888-4777-8666-555555555555',
+      subjectHandle: 'aurora',
+      status: 'citizen',
+      capabilities: ['workplace-read', 'workplace-write'],
+    }
+    expect(WorkplaceDelegatedCitizenSchema.parse(delegated)).toEqual(delegated)
+    expect(
+      WorkplaceMeResponseSchema.parse({ ...me, delegations: [delegated] }).delegations,
+    ).toEqual([delegated])
+    expect(
+      WorkplaceDelegatedCitizenSchema.safeParse({ ...delegated, status: 'active' }).success,
+    ).toBe(false)
+    expect(
+      WorkplaceDelegatedCitizenSchema.safeParse({
+        ...delegated,
+        capabilities: ['workplace-read', 'workplace-read'],
+      }).success,
+    ).toBe(false)
+    expect(
+      WorkplaceDelegatedCitizenSchema.safeParse({
+        ...delegated,
+        subjectHandle: 'aurora',
+        extra: true,
+      }).success,
+    ).toBe(false)
   })
 })
 

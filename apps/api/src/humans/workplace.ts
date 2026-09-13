@@ -1,13 +1,21 @@
 import { createRemoteJWKSet, jwtVerify, type JWTPayload, type JWTVerifyGetKey } from 'jose'
 import {
   AgentIdSchema,
+  AgentOperatorDelegationIdSchema,
+  DELEGATION_REFUSAL_CODES,
   ERROR_STATUS,
   IdentityProviderSchema,
   WORKPLACE_CITIZEN_HEADER,
+  WORKPLACE_DELEGATION_HEADER,
   type AgentId,
+  type AgentOperatorCapability,
+  type ApiError,
+  type DelegatedAuthorization,
   type Human,
 } from '@kolonie-ai/core'
 import type { FastifyReply, FastifyRequest } from 'fastify'
+import type { AgentOperatorDelegations } from '../agent-operator-delegations.js'
+import type { WorkplaceWriteAttribution } from '../workplace-cards.js'
 import type { HumanStore } from './humans.js'
 import type { ResolvedIdentity } from './auth0.js'
 
@@ -303,7 +311,7 @@ export function corsHeaders(reply: FastifyReply, allowed: string): FastifyReply 
  */
 export const WORKPLACE_CORS_METHODS = 'GET, POST, PUT, PATCH, DELETE, OPTIONS'
 export const WORKPLACE_CORS_HEADERS =
-  'authorization, content-type, if-match, x-kolonie-citizen, idempotency-key'
+  'authorization, content-type, if-match, x-kolonie-citizen, x-kolonie-delegation, idempotency-key'
 
 export function workplacePreflight(reply: FastifyReply, allowed: string): FastifyReply {
   return corsHeaders(reply, allowed)
@@ -345,15 +353,23 @@ export type WorkplaceActorResult = {
   readonly human: Human
   readonly citizenId: AgentId
   readonly origin: string | undefined
+  readonly attribution: WorkplaceWriteAttribution
 }
 
 /**
- * Origin, bearer, then the citizen header (`#1764`).
+ * Origin, bearer, then the citizen header (`#1764`), then an optional
+ * delegation (`#1968`).
  *
  * **The actor on Workplace HTTP is a citizen, named explicitly.** `/me` does
  * not use this — it is how the SPA learns the list. Every later citizen-scoped
  * route does. A missing header is `400`; an unlinked or unparseable id is
  * `workplace_unknown_citizen` and does not say whether the agent exists.
+ *
+ * **When {@link WORKPLACE_DELEGATION_HEADER} is present**, the named citizen is
+ * the via-agent the human still operates, and the subject is read off the
+ * grant. The human never sits on the subject's board. A mismatch, a pending
+ * or revoked grant, or a missing capability is a stable refusal and never
+ * an existence leak.
  *
  * **Writes the refusal itself** so a board route cannot forget CORS, the
  * `WWW-Authenticate` header, or the origin-before-JWT order. `undefined`
@@ -364,6 +380,8 @@ export async function workplaceActorFor(
   reply: FastifyReply,
   store: HumanStore,
   options: WorkplaceOptions,
+  delegations?: AgentOperatorDelegations,
+  capability: AgentOperatorCapability | readonly AgentOperatorCapability[] = 'workplace-read',
 ): Promise<WorkplaceActorResult | undefined> {
   const origin = originHeader(request.headers.origin)
 
@@ -400,5 +418,85 @@ export async function workplaceActorFor(
     return undefined
   }
 
-  return { human: outcome.human, citizenId: parsed.data, origin }
+  const viaAgentId = parsed.data
+  const rawDelegation = request.headers[WORKPLACE_DELEGATION_HEADER]
+  if (rawDelegation === undefined) {
+    return {
+      human: outcome.human,
+      citizenId: viaAgentId,
+      origin,
+      attribution: {
+        actorKind: 'human-linked',
+        actorId: viaAgentId,
+        actorHumanId: outcome.human.id,
+      },
+    }
+  }
+
+  const parsedDelegation = AgentOperatorDelegationIdSchema.safeParse(
+    typeof rawDelegation === 'string' ? rawDelegation.trim() : rawDelegation,
+  )
+  if (!parsedDelegation.success || delegations === undefined) {
+    if (origin !== undefined) corsHeaders(reply, options.origin)
+    reply.status(ERROR_STATUS.delegation_not_found).send({
+      code: 'delegation_not_found',
+      message: 'No delegation matches the id you named.',
+    })
+    return undefined
+  }
+
+  const required = Array.isArray(capability) ? capability : [capability]
+  let authorized: Extract<DelegatedAuthorization, { outcome: 'authorized' }> | undefined
+  for (const needed of required) {
+    const decided = await delegations.authorize({
+      operatorAgentId: viaAgentId,
+      delegationId: parsedDelegation.data,
+      capability: needed,
+    })
+    if (decided.outcome !== 'authorized') {
+      if (origin !== undefined) corsHeaders(reply, options.origin)
+      const refusal = workplaceDelegationRefusal(decided.outcome, needed)
+      reply.status(ERROR_STATUS[refusal.code]).send(refusal)
+      return undefined
+    }
+    authorized = decided
+  }
+  if (authorized === undefined) {
+    if (origin !== undefined) corsHeaders(reply, options.origin)
+    reply.status(ERROR_STATUS.delegation_missing_capability).send({
+      code: 'delegation_missing_capability',
+      message: 'That act names no delegated capability.',
+    })
+    return undefined
+  }
+
+  return {
+    human: outcome.human,
+    citizenId: authorized.subjectAgentId,
+    origin,
+    attribution: {
+      actorKind: 'human-linked',
+      actorId: viaAgentId,
+      actorHumanId: outcome.human.id,
+      subjectAgentId: authorized.subjectAgentId,
+      delegationId: authorized.delegationId,
+    },
+  }
 }
+
+const workplaceDelegationRefusal = (
+  outcome: Exclude<DelegatedAuthorization['outcome'], 'authorized'>,
+  capability: AgentOperatorCapability,
+): ApiError => ({
+  code: DELEGATION_REFUSAL_CODES[outcome],
+  message:
+    outcome === 'missing-capability'
+      ? `This delegation does not carry ${capability}.`
+      : outcome === 'pending'
+        ? 'The subject has not accepted this delegation yet.'
+        : outcome === 'revoked'
+          ? 'This delegation was revoked, so no new delegated write is authorized.'
+          : outcome === 'wrong-actor'
+            ? 'Only its operator can use this delegation. For your own Workplace, retry without a delegation header.'
+            : 'No delegation matches the id you named.',
+})

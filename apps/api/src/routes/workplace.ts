@@ -28,6 +28,8 @@ import {
   WorkplaceUpdateChecklistItemRequestSchema,
   WorkplaceUpdateChecklistRequestSchema,
   type AgentId,
+  type AgentOperatorCapability,
+  type WorkplaceDelegatedCitizen,
   type WorkplaceMember,
   type WorkplaceMembership,
 } from '@kolonie-ai/core'
@@ -62,7 +64,7 @@ import type { WorkplaceCards, WorkplaceWriteAttribution } from '../workplace-car
  * lets the same paths serve both doors.
  */
 export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependencies): void {
-  const { humans, workplace, store, boards, cards } = deps
+  const { humans, workplace, store, boards, cards, agentOperatorDelegations } = deps
 
   const preflight = async (request: FastifyRequest, reply: FastifyReply) => {
     if (workplace === undefined) {
@@ -112,6 +114,32 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
        * require the citizen header.
        */
       const linked = await humans.store.operated(outcome.human.id)
+      const delegations: WorkplaceDelegatedCitizen[] = []
+      if (agentOperatorDelegations !== undefined) {
+        for (const viaAgent of linked) {
+          const active = await agentOperatorDelegations.list(viaAgent.id, ['active'])
+          for (const delegation of active) {
+            if (
+              delegation.operatorAgentId !== viaAgent.id ||
+              delegation.status !== 'active' ||
+              !delegation.capabilities.includes('workplace-read')
+            ) {
+              continue
+            }
+            const subject = await store.profileOf(delegation.subjectAgentId)
+            if (subject === null) continue
+            delegations.push({
+              delegationId: delegation.id,
+              viaAgentId: viaAgent.id,
+              viaHandle: viaAgent.name,
+              subjectId: delegation.subjectAgentId,
+              subjectHandle: subject.profile.name,
+              status: subject.status,
+              capabilities: delegation.capabilities,
+            })
+          }
+        }
+      }
       if (origin !== undefined) corsHeaders(reply, workplace.origin)
       return reply.status(200).send({
         human: {
@@ -126,6 +154,7 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
           handle: agent.name,
           status: agent.citizenship,
         })),
+        delegations,
       })
     })
 
@@ -134,7 +163,14 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
      * — no boards, no cards. Board routes below reuse the same helper.
      */
     v1.get('/workplace/actor', async (request, reply) => {
-      const actor = await workplaceActorFor(request, reply, humans.store, workplace)
+      const actor = await workplaceActorFor(
+        request,
+        reply,
+        humans.store,
+        workplace,
+        agentOperatorDelegations,
+        'workplace-read',
+      )
       if (actor === undefined) return
 
       if (actor.origin !== undefined) corsHeaders(reply, workplace.origin)
@@ -213,6 +249,10 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
   const citizenFor = async (
     request: FastifyRequest,
     reply: FastifyReply,
+    capability: AgentOperatorCapability | readonly AgentOperatorCapability[] = request.method ===
+    'GET'
+      ? 'workplace-read'
+      : 'workplace-write',
   ): Promise<
     | {
         readonly citizenId: AgentId
@@ -241,16 +281,19 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
       return { citizenId: caller.id, origin }
     }
 
-    const actor = await workplaceActorFor(request, reply, humans.store, workplace)
+    const actor = await workplaceActorFor(
+      request,
+      reply,
+      humans.store,
+      workplace,
+      agentOperatorDelegations,
+      capability,
+    )
     if (actor === undefined) return undefined
     return {
       citizenId: actor.citizenId,
       origin: actor.origin,
-      attribution: {
-        actorKind: 'human-linked',
-        actorId: actor.citizenId,
-        actorHumanId: actor.human.id,
-      },
+      attribution: actor.attribution,
     }
   }
 
@@ -1188,7 +1231,7 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
   })
 
   v1.post('/workplace/cards/:cardId/handover', async (request, reply) => {
-    const actor = await citizenFor(request, reply)
+    const actor = await citizenFor(request, reply, ['workplace-write', 'handover'])
     if (actor === undefined) return
     const expectedVersion = needVersion(request, reply, actor.origin)
     if (expectedVersion === undefined) return

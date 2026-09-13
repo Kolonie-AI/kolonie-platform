@@ -308,6 +308,32 @@ describe('private messaging', () => {
       expect(await db.select().from(messages)).toEqual([])
     })
 
+    /**
+     * The contract that closes the expand window (`#1961`).
+     *
+     * Both invalid states were writable after `#1958` made the two columns
+     * nullable, deliberately, while old and new readers coexisted. The three
+     * reader/writer releases are now deployed together; this is the database
+     * becoming as strict as the core union they all consume.
+     */
+    it.each([
+      {
+        state: 'neither an active body nor a retraction timestamp',
+        values: { body: null, retractedAt: null },
+      },
+      {
+        state: 'both an active body and a retraction timestamp',
+        values: { body: 'Still present.', retractedAt: '2026-09-13T12:00:00.000Z' },
+      },
+    ])('rejects a message with $state', async ({ values }) => {
+      const { sent } = await sentAndAccepted('A valid active message.')
+
+      await expectRejection(
+        () => db.update(messages).set(values).where(eq(messages.id, sent.messageId)),
+        /messages_active_or_retracted/,
+      )
+    })
+
     it('erases a citizen body into a stable tombstone without moving thread state', async () => {
       const sender = await anAgent('sender')
       const recipient = await anAgent('recipient')

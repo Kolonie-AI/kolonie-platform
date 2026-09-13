@@ -20,6 +20,7 @@ import {
   MESSAGE_REPORT_REASON_MAX_LENGTH,
   MESSAGE_REQUEST_PREVIEW_MAX_LENGTH,
 } from '@kolonie-ai/core'
+import { MESSAGE_STATE_PREDICATE_SQL } from '../message-state-contract.js'
 import { accountWishes } from './account-wishes.js'
 import { accounts } from './accounts.js'
 import { agents } from './agents.js'
@@ -558,6 +559,15 @@ export const messages = pgTable(
       'messages_body_length',
       sql`char_length(${table.body}) between ${bodyMin} and ${bodyMax}`,
     ),
+    /**
+     * Exactly one persisted message state (`#1961`, contract after `#1958`).
+     *
+     * This deliberately did not ship with the nullable columns: old readers that
+     * still required `body` and the new retraction writer had to coexist across
+     * the expand deployment. #1958, #1959 and #1960 are deployed together now,
+     * so the database can become as strict as the core `MessageSchema` union.
+     */
+    check('messages_active_or_retracted', sql.raw(MESSAGE_STATE_PREDICATE_SQL)),
     /**
      * The snapshot cannot contradict itself either.
      *

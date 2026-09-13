@@ -31,6 +31,7 @@ import {
   type WorkplaceResolvedLink,
 } from '@kolonie-ai/core'
 import type { WorkplaceCards } from '../workplace-cards.js'
+import type { WorkplaceBoards } from '../workplace-boards.js'
 import type {
   AddLinkResult,
   ArchiveCardResult,
@@ -111,7 +112,7 @@ const toSummary = (
   linkCounts: extra.links,
 })
 
-export function fakeWorkplaceCards(): FakeWorkplaceCards {
+export function fakeWorkplaceCards(boards?: WorkplaceBoards): FakeWorkplaceCards {
   const seats = new Map<string, WorkplaceMembership[]>()
   const cards = new Map<string, WorkplaceCard>()
   const events = new Map<string, WorkplaceCardEvent[]>()
@@ -128,6 +129,20 @@ export function fakeWorkplaceCards(): FakeWorkplaceCards {
 
   const membershipOf = (callerId: AgentId, boardId: string) =>
     (seats.get(boardId) ?? []).find((one) => one.citizenId === callerId)
+
+  const focusFor = async (
+    callerId: AgentId,
+    focusCardId: string,
+  ): Promise<WorkplaceCard | null> => {
+    const card = cards.get(focusCardId)
+    if (card === undefined || card.archivedAt !== null) return null
+    if (boards !== undefined) {
+      const board = await boards.get(callerId, card.boardId)
+      return board !== null && board.kind === 'default' && board.ownerId === callerId ? card : null
+    }
+    const owners = seats.get(card.boardId) ?? []
+    return owners.some((one) => one.citizenId === callerId && one.role === 'owner') ? card : null
+  }
 
   const visible = (callerId: AgentId, cardId: string): WorkplaceCard | null => {
     const card = cards.get(cardId)
@@ -237,6 +252,13 @@ export function fakeWorkplaceCards(): FakeWorkplaceCards {
     },
 
     setCommitment: async (input) => {
+      if (
+        input.focusCardId !== undefined &&
+        input.focusCardId !== null &&
+        (await focusFor(input.callerId, input.focusCardId)) === null
+      ) {
+        return { outcome: 'missing' as const }
+      }
       /**
        * The fixture stores rows; the citizen-only rule is production's, and
        * the MCP tool refuses a candidate before this is ever reached.
@@ -251,6 +273,8 @@ export function fakeWorkplaceCards(): FakeWorkplaceCards {
         reviewAt: input.reviewAt,
         state: input.state,
         ...(input.blocker === undefined ? {} : { blocker: input.blocker }),
+        focusCardId:
+          input.focusCardId === undefined ? (existing?.focusCardId ?? null) : input.focusCardId,
         version: (existing?.version ?? 0) + 1,
       }
       commitments.set(input.callerId, commitment)
@@ -258,6 +282,13 @@ export function fakeWorkplaceCards(): FakeWorkplaceCards {
     },
     readCommitment: async (callerId) => commitments.get(callerId) ?? null,
     advanceCommitment: async (input) => {
+      if (
+        input.focusCardId !== undefined &&
+        input.focusCardId !== null &&
+        (await focusFor(input.callerId, input.focusCardId)) === null
+      ) {
+        return { outcome: 'missing' as const }
+      }
       const existing = commitments.get(input.callerId)
       if (existing === undefined) return { outcome: 'missing' as const }
       if (existing.version !== input.expectedVersion) return { outcome: 'stale' as const }
@@ -267,6 +298,7 @@ export function fakeWorkplaceCards(): FakeWorkplaceCards {
         reviewAt: input.reviewAt ?? existing.reviewAt,
         state: input.state,
         ...(input.blocker === undefined ? {} : { blocker: input.blocker }),
+        focusCardId: input.focusCardId === undefined ? existing.focusCardId : input.focusCardId,
         version: existing.version + 1,
       }
       commitments.set(input.callerId, commitment)
@@ -958,6 +990,15 @@ export function fakeWorkplaceCards(): FakeWorkplaceCards {
       }
       const archived = bump(card, { archivedAt: new Date().toISOString() })
       cards.set(card.id, archived)
+      for (const [citizenId, commitment] of commitments) {
+        if (commitment.focusCardId === card.id) {
+          commitments.set(citizenId, {
+            ...commitment,
+            focusCardId: null,
+            version: commitment.version + 1,
+          })
+        }
+      }
       return { outcome: 'archived', card: archived }
     },
 

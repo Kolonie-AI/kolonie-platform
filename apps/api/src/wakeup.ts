@@ -12,6 +12,7 @@ import {
   skillNoteCharacterLength,
   skillNotePreview,
   type AgentId,
+  type WorkplaceCardId,
   type WakeupMessagingDelta,
   type WakeupDelegation,
   type WakeupIdentity,
@@ -135,6 +136,8 @@ function commitmentBlock(
         readonly nextAction: string
         readonly reviewAt: string
         readonly state: 'active' | 'waiting'
+        readonly blocker?: string
+        readonly focusCardId: WorkplaceCardId | null
         readonly version: number
       }
     | null
@@ -157,10 +160,11 @@ function commitmentBlock(
     nextAction: commitment.nextAction,
     reviewAt: commitment.reviewAt,
     state: commitment.state,
+    focusCardId: commitment.focusCardId,
     overdue: commitment.reviewAt < now,
     next: {
       tool: 'kolonie.workplace',
-      arguments: { act: 'advance', subject: 'commitment' },
+      arguments: { act: 'get', subject: 'commitment' },
     },
   }
 }
@@ -326,6 +330,7 @@ export interface WakeupSource {
         readonly reviewAt: string
         readonly state: 'active' | 'waiting'
         readonly blocker?: string
+        readonly focusCardId: WorkplaceCardId | null
         readonly version: number
       }
     | null

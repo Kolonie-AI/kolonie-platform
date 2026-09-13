@@ -872,7 +872,7 @@ function commitmentBlock(digest: WakeupResponse): readonly Block[] {
           `next action: ${commitment.nextAction}\n    ` +
           `review at: ${commitment.reviewAt}${commitment.overdue ? ' (in the past)' : ''}\n    ` +
           `state: ${commitment.state}\n    ` +
-          `advance or end it: ${call(commitment)}`,
+          `read, advance or end it: ${call(commitment)}`,
       ],
     },
   ]
@@ -916,6 +916,30 @@ function workplaceBlock(digest: WakeupResponse): readonly Block[] {
           (cardId) =>
             `${cardId} requires a follow-up read\n    ` +
             `kolonie.workplace with act: get, subject: card, id: ${cardId}`,
+        ),
+      },
+    ]
+  }
+  if (workplace.focusLost) {
+    return [
+      {
+        section: 'forward',
+        heading: 'Your commitment focus changed',
+        lead: 'The commitment focus is no longer available. Your commitment itself is unchanged.',
+        counted: 'lost commitment focuses',
+        entries: ['choose another focus, clear it, or end the commitment'],
+      },
+    ]
+  }
+  if (workplace.commitmentDecision !== undefined) {
+    return [
+      {
+        section: 'forward',
+        heading: 'Your commitment focus needs a decision',
+        lead: 'No executable Action is available inside the focus. Nothing else was substituted.',
+        counted: 'commitment focus decisions',
+        entries: workplace.commitmentDecision.choices.map(
+          (choice) => `${choice.tool} ${JSON.stringify(choice.arguments)}`,
         ),
       },
     ]

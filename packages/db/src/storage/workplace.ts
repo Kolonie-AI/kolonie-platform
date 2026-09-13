@@ -70,6 +70,7 @@ import {
   type WorkplaceLinkTarget,
   type WorkplaceMembership,
   type WorkplaceResolvedLink,
+  type WorkplaceWakeupNext,
   type WakeupWorkplace,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
@@ -811,6 +812,47 @@ export async function workplaceWakeup(
     .limit(1)
   if (board === undefined) return undefined
 
+  const [commitment] = await db
+    .select()
+    .from(workplaceCommitments)
+    .where(eq(workplaceCommitments.agentId, callerId))
+    .limit(1)
+  const focusedCard =
+    commitment?.focusCardId === null || commitment?.focusCardId === undefined
+      ? undefined
+      : await db
+          .select()
+          .from(workplaceCards)
+          .where(
+            and(
+              eq(workplaceCards.id, commitment.focusCardId),
+              eq(workplaceCards.boardId, board.id),
+              isNull(workplaceCards.archivedAt),
+            ),
+          )
+          .limit(1)
+          .then((rows) => rows[0])
+  const focusWasInvalid =
+    commitment?.focusCardId !== null &&
+    commitment?.focusCardId !== undefined &&
+    focusedCard === undefined
+  if (focusWasInvalid) {
+    await db
+      .update(workplaceCommitments)
+      .set({
+        focusCardId: null,
+        focusLost: false,
+        version: sql`${workplaceCommitments.version} + 1`,
+        updatedAt: sql`now()`,
+      })
+      .where(
+        and(
+          eq(workplaceCommitments.agentId, callerId),
+          eq(workplaceCommitments.focusCardId, commitment.focusCardId!),
+        ),
+      )
+  }
+
   const [activePracticum] = await db
     .select({ id: workplaceCards.id })
     .from(workplaceCards)
@@ -883,6 +925,10 @@ export async function workplaceWakeup(
       and(
         eq(workplaceCards.boardId, board.id),
         eq(workplaceCards.kind, 'action'),
+        ...(focusedCard?.kind === 'initiative'
+          ? [eq(workplaceCards.parentInitiativeId, focusedCard.id)]
+          : []),
+        ...(focusedCard?.kind === 'action' ? [eq(workplaceCards.id, focusedCard.id)] : []),
         isNull(workplaceCards.archivedAt),
         or(
           and(eq(workplaceCards.status, 'in_progress'), eq(workplaceCards.ownerId, callerId)),
@@ -896,6 +942,37 @@ export async function workplaceWakeup(
     .limit(5)
 
   const first = cards[0]
+  const focusKind =
+    focusedCard === undefined ? undefined : WorkplaceCardKindSchema.parse(focusedCard.kind)
+  const [lostFocus] = focusWasInvalid
+    ? [{ agentId: callerId }]
+    : focusedCard === undefined
+      ? await db.transaction(async (tx) => {
+          const [pending] = await tx
+            .select({ agentId: workplaceCommitments.agentId })
+            .from(workplaceCommitments)
+            .where(
+              and(
+                eq(workplaceCommitments.agentId, callerId),
+                eq(workplaceCommitments.focusLost, true),
+              ),
+            )
+            .limit(1)
+            .for('update', { skipLocked: true })
+          if (pending === undefined) return []
+          return tx
+            .update(workplaceCommitments)
+            .set({ focusLost: false, updatedAt: sql`now()` })
+            .where(
+              and(
+                eq(workplaceCommitments.agentId, callerId),
+                eq(workplaceCommitments.focusLost, true),
+              ),
+            )
+            .returning({ agentId: workplaceCommitments.agentId })
+        })
+      : []
+  const focusLost = lostFocus !== undefined
   const listed = cards
     .slice(1, 5)
     .filter(
@@ -916,6 +993,21 @@ export async function workplaceWakeup(
   return {
     boardId: WorkplaceBoardIdSchema.parse(board.id),
     practicumActive: activePracticum !== undefined,
+    ...(focusedCard === undefined
+      ? focusLost
+        ? { focusCardId: null, focusLost: true as const }
+        : {}
+      : { focusCardId: WorkplaceCardIdSchema.parse(focusedCard.id), focusKind }),
+    ...(focusedCard !== undefined && first === undefined
+      ? {
+          commitmentDecision: {
+            choices: commitmentDecisionChoices(
+              toCard(focusedCard),
+              commitment === undefined ? undefined : toCommitment(commitment),
+            ),
+          },
+        }
+      : {}),
     ...(practicumRetrospective === undefined || activePracticum !== undefined
       ? {}
       : { practicumRetrospective }),
@@ -935,10 +1027,23 @@ export async function workplaceWakeup(
                   },
                 }),
             revision: first.version,
-            next: {
-              tool: 'kolonie.workplace',
-              arguments: { act: 'get', subject: 'card', id: first.id },
-            },
+            next:
+              focusedCard !== undefined && first.status === 'blocked'
+                ? {
+                    tool: 'kolonie.workplace',
+                    arguments: {
+                      act: 'update',
+                      subject: 'card',
+                      id: first.id,
+                      boardId: WorkplaceBoardIdSchema.parse(board.id),
+                      expectedVersion: first.version,
+                      fields: { status: 'in_progress' as const },
+                    },
+                  }
+                : {
+                    tool: 'kolonie.workplace',
+                    arguments: { act: 'get', subject: 'card', id: first.id },
+                  },
           },
     more: listed.map((card) => ({
       cardId: WorkplaceCardIdSchema.parse(card.id),
@@ -958,6 +1063,59 @@ export async function workplaceWakeup(
       readsAdvised: changedCardIds.length > 0,
     },
   }
+}
+
+const workplaceCall = (arguments_: WorkplaceWakeupNext['arguments']): WorkplaceWakeupNext => ({
+  tool: 'kolonie.workplace',
+  arguments: arguments_,
+})
+
+const commitmentDecisionChoices = (
+  focus: WorkplaceCard,
+  commitment: WorkplaceCommitment | undefined,
+): NonNullable<WakeupWorkplace['commitmentDecision']>['choices'] => {
+  const write = {
+    id: focus.id,
+    boardId: focus.boardId,
+    expectedVersion: focus.version,
+  }
+  const choices: NonNullable<WakeupWorkplace['commitmentDecision']>['choices'] = [
+    workplaceCall({ act: 'get', subject: 'card', id: focus.id, boardId: focus.boardId }),
+  ]
+  if (focus.kind === 'initiative' && focus.status !== 'done') {
+    choices.push(
+      workplaceCall({
+        act: 'create',
+        subject: 'card',
+        boardId: focus.boardId,
+        fields: { kind: 'action', parentInitiativeId: focus.id },
+      }),
+    )
+  }
+  choices.push(workplaceCall({ act: 'update', subject: 'card', ...write }))
+  if (commitment !== undefined) {
+    const step = {
+      nextAction: commitment.nextAction,
+      state: commitment.state,
+      ...(commitment.blocker === undefined ? {} : { blocker: commitment.blocker }),
+    }
+    choices.push(
+      workplaceCall({
+        act: 'advance',
+        subject: 'commitment',
+        expectedVersion: commitment.version,
+        fields: step,
+      }),
+      workplaceCall({
+        act: 'advance',
+        subject: 'commitment',
+        expectedVersion: commitment.version,
+        fields: { ...step, focusCardId: null },
+      }),
+    )
+  }
+  choices.push(workplaceCall({ act: 'end', subject: 'commitment' }))
+  return choices
 }
 
 export async function createBoard(
@@ -3039,6 +3197,15 @@ export async function archiveCard(
       )
       .returning()
     if (row === undefined) return { outcome: 'stale' }
+    await tx
+      .update(workplaceCommitments)
+      .set({
+        focusCardId: null,
+        focusLost: true,
+        version: sql`${workplaceCommitments.version} + 1`,
+        updatedAt: sql`now()`,
+      })
+      .where(eq(workplaceCommitments.focusCardId, row.id))
     await appendCardEvent(tx, {
       boardId: row.boardId,
       cardId: row.id,
@@ -3921,11 +4088,13 @@ const toCommitment = (row: typeof workplaceCommitments.$inferSelect): WorkplaceC
     reviewAt: toTimestamp(row.reviewAt),
     state: row.state as WorkplaceCommitmentState,
     ...(row.blocker === null ? {} : { blocker: row.blocker }),
+    focusCardId: WorkplaceCardIdSchema.nullable().parse(row.focusCardId),
     version: row.version,
   })
 
 export type SetCommitmentResult =
   | { readonly outcome: 'set'; readonly commitment: WorkplaceCommitment }
+  | WorkplaceMissing
   | WorkplaceStale
   | { readonly outcome: 'citizen-required' }
 
@@ -3947,6 +4116,7 @@ export async function setCommitment(
     readonly reviewAt: string
     readonly state: WorkplaceCommitmentState
     readonly blocker?: string
+    readonly focusCardId?: string | null
     readonly expectedVersion?: number
   },
 ): Promise<SetCommitmentResult> {
@@ -3957,6 +4127,37 @@ export async function setCommitment(
       .where(eq(agents.id, input.callerId))
       .limit(1)
     if (citizen?.status !== 'citizen') return { outcome: 'citizen-required' }
+
+    let focusCardId: string | null | undefined
+    if (input.focusCardId !== undefined) {
+      focusCardId = input.focusCardId
+      if (focusCardId !== null) {
+        const boardId = await cardBoardId(tx, focusCardId)
+        if (boardId === null) return { outcome: 'missing' }
+        await lockWorkplaceHierarchy(tx, boardId)
+        const [focus] = await tx
+          .select({ id: workplaceCards.id })
+          .from(workplaceCards)
+          .innerJoin(workplaceBoards, eq(workplaceBoards.id, workplaceCards.boardId))
+          .where(
+            and(
+              eq(workplaceCards.id, focusCardId),
+              eq(workplaceBoards.ownerId, input.callerId),
+              eq(workplaceBoards.kind, 'default'),
+              isNull(workplaceBoards.archivedAt),
+              isNull(workplaceCards.archivedAt),
+            ),
+          )
+          .limit(1)
+        if (focus === undefined) return { outcome: 'missing' }
+        await tx
+          .select({ id: workplaceCards.id })
+          .from(workplaceCards)
+          .where(eq(workplaceCards.id, focusCardId))
+          .for('update')
+          .limit(1)
+      }
+    }
 
     const [existing] = await tx
       .select()
@@ -3971,6 +4172,7 @@ export async function setCommitment(
       reviewAt: input.reviewAt,
       state: input.state,
       blocker: input.blocker ?? null,
+      ...(focusCardId === undefined ? {} : { focusCardId, focusLost: false }),
     }
 
     if (existing === undefined) {
@@ -4032,6 +4234,7 @@ export async function advanceCommitment(
     readonly reviewAt?: string
     readonly state: WorkplaceCommitmentState
     readonly blocker?: string
+    readonly focusCardId?: string | null
   },
 ): Promise<AdvanceCommitmentResult> {
   return db.transaction(async (tx) => {
@@ -4044,6 +4247,31 @@ export async function advanceCommitment(
     if (existing === undefined) return { outcome: 'missing' }
     if (existing.version !== input.expectedVersion) return { outcome: 'stale' }
 
+    let focusCardId: string | null | undefined
+    if (input.focusCardId !== undefined) {
+      focusCardId = input.focusCardId
+      if (focusCardId !== null) {
+        const boardId = await cardBoardId(tx, focusCardId)
+        if (boardId === null) return { outcome: 'missing' }
+        await lockWorkplaceHierarchy(tx, boardId)
+        const [focus] = await tx
+          .select({ id: workplaceCards.id })
+          .from(workplaceCards)
+          .innerJoin(workplaceBoards, eq(workplaceBoards.id, workplaceCards.boardId))
+          .where(
+            and(
+              eq(workplaceCards.id, focusCardId),
+              eq(workplaceBoards.ownerId, input.callerId),
+              eq(workplaceBoards.kind, 'default'),
+              isNull(workplaceBoards.archivedAt),
+              isNull(workplaceCards.archivedAt),
+            ),
+          )
+          .limit(1)
+        if (focus === undefined) return { outcome: 'missing' }
+      }
+    }
+
     const [row] = await tx
       .update(workplaceCommitments)
       .set({
@@ -4051,6 +4279,7 @@ export async function advanceCommitment(
         ...(input.reviewAt === undefined ? {} : { reviewAt: input.reviewAt }),
         state: input.state,
         blocker: input.blocker ?? null,
+        ...(focusCardId === undefined ? {} : { focusCardId, focusLost: false }),
         version: existing.version + 1,
         updatedAt: sql`now()`,
       })

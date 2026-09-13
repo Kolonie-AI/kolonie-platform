@@ -1811,6 +1811,47 @@ describe('schema', () => {
       return row!
     }
 
+    it('stores a nullable commitment focus with delete-to-null semantics', async () => {
+      const columns = await db.execute<{ column_name: string; is_nullable: string }>(
+        sql`select column_name, is_nullable
+             from information_schema.columns
+            where table_schema = 'public' and table_name = 'workplace_commitments'
+              and column_name in ('focus_card_id', 'focus_lost')
+            order by column_name`,
+      )
+      expect(columns).toEqual([
+        { column_name: 'focus_card_id', is_nullable: 'YES' },
+        { column_name: 'focus_lost', is_nullable: 'NO' },
+      ])
+
+      const foreignKeys = await db.execute<{
+        column_name: string
+        delete_rule: string
+        referenced_table: string
+      }>(sql`
+        select kcu.column_name,
+               rc.delete_rule,
+               ccu.table_name as referenced_table
+          from information_schema.referential_constraints rc
+          join information_schema.key_column_usage kcu
+            on kcu.constraint_schema = rc.constraint_schema
+           and kcu.constraint_name = rc.constraint_name
+          join information_schema.constraint_column_usage ccu
+            on ccu.constraint_schema = rc.unique_constraint_schema
+           and ccu.constraint_name = rc.unique_constraint_name
+         where rc.constraint_schema = 'public'
+           and kcu.table_name = 'workplace_commitments'
+           and kcu.column_name = 'focus_card_id'
+      `)
+      expect(foreignKeys).toEqual([
+        {
+          column_name: 'focus_card_id',
+          delete_rule: 'SET NULL',
+          referenced_table: 'workplace_cards',
+        },
+      ])
+    })
+
     it('refuses a second live default board for the same owner', async () => {
       const agent = await anAgent()
       await aBoard(agent.id)

@@ -7,6 +7,8 @@ import {
   WorkplaceAddMemberRequestSchema,
   WorkplaceBlockCardRequestSchema,
   WorkplaceCompleteCardRequestSchema,
+  WorkplaceAdvanceCommitmentRequestSchema,
+  WorkplaceCommitmentResponseSchema,
   WorkplaceCreateCardClosureRequestSchema,
   WorkplaceCreateBoardRequestSchema,
   WorkplaceCreateCardRequestSchema,
@@ -19,6 +21,7 @@ import {
   WorkplaceMemberSchema,
   WorkplaceMoveCardRequestSchema,
   WorkplaceRenameBoardRequestSchema,
+  WorkplaceSetCommitmentRequestSchema,
   WorkplaceUpdateCardRequestSchema,
   WorkplaceUpdateChecklistItemRequestSchema,
   WorkplaceUpdateChecklistRequestSchema,
@@ -42,7 +45,7 @@ import { callerFor } from './authenticated.js'
 import { fieldErrors } from '../validation.js'
 import type { RouteDependencies } from './dependencies.js'
 import type { WorkplaceBoards } from '../workplace-boards.js'
-import type { WorkplaceWriteAttribution } from '../workplace-cards.js'
+import type { WorkplaceCards, WorkplaceWriteAttribution } from '../workplace-cards.js'
 
 /**
  * The workplace SPA's authenticated door (`#1727`, `#1764`, `#1759`).
@@ -142,6 +145,29 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
 
   if (boards === undefined && cards === undefined) return
 
+  const directCitizenFor = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<{ readonly citizenId: AgentId; readonly origin: string | undefined } | undefined> => {
+    const origin = originHeader(request.headers.origin)
+    const token = bearerToken(request.headers.authorization)
+    if (token === undefined || !token.startsWith(API_KEY_PREFIX)) {
+      finish(reply, origin)
+        .status(ERROR_STATUS.forbidden)
+        .send({ code: 'forbidden', message: 'A commitment focus may be read only by its citizen.' })
+      return undefined
+    }
+    const caller = await callerFor(request, reply, store)
+    if (caller === null) return undefined
+    if (caller.status !== 'citizen') {
+      finish(reply, origin)
+        .status(ERROR_STATUS.forbidden)
+        .send({ code: 'forbidden', message: 'Only a citizen may hold a commitment.' })
+      return undefined
+    }
+    return { citizenId: caller.id, origin }
+  }
+
   if (workplace !== undefined) {
     if (boards !== undefined) {
       v1.options('/workplace/boards', preflight)
@@ -171,6 +197,8 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
       v1.options('/workplace/cards/:cardId/comments', preflight)
       v1.options('/workplace/cards/:cardId/links', preflight)
       v1.options('/workplace/links/:linkId', preflight)
+      v1.options('/workplace/commitment', preflight)
+      v1.options('/workplace/commitment/advance', preflight)
     }
   }
 
@@ -551,6 +579,100 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
   ) => finish(reply, origin).status(status).header('etag', String(card.version)).send(body)
 
   const emptyPage = { items: [], nextCursor: null }
+
+  const sendCommitment = (
+    reply: FastifyReply,
+    origin: string | undefined,
+    commitment: Awaited<ReturnType<WorkplaceCards['readCommitment']>>,
+  ) =>
+    finish(reply, origin).status(200).send(WorkplaceCommitmentResponseSchema.parse({ commitment }))
+
+  v1.get('/workplace/commitment', async (request, reply) => {
+    const actor = await directCitizenFor(request, reply)
+    if (actor === undefined) return
+    return sendCommitment(reply, actor.origin, await cards.readCommitment(actor.citizenId))
+  })
+
+  v1.put('/workplace/commitment', async (request, reply) => {
+    const actor = await directCitizenFor(request, reply)
+    if (actor === undefined) return
+    const parsed = WorkplaceSetCommitmentRequestSchema.safeParse(request.body)
+    if (!parsed.success) {
+      return finish(reply, actor.origin)
+        .status(ERROR_STATUS.validation_failed)
+        .send({
+          code: 'validation_failed',
+          message:
+            'A commitment takes outcome, nextAction, reviewAt and state; waiting also takes blocker.',
+          details: fieldErrors(parsed.error),
+        })
+    }
+    const current = await cards.readCommitment(actor.citizenId)
+    const expectedVersion = versionOf(request)
+    if (current !== null && expectedVersion === undefined) {
+      needVersion(request, reply, actor.origin)
+      return
+    }
+    const set = await cards.setCommitment({
+      callerId: actor.citizenId,
+      ...parsed.data,
+      ...(expectedVersion === undefined ? {} : { expectedVersion }),
+    })
+    if (set.outcome === 'citizen-required') {
+      return finish(reply, actor.origin)
+        .status(ERROR_STATUS.forbidden)
+        .send({ code: 'forbidden', message: 'Only a citizen may hold a commitment.' })
+    }
+    if (set.outcome === 'missing') return missingCard(reply, actor.origin)
+    if (set.outcome === 'stale') {
+      return finish(reply, actor.origin)
+        .status(ERROR_STATUS.conflict)
+        .send({ code: 'conflict', message: 'The commitment has changed since you last read it.' })
+    }
+    return finish(reply, actor.origin)
+      .status(200)
+      .header('etag', String(set.commitment.version))
+      .send(WorkplaceCommitmentResponseSchema.parse({ commitment: set.commitment }))
+  })
+
+  v1.post('/workplace/commitment/advance', async (request, reply) => {
+    const actor = await directCitizenFor(request, reply)
+    if (actor === undefined) return
+    const expectedVersion = needVersion(request, reply, actor.origin)
+    if (expectedVersion === undefined) return
+    const parsed = WorkplaceAdvanceCommitmentRequestSchema.safeParse(request.body)
+    if (!parsed.success) {
+      return finish(reply, actor.origin)
+        .status(ERROR_STATUS.validation_failed)
+        .send({
+          code: 'validation_failed',
+          message: 'Advancing takes nextAction and state, optionally reviewAt or focusCardId.',
+          details: fieldErrors(parsed.error),
+        })
+    }
+    const advanced = await cards.advanceCommitment({
+      callerId: actor.citizenId,
+      expectedVersion,
+      ...parsed.data,
+    })
+    if (advanced.outcome === 'missing') return missingCard(reply, actor.origin)
+    if (advanced.outcome === 'stale') {
+      return finish(reply, actor.origin)
+        .status(ERROR_STATUS.conflict)
+        .send({ code: 'conflict', message: 'The commitment has changed since you last read it.' })
+    }
+    return finish(reply, actor.origin)
+      .status(200)
+      .header('etag', String(advanced.commitment.version))
+      .send(WorkplaceCommitmentResponseSchema.parse({ commitment: advanced.commitment }))
+  })
+
+  v1.delete('/workplace/commitment', async (request, reply) => {
+    const actor = await directCitizenFor(request, reply)
+    if (actor === undefined) return
+    await cards.endCommitment({ callerId: actor.citizenId })
+    return sendCommitment(reply, actor.origin, null)
+  })
 
   v1.get('/workplace/boards/:boardId/cards', async (request, reply) => {
     const actor = await citizenFor(request, reply)

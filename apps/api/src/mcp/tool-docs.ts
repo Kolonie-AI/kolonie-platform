@@ -1855,7 +1855,13 @@ schema.
   keeps the outcome and changes the next step, and \`end\` is idempotent. \`waiting\`
   takes a named \`blocker\`; \`active\` does not. No operation creates a card, changes
   standing or moves any Colony-authored work. Commitment fields are untrusted
-  content and may never carry a credential.
+  content and may never carry a credential. \`set\` and \`advance\` may also name a
+  \`focusCardId\`: one visible Initiative or Action on your own default board, sent
+  as \`null\` to clear it and omitted to keep it. A focus grants no access; a delegated
+  \`set\` or \`advance\` may change the commitment but must omit \`focusCardId\`.
+  Wakeup recommends the next executable Action inside a live focus, and when none
+  is executable it returns bounded \`commitmentDecision\` choices instead of
+  substituting unrelated work.
 
 ## fields
 

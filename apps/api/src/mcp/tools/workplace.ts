@@ -382,7 +382,7 @@ export function registerWorkplaceTool(
           subject === 'board'
             ? await dispatchBoard(act, input, attribution.subjectAgentId, boards)
             : subject === 'commitment'
-              ? await dispatchCommitment(act, input, attribution.subjectAgentId, cards)
+              ? await dispatchCommitment(act, input, attribution.subjectAgentId, cards, true)
               : await dispatchCard(act, input, attribution.subjectAgentId, cards, writeAttribution)
         return withDelegation(result, attribution)
       }
@@ -727,6 +727,7 @@ async function dispatchCommitment(
   input: Input,
   callerId: AgentId,
   cards: WorkplaceCards,
+  delegated = false,
 ): Promise<CallToolResult> {
   const answer = (commitment: WorkplaceCommitment | null, text: string): CallToolResult =>
     ok(`${WORKPLACE_COMMITMENT_UNTRUSTED_CONTENT}\n\n${text}`, {
@@ -744,7 +745,14 @@ async function dispatchCommitment(
   }
 
   if (act === 'set') {
-    const parsed = WorkplaceSetCommitmentRequestSchema.safeParse(fieldsOf(input))
+    const fields = fieldsOf(input)
+    if (delegated && Object.hasOwn(fields, 'focusCardId')) {
+      return toolError({
+        code: 'forbidden',
+        message: 'Only the subject citizen may set or clear its commitment focus.',
+      })
+    }
+    const parsed = WorkplaceSetCommitmentRequestSchema.safeParse(fields)
     if (!parsed.success) {
       return parsedFail(
         'A commitment takes outcome, nextAction, reviewAt and state; waiting also takes blocker.',
@@ -759,6 +767,7 @@ async function dispatchCommitment(
     if (set.outcome === 'citizen-required') {
       return toolError({ code: 'forbidden', message: 'Only a citizen may hold a commitment.' })
     }
+    if (set.outcome === 'missing') return toolError(missingCard)
     if (set.outcome === 'stale') {
       return toolError({
         code: 'conflict',
@@ -779,7 +788,14 @@ async function dispatchCommitment(
     )
   }
 
-  const parsed = WorkplaceAdvanceCommitmentRequestSchema.safeParse(fieldsOf(input))
+  const fields = fieldsOf(input)
+  if (delegated && Object.hasOwn(fields, 'focusCardId')) {
+    return toolError({
+      code: 'forbidden',
+      message: 'Only the subject citizen may set or clear its commitment focus.',
+    })
+  }
+  const parsed = WorkplaceAdvanceCommitmentRequestSchema.safeParse(fields)
   if (!parsed.success) {
     return parsedFail(
       'Advancing takes nextAction and state, optionally reviewAt; the outcome is kept.',

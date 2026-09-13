@@ -21,6 +21,8 @@ import {
   WorkplaceMemberSchema,
   WorkplaceMoveCardRequestSchema,
   WorkplaceRenameBoardRequestSchema,
+  WorkplaceRetireStarterRequestSchema,
+  WorkplaceRetireStarterResponseSchema,
   WorkplaceSetCommitmentRequestSchema,
   WorkplaceUpdateCardRequestSchema,
   WorkplaceUpdateChecklistItemRequestSchema,
@@ -173,6 +175,7 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
       v1.options('/workplace/boards', preflight)
       v1.options('/workplace/boards/:boardId', preflight)
       v1.options('/workplace/boards/:boardId/archive', preflight)
+      v1.options('/workplace/boards/:boardId/retire-starter', preflight)
       v1.options('/workplace/boards/:boardId/members', preflight)
       v1.options('/workplace/boards/:boardId/members/:citizenId', preflight)
     }
@@ -451,6 +454,58 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
         .status(200)
         .header('etag', String(archived.board.version))
         .send(archived.board)
+    })
+
+    v1.post('/workplace/boards/:boardId/retire-starter', async (request, reply) => {
+      const actor = await citizenFor(request, reply)
+      if (actor === undefined) return
+      const token = bearerToken(request.headers.authorization)
+      if (token === undefined || !token.startsWith(API_KEY_PREFIX)) {
+        return finish(reply, actor.origin).status(ERROR_STATUS.forbidden).send({
+          code: 'forbidden',
+          message: 'Only the subject citizen may retire its starter pack.',
+        })
+      }
+      const parsed = WorkplaceRetireStarterRequestSchema.safeParse(request.body ?? {})
+      if (!parsed.success) {
+        return finish(reply, actor.origin)
+          .status(ERROR_STATUS.validation_failed)
+          .send({
+            code: 'validation_failed',
+            message: 'Retiring the starter pack takes no body.',
+            details: fieldErrors(parsed.error),
+          })
+      }
+      const { boardId } = request.params as { boardId: string }
+      if ((await boards.get(actor.citizenId, boardId)) === null) {
+        return missingBoard(reply, actor.origin)
+      }
+      const idempotencyKey =
+        typeof request.headers['idempotency-key'] === 'string'
+          ? request.headers['idempotency-key']
+          : undefined
+      const retired = await boards.retireStarter({
+        callerId: actor.citizenId,
+        boardId,
+        ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
+      })
+      if (retired.outcome === 'forbidden') {
+        return finish(reply, actor.origin).status(ERROR_STATUS.forbidden).send({
+          code: 'forbidden',
+          message: 'Only the default board owner may retire its starter pack.',
+        })
+      }
+      if (retired.outcome === 'missing') return missingBoard(reply, actor.origin)
+      return finish(reply, actor.origin)
+        .status(200)
+        .header('etag', String(retired.board.version))
+        .send(
+          WorkplaceRetireStarterResponseSchema.parse({
+            board: retired.board,
+            archivedCardIds: retired.archivedCardIds,
+            recurrenceRulesRetired: retired.recurrenceRulesRetired,
+          }),
+        )
     })
 
     v1.get('/workplace/boards/:boardId/members', async (request, reply) => {

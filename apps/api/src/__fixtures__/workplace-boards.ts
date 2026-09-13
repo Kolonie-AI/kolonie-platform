@@ -14,6 +14,7 @@ import type {
   ListMembersResult,
   RemoveMemberResult,
   RenameBoardResult,
+  RetireStarterResult,
 } from '@kolonie-ai/db'
 
 /**
@@ -129,6 +130,37 @@ export function fakeWorkplaceBoards(): FakeWorkplaceBoards {
       }
       boards.set(board.id, archived)
       return { outcome: 'archived', board: archived }
+    },
+
+    retireStarter: async (input) => {
+      const board = boards.get(input.boardId)
+      if (board === undefined) return { outcome: 'missing' } satisfies RetireStarterResult
+      const seat = membershipOf(input.callerId, input.boardId)
+      if (seat === undefined) return { outcome: 'forbidden' }
+      if (board.kind !== 'default') return { outcome: 'forbidden' }
+      if (seat.role !== 'owner') return { outcome: 'forbidden' }
+      if (board.starterRetiredAt !== null && board.starterRetiredAt !== undefined) {
+        return {
+          outcome: 'retired',
+          board,
+          archivedCardIds: [],
+          recurrenceRulesRetired: 0,
+        }
+      }
+      const now = new Date().toISOString()
+      const retired = {
+        ...board,
+        starterRetiredAt: now,
+        version: board.version + 1,
+        updatedAt: now,
+      }
+      boards.set(board.id, retired)
+      return {
+        outcome: 'retired',
+        board: retired,
+        archivedCardIds: [],
+        recurrenceRulesRetired: 1,
+      }
     },
 
     members: async (callerId, boardId) => {

@@ -530,6 +530,141 @@ const theMessageRequestPreviews: DataMigrationCase = {
   },
 }
 
+/**
+ * **`0372`, and the two boards it has to tell apart** (`#1946`).
+ *
+ * The backfill retires the starter pack on a default board that already holds
+ * self-authored work, and leaves a board holding nothing but onboarding copy
+ * exactly as it is. Both boards are seeded here, because a migration that
+ * retired everything would pass a test that only looked at the first one — and
+ * that is the failure mode the structured rule exists to prevent.
+ *
+ * The second board carries a weekly clone: a card with no `seed_key`, pointed at
+ * by an occurrence row. It is what a prefix test alone would read as ordinary
+ * work, so it is the case that decides whether the `where` clause is the rule
+ * the issue agreed or a shorter one that looks like it.
+ */
+const theWorkplaceStarterRetirement: DataMigrationCase = {
+  migration: '0372_dapper_living_mummy',
+  after: '0371_premium_dreaming_celestial',
+  moves: 'the starter pack of default boards that already hold self-authored work',
+
+  async seed(db) {
+    const starterCards = async (boardId: string) => {
+      const [template] = await db.execute<{ id: string }>(
+        sql`insert into workplace_cards (board_id, status, title, position, seed_key)
+            values (${boardId}, 'inbox', 'Review and improve the profession', 1000,
+                    'v1:review-and-improve-the-profession') returning id`,
+      )
+      const [done] = await db.execute<{ id: string }>(
+        sql`insert into workplace_cards (board_id, status, title, position, seed_key, outcome)
+            values (${boardId}, 'done', 'Plan the first workday', 2000,
+                    'v1:plan-the-first-workday', 'Planned it.') returning id`,
+      )
+      const [rule] = await db.execute<{ id: string }>(
+        sql`insert into workplace_recurrence_rules (board_id, card_id, cadence, next_due_at)
+            values (${boardId}, ${template!.id}, 'weekly', '2026-09-14T00:00:00.000Z') returning id`,
+      )
+      // The clone carries no seed key: its provenance is the occurrence row.
+      const [clone] = await db.execute<{ id: string }>(
+        sql`insert into workplace_cards (board_id, status, title, position)
+            values (${boardId}, 'inbox', 'Review and improve the profession', 3000) returning id`,
+      )
+      await db.execute(
+        sql`insert into workplace_recurrence_occurrences (rule_id, period_start, card_id)
+            values (${rule!.id}, '2026-09-07T00:00:00.000Z', ${clone!.id})`,
+      )
+      return { template: template!.id, done: done!.id, clone: clone!.id, rule: rule!.id }
+    }
+
+    const [worked] = await db.execute<{ id: string }>(
+      sql`insert into agents (name, platform) values (${aName('starter-worked')}, 'openclaw') returning id`,
+    )
+    const [workedBoard] = await db.execute<{ id: string }>(
+      sql`insert into workplace_boards (owner_id, title, kind)
+          values (${worked!.id}, 'Default board', 'default') returning id`,
+    )
+    const workedStarters = await starterCards(workedBoard!.id)
+    // The evidence: one ordinary card, created through the public path.
+    const [own] = await db.execute<{ id: string }>(
+      sql`insert into workplace_cards (board_id, status, title, position)
+          values (${workedBoard!.id}, 'ready', 'Ship the migration guide', 4000) returning id`,
+    )
+
+    const [pristine] = await db.execute<{ id: string }>(
+      sql`insert into agents (name, platform) values (${aName('starter-pristine')}, 'openclaw') returning id`,
+    )
+    const [pristineBoard] = await db.execute<{ id: string }>(
+      sql`insert into workplace_boards (owner_id, title, kind)
+          values (${pristine!.id}, 'Default board', 'default') returning id`,
+    )
+    const pristineStarters = await starterCards(pristineBoard!.id)
+
+    return {
+      workedBoard: workedBoard!.id,
+      workedTemplate: workedStarters.template,
+      workedDone: workedStarters.done,
+      workedClone: workedStarters.clone,
+      workedRule: workedStarters.rule,
+      own: own!.id,
+      pristineBoard: pristineBoard!.id,
+      pristineTemplate: pristineStarters.template,
+      pristineClone: pristineStarters.clone,
+      pristineRule: pristineStarters.rule,
+    }
+  },
+
+  async check(db, seeded) {
+    const archivedAt = async (cardId: string) => {
+      const [card] = await db.execute<{ archived_at: string | null }>(
+        sql`select archived_at from workplace_cards where id = ${cardId}`,
+      )
+      return card?.archived_at ?? null
+    }
+
+    const [workedBoard] = await db.execute<{ starter_retired_at: string | null }>(
+      sql`select starter_retired_at from workplace_boards where id = ${seeded['workedBoard']!}`,
+    )
+    expect(workedBoard?.starter_retired_at).not.toBeNull()
+
+    // The live starter template and its weekly clone go; the Done starter and
+    // the citizen's own card stay.
+    expect(await archivedAt(seeded['workedTemplate']!)).not.toBeNull()
+    expect(await archivedAt(seeded['workedClone']!)).not.toBeNull()
+    expect(await archivedAt(seeded['workedDone']!)).toBeNull()
+    expect(await archivedAt(seeded['own']!)).toBeNull()
+
+    const [workedRule] = await db.execute<{ archived_at: string | null }>(
+      sql`select archived_at from workplace_recurrence_rules where id = ${seeded['workedRule']!}`,
+    )
+    expect(workedRule?.archived_at).not.toBeNull()
+
+    const events = await db.execute<{ card_id: string; actor_kind: string; payload: unknown }>(
+      sql`select card_id, actor_kind, payload from workplace_activity
+           where board_id = ${seeded['workedBoard']!} and verb = 'card.archived'
+           order by card_id`,
+    )
+    expect(events).toHaveLength(2)
+    expect(events.map((event) => event.actor_kind)).toEqual(['system', 'system'])
+    expect(events.map((event) => event.payload)).toEqual([
+      { fromStatus: 'inbox' },
+      { fromStatus: 'inbox' },
+    ])
+
+    // A board holding only onboarding copy and its own weekly clone is untouched.
+    const [pristineBoard] = await db.execute<{ starter_retired_at: string | null }>(
+      sql`select starter_retired_at from workplace_boards where id = ${seeded['pristineBoard']!}`,
+    )
+    expect(pristineBoard?.starter_retired_at).toBeNull()
+    expect(await archivedAt(seeded['pristineTemplate']!)).toBeNull()
+    expect(await archivedAt(seeded['pristineClone']!)).toBeNull()
+    const [pristineRule] = await db.execute<{ archived_at: string | null }>(
+      sql`select archived_at from workplace_recurrence_rules where id = ${seeded['pristineRule']!}`,
+    )
+    expect(pristineRule?.archived_at).toBeNull()
+  },
+}
+
 const DATA_MIGRATIONS: readonly DataMigrationCase[] = [
   theWardens,
   theExchanges,
@@ -537,6 +672,7 @@ const DATA_MIGRATIONS: readonly DataMigrationCase[] = [
   theWorkplaceClosures,
   theWorkplaceKinds,
   theMessageRequestPreviews,
+  theWorkplaceStarterRetirement,
 ]
 
 /**

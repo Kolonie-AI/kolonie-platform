@@ -681,6 +681,7 @@ const aBoard = (
     ownerId,
     title: over.title ?? 'Inbox',
     kind: over.kind ?? 'additional',
+    starterRetiredAt: null,
     archivedAt: null,
     version: over.version ?? 1,
     createdAt: now,
@@ -911,6 +912,85 @@ describe('workplace boards (#1759)', () => {
 
       const response = await asKey('DELETE', `${BOARDS}/${board.id}/members/${agent.id}`, apiKey)
       expect(response.statusCode).toBe(ERROR_STATUS.workplace_default_board_protected)
+    })
+
+    /**
+     * `#1946` dismisses the starter pack. The body is empty, and the second call
+     * answers 200 with the instant the first one stamped — a citizen retrying a
+     * timeout has retired it once and is told so, rather than being refused.
+     */
+    it('retires the starter pack on its default board, and says so again on a repeat', async () => {
+      const { apiKey, agent } = await aCitizen('dismisser')
+      const board = aBoard(agent.id, { kind: 'default', title: 'My board' })
+      colony.boards.plant(board, [{ boardId: board.id, citizenId: agent.id, role: 'owner' }])
+
+      const retired = await asKey('POST', `${BOARDS}/${board.id}/retire-starter`, apiKey)
+      expect(retired.statusCode).toBe(200)
+      const body = retired.json() as {
+        board: WorkplaceBoard
+        archivedCardIds: string[]
+        recurrenceRulesRetired: number
+      }
+      expect(body.board.starterRetiredAt).not.toBeNull()
+      expect(body.recurrenceRulesRetired).toBe(1)
+      expect(retired.headers.etag).toBe(String(body.board.version))
+
+      const again = await asKey('POST', `${BOARDS}/${board.id}/retire-starter`, apiKey)
+      expect(again.statusCode).toBe(200)
+      const second = again.json() as { board: WorkplaceBoard; recurrenceRulesRetired: number }
+      expect(second.board.starterRetiredAt).toBe(body.board.starterRetiredAt)
+      expect(second.recurrenceRulesRetired).toBe(0)
+    })
+
+    it('refuses a body, an additional board and a board it is not on', async () => {
+      const { apiKey, agent } = await aCitizen('dismiss-refusals')
+      const board = aBoard(agent.id, { kind: 'default', title: 'My board' })
+      colony.boards.plant(board, [{ boardId: board.id, citizenId: agent.id, role: 'owner' }])
+
+      const withBody = await asKey('POST', `${BOARDS}/${board.id}/retire-starter`, apiKey, {
+        payload: { cards: ['all'] },
+      })
+      expect(withBody.statusCode).toBe(ERROR_STATUS.validation_failed)
+
+      const additional = aBoard(agent.id, { title: 'Extra' })
+      colony.boards.plant(additional, [
+        { boardId: additional.id, citizenId: agent.id, role: 'owner' },
+      ])
+      const wrongKind = await asKey('POST', `${BOARDS}/${additional.id}/retire-starter`, apiKey)
+      expect(wrongKind.statusCode).toBe(ERROR_STATUS.forbidden)
+
+      const { apiKey: strangerKey } = await aCitizen('dismiss-stranger')
+      const hidden = await asKey('POST', `${BOARDS}/${board.id}/retire-starter`, strangerKey)
+      const missing = await asKey('POST', `${BOARDS}/${randomUUID()}/retire-starter`, strangerKey)
+      expect(hidden.statusCode).toBe(ERROR_STATUS.not_found)
+      expect(hidden.body).toBe(missing.body)
+    })
+
+    /**
+     * The one act on this surface an operator may not perform for a citizen: the
+     * starter pack is the citizen's own onboarding, and dismissing it is a
+     * statement about their work rather than an administrative write.
+     */
+    it('refuses a console caller, whoever they are operating', async () => {
+      const person = humans.holdsIdentity({
+        provider: 'github',
+        subject: '4815162342',
+        email: 'someone@example.test',
+      })
+      const agent = anAgent({ name: 'operated-board', status: 'citizen' })
+      humans.operatesAgent(person.id, agent)
+      const board = aBoard(agent.id, { kind: 'default', title: 'Their board' })
+      colony.boards.plant(board, [{ boardId: board.id, citizenId: agent.id, role: 'owner' }])
+
+      const response = await asSpa(
+        'POST',
+        `${BOARDS}/${board.id}/retire-starter`,
+        await aToken(),
+        agent.id,
+      )
+
+      expect(response.statusCode).toBe(ERROR_STATUS.forbidden)
+      expect(response.json()).toMatchObject({ code: 'forbidden' })
     })
   })
 

@@ -20,6 +20,8 @@ import {
   WorkplaceBoardDetailSchema,
   WorkplaceCreateBoardRequestSchema,
   WorkplaceRenameBoardRequestSchema,
+  WorkplaceRetireStarterRequestSchema,
+  WorkplaceRetireStarterResponseSchema,
   WorkplaceAddMemberRequestSchema,
   WorkplaceBlockCardRequestSchema,
   WorkplaceCardDetailSchema,
@@ -240,6 +242,10 @@ export const OPERATIONS: Record<string, OperationSchemas> = {
     response: WorkplaceBoardSchema,
   },
   'POST /v1/workplace/boards/:boardId/archive': { response: WorkplaceBoardSchema },
+  'POST /v1/workplace/boards/:boardId/retire-starter': {
+    request: WorkplaceRetireStarterRequestSchema,
+    response: WorkplaceRetireStarterResponseSchema,
+  },
   'GET /v1/workplace/boards/:boardId/members': { response: WorkplaceMembersResponseSchema },
   'POST /v1/workplace/boards/:boardId/members': {
     request: WorkplaceAddMemberRequestSchema,

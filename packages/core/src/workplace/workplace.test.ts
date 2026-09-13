@@ -28,6 +28,8 @@ import {
   WorkplaceMeResponseSchema,
   WorkplaceCreateBoardRequestSchema,
   WorkplaceRenameBoardRequestSchema,
+  WorkplaceRetireStarterRequestSchema,
+  WorkplaceRetireStarterResponseSchema,
   WorkplaceAddMemberRequestSchema,
   WorkplaceBoardDetailSchema,
   WorkplaceMemberSchema,
@@ -149,6 +151,20 @@ describe('WorkplaceBoardSchema', () => {
 
   it('rejects a board with no owner', () => {
     expect(WorkplaceBoardSchema.safeParse(board({ ownerId: null })).success).toBe(false)
+  })
+
+  it('carries starter retirement as an optional timestamp', () => {
+    expect(WorkplaceBoardSchema.parse(board()).starterRetiredAt).toBeUndefined()
+    expect(
+      WorkplaceBoardSchema.parse(board({ starterRetiredAt: null })).starterRetiredAt,
+    ).toBeNull()
+    expect(WorkplaceBoardSchema.parse(board({ starterRetiredAt: NOW })).starterRetiredAt).toBe(NOW)
+  })
+
+  it('refuses a starter retirement that is not a timestamp', () => {
+    expect(
+      WorkplaceBoardSchema.safeParse(board({ starterRetiredAt: 'not-a-timestamp' })).success,
+    ).toBe(false)
   })
 })
 
@@ -705,6 +721,31 @@ describe('board HTTP envelopes (#1759)', () => {
     ).toBe(false)
     expect(
       WorkplaceRenameBoardRequestSchema.safeParse({ title: 'Renamed', status: 'ready' }).success,
+    ).toBe(false)
+  })
+
+  it('takes an empty dismiss body and refuses anything riding along', () => {
+    expect(WorkplaceRetireStarterRequestSchema.parse({})).toEqual({})
+    expect(WorkplaceRetireStarterRequestSchema.safeParse({ cardIds: [] }).success).toBe(false)
+  })
+
+  it('returns the board, the archived starter cards and the retired rule count', () => {
+    const CARD2 = '88888888-9999-4aaa-bbbb-222222222222'
+    const parsed = WorkplaceRetireStarterResponseSchema.parse({
+      board: board({ starterRetiredAt: NOW }),
+      archivedCardIds: [CARD, CARD2],
+      recurrenceRulesRetired: 1,
+    })
+    expect(parsed.board.starterRetiredAt).toBe(NOW)
+    expect(parsed.archivedCardIds).toHaveLength(2)
+    expect(parsed.recurrenceRulesRetired).toBe(1)
+    expect(
+      WorkplaceRetireStarterResponseSchema.safeParse({
+        board: board(),
+        archivedCardIds: [],
+        recurrenceRulesRetired: 0,
+        replayed: true,
+      }).success,
     ).toBe(false)
   })
 

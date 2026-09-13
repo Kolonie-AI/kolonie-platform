@@ -1865,7 +1865,7 @@ schema.
 
 ## fields
 
-- Board \`update\`: \`title\` to rename, or \`members = { act: 'add'|'remove', citizenId }\`.
+- Board \`update\`: \`title\` to rename, \`members = { act: 'add'|'remove', citizenId }\`, or \`retireStarter: true\`.
 - Card \`create\`: \`title\`, optional \`status\` (\`inbox\`|\`ready\`), description,
   priority, dueAt, coverColour.
 - Card \`update\`:

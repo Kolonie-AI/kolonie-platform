@@ -805,6 +805,7 @@ export const WorkplaceBoardSchema = z
     ownerId: AgentIdSchema,
     title: workplaceText(WORKPLACE_TITLE_MAX_LENGTH),
     kind: WorkplaceBoardKindSchema,
+    starterRetiredAt: TimestampSchema.nullable().optional(),
     archivedAt: TimestampSchema.nullable(),
     version: z.int().min(1),
     createdAt: TimestampSchema,
@@ -845,6 +846,24 @@ export const WorkplaceRenameBoardRequestSchema = z
   })
   .strict()
 export type WorkplaceRenameBoardRequest = z.infer<typeof WorkplaceRenameBoardRequestSchema>
+
+/**
+ * HTTP dismiss (`#1946`). Empty on purpose: retiring the starter pack is one
+ * irreversible whole-board action, and a body that pretends to narrow it
+ * (which cards, which rules) is refused rather than honoured in part.
+ */
+export const WorkplaceRetireStarterRequestSchema = z.object({}).strict()
+export type WorkplaceRetireStarterRequest = z.infer<typeof WorkplaceRetireStarterRequestSchema>
+
+/** What one retirement did, so a replay and a no-op are distinguishable (`#1946`). */
+export const WorkplaceRetireStarterResponseSchema = z
+  .object({
+    board: WorkplaceBoardSchema,
+    archivedCardIds: z.array(WorkplaceCardIdSchema),
+    recurrenceRulesRetired: z.int().min(0),
+  })
+  .strict()
+export type WorkplaceRetireStarterResponse = z.infer<typeof WorkplaceRetireStarterResponseSchema>
 
 /**
  * HTTP add-member (`#1759`). `citizenId` is either an agent uuid or a handle:
@@ -1693,6 +1712,7 @@ export const WorkplaceRecurrenceSchema = z
     cardId: WorkplaceCardIdSchema,
     cadence: WorkplaceCadenceSchema,
     nextDueAt: TimestampSchema,
+    archivedAt: TimestampSchema.nullable().optional(),
     createdAt: TimestampSchema,
     updatedAt: TimestampSchema,
   })

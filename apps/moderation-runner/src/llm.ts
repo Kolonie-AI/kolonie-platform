@@ -835,7 +835,7 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
       })
       const content = messageContent(body)
 
-      const parsed = JSON.parse(content) as { spans?: unknown }
+      const parsed = JSON.parse(stripFence(content)) as { spans?: unknown }
       if (!Array.isArray(parsed.spans)) {
         throw new Error('the model returned a marking without a spans array')
       }
@@ -933,7 +933,7 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
        * `chat` throws before this line on a truncated reply. What is left here
        * is the ordinary malformed case, which still throws and always did.
        */
-      const parsed = JSON.parse(content) as { claims?: unknown }
+      const parsed = JSON.parse(stripFence(content)) as { claims?: unknown }
       if (!Array.isArray(parsed.claims)) {
         throw new Error('the model returned a briefing without a claims array')
       }

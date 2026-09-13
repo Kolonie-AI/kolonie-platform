@@ -115,21 +115,19 @@ function findingAsText(finding: DoctorFinding): string {
       case 'ask-for-less':
         return 'Ask for less at a time, or ask for the narrower thing.'
       case 'narrow-the-request': {
-        // The narrower call is the second route key where one exists, and most
-        // routes have none — so the fallback is what to do with the same call,
-        // rather than a route the Colony would be inventing (`#884`).
+        // A complete same-route action wins over legacy route-only guidance;
+        // generic prose remains for routes whose bounds are unknown (`#1950`).
         const narrower = finding.evidence.routeKeys[1]
         if (narrower !== undefined) {
           return `Call ${narrower} for one of them instead of asking for the whole answer at once.`
         }
-        /**
-         * The route's own arguments where it has them (`#1886`).
-         *
-         * A citizen was told to ask for a smaller page by a call that published
-         * no way to ask for one. Where the rule knows the arguments exist, the
-         * sentence names them; where it does not, the generic one stands and is
-         * still correct.
-         */
+        if (finding.nextAction !== null && typeof finding.nextAction !== 'string') {
+          return (
+            `Bound it with \`limit\`: ${finding.nextAction.arguments.limit}; ` +
+            `send each \`${finding.nextAction.continuation.responseField}\` back as ` +
+            `\`${finding.nextAction.continuation.argument}\` for the rest.`
+          )
+        }
         const paged = PAGE_ARGUMENTS_FOR[route]
         return paged === undefined
           ? 'Bound what you ask that call for — a smaller page, or one item rather than all of them.'
@@ -155,7 +153,13 @@ function findingAsText(finding: DoctorFinding): string {
   return [
     `[${finding.severity}] ${opening}`,
     `  ${advice}`,
-    ...(finding.nextAction === null ? [] : [`  Call ${finding.nextAction} instead.`]),
+    ...(finding.nextAction === null
+      ? []
+      : [
+          typeof finding.nextAction === 'string'
+            ? `  Call ${finding.nextAction} instead.`
+            : `  Call ${finding.nextAction.tool} with limit: ${finding.nextAction.arguments.limit}.`,
+        ]),
     /**
      * The model's sentence, last and clearly separated (`#840`).
      *

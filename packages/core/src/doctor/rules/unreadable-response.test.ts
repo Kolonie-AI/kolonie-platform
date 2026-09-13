@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { NARROWER_CALL_FOR, PAGE_ARGUMENTS_FOR, unreadableResponse } from './unreadable-response.js'
+import {
+  NARROWER_CALL_FOR,
+  PAGE_ARGUMENTS_FOR,
+  PAGINATION_ACTION_FOR,
+  unreadableResponse,
+} from './unreadable-response.js'
 import { bucket, input } from '../__fixtures__/windows.js'
 import { UNREADABLE_RESPONSE_BYTES } from '../thresholds.js'
 
@@ -131,6 +136,15 @@ describe('unreadable-response', () => {
     expect(finding?.evidence.routeKeys).toEqual(['kolonie.support.read'])
     expect(finding?.evidence.figures['supportsPageArguments']).toBe(1)
     expect(finding?.recommendation).toBe('narrow-the-request')
+  })
+
+  it('defines the complete accounts.list pagination action and no guessed action for unknown routes', () => {
+    expect(PAGINATION_ACTION_FOR['kolonie.accounts.list']).toEqual({
+      tool: 'kolonie.accounts.list',
+      arguments: { limit: 1 },
+      continuation: { responseField: 'nextCursor', argument: 'cursor' },
+    })
+    expect(PAGINATION_ACTION_FOR['kolonie.unknown.list']).toBeUndefined()
   })
 
   it('identifies paged thread retrieval so its Doctor guidance can name the supported arguments', () => {

@@ -517,6 +517,80 @@ describe('kolonie.workplace (#1761)', () => {
       await close()
     })
 
+    it('completes and revises a card through fields.close, then pages closure history', async () => {
+      const { colony, agent, apiKey } = await registeredCitizen()
+      const board = plantOwned(colony, agent.id, { title: 'Close records' })
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+      const card = aCard(board.id, { status: 'in_progress', ownerId: agent.id })
+      colony.cards.plantCard(card)
+
+      const linked = await client.callTool(
+        workplace({
+          act: 'update',
+          subject: 'card',
+          id: card.id,
+          fields: { links: { act: 'add', kind: 'url', ref: 'https://example.com/result' } },
+        }),
+      )
+      expect(linked.isError).not.toBe(true)
+      const evidenceLinkId = structuredOf<{ link: { id: string } }>(linked).link.id
+      const completed = await client.callTool(
+        workplace({
+          act: 'update',
+          subject: 'card',
+          id: card.id,
+          expectedVersion: card.version,
+          fields: {
+            close: {
+              result: 'shipped',
+              summary: 'Published the result.',
+              learned: 'The reader could use it.',
+              evidenceLinkIds: [evidenceLinkId],
+              next: { kind: 'none' },
+            },
+          },
+        }),
+      )
+      expect(completed.isError).not.toBe(true)
+      const first = structuredOf<{ closure: { id: string; revision: number } }>(completed)
+      expect(first.closure.revision).toBe(1)
+      expect(JSON.stringify(completed.content)).toContain('untrusted')
+
+      const revised = await client.callTool(
+        workplace({
+          act: 'update',
+          subject: 'card',
+          id: card.id,
+          expectedVersion: card.version + 1,
+          fields: {
+            close: {
+              result: 'failed_experiment',
+              summary: 'Tried the public endpoint and observed a permanent 403 response.',
+              learned: 'The provider blocks this route.',
+              evidenceLinkIds: [],
+              next: { kind: 'sentence', text: 'Try a static host.' },
+              supersedesClosureId: first.closure.id,
+            },
+          },
+        }),
+      )
+      expect(revised.isError).not.toBe(true)
+      expect(structuredOf<{ closure: { revision: number } }>(revised).closure.revision).toBe(2)
+
+      const history = await client.callTool(
+        workplace({
+          act: 'get',
+          subject: 'card',
+          id: card.id,
+          fields: { closures: { limit: 1 } },
+        }),
+      )
+      expect(history.isError).not.toBe(true)
+      expect(structuredOf<{ items: { revision: number }[] }>(history).items[0]?.revision).toBe(2)
+      expect(JSON.stringify(history.content)).toContain('untrusted')
+      await close()
+    })
+
     it('fills known ids and versions so every advertised next call is executable', async () => {
       const { colony, agent, apiKey } = await registeredCitizen()
       const defaultBoard = plantOwned(colony, agent.id, { title: 'Default', kind: 'default' })

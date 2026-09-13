@@ -1675,6 +1675,8 @@ describe('the erasure boundary', () => {
        * and the default board all go, and every card on them with them.
        */
       'workplace_boards.owner_id c',
+      /** Close history survives its actor; board/card cascades own the prose. */
+      'workplace_card_closures.actor_id n',
       /**
        * Card ownership is not board membership (D-146). `set null` so a
        * card on a *foreign* board survives the owner leaving. Storage

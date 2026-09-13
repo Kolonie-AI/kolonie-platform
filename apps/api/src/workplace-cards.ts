@@ -1,6 +1,8 @@
 import type {
   AgentId,
   WorkplaceCommitment,
+  WorkplaceCompleteCardRequest,
+  WorkplaceCreateCardClosureRequest,
   WorkplaceCommitmentState,
   WorkplaceCard,
   WorkplaceCardEvent,
@@ -25,6 +27,7 @@ import {
   claimCard,
   closeProfessionPracticum,
   completeCard,
+  createCardClosure,
   createCard,
   createChecklist,
   createChecklistItem,
@@ -35,6 +38,7 @@ import {
   getCard,
   handoverCard,
   listCards,
+  listCardClosures,
   listCardEvents,
   listComments,
   listLinks,
@@ -53,6 +57,7 @@ import {
   type ClaimCardResult,
   type CloseProfessionPracticumResult,
   type CompleteCardResult,
+  type CreateCardClosureResult,
   type CreateCardResult,
   type CreateChecklistItemResult,
   type CreateChecklistResult,
@@ -63,6 +68,7 @@ import {
   type DetachLabelResult,
   type HandoverCardResult,
   type ListCardsResult,
+  type ListCardClosuresResult,
   type ListCardEventsResult,
   type WorkplaceEventAttribution,
   type ListCommentsResult,
@@ -104,6 +110,11 @@ export interface WorkplaceCards {
     cardId: string,
     query?: { readonly cursor?: string | null; readonly limit?: number },
   ): Promise<ListCardEventsResult>
+  closures(
+    callerId: AgentId,
+    cardId: string,
+    query?: { readonly cursor?: string | null; readonly limit?: number },
+  ): Promise<ListCardClosuresResult>
   acceptPracticum(input: {
     readonly callerId: AgentId
     readonly outcome: string
@@ -175,9 +186,16 @@ export interface WorkplaceCards {
     readonly callerId: AgentId
     readonly cardId: string
     readonly expectedVersion: number
-    readonly outcome: string
+    readonly close?: WorkplaceCompleteCardRequest
+    readonly outcome?: string
     readonly attribution?: WorkplaceWriteAttribution
   }): Promise<CompleteCardResult>
+  createClosure(input: {
+    readonly callerId: AgentId
+    readonly cardId: string
+    readonly close: WorkplaceCreateCardClosureRequest
+    readonly attribution?: WorkplaceWriteAttribution
+  }): Promise<CreateCardClosureResult>
   handover(input: {
     readonly callerId: AgentId
     readonly cardId: string
@@ -305,6 +323,7 @@ export function databaseWorkplaceCards(db: Database): WorkplaceCards {
     list: (callerId, boardId, query) => listCards(db, callerId, boardId, query),
     get: (callerId, cardId) => getCard(db, callerId, cardId),
     events: (callerId, cardId, query) => listCardEvents(db, callerId, cardId, query),
+    closures: (callerId, cardId, query) => listCardClosures(db, callerId, cardId, query),
     acceptPracticum: (input) => startProfessionPracticum(db, input),
     closePracticum: (input) => closeProfessionPracticum(db, input),
     resolvePracticum: (input) => resolveProfessionPracticum(db, input),
@@ -315,6 +334,7 @@ export function databaseWorkplaceCards(db: Database): WorkplaceCards {
     block: (input) => blockCard(db, input),
     requestReview: (input) => requestReview(db, input),
     complete: (input) => completeCard(db, input),
+    createClosure: (input) => createCardClosure(db, input),
     handover: (input) => handoverCard(db, input),
     archive: (input) => archiveCard(db, input),
     attachLabel: (input) => attachLabel(db, input),

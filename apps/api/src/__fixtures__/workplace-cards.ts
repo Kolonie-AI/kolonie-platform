@@ -3,6 +3,7 @@ import {
   EMPTY_WORKPLACE_LINK_COUNTS,
   WORKPLACE_PRACTICUM_CARD_TITLES,
   WorkplaceCardIdSchema,
+  WorkplaceCardClosureIdSchema,
   WorkplaceChecklistIdSchema,
   WorkplaceChecklistItemIdSchema,
   WorkplaceCommentIdSchema,
@@ -13,6 +14,7 @@ import {
   mustHaveOwner,
   type AgentId,
   type WorkplaceCard,
+  type WorkplaceCardClosure,
   type WorkplaceCardEvent,
   type WorkplaceCardDetail,
   type WorkplaceCardSummary,
@@ -36,6 +38,7 @@ import type {
   BlockCardResult,
   ClaimCardResult,
   CompleteCardResult,
+  CreateCardClosureResult,
   CreateCardResult,
   CreateChecklistItemResult,
   CreateChecklistResult,
@@ -45,6 +48,7 @@ import type {
   DetachLabelResult,
   HandoverCardResult,
   ListCardsResult,
+  ListCardClosuresResult,
   ListCommentsResult,
   ListLinksResult,
   MoveCardResult,
@@ -109,6 +113,7 @@ export function fakeWorkplaceCards(): FakeWorkplaceCards {
   const seats = new Map<string, WorkplaceMembership[]>()
   const cards = new Map<string, WorkplaceCard>()
   const events = new Map<string, WorkplaceCardEvent[]>()
+  const closures = new Map<string, WorkplaceCardClosure[]>()
   const commitments = new Map<AgentId, WorkplaceCommitment>()
   const labels = new Map<string, WorkplaceLabel>()
   const cardLabels = new Map<string, Set<string>>()
@@ -335,6 +340,8 @@ export function fakeWorkplaceCards(): FakeWorkplaceCards {
           .sort((a, b) => a.id.localeCompare(b.id)),
         handover:
           [...handovers.values()].find((one) => one.cardId === cardId && one.isCurrent) ?? null,
+        latestClosure: closures.get(cardId)?.[0] ?? null,
+        closureCount: closures.get(cardId)?.length ?? 0,
         eventCount: events.get(cardId)?.length ?? 0,
         events: (events.get(cardId) ?? []).slice(0, 5),
       } satisfies WorkplaceCardDetail
@@ -358,6 +365,25 @@ export function fakeWorkplaceCards(): FakeWorkplaceCards {
         nextCursor:
           start + items.length < all.length ? (items[items.length - 1]?.id ?? null) : null,
       }
+    },
+
+    closures: async (callerId, cardId, query = {}) => {
+      if (visible(callerId, cardId) === null) return { outcome: 'unknown' as const }
+      const all = closures.get(cardId) ?? []
+      const start =
+        query.cursor === undefined || query.cursor === null || query.cursor === ''
+          ? 0
+          : all.findIndex((closure) => closure.id === query.cursor) + 1
+      if (query.cursor !== undefined && query.cursor !== null && start === 0) {
+        return { outcome: 'invalid-cursor' as const }
+      }
+      const limit = query.limit ?? 50
+      const page = all.slice(start, start + limit)
+      return {
+        outcome: 'listed' as const,
+        items: page,
+        nextCursor: start + page.length < all.length ? (page[page.length - 1]?.id ?? null) : null,
+      } satisfies ListCardClosuresResult
     },
 
     /**
@@ -640,13 +666,115 @@ export function fakeWorkplaceCards(): FakeWorkplaceCards {
       if (!canTransitionWorkplace(card.status, 'done') || card.ownerId === null) {
         return { outcome: 'invalid-transition' }
       }
+      const close = input.close ?? { outcome: input.outcome ?? '' }
+      const legacy = 'outcome' in close
+      const normalized = legacy
+        ? {
+            result: 'shipped' as const,
+            summary: close.outcome,
+            learned: 'No learning was supplied by the legacy client.',
+            evidenceLinkIds: [] as WorkplaceCardClosure['evidenceLinkIds'],
+            next: { kind: 'none' as const },
+          }
+        : close
+      const evidenceLinks = normalized.evidenceLinkIds.flatMap((id) => {
+        const link = links.get(id)
+        return link?.cardId === card.id ? [link] : []
+      })
+      if (evidenceLinks.length !== normalized.evidenceLinkIds.length) {
+        return { outcome: 'invalid-evidence' }
+      }
+      if (normalized.next.kind === 'card') {
+        const successor = cards.get(normalized.next.cardId)
+        if (
+          successor === undefined ||
+          successor.boardId !== card.boardId ||
+          successor.archivedAt !== null
+        ) {
+          return { outcome: 'invalid-successor' }
+        }
+      }
       const done = bump(card, {
         status: 'done',
-        outcome: input.outcome,
+        outcome: normalized.summary,
         position: nextPosition(card.boardId, 'done'),
       })
       cards.set(card.id, done)
-      return { outcome: 'completed', card: done }
+      const closure: WorkplaceCardClosure = {
+        id: WorkplaceCardClosureIdSchema.parse(randomUUID()),
+        boardId: card.boardId,
+        cardId: card.id,
+        actorId:
+          input.attribution?.actorKind === 'system'
+            ? null
+            : (input.attribution?.actorId ?? input.callerId),
+        revision: 1,
+        ...normalized,
+        evidenceLinkIds: evidenceLinks.map((link) => link.id),
+        evidenceLinks,
+        legacy,
+        supersedesClosureId: null,
+        createdAt: new Date().toISOString(),
+      }
+      closures.set(card.id, [closure])
+      appendEvent(
+        input.callerId,
+        done,
+        'card.closed',
+        { closeRecordId: closure.id, result: closure.result },
+        input.attribution,
+      )
+      return { outcome: 'completed', card: done, closure }
+    },
+
+    createClosure: async (input) => {
+      const card = cards.get(input.cardId)
+      if (card === undefined) return { outcome: 'missing' } satisfies CreateCardClosureResult
+      if (membershipOf(input.callerId, card.boardId) === undefined) return { outcome: 'forbidden' }
+      if (card.status !== 'done') return { outcome: 'invalid-transition' }
+      const previous = closures.get(card.id) ?? []
+      const latest = previous[0]
+      if (latest === undefined || latest.id !== input.close.supersedesClosureId) {
+        return { outcome: 'conflict' }
+      }
+      const evidenceLinks = input.close.evidenceLinkIds.flatMap((id) => {
+        const link = links.get(id)
+        return link?.cardId === card.id ? [link] : []
+      })
+      if (evidenceLinks.length !== input.close.evidenceLinkIds.length) {
+        return { outcome: 'invalid-evidence' }
+      }
+      if (input.close.next.kind === 'card') {
+        const successor = cards.get(input.close.next.cardId)
+        if (
+          successor === undefined ||
+          successor.boardId !== card.boardId ||
+          successor.archivedAt !== null
+        ) {
+          return { outcome: 'invalid-successor' }
+        }
+      }
+      const closure: WorkplaceCardClosure = {
+        id: WorkplaceCardClosureIdSchema.parse(randomUUID()),
+        boardId: card.boardId,
+        cardId: card.id,
+        actorId:
+          input.attribution?.actorKind === 'system'
+            ? null
+            : (input.attribution?.actorId ?? input.callerId),
+        revision: latest.revision + 1,
+        result: input.close.result,
+        summary: input.close.summary,
+        learned: input.close.learned,
+        evidenceLinkIds: evidenceLinks.map((link) => link.id),
+        evidenceLinks,
+        next: input.close.next,
+        legacy: false,
+        supersedesClosureId: latest.id,
+        createdAt: new Date().toISOString(),
+      }
+      closures.set(card.id, [closure, ...previous])
+      return { outcome: 'created', card, closure }
     },
 
     handover: async (input) => {
@@ -909,6 +1037,16 @@ export function fakeWorkplaceCards(): FakeWorkplaceCards {
       if (membershipOf(input.callerId, card.boardId) === undefined) return { outcome: 'missing' }
       if (!mayWriteLink(input.callerId, card)) return { outcome: 'forbidden' }
       links.delete(input.linkId)
+      for (const [cardId, history] of closures) {
+        closures.set(
+          cardId,
+          history.map((closure) => ({
+            ...closure,
+            evidenceLinkIds: closure.evidenceLinkIds.filter((id) => id !== input.linkId),
+            evidenceLinks: closure.evidenceLinks.filter((link) => link.id !== input.linkId),
+          })),
+        )
+      }
       return { outcome: 'removed' }
     },
   }

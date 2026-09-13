@@ -906,11 +906,10 @@ describe('the migrations', () => {
     // exposing no update path, which is a promise about today's code; this is
     // the half that holds against code nobody has written yet.
     //
-    // `#1935` makes ten: `profession_versions_are_append_only` protects a
-    // published constitution from a later direct update. It admits only the
-    // database's `ON DELETE SET NULL` of an erased publisher, preserving both
-    // immutable content and the person's right to leave.
-    expect(afterFirst.triggers).toBe('11')
+    // `#1935` and `#1940` make eleven and twelve: immutable profession
+    // constitutions and immutable card close claims, with the actor-only nulling
+    // that erasure requires admitted as the sole closure update.
+    expect(afterFirst.triggers).toBe('12')
 
     await expect(migrate(db, { migrationsFolder: MIGRATIONS_FOLDER })).resolves.not.toThrow()
     expect(await objectCounts()).toEqual(afterFirst)

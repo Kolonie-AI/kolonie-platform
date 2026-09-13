@@ -19,6 +19,7 @@ import {
 import {
   WORKPLACE_BOARD_KINDS,
   WORKPLACE_BODY_MAX_LENGTH,
+  WORKPLACE_CARD_CLOSURE_RESULTS,
   WORKPLACE_CADENCES,
   WORKPLACE_COMMITMENT_STATES,
   WORKPLACE_EVENT_ACTOR_KINDS,
@@ -305,7 +306,7 @@ export const workplaceCards = pgTable(
     ),
     check(
       'workplace_cards_outcome_is_bounded',
-      sql`${table.outcome} is null or char_length(${table.outcome}) between 1 and ${SENTENCE_MAX}`,
+      sql`${table.outcome} is null or char_length(${table.outcome}) between 1 and ${BODY_MAX}`,
     ),
   ],
 )
@@ -452,6 +453,78 @@ export const workplaceCardLinks = pgTable(
       sql`${table.note} is null or char_length(${table.note}) between 1 and ${SENTENCE_MAX}`,
     ),
   ],
+)
+
+/**
+ * Append-only claims about how a card ended (`#1940`). Evidence remains a
+ * relation to card links so removing a link removes it from future renders.
+ */
+export const workplaceCardClosures = pgTable(
+  'workplace_card_closures',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    boardId: uuid('board_id')
+      .notNull()
+      .references(() => workplaceBoards.id, { onDelete: 'cascade' }),
+    cardId: uuid('card_id')
+      .notNull()
+      .references(() => workplaceCards.id, { onDelete: 'cascade' }),
+    actorId: uuid('actor_id').references(() => agents.id, { onDelete: 'set null' }),
+    revision: integer('revision').notNull(),
+    result: varchar('result', { length: 32 }).notNull(),
+    summary: text('summary').notNull(),
+    learned: text('learned').notNull(),
+    next: jsonb('next').$type<Record<string, unknown>>().notNull(),
+    legacy: boolean('legacy').notNull().default(false),
+    supersedesClosureId: uuid('supersedes_closure_id'),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    unique('workplace_card_closures_id_card').on(table.id, table.cardId),
+    unique('workplace_card_closures_card_revision').on(table.cardId, table.revision),
+    unique('workplace_card_closures_supersedes_once').on(table.supersedesClosureId),
+    index('workplace_card_closures_card_created_idx').on(table.cardId, table.createdAt, table.id),
+    foreignKey({
+      name: 'workplace_card_closures_card_board_fk',
+      columns: [table.cardId, table.boardId],
+      foreignColumns: [workplaceCards.id, workplaceCards.boardId],
+    }).onDelete('cascade'),
+    foreignKey({
+      name: 'workplace_card_closures_supersedes_card_fk',
+      columns: [table.supersedesClosureId, table.cardId],
+      foreignColumns: [table.id, table.cardId],
+    }).onDelete('cascade'),
+    check(
+      'workplace_card_closures_revision_supersession_is_whole',
+      sql`(${table.revision} = 1 and ${table.supersedesClosureId} is null)
+          or (${table.revision} > 1 and ${table.supersedesClosureId} is not null)`,
+    ),
+    check(
+      'workplace_card_closures_result_is_known',
+      sql`${table.result} in (${oneOf(WORKPLACE_CARD_CLOSURE_RESULTS)})`,
+    ),
+    check('workplace_card_closures_revision_is_positive', sql`${table.revision} >= 1`),
+    check(
+      'workplace_card_closures_prose_is_bounded',
+      sql`char_length(${table.summary}) between 1 and ${BODY_MAX}
+          and char_length(${table.learned}) between 1 and ${BODY_MAX}`,
+    ),
+  ],
+)
+
+export const workplaceCardClosureEvidence = pgTable(
+  'workplace_card_closure_evidence',
+  {
+    closureId: uuid('closure_id')
+      .notNull()
+      .references(() => workplaceCardClosures.id, { onDelete: 'cascade' }),
+    linkId: uuid('link_id')
+      .notNull()
+      .references(() => workplaceCardLinks.id, { onDelete: 'cascade' }),
+  },
+  (table) => [primaryKey({ columns: [table.closureId, table.linkId] })],
 )
 
 /**

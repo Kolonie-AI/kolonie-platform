@@ -1215,8 +1215,68 @@ describe('workplace cards (#1760)', () => {
         headers: { 'if-match': String((inReview.json() as WorkplaceCard).version) },
       })
       expect(done.statusCode).toBe(200)
-      expect((done.json() as WorkplaceCard).status).toBe('done')
-      expect((done.json() as WorkplaceCard).outcome).toBe('The walk is filed.')
+      const completed = done.json() as {
+        card: WorkplaceCard
+        closure: { id: string; result: string; legacy: boolean }
+      }
+      expect(completed.card.status).toBe('done')
+      expect(completed.card.outcome).toBe('The walk is filed.')
+      expect(completed.closure.result).toBe('shipped')
+      expect(completed.closure.legacy).toBe(true)
+    })
+
+    it('completes with a structured close and lists later closure revisions', async () => {
+      const { apiKey, agent } = await aCitizen('structured-closer')
+      const board = aBoard(agent.id)
+      const card = aCard(board.id, { status: 'in_progress', ownerId: agent.id })
+      colony.boards.plant(board, [seat(board, agent.id)])
+      colony.cards.plantBoard(board.id, [seat(board, agent.id)])
+      colony.cards.plantCard(card)
+
+      const posted = await asKey('POST', `${CARDS}/${card.id}/links`, apiKey, {
+        payload: { kind: 'url', ref: 'https://example.com/result' },
+      })
+      expect(posted.statusCode).toBe(201)
+      const evidenceLinkId = (posted.json() as { id: string }).id
+      const done = await asKey('POST', `${CARDS}/${card.id}/complete`, apiKey, {
+        payload: {
+          result: 'shipped',
+          summary: 'Published the result.',
+          learned: 'The reader could use it.',
+          evidenceLinkIds: [evidenceLinkId],
+          next: { kind: 'none' },
+        },
+        headers: { 'if-match': String(card.version) },
+      })
+      expect(done.statusCode).toBe(200)
+      const completed = done.json() as {
+        card: WorkplaceCard
+        closure: { id: string; revision: number; legacy: boolean }
+      }
+      expect(completed.closure.revision).toBe(1)
+      expect(completed.closure.legacy).toBe(false)
+
+      const revised = await asKey('POST', `${CARDS}/${card.id}/closures`, apiKey, {
+        payload: {
+          result: 'failed_experiment',
+          summary: 'Tried the public endpoint and observed a permanent 403 response.',
+          learned: 'The provider blocks this route.',
+          evidenceLinkIds: [],
+          next: { kind: 'sentence', text: 'Try a static host.' },
+          supersedesClosureId: completed.closure.id,
+        },
+      })
+      expect(revised.statusCode).toBe(201)
+      expect((revised.json() as { revision: number }).revision).toBe(2)
+
+      const listed = await asKey('GET', `${CARDS}/${card.id}/closures?limit=1`, apiKey)
+      expect(listed.statusCode).toBe(200)
+      const page = listed.json() as { items: { revision: number }[]; nextCursor: string | null }
+      expect(page.items[0]?.revision).toBe(2)
+      expect(page.nextCursor).not.toBeNull()
+      const detail = await asKey('GET', `${CARDS}/${card.id}`, apiKey)
+      expect((detail.json() as WorkplaceCardDetail).closureCount).toBe(2)
+      expect((detail.json() as WorkplaceCardDetail).latestClosure?.revision).toBe(2)
     })
 
     it('hands a live card over with the structured fields', async () => {
@@ -1496,6 +1556,18 @@ describe('workplace cards (#1760)', () => {
     }
     const schema = (
       document.paths['/v1/workplace/boards/{boardId}/cards']?.get?.responses?.['200'] as {
+        content?: { 'application/json'?: { schema?: { properties?: Record<string, unknown> } } }
+      }
+    )?.content?.['application/json']?.schema
+    expect(Object.keys(schema?.properties ?? {}).sort()).toEqual(['items', 'nextCursor'])
+  })
+
+  it('describes the closure collection from the core schema', async () => {
+    const document = (await app.inject({ method: 'GET', url: '/openapi.json' })).json() as {
+      paths: Record<string, { get?: { responses?: Record<string, unknown> } }>
+    }
+    const schema = (
+      document.paths['/v1/workplace/cards/{cardId}/closures']?.get?.responses?.['200'] as {
         content?: { 'application/json'?: { schema?: { properties?: Record<string, unknown> } } }
       }
     )?.content?.['application/json']?.schema

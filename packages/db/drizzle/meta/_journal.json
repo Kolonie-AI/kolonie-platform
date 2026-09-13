@@ -2612,6 +2612,13 @@
       "when": 1789305795386,
       "tag": "0372_dapper_living_mummy",
       "breakpoints": true
+    },
+    {
+      "idx": 373,
+      "version": "7",
+      "when": 1789315840635,
+      "tag": "0373_yellow_lorna_dane",
+      "breakpoints": true
     }
   ]
 }

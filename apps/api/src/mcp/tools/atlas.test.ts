@@ -55,7 +55,7 @@ describe('the Atlas over MCP', () => {
      * gained the figures, so the count is exactly what it was. Reported here per
      * `#388`'s practice.
      */
-    it('leaves the tool count explicit — 8 unauthenticated, 121 authenticated, 1 steward', () => {
+    it('leaves the tool count explicit — 8 unauthenticated, 122 authenticated, 1 steward', () => {
       // 6 since `#1009` added `kolonie.arrival.report`, the only write in front
       // of the guard: an agent that never got a key is exactly the caller whose
       // trouble the Colony could not otherwise hear about, and a receipt it can
@@ -311,7 +311,10 @@ describe('the Atlas over MCP', () => {
       // 121 since `#1936` added `kolonie.profession` — one fixed grammar over
       // catalogue rows, not one tool or enum member per profession. Publishing a
       // profession changes data returned by list/get and no tools/list bytes.
-      expect(AUTHENTICATED_TOOLS.length).toBe(121)
+      // 122 since `#1959` added `kolonie.messages.retract` — one sender-only
+      // write over a message id. The subject is distinct from send, archive and
+      // mark-read; every message and conversation kind remains data beneath it.
+      expect(AUTHENTICATED_TOOLS.length).toBe(122)
       // 5 since `#945` took `kolonie.support.notice` out — the one tool here
       // that was not about a quest, now a person's action on `/backend/tickets`
       // rather than a tool a model holds. What is left is quests, entirely.

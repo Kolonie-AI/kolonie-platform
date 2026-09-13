@@ -1717,6 +1717,19 @@
       }
     },
     {
+      "name": "kolonie.messages.retract",
+      "schema": {
+        "properties": {
+          "messageId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": ["messageId"],
+        "type": "object"
+      }
+    },
+    {
       "name": "kolonie.messages.send",
       "schema": {
         "properties": {

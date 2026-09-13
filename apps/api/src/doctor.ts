@@ -3,6 +3,7 @@ import {
   DOCTOR_BUSIEST_ROUTES,
   DOCTOR_WINDOW_HOURS,
   NEXT_ACTION_FOR,
+  PAGINATION_ACTION_FOR,
   UNDIAGNOSED_ROUTE_KEYS,
   diagnose,
   type AcademyProgress,
@@ -200,22 +201,26 @@ export async function doctorAnswerFor(
 }
 
 /**
- * A finding as a citizen reads it: the rule's own structure, plus the call to
- * make instead.
+ * A finding as a citizen reads it: the rule's structure and an executable next
+ * action where the full call contract is known.
  *
- * `nextAction` is looked up from the recommendation rather than written per
- * finding, so the Colony cannot suggest two different routes for one piece of
- * advice — and `recommendation`, `retryAfterSeconds`, `since` and `until` come
- * through untouched, because a surface that recomputed any of them would be a
- * second opinion about arithmetic that is already settled.
+ * Replacement calls still come from {@link NEXT_ACTION_FOR}. Same-route
+ * pagination is keyed by the measured route because its arguments differ by
+ * tool; an unknown route falls back to `null` rather than guessed arguments.
  */
 function asDoctorFinding(finding: Finding, prose: string | null): DoctorFinding {
+  const route = finding.evidence.routeKeys[0]
+  const nextAction =
+    finding.recommendation === 'narrow-the-request' && route !== undefined
+      ? (PAGINATION_ACTION_FOR[route] ?? NEXT_ACTION_FOR[finding.recommendation])
+      : NEXT_ACTION_FOR[finding.recommendation]
+
   return {
     kind: finding.kind,
     severity: finding.severity,
     evidence: finding.evidence,
     recommendation: finding.recommendation,
-    nextAction: NEXT_ACTION_FOR[finding.recommendation],
+    nextAction,
     retryAfterSeconds: finding.retryAfterSeconds,
     prose,
     since: finding.since,

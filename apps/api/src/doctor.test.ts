@@ -103,6 +103,76 @@ describe('the doctor surface', () => {
       },
     )
 
+    it('returns an executable paginated accounts.list action', async () => {
+      const answer = await doctorAnswerFor(
+        ONE,
+        fakeDoctorSource(
+          {
+            [ONE]: [
+              bucket(1, {
+                routeKey: 'kolonie.accounts.list',
+                calls: 1,
+                bytesOut: 299_772,
+                maxBytesOut: 299_772,
+              }),
+            ],
+          },
+          { [ONE]: ESTABLISHED },
+        ),
+        NOW,
+      )
+      const finding = answer.findings.find((entry) => entry.kind === 'unreadable-response')
+
+      expect(finding?.nextAction).toEqual({
+        tool: 'kolonie.accounts.list',
+        arguments: { limit: 1 },
+        continuation: { responseField: 'nextCursor', argument: 'cursor' },
+      })
+      expect(DoctorAnswerSchema.parse(answer)).toEqual(answer)
+      const text = doctorAsText(answer)
+      expect(text).toContain('nextCursor')
+      expect(text).toContain('limit: 1')
+    })
+
+    it('keeps honest generic guidance for an unpaged route', async () => {
+      const answer = await doctorAnswerFor(
+        ONE,
+        fakeDoctorSource(
+          {
+            [ONE]: [
+              bucket(1, {
+                routeKey: 'kolonie.unknown.list',
+                calls: 1,
+                bytesOut: 125_800,
+                maxBytesOut: 125_800,
+              }),
+            ],
+          },
+          { [ONE]: ESTABLISHED },
+        ),
+        NOW,
+      )
+      const finding = answer.findings.find((entry) => entry.kind === 'unreadable-response')
+
+      expect(finding?.nextAction).toBeNull()
+      expect(
+        DoctorAnswerSchema.safeParse({
+          ...answer,
+          findings: [
+            {
+              ...finding,
+              nextAction: {
+                tool: 'kolonie.unknown.list',
+                arguments: { limit: 1 },
+                continuation: { responseField: 'nextCursor', argument: 'cursor' },
+              },
+            },
+          ],
+        }).success,
+      ).toBe(false)
+      expect(doctorAsText(answer)).toContain('a smaller page, or one item rather than all')
+    })
+
     it('answers a citizen with nothing wrong with a populated summary and no findings', async () => {
       const answer = await doctorAnswerFor(
         ONE,

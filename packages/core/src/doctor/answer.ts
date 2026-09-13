@@ -39,6 +39,41 @@ export const UNDIAGNOSED_ROUTE_KEYS: readonly string[] = [
 ]
 
 /**
+ * A same-route page action with the continuation wired explicitly (`#1950`).
+ *
+ * Literal today because only `accounts.list` has a complete action contract.
+ * Widen this schema only alongside another route whose safe bound and cursor
+ * handoff are both known.
+ */
+export const DoctorPaginationNextActionSchema = z
+  .object({
+    tool: z.literal('kolonie.accounts.list'),
+    arguments: z.object({ limit: z.literal(1) }).strict(),
+    continuation: z
+      .object({
+        responseField: z.literal('nextCursor'),
+        argument: z.literal('cursor'),
+      })
+      .strict(),
+  })
+  .strict()
+export type DoctorPaginationNextAction = z.infer<typeof DoctorPaginationNextActionSchema>
+
+/**
+ * An executable follow-up for one Doctor finding (`#1950`).
+ *
+ * A string remains the shape for a replacement call with no arguments. The
+ * structured branch is deliberately literal: today only `accounts.list` has a
+ * complete same-route action, and widening it would admit instructions whose
+ * supported bounds the Doctor does not know.
+ */
+export const DoctorNextActionSchema = z.union([
+  z.string().min(1).max(ROUTE_KEY_MAX_LENGTH),
+  DoctorPaginationNextActionSchema,
+])
+export type DoctorNextAction = z.infer<typeof DoctorNextActionSchema>
+
+/**
  * One finding as a citizen reads it (`#837`).
  *
  * The rule's own structure plus the two things that make it actionable without a
@@ -53,13 +88,13 @@ export const DoctorFindingSchema = z
     /** A stable slug to branch on. @see RecommendationSchema */
     recommendation: RecommendationSchema,
     /**
-     * The Colony call to make instead, where one exists.
+     * The Colony call to make next, where one exists.
      *
-     * `null` where the answer is not another call — *ask for less* is about how
-     * a call is made rather than about which call it is, and inventing a route
-     * for it would be advice the Colony cannot keep.
+     * A replacement route is a string. A same-route bounded retry carries its
+     * arguments and the response-to-request continuation mapping. `null` is the
+     * honest fallback where the supported request bounds are unknown.
      */
-    nextAction: z.string().max(ROUTE_KEY_MAX_LENGTH).nullable(),
+    nextAction: DoctorNextActionSchema.nullable(),
     /** A reasonable interval for anything rate-shaped, or `null`. */
     retryAfterSeconds: z.int().positive().nullable(),
     /**
@@ -159,12 +194,12 @@ export type DoctorAnswer = z.infer<typeof DoctorAnswerSchema>
 export const DOCTOR_BUSIEST_ROUTES = 5
 
 /**
- * The call to make instead, for each recommendation (`#837`).
+ * The default call to make instead, for each recommendation (`#837`).
  *
  * **Derived from the slug and never written per finding**, so the Colony cannot
- * end up suggesting two different routes for the same advice. `null` where the
- * answer is not another call: *ask for less* is about how a call is made, and
- * inventing a route for it would be advice the Colony cannot keep.
+ * end up suggesting two different replacement routes for the same advice.
+ * Route-specific same-call arguments are resolved separately; `null` here keeps
+ * the fallback honest when no complete action contract is known.
  */
 export const NEXT_ACTION_FOR: Readonly<
   Record<z.infer<typeof RecommendationSchema>, string | null>

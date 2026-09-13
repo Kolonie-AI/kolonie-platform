@@ -1792,11 +1792,13 @@ export function inboxThreadPage(
     readonly agentName: string
     readonly about: string | null
     readonly messages: readonly {
+      readonly id: string
       readonly senderLabel: string
       readonly party: string
       readonly body?: string
       readonly retractedAt?: string
       readonly createdAt: string
+      readonly retractable: boolean
     }[]
     readonly declarations: readonly { readonly kind: string; readonly label: string }[]
     readonly bodyMaxLength: number
@@ -1867,6 +1869,15 @@ export function inboxThreadPage(
     readonly body?: string | undefined
     readonly error?: string | undefined
     readonly sent?: boolean | undefined
+    /**
+     * What a retraction just took back (`#1960`).
+     *
+     * The honest sentence a person needs after the redirect — the body left
+     * Kolonie thread views, and copies outside it may remain — is copy the
+     * channel owes on success, not something the tombstone alone says. `null`
+     * draws nothing.
+     */
+    readonly retractedMessageId?: string | undefined
     /** False once the operator link is gone: the words stay and nobody may add. */
     readonly writable: boolean
   } & InboxSurface,
@@ -1880,19 +1891,37 @@ export function inboxThreadPage(
       ? `<p>${backLink}</p>`
       : `<p>About ${escape(input.about)}. ${backLink}</p>`,
     ...(input.sent === true ? ['<p>Sent.</p>'] : []),
+    ...(input.retractedMessageId === undefined
+      ? []
+      : [
+          '<p>Message retracted. The body was removed from Kolonie thread views, and copies may ' +
+            'remain in recipient memory, local transcripts, screenshots, exports, or delivered ' +
+            'notifications.</p>',
+        ]),
     ...(input.error === undefined ? [] : [`<p class="error">${escape(input.error)}</p>`]),
     input.messages.length === 0
       ? '<p>Nothing said yet.</p>'
       : `<ul class="thread">${input.messages
-          .map(
-            (message) =>
+          .map((message) => {
+            const content =
+              message.retractedAt === undefined
+                ? escape(message.body ?? '')
+                : 'Message retracted by sender.'
+            const retractAction =
+              message.retractable === true && message.retractedAt === undefined
+                ? ` <form class="retract-action" method="post" action="${escape(base)}/${escape(input.conversationId)}/messages/${escape(message.id)}/retract">` +
+                  '<button type="submit">Retract</button></form>'
+                : ''
+            return (
               `<li class="from-${escape(message.party)}">` +
               `<span class="party party--${escape(message.party)}">` +
               `${escape(partyMark(message.party))}</span> ` +
               `<strong>${escape(message.senderLabel)}</strong> ` +
-              `<span>${escape(relative(message.createdAt))}</span><br>` +
-              `${escape(message.retractedAt === undefined ? (message.body ?? '') : 'Message retracted by sender.')}</li>`,
-          )
+              `<span>${escape(relative(message.createdAt))}</span>` +
+              `${retractAction}<br>` +
+              `${content}</li>`
+            )
+          })
           .join('')}</ul>`,
     ...shareBlocks(input),
     ...shareEventSequence(input.shareEvents ?? []),

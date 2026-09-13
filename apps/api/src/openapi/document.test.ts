@@ -186,6 +186,17 @@ describe('the OpenAPI document', () => {
   it('describes the support desk, which a runtime without MCP has no other door to', () => {
     expect(document.paths).toHaveProperty(['/v1/support/tickets', 'post'])
     expect(document.paths).toHaveProperty(['/v1/support/tickets', 'get'])
+    expect(document.paths).toHaveProperty([
+      '/v1/support/tickets',
+      'get',
+      'responses',
+      '200',
+      'content',
+      'application/json',
+      'schema',
+      'properties',
+      'nextCursor',
+    ])
     expect(document.paths).toHaveProperty(['/v1/support/tickets/{ticketId}', 'get'])
     expect(document.paths).toHaveProperty(['/v1/support/tickets/{ticketId}/withdraw', 'post'])
   })

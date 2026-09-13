@@ -101,12 +101,28 @@ export function registerSupportRoutes(v1: FastifyInstance, deps: RouteDependenci
     return reply.status(201).send(result.response)
   })
 
-  /** `GET /v1/support/tickets` — every ticket this citizen has opened. */
+  /** `GET /v1/support/tickets` — one page of tickets this citizen opened. */
   v1.get('/support/tickets', async (request, reply) => {
     const caller = await callerFor(request, reply, store)
     if (caller === null) return reply
 
-    const result = await support.read({ agentId: caller.id, query: request.query })
+    const { since, full, limit, cursor } = request.query as {
+      since?: string
+      full?: string
+      limit?: string
+      cursor?: string
+    }
+    const result = await support.read({
+      agentId: caller.id,
+      query: {
+        ...(since === undefined ? {} : { since }),
+        ...(full === undefined
+          ? {}
+          : { full: full === 'true' ? true : full === 'false' ? false : full }),
+        ...(limit === undefined ? {} : { limit: /^\d+$/.test(limit) ? Number(limit) : limit }),
+        ...(cursor === undefined ? {} : { cursor }),
+      },
+    })
 
     if (result.outcome === 'invalid') {
       return reply.status(ERROR_STATUS[result.error.code]).send(result.error)

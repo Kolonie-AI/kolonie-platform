@@ -3,12 +3,14 @@ import {
   AccountKindSchema,
   DEFAULT_BRIEFING_INTERVAL_MS,
   OwnTicketSchema,
+  SupportTicketIdSchema,
   SupportTicketSchema,
   WITHDRAWABLE_TICKET_STATUSES,
   type AgentId,
   type ColonyNotice,
   type OpenTicketRequest,
   type OwnTicket,
+  type ReadTicketsRequest,
   type SupportTicket,
   type SupportTicketId,
   type SupportTicketRoute,
@@ -236,36 +238,106 @@ export type OpenTicketOutcome =
   /** The reference named no submission of the caller's. Whether it exists is not said. */
   | { readonly outcome: 'no-such-submission' }
 
-/**
- * Every ticket this agent opened, newest first.
- *
- * **Keyed on the agent, not filtered by it.** The distinction matters because it is
- * the only isolation this table has: there is no `listAllTickets` here that a route
- * could reach for by mistake, so the shape of the API makes one citizen's queue
- * unreachable from another's credential rather than relying on a `where` clause a
- * future caller remembers to pass. Whatever tool triage eventually uses will need
- * its own function, and writing that is where the decision about who may read
- * everything gets made — deliberately, rather than by adding a parameter here.
- *
- * Not paginated, for the reason D-033 gives about an agent's own submissions: the
- * list is bounded by what one agent wrote.
- */
+interface SupportTicketsCursor {
+  readonly since: string | null
+  readonly full: boolean
+  readonly after: {
+    readonly createdAt: string
+    readonly id: string
+  }
+}
+
+function encodeSupportTicketsCursor(
+  row: { readonly createdAt: string; readonly id: string },
+  query: ReadTicketsRequest,
+): string {
+  return Buffer.from(
+    JSON.stringify({
+      since: query.since ?? null,
+      full: query.full,
+      after: { createdAt: row.createdAt, id: row.id },
+    }),
+    'utf8',
+  ).toString('base64url')
+}
+
+function decodeSupportTicketsCursor(cursor: string | undefined): SupportTicketsCursor | undefined {
+  if (cursor === undefined) return undefined
+
+  try {
+    const value: unknown = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'))
+    if (typeof value !== 'object' || value === null) return undefined
+    const { since, full, after } = value as Record<string, unknown>
+    if (
+      !((typeof since === 'string' && !Number.isNaN(Date.parse(since))) || since === null) ||
+      typeof full !== 'boolean' ||
+      typeof after !== 'object' ||
+      after === null
+    ) {
+      return undefined
+    }
+    const { createdAt, id } = after as Record<string, unknown>
+    const parsedId = SupportTicketIdSchema.safeParse(id)
+    if (typeof createdAt !== 'string' || Number.isNaN(Date.parse(createdAt)) || !parsedId.success) {
+      return undefined
+    }
+    return { since, full, after: { createdAt, id: parsedId.data } }
+  } catch {
+    return undefined
+  }
+}
+
+export type ListOwnTicketsOutcome =
+  | {
+      readonly outcome: 'listed'
+      readonly tickets: readonly OwnTicket[]
+      readonly nextCursor?: string
+    }
+  | { readonly outcome: 'invalid-cursor' }
+
+/** One keyset page of this agent's tickets, newest first. */
 export async function listOwnTickets(
   db: Database,
   agentId: AgentId,
-  query: { readonly since?: string; readonly full?: boolean } = {},
-): Promise<readonly OwnTicket[]> {
+  query: ReadTicketsRequest,
+): Promise<ListOwnTicketsOutcome> {
+  const after = decodeSupportTicketsCursor(query.cursor)
+  if (
+    query.cursor !== undefined &&
+    (after === undefined || after.since !== (query.since ?? null) || after.full !== query.full)
+  ) {
+    return { outcome: 'invalid-cursor' }
+  }
+
   const rows = await db
     .select()
     .from(supportTickets)
     .where(
-      query.since === undefined
-        ? eq(supportTickets.agentId, agentId)
-        : and(eq(supportTickets.agentId, agentId), gte(supportTickets.createdAt, query.since)),
+      and(
+        eq(supportTickets.agentId, agentId),
+        ...(query.since === undefined ? [] : [gte(supportTickets.createdAt, query.since)]),
+        ...(after === undefined
+          ? []
+          : [
+              sql`(${supportTickets.createdAt}, ${supportTickets.id}) < (${after.after.createdAt}::timestamptz, ${after.after.id}::uuid)`,
+            ]),
+      ),
     )
-    .orderBy(desc(supportTickets.createdAt))
+    .orderBy(desc(supportTickets.createdAt), desc(supportTickets.id))
+    .limit(query.limit + 1)
 
-  return rows.map((row) => toOwnTicket(row, { body: query.full === true }))
+  const page = rows.slice(0, query.limit)
+  const last = page.at(-1)
+  const nextCursor =
+    rows.length > query.limit && last !== undefined
+      ? encodeSupportTicketsCursor(last, query)
+      : undefined
+
+  return {
+    outcome: 'listed',
+    tickets: page.map((row) => toOwnTicket(row, { body: query.full })),
+    ...(nextCursor === undefined ? {} : { nextCursor }),
+  }
 }
 
 /**

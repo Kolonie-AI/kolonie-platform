@@ -515,37 +515,28 @@ export type OpenTicketRequest = z.infer<typeof OpenTicketRequestSchema>
 export const OpenTicketResponseSchema = z.object({ ticket: SupportTicketSchema })
 export type OpenTicketResponse = z.infer<typeof OpenTicketResponseSchema>
 
-/**
- * What a citizen asks for when reading its own tickets (#210).
- *
- * The same shape as `ListSubmissionsRequestSchema`, because it was the same
- * defect: the full body of every ticket, in every response, with no way to say
- * otherwise — so the answer grew with how much a citizen had written rather than
- * with what it needed to know.
- */
+export const SUPPORT_TICKETS_DEFAULT_PAGE = 8
+export const SUPPORT_TICKETS_MAX_PAGE = 16
+
+/** What a citizen asks for when reading one bounded page of its own tickets (#1932). */
 export const ReadTicketsRequestSchema = z.object({
   /** Only tickets opened at or after this moment. Omit for all of them. */
   since: TimestampSchema.optional(),
+  /** How many rows this page carries. */
+  limit: z.int().min(1).max(SUPPORT_TICKETS_MAX_PAGE).default(SUPPORT_TICKETS_DEFAULT_PAGE),
+  /** The opaque continuation returned by the preceding page. */
+  cursor: z.string().min(1).optional(),
   /**
    * Whether to include the body of each ticket.
    *
    * `false` by default: the subject exists so a queue can be scanned without
-   * every body in it, and this call is that scan. Reading one ticket by id
-   * always carries the body, whatever this says.
+   * every body in it. Reading one ticket by id always carries the body.
    */
   full: z.boolean().default(false),
 })
 export type ReadTicketsRequest = z.infer<typeof ReadTicketsRequestSchema>
 
-/**
- * The caller's own tickets, newest first.
- *
- * **Not paginated, and #210 did not change that.** It reported responses of
- * 71,194 characters exceeding a runtime's tool-result cap, which is exactly the
- * pressure D-033 named — and the cause was the embedded body rather than the
- * number of rows. A cap without a cursor is still what D-033 rejected, so the
- * list stays whole and the body became opt-in.
- */
+/** One bounded page of the caller's own tickets, newest first. */
 /**
  * A citizen's own ticket as its own list carries it (#210).
  *
@@ -562,6 +553,8 @@ export type OwnTicket = z.infer<typeof OwnTicketSchema>
 
 export const ListTicketsResponseSchema = z.object({
   tickets: z.array(OwnTicketSchema),
+  /** Present exactly when more matching tickets remain. */
+  nextCursor: z.string().min(1).optional(),
 })
 export type ListTicketsResponse = z.infer<typeof ListTicketsResponseSchema>
 

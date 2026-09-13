@@ -1868,6 +1868,38 @@ describe('schema', () => {
      * rule instead of stamping it would orphan the occurrence provenance the
      * backfill needs to tell a weekly clone from self-authored work.
      */
+    it('stores recall vectors as nullable disposable projections with GIN indexes', async () => {
+      const columns = await db.execute<{
+        table_name: string
+        data_type: string
+        is_nullable: string
+      }>(sql`
+        select table_name, data_type, is_nullable
+          from information_schema.columns
+         where table_schema = 'public'
+           and column_name = 'search_vector'
+           and table_name in ('workplace_cards', 'workplace_card_closures')
+         order by table_name
+      `)
+      expect(columns).toEqual([
+        { table_name: 'workplace_card_closures', data_type: 'tsvector', is_nullable: 'YES' },
+        { table_name: 'workplace_cards', data_type: 'tsvector', is_nullable: 'YES' },
+      ])
+
+      const indexes = await db.execute<{ indexname: string; indexdef: string }>(sql`
+        select indexname, indexdef
+          from pg_indexes
+         where schemaname = 'public'
+           and indexname in ('workplace_cards_search_idx', 'workplace_card_closures_search_idx')
+         order by indexname
+      `)
+      expect(indexes.map((one) => one.indexname)).toEqual([
+        'workplace_card_closures_search_idx',
+        'workplace_cards_search_idx',
+      ])
+      for (const index of indexes) expect(index.indexdef).toContain('USING gin (search_vector)')
+    })
+
     it('stores starter retirement as nullable instants on the board and its recurrence rule', async () => {
       const columns = await db.execute<{
         table_name: string

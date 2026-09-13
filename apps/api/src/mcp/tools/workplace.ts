@@ -3,6 +3,7 @@ import {
   AgentOperatorDelegationIdSchema,
   DELEGATION_REFUSAL_CODES,
   WORKPLACE_COMMITMENT_UNTRUSTED_CONTENT,
+  WORKPLACE_RECALL_UNTRUSTED_CONTENT,
   WORKPLACE_SELF_DIRECTION_GUIDANCE,
   WORKPLACE_UNTRUSTED_CONTENT,
   WorkplaceActSchema,
@@ -26,6 +27,7 @@ import {
   WorkplaceLaneSchema,
   WorkplaceMoveCardRequestSchema,
   WorkplaceRenameBoardRequestSchema,
+  WorkplaceRecallRequestSchema,
   WorkplaceSubjectSchema,
   WorkplaceUpdateCardRequestSchema,
   WorkplaceUpdateChecklistItemRequestSchema,
@@ -81,6 +83,7 @@ const ALLOWED: Readonly<Record<WorkplaceSubject, readonly WorkplaceAct[]>> = {
     'claim',
     'handover',
     'archive',
+    'recall',
   ],
   /**
    * Four acts, one row, and no new tool (`#1869`).
@@ -409,7 +412,7 @@ function capabilitiesFor(
   subject: WorkplaceSubject,
   input: { readonly fields?: unknown },
 ): readonly AgentOperatorCapability[] {
-  if (act === 'list' || act === 'get') return ['workplace-read']
+  if (act === 'list' || act === 'get' || act === 'recall') return ['workplace-read']
   if (act === 'handover' || act === 'claim') return ['workplace-write', 'handover']
   if (subject === 'board' && act === 'update' && asObject(asObject(input.fields)?.['members'])) {
     return ['workplace-write', 'handover']
@@ -934,6 +937,58 @@ async function dispatchCard(
         ? 'Deferred this practicum retrospective; no successor was created.'
         : 'Ended this practicum loop; no successor was created.',
       resolved,
+    )
+  }
+
+  if (act === 'recall') {
+    const unexpectedTopLevel = [
+      ['id', input.id],
+      ['boardId', input.boardId],
+      ['cursor', input.cursor],
+      ['limit', input.limit],
+      ['expectedVersion', input.expectedVersion],
+      ['idempotencyKey', input.idempotencyKey],
+    ].find(([, value]) => value !== undefined && value !== null)
+    if (unexpectedTopLevel !== undefined) {
+      const key = String(unexpectedTopLevel[0])
+      return toolError({
+        code: 'validation_failed',
+        message: 'Recall query fields belong inside `fields`.',
+        details: { [key]: 'unexpected' },
+      })
+    }
+    const parsed = WorkplaceRecallRequestSchema.safeParse(fieldsOf(input))
+    if (!parsed.success) {
+      return parsedFail('Recall takes query, scope and optional structured filters.', parsed.error)
+    }
+    const recalled = await cards.recall(callerId, parsed.data)
+    if (recalled.outcome === 'missing') return toolError(missingBoard)
+    if (recalled.outcome === 'invalid-cursor') {
+      return toolError({
+        code: 'validation_failed',
+        message: 'The cursor does not match this recall query and filters.',
+        details: { cursor: 'invalid' },
+      })
+    }
+    const continuation =
+      recalled.nextCursor === null
+        ? undefined
+        : {
+            act: 'recall' as const,
+            subject: 'card' as const,
+            fields: { ...parsed.data, cursor: recalled.nextCursor },
+          }
+    return ok(
+      `${recalled.items.length} recall citations.\n\n${WORKPLACE_RECALL_UNTRUSTED_CONTENT}`,
+      {
+        items: recalled.items,
+        nextCursor: recalled.nextCursor,
+        next: withContinuation(
+          recalled.items.map((item) => item.read.arguments),
+          continuation,
+        ),
+        untrustedContent: WORKPLACE_RECALL_UNTRUSTED_CONTENT,
+      },
     )
   }
 

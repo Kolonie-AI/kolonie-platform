@@ -665,6 +665,60 @@ const theWorkplaceStarterRetirement: DataMigrationCase = {
   },
 }
 
+const theWorkplaceLexicalRecallProjection: DataMigrationCase = {
+  migration: '0374_yummy_stick',
+  after: '0373_yellow_lorna_dane',
+  moves: 'canonical cards and closures into GIN-indexed recall vectors',
+
+  async seed(db) {
+    const [agent] = await db.execute<{ id: string }>(
+      sql`insert into agents (name, platform) values (${aName('recall-migration')}, 'openclaw') returning id`,
+    )
+    const [board] = await db.execute<{ id: string }>(
+      sql`insert into workplace_boards (owner_id, kind, title)
+          values (${agent!.id}, 'default', 'Default board') returning id`,
+    )
+    const [card] = await db.execute<{ id: string }>(
+      sql`insert into workplace_cards (board_id, status, title, description, outcome, position)
+          values (${board!.id}, 'done', 'Recall migration card', 'Verifying the text projection.',
+                  'Recall migration outcome.', 1000)
+          returning id`,
+    )
+    const [link] = await db.execute<{ id: string }>(
+      sql`insert into workplace_card_links (card_id, kind, ref)
+          values (${card!.id}, 'url', 'https://example.invalid/migration-evidence-1943') returning id`,
+    )
+    const [closure] = await db.execute<{ id: string }>(
+      sql`insert into workplace_card_closures
+            (board_id, card_id, revision, result, summary, learned, next, legacy)
+          values (${board!.id}, ${card!.id}, 1, 'shipped', 'Published the migration proof.',
+                  'Migrations must backfill disposable projections.', '{"kind":"none"}'::jsonb, false)
+          returning id`,
+    )
+    await db.execute(
+      sql`insert into workplace_card_closure_evidence (closure_id, link_id)
+          values (${closure!.id}, ${link!.id})`,
+    )
+    return { card: card!.id, closure: closure!.id }
+  },
+
+  async check(db, seeded) {
+    const [card] = await db.execute<{ search_vector: string | null }>(
+      sql`select search_vector::text from workplace_cards where id = ${seeded['card']!}`,
+    )
+    expect(card?.search_vector).not.toBeNull()
+    expect(card?.search_vector).toContain('recal')
+
+    const [closure] = await db.execute<{ search_vector: string | null }>(
+      sql`select search_vector::text from workplace_card_closures where id = ${seeded['closure']!}`,
+    )
+    expect(closure?.search_vector).not.toBeNull()
+    expect(closure?.search_vector).toContain('migrat')
+    expect(closure?.search_vector).toContain('migration-evidence')
+    expect(closure?.search_vector).toContain('1943')
+  },
+}
+
 const DATA_MIGRATIONS: readonly DataMigrationCase[] = [
   theWardens,
   theExchanges,
@@ -673,6 +727,7 @@ const DATA_MIGRATIONS: readonly DataMigrationCase[] = [
   theWorkplaceKinds,
   theMessageRequestPreviews,
   theWorkplaceStarterRetirement,
+  theWorkplaceLexicalRecallProjection,
 ]
 
 /**

@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import {
   EMPTY_WORKPLACE_LINK_COUNTS,
   WORKPLACE_PRACTICUM_CARD_TITLES,
@@ -15,6 +15,8 @@ import {
   type AgentId,
   type WorkplaceCard,
   type WorkplaceCardClosure,
+  type WorkplaceRecallHit,
+  type WorkplaceRecallRequest,
   type WorkplaceCardEvent,
   type WorkplaceCardDetail,
   type WorkplaceCardSummary,
@@ -35,6 +37,7 @@ import type { WorkplaceBoards } from '../workplace-boards.js'
 import type {
   AddLinkResult,
   ArchiveCardResult,
+  RecallWorkplaceResult,
   AttachLabelResult,
   BlockCardResult,
   ClaimCardResult,
@@ -142,6 +145,210 @@ export function fakeWorkplaceCards(boards?: WorkplaceBoards): FakeWorkplaceCards
     }
     const owners = seats.get(card.boardId) ?? []
     return owners.some((one) => one.citizenId === callerId && one.role === 'owner') ? card : null
+  }
+
+  const boardTitleOf = async (callerId: AgentId, boardId: string): Promise<string> => {
+    if (boards !== undefined) {
+      const board = await boards.get(callerId, boardId)
+      if (board !== null) return board.title
+    }
+    return `Board ${boardId.slice(0, 8)}`
+  }
+
+  /**
+   * Recall over the planted rows, mirroring storage's answer shape (`#1943`).
+   *
+   * **A row store, not a rule copy**: boards in seats with their planted
+   * titles, cards in the map, the closures the tests planted. The rules it
+   * does restate — scope resolution, filters before ranking, the cursor's
+   * query/filter hash — are the ones routes branch on; ranking itself is
+   * substring relevance, enough for route tests to see ordering and
+   * pagination without Postgres. The hash and cursor shape are copied from
+   * `computeRecallHash`/`encodeRecallCursor` in
+   * `packages/db/src/storage/workplace.ts`.
+   */
+  // @mirrors packages/db/src/storage/workplace.ts recallWorkplace 9532b229
+  const recall = async (
+    callerId: AgentId,
+    request: WorkplaceRecallRequest,
+  ): Promise<RecallWorkplaceResult> => {
+    const hash = createHash('sha256')
+      .update(
+        JSON.stringify({
+          q: request.query.toLowerCase(),
+          scope: request.scope,
+          boardId: request.boardId ?? null,
+          kinds: (request.kinds ?? ['card', 'closure']).slice().sort(),
+          result: (request.result ?? []).slice().sort(),
+          status: (request.status ?? []).slice().sort(),
+          from: request.from ?? null,
+          to: request.to ?? null,
+        }),
+      )
+      .digest('hex')
+      .slice(0, 16)
+    let after: { h: string; r: number; m: string; t: 'card' | 'closure'; id: string } | undefined
+    if (request.cursor !== undefined && request.cursor !== '') {
+      if (!/^[A-Za-z0-9_-]+$/.test(request.cursor)) return { outcome: 'invalid-cursor' }
+      try {
+        const parsed = JSON.parse(Buffer.from(request.cursor, 'base64url').toString('utf8'))
+        if (typeof parsed !== 'object' || parsed === null || parsed.h !== hash) {
+          return { outcome: 'invalid-cursor' }
+        }
+        after = parsed as typeof after
+      } catch {
+        return { outcome: 'invalid-cursor' }
+      }
+    }
+
+    const allowedBoards: string[] = []
+    if (request.scope === 'board') {
+      if (request.boardId === undefined || membershipOf(callerId, request.boardId) === undefined) {
+        return { outcome: 'missing' }
+      }
+      allowedBoards.push(request.boardId)
+    } else {
+      const mine = [...seats.entries()]
+        .filter(([, mems]) => mems.some((one) => one.citizenId === callerId))
+        .map(([boardId]) => boardId)
+      if (request.scope === 'my_default') {
+        let def: string | undefined
+        if (boards !== undefined) {
+          const listed = await boards.list(callerId)
+          if (listed.outcome === 'listed') {
+            def = listed.items.find((one) => one.kind === 'default')?.id
+          }
+        }
+        if (def === undefined) {
+          def = mine.find((boardId) => {
+            const mems = seats.get(boardId) ?? []
+            return mems.some((one) => one.citizenId === callerId && one.role === 'owner')
+          })
+        }
+        if (def === undefined) return { outcome: 'recalled', items: [], nextCursor: null }
+        allowedBoards.push(def)
+      } else {
+        allowedBoards.push(...mine)
+      }
+    }
+
+    const query = request.query.toLowerCase()
+    const kinds = request.kinds ?? ['card', 'closure']
+    type Candidate = {
+      rank: number
+      matchedAt: string
+      type: 'card' | 'closure'
+      id: string
+      hit: WorkplaceRecallHit
+    }
+    const candidates: Candidate[] = []
+
+    if (kinds.includes('card') && (request.result === undefined || request.result.length === 0)) {
+      for (const card of cards.values()) {
+        if (!allowedBoards.includes(card.boardId)) continue
+        if (card.archivedAt !== null) continue
+        if (request.status !== undefined && !request.status.includes(card.status)) continue
+        const haystack = `${card.title} ${card.description ?? ''}`.toLowerCase()
+        if (!haystack.includes(query)) continue
+        const matchedAt = card.updatedAt
+        if (request.from !== undefined && matchedAt < request.from) continue
+        if (request.to !== undefined && matchedAt > request.to) continue
+        candidates.push({
+          rank: card.title.toLowerCase().includes(query) ? 2 : 1,
+          matchedAt,
+          type: 'card',
+          id: card.id,
+          hit: {
+            type: 'card',
+            board: { id: card.boardId, title: await boardTitleOf(callerId, card.boardId) },
+            card: { id: card.id, title: card.title, status: card.status, kind: card.kind },
+            matchedAt,
+            highlights: [card.title.slice(0, 240)],
+            read: {
+              tool: 'kolonie.workplace',
+              arguments: { act: 'get', subject: 'card', id: card.id },
+            },
+          },
+        })
+      }
+    }
+
+    if (kinds.includes('closure')) {
+      for (const [cardId, history] of closures) {
+        const card = cards.get(cardId)
+        if (card === undefined) continue
+        if (!allowedBoards.includes(card.boardId)) continue
+        if (card.archivedAt !== null) continue
+        if (request.status !== undefined && !request.status.includes(card.status)) continue
+        for (const closure of history) {
+          if (
+            request.result !== undefined &&
+            request.result.length > 0 &&
+            !request.result.includes(closure.result)
+          ) {
+            continue
+          }
+          const refHaystack = closure.evidenceLinks
+            .flatMap((link) => link.ref.split(/[^A-Za-z0-9-]+/))
+            .join(' ')
+            .toLowerCase()
+          const haystack = `${closure.summary} ${closure.learned} ${refHaystack}`.toLowerCase()
+          if (!haystack.includes(query)) continue
+          const matchedAt = closure.createdAt
+          if (request.from !== undefined && matchedAt < request.from) continue
+          if (request.to !== undefined && matchedAt > request.to) continue
+          candidates.push({
+            rank: closure.summary.toLowerCase().includes(query) ? 2 : 1,
+            matchedAt,
+            type: 'closure',
+            id: closure.id,
+            hit: {
+              type: 'closure',
+              board: { id: card.boardId, title: await boardTitleOf(callerId, card.boardId) },
+              card: { id: card.id, title: card.title, status: card.status, kind: card.kind },
+              closure: { id: closure.id, revision: closure.revision, result: closure.result },
+              matchedAt,
+              highlights: [closure.summary.slice(0, 240)],
+              read: {
+                tool: 'kolonie.workplace',
+                arguments: { act: 'get', subject: 'card', id: card.id },
+              },
+            },
+          })
+        }
+      }
+    }
+
+    candidates.sort((a, b) => {
+      if (b.rank !== a.rank) return b.rank - a.rank
+      if (b.matchedAt !== a.matchedAt) return b.matchedAt < a.matchedAt ? -1 : 1
+      if (a.type !== b.type) return a.type < b.type ? -1 : 1
+      return a.id < b.id ? -1 : 1
+    })
+
+    const afterIndex =
+      after === undefined
+        ? -1
+        : candidates.findIndex((one) => one.id === after.id && one.type === after.t)
+    if (after !== undefined && afterIndex < 0) return { outcome: 'invalid-cursor' }
+    const live = candidates.slice(afterIndex + 1)
+    const limit = Math.min(Math.max(request.limit ?? 10, 1), 50)
+    const page = live.slice(0, limit)
+    const last = page[page.length - 1]
+    const nextCursor =
+      live.length > limit && last !== undefined
+        ? Buffer.from(
+            JSON.stringify({
+              h: hash,
+              r: last.rank,
+              m: last.matchedAt,
+              t: last.type,
+              id: last.id,
+            }),
+            'utf8',
+          ).toString('base64url')
+        : null
+    return { outcome: 'recalled', items: page.map((one) => one.hit), nextCursor }
   }
 
   const visible = (callerId: AgentId, cardId: string): WorkplaceCard | null => {
@@ -460,6 +667,8 @@ export function fakeWorkplaceCards(boards?: WorkplaceBoards): FakeWorkplaceCards
         nextCursor: start + page.length < all.length ? (page[page.length - 1]?.id ?? null) : null,
       } satisfies ListCardClosuresResult
     },
+
+    recall,
 
     /**
      * Explicit practicum acceptance (`#1835`). The five titles come from the

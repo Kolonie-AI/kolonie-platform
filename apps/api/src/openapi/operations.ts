@@ -30,6 +30,8 @@ import {
   WorkplaceCreateCardClosureRequestSchema,
   WorkplaceCardEventPageSchema,
   WorkplaceCardPageSchema,
+  WorkplaceRecallRequestSchema,
+  WorkplaceRecallResponseSchema,
   WorkplaceCardSchema,
   WorkplaceChecklistItemSchema,
   WorkplaceChecklistSchema,
@@ -258,6 +260,10 @@ export const OPERATIONS: Record<string, OperationSchemas> = {
   'POST /v1/workplace/boards/:boardId/cards': {
     request: WorkplaceCreateCardRequestSchema,
     response: WorkplaceCardSchema,
+  },
+  'POST /v1/workplace/recall': {
+    request: WorkplaceRecallRequestSchema,
+    response: WorkplaceRecallResponseSchema,
   },
   'GET /v1/workplace/cards/:cardId': { response: WorkplaceCardDetailSchema },
   'GET /v1/workplace/cards/:cardId/events': { response: WorkplaceCardEventPageSchema },

@@ -1,6 +1,6 @@
 {
-  "id": "193e0d7f-45ef-48ed-90c9-5af9780229b3",
-  "prevId": "54e50259-8bdb-4b5a-a562-64cb53e76502",
+  "id": "d2ba50b5-0925-447e-a294-41a5e8993fb3",
+  "prevId": "193e0d7f-45ef-48ed-90c9-5af9780229b3",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -23281,6 +23281,19 @@
           "primaryKey": false,
           "notNull": false
         },
+        "focus_card_id": {
+          "name": "focus_card_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "focus_lost": {
+          "name": "focus_lost",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
         "version": {
           "name": "version",
           "type": "integer",
@@ -23316,6 +23329,19 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "workplace_commitments_focus_card_id_workplace_cards_id_fk": {
+          "name": "workplace_commitments_focus_card_id_workplace_cards_id_fk",
+          "tableFrom": "workplace_commitments",
+          "tableTo": "workplace_cards",
+          "columnsFrom": [
+            "focus_card_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },

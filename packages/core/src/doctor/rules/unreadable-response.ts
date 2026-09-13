@@ -1,3 +1,4 @@
+import type { DoctorPaginationNextAction } from '../answer.js'
 import { byRoute, confidenceOf, totals, windowOf } from '../arithmetic.js'
 import type { Finding } from '../finding.js'
 import type { DoctorInput } from '../input.js'
@@ -42,8 +43,24 @@ export const NARROWER_CALL_FOR: Readonly<Record<string, string>> = {
  * generic sentence, which is still correct.
  */
 export const PAGE_ARGUMENTS_FOR: Readonly<Record<string, readonly string[]>> = {
+  'kolonie.accounts.list': ['limit', 'cursor'],
   'kolonie.messages.get_thread': ['limit', 'cursor'],
   'kolonie.support.read': ['limit', 'cursor'],
+}
+
+/**
+ * Same-route retries whose complete pagination contract is known (`#1950`).
+ *
+ * This is deliberately narrower than {@link PAGE_ARGUMENTS_FOR}: naming two
+ * arguments is enough for text, while an executable action must also know a
+ * safe bound and how the response hands the continuation back.
+ */
+export const PAGINATION_ACTION_FOR: Readonly<Record<string, DoctorPaginationNextAction>> = {
+  'kolonie.accounts.list': {
+    tool: 'kolonie.accounts.list',
+    arguments: { limit: 1 },
+    continuation: { responseField: 'nextCursor', argument: 'cursor' },
+  },
 }
 
 /**

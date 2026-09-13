@@ -128,6 +128,8 @@ export interface CitizenMessaging {
       readonly accountId?: string
     },
   ): Promise<SendResponse>
+  /** Retract one message only when this citizen is its actual sender. */
+  retract?(agentId: AgentId, messageId: MessageId): Promise<RetractResponse>
   /** First contacts waiting on the caller. */
   listRequests(agentId: AgentId): Promise<readonly MessageRequest[]>
   /** Join the conversation; everything already written becomes readable. */
@@ -264,6 +266,8 @@ export interface OperatorMessaging {
     humanId: HumanId,
     conversationId: ConversationId,
   ): Promise<{ readonly outcome: 'marked' } | { readonly outcome: 'not-a-participant' }>
+  /** Retract one message only when this human is its actual sender. */
+  retract?(humanId: HumanId, messageId: MessageId): Promise<RetractResponse>
   /**
    * The tasks this citizen has open, for a person choosing a subject (`#1551`).
    *
@@ -369,6 +373,17 @@ export type MessageSendInput = {
    */
   readonly accountId?: string
 }
+
+export type RetractResponse =
+  | {
+      readonly outcome: 'retracted'
+      readonly response: {
+        readonly messageId: MessageId
+        readonly conversationId: ConversationId
+        readonly retractedAt: string
+      }
+    }
+  | { readonly outcome: 'refused'; readonly error: ApiError }
 
 export type SendResponse =
   | {

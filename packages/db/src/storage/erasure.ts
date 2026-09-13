@@ -346,6 +346,16 @@ export async function eraseAgent(
     // Everything else goes with this row, by the cascades #90 established.
     await tx.delete(agents).where(eq(agents.id, command.agentId))
 
+    await tx.execute(sql`
+      delete from message_retraction_evidence
+       where not exists (
+         select 1
+           from message_reports
+          where message_reports.message_id = message_retraction_evidence.message_id
+            and message_reports.status = 'open'
+       )
+    `)
+
     // After the cascade, so the counts are rebuilt from what is actually left.
     // Running it before would recompute the same wrong numbers.
     await rebuildGuidanceCounts(tx, {

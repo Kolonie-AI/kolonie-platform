@@ -51,6 +51,7 @@ import {
   messageConversations,
   messageParticipants,
   messageReports,
+  messageRetractionEvidence,
   messageRequests,
   messageTelegramAsks,
   messages,
@@ -222,6 +223,7 @@ export type SendResult =
       readonly outcome: 'requested'
       readonly conversationId: ConversationId
       readonly requestId: MessageRequestId
+      readonly messageId?: MessageId
     }
   | { readonly outcome: 'refused'; readonly refusal: MessageRefusal }
 
@@ -263,6 +265,16 @@ export type RequestDecision =
   | { readonly outcome: 'accepted'; readonly conversationId: ConversationId }
   | { readonly outcome: 'declined' }
   | { readonly outcome: 'refused'; readonly refusal: MessageRefusal }
+
+/** One sender-owned message became, or already was, a tombstone. */
+export type RetractMessageResult =
+  | {
+      readonly outcome: 'retracted'
+      readonly messageId: MessageId
+      readonly conversationId: ConversationId
+      readonly retractedAt: string
+    }
+  | { readonly outcome: 'refused'; readonly refusal: 'no-such-message' }
 
 const conversationId = (value: string): ConversationId => ConversationIdSchema.parse(value)
 const participantId = (value: string): ConversationParticipantId =>
@@ -577,11 +589,13 @@ export async function sendCitizenMessage(
      * (`#1290`); this is the store, and it stores.
      */
     const sender = await participantOf(db, conversationId(pending.conversationId), senderId)
-    if (sender !== undefined) await insertMessage(db, sender, input.body)
+    if (sender === undefined) return { outcome: 'refused', refusal: 'not-a-participant' }
+    const id = await insertMessage(db, sender, input.body)
     return {
       outcome: 'requested',
       conversationId: conversationId(pending.conversationId),
       requestId: requestId(pending.id),
+      messageId: id,
     }
   }
 
@@ -686,6 +700,7 @@ export async function sendCitizenMessage(
         fromAgentId: senderId,
         toAgentId: recipientId,
         previewText: input.body.slice(0, MESSAGE_REQUEST_PREVIEW_MAX_LENGTH),
+        previewMessageId: id,
         expiresAt: sql`now() + ${sql.raw(`interval '${MESSAGE_REQUEST_EXPIRY_DAYS} days'`)}`,
       })
       .returning({ id: messageRequests.id })
@@ -695,6 +710,7 @@ export async function sendCitizenMessage(
       outcome: 'requested' as const,
       conversationId: conversationId(conversation.id),
       requestId: requestId(request.id),
+      messageId: id,
     }
   })
 }
@@ -706,7 +722,7 @@ export async function sendCitizenMessage(
  * through it, so *not in it* and *does not exist* produce the same `undefined`
  * without any caller having to remember to make them alike.
  */
-async function participantOf(db: Database, id: ConversationId, agentId: AgentId) {
+async function participantOf(db: Database | Transaction, id: ConversationId, agentId: AgentId) {
   const [row] = await db
     .select({
       id: messageParticipants.id,
@@ -2014,7 +2030,7 @@ async function conversationsFor(
         eq(messageParticipants.party, 'operator-human'),
       ),
     )
-    .where(inArray(messages.conversationId, ids))
+    .where(and(inArray(messages.conversationId, ids), isNull(messages.retractedAt)))
 
   const personReplied = new Set(repliedRows.map((row) => row.conversationId))
 
@@ -2505,6 +2521,7 @@ async function conversationBodies(
       nextAction: messages.nextAction,
       acknowledgedAt: messages.acknowledgedAt,
       answerKind: messages.answerKind,
+      retractedAt: messages.retractedAt,
       createdAt: messages.createdAt,
     })
     .from(messages)
@@ -2545,7 +2562,7 @@ async function conversationBodies(
           delegationStatus: conversation.delegationStatus as 'pending' | 'active' | 'revoked',
         }),
     messages: page_.map((row) => {
-      const base: Message = {
+      const envelope = {
         id: messageId(row.id),
         conversationId: conversationId(row.conversationId),
         sender: asSender({
@@ -2554,8 +2571,14 @@ async function conversationBodies(
           label: row.senderLabel,
           systemRole: row.senderSystemRole,
         }),
-        body: row.body,
         createdAt: row.createdAt,
+      }
+      if (row.retractedAt !== null) return { ...envelope, retractedAt: row.retractedAt }
+      if (row.body === null) throw new Error('an active message has no body')
+
+      const base: Message = {
+        ...envelope,
+        body: row.body,
         /**
          * Above the branch, because it belongs to the other party (`#1319`).
          *
@@ -2789,49 +2812,212 @@ export async function reportMessageAbuse(
   if (subject === undefined) return { outcome: 'refused', refusal: 'no-such-citizen' }
   if (subject.id === reporterId) return { outcome: 'refused', refusal: 'self' }
 
-  let conversationIdValue: string | null = input.conversationId ?? null
-  let messageIdValue: string | null = input.messageId ?? null
+  return await db.transaction(async (tx) => {
+    let conversationIdValue: string | null = input.conversationId ?? null
+    let messageIdValue: string | null = input.messageId ?? null
 
-  if (input.messageId !== undefined) {
-    const [row] = await db
+    if (input.messageId !== undefined) {
+      const [row] = await tx
+        .select({
+          messageId: messages.id,
+          conversationId: messages.conversationId,
+          myParticipant: messageParticipants.id,
+        })
+        .from(messages)
+        .innerJoin(
+          messageParticipants,
+          and(
+            eq(messageParticipants.conversationId, messages.conversationId),
+            eq(messageParticipants.agentId, reporterId),
+          ),
+        )
+        .where(eq(messages.id, input.messageId))
+        .limit(1)
+        .for('update', { of: messages })
+
+      if (row === undefined) return { outcome: 'refused', refusal: 'not-a-participant' }
+      messageIdValue = row.messageId
+      conversationIdValue = row.conversationId
+    } else if (input.conversationId !== undefined) {
+      const me = await participantOf(tx, input.conversationId, reporterId)
+      if (me === undefined) return { outcome: 'refused', refusal: 'not-a-participant' }
+      conversationIdValue = input.conversationId
+    }
+
+    const [inserted] = await tx
+      .insert(messageReports)
+      .values({
+        reporterAgentId: reporterId,
+        reportedAgentId: subject.id,
+        messageId: messageIdValue,
+        conversationId: conversationIdValue,
+        reason: input.reason ?? null,
+        status: 'open',
+      })
+      .returning({ id: messageReports.id })
+
+    return { outcome: 'reported', reportId: inserted!.id }
+  })
+}
+
+/**
+ * Retract one message after resolving the caller to its actual participant row.
+ *
+ * The message row is locked before its first timestamp is chosen. A second call
+ * waits for that row and reads the committed timestamp, so replay and races have
+ * exactly one result. Evidence is copied only while an open report already
+ * points at the message, before the ordinary body is cleared.
+ */
+async function retractMessage(
+  db: Database,
+  sender:
+    | { readonly party: 'citizen'; readonly agentId: AgentId }
+    | { readonly party: 'operator-human'; readonly humanId: HumanId },
+  id: MessageId,
+): Promise<RetractMessageResult> {
+  return await db.transaction(async (tx) => {
+    const locked = await tx
+      .select({ id: messages.id })
+      .from(messages)
+      .where(eq(messages.id, id))
+      .for('update')
+    if (locked.length === 0) return { outcome: 'refused', refusal: 'no-such-message' }
+
+    const [row] = await tx
       .select({
-        messageId: messages.id,
+        id: messages.id,
         conversationId: messages.conversationId,
-        myParticipant: messageParticipants.id,
+        body: messages.body,
+        retractedAt: messages.retractedAt,
       })
       .from(messages)
       .innerJoin(
         messageParticipants,
         and(
-          eq(messageParticipants.conversationId, messages.conversationId),
-          eq(messageParticipants.agentId, reporterId),
+          eq(messageParticipants.id, messages.senderParticipantId),
+          eq(messageParticipants.party, sender.party),
+          ...(sender.party === 'citizen'
+            ? [eq(messageParticipants.agentId, sender.agentId)]
+            : [eq(messageParticipants.humanId, sender.humanId)]),
         ),
       )
-      .where(eq(messages.id, input.messageId))
+      .where(and(eq(messages.id, id), sql`${messages.senderParty} <> 'system-role'`))
       .limit(1)
 
-    if (row === undefined) return { outcome: 'refused', refusal: 'not-a-participant' }
-    messageIdValue = row.messageId
-    conversationIdValue = row.conversationId
-  } else if (input.conversationId !== undefined) {
-    const me = await participantOf(db, input.conversationId, reporterId)
-    if (me === undefined) return { outcome: 'refused', refusal: 'not-a-participant' }
-    conversationIdValue = input.conversationId
-  }
+    if (row === undefined) return { outcome: 'refused', refusal: 'no-such-message' }
+    if (row.retractedAt !== null) {
+      return {
+        outcome: 'retracted',
+        messageId: messageId(row.id),
+        conversationId: conversationId(row.conversationId),
+        retractedAt: row.retractedAt,
+      }
+    }
+    if (row.body === null) throw new Error('an active message has no body')
 
-  const [inserted] = await db
-    .insert(messageReports)
-    .values({
-      reporterAgentId: reporterId,
-      reportedAgentId: subject.id,
-      messageId: messageIdValue,
-      conversationId: conversationIdValue,
-      reason: input.reason ?? null,
-      status: 'open',
-    })
-    .returning({ id: messageReports.id })
+    const [openReport] = await tx
+      .select({ id: messageReports.id })
+      .from(messageReports)
+      .where(and(eq(messageReports.messageId, row.id), eq(messageReports.status, 'open')))
+      .limit(1)
 
-  return { outcome: 'reported', reportId: inserted!.id }
+    if (openReport !== undefined) {
+      await tx
+        .insert(messageRetractionEvidence)
+        .values({ messageId: row.id, body: row.body })
+        .onConflictDoNothing()
+    }
+
+    const [updated] = await tx
+      .update(messages)
+      .set({
+        body: null,
+        retractedAt: sql`now()`,
+        answerKind: null,
+        priority: null,
+        actionRequired: false,
+        nextAction: null,
+        acknowledgedAt: null,
+      })
+      .where(and(eq(messages.id, row.id), isNull(messages.retractedAt)))
+      .returning({ retractedAt: messages.retractedAt })
+    if (updated?.retractedAt === null || updated?.retractedAt === undefined) {
+      throw new Error('retracting a message returned no timestamp')
+    }
+
+    await tx
+      .update(messageRequests)
+      .set({ previewText: null, previewMessageId: null })
+      .where(
+        and(eq(messageRequests.previewMessageId, row.id), eq(messageRequests.status, 'pending')),
+      )
+
+    return {
+      outcome: 'retracted',
+      messageId: messageId(row.id),
+      conversationId: conversationId(row.conversationId),
+      retractedAt: updated.retractedAt,
+    }
+  })
+}
+
+/** Retract a message only when the named citizen is its actual sender. */
+export async function retractMessageAsCitizen(
+  db: Database,
+  agentId: AgentId,
+  id: MessageId,
+): Promise<RetractMessageResult> {
+  return await retractMessage(db, { party: 'citizen', agentId }, id)
+}
+
+/** Retract a message only when the named human is its actual sender. */
+export async function retractMessageAsOperator(
+  db: Database,
+  humanId: HumanId,
+  id: MessageId,
+): Promise<RetractMessageResult> {
+  return await retractMessage(db, { party: 'operator-human', humanId }, id)
+}
+
+/**
+ * Finish moderation of one report and remove evidence when no open report needs it.
+ * The report row is locked so concurrent resolutions serialize with this cleanup.
+ */
+export async function resolveMessageReport(
+  db: Database,
+  reportId: string,
+  status: 'reviewed' | 'dismissed',
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    const [report] = await tx
+      .select({ messageId: messageReports.messageId })
+      .from(messageReports)
+      .where(eq(messageReports.id, reportId))
+      .limit(1)
+    if (report === undefined) return
+
+    if (report.messageId !== null) {
+      await tx
+        .select({ id: messages.id })
+        .from(messages)
+        .where(eq(messages.id, report.messageId))
+        .for('update')
+    }
+
+    await tx.update(messageReports).set({ status }).where(eq(messageReports.id, reportId))
+    if (report.messageId === null) return
+
+    const [open] = await tx
+      .select({ id: messageReports.id })
+      .from(messageReports)
+      .where(and(eq(messageReports.messageId, report.messageId), eq(messageReports.status, 'open')))
+      .limit(1)
+    if (open === undefined) {
+      await tx
+        .delete(messageRetractionEvidence)
+        .where(eq(messageRetractionEvidence.messageId, report.messageId))
+    }
+  })
 }
 
 /**
@@ -3095,7 +3281,8 @@ export interface InboxRow {
    * would render its opening line from two weeks ago.
    */
   readonly latest: {
-    readonly body: string
+    readonly body?: string
+    readonly retractedAt?: string
     readonly at: string
     readonly senderLabel: string
     readonly mine: boolean
@@ -3193,6 +3380,7 @@ export async function inboxFor(
     agent_id: string
     agent_name: string
     latest_body: string | null
+    latest_retracted_at: string | null
     latest_at: string | null
     latest_label: string | null
     latest_mine: boolean | null
@@ -3223,7 +3411,7 @@ export async function inboxFor(
     ),
     latest as (
       select distinct on (m.conversation_id)
-             m.conversation_id, m.body, m.created_at, m.sender_label, m.sender_participant_id
+             m.conversation_id, m.body, m.retracted_at, m.created_at, m.sender_label, m.sender_participant_id
         from messages m
         join mine on mine.conversation_id = m.conversation_id
        order by m.conversation_id, m.created_at desc, m.id desc
@@ -3263,12 +3451,13 @@ export async function inboxFor(
       select distinct m.conversation_id
         from messages m
         join mine on mine.conversation_id = m.conversation_id
-       where ${term === null ? sql`false` : sql`m.body ilike ${term} escape '\\'`}
+       where ${term === null ? sql`false` : sql`m.retracted_at is null and m.body ilike ${term} escape '\\'`}
     )
     select theirs.conversation_id,
            theirs.agent_id,
            theirs.agent_name,
            latest.body as latest_body,
+           latest.retracted_at as latest_retracted_at,
            latest.created_at as latest_at,
            latest.sender_label as latest_label,
            (latest.sender_participant_id = mine.participant_id) as latest_mine,
@@ -3326,7 +3515,9 @@ export async function inboxFor(
       row.latest_at === null
         ? null
         : {
-            body: row.latest_body ?? '',
+            ...(row.latest_retracted_at === null
+              ? { body: row.latest_body ?? '' }
+              : { retractedAt: row.latest_retracted_at }),
             at: row.latest_at,
             senderLabel: row.latest_label ?? '',
             mine: row.latest_mine === true,

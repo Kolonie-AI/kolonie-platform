@@ -261,7 +261,8 @@ export function registerConsoleInboxPages(
         messages: read.response.messages.map((message) => ({
           senderLabel: message.sender.label,
           party: message.sender.party,
-          body: message.body,
+          ...('body' in message ? { body: message.body } : {}),
+          ...('retractedAt' in message ? { retractedAt: message.retractedAt } : {}),
           createdAt: message.createdAt,
         })),
         declarations: OperatorAnswerKindSchema.options.map((kind) => ({
@@ -403,7 +404,12 @@ export function registerConsoleInboxPages(
       agentId: thread.agentId,
       agentName: thread.agentName,
       about: thread.about?.label ?? null,
-      preview: thread.latest?.body ?? null,
+      preview:
+        thread.latest === null
+          ? null
+          : thread.latest.retractedAt === undefined
+            ? (thread.latest.body ?? '')
+            : 'Message retracted by sender.',
       at: thread.latest?.at ?? null,
       senderLabel: thread.latest?.senderLabel ?? null,
       mine: thread.latest?.mine ?? false,

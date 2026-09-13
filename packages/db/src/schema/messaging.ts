@@ -43,7 +43,7 @@ const nextActionMax = sql.raw(String(MESSAGE_NEXT_ACTION_MAX_LENGTH))
 const reportReasonMax = sql.raw(String(MESSAGE_REPORT_REASON_MAX_LENGTH))
 
 /**
- * Private messaging, in six tables (`#1285`, `#1290`, epic `#1284`).
+ * Private messaging, in seven tables (`#1285`, `#1290`, `#1958`, epic `#1284`).
  *
  * The vocabulary and the product argument are in
  * `packages/core/src/message/message.ts`. What is decided *here* is which of the
@@ -514,7 +514,9 @@ export const messages = pgTable(
 
     senderSystemRole: messageSystemRole('sender_system_role'),
 
-    body: text('body').notNull(),
+    body: text('body'),
+
+    retractedAt: timestamp('retracted_at', { withTimezone: true, mode: 'string' }),
 
     /**
      * Urgency, action flag and tool hint — Colony system mail only (`#1289`).
@@ -659,6 +661,11 @@ export const messageRequests = pgTable(
      * avoid.
      */
     previewText: text('preview_text'),
+
+    /** The message whose bounded opening is copied above. */
+    previewMessageId: uuid('preview_message_id').references(() => messages.id, {
+      onDelete: 'set null',
+    }),
 
     status: messageRequestStatus('status').notNull().default('pending'),
 
@@ -805,6 +812,25 @@ export const messageReports = pgTable(
     index('message_reports_reporter_idx').on(table.reporterAgentId, table.createdAt),
   ],
 )
+
+/**
+ * The erased body of a retracted message only while moderation still needs it.
+ *
+ * The message key is also the primary key, so repeated retractions cannot make
+ * more than one copy. The evidence follows the tombstone on deletion; storage
+ * removes it sooner when the last open report is resolved.
+ */
+export const messageRetractionEvidence = pgTable('message_retraction_evidence', {
+  messageId: uuid('message_id')
+    .primaryKey()
+    .references(() => messages.id, { onDelete: 'cascade' }),
+
+  body: text('body').notNull(),
+
+  capturedAt: timestamp('captured_at', { withTimezone: true, mode: 'string' })
+    .notNull()
+    .defaultNow(),
+})
 
 /**
  * Which Telegram message the Colony sent about which operator thread (`#1321`).

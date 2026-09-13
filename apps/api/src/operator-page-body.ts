@@ -123,7 +123,10 @@ export async function operatorPageBody(
    */
   const waiting = threads.filter(
     (thread: (typeof threads)[number]) =>
-      !thread.closed && !thread.messages.some((message) => message.author === 'operator'),
+      !thread.closed &&
+      !thread.messages.some(
+        (message) => message.author === 'operator' && message.retractedAt === undefined,
+      ),
   ).length
 
   return operatorDurablePage({

@@ -131,6 +131,8 @@ import {
   removeConnection,
   replyInConversation,
   reportMessageAbuse,
+  retractMessageAsCitizen,
+  retractMessageAsOperator,
   conversationAboutAccount,
   archiveConversationForOperator,
   inboxFor,
@@ -1222,6 +1224,12 @@ const app = buildApp({
       }
       return { outcome: 'refused', error: messageRefusals[result.refusal] }
     },
+    retract: async (agentId, messageId) => {
+      const result = await retractMessageAsCitizen(db, agentId, messageId)
+      return result.outcome === 'retracted'
+        ? { outcome: 'retracted', response: result }
+        : { outcome: 'refused', error: messageRefusals[result.refusal] }
+    },
     listRequests: (agentId) => listMessageRequests(db, agentId),
     acceptRequest: async (agentId, requestId) => {
       const result = await acceptMessageRequest(db, agentId, requestId)
@@ -1317,6 +1325,12 @@ const app = buildApp({
     /** The write the console never made — see `markConversationReadByOperator`. */
     markRead: (humanId, conversationId) =>
       markConversationReadByOperator(db, humanId, conversationId),
+    retract: async (humanId, messageId) => {
+      const result = await retractMessageAsOperator(db, humanId, messageId)
+      return result.outcome === 'retracted'
+        ? { outcome: 'retracted', response: result }
+        : { outcome: 'refused', error: messageRefusals[result.refusal] }
+    },
     getThread: async (humanId, conversationId) => {
       const result = await readOperatorConversation(db, humanId, conversationId)
       return result.outcome === 'read'

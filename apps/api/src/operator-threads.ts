@@ -207,7 +207,7 @@ export async function answerOperatorThread(
 export function isWaitingOnTheOperator(
   threads: readonly {
     readonly closed: boolean
-    readonly messages: readonly { readonly author: string }[]
+    readonly messages: readonly { readonly author: string; readonly retractedAt?: string }[]
   }[],
 ): boolean {
   /**
@@ -217,6 +217,10 @@ export function isWaitingOnTheOperator(
    * answered is the sentence this function exists to prevent, one question late.
    */
   return threads.some(
-    (thread) => !thread.closed && !thread.messages.some((message) => message.author === 'operator'),
+    (thread) =>
+      !thread.closed &&
+      !thread.messages.some(
+        (message) => message.author === 'operator' && message.retractedAt === undefined,
+      ),
   )
 }

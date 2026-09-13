@@ -385,7 +385,79 @@ const theRhythms: DataMigrationCase = {
   },
 }
 
-const DATA_MIGRATIONS: readonly DataMigrationCase[] = [theWardens, theExchanges, theRhythms]
+const theWorkplaceClosures: DataMigrationCase = {
+  migration: '0368_first_oracle',
+  after: '0367_nice_franklin_richards',
+  moves: 'existing Done cards into explicit legacy close records',
+
+  async seed(db) {
+    const [agent] = await db.execute<{ id: string }>(
+      sql`insert into agents (name, platform) values (${aName('closure-case')}, 'openclaw') returning id`,
+    )
+    const [board] = await db.execute<{ id: string }>(
+      sql`insert into workplace_boards (owner_id, kind, title)
+          values (${agent!.id}, 'default', 'Default board') returning id`,
+    )
+    const [grounded] = await db.execute<{ id: string }>(
+      sql`insert into workplace_cards (board_id, status, title, position, outcome, updated_at)
+          values (${board!.id}, 'done', 'Old shipped card', 1000, 'The result shipped.',
+                  '2026-09-12T10:00:00.000Z') returning id`,
+    )
+    const [blank] = await db.execute<{ id: string }>(
+      sql`insert into workplace_cards (board_id, status, title, position, outcome, updated_at)
+          values (${board!.id}, 'done', 'Old blank card', 2000, '   ',
+                  '2026-09-12T11:00:00.000Z') returning id`,
+    )
+    return { grounded: grounded!.id, blank: blank!.id }
+  },
+
+  async check(db, seeded) {
+    const rows = await db.execute<{
+      card_id: string
+      result: string
+      summary: string
+      learned: string
+      next: { kind: string; text?: string }
+      legacy: boolean
+      actor_id: string | null
+      revision: number
+    }>(
+      sql`select card_id, result, summary, learned, next, legacy, actor_id, revision
+            from workplace_card_closures
+           where card_id in (${seeded['grounded']!}, ${seeded['blank']!})
+           order by card_id`,
+    )
+    const byCard = new Map(rows.map((row) => [row.card_id, row]))
+    expect(byCard.get(seeded['grounded']!)).toEqual(
+      expect.objectContaining({
+        result: 'shipped',
+        summary: 'The result shipped.',
+        learned: 'Legacy completion; no learning was recorded.',
+        next: { kind: 'none' },
+        legacy: true,
+        actor_id: null,
+        revision: 1,
+      }),
+    )
+    expect(byCard.get(seeded['blank']!)).toEqual(
+      expect.objectContaining({
+        result: 'abandoned',
+        summary: 'Legacy completion; no outcome was recorded.',
+        next: { kind: 'sentence', text: 'No next decision was recorded.' },
+        legacy: true,
+        actor_id: null,
+        revision: 1,
+      }),
+    )
+  },
+}
+
+const DATA_MIGRATIONS: readonly DataMigrationCase[] = [
+  theWardens,
+  theExchanges,
+  theRhythms,
+  theWorkplaceClosures,
+]
 
 /**
  * **A migration that moves data, run against a database that has some**

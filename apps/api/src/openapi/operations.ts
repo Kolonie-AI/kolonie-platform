@@ -1,3 +1,4 @@
+import { z } from 'zod'
 import {
   ArrivalReportRequestSchema,
   ArrivalReportResponseSchema,
@@ -22,6 +23,9 @@ import {
   WorkplaceAddMemberRequestSchema,
   WorkplaceBlockCardRequestSchema,
   WorkplaceCardDetailSchema,
+  WorkplaceCardClosurePageSchema,
+  WorkplaceCardClosureSchema,
+  WorkplaceCreateCardClosureRequestSchema,
   WorkplaceCardEventPageSchema,
   WorkplaceCardPageSchema,
   WorkplaceCardSchema,
@@ -231,6 +235,11 @@ export const OPERATIONS: Record<string, OperationSchemas> = {
   },
   'GET /v1/workplace/cards/:cardId': { response: WorkplaceCardDetailSchema },
   'GET /v1/workplace/cards/:cardId/events': { response: WorkplaceCardEventPageSchema },
+  'GET /v1/workplace/cards/:cardId/closures': { response: WorkplaceCardClosurePageSchema },
+  'POST /v1/workplace/cards/:cardId/closures': {
+    request: WorkplaceCreateCardClosureRequestSchema,
+    response: WorkplaceCardClosureSchema,
+  },
   'PATCH /v1/workplace/cards/:cardId': {
     request: WorkplaceUpdateCardRequestSchema,
     response: WorkplaceCardSchema,
@@ -247,7 +256,7 @@ export const OPERATIONS: Record<string, OperationSchemas> = {
   'POST /v1/workplace/cards/:cardId/request-review': { response: WorkplaceCardSchema },
   'POST /v1/workplace/cards/:cardId/complete': {
     request: WorkplaceCompleteCardRequestSchema,
-    response: WorkplaceCardSchema,
+    response: z.object({ card: WorkplaceCardSchema, closure: WorkplaceCardClosureSchema }).strict(),
   },
   'POST /v1/workplace/cards/:cardId/handover': {
     request: WorkplaceHandoverCardRequestSchema,

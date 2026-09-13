@@ -7,6 +7,7 @@ import {
   WorkplaceAddMemberRequestSchema,
   WorkplaceBlockCardRequestSchema,
   WorkplaceCompleteCardRequestSchema,
+  WorkplaceCreateCardClosureRequestSchema,
   WorkplaceCreateBoardRequestSchema,
   WorkplaceCreateCardRequestSchema,
   WorkplaceCreateChecklistItemRequestSchema,
@@ -153,6 +154,7 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
       v1.options('/workplace/boards/:boardId/cards', preflight)
       v1.options('/workplace/cards/:cardId', preflight)
       v1.options('/workplace/cards/:cardId/events', preflight)
+      v1.options('/workplace/cards/:cardId/closures', preflight)
       v1.options('/workplace/cards/:cardId/claim', preflight)
       v1.options('/workplace/cards/:cardId/move', preflight)
       v1.options('/workplace/cards/:cardId/block', preflight)
@@ -666,6 +668,88 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
     })
   })
 
+  v1.get('/workplace/cards/:cardId/closures', async (request, reply) => {
+    const actor = await citizenFor(request, reply)
+    if (actor === undefined) return
+    const parsed = PageRequestSchema.safeParse(pageQuery(request.query))
+    if (!parsed.success) {
+      return finish(reply, actor.origin)
+        .status(ERROR_STATUS.validation_failed)
+        .send({
+          code: 'validation_failed',
+          message: 'A card closure list takes a cursor and a limit.',
+          details: fieldErrors(parsed.error),
+        })
+    }
+    const { cardId } = request.params as { cardId: string }
+    const listed = await cards.closures(actor.citizenId, cardId, parsed.data)
+    if (listed.outcome === 'unknown') return missingCard(reply, actor.origin)
+    if (listed.outcome === 'invalid-cursor') {
+      return finish(reply, actor.origin)
+        .status(ERROR_STATUS.validation_failed)
+        .send({
+          code: 'validation_failed',
+          message: 'The cursor is not one of ours.',
+          details: { cursor: 'invalid' },
+        })
+    }
+    return finish(reply, actor.origin).status(200).send({
+      items: listed.items,
+      nextCursor: listed.nextCursor,
+    })
+  })
+
+  v1.post('/workplace/cards/:cardId/closures', async (request, reply) => {
+    const actor = await citizenFor(request, reply)
+    if (actor === undefined) return
+    const parsed = WorkplaceCreateCardClosureRequestSchema.safeParse(request.body)
+    if (!parsed.success) {
+      return finish(reply, actor.origin)
+        .status(ERROR_STATUS.validation_failed)
+        .send({
+          code: 'validation_failed',
+          message: 'A closure revision takes a structured close and the latest closure id.',
+          details: fieldErrors(parsed.error),
+        })
+    }
+    const { cardId } = request.params as { cardId: string }
+    if ((await cards.get(actor.citizenId, cardId)) === null) {
+      return missingCard(reply, actor.origin)
+    }
+    const created = await cards.createClosure({
+      callerId: actor.citizenId,
+      cardId,
+      close: parsed.data,
+      ...(actor.attribution === undefined ? {} : { attribution: actor.attribution }),
+    })
+    if (created.outcome === 'created') {
+      return finish(reply, actor.origin).status(201).send(created.closure)
+    }
+    if (created.outcome === 'conflict') {
+      return finish(reply, actor.origin)
+        .status(ERROR_STATUS.conflict)
+        .send({ code: 'conflict', message: 'The latest closure has changed.' })
+    }
+    if (created.outcome === 'invalid-transition') {
+      return finish(reply, actor.origin).status(ERROR_STATUS.workplace_invalid_transition).send({
+        code: 'workplace_invalid_transition',
+        message: 'Only a Done card accepts a closure revision.',
+      })
+    }
+    if (created.outcome === 'invalid-evidence' || created.outcome === 'invalid-successor') {
+      return finish(reply, actor.origin)
+        .status(ERROR_STATUS.validation_failed)
+        .send({
+          code: 'validation_failed',
+          message:
+            created.outcome === 'invalid-evidence'
+              ? 'Every evidence link must already belong to this card.'
+              : 'The successor must be a visible live card on this board.',
+        })
+    }
+    return missingCard(reply, actor.origin)
+  })
+
   v1.patch('/workplace/cards/:cardId', async (request, reply) => {
     const actor = await citizenFor(request, reply)
     if (actor === undefined) return
@@ -869,7 +953,7 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
         .status(ERROR_STATUS.validation_failed)
         .send({
           code: 'validation_failed',
-          message: 'Complete takes an outcome.',
+          message: 'Complete takes a structured close record or the compatibility outcome.',
           details: fieldErrors(parsed.error),
         })
     }
@@ -881,10 +965,26 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
       callerId: actor.citizenId,
       cardId,
       expectedVersion,
-      outcome: parsed.data.outcome,
+      close: parsed.data,
       ...(actor.attribution === undefined ? {} : { attribution: actor.attribution }),
     })
-    if (completed.outcome === 'completed') return sendCard(reply, actor.origin, completed.card, 200)
+    if (completed.outcome === 'completed') {
+      return sendCard(reply, actor.origin, completed.card, 200, {
+        card: completed.card,
+        closure: completed.closure,
+      })
+    }
+    if (completed.outcome === 'invalid-evidence' || completed.outcome === 'invalid-successor') {
+      return finish(reply, actor.origin)
+        .status(ERROR_STATUS.validation_failed)
+        .send({
+          code: 'validation_failed',
+          message:
+            completed.outcome === 'invalid-evidence'
+              ? 'Every evidence link must already belong to this card.'
+              : 'The successor must be a visible live card on this board.',
+        })
+    }
     if (completed.outcome === 'stale') {
       return finish(reply, actor.origin)
         .status(ERROR_STATUS.conflict)

@@ -27,11 +27,13 @@ import {
   deleteChecklist,
   getBoardFor,
   getCard,
+  createCardClosure,
   handoverCard,
   listBoardsFor,
   listCards,
   listComments,
   listCardEvents,
+  listCardClosures,
   listLinks,
   listMembers,
   materialiseDue,
@@ -60,6 +62,8 @@ import {
   workplaceBoardMemberships,
   workplaceBoards,
   workplaceCommitments,
+  workplaceCardClosureEvidence,
+  workplaceCardClosures,
   workplaceCardLinks,
   workplaceCards,
   workplaceChecklistItems,
@@ -1211,6 +1215,261 @@ describe('workplace storage', () => {
       outcome: 'The walk is filed.',
     })
     expect(done.outcome).toBe('completed')
+  })
+
+  it('closes with evidence atomically and appends revisions without reopening the card', async () => {
+    const board = await defaultBoard()
+    await addMember(db, { callerId: owner, boardId: board.id, citizenId: member })
+    const created = await createCard(db, {
+      callerId: owner,
+      boardId: board.id,
+      title: 'Publish the result',
+      status: 'ready',
+    })
+    if (created.outcome !== 'created') throw new Error('card missing')
+    const claimed = await claimCard(db, {
+      callerId: owner,
+      cardId: created.card.id,
+      expectedVersion: created.card.version,
+    })
+    if (claimed.outcome !== 'claimed') throw new Error('claim failed')
+    const evidence = await addLink(db, {
+      callerId: owner,
+      cardId: created.card.id,
+      kind: 'url',
+      ref: 'https://example.com/result',
+    })
+    if (evidence.outcome !== 'created') throw new Error('link missing')
+
+    const completed = await completeCard(db, {
+      callerId: owner,
+      cardId: created.card.id,
+      expectedVersion: claimed.card.version,
+      close: {
+        result: 'shipped',
+        summary: 'Published the result.',
+        learned: 'The reader could use it without assistance.',
+        evidenceLinkIds: [evidence.link.id],
+        next: { kind: 'none' },
+      },
+    })
+    expect(completed.outcome).toBe('completed')
+    if (completed.outcome !== 'completed') return
+    expect(completed.closure.revision).toBe(1)
+    expect(completed.closure.evidenceLinks[0]?.id).toBe(evidence.link.id)
+    expect(completed.card.outcome).toBe('Published the result.')
+
+    const revised = await createCardClosure(db, {
+      callerId: owner,
+      cardId: created.card.id,
+      close: {
+        result: 'failed_experiment',
+        summary: 'Tried the public endpoint and observed a permanent 403 response.',
+        learned: 'The provider blocks this deployment route.',
+        evidenceLinkIds: [],
+        next: { kind: 'sentence', text: 'Try a static host.' },
+        supersedesClosureId: completed.closure.id,
+      },
+    })
+    expect(revised.outcome).toBe('created')
+    if (revised.outcome !== 'created') return
+    expect(revised.closure.revision).toBe(2)
+    expect(revised.closure.supersedesClosureId).toBe(completed.closure.id)
+    expect(revised.card.status).toBe('done')
+    expect(revised.card.version).toBe(completed.card.version)
+
+    const listed = await listCardClosures(db, member, created.card.id, { limit: 1 })
+    expect(listed.outcome).toBe('listed')
+    if (listed.outcome !== 'listed') return
+    expect(listed.items[0]?.id).toBe(revised.closure.id)
+    expect(listed.nextCursor).not.toBeNull()
+    expect(
+      await createCardClosure(db, {
+        callerId: owner,
+        cardId: created.card.id,
+        close: {
+          result: 'abandoned',
+          summary: 'Stopped the earlier route.',
+          learned: 'The replacement is now canonical.',
+          evidenceLinkIds: [],
+          next: { kind: 'card', cardId: created.card.id },
+          supersedesClosureId: completed.closure.id,
+        },
+      }),
+    ).toEqual({ outcome: 'conflict' })
+
+    const detail = await getCard(db, owner, created.card.id)
+    expect(detail?.closureCount).toBe(2)
+    expect(detail?.latestClosure?.id).toBe(revised.closure.id)
+    const events = await listCardEvents(db, owner, created.card.id)
+    expect(events.outcome).toBe('listed')
+    if (events.outcome !== 'listed') return
+    expect(events.items[0]?.payload).toEqual({
+      closeRecordId: completed.closure.id,
+      result: 'shipped',
+    })
+  })
+
+  it('refuses foreign evidence and successor cards without partially closing', async () => {
+    const board = await defaultBoard()
+    const otherBoard = await createBoard(db, { callerId: owner, title: 'Other' })
+    const target = await createCard(db, {
+      callerId: owner,
+      boardId: board.id,
+      title: 'Target',
+      status: 'ready',
+    })
+    const foreign = await createCard(db, {
+      callerId: owner,
+      boardId: otherBoard.id,
+      title: 'Foreign',
+      status: 'ready',
+    })
+    if (target.outcome !== 'created' || foreign.outcome !== 'created')
+      throw new Error('card missing')
+    const claimed = await claimCard(db, {
+      callerId: owner,
+      cardId: target.card.id,
+      expectedVersion: target.card.version,
+    })
+    if (claimed.outcome !== 'claimed') throw new Error('claim failed')
+    const foreignEvidence = await addLink(db, {
+      callerId: owner,
+      cardId: foreign.card.id,
+      kind: 'url',
+      ref: 'https://example.com/foreign',
+    })
+    if (foreignEvidence.outcome !== 'created') throw new Error('link missing')
+
+    expect(
+      await completeCard(db, {
+        callerId: owner,
+        cardId: target.card.id,
+        expectedVersion: claimed.card.version,
+        close: {
+          result: 'shipped',
+          summary: 'Published the result.',
+          learned: 'The route works.',
+          evidenceLinkIds: [foreignEvidence.link.id],
+          next: { kind: 'none' },
+        },
+      }),
+    ).toEqual({ outcome: 'invalid-evidence' })
+    expect(
+      await completeCard(db, {
+        callerId: owner,
+        cardId: target.card.id,
+        expectedVersion: claimed.card.version,
+        close: {
+          result: 'superseded',
+          summary: 'Replaced this approach.',
+          learned: 'The other board has the successor.',
+          evidenceLinkIds: [],
+          next: { kind: 'card', cardId: foreign.card.id },
+        },
+      }),
+    ).toEqual({ outcome: 'invalid-successor' })
+    expect(await db.select().from(workplaceCardClosures)).toHaveLength(0)
+    expect(await db.select().from(workplaceCardClosureEvidence)).toHaveLength(0)
+    expect((await getCard(db, owner, target.card.id))?.card.status).toBe('in_progress')
+  })
+
+  it('keeps closure prose after actor erasure and removes closure evidence with its link', async () => {
+    const board = await defaultBoard()
+    await addMember(db, { callerId: owner, boardId: board.id, citizenId: member })
+    const created = await createCard(db, {
+      callerId: member,
+      boardId: board.id,
+      title: 'Member result',
+      status: 'ready',
+    })
+    if (created.outcome !== 'created') throw new Error('card missing')
+    const claimed = await claimCard(db, {
+      callerId: member,
+      cardId: created.card.id,
+      expectedVersion: created.card.version,
+    })
+    if (claimed.outcome !== 'claimed') throw new Error('claim failed')
+    const evidence = await addLink(db, {
+      callerId: member,
+      cardId: created.card.id,
+      kind: 'url',
+      ref: 'https://example.com/member-result',
+    })
+    if (evidence.outcome !== 'created') throw new Error('link missing')
+    const completed = await completeCard(db, {
+      callerId: member,
+      cardId: created.card.id,
+      expectedVersion: claimed.card.version,
+      close: {
+        result: 'shipped',
+        summary: 'Published the member result.',
+        learned: 'The result survives identity erasure.',
+        evidenceLinkIds: [evidence.link.id],
+        next: { kind: 'none' },
+      },
+    })
+    if (completed.outcome !== 'completed') throw new Error('complete failed')
+
+    await eraseAgent(db, { agentId: member, banSalt: SALT })
+    const afterErasure = await listCardClosures(db, owner, created.card.id)
+    expect(afterErasure.outcome).toBe('listed')
+    if (afterErasure.outcome !== 'listed') return
+    expect(afterErasure.items[0]?.actorId).toBeNull()
+    expect(afterErasure.items[0]?.summary).toBe('Published the member result.')
+
+    await removeLink(db, { callerId: owner, linkId: evidence.link.id })
+    const afterLinkRemoval = await listCardClosures(db, owner, created.card.id)
+    expect(afterLinkRemoval.outcome).toBe('listed')
+    if (afterLinkRemoval.outcome !== 'listed') return
+    expect(afterLinkRemoval.items[0]?.evidenceLinkIds).toEqual([])
+    expect(afterLinkRemoval.items[0]?.evidenceLinks).toEqual([])
+  })
+
+  it('refuses mutation of an existing close record', async () => {
+    const board = await defaultBoard()
+    const created = await createCard(db, {
+      callerId: owner,
+      boardId: board.id,
+      title: 'Immutable result',
+      status: 'ready',
+    })
+    if (created.outcome !== 'created') throw new Error('card missing')
+    const claimed = await claimCard(db, {
+      callerId: owner,
+      cardId: created.card.id,
+      expectedVersion: created.card.version,
+    })
+    if (claimed.outcome !== 'claimed') throw new Error('claim failed')
+    const completed = await completeCard(db, {
+      callerId: owner,
+      cardId: created.card.id,
+      expectedVersion: claimed.card.version,
+      close: {
+        result: 'failed_experiment',
+        summary: 'Tried the endpoint and observed a timeout.',
+        learned: 'The route is unavailable.',
+        evidenceLinkIds: [],
+        next: { kind: 'none' },
+      },
+    })
+    if (completed.outcome !== 'completed') throw new Error('complete failed')
+    await expectRejection(
+      () =>
+        db
+          .update(workplaceCardClosures)
+          .set({ summary: 'Rewritten history.' })
+          .where(eq(workplaceCardClosures.id, completed.closure.id)),
+      /append-only/,
+    )
+
+    await db.delete(workplaceCards).where(eq(workplaceCards.id, created.card.id))
+    expect(
+      await db
+        .select()
+        .from(workplaceCardClosures)
+        .where(eq(workplaceCardClosures.cardId, created.card.id)),
+    ).toHaveLength(0)
   })
 
   it('leaves a foreign in_progress card ready and ownerless when its owner is erased', async () => {

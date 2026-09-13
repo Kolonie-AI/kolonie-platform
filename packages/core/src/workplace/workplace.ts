@@ -10,6 +10,7 @@ import {
   HumanIdSchema,
   TaskIdSchema,
   WorkplaceBoardIdSchema,
+  WorkplaceCardClosureIdSchema,
   WorkplaceCardIdSchema,
   WorkplaceChecklistIdSchema,
   WorkplaceChecklistItemIdSchema,
@@ -585,7 +586,12 @@ export const WorkplaceCardEventPayloadSchemas = {
     .strict(),
   'card.review_requested': z.object({ fromStatus: WorkplaceLaneSchema }).strict(),
   'card.closed': z.union([
-    z.object({ closeRecordId: z.uuid(), result: z.string().min(1).max(64) }).strict(),
+    z
+      .object({
+        closeRecordId: WorkplaceCardClosureIdSchema,
+        result: z.enum(['shipped', 'failed_experiment', 'abandoned', 'superseded']),
+      })
+      .strict(),
     z.object({ outcome: workplaceText(WORKPLACE_BODY_MAX_LENGTH) }).strict(),
   ]),
   'card.handover_started': z
@@ -882,7 +888,7 @@ export const WorkplaceCardSchema = z
     dueAt: TimestampSchema.nullable(),
     blockedBy: workplaceText(WORKPLACE_SENTENCE_MAX_LENGTH).nullable(),
     unblockWhen: workplaceText(WORKPLACE_SENTENCE_MAX_LENGTH).nullable(),
-    outcome: workplaceText(WORKPLACE_SENTENCE_MAX_LENGTH).nullable(),
+    outcome: workplaceText(WORKPLACE_BODY_MAX_LENGTH).nullable(),
     version: z.int().min(1),
     coverColour: WorkplaceColourSchema.nullable().optional(),
     /**
@@ -1227,13 +1233,186 @@ export const WorkplaceBlockCardRequestSchema = z
   .strict()
 export type WorkplaceBlockCardRequest = z.infer<typeof WorkplaceBlockCardRequestSchema>
 
-/** HTTP complete (`#1760`). Outcome is what Done records. */
-export const WorkplaceCompleteCardRequestSchema = z
+/** What a close record says should happen after this card (`#1940`). */
+export const WorkplaceCardClosureNextSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('none') }).strict(),
+  z.object({ kind: z.literal('card'), cardId: WorkplaceCardIdSchema }).strict(),
+  z
+    .object({
+      kind: z.literal('sentence'),
+      text: workplaceText(WORKPLACE_BODY_MAX_LENGTH).refine(
+        (text) => !looksLikeCredential(text),
+        'a close record must carry no credential',
+      ),
+    })
+    .strict(),
+])
+export type WorkplaceCardClosureNext = z.infer<typeof WorkplaceCardClosureNextSchema>
+
+const WorkplaceContinuingCardClosureNextSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('card'), cardId: WorkplaceCardIdSchema }).strict(),
+  z
+    .object({
+      kind: z.literal('sentence'),
+      text: workplaceText(WORKPLACE_BODY_MAX_LENGTH).refine(
+        (text) => !looksLikeCredential(text),
+        'a close record must carry no credential',
+      ),
+    })
+    .strict(),
+])
+
+export const WORKPLACE_CARD_CLOSURE_RESULTS = [
+  'shipped',
+  'failed_experiment',
+  'abandoned',
+  'superseded',
+] as const
+export const WorkplaceCardClosureResultSchema = z.enum(WORKPLACE_CARD_CLOSURE_RESULTS)
+export type WorkplaceCardClosureResult = z.infer<typeof WorkplaceCardClosureResultSchema>
+
+const closureProse = workplaceText(WORKPLACE_BODY_MAX_LENGTH).refine(
+  (text) => !looksLikeCredential(text),
+  'a close record must carry no credential',
+)
+const closureEvidenceLinkIds = z
+  .array(WorkplaceLinkIdSchema)
+  .max(20)
+  .refine((ids) => new Set(ids).size === ids.length, 'evidence links must be unique')
+const closureFields = {
+  summary: closureProse,
+  learned: closureProse,
+  evidenceLinkIds: closureEvidenceLinkIds,
+}
+
+export const WorkplaceStructuredCardClosureRequestSchema = z
+  .discriminatedUnion('result', [
+    z
+      .object({
+        result: z.literal('shipped'),
+        ...closureFields,
+        evidenceLinkIds: closureEvidenceLinkIds.min(1),
+        next: WorkplaceCardClosureNextSchema,
+      })
+      .strict(),
+    z
+      .object({
+        result: z.literal('failed_experiment'),
+        ...closureFields,
+        next: WorkplaceCardClosureNextSchema,
+      })
+      .strict(),
+    z
+      .object({
+        result: z.literal('abandoned'),
+        ...closureFields,
+        next: WorkplaceContinuingCardClosureNextSchema,
+      })
+      .strict(),
+    z
+      .object({
+        result: z.literal('superseded'),
+        ...closureFields,
+        next: z.object({ kind: z.literal('card'), cardId: WorkplaceCardIdSchema }).strict(),
+      })
+      .strict(),
+  ])
+  .refine(
+    (value) =>
+      value.result !== 'failed_experiment' ||
+      value.evidenceLinkIds.length > 0 ||
+      (/\b(tried|attempted|tested|ran|built|sent|published|called)\b/i.test(value.summary) &&
+        /\b(observed|saw|returned|responded|showed|resulted|refused|failed|blocked|timed out|timeout|error|status)\b/i.test(
+          value.summary,
+        )),
+    { path: ['summary'], message: 'summary must say what was attempted and observed' },
+  )
+export type WorkplaceStructuredCardClosureRequest = z.infer<
+  typeof WorkplaceStructuredCardClosureRequestSchema
+>
+
+const WorkplaceLegacyCompleteCardRequestSchema = z
+  .object({ outcome: workplaceText(WORKPLACE_SENTENCE_MAX_LENGTH) })
+  .strict()
+
+/** HTTP complete (`#1940`). Structured writes are canonical; outcome is the release adapter. */
+export const WorkplaceCompleteCardRequestSchema = z.union([
+  WorkplaceStructuredCardClosureRequestSchema,
+  WorkplaceLegacyCompleteCardRequestSchema,
+])
+export type WorkplaceCompleteCardRequest = z.infer<typeof WorkplaceCompleteCardRequestSchema>
+
+const WorkplaceCardClosureRequestFieldsSchema = z.object({
+  summary: closureProse,
+  learned: closureProse,
+  evidenceLinkIds: closureEvidenceLinkIds,
+  next: WorkplaceCardClosureNextSchema,
+})
+
+/** A later correction must identify the latest visible close record. */
+export const WorkplaceCreateCardClosureRequestSchema =
+  WorkplaceCardClosureRequestFieldsSchema.extend({
+    result: WorkplaceCardClosureResultSchema,
+    supersedesClosureId: WorkplaceCardClosureIdSchema,
+  })
+    .strict()
+    .superRefine((value, ctx) => {
+      const { supersedesClosureId: _supersedesClosureId, ...close } = value
+      if (!WorkplaceStructuredCardClosureRequestSchema.safeParse(close).success) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'closure fields do not satisfy the result contract',
+        })
+      }
+    })
+export type WorkplaceCreateCardClosureRequest = z.infer<
+  typeof WorkplaceCreateCardClosureRequestSchema
+>
+
+export const WorkplaceCardClosureSchema = z
   .object({
-    outcome: workplaceText(WORKPLACE_SENTENCE_MAX_LENGTH),
+    id: WorkplaceCardClosureIdSchema,
+    boardId: WorkplaceBoardIdSchema,
+    cardId: WorkplaceCardIdSchema,
+    actorId: AgentIdSchema.nullable(),
+    revision: z.int().min(1),
+    result: WorkplaceCardClosureResultSchema,
+    summary: closureProse,
+    learned: closureProse,
+    evidenceLinkIds: closureEvidenceLinkIds,
+    evidenceLinks: z.array(WorkplaceResolvedLinkSchema).max(20),
+    next: WorkplaceCardClosureNextSchema,
+    legacy: z.boolean(),
+    supersedesClosureId: WorkplaceCardClosureIdSchema.nullable(),
+    createdAt: TimestampSchema,
   })
   .strict()
-export type WorkplaceCompleteCardRequest = z.infer<typeof WorkplaceCompleteCardRequestSchema>
+  .superRefine((closure, ctx) => {
+    if (closure.evidenceLinks.some((link) => !closure.evidenceLinkIds.includes(link.id))) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['evidenceLinks'],
+        message: 'resolved evidence must belong to this close record',
+      })
+    }
+    if (closure.revision === 1 && closure.supersedesClosureId !== null) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['supersedesClosureId'],
+        message: 'revision one supersedes nothing',
+      })
+    }
+    if (closure.revision > 1 && closure.supersedesClosureId === null) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['supersedesClosureId'],
+        message: 'a later revision must supersede its predecessor',
+      })
+    }
+  })
+export type WorkplaceCardClosure = z.infer<typeof WorkplaceCardClosureSchema>
+export const WorkplaceCardClosurePageSchema = pageOf(WorkplaceCardClosureSchema)
+export type WorkplaceCardClosurePage = z.infer<typeof WorkplaceCardClosurePageSchema>
 
 /**
  * HTTP handover (`#1760`). Structured fields, not a reason string (D-146).
@@ -1382,6 +1561,8 @@ export const WorkplaceCardDetailSchema = z
     comments: z.array(WorkplaceCommentSchema),
     links: z.array(WorkplaceResolvedLinkSchema),
     handover: WorkplaceHandoverSchema.nullable(),
+    latestClosure: WorkplaceCardClosureSchema.nullable(),
+    closureCount: z.int().min(0),
     eventCount: z.int().min(0),
     events: z.array(WorkplaceCardEventSchema).max(5),
   })

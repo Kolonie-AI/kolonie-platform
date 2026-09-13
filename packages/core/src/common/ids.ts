@@ -195,6 +195,10 @@ export type WorkplaceBoardId = z.infer<typeof WorkplaceBoardIdSchema>
 export const WorkplaceCardIdSchema = z.uuid().brand<'WorkplaceCardId'>()
 export type WorkplaceCardId = z.infer<typeof WorkplaceCardIdSchema>
 
+/** One append-only structured close record on a Workplace card (`#1940`). */
+export const WorkplaceCardClosureIdSchema = z.uuid().brand<'WorkplaceCardClosureId'>()
+export type WorkplaceCardClosureId = z.infer<typeof WorkplaceCardClosureIdSchema>
+
 /** One board-scoped label (`#1756`). */
 export const WorkplaceLabelIdSchema = z.uuid().brand<'WorkplaceLabelId'>()
 export type WorkplaceLabelId = z.infer<typeof WorkplaceLabelIdSchema>

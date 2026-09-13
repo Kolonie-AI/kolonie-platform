@@ -50,6 +50,9 @@ import {
   WorkplaceMoveCardRequestSchema,
   WorkplaceBlockCardRequestSchema,
   WorkplaceCompleteCardRequestSchema,
+  WorkplaceCardClosureSchema,
+  WorkplaceCardClosurePageSchema,
+  WorkplaceCreateCardClosureRequestSchema,
   WorkplaceHandoverCardRequestSchema,
   WorkplaceCreateChecklistRequestSchema,
   WorkplaceUpdateChecklistRequestSchema,
@@ -75,6 +78,7 @@ const CITIZEN = AgentIdSchema.parse('3f1e0a4e-6d2b-4c3a-9f5e-1a2b3c4d5e6f')
 const OTHER = AgentIdSchema.parse('aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee')
 const BOARD = '11111111-2222-4333-8444-555555555555'
 const CARD = '66666666-7777-4888-8999-000000000000'
+const OTHER_CARD = '77777777-8888-4999-8aaa-111111111111'
 const NOW = '2026-08-29T12:00:00.000Z'
 
 function board(over: Record<string, unknown> = {}) {
@@ -1130,11 +1134,126 @@ describe('card HTTP envelopes (#1760)', () => {
     ).toBe(false)
   })
 
-  it('completes with an outcome', () => {
-    expect(
-      WorkplaceCompleteCardRequestSchema.parse({ outcome: 'The walk is filed.' }).outcome,
-    ).toBe('The walk is filed.')
-    expect(WorkplaceCompleteCardRequestSchema.safeParse({}).success).toBe(false)
+  describe('structured card closure', () => {
+    const evidenceLinkId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+    const structured = {
+      result: 'shipped' as const,
+      summary: 'Published the status page.',
+      learned: 'The support team can operate it without assistance.',
+      evidenceLinkIds: [evidenceLinkId],
+      next: { kind: 'none' as const },
+    }
+
+    it('accepts every grounded result variant and the one-release legacy form', () => {
+      expect(WorkplaceCompleteCardRequestSchema.parse(structured)).toEqual(structured)
+      expect(WorkplaceCompleteCardRequestSchema.parse({ outcome: 'The walk is filed.' })).toEqual({
+        outcome: 'The walk is filed.',
+      })
+      expect(
+        WorkplaceCompleteCardRequestSchema.safeParse({ ...structured, extra: true }).success,
+      ).toBe(false)
+      expect(WorkplaceCompleteCardRequestSchema.safeParse({}).success).toBe(false)
+
+      expect(
+        WorkplaceCompleteCardRequestSchema.safeParse({
+          ...structured,
+          result: 'failed_experiment',
+          summary: 'Tried the public endpoint and observed a permanent 403 response.',
+          evidenceLinkIds: [],
+        }).success,
+      ).toBe(true)
+      expect(
+        WorkplaceCompleteCardRequestSchema.safeParse({
+          ...structured,
+          result: 'abandoned',
+          evidenceLinkIds: [],
+          next: { kind: 'sentence', text: 'Revisit after the provider changes its terms.' },
+        }).success,
+      ).toBe(true)
+      expect(
+        WorkplaceCompleteCardRequestSchema.safeParse({
+          ...structured,
+          result: 'superseded',
+          evidenceLinkIds: [],
+          next: { kind: 'card', cardId: OTHER_CARD },
+        }).success,
+      ).toBe(true)
+    })
+
+    it('refuses ungrounded results, duplicate evidence and credential-shaped prose', () => {
+      expect(
+        WorkplaceCompleteCardRequestSchema.safeParse({ ...structured, evidenceLinkIds: [] })
+          .success,
+      ).toBe(false)
+      expect(
+        WorkplaceCompleteCardRequestSchema.safeParse({
+          ...structured,
+          result: 'failed_experiment',
+          summary: 'Failed.',
+          evidenceLinkIds: [],
+        }).success,
+      ).toBe(false)
+      expect(
+        WorkplaceCompleteCardRequestSchema.safeParse({
+          ...structured,
+          result: 'abandoned',
+          evidenceLinkIds: [],
+        }).success,
+      ).toBe(false)
+      expect(
+        WorkplaceCompleteCardRequestSchema.safeParse({
+          ...structured,
+          result: 'superseded',
+          evidenceLinkIds: [],
+          next: { kind: 'sentence', text: 'Use the replacement.' },
+        }).success,
+      ).toBe(false)
+      expect(
+        WorkplaceCompleteCardRequestSchema.safeParse({
+          ...structured,
+          evidenceLinkIds: [evidenceLinkId, evidenceLinkId],
+        }).success,
+      ).toBe(false)
+      expect(
+        WorkplaceCompleteCardRequestSchema.safeParse({
+          ...structured,
+          learned: 'password: hunter2',
+        }).success,
+      ).toBe(false)
+    })
+
+    it('requires a latest closure id for revisions and parses resolved evidence on reads', () => {
+      const revision = WorkplaceCreateCardClosureRequestSchema.parse({
+        ...structured,
+        supersedesClosureId: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+      })
+      expect(revision.supersedesClosureId).toBe('ffffffff-ffff-4fff-8fff-ffffffffffff')
+
+      const closure = WorkplaceCardClosureSchema.parse({
+        id: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+        boardId: BOARD,
+        cardId: CARD,
+        actorId: CITIZEN,
+        revision: 1,
+        ...structured,
+        evidenceLinks: [
+          {
+            id: evidenceLinkId,
+            cardId: CARD,
+            kind: 'url',
+            ref: 'https://example.invalid/status',
+            target: { state: 'resolved', kind: 'url' },
+          },
+        ],
+        legacy: false,
+        supersedesClosureId: null,
+        createdAt: NOW,
+      })
+      expect(closure.evidenceLinks[0]?.ref).toBe('https://example.invalid/status')
+      expect(
+        WorkplaceCardClosurePageSchema.parse({ items: [closure], nextCursor: null }).items,
+      ).toHaveLength(1)
+    })
   })
 
   it('hands over with the structured fields and a target citizen', () => {
@@ -1200,6 +1319,8 @@ describe('card HTTP envelopes (#1760)', () => {
       ],
       links: [],
       handover: null,
+      latestClosure: null,
+      closureCount: 0,
       eventCount: 0,
       events: [],
     })

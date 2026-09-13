@@ -12,6 +12,8 @@ import {
   WorkplaceAddMemberRequestSchema,
   WorkplaceBlockCardRequestSchema,
   WorkplaceCompleteCardRequestSchema,
+  WorkplaceCreateCardClosureRequestSchema,
+  WorkplaceStructuredCardClosureRequestSchema,
   WorkplaceClosePracticumRequestSchema,
   WorkplaceCreateBoardRequestSchema,
   WorkplaceCreateCardRequestSchema,
@@ -963,6 +965,38 @@ async function dispatchCard(
 
   if (act === 'get') {
     const eventFields = asObject(fieldsOf(input)['events'])
+    const closureFields = asObject(fieldsOf(input)['closures'])
+    if (closureFields !== undefined) {
+      const listed = await cards.closures(callerId, id, {
+        ...(typeof closureFields['cursor'] === 'string' ? { cursor: closureFields['cursor'] } : {}),
+        ...(typeof closureFields['limit'] === 'number' ? { limit: closureFields['limit'] } : {}),
+      })
+      if (listed.outcome === 'unknown') return toolError(missingCard)
+      if (listed.outcome === 'invalid-cursor') {
+        return toolError({
+          code: 'validation_failed',
+          message: 'The cursor is not one of ours.',
+          details: { cursor: 'invalid' },
+        })
+      }
+      const continuation =
+        listed.nextCursor === null
+          ? undefined
+          : {
+              act: 'get' as const,
+              subject: 'card' as const,
+              id,
+              fields: { closures: { cursor: listed.nextCursor, limit: closureFields['limit'] } },
+            }
+      return ok(
+        `${listed.items.length} structured card closures.\n\n${WORKPLACE_UNTRUSTED_CONTENT}`,
+        {
+          items: listed.items,
+          nextCursor: listed.nextCursor,
+          next: withContinuation([], continuation),
+        },
+      )
+    }
     if (eventFields !== undefined) {
       const listed = await cards.events(callerId, id, {
         ...(typeof eventFields['cursor'] === 'string' ? { cursor: eventFields['cursor'] } : {}),
@@ -1154,23 +1188,107 @@ async function updateCard(
   if (visible === null) return toolError(missingCard)
   const fields = fieldsOf(input)
 
+  if (fields['close'] !== undefined) {
+    const candidate = asObject(fields['close'])
+    if (candidate === undefined) {
+      return toolError({ code: 'validation_failed', message: 'Close must be an object.' })
+    }
+    if (candidate['supersedesClosureId'] !== undefined) {
+      const parsed = WorkplaceCreateCardClosureRequestSchema.safeParse(candidate)
+      if (!parsed.success) {
+        return parsedFail(
+          'A closure revision takes a structured close and the latest closure id.',
+          parsed.error,
+        )
+      }
+      const created = await cards.createClosure({
+        callerId,
+        cardId,
+        close: parsed.data,
+        ...(attribution === undefined ? {} : { attribution }),
+      })
+      if (created.outcome === 'conflict') {
+        return toolError({ code: 'conflict', message: 'The latest closure has changed.' })
+      }
+      if (created.outcome === 'invalid-evidence' || created.outcome === 'invalid-successor') {
+        return toolError({
+          code: 'validation_failed',
+          message:
+            created.outcome === 'invalid-evidence'
+              ? 'Every evidence link must already belong to this card.'
+              : 'The successor must be a visible live card on this board.',
+        })
+      }
+      return created.outcome === 'created'
+        ? ok(
+            `Closure revision ${created.closure.revision} recorded.\n\n${WORKPLACE_UNTRUSTED_CONTENT}`,
+            {
+              card: created.card,
+              closure: created.closure,
+              next: nextForCard(created.card),
+            },
+          )
+        : cardWriteResult(created, 'created', undefined)
+    }
+    const expectedVersion = needExpected(input)
+    if (typeof expectedVersion !== 'number') return expectedVersion
+    const parsed = WorkplaceStructuredCardClosureRequestSchema.safeParse(candidate)
+    if (!parsed.success) {
+      return parsedFail('Complete takes fields.close as a structured close record.', parsed.error)
+    }
+    const completed = await cards.complete({
+      callerId,
+      cardId,
+      expectedVersion,
+      close: parsed.data,
+      ...(attribution === undefined ? {} : { attribution }),
+    })
+    if (completed.outcome === 'invalid-evidence' || completed.outcome === 'invalid-successor') {
+      return toolError({
+        code: 'validation_failed',
+        message:
+          completed.outcome === 'invalid-evidence'
+            ? 'Every evidence link must already belong to this card.'
+            : 'The successor must be a visible live card on this board.',
+      })
+    }
+    return completed.outcome === 'completed'
+      ? ok(`done (${completed.card.id}).\n\n${WORKPLACE_UNTRUSTED_CONTENT}`, {
+          card: completed.card,
+          closure: completed.closure,
+          next: nextForCard(completed.card),
+        })
+      : cardWriteResult(completed, 'completed', undefined)
+  }
+
   if (fields['outcome'] !== undefined) {
     const expectedVersion = needExpected(input)
     if (typeof expectedVersion !== 'number') return expectedVersion
     const parsed = WorkplaceCompleteCardRequestSchema.safeParse({ outcome: fields['outcome'] })
     if (!parsed.success) return parsedFail('Complete takes an outcome.', parsed.error)
+    if (!('outcome' in parsed.data)) {
+      return toolError({ code: 'validation_failed', message: 'Complete takes an outcome.' })
+    }
     const completed = await cards.complete({
       callerId,
       cardId,
       expectedVersion,
-      outcome: parsed.data.outcome,
+      close: parsed.data,
       ...(attribution === undefined ? {} : { attribution }),
     })
-    return cardWriteResult(
-      completed,
-      'completed',
-      completed.outcome === 'completed' ? completed.card : undefined,
-    )
+    if (completed.outcome === 'invalid-evidence' || completed.outcome === 'invalid-successor') {
+      return toolError({
+        code: 'validation_failed',
+        message: 'The compatibility outcome could not be converted to a close record.',
+      })
+    }
+    return completed.outcome === 'completed'
+      ? ok(`done (${completed.card.id}).\n\n${WORKPLACE_UNTRUSTED_CONTENT}`, {
+          card: completed.card,
+          closure: completed.closure,
+          next: nextForCard(completed.card),
+        })
+      : cardWriteResult(completed, 'completed', undefined)
   }
 
   if (fields['blocked'] !== undefined) {

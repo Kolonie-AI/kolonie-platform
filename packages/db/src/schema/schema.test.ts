@@ -1228,6 +1228,9 @@ describe('schema', () => {
         'workplace_activity',
         'workplace_board_memberships',
         'workplace_boards',
+        /** Append-only structured completion claims and their live typed evidence (`#1940`). */
+        'workplace_card_closure_evidence',
+        'workplace_card_closures',
         'workplace_card_labels',
         'workplace_card_links',
         'workplace_cards',
@@ -1994,6 +1997,34 @@ describe('schema', () => {
       expect(indexes.map((r) => r.indexname)).toEqual(
         expect.arrayContaining(['workplace_card_links_kind_ref']),
       )
+    })
+
+    it('stores closure revisions and evidence with the append-only constraints', async () => {
+      const constraints = await db.execute<{ constraint_name: string }>(
+        sql`select constraint_name from information_schema.table_constraints
+             where table_schema = 'public' and table_name = 'workplace_card_closures'`,
+      )
+      expect(constraints.map((row) => row.constraint_name)).toEqual(
+        expect.arrayContaining([
+          'workplace_card_closures_id_card',
+          'workplace_card_closures_card_revision',
+          'workplace_card_closures_supersedes_once',
+          'workplace_card_closures_supersedes_card_fk',
+          'workplace_card_closures_revision_supersession_is_whole',
+          'workplace_card_closures_result_is_known',
+          'workplace_card_closures_revision_is_positive',
+          'workplace_card_closures_prose_is_bounded',
+        ]),
+      )
+
+      const evidencePrimaryKey = await db.execute<{ constraint_name: string }>(
+        sql`select constraint_name from information_schema.table_constraints
+             where table_schema = 'public' and table_name = 'workplace_card_closure_evidence'
+               and constraint_type = 'PRIMARY KEY'`,
+      )
+      expect(evidencePrimaryKey.map((row) => row.constraint_name)).toEqual([
+        'workplace_card_closure_evidence_closure_id_link_id_pk',
+      ])
     })
 
     it('does not create a workplace_lists table, and does not alter tasks', async () => {

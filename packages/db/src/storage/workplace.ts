@@ -6,6 +6,8 @@ import {
   EMPTY_WORKPLACE_LINK_COUNTS,
   MAX_PAGE_SIZE,
   WorkplaceCardEventSchema,
+  WorkplaceCardClosureSchema,
+  WorkplaceCompleteCardRequestSchema,
   parseWorkplaceCardEventPayload,
   WorkplaceBoardIdSchema,
   WorkplaceBoardSchema,
@@ -36,6 +38,10 @@ import {
   type AgentId,
   type WorkplaceBoard,
   type WorkplaceCard,
+  type WorkplaceCardClosure,
+  type WorkplaceCompleteCardRequest,
+  type WorkplaceCreateCardClosureRequest,
+  type WorkplaceStructuredCardClosureRequest,
   type WorkplaceCardEvent,
   type WorkplaceCardEventPayload,
   type WorkplaceCardEventVerb,
@@ -72,6 +78,8 @@ import {
   tasks,
   workplaceBoardMemberships,
   workplaceBoards,
+  workplaceCardClosureEvidence,
+  workplaceCardClosures,
   workplaceCardLabels,
   workplaceCardLinks,
   workplaceCards,
@@ -1323,40 +1331,59 @@ export async function getCard(
   const row = await visibleCard(db, callerId, cardId)
   if (row === null) return null
 
-  const [labelRows, checklistRows, commentRows, handoverRows, linkRows, eventRows, eventCountRows] =
-    await Promise.all([
-      db
-        .select({ label: workplaceLabels })
-        .from(workplaceLabels)
-        .innerJoin(workplaceCardLabels, eq(workplaceCardLabels.labelId, workplaceLabels.id))
-        .where(eq(workplaceCardLabels.cardId, row.id)),
-      db.select().from(workplaceChecklists).where(eq(workplaceChecklists.cardId, row.id)),
-      db
-        .select()
-        .from(workplaceComments)
-        .where(eq(workplaceComments.cardId, row.id))
-        .orderBy(workplaceComments.createdAt),
-      db
-        .select()
-        .from(workplaceHandovers)
-        .where(and(eq(workplaceHandovers.cardId, row.id), eq(workplaceHandovers.isCurrent, true)))
-        .limit(1),
-      db
-        .select()
-        .from(workplaceCardLinks)
-        .where(eq(workplaceCardLinks.cardId, row.id))
-        .orderBy(workplaceCardLinks.createdAt, workplaceCardLinks.id),
-      db
-        .select()
-        .from(workplaceActivity)
-        .where(eq(workplaceActivity.cardId, row.id))
-        .orderBy(desc(workplaceActivity.createdAt), desc(workplaceActivity.id))
-        .limit(5),
-      db
-        .select({ count: sql<number>`count(*)` })
-        .from(workplaceActivity)
-        .where(eq(workplaceActivity.cardId, row.id)),
-    ])
+  const [
+    labelRows,
+    checklistRows,
+    commentRows,
+    handoverRows,
+    linkRows,
+    eventRows,
+    eventCountRows,
+    closureRows,
+    closureCountRows,
+  ] = await Promise.all([
+    db
+      .select({ label: workplaceLabels })
+      .from(workplaceLabels)
+      .innerJoin(workplaceCardLabels, eq(workplaceCardLabels.labelId, workplaceLabels.id))
+      .where(eq(workplaceCardLabels.cardId, row.id)),
+    db.select().from(workplaceChecklists).where(eq(workplaceChecklists.cardId, row.id)),
+    db
+      .select()
+      .from(workplaceComments)
+      .where(eq(workplaceComments.cardId, row.id))
+      .orderBy(workplaceComments.createdAt),
+    db
+      .select()
+      .from(workplaceHandovers)
+      .where(and(eq(workplaceHandovers.cardId, row.id), eq(workplaceHandovers.isCurrent, true)))
+      .limit(1),
+    db
+      .select()
+      .from(workplaceCardLinks)
+      .where(eq(workplaceCardLinks.cardId, row.id))
+      .orderBy(workplaceCardLinks.createdAt, workplaceCardLinks.id),
+    db
+      .select()
+      .from(workplaceActivity)
+      .where(eq(workplaceActivity.cardId, row.id))
+      .orderBy(desc(workplaceActivity.createdAt), desc(workplaceActivity.id))
+      .limit(5),
+    db
+      .select({ count: sql<number>`count(*)` })
+      .from(workplaceActivity)
+      .where(eq(workplaceActivity.cardId, row.id)),
+    db
+      .select()
+      .from(workplaceCardClosures)
+      .where(eq(workplaceCardClosures.cardId, row.id))
+      .orderBy(desc(workplaceCardClosures.revision), desc(workplaceCardClosures.id))
+      .limit(1),
+    db
+      .select({ count: sql<number>`count(*)` })
+      .from(workplaceCardClosures)
+      .where(eq(workplaceCardClosures.cardId, row.id)),
+  ])
 
   const checklistIds = checklistRows.map((one) => one.id)
   const itemRows =
@@ -1408,6 +1435,9 @@ export async function getCard(
     ),
     links: [...(await resolveLinks(db, callerId, linkRows))],
     handover: handoverRows[0] === undefined ? null : toHandover(handoverRows[0]),
+    latestClosure:
+      closureRows[0] === undefined ? null : await toClosure(db, callerId, closureRows[0]),
+    closureCount: Number(closureCountRows[0]?.count ?? 0),
     eventCount: Number(eventCountRows[0]?.count ?? 0),
     events: eventRows.map(toEvent),
   }
@@ -2282,11 +2312,159 @@ export async function handoverCard(
 }
 
 export type CompleteCardResult =
-  | { readonly outcome: 'completed'; readonly card: WorkplaceCard }
+  | {
+      readonly outcome: 'completed'
+      readonly card: WorkplaceCard
+      readonly closure: WorkplaceCardClosure
+    }
+  | { readonly outcome: 'invalid-evidence' }
+  | { readonly outcome: 'invalid-successor' }
   | WorkplaceMissing
   | WorkplaceForbidden
   | WorkplaceStale
   | WorkplaceInvalidTransition
+
+export type CreateCardClosureResult =
+  | {
+      readonly outcome: 'created'
+      readonly card: WorkplaceCard
+      readonly closure: WorkplaceCardClosure
+    }
+  | { readonly outcome: 'conflict' }
+  | { readonly outcome: 'invalid-evidence' }
+  | { readonly outcome: 'invalid-successor' }
+  | WorkplaceMissing
+  | WorkplaceForbidden
+  | WorkplaceInvalidTransition
+
+function structuredClose(close: WorkplaceCompleteCardRequest): {
+  readonly close: WorkplaceStructuredCardClosureRequest
+  readonly legacy: boolean
+} {
+  if ('outcome' in close) {
+    return {
+      close: {
+        result: 'shipped',
+        summary: close.outcome,
+        learned: 'No learning was supplied by the legacy client.',
+        evidenceLinkIds: [],
+        next: { kind: 'none' },
+      },
+      legacy: true,
+    }
+  }
+  return { close, legacy: false }
+}
+
+async function validClosureReferences(
+  tx: Transaction,
+  card: typeof workplaceCards.$inferSelect,
+  close: WorkplaceStructuredCardClosureRequest,
+): Promise<'ok' | 'invalid-evidence' | 'invalid-successor'> {
+  if (close.evidenceLinkIds.length > 0) {
+    const rows = await tx
+      .select({ id: workplaceCardLinks.id })
+      .from(workplaceCardLinks)
+      .where(
+        and(
+          eq(workplaceCardLinks.cardId, card.id),
+          inArray(workplaceCardLinks.id, close.evidenceLinkIds),
+        ),
+      )
+    if (rows.length !== close.evidenceLinkIds.length) return 'invalid-evidence'
+  }
+  if (close.next.kind === 'card') {
+    const [successor] = await tx
+      .select({ id: workplaceCards.id })
+      .from(workplaceCards)
+      .where(
+        and(
+          eq(workplaceCards.id, close.next.cardId),
+          eq(workplaceCards.boardId, card.boardId),
+          isNull(workplaceCards.archivedAt),
+        ),
+      )
+      .limit(1)
+    if (successor === undefined) return 'invalid-successor'
+  }
+  return 'ok'
+}
+
+async function toClosure(
+  db: Database | Transaction,
+  callerId: AgentId,
+  row: typeof workplaceCardClosures.$inferSelect,
+): Promise<WorkplaceCardClosure> {
+  const evidenceRows = await db
+    .select({ link: workplaceCardLinks })
+    .from(workplaceCardClosureEvidence)
+    .innerJoin(workplaceCardLinks, eq(workplaceCardLinks.id, workplaceCardClosureEvidence.linkId))
+    .where(eq(workplaceCardClosureEvidence.closureId, row.id))
+    .orderBy(workplaceCardLinks.createdAt, workplaceCardLinks.id)
+  const evidenceLinks = await resolveLinks(
+    db,
+    callerId,
+    evidenceRows.map((one) => one.link),
+  )
+  return WorkplaceCardClosureSchema.parse({
+    id: row.id,
+    boardId: row.boardId,
+    cardId: row.cardId,
+    actorId: row.actorId,
+    revision: row.revision,
+    result: row.result,
+    summary: row.summary,
+    learned: row.learned,
+    evidenceLinkIds: evidenceLinks.map((link) => link.id),
+    evidenceLinks,
+    next: row.next,
+    legacy: row.legacy,
+    supersedesClosureId: row.supersedesClosureId,
+    createdAt: toTimestamp(row.createdAt),
+  })
+}
+
+async function insertClosure(
+  tx: Transaction,
+  input: {
+    readonly callerId: AgentId
+    readonly card: typeof workplaceCards.$inferSelect
+    readonly close: WorkplaceStructuredCardClosureRequest
+    readonly revision: number
+    readonly legacy: boolean
+    readonly supersedesClosureId?: string
+    readonly attribution?: WorkplaceEventAttribution
+  },
+): Promise<WorkplaceCardClosure> {
+  const [row] = await tx
+    .insert(workplaceCardClosures)
+    .values({
+      boardId: input.card.boardId,
+      cardId: input.card.id,
+      actorId:
+        input.attribution?.actorKind === 'system'
+          ? null
+          : (input.attribution?.actorId ?? input.callerId),
+      revision: input.revision,
+      result: input.close.result,
+      summary: input.close.summary,
+      learned: input.close.learned,
+      next: input.close.next,
+      legacy: input.legacy,
+      supersedesClosureId: input.supersedesClosureId ?? null,
+    })
+    .returning()
+  if (row === undefined) throw new Error('workplace card closure insert returned no row')
+  if (input.close.evidenceLinkIds.length > 0) {
+    await tx.insert(workplaceCardClosureEvidence).values(
+      input.close.evidenceLinkIds.map((linkId) => ({
+        closureId: row.id,
+        linkId,
+      })),
+    )
+  }
+  return toClosure(tx, input.callerId, row)
+}
 
 export async function completeCard(
   db: Database,
@@ -2294,7 +2472,8 @@ export async function completeCard(
     readonly callerId: AgentId
     readonly cardId: string
     readonly expectedVersion: number
-    readonly outcome: string
+    readonly close?: WorkplaceCompleteCardRequest
+    readonly outcome?: string
     readonly attribution?: WorkplaceEventAttribution
   },
 ): Promise<CompleteCardResult> {
@@ -2305,13 +2484,19 @@ export async function completeCard(
     const from = WorkplaceLaneSchema.parse(existing.status)
     if (!canTransitionWorkplace(from, 'done')) return { outcome: 'invalid-transition' }
     if (existing.ownerId === null) return { outcome: 'invalid-transition' }
+    const parsed = WorkplaceCompleteCardRequestSchema.parse(
+      input.close ?? { outcome: input.outcome },
+    )
+    const normalized = structuredClose(parsed)
+    const references = await validClosureReferences(tx, existing, normalized.close)
+    if (references !== 'ok') return { outcome: references }
 
     const position = await nextPosition(tx, existing.boardId, 'done')
     const [row] = await tx
       .update(workplaceCards)
       .set({
         status: 'done',
-        outcome: input.outcome,
+        outcome: normalized.close.summary,
         position,
         version: sql`${workplaceCards.version} + 1`,
         updatedAt: sql`now()`,
@@ -2325,31 +2510,144 @@ export async function completeCard(
       )
       .returning()
     if (row === undefined) return { outcome: 'stale' }
+    const closure = await insertClosure(tx, {
+      callerId: input.callerId,
+      card: row,
+      close: normalized.close,
+      revision: 1,
+      legacy: normalized.legacy,
+      attribution: input.attribution,
+    })
     await appendCardEvent(tx, {
       boardId: row.boardId,
       cardId: row.id,
       callerId: input.callerId,
       attribution: input.attribution,
       verb: 'card.closed',
-      payload: { outcome: input.outcome },
+      payload: { closeRecordId: closure.id, result: closure.result },
     })
-    /**
-     * Completing a card of a live cycle is progress on the board and **not** a
-     * terminal result (`#1836`).
-     *
-     * It is counted as a documentation-only update precisely so that the Colony
-     * can see a citizen looping without reading what it wrote: the alternative
-     * — inferring shipment from cards reaching Done — is the rejection case the
-     * issue names by title. Only `closeProfessionPracticum` ends a cycle.
-     */
     if (
       row.seedKey?.startsWith(PRACTICUM_PREFIX) === true &&
       !row.seedKey.includes(PRACTICUM_CLOSED)
     ) {
       await tx.insert(workplacePracticumEvents).values({ event: 'documentation_only_update' })
     }
-    return { outcome: 'completed', card: toCard(row) }
+    return { outcome: 'completed', card: toCard(row), closure }
   })
+}
+
+export async function createCardClosure(
+  db: Database,
+  input: {
+    readonly callerId: AgentId
+    readonly cardId: string
+    readonly close: WorkplaceCreateCardClosureRequest
+    readonly attribution?: WorkplaceEventAttribution
+  },
+): Promise<CreateCardClosureResult> {
+  return db.transaction(async (tx) => {
+    const locked = await lockCardForWrite(tx, input.callerId, input.cardId)
+    if (locked.outcome !== 'ok') return locked
+    if (locked.card.status !== 'done') return { outcome: 'invalid-transition' }
+    const [latest] = await tx
+      .select()
+      .from(workplaceCardClosures)
+      .where(eq(workplaceCardClosures.cardId, input.cardId))
+      .orderBy(desc(workplaceCardClosures.revision), desc(workplaceCardClosures.id))
+      .limit(1)
+      .for('update')
+    if (latest === undefined || latest.id !== input.close.supersedesClosureId) {
+      return { outcome: 'conflict' }
+    }
+    const { supersedesClosureId, ...candidate } = input.close
+    const close = WorkplaceCompleteCardRequestSchema.parse(candidate)
+    if ('outcome' in close) throw new Error('closure revision parsed as legacy completion')
+    const references = await validClosureReferences(tx, locked.card, close)
+    if (references !== 'ok') return { outcome: references }
+    const closure = await insertClosure(tx, {
+      callerId: input.callerId,
+      card: locked.card,
+      close,
+      revision: latest.revision + 1,
+      legacy: false,
+      supersedesClosureId,
+      attribution: input.attribution,
+    })
+    return { outcome: 'created', card: toCard(locked.card), closure }
+  })
+}
+
+export type ListCardClosuresResult =
+  | {
+      readonly outcome: 'listed'
+      readonly items: readonly WorkplaceCardClosure[]
+      readonly nextCursor: string | null
+    }
+  | { readonly outcome: 'invalid-cursor' }
+  | WorkplaceUnknown
+
+type CardClosureCursor = { readonly revision: number; readonly id: string }
+
+function encodeCardClosureCursor(row: typeof workplaceCardClosures.$inferSelect): string {
+  return Buffer.from(JSON.stringify([row.revision, row.id]), 'utf8').toString('base64url')
+}
+
+function decodeCardClosureCursor(
+  cursor: string | null | undefined,
+): CardClosureCursor | undefined | 'invalid' {
+  if (cursor === undefined || cursor === null || cursor === '') return undefined
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'))
+    if (!Array.isArray(parsed) || parsed.length !== 2) return 'invalid'
+    const [revision, id] = parsed
+    if (!Number.isInteger(revision) || Number(revision) < 1) return 'invalid'
+    if (typeof id !== 'string' || !isUuid(id)) return 'invalid'
+    return { revision: Number(revision), id }
+  } catch {
+    return 'invalid'
+  }
+}
+
+export async function listCardClosures(
+  db: Database,
+  callerId: AgentId,
+  cardId: string,
+  query: { readonly cursor?: string | null; readonly limit?: number } = {},
+): Promise<ListCardClosuresResult> {
+  const card = await visibleCard(db, callerId, cardId)
+  if (card === null) return { outcome: 'unknown' }
+  const after = decodeCardClosureCursor(query.cursor)
+  if (after === 'invalid') return { outcome: 'invalid-cursor' }
+  const limit = Math.min(Math.max(query.limit ?? 50, 1), MAX_PAGE_SIZE)
+  const rows = await db
+    .select()
+    .from(workplaceCardClosures)
+    .where(
+      and(
+        eq(workplaceCardClosures.cardId, cardId),
+        ...(after === undefined
+          ? []
+          : [
+              or(
+                lt(workplaceCardClosures.revision, after.revision),
+                and(
+                  eq(workplaceCardClosures.revision, after.revision),
+                  lt(workplaceCardClosures.id, after.id),
+                ),
+              ),
+            ]),
+      ),
+    )
+    .orderBy(desc(workplaceCardClosures.revision), desc(workplaceCardClosures.id))
+    .limit(limit + 1)
+  const page = rows.slice(0, limit)
+  const items: WorkplaceCardClosure[] = []
+  for (const row of page) items.push(await toClosure(db, callerId, row))
+  return {
+    outcome: 'listed',
+    items,
+    nextCursor: rows.length > limit ? encodeCardClosureCursor(page[page.length - 1]!) : null,
+  }
 }
 
 export type BlockCardResult =

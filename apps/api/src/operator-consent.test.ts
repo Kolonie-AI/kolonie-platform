@@ -45,8 +45,21 @@ describe('whether a citizen is waiting on its operator', () => {
     expect(isWaitingOnTheOperator([{ closed: false, messages: answered }])).toBe(false)
   })
 
-  /**
-   * **Anything at all, and not *anything approving*.** The Colony reads no
+  it('waits again when the operator retracted its answer', () => {
+    expect(
+      isWaitingOnTheOperator([
+        {
+          closed: false,
+          messages: [
+            { author: 'citizen' },
+            { author: 'operator', retractedAt: '2026-09-13T10:00:00.000Z' },
+          ],
+        },
+      ]),
+    ).toBe(true)
+  })
+
+  /** The Colony reads no
    * verdict out of an operator's words — `web-server.ts` argues that at length,
    * and `operatorAnswered` has always meant *a person came back*. This predicate
    * inherits it rather than reopening it.

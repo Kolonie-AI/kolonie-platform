@@ -357,7 +357,7 @@ export const MessageSenderSchema = z.object({
 export type MessageSender = z.infer<typeof MessageSenderSchema>
 
 /**
- * One message.
+ * One message, either active or retracted (`#1958`).
  *
  * **Plain text in v1** (frozen default 7): no attachments, no markup contract,
  * no auto-fetched links. Frozen default 6 allows links and treats them as
@@ -372,13 +372,20 @@ export type MessageSender = z.infer<typeof MessageSenderSchema>
  * only on `system-role` messages. A citizen or operator message leaves them
  * absent. The storage CHECK is what makes that true of a row; this schema is
  * what makes it true of a value a reader holds.
+ *
+ * A retracted member keeps only its identity, sender, position and timestamp.
+ * Making it a strict second member rather than a nullable body prevents erased
+ * instructions and declarations from remaining actionable in a parsed value.
  */
-export const MessageSchema = z.object({
+const MessageEnvelopeSchema = z.object({
   id: MessageIdSchema,
   conversationId: ConversationIdSchema,
   sender: MessageSenderSchema,
-  body: z.string().min(MESSAGE_BODY_MIN_LENGTH).max(MESSAGE_BODY_MAX_LENGTH),
   createdAt: z.string(),
+})
+
+const ActiveMessageSchema = MessageEnvelopeSchema.extend({
+  body: z.string().min(MESSAGE_BODY_MIN_LENGTH).max(MESSAGE_BODY_MAX_LENGTH),
   /** How urgently to read it. Only on `system-role` messages. */
   priority: MessagePrioritySchema.optional(),
   /**
@@ -407,7 +414,24 @@ export const MessageSchema = z.object({
    * branch than read.
    */
   answerKind: OperatorAnswerKindSchema.optional(),
-})
+}).strict()
+
+const RetractedMessageSchema = MessageEnvelopeSchema.extend({
+  retractedAt: z.string(),
+  /**
+   * `never` rather than an absent declaration: common readers may inspect the
+   * key without first narrowing the union, while the schema still rejects a
+   * tombstone that actually carries it.
+   */
+  body: z.never().optional(),
+  answerKind: z.never().optional(),
+  priority: z.never().optional(),
+  actionRequired: z.never().optional(),
+  nextAction: z.never().optional(),
+  acknowledgedAt: z.never().optional(),
+}).strict()
+
+export const MessageSchema = z.union([ActiveMessageSchema, RetractedMessageSchema])
 export type Message = z.infer<typeof MessageSchema>
 
 /**

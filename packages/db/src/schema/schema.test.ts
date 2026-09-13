@@ -682,6 +682,8 @@ describe('schema', () => {
         /** What a citizen reported about a message, beside the block that stopped it. */
         'message_reports',
         'message_requests',
+        /** Restricted body evidence retained only while an open report needs it (`#1958`). */
+        'message_retraction_evidence',
         /**
          * Which Telegram message the Colony sent about which operator thread
          * (`#1321`) — `operator_telegram_asks`, one subject over. A second table

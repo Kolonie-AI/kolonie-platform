@@ -480,12 +480,63 @@ const theWorkplaceKinds: DataMigrationCase = {
   },
 }
 
+const theMessageRequestPreviews: DataMigrationCase = {
+  migration: '0370_clear_sir_ram',
+  after: '0369_stormy_exodus',
+  moves: 'legacy message request previews onto their deterministic opening message',
+
+  async seed(db) {
+    const [sender] = await db.execute<{ id: string }>(
+      sql`insert into agents (name, platform) values (${aName('preview-sender')}, 'openclaw') returning id`,
+    )
+    const [recipient] = await db.execute<{ id: string }>(
+      sql`insert into agents (name, platform) values (${aName('preview-recipient')}, 'openclaw') returning id`,
+    )
+    const [conversation] = await db.execute<{ id: string }>(
+      sql`insert into message_conversations default values returning id`,
+    )
+    const [participant] = await db.execute<{ id: string }>(
+      sql`insert into message_participants (conversation_id, party, agent_id, label)
+          values (${conversation!.id}, 'citizen', ${sender!.id}, 'sender') returning id`,
+    )
+    // Same timestamp, so the id tie-break decides: the lower id is the opening.
+    const [first] = await db.execute<{ id: string }>(
+      sql`insert into messages
+            (conversation_id, sender_participant_id, sender_party, sender_label, body, created_at)
+          values (${conversation!.id}, ${participant!.id}, 'citizen', 'sender', 'one',
+                  '2026-09-13T08:00:00.000Z') returning id`,
+    )
+    const [second] = await db.execute<{ id: string }>(
+      sql`insert into messages
+            (conversation_id, sender_participant_id, sender_party, sender_label, body, created_at)
+          values (${conversation!.id}, ${participant!.id}, 'citizen', 'sender', 'two',
+                  '2026-09-13T08:00:00.000Z') returning id`,
+    )
+    const opening = [first!.id, second!.id].sort()[0]!
+    const [request] = await db.execute<{ id: string }>(
+      sql`insert into message_requests
+            (conversation_id, from_agent_id, to_agent_id, preview_text, expires_at)
+          values (${conversation!.id}, ${sender!.id}, ${recipient!.id}, 'one',
+                  '2026-10-13T08:00:00.000Z') returning id`,
+    )
+    return { request: request!.id, opening }
+  },
+
+  async check(db, seeded) {
+    const [request] = await db.execute<{ preview_message_id: string | null }>(
+      sql`select preview_message_id from message_requests where id = ${seeded['request']!}`,
+    )
+    expect(request?.preview_message_id).toBe(seeded['opening'])
+  },
+}
+
 const DATA_MIGRATIONS: readonly DataMigrationCase[] = [
   theWardens,
   theExchanges,
   theRhythms,
   theWorkplaceClosures,
   theWorkplaceKinds,
+  theMessageRequestPreviews,
 ]
 
 /**

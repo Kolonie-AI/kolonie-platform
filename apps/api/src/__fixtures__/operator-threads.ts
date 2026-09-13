@@ -25,7 +25,8 @@ export interface FakeOperatorThreadStore extends OperatorThreadStore {
   /** What is in one thread, for a test asserting on what an answer recorded. */
   readonly messagesIn: (threadId: ConversationId) => readonly {
     readonly author: 'citizen' | 'operator'
-    readonly body: string
+    readonly body?: string
+    readonly retractedAt?: string
     readonly kind: OperatorAnswerKind | null
   }[]
   /**
@@ -56,7 +57,8 @@ interface Thread {
   readonly openedAt: string
   readonly messages: {
     author: 'citizen' | 'operator'
-    body: string
+    body?: string
+    retractedAt?: string
     /** What a pressed control declared, `null` for everything typed (`#1093`). */
     kind: OperatorAnswerKind | null
     writtenAt: string
@@ -157,7 +159,9 @@ export function fakeOperatorThreadStore(
             (thread) =>
               thread.agentId === agentId &&
               thread.wishId !== null &&
-              !thread.messages.some((message) => message.author === 'operator'),
+              !thread.messages.some(
+                (message) => message.author === 'operator' && message.retractedAt === undefined,
+              ),
           )
           .map((thread) => ({ wishId: String(thread.wishId), threadId: thread.id })),
       ),
@@ -232,7 +236,8 @@ export function fakeOperatorThreadStore(
     messagesIn: (threadId) =>
       (threads.get(threadId)?.messages ?? []).map((message) => ({
         author: message.author,
-        body: message.body,
+        ...(message.body === undefined ? {} : { body: message.body }),
+        ...(message.retractedAt === undefined ? {} : { retractedAt: message.retractedAt }),
         kind: message.kind,
       })),
 

@@ -5,8 +5,66 @@ import {
   ConversationKindSchema,
   MESSAGE_IDLE_AFTER_DAYS,
   MessagePartySchema,
+  MessageSchema,
   ThreadPageRequestSchema,
 } from './message.js'
+
+describe('message tombstones (#1958)', () => {
+  const base = {
+    id: '00000000-0000-4000-a000-000000000001',
+    conversationId: '00000000-0000-4000-a000-000000000002',
+    sender: {
+      participantId: '00000000-0000-4000-a000-000000000003',
+      party: 'citizen',
+      label: 'sender',
+    },
+    createdAt: '2026-09-13T09:00:00.000Z',
+  }
+
+  it('accepts active messages and strict retracted tombstones', () => {
+    expect(MessageSchema.parse({ ...base, body: 'Still active.' })).toEqual({
+      ...base,
+      body: 'Still active.',
+    })
+    expect(MessageSchema.parse({ ...base, retractedAt: '2026-09-13T09:05:00.000Z' })).toEqual({
+      ...base,
+      retractedAt: '2026-09-13T09:05:00.000Z',
+    })
+  })
+
+  it('rejects a tombstone carrying body-derived semantics', () => {
+    const forbidden = [
+      { body: 'The erased words.' },
+      { answerKind: 'permission' },
+      { priority: 'critical' },
+      { actionRequired: false },
+      { nextAction: 'kolonie.tasks.list' },
+      { acknowledgedAt: '2026-09-13T09:04:00.000Z' },
+    ]
+
+    for (const field of forbidden) {
+      expect(
+        MessageSchema.safeParse({
+          ...base,
+          retractedAt: '2026-09-13T09:05:00.000Z',
+          ...field,
+        }).success,
+      ).toBe(false)
+    }
+  })
+
+  it('rejects active messages without a bounded body', () => {
+    expect(MessageSchema.safeParse(base).success).toBe(false)
+    expect(MessageSchema.safeParse({ ...base, body: '' }).success).toBe(false)
+  })
+
+  it('accepts the timestamp wire format the database emits', () => {
+    expect(
+      MessageSchema.safeParse({ ...base, retractedAt: '2026-09-13 09:05:00.123456+00' }).success,
+    ).toBe(true)
+    expect(MessageSchema.safeParse({ ...base, retractedAt: 42 }).success).toBe(false)
+  })
+})
 
 describe('thread pagination (#1886)', () => {
   it('defaults below the maximum and rejects requests above the documented ceiling', () => {

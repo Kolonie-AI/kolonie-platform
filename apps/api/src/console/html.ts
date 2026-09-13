@@ -1794,7 +1794,8 @@ export function inboxThreadPage(
     readonly messages: readonly {
       readonly senderLabel: string
       readonly party: string
-      readonly body: string
+      readonly body?: string
+      readonly retractedAt?: string
       readonly createdAt: string
     }[]
     readonly declarations: readonly { readonly kind: string; readonly label: string }[]
@@ -1890,7 +1891,7 @@ export function inboxThreadPage(
               `${escape(partyMark(message.party))}</span> ` +
               `<strong>${escape(message.senderLabel)}</strong> ` +
               `<span>${escape(relative(message.createdAt))}</span><br>` +
-              `${escape(message.body)}</li>`,
+              `${escape(message.retractedAt === undefined ? (message.body ?? '') : 'Message retracted by sender.')}</li>`,
           )
           .join('')}</ul>`,
     ...shareBlocks(input),

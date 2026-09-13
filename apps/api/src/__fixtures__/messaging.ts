@@ -5,8 +5,10 @@ import {
   OPERATOR_ANSWER_BODIES,
   MESSAGE_REQUEST_PREVIEW_MAX_LENGTH,
   looksLikeCredential,
+  type AgentId,
   type Conversation,
   type ConversationId,
+  type HumanId,
   type Message,
   type MessageId,
   type AgentOperatorDelegationId,
@@ -25,6 +27,7 @@ import {
   type OperatorMessaging,
   type ProtectResponse,
   type RequestResponse,
+  type RetractResponse,
   type SendResponse,
   type OperatorThreadResponse,
   type ThreadResponse,
@@ -83,6 +86,8 @@ export interface FakeMessaging extends CitizenMessaging {
   readonly block: (ownerHandle: string, subjectHandle: string) => void
   /** Force the next `send` from this agent to answer `rate_limited`. */
   readonly rateLimitNextSend: (agentId: string, retryAfterSeconds?: number) => void
+  /** Exercise the shared sender-only tombstone semantics without an MCP surface. */
+  readonly retract: (agentId: AgentId, messageId: MessageId) => Promise<RetractResponse>
 }
 
 type Participant = {
@@ -113,7 +118,8 @@ type ConversationRow = {
   messages: {
     id: string
     senderParticipantId: string
-    body: string
+    body?: string
+    retractedAt?: string
     createdAt: string
     priority?: 'normal' | 'elevated' | 'critical'
     actionRequired?: boolean
@@ -128,6 +134,7 @@ type RequestRow = {
   fromAgentId: string
   toAgentId: string
   preview?: string
+  previewMessageId?: string
   status: 'pending' | 'accepted' | 'declined' | 'expired'
   createdAt: string
 }
@@ -372,7 +379,7 @@ export function fakeMessaging(): FakeMessaging {
 
       const messages: Message[] = pageRows.map((m) => {
         const sender = row!.participants.find((p) => p.id === m.senderParticipantId)!
-        const base: Message = {
+        const envelope = {
           id: m.id as MessageId,
           conversationId: row!.id as ConversationId,
           sender: {
@@ -381,8 +388,12 @@ export function fakeMessaging(): FakeMessaging {
             label: sender.label,
             ...(sender.systemRole === undefined ? {} : { systemRole: sender.systemRole }),
           },
-          body: m.body,
           createdAt: m.createdAt,
+        }
+        if (m.retractedAt !== undefined) return { ...envelope, retractedAt: m.retractedAt }
+        const base: Message = {
+          ...envelope,
+          body: m.body ?? '',
         }
         if (sender.party !== 'system-role') return base
         return {
@@ -583,6 +594,7 @@ export function fakeMessaging(): FakeMessaging {
 
       const conversationId = id()
       const senderParticipantId = id()
+      const openingMessageId = id()
       const senderHandle = handleOf.get(agentId) ?? agentId
       conversations.set(conversationId, {
         id: conversationId,
@@ -590,7 +602,7 @@ export function fakeMessaging(): FakeMessaging {
         participants: [{ id: senderParticipantId, agentId, party: 'citizen', label: senderHandle }],
         messages: [
           {
-            id: id(),
+            id: openingMessageId,
             senderParticipantId,
             body: input.body,
             createdAt: now(),
@@ -604,6 +616,7 @@ export function fakeMessaging(): FakeMessaging {
         fromAgentId: agentId,
         toAgentId: recipient.agentId,
         preview: input.body.slice(0, MESSAGE_REQUEST_PREVIEW_MAX_LENGTH),
+        previewMessageId: openingMessageId,
         status: 'pending',
         createdAt: now(),
       })
@@ -614,6 +627,42 @@ export function fakeMessaging(): FakeMessaging {
           requestId: requestId as MessageRequestId,
         },
       }
+    },
+
+    async retract(agentId, messageId): Promise<RetractResponse> {
+      for (const row of conversations.values()) {
+        const message = row.messages.find((candidate) => candidate.id === messageId)
+        if (message === undefined) continue
+        const sender = row.participants.find(
+          (participant) => participant.id === message.senderParticipantId,
+        )
+        if (sender?.party !== 'citizen' || sender.agentId !== agentId) break
+        if (message.retractedAt === undefined) {
+          message.retractedAt = now()
+          delete message.body
+          delete message.priority
+          delete message.actionRequired
+          delete message.nextAction
+          delete message.acknowledgedAt
+          const request = requests.find(
+            (candidate) =>
+              candidate.status === 'pending' && candidate.previewMessageId === message.id,
+          )
+          if (request !== undefined) {
+            delete request.preview
+            delete request.previewMessageId
+          }
+        }
+        return {
+          outcome: 'retracted',
+          response: {
+            messageId: message.id as MessageId,
+            conversationId: row.id as ConversationId,
+            retractedAt: message.retractedAt,
+          },
+        }
+      }
+      return refused('no-such-message')
     },
 
     async listRequests(agentId): Promise<readonly MessageRequest[]> {
@@ -806,6 +855,8 @@ export interface FakeOperatorMessaging extends OperatorMessaging {
    * say *joins* about.
    */
   readonly threadAbout: (humanId: string, agentId: string, accountId: string) => string
+  /** Exercise sender-only operator tombstones before the human route exists. */
+  readonly retract: (humanId: HumanId, messageId: MessageId) => Promise<RetractResponse>
   /** The agent writing into it, which un-archives it for the person (`#1449`). */
   /**
    * A message from the agent's side. `conversationId` names which thread when
@@ -1066,7 +1117,9 @@ export function fakeOperatorMessaging(): FakeOperatorMessaging {
             const needle = options.search.trim().toLowerCase()
             return (
               thread.agentId.toLowerCase().includes(needle) ||
-              thread.messages.some((message) => message.body.toLowerCase().includes(needle))
+              thread.messages.some(
+                (message) => message.body?.toLowerCase().includes(needle) === true,
+              )
             )
           })
           .map((thread) => {
@@ -1089,7 +1142,8 @@ export function fakeOperatorMessaging(): FakeOperatorMessaging {
                 latest === undefined
                   ? null
                   : {
-                      body: latest.body,
+                      ...('body' in latest ? { body: latest.body } : {}),
+                      ...('retractedAt' in latest ? { retractedAt: latest.retractedAt } : {}),
                       at: latest.createdAt,
                       senderLabel: latest.sender.label,
                       mine: latest.sender.party === 'operator-human',
@@ -1155,6 +1209,36 @@ export function fakeOperatorMessaging(): FakeOperatorMessaging {
       })
       attachedShares.set(conversationId, list)
       return id
+    },
+
+    async retract(humanId, messageId): Promise<RetractResponse> {
+      for (const thread of threads) {
+        const message = thread.messages.find((candidate) => candidate.id === messageId)
+        if (message === undefined) continue
+        if (thread.humanId !== humanId || message.sender.party !== 'operator-human') break
+        if (!('retractedAt' in message)) {
+          const retractedAt = now()
+          const index = thread.messages.indexOf(message)
+          thread.messages[index] = {
+            id: message.id,
+            conversationId: message.conversationId,
+            sender: message.sender,
+            createdAt: message.createdAt,
+            retractedAt,
+          }
+        }
+        const tombstone = thread.messages.find((candidate) => candidate.id === messageId)!
+        if (!('retractedAt' in tombstone)) throw new Error('retraction did not make a tombstone')
+        return {
+          outcome: 'retracted',
+          response: {
+            messageId,
+            conversationId: thread.id as ConversationId,
+            retractedAt: tombstone.retractedAt,
+          },
+        }
+      }
+      return { outcome: 'refused', error: messageRefusals['no-such-message'] }
     },
 
     // @mirrors packages/db/src/storage/messaging.ts sendOperatorMessage

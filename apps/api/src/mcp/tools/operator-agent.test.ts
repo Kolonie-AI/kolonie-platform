@@ -143,4 +143,82 @@ describe('kolonie.operator.agent (#1796)', () => {
       await pair.close()
     }
   })
+
+  /**
+   * The flat published shape, and the contract moved into the handler (`#1964`).
+   *
+   * The root was a `z.discriminatedUnion`, which the SDK published as
+   * `{"type":"object","properties":{}}` — no `act`, no arguments, nothing a
+   * caller could read — and which Anthropic's tool-use API refuses outright when
+   * it converts to a root `oneOf`. Flattening it is what makes the five fields
+   * discoverable; these assert that both halves landed.
+   */
+  it('publishes one flat object with act and every branch field, and no root combinator', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+    const schema = (await client.listTools()).tools.find(
+      (one) => one.name === 'kolonie.operator.agent',
+    )?.inputSchema as {
+      type?: unknown
+      oneOf?: unknown
+      allOf?: unknown
+      anyOf?: unknown
+      required?: readonly string[]
+      properties: Record<string, { description?: string }>
+    }
+    await close()
+
+    expect(schema.type).toBe('object')
+    expect(schema.oneOf).toBeUndefined()
+    expect(schema.allOf).toBeUndefined()
+    expect(schema.anyOf).toBeUndefined()
+    expect(Object.keys(schema.properties).sort()).toEqual([
+      'act',
+      'capabilities',
+      'delegationId',
+      'statuses',
+      'subject',
+    ])
+    // `act` is the only thing every call needs; the rest is the handler's.
+    expect(schema.required).toEqual(['act'])
+    expect(schema.properties.subject?.description).toContain('request')
+    expect(schema.properties.delegationId?.description).toContain('revoke')
+  })
+
+  it('refuses an act whose arguments are missing, naming the act and what it takes', async () => {
+    const pair = await aPair()
+    try {
+      const noSubject = await pair.operator.client.callTool(
+        tool({ act: 'request', capabilities: ['workplace-read'] }),
+      )
+      expect(noSubject.isError).toBe(true)
+      expect(textOf(noSubject)).toContain('validation_failed')
+      expect(textOf(noSubject)).toContain('subject')
+      expect(textOf(noSubject)).toContain('request')
+
+      const noDelegation = await pair.operator.client.callTool(tool({ act: 'revoke' }))
+      expect(noDelegation.isError).toBe(true)
+      expect(textOf(noDelegation)).toContain('delegationId')
+
+      const noAcceptTarget = await pair.operator.client.callTool(tool({ act: 'accept' }))
+      expect(noAcceptTarget.isError).toBe(true)
+      expect(textOf(noAcceptTarget)).toContain('delegationId')
+
+      // `list` is the one act that requires nothing, and still answers.
+      const listed = await pair.operator.client.callTool(tool({ act: 'list' }))
+      expect(listed.isError).toBeFalsy()
+    } finally {
+      await pair.close()
+    }
+  })
+
+  it('still refuses an unknown act at the schema, which the enum keeps', async () => {
+    const pair = await aPair()
+    try {
+      const unknownAct = await pair.operator.client.callTool(tool({ act: 'peek' }))
+      expect(unknownAct.isError).toBe(true)
+    } finally {
+      await pair.close()
+    }
+  })
 })

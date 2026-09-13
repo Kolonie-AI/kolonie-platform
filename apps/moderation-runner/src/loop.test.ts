@@ -1094,6 +1094,54 @@ describe('writing briefings', () => {
     expect(lines.some((line) => line.event === 'briefing.failed')).toBe(false)
   })
 
+  /**
+   * `#1973`. The production signature was `briefing.failed` at error with
+   * `SyntaxError: Unexpected token '`'` — a fenced but valid `{ claims: [...] }`
+   * reply. The bytes are usable after unwrap, so the briefing must be written
+   * rather than failed.
+   */
+  it('writes a fenced briefing rather than emitting briefing.failed', async () => {
+    const taskId = randomUUID() as TaskId
+    stale = [taskId]
+    const lines: { level: 'info' | 'warn' | 'error'; event: unknown }[] = []
+    const impl = (async () =>
+      ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          model: 'provider/model-that-answered',
+          choices: [
+            {
+              message: {
+                content:
+                  '```json\n{"claims":[{"section":"wall","text":"A real wall.","sources":["' +
+                  corpus[0]!.id +
+                  '"]}]}\n```',
+              },
+            },
+          ],
+        }),
+      }) as Response) as unknown as typeof fetch
+
+    const outcome = await briefingTick(
+      {
+        store: briefingStore(),
+        model: openRouterModel('a-key', { fetch: impl }),
+        log: {
+          info: (_message, fields) => lines.push({ level: 'info', event: fields?.['event'] }),
+          warn: (_message, fields) => lines.push({ level: 'warn', event: fields?.['event'] }),
+          error: (_message, _error, fields) =>
+            lines.push({ level: 'error', event: fields?.['event'] }),
+        },
+      },
+      10,
+    )
+
+    expect(outcome).toEqual({ written: 1, failed: 0, unreachable: 0 })
+    expect(written).toHaveLength(1)
+    expect(lines.some((line) => line.event === 'briefing.failed')).toBe(false)
+  })
+
   it('raises a retryable provider-response anomaly when that is all the briefing pass saw', async () => {
     stale = [randomUUID() as TaskId]
     model.failsNext(new ProviderResponseAnomaly('stop', ['content']))

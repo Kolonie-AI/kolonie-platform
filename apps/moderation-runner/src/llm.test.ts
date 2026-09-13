@@ -707,6 +707,38 @@ describe('marking', () => {
     expect(spans).toEqual([{ text: 'scout-77@example.invalid', kind: 'mailbox' }])
   })
 
+  it.each([
+    ['json', '```json'],
+    ['JSON', '```JSON'],
+    ['bare', '```'],
+  ])('returns spans from a %s fenced JSON object', async (_label, fence) => {
+    const { impl } = stubFetch(
+      aVerdict(
+        `  ${fence}\n{"spans":[{"text":"scout-77@example.invalid","kind":"mailbox"}]}\n\`\`\`  `,
+      ),
+    )
+
+    const spans = await openRouterModel('a-key', { fetch: impl }).mark({
+      system: 's',
+      user: 'u',
+      kinds: ['mailbox'],
+    })
+
+    expect(spans).toEqual([{ text: 'scout-77@example.invalid', kind: 'mailbox' }])
+  })
+
+  it('refuses fenced content in mark that is not JSON', async () => {
+    const { impl } = stubFetch(aVerdict('```json\nnot-json\n```'))
+
+    await expect(
+      openRouterModel('a-key', { fetch: impl }).mark({
+        system: 's',
+        user: 'u',
+        kinds: ['mailbox'],
+      }),
+    ).rejects.toThrow()
+  })
+
   /**
    * Nothing found is the ordinary answer for a well-written report, so it has to
    * be an empty list rather than an error — a transport that treated it as a
@@ -757,6 +789,42 @@ describe('composing', () => {
     expect(claims).toEqual([
       { section: 'wall', text: 'A provider asks for a phone number.', sources: ['a'] },
     ])
+  })
+
+  it.each([
+    ['json', '```json'],
+    ['JSON', '```JSON'],
+    ['bare', '```'],
+  ])('returns claims from a %s fenced JSON object', async (_label, fence) => {
+    const { impl } = stubFetch(
+      aVerdict(
+        `  ${fence}\n{"claims":[{"section":"wall","text":"A real wall.","sources":["a"]}]}\n\`\`\`  `,
+      ),
+    )
+
+    const claims = await openRouterModel('a-key', { fetch: impl }).compose({
+      system: 's',
+      user: 'u',
+      sections: ['wall'],
+      sourceIds: ['a'],
+      maxClaimLength: 400,
+    })
+
+    expect(claims).toEqual([{ section: 'wall', text: 'A real wall.', sources: ['a'] }])
+  })
+
+  it('refuses fenced content in compose that is not JSON', async () => {
+    const { impl } = stubFetch(aVerdict('```json\nnot-json\n```'))
+
+    await expect(
+      openRouterModel('a-key', { fetch: impl }).compose({
+        system: 's',
+        user: 'u',
+        sections: ['wall'],
+        sourceIds: ['a'],
+        maxClaimLength: 400,
+      }),
+    ).rejects.toThrow()
   })
 
   /** A stopped response containing only JSON whitespace is the empty anomaly from #599. */

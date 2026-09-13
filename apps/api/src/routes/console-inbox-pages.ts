@@ -6,6 +6,7 @@ import {
   credentialRefusalMessage,
   AgentIdSchema,
   ConversationIdSchema,
+  MessageIdSchema,
   TaskIdSchema,
   OPERATOR_ANSWER_BODIES,
   OPERATOR_ANSWER_LABELS,
@@ -210,6 +211,8 @@ export function registerConsoleInboxPages(
       readonly body?: string
       /** What to say if an addition to a shared entry was just refused (`#1574`). */
       readonly shareError?: string
+      /** What a retraction just took back, for the honest success copy (`#1960`). */
+      readonly retractedMessageId?: string
     } = {},
   ): Promise<FastifyReply> => {
     const desk = deps.operatorMessaging
@@ -259,11 +262,13 @@ export function registerConsoleInboxPages(
         agentName: row.agentName,
         about: row.about?.label ?? null,
         messages: read.response.messages.map((message) => ({
+          id: message.id,
           senderLabel: message.sender.label,
           party: message.sender.party,
           ...('body' in message ? { body: message.body } : {}),
           ...('retractedAt' in message ? { retractedAt: message.retractedAt } : {}),
           createdAt: message.createdAt,
+          retractable: message.sender.party === 'operator-human' && !('retractedAt' in message),
         })),
         declarations: OperatorAnswerKindSchema.options.map((kind) => ({
           kind,
@@ -300,6 +305,9 @@ export function registerConsoleInboxPages(
         writable,
         ...(outcome.error === undefined ? {} : { error: outcome.error }),
         ...(outcome.sent === true ? { sent: true } : {}),
+        ...(outcome.retractedMessageId === undefined
+          ? {}
+          : { retractedMessageId: outcome.retractedMessageId }),
         ...(outcome.body === undefined ? {} : { body: outcome.body }),
       }),
     )
@@ -624,8 +632,11 @@ export function registerConsoleInboxPages(
     const signedIn = await person(request)
     if (signedIn === null) return signInRequired(request, reply)
 
-    const { said } = request.query as { said?: string }
-    return inboxThread(request, reply, signedIn, { sent: said === 'sent' })
+    const { said, retracted } = request.query as { said?: string; retracted?: string }
+    return inboxThread(request, reply, signedIn, {
+      sent: said === 'sent',
+      ...(MessageIdSchema.safeParse(retracted).success ? { retractedMessageId: retracted } : {}),
+    })
   })
 
   /**
@@ -773,6 +784,71 @@ export function registerConsoleInboxPages(
     return reply
       .status(303)
       .header('location', typeof back === 'string' && back.startsWith('/inbox') ? back : '/inbox')
+      .send()
+  })
+
+  /**
+   * The sender retracts (`#1960`, cut 3 of the `#1948` package).
+   *
+   * ## The order of the two checks is the whole route
+   *
+   * Participation is established **first**, from the signed-in person's own
+   * thread listing and never from the path — then the shared sender-only
+   * storage operation runs with both route ids. So a path naming another
+   * conversation's message, another sender's message, a system message, or an
+   * id nobody holds answers the one non-disclosing not-found the storage layer
+   * already gives, and this route adds no oracle of its own.
+   *
+   * ## No second message
+   *
+   * A retraction is a tombstone at the original position, not a correction row
+   * (`#1948`): the redirect lands on the thread, whose next render shows the
+   * tombstone and the honest copy about copies outside Kolonie.
+   */
+  app.post('/inbox/:conversationId/messages/:messageId/retract', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const signedIn = await person(request)
+    if (signedIn === null) return signInRequired(request, reply)
+
+    const desk = deps.operatorMessaging
+    if (desk?.retract === undefined) return consoleNotFound(reply, request)
+
+    const conversation = ConversationIdSchema.safeParse(
+      (request.params as { conversationId?: string }).conversationId,
+    )
+    const message = MessageIdSchema.safeParse((request.params as { messageId?: string }).messageId)
+    if (!conversation.success || !message.success) return consoleNotFound(reply, request)
+
+    const found = (await desk.inbox?.(signedIn.human.id, {}))?.find(
+      (row) => String(row.conversationId) === String(conversation.data),
+    )
+    if (found === undefined) return consoleNotFound(reply, request)
+
+    // The pairing is checked against the thread this person can actually read,
+    // *before* storage is asked to mutate: a message that lives in another of
+    // their conversations must not be taken back through this path.
+    const read = await desk.getThread(signedIn.human.id, conversation.data)
+    if (read.outcome !== 'read') return consoleNotFound(reply, request)
+    if (!read.response.messages.some((one) => String(one.id) === String(message.data))) {
+      return consoleNotFound(reply, request)
+    }
+
+    const result = await desk.retract(signedIn.human.id, message.data)
+    if (result.outcome === 'refused') return consoleNotFound(reply, request)
+
+    if (!wantsHtml(request)) {
+      return reply
+        .status(200)
+        .send({ retracted: true, ...result.response, externalCopiesMayRemain: true })
+    }
+
+    return reply
+      .status(303)
+      .header(
+        'location',
+        `/inbox/${String(result.response.conversationId)}?retracted=${String(message.data)}`,
+      )
       .send()
   })
 

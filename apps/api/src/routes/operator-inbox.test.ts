@@ -509,4 +509,94 @@ describe('the inbox behind a mailed link', () => {
       expect(await messaging.inbox?.(humanId as never, {})).toHaveLength(0)
     })
   })
+
+  /**
+   * Sender retraction on the durable door (`#1960`, cut 3 of the `#1948`
+   * package).
+   *
+   * D-134 rule 1: an operator-facing mechanism reaches both doors or it has not
+   * shipped. The signed-in console's own route is asserted in
+   * `console-operator-messages.test.ts`; what is under test here is that the
+   * same act works identically behind the mailed link — same storage operation,
+   * same non-disclosing refusals scoped by the token, same honest copy.
+   */
+  describe('sender retraction on the durable door (#1960)', () => {
+    const threadHtml = async (token: string, conversationId: string): Promise<string> =>
+      (await get(`/operator/page/${token}/inbox/${conversationId}`)).body
+
+    /** The person writes through the door a person holding the link uses. */
+    const write = async (token: string, conversationId: string, body: string): Promise<string> => {
+      const response = await post(`/operator/page/${token}/inbox/${conversationId}`, { body })
+      expect(response.statusCode).toBe(303)
+      const read = await messaging.getThread(humanId as never, conversationId as never)
+      if (read.outcome !== 'read') throw new Error('the thread should be readable')
+      const latest = read.response.messages.at(-1)
+      if (latest === undefined) throw new Error('no message recorded')
+      return latest.id
+    }
+
+    const retract = (token: string, conversationId: string, messageId: string) =>
+      post(`/operator/page/${token}/inbox/${conversationId}/messages/${messageId}/retract`, {})
+
+    it("offers Retract on the token's own body-bearing messages and on nobody else's", async () => {
+      const token = await aPage()
+      const conversationId = messaging.thread(humanId, agentId)
+      messaging.agentWrites(humanId, agentId, 'agent words', conversationId)
+      messaging.colonyWrites(humanId, agentId, 'colony words', conversationId)
+      const ownMessageId = await write(token, conversationId, 'Operator words to retract.')
+
+      const page = await threadHtml(token, conversationId)
+
+      expect(page.match(/<form[^>]*action="[^"]*\/retract"/g)).toHaveLength(1)
+      expect(page).toContain(
+        `action="/operator/page/${token}/inbox/${conversationId}/messages/${ownMessageId}/retract"`,
+      )
+    })
+
+    it('retracts, redirects, and says honestly what retraction does not do', async () => {
+      const token = await aPage()
+      const conversationId = messaging.thread(humanId, agentId)
+      const ownMessageId = await write(token, conversationId, 'Take this back.')
+
+      const response = await retract(token, conversationId, ownMessageId)
+
+      expect(response.statusCode).toBe(303)
+      const location = response.headers['location'] as string
+      expect(location).toBe(
+        `/operator/page/${token}/inbox/${conversationId}?retracted=${ownMessageId}`,
+      )
+
+      const page = (await get(location)).body
+      expect(page).toContain('Message retracted by sender.')
+      expect(page).toContain('removed from Kolonie thread views')
+      expect(page).toContain('copies may remain')
+      expect(page).not.toContain('recall')
+    })
+
+    /**
+     * **The token's own scoping, applied to the new act.** Another valid token
+     * for a different agent reaches neither this thread nor this message, and
+     * answers exactly as an id that names nothing.
+     */
+    it('answers wrong aims with the one not-found, and takes nothing back', async () => {
+      const token = await aPage()
+      const otherToken = await pages.issue(
+        String(fakeStore().issue().agent.id) as never,
+        'op@example.org',
+      )
+      const conversationId = messaging.thread(humanId, agentId)
+      const ownMessageId = await write(token, conversationId, 'Mine.')
+
+      const aimed = [
+        retract(otherToken, conversationId, ownMessageId),
+        retract(token, conversationId, '00000000-0000-4000-8000-0000000000ff'),
+        retract(token, conversationId, 'not-a-uuid'),
+      ]
+      for (const answer of await Promise.all(aimed)) expect(answer.statusCode).toBe(404)
+
+      const read = await messaging.getThread(humanId as never, conversationId as never)
+      if (read.outcome !== 'read') throw new Error('the thread should be readable')
+      expect(read.response.messages.every((message) => !('retractedAt' in message))).toBe(true)
+    })
+  })
 })

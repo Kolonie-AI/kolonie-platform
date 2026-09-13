@@ -3,6 +3,7 @@ import {
   MESSAGE_BODY_MAX_LENGTH,
   MESSAGE_BODY_MIN_LENGTH,
   ConversationIdSchema,
+  MessageIdSchema,
   TaskIdSchema,
   OPERATOR_ANSWER_BODIES,
   OPERATOR_ANSWER_LABELS,
@@ -256,6 +257,8 @@ export function registerOperatorInboxRoutes(app: FastifyInstance, deps: RouteDep
       readonly sent?: boolean | undefined
       /** What the box holds when it is drawn again (`#1548`). */
       readonly body?: string | undefined
+      /** What a retraction just took back, for the honest success copy (`#1960`). */
+      readonly retractedMessageId?: string | undefined
     } = {},
   ): Promise<FastifyReply> => {
     const desk = deps.operatorMessaging
@@ -278,11 +281,13 @@ export function registerOperatorInboxRoutes(app: FastifyInstance, deps: RouteDep
         agentName: at.agentName,
         about: found.about,
         messages: read.response.messages.map((message) => ({
+          id: message.id,
           senderLabel: message.sender.label,
           party: message.sender.party,
           ...('body' in message ? { body: message.body } : {}),
           ...('retractedAt' in message ? { retractedAt: message.retractedAt } : {}),
           createdAt: message.createdAt,
+          retractable: message.sender.party === 'operator-human' && !('retractedAt' in message),
         })),
         declarations: OperatorAnswerKindSchema.options.map((kind) => ({
           kind,
@@ -313,6 +318,9 @@ export function registerOperatorInboxRoutes(app: FastifyInstance, deps: RouteDep
         writable: true,
         ...(outcome.error === undefined ? {} : { error: outcome.error }),
         ...(outcome.sent === true ? { sent: true } : {}),
+        ...(outcome.retractedMessageId === undefined
+          ? {}
+          : { retractedMessageId: outcome.retractedMessageId }),
         ...(outcome.body === undefined ? {} : { body: outcome.body }),
       }),
     )
@@ -359,8 +367,11 @@ export function registerOperatorInboxRoutes(app: FastifyInstance, deps: RouteDep
     const at = await resolve(request)
     if (at === undefined) return closed(reply)
 
-    const { said } = request.query as { said?: string }
-    return renderThread(request, reply, at, { sent: said === 'sent' })
+    const { said, retracted } = request.query as { said?: string; retracted?: string }
+    return renderThread(request, reply, at, {
+      sent: said === 'sent',
+      ...(MessageIdSchema.safeParse(retracted).success ? { retractedMessageId: retracted } : {}),
+    })
   })
 
   /**
@@ -541,4 +552,49 @@ export function registerOperatorInboxRoutes(app: FastifyInstance, deps: RouteDep
       .header('location', typeof back === 'string' && back.startsWith(base) ? back : base)
       .send()
   })
+
+  /**
+   * Sender retraction on the durable door (`#1960`, cut 3 of `#1948`).
+   *
+   * D-134 rule 1: an operator-facing mechanism reaches both doors. What this
+   * executes is the same shared sender-only storage operation with the same
+   * non-disclosing not-found response, scoped by the token rather than by a
+   * session cookie.
+   */
+  app.post(
+    '/operator/page/:token/inbox/:conversationId/messages/:messageId/retract',
+    async (request, reply) => {
+      const at = await resolve(request)
+      if (at === undefined) return closed(reply)
+
+      const desk = deps.operatorMessaging
+      if (desk?.retract === undefined) return closed(reply)
+
+      const found = await threadOf(request, at)
+      if (found === undefined) return closed(reply)
+
+      const message = MessageIdSchema.safeParse(
+        (request.params as { messageId?: string }).messageId,
+      )
+      if (!message.success) return closed(reply)
+
+      // Verify the message belongs to this thread before storage is asked to mutate.
+      const read = await desk.getThread(at.humanId, found.conversationId)
+      if (read.outcome !== 'read') return closed(reply)
+      if (!read.response.messages.some((one) => String(one.id) === String(message.data))) {
+        return closed(reply)
+      }
+
+      const result = await desk.retract(at.humanId, message.data)
+      if (result.outcome === 'refused') return closed(reply)
+
+      return reply
+        .status(303)
+        .header(
+          'location',
+          `${baseFor(at.token)}/${String(result.response.conversationId)}?retracted=${String(message.data)}`,
+        )
+        .send()
+    },
+  )
 }

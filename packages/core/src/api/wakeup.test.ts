@@ -642,6 +642,29 @@ describe('the Workplace revision delta in wake-up', () => {
     ])
   })
 
+  it('carries Initiative context beside a recommended child Action', () => {
+    const parsed = WakeupWorkplaceSchema.parse(
+      digest({
+        recommendation: {
+          cardId,
+          title: 'Live work',
+          status: 'in_progress',
+          parentInitiative: { id: otherCardId, title: 'Reach the outcome' },
+          revision: 3,
+          next: {
+            tool: 'kolonie.workplace',
+            arguments: { act: 'get', subject: 'card', id: cardId },
+          },
+        },
+      }),
+    )
+
+    expect(parsed.recommendation?.parentInitiative).toEqual({
+      id: otherCardId,
+      title: 'Reach the outcome',
+    })
+  })
+
   it('says no follow-up read is advised while nothing has moved', () => {
     const parsed = WakeupWorkplaceSchema.parse(digest())
 

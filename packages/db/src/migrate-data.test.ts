@@ -452,11 +452,40 @@ const theWorkplaceClosures: DataMigrationCase = {
   },
 }
 
+const theWorkplaceKinds: DataMigrationCase = {
+  migration: '0369_stormy_exodus',
+  after: '0368_first_oracle',
+  moves: 'existing Workplace cards into the Action kind',
+
+  async seed(db) {
+    const [agent] = await db.execute<{ id: string }>(
+      sql`insert into agents (name, platform) values (${aName('card-kind-case')}, 'openclaw') returning id`,
+    )
+    const [board] = await db.execute<{ id: string }>(
+      sql`insert into workplace_boards (owner_id, kind, title)
+          values (${agent!.id}, 'default', 'Default board') returning id`,
+    )
+    const [card] = await db.execute<{ id: string }>(
+      sql`insert into workplace_cards (board_id, status, title, position)
+          values (${board!.id}, 'inbox', 'Existing card', 1000) returning id`,
+    )
+    return { card: card!.id }
+  },
+
+  async check(db, seeded) {
+    const [card] = await db.execute<{ kind: string; parent_initiative_id: string | null }>(
+      sql`select kind, parent_initiative_id from workplace_cards where id = ${seeded['card']!}`,
+    )
+    expect(card).toEqual({ kind: 'action', parent_initiative_id: null })
+  },
+}
+
 const DATA_MIGRATIONS: readonly DataMigrationCase[] = [
   theWardens,
   theExchanges,
   theRhythms,
   theWorkplaceClosures,
+  theWorkplaceKinds,
 ]
 
 /**

@@ -22,6 +22,7 @@ import {
   WorkplaceCreateCommentRequestSchema,
   WorkplaceCreateLinkRequestSchema,
   WorkplaceHandoverCardRequestSchema,
+  WorkplaceCardKindSchema,
   WorkplaceLaneSchema,
   WorkplaceMoveCardRequestSchema,
   WorkplaceRenameBoardRequestSchema,
@@ -186,6 +187,25 @@ const nextForCard = (card: WorkplaceCard): NextOp[] => {
     { act: 'list', subject: 'card', boardId: card.boardId },
   ]
   if (card.archivedAt !== null) return next
+  if (card.kind === 'initiative') {
+    next.push(
+      {
+        act: 'list',
+        subject: 'card',
+        boardId: card.boardId,
+        fields: { kind: 'action', parentInitiativeId: card.id },
+      },
+      {
+        act: 'create',
+        subject: 'card',
+        boardId: card.boardId,
+        fields: { kind: 'action', parentInitiativeId: card.id },
+      },
+      { act: 'update', subject: 'card', ...write },
+      { act: 'archive', subject: 'card', ...write },
+    )
+    return next
+  }
   switch (card.status) {
     case 'inbox':
       next.push(
@@ -873,13 +893,34 @@ async function dispatchCard(
         details: { boardId: 'required' },
       })
     }
-    const status = fieldsOf(input)['status']
+    const fields = fieldsOf(input)
+    const status = fields['status']
     const parsedStatus = status === undefined ? undefined : WorkplaceLaneSchema.safeParse(status)
     if (parsedStatus !== undefined && !parsedStatus.success) {
       return parsedFail('status is one of the six lanes.', parsedStatus.error)
     }
+    const kind = fields['kind']
+    const parsedKind = kind === undefined ? undefined : WorkplaceCardKindSchema.safeParse(kind)
+    if (parsedKind !== undefined && !parsedKind.success) {
+      return parsedFail('kind is initiative or action.', parsedKind.error)
+    }
+    const parentInitiativeId = fields['parentInitiativeId']
+    if (
+      parentInitiativeId !== undefined &&
+      parentInitiativeId !== null &&
+      typeof parentInitiativeId !== 'string'
+    ) {
+      return toolError({
+        code: 'validation_failed',
+        message: 'parentInitiativeId is a card id.',
+      })
+    }
     const listed = await cards.list(callerId, input.boardId, {
       ...(parsedStatus?.success === true ? { status: parsedStatus.data } : {}),
+      ...(parsedKind?.success === true ? { kind: parsedKind.data } : {}),
+      ...(parentInitiativeId === undefined
+        ? {}
+        : { parentInitiativeId: parentInitiativeId as string | null }),
       ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
       ...(input.limit === undefined ? {} : { limit: input.limit }),
     })
@@ -901,7 +942,19 @@ async function dispatchCard(
             subject: 'card' as const,
             boardId: input.boardId,
             cursor: nextCursor,
-            ...(parsedStatus?.success === true ? { fields: { status: parsedStatus.data } } : {}),
+            ...(parsedStatus?.success === true ||
+            parsedKind?.success === true ||
+            parentInitiativeId !== undefined
+              ? {
+                  fields: {
+                    ...(parsedStatus?.success === true ? { status: parsedStatus.data } : {}),
+                    ...(parsedKind?.success === true ? { kind: parsedKind.data } : {}),
+                    ...(parentInitiativeId === undefined
+                      ? {}
+                      : { parentInitiativeId: parentInitiativeId as string | null }),
+                  },
+                }
+              : {}),
             ...(input.limit === undefined ? {} : { limit: input.limit }),
           }
     return ok(
@@ -941,6 +994,10 @@ async function dispatchCard(
       title: parsed.data.title,
       ...(parsed.data.description === undefined ? {} : { description: parsed.data.description }),
       ...(parsed.data.status === undefined ? {} : { status: parsed.data.status }),
+      ...(parsed.data.kind === undefined ? {} : { kind: parsed.data.kind }),
+      ...(parsed.data.parentInitiativeId === undefined
+        ? {}
+        : { parentInitiativeId: parsed.data.parentInitiativeId }),
       ...(parsed.data.priority === undefined ? {} : { priority: parsed.data.priority }),
       ...(parsed.data.dueAt === undefined ? {} : { dueAt: parsed.data.dueAt }),
       ...(parsed.data.coverColour === undefined ? {} : { coverColour: parsed.data.coverColour }),
@@ -950,7 +1007,7 @@ async function dispatchCard(
     if (created.outcome === 'invalid-transition') {
       return toolError({
         code: 'workplace_invalid_transition',
-        message: 'A card is created in inbox or ready.',
+        message: 'The card kind, parent or initial lane is not valid.',
       })
     }
     if (created.outcome !== 'created') return toolError(missingBoard)
@@ -1452,10 +1509,14 @@ async function updateCard(
     ...(fields['dueAt'] === undefined ? {} : { dueAt: fields['dueAt'] }),
     ...(fields['coverColour'] === undefined ? {} : { coverColour: fields['coverColour'] }),
     ...(fields['position'] === undefined ? {} : { position: fields['position'] }),
+    ...(fields['kind'] === undefined ? {} : { kind: fields['kind'] }),
+    ...(fields['parentInitiativeId'] === undefined
+      ? {}
+      : { parentInitiativeId: fields['parentInitiativeId'] }),
   })
   if (!parsed.success) {
     return parsedFail(
-      'Patch takes title, description, priority, due, coverColour or position — not status.',
+      'Patch takes title, description, priority, due, coverColour, position, kind or parentInitiativeId — not status.',
       parsed.error,
     )
   }
@@ -1470,6 +1531,12 @@ async function updateCard(
     return toolError({
       code: 'conflict',
       message: 'The card has changed since you last read it.',
+    })
+  }
+  if (updated.outcome === 'invalid-transition') {
+    return toolError({
+      code: 'workplace_invalid_transition',
+      message: 'The requested kind or parent relation is not valid.',
     })
   }
   if (updated.outcome !== 'updated') return toolError(missingCard)

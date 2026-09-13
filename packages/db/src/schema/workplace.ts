@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm'
 import {
+  type AnyPgColumn,
   boolean,
   check,
   doublePrecision,
@@ -20,6 +21,7 @@ import {
   WORKPLACE_BOARD_KINDS,
   WORKPLACE_BODY_MAX_LENGTH,
   WORKPLACE_CARD_CLOSURE_RESULTS,
+  WORKPLACE_CARD_KINDS,
   WORKPLACE_CADENCES,
   WORKPLACE_COMMITMENT_STATES,
   WORKPLACE_EVENT_ACTOR_KINDS,
@@ -231,6 +233,11 @@ export const workplaceCards = pgTable(
       .notNull()
       .references(() => workplaceBoards.id, { onDelete: 'cascade' }),
     status: varchar('status', { length: 16 }).notNull(),
+    kind: varchar('kind', { length: 16 }).notNull().default('action'),
+    parentInitiativeId: uuid('parent_initiative_id').references(
+      (): AnyPgColumn => workplaceCards.id,
+      { onDelete: 'set null' },
+    ),
     title: varchar('title', { length: WORKPLACE_TITLE_MAX_LENGTH }).notNull(),
     description: text('description'),
     ownerId: uuid('owner_id').references(() => agents.id, { onDelete: 'set null' }),
@@ -266,7 +273,16 @@ export const workplaceCards = pgTable(
       .where(sql`${table.seedKey} is not null`),
     index('workplace_cards_board_lane_idx').on(table.boardId, table.status, table.position),
     index('workplace_cards_owner_idx').on(table.ownerId),
+    index('workplace_cards_parent_idx').on(table.parentInitiativeId),
     check('workplace_cards_status_is_known', sql`${table.status} in (${oneOf(WORKPLACE_LANES)})`),
+    check('workplace_cards_kind_is_known', sql`${table.kind} in (${oneOf(WORKPLACE_CARD_KINDS)})`),
+    check(
+      'workplace_cards_initiative_shape',
+      sql`${table.kind} = 'action'
+        or (${table.parentInitiativeId} is null
+            and ${table.ownerId} is null
+            and ${table.status} in ('inbox', 'ready', 'done'))`,
+    ),
     check('workplace_cards_version_is_positive', sql`${table.version} >= 1`),
     check(
       'workplace_cards_title_is_bounded',

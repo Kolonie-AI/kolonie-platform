@@ -908,8 +908,10 @@ describe('the migrations', () => {
     //
     // `#1935` and `#1940` make eleven and twelve: immutable profession
     // constitutions and immutable card close claims, with the actor-only nulling
-    // that erasure requires admitted as the sole closure update.
-    expect(afterFirst.triggers).toBe('12')
+    // that erasure requires admitted as the sole closure update. `#1941` makes
+    // thirteen: every parent link is rechecked at commit against a live
+    // Initiative on the same board.
+    expect(afterFirst.triggers).toBe('13')
 
     await expect(migrate(db, { migrationsFolder: MIGRATIONS_FOLDER })).resolves.not.toThrow()
     expect(await objectCounts()).toEqual(afterFirst)

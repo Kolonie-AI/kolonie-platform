@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { and, desc, eq, inArray, isNull, lt, lte, ne, or, sql } from 'drizzle-orm'
+import { alias } from 'drizzle-orm/pg-core'
 import {
   AgentIdSchema,
   DEFAULT_PAGE_SIZE,
@@ -17,6 +18,7 @@ import {
   WorkplacePracticumResultSchema,
   WorkplaceCadenceSchema,
   WorkplaceCardIdSchema,
+  WorkplaceCardKindSchema,
   WorkplaceCardLinkSchema,
   WorkplaceCardSchema,
   WorkplaceCommitmentSchema,
@@ -38,6 +40,7 @@ import {
   type AgentId,
   type WorkplaceBoard,
   type WorkplaceCard,
+  type WorkplaceCardKind,
   type WorkplaceCardClosure,
   type WorkplaceCompleteCardRequest,
   type WorkplaceCreateCardClosureRequest,
@@ -209,6 +212,8 @@ function cardChanges(
     readonly dueAt?: string | null
     readonly coverColour?: string | null
     readonly position?: number
+    readonly kind?: WorkplaceCardKind
+    readonly parentInitiativeId?: string | null
   },
 ): Record<
   string,
@@ -247,6 +252,8 @@ function toCard(row: typeof workplaceCards.$inferSelect): WorkplaceCard {
     id: row.id,
     boardId: row.boardId,
     status: row.status,
+    kind: row.kind,
+    parentInitiativeId: row.parentInitiativeId,
     title: row.title,
     description: row.description,
     ownerId: row.ownerId,
@@ -278,6 +285,8 @@ function toSummary(
     id: card.id,
     boardId: card.boardId,
     status: card.status,
+    kind: card.kind,
+    parentInitiativeId: card.parentInitiativeId,
     title: card.title,
     ownerId: card.ownerId,
     position: card.position,
@@ -608,6 +617,50 @@ async function diagnoseCardWrite(
   return { outcome: 'stale' }
 }
 
+async function cardBoardId(tx: Transaction, cardId: string): Promise<string | null> {
+  if (!isUuid(cardId)) return null
+  const [card] = await tx
+    .select({ boardId: workplaceCards.boardId })
+    .from(workplaceCards)
+    .where(eq(workplaceCards.id, cardId))
+    .limit(1)
+  return card?.boardId ?? null
+}
+
+async function lockWorkplaceHierarchy(tx: Transaction, boardId: string): Promise<void> {
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(hashtextextended('workplace-hierarchy:' || ${boardId}, 0))`,
+  )
+}
+
+async function validateParentInitiative(
+  tx: Transaction,
+  input: {
+    readonly boardId: string
+    readonly kind: WorkplaceCardKind
+    readonly parentInitiativeId: string | null
+    readonly cardId?: string
+  },
+): Promise<boolean> {
+  if (input.parentInitiativeId === null) return true
+  if (input.kind !== 'action' || !isUuid(input.parentInitiativeId)) return false
+  if (input.cardId !== undefined && input.parentInitiativeId === input.cardId) return false
+  const [parent] = await tx
+    .select({ id: workplaceCards.id })
+    .from(workplaceCards)
+    .where(
+      and(
+        eq(workplaceCards.id, input.parentInitiativeId),
+        eq(workplaceCards.boardId, input.boardId),
+        eq(workplaceCards.kind, 'initiative'),
+        isNull(workplaceCards.archivedAt),
+      ),
+    )
+    .for('update')
+    .limit(1)
+  return parent !== undefined
+}
+
 async function boardWriteAccess(
   db: Database | Transaction,
   callerId: AgentId,
@@ -795,6 +848,7 @@ export async function workplaceWakeup(
     }
   }
 
+  const parent = alias(workplaceCards, 'parent_initiative')
   const rank = sql<number>`case
     when ${workplaceCards.status} = 'in_progress' and ${workplaceCards.ownerId} = ${callerId} then 0
     when ${workplaceCards.status} = 'ready' then 1
@@ -812,6 +866,8 @@ export async function workplaceWakeup(
       position: workplaceCards.position,
       createdAt: workplaceCards.createdAt,
       updatedAt: workplaceCards.updatedAt,
+      parentId: parent.id,
+      parentTitle: parent.title,
       /**
        * The change signal the digest carries (`#1885`).
        *
@@ -822,9 +878,11 @@ export async function workplaceWakeup(
       version: workplaceCards.version,
     })
     .from(workplaceCards)
+    .leftJoin(parent, eq(parent.id, workplaceCards.parentInitiativeId))
     .where(
       and(
         eq(workplaceCards.boardId, board.id),
+        eq(workplaceCards.kind, 'action'),
         isNull(workplaceCards.archivedAt),
         or(
           and(eq(workplaceCards.status, 'in_progress'), eq(workplaceCards.ownerId, callerId)),
@@ -868,6 +926,14 @@ export async function workplaceWakeup(
             cardId: WorkplaceCardIdSchema.parse(first.id),
             title: first.title,
             status: WorkplaceLaneSchema.parse(first.status),
+            ...(first.parentId === null
+              ? { parentInitiative: null }
+              : {
+                  parentInitiative: {
+                    id: WorkplaceCardIdSchema.parse(first.parentId),
+                    title: first.parentTitle ?? '',
+                  },
+                }),
             revision: first.version,
             next: {
               tool: 'kolonie.workplace',
@@ -1161,6 +1227,8 @@ export async function listCards(
   boardId: string,
   query: {
     readonly status?: WorkplaceLane
+    readonly kind?: WorkplaceCardKind
+    readonly parentInitiativeId?: string | null
     readonly cursor?: string | null
     readonly limit?: number
   } = {},
@@ -1175,6 +1243,12 @@ export async function listCards(
     eq(workplaceCards.boardId, boardId),
     isNull(workplaceCards.archivedAt),
     ...(query.status === undefined ? [] : [eq(workplaceCards.status, query.status)]),
+    ...(query.kind === undefined ? [] : [eq(workplaceCards.kind, query.kind)]),
+    ...(query.parentInitiativeId === undefined
+      ? []
+      : query.parentInitiativeId === null
+        ? [isNull(workplaceCards.parentInitiativeId)]
+        : [eq(workplaceCards.parentInitiativeId, query.parentInitiativeId)]),
     ...(after === undefined
       ? []
       : [
@@ -1341,6 +1415,7 @@ export async function getCard(
     eventCountRows,
     closureRows,
     closureCountRows,
+    childRows,
   ] = await Promise.all([
     db
       .select({ label: workplaceLabels })
@@ -1383,6 +1458,15 @@ export async function getCard(
       .select({ count: sql<number>`count(*)` })
       .from(workplaceCardClosures)
       .where(eq(workplaceCardClosures.cardId, row.id)),
+    row.kind === 'initiative'
+      ? db
+          .select()
+          .from(workplaceCards)
+          .where(
+            and(eq(workplaceCards.parentInitiativeId, row.id), isNull(workplaceCards.archivedAt)),
+          )
+          .orderBy(workplaceCards.createdAt, workplaceCards.position, workplaceCards.id)
+      : Promise.resolve([]),
   ])
 
   const checklistIds = checklistRows.map((one) => one.id)
@@ -1440,6 +1524,30 @@ export async function getCard(
     closureCount: Number(closureCountRows[0]?.count ?? 0),
     eventCount: Number(eventCountRows[0]?.count ?? 0),
     events: eventRows.map(toEvent),
+    ...(row.kind === 'initiative'
+      ? {
+          actionCounts: {
+            total: childRows.length,
+            done: childRows.filter((child) => child.status === 'done').length,
+            active: childRows.filter((child) => child.status !== 'done').length,
+          },
+          nextActions: childRows
+            .filter(
+              (child) =>
+                child.status === 'ready' ||
+                (child.status === 'in_progress' && child.ownerId === callerId) ||
+                (child.status === 'blocked' && child.ownerId === callerId),
+            )
+            .slice(0, 5)
+            .map((child) => ({
+              id: WorkplaceCardIdSchema.parse(child.id),
+              title: child.title,
+              status: WorkplaceLaneSchema.parse(child.status),
+              ownerId: child.ownerId === null ? null : AgentIdSchema.parse(child.ownerId),
+              version: child.version,
+            })),
+        }
+      : {}),
   }
 }
 
@@ -1858,6 +1966,8 @@ export async function createCard(
     readonly title: string
     readonly description?: string | null
     readonly status?: WorkplaceLane
+    readonly kind?: WorkplaceCardKind
+    readonly parentInitiativeId?: string | null
     readonly priority?: string
     readonly dueAt?: string | null
     readonly coverColour?: string | null
@@ -1868,8 +1978,16 @@ export async function createCard(
   return db.transaction(async (tx) => {
     const access = await boardWriteAccess(tx, input.callerId, input.boardId)
     if (access.outcome !== 'ok') return access
+    await lockWorkplaceHierarchy(tx, input.boardId)
     const status = input.status ?? 'inbox'
+    const kind = input.kind ?? 'action'
+    const parentInitiativeId = input.parentInitiativeId ?? null
     if (status !== 'inbox' && status !== 'ready') return { outcome: 'invalid-transition' }
+    if (
+      !(await validateParentInitiative(tx, { boardId: input.boardId, kind, parentInitiativeId }))
+    ) {
+      return { outcome: 'invalid-transition' }
+    }
 
     const stored = await replayOrStore(tx, {
       callerId: input.callerId,
@@ -1881,6 +1999,8 @@ export async function createCard(
           .values({
             boardId: input.boardId,
             status,
+            kind,
+            parentInitiativeId,
             title: input.title,
             description: input.description ?? null,
             position,
@@ -1900,6 +2020,11 @@ export async function createCard(
             title: row.title,
             description: row.description,
             status: WorkplaceLaneSchema.parse(row.status),
+            kind: WorkplaceCardKindSchema.parse(row.kind),
+            parentInitiativeId:
+              row.parentInitiativeId === null
+                ? null
+                : WorkplaceCardIdSchema.parse(row.parentInitiativeId),
             priority: row.priority,
             dueAt: row.dueAt === null ? null : toTimestamp(row.dueAt),
             coverColour: row.coverColour,
@@ -1920,6 +2045,7 @@ export type UpdateCardResult =
   | WorkplaceMissing
   | WorkplaceForbidden
   | WorkplaceStale
+  | WorkplaceInvalidTransition
 
 export async function updateCard(
   db: Database,
@@ -1933,13 +2059,50 @@ export async function updateCard(
     readonly dueAt?: string | null
     readonly coverColour?: string | null
     readonly position?: number
+    readonly kind?: WorkplaceCardKind
+    readonly parentInitiativeId?: string | null
     readonly attribution?: WorkplaceEventAttribution
   },
 ): Promise<UpdateCardResult> {
   return db.transaction(async (tx) => {
+    const boardId = await cardBoardId(tx, input.cardId)
+    if (boardId === null) return { outcome: 'missing' }
+    await lockWorkplaceHierarchy(tx, boardId)
     const locked = await lockCardForWrite(tx, input.callerId, input.cardId)
     if (locked.outcome !== 'ok') return locked
     if (locked.card.version !== input.expectedVersion) return { outcome: 'stale' }
+    const nextKind = input.kind ?? WorkplaceCardKindSchema.parse(locked.card.kind)
+    const nextParent =
+      input.parentInitiativeId === undefined
+        ? locked.card.parentInitiativeId
+        : input.parentInitiativeId
+    if (input.kind !== undefined && input.kind !== locked.card.kind) {
+      if (
+        (locked.card.status !== 'inbox' && locked.card.status !== 'ready') ||
+        locked.card.ownerId !== null
+      ) {
+        return { outcome: 'invalid-transition' }
+      }
+      if (locked.card.kind === 'initiative' && input.kind === 'action') {
+        const [child] = await tx
+          .select({ id: workplaceCards.id })
+          .from(workplaceCards)
+          .where(eq(workplaceCards.parentInitiativeId, locked.card.id))
+          .for('update')
+          .limit(1)
+        if (child !== undefined) return { outcome: 'invalid-transition' }
+      }
+    }
+    if (
+      !(await validateParentInitiative(tx, {
+        boardId: locked.card.boardId,
+        kind: nextKind,
+        parentInitiativeId: nextParent,
+        cardId: locked.card.id,
+      }))
+    ) {
+      return { outcome: 'invalid-transition' }
+    }
     const changes = cardChanges(locked.card, {
       title: input.title,
       description: input.description,
@@ -1947,6 +2110,8 @@ export async function updateCard(
       dueAt: input.dueAt,
       coverColour: input.coverColour,
       position: input.position,
+      kind: input.kind,
+      parentInitiativeId: input.parentInitiativeId,
     })
     if (Object.keys(changes).length === 0) {
       return { outcome: 'updated', card: toCard(locked.card) }
@@ -1960,6 +2125,10 @@ export async function updateCard(
         ...(input.dueAt === undefined ? {} : { dueAt: input.dueAt }),
         ...(input.coverColour === undefined ? {} : { coverColour: input.coverColour }),
         ...(input.position === undefined ? {} : { position: input.position }),
+        ...(input.kind === undefined ? {} : { kind: input.kind }),
+        ...(input.parentInitiativeId === undefined
+          ? {}
+          : { parentInitiativeId: input.parentInitiativeId }),
         version: sql`${workplaceCards.version} + 1`,
         updatedAt: sql`now()`,
       })
@@ -2009,7 +2178,10 @@ export async function moveCard(
     if (locked.outcome !== 'ok') return locked
     const existing = locked.card
     const from = WorkplaceLaneSchema.parse(existing.status)
-    if (!canTransitionWorkplace(from, input.status)) return { outcome: 'invalid-transition' }
+    const kind = WorkplaceCardKindSchema.parse(existing.kind)
+    if (!canTransitionWorkplace(from, input.status, kind)) {
+      return { outcome: 'invalid-transition' }
+    }
     /**
      * Entering `in_progress` claims if the card is ownerless. A live owner
      * who is not the caller is a handover, not a steal (D-146, `#1760`).
@@ -2141,6 +2313,7 @@ async function claimCardOnce(
             and(
               eq(workplaceCards.id, input.cardId),
               eq(workplaceCards.version, input.expectedVersion),
+              eq(workplaceCards.kind, 'action'),
               isNull(workplaceCards.ownerId),
               eq(workplaceCards.status, 'ready'),
               isNull(workplaceCards.archivedAt),
@@ -2174,7 +2347,7 @@ async function claimCardOnce(
       return diagnosed.outcome === 'stale' ? { outcome: 'conflict' } : diagnosed
     }
     if (visible.ownerId !== null) return { outcome: 'conflict' }
-    if (visible.status !== 'ready' || visible.archivedAt !== null) {
+    if (visible.kind !== 'action' || visible.status !== 'ready' || visible.archivedAt !== null) {
       return { outcome: 'invalid-transition' }
     }
     return { outcome: 'conflict' }
@@ -2478,12 +2651,31 @@ export async function completeCard(
   },
 ): Promise<CompleteCardResult> {
   return db.transaction(async (tx) => {
+    const boardId = await cardBoardId(tx, input.cardId)
+    if (boardId === null) return { outcome: 'missing' }
+    await lockWorkplaceHierarchy(tx, boardId)
     const locked = await lockCardForWrite(tx, input.callerId, input.cardId)
     if (locked.outcome !== 'ok') return locked
     const existing = locked.card
     const from = WorkplaceLaneSchema.parse(existing.status)
-    if (!canTransitionWorkplace(from, 'done')) return { outcome: 'invalid-transition' }
-    if (existing.ownerId === null) return { outcome: 'invalid-transition' }
+    const kind = WorkplaceCardKindSchema.parse(existing.kind)
+    if (!canTransitionWorkplace(from, 'done', kind)) return { outcome: 'invalid-transition' }
+    if (kind === 'action' && existing.ownerId === null) return { outcome: 'invalid-transition' }
+    if (kind === 'initiative') {
+      const [openChild] = await tx
+        .select({ id: workplaceCards.id })
+        .from(workplaceCards)
+        .where(
+          and(
+            eq(workplaceCards.parentInitiativeId, existing.id),
+            ne(workplaceCards.status, 'done'),
+            isNull(workplaceCards.archivedAt),
+          ),
+        )
+        .for('update')
+        .limit(1)
+      if (openChild !== undefined) return { outcome: 'invalid-transition' }
+    }
     const parsed = WorkplaceCompleteCardRequestSchema.parse(
       input.close ?? { outcome: input.outcome },
     )
@@ -2673,7 +2865,8 @@ export async function blockCard(
     if (locked.outcome !== 'ok') return locked
     const existing = locked.card
     const from = WorkplaceLaneSchema.parse(existing.status)
-    if (!canTransitionWorkplace(from, 'blocked')) return { outcome: 'invalid-transition' }
+    const kind = WorkplaceCardKindSchema.parse(existing.kind)
+    if (!canTransitionWorkplace(from, 'blocked', kind)) return { outcome: 'invalid-transition' }
     if (existing.ownerId === null) return { outcome: 'invalid-transition' }
 
     const position = await nextPosition(tx, existing.boardId, 'blocked')
@@ -2729,7 +2922,8 @@ export async function requestReview(
     if (locked.outcome !== 'ok') return locked
     const existing = locked.card
     const from = WorkplaceLaneSchema.parse(existing.status)
-    if (!canTransitionWorkplace(from, 'review')) return { outcome: 'invalid-transition' }
+    const kind = WorkplaceCardKindSchema.parse(existing.kind)
+    if (!canTransitionWorkplace(from, 'review', kind)) return { outcome: 'invalid-transition' }
     if (existing.ownerId === null) return { outcome: 'invalid-transition' }
 
     const position = await nextPosition(tx, existing.boardId, 'review')
@@ -2779,14 +2973,55 @@ export async function archiveCard(
   },
 ): Promise<ArchiveCardResult> {
   return db.transaction(async (tx) => {
+    const boardId = await cardBoardId(tx, input.cardId)
+    if (boardId === null) return { outcome: 'missing' }
+    await lockWorkplaceHierarchy(tx, boardId)
     const locked = await lockCardForWrite(tx, input.callerId, input.cardId)
     if (locked.outcome !== 'ok') return locked
     const existing = locked.card
     const from = WorkplaceLaneSchema.parse(existing.status)
-    if (!canTransitionWorkplace(from, 'archived')) return { outcome: 'invalid-transition' }
+    const kind = WorkplaceCardKindSchema.parse(existing.kind)
+    if (!canTransitionWorkplace(from, 'archived', kind)) {
+      return { outcome: 'invalid-transition' }
+    }
     const membership = await membershipOf(tx, input.callerId, existing.boardId)
     if (membership === null) return { outcome: 'forbidden' }
     if (membership.role !== 'owner') return { outcome: 'forbidden' }
+
+    const children =
+      kind === 'initiative'
+        ? await tx
+            .select()
+            .from(workplaceCards)
+            .where(
+              and(
+                eq(workplaceCards.parentInitiativeId, existing.id),
+                isNull(workplaceCards.archivedAt),
+              ),
+            )
+            .orderBy(workplaceCards.id)
+            .for('update')
+        : []
+    for (const child of children) {
+      await tx
+        .update(workplaceCards)
+        .set({
+          parentInitiativeId: null,
+          version: sql`${workplaceCards.version} + 1`,
+          updatedAt: sql`now()`,
+        })
+        .where(eq(workplaceCards.id, child.id))
+      await appendCardEvent(tx, {
+        boardId: child.boardId,
+        cardId: child.id,
+        callerId: input.callerId,
+        attribution: input.attribution,
+        verb: 'card.updated',
+        payload: {
+          changes: { parentInitiativeId: { before: existing.id, after: null } },
+        },
+      })
+    }
 
     const [row] = await tx
       .update(workplaceCards)
@@ -3594,6 +3829,8 @@ async function cloneTemplateCard(
     .values({
       boardId: template.boardId,
       status: 'inbox',
+      kind: template.kind,
+      parentInitiativeId: template.parentInitiativeId,
       title: template.title,
       description: template.description,
       position,

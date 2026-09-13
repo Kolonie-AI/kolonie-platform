@@ -2584,6 +2584,13 @@
       "when": 1789262960582,
       "tag": "0368_first_oracle",
       "breakpoints": true
+    },
+    {
+      "idx": 369,
+      "version": "7",
+      "when": 1789272916760,
+      "tag": "0369_stormy_exodus",
+      "breakpoints": true
     }
   ]
 }

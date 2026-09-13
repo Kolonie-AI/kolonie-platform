@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { randomUUID } from 'node:crypto'
-import { sql } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import {
   AgentPlatformSchema,
   BanMarkKindSchema,
@@ -1861,6 +1861,75 @@ describe('schema', () => {
             position: 1000,
           }),
         /workplace_cards_blocked_is_explained/,
+      )
+    })
+
+    it('enforces Action parentage at the database boundary', async () => {
+      const agent = await anAgent()
+      const home = await aBoard(agent.id)
+      const away = await aBoard(agent.id, { kind: 'additional', title: 'Other' })
+      const [initiative] = await db
+        .insert(workplaceCards)
+        .values({
+          boardId: home.id,
+          status: 'ready',
+          kind: 'initiative',
+          title: 'Reach one outcome',
+          position: 1000,
+        })
+        .returning()
+      const [action] = await db
+        .insert(workplaceCards)
+        .values({
+          boardId: home.id,
+          status: 'ready',
+          kind: 'action',
+          parentInitiativeId: initiative!.id,
+          title: 'Ship one artifact',
+          position: 2000,
+        })
+        .returning()
+      expect(action?.parentInitiativeId).toBe(initiative?.id)
+
+      await expectRejection(
+        () =>
+          db.insert(workplaceCards).values({
+            boardId: home.id,
+            status: 'ready',
+            kind: 'initiative',
+            parentInitiativeId: initiative!.id,
+            title: 'Nested outcome',
+            position: 3000,
+          }),
+        /workplace_cards_initiative_shape/,
+      )
+      await expectRejection(
+        () =>
+          db.insert(workplaceCards).values({
+            boardId: away.id,
+            status: 'ready',
+            kind: 'action',
+            parentInitiativeId: initiative!.id,
+            title: 'Cross-board action',
+            position: 1000,
+          }),
+        /workplace parent must be a live Initiative on the same board/,
+      )
+      await db
+        .update(workplaceCards)
+        .set({ archivedAt: new Date().toISOString() })
+        .where(eq(workplaceCards.id, initiative!.id))
+      await expectRejection(
+        () =>
+          db.insert(workplaceCards).values({
+            boardId: home.id,
+            status: 'ready',
+            kind: 'action',
+            parentInitiativeId: initiative!.id,
+            title: 'Action under archived Initiative',
+            position: 4000,
+          }),
+        /workplace parent must be a live Initiative on the same board/,
       )
     })
 

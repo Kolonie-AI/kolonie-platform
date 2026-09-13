@@ -89,6 +89,8 @@ const toSummary = (
   id: card.id,
   boardId: card.boardId,
   status: card.status,
+  kind: card.kind,
+  parentInitiativeId: card.parentInitiativeId,
   title: card.title,
   ownerId: card.ownerId,
   position: card.position,
@@ -290,7 +292,10 @@ export function fakeWorkplaceCards(): FakeWorkplaceCards {
           (card) =>
             card.boardId === boardId &&
             card.archivedAt === null &&
-            (query.status === undefined || card.status === query.status),
+            (query.status === undefined || card.status === query.status) &&
+            (query.kind === undefined || card.kind === query.kind) &&
+            (query.parentInitiativeId === undefined ||
+              card.parentInitiativeId === query.parentInitiativeId),
         )
         .sort(
           (a, b) =>
@@ -344,6 +349,44 @@ export function fakeWorkplaceCards(): FakeWorkplaceCards {
         closureCount: closures.get(cardId)?.length ?? 0,
         eventCount: events.get(cardId)?.length ?? 0,
         events: (events.get(cardId) ?? []).slice(0, 5),
+        ...(card.kind === 'initiative'
+          ? {
+              actionCounts: {
+                total: [...cards.values()].filter(
+                  (one) => one.parentInitiativeId === card.id && one.archivedAt === null,
+                ).length,
+                done: [...cards.values()].filter(
+                  (one) =>
+                    one.parentInitiativeId === card.id &&
+                    one.archivedAt === null &&
+                    one.status === 'done',
+                ).length,
+                active: [...cards.values()].filter(
+                  (one) =>
+                    one.parentInitiativeId === card.id &&
+                    one.archivedAt === null &&
+                    one.status !== 'done',
+                ).length,
+              },
+              nextActions: [...cards.values()]
+                .filter(
+                  (one) =>
+                    one.parentInitiativeId === card.id &&
+                    one.archivedAt === null &&
+                    (one.status === 'ready' ||
+                      (one.status === 'in_progress' && one.ownerId === callerId) ||
+                      (one.status === 'blocked' && one.ownerId === callerId)),
+                )
+                .slice(0, 5)
+                .map((one) => ({
+                  id: one.id,
+                  title: one.title,
+                  status: one.status,
+                  ownerId: one.ownerId,
+                  version: one.version,
+                })),
+            }
+          : {}),
       } satisfies WorkplaceCardDetail
     },
 
@@ -414,6 +457,8 @@ export function fakeWorkplaceCards(): FakeWorkplaceCards {
         id: WorkplaceCardIdSchema.parse(randomUUID()),
         boardId: boardId as WorkplaceCard['boardId'],
         status: 'inbox',
+        kind: 'action',
+        parentInitiativeId: null,
         title,
         description: input.outcome,
         ownerId: null,
@@ -517,12 +562,29 @@ export function fakeWorkplaceCards(): FakeWorkplaceCards {
         return { outcome: 'missing' } satisfies CreateCardResult
       }
       const status = input.status ?? 'inbox'
+      const kind = input.kind ?? 'action'
+      const parentInitiativeId = input.parentInitiativeId ?? null
       if (status !== 'inbox' && status !== 'ready') return { outcome: 'invalid-transition' }
+      const parent = parentInitiativeId === null ? undefined : cards.get(parentInitiativeId)
+      if (
+        (parentInitiativeId !== null &&
+          (kind !== 'action' ||
+            parent === undefined ||
+            parent.kind !== 'initiative' ||
+            parent.boardId !== input.boardId ||
+            parent.archivedAt !== null)) ||
+        (kind === 'initiative' && parentInitiativeId !== null)
+      ) {
+        return { outcome: 'invalid-transition' }
+      }
       const now = new Date().toISOString()
       const card: WorkplaceCard = {
         id: WorkplaceCardIdSchema.parse(randomUUID()),
         boardId: input.boardId as WorkplaceCard['boardId'],
         status,
+        kind,
+        parentInitiativeId:
+          parentInitiativeId === null ? null : (parentInitiativeId as WorkplaceCard['id']),
         title: input.title,
         description: input.description ?? null,
         ownerId: null,
@@ -548,6 +610,8 @@ export function fakeWorkplaceCards(): FakeWorkplaceCards {
           title: card.title,
           description: card.description,
           status: card.status,
+          kind: card.kind,
+          parentInitiativeId: card.parentInitiativeId,
           priority: card.priority,
           dueAt: card.dueAt,
           coverColour: card.coverColour,
@@ -562,6 +626,33 @@ export function fakeWorkplaceCards(): FakeWorkplaceCards {
       if (card === undefined) return { outcome: 'missing' } satisfies UpdateCardResult
       if (membershipOf(input.callerId, card.boardId) === undefined) return { outcome: 'forbidden' }
       if (card.version !== input.expectedVersion) return { outcome: 'stale' }
+      const kind = input.kind ?? card.kind
+      const parentInitiativeId =
+        input.parentInitiativeId === undefined ? card.parentInitiativeId : input.parentInitiativeId
+      if (input.kind !== undefined && input.kind !== card.kind) {
+        if ((card.status !== 'inbox' && card.status !== 'ready') || card.ownerId !== null) {
+          return { outcome: 'invalid-transition' }
+        }
+        if (
+          card.kind === 'initiative' &&
+          input.kind === 'action' &&
+          [...cards.values()].some((one) => one.parentInitiativeId === card.id)
+        ) {
+          return { outcome: 'invalid-transition' }
+        }
+      }
+      const parent = parentInitiativeId === null ? undefined : cards.get(parentInitiativeId)
+      if (
+        (parentInitiativeId !== null &&
+          (kind !== 'action' ||
+            parent === undefined ||
+            parent.kind !== 'initiative' ||
+            parent.boardId !== card.boardId ||
+            parent.archivedAt !== null)) ||
+        (kind === 'initiative' && parentInitiativeId !== null)
+      ) {
+        return { outcome: 'invalid-transition' }
+      }
       const updated = bump(card, {
         ...(input.title === undefined ? {} : { title: input.title }),
         ...(input.description === undefined ? {} : { description: input.description }),
@@ -569,6 +660,15 @@ export function fakeWorkplaceCards(): FakeWorkplaceCards {
         ...(input.dueAt === undefined ? {} : { dueAt: input.dueAt }),
         ...(input.coverColour === undefined ? {} : { coverColour: input.coverColour }),
         ...(input.position === undefined ? {} : { position: input.position }),
+        ...(input.kind === undefined ? {} : { kind: input.kind }),
+        ...(input.parentInitiativeId === undefined
+          ? {}
+          : {
+              parentInitiativeId:
+                input.parentInitiativeId === null
+                  ? null
+                  : (input.parentInitiativeId as WorkplaceCard['id']),
+            }),
       })
       cards.set(card.id, updated)
       return { outcome: 'updated', card: updated }
@@ -580,7 +680,7 @@ export function fakeWorkplaceCards(): FakeWorkplaceCards {
       const membership = membershipOf(input.callerId, card.boardId) ?? null
       if (membership === null) return { outcome: 'forbidden' }
       if (card.ownerId !== null) return { outcome: 'conflict' }
-      if (card.status !== 'ready' || card.archivedAt !== null) {
+      if (card.kind !== 'action' || card.status !== 'ready' || card.archivedAt !== null) {
         return { outcome: 'invalid-transition' }
       }
       if (card.version !== input.expectedVersion) {
@@ -600,7 +700,7 @@ export function fakeWorkplaceCards(): FakeWorkplaceCards {
       if (card === undefined) return { outcome: 'missing' } satisfies MoveCardResult
       if (membershipOf(input.callerId, card.boardId) === undefined) return { outcome: 'forbidden' }
       if (card.version !== input.expectedVersion) return { outcome: 'stale' }
-      if (!canTransitionWorkplace(card.status, input.status))
+      if (!canTransitionWorkplace(card.status, input.status, card.kind))
         return { outcome: 'invalid-transition' }
       let ownerId = card.ownerId
       if (input.status === 'in_progress' && card.ownerId === null) {
@@ -629,7 +729,7 @@ export function fakeWorkplaceCards(): FakeWorkplaceCards {
       if (card === undefined) return { outcome: 'missing' } satisfies BlockCardResult
       if (membershipOf(input.callerId, card.boardId) === undefined) return { outcome: 'forbidden' }
       if (card.version !== input.expectedVersion) return { outcome: 'stale' }
-      if (!canTransitionWorkplace(card.status, 'blocked') || card.ownerId === null) {
+      if (!canTransitionWorkplace(card.status, 'blocked', card.kind) || card.ownerId === null) {
         return { outcome: 'invalid-transition' }
       }
       const blocked = bump(card, {
@@ -647,7 +747,7 @@ export function fakeWorkplaceCards(): FakeWorkplaceCards {
       if (card === undefined) return { outcome: 'missing' } satisfies RequestReviewResult
       if (membershipOf(input.callerId, card.boardId) === undefined) return { outcome: 'forbidden' }
       if (card.version !== input.expectedVersion) return { outcome: 'stale' }
-      if (!canTransitionWorkplace(card.status, 'review') || card.ownerId === null) {
+      if (!canTransitionWorkplace(card.status, 'review', card.kind) || card.ownerId === null) {
         return { outcome: 'invalid-transition' }
       }
       const reviewed = bump(card, {
@@ -663,7 +763,17 @@ export function fakeWorkplaceCards(): FakeWorkplaceCards {
       if (card === undefined) return { outcome: 'missing' } satisfies CompleteCardResult
       if (membershipOf(input.callerId, card.boardId) === undefined) return { outcome: 'forbidden' }
       if (card.version !== input.expectedVersion) return { outcome: 'stale' }
-      if (!canTransitionWorkplace(card.status, 'done') || card.ownerId === null) {
+      if (
+        !canTransitionWorkplace(card.status, 'done', card.kind) ||
+        (card.kind === 'action' && card.ownerId === null) ||
+        (card.kind === 'initiative' &&
+          [...cards.values()].some(
+            (one) =>
+              one.parentInitiativeId === card.id &&
+              one.archivedAt === null &&
+              one.status !== 'done',
+          ))
+      ) {
         return { outcome: 'invalid-transition' }
       }
       const close = input.close ?? { outcome: input.outcome ?? '' }
@@ -828,7 +938,24 @@ export function fakeWorkplaceCards(): FakeWorkplaceCards {
       if (seat === undefined) return { outcome: 'forbidden' }
       if (seat.role !== 'owner') return { outcome: 'forbidden' }
       if (card.version !== input.expectedVersion) return { outcome: 'stale' }
-      if (!canTransitionWorkplace(card.status, 'archived')) return { outcome: 'invalid-transition' }
+      if (!canTransitionWorkplace(card.status, 'archived', card.kind)) {
+        return { outcome: 'invalid-transition' }
+      }
+      if (card.kind === 'initiative') {
+        for (const child of cards.values()) {
+          if (child.parentInitiativeId === card.id && child.archivedAt === null) {
+            const unparented = bump(child, { parentInitiativeId: null })
+            cards.set(child.id, unparented)
+            appendEvent(
+              input.callerId,
+              unparented,
+              'card.updated',
+              { changes: { parentInitiativeId: { before: card.id, after: null } } },
+              input.attribution,
+            )
+          }
+        }
+      }
       const archived = bump(card, { archivedAt: new Date().toISOString() })
       cards.set(card.id, archived)
       return { outcome: 'archived', card: archived }

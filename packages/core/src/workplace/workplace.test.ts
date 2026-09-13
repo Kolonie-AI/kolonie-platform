@@ -100,6 +100,8 @@ function card(over: Record<string, unknown> = {}) {
     id: CARD,
     boardId: BOARD,
     status: 'ready',
+    kind: 'action',
+    parentInitiativeId: null,
     title: 'Walk a provider',
     description: null,
     ownerId: null,
@@ -227,6 +229,24 @@ describe('WorkplaceCardSchema', () => {
     expect(WorkplaceCardSchema.parse(full).coverColour).toBe('#336699')
     const { coverColour: _coverColour, seedKey: _seedKey, ...withoutOptionals } = card()
     expect(WorkplaceCardSchema.parse(withoutOptionals).coverColour).toBeUndefined()
+  })
+
+  it('parses initiatives and refuses parents or executable state on them', () => {
+    expect(
+      WorkplaceCardSchema.parse(
+        card({ kind: 'initiative', status: 'ready', parentInitiativeId: null }),
+      ).kind,
+    ).toBe('initiative')
+    expect(
+      WorkplaceCardSchema.safeParse(
+        card({ kind: 'initiative', parentInitiativeId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }),
+      ).success,
+    ).toBe(false)
+    expect(
+      WorkplaceCardSchema.safeParse(
+        card({ kind: 'initiative', status: 'in_progress', ownerId: CITIZEN }),
+      ).success,
+    ).toBe(false)
   })
 
   it('has no assignees field to copy from the SPA fixture', () => {
@@ -482,6 +502,14 @@ describe('canTransitionWorkplace', () => {
     expect(canTransitionWorkplace('done', 'in_progress')).toBe(false)
   })
 
+  it('uses the bounded Initiative matrix without changing Action transitions', () => {
+    expect(canTransitionWorkplace('ready', 'done', 'initiative')).toBe(true)
+    expect(canTransitionWorkplace('ready', 'in_progress', 'initiative')).toBe(false)
+    expect(canTransitionWorkplace('inbox', 'ready', 'initiative')).toBe(true)
+    expect(canTransitionWorkplace('in_progress', 'done', 'initiative')).toBe(false)
+    expect(canTransitionWorkplace('ready', 'in_progress', 'action')).toBe(true)
+  })
+
   it('lets ready → in_progress through the matrix; the schema still demands an owner', () => {
     expect(canTransitionWorkplace('ready', 'in_progress')).toBe(true)
     expect(mustHaveOwner('in_progress')).toBe(true)
@@ -714,6 +742,8 @@ describe('card HTTP envelopes (#1760)', () => {
     id: CARD,
     boardId: BOARD,
     status: 'ready',
+    kind: 'action',
+    parentInitiativeId: null,
     title: 'Walk a provider',
     ownerId: null,
     position: 1000,
@@ -1084,6 +1114,16 @@ describe('card HTTP envelopes (#1760)', () => {
 
   it('creates in inbox or ready only', () => {
     expect(WorkplaceCreateCardRequestSchema.parse({ title: 'New' })).toEqual({ title: 'New' })
+    expect(WorkplaceCreateCardRequestSchema.parse({ title: 'New', kind: 'initiative' }).kind).toBe(
+      'initiative',
+    )
+    expect(
+      WorkplaceCreateCardRequestSchema.safeParse({
+        title: 'Nested initiative',
+        kind: 'initiative',
+        parentInitiativeId: CARD,
+      }).success,
+    ).toBe(false)
     expect(WorkplaceCreateCardRequestSchema.parse({ title: 'New', status: 'ready' }).status).toBe(
       'ready',
     )
@@ -1104,9 +1144,12 @@ describe('card HTTP envelopes (#1760)', () => {
     ).toBe(false)
   })
 
-  it('patches title and position and refuses status on the body', () => {
+  it('patches metadata, kind and parentage and refuses status on the body', () => {
     expect(WorkplaceUpdateCardRequestSchema.parse({ title: 'Renamed' }).title).toBe('Renamed')
     expect(WorkplaceUpdateCardRequestSchema.parse({ position: 1500 }).position).toBe(1500)
+    expect(
+      WorkplaceUpdateCardRequestSchema.parse({ kind: 'action', parentInitiativeId: null }),
+    ).toEqual({ kind: 'action', parentInitiativeId: null })
     expect(
       WorkplaceUpdateCardRequestSchema.safeParse({ title: 'Renamed', status: 'ready' }).success,
     ).toBe(false)
@@ -1277,6 +1320,25 @@ describe('card HTTP envelopes (#1760)', () => {
     ).toBe(false)
   })
 
+  it('parses Initiative detail context without child prose', () => {
+    const parsed = WorkplaceCardDetailSchema.parse({
+      card: card({ kind: 'initiative' }),
+      labels: [],
+      checklists: [],
+      comments: [],
+      links: [],
+      handover: null,
+      latestClosure: null,
+      closureCount: 0,
+      eventCount: 0,
+      events: [],
+      actionCounts: { total: 2, done: 1, active: 1 },
+      nextActions: [{ id: CARD, title: 'Ship it', status: 'ready', ownerId: null, version: 2 }],
+    })
+    expect(parsed.actionCounts).toEqual({ total: 2, done: 1, active: 1 })
+    expect(parsed.nextActions?.[0]).not.toHaveProperty('description')
+  })
+
   it('parses a card detail with labels, checklists, comments and the current handover', () => {
     const detail = WorkplaceCardDetailSchema.parse({
       card: card({ status: 'in_progress', ownerId: CITIZEN }),
@@ -1364,6 +1426,8 @@ describe('typed card links (#1765)', () => {
     id: CARD,
     boardId: BOARD,
     status: 'ready',
+    kind: 'action',
+    parentInitiativeId: null,
     title: 'Walk a provider',
     ownerId: null,
     position: 1000,

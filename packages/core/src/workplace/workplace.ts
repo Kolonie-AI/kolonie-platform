@@ -62,6 +62,10 @@ export const WORKPLACE_LANES = [
 export const WorkplaceLaneSchema = z.enum(WORKPLACE_LANES)
 export type WorkplaceLane = z.infer<typeof WorkplaceLaneSchema>
 
+export const WORKPLACE_CARD_KINDS = ['initiative', 'action'] as const
+export const WorkplaceCardKindSchema = z.enum(WORKPLACE_CARD_KINDS)
+export type WorkplaceCardKind = z.infer<typeof WorkplaceCardKindSchema>
+
 /**
  * Archive is a board-owner action on the row, not a seventh lane (D-146).
  *
@@ -95,11 +99,25 @@ export const WORKPLACE_TRANSITIONS: Readonly<
   done: [WORKPLACE_ARCHIVE],
 }
 
+export const WORKPLACE_INITIATIVE_TRANSITIONS: Readonly<
+  Record<WorkplaceLane, readonly WorkplaceTransitionTarget[]>
+> = {
+  inbox: ['ready', WORKPLACE_ARCHIVE],
+  ready: ['inbox', 'done', WORKPLACE_ARCHIVE],
+  in_progress: [],
+  blocked: [],
+  review: [],
+  done: [WORKPLACE_ARCHIVE],
+}
+
 export function canTransitionWorkplace(
   from: WorkplaceLane,
   to: WorkplaceTransitionTarget,
+  kind: WorkplaceCardKind = 'action',
 ): boolean {
-  return WORKPLACE_TRANSITIONS[from].includes(to)
+  return (kind === 'initiative' ? WORKPLACE_INITIATIVE_TRANSITIONS : WORKPLACE_TRANSITIONS)[
+    from
+  ].includes(to)
 }
 
 /**
@@ -558,8 +576,8 @@ export const WorkplaceCardEventPayloadSchemas = {
       priority: WorkplacePrioritySchema,
       dueAt: TimestampSchema.nullable(),
       coverColour: WorkplaceColourSchema.nullable(),
-      kind: z.string().min(1).max(32).optional(),
-      parentId: WorkplaceCardIdSchema.nullable().optional(),
+      kind: WorkplaceCardKindSchema.optional(),
+      parentInitiativeId: WorkplaceCardIdSchema.nullable().optional(),
     })
     .strict(),
   'card.updated': z
@@ -880,6 +898,8 @@ export const WorkplaceCardSchema = z
     id: WorkplaceCardIdSchema,
     boardId: WorkplaceBoardIdSchema,
     status: WorkplaceLaneSchema,
+    kind: WorkplaceCardKindSchema,
+    parentInitiativeId: WorkplaceCardIdSchema.nullable(),
     title: workplaceText(WORKPLACE_TITLE_MAX_LENGTH),
     description: boundedText(WORKPLACE_BODY_MAX_LENGTH).nullable(),
     ownerId: AgentIdSchema.nullable(),
@@ -902,6 +922,20 @@ export const WorkplaceCardSchema = z
   })
   .strict()
   .superRefine((card, ctx) => {
+    if (card.kind === 'initiative' && card.parentInitiativeId !== null) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['parentInitiativeId'],
+        message: 'an initiative cannot have a parent initiative',
+      })
+    }
+    if (card.kind === 'initiative' && (card.ownerId !== null || mustHaveOwner(card.status))) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['status'],
+        message: 'an initiative cannot enter an executable lane or have an owner',
+      })
+    }
     if (mustHaveOwner(card.status) && card.ownerId === null) {
       ctx.addIssue({
         code: 'custom',
@@ -1152,6 +1186,8 @@ export const WorkplaceCardSummarySchema = z
     id: WorkplaceCardIdSchema,
     boardId: WorkplaceBoardIdSchema,
     status: WorkplaceLaneSchema,
+    kind: WorkplaceCardKindSchema,
+    parentInitiativeId: WorkplaceCardIdSchema.nullable(),
     title: workplaceText(WORKPLACE_TITLE_MAX_LENGTH),
     ownerId: AgentIdSchema.nullable(),
     position: z.number(),
@@ -1175,6 +1211,8 @@ export type WorkplaceCardPage = z.infer<typeof WorkplaceCardPageSchema>
 /** `GET /v1/workplace/boards/:boardId/cards` query (`#1760`). */
 export const WorkplaceListCardsQuerySchema = PageRequestSchema.extend({
   status: WorkplaceLaneSchema.optional(),
+  kind: WorkplaceCardKindSchema.optional(),
+  parentInitiativeId: WorkplaceCardIdSchema.nullable().optional(),
 })
 export type WorkplaceListCardsQuery = z.infer<typeof WorkplaceListCardsQuerySchema>
 
@@ -1188,11 +1226,22 @@ export const WorkplaceCreateCardRequestSchema = z
     title: workplaceText(WORKPLACE_TITLE_MAX_LENGTH),
     description: boundedText(WORKPLACE_BODY_MAX_LENGTH).nullable().optional(),
     status: z.enum(['inbox', 'ready']).optional(),
+    kind: WorkplaceCardKindSchema.optional(),
+    parentInitiativeId: WorkplaceCardIdSchema.nullable().optional(),
     priority: WorkplacePrioritySchema.optional(),
     dueAt: TimestampSchema.nullable().optional(),
     coverColour: WorkplaceColourSchema.nullable().optional(),
   })
   .strict()
+  .superRefine((request, ctx) => {
+    if (request.kind === 'initiative' && request.parentInitiativeId !== undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['parentInitiativeId'],
+        message: 'an initiative cannot have a parent initiative',
+      })
+    }
+  })
 export type WorkplaceCreateCardRequest = z.infer<typeof WorkplaceCreateCardRequestSchema>
 
 /**
@@ -1208,6 +1257,8 @@ export const WorkplaceUpdateCardRequestSchema = z
     dueAt: TimestampSchema.nullable().optional(),
     coverColour: WorkplaceColourSchema.nullable().optional(),
     position: z.number().optional(),
+    kind: WorkplaceCardKindSchema.optional(),
+    parentInitiativeId: WorkplaceCardIdSchema.nullable().optional(),
   })
   .strict()
 export type WorkplaceUpdateCardRequest = z.infer<typeof WorkplaceUpdateCardRequestSchema>
@@ -1546,6 +1597,26 @@ export type WorkplaceHandover = z.infer<typeof WorkplaceHandoverSchema>
  * and not-a-member is a route fact, not a schema one. Links here are
  * resolved; the list row only counts them (`#1765`).
  */
+export const WorkplaceActionReferenceSchema = z
+  .object({
+    id: WorkplaceCardIdSchema,
+    title: workplaceText(WORKPLACE_TITLE_MAX_LENGTH),
+    status: WorkplaceLaneSchema,
+    ownerId: AgentIdSchema.nullable(),
+    version: z.int().min(1),
+  })
+  .strict()
+export type WorkplaceActionReference = z.infer<typeof WorkplaceActionReferenceSchema>
+
+export const WorkplaceInitiativeActionCountsSchema = z
+  .object({
+    total: z.int().min(0),
+    done: z.int().min(0),
+    active: z.int().min(0),
+  })
+  .strict()
+export type WorkplaceInitiativeActionCounts = z.infer<typeof WorkplaceInitiativeActionCountsSchema>
+
 export const WorkplaceCardDetailSchema = z
   .object({
     card: WorkplaceCardSchema,
@@ -1565,8 +1636,28 @@ export const WorkplaceCardDetailSchema = z
     closureCount: z.int().min(0),
     eventCount: z.int().min(0),
     events: z.array(WorkplaceCardEventSchema).max(5),
+    actionCounts: WorkplaceInitiativeActionCountsSchema.optional(),
+    nextActions: z.array(WorkplaceActionReferenceSchema).max(5).optional(),
   })
   .strict()
+  .superRefine((detail, ctx) => {
+    const hasInitiativeContext =
+      detail.actionCounts !== undefined || detail.nextActions !== undefined
+    if (detail.card.kind === 'initiative' && !hasInitiativeContext) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['actionCounts'],
+        message: 'an initiative detail requires action context',
+      })
+    }
+    if (detail.card.kind === 'action' && hasInitiativeContext) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['actionCounts'],
+        message: 'an action detail cannot carry initiative action context',
+      })
+    }
+  })
 export type WorkplaceCardDetail = z.infer<typeof WorkplaceCardDetailSchema>
 
 /**
@@ -1607,6 +1698,7 @@ export function claimAllowed({ card, caller, membership }: ClaimAllowedArgs): bo
   if (membership === null) return false
   if (membership.citizenId !== caller) return false
   if (membership.boardId !== card.boardId) return false
+  if (card.kind !== 'action') return false
   if (card.status !== 'ready') return false
   if (card.ownerId === null) return true
   return card.ownerId === caller

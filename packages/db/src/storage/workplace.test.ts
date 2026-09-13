@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { and, eq, inArray, sql } from 'drizzle-orm'
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { AccountKindSchema, type AccountCapability, type AgentId } from '@kolonie-ai/core'
 import { createDatabase, type Database } from '../client.js'
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
@@ -46,6 +46,7 @@ import {
   renameBoard,
   requestReview,
   resolveProfessionPracticum,
+  retireStarter,
   setCommitment,
   readCommitment,
   advanceCommitment,
@@ -3758,5 +3759,350 @@ describe('self-authored commitment storage', () => {
 
     expect(await db.select().from(workplaceCommitments)).toHaveLength(1)
     expect(await readCommitment(db, member)).not.toBeNull()
+  })
+})
+
+/**
+ * **Retiring the V1 starter pack** (`#1946`).
+ *
+ * Every board here is provisioned by `listBoardsFor` rather than assembled by
+ * hand, so the cards, the labels, the checklists and the weekly rule are the
+ * ones a real citizen gets. A fixture board would let a test pass over a seed
+ * that had changed underneath it, which is the one thing these assertions are
+ * for.
+ */
+describe('workplace starter retirement', () => {
+  let db: Database
+  let citizenId: AgentId
+  let other: AgentId
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+    citizenId = await citizen('starter-citizen')
+    other = await citizen('starter-other')
+  })
+
+  const citizen = async (name: string): Promise<AgentId> => {
+    const registered = await registerAgent(db, { name, platform: 'openclaw', operator: null })
+    if (registered.outcome !== 'registered') throw new Error(`could not register ${name}`)
+    await db.update(agents).set({ status: 'citizen' }).where(eq(agents.id, registered.agent.id))
+    return registered.agent.id
+  }
+
+  /** The provisioned default board, with the real V1 seed on it. */
+  const provisioned = async (agentId: AgentId) => {
+    const listed = await listBoardsFor(db, agentId)
+    if (listed.outcome !== 'listed') throw new Error('board listing failed')
+    const board = listed.items.find((one) => one.kind === 'default')
+    if (board === undefined) throw new Error('default board missing')
+    return board
+  }
+
+  const starters = async (boardId: string) =>
+    db
+      .select()
+      .from(workplaceCards)
+      .where(and(eq(workplaceCards.boardId, boardId), sql`${workplaceCards.seedKey} like 'v1:%'`))
+      .orderBy(workplaceCards.position)
+
+  const archiveEvents = async (boardId: string) =>
+    db
+      .select()
+      .from(workplaceActivity)
+      .where(
+        and(eq(workplaceActivity.boardId, boardId), eq(workplaceActivity.verb, 'card.archived')),
+      )
+
+  it('archives the live starters, stops their recurrence and leaves a Done starter readable', async () => {
+    const board = await provisioned(citizenId)
+    const seeded = await starters(board.id)
+    expect(seeded).toHaveLength(3)
+    const done = seeded[1]
+    if (done === undefined) throw new Error('starter missing')
+    // One starter is carried through to Done, which is the citizen's own history.
+    const ready = await moveCard(db, {
+      callerId: citizenId,
+      cardId: done.id,
+      expectedVersion: done.version,
+      status: 'ready',
+    })
+    if (ready.outcome !== 'moved') throw new Error('could not ready the starter')
+    const claimed = await claimCard(db, {
+      callerId: citizenId,
+      cardId: ready.card.id,
+      expectedVersion: ready.card.version,
+    })
+    if (claimed.outcome !== 'claimed') throw new Error('claim failed')
+    const completed = await completeCard(db, {
+      callerId: citizenId,
+      cardId: claimed.card.id,
+      expectedVersion: claimed.card.version,
+      outcome: 'Planned the first workday.',
+    })
+    if (completed.outcome !== 'completed') throw new Error('completion failed')
+
+    const retired = await retireStarter(db, { callerId: citizenId, boardId: board.id })
+
+    expect(retired.outcome).toBe('retired')
+    if (retired.outcome !== 'retired') return
+    expect(retired.board.starterRetiredAt).not.toBeNull()
+    expect(retired.archivedCardIds).toHaveLength(2)
+    expect(retired.recurrenceRulesRetired).toBe(1)
+    expect(retired.archivedCardIds).not.toContain(done.id)
+
+    const after = await starters(board.id)
+    const stillLive = after.filter((card) => card.archivedAt === null)
+    expect(stillLive.map((card) => card.id)).toEqual([done.id])
+    expect(await getCard(db, citizenId, done.id)).not.toBeNull()
+
+    const rules = await db
+      .select()
+      .from(workplaceRecurrenceRules)
+      .where(eq(workplaceRecurrenceRules.boardId, board.id))
+    expect(rules).toHaveLength(1)
+    expect(rules[0]?.archivedAt).not.toBeNull()
+
+    const events = await archiveEvents(board.id)
+    expect(events).toHaveLength(2)
+    for (const event of events) {
+      expect(event.actorId).toBe(citizenId)
+      expect(event.legacy).toBe(false)
+      expect(event.payload).toEqual({ fromStatus: 'inbox' })
+    }
+  })
+
+  it('keeps an edited starter a starter, because identity is the seed key', async () => {
+    const board = await provisioned(citizenId)
+    const seeded = await starters(board.id)
+    const first = seeded[0]
+    if (first === undefined) throw new Error('starter missing')
+    const renamed = await updateCard(db, {
+      callerId: citizenId,
+      cardId: first.id,
+      expectedVersion: first.version,
+      title: 'My own sharpened mission',
+      description: 'Rewritten in my own words.',
+    })
+    expect(renamed.outcome).toBe('updated')
+
+    const retired = await retireStarter(db, { callerId: citizenId, boardId: board.id })
+
+    expect(retired.outcome).toBe('retired')
+    if (retired.outcome !== 'retired') return
+    expect(retired.archivedCardIds).toContain(first.id)
+  })
+
+  it('archives a materialised weekly clone through its occurrence provenance', async () => {
+    const board = await provisioned(citizenId)
+    const [rule] = await db
+      .select()
+      .from(workplaceRecurrenceRules)
+      .where(eq(workplaceRecurrenceRules.boardId, board.id))
+    if (rule === undefined) throw new Error('weekly rule missing')
+    await db
+      .update(workplaceRecurrenceRules)
+      .set({ nextDueAt: '2026-08-24T00:00:00.000Z' })
+      .where(eq(workplaceRecurrenceRules.id, rule.id))
+    expect(await materialiseDue(db, citizenId, '2026-08-30T12:00:00.000Z')).toMatchObject({
+      created: 1,
+    })
+    const [occurrence] = await db.select().from(workplaceRecurrenceOccurrences)
+    const cloneId = occurrence?.cardId
+    if (cloneId === undefined || cloneId === null) throw new Error('clone missing')
+    // The clone carries no seed key of its own: the prefix alone would miss it.
+    const [clone] = await db.select().from(workplaceCards).where(eq(workplaceCards.id, cloneId))
+    expect(clone?.seedKey).toBeNull()
+
+    const retired = await retireStarter(db, { callerId: citizenId, boardId: board.id })
+
+    expect(retired.outcome).toBe('retired')
+    if (retired.outcome !== 'retired') return
+    expect(retired.archivedCardIds).toContain(cloneId)
+    const [after] = await db.select().from(workplaceCards).where(eq(workplaceCards.id, cloneId))
+    expect(after?.archivedAt).not.toBeNull()
+  })
+
+  it('leaves the citizen own cards and practicum cards alone', async () => {
+    const board = await provisioned(citizenId)
+    const own = await createCard(db, {
+      callerId: citizenId,
+      boardId: board.id,
+      title: 'Ship the migration guide',
+      status: 'ready',
+    })
+    if (own.outcome !== 'created') throw new Error('own card missing')
+    // The ordinary create is itself the trigger, so the board is already retired.
+    const started = await startProfessionPracticum(db, {
+      callerId: citizenId,
+      outcome: 'Deliver one runnable status page.',
+    })
+    if (started.outcome !== 'started') throw new Error('cycle missing')
+
+    const live = await db
+      .select()
+      .from(workplaceCards)
+      .where(and(eq(workplaceCards.boardId, board.id), isNull(workplaceCards.archivedAt)))
+    const liveIds = live.map((card) => card.id)
+    expect(liveIds).toContain(own.card.id)
+    for (const card of started.cycle.cards) expect(liveIds).toContain(card.id)
+    expect(live.filter((card) => card.seedKey?.startsWith('v1:') === true)).toEqual([])
+  })
+
+  it('retires on the first ordinary create and on practicum acceptance', async () => {
+    const byCreate = await provisioned(citizenId)
+    expect(byCreate.starterRetiredAt ?? null).toBeNull()
+    const created = await createCard(db, {
+      callerId: citizenId,
+      boardId: byCreate.id,
+      title: 'My own first card',
+    })
+    expect(created.outcome).toBe('created')
+    expect((await getBoardFor(db, citizenId, byCreate.id))?.starterRetiredAt).not.toBeNull()
+
+    const byPracticum = await provisioned(other)
+    expect(byPracticum.starterRetiredAt ?? null).toBeNull()
+    const started = await startProfessionPracticum(db, {
+      callerId: other,
+      outcome: 'Deliver one runnable status page.',
+    })
+    expect(started.outcome).toBe('started')
+    expect((await getBoardFor(db, other, byPracticum.id))?.starterRetiredAt).not.toBeNull()
+  })
+
+  it('is one retirement for a repeated call, a replayed key and a concurrent create', async () => {
+    const board = await provisioned(citizenId)
+    const firstCall = await retireStarter(db, {
+      callerId: citizenId,
+      boardId: board.id,
+      idempotencyKey: 'dismiss-once',
+    })
+    if (firstCall.outcome !== 'retired') throw new Error('retirement failed')
+    const replayed = await retireStarter(db, {
+      callerId: citizenId,
+      boardId: board.id,
+      idempotencyKey: 'dismiss-once',
+    })
+    expect(replayed).toEqual(firstCall)
+
+    // Another key is a successful no-op: the instant stands and nothing moves again.
+    const again = await retireStarter(db, {
+      callerId: citizenId,
+      boardId: board.id,
+      idempotencyKey: 'dismiss-twice',
+    })
+    expect(again.outcome).toBe('retired')
+    if (again.outcome !== 'retired') return
+    expect(again.archivedCardIds).toEqual([])
+    expect(again.recurrenceRulesRetired).toBe(0)
+    expect(again.board.starterRetiredAt).toBe(firstCall.board.starterRetiredAt)
+    expect(await archiveEvents(board.id)).toHaveLength(firstCall.archivedCardIds.length)
+
+    const other = await provisioned(citizenId)
+    expect(other.id).toBe(board.id)
+  })
+
+  it('converges a concurrent dismiss and first create on one retirement', async () => {
+    const board = await provisioned(citizenId)
+
+    const [dismissed, created] = await Promise.all([
+      retireStarter(db, { callerId: citizenId, boardId: board.id }),
+      createCard(db, { callerId: citizenId, boardId: board.id, title: 'Raced first card' }),
+    ])
+
+    expect(dismissed.outcome).toBe('retired')
+    expect(created.outcome).toBe('created')
+    const [after] = await db.select().from(workplaceBoards).where(eq(workplaceBoards.id, board.id))
+    expect(after?.starterRetiredAt).not.toBeNull()
+    const live = await starters(board.id)
+    expect(live.filter((card) => card.archivedAt === null)).toEqual([])
+    // One archive event per card, however the two transactions interleaved.
+    const events = await archiveEvents(board.id)
+    expect(new Set(events.map((event) => event.cardId)).size).toBe(events.length)
+  })
+
+  it('cannot be recreated by a materialisation racing the retirement', async () => {
+    const board = await provisioned(citizenId)
+    const [rule] = await db
+      .select()
+      .from(workplaceRecurrenceRules)
+      .where(eq(workplaceRecurrenceRules.boardId, board.id))
+    if (rule === undefined) throw new Error('weekly rule missing')
+    await db
+      .update(workplaceRecurrenceRules)
+      .set({ nextDueAt: '2026-08-24T00:00:00.000Z' })
+      .where(eq(workplaceRecurrenceRules.id, rule.id))
+
+    await Promise.all([
+      retireStarter(db, { callerId: citizenId, boardId: board.id }),
+      materialiseDue(db, citizenId, '2026-08-30T12:00:00.000Z'),
+    ])
+
+    const live = await db
+      .select()
+      .from(workplaceCards)
+      .where(and(eq(workplaceCards.boardId, board.id), isNull(workplaceCards.archivedAt)))
+    expect(live.filter((card) => card.seedKey?.startsWith('v1:') === true)).toEqual([])
+    const clones = await db
+      .select({ cardId: workplaceRecurrenceOccurrences.cardId })
+      .from(workplaceRecurrenceOccurrences)
+      .where(eq(workplaceRecurrenceOccurrences.ruleId, rule.id))
+    for (const clone of clones) {
+      if (clone.cardId === null) continue
+      const [card] = await db
+        .select()
+        .from(workplaceCards)
+        .where(eq(workplaceCards.id, clone.cardId))
+      expect(card?.archivedAt).not.toBeNull()
+    }
+    // And nothing materialises afterwards, because the rule is archived.
+    expect(await materialiseDue(db, citizenId, '2026-09-07T12:00:00.000Z')).toEqual({
+      created: 0,
+      skipped: 0,
+    })
+  })
+
+  it('never recommends a retired starter at wakeup', async () => {
+    const board = await provisioned(citizenId)
+    expect((await workplaceWakeup(db, citizenId))?.recommendation).toMatchObject({
+      title: 'Sharpen profession and mission',
+    })
+
+    await retireStarter(db, { callerId: citizenId, boardId: board.id })
+
+    const wake = await workplaceWakeup(db, citizenId)
+    expect(wake?.recommendation ?? null).toBeNull()
+    expect(wake?.more ?? []).toEqual([])
+  })
+
+  it('refuses a non-owner, a member and a non-default board without disclosing either', async () => {
+    const board = await provisioned(citizenId)
+    // A stranger is refused at the membership check; the route ahead of this
+    // turns that into the same non-disclosing miss a missing board gets.
+    expect(await retireStarter(db, { callerId: other, boardId: board.id })).toEqual({
+      outcome: 'forbidden',
+    })
+    await addMember(db, { callerId: citizenId, boardId: board.id, citizenId: other })
+    expect(await retireStarter(db, { callerId: other, boardId: board.id })).toEqual({
+      outcome: 'forbidden',
+    })
+
+    const additional = await createBoard(db, { callerId: citizenId, title: 'Extra' })
+    expect(await retireStarter(db, { callerId: citizenId, boardId: additional.id })).toEqual({
+      outcome: 'forbidden',
+    })
+    expect(
+      await retireStarter(db, {
+        callerId: citizenId,
+        boardId: '00000000-0000-4000-8000-000000000000',
+      }),
+    ).toEqual({ outcome: 'missing' })
   })
 })

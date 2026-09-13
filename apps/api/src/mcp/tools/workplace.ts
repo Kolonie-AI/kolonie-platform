@@ -561,6 +561,41 @@ async function dispatchBoard(
     })
   }
 
+  /**
+   * Dismissing the starter pack takes no `expectedVersion` (`#1946`), unlike
+   * every other board write. Retirement is irreversible and idempotent, so
+   * there is no lost update to protect against — and a version would make the
+   * second call of a retry fail on the bump the first one wrote, which is the
+   * one outcome this act must not have.
+   */
+  if (act === 'update' && fieldsOf(input)['retireStarter'] === true) {
+    if ((await boards.get(callerId, id)) === null) return toolError(missingBoard)
+    if (input.delegationId !== undefined) {
+      return toolError({
+        code: 'forbidden',
+        message: 'Only the subject citizen may retire its starter pack.',
+      })
+    }
+    const retired = await boards.retireStarter({
+      callerId,
+      boardId: id,
+      ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }),
+    })
+    if (retired.outcome === 'forbidden') {
+      return toolError({
+        code: 'forbidden',
+        message: 'Only the default board owner may retire its starter pack.',
+      })
+    }
+    if (retired.outcome === 'missing') return toolError(missingBoard)
+    return ok(`Retired starter pack on board ${retired.board.id}.`, {
+      board: retired.board,
+      archivedCardIds: retired.archivedCardIds,
+      recurrenceRulesRetired: retired.recurrenceRulesRetired,
+      next: nextForBoard(retired.board),
+    })
+  }
+
   const expectedVersion = needExpected(input)
   if (typeof expectedVersion !== 'number') return expectedVersion
 
@@ -595,12 +630,13 @@ async function dispatchBoard(
   if (act === 'update') {
     const visible = await boards.get(callerId, id)
     if (visible === null) return toolError(missingBoard)
-    const membersField = asObject(fieldsOf(input)['members'])
+    const fields = fieldsOf(input)
+    const membersField = asObject(fields['members'])
     if (membersField !== undefined) {
       return mutateMembers(callerId, id, membersField, boards, visible)
     }
     const parsed = WorkplaceRenameBoardRequestSchema.safeParse({
-      title: fieldsOf(input)['title'],
+      title: fields['title'],
     })
     if (!parsed.success) {
       return parsedFail(

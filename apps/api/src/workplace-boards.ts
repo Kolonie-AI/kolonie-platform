@@ -10,6 +10,7 @@ import {
   listMembers,
   removeMember,
   renameBoard,
+  retireStarter,
   type AddMemberResult,
   type ArchiveBoardResult,
   type Database,
@@ -17,6 +18,7 @@ import {
   type ListMembersResult,
   type RemoveMemberResult,
   type RenameBoardResult,
+  type RetireStarterResult,
 } from '@kolonie-ai/db'
 
 /**
@@ -49,6 +51,11 @@ export interface WorkplaceBoards {
     readonly boardId: string
     readonly expectedVersion: number
   }): Promise<ArchiveBoardResult>
+  retireStarter(input: {
+    readonly callerId: AgentId
+    readonly boardId: string
+    readonly idempotencyKey?: string
+  }): Promise<RetireStarterResult>
   members(callerId: AgentId, boardId: string): Promise<ListMembersResult>
   addMember(input: {
     readonly callerId: AgentId
@@ -72,6 +79,7 @@ export function databaseWorkplaceBoards(db: Database): WorkplaceBoards {
     create: (input) => createBoard(db, input),
     rename: (input) => renameBoard(db, input),
     archive: (input) => archiveBoard(db, input),
+    retireStarter: (input) => retireStarter(db, input),
     members: (callerId, boardId) => listMembers(db, callerId, boardId),
     addMember: (input) => addMember(db, input),
     removeMember: (input) => removeMember(db, input),

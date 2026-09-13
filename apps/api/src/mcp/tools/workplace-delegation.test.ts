@@ -38,6 +38,7 @@ const aBoard = (ownerId: AgentId): WorkplaceBoard => {
     ownerId,
     title: 'Aurora inbox',
     kind: 'additional',
+    starterRetiredAt: null,
     archivedAt: null,
     version: 1,
     createdAt: now,
@@ -337,6 +338,33 @@ describe('delegated kolonie.workplace (#1797)', () => {
         }),
       )
       expect(errorOf(unknown).code).toBe('delegation_not_found')
+    } finally {
+      await pilot.close()
+    }
+  })
+
+  /**
+   * The one Workplace write `workplace-write` does not buy (`#1946`). The
+   * starter pack is the subject's own onboarding, so retiring it is a statement
+   * about their work rather than an administrative write an operator may make —
+   * and it is refused before the capability is even consulted.
+   */
+  it('refuses to retire the subject starter pack, even with workplace-write', async () => {
+    const pilot = await aPilot(['workplace-read', 'workplace-write'])
+    try {
+      await pilot.accept()
+      const refused = await pilot.client.callTool(
+        workplace({
+          act: 'update',
+          subject: 'board',
+          id: pilot.board.id,
+          fields: { retireStarter: true },
+          delegationId: pilot.delegationId,
+        }),
+      )
+      expect(refused.isError).toBe(true)
+      expect(errorOf(refused).code).toBe('forbidden')
+      expect(errorOf(refused).message).toMatch(/subject citizen/i)
     } finally {
       await pilot.close()
     }

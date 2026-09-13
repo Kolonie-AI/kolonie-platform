@@ -120,6 +120,7 @@ import { vaultHoldsKey } from './vault.js'
 const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000
 const RANK_GAP = 1000
 const PRACTICUM_PREFIX = 'practicum:'
+const STARTER_PREFIX = 'v1:'
 
 export type WorkplaceUnknown = { readonly outcome: 'unknown' }
 export type WorkplaceMissing = { readonly outcome: 'missing' }
@@ -241,6 +242,7 @@ function toBoard(row: typeof workplaceBoards.$inferSelect): WorkplaceBoard {
     ownerId: row.ownerId,
     title: row.title,
     kind: row.kind,
+    starterRetiredAt: row.starterRetiredAt === null ? null : toTimestamp(row.starterRetiredAt),
     archivedAt: row.archivedAt === null ? null : toTimestamp(row.archivedAt),
     version: row.version,
     createdAt: toTimestamp(row.createdAt),
@@ -798,7 +800,10 @@ export async function workplaceWakeup(
   since?: string,
 ): Promise<WakeupWorkplace | undefined> {
   const [board] = await db
-    .select({ id: workplaceBoards.id })
+    .select({
+      id: workplaceBoards.id,
+      starterRetiredAt: workplaceBoards.starterRetiredAt,
+    })
     .from(workplaceBoards)
     .innerJoin(agents, eq(agents.id, workplaceBoards.ownerId))
     .where(
@@ -930,11 +935,27 @@ export async function workplaceWakeup(
           : []),
         ...(focusedCard?.kind === 'action' ? [eq(workplaceCards.id, focusedCard.id)] : []),
         isNull(workplaceCards.archivedAt),
+        ...(board.starterRetiredAt !== null && board.starterRetiredAt !== undefined
+          ? [
+              or(
+                isNull(workplaceCards.seedKey),
+                sql`${workplaceCards.seedKey} not like ${`${STARTER_PREFIX}%`}`,
+              ),
+            ]
+          : []),
         or(
           and(eq(workplaceCards.status, 'in_progress'), eq(workplaceCards.ownerId, callerId)),
           eq(workplaceCards.status, 'ready'),
           and(eq(workplaceCards.status, 'blocked'), eq(workplaceCards.ownerId, callerId)),
-          and(eq(workplaceCards.status, 'inbox'), sql`${workplaceCards.seedKey} is not null`),
+          and(
+            eq(workplaceCards.status, 'inbox'),
+            board.starterRetiredAt !== null && board.starterRetiredAt !== undefined
+              ? and(
+                  sql`${workplaceCards.seedKey} is not null`,
+                  sql`${workplaceCards.seedKey} not like ${`${STARTER_PREFIX}%`}`,
+                )
+              : sql`${workplaceCards.seedKey} is not null`,
+          ),
         ),
       ),
     )
@@ -1237,6 +1258,232 @@ export type ArchiveBoardResult =
   | WorkplaceForbidden
   | WorkplaceDefaultProtected
   | WorkplaceStale
+
+export type RetireStarterResult =
+  | {
+      readonly outcome: 'retired'
+      readonly board: WorkplaceBoard
+      readonly archivedCardIds: readonly string[]
+      readonly recurrenceRulesRetired: number
+    }
+  | WorkplaceMissing
+  | WorkplaceForbidden
+
+/**
+ * Retire the V1 starter cards and weekly recurrence on a citizen's default board (`#1946`).
+ *
+ * Atomically marks `starterRetiredAt = now()`, archives all live non-Done V1
+ * starter templates (`seedKey LIKE 'v1:%'`) and V1 recurrence clone instances,
+ * records canonical `card.archived` events for them, and archives starter recurrence rules.
+ * Done starter cards remain unarchived.
+ * Idempotent: once retired, re-calling returns the existing retired board, empty
+ * `archivedCardIds` and 0 retired recurrence rules.
+ */
+export async function retireStarterPack(
+  tx: Transaction,
+  input: {
+    readonly boardId: string
+    readonly now?: string
+    readonly callerId: AgentId
+    readonly attribution?: WorkplaceEventAttribution
+  },
+): Promise<{
+  readonly board: WorkplaceBoard
+  readonly archivedCardIds: readonly string[]
+  readonly recurrenceRulesRetired: number
+}> {
+  await lockWorkplaceHierarchy(tx, input.boardId)
+  const now = input.now ?? new Date().toISOString()
+
+  const [current] = await tx
+    .select()
+    .from(workplaceBoards)
+    .where(eq(workplaceBoards.id, input.boardId))
+    .for('update')
+    .limit(1)
+  if (current === undefined) throw new Error('board missing during starter retirement')
+
+  if (current.starterRetiredAt !== null && current.starterRetiredAt !== undefined) {
+    return {
+      board: toBoard(current),
+      archivedCardIds: [],
+      recurrenceRulesRetired: 0,
+    }
+  }
+
+  const [updatedBoard] = await tx
+    .update(workplaceBoards)
+    .set({
+      starterRetiredAt: now,
+      version: sql`${workplaceBoards.version} + 1`,
+      updatedAt: sql`now()`,
+    })
+    .where(eq(workplaceBoards.id, input.boardId))
+    .returning()
+  if (updatedBoard === undefined) throw new Error('starter retirement failed to update board')
+
+  const starterRules = await tx
+    .select({
+      id: workplaceRecurrenceRules.id,
+      cardId: workplaceRecurrenceRules.cardId,
+      templateSeedKey: workplaceCards.seedKey,
+    })
+    .from(workplaceRecurrenceRules)
+    .innerJoin(workplaceCards, eq(workplaceCards.id, workplaceRecurrenceRules.cardId))
+    .where(
+      and(
+        eq(workplaceRecurrenceRules.boardId, input.boardId),
+        sql`${workplaceCards.seedKey} like ${`${STARTER_PREFIX}%`}`,
+      ),
+    )
+
+  let recurrenceRulesRetired = 0
+  if (starterRules.length > 0) {
+    const ruleIds = starterRules.map((r) => r.id)
+    const retiredRules = await tx
+      .update(workplaceRecurrenceRules)
+      .set({
+        archivedAt: now,
+        updatedAt: sql`now()`,
+      })
+      .where(
+        and(
+          inArray(workplaceRecurrenceRules.id, ruleIds),
+          isNull(workplaceRecurrenceRules.archivedAt),
+        ),
+      )
+      .returning({ id: workplaceRecurrenceRules.id })
+    recurrenceRulesRetired = retiredRules.length
+  }
+
+  const liveStarterTemplates = await tx
+    .select({
+      id: workplaceCards.id,
+      status: workplaceCards.status,
+      version: workplaceCards.version,
+    })
+    .from(workplaceCards)
+    .where(
+      and(
+        eq(workplaceCards.boardId, input.boardId),
+        sql`${workplaceCards.seedKey} like ${`${STARTER_PREFIX}%`}`,
+        isNull(workplaceCards.archivedAt),
+        ne(workplaceCards.status, 'done'),
+      ),
+    )
+    .for('update')
+
+  const liveStarterClones =
+    starterRules.length > 0
+      ? await tx
+          .select({
+            id: workplaceCards.id,
+            status: workplaceCards.status,
+            version: workplaceCards.version,
+          })
+          .from(workplaceRecurrenceOccurrences)
+          .innerJoin(workplaceCards, eq(workplaceCards.id, workplaceRecurrenceOccurrences.cardId))
+          .where(
+            and(
+              inArray(
+                workplaceRecurrenceOccurrences.ruleId,
+                starterRules.map((r) => r.id),
+              ),
+              eq(workplaceCards.boardId, input.boardId),
+              isNull(workplaceCards.archivedAt),
+              ne(workplaceCards.status, 'done'),
+            ),
+          )
+          .for('update')
+      : []
+
+  const seenIds = new Set<string>()
+  const toArchive: Array<{ id: string; status: string }> = []
+  for (const row of [...liveStarterTemplates, ...liveStarterClones]) {
+    if (!seenIds.has(row.id)) {
+      seenIds.add(row.id)
+      toArchive.push(row)
+    }
+  }
+
+  const archivedCardIds: string[] = []
+  for (const card of toArchive) {
+    const from = WorkplaceLaneSchema.parse(card.status)
+    await tx
+      .update(workplaceCards)
+      .set({
+        archivedAt: now,
+        version: sql`${workplaceCards.version} + 1`,
+        updatedAt: sql`now()`,
+      })
+      .where(eq(workplaceCards.id, card.id))
+
+    await tx
+      .update(workplaceCommitments)
+      .set({
+        focusCardId: null,
+        focusLost: true,
+        version: sql`${workplaceCommitments.version} + 1`,
+        updatedAt: sql`now()`,
+      })
+      .where(eq(workplaceCommitments.focusCardId, card.id))
+
+    await appendCardEvent(tx, {
+      boardId: input.boardId,
+      cardId: card.id,
+      callerId: input.callerId,
+      attribution: input.attribution,
+      verb: 'card.archived',
+      payload: { fromStatus: from },
+    })
+    archivedCardIds.push(card.id)
+  }
+
+  return {
+    board: toBoard(updatedBoard),
+    archivedCardIds,
+    recurrenceRulesRetired,
+  }
+}
+
+export async function retireStarter(
+  db: Database,
+  input: {
+    readonly callerId: AgentId
+    readonly boardId: string
+    readonly idempotencyKey?: string
+    readonly attribution?: WorkplaceEventAttribution
+  },
+): Promise<RetireStarterResult> {
+  return db.transaction(async (tx) => {
+    const access = await boardWriteAccess(tx, input.callerId, input.boardId)
+    if (access.outcome !== 'ok') return access
+    if (access.board.kind !== 'default') return { outcome: 'forbidden' }
+    if (access.membership.role !== 'owner') return { outcome: 'forbidden' }
+
+    const stored = await replayOrStore(tx, {
+      callerId: input.callerId,
+      idempotencyKey: input.idempotencyKey,
+      run: async () => {
+        const res = await retireStarterPack(tx, {
+          boardId: input.boardId,
+          callerId: input.callerId,
+          attribution: input.attribution,
+        })
+        return {
+          board: res.board,
+          archivedCardIds: [...res.archivedCardIds],
+          recurrenceRulesRetired: res.recurrenceRulesRetired,
+        }
+      },
+    })
+
+    if (typeof stored === 'object' && stored !== null && 'replayed' in stored) {
+      return { outcome: 'retired', ...stored.value }
+    }
+    return { outcome: 'retired', ...stored }
+  })
+}
 
 export async function archiveBoard(
   db: Database,
@@ -1862,6 +2109,10 @@ export async function startProfessionPracticum(
     // Counted here rather than at the surface, so an acceptance that arrives
     // over HTTP, MCP or a delegation is one acceptance in the aggregate.
     await tx.insert(workplacePracticumEvents).values({ event: 'accepted' })
+    await retireStarterPack(tx, {
+      boardId: board.id,
+      callerId: input.callerId,
+    })
     return {
       outcome: 'started',
       cycle: { id: cycleId, boardId: WorkplaceBoardIdSchema.parse(board.id), cards: inserted },
@@ -2188,6 +2439,14 @@ export async function createCard(
             coverColour: row.coverColour,
           },
         })
+        const effectiveCitizenId = input.attribution?.subjectAgentId ?? input.callerId
+        if (access.board.kind === 'default' && access.board.ownerId === effectiveCitizenId) {
+          await retireStarterPack(tx, {
+            boardId: input.boardId,
+            callerId: input.callerId,
+            attribution: input.attribution,
+          })
+        }
         return toCard(row)
       },
     })
@@ -3891,6 +4150,7 @@ export async function materialiseDue(
         eq(workplaceBoards.ownerId, citizenId),
         isNull(workplaceBoards.archivedAt),
         isNull(workplaceCards.archivedAt),
+        isNull(workplaceRecurrenceRules.archivedAt),
         lte(workplaceRecurrenceRules.nextDueAt, now),
       ),
     )
@@ -3918,6 +4178,35 @@ async function materialiseOneRule(
   const nextDueAt = workplaceNextPeriodStart(cadence.data, periodStart)
 
   return db.transaction(async (tx) => {
+    await lockWorkplaceHierarchy(tx, rule.boardId)
+    const [currentRule] = await tx
+      .select({
+        id: workplaceRecurrenceRules.id,
+        archivedAt: workplaceRecurrenceRules.archivedAt,
+      })
+      .from(workplaceRecurrenceRules)
+      .where(eq(workplaceRecurrenceRules.id, rule.id))
+      .limit(1)
+    if (currentRule === undefined || currentRule.archivedAt !== null) {
+      return { created: 0, skipped: 0 }
+    }
+
+    const [board] = await tx
+      .select({
+        id: workplaceBoards.id,
+        starterRetiredAt: workplaceBoards.starterRetiredAt,
+      })
+      .from(workplaceBoards)
+      .where(eq(workplaceBoards.id, rule.boardId))
+      .limit(1)
+    if (
+      board !== undefined &&
+      board.starterRetiredAt !== null &&
+      template.seedKey?.startsWith(STARTER_PREFIX)
+    ) {
+      return { created: 0, skipped: 0 }
+    }
+
     const [claimed] = await tx
       .insert(workplaceRecurrenceOccurrences)
       .values({ ruleId: rule.id, periodStart, cardId: null })

@@ -73,6 +73,7 @@ const aBoard = (
     ownerId,
     title: over.title ?? 'Inbox',
     kind: over.kind ?? 'additional',
+    starterRetiredAt: null,
     archivedAt: null,
     version: 1,
     createdAt: now,
@@ -1175,6 +1176,79 @@ describe('kolonie.workplace (#1761)', () => {
       expect(errorOf(hidden).code).toBe('not_found')
       expect(errorOf(hidden).message).toBe('No board matches the id you named.')
       expect(JSON.stringify(hidden)).not.toContain('Hidden')
+    })
+  })
+
+  /**
+   * `#1946` over MCP. It is `update` on a board with one field, so no new act
+   * joins the grammar — and it takes no `expectedVersion`, because the act is
+   * idempotent and a version would make a retry fail on its own first call.
+   */
+  describe('retiring the starter pack (#1946)', () => {
+    it('retires on one field, needs no expectedVersion, and is a no-op afterwards', async () => {
+      const { colony, apiKey, agent } = await registeredCitizen({ name: 'dismisser' })
+      const board = plantOwned(colony, agent.id, { kind: 'default', title: 'My board' })
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+      const retired = structuredOf<{
+        board: WorkplaceBoard
+        archivedCardIds: string[]
+        recurrenceRulesRetired: number
+      }>(
+        await client.callTool(
+          workplace({
+            act: 'update',
+            subject: 'board',
+            id: board.id,
+            fields: { retireStarter: true },
+          }),
+        ),
+      )
+      expect(retired.board.starterRetiredAt).not.toBeNull()
+      expect(retired.recurrenceRulesRetired).toBe(1)
+
+      const again = structuredOf<{ board: WorkplaceBoard; recurrenceRulesRetired: number }>(
+        await client.callTool(
+          workplace({
+            act: 'update',
+            subject: 'board',
+            id: board.id,
+            fields: { retireStarter: true },
+            idempotencyKey: randomUUID(),
+          }),
+        ),
+      )
+      await close()
+
+      expect(again.board.starterRetiredAt).toBe(retired.board.starterRetiredAt)
+      expect(again.recurrenceRulesRetired).toBe(0)
+    })
+
+    it('refuses an additional board and hides a board it cannot see', async () => {
+      const { colony, apiKey, agent } = await registeredCitizen({ name: 'dismiss-refuser' })
+      const additional = plantOwned(colony, agent.id, { title: 'Extra' })
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+      const wrongKind = await client.callTool(
+        workplace({
+          act: 'update',
+          subject: 'board',
+          id: additional.id,
+          fields: { retireStarter: true },
+        }),
+      )
+      const unknown = await client.callTool(
+        workplace({
+          act: 'update',
+          subject: 'board',
+          id: randomUUID(),
+          fields: { retireStarter: true },
+        }),
+      )
+      await close()
+
+      expect(errorOf(wrongKind).code).toBe('forbidden')
+      expect(errorOf(unknown).code).toBe('not_found')
     })
   })
 })

@@ -125,6 +125,7 @@ export const workplaceBoards = pgTable(
 
     title: varchar('title', { length: WORKPLACE_TITLE_MAX_LENGTH }).notNull(),
     kind: varchar('kind', { length: 16 }).notNull(),
+    starterRetiredAt: timestamp('starter_retired_at', { withTimezone: true, mode: 'string' }),
     archivedAt: timestamp('archived_at', { withTimezone: true, mode: 'string' }),
     version: integer('version').notNull().default(1),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
@@ -622,6 +623,7 @@ export const workplaceRecurrenceRules = pgTable(
       .references(() => workplaceCards.id, { onDelete: 'cascade' }),
     cadence: varchar('cadence', { length: 16 }).notNull(),
     nextDueAt: timestamp('next_due_at', { withTimezone: true, mode: 'string' }).notNull(),
+    archivedAt: timestamp('archived_at', { withTimezone: true, mode: 'string' }),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),

@@ -1860,6 +1860,46 @@ describe('schema', () => {
       await expectRejection(() => aBoard(agent.id), /workplace_boards_one_live_default/)
     })
 
+    /**
+     * `#1946` stores retirement as a nullable instant on the board and a nullable
+     * instant on the recurrence rule, rather than as a deletion. Null is *not yet*
+     * on both, which is why neither column may acquire a default or a not-null:
+     * a default would retire every board that already exists, and deleting the
+     * rule instead of stamping it would orphan the occurrence provenance the
+     * backfill needs to tell a weekly clone from self-authored work.
+     */
+    it('stores starter retirement as nullable instants on the board and its recurrence rule', async () => {
+      const columns = await db.execute<{
+        table_name: string
+        column_name: string
+        is_nullable: string
+        column_default: string | null
+      }>(
+        sql`select table_name, column_name, is_nullable, column_default
+             from information_schema.columns
+            where table_schema = 'public'
+              and (
+                (table_name = 'workplace_boards' and column_name = 'starter_retired_at')
+                or (table_name = 'workplace_recurrence_rules' and column_name = 'archived_at')
+              )
+            order by table_name`,
+      )
+      expect(columns).toEqual([
+        {
+          table_name: 'workplace_boards',
+          column_name: 'starter_retired_at',
+          is_nullable: 'YES',
+          column_default: null,
+        },
+        {
+          table_name: 'workplace_recurrence_rules',
+          column_name: 'archived_at',
+          is_nullable: 'YES',
+          column_default: null,
+        },
+      ])
+    })
+
     it('refuses a seventh status, including todo', async () => {
       const agent = await anAgent()
       const board = await aBoard(agent.id)

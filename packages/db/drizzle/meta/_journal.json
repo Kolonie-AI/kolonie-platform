@@ -2605,6 +2605,13 @@
       "when": 1789296620119,
       "tag": "0371_premium_dreaming_celestial",
       "breakpoints": true
+    },
+    {
+      "idx": 372,
+      "version": "7",
+      "when": 1789305795386,
+      "tag": "0372_dapper_living_mummy",
+      "breakpoints": true
     }
   ]
 }

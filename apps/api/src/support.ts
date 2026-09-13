@@ -1,8 +1,9 @@
 import {
   ColonyNoticeSchema,
   OpenTicketRequestSchema,
-  ticketRouteFor,
   ReadTicketsRequestSchema,
+  ticketRouteFor,
+  SUPPORT_TICKETS_MAX_PAGE,
   SupportTicketIdSchema,
   WithdrawTicketRequestSchema,
   type AgentId,
@@ -12,7 +13,6 @@ import {
   type ListTicketsResponse,
   type OpenTicketRequest,
   type OpenTicketResponse,
-  type OwnTicket,
   type ReadTicketsRequest,
   type SupportTicket,
   type SupportTicketId,
@@ -26,6 +26,7 @@ import {
   readOwnTicket as readOwnTicketInDatabase,
   withdrawOwnTicket as withdrawOwnTicketInDatabase,
   type Database,
+  type ListOwnTicketsOutcome,
   type OpenNoticeOutcome,
   type OpenTicketOutcome,
   type WithdrawTicketOutcome,
@@ -80,7 +81,7 @@ export interface SupportDesk {
     readonly route: SupportTicketRoute
     readonly request: OpenTicketRequest
   }): Promise<OpenTicketOutcome>
-  listOwnTickets(agentId: AgentId, query?: ReadTicketsRequest): Promise<readonly OwnTicket[]>
+  listOwnTickets(agentId: AgentId, query?: ReadTicketsRequest): Promise<ListOwnTicketsOutcome>
   readOwnTicket(query: {
     readonly ticketId: SupportTicketId
     readonly agentId: AgentId
@@ -107,7 +108,8 @@ export interface SupportDesk {
 export function databaseSupportDesk(db: Database): SupportDesk {
   return {
     openTicket: (input) => openTicketInDatabase(db, input),
-    listOwnTickets: (agentId, query) => listOwnTicketsInDatabase(db, agentId, query ?? {}),
+    listOwnTickets: (agentId, query) =>
+      listOwnTicketsInDatabase(db, agentId, query ?? ReadTicketsRequestSchema.parse({})),
     readOwnTicket: (query) => readOwnTicketInDatabase(db, query),
     withdrawOwnTicket: (input) => withdrawOwnTicketInDatabase(db, input),
     sendNotice: (notice) => openColonyNoticeInDatabase(db, notice),
@@ -318,18 +320,36 @@ export function support(options: {
 
     async read({ agentId, ticketId, query }) {
       if (ticketId === undefined) {
-        /**
-         * A malformed narrowing falls back to the defaults rather than refusing
-         * the read (#210), for the reason `listMySubmissions` does: these are
-         * conveniences on a citizen's own record, and withholding the record
-         * over a mistyped timestamp is the worse failure.
-         */
         const parsed = ReadTicketsRequestSchema.safeParse(query ?? {})
-        const tickets = await options.desk.listOwnTickets(
-          agentId,
-          parsed.success ? parsed.data : ReadTicketsRequestSchema.parse({}),
-        )
-        return { outcome: 'listed', response: { tickets: [...tickets] } }
+        if (!parsed.success) {
+          return {
+            outcome: 'invalid',
+            error: {
+              code: 'validation_failed',
+              message:
+                `A support listing takes at most ${SUPPORT_TICKETS_MAX_PAGE} tickets and a cursor ` +
+                'from an earlier page.',
+            },
+          }
+        }
+        const page = await options.desk.listOwnTickets(agentId, parsed.data)
+        if (page.outcome === 'invalid-cursor') {
+          return {
+            outcome: 'invalid',
+            error: {
+              code: 'validation_failed',
+              message:
+                'That cursor is not one the Colony wrote for these filters. Call support.read with no cursor to start again, then keep since and full unchanged while paging.',
+            },
+          }
+        }
+        return {
+          outcome: 'listed',
+          response: {
+            tickets: [...page.tickets],
+            ...(page.nextCursor === undefined ? {} : { nextCursor: page.nextCursor }),
+          },
+        }
       }
 
       const parsed = SupportTicketIdSchema.safeParse(ticketId)
@@ -338,7 +358,7 @@ export function support(options: {
           outcome: 'invalid',
           error: {
             code: 'validation_failed',
-            message: 'A ticket id is a uuid. Omit it entirely to read every ticket you opened.',
+            message: 'A ticket id is a uuid. Omit it entirely to read your newest ticket page.',
             details: { ticketId: 'must be a uuid' },
           },
         }

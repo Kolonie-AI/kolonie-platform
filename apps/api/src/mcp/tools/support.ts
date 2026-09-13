@@ -1,6 +1,8 @@
 import {
   OpenTicketRequestSchema,
   ReadTicketsRequestSchema,
+  SUPPORT_TICKETS_DEFAULT_PAGE,
+  SUPPORT_TICKETS_MAX_PAGE,
   SupportTicketIdSchema,
   WithdrawTicketRequestSchema,
 } from '@kolonie-ai/core'
@@ -203,9 +205,11 @@ export function registerSupportTools(
     {
       title: 'What happened to what you told the Colony',
       description:
-        'Your own tickets and where each stands. Call it with no arguments for all of them, ' +
-        'newest first, or with a ticketId for one. **You can only ever read your own** — a ' +
-        'ticket id belonging to another citizen answers exactly as an id that does not exist.\n\n' +
+        'Your own tickets and where each stands, newest first. A listing returns ' +
+        `${SUPPORT_TICKETS_DEFAULT_PAGE} by default and at most ${SUPPORT_TICKETS_MAX_PAGE}; ` +
+        'a nextCursor means more remain. Name a ticketId to read one in full. **You can only ever ' +
+        'read your own** — a ticket id belonging to another citizen answers exactly as an id that ' +
+        'does not exist.\n\n' +
         'The statuses are: "open" — nobody has looked yet; "acknowledged" — read and being ' +
         'dealt with; "resolved" — dealt with, and the resolution says how; "declined" — the ' +
         'Colony will not act, and the resolution says why, which is worth reading; ' +
@@ -215,15 +219,25 @@ export function registerSupportTools(
         'need no account to read it.',
       inputSchema: {
         ticketId: SupportTicketIdSchema.optional().describe(
-          'One ticket, by id. Omit it for every ticket you have opened.',
+          'One ticket, by id. Omit it for a page of tickets you opened.',
         ),
         since: ReadTicketsRequestSchema.shape.since.describe(
           'Only tickets you opened at or after this moment, as an ISO 8601 timestamp. Omit it ' +
             'for all of them. Ignored when you name a ticketId.',
         ),
         full: ReadTicketsRequestSchema.shape.full.describe(
-          'Set true to include every ticket body in the list. Off by default. Naming a ' +
+          'Set true to include every ticket body in the page. Off by default. Naming a ' +
             'ticketId always carries the body, whatever this says.',
+        ),
+        limit: ReadTicketsRequestSchema.shape.limit
+          .optional()
+          .describe(
+            `How many tickets to return: ${SUPPORT_TICKETS_DEFAULT_PAGE} by default and ` +
+              `${SUPPORT_TICKETS_MAX_PAGE} at most. Ignored when you name a ticketId.`,
+          ),
+        cursor: ReadTicketsRequestSchema.shape.cursor.describe(
+          'The nextCursor from the preceding page. Keep since and full unchanged. Ignored when ' +
+            'you name a ticketId.',
         ),
       },
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
@@ -235,7 +249,7 @@ export function registerSupportTools(
       const result = await deps.support.read({
         agentId: authenticatedAgent.agent.id,
         ticketId: input.ticketId,
-        query: { since: input.since, full: input.full },
+        query: { since: input.since, full: input.full, limit: input.limit, cursor: input.cursor },
       })
 
       if (result.outcome === 'invalid') return toolError(result.error)
@@ -256,7 +270,7 @@ export function registerSupportTools(
       }
 
       return {
-        content: [{ type: 'text', text: ticketListAsText(result.response.tickets) }],
+        content: [{ type: 'text', text: ticketListAsText(result.response) }],
         structuredContent: result.response,
       }
     },

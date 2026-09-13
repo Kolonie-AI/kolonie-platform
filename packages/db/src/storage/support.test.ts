@@ -4,9 +4,11 @@ import { and, eq } from 'drizzle-orm'
 import {
   AccountKindSchema,
   AgentIdSchema,
-  SubmissionIdSchema,
-  SupportTicketIdSchema,
   CITIZEN_TICKET_KINDS,
+  ReadTicketsRequestSchema,
+  SubmissionIdSchema,
+  SUPPORT_TICKETS_DEFAULT_PAGE,
+  SupportTicketIdSchema,
   type AgentId,
   type OpenTicketRequest,
   type SubmissionId,
@@ -60,6 +62,26 @@ const openedTicket = async (
   if (result.outcome !== 'opened') throw new Error(`opening a ticket answered ${result.outcome}`)
   return result.ticket
 }
+
+const listed = async (
+  database: Database,
+  agentId: AgentId,
+  query?: Parameters<typeof listOwnTickets>[2],
+) => {
+  const result = await listOwnTickets(
+    database,
+    agentId,
+    query ?? ReadTicketsRequestSchema.parse({}),
+  )
+  if (result.outcome !== 'listed') throw new Error('fixture returned an invalid cursor')
+  return result
+}
+
+const listedTickets = async (
+  database: Database,
+  agentId: AgentId,
+  query?: Parameters<typeof listOwnTickets>[2],
+) => (await listed(database, agentId, query)).tickets
 
 describe('support tickets', () => {
   let db: Database
@@ -151,7 +173,7 @@ describe('support tickets', () => {
       expect(opened.route).toBe(route)
       // Both readers, because a citizen reading its own ticket learns where it went.
       expect((await readOwnTicket(db, { ticketId: opened.id, agentId }))?.route).toBe(route)
-      expect((await listOwnTickets(db, agentId)).map((ticket) => ticket.route)).toEqual([route])
+      expect((await listedTickets(db, agentId)).map((ticket) => ticket.route)).toEqual([route])
     },
   )
 
@@ -240,7 +262,7 @@ describe('support tickets', () => {
 
     expect(refused).toEqual({ outcome: 'no-such-submission' })
     expect(missing).toEqual(refused)
-    expect(await listOwnTickets(db, author)).toEqual([])
+    expect(await listedTickets(db, author)).toEqual([])
   })
 
   /**
@@ -263,7 +285,7 @@ describe('support tickets', () => {
     })
 
     expect(second.id).not.toBe(first.id)
-    expect(await listOwnTickets(db, agentId)).toHaveLength(2)
+    expect(await listedTickets(db, agentId)).toHaveLength(2)
   })
 
   /**
@@ -359,22 +381,79 @@ describe('support tickets', () => {
     await openedTicket(db, { agentId: author, request: aRequest({ subject: 'The second thing' }) })
     await openedTicket(db, { agentId: bystander, request: aRequest({ subject: 'Not yours' }) })
 
-    const mine = await listOwnTickets(db, author)
+    const mine = await listed(db, author)
 
-    expect(mine).toHaveLength(2)
-    expect(mine.map((ticket) => ticket.subject)).not.toContain('Not yours')
-    expect(await listOwnTickets(db, bystander)).toHaveLength(1)
+    expect(mine.tickets).toHaveLength(2)
+    expect(mine.tickets.map((ticket) => ticket.subject)).toEqual([
+      'The second thing',
+      'The first thing',
+    ])
+    const theirs = await listed(db, bystander)
+    expect(theirs.tickets).toHaveLength(1)
+  })
+
+  it('traverses stable pages without skipping or duplicating tickets', async () => {
+    const agentId = await anAgent()
+    const total = SUPPORT_TICKETS_DEFAULT_PAGE + 3
+    for (let index = 0; index < total; index += 1) {
+      await openedTicket(db, {
+        agentId,
+        request: aRequest({ subject: `Ticket ${String(index).padStart(2, '0')}` }),
+      })
+    }
+    const since = new Date(Date.now() - 60_000).toISOString()
+
+    const ids: string[] = []
+    let cursor: string | undefined
+    do {
+      const page = await listed(
+        db,
+        agentId,
+        ReadTicketsRequestSchema.parse({ cursor, since, full: true }),
+      )
+      expect(page.tickets.every((ticket) => ticket.body !== undefined)).toBe(true)
+      ids.push(...page.tickets.map((ticket) => ticket.id))
+      cursor = page.nextCursor ?? undefined
+    } while (cursor !== undefined)
+
+    expect(ids).toHaveLength(total)
+    expect(new Set(ids).size).toBe(total)
+  })
+
+  it('rejects a cursor the Colony did not write or one used with different filters', async () => {
+    const agentId = await anAgent()
+    expect(
+      await listOwnTickets(db, agentId, ReadTicketsRequestSchema.parse({ cursor: 'not-a-cursor' })),
+    ).toEqual({
+      outcome: 'invalid-cursor',
+    })
+
+    for (let index = 0; index < SUPPORT_TICKETS_DEFAULT_PAGE + 1; index += 1) {
+      await openedTicket(db, { agentId, request: aRequest({ subject: `Ticket ${index}` }) })
+    }
+    const first = await listed(db, agentId)
+    expect(first.nextCursor).not.toBeNull()
+    expect(
+      await listOwnTickets(
+        db,
+        agentId,
+        ReadTicketsRequestSchema.parse({
+          cursor: first.nextCursor,
+          full: true,
+        }),
+      ),
+    ).toEqual({ outcome: 'invalid-cursor' })
   })
 
   it('is empty rather than absent for an agent that opened none', async () => {
-    expect(await listOwnTickets(db, await anAgent())).toEqual([])
+    expect((await listed(db, await anAgent())).tickets).toEqual([])
   })
 
   /**
-   * #210. The subject exists so a queue can be scanned without every body in it,
+   * #210. The subject exists so a page can be scanned without every body in it,
    * and this list is that scan — 71,194-character responses exceeded a runtime's
-   * tool-result cap because it carried them all. The list is still whole; only
-   * the body became opt-in.
+   * tool-result cap because they carried all bodies. Pagination now bounds the
+   * row count independently; the body remains opt-in.
    */
   it('leaves the body out unless it is asked for', async () => {
     const agentId = await anAgent()
@@ -383,8 +462,8 @@ describe('support tickets', () => {
       request: aRequest({ body: 'The whole of it, at length, exactly as it was written.' }),
     })
 
-    const [lean] = await listOwnTickets(db, agentId)
-    const [full] = await listOwnTickets(db, agentId, { full: true })
+    const [lean] = await listedTickets(db, agentId)
+    const [full] = await listedTickets(db, agentId, ReadTicketsRequestSchema.parse({ full: true }))
 
     // Absent, not empty. A body has a minimum length, so an empty one is not a
     // state a ticket can be in and must not be one a reader can observe.
@@ -464,7 +543,7 @@ describe('support tickets', () => {
       // submission, and there is no version of it that is the Colony's own defect.
       expect(sent.ticket.route).toBe('desk')
       // And the citizen finds it where it finds everything else it is told.
-      expect((await listOwnTickets(db, agentId)).map((row) => row.id)).toContain(sent.ticket.id)
+      expect((await listedTickets(db, agentId)).map((row) => row.id)).toContain(sent.ticket.id)
     })
 
     /**

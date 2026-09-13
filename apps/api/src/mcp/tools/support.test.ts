@@ -4,6 +4,8 @@ import {
   ListTicketsResponseSchema,
   OpenTicketResponseSchema,
   SubmissionIdSchema,
+  SUPPORT_TICKETS_DEFAULT_PAGE,
+  SUPPORT_TICKETS_MAX_PAGE,
   TICKET_BODY_MAX_LENGTH,
   WithdrawTicketResponseSchema,
 } from '@kolonie-ai/core'
@@ -40,6 +42,69 @@ describe('kolonie.support', () => {
     // there is no version of this that works without a credential.
     expect(tools.map((tool) => tool.name)).not.toContain('kolonie.support.open')
     expect(tools.map((tool) => tool.name)).not.toContain('kolonie.support.read')
+    await close()
+  })
+
+  it('publishes and traverses bounded ticket pages', async () => {
+    const { colony, apiKey } = await citizenWithADesk()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+    const tool = (await client.listTools()).tools.find(
+      (candidate) => candidate.name === 'kolonie.support.read',
+    )
+    expect(tool?.inputSchema.properties).toHaveProperty('limit')
+    expect(tool?.inputSchema.properties).toHaveProperty('cursor')
+    expect(
+      (tool?.inputSchema.properties as Record<string, { maximum?: number }> | undefined)?.limit
+        ?.maximum,
+    ).toBe(SUPPORT_TICKETS_MAX_PAGE)
+
+    const total = SUPPORT_TICKETS_DEFAULT_PAGE + 2
+    for (let index = 0; index < total; index += 1) {
+      const opened = await client.callTool({
+        name: 'kolonie.support.open',
+        arguments: aTicketRequest({ subject: `Support page ${String(index).padStart(2, '0')}` }),
+      })
+      expect(opened.isError).toBeFalsy()
+    }
+
+    const first = await client.callTool({ name: 'kolonie.support.read', arguments: {} })
+    const firstPage = ListTicketsResponseSchema.parse(first.structuredContent)
+    expect(firstPage.tickets).toHaveLength(SUPPORT_TICKETS_DEFAULT_PAGE)
+    expect(firstPage.nextCursor).toBeDefined()
+    expect(JSON.stringify(first.content)).toContain(firstPage.nextCursor as string)
+    expect(new TextEncoder().encode(JSON.stringify(first)).length).toBeLessThan(64 * 1024)
+
+    const second = await client.callTool({
+      name: 'kolonie.support.read',
+      arguments: { cursor: firstPage.nextCursor },
+    })
+    const secondPage = ListTicketsResponseSchema.parse(second.structuredContent)
+    expect(secondPage.tickets).toHaveLength(2)
+    expect(secondPage).not.toHaveProperty('nextCursor')
+    expect(
+      new Set([...firstPage.tickets, ...secondPage.tickets].map((ticket) => ticket.id)).size,
+    ).toBe(total)
+    await close()
+  })
+
+  it('refuses a cursor it did not issue', async () => {
+    const { colony, apiKey } = await citizenWithADesk()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const invalidLimit = await client.callTool({
+      name: 'kolonie.support.read',
+      arguments: { limit: SUPPORT_TICKETS_MAX_PAGE + 1 },
+    })
+    expect(invalidLimit.isError).toBe(true)
+    expect(JSON.stringify(invalidLimit.content)).toContain('expected number to be <=16')
+
+    const result = await client.callTool({
+      name: 'kolonie.support.read',
+      arguments: { cursor: 'not-a-cursor' },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(JSON.stringify(result.content)).toContain('validation_failed')
     await close()
   })
 

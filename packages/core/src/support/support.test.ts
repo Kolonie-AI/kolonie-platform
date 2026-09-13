@@ -3,7 +3,11 @@ import {
   CitizenshipStatusSchema,
   DEFAULT_TICKET_ROUTE,
   isActive,
+  ListTicketsResponseSchema,
   OpenTicketRequestSchema,
+  ReadTicketsRequestSchema,
+  SUPPORT_TICKETS_DEFAULT_PAGE,
+  SUPPORT_TICKETS_MAX_PAGE,
   SupportTicketRouteSchema,
   ticketRouteFor,
   type CitizenshipStatus,
@@ -90,5 +94,29 @@ describe('which desk a ticket reaches', () => {
     expect(OpenTicketRequestSchema.safeParse({ ...request, route: 'maintainer' }).success).toBe(
       false,
     )
+  })
+})
+
+describe('support ticket pages', () => {
+  it('defaults to eight tickets and caps a page at sixteen', () => {
+    expect(ReadTicketsRequestSchema.parse({})).toMatchObject({
+      limit: SUPPORT_TICKETS_DEFAULT_PAGE,
+      full: false,
+    })
+    expect(SUPPORT_TICKETS_DEFAULT_PAGE).toBe(8)
+    expect(SUPPORT_TICKETS_MAX_PAGE).toBe(16)
+    expect(ReadTicketsRequestSchema.safeParse({ limit: 0 }).success).toBe(false)
+    expect(
+      ReadTicketsRequestSchema.safeParse({ limit: SUPPORT_TICKETS_MAX_PAGE + 1 }).success,
+    ).toBe(false)
+  })
+
+  it('carries a continuation only when another page remains', () => {
+    expect(ListTicketsResponseSchema.parse({ tickets: [] })).toEqual({ tickets: [] })
+    expect(ListTicketsResponseSchema.parse({ tickets: [], nextCursor: 'opaque' })).toEqual({
+      tickets: [],
+      nextCursor: 'opaque',
+    })
+    expect(ListTicketsResponseSchema.safeParse({ tickets: [], nextCursor: '' }).success).toBe(false)
   })
 })

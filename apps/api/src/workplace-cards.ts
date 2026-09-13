@@ -3,6 +3,7 @@ import type {
   WorkplaceCommitment,
   WorkplaceCompleteCardRequest,
   WorkplaceCreateCardClosureRequest,
+  WorkplaceRecallRequest,
   WorkplaceCardId,
   WorkplaceCommitmentState,
   WorkplaceCard,
@@ -41,6 +42,7 @@ import {
   handoverCard,
   listCards,
   listCardClosures,
+  recallWorkplace,
   listCardEvents,
   listComments,
   listLinks,
@@ -73,6 +75,7 @@ import {
   type ListCardClosuresResult,
   type ListCardEventsResult,
   type WorkplaceEventAttribution,
+  type RecallWorkplaceResult,
   type ListCommentsResult,
   type ListLinksResult,
   type MoveCardResult,
@@ -119,6 +122,8 @@ export interface WorkplaceCards {
     cardId: string,
     query?: { readonly cursor?: string | null; readonly limit?: number },
   ): Promise<ListCardClosuresResult>
+  /** Permission-aware lexical recall across boards the caller sits on (`#1943`). */
+  recall(callerId: AgentId, request: WorkplaceRecallRequest): Promise<RecallWorkplaceResult>
   acceptPracticum(input: {
     readonly callerId: AgentId
     readonly outcome: string
@@ -334,6 +339,7 @@ export function databaseWorkplaceCards(db: Database): WorkplaceCards {
     get: (callerId, cardId) => getCard(db, callerId, cardId),
     events: (callerId, cardId, query) => listCardEvents(db, callerId, cardId, query),
     closures: (callerId, cardId, query) => listCardClosures(db, callerId, cardId, query),
+    recall: (callerId, request) => recallWorkplace(db, callerId, request),
     acceptPracticum: (input) => startProfessionPracticum(db, input),
     closePracticum: (input) => closeProfessionPracticum(db, input),
     resolvePracticum: (input) => resolveProfessionPracticum(db, input),

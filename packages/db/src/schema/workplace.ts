@@ -3,6 +3,7 @@ import {
   type AnyPgColumn,
   boolean,
   check,
+  customType,
   doublePrecision,
   foreignKey,
   index,
@@ -53,6 +54,17 @@ const TITLE_MAX = sql.raw(String(WORKPLACE_TITLE_MAX_LENGTH))
 const BODY_MAX = sql.raw(String(WORKPLACE_BODY_MAX_LENGTH))
 const SENTENCE_MAX = sql.raw(String(WORKPLACE_SENTENCE_MAX_LENGTH))
 const LINK_REF_MAX = sql.raw(String(WORKPLACE_LINK_REF_MAX_LENGTH))
+
+/**
+ * `tsvector`, which Drizzle has no first-class column for (`#1943`).
+ *
+ * Declared beside the two tables that carry one rather than in a shared module:
+ * recall is the only reader, and a general-purpose text-search helper would be
+ * an invitation to index prose the Colony has agreed stays unindexed.
+ */
+const tsvector = customType<{ data: string }>({
+  dataType: () => 'tsvector',
+})
 
 const workplaceCardId = (): AnyPgColumn => workplaceCards.id
 
@@ -262,6 +274,8 @@ export const workplaceCards = pgTable(
     version: integer('version').notNull().default(1),
     coverColour: varchar('cover_colour', { length: 7 }),
     seedKey: varchar('seed_key', { length: 64 }),
+    /** Disposable lexical projection, rebuildable from title and description. */
+    searchVector: tsvector('search_vector'),
     archivedAt: timestamp('archived_at', { withTimezone: true, mode: 'string' }),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()
@@ -281,6 +295,7 @@ export const workplaceCards = pgTable(
     index('workplace_cards_board_lane_idx').on(table.boardId, table.status, table.position),
     index('workplace_cards_owner_idx').on(table.ownerId),
     index('workplace_cards_parent_idx').on(table.parentInitiativeId),
+    index('workplace_cards_search_idx').using('gin', table.searchVector),
     check('workplace_cards_status_is_known', sql`${table.status} in (${oneOf(WORKPLACE_LANES)})`),
     check('workplace_cards_kind_is_known', sql`${table.kind} in (${oneOf(WORKPLACE_CARD_KINDS)})`),
     check(
@@ -500,6 +515,8 @@ export const workplaceCardClosures = pgTable(
     next: jsonb('next').$type<Record<string, unknown>>().notNull(),
     legacy: boolean('legacy').notNull().default(false),
     supersedesClosureId: uuid('supersedes_closure_id'),
+    /** Disposable lexical projection, rebuildable from summary, learned and links. */
+    searchVector: tsvector('search_vector'),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),
@@ -509,6 +526,7 @@ export const workplaceCardClosures = pgTable(
     unique('workplace_card_closures_card_revision').on(table.cardId, table.revision),
     unique('workplace_card_closures_supersedes_once').on(table.supersedesClosureId),
     index('workplace_card_closures_card_created_idx').on(table.cardId, table.createdAt, table.id),
+    index('workplace_card_closures_search_idx').using('gin', table.searchVector),
     foreignKey({
       name: 'workplace_card_closures_card_board_fk',
       columns: [table.cardId, table.boardId],

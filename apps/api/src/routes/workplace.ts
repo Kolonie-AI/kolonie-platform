@@ -21,6 +21,8 @@ import {
   WorkplaceMemberSchema,
   WorkplaceMoveCardRequestSchema,
   WorkplaceRenameBoardRequestSchema,
+  WorkplaceRecallRequestSchema,
+  WorkplaceRecallResponseSchema,
   WorkplaceRetireStarterRequestSchema,
   WorkplaceRetireStarterResponseSchema,
   WorkplaceSetCommitmentRequestSchema,
@@ -180,6 +182,7 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
       v1.options('/workplace/boards/:boardId/members/:citizenId', preflight)
     }
     if (cards !== undefined) {
+      v1.options('/workplace/recall', preflight)
       v1.options('/workplace/boards/:boardId/cards', preflight)
       v1.options('/workplace/cards/:cardId', preflight)
       v1.options('/workplace/cards/:cardId/events', preflight)
@@ -808,6 +811,40 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
       })
     }
     return missingBoard(reply, actor.origin)
+  })
+
+  v1.post('/workplace/recall', async (request, reply) => {
+    const actor = await citizenFor(request, reply)
+    if (actor === undefined) return
+    const parsed = WorkplaceRecallRequestSchema.safeParse(request.body)
+    if (!parsed.success) {
+      return finish(reply, actor.origin)
+        .status(ERROR_STATUS.validation_failed)
+        .send({
+          code: 'validation_failed',
+          message: 'Recall takes query, scope and optional structured filters.',
+          details: fieldErrors(parsed.error),
+        })
+    }
+    const recalled = await cards.recall(actor.citizenId, parsed.data)
+    if (recalled.outcome === 'missing') return missingBoard(reply, actor.origin)
+    if (recalled.outcome === 'invalid-cursor') {
+      return finish(reply, actor.origin)
+        .status(ERROR_STATUS.validation_failed)
+        .send({
+          code: 'validation_failed',
+          message: 'The cursor does not match this recall query and filters.',
+          details: { cursor: 'invalid' },
+        })
+    }
+    return finish(reply, actor.origin)
+      .status(200)
+      .send(
+        WorkplaceRecallResponseSchema.parse({
+          items: recalled.items,
+          nextCursor: recalled.nextCursor,
+        }),
+      )
   })
 
   v1.get('/workplace/cards/:cardId', async (request, reply) => {

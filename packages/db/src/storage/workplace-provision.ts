@@ -171,6 +171,7 @@ export async function provisionDefaultWorkplace(
         title: seed.title,
         position,
         seedKey: seed.seedKey,
+        searchVector: sql`setweight(to_tsvector('english', coalesce(${seed.title}, '')), 'A')`,
       })
       .returning({ id: workplaceCards.id })
     if (card === undefined) throw new Error('workplace seed card insert returned no row')

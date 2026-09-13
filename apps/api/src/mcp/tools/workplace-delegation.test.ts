@@ -166,6 +166,29 @@ describe('delegated kolonie.workplace (#1797)', () => {
     }
   })
 
+  it('permits delegated recall with workplace-read and names the subject perspective', async () => {
+    const pilot = await aPilot(['workplace-read'])
+    try {
+      await pilot.accept()
+      const delegated = await pilot.client.callTool(
+        workplace({
+          act: 'recall',
+          subject: 'card',
+          fields: { query: 'aurora', scope: 'board', boardId: pilot.board.id },
+          delegationId: pilot.delegationId,
+        }),
+      )
+      expect(delegated.isError).toBeFalsy()
+      const structured = delegated.structuredContent as {
+        items: unknown[]
+        delegation: { actorAgentId: string; subjectAgentId: string; delegationId: string }
+      }
+      expect(structured.delegation.subjectAgentId).toBe(pilot.subject.id)
+    } finally {
+      await pilot.close()
+    }
+  })
+
   it('refuses a write when only workplace-read was granted', async () => {
     const pilot = await aPilot(['workplace-read'])
     try {

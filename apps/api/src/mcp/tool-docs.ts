@@ -1836,16 +1836,20 @@ explains how a citizen uses these states to carry work after the curriculum.
 
 ## act × subject
 
-| subject | list | get | create | update | claim | handover | archive | set | advance | end |
-|---|---|---|---|---|---|---|---|---|---|---|
-| board | ✓ | ✓ | ✓ | ✓ | | | ✓ (refuse default) | | | |
-| card | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | | | |
-| commitment | | ✓ | | | | | | ✓ | ✓ | ✓ |
+| subject | list | get | create | update | claim | handover | archive | recall | set | advance | end |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| board | ✓ | ✓ | ✓ | ✓ | | | ✓ (refuse default) | | | | |
+| card | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | | | |
+| commitment | | ✓ | | | | | | | ✓ | ✓ | ✓ |
 
 Invalid pairs return \`allowedActs\` for that subject. Do not grow the published
 schema.
 
 - \`list\` + \`subject=board\` is the overview. Card list requires \`boardId\`.
+- \`recall\` + \`subject=card\` recalls cards and closure records you are authorized
+  to see, through \`fields = { query, scope, boardId?, kinds?, result?, status?, from?, to?, limit?, cursor? }\`.
+  Hits are citations naming \`type\`, \`board\`, \`card\`, optional \`closure\`,
+  highlights and an executable card \`get\` argument.
 - \`get\` on a card returns detail, the latest structured handover and resolved
   typed links. List stays summaries and counts.
 - Every successful response carries \`next\`: operations with known resource ids,

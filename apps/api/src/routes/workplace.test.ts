@@ -1857,4 +1857,105 @@ describe('workplace cards (#1760)', () => {
     )?.content?.['application/json']?.schema
     expect(Object.keys(schema?.properties ?? {}).sort()).toEqual(['items'])
   })
+
+  describe('permission-aware lexical recall (#1943)', () => {
+    it('describes /v1/workplace/recall in OpenAPI from the core schema', async () => {
+      const document = (await app.inject({ method: 'GET', url: '/openapi.json' })).json() as {
+        paths: Record<
+          string,
+          {
+            post?: {
+              requestBody?: {
+                content?: {
+                  'application/json'?: { schema?: { properties?: Record<string, unknown> } }
+                }
+              }
+              responses?: Record<
+                string,
+                {
+                  content?: {
+                    'application/json'?: { schema?: { properties?: Record<string, unknown> } }
+                  }
+                }
+              >
+            }
+          }
+        >
+      }
+      const operation = document.paths['/v1/workplace/recall']?.post
+      expect(operation).toBeDefined()
+      const reqProps = Object.keys(
+        operation?.requestBody?.content?.['application/json']?.schema?.properties ?? {},
+      ).sort()
+      expect(reqProps).toEqual(
+        expect.arrayContaining([
+          'boardId',
+          'cursor',
+          'from',
+          'kinds',
+          'limit',
+          'query',
+          'result',
+          'scope',
+          'status',
+          'to',
+        ]),
+      )
+      const resProps = Object.keys(
+        operation?.responses?.['200']?.content?.['application/json']?.schema?.properties ?? {},
+      ).sort()
+      expect(resProps).toEqual(['items', 'nextCursor'])
+    })
+
+    it('finds cards and closures with bounded citations over HTTP', async () => {
+      const { apiKey, agent } = await aCitizen('recall-http-owner')
+      const board = aBoard(agent.id, { kind: 'default', title: 'Default memory' })
+      const card = aCard(board.id, { title: 'Lunar mission telemetry', status: 'ready' })
+      colony.boards.plant(board, [seat(board, agent.id)])
+      colony.cards.plantBoard(board.id, [seat(board, agent.id)])
+      colony.cards.plantCard(card)
+
+      const recalled = await asKey('POST', '/v1/workplace/recall', apiKey, {
+        payload: {
+          query: 'lunar',
+          scope: 'my_default',
+        },
+      })
+      expect(recalled.statusCode).toBe(200)
+      const payload = recalled.json() as { items: unknown[]; nextCursor: string | null }
+      expect(payload.items).toHaveLength(1)
+      expect(payload.items[0]).toMatchObject({
+        type: 'card',
+        card: { id: card.id, title: 'Lunar mission telemetry' },
+        board: { id: board.id, title: 'Default memory' },
+        read: {
+          tool: 'kolonie.workplace',
+          arguments: { act: 'get', subject: 'card', id: card.id },
+        },
+      })
+    })
+
+    it('refuses invalid cursor and missing board with the standard error shapes', async () => {
+      const { apiKey } = await aCitizen('recall-http-validator')
+      const missing = await asKey('POST', '/v1/workplace/recall', apiKey, {
+        payload: {
+          query: 'any',
+          scope: 'board',
+          boardId: randomUUID(),
+        },
+      })
+      expect(missing.statusCode).toBe(ERROR_STATUS.not_found)
+      expect(missing.json()).toMatchObject({ code: 'not_found' })
+
+      const invalidCursor = await asKey('POST', '/v1/workplace/recall', apiKey, {
+        payload: {
+          query: 'any',
+          scope: 'my_default',
+          cursor: 'invalid-base64',
+        },
+      })
+      expect(invalidCursor.statusCode).toBe(ERROR_STATUS.validation_failed)
+      expect(invalidCursor.json()).toMatchObject({ code: 'validation_failed' })
+    })
+  })
 })

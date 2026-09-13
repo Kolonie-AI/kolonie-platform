@@ -1179,6 +1179,89 @@ describe('kolonie.workplace (#1761)', () => {
     })
   })
 
+  describe('lexical recall (#1943)', () => {
+    it('returns bounded citations with an untrusted-content marker and continuation', async () => {
+      const { colony, agent, apiKey } = await registeredCitizen({ name: 'recall-reader' })
+      const board = plantOwned(colony, agent.id, { kind: 'default', title: 'Default memory' })
+      colony.cards.plantCard(aCard(board.id, { title: 'Lunar mission telemetry', status: 'ready' }))
+      colony.cards.plantCard(aCard(board.id, { title: 'Lunar navigation review' }))
+      colony.cards.plantCard(aCard(board.id, { title: 'Unrelated grocery list' }))
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+      const recalled = await client.callTool(
+        workplace({
+          act: 'recall',
+          subject: 'card',
+          fields: { query: 'lunar', scope: 'my_default', limit: 1 },
+        }),
+      )
+      expect(recalled.isError).not.toBe(true)
+      const page = structuredOf<{
+        items: {
+          type: string
+          board: { id: string; title: string }
+          card: { id: string; title: string }
+          highlights: string[]
+          read: { tool: string; arguments: Record<string, unknown> }
+        }[]
+        nextCursor: string | null
+        next: NextOperation[]
+        untrustedContent: string
+      }>(recalled)
+      expect(page.items).toHaveLength(1)
+      expect(page.items[0]?.card.title).toMatch(/^Lunar /)
+      expect(page.items[0]?.board.title).toBe('Default memory')
+      expect(page.items[0]?.read).toEqual({
+        tool: 'kolonie.workplace',
+        arguments: { act: 'get', subject: 'card', id: page.items[0]?.card.id },
+      })
+      expect(page.untrustedContent).toContain('untrusted')
+      expect(page.nextCursor).not.toBeNull()
+      const continuation = page.next.find((one) => one.act === 'recall' && one.subject === 'card')
+      expect(continuation?.fields).toMatchObject({ cursor: page.nextCursor })
+
+      const next = await client.callTool(workplace(continuation ?? {}))
+      expect(next.isError).not.toBe(true)
+      await close()
+    })
+
+    it('keeps query fields inside fields and refuses recall on another subject', async () => {
+      const { colony, apiKey } = await registeredCitizen({ name: 'recall-grammar' })
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+      const top = await client.callTool(
+        workplace({ act: 'recall', subject: 'card', query: 'lunar', scope: 'my_default' }),
+      )
+      expect(top.isError).toBe(true)
+      expect(errorOf(top).code).toBe('validation_failed')
+
+      const boardSubject = await client.callTool(
+        workplace({ act: 'recall', subject: 'board', fields: { query: 'x', scope: 'my_default' } }),
+      )
+      expect(boardSubject.isError).toBe(true)
+      const allowed = (boardSubject.structuredContent as { allowedActs: string[] }).allowedActs
+      expect(allowed).not.toContain('recall')
+      await close()
+    })
+
+    it('refuses a cursor bound to another query', async () => {
+      const { colony, apiKey } = await registeredCitizen({ name: 'recall-cursor' })
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+      const stale = await client.callTool(
+        workplace({
+          act: 'recall',
+          subject: 'card',
+          fields: { query: 'lunar', scope: 'my_default', cursor: 'not-a-cursor' },
+        }),
+      )
+      expect(stale.isError).toBe(true)
+      expect(errorOf(stale).code).toBe('validation_failed')
+      expect(errorOf(stale).message).toMatch(/cursor/i)
+      await close()
+    })
+  })
+
   /**
    * `#1946` over MCP. It is `update` on a board with one field, so no new act
    * joins the grammar — and it takes no `expectedVersion`, because the act is

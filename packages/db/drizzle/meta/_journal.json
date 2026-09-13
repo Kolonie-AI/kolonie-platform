@@ -2612,6 +2612,13 @@
       "when": 1789305795386,
       "tag": "0372_dapper_living_mummy",
       "breakpoints": true
+    },
+    {
+      "idx": 373,
+      "version": "7",
+      "when": 1789312867921,
+      "tag": "0373_slim_prowler",
+      "breakpoints": true
     }
   ]
 }

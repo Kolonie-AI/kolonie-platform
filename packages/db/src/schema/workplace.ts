@@ -803,3 +803,45 @@ export const workplacePracticumEvents = pgTable(
     ),
   ],
 )
+
+/**
+ * What the Colony counts about ordinary-card closures (`#1944`).
+ *
+ * **Five columns, and everything that is missing is the design.** There is no
+ * citizen, board, card or closure id, no title, summary or learned sentence, no
+ * evidence reference, owner, actor, profession or membership — the same privacy
+ * boundary `workplace_practicum_events` set for practicum cycles, applied to
+ * ordinary work, because a column that could name who closed what is a column
+ * that eventually does. Nothing here is a foreign key, for the same reason: a
+ * row that pointed at a card would survive as a way to ask *which card*.
+ *
+ * **It is not an audit trail and must never be read as one.** One row is written
+ * inside the same transaction as each non-legacy structured closure, with
+ * `is_revision = (revision > 1)`, so a correction is distinguishable from a new
+ * closing in the aggregate and nowhere else. Erasure does not touch these rows:
+ * they are irreversible aggregate telemetry under the same policy as practicum
+ * events, and the counts must not be usable to watch one citizen's totals move.
+ *
+ * **The read side is `workplaceOutcomeMetrics` and nothing else.** It returns
+ * weekly buckets with k-anonymity suppression. Card counts, comments, edits,
+ * prose length, update frequency and time online are productivity signals this
+ * table exists not to provide, and no standing, reputation, ranking, wakeup
+ * recommendation or task selection may read these counters.
+ */
+export const workplaceOutcomeEvents = pgTable(
+  'workplace_outcome_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    result: varchar('result', { length: 32 }).notNull(),
+    evidencePresent: boolean('evidence_present').notNull(),
+    isRevision: boolean('is_revision').notNull(),
+    at: timestamp('at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('workplace_outcome_events_at_idx').on(table.at),
+    check(
+      'workplace_outcome_events_result_is_known',
+      sql`${table.result} in (${oneOf(WORKPLACE_CARD_CLOSURE_RESULTS)})`,
+    ),
+  ],
+)

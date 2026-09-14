@@ -103,6 +103,7 @@ import {
   workplaceHandovers,
   workplaceIdempotency,
   workplaceLabels,
+  workplaceOutcomeEvents,
   workplacePracticumEvents,
   workplaceRecurrenceOccurrences,
   workplaceRecurrenceRules,
@@ -3189,6 +3190,13 @@ export async function completeCard(
       legacy: normalized.legacy,
       attribution: input.attribution,
     })
+    if (!normalized.legacy) {
+      await tx.insert(workplaceOutcomeEvents).values({
+        result: normalized.close.result,
+        evidencePresent: normalized.close.evidenceLinkIds.length > 0,
+        isRevision: false,
+      })
+    }
     await appendCardEvent(tx, {
       boardId: row.boardId,
       cardId: row.id,
@@ -3243,6 +3251,11 @@ export async function createCardClosure(
       legacy: false,
       supersedesClosureId,
       attribution: input.attribution,
+    })
+    await tx.insert(workplaceOutcomeEvents).values({
+      result: close.result,
+      evidencePresent: close.evidenceLinkIds.length > 0,
+      isRevision: true,
     })
     return { outcome: 'created', card: toCard(locked.card), closure }
   })

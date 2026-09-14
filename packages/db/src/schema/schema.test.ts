@@ -1243,6 +1243,8 @@ describe('schema', () => {
         'workplace_handovers',
         'workplace_idempotency',
         'workplace_labels',
+        /** Aggregate ordinary-card outcomes; no citizen, work identifier or prose (`#1944`). */
+        'workplace_outcome_events',
         /** Aggregate practicum event slugs and instants; no citizen or prose (`#1836`). */
         'workplace_practicum_events',
         'workplace_recurrence_occurrences',

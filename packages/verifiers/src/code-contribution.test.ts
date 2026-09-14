@@ -124,6 +124,27 @@ describe('CodeContributionVerifier', () => {
   })
 
   /**
+   * #1983: an unreadable scope and an empty search are different findings. The
+   * reader already maps the first to `unavailable`; this pins that the
+   * verifier keeps that as `pending` and never copies the empty-search fail
+   * text over it — that text is what told the reporter their merge did not
+   * exist when the Colony simply could not see it.
+   */
+  it('does not claim no merged pull request exists when a repository was unreadable', async () => {
+    const result = await verify({
+      github: reader({
+        outcome: 'unavailable',
+        reason:
+          'Could not read closed contributions in Kolonie-AI/kolonie-concept-lab: GitHub answered 403; this is the Colony’s problem, not the submission’s.',
+      }),
+    })
+
+    expect(result.status).toBe('pending')
+    expect(result.evidence).toContain('kolonie-concept-lab')
+    expect(result.evidence).not.toContain('no merged pull request')
+  })
+
+  /**
    * The rung's whole integrity. The issue asked for a `githubUsername` profile
    * field; a self-declared login would let a citizen harvest somebody else's
    * merges, which is the hole D-019 closed one node down.

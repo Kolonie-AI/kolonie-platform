@@ -3,6 +3,7 @@ import {
   ProfessionGetResponseSchema,
   ProfessionListResponseSchema,
   ProfessionMcpInputSchema,
+  toTimestamp,
   type ProfessionChooseResponse,
 } from '@kolonie-ai/core'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
@@ -95,10 +96,14 @@ export function registerProfessionTool(
       if (!parsed.success) return validationFailed(parsed.error)
 
       if (parsed.data.act === 'list') {
-        const response = ProfessionListResponseSchema.parse({
-          professions: await professions.listActive(),
+        const active = await professions.listActive()
+        const parsedResponse = ProfessionListResponseSchema.safeParse({
+          professions: active,
         })
-        return ok(response)
+        if (!parsedResponse.success) {
+          return toolError({ code: 'internal', message: 'Internal error.' })
+        }
+        return ok(parsedResponse.data)
       }
 
       if (parsed.data.act === 'get') {
@@ -109,11 +114,14 @@ export function registerProfessionTool(
             message: 'No published profession matches the key you named.',
           })
         }
-        const response = ProfessionGetResponseSchema.parse({
+        const parsedResponse = ProfessionGetResponseSchema.safeParse({
           lifecycle: publication.profession.lifecycle,
           definition: publication.definition,
         })
-        return ok(response)
+        if (!parsedResponse.success) {
+          return toolError({ code: 'internal', message: 'Internal error.' })
+        }
+        return ok(parsedResponse.data)
       }
 
       if (
@@ -152,8 +160,12 @@ export function registerProfessionTool(
         )
       }
 
-      const response = ProfessionChooseResponseSchema.parse({
-        assignment: result.assignment,
+      const normalisedAssignment = {
+        ...result.assignment,
+        chosenAt: toTimestamp(result.assignment.chosenAt),
+      }
+      const parsedResponse = ProfessionChooseResponseSchema.safeParse({
+        assignment: normalisedAssignment,
         definition: result.definition,
         next: nextOperations(
           result.lifecycle === 'active' ? await professions.listActive() : [],
@@ -161,7 +173,10 @@ export function registerProfessionTool(
           result.assignment.assignmentVersion,
         ),
       })
-      return ok(response)
+      if (!parsedResponse.success) {
+        return toolError({ code: 'internal', message: 'Internal error.' })
+      }
+      return ok(parsedResponse.data)
     },
   )
 }

@@ -1,4 +1,4 @@
-import type { Agent } from '@kolonie-ai/core'
+import { TimestampSchema, type Agent, type ProfessionAssignment } from '@kolonie-ai/core'
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { describe, expect, it } from 'vitest'
 import { fakeProfessions } from '../../__fixtures__/professions.js'
@@ -154,6 +154,78 @@ describe('kolonie.profession (#1936)', () => {
       lifecycle: 'retired',
       definition: definition('citizen-mentor'),
     })
+    await close()
+  })
+
+  it.each([
+    ['Date object', new Date('2026-09-13T20:11:36.901Z')],
+    ['UTC offset', '2026-09-13T20:11:36.901+00:00'],
+    ['missing timezone', '2026-09-13T20:11:36.901'],
+  ])('normalises a stored %s chosenAt before returning choose', async (_case, chosenAt) => {
+    const professions = fakeProfessions()
+    await publish(professions, 'software-producer')
+    const originalAssign = professions.assign
+    professions.assign = async (input) => {
+      const result = await originalAssign(input)
+      return result.outcome === 'assigned'
+        ? {
+            ...result,
+            assignment: {
+              ...result.assignment,
+              chosenAt: chosenAt as unknown as ProfessionAssignment['chosenAt'],
+            },
+          }
+        : result
+    }
+    const logged: { message: string; detail: unknown }[] = []
+    const { colony, agent, apiKey } = await registeredCitizen()
+    colony.standing(agent.id, { status: 'citizen' })
+    const { client, close } = await connectedClient(
+      { ...colony, professions, log: (message, detail) => logged.push({ message, detail }) },
+      `Bearer ${apiKey}`,
+    )
+
+    const result = await call(client, { act: 'choose', key: 'software-producer' })
+    const returned = (result.structuredContent as { assignment: { chosenAt: string } }).assignment
+
+    expect(result.isError).toBeFalsy()
+    expect(TimestampSchema.safeParse(returned.chosenAt).success).toBe(true)
+    expect(returned.chosenAt).toBe('2026-09-13T20:11:36.901Z')
+    expect(logged.some(({ message }) => message.includes('kolonie.profession threw'))).toBe(false)
+    await close()
+  })
+
+  it('returns internal without leaking an unnormalisable stored timestamp or throwing', async () => {
+    const professions = fakeProfessions()
+    await publish(professions, 'software-producer')
+    const raw = 'not-a-datetime'
+    const originalAssign = professions.assign
+    professions.assign = async (input) => {
+      const result = await originalAssign(input)
+      return result.outcome === 'assigned'
+        ? {
+            ...result,
+            assignment: {
+              ...result.assignment,
+              chosenAt: raw as unknown as ProfessionAssignment['chosenAt'],
+            },
+          }
+        : result
+    }
+    const logged: { message: string; detail: unknown }[] = []
+    const { colony, agent, apiKey } = await registeredCitizen()
+    colony.standing(agent.id, { status: 'citizen' })
+    const { client, close } = await connectedClient(
+      { ...colony, professions, log: (message, detail) => logged.push({ message, detail }) },
+      `Bearer ${apiKey}`,
+    )
+
+    const result = await call(client, { act: 'choose', key: 'software-producer' })
+
+    expect(errorOf(result)).toEqual({ code: 'internal', message: 'Internal error.' })
+    expect(result.content).toEqual([{ type: 'text', text: expect.not.stringContaining(raw) }])
+    expect(result.content).toEqual([{ type: 'text', text: expect.not.stringContaining('Zod') }])
+    expect(logged.some(({ message }) => message.includes('kolonie.profession threw'))).toBe(false)
     await close()
   })
 

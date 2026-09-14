@@ -2,6 +2,7 @@ import { and, asc, eq, sql } from 'drizzle-orm'
 import {
   ProfessionDefinitionSchema,
   silentLog,
+  toTimestamp,
   type Log,
   type ProfessionAssignment,
   type ProfessionCatalogueSummary,
@@ -40,12 +41,12 @@ const publication = (
     key: profession.key,
     lifecycle: profession.lifecycle as 'active' | 'retired',
     currentVersion: profession.currentVersion,
-    publishedAt: version.publishedAt,
-    retiredAt: profession.retiredAt,
+    publishedAt: toTimestamp(version.publishedAt),
+    retiredAt: profession.retiredAt === null ? null : toTimestamp(profession.retiredAt),
   },
   definition: ProfessionDefinitionSchema.parse(version.definition),
   publication: {
-    publishedAt: version.publishedAt,
+    publishedAt: toTimestamp(version.publishedAt),
     publishedByHumanId: version.publishedByHumanId,
   },
 })
@@ -393,7 +394,7 @@ export async function assignProfession(
         outcome: 'assigned',
         assignment: {
           key: current.professionKey,
-          chosenAt: current.chosenAt,
+          chosenAt: toTimestamp(current.chosenAt),
           assignmentVersion: current.assignmentVersion,
         },
         definition: ProfessionDefinitionSchema.parse(profession.version.definition),
@@ -442,7 +443,7 @@ export async function assignProfession(
       outcome: 'assigned',
       assignment: {
         key: written.professionKey,
-        chosenAt: written.chosenAt,
+        chosenAt: toTimestamp(written.chosenAt),
         assignmentVersion: written.assignmentVersion,
       },
       definition: ProfessionDefinitionSchema.parse(profession.version.definition),

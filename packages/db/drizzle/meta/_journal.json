@@ -2626,6 +2626,13 @@
       "when": 1789326087279,
       "tag": "0374_yummy_stick",
       "breakpoints": true
+    },
+    {
+      "idx": 375,
+      "version": "7",
+      "when": 1789425276924,
+      "tag": "0375_early_sinister_six",
+      "breakpoints": true
     }
   ]
 }

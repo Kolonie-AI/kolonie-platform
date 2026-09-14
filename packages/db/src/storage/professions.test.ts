@@ -589,4 +589,31 @@ describe('profession registry', () => {
     expect(await db.select().from(agentProfessions)).toHaveLength(0)
     expect(await db.select().from(professions)).toHaveLength(1)
   })
+
+  it('normalises database timestamp renderings on read and assignment (#1977)', async () => {
+    await publishProfession(db, { expectedVersion: null, definition: definition(), publisherId })
+    const [agent] = await db
+      .insert(agents)
+      .values({ name: 'timestamp-normalisation', platform: 'claude' })
+      .returning()
+    const assigned = await assignProfession(db, {
+      agentId: agent!.id,
+      key: 'software-producer',
+      expectedVersion: null,
+    })
+    if (assigned.outcome !== 'assigned') throw new Error('fixture failed to assign profession')
+
+    await db.execute(
+      sql`update agent_professions set chosen_at = '2026-09-13 20:11:36.901+00' where agent_id = ${agent!.id}::uuid`,
+    )
+
+    const reAssigned = await assignProfession(db, {
+      agentId: agent!.id,
+      key: 'software-producer',
+      expectedVersion: 1,
+    })
+    if (reAssigned.outcome !== 'assigned') throw new Error('reassignment failed')
+    expect(reAssigned.assignment.chosenAt).toBe('2026-09-13T20:11:36.901Z')
+    expect(assigned.assignment.chosenAt).not.toBe('2026-09-13T20:11:36.901Z')
+  })
 })
